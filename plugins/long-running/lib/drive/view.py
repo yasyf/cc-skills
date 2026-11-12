@@ -42,7 +42,7 @@ from zoneinfo import ZoneInfo
 
 from drive import artifacts, github, limits, slack, state
 from drive.card import PARENTHETICAL, RECORD_ID, kind_and_title, without_records
-from drive.render import cut
+from drive.render import cut, when
 
 STATES = ("blocked", "running", "built", "waiting", "merged", "live", "not started")
 LIVE_FOR = timedelta(days=1)
@@ -55,7 +55,7 @@ COMMAS = re.compile(r"\s*,(?:\s*,)*")
 SPACES = re.compile(r"\s+(?=[.;:!?])|(?<=\s)\s+")
 TITLE_CHARS = 100
 NOW_CHARS = 180
-NO_CARDS = {"questions": [], "pr_cards": [], "team_url": ""}
+NO_CARDS = {"questions": [], "pr_cards": [], "closed": [], "team_url": ""}
 UNREAD = "not read yet: the drive's watch reads them every minute"
 SWEARS = re.compile(r"\b(?:fuck\w*|shit\w*|bullshit\w*|damn\w*|goddamn\w*|wtf|crap\w*|hell)\b", re.IGNORECASE)
 HISTORY_EVENTS = ("tap", "refused", "said")
@@ -106,11 +106,12 @@ def refresh_cards(name: str) -> None:
 
 
 def stored_cards(name: str) -> tuple[dict, str]:
-    """His cards as the drive last stored them, and `live` or why they are missing."""
+    """His cards as the drive last stored them, each list the installed cc-slack does not return read as empty, and `live` or why they are missing."""
     path = state.cards_path(name)
     if not path.exists():
         return NO_CARDS, UNREAD
-    found = json.loads(path.read_text())
+    # TODO: read the stored file as is once long-running requires the cc-slack release that returns the closed list (cc-slack#348).
+    found = {**NO_CARDS, **json.loads(path.read_text())}
     return found, found.pop("source")
 
 
@@ -138,6 +139,48 @@ def card_open(url: str, found: dict | None) -> bool:
     shown = {message_key(card["url"]) for card in listed}
     waits = {card["card"].get("waits") for card in listed}
     return message_key(url) in shown or url in waits
+
+
+def closed_card(found: dict, card: str) -> dict | None:
+    """The newest card cc-slack keeps closed under this waits id or Slack link."""
+    return next((closed for closed in reversed(found["closed"]) if closed["waits"] == card or message_key(closed["url"]) == message_key(card)), None)
+
+
+def withdrawn(found: dict | None, card: str | None) -> bool:
+    """Whether his card under this waits id or link was withdrawn with nothing drawn in its place, so its question asked again redraws it under the same waits id."""
+    if not (found and card) or card_open(card, found):
+        return False
+    closed = closed_card(found, card)
+    return bool(closed and closed["answer"] and closed["answer"].get("withdrawn") and not closed["replaced_by"])
+
+
+def card_words(found: dict | None, source: str, card: str | None) -> str:
+    """His card under this waits id or link as cc-slack's store holds it now: open since when, answered, withdrawn or redrawn, each by its link, or never drawn."""
+    if found is None:
+        return f"his cards could not be read ({source})"
+    if not card:
+        return "never drawn"
+    if shown := next((shown for shown in [*found["questions"], *found["pr_cards"]] if shown["card"].get("waits") == card or message_key(shown["url"]) == message_key(card)), None):
+        return f"card {shown['url']} open since {when(shown['asked'])}"
+    if (closed := closed_card(found, card)) is None:
+        return f"card {card}, which cc-slack no longer keeps" if card.startswith("https://") else f"card {card} never drawn"
+    answer = closed["answer"] or {}
+    gone = f"withdrawn at {when(answer['at'])}: {cut(answer['label'], 80)}" if answer.get("withdrawn") else ""
+    if closed["replaced_by"]:
+        return f"card {closed['url']} {gone + ', ' if gone else ''}redrawn as {card_words(found, source, closed['replaced_by'])}"
+    if gone:
+        return f"card {closed['url']} {gone}"
+    if answer:
+        return f'card {closed["url"]} answered "{cut(answer["label"], 80)}" at {when(answer["at"])}'
+    return f"card {closed['url']} closed: {cut(closed['tapped'], 80)}"
+
+
+def pr_card_words(found: dict | None, source: str, url: str) -> str | None:
+    """His newest card carrying the PR at url as cc-slack's store holds it now, open ones first; None when he never got one."""
+    if found is None:
+        return f"his cards could not be read ({source})"
+    shown = card_for(found["pr_cards"], url) or card_for(found["closed"], url)
+    return shown and card_words(found, source, shown["url"])
 
 
 def open_questions(job: dict, found: dict | None) -> list[dict]:

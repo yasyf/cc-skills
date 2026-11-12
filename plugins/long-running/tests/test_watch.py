@@ -12,6 +12,9 @@ from drive import cli, github, install, land, reads, render, served, slack, stat
 
 KEY = "Forge-AI/monorepo#42"
 OTHER = "Forge-AI/monorepo#43"
+YASYF = "yasyf/cc-skills#7"
+BASE_MOVED = "GraphQL: Base branch was modified. Review and try the merge again. (mergePullRequest)"
+DIRTY = f"X Pull request {YASYF} is not mergeable: the merge commit cannot be cleanly created."
 T0 = state.parse_time("2026-11-09T10:00:00-05:00")
 GATE = "LTX Behavioral Gate (short)"
 RUNNING = [{"name": "test", "conclusion": None}]
@@ -65,6 +68,8 @@ def read(**overrides: object) -> dict:
         "state": "OPEN",
         "isDraft": False,
         "headRefOid": "aaaaaaa111",
+        "baseRefName": "main",
+        "headRefName": "the-watch",
         "mergeCommit": None,
         "checks": RUNNING,
         "reviewDecision": None,
@@ -1080,11 +1085,34 @@ def test_a_done_builder_delivers_its_part_and_a_done_reader_codex_or_design_job_
     assert part == state.new_part() | {"posted": answer}
 
 
+@pytest.mark.parametrize("ended", ["failed", "done"])
+def test_an_open_incidents_fix_whose_jobs_ended_with_no_pr_has_no_fix_job_and_names_the_second_to_start_until_one_runs(
+    demo: str, monkeypatch: pytest.MonkeyPatch, ended: str
+) -> None:
+    serve(monkeypatch, {})
+    earlier = state.stamp(T0 - timedelta(minutes=10))
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="done", updated=earlier)
+        data["orders"]["o2"] = order(text="runs never start", incident=True, jobs=["j2"], parts={state.INCIDENT_FIX: state.new_part()}, updated=earlier)
+        data["jobs"]["j2"] = job(order="o2", kind="codex", goal="fix: runs never start", state=ended, parts=[state.INCIDENT_FIX], updated=earlier)
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == [
+        f'ORPHAN o2 "fix": no fix job: j2 ended {ended} with no open PR; start the second fix job now, an Opus 5.5 long-running:builder on j2\'s brief:'
+        " drive job add builder --order o2 --part fix --goal 'fix: runs never start' (incidents: Clocks)"
+    ]
+    with state.edit(demo) as data:
+        data["orders"]["o2"]["jobs"].append("j3")
+        data["jobs"]["j3"] = job(order="o2", goal="fix: runs never start", parts=[state.INCIDENT_FIX])
+    assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
+    assert watch.run_pass(watching, T0 + watch.HANDOFF) == []
+    assert state.load(demo)["orders"]["o2"]["parts"][state.INCIDENT_FIX]["orphan_said"] is None
+
+
 def test_a_waiting_job_lives_while_its_card_is_open_and_is_an_orphan_once_the_card_is_withdrawn(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     card = {"question": "Which store?", "options": ["Team", "Run"], "recommended": "Team", "asked": state.stamp(T0), "url": f"{CARD}?thread_ts=1.2", "card": {"title": "Which store?"}}
-    monkeypatch.setattr(watch.view, "cards", lambda name: {"team_url": "", "questions": [card], "pr_cards": []})
+    monkeypatch.setattr(watch.view, "cards", lambda name: {"team_url": "", "questions": [card], "closed": [], "pr_cards": []})
     with state.edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["jobs"]["j1"].update(
@@ -1132,7 +1160,7 @@ def test_a_done_design_job_is_carried_by_its_open_card_and_its_part_needs_a_job_
 ) -> None:
     serve(monkeypatch, {})
     card = {"question": "Which Mac owns a chat?", "options": ["First", "Last"], "recommended": "First", "asked": state.stamp(T0), "url": f"{CARD}?thread_ts=1.2", "card": {"title": "Which Mac owns a chat?", "waits": "demo:j2-7-a"}}
-    monkeypatch.setattr(watch.view, "cards", lambda name: {"team_url": "", "questions": [card], "pr_cards": []})
+    monkeypatch.setattr(watch.view, "cards", lambda name: {"team_url": "", "questions": [card], "closed": [], "pr_cards": []})
     with state.edit(demo) as data:
         data["orders"]["o2"] = order(text="options: only the owning machine writes", jobs=["j2"])
         data["jobs"]["j2"] = job(order="o2", kind="design", state="done", questions=[state.new_question(None, None, state.stamp(T0), card=CARD)], updated=state.stamp(T0 - timedelta(minutes=10)))
@@ -1330,7 +1358,7 @@ def returned(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: s
     monkeypatch.setattr(watch, "local_gap", REAL_LOCAL_GAP)
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
     card = {"question": ASKED, "options": ["Renew", "Sign in"], "recommended": "Renew", "asked": state.stamp(T0), "url": f"{CARD}?thread_ts=1.2", "card": {"title": ASKED}}
-    monkeypatch.setattr(watch.view, "cards", lambda name: {"team_url": "", "questions": [card], "pr_cards": []})
+    monkeypatch.setattr(watch.view, "cards", lambda name: {"team_url": "", "questions": [card], "closed": [], "pr_cards": []})
     kept = state.drive_dir(demo) / "asks" / "j1-4d8033be.md"
     write_transcript(tmp_path / "config", [CALLING, RESULT, ended_on(text.format(kept=kept))], timedelta(minutes=4))
     if report:
@@ -1521,7 +1549,7 @@ def question(waits: str) -> dict:
 
 
 def asking(monkeypatch: pytest.MonkeyPatch, name: str, *waits: str) -> None:
-    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question(waits) for waits in waits], "pr_cards": []})
+    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question(waits) for waits in waits], "closed": [], "pr_cards": []})
     watch.view.refresh_cards(name)
 
 
@@ -1648,7 +1676,7 @@ def test_a_built_job_is_told_once_under_each_card_it_waits_on_and_freed_once_whe
 ) -> None:
     serve(monkeypatch, {})
     other = "https://acme.slack.com/archives/D123/p1794200000000300"
-    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question("demo:j1-7-a"), question("demo:j1-7-b") | {"url": other}], "pr_cards": []})
+    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question("demo:j1-7-a"), question("demo:j1-7-b") | {"url": other}], "closed": [], "pr_cards": []})
     watch.view.refresh_cards(demo)
     with state.edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
@@ -1667,7 +1695,7 @@ def test_a_built_job_is_told_once_under_each_card_it_waits_on_and_freed_once_whe
 
 def test_a_built_job_is_told_once_though_its_sub_coordinator_is_bound_while_the_drives_watch_posts(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
-    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question("demo:j1-7-a")], "pr_cards": []})
+    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question("demo:j1-7-a")], "closed": [], "pr_cards": []})
     watch.view.refresh_cards(demo)
     with state.edit(demo) as data:
         data["orders"]["o1"]["project"] = "Iris"
@@ -1738,14 +1766,14 @@ def test_a_built_job_asking_him_its_own_question_is_freed_only_once_he_answers_i
     serve(monkeypatch, {})
     asked = f"{CARD[:-1]}9"
     own = question("demo:j1-9") | {"url": asked}
-    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question("demo:j1-7-a"), own], "pr_cards": []})
+    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question("demo:j1-7-a"), own], "closed": [], "pr_cards": []})
     watch.view.refresh_cards(demo)
     with state.edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["jobs"]["j1"] |= {"state": "built", "branch": "lane/built", "waits": ["demo:j1-7-a"], "questions": [state.new_question("/asks/j1.md", "Pick?", state.stamp(T0), card=asked)]}
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == waiting("demo:j1-7-a")
-    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [own], "pr_cards": []})
+    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [own], "closed": [], "pr_cards": []})
     watch.view.refresh_cards(demo)
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
     assert state.load(demo)["jobs"]["j1"]["waits"] == ["demo:j1-7-a"]
@@ -1800,7 +1828,7 @@ def test_a_wait_added_to_a_pr_redraws_his_open_card_in_place_never_withdraws_it_
     assert cli.main(["pr", "set", KEY, "--waits", "demo:j1-7-a", "--drive", demo]) == 0
     assert (withdrawals.asked, redraws.asked) == ([], [])
     tap_card = pr_card(KEY, url="https://acme.slack.com/archives/D123/p1794200000000200")
-    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question("demo:j1-7-a")], "pr_cards": [tap_card]})
+    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question("demo:j1-7-a")], "closed": [], "pr_cards": [tap_card]})
     assert cli.main(["pr", "set", KEY, "--waits", "j1", "--drive", demo]) == 0
     assert (withdrawals.asked, redraws.asked) == ([], [state.pr_url(KEY)])
     assert capsys.readouterr().out.strip().endswith("redrawing in place the 1 open card(s) of his carrying it, Approve and Hold kept, to say what it waits on")
@@ -1946,6 +1974,54 @@ def test_an_unchecked_pr_whose_builder_returned_starts_one_check_against_his_wor
     assert (state.load(demo)["prs"][KEY]["checked"]["head"], watch.run_pass(watching, T0 + timedelta(minutes=7)), checkers) == ("aaaaaaa111", [], [KEY, KEY])
 
 
+def test_a_green_approved_pr_gets_no_ready_and_no_card_while_the_check_at_its_head_runs_or_said_not_ready_and_one_once_its_new_head_is_checked(
+    demo: str, monkeypatch: pytest.MonkeyPatch, checkers: list[str], judge: Judge, ready_records: list[list[dict]]
+) -> None:
+    reads = {KEY: read(checks=GREEN, reviewDecision="APPROVED")}
+    serve(monkeypatch, reads)
+    monkeypatch.setattr(state, "now", lambda: T0)
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="waiting", said=f"READY {state.pr_url(KEY)}", returned=state.stamp(T0))
+        data["prs"][KEY] |= {"wants_tap": True, "checked": None}
+    watching = watcher(demo)
+    running = watch.run_pass(watching, T0) + watch.run_pass(watching, T0 + timedelta(minutes=1))
+    assert (DRAWING in running, ready_records, checkers) == (False, [], [KEY])
+    judge.against = [{"order": "o1", "words": "ship the watch", "change": "watch.py stops the watch"}]
+    assert cli.main(["pr", "check", state.pr_url(KEY), "--drive", demo]) == 0
+    refused = watch.run_pass(watching, T0 + timedelta(minutes=2)) + watch.run_pass(watching, T0 + timedelta(minutes=3))
+    assert any(line.startswith(f"PR {KEY}: NOT READY: ") for line in refused)
+    assert (DRAWING in refused, ready_records, checkers) == (False, [], [KEY])
+    reads[KEY] = read(headRefOid="bbbbbbb222", checks=GREEN, reviewDecision="APPROVED")
+    assert (DRAWING in watch.run_pass(watching, T0 + timedelta(minutes=4)), ready_records, checkers) == (False, [], [KEY, KEY])
+    judge.against = []
+    assert cli.main(["pr", "check", state.pr_url(KEY), "--drive", demo]) == 0
+    assert DRAWING in watch.run_pass(watching, T0 + timedelta(minutes=5))
+    [[record]] = ready_records
+    assert (record["kind"], state.load(demo)["prs"][KEY]["checked"]["head"]) == ("ready", "bbbbbbb222")
+
+
+def test_a_check_names_every_pr_its_job_and_the_job_it_was_handed_from_carry_with_merged_ones_marked_so_a_part_a_merged_pr_delivers_gets_no_not_ready(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    merged, closed = "yasyf/cc-skills#4484", "yasyf/cc-skills#4490"
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["prs"] += [state.pr_url(merged), state.pr_url(closed), state.pr_url(OTHER)]
+        data["jobs"]["j2"] = job(prs=[state.pr_url(KEY)])
+        data["prs"][KEY] |= {"job": "j2", "wants_tap": True, "checked": None}
+        data["prs"][merged] = state.new_pr(state.pr_url(merged), "j1", "o1") | {"state": "merged", "title": "Fix: a Sprite lane gets the wasm toolchain"}
+        data["prs"][closed] = state.new_pr(state.pr_url(closed), "j1", "o1") | {"state": "closed", "title": "Fix: the toolchain, abandoned"}
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"title": "Fix: the stack's top"}
+    delivered = f'its job\'s merged PRs already deliver their share of these orders: {merged} "Fix: a Sprite lane gets the wasm toolchain"'
+    told: list[str] = []
+    wasm = {"order": "o1", "words": "ship the watch", "change": "no PR gives Sprites the wasm toolchain"}
+    monkeypatch.setattr(served, "judged", lambda name, said, changes: told.append(said) or ([] if delivered in said else [wasm]))
+    assert cli.main(["pr", "check", state.pr_url(KEY), "--drive", demo]) == 0
+    [said] = told
+    assert f'{delivered}\nits job\'s other open PRs, each judged on its own, deliver their share of these orders: {OTHER} "Fix: the stack\'s top"' in said
+    assert closed not in said
+    assert state.load(demo)["prs"][KEY]["checker"]["outcome"].startswith(f"{served.CHECKED} against the words of o1 at aaaaaaa111")
+
+
 def test_a_check_whose_judge_failed_is_said_nowhere_and_tried_again_ten_minutes_after_it_started(
     demo: str, monkeypatch: pytest.MonkeyPatch, checkers: list[str]
 ) -> None:
@@ -1996,7 +2072,7 @@ def test_a_pr_green_and_approved_draws_his_card_from_the_watch_once_a_head_with_
     with state.edit(demo) as data:
         data["prs"][KEY]["wants_tap"] = True
     serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
-    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [], "pr_cards": []})
+    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [], "closed": [], "pr_cards": []})
     sent: list[tuple[str, list[dict]]] = []
     monkeypatch.setattr(tools, "sent", lambda name, lane, records: sent.append((lane, records)) or ["#9"])
     watching = watcher(demo)
@@ -2068,6 +2144,33 @@ def test_a_native_stack_gets_one_ready_for_its_heads_and_another_only_once_a_res
     assert state.load(demo)["prs"][OTHER]["ready_said"] == "ddddddd444"
 
 
+def test_a_pr_on_another_open_prs_branch_gets_no_ready_of_its_own_and_one_ready_names_both_bottom_first_once_each_is_checked_at_its_head(
+    demo: str, monkeypatch: pytest.MonkeyPatch, ready_records: list[list[dict]]
+) -> None:
+    waiting_job(demo)
+    with state.edit(demo) as data:
+        data["orders"]["o2"] = order(text="a cloud agent signs in as its own principal", jobs=["j2"])
+        data["jobs"]["j2"] = job(order="o2", prs=[state.pr_url(OTHER)], state="waiting")
+        data["prs"][KEY]["wants_tap"] = True
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j2", "o2")
+    serve(
+        monkeypatch,
+        {
+            OTHER: read(headRefOid="bbbbbbb222", baseRefName="dev", headRefName="cloud-agent-identity", checks=GREEN, reviewDecision="APPROVED"),
+            KEY: read(baseRefName="cloud-agent-identity", headRefName="cloud-agent-pod-identity", checks=GREEN, reviewDecision="APPROVED"),
+        },
+    )
+    watching = watcher(demo)
+    assert (DRAWING in watch.run_pass(watching, T0), ready_records) == (False, [])
+    with state.edit(demo) as data:
+        data["prs"][OTHER]["checked"] = CHECKED | {"head": "bbbbbbb222", "orders": ["o2"]}
+    lines = watch.run_pass(watching, T0 + timedelta(minutes=1))
+    assert f"CARD his card for {OTHER}, {KEY} is drawing: green and approved, ready record sent to the communicator" in lines
+    [[record]] = ready_records
+    words = 'his order o2 "a cloud agent signs in as its own principal"; his order o1 "ship the watch"'
+    assert record.get("body", record["text"]) == f"{state.pr_url(OTHER)} {state.pr_url(KEY)}; {words}"
+
+
 def test_a_pr_reworked_to_his_words_gets_no_ready_and_loses_a_card_left_up_until_its_builders_ready_says_how_they_are_met(
     demo: str, monkeypatch: pytest.MonkeyPatch, ready_records: list[list[dict]], withdrawals: Withdrawals
 ) -> None:
@@ -2076,7 +2179,7 @@ def test_a_pr_reworked_to_his_words_gets_no_ready_and_loses_a_card_left_up_until
         data["prs"][KEY]["wants_tap"] = True
         state.rework(data["prs"][KEY], "o2", "Topology goes in the meta table")
     serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
-    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [], "pr_cards": [pr_card(KEY)]})
+    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [], "closed": [], "pr_cards": [pr_card(KEY)]})
     withdrawals.cards = [CARD]
     assert f"CARD {CARD} withdrawn: {KEY} is being reworked to his words" in watch.run_pass(watcher(demo), T0)
     reason = 'Being reworked to your words "Topology goes in the meta table". A fresh card asks your tap once its builder says how they are met'
@@ -2106,7 +2209,7 @@ def test_a_green_approved_exempt_pr_its_lander_could_not_land_for_thirty_minutes
     line = f"PR {KEY}: green, approved and exempt, and not landed for 30 minutes [o1 j1]"
     assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [line]
     assert watch.wakes(line, state.load(demo))
-    assert render.pr_line(KEY, state.load(demo)["prs"][KEY]).endswith("checks pass, review approved, no tap needed, exempt: incident fix")
+    assert render.pr_line(KEY, state.load(demo)["prs"][KEY], None).endswith("checks pass, review approved, no tap needed, exempt: incident fix")
     assert landers == []
 
 
@@ -2276,7 +2379,7 @@ def test_a_monorepo_pr_going_green_and_approved_wakes_no_one_since_the_lander_qu
     assert landers == [(KEY,)] * bool(exempt)
 
 
-NO_CARDS = {"team_url": "", "questions": [], "pr_cards": []}
+NO_CARDS = {"team_url": "", "questions": [], "closed": [], "pr_cards": []}
 
 
 def approve(name: str, *keys: str) -> None:
@@ -2533,9 +2636,66 @@ def test_a_yasyf_lander_merges_with_admin_and_installs_each_plugin_its_merge_cha
     ]
 
 
-def test_a_yasyf_merge_gh_refuses_is_said_as_not_landed(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: land.subprocess.CompletedProcess(argv, 1, "", "required status check is failing\n"))
-    assert land.merged("yasyf/cc-skills#7") == "not landed: gh pr merge --squash --admin refused it: required status check is failing"
+def tried(name: str, outcome: str) -> None:
+    with state.edit(name) as data:
+        lander = {"head": "aaaaaaa111", "pid": os.getpid(), "at": state.stamp(T0), "outcome": outcome}
+        data["prs"][YASYF] = state.new_pr(state.pr_url(YASYF), "j1", "o1") | {"head": "aaaaaaa111", "wants_tap": False, "lander": lander}
+
+
+@pytest.mark.parametrize(
+    ("merge", "update", "outcome", "wakes"),
+    [
+        (
+            BASE_MOVED,
+            (0, "✓ PR branch updated"),
+            f"{land.UPDATED} with gh pr update-branch, as gh pr merge --squash --admin refused it: {BASE_MOVED}; the lander merges its new head once the watch reads it",
+            False,
+        ),
+        (
+            DIRTY,
+            (1, "X Cannot update PR branch due to conflicts"),
+            f"not landed: gh pr merge --squash --admin refused it: {DIRTY}; gh pr update-branch answered: X Cannot update PR branch due to conflicts",
+            True,
+        ),
+        (
+            BASE_MOVED,
+            (0, "✓ PR branch already up-to-date"),
+            f"not landed: gh pr merge --squash --admin refused it: {BASE_MOVED}; gh pr update-branch answered: ✓ PR branch already up-to-date",
+            True,
+        ),
+    ],
+)
+def test_a_yasyf_merge_gh_refuses_brings_its_base_into_its_branch_and_wakes_its_job_only_when_git_cannot_merge_the_two(
+    demo: str, monkeypatch: pytest.MonkeyPatch, merge: str, update: tuple[int, str], outcome: str, wakes: bool
+) -> None:
+    answers = {"merge": (1, merge), "update-branch": update}
+    runs: list[list[str]] = []
+    monkeypatch.setattr(
+        land.subprocess, "run", lambda argv, **kwargs: runs.append(argv) or land.subprocess.CompletedProcess(argv, answers[argv[2]][0], "", answers[argv[2]][1] + "\n")
+    )
+    assert land.merged(YASYF) == outcome
+    assert runs == [["gh", "pr", "merge", "7", "-R", "yasyf/cc-skills", "--squash", "--admin"], ["gh", "pr", "update-branch", "7", "-R", "yasyf/cc-skills"]]
+    waiting_job(demo)
+    tried(demo, outcome)
+    assert watch.wakes(f"PR {YASYF}: {outcome} [o1 j1]", state.load(demo)) == wakes
+
+
+def test_a_yasyf_pr_whose_head_moved_past_its_landers_merges_at_the_next_read_free_of_conflicts_with_no_builder_registering_it(
+    demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
+) -> None:
+    tried(demo, f"{land.UPDATED} with gh pr update-branch, as gh pr merge --squash --admin refused it: {BASE_MOVED}")
+    reads = {KEY: read(), YASYF: read()}
+    serve(monkeypatch, reads)
+    watching = watcher(demo)
+    started = []
+    for minute, (head, mergeable) in enumerate([("aaaaaaa111", "MERGEABLE"), ("bbbbbbb222", "CONFLICTING"), ("bbbbbbb222", "MERGEABLE"), ("bbbbbbb222", "MERGEABLE")]):
+        reads[YASYF] = read(headRefOid=head, mergeable=mergeable)
+        watch.run_pass(watching, T0 + timedelta(minutes=minute))
+        started.append(len(landers))
+    assert started == [0, 0, 1, 1]
+    assert landers == [(YASYF,)]
+    lander = state.load(demo)["prs"][YASYF]["lander"]
+    assert (lander["head"], lander["outcome"]) == ("bbbbbbb222", None)
 
 
 def test_a_line_the_coordinator_did_not_get_goes_again_and_says_so_from_the_third_failure(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2789,7 +2949,7 @@ def test_his_open_pr_card_is_settled_in_place_once_every_pr_it_carries_merged_or
     other = "Forge-AI/monorepo#43"
     with state.edit(demo) as data:
         data["prs"][other] = state.new_pr(state.pr_url(other), "j1", "o1") | {"head": "ddddddd444"}
-    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [], "pr_cards": [pr_card(KEY, other)]})
+    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [], "closed": [], "pr_cards": [pr_card(KEY, other)]})
     settled = []
     monkeypatch.setattr(watch.slack, "withdraw_pr_card", lambda url, why: settled.append((url, why)) or [CARD])
     reads = {KEY: read(state=ended, mergeCommit="ccc333"), other: read(headRefOid="ddddddd444")}
@@ -2807,7 +2967,7 @@ def test_a_merged_pr_settles_its_own_card_only_once_every_other_card_carrying_it
     with state.edit(demo) as data:
         data["prs"][other] = state.new_pr(state.pr_url(other), "j1", "o1") | {"head": "ddddddd444"}
     shown = [pr_card(KEY), pr_card(KEY, other, url=stack)]
-    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [], "pr_cards": list(shown)})
+    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [], "closed": [], "pr_cards": list(shown)})
     asked = []
 
     def withdraw(url: str, why: str) -> list[str]:

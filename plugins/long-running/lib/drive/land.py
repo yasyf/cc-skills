@@ -13,6 +13,8 @@ LOG = "landings.log"
 SAID_CHARS = 400
 SAID_LINES = 4
 QUEUED = "queued for merge"
+UPDATED = "updated its branch onto its base"
+UP_TO_DATE = "already up-to-date"
 NOT_MERGING = "not merging it"
 LANDS_ON = ("approved", "stale")
 REVIEW_ASK = "@forge-pr-reviewer review"
@@ -153,6 +155,30 @@ def merge_ready(name: str, key: str, read: dict) -> str:
     return f"merging it with gh pr merge --squash --admin, then installing each plugin it changes; the outcome reaches its job as a PR line, its log {state.drive_dir(name) / LOG}"
 
 
+def follow(name: str, keys: list[str]) -> list[str]:
+    """Start the lander on each yasyf/* PR among keys whose head moved past the one its last lander tried, by its builder's push or the lander's own update of its branch, marking it under the drive's lock so no second lander starts on that head; the PRs started."""
+    prs = state.load(name)["prs"]
+    if not any(moved(key, prs[key]) for key in keys):
+        return []
+    with state.edit(name) as data:
+        started = [key for key in keys if moved(key, data["prs"][key])]
+        for key in started:
+            mark(data, (key,), spawn(name, (key,)))
+    return started
+
+
+def moved(key: str, pr: dict) -> bool:
+    """Whether a yasyf/* PR a lander tried has a head GitHub read since that the lander has not, open, ready, unheld and free of conflicts with no lander running on it."""
+    lander = pr["lander"]
+    return (
+        state.merges_untapped(key)
+        and bool(lander and pr["head"])
+        and lander["head"] != pr["head"]
+        and pr["state"] == "open"
+        and not (pr["draft"] or pr["hold_label"] or pr["conflict"] or running(pr))
+    )
+
+
 def unmergeable(key: str, read: dict) -> str | None:
     """Why a yasyf/* PR may not merge yet: it is not open, is a draft, carries the hold label, or sits on another branch than its repository's default."""
     if read["state"] != "OPEN":
@@ -264,7 +290,7 @@ def merged(key: str) -> str:
     repo, number = key.split("#")
     done = subprocess.run(["gh", "pr", "merge", number, "-R", repo, "--squash", "--admin"], capture_output=True, text=True)
     if done.returncode:
-        return f"not landed: gh pr merge --squash --admin refused it: {cut(' '.join(done.stderr.split()), SAID_CHARS)}"
+        return updated(repo, number, cut(" ".join(done.stderr.split()), SAID_CHARS))
     try:
         sha = github.run(["gh", "pr", "view", number, "-R", repo, "--json", "mergeCommit", "-q", ".mergeCommit.oid"]).strip()
         files = github.run(["gh", "api", "--paginate", f"repos/{repo}/pulls/{number}/files", "--jq", ".[].filename"]).splitlines()
@@ -279,3 +305,12 @@ def merged(key: str) -> str:
         print(done.stdout + done.stderr, flush=True)
         lines.append(done.stdout.splitlines()[0] if done.returncode == 0 else f"but drive install {plugin} --sha {sha[:12]} failed: {said(done.stderr)}")
     return "; ".join(lines)
+
+
+def updated(repo: str, number: str, refused: str) -> str:
+    """Merge its base into a yasyf/* PR's branch with gh pr update-branch once gh pr merge refused it, as when its base moved under the merge, so the lander merges the new head the watch reads next; not landed, naming both answers, when git cannot merge the two cleanly or the branch already holds its base."""
+    update = subprocess.run(["gh", "pr", "update-branch", number, "-R", repo], capture_output=True, text=True)
+    answer = cut(" ".join(update.stderr.split()), SAID_CHARS)
+    if update.returncode == 0 and UP_TO_DATE not in answer:
+        return f"{UPDATED} with gh pr update-branch, as gh pr merge --squash --admin refused it: {refused}; the lander merges its new head once the watch reads it"
+    return f"not landed: gh pr merge --squash --admin refused it: {refused}; gh pr update-branch answered: {answer}"

@@ -28,6 +28,7 @@ reading of his words "your messages need to be way shorter rewrite this for a hu
 |---|---|
 | A line in his thread | 60 words |
 | A summary of two or more features, each under its own bold line | 120 words |
+| Each row of a markdown table, which `say` draws as Slack's own table | 60 words, its words outside the post's count |
 | The open cards `say` draws under his catch-up | none: drawn whole, outside the 120 |
 | A question card: question, summary and options together | 150 words |
 | A question card's Show me, the worked example between its summary and options | none: drawn whole as its visuals, outside the 150 |
@@ -301,8 +302,8 @@ When it is answered, replaced or redone:
   moment they are recorded: words that answer its subject, change its question or options, such as
   more options or a new constraint, or send its work back to be redone. `drive cards withdraw <its
   waits id> --words "<his words>" --via <his permalink>` settles it in place, showing his words and a
-  link to them with no buttons, so a late tap records nothing, and its job asks again on a new card
-  once the work is back. One subject has one card: `drive job ask` refuses a question another job's
+  link to them with no buttons, so a late tap records nothing, and its question, asked again on any
+  job once the work is back, keeps that card's waits id and redraws it. One subject has one card: `drive job ask` refuses a question another job's
   open card asks in other words, sharing three proper terms, until that card is withdrawn or
   `--unsettled` names it and why this asks something else, and `drive answer` lists every card on
   that subject beside the one his answer settles. His words, on three cards about one search
@@ -488,6 +489,8 @@ the dashboard link. When a line says where things stand, link the page instead o
   way.
 - Name an order as `{order:<id>}`, which `say` links to the thread its lines go in under the first
   line of his words.
+- Name a ruling of his as `{answer:<id>}`, which `say` draws as when he said it and its first words,
+  linked to the ack of them in his DM, since the id cc-notes keeps it under means nothing to him.
 - State a cause, a number or a state only through the record that measured it, as `{record:<seq>}`
   on the same line. `say` links what the record measured, its `--url`, under the first clause of the record's own
   words, at most ten, or under the words after a |, as `{record:<seq>|the memory graph}`, so the
@@ -523,6 +526,8 @@ the dashboard link. When a line says where things stand, link the page instead o
   result or nothing. `cc-slack check-post` refuses a line listing what is not proven, and a job's
   `UNPROVEN:` list is the coordinator's input, never copy for him.
 - An incident line follows [incidents.md](incidents.md) and carries no side facts about a release.
+  Its alert's Slack message and Sentry or Datadog issue stay bare so Slack unfurls them: the say hook
+  lets them through on a post whose order, or the record it posts, is an incident's.
 - State comes from live reads, `drive status`, GitHub or a transcript, never from memory. The say
   hook finds a post calling a job stuck or silent with no read of its transcript by you in the last
   10 minutes, `drive job replies <j>` or `cc-transcript`. A job's last line is history: what is live is read from the default branch and the release, since a later
@@ -533,8 +538,8 @@ the dashboard link. When a line says where things stand, link the page instead o
   commit and build.
 - Ask for a tap only when one is owed. Before any card or line asks him to tap, approve or hold a
   PR, read `drive status <pr>`; when he tapped it already, or it merged or closed, say what happened
-  to it instead. The post hook and the record hook refuse a card, record or post asking for a tap he
-  already gave, naming the PR.
+  to it instead. The post hook refuses a card or post, and the record hook the `ready` record that
+  draws his card, asking for a tap he already gave, naming the PR.
 
 ## What stays out
 
@@ -547,7 +552,9 @@ the dashboard link. When a line says where things stand, link the page instead o
   is never the reason, since a session reaches another through SendMessage while cci is down, by
   [records.md](records.md). When he asks why, give the mechanism in one or two sentences and quote
   back the instruction he gave, then the fix and when it is live. The post hook and `record_lines`
-  find a line naming such a failure with no order or PR on it, and Jev judges it by this rule.
+  find a line naming such a failure, or citing the defect record the drive filed for one, with no
+  order or PR on it, and Jev judges it by this rule, which his words then carry, so a line naming
+  the fix and its order is never read as work outside them.
 - A second ask for a post he ordered. His order to post, in his DM, in a terminal or by a tap on a
   card, is his permission for one post in the place he named. No card asks him to approve it, no line
   says a hook needs his Yes, and a card already up asking that is closed the moment it is seen.

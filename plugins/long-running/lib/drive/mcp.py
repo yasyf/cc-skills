@@ -17,8 +17,8 @@ CALLS: dict[int | str, subprocess.Popen] = {}
 LIST_CHANGED = {"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}
 INSTRUCTIONS = (
     "Every message to him goes through say: one call posts it to his Slack DM and shows it on the drive's dashboard."
-    " Name a card as {card:<waits id>}, a PR as {pr:<number or owner/repo#number>}, an order as {order:<id>} and the"
-    " record that measured a cause or number as {record:<seq>} in its text, and the tool links each the way each surface"
+    " Name a card as {card:<waits id>}, a PR as {pr:<number or owner/repo#number>}, an order as {order:<id>}, a ruling of his as"
+    " {answer:<id>} and the record that measured a cause or number as {record:<seq>} in its text, and the tool links each the way each surface"
     " shows it, under its title or under the words after a |, as {pr:298|the fix that draws charts}. Its hook finds a line"
     " naming a cause with no {record:}, a line telling him the drive failed with no {order:} or {pr:} carrying how that is"
     " prevented, and each `cc-slack check-post` finding, and Jev judges each by the rule it stands for and his words;"
@@ -58,7 +58,8 @@ SAY = {
         " alert's, through cc-slack reply, or with a person's user id and no thread_ts a new post in the group DM of that person, him and the bot, through cc-slack send; cc-slack's Slack permission hook judges either as it judges slack_reply or slack_send. In text, {card:<waits id>}, {pr:<number, owner/repo#number or"
         " URL>} and {order:<id>} link under the words naming the card, PR or order, or the words after a |, as"
         " {pr:298|the fix that draws charts}; Slack draws the card under the link. {record:<seq>} links what that record"
-        " measured, its url, under the first clause of its own words, at most ten, or under the words after a |. Returns POSTED"
+        " measured, its url, under the first clause of its own words, at most ten, or under the words after a |. {answer:<id>}"
+        " draws his recorded answer as when he said it and its first words, linked to the ack of them in his DM. Returns POSTED"
         " <permalink>, CARD <permalink> for a card, the question card's own link first, recorded as the card of the"
         " question asked under its waits id, and with order"
         " the line recording the post on it. A refusal posts nothing and names its fix: a reference that names nothing,"
@@ -98,7 +99,7 @@ SAY = {
             "visuals": {"type": "array", "items": VISUAL},
             "order": {
                 "type": "string",
-                "description": "The order this post is on, which records it there, a clock time its words promise his next line by, such as \"Next line by 9:45\", becoming the order's due; refused, posting nothing, in none of its threads (its own, its incident's and every alert's joined to it with --joins, both ways, its cards' or its PRs' cards'), naming the order whose thread it is",
+                "description": "The order this post is on, which records it there, a clock time its words promise his next line by, such as \"Next line by 9:45\", becoming the order's due; refused, posting nothing, in none of its threads (its own, its incident's and every alert's joined to it with --joins, both ways, those he asked about it in, its cards' or its PRs' cards', or, when its record is about this order, the thread of the message of his the record answers, which the post adds to them), naming the order whose thread it is",
             },
             "record": {
                 "type": "string",

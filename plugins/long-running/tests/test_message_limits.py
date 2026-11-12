@@ -21,6 +21,19 @@ EDITED = "1794288799.000003"
 REPORTED = "https://acme.slack.com/archives/C0REPORTS01/p1794400100000200"
 HANDLER = "a1"
 HIS_WORDS = "Message (his words): why does the browser guess at the page map? explain the layout in full"
+ELEVEN_FIXES = {
+    "Order close": "An order closing on a post that never recorded its part is refused with the reason.",
+    "PR serves": "`drive pr set --serves` checks a PR of any size.",
+    "Builder cap": "The builder cap names each builder it counts.",
+    "Card amounts": "A card's amount check no longer refuses amounts outside the question's subject.",
+    "Older drive": "An older `drive` hands each command to the newest install.",
+    "Catch-up": "Your catch-up shows each held report with the corrections that answer it.",
+    "Say judge": "The say hook's judge reads only your words as yours, never a handler's.",
+    "Due time": "A time a post promises sets its order's due time, even with two times in it.",
+    "Brief binding": "Only a job's own agent type binds to it by reading its brief.",
+    "Batch adds": "Several orders or jobs added in one call all land or none do.",
+    "Status tables": "Status posts draw tables as Slack tables, and the bot reads back its canvas.",
+}
 WHOLE = "pass as asked each message of his it answers, word for word, one per line."
 RELAY_BRIEF = (
     "Record: 670054 report from meta (job j1546, closes o598)\nDrive: demo\nContext: read 670054 whole. Post it in o598's thread if it"
@@ -276,6 +289,27 @@ EXPIRED_SIGN_IN = (
     "- Skip the hand repair: the Env waits for the code fix and its release\n"
     "Findings:\nRoot cause: none: a design pick\nKept on disk.\n"
 )
+PASS_BOX_TAP = (
+    "ASK The hybrid sparse and dense search test needs one Touch ID tap at your Mac: start it when you are back?\n"
+    "The approved searchbench run on a plat-staging pass box stopped before it began. Reading the Anthropic API key needs `cc-sudo`,"
+    " which asks for your Touch ID, and you were away. Recommended: start it when you say you are at the Mac. Meanwhile nothing runs"
+    " and no box is up.\n"
+    "- On your tap here, the job starts the pass box and reads the key; you tap Touch ID once and get a results PR (recommended)\n"
+    "- Drop the run: the job ends, and the hybrid search question keeps only the earlier reads, with no measured comparison\n"
+    "Findings:\n"
+    "Root cause: none: the key read is gated on your Touch ID by design, and the guard stops the prompt while you are away.\n"
+    "First principles: none: nothing to remove; the run needs the one tap.\n"
+    "Next question: none: after the tap the job runs the command you approved and returns the results PR.\n"
+    "- Searchbench never ran; about $0.02 of EC2 was spent, and the box and /pass-box/creds/searchbench/ were torn down.\n"
+    "- Step 2 reads /app/forge/api/anthropic_api_key through cc-sudo.\n"
+)
+FIRST_PASS_BOX_TAP = (
+    "ASK The hybrid sparse + dense search test needs one Touch ID tap at your Mac: run it now?\n"
+    "The approved searchbench run on a plat-staging pass box stopped at step 2: reading /app/forge/api/anthropic_api_key needs cc-sudo,"
+    " and the guard saw you were away. Searchbench never ran; about $0.02 of EC2 was spent and the box was torn down.\n"
+    "- I'm at the Mac: start it now and I'll tap Touch ID once\n"
+    "- Hold it until I say I'm back\n"
+)
 
 
 def said(count: int) -> str:
@@ -403,6 +437,17 @@ def test_a_summary_of_several_features_runs_to_120_words(talker: str, transcript
     assert "is 128 words, and a summary of 2 features is at most 120 words" in posted(transcript, text=summary + " " + said(10))
 
 
+def test_each_table_row_is_a_line_of_its_own_and_the_words_around_the_table_keep_the_posts_limit(talker: str, transcript: Path) -> None:
+    rows = "\n".join(f"| {area} | {fix} |" for area, fix in ELEVEN_FIXES.items())
+    table = f"Eleven drive tooling fixes merged tonight are live.\n| Area | Fix |\n| --- | --- |\n{rows}"
+    assert posted(transcript, text=table) is None
+    assert posted(transcript, text="\n".join(ELEVEN_FIXES.values())).startswith("refused: this post is 137 words, and a line in his thread is at most 60 words")
+    assert posted(transcript, text=f"{table}\n{said(53)}").startswith("refused: this post is 61 words, and a line in his thread is at most 60 words")
+    assert posted(transcript, text=f"{table}\n| Walls | {said(61)} |").startswith(
+        f'refused: the table row "Walls | {said(61)}" is 62 words, and each row of a table is a line in his thread, at most 60 words'
+    )
+
+
 def test_blocks_count_as_much_as_the_text(talker: str, transcript: Path) -> None:
     blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": said(70)}}]
     assert "70 words" in posted(transcript, text="short", blocks=blocks)
@@ -415,7 +460,7 @@ def test_a_say_post_is_checked_as_slack_shows_it_each_reference_linked_and_one_n
     refusal = message_limits.deny_reason(say)
     assert "65 words" in refusal
     assert refusal.endswith(
-        " 10 of the words counted are the titles its {card:…}, {pr:…}, {order:…} and {record:…} references draw as their words;"
+        " 10 of the words counted are the titles its {card:…}, {pr:…}, {order:…}, {record:…} and {answer:…} references draw as their words;"
         " {pr:<number>|<words>} or {record:<seq>|<words>} names one in fewer words of your own."
     )
     labeled = call("slack_dm_status", transcript, text=said(55) + " {pr:7|the run page}") | {"tool_name": message_limits.SAY}
@@ -480,7 +525,7 @@ def test_the_answer_to_how_it_got_into_a_bad_state_goes_out_whole(talker: str, b
         "refused: this post is 185 words, and a line in his thread is at most 60 words"
     )
     assert posted(briefed, text=HOW_IT_GOT_THERE, thread_ts=BAD_STATE_THREAD, asked=FIGURE_OUT.strip()) is None
-    assert slack_thread.reads == [("--channel", DM, "--thread", BAD_STATE_THREAD, "--limit", "1000")]
+    assert slack_thread.reads == [("--channel", DM, "--thread", BAD_STATE_THREAD, "--limit", "1000")] * 2
 
 
 @pytest.mark.parametrize(
@@ -519,7 +564,7 @@ def test_rewording_a_posted_line_is_held_to_that_lines_own_length(
     talker: str, transcript: Path, slack_thread: Thread, monkeypatch: pytest.MonkeyPatch, ts: str, before: str, after: str
 ) -> None:
     slack_thread.messages.append({"ts": ts, "from_claude": True, "from_bot": True, "text": before})
-    monkeypatch.setattr(refs.reads, "run", lambda argv, checkout: json.dumps({"text": "Restore log, 3:20 AM", "refs": {}}))
+    monkeypatch.setattr(refs.reads, "run", lambda argv, checkout: json.dumps({"kind": "report", "text": "Restore log, 3:20 AM", "refs": {}}))
     assert say(transcript, edit=link(ts), text=after) is None
 
 
@@ -610,6 +655,17 @@ def test_his_answer_on_a_card_in_the_thread_is_his_words_for_asked_and_for_jev(t
     assert posted(transcript, text=said(100), thread_ts="1.2", asked="Use break glass every time").startswith("refused: this post is 100 words")
 
 
+def test_a_line_saying_how_a_failure_is_prevented_carries_his_ruling_asking_for_it_to_jev(talker: str, transcript: Path, slack_thread: Thread) -> None:
+    his(slack_thread, "why was the card never posted?")
+    cause = "The card never posted because the approval check read an old head; {order:o2} makes it read the current one."
+    words = message_limits.his_words(call("slack_dm_status", transcript, text=f"Fixed.\n{cause}", thread_ts="1.2"))
+    assert [word["id"] for word in words] == ["slack:1794310000.000000", "ruling:6a6edbf"]
+    assert words[1] == message_limits.PREVENTION_WORDS
+    assert refs.prevented(f"Fixed.\n{cause}\nThe card never posted because the head was old.\n> {cause}") == [cause]
+    unrelated = message_limits.his_words(call("slack_dm_status", transcript, text="{order:o2} is building.", thread_ts="1.2"))
+    assert [word["id"] for word in unrelated] == ["slack:1794310000.000000"]
+
+
 def test_a_refused_post_carries_his_words_for_jev_and_one_the_checks_pass_carries_none(
     talker: str, transcript: Path, slack_thread: Thread, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -627,7 +683,7 @@ def test_an_unreadable_thread_refuses_with_why(talker: str, briefed: Path, monke
 
     monkeypatch.setattr(slack, "thread", unreadable)
     assert posted(briefed, text=said(100), thread_ts="1.2", asked=CHECK_SIMPLE).endswith(
-        "His thread could not be read to check asked, so it is not yet an answer: daemon not running."
+        "his thread could not be read, so this post cannot be checked as a reply to his messages there: daemon not running."
     )
 
 
@@ -664,7 +720,7 @@ def test_no_cc_slack_plugin_refuses_saying_his_thread_could_not_be_read(
     monkeypatch.setattr(slack, "thread", READ_THREAD)
     monkeypatch.setattr(slack, "launcher", LAUNCHER)
     assert posted(briefed, text=AUDIT, thread_ts=AUDIT_THREAD, asked=CHECK_SIMPLE).endswith(
-        "His thread could not be read to check asked, so it is not yet an answer: the cc-slack@cc-slack plugin is not installed."
+        "his thread could not be read, so this post cannot be checked as a reply to his messages there: the cc-slack@cc-slack plugin is not installed."
     )
 
 
@@ -716,7 +772,7 @@ def test_a_post_saying_a_pr_waits_on_his_tap_is_refused_unless_he_has_its_tap_ca
         data["prs"]["Forge-AI/monorepo#53971"]["tap"] = None
     assert "Forge-AI/monorepo#53971: no open tap card of his stands at its head" in posted(transcript, text=text)
     tap = {"asked": state.stamp(), "url": link, "prs": [url], "card": {"title": "Fix: land it?", "prs": [{"url": url, "head": "abc123"}]}}
-    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [tap]})
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [tap], "closed": []})
     view.refresh_cards("demo")
     assert f"Forge-AI/monorepo#53971: the words do not link its open tap card {link}" in posted(transcript, text=text)
     assert posted(transcript, text=f"{text} <{link}|Its tap card> is up.") is None
@@ -734,7 +790,7 @@ def test_a_tap_card_say_just_drew_lets_the_next_say_link_it_as_what_the_pr_waits
     with state.edit("demo") as data:
         data["prs"]["yasyf/cc-skills#7"] = state.new_pr(url, "j1", "o1") | {"head": "f3ed5a7"}
     drawn: list[dict] = []
-    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": drawn})
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": drawn, "closed": []})
     view.refresh_cards("demo")
     text = f"<{url}|The unfurl fix> waits on your Approve: <{link}|its tap card>."
     assert "yasyf/cc-skills#7: no open tap card of his stands at its head" in say(transcript, text=text)
@@ -926,6 +982,13 @@ def test_a_line_naming_a_cause_with_no_record_is_found_and_his_own_words_are_not
     )
     assert say(transcript, text='> did it fail because of the pool?\nYou asked "is it because of the pool"; the runs are back.') is None
     assert refs.unbacked("```text\nThe cause is the pool\n```\nDue to a full pool, runs wait.") == ["Due to a full pool, runs wait."]
+    for reading in ("*Why plat SandSQL lagged:* an agent is now reading the cause, minute by minute through the lag.", "Root cause: yes, a read is on it."):
+        assert say(transcript, text=reading) is None
+    assert refs.unbacked("*Why plat SandSQL lagged:* the cause was a full replication queue.\nRoot cause: the pool.\nIt is caused by the pool.") == [
+        "*Why plat SandSQL lagged:* the cause was a full replication queue.",
+        "Root cause: the pool.",
+        "It is caused by the pool.",
+    ]
 
 
 def test_jev_judges_each_finding_by_the_rule_it_names_and_an_order_or_job_id_refuses_unjudged(talker: str, transcript: Path, checked: Checked) -> None:
@@ -955,10 +1018,31 @@ def test_a_line_telling_him_the_drive_failed_names_the_order_or_pr_preventing_it
             'You asked "why was the card refused"; the card is up now.',
         )
     )
-    assert refs.unprevented(said) == [failed, disconnected]
+    assert refs.unprevented(said, {}) == [failed, disconnected]
     refused = say(transcript, text=said)
     assert refused is not None and "6a6edbf" in refused and refused.endswith(f"The lines: {failed} | {disconnected}")
     assert say(transcript, text=f"Its card was refused: nobody checked that PR against your words. {fix} makes the card hook check it.") is None
+
+
+def test_a_line_reading_as_a_drive_failure_or_citing_a_defect_record_owes_the_fix_preventing_it(
+    talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    shown = {
+        "671981": {"kind": "defect", "text": "check-post refused a status table as a wall of text", "refs": {}},
+        "672190": {"kind": "report", "text": "the one refused request was this drive's own proof job", "refs": {}},
+    }
+    monkeypatch.setattr(refs.reads, "run", lambda argv, checkout: json.dumps(shown[argv[2]]))
+    proof = "The one refused request was this drive's own proof job starting a staging cloud agent."
+    uncited = "Its card was refused: nobody checked that PR against your words."
+    cited = "The say hook refused the table post, {record:671981}."
+    passive = "The drive's staging request was refused by SandSQL."
+    defect = "Tables post as Slack tables again, {record:671981}."
+    fix = "<https://github.com/yasyf/cc-skills/pull/4486|the say fix>"
+    said = "\n".join((proof, uncited, cited, passive, defect, f"{cited} {fix} counts each table row on its own.", "SandSQL's answer is in {record:672190}."))
+    flagged = [proof, uncited, cited, passive, defect]
+    assert refs.unprevented(said, refs.resolved("demo", said)) == flagged
+    refused = say(transcript, text=said)
+    assert refused is not None and refused.endswith(f"The lines: {' | '.join(flagged)}")
 
 
 def test_a_line_answering_his_order_by_a_missing_plan_or_record_is_found_and_a_line_doing_it_is_not(talker: str, transcript: Path) -> None:
@@ -1146,15 +1230,26 @@ def test_an_option_asking_someone_to_retry_or_confirm_is_refused_naming_the_fix_
         (options_ask("Break-glass read: you approve the Okta push for the grant, then a lane runs one query (recommended)", "Close on the fix"), 'with "you approve the Okta"'),
         (options_ask("Break-glass read: you run aws sso login, then one read-only query per server (recommended)", "Close on the fix"), 'with "you run aws sso login"'),
         (options_ask("Break-glass read: you renew this Mac's AWS sign-in in the browser, then a lane reads (recommended)", "Close on the fix"), 'with "you renew this Mac\'s AWS sign-in"'),
+        (
+            PASS_BOX_TAP,
+            'option "On your tap here, the job starts the pass box and reads the key; you tap Touch ID once and get a results PR" asks him to'
+            ' sign in with "you tap Touch ID"',
+        ),
+        (PASS_BOX_TAP, 'the summary asks him to sign in with "your Touch ID"'),
+        (FIRST_PASS_BOX_TAP, 'with "I\'ll tap Touch ID"'),
+        (options_ask("Key read: you approve the cc-sudo prompt, then the job reads the SSM parameter (recommended)", "Close on the fix"), 'with "you approve the cc-sudo"'),
+        (options_ask("Tap Touch ID once: the job claims a devbox and proves the change on it (recommended)", "Close on the fix"), 'with "Tap Touch ID"'),
     ],
 )
-def test_a_card_asking_him_to_sign_in_for_break_glass_is_refused_naming_the_machine_profile_route(block: str, found: str) -> None:
+def test_a_card_asking_him_to_sign_in_or_tap_touch_id_for_an_aws_action_is_refused_naming_the_machine_profile_route(block: str, found: str) -> None:
     with pytest.raises(DriveError) as refused:
         limits.question(block)
     assert found in str(refused.value)
     assert (
-        "break-glass runs on this Mac's machine profile with no sign-in, `drive break-glass <job> --stack <domain>/<env> --reason"
-        f' "<why>" -- <command>` here or a `BREAK-GLASS` read from a Sprite, so offer that run itself ({limits.MACHINE_PROFILE_RULING})'
+        "this Mac's machine profile runs it with no sign-in, Touch ID or cc-sudo, every AWS call under a profile ~/.aws/config chains to the"
+        " machine certificate, such as `AWS_PROFILE=plat-prod tools/ci pass-box launch`, and break-glass as `drive break-glass <job> --stack"
+        ' <domain>/<env> --reason "<why>" -- <command>`, or from a Sprite a `BREAK-GLASS` read, so that run takes its place'
+        f" ({limits.MACHINE_PROFILE_RULING})"
     ) in str(refused.value)
 
 
@@ -1167,9 +1262,11 @@ def test_a_card_asking_him_to_sign_in_for_break_glass_is_refused_naming_the_mach
             "The pick below decides it,", 'His words "you dont fucking need okta MFA how many times have I told u to use machine profile" settle the grant;'
         ),
         options_ask("Users sign in with Okta on the dashboard as today (recommended)", "Close on the fix"),
+        options_ask("The job starts the pass box under the machine profile, reads the key and opens a results PR (recommended)", "Close on the fix"),
+        options_ask("You tap Touch ID once so cookiesync seeds the dashboard session for the recording (recommended)", "Close on the fix"),
     ],
 )
-def test_a_card_running_break_glass_on_the_machine_profile_quoting_his_words_or_naming_a_product_sign_in_passes(block: str) -> None:
+def test_a_card_running_an_aws_action_on_the_machine_profile_quoting_his_words_or_naming_a_sign_in_off_aws_passes(block: str) -> None:
     assert limits.question(block).options
 
 
@@ -1445,6 +1542,25 @@ def test_a_post_answering_him_is_checked_with_each_message_of_his_it_quotes(talk
     assert checked.asked == [["how far along is the drive?"], []]
 
 
+def test_a_reply_in_his_thread_is_checked_as_the_answer_to_his_messages_since_the_bots_last_post(
+    talker: str, transcript: Path, checked: Checked, slack_thread: Thread
+) -> None:
+    slack_thread.messages += [
+        {"ts": "1794479000.000100", "user": "U1", "text": "what? just put it on new tree only"},
+        {"ts": "1794479100.000100", "from_bot": True, "text": "Option 1 builds it on the new tree only."},
+        {"ts": "1794479200.000100", "user": "U1", "text": "sot hat was asnwet 1 right"},
+    ]
+    reads(lane_of(transcript), "1794479000.000100")
+    ack = "Checking whether option 1 on that card is the new-tree-only one, and the answer comes in this thread."
+    assert posted(transcript, text=ack, thread_ts="1794479000.000100") is None
+    assert posted(transcript, text=ack, thread_ts="1794479000.000100", asked="the release?") is None
+    assert checked.asked == [["sot hat was asnwet 1 right"], ["the release?", "sot hat was asnwet 1 right"]]
+    assert [word["detail"] for word in message_limits.thread_words(slack_thread.messages)] == [
+        "his message in the thread this post goes to",
+        message_limits.ANSWERED,
+    ]
+
+
 def test_main_prints_a_pretooluse_denial(
     talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -1530,6 +1646,27 @@ def test_while_he_is_away_only_cards_incident_lines_and_answers_go_out(run: Run,
     assert posted(transcript, text="The fix merged.") is None
 
 
+def test_an_incident_report_keeps_its_alert_links_bare_by_the_incident_its_order_or_record_marks(
+    run: Run, talker: str, transcript: Path, checked: Checked, slack_thread: Thread, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "unblock the users")
+    with state.edit("demo") as data:
+        data["orders"]["o1"].update(thread="1.2", incident=True)
+    monkeypatch.setattr(
+        message_limits.cli.reads,
+        "run",
+        lambda argv, checkout: json.dumps({"seq": argv[2], "kind": "report", "lane": "root", "at": state.stamp(), "fields": {"attrs": {"order": "o1"}}}),
+    )
+    alert, issue, pr = "https://acme.slack.com/archives/C0ALERTS/p1794485000000100", "https://app.datadoghq.com/error-tracking/issue/abc", "https://github.com/acme/app/pull/7"
+    line = f"The sandsql alert {alert} fired on {issue}."
+    checked.findings = [f"1:{line.index(url) + 1} bare-url {url!r}: wrap it as <url|short label>" for url in (alert, issue)]
+    assert posted(transcript, text=line, thread_ts="1.2") is None
+    assert say(transcript, text=line, record="672890") is None
+    assert posted(transcript, text=line).splitlines()[1:] == checked.findings
+    checked.findings.append(f"1:1 bare-url {pr!r}: wrap it as <url|short label>")
+    assert posted(transcript, text=line, thread_ts="1.2").splitlines()[1:] == checked.findings[2:]
+
+
 def test_a_report_held_while_he_is_away_is_marked_held_and_its_coordinator_told_once(
     run: Run, talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1609,7 +1746,7 @@ def test_an_edit_of_his_question_card_is_refused_naming_the_redraw(run: Run, tal
 
 def test_a_write_to_his_dm_goes_through_say_so_each_reference_is_linked_and_the_dashboard_shows_it(talker: str, transcript: Path) -> None:
     reason = message_limits.deny_reason(call("slack_edit", transcript, url=link(EDITED), text="Reworded."))
-    assert reason.startswith("Refused on purpose: slack_edit sends each {card:…}, {pr:…}, {order:…} or {record:…} reference to him as raw text")
+    assert reason.startswith("Refused on purpose: slack_edit sends each {card:…}, {pr:…}, {order:…}, {record:…} or {answer:…} reference to him as raw text")
     assert "say(edit=<its permalink>, text=<the new words>)" in reason
     assert reason.rule == message_limits.SAY_RULE
     reason = message_limits.deny_reason(call("slack_reply", transcript, channel_id=DM, thread_ts=BAD_STATE_THREAD, text="See {pr:7}."))

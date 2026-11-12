@@ -434,6 +434,24 @@ def test_resume_from_a_session_that_did_not_start_the_jobs_agent_hands_the_job_t
     assert (job["agent"], job["session"], job["handed_to"], job["state"]) == ("a-9", "meta-session", None, "running")
 
 
+def test_resume_hands_a_job_saved_before_jobs_recorded_where_they_run_and_their_session_to_this_sessions_fresh_agent(
+    demo: str, run: Run, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "meta-session")
+    run("start", "demo", "--role", "meta")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a verb for owners")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--agent", "a-1")
+    run("job", "brief", "j1", "--serves", "drive tooling", "--done-when", "merged", "--where", "yasyf/cc-skills main")
+    saved = json.loads(state.state_path(demo).read_text())
+    for field in ("where", "session"):
+        del saved["jobs"]["j1"][field]
+    state.state_path(demo).write_text(json.dumps(saved))
+    code, out = run("job", "resume", "j1", "PR checks failed")
+    handoff = state.drive_dir(demo) / "jobs" / "j1.handoff.md"
+    assert (code, out.splitlines()[0]) == (0, f"Read your brief first: {handoff}")
+    assert handoff.read_text().endswith("The message it never read, which you act on now:\n\nPR checks failed\n")
+
+
 def test_an_agent_that_stops_before_any_step_is_recorded_and_sent_back_to_keep_its_line(
     demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -609,6 +627,20 @@ def test_a_build_orders_builder_starts_only_on_a_brief_naming_its_readers_resear
     assert "\nResearched: j1\n" in Path(prompt.removeprefix("Read your brief first: ")).read_text()
     assert scratch_folder.deny_reason(drive_agent("long-running:builder", prompt)) is None
     assert agents.shaped(drive_agent("long-running:builder", prompt, "sonnet")) == {"subagent_type": "long-running:builder", "prompt": prompt, "description": "d"}
+
+
+def test_a_brief_planning_his_touch_id_tap_for_an_aws_action_starts_no_agent_and_a_drive_tooling_brief_naming_one_does(demo: str, run: Run) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Search", "test hybrid search on a pass box")
+    run("job", "add", "builder", "--order", "o1", "--goal", "run the test")
+    brief = "Order (his words): test hybrid search on a pass box\nGoal: {}\nDrive: demo, order o1, job j1"
+    planned = drive_agent("long-running:builder", brief.format("start the pass box and read its key; he taps Touch ID once for cc-sudo"))
+    assert scratch_folder.deny_reason(planned).startswith(
+        "refused, no agent started: j1's brief plans a sign-in of his: its Goal line asks him to sign in with \"he taps Touch ID\":"
+        " this Mac's machine profile runs it with no sign-in, Touch ID or cc-sudo"
+    )
+    assert scratch_folder.deny_reason(drive_agent("long-running:builder", brief.format("start the pass box and read its key under the machine profile"))) is None
+    tooling = brief.format("refuse a card asking him for Touch ID on a pass box key read") + "\nServes: drive tooling"
+    assert scratch_folder.deny_reason(drive_agent("long-running:builder", tooling)) is None
 
 
 def test_a_build_orders_codex_lane_is_added_and_started_only_on_its_readers_research_and_its_immediate_fix_at_once(

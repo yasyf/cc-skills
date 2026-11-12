@@ -1,5 +1,4 @@
 import datetime as dt
-import html
 import json
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -12,28 +11,6 @@ PROSE = {".md", ".txt"}
 WHO = {"user": "Coordinator", "assistant": "Claude", "tool": "Tool"}
 TURNS = ("user", "assistant")
 SOURCE_CONTEXT = 3
-PAGE = """<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="dark"><title>{title}</title><style>
-html, body {{ margin: 0; background: #11151b; color: #eceff3; font: 14px/1.55 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
-header {{ padding: 16px 18px 12px; border-bottom: 1px solid #1c222a; }}
-h1 {{ margin: 0 0 4px; font-size: 16px; font-weight: 600; }}
-header p {{ margin: 0; color: #9aa3b0; font-size: 12px; }}
-pre, code {{ font: 12.5px/1.6 ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace; }}
-.doc {{ max-width: 860px; padding: 14px 18px 28px; white-space: pre-wrap; overflow-wrap: anywhere; }}
-.code {{ margin: 0; padding: 12px 0; overflow-x: auto; counter-reset: line; }}
-.code code {{ display: block; width: max-content; min-width: 100%; }}
-.code span {{ position: relative; display: block; min-height: 1.6em; padding: 0 18px 0 calc(4ch + 28px); white-space: pre; tab-size: 4; }}
-.code span::before {{ counter-increment: line; content: counter(line); position: absolute; left: 0; width: calc(4ch + 14px); text-align: right; color: #6b7480; user-select: none; }}
-.turn {{ padding: 12px 18px; border-bottom: 1px solid #1c222a; }}
-.turn h2 {{ margin: 0 0 6px; font-size: 11px; font-weight: 650; letter-spacing: .6px; text-transform: uppercase; color: #9aa3b0; }}
-.turn.user h2 {{ color: #8ab8ff; }}
-.turn.tool h2 {{ color: #6b7480; }}
-.turn h2 time {{ margin-left: 8px; font-weight: 400; letter-spacing: 0; text-transform: none; color: #6b7480; }}
-.said {{ white-space: pre-wrap; overflow-wrap: anywhere; }}
-details {{ margin: 6px 0; border-left: 2px solid #343c47; padding-left: 10px; }}
-summary {{ cursor: pointer; color: #9aa3b0; font-size: 12px; }}
-details pre {{ margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; color: #b6bcc6; }}
-details .said {{ margin-top: 6px; color: #b6bcc6; }}
-</style><header><h1>{title}</h1><p>{facts}</p></header><main>{body}</main></html>"""
 
 
 def kept(job_id: str, job: dict, reports: set[str]) -> list[str]:
@@ -57,43 +34,29 @@ def transcript(job: dict) -> Path | None:
     return next((install.config_dir() / "projects").glob(f"*/{job['session']}/subagents/agent-{job['agent']}.jsonl"), None)
 
 
-def page(name: str, job_id: str, job: dict, kind: str) -> str:
-    """The reader page for one of a job's kept files: a transcript turn by turn, prose as text, anything else as code with line numbers."""
+def read(name: str, job_id: str, job: dict, kind: str) -> dict:
+    """One of a job's kept files as the dashboard's reader draws it: its title, a line of facts, and its markdown, its code, or a transcript's turns."""
     title = f"{job_id} {FILES[kind].lower()}: {job['goal']}"
     if kind == "transcript":
         if not (path := transcript(job)):
-            return drawn(title, "", prose_body(f"This Mac no longer holds the transcript of agent {job['agent']}."))
-        turns = turns_of(path.read_text(errors="replace"))
-        return drawn(title, f"{len(turns)} {'turn' if len(turns) == 1 else 'turns'} · {path}", "".join(turn_html(entry) for entry in turns))
+            return {"title": title, "facts": "", "docs": [f"This Mac no longer holds the transcript of agent {job['agent']}."]}
+        turns = [shaped for entry in turns_of(path.read_text(errors="replace")) if (shaped := turn_of(entry))["blocks"]]
+        return {"title": title, "facts": f"{len(turns)} {'turn' if len(turns) == 1 else 'turns'} · {path}", "turns": turns}
     if kind == "question":
         asked = [Path(question["file"]) for question in job["questions"] if question["file"]]
-        held = "".join(prose_body(path.read_text(errors="replace") if path.is_file() else f"This Mac no longer holds {path}.") for path in asked)
-        return drawn(title, f"{len(asked)} {'question' if len(asked) == 1 else 'questions'}, oldest first", held)
+        held = [path.read_text(errors="replace") if path.is_file() else f"This Mac no longer holds {path}." for path in asked]
+        return {"title": title, "facts": f"{len(asked)} {'question' if len(asked) == 1 else 'questions'}, oldest first", "docs": held}
     path = state.drive_dir(name) / "reports" / f"{job_id}.md" if kind == "report" else Path(job[kind])
     if kind == "report" and not path.is_file():
-        return drawn(title, "the lane's latest report", prose_body(job["report"]))
+        return {"title": title, "facts": "the lane's latest report", "docs": [job["report"]]}
     if not path.is_file():
-        return drawn(title, "", prose_body(f"This Mac no longer holds {path}."))
+        return {"title": title, "facts": "", "docs": [f"This Mac no longer holds {path}."]}
     text = path.read_text(errors="replace")
     lines = text.removesuffix("\n").count("\n") + 1
-    return drawn(title, f"{lines} {'line' if lines == 1 else 'lines'} · {path}", prose_body(text) if path.suffix in PROSE else code_body(text))
-
-
-def drawn(title: str, facts: str, body: str) -> str:
-    return PAGE.format(title=html.escape(title), facts=html.escape(facts), body=body)
-
-
-def prose_body(text: str) -> str:
-    return f'<div class="doc">{html.escape(text.strip())}</div>'
-
-
-def code_body(text: str) -> str:
-    lines = text.removesuffix("\n").split("\n")
-    return f'<pre class="code"><code>{"".join(f"<span>{html.escape(line)}</span>" for line in lines)}</code></pre>'
-
-
-def folded(summary: str, inner: str) -> str:
-    return f"<details><summary>{html.escape(summary)}</summary>{inner}</details>"
+    facts = f"{lines} {'line' if lines == 1 else 'lines'} · {path}"
+    if path.suffix in PROSE:
+        return {"title": title, "facts": facts, "docs": [text]}
+    return {"title": title, "facts": facts, "code": text, "language": path.suffix.removeprefix(".")}
 
 
 def tool_result_text(content: str | list[dict] | None) -> str:
@@ -102,19 +65,19 @@ def tool_result_text(content: str | list[dict] | None) -> str:
     return "\n".join(part["text"] if part.get("type") == "text" else f"[{part.get('type')}]" for part in content or [])
 
 
-def block_html(block: dict) -> str:
+def block_of(block: dict) -> dict | None:
     kind = block.get("type")
     if kind == "text":
-        return f'<div class="said">{html.escape(block["text"])}</div>' if block["text"].strip() else ""
+        return {"text": block["text"]} if block["text"].strip() else None
     if kind == "thinking":
-        return folded("Thinking", f'<div class="said">{html.escape(block["thinking"])}</div>') if block.get("thinking") else ""
+        return {"fold": "Thinking", "text": block["thinking"]} if block.get("thinking") else None
     if kind == "tool_use":
-        return folded(block.get("name", "Tool"), f"<pre>{html.escape(json.dumps(block.get('input'), indent=2))}</pre>")
+        return {"fold": block.get("name", "Tool"), "code": json.dumps(block.get("input"), indent=2)}
     if kind == "tool_result":
-        return folded("Result", f"<pre>{html.escape(tool_result_text(block.get('content')))}</pre>")
+        return {"fold": "Result", "code": tool_result_text(block.get("content"))}
     if kind in ("image", "redacted_thinking"):
-        return folded(str(kind), "")
-    return folded(str(kind), f"<pre>{html.escape(json.dumps(block, indent=2))}</pre>")
+        return {"fold": str(kind), "code": ""}
+    return {"fold": str(kind), "code": json.dumps(block, indent=2)}
 
 
 def turns_of(text: str) -> list[dict]:
@@ -140,15 +103,12 @@ def speaker(entry: dict, blocks: list[dict]) -> str:
     return "tool" if blocks and all(block.get("type") == "tool_result" for block in blocks) else entry["type"]
 
 
-def turn_html(entry: dict) -> str:
+def turn_of(entry: dict) -> dict:
     blocks = blocks_of(entry)
-    said = "".join(block_html(block) for block in blocks)
-    if not said:
-        return ""
     stamp = entry.get("timestamp")
-    when = f"<time>{dt.datetime.fromisoformat(stamp).astimezone(PACIFIC):%b %-d %-I:%M:%S %p}</time>" if stamp else ""
     who = speaker(entry, blocks)
-    return f'<article class="turn {who}"><h2>{WHO[who]}{when}</h2>{said}</article>'
+    when = f"{dt.datetime.fromisoformat(stamp).astimezone(PACIFIC):%b %-d %-I:%M:%S %p}" if stamp else ""
+    return {"who": WHO[who], "tone": who, "at": when, "blocks": [shaped for block in blocks if (shaped := block_of(block))]}
 
 
 def source_window(lines: list[str], line: int, to: int) -> list[dict]:

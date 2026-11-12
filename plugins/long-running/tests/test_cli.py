@@ -961,7 +961,7 @@ REWORKING = f'Being reworked to your words "{TOPOLOGY}". A fresh card asks your 
 
 def carded(monkeypatch: pytest.MonkeyPatch, withdrawals: Withdrawals) -> None:
     tap = {"asked": state.stamp(), "url": CARDED, "prs": [PR], "card": {"title": "New: land it?", "waits": "merge:Forge-AI:monorepo:42"}}
-    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [tap]})
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [tap], "closed": []})
     withdrawals.cards = [CARDED]
 
 
@@ -1032,7 +1032,7 @@ def test_job_set_waits_on_his_pr_card_by_its_slack_link_or_merge_waits_id_until_
 ) -> None:
     link, merge = "https://acme.slack.com/archives/D123/p1794300000000400", "merge:acme:app:42"
     tap = {"asked": state.stamp(), "url": link, "prs": ["https://github.com/acme/app/pull/42"], "card": {"title": "New: land it?", "waits": merge}}
-    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [tap]})
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [tap], "closed": []})
     view.refresh_cards("demo")
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
@@ -1527,7 +1527,7 @@ def test_job_card_refuses_an_ask_saying_a_pr_waits_on_his_tap_while_he_has_nothi
     assert "acme/app#42: no open tap card of his stands at its head" in capsys.readouterr().err
     link = "https://acme.slack.com/archives/D123/p1794300000000400"
     tap = {"asked": state.stamp(), "url": link, "prs": [url], "card": {"title": "New: land it?", "prs": [{"url": url, "head": "abc123"}]}}
-    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [tap]})
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [tap], "closed": []})
     view.refresh_cards("demo")
     assert cli.main(["job", "card", str(block), "--waits", "demo:j1-7"]) == 2
     assert f"acme/app#42: the words do not link its open tap card {link}" in capsys.readouterr().err
@@ -1582,7 +1582,7 @@ def test_cards_redraw_prints_each_open_cards_card_in_one_pass_and_names_each_it_
     unanswerable = {"title": "Which way?", "body": "One line.", "options": [], "recommended": "", "waits": "demo:hier-2", "drive": "demo"}
     reordered = unasked | {"waits": "demo:hier-3", "options": unasked["options"][::-1]}
     shown = [open_card(n, card) for n, card in enumerate([*map(json.loads, printed), unasked, unanswerable, reordered])]
-    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": shown, "pr_cards": []})
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": shown, "pr_cards": [], "closed": []})
     jobs = state.load("demo")["jobs"]
     assert cli.main(["cards", "redraw"]) == 2
     out, err = capsys.readouterr()
@@ -1606,7 +1606,7 @@ def test_cards_redraw_draws_a_card_from_the_ask_a_question_linked_to_it_keeps_wh
     shown = open_card(0, json.loads(printed))
     with state.edit("demo") as data:
         data["jobs"]["j1"]["questions"][0] |= {"waits": None, "card": shown["url"]}
-    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": []})
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": [], "closed": []})
     assert run("cards", "redraw") == (0, in_place(printed))
     assert [(question["file"], question["waits"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [(path, "demo:j1-7")]
 
@@ -1623,7 +1623,7 @@ def test_cards_redraw_rebuilds_a_card_whose_linked_question_asks_something_else_
     shown = open_card(0, json.loads(printed))
     with state.edit("demo") as data:
         data["jobs"]["j1"]["questions"] = [data["jobs"]["j1"]["questions"][0] | {"waits": None, "card": shown["url"]}]
-    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": []})
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": [], "closed": []})
     assert run("cards", "redraw", "--waits", "demo:j1-8") == (0, in_place(printed))
     rebuilt = state_root / "demo" / "asks" / "j1-8.md"
     assert limits.redrawn(rebuilt.read_text()).title == json.loads(printed)["title"]
@@ -1695,7 +1695,8 @@ def test_a_job_keeps_every_question_it_asks_each_open_until_his_answer_to_its_ow
         {"question": title, "options": ["Yes", "No"], "recommended": "Yes", "asked": state.stamp(), "url": link, "card": {"title": title, "waits": f"demo:j1-{n}"}}
         for n, (title, link) in enumerate(zip(titles, links, strict=True))
     ]
-    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": list(shown), "pr_cards": []})
+    closed: list[dict] = []
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": list(shown), "pr_cards": [], "closed": list(closed)})
     for n, (path, link) in enumerate(zip(kept[:2], links[:2], strict=True)):
         assert run("job", "card", path, "--waits", f"demo:j1-{n}")[0] == 0
         assert run("job", "set", asking, "--card", link)[0] == 0
@@ -1707,13 +1708,13 @@ def test_a_job_keeps_every_question_it_asks_each_open_until_his_answer_to_its_ow
         (kept[2], None, None),
         (None, "demo:j1-2", links[2]),
     ]
-    shown.pop(0)
-    view.refresh_cards("demo")
+    answered = shown.pop(0)
+    closed.append({"waits": "demo:j1-0", "title": titles[0], "prs": [], "asked": answered["asked"], "url": links[0], "answer": {"label": "Yes", "at": answered["asked"]}, "tapped": "", "replaced_by": ""})
     status = run("status")[1]
-    assert links[0] not in status
-    assert f"asks him: Where should a finished run's files be laid out so its page opens without guess…; card {links[1]} (demo:j1-1)" in status
-    assert f"no card drawn yet, kept in {kept[2]}" in status
-    assert f"asks him: When should; card {links[2]} (demo:j1-2)" in status
+    assert f'card {links[0]} answered "Yes" at {render.when(answered["asked"])} (demo:j1-0)' in status
+    assert f"asks him: Where should a finished run's files be laid out so its page opens without guess…; card {links[1]} open since {render.when(shown[0]['asked'])} (demo:j1-1)" in status
+    assert f"never drawn, kept in {kept[2]}" in status
+    assert f"asks him: When should; card {links[2]} open since {render.when(shown[1]['asked'])} (demo:j1-2)" in status
 
 
 def test_a_redrawn_card_moves_to_the_question_that_redoes_it_and_a_card_never_posted_holds_nothing(
@@ -1722,7 +1723,7 @@ def test_a_redrawn_card_moves_to_the_question_that_redoes_it_and_a_card_never_po
     monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
     link = "https://acme.slack.com/archives/D123/p1794300000000100"
     shown = {"question": "How should?", "options": ["Yes", "No"], "recommended": "Yes", "asked": state.stamp(), "url": link, "card": {"title": "How should?", "waits": "demo:j1-7"}}
-    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": []})
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": [], "closed": []})
     kept = []
     for text in (SHORT_ASK, SHORT_ASK.replace("opens in 3 requests", "opens in 3 calls"), SHORT_ASK.replace("ASK How should", "ASK Where should")):
         monkeypatch.setattr("sys.stdin", io.StringIO(text))
@@ -1734,8 +1735,8 @@ def test_a_redrawn_card_moves_to_the_question_that_redoes_it_and_a_card_never_po
     questions = state.load("demo")["jobs"]["j1"]["questions"]
     assert [(question["file"], question["waits"], question["card"]) for question in questions] == [(kept[1], "demo:j1-7", link), (kept[2], "demo:j1-8", None)]
     status = run("status")[1]
-    assert f"card {link} (demo:j1-7)" in status
-    assert "asks him: Where should" not in status
+    assert f"card {link} open since {render.when(shown['asked'])} (demo:j1-7)" in status
+    assert f"card demo:j1-8 never drawn, kept in {kept[2]}" in status
 
 
 def test_a_question_asked_again_in_the_same_words_redraws_its_one_card_under_the_waits_id_of_its_first_ask(
@@ -1744,7 +1745,7 @@ def test_a_question_asked_again_in_the_same_words_redraws_its_one_card_under_the
     monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
     link = "https://acme.slack.com/archives/D123/p1794300000000100"
     shown = {"question": "How should?", "options": ["Yes", "No"], "recommended": "Yes", "asked": state.stamp(), "url": link, "card": {"title": "How should?", "waits": "demo:j1-7"}}
-    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": []})
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": [], "closed": []})
     monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK))
     first = run("job", "ask", asking, "-")[1]
     run("job", "card", first, "--waits", "demo:j1-7")
@@ -1785,7 +1786,7 @@ def test_a_question_asked_again_after_he_answered_its_card_goes_on_a_card_of_its
     link = "https://acme.slack.com/archives/D123/p1794300000000100"
     shown = {"question": "How should?", "options": ["Yes", "No"], "recommended": "Yes", "asked": state.stamp(), "url": link, "card": {"title": "How should?", "waits": "demo:j1-7"}}
     listed = [shown]
-    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": list(listed), "pr_cards": []})
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": list(listed), "pr_cards": [], "closed": []})
     monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK))
     first = run("job", "ask", asking, "-")[1]
     run("job", "card", first, "--waits", "demo:j1-7")
@@ -1800,13 +1801,40 @@ def test_a_question_asked_again_after_he_answered_its_card_goes_on_a_card_of_its
     ]
 
 
+def test_a_question_asked_again_after_its_card_was_withdrawn_redraws_that_card_under_its_waits_id_on_any_job(
+    run: Run, asking: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
+    link = "https://acme.slack.com/archives/D123/p1794300000000100"
+    shown = {"question": "How should?", "options": ["Yes", "No"], "recommended": "Yes", "asked": state.stamp(), "url": link, "card": {"title": "How should?", "waits": "demo:j1-7"}}
+    listed, closed = [shown], []
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": list(listed), "pr_cards": [], "closed": list(closed)})
+    monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK))
+    first = run("job", "ask", asking, "-")[1]
+    run("job", "card", first, "--waits", "demo:j1-7")
+    run("job", "set", asking, "--card", link)
+    listed.clear()
+    withdrawn = {"label": "his order replaced it", "at": state.stamp(), "withdrawn": True}
+    closed.append({"waits": "demo:j1-7", "title": "How should?", "prs": [], "asked": shown["asked"], "url": link, "answer": withdrawn, "tapped": "", "replaced_by": ""})
+    monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace("opens in 3 requests", "opens in 3 calls")))
+    again = json.loads(run("job", "ask", asking, "-", "--json")[1])
+    assert again["waits"] == "demo:j1-7"
+    assert json.loads(run("job", "card", again["question"], "--waits", "demo:j1-9")[1])["waits"] == "demo:j1-7"
+    assert [(question["file"], question["waits"], question["card"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [(again["question"], "demo:j1-7", link)]
+    assert f"card {link} withdrawn at {render.when(withdrawn['at'])}: his order replaced it (demo:j1-7)" in run("status")[1]
+    run("job", "add", "builder", "--order", "o1", "--goal", "design it again")
+    monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace("opens in 3 requests", "opens in 2 calls")))
+    assert json.loads(run("job", "ask", "j2", "-", "--json")[1])["waits"] == "demo:j1-7"
+    assert [(question["waits"], question["card"]) for question in state.load("demo")["jobs"]["j2"]["questions"]] == [("demo:j1-7", link)]
+
+
 def test_job_ask_drop_throws_away_a_near_copy_kept_with_no_card_so_nothing_counts_or_sends_it(
     run: Run, asking: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
     link = "https://acme.slack.com/archives/D123/p1794300000000100"
     shown = {"question": "How should?", "options": ["Yes", "No"], "recommended": "Yes", "asked": state.stamp(), "url": link, "card": {"title": "How should?", "waits": "demo:j1-7"}}
-    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": []})
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": [], "closed": []})
     monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK))
     first = run("job", "ask", asking, "-")[1]
     run("job", "card", first, "--waits", "demo:j1-7")
@@ -1814,7 +1842,7 @@ def test_job_ask_drop_throws_away_a_near_copy_kept_with_no_card_so_nothing_count
     near_copy = "ASK How should a finished run's files be laid out so its page opens with no guessing?"
     monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace(SHORT_ASK.split("\n")[0], near_copy)))
     copy = run("job", "ask", asking, "-")[1]
-    assert f"no card drawn yet, kept in {copy}" in run("status")[1]
+    assert f"never drawn, kept in {copy}" in run("status")[1]
     assert cli.main(["job", "ask", asking, "--drop", first]) == 2
     assert f"kept in {first} is on his card {link}, which only his answer closes" in capsys.readouterr().err
     code, out = run("job", "ask", asking, "--drop", copy)
@@ -1824,7 +1852,7 @@ def test_job_ask_drop_throws_away_a_near_copy_kept_with_no_card_so_nothing_count
     assert job["said"] == SHORT_ASK.split("\n")[0].removeprefix("ASK ")
     assert not Path(copy).exists()
     status = run("status")[1]
-    assert copy not in status and f"card {link} (demo:j1-7)" in status
+    assert copy not in status and f"card {link} open since " in status and "(demo:j1-7)" in status
     assert settled.ask_refusal(["demo"], {"ask": copy, "job": "j1"}, near_copy).startswith(f"refused: {copy} keeps no question of j1")
     assert json.loads(run("job", "card", asking)[1])["title"] == job["said"]
 
@@ -1835,7 +1863,7 @@ def test_job_ask_refuses_a_question_another_jobs_open_card_asks_naming_the_wait_
     monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
     link = "https://acme.slack.com/archives/D123/p1794300000000100"
     shown = {"question": "How should?", "options": ["Yes", "No"], "recommended": "Yes", "asked": state.stamp(), "url": link, "card": {"title": "How should?", "waits": "demo:j1-7"}}
-    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": []})
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": [], "closed": []})
     monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK))
     first = run("job", "ask", asking, "-")[1]
     run("job", "card", first, "--waits", "demo:j1-7")
@@ -1855,7 +1883,7 @@ def test_his_words_under_a_card_answer_it_so_its_job_never_redraws_it_with_a_new
     monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
     link = "https://acme.slack.com/archives/D123/p1794300000000100"
     shown = {"question": "How should?", "options": ["Yes", "No"], "recommended": "Yes", "asked": state.stamp(), "url": link, "card": {"title": "How should?", "waits": "demo:j1-7"}}
-    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": []})
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": [], "closed": []})
     view.refresh_cards("demo")
     monkeypatch.setattr(slack, "cc_slack", lambda *args: {"answered": True})
     kept = []
@@ -1900,7 +1928,7 @@ def test_job_ask_refuses_unsettled_naming_his_words_under_its_own_card_until_dri
     words = "keep one snapshot file, and copy it once"
     shown = {"question": "How should?", "options": ["Yes", "No"], "recommended": "Yes", "asked": state.stamp(), "url": link, "card": {"title": "How should?", "waits": "demo:j1-7"}}
     asking_him = [shown]
-    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": list(asking_him), "pr_cards": []})
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": list(asking_him), "pr_cards": [], "closed": []})
     view.refresh_cards("demo")
     answered: list[tuple[str, ...]] = []
     monkeypatch.setattr(slack, "cc_slack", lambda *args: answered.append(args) or asking_him.clear() or {"answered": True})
@@ -2726,7 +2754,7 @@ def test_a_builders_ready_counts_only_on_a_green_required_check_and_one_still_ru
     run: Run, with_pr: str, on_github: dict, pr_reads: dict[str, dict], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     build = "https://buildkite.com/forge/monorepo/builds/7"
-    read = {"state": "OPEN", "isDraft": False, "headRefOid": "abc", "mergeCommit": None, "reviewDecision": None, "approvals": [], "mergeable": "MERGEABLE"}
+    read = {"state": "OPEN", "isDraft": False, "headRefOid": "abc", "baseRefName": "main", "headRefName": "land-it", "mergeCommit": None, "reviewDecision": None, "approvals": [], "mergeable": "MERGEABLE"}
     read |= {"title": "Fix: land it", "author": "yasyf", "labels": [], "native": []}
     for outcome, held in (
         ("PENDING", f"{with_pr}'s required checks still run at abc: return"),
@@ -3628,6 +3656,14 @@ def test_status_reads_the_prs_from_the_drive_and_never_from_github(run: Run, wit
     assert json.loads(run("status", "--json")[1])["prs"][with_pr]["title"] == "Fix: the watched title"
 
 
+def test_status_prints_an_open_pr_while_the_installed_cc_slack_lists_no_closed_cards(run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": []})
+    code, out = run("status")
+    assert code == 0
+    assert out.splitlines()[0] == "demo: 1 open of 1 orders"
+    assert json.loads(run("status", "--json")[1])["prs"][with_pr]["card_state"] is None
+
+
 def test_status_reads_only_the_orders_its_ids_name(run: Run, with_pr: str) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "something else")
     for key in ("o1", "j1", with_pr, PR):
@@ -4459,6 +4495,26 @@ def test_a_drive_tooling_orders_words_pass_check_post_since_his_pr_card_quotes_t
     assert [order["text"] for order in state.load("demo")["orders"].values()] == [reworded, "send j844's numbers to o341's thread"]
 
 
+def commit_shas(text: str, asked: list[str]) -> list[str]:
+    return [f"1:{found.start() + 1} commit-sha {found[0]!r}: link the commit" for found in re.finditer(r"\b[0-9a-f]{7}\b", text)]
+
+
+def test_a_drive_tooling_orders_words_may_cite_his_ruling_by_its_answer_id_but_never_an_unlinked_commit(
+    demo: str, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def shown(answer_id: str, cwd: str) -> dict:
+        if answer_id != "f03a0aa":
+            raise state.DriveError(f"could not read his answer {answer_id}")
+        return {"body": "you need to fix the hookw henver it wrongly refuses yu"}
+
+    monkeypatch.setattr(slack, "check_post", commit_shas)
+    monkeypatch.setattr(settled, "shown", shown)
+    filed = ["order", "add", "--project", "p", "--workstream", "w"]
+    assert cli.main([*filed, 'Drive tooling: check-post wrongly refuses handler posts; his ruling f03a0aa: "you need to fix the hookw henver it wrongly refuses yu"']) == 0
+    assert cli.main([*filed, "Drive tooling: revert 1a2b3c4, which broke the card hook"]) == 2
+    assert "finds 1:23 commit-sha '1a2b3c4': link the commit;" in capsys.readouterr().err
+
+
 def test_a_drive_tooling_order_with_no_project_or_workstream_is_filed_under_the_drive_and_his_order_is_refused_naming_the_pairs_in_use(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -4608,7 +4664,7 @@ def test_heard_takes_a_part_a_done_jobs_card_still_open_waits_on(run: Run, demo:
     with state.edit("demo") as data:
         data["jobs"]["j1"]["state"] = "done"
     question = {"question": "Which unfurl?", "options": ["Bot", "Link"], "recommended": "Bot", "asked": state.stamp(), "url": DESIGN_CARD, "card": {"title": "Which unfurl?"}}
-    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [question], "pr_cards": []})
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [question], "pr_cards": [], "closed": []})
     view.refresh_cards("demo")
     assert run("heard", "--repeats", "o1", "--part", "fix")[1].splitlines()[0] == "heard"
     monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
@@ -4807,7 +4863,7 @@ MATCHED, BACKFILL, ASK_JEV = settled.matched, settled.backfill, settled.jev
 def cards_asking(monkeypatch: pytest.MonkeyPatch, *prs: str) -> list[tuple[str, ...]]:
     question = {"question": "Which topology?", "options": ["Tree", "Ring"], "recommended": "Tree", "asked": state.stamp(), "url": DESIGN_CARD, "card": {"title": "Which topology?", "waits": "demo:j2-7"}}
     tap = {"asked": state.stamp(), "url": TAP_CARD, "prs": list(prs), "card": {"title": "New: land it?", "waits": "merge:Forge-AI:monorepo:42"}}
-    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [question], "pr_cards": [tap]})
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [question], "pr_cards": [tap], "closed": []})
     view.refresh_cards("demo")
     settled: list[tuple[str, ...]] = []
     monkeypatch.setattr(slack, "cc_slack", lambda *args: settled.append(args) or {"answered": True, "label": args[4], "at": "now"})
@@ -5162,7 +5218,7 @@ def test_an_answer_stays_unfinished_until_each_job_waiting_on_an_order_it_touche
 def test_an_answer_under_a_card_no_longer_open_still_waits_on_each_job_waiting_on_that_cards_order(
     run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": []})
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [], "closed": []})
     view.refresh_cards("demo")
     run("job", "add", "builder", "--order", "o1", "--goal", "build the store")
     with state.edit("demo") as data:
@@ -5256,13 +5312,13 @@ def test_cards_withdraw_settles_his_open_card_with_his_words_and_refuses_a_card_
     run: Run, asking: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     shown = open_card(7, {"title": "Which cache disk?", "options": ["Lazy", "Bigger"], "recommended": "Lazy", "waits": "demo:j1-7"})
-    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": []})
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": [], "closed": []})
     calls: list[tuple] = []
     monkeypatch.setattr(slack, "cc_slack", lambda *args: calls.append(args) or {"answered": True})
     words, via = "We're already addressing this with the lazy + restate object", "https://acme.slack.com/archives/D123/p1794300000000999"
     code, line = run("cards", "withdraw", "demo:j1-7", "--words", words, "--via", via)
     assert (code, calls) == (0, [("card-answer", "--card", shown["url"], "--label", words, "--withdrawn", "--via", via)])
-    assert line == f"withdrew his card {shown['url']} (demo:j1-7): it shows his words and a link to them, with no buttons; j1 asks again on a new card once its work is back"
+    assert line == f"withdrew his card {shown['url']} (demo:j1-7): it shows his words and a link to them, with no buttons; j1 asks again under demo:j1-7 once its work is back, which redraws this card"
     assert cli.main(["cards", "withdraw", "demo:j1-8", "--words", words, "--via", via]) == 2
     assert "demo:j1-8: not one of his open question cards" in capsys.readouterr().err
 
@@ -5270,7 +5326,7 @@ def test_cards_withdraw_settles_his_open_card_with_his_words_and_refuses_a_card_
 def test_a_ruling_records_only_with_the_tooling_order_rewriting_the_skill_to_it(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": []})
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [], "closed": []})
     view.refresh_cards(demo)
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "design the run page")
     ruling = ["answer", "--title", "How should cards read?", "--words", "Cards say why", "--link", "https://acme.slack.com/archives/D123/p1", "--label", "ruling"]

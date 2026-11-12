@@ -19,14 +19,13 @@ AGENT_DEFECT = (
     " happened, any refusal verbatim>` line, and the session holding drive tooling starts the fix"
 )
 CATCH_UP = re.compile(r"Catch-up since\b", re.IGNORECASE)
-TAP_ASKED = re.compile(r"\btap (?:Approve|Hold)\b|\b(?:needs?|waits? (?:on|for)) (?:your|his|a) tap\b", re.IGNORECASE)
 UNKINDED = "refused: a ready record says which kind its PRs are: `his order o<n>` before his quoted words, `Drive tooling: …`, or `port of #<n>`; add the one it is"
 LIMIT_ATTR = "max_words"
 
 
 def untapped(record: dict, prs: dict[str, dict]) -> str | None:
-    """Why a ready record, which asks him to tap each PR it names, or a report or ask that asks for a tap, names a PR the drive owes no tap on."""
-    if kind(record) not in ("ready", "report", "ask") or (kind(record) != "ready" and not TAP_ASKED.search(record.get("text") or "")):
+    """Why a ready record to the communicator, which draws his card asking him to tap each PR it names, names a PR the drive owes no tap on."""
+    if kind(record) != "ready" or not addressed(record, "communicator"):
         return None
     named = [record.get("text") or "", record.get("body") or "", record.get("url") or "", *map(str, record.get("pr") or [])]
     return limits.tap_refusal("\n".join(named), prs)

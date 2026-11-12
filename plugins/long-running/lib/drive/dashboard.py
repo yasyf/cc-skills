@@ -46,7 +46,7 @@ THREAD_PATH = re.compile(r"/api/thread/(\d+\.\d+)")
 THREAD_MESSAGES = "200"
 PR_PATH = re.compile(r"/api/pr/([\w.-]+/[\w.-]+)/(\d+)")
 REVIEW_PATH = re.compile(r"/api/review/([\w.-]+/[\w.-]+)/(\d+)")
-ARTIFACT_PATH = re.compile(r"/artifact/(j[\w-]+)/(\w+)")
+FILE_PATH = re.compile(r"/api/file/(j[\w-]+)/(\w+)")
 REPO_FILE = re.compile(r"[\w.@-]+(?:/[\w.@-]+)+")
 NOT_OWNER = "only the drive's owner can do this, and this device is not signed in to the tailnet as him"
 GONE = "this card no longer waits on that answer"
@@ -217,12 +217,14 @@ class Upgrade(BaseHTTPRequestHandler):
 
 
 class Server(ThreadingHTTPServer):
-    """One address's server, speaking TLS with the certificate when given one and redirecting plain HTTP there to HTTPS; the first byte is read and the handshake runs in the request's own thread."""
+    """One listening socket's server, speaking TLS with the certificate when given one and redirecting plain HTTP there to HTTPS; the first byte is read and the handshake runs in the request's own thread."""
 
-    def __init__(self, address: str, port: int, page: type[BaseHTTPRequestHandler], certificate: Certificate | None) -> None:
-        self.address_family = socket.AF_INET6 if ":" in address else socket.AF_INET
+    def __init__(self, listening: socket.socket, page: type[BaseHTTPRequestHandler], certificate: Certificate | None) -> None:
+        self.address_family = listening.family
         self.certificate = certificate
-        super().__init__((address, port), page)
+        super().__init__(listening.getsockname(), page, bind_and_activate=False)
+        self.socket.close()
+        self.socket = listening
 
     def finish_request(self, request: socket.socket, client_address: tuple) -> None:
         if not self.certificate:
@@ -295,12 +297,20 @@ class Board:
             self.channel = model["channel"]
             self.changed.notify_all()
 
-    def follow(self) -> None:
+    def follow(self) -> Path:
+        """Rebuild on each change to the drive's stored state until a newer long-running is installed, then return that install's drive, never reading a drive it saved, since this code may misread its shapes."""
         built = None
         for _ in changes(self.name):
+            if newer := install.upgraded():
+                return newer
             if (stamp := self.stamp()) != built:
                 built = stamp
-                self.rebuild()
+                try:
+                    self.rebuild()
+                except state.NewerDrive:
+                    if newer := install.upgraded():
+                        return newer
+                    raise
 
     def after(self, version: int) -> tuple[int, bytes]:
         """The summary once it is newer than version, waiting for the next change when it is not."""
@@ -341,8 +351,8 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 self.picture(urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)["path"][0])
             elif self.path.startswith("/api/source?"):
                 self.source(dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(self.path).query)))
-            elif found := ARTIFACT_PATH.fullmatch(self.path):
-                self.artifact(found[1], found[2])
+            elif found := FILE_PATH.fullmatch(self.path):
+                self.file(found[1], found[2])
             elif self.path in FILES:
                 file, kind = FILES[self.path]
                 self.reply((SITE / file).read_bytes(), kind)
@@ -420,15 +430,15 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                     return
                 self.answered(200, {"lines": artifacts.source_window(text.split("\n"), int(line), int(to))})
 
-        def artifact(self, job_id: str, kind: str) -> None:
+        def file(self, job_id: str, kind: str) -> None:
             if not owner_calling(self.client_address[0], net):
-                self.send_error(403)
+                self.answered(403, {"error": NOT_OWNER})
                 return
             job = state.load(board.name)["jobs"].get(job_id)
             if not job or kind not in artifacts.kept(job_id, job, board.reports):
-                self.send_error(404)
+                self.answered(404, {"error": f"The drive keeps no {artifacts.FILES.get(kind, kind).lower()} file for {job_id}."})
                 return
-            self.reply(artifacts.page(board.name, job_id, job, kind).encode(), "text/html; charset=utf-8")
+            self.answered(200, artifacts.read(board.name, job_id, job, kind))
 
         def pull_request(self, key: str) -> None:
             if not owner_calling(self.client_address[0], net):
@@ -537,14 +547,18 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
     return Page
 
 
-def serve(name: str, port: int) -> None:
-    """Serve the dashboard on loopback and this machine's own tailnet addresses, never a wildcard, the tailnet ones over HTTPS when the tailnet issues certificates, until following the drive's files fails, so a broken build ends the server rather than freezing its page."""
+def serve(name: str, port: int, inherited: list[int]) -> None:
+    """Serve the dashboard on loopback and this machine's own tailnet addresses, never a wildcard, the tailnet ones over HTTPS when the tailnet issues certificates, on the listening sockets an older install handed over when there are any. Once a newer long-running is installed, its drive takes this process's place on the same sockets, which queue each connection meanwhile, so the port answers throughout. Following the drive's files failing ends the server rather than freezing its page."""
     net = tailnet()
     board = Board(name, links_of(port, net))
     page = handler(port, net, board)
     certificate = Certificate(net.name) if net and net.https else None
-    for address in [LOOPBACK] + (net.ips if net else []):
-        server = Server(address, port, page, certificate if address != LOOPBACK else None)
+    listening = [socket.socket(fileno=fd) for fd in inherited] or [
+        socket.create_server((address, port), family=socket.AF_INET6 if ":" in address else socket.AF_INET) for address in [LOOPBACK] + (net.ips if net else [])
+    ]
+    servers = [Server(sock, page, certificate if sock.getsockname()[0] != LOOPBACK else None) for sock in listening]
+    for server in servers:
+        server.socket.set_inheritable(True)
         threading.Thread(target=server.serve_forever, daemon=True).start()
 
     def stopped(signum: int, frame: object) -> None:
@@ -552,7 +566,12 @@ def serve(name: str, port: int) -> None:
         sys.exit(0)
 
     signal.signal(signal.SIGTERM, stopped)
-    board.follow()
+    newer = board.follow()
+    for server in servers:
+        server.shutdown()
+    board.assistant.stop()
+    print(f"handing port {port} to {newer}, a newer long-running", file=sys.stderr, flush=True)
+    os.execv(sys.executable, [sys.executable, "-I", str(newer), "dashboard", "--drive", name, "--port", str(port), "--serve", *(f"--listening={sock.fileno()}" for sock in listening)])
 
 
 def serving(name: str, port: int) -> dict | None:

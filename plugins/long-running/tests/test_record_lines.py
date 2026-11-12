@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import record_lines
 from conftest import SHORT_ASK
-from drive import limits, settled, state, view
+from drive import limits, reads, settled, state, view
 
 SESSION = "session-under-test"
 ALERT = "1794413465.441409"
@@ -99,7 +99,7 @@ def test_an_ask_naming_another_open_question_or_another_jobs_file_is_refused_and
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     shown = {"url": CARD, "question": LAYOUT, "asked": state.stamp(), "card": {"title": LAYOUT, "waits": "demo:j1-7"}}
-    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": []})
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": [], "closed": []})
     earlier = kept(demo, "j1", LAYOUT, card=CARD)
     assert "which this record does not ask" in refusal(record_lines.decision(post(kind="ask", text=HANDLE, attrs=earlier)))
     elsewhere = kept(demo, "j2", HANDLE)
@@ -128,19 +128,22 @@ def test_a_jobs_second_question_from_a_remote_lane_goes_out_on_the_new_file_driv
 TAPPED = "https://github.com/Forge-AI/monorepo/pull/4242"
 
 
-def test_a_ready_record_for_a_pr_the_drive_owes_no_tap_on_is_refused(demo: str) -> None:
+def test_a_ready_record_to_the_communicator_for_a_pr_the_drive_owes_no_tap_on_is_refused_and_a_line_saying_he_tapped_it_goes_out(
+    demo: str,
+) -> None:
     with state.edit(demo) as data:
         data["prs"]["Forge-AI/monorepo#4242"] = state.new_pr(TAPPED, "j1", "o1")
-    assert record_lines.decision(post(kind="ready", text="j1 green, his order o1", pr=[TAPPED])) is None
+    assert record_lines.decision(post(kind="ready", text="j1 green, his order o1", pr=[TAPPED], to=TO)) is None
     with state.edit(demo) as data:
-        data["prs"]["Forge-AI/monorepo#4242"] |= {"tap": {"label": "Approve", "at": "2026-11-10T18:40:00-08:00", "head": "abc", "source": "slack"}, "state": "merged"}
-    made = record_lines.decision(post(kind="ready", text="j1 green, his order o1", pr=[TAPPED]))
-    assert made["permissionDecision"] == "deny"
-    assert "Forge-AI/monorepo#4242: he tapped Approve at " in made["permissionDecisionReason"]
-    assert "he tapped Approve" in record_lines.decision(post(kind="report", text=f"POST the update-button fix needs your tap: {TAPPED}"))["permissionDecisionReason"]
-    tap = f"tap Approve on {TAPPED}?"
-    assert "he tapped Approve" in record_lines.decision(post(kind="ask", text=tap, attrs=kept(demo, "j1", tap)))["permissionDecisionReason"]
-    assert record_lines.decision(post(kind="report", text=f"FYI the update-button fix merged: {TAPPED}")) is None
+        data["prs"]["Forge-AI/monorepo#4242"] |= {"tap": {"label": "Approve", "at": "2026-11-10T18:40:00-08:00", "head": "abc", "source": "slack"}}
+    reason = refusal(record_lines.decision(post(kind="ready", text="j1 green, his order o1", pr=[TAPPED], to=TO)))
+    assert "Forge-AI/monorepo#4242: he tapped Approve at " in reason
+    for said in ("carries his Approve tap", "he tapped Approve at 6:40 PM", "his approval landed at 6:40 PM"):
+        for to in (["root@demo"], META):
+            assert record_lines.decision(post(kind="ready", text=f"land it, his order o1: {said}", pr=[TAPPED], to=to)) is None
+        assert record_lines.decision(post(kind="handoff", text=f"land {TAPPED}: {said}", to=["root@demo"])) is None
+    for said in ("no longer waits on his tap", "he did tap Approve", "he tapped Approve"):
+        assert record_lines.decision(post(kind="report", text=f"FYI {TAPPED} {said}", to=["root@demo"])) is None
 
 
 TO = ["communicator@demo"]
@@ -279,12 +282,49 @@ def test_a_report_that_finishes_an_order_names_one_of_its_threads(run: Callable[
     with state.edit(demo) as data:
         data["orders"]["o1"]["thread"] = THREAD
     reason = refusal(record_lines.decision(coordinator(turn, kind="report", text="POST j1 merged", to=TO, attrs={"close": "o1", "thread": OTHER})))
-    assert f"drive order set <o> --thread {OTHER}" in reason and THREAD in reason
+    assert f"thread {OTHER} is none of its threads: {THREAD}" in reason and "pass re naming the record of his message" in reason and "drive order set" not in reason
     assert record_lines.decision(coordinator(turn, kind="report", text="POST j1 merged", to=TO, attrs={"close": "o1", "thread": THREAD})) is None
     assert record_lines.decision(coordinator(turn, kind="report", text="POST j1 is building", to=TO, attrs={"thread": OTHER, **PROGRESS})) is None
 
 
-def test_a_post_report_telling_him_the_drive_failed_says_how_that_is_prevented(run: Callable[..., tuple[int, str]], demo: str, turn: Path) -> None:
+def test_a_report_answering_his_message_finishes_an_order_in_that_messages_thread_and_no_other(
+    run: Callable[..., tuple[int, str]], demo: str, turn: Path, cci_records: dict[str, dict]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["thread"] = THREAD
+    cci_records["671734"] = {"seq": 671734, "kind": "owner", "lane": "communicator", "refs": {"url": f"https://acme.slack.com/archives/D123/p{OTHER.replace('.', '')}"}, "fields": {"attrs": {}}}
+    assert record_lines.decision(coordinator(turn, kind="report", text="POST j1 merged", to=TO, re=["671734"], attrs={"part": "ship the fix", "close": "o1", "thread": OTHER})) is None
+    reason = refusal(record_lines.decision(coordinator(turn, kind="report", text="POST j1 merged", to=TO, re=["671734"], attrs={"close": "o1", "thread": ALERT})))
+    assert f"thread {ALERT} is none of its threads: {THREAD}" in reason and "pass re naming the record of his message" in reason
+
+
+def test_a_report_about_an_order_in_another_orders_thread_is_refused_when_written_until_its_re_names_his_message_there(
+    run: Callable[..., tuple[int, str]], demo: str, turn: Path, cci_records: dict[str, dict]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "the 50 dashboard improvements")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "why the card asked for Okta MFA")
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["thread"] = THREAD
+        data["orders"]["o2"]["thread"] = OTHER
+    cci_records["672468"] = {"seq": 672468, "kind": "owner", "lane": "communicator", "refs": {"url": f"https://acme.slack.com/archives/D123/p1794379200000100?thread_ts={OTHER}&cid=D123"}, "fields": {"attrs": {}}}
+    unnamed = {"progress": "true", "order": "o1", "thread": OTHER}
+    reason = refusal(record_lines.decision(coordinator(turn, kind="report", text="POST The table fix is building now", to=TO, attrs=unnamed)))
+    assert f"this report is about o1, and thread {OTHER} is none of its threads: {THREAD}" in reason and "pass re naming the record of his message" in reason
+    assert record_lines.decision(coordinator(turn, kind="report", text="POST The table fix is building now", to=TO, re="672468", attrs=unnamed)) is None
+    assert record_lines.decision(coordinator(turn, kind="report", text="POST The table fix is building now", to=TO, attrs={"progress": "true", "order": "o1", "thread": THREAD})) is None
+
+
+def test_a_report_whose_thread_is_no_slack_thread_is_refused_naming_his_dm_root(run: Callable[..., tuple[int, str]], demo: str, turn: Path) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    reason = refusal(record_lines.decision(coordinator(turn, kind="report", text="POST j1 merged", to=TO, attrs={"close": "o1", "thread": "none"})))
+    assert "thread none is no Slack thread" in reason and "leave thread out for a post at his DM root" in reason
+    assert record_lines.decision(coordinator(turn, kind="report", text="POST j1 merged", to=TO, attrs={"close": "o1"})) is None
+
+
+def test_a_post_report_telling_him_the_drive_failed_says_how_that_is_prevented(
+    run: Callable[..., tuple[int, str]], demo: str, turn: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     with state.edit(demo) as data:
         data["orders"]["o1"]["thread"] = THREAD
@@ -293,6 +333,10 @@ def test_a_post_report_telling_him_the_drive_failed_says_how_that_is_prevented(r
     assert "6a6edbf" in reason and reason.endswith(f"The lines: {failed}")
     prevented = f"{failed}; {{order:o2}} fixes the card hook"
     assert record_lines.decision(coordinator(turn, kind="report", text=prevented, to=TO, attrs={"close": "o1", "thread": THREAD})) is None
+    monkeypatch.setattr(reads, "run", lambda argv, checkout: json.dumps({"kind": "defect", "text": "check-post refused a status table", "refs": {}}))
+    cited = "POST j1 merged; tables post as Slack tables again, {record:671981}"
+    reason = refusal(record_lines.decision(coordinator(turn, kind="report", text=cited, to=TO, attrs={"close": "o1", "thread": THREAD})))
+    assert reason.endswith(f"The lines: {cited}")
 
 
 def test_a_post_report_names_what_its_post_finishes_and_the_last_part_of_an_order_closes_it(run: Callable[..., tuple[int, str]], demo: str, turn: Path) -> None:
@@ -472,7 +516,7 @@ def test_his_words_in_the_thread_of_a_card_an_orders_job_drew_go_to_the_session_
 
 def test_his_words_on_his_open_card_go_only_through_the_record_tool_that_closes_it(demo: str) -> None:
     shown = {"url": CARD, "question": LAYOUT, "asked": state.stamp(), "card": {"title": LAYOUT, "waits": "demo:j1-7"}}
-    state.cards_path(demo).write_text(json.dumps({"source": "live", "team_url": "", "questions": [shown], "pr_cards": []}))
+    state.cards_path(demo).write_text(json.dumps({"source": "live", "team_url": "", "questions": [shown], "closed": [], "pr_cards": []}))
     answer = refusal(record_lines.decision(post(kind="answer", text="the lazy copy", re=["7"], attrs={"job": "j1"})))
     assert f"his open card {CARD}" in answer and "send it with the drive's `record` tool" in answer
     under = f"{CARD}?thread_ts={CARD_THREAD}"

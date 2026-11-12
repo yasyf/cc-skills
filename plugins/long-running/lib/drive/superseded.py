@@ -173,6 +173,16 @@ def unanswered(data: dict, job: dict, found: dict | None) -> list[dict]:
     return [question for question in view.open_questions(job, found) if not said_on(data, question["card"])]
 
 
+def redrawable(data: dict, title: str, found: dict | None) -> list[dict]:
+    """Each job's question asking what this title asks whose card was withdrawn with nothing drawn in its place and no words of his under it: asking it again on any job redraws that card under its waits id."""
+    return [
+        question
+        for job in data["jobs"].values()
+        for question in job["questions"]
+        if state.same_question(question["title"], title) and view.withdrawn(found, question["card"] or question["waits"]) and not said_on(data, question["card"])
+    ]
+
+
 def redraw_refusal(data: dict, job: dict, waits: str, file: str) -> str | None:
     """Why this card may not be redrawn with another question: his words under it already answered it."""
     drawn = next((question for question in job["questions"] if question["waits"] == waits and question["card"] and question["file"] != file), None)

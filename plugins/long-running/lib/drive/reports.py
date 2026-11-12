@@ -23,9 +23,11 @@ SKIPPED = (
     " order; when a post of the drive already delivered {them}, the session holding the order marks it first with {marks}"
 )
 OFF_THREAD = (
-    "refused: this report finishes {orders}, and thread {thread} is none of its threads: {threads}. Name one of those threads,"
-    " or add this one with `drive order set <o> --thread {thread}`"
+    "refused: this report is about {orders}, and thread {thread} is none of its threads: {threads}. Name one of those threads,"
+    " or pass re naming the record of his message in this thread that the report answers, and its post adds this thread to them"
 )
+THREAD_TS = re.compile(r"\d{10}\.\d{6}")
+NOT_THREAD = "refused: thread {thread} is no Slack thread, which is named by its root message's ts, such as 1794478810.620779; leave thread out for a post at his DM root"
 SECOND_REPORT = (
     "refused: the coordinator and the meta session send one report per thread per turn, a turn running from a wake to the end of its response,"
     " and this turn already sent one for thread {thread}; put everything for that thread in that one report, and what"
@@ -84,7 +86,7 @@ def report_refusals(payload: dict, drive: dict, records: list[dict], index: int)
     yield off_thread(drive, record)
     yield UNCARDED if WAITS_ON_HIM.search(text) and not attrs(record).get("waits") and not CARD_NAMED.search(f"{text}\n{record.get('body') or ''}") else None
     yield VAGUE_WAIT if WAITS_ON_OTHER.search(text) and not (WAITED.search(text) and RUNNING.search(text)) else None
-    if posting and (lines := refs.unprevented(f"{text}\n{record.get('body') or ''}")):
+    if posting and (lines := refs.unprevented(told := f"{text}\n{record.get('body') or ''}", refs.records(drive["name"], told))):
         yield agents.Ruled(UNPREVENTED.format(lines=" | ".join(lines)), UNPREVENTED_RULE)
     if thread and state.session_role(drive, payload.get("session_id")) in ("coordinator", "meta") and not payload.get("agent_id"):
         yield second_report(payload, records, index, thread)
@@ -150,17 +152,22 @@ def skipped(drive: dict, record: dict) -> str | None:
 
 
 def off_thread(drive: dict, record: dict) -> str | None:
-    """Why a report that finishes an order, or delivers a part of one, names a thread that is none of that order's, where the line would keep no promised time."""
+    """Why a report names a thread that is no Slack thread, or none of the threads of an order it is about, finishes or delivers a part of, nor the thread of the message of his it answers through re, nor one under a card of a PR such an order holds: `say` would refuse its post there, and only its writer can name the message it answers."""
     named = attrs(record)
-    if not (thread := named.get("thread")) or not (named.get("close") or named.get("part")):
+    if not (thread := named.get("thread")):
         return None
-    job = drive["jobs"].get(named.get("job") or "")
-    items = [on for on, _ in state.part_items(named, None)]
-    orders = list(dict.fromkeys(order for order in [*state.closed_orders(named), *items, job and job["order"]] if order and order in drive["orders"]))
-    threads = list(dict.fromkeys(ts for order in orders for _, ts in slack.order_threads(drive, order, drive["orders"][order])))
-    if not orders or thread in threads:
+    if not THREAD_TS.fullmatch(thread):
+        return NOT_THREAD.format(thread=thread)
+    held = {order: own for order in state.report_orders(drive, named) if (own := [ts for _, ts in slack.order_threads(drive, order, drive["orders"][order])])}
+    threads = list(dict.fromkeys(ts for own in held.values() for ts in own))
+    if not held or thread in threads:
         return None
-    return OFF_THREAD.format(orders=", ".join(orders), thread=thread, threads=", ".join(threads) or "none yet")
+    if (asked := agents.asked_thread(listed(record.get("re")))) and asked[1] == thread:
+        return None
+    root = slack.root(drive["slack"]["channel"], thread)
+    if any(slack.names_order_pr(drive, order, root) for order in held):
+        return None
+    return OFF_THREAD.format(orders=", ".join(held), thread=thread, threads=", ".join(threads))
 
 
 def report_threads(tool_input: dict) -> set[str]:

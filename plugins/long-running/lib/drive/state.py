@@ -339,6 +339,7 @@ def load(name: str) -> dict:
         order.setdefault("once", False)
         order.setdefault("thread", None)
         order.setdefault("from_thread", None)
+        order["asked_in"] = [where if len(where) == 3 else [*where, order["last_line"] or order["created"]] for where in order.get("asked_in", [])]
         order.setdefault("releases", {})
         order.setdefault("shipped", {})
         order.setdefault("fixed", None)
@@ -352,15 +353,8 @@ def load(name: str) -> dict:
             part["after"] = [part["after"]] if isinstance(part.get("after"), str) else part.get("after") or []
     mail = data.pop("lane_mail", {})
     for job in data["jobs"].values():
-        job.setdefault("carries", {})
         job["mail_seen"] = max(job.get("mail_seen", 0), mail.get(job.get("run"), 0))
-        job.setdefault("waiting_said", [])
-        job.setdefault("waiting_claims", {})
-        job.setdefault("waits", [])
-        job.setdefault("route", None)
-        job.setdefault("may_settle", None)
-        job.setdefault("due", None)
-        job.setdefault("undelivered", [])
+        job.setdefault("where", "remote" if job.get("dispatch") else "local")
         job.setdefault("returned", job["updated"])
         if job.pop("checks", None):
             job["parts"] = []
@@ -373,6 +367,8 @@ def load(name: str) -> dict:
         if "questions" not in job:
             asked, card = job.get("question"), job.get("card")
             job["questions"] = [new_question(asked, job["said"], job["updated"], job.get("unsettled"), card)] if asked or card else []
+        for field, blank in (new_job(None, None, None, [], None) | {"session": None}).items():
+            job.setdefault(field, blank)
     for order_id, order in data["orders"].items():
         if "joins" not in order:
             carriers = (data["jobs"][job_id]["order"] for job_id in order["jobs"]) if order["incident"] else ()
@@ -385,6 +381,8 @@ def load(name: str) -> dict:
         pr.setdefault("hold_label", False)
         pr.setdefault("ready_said", None)
         pr.setdefault("native", [])
+        pr.setdefault("base", None)
+        pr.setdefault("branch", None)
         pr.setdefault("lander", None)
         pr.setdefault("checker", None)
         pr.setdefault("ejected", False)
@@ -713,6 +711,7 @@ def new_order(text: str, source: str, from_thread: str | None, thread: str | Non
         "from": source,
         "from_thread": from_thread,
         "thread": thread,
+        "asked_in": [],
         "state": "open",
         "due": None,
         "due_said": None,
@@ -752,8 +751,8 @@ def new_part() -> dict:
 
 def reporter(link: str) -> dict:
     """The bug report an order fixes, as the Slack thread its one fix-live note goes in, read from its permalink, a reply's carrying its thread's ts, or from slack:<channel>/<thread ts>, with no Slack call, since the bot may not be in that channel; none told yet."""
-    if found := CARD_LINK.search(link):
-        channel, thread = found[1], found[4] or f"{found[2]}.{found[3]}"
+    if linked := link_thread(link):
+        channel, thread = linked
     elif found := SLACK_SOURCE.fullmatch(link):
         channel, thread = found[1], found[2]
     else:
@@ -939,8 +938,14 @@ def heard_lane(data: dict, order_id: str) -> str:
 
 def card_threads(data: dict, order: dict) -> list[tuple[str, str]]:
     """The channel and thread of each card the order's jobs drew, where his answers to that card go."""
-    links = (CARD_LINK.search(question["card"]) for job_id in order["jobs"] for question in data["jobs"][job_id]["questions"] if question["card"])
-    return list(dict.fromkeys((link[1], link[4] or f"{link[2]}.{link[3]}") for link in links if link))
+    links = (link_thread(question["card"]) for job_id in order["jobs"] for question in data["jobs"][job_id]["questions"] if question["card"])
+    return list(dict.fromkeys(filter(None, links)))
+
+
+def link_thread(link: str) -> tuple[str, str] | None:
+    """The channel and thread of the Slack message a permalink names: its thread's ts for a reply, else its own ts, the thread under it."""
+    found = CARD_LINK.search(link)
+    return found and (found[1], found[4] or f"{found[2]}.{found[3]}")
 
 
 def incident_orders(data: dict, order_id: str) -> list[str]:
@@ -950,17 +955,28 @@ def incident_orders(data: dict, order_id: str) -> list[str]:
 
 
 def thread_order(data: dict, thread: str | None) -> str | None:
-    """The newest order in a thread of his, its own or the thread of a card its jobs drew, or None when no order is in it."""
-    return next(
-        (order_id for order_id, order in reversed(data["orders"].items()) if thread and thread in (order["thread"], *(ts for _, ts in card_threads(data, order)))),
-        None,
-    )
+    """The order that came last into a thread of his: added with it as its own thread or the thread of a card its jobs drew, or joined to it by a post answering his message there, the newer order winning a tie; None when no order is in it."""
+    if not thread:
+        return None
+    came = [
+        (parse_time(at), index, order_id)
+        for index, (order_id, order) in enumerate(data["orders"].items())
+        for at in ([order["created"]] if thread in (order["thread"], *(ts for _, ts in card_threads(data, order))) else []) + [at for _, ts, at in order["asked_in"] if ts == thread]
+    ]
+    return max(came)[2] if came else None
 
 
 def report_order(data: dict, attrs: dict) -> str | None:
     """The order a report is about: the one its order attr names, else the first its close attr names, else its job's, else the newest in its thread."""
     named = [attrs.get("order"), *closed_orders(attrs), (data["jobs"].get(attrs.get("job") or "") or {}).get("order")]
     return next((order_id for order_id in named if order_id in data["orders"]), None) or thread_order(data, attrs.get("thread"))
+
+
+def report_orders(data: dict, attrs: dict) -> list[str]:
+    """Every order a report is about: the one report_order reads, each its close attr names, each an item of its part attr names, and its job's."""
+    job = data["jobs"].get(attrs.get("job") or "")
+    named = [report_order(data, attrs), *closed_orders(attrs), *(on for on, _ in part_items(attrs, None)), job and job["order"]]
+    return list(dict.fromkeys(order_id for order_id in named if order_id in data["orders"]))
 
 
 def serving_lane(data: dict, kind: str, attrs: dict) -> str | None:
@@ -1400,6 +1416,8 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "hold_label": False,
         "ready_said": None,
         "native": [],
+        "base": None,
+        "branch": None,
         "draft": False,
         "merged_sha": None,
         "stuck": None,

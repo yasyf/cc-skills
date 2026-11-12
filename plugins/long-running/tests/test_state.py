@@ -57,7 +57,7 @@ def test_load_gives_each_picture_drawn_before_pictures_kept_their_source_its_kep
     (drive / "asks").mkdir()
     (drive / "asks" / "j1.md").write_text("ASK Which entry point?\nShow me:\n```rust\nfn main() {}\n```\n- Keep main\n")
     pr_card = {"card": {"prs": [{"description": "## Show me\n\n```sand\nbrowser::click(@page, @b) -> @r\n```\n"}]}}
-    (drive / "cards.json").write_text(json.dumps({"pr_cards": [pr_card], "questions": [], "source": "live", "team_url": ""}))
+    (drive / "cards.json").write_text(json.dumps({"closed": [], "pr_cards": [pr_card], "questions": [], "source": "live", "team_url": ""}))
     asked, landed = drive / "pictures" / "e133bc15ea5e3141", drive / "pictures" / "c704dc0a0eebbf8f"
     for home in (asked, landed):
         home.mkdir(parents=True)
@@ -82,7 +82,7 @@ def test_load_rebuilds_from_his_stored_card_the_ask_file_a_question_never_kept_w
     (shown / "source.json").write_text(json.dumps({"kind": "code:sql", "source": "select count(*) from alerts\n"}))
     body = f"*This question is being redone:* new numbers\nCounting reads every row.\nRecommended: exact.\n*Show me*\nOne query per table:\n![Show me]({shown / 'show-me.png'})\n![dash](/nowhere/dash.png)"
     card = {"title": "Should row counts be exact?", "body": body, "options": ["Exact: one query per table", "Estimate: the planner's numbers"], "recommended": "Exact: one query per table", "waits": "demo:j1-7"}
-    (drive / "cards.json").write_text(json.dumps({"pr_cards": [], "questions": [{"card": card}], "source": "live", "team_url": ""}))
+    (drive / "cards.json").write_text(json.dumps({"closed": [], "pr_cards": [], "questions": [{"card": card}], "source": "live", "team_url": ""}))
     kept = drive / "asks" / "j1-7.md"
     assert state.load("demo")["jobs"]["j1"]["questions"][0]["file"] == str(kept)
     assert kept.read_text() == (
@@ -190,6 +190,20 @@ def test_a_job_whose_agent_is_an_orca_dispatch_reads_as_a_lane_on_this_mac_read_
     }
     assert "run" not in jobs["j1"]
     assert (jobs["j2"]["agent"], jobs["j2"]["where"], jobs["j2"]["route"]) == ("agent-9", "local", None)
+
+
+def test_a_job_saved_before_jobs_recorded_where_they_run_reads_with_every_field_a_new_job_has_and_no_session_of_the_loader(
+    state_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    make("demo")
+    data = state.load("demo")
+    old = {"order": "o1", "kind": "builder", "goal": "fix", "parts": [], "agent": "a-1", "said": None, "state": "running", "created": "2026-11-09T02:56:00-08:00", "updated": "2026-11-09T02:56:00-08:00"}
+    data["jobs"] = {"j1": old, "j2": old | {"agent": None, "dispatch": "dispatch_1"}}
+    state.create(data)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "coordinator-session")
+    jobs = state.load("demo")["jobs"]
+    assert [(job["where"], job["session"]) for job in jobs.values()] == [("local", None), ("remote", None)]
+    assert jobs["j1"].keys() >= state.new_job("o1", "builder", "fix", [], old["created"]).keys()
 
 
 def test_an_order_whose_thread_is_its_own_post_outside_his_dm_and_watched_channels_reads_with_its_dm_thread(state_root: Path) -> None:

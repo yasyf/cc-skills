@@ -13,7 +13,7 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from drive import agents, artifacts, brief, github, install, land, limits, orca, picture, place, reads, render, served, settled, slack, state, watch
+from drive import agents, artifacts, brief, github, install, land, limits, orca, picture, place, reads, refs, render, served, settled, slack, state, watch
 from drive.state import DriveError
 
 DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
@@ -259,7 +259,7 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
     if args.thread:
         check_thread(state.load(name), {"from": args.source, "from_thread": from_thread, "thread": args.thread})
     if tooling:
-        check_tooling_words(args.words)
+        check_tooling_words(name, args.words)
     with state.edit(name) as data:
         role = state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
         if tooling and args.owner not in (None, "meta"):
@@ -417,9 +417,9 @@ def check_thread(data: dict, order: dict) -> None:
         raise DriveError(f"--thread {thread}: refused, it is a reply in thread {root}; pass --thread {root}")
 
 
-def check_tooling_words(words: str) -> None:
-    """Refuse a drive tooling order's words that `cc-slack check-post` finds anything in, since they reach him verbatim: quoted on the line above its PR card, and as the title an {order:} link shows. One line, each finding with its fix first, so a shell keeping only a refusal's last line keeps all of it."""
-    if findings := slack.post_findings(words, True):
+def check_tooling_words(name: str, words: str) -> None:
+    """Refuse a drive tooling order's words that `cc-slack check-post` finds anything in but the id of a recorded answer of his, since they reach him verbatim: quoted on the line above its PR card, and as the title an {order:} link shows. One line, each finding with its fix first, so a shell keeping only a refusal's last line keeps all of it."""
+    if findings := refs.answer_ids(slack.post_findings(words, True), state.load(name)):
         raise DriveError(
             f"refused, `cc-slack check-post` finds {'; '.join(findings)}; a \"{state.TOOLING}\" order's words reach him verbatim, quoted on"
             " the line above its PR card and as the title an {order:} link shows, so fix each in words of your own and pass the fixed words"
@@ -465,13 +465,19 @@ def his_words(link: str, deed: str) -> str:
     return link
 
 
-def drive_post_at(link: str, data: dict, order_id: str, named_part: bool) -> tuple[dict, bool]:
-    """The drive's post as Slack holds it, and whether it is in one of the order's threads: its own, on an incident each other order's of it, its jobs' cards', or a card of a PR it holds; a post that delivers a part named with --part counts wherever it was made, as a share in another channel does. A refusal names the order whose thread it is, and only when no order holds it the --joins command for his alert at its root."""
+def drive_post_at(link: str, data: dict, order_id: str, named_part: bool, asked: tuple[str, str] | None = None) -> tuple[dict, bool]:
+    """The drive's post as Slack holds it, and whether it is in one of the order's threads: its own, on an incident each other order's of it, those he asked about it in, its jobs' cards', a card of a PR it holds, or asked, the thread of the message of his its report answers, or at his DM root for an order holding no thread but those he asked about it in; a post that delivers a part named with --part counts wherever it was made, as a share in another channel does. A refusal names the order whose thread it is, and only when no order holds it the --joins command for his alert at its root."""
     posted, root = slack.message_and_root(link)
     if not posted.get("from_claude"):
         raise DriveError(f"{link} is not the drive's post")
     threads = slack.order_threads(data, order_id, data["orders"][order_id])
-    ours = not threads or posted.get("thread_ts") in {thread for _, thread in threads} or slack.names_order_pr(data, order_id, root)
+    top = posted.get("thread_ts", posted["ts"]) == posted["ts"] and state.CARD_LINK.search(link)[1] == data["slack"]["channel"]
+    ours = (
+        not threads
+        or posted.get("thread_ts") in {thread for _, thread in [*threads, *filter(None, [asked])]}
+        or (top and slack.keeps_dm_root(data, order_id, data["orders"][order_id]))
+        or slack.names_order_pr(data, order_id, root)
+    )
     if not (ours or named_part):
         held = state.thread_order(data, posted.get("thread_ts"))
         joins = (
@@ -483,7 +489,7 @@ def drive_post_at(link: str, data: dict, order_id: str, named_part: bool) -> tup
         )
         holder = f"; that thread is {held}'s, so a line about {held} is recorded on it with drive order posted {held} {link}" if held else ""
         raise DriveError(
-            f"{link} is in none of the order's threads, its own, its cards' or its PRs' cards': {', '.join(thread for _, thread in threads)};"
+            f"{link} is in none of the order's threads, its own, those he asked about it in, its cards' or its PRs' cards': {', '.join(thread for _, thread in threads)};"
             f" a post that delivers a part somewhere else is recorded with --record <the report's seq> whose part attr names it{holder}{joins}"
         )
     return posted, ours
@@ -533,7 +539,7 @@ def order_set(args: argparse.Namespace) -> int:
     if args.words is not None:
         if not (order["text"].startswith(state.TOOLING) and args.words.startswith(state.TOOLING)):
             raise DriveError(f'--words: refused, only a "{state.TOOLING}" order\'s words change, to words that open "{state.TOOLING}"; an order of his keeps his words verbatim')
-        check_tooling_words(args.words)
+        check_tooling_words(name, args.words)
     if args.proof is not None:
         check_proof(args.proof)
     alerts = alert_links(args.alerts)
@@ -698,13 +704,14 @@ def need_record_close(data: dict, order_id: str, seq: str | None, dropped_with_n
 
 
 def report_attrs(seq: str) -> dict:
-    """The attrs of a record, read from cci: a report's close, part, job and catch_up, with the lane that wrote it as its writer, when as written, and for a correction the record it corrects."""
+    """The attrs of a record, read from cci: a report's close, part, job and catch_up, with the lane that wrote it as its writer, when as written, for a correction the record it corrects, and as asked the channel and thread of the message of his it answers, followed up its re chain."""
     try:
         record = json.loads(reads.run(["cci", "show", seq, "--json"], Path.cwd()))
     except reads.ReadError as error:
         raise DriveError(f"record {seq} could not be read: {error}") from None
     corrects = {"corrects": str(record["re"])} if record["kind"] == "correction" and record.get("re") else {}
-    return record["fields"].get("attrs", {}) | {"writer": record["lane"], "written": record["at"]} | corrects
+    asked = {"asked": thread} if record.get("re") and (thread := agents.asked_thread([str(record["re"])])) else {}
+    return record["fields"].get("attrs", {}) | {"writer": record["lane"], "written": record["at"]} | corrects | asked
 
 
 def order_posted(args: argparse.Namespace) -> int:
@@ -802,13 +809,15 @@ def report_refusal(data: dict, order_id: str, report: dict) -> str | None:
 
 
 def thread_refusal(data: dict, order_id: str, where: tuple[str, str | None], report: dict) -> str | None:
-    """Why a post may not go out on an order: its channel and thread are none of the order's, its own, on an incident each other order's of it, its cards' or the thread under a card of a PR it holds, naming the channel to pass when the thread is the order's in another channel, else the order whose thread it is, if any; a post carrying a report about the order goes in the order's own threads, since posted with the other order it delivers nothing on this one."""
-    if order_id not in data["orders"] or not (threads := slack.order_threads(data, order_id, data["orders"][order_id])):
+    """Why a post may not go out on an order: its channel and thread are none of the order's, its own, on an incident each other order's of it, those he asked about it in, its cards' or the thread under a card of a PR it holds, nor the thread of the message of his its report answers when the report is about the order, nor his DM root for an order holding no thread but those he asked about it in, naming the channel to pass when the thread is the order's in another channel, else the order whose thread it is, if any; a post carrying a report about the order goes in the order's own threads, since posted with the other order it delivers nothing on this one."""
+    if order_id not in data["orders"] or not (owned := slack.order_threads(data, order_id, data["orders"][order_id])):
         return None
+    asked = [report["asked"]] if report.get("asked") and order_id in state.report_orders(data, report) else []
+    threads = list(dict.fromkeys([*owned, *asked]))
     channel, thread = where
-    if where in threads:
-        return None
     dm = data["slack"]["channel"]
+    if where in threads or (where == (dm, None) and slack.keeps_dm_root(data, order_id, data["orders"][order_id])):
+        return None
     if place := next((place for place, ts in threads if ts == thread), None):
         return f"refused, {order_id}'s thread {thread} is in his DM, so leave channel_id out" if place == dm else f"refused, {order_id}'s thread {thread} is in channel {place}, so pass channel_id {place}"
     if thread and slack.names_order_pr(data, order_id, slack.root(channel, thread)):
@@ -817,7 +826,7 @@ def thread_refusal(data: dict, order_id: str, where: tuple[str, str | None], rep
     at = "his DM root" if not thread else f"thread {thread}" if channel == dm else f"thread {thread} of channel {channel}"
     held = state.thread_order(data, thread)
     whose = f"{held}'s thread and " if held else ""
-    listed = f"refused, {at} is {whose}none of {order_id}'s threads, its own, its cards' or its PRs' cards': {named};"
+    listed = f"refused, {at} is {whose}none of {order_id}'s threads, its own, those he asked about it in, its cards' or its PRs' cards': {named};"
     record = f"drive order posted {order_id} <its permalink> --record <the report's seq>"
     if report and state.report_order(data, report) == order_id:
         part = f', or post it with no order and record "{report["part"]}" with {record}' if report.get("part") else ""
@@ -844,13 +853,15 @@ def record_post(name: str, order_id: str, link: str, report: dict) -> tuple[str,
 
 
 def record_on(name: str, order_id: str, link: str, report: dict, items: list[tuple[str | None, str]]) -> tuple[str, dict]:
-    """Record the drive's post on one order: the promised time it keeps, the time its words promise his next line by, the order's last line, and the parts its report's items deliver there."""
+    """Record the drive's post on one order: the promised time it keeps, the time its words promise his next line by, the order's last line, the parts its report's items deliver there, and, when it is in the thread of the message of his that its report, about this order, answers, that thread among the order's, with when it joined."""
     data = state.load(name)
     order = communicators_order(data, order_id)
     if refused := report_refusal(data, order_id, report):
         raise DriveError(refused)
     delivered = reported_parts(order_id, order, report, items)
-    posted, ours = drive_post_at(link, data, order_id, any(on == order_id for on, _ in items))
+    asked = report.get("asked") if order_id in state.report_orders(data, report) else None
+    posted, ours = drive_post_at(link, data, order_id, any(on == order_id for on, _ in items), asked)
+    gained = asked if (state.CARD_LINK.search(link)[1], posted.get("thread_ts")) == asked and asked not in slack.order_threads(data, order_id, order) else None
     at = slack.sent_at(posted)
     line = state.stamp(at)
     closing = order_id in state.closed_orders(report)
@@ -858,6 +869,8 @@ def record_on(name: str, order_id: str, link: str, report: dict, items: list[tup
     kept = ""
     with state.edit(name) as data:
         order = data["orders"][order_id]
+        if gained:
+            order["asked_in"].append([*gained, line])
         if ours:
             if state.owed(order) and closing:
                 state.keep_closing(order, [at], state.parse_time(report["written"]))
@@ -873,7 +886,8 @@ def record_on(name: str, order_id: str, link: str, report: dict, items: list[tup
     quoted = ", ".join(f'"{part}"' for part in delivered)
     said = f"{quoted}: posted" if delivered else "progress line, no part delivered:"
     away = "" if ours else ", outside his threads, so it is no line to him and keeps no promised time"
-    return f"{order_id} {said} {link}{away}{kept}", {"id": order_id, "parts": delivered, "posted": link, "due": order["due"]}
+    joined = f", in thread {gained[1]}, where he asked about it, now one of its threads" if gained else ""
+    return f"{order_id} {said} {link}{away}{joined}{kept}", {"id": order_id, "parts": delivered, "posted": link, "due": order["due"]}
 
 
 def promised_due(text: str, at: datetime) -> datetime | None:
@@ -998,6 +1012,7 @@ def job_set(args: argparse.Namespace) -> int:
         raise DriveError("--rework names the PRs one carried order reworks: name that order with one --carries <o>")
     refuse_unreworkable(known, args.rework, args.id)
     shown = args.card and shown_card(name, args.card)
+    lane = args.agent and args.agent.startswith(state.DISPATCH_PREFIX) and orca.placement(orca.worker(args.agent))
     with state.edit(name) as data:
         job = find(data["jobs"], args.id, "job")
         job.update({field: value for field, value in changes.items() if value is not None})
@@ -1018,8 +1033,8 @@ def job_set(args: argparse.Namespace) -> int:
             refuse_a_shared_at_once_part(job["parts"])
         if args.agent and args.agent == job.get("dispatch"):
             job.update(where="remote", agent=None, handed_to=None)
-        elif args.agent and args.agent.startswith(state.DISPATCH_PREFIX):
-            job.update(state.local_lane(args.agent), agent=None)
+        elif lane:
+            job.update(lane, where="remote", dispatch=args.agent, agent=None)
         elif args.agent:
             job["where"] = "local"
             job["session"] = os.environ.get("CLAUDE_CODE_SESSION_ID")
@@ -1213,7 +1228,7 @@ def drop_ask(name: str, job_id: str, file: Path) -> dict:
 
 
 def keep_ask(name: str, job_id: str, text: str, unsettled: str | None) -> tuple[Path, limits.Question, dict]:
-    """Keep the job's ASK block, or the ASK a DESIGN return puts to him, in its own file once it is in the shape he reads, in place of the job's open question asking the same, and set the job waiting on it; one Jev reads an answer of his as already deciding stays kept as the job's pending question with its refusal, which draws no card, so the watch says the job waits on a card never posted until it asks again or drops it."""
+    """Keep the job's ASK block, or the ASK a DESIGN return puts to him, in its own file once it is in the shape he reads, in place of the job's open question asking the same, and set the job waiting on it; a question any job asked on a card since withdrawn keeps that card's waits id, so asking it again redraws that card; one Jev reads an answer of his as already deciding stays kept as the job's pending question with its refusal, which draws no card, so the watch says the job waits on a card never posted until it asks again or drops it."""
     from drive import superseded, view
 
     text = limits.ask_block(text)
@@ -1252,11 +1267,12 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None) -> tuple[
             replaced = [*(twin for twin in twins if twin["refused"]), *reworded]
             job.update(updated=state.stamp(), may_settle=decided)
         else:
-            held = next((twin for twin in twins if twin["card"]), None) or next((twin for twin in twins if twin["waits"]), None)
+            withdrawn = superseded.redrawable(data, asked.title, cards)
+            held = next((twin for twin in [*twins, *withdrawn] if twin["card"]), None) or next((twin for twin in twins if twin["waits"]), None)
             question = state.new_question(str(kept), asked.title, held["asked"] if held else state.stamp(), unsettled)
             if held:
                 question.update(waits=held["waits"], card=held["card"])
-            replaced = [*twins, *reworded]
+            replaced = [*twins, *withdrawn, *reworded]
             moment = state.stamp()
             job.update(state="waiting", said=asked.title, updated=moment, returned=moment, may_settle=None)
         job["questions"] = [*(other for other in job["questions"] if not any(other is gone for gone in replaced)), question]
@@ -1412,7 +1428,7 @@ def cards_redraw(args: argparse.Namespace) -> int:
 
 
 def cards_withdraw(args: argparse.Namespace) -> int:
-    """Withdraw his open question card that his words, wherever he wrote them, withdraw, or whose question or options they change: it settles in place showing his words and a link to them, with no buttons, so a late tap records nothing and no question asks him on a card while its work is being redone; its job asks again on a new card once the work is back."""
+    """Withdraw his open question card that his words, wherever he wrote them, withdraw, or whose question or options they change: it settles in place showing his words and a link to them, with no buttons, so a late tap records nothing and no question asks him on a card while its work is being redone; its job asks again under the card's waits id once the work is back, which redraws it."""
     from drive import superseded, view
 
     name = state.resolve(args.drive)
@@ -1428,7 +1444,7 @@ def cards_withdraw(args: argparse.Namespace) -> int:
     view.refresh_cards(name)
     waits = shown["card"].get("waits") or view.message_key(shown["url"])
     job_id = waits.partition(":")[2].partition("-")[0]
-    again = f"; {job_id} asks again on a new card once its work is back" if job_id in state.load(name)["jobs"] else ""
+    again = f"; {job_id} asks again under {waits} once its work is back, which redraws this card" if job_id in state.load(name)["jobs"] else ""
     line = f"withdrew his card {shown['url']} ({waits}): it shows his words and a link to them, with no buttons{again}"
     return emit(args, line, {"card": shown["url"], "waits": waits, "job": job_id or None})
 
@@ -2041,10 +2057,11 @@ def pr_set(args: argparse.Namespace) -> int:
             withdrawn = slack.withdraw_pr_card(pr["url"], why)
         except slack.SlackError as error:
             raise DriveError(f"{key}: withdrawing its open card failed, so his Approve still shows: {error}; run this again") from None
-        view.refresh_cards(name)
     corrected = correct_card(name, key, pr["url"]) if args.waits or args.no_waits else ""
     out = "".join(f"\n{shipping}, so it is not a wait" for shipping in shipped.values())
-    line = render.pr_line(key, pr) + served + untapped + out + "".join(f"\nwithdrew his card {card}: {why}" for card in withdrawn) + corrected
+    view.refresh_cards(name)
+    found, source = view.stored_cards(name)
+    line = render.pr_line(key, pr, view.pr_card_words(found if source == "live" else None, source, pr["url"])) + served + untapped + out + "".join(f"\nwithdrew his card {card}: {why}" for card in withdrawn) + corrected
     return emit(args, line, {"key": key, "withdrawn": withdrawn, **pr})
 
 
@@ -2564,9 +2581,13 @@ def status(args: argparse.Namespace) -> int:
 
     name = state.resolve(args.drive)
     data = state.load(name)
-    found = view.live_cards(name)
-    for job in data["jobs"].values():
-        job["questions"] = view.open_questions(job, found)
+    view.refresh_cards(name)
+    found, source = view.stored_cards(name)
+    found = found if source == "live" else None
+    for question in (question for job in data["jobs"].values() for question in job["questions"]):
+        question["card_state"] = view.card_words(found, source, question["card"] or question["waits"])
+    for pr in data["prs"].values():
+        pr["card_state"] = view.pr_card_words(found, source, pr["url"]) if pr["state"] == "open" else None
     corrected = agents.corrections(name, data["held"])
     for seq, mark in data["held"].items():
         mark["corrections"] = corrected.get(seq, [])
@@ -2626,7 +2647,7 @@ def dashboard_command(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     port = args.port or dashboard.port_of(name)
     if args.serve:
-        dashboard.serve(name, port)
+        dashboard.serve(name, port, args.listening)
         return 0
     view.refresh_cards(name)
     print("\n".join(dashboard.start(name, port)))
@@ -3099,7 +3120,7 @@ def parser() -> argparse.ArgumentParser:
     verb.set_defaults(run=job_add)
     verb = job.add_parser("set", parents=[*both, waits_opt])
     verb.add_argument("id", help="the job")
-    verb.add_argument("--agent", help="the agent id the Agent tool returned, or the dispatch the job records, which puts it back on its Orca lane")
+    verb.add_argument("--agent", help="the agent id the Agent tool returned, the dispatch the job records, which puts it back on its Orca lane, or another Orca dispatch, filed on the Sprite or this Mac its worker-show names")
     verb.add_argument(
         "--state", choices=state.JOB_STATES, help="stopped: it ends unfinished; every other state comes from the line the job returns, and one it holds changes nothing"
     )
@@ -3522,6 +3543,10 @@ def parser() -> argparse.ArgumentParser:
     verb = verbs.add_parser("dashboard", parents=[drive_opt], help="start the drive's dashboard and print its link")
     verb.add_argument("--port", type=int, help="serve on this port instead of the drive's own")
     verb.add_argument("--serve", action="store_true", help="serve in the foreground")
+    verb.add_argument(
+        "--listening", type=int, action="append", default=[], metavar="FD",
+        help="with --serve, serve on this inherited listening socket instead of binding the port: an older install's dashboard hands its sockets to the newest this way",
+    )
     verb.set_defaults(run=dashboard_command)
     verb = verbs.add_parser("watch", parents=[drive_opt], help="start the drive's watch as its own process unless one runs")
     verb.add_argument("--loop", action="store_true", help="run the watch in the foreground: the process drive watch starts")
@@ -3557,8 +3582,8 @@ def parser() -> argparse.ArgumentParser:
         description=(
             "Withdraw his open question card that his words withdraw, wherever he wrote them, or whose question or options they"
             " change, such as more options, a new constraint or a rework of its work: it settles in place showing his words and"
-            " a link to them, with no buttons, so a late tap records nothing, and its job asks again on a new card once the"
-            " work is back."
+            " a link to them, with no buttons, so a late tap records nothing, and its question, asked again on any job once the"
+            " work is back, keeps this card's waits id and redraws it."
         ),
     )
     verb.add_argument("card", help="the card, by its waits id or its permalink")

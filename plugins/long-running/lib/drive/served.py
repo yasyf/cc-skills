@@ -38,7 +38,7 @@ VERDICT = {
     },
     "required": ["against"],
 }
-RULES = """You check a change before the drive puts it on his card for his Approve. <his_words> holds the words of each order the change serves, his own words verbatim, oldest first, with the parts of each this change delivers and, when its PRs name theirs, the parts other changes deliver, and, when this change is one PR of a job that has others, those PRs, each judged on its own; then his answers the PRs cite for the design decisions they make, oldest first, each the question he was asked and his answer, the option he tapped or his own words. <change> holds each pull request's title and diff, source files before tests. PR bodies are left out by his ruling: "Get rid of the fucking PR body check that's insane to delay on who cares about the body".
+RULES = """You check a change before the drive puts it on his card for his Approve. <his_words> holds the words of each order the change serves, his own words verbatim, oldest first, with the parts of each this change delivers and, when its PRs name theirs, the parts other changes deliver, and, when this change is one PR of a job that has others, those PRs: the merged ones, which already deliver their share, and the open ones, each judged on its own; then his answers the PRs cite for the design decisions they make, oldest first, each the question he was asked and his answer, the option he tapped or his own words. <change> holds each pull request's title and diff, source files before tests. PR bodies are left out by his ruling: "Get rid of the fucking PR body check that's insane to delay on who cares about the body".
 
 An answer of his is his words on this change as much as an order is: where an answer settles how or when an order's words are met, such as a step it leaves to a later change, judge the change against the answer.
 
@@ -46,7 +46,7 @@ List in `against` each place where the change goes against his words: it does or
 
 Leave out:
 - what his newer words on the same point overrule, an answer's included, since his newest words win;
-- what his words leave to a later change or to the parts other changes deliver, or what one PR here leaves and another PR here, or another PR of its job that <his_words> names, does;
+- what his words leave to a later change or to the parts other changes deliver, or what one PR here leaves and another PR here, or another PR of its job that <his_words> names, merged or open, does;
 - style, naming, tests and anything his words do not speak to;
 - any line the diff does not show: judge only what it shows, an unchanged context line included.
 
@@ -58,7 +58,7 @@ class Against(DriveError):
 
 
 def check(name: str, keys: list[str], also: list[str], cited: list[str], setting: dict[str, dict]) -> None:
-    """Judge the change of the PRs in keys, read whole from GitHub at each head, title and diff and never the body, against the words of every order they serve and each order in also, and against each answer of his cited names or a PR's design cites, and keep each head checked; each order is judged for the parts its PRs name, else every part its job delivers, and the job's other PRs his card waits on are named as delivering their own share, so a sibling's diff never refuses a PR. A PR's design and parts are those drive pr set kept, or those setting gives for a PR this call sets. Refuse, naming each of his words the change goes against, so his card draws only on a change checked against his words."""
+    """Judge the change of the PRs in keys, read whole from GitHub at each head, title and diff and never the body, against the words of every order they serve and each order in also, and against each answer of his cited names or a PR's design cites, and keep each head checked; each order is judged for the parts its PRs name, else every part its job delivers, and every other PR its job carries, and each job a PR here was handed from, is named as delivering its own share, the merged ones marked merged and the closed ones left out, so neither a sibling's diff nor a part an earlier PR already landed refuses a PR. A PR's design and parts are those drive pr set kept, or those setting gives for a PR this call sets. Refuse, naming each of his words the change goes against, so his card draws only on a change checked against his words."""
     data = state.load(name)
     orders = list(dict.fromkeys([*(order_id for key in keys for order_id in state.served_orders(data, data["prs"][key])), *also]))
     if all(state.checked(data, data["prs"][key]) and set(also) <= set(data["prs"][key]["checked"]["orders"]) for key in keys):
@@ -67,7 +67,9 @@ def check(name: str, keys: list[str], also: list[str], cited: list[str], setting
     prs = [data["prs"][key] | setting.get(key, {}) for key in keys]
     parts = [part for pr in prs for part in pr["parts"]]
     answered = answers(data, [*cited, *(pr.get("design") or "" for pr in prs)])
-    others = [key for key in state.carded_prs(data, prs[0]["job"]) if key not in keys]
+    urls = {pr["url"] for pr in prs}
+    carried = (state.pr_key(url) for job in data["jobs"].values() if urls & set(job["prs"]) for url in job["prs"])
+    others = [key for key in dict.fromkeys(carried) if key not in keys and data["prs"][key]["state"] != "closed"]
     if found := judged(name, words(data, data["jobs"][prs[0]["job"]], orders, parts, answered, others), changes):
         named = "; ".join(f'{item["order"]} "{cut(item["words"], 160)}": {cut(item["change"], 240)}' for item in found)
         raise Against(
@@ -175,7 +177,7 @@ def files(diff: bytes) -> list[tuple[str, str]]:
 
 
 def words(data: dict, job: dict, orders: list[str], named: list[str], answered: list[str], others: list[str]) -> str:
-    """Each order's words, oldest first, with the parts of it the change delivers: those its PRs name, with the order's other parts left to other changes, else every part of it the job delivers, shared with the job's other PRs when it has any; then the job's other PRs, each judged on its own; then each answer of his the PRs cite."""
+    """Each order's words, oldest first, with the parts of it the change delivers: those its PRs name, with the order's other parts left to other changes, else every part of it the job delivers, shared with the job's other PRs when it has any; then the job's merged PRs, which already deliver their share, and its other open PRs, each judged on its own; then each answer of his the PRs cite."""
     lines = []
     delivers = "this change and its job's other PRs deliver" if others and not named else "this change delivers"
     for order_id in sorted(orders, key=lambda order_id: data["orders"][order_id]["created"]):
@@ -187,8 +189,9 @@ def words(data: dict, job: dict, orders: list[str], named: list[str], answered: 
             + (f"\n  {delivers}: {'; '.join(parts)}" if parts else "")
             + (f"\n  other changes deliver: {'; '.join(rest)}" if rest else "")
         )
-    if others:
-        lines.append("its job's other PRs, each judged on its own, deliver their share of these orders: " + "; ".join(f'{key} "{data["prs"][key]["title"]}"' if data["prs"][key]["title"] else key for key in others))
+    for state_of, said in (("merged", "its job's merged PRs already deliver their share of these orders: "), ("open", "its job's other open PRs, each judged on its own, deliver their share of these orders: ")):
+        if held := [key for key in others if data["prs"][key]["state"] == state_of]:
+            lines.append(said + "; ".join(f'{key} "{data["prs"][key]["title"]}"' if data["prs"][key]["title"] else key for key in held))
     if answered:
         lines += ["his answers the PRs cite for the design they make:", *answered]
     return "\n".join(lines)

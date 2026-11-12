@@ -84,6 +84,14 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    - Keep one rule in one function: when code that does part of the job exists, call or extend it.
    - A result that stays wrong until someone runs another step, such as a flag nothing clears, is not
      done: ship that step here or return `ASK`.
+   - An AWS action, such as starting a pass box and reading its key, break-glass, `db-read` or a
+     devbox, runs on this Mac's own credentials first, its AWS calls under a profile
+     `~/.aws/config` chains to the machine certificate, such as
+     `AWS_PROFILE=plat-prod tools/ci pass-box launch`, break-glass through `drive break-glass`, and
+     from a Sprite as a `BREAK-GLASS` read. Nobody signs in, taps Touch ID or approves cc-sudo for
+     it, so no card, brief or `WAITING` asks him to, by his words "1 but you could have used machine
+     profile for this" and "Use break glass with machine profile then you don't need sso, I tell
+     you this once a day".
    - Run a pass, migration, backfill, conversion or bulk repair over a team's data as a service
      account inside the cluster that serves that team, started from a pipeline or an in-cluster
      schedule, in an incident too. Never run one under a person's role, SSO sign-in or admin
@@ -93,7 +101,7 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      once through this Mac's machine-profile break-glass,
      `drive break-glass <job> --stack <domain>/<env> --reason "<why>" -- <command>`, or a
      `BREAK-GLASS` read on a Sprite, by his words "manually repair his stuck ones with machine
-     profile break glass asap". Nobody signs in for it, so no card asks him to.
+     profile break glass asap".
    - Before you push, compile the Go or Rust you touched and run nothing else: tests, typechecks
      (TypeScript included), linters and review bots are CI's, and a local run only repeats them. When
      this Mac's load gate refuses a Rust or Go check in Forge-AI/monorepo, run it on the remote
@@ -208,7 +216,7 @@ event needs. The first four events then return as step 7 says.
 | Event | What you do |
 | --- | --- |
 | A failing check | Read its log, fix, push. |
-| A conflict with its base | Rebase onto the base, resolve each conflict by what both sides meant, push. |
+| A conflict with its base | Rebase onto the base, resolve each conflict by what both sides meant, push. The watch lands a `yasyf/*` PR's pushed head itself once GitHub reads it free of conflicts, so it needs no second `drive pr add`. |
 | A review | Answer or fix every finding; a non-critical bot finding you judge wrong gets a one-line reply saying why. |
 | His answers to the design cards a built branch or open PR waited on | Rebuild wherever his pick differs from the option built, and open the PR if none is open. |
 | His tap or order to land | Land it by the landing reference for its repository (`drive manual landing`). While a question card of his on the change is open, land and enqueue nothing, which the `landing_guard` hook refuses, and return `WAITING` naming the card: neither his order nor its recommended option answers it. |
@@ -339,7 +347,7 @@ listing decisions that block nothing is not a result.
 | `PUSHED <pr url> [<pr url>…]` | Pushed and registered, its CI and review still running, and its change checked against his words by `drive job report`, or on a Sprite by the watch. It is the `READY` below held until the watch reads every check the base branch requires green, waking nobody meanwhile; a red one comes back to you. |
 | `READY <pr url> [<pr url>…]` | The same, with every check the base branch requires green; the watch draws his card once it is green and approved. A stack names every PR, bottom first, so it gets one card. When he sees what you built (`NATIVE:` is not `none: he never sees it`), a Show me on its card carries a before and an after screenshot of it, pushed beside the landing when it is missing. A question whose answer only lands PRs, such as an open PR below yours, is this `READY` naming each, never an `ASK`: their stack card is his tap and needs no Show me, and `drive job ask` refuses an ask to land PRs. |
 | `BUILT <branch>, waits on <cards>` | The recommended options built and pushed on `<branch>`, no PR open, waiting on his answer to each design card the brief names, by its waits id or Slack link. Its lines name the option built for each card and what his other picks would change. |
-| `WAITING <what, in plain words>` | Another PR or a release; never CI, a review or a queue on your own PR, which `PUSHED` covers. `WAITING <your PR> waits on <cards>`, each card by its waits id or Slack link, holds that PR's card until he answers each. |
+| `WAITING <what, in plain words>` | Another PR or a release; never CI, a review or a queue on your own PR, which `PUSHED` covers, nor his sign-in, Touch ID or cc-sudo for an AWS action, which this Mac's machine profile runs. `WAITING <your PR> waits on <cards>`, each card by its waits id or Slack link, holds that PR's card until he answers each. |
 | `ASK <path>` | Only for a change of scope, a design choice his words do not settle, or a line he holds; decide everything else. |
 | `BLOCKED <what>`, then what you tried | Only when no route works. A broken tool is not a block: route around it and name it, with a `defect` on the cci `post` tool, `lane: root` and `to: [meta@<drive>]`, quoting its refusal, or for drive tooling a `DEFECT:` line. |
 | `HANDOFF <path>` | The session that started you told you to stop before you were done; the file, under your scratch directory, names the branch, what was decided and what is left. It sets the job stopped. |

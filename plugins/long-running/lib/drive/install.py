@@ -334,30 +334,8 @@ def reload_main() -> int:
     return 0
 
 
-def restart_dashboards(key: str, deadline: float) -> list[str]:
-    """Restart each drive's running dashboard that serves other code than the long-running just installed, with that install's `drive dashboard`, which replaces a server serving other code."""
-    from drive import dashboard
-
-    if key.partition("@")[0] != "long-running":
-        return []
-    plugin = Path(installed(key)["installPath"])
-    code = str((plugin / "lib" / "drive").resolve())
-    lines = []
-    for name in state.names():
-        drawn = dashboard.serving(name, dashboard.port_of(name))
-        if not drawn or drawn["code"] == code:
-            continue
-        try:
-            run([str(plugin / "bin" / "drive"), "dashboard", "--drive", name], deadline)
-        except InstallError as error:
-            lines.append(f"{name} dashboard: still serves {drawn['code']} ({error}); restart it with: drive dashboard --drive {name}")
-            continue
-        lines.append(f"{name} dashboard: restarted onto {plugin.name}")
-    return lines
-
-
 def main(plugin_at_marketplace: str, sha: str | None, repo: str | None, timeout: int) -> int:
-    """Wait for a release holding sha, its commit and each binary it pins, update the plugin and its Homebrew twin until the bare binary holds sha, print the installed version, then restart each drive dashboard serving other code and reload every drive session on this Mac."""
+    """Wait for a release holding sha, its commit and each binary it pins, update the plugin and its Homebrew twin until the bare binary holds sha, print the installed version, then reload every drive session on this Mac; each drive's dashboard hands itself to the new install on its own."""
     deadline = clock() + timeout
     try:
         version = install(plugin_at_marketplace, sha, repo, deadline, timeout)
@@ -366,6 +344,6 @@ def main(plugin_at_marketplace: str, sha: str | None, repo: str | None, timeout:
         return 1
     updated = state.now()
     print(f"installed {plugin_at_marketplace} {version}")
-    for line in [*restart_dashboards(plugin_at_marketplace, deadline), *reload_sessions(version, updated, deadline)]:
+    for line in reload_sessions(version, updated, deadline):
         print(line)
     return 0

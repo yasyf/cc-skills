@@ -12,8 +12,6 @@ Env contract:
   RELEASE_DRY_RUN    "true"/"false" — plan only, never tag or dispatch
   RELEASE_PATHS      newline-separated pathspecs of the binary's sources; only
                      commits touching them release and set the bump (empty: all)
-  RELEASE_MIN_INTERVAL  minutes the latest v* tag must age before the next
-                     release (empty or 0: no wait)
   GITHUB_ACTIONS     "true" in CI; tagging needs this or RELEASE_FORCE
   RELEASE_FORCE      "1" to allow tagging outside CI (deliberate local use)
   GITHUB_STEP_SUMMARY  optional path to append the verdict
@@ -25,7 +23,6 @@ import os
 import re
 import subprocess
 import sys
-import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -67,7 +64,7 @@ def next_version(current: tuple[int, int, int], subjects: list[str]) -> tuple[in
     return (major, minor, patch + 1)
 
 
-def plan(repo: Path, paths: list[str], min_interval: int = 0) -> Plan:
+def plan(repo: Path, paths: list[str]) -> Plan:
     if tagged := _git_out(repo, "tag", "--points-at", "HEAD", "--list", "v*"):
         return Plan(None, f"HEAD is already released as {tagged.split()[0]}")
     versions = version_tags(repo)
@@ -77,9 +74,6 @@ def plan(repo: Path, paths: list[str], min_interval: int = 0) -> Plan:
     subjects = released_subjects(repo, latest, paths)
     if not subjects:
         return Plan(None, f"nothing to release since {latest}")
-    age = (time.time() - int(_git_out(repo, "for-each-ref", "--format=%(creatordate:unix)", f"refs/tags/{latest}"))) // 60
-    if age < min_interval:
-        return Plan(None, f"{latest} is {age:.0f} min old; the next release waits until it is {min_interval} min old")
     return Plan("v%d.%d.%d" % next_version(versions[-1], subjects), f"{len(subjects)} change(s) since {latest}")
 
 
@@ -101,7 +95,7 @@ def main() -> int:
     in_ci = os.environ.get("GITHUB_ACTIONS", "").strip().lower() == "true"
     forced = os.environ.get("RELEASE_FORCE", "").strip() == "1"
 
-    p = plan(repo, os.environ.get("RELEASE_PATHS", "").split(), int(os.environ.get("RELEASE_MIN_INTERVAL") or 0))
+    p = plan(repo, os.environ.get("RELEASE_PATHS", "").split())
     if p.tag is None:
         line = f"release: not tagging — {p.reason}"
     elif dry_run or not (in_ci or forced):

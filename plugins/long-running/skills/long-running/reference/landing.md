@@ -123,12 +123,18 @@ No tap and no green gate: by his standing rule a `yasyf/*` PR merges without ask
 2. Register it with `drive pr add <url> --job <j>`, which starts the drive's lander on it: a process
    of its own, outliving your turn, that merges it with `gh pr merge <n> -R <repo> --squash --admin`,
    whatever its checks show, then runs `drive install` from the merge sha for each plugin installed on
-   this Mac whose folder the merge changes, or that is its marketplace's only plugin. It writes its
-   output to the drive's `landings.log`, and its outcome reaches the job's holder as one line,
-   `PR … merged at <sha>; <each install's version line>` or `PR … not landed: <why>`. `drive pr add`
-   prints why it started none: a draft, the `hold` label, a lander already running on it, or a base
-   other than the default branch, so a stacked PR is registered again once the PR below it merges.
-   Read the checks once they finish and fix a red one forward in a follow-up PR.
+   this Mac whose folder the merge changes, or that is its marketplace's only plugin. When GitHub
+   refuses the merge, as when `main` moved under it, the lander merges `main` into its branch with
+   `gh pr update-branch <n> -R <repo>`, its `PR … updated its branch onto its base` line waking no
+   one, and the watch starts the lander again on the new head within one GitHub read, 60 seconds.
+   The watch does the same for a head its builder pushes after a refusal, once GitHub reads it free
+   of conflicts, so nobody registers a rebased PR again. It writes its output to the drive's
+   `landings.log`, and its outcome reaches the job's holder as one line,
+   `PR … merged at <sha>; <each install's version line>` or `PR … not landed: <why>`, which comes
+   only when `gh pr update-branch` cannot bring `main` in either, on a conflict git cannot merge.
+   `drive pr add` prints why it started none: a draft, the `hold` label, a lander already running on
+   it, or a base other than the default branch, so a stacked PR is registered again once the PR
+   below it merges. Read the checks once they finish and fix a red one forward in a follow-up PR.
 3. Install by hand only what the lander does not, from the merge sha
    (`gh pr view <n> -R <repo> --json mergeCommit`):
    - A Claude Code plugin: `drive install <plugin>@<marketplace> --sha <merge sha>` (such as
@@ -155,9 +161,9 @@ No tap and no green gate: by his standing rule a `yasyf/*` PR merges without ask
      when the update left any scope's install at a commit without the merge, as a marketplace clone holding
      moved tags does, or running a binary whose release tag lacks it, naming that scope and its folder, the installed version,
      that commit or release, and the merge sha. It also refuses when the bare binary still runs a
-     release without the merge at the timeout, naming that release. Installing long-running also restarts each drive's dashboard still serving other code, a
-     line each, so no page keeps serving old code until someone restarts it; one it cannot restart names
-     the `drive dashboard --drive <name>` command to run. A live session runs the installed version's
+     release without the merge at the timeout, naming that release. Each drive's dashboard hands itself to a newer
+     long-running the moment the drive next changes after its install, by `drive install` or Claude Code's own update: that install's
+     drive takes the server's process on the same listening sockets, so its page answers throughout. A live session runs the installed version's
      script for each hook it registered at start, but loads a hook added since, and its skills, agents,
      and any plugin's tools, only on `/reload-plugins`. So the install then types that through Orca into
      every drive session's terminal on this Mac, the communicator's, the top coordinator's and each

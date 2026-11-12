@@ -67,7 +67,7 @@ STUCK_WORDS = {
     "landing": "green, approved and exempt, and not landed",
 }
 ABOUT = re.compile(r"\[(?P<order>o\d+) (?P<job>j\d+)\]$|^(?:FREE (?:\S+ )?j\d+|ORPHAN|DUE(?: j\d+)?|LIVE|TELL|JOB j\d+|LANE j\d+|STUCK j\d+) (?P<named>o\d+)\b")
-OWN_MOVES = ("new head", "checks passed", "approved", land.QUEUED, served.CHECKED)
+OWN_MOVES = ("new head", "checks passed", "approved", land.QUEUED, land.UPDATED, served.CHECKED)
 
 
 @dataclass
@@ -493,20 +493,21 @@ def rework_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def ready_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Send the communicator one ready record per native GitHub stack, or per order for PRs in none, for the PRs that wait on his card alone, once a head, so `drive card` draws his card within one GitHub read of a PR going green and approved, with no coordinator turn, and says what changed on each PR whose builder's READY met his words reworking it. A stack's record waits until every open PR of it the drive tracks waits on its next step alone with no rework owed, then names each of them that asks his tap and marks it sent on its head, so no PR mid-stack gets a ready of its own and a pass repeats none until a head moves; a record that fails to post goes again next read."""
+    """Send the communicator one ready record per stack his Approve lands, or per order for PRs in none, for the PRs that wait on his card alone, once a head, so `drive card` draws his card within one GitHub read of a PR going green and approved, with no coordinator turn, and says what changed on each PR whose builder's READY met his words reworking it. A stack's record waits until every open PR of it the drive tracks waits on its next step alone with no rework owed, each that asks his tap checked against his words at its head, then names each of them that asks his tap, bottom first, and marks it sent on its head, so no PR mid-stack or on another open PR's branch gets a ready of its own and a pass repeats none until a head moves; a record that fails to post goes again next read."""
     if watcher.cards is None:
         return []
     from drive import tools
 
     data = state.load(watcher.name)
+    stacks = landing_stacks(data)
     owed: dict[tuple[tuple[str, ...], str], list[str]] = {}
     for key, pr in data["prs"].items():
         if hears(watcher, data, pr["order"]) and card_owed(pr, data, watcher.cards):
-            stack = native_stack(data, key)
+            stack = stacks.get(key, ())
             owed.setdefault((stack, "" if stack else pr.get("serves") or pr["order"]), []).append(key)
     lines = []
     for (stack, _), keys in owed.items():
-        if not all(view.next_step(data["prs"][member], data, watcher.cards) and not data["prs"][member]["rework"] for member in stack):
+        if not all(stack_ready(data["prs"][member], data, watcher.cards) for member in stack):
             continue
         heads = {key: data["prs"][key]["head"] for key in [member for member in stack if state.asks_tap(data["prs"][member])] or keys}
         orders = list(dict.fromkeys(data["prs"][key].get("serves") or data["prs"][key]["order"] for key in heads))
@@ -527,9 +528,30 @@ def ready_lines(watcher: Watcher, moment: datetime) -> list[str]:
     return lines
 
 
-def native_stack(data: dict, key: str) -> tuple[str, ...]:
-    """The open PRs of the PR's native GitHub stack that the drive tracks, bottom first, as the watch last read it; none for a PR in no native stack."""
-    return tuple(member for member in data["prs"][key]["native"] if member in data["prs"] and data["prs"][member]["state"] == "open")
+def landing_stacks(data: dict) -> dict[str, tuple[str, ...]]:
+    """Each open PR the drive tracks in a stack, mapped to the stack's open tracked PRs bottom first, as the watch last read them: the PRs his Approve lands together, joined as stack-enqueue lands them, a PR sitting on the one before it in its native GitHub stack or, in none, on the open PR whose head branch is its base."""
+    opened = {key: pr for key, pr in data["prs"].items() if pr["state"] == "open"}
+    by_branch = {(github.repo_of(key), pr["branch"]): key for key, pr in opened.items() if pr["branch"]}
+    under: dict[str, str | None] = {}
+    for key, pr in opened.items():
+        native = [member for member in pr["native"] if member in opened]
+        under[key] = (native[native.index(key) - 1] if native.index(key) else None) if key in native else by_branch.get((github.repo_of(key), pr["base"]))
+
+    def depth(key: str) -> int:
+        return depth(parent) + 1 if (parent := under[key]) else 0
+
+    def bottom(key: str) -> str:
+        return bottom(parent) if (parent := under[key]) else key
+
+    stacks: dict[str, list[str]] = {}
+    for key in opened:
+        stacks.setdefault(bottom(key), []).append(key)
+    return {key: tuple(sorted(members, key=depth)) for members in stacks.values() if len(members) > 1 or opened[members[0]]["native"] for key in members}
+
+
+def stack_ready(pr: dict, data: dict, cards: dict) -> bool:
+    """Whether a PR lets its stack's ready record go: it waits on its next step alone with no rework owed, and if it asks his tap, its change at its head is checked against his words."""
+    return view.next_step(pr, data, cards) and not pr["rework"] and (state.checked(data, pr) or not state.asks_tap(pr))
 
 
 def order_words(data: dict, order_id: str) -> str:
@@ -1339,7 +1361,7 @@ def launching(job: dict, moment: datetime) -> bool:
 
 
 def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each running job's gap from its agent or lane, with each PR it has open, and a remote lane, running or waiting, whose worker died; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness. A local agent that ended its turn on a result line its job never took is a gap, since only `drive job report` sets a job's state from its return; a codex job's relay that ended its turn has its codex-ask run taken once that run ended, so a relay that ended before codex answered needs no wake."""
+    """Each running job's gap from its agent or lane, with each PR it has open, and a remote lane, running or waiting, whose worker died; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness, and a lane filed on this Mac whose worker-show names a Sprite is filed on that Sprite. A local agent that ended its turn on a result line its job never took is a gap, since only `drive job report` sets a job's state from its return; a codex job's relay that ended its turn has its codex-ask run taken once that run ended, so a relay that ended before codex answered needs no wake."""
     data = state.load(watcher.name)
     gaps, deaths, heads, found, taken, held, lines = {}, {}, {}, {}, {}, {}, []
     for order in heard_orders(watcher, data).values():
@@ -1379,8 +1401,11 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 lines += read_failed(watcher, source, error, moment)
                 continue
             watcher.failures.pop(source, None)
+            lane = orca.placement(worker) if state.on_mac(job) else {}
             if not job.get("run"):
-                found[job_id] = {"run": worker["dispatch"]["runId"], "task": worker["dispatch"]["taskId"], "terminal": worker["terminal"]["handle"]}
+                lane |= {"run": worker["dispatch"]["runId"], "task": worker["dispatch"]["taskId"], "terminal": worker["terminal"]["handle"]}
+            if any(job.get(field) != value for field, value in lane.items()):
+                found[job_id] = lane
             if why := orca.death(worker):
                 deaths[job_id] = (job["dispatch"], why)
             elif running:
@@ -1506,12 +1531,27 @@ def unstarted(job: dict) -> bool:
 
 
 def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: datetime) -> str | None:
-    """Why a part of the order has no one carrying it, None when it is carried, delivered or waits on something named: a change a design lists waits on each earlier change it builds on, and on his pick while the order asks for options only; a job on the order's immediate fix part carries the order's other parts too until it is done."""
+    """Why a part of the order has no one carrying it, None when it is carried, delivered or waits on something named: a change a design lists waits on each earlier change it builds on, and on his pick while the order asks for options only; a job on the order's immediate fix part carries the order's other parts too until it is done; an open incident's fix is carried only by a live job, an open PR of a job on it, a builder that returned DONE or a release that shipped it, never by a post, so once its jobs end otherwise the gap says it has no fix job and names the second one to start at once."""
     order = data["orders"][order_id]
     jobs = state.part_jobs(data, order_id, part)
     gaps = [job_gap(watcher, job_id, job, data, moment) for job_id, job in jobs]
     if stuck := [gap for (_, job), gap in zip(jobs, gaps, strict=True) if gap and (job["state"] == "running" or job["state"] == "waiting" and job.get("ask"))]:
         return stuck[-1]
+    if (
+        jobs
+        and part == state.INCIDENT_FIX
+        and state.open_incidents(data, [order_id])
+        and not order["fixed"]
+        and not any(
+            job["state"] not in state.FINISHED_JOB_STATES or job["state"] == "done" and job["kind"] == "builder" or job_id in {pr["job"] for pr in state.open_prs(data)}
+            for job_id, job in jobs
+        )
+    ):
+        last, job = jobs[-1]
+        return (
+            f"no fix job: {last} ended {job['state']} with no open PR; start the second fix job now, an Opus 5.5 long-running:builder on {last}'s brief:"
+            f" drive job add builder --order {order_id} --part {state.INCIDENT_FIX} --goal {shlex.quote(job['goal'])} (incidents: Clocks)"
+        )
     if state.delivered(data, order_id, part):
         return None
     if part != state.IMMEDIATE_FIX and any(job["state"] in ("running", "waiting", "built") for _, job in state.part_jobs(data, order_id, state.IMMEDIATE_FIX)):
@@ -1673,9 +1713,11 @@ def carried_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def landed(watcher: Watcher) -> None:
-    """Start the drive's lander on each PR the watch hears that his Approve or an exempt class clears once it qualifies, within one GitHub read of it going green and approved."""
+    """Start the drive's lander on each PR the watch hears that his Approve or an exempt class clears once it qualifies, within one GitHub read of it going green and approved, and on each yasyf/* one whose head moved past the one its lander tried, so a branch its builder or the lander brought onto its base merges with no builder registering it again."""
     data = state.load(watcher.name)
-    land.start(watcher.name, [key for key in state.open_pr_keys(data) if hears(watcher, data, data["prs"][key]["order"])], watcher.cards)
+    keys = [key for key in state.open_pr_keys(data) if hears(watcher, data, data["prs"][key]["order"])]
+    land.start(watcher.name, keys, watcher.cards)
+    land.follow(watcher.name, keys)
 
 
 def holder_line(line: str, data: dict) -> str | None:

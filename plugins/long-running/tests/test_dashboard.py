@@ -1,18 +1,24 @@
+import contextlib
 import html
 import http.client
 import json
+import os
 import re
+import socket
 import subprocess
+import sys
 import threading
 import time
 import types
 import urllib.parse
+import urllib.request
+from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Self
 
 import pytest
-from drive import dashboard, picture, state, view
+from drive import cli, dashboard, picture, state, view
 from test_view import drive_of, found, job, order, pr
 
 NET = dashboard.Tailnet("box", "box.tail1.ts.net", ["100.64.0.1", "fd7a::1"], "owner@example.com", False)
@@ -55,7 +61,7 @@ def test_page_answers_its_own_tailnet_names_and_refuses_any_other_host(https: bo
 
 
 def test_a_plain_http_link_to_the_tailnet_port_moves_to_https_on_the_full_name() -> None:
-    server = dashboard.Server(dashboard.LOOPBACK, 0, BaseHTTPRequestHandler, types.SimpleNamespace(name="box.tail1.ts.net"))
+    server = dashboard.Server(socket.create_server((dashboard.LOOPBACK, 0)), BaseHTTPRequestHandler, types.SimpleNamespace(name="box.tail1.ts.net"))
     port = server.server_address[1]
     threading.Thread(target=server.serve_forever, daemon=True).start()
     connection = http.client.HTTPConnection(dashboard.LOOPBACK, port, timeout=5)
@@ -93,6 +99,82 @@ def test_a_dashboard_answer_cut_off_as_it_stops_reads_as_nothing_serving_so_a_re
 
     monkeypatch.setattr(dashboard.urllib.request, "urlopen", lambda url, timeout: Stopping())
     assert dashboard.serving("demo", 41330) is None
+
+
+def test_a_drive_saved_by_a_newer_install_hands_the_port_to_that_install_which_answers_throughout(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    newer = tmp_path / "cache" / "9.9.9" / "bin" / "drive"
+    path = state.state_path(demo)
+    done = threading.Event()
+    answers: list[object] = []
+    handed: list[list[str]] = []
+    reopened: list[threading.Thread] = []
+
+    class Handed(Exception):
+        pass
+
+    class Stopped(Exception):
+        pass
+
+    def changes(name: str) -> Iterator[None]:
+        while not done.is_set():
+            yield
+            time.sleep(0.05)
+        raise Stopped
+
+    def reopen(argv: list[str]) -> None:
+        with contextlib.suppress(Stopped):
+            cli.main(argv)
+
+    def execv(executable: str, argv: list[str]) -> None:
+        handed.append(argv)
+        monkeypatch.setattr(dashboard.install, "upgraded", lambda: None)
+        monkeypatch.setattr(state, "VERSION", "9.9.9")
+        inherited = [f"--listening={os.dup(int(arg.removeprefix('--listening=')))}" if arg.startswith("--listening=") else arg for arg in argv]
+        reopened.append(threading.Thread(target=reopen, args=(inherited[3:],), daemon=True))
+        reopened[0].start()
+        raise Handed
+
+    def ask() -> None:
+        while not done.is_set():
+            try:
+                with urllib.request.urlopen(dashboard.url_of(port) + "api/view", timeout=10) as answer:
+                    answers.append(json.load(answer)["drive"])
+            except OSError as error:
+                answers.append(error)
+
+    def newer_install_saves() -> None:
+        while dashboard.serving(demo, port) is None:
+            time.sleep(0.05)
+        threading.Thread(target=ask, daemon=True).start()
+        time.sleep(0.3)
+        saving = path.with_name("drive.json.newer")
+        saving.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "9.9.9"}))
+        saving.replace(path)
+
+    monkeypatch.setattr(dashboard, "changes", changes)
+    monkeypatch.setattr(dashboard, "tailnet", lambda: None)
+    monkeypatch.setattr(dashboard, "home_repo", lambda checkout: None)
+    monkeypatch.setattr(dashboard.signal, "signal", lambda signum, handler: None)
+    monkeypatch.setattr(dashboard.install, "upgraded", lambda: newer if json.loads(path.read_text())["saved_by"] == "9.9.9" else None)
+    monkeypatch.setattr(dashboard.os, "execv", execv)
+    with socket.create_server((dashboard.LOOPBACK, 0)) as probe:
+        port = probe.getsockname()[1]
+    threading.Thread(target=newer_install_saves, daemon=True).start()
+    with pytest.raises(Handed):
+        dashboard.serve(demo, port, [])
+    handed_at = len(answers)
+    deadline = time.monotonic() + 10
+    while len(answers) < handed_at + 3 and time.monotonic() < deadline:
+        time.sleep(0.05)
+    done.set()
+    reopened[0].join(5)
+    [argv] = handed
+    assert argv[:-1] == [sys.executable, "-I", str(newer), "dashboard", "--drive", demo, "--port", str(port), "--serve"]
+    assert re.fullmatch(r"--listening=\d+", argv[-1])
+    assert len(answers) >= handed_at + 3
+    assert set(answers) == {demo}
 
 def test_an_answer_reaches_cc_slack_only_from_the_page_itself_for_a_card_still_waiting_on_that_option(monkeypatch: pytest.MonkeyPatch) -> None:
     card = "https://acme.slack.com/archives/D1/p100"
@@ -851,6 +933,131 @@ done({ closed, opened, again, shortShown: getComputedStyle(button()).display !==
         "opened": {"text": "Show less", "expanded": "true", "open": True, "focused": True},
         "again": {"text": "Explain more", "expanded": "false", "open": False},
         "shortShown": False,
+    }
+
+
+def test_j_and_k_step_through_the_queue_a_question_mark_shows_every_key_and_a_number_answers_only_inside_the_card(tmp_path: Path) -> None:
+    second = QUESTION | {"answer": "https://x.slack.com/archives/D1/p1794382453859300", "title": "Shard it?", "card": QUESTION["card"] | {"title": "Shard it?"}}
+    seen = browse(tmp_path, """
+location.hash = '#/queue/all';
+await wait(100);
+const press = (key, at = document.body) => at.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+const title = () => document.querySelector('#item-title').textContent;
+press('j');
+await wait(50);
+const stepped = [title()];
+press('k');
+await wait(50);
+stepped.push(title());
+const sent = [];
+const real = window.fetch;
+window.fetch = (url, options) => (url === '/api/answer' ? (sent.push(JSON.parse(options.body).label), new Promise(() => {})) : real(url, options));
+const choices = () => [...document.querySelectorAll('#main .focus-card button[data-card]')];
+press('2');
+await wait(50);
+const outside = { focused: choices().indexOf(document.activeElement), sent: [...sent] };
+press('?', document.activeElement);
+await wait(50);
+const sheet = document.querySelector('#keys');
+const keys = { open: sheet.open, title: sheet.querySelector('h2').textContent, groups: [...sheet.querySelectorAll('h3')].map((group) => group.textContent) };
+sheet.close();
+document.querySelector('#main [data-keys]').click();
+await wait(50);
+keys.footer = sheet.open;
+sheet.close();
+press('1', choices()[1]);
+await wait(50);
+done({ stepped, outside, keys, inside: sent });
+""", board(queue=[QUESTION, second]))
+    assert seen == {
+        "stepped": ["Shard it?", "Raise the limit?"],
+        "outside": {"focused": 1, "sent": []},
+        "keys": {"open": True, "title": "Keyboard shortcuts", "groups": ["Anywhere", "Your queue", "A pull request card", "Writing to Claude", "Jump", "An enlarged picture"], "footer": True},
+        "inside": ["Raise it"],
+    }
+
+
+def test_jump_lists_each_pr_once_finds_it_by_number_or_repo_marks_what_matched_and_counts_what_it_leaves_out(tmp_path: Path) -> None:
+    stack = [{"url": f"https://github.com/a/b/pull/{n}", "title": f"Fix: the lock, part {n}", "summary": "", "refresher": "", "show_me": "", "head": "abc"} for n in (101, 102)]
+    tap = {
+        "kind": "tap", "answer": "https://x.slack.com/archives/D1/p1794382453859300", "url": "https://x.slack.com/archives/D1/p1794382453859300", "title": "Fix: the lock", "since": None,
+        "links": [], "thread": None, "holds": 0, "blocks": [], "card": {"title": "Approve the lock?", "options": ["Approve", "Hold"], "recommended": "Approve", "prs": stack},
+    }
+    review = [
+        {"key": f"a/b#{n}", "title": title, "url": f"https://github.com/a/b/pull/{n}", "head": "abc", "group": "you", "feature": "o1", "feature_title": "ship the fix", "detail": "",
+         "checks": "pass", "review": "approved", "tap": None, "stuck": None, "since": None, "updated": None, "card": None, "answer": None, "thread": None}
+        for n, title in ((101, "Fix: the lock, part 101"), (102, "Fix: the lock, part 102"), (103, "New: export the board"))
+    ]
+    lanes = [board()["work"][0] | {"id": f"j{n}", "goal": f"lane {n}"} for n in range(45)]
+    seen = browse(tmp_path, """
+location.hash = '#/history';
+await wait(100);
+document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }));
+await wait(100);
+const find = document.querySelector('#jumpfind');
+const typed = async (text) => {
+  find.value = text;
+  find.dispatchEvent(new Event('input'));
+  await wait(50);
+  const rows = [...document.querySelectorAll('#jumplist li')];
+  return { rows: rows.slice(0, 3).map((row) => [row.querySelector('em').textContent, row.querySelector('.jump-title').textContent, row.querySelector('code')?.textContent ?? '']),
+    shown: rows.length, marks: [...document.querySelectorAll('#jumplist mark')].map((mark) => mark.textContent), note: document.querySelector('#jumpnote').textContent };
+};
+const number = await typed('101');
+const once = await typed('lock');
+const many = await typed('lane');
+const none = await typed('zzz');
+const nothing = { ...none, active: find.getAttribute('aria-activedescendant') };
+const repo = await typed('a/b');
+const roles = { list: document.querySelector('#jumplist').getAttribute('role'), rows: [...document.querySelectorAll('#jumplist li')].map((row) => [row.getAttribute('role'), row.getAttribute('aria-selected')]), active: find.getAttribute('aria-activedescendant') };
+find.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+await wait(50);
+const down = { active: find.getAttribute('aria-activedescendant'), selected: [...document.querySelectorAll('#jumplist [aria-selected="true"]')].map((row) => row.id), focus: document.activeElement.id };
+done({ number, once, many: { shown: many.shown, note: many.note }, nothing, repo, roles, down });
+""", board(queue=[tap], review=review, work=lanes))
+    pull = "Pull request"
+    assert seen["number"] == {"rows": [[pull, "Fix: the lock", "a/b#101 +1"]], "shown": 1, "marks": ["101"], "note": "1 match"}
+    assert seen["once"] == {"rows": [[pull, "Fix: the lock", "a/b#101 +1"]], "shown": 1, "marks": ["lock"], "note": "1 match"}
+    assert seen["many"] == {"shown": 40, "note": "The first 40 of 45 matches. Type more to narrow them."}
+    assert seen["nothing"] == {
+        "rows": [], "shown": 0, "marks": [], "active": None,
+        "note": "Nothing matches “zzz”. Jump finds a screen, a question, a pull request by its title, number or repo, a task, or a job.",
+    }
+    assert seen["repo"]["rows"] == [[pull, "Fix: the lock", "a/b#101 +1"], [pull, "New: export the board", "a/b#103"]]
+    assert seen["repo"]["marks"] == ["a/b", "a/b"]
+    assert seen["roles"] == {"list": "listbox", "rows": [["option", "true"], ["option", "false"]], "active": "jump-0"}
+    assert seen["down"] == {"active": "jump-1", "selected": ["jump-1"], "focus": "jumpfind"}
+
+
+def test_a_lane_file_reads_in_the_pages_own_prose_under_one_title_and_hands_focus_back_on_close(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    brief = tmp_path / "j0-brief.md"
+    brief.write_text("Order: keep <b>rows</b> in place\n\n## Plan\n\n- Patch the rows\n- Measure the scroll\n\n| Step | File |\n| --- | --- |\n| Patch | `list.js` |\n")
+    goal = "<img src=x onerror=alert(1)> the lock"
+    job = {"goal": goal, "where": "remote", "agent": None, "session": None, "questions": [], "brief": str(brief), "report": None, "repro": None}
+    monkeypatch.setattr(dashboard.state, "load", lambda name: {"jobs": {"j0": job}})
+    lane = board()["work"][0] | {"goal": goal, "files": ["brief"]}
+    seen = browse(tmp_path, """
+location.hash = '#/work/Platform/SandSQL/j0';
+await wait(150);
+const button = document.querySelector('#main .lane-inspector [data-file="j0/brief"]');
+button.focus();
+button.click();
+await wait(150);
+const drawn = (at) => ({ titles: [...at.querySelectorAll('h1, h2, .dr-bar b')].map((title) => title.textContent), cells: [...at.querySelectorAll('.reader-body td')].map((cell) => cell.textContent),
+  items: [...at.querySelectorAll('.reader-body li')].map((item) => item.textContent), markup: at.querySelectorAll('.reader-body b, img').length });
+const reader = document.querySelector('#reader');
+const opened = { open: reader.open, frames: reader.querySelectorAll('iframe').length, tab: reader.querySelector('a.ext').getAttribute('href'), ...drawn(reader) };
+reader.close();
+await wait(50);
+const back = document.activeElement.dataset.file;
+location.hash = '#/file/j0/brief';
+await wait(150);
+done({ opened, back, tab: drawn(document.querySelector('#main')) });
+""", board(work=[lane]))
+    assert seen == {
+        "opened": {"open": True, "frames": 0, "tab": "/#/file/j0/brief", "titles": [f"j0 brief: {goal}"], "cells": ["Patch", "list.js"], "items": ["Patch the rows", "Measure the scroll"], "markup": 0},
+        "back": "j0/brief",
+        "tab": {"titles": [f"j0 brief: {goal}"], "cells": ["Patch", "list.js"], "items": ["Patch the rows", "Measure the scroll"], "markup": 0},
     }
 
 

@@ -16,6 +16,8 @@ def node(**overrides: object) -> dict:
         "state": "OPEN",
         "isDraft": False,
         "headRefOid": "abc1234def",
+        "baseRefName": "main",
+        "headRefName": "fix-the-thing",
         "title": "Fix the thing",
         "author": {"login": "yasyf"},
         "reviewDecision": None,
@@ -34,7 +36,7 @@ def stored(head: str = "abc", failed: list[str] | None = None) -> dict:
 
 
 def pr_read(rollup: list[dict], **overrides: object) -> dict:
-    return {"state": "OPEN", "checks": rollup, "reviewDecision": None, "approvals": [], "mergeable": "MERGEABLE", "headRefOid": "abc", "title": "T", "author": "yasyf", "labels": [], "native": [], **overrides}
+    return {"state": "OPEN", "checks": rollup, "reviewDecision": None, "approvals": [], "mergeable": "MERGEABLE", "headRefOid": "abc", "baseRefName": "main", "headRefName": "lane", "title": "T", "author": "yasyf", "labels": [], "native": [], **overrides}
 
 
 def test_query_aliases_one_repository_per_repo_and_one_pull_per_number() -> None:
@@ -82,6 +84,8 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "state": "OPEN",
             "isDraft": False,
             "headRefOid": "abc1234def",
+            "baseRefName": "main",
+            "headRefName": "fix-the-thing",
             "mergeCommit": None,
             "checks": GREEN,
             "reviewDecision": None,
@@ -96,6 +100,8 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "state": "MERGED",
             "isDraft": False,
             "headRefOid": "abc1234def",
+            "baseRefName": "main",
+            "headRefName": "fix-the-thing",
             "mergeCommit": "fff000",
             "checks": [],
             "reviewDecision": "APPROVED",
@@ -214,6 +220,8 @@ def test_live_maps_a_read_onto_the_stored_vocabulary() -> None:
         "failed_checks": ["buildkite/deploy"],
         "review": "changes",
         "head": "abc",
+        "base": "main",
+        "branch": "lane",
         "title": "T",
         "author": "yasyf",
         "hold_label": False,
