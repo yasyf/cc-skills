@@ -30,7 +30,7 @@ def call(tool: str, transcript: Path | None = None, **tool_input: object) -> dic
 
 @pytest.fixture
 def builder(run: Run, demo: str) -> Callable[..., None]:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
 
     def holds(**fields: object) -> None:

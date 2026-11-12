@@ -141,7 +141,7 @@ His rulings already live in cc-notes answers.
    <channels>."`; the old holder answers him until that record arrives.
 3. Carry each order whose deliverable is not live yet, unless he dropped or replaced it, in his
    words verbatim, because his words are the spec:
-   `drive order add "<his words>" --from migrated:<old row> --project <name> --workstream <name> --thread <ts> --due <the time he was promised>`,
+   `drive order add "<his words>" --from migrated:<old row> --project <name> --workstream <name> --title "<a few words>" --thread <ts> --due <the time he was promised>`,
    reusing a pair `drive order unfiled` lists as in use where one fits. Leave `--due` and `--thread`
    (his DM thread's ts) off when he was promised no time. Leave `--kind` off, because a `build`
    order refuses step 4's builder jobs until a reader's research is kept. An open incident without a `fix-live` record is an order too, run by

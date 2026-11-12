@@ -413,7 +413,7 @@ def test_a_line_in_his_thread_over_60_words_is_refused_with_its_count_limit_and_
 def test_a_bug_reports_thread_gets_its_fix_live_note_only_once_the_fix_is_proven_live_and_a_second_live_report_posts_no_second_line(
     run: Run, talker: str, transcript: Path, slack_thread: Thread
 ) -> None:
-    run("order", "add", "--project", "p", "--workstream", "w", "fix the stuck staging deploy", "--reporter", REPORTED)
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "fix the stuck staging deploy", "--reporter", REPORTED)
     note = {"channel_id": "C0REPORTS01", "thread_ts": "1794400100.000200", "text": "Fixed: staging deploys go through again since 10:02 AM."}
     assert message_limits.deny_reason(call("slack_reply", transcript, **note)).startswith(
         "Refused on purpose: the fix for the bug reported in this thread keeps no proof that it is live"
@@ -789,7 +789,7 @@ def test_a_post_saying_a_pr_waits_on_his_tap_is_refused_unless_he_has_its_tap_ca
 def test_a_tap_card_say_just_drew_lets_the_next_say_link_it_as_what_the_pr_waits_on(
     run: Run, talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
     url, link = "https://github.com/yasyf/cc-skills/pull/7", f"https://acme.slack.com/archives/{DM}/p1794300000000500"
     with state.edit("demo") as data:
@@ -1110,8 +1110,8 @@ def test_a_post_calling_a_job_stuck_is_found_until_its_poster_read_that_jobs_tra
 
 
 def test_a_summary_naming_a_drive_pr_is_found_until_it_says_what_the_pr_serves(talker: str, transcript: Path, run: Run) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: the watch reads taps")
-    run("order", "add", "--project", "The drive", "--workstream", "Cards", "cards show under the line")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: the watch reads taps")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Cards", "cards show under the line")
     holds_pr("o1")
     with state.edit("demo") as data:
         data["prs"]["Forge-AI/monorepo#53619"] = state.new_pr("https://github.com/Forge-AI/monorepo/pull/53619", "j1", "o2")
@@ -1146,7 +1146,7 @@ def test_a_word_he_corrected_is_found_in_the_text_a_links_words_a_caption_or_a_c
 
 def test_a_pr_card_serving_drive_tooling_under_a_line_leaving_out_that_orders_words_is_found(talker: str, transcript: Path, run: Run) -> None:
     tooling = "Drive tooling: a card named in a post shows under the line"
-    run("order", "add", "--project", "The drive", "--workstream", "Cards", "cards show under the line")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Cards", "cards show under the line")
     holds_pr("o1")
     with state.edit("demo") as data:
         data["orders"]["o1"]["text"] = tooling
@@ -1699,7 +1699,7 @@ def test_a_promise_names_the_order_job_or_time_that_carries_it(talker: str, tran
 
 
 def test_while_he_is_away_only_cards_incident_lines_and_answers_go_out(run: Run, talker: str, transcript: Path) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     with state.edit("demo") as data:
         data["owner"] = {"heard": state.stamp(), "away": True}
         data["orders"]["o1"].update(thread="1.2", incident=True)
@@ -1718,7 +1718,7 @@ def test_while_he_is_away_only_cards_incident_lines_and_answers_go_out(run: Run,
 def test_an_incident_report_keeps_its_alert_links_bare_by_the_incident_its_order_or_record_marks(
     run: Run, talker: str, transcript: Path, checked: Checked, slack_thread: Thread, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "unblock the users")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "unblock the users")
     with state.edit("demo") as data:
         data["orders"]["o1"].update(thread="1.2", incident=True)
     monkeypatch.setattr(
@@ -1739,8 +1739,8 @@ def test_an_incident_report_keeps_its_alert_links_bare_by_the_incident_its_order
 def test_a_report_held_while_he_is_away_is_marked_held_and_its_coordinator_told_once(
     run: Run, talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "unblock the users")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "unblock the users")
     with state.edit("demo") as data:
         data["owner"] = {"heard": state.stamp(), "away": True}
         data["orders"]["o2"]["incident"] = True
@@ -1799,7 +1799,7 @@ def test_a_say_code_visual_of_raw_data_is_refused_and_a_short_snippet_goes_out(t
 
 
 def test_an_edit_of_his_question_card_is_refused_naming_the_redraw(run: Run, talker: str, transcript: Path) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
     card = f"https://acme.slack.com/archives/{DM}/p1794288799976279"
     with state.edit("demo") as data:

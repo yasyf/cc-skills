@@ -26,7 +26,7 @@ ORIGIN = "git@github.com:Forge-AI/monorepo.git"
 
 @pytest.fixture
 def drive_pr(run: Run, demo: str) -> str:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
     run("pr", "add", PR, "--job", "j1")
     return state.pr_key(PR)
@@ -68,7 +68,7 @@ def hook_output(module: object, monkeypatch: pytest.MonkeyPatch, capsys: pytest.
 
 
 def test_session_start_gives_each_role_its_own_context(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch, watch_process: WatchProcess) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     watch_process.ensured.clear()
     output = session_start.respond({"session_id": os.environ["CLAUDE_CODE_SESSION_ID"], "source": "resume"})
     assert output["hookSpecificOutput"]["hookEventName"] == "SessionStart"
@@ -85,7 +85,7 @@ def test_session_start_gives_each_role_its_own_context(demo: str, run: Run, monk
 def test_session_start_gives_a_sub_coordinator_its_projects_context_and_starts_and_subscribes_it_to_its_projects_watch(
     demo: str, run: Run, monkeypatch: pytest.MonkeyPatch, watch_process: WatchProcess
 ) -> None:
-    run("order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
     run("start", "demo", "--role", "coordinator", "--project", "Iris")
     watch_process.ensured.clear()
@@ -209,7 +209,7 @@ def agent_stop(message: str, session: str | None = None, **fields: object) -> di
 def test_a_drive_job_with_a_long_final_message_is_sent_back_to_keep_it_in_its_report(
     demo: str, run: Run, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
     run("job", "set", "j1", "--agent", "a-7")
     long = "WAITING CI on the PR\nPR: https://github.com/yasyf/cc-skills/pull/1\nCHECK: build 12"
@@ -240,7 +240,7 @@ def test_a_handler_is_held_to_one_line_and_other_sessions_are_left_alone(demo: s
 def test_a_drive_jobs_stop_sets_no_state_whatever_line_it_lets_through(
     demo: str, run: Run, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
     run("job", "set", "j1", "--agent", "a-7")
     returned = "WAITING: CI on #1\nPR: https://github.com/yasyf/cc-skills/pull/1"
@@ -253,7 +253,7 @@ def test_a_drive_jobs_stop_sets_no_state_whatever_line_it_lets_through(
 def test_a_stop_on_an_ask_leaves_its_job_waiting_on_the_question_drive_job_ask_set(
     demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--agent", "a-9")
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
@@ -281,7 +281,7 @@ def stepped(tmp_path: Path, brief: str, session: str | None = None, prompted: st
 def test_an_agent_is_recorded_on_its_briefs_job_by_its_own_steps_and_a_step_after_a_wake_runs_it_again(
     demo: str, run: Run, tmp_path: Path, no_calls: list[list[str]], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--remote")
     run("job", "add", "reader", "--order", "o1", "--goal", "read it")
     brief = "Goal: fix it\nDrive: demo, order o1, job j1\nScratch: /x"
@@ -304,7 +304,7 @@ def test_an_agent_is_recorded_on_its_briefs_job_by_its_own_steps_and_a_step_afte
 def test_a_reader_that_kept_its_done_stays_done_through_its_later_calls_and_stop_until_a_wake(
     demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "--kind", "answer", "why is it slow")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "--kind", "answer", "why is it slow")
     run("job", "add", "reader", "--order", "o1", "--goal", "answer why it is slow", "--agent", "a-9")
     findings = "The store lock is held for each copy\nsupervisor/copies.rs:42 takes it\n"
     monkeypatch.setattr("sys.stdin", io.StringIO(f"DONE it waits on the store lock\n{findings}"))
@@ -321,7 +321,7 @@ def test_a_reader_that_kept_its_done_stays_done_through_its_later_calls_and_stop
 def test_an_agent_whose_brief_names_no_job_runs_the_job_recorded_with_it_after_a_wake(
     demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--agent", "a-9")
     with state.edit("demo") as data:
         data["jobs"]["j1"].update(state="waiting", said="Which store?", returned=state.stamp())
@@ -333,7 +333,7 @@ def test_an_agent_whose_brief_names_no_job_runs_the_job_recorded_with_it_after_a
 def test_a_handlers_steps_never_bind_it_to_the_job_its_brief_names(
     demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--remote")
     handled = stepped(tmp_path, "Record: 661301\nDrive: demo, order o1, job j1\nScratch: /x", agent_type="long-running:handler")
     assert hook_output(landing_guard, monkeypatch, capsys, json.dumps(bash("git status") | handled)) == ""
@@ -344,7 +344,7 @@ def test_a_handlers_steps_never_bind_it_to_the_job_its_brief_names(
 def test_an_agent_of_another_kind_never_holds_the_job_its_brief_names(
     demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], agent_type: str
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
     run("job", "add", "design", "--order", "o1", "--goal", "design it", "--agent", "a-1")
     with state.edit("demo") as data:
@@ -363,7 +363,7 @@ def test_an_agent_of_another_kind_never_holds_the_job_its_brief_names(
 def test_a_step_never_replaces_a_remote_jobs_dispatch(
     demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--remote")
     with state.edit("demo") as data:
         data["jobs"]["j1"].update(dispatch="ctx_lane0001", workspace="pool-one")
@@ -376,7 +376,7 @@ def test_a_step_never_replaces_a_remote_jobs_dispatch(
 def test_a_codex_relay_or_an_incidents_second_lane_builder_holds_the_codex_job_its_brief_names(
     demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], agent_type: str
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "codex", "--order", "o1", "--goal", "fix it")
     hook_output(no_file_tools, monkeypatch, capsys, json.dumps(file_call("Read") | stepped(tmp_path, "Drive: demo, order o1, job j1", agent_type=agent_type)))
     assert state.load("demo")["jobs"]["j1"]["agent"] == "a-9"
@@ -385,7 +385,7 @@ def test_a_codex_relay_or_an_incidents_second_lane_builder_holds_the_codex_job_i
 def test_a_step_leaves_a_stopped_job_and_a_job_another_agent_runs_as_they_are(
     demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--agent", "a-1")
     run("job", "add", "reader", "--order", "o1", "--goal", "read it")
     run("job", "set", "j2", "--state", "stopped")
@@ -399,7 +399,7 @@ def test_a_step_leaves_a_stopped_job_and_a_job_another_agent_runs_as_they_are(
 def test_a_fresh_agent_on_a_running_jobs_brief_takes_it_over_once_its_old_session_is_gone(
     demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--agent", "a-1")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "after-restart")
     run("start", "demo", "--role", "coordinator")
@@ -415,7 +415,7 @@ def test_resume_from_a_session_that_did_not_start_the_jobs_agent_hands_the_job_t
 ) -> None:
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "meta-before-restart")
     run("start", "demo", "--role", "meta")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a verb for owners")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a verb for owners")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--agent", "a-1")
     run("job", "brief", "j1", "--serves", "drive tooling", "--done-when", "merged", "--where", "yasyf/cc-skills main")
     assert cli.main(["job", "resume", "j1", "go"]) == 2
@@ -439,7 +439,7 @@ def test_resume_hands_a_job_saved_before_jobs_recorded_where_they_run_and_their_
 ) -> None:
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "meta-session")
     run("start", "demo", "--role", "meta")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a verb for owners")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a verb for owners")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--agent", "a-1")
     run("job", "brief", "j1", "--serves", "drive tooling", "--done-when", "merged", "--where", "yasyf/cc-skills main")
     saved = json.loads(state.state_path(demo).read_text())
@@ -455,7 +455,7 @@ def test_resume_hands_a_job_saved_before_jobs_recorded_where_they_run_and_their_
 def test_an_agent_that_stops_before_any_step_is_recorded_and_sent_back_to_keep_its_line(
     demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "reader", "--order", "o1", "--goal", "read it")
     stop = agent_stop("j1 is answered: the hook never ran", **stepped(tmp_path, "Drive: demo, order o1, job j1", agent_type="long-running:reader"))
     output = json.loads(hook_output(one_line_result, monkeypatch, capsys, json.dumps(stop)))
@@ -467,7 +467,7 @@ def test_an_agent_that_stops_before_any_step_is_recorded_and_sent_back_to_keep_i
 def test_an_agent_started_on_a_brief_drive_wrote_is_recorded_on_that_briefs_job(
     demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
     code, out = run("job", "brief", "j1", "--serves", "his order", "--done-when", "merged", "--where", "yasyf/cc-skills main")
     assert code == 0
@@ -479,7 +479,7 @@ def test_an_agent_started_on_a_brief_drive_wrote_is_recorded_on_that_briefs_job(
 def test_a_handler_whose_brief_or_record_names_a_job_never_holds_that_job_and_files_no_return_on_it(
     demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--remote")
     run("job", "brief", "j1", "--serves", "drive tooling", "--done-when", "merged", "--where", "Forge-AI/monorepo dev")
     written = state.load("demo")["jobs"]["j1"]["brief"]
@@ -599,7 +599,7 @@ def drive_agent(subagent_type: str, prompt: str, model: str | None = None, sessi
 def test_a_build_orders_builder_starts_only_on_a_brief_naming_its_readers_research(
     meta: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
     monkeypatch.setattr("sys.stdin", io.StringIO(RESEARCH))
     run("job", "report", "j1", "-")
@@ -630,7 +630,7 @@ def test_a_build_orders_builder_starts_only_on_a_brief_naming_its_readers_resear
 
 
 def test_a_brief_planning_his_touch_id_tap_for_an_aws_action_starts_no_agent_and_a_drive_tooling_brief_naming_one_does(demo: str, run: Run) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Search", "test hybrid search on a pass box")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Search", "test hybrid search on a pass box")
     run("job", "add", "builder", "--order", "o1", "--goal", "run the test")
     brief = "Order (his words): test hybrid search on a pass box\nGoal: {}\nDrive: demo, order o1, job j1"
     planned = drive_agent("long-running:builder", brief.format("start the pass box and read its key; he taps Touch ID once for cc-sudo"))
@@ -646,7 +646,7 @@ def test_a_brief_planning_his_touch_id_tap_for_an_aws_action_starts_no_agent_and
 def test_a_build_orders_codex_lane_is_added_and_started_only_on_its_readers_research_and_its_immediate_fix_at_once(
     meta: str, run: Run, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build", "--parts", "the copy", "immediate fix")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build", "--parts", "the copy", "immediate fix")
     assert cli.main(["job", "add", "codex", "--order", "o1", "--part", "the copy", "--goal", "build it"]) == 2
     assert "o1 is a build order, so its codex starts only once an Opus reader has kept" in capsys.readouterr().err
     assert run("job", "add", "codex", "--order", "o1", "--part", "immediate fix", "--goal", "stop it") == (0, "j1")
@@ -669,7 +669,7 @@ def test_a_build_orders_codex_lane_is_added_and_started_only_on_its_readers_rese
 def test_a_build_orders_designer_on_a_light_model_runs_on_its_own_fable(
     meta: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
     monkeypatch.setattr("sys.stdin", io.StringIO(RESEARCH))
     run("job", "report", "j1", "-")
@@ -685,7 +685,7 @@ def test_a_build_orders_designer_on_a_light_model_runs_on_its_own_fable(
 
 
 def test_a_session_starts_no_agent_on_an_order_the_other_session_holds(demo: str, run: Run, tmp_path: Path) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Releases", "fix the watch")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "fix the watch")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
     brief = f"Serves: his order\nDrive: demo, order o1, job j1\nScratch: {tmp_path / 'j1'}"
     assert scratch_folder.deny_reason(drive_agent("long-running:builder", brief)) is None
@@ -702,7 +702,7 @@ def test_a_builder_serving_drive_tooling_on_the_coordinators_order_starts_from_t
     demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     coordinator = os.environ["CLAUDE_CODE_SESSION_ID"]
-    run("order", "add", "--project", "The drive", "--workstream", "Messages", "I told him since you never did, fix that", "--kind", "build")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Messages", "I told him since you never did, fix that", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the reporter's thread")
     monkeypatch.setattr("sys.stdin", io.StringIO(RESEARCH))
     run("job", "report", "j1", "-")
@@ -746,9 +746,9 @@ def test_a_builder_serving_drive_tooling_on_the_coordinators_order_starts_from_t
 
 
 def test_an_answer_orders_lane_does_its_own_research_on_opus_when_the_order_is_complex(demo: str, run: Run) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "why did the copy stall?", "--kind", "answer", "--complex")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why did the copy stall?", "--kind", "answer", "--complex")
     run("job", "add", "reader", "--order", "o1", "--goal", "answer him")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "which flag sets the cap?", "--kind", "answer")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "which flag sets the cap?", "--kind", "answer")
     run("job", "add", "reader", "--order", "o2", "--goal", "answer him")
     assert scratch_folder.deny_reason(drive_agent("long-running:reader", "Researched: j9\nDrive: demo, order o1, job j1")) == (
         "refused, no agent started: j1 answers o1, an answer order: its one lane does its own research, reading code,"
@@ -760,7 +760,7 @@ def test_an_answer_orders_lane_does_its_own_research_on_opus_when_the_order_is_c
 
 
 def test_a_light_reader_keeps_its_model_on_an_answer_order_the_communicator_left_unmarked(demo: str, run: Run) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "tell me about the copy", "--kind", "answer")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "tell me about the copy", "--kind", "answer")
     run("job", "add", "reader", "--order", "o1", "--goal", "why the copy stalls, who owns the bucket, when it started")
     assert state.load("demo")["orders"]["o1"]["complex"] is None
     light = drive_agent("long-running:reader", "Drive: demo, order o1, job j1", "sonnet")
@@ -1058,7 +1058,7 @@ def updated_at(name: str, key: str, moment: str) -> None:
 
 def copy_of_demo(run: Run, name: str) -> None:
     run("start", name, "--role", "coordinator")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "land it again", "--drive", name)
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it again", "--drive", name)
     run("job", "add", "builder", "--order", "o1", "--goal", "again", "--drive", name)
     run("pr", "add", PR, "--job", "j1", "--drive", name)
 
@@ -1150,7 +1150,7 @@ def asked_from_bash(command: str, session: str) -> dict:
 
 def test_bash_posts_a_drive_ask_only_when_it_carries_the_ask_kept_for_its_question(run: Run, demo: str, no_calls: list[list[str]]) -> None:
     session = os.environ["CLAUDE_CODE_SESSION_ID"]
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "close the idle sessions")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "close the idle sessions")
     kept = state.drive_dir(demo) / "asks" / "j1-0.md"
     with state.edit(demo) as data:
         data["jobs"]["j1"] = state.new_job("o1", "builder", "close them", [], state.stamp())
@@ -1180,7 +1180,7 @@ def test_a_bash_ask_for_a_job_on_an_open_incident_order_is_refused_until_it_says
 ) -> None:
     session = os.environ["CLAUDE_CODE_SESSION_ID"]
     alert = "1794413465.441409"
-    run("order", "add", "--project", "SandSQL", "--workstream", "Alerts", "--from", f"slack:C0822AHFY3G/{alert}", "unknown column case_v2.audit_status", "--incident", "--parts", "fix", "first check")
+    run("order", "add", "--title", "Short title", "--project", "SandSQL", "--workstream", "Alerts", "--from", f"slack:C0822AHFY3G/{alert}", "unknown column case_v2.audit_status", "--incident", "--parts", "fix", "first check")
     kept = state.drive_dir(demo) / "asks" / "j1-0.md"
     with state.edit(demo) as data:
         data["jobs"]["j1"]["questions"] = [state.new_question(str(kept), "What runs first?", state.stamp())]
@@ -1205,7 +1205,7 @@ def test_a_bash_report_naming_an_attr_a_separator_or_one_letter_from_one_the_dri
 def test_a_communicators_bash_cci_post_naming_a_lane_other_than_the_session_hearing_its_order_is_refused(
     run: Run, demo: str, no_calls: list[list[str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     run("job", "add", "builder", "--order", "o1", "--goal", "build it")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
     run("start", demo, "--role", "coordinator", "--project", "Iris")

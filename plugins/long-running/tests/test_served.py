@@ -49,7 +49,7 @@ def test_the_judge_sees_source_before_fixtures_a_byte_utf8_cannot_read_and_a_cap
 def test_a_restack_carries_a_check_kept_on_the_text_of_gh_pr_diff_to_the_compare_bytes_of_the_same_change(
     run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "land it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     run("pr", "add", URL, "--job", "j1")
     kept = subprocess.run(["git", "patch-id", "--stable"], input=SMALL.decode(), capture_output=True, text=True, check=True).stdout.split(" ")[0]

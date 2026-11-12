@@ -163,7 +163,7 @@ def test_a_terminal_command_ends_with_the_claude_command(demo: str, live_session
 
 
 def test_no_session_is_moved_while_an_incident_order_is_open(demo: str, run: Run) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Incidents", "the API is down")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Incidents", "the API is down")
     with state.edit(demo) as data:
         data["orders"]["o1"]["incident"] = True
         data["roles"]["coordinator"]["terminal"] = "term_c"

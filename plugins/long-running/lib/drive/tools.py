@@ -420,16 +420,17 @@ def refuse(data: dict, name: str, group: str, op: dict, after_add: bool) -> None
 
 
 def ordered(data: dict, name: str, given: dict) -> str:
-    """The id of the order an order add makes or returns, refused as added_order refuses before it writes: a flag it refuses, his order filed under no project or workstream, and a "Drive tooling:" order's words check-post finds anything in, which an open order already holding them returns unchecked. The order it makes stands in the drive the check reads, so a later op may name it."""
+    """The id of the order an order add makes or returns, refused as added_order refuses before it writes: a flag it refuses, his order filed under no project or workstream, one with no short title, and a "Drive tooling:" order's words check-post finds anything in, which an open order already holding them returns unchecked. The order it makes stands in the drive the check reads, so a later op may name it."""
     args = parsed_args(name, ("order", "add"), given)
     tooling = args.words.startswith(state.TOOLING)
     if tooling and (held := next((order_id for order_id, order in state.open_orders(data).items() if order["text"] == args.words), None)):
         return held
     project, workstream = cli.filing(data, args.words, args.project, args.workstream)
+    title = cli.titled(args.title)
     if tooling:
         cli.check_tooling_words(name, args.words)
     order_id = state.next_id(data["orders"], "o")
-    data["orders"][order_id] = {"text": args.words, "state": "open", "parts": dict.fromkeys(args.parts or [state.whole_order(args.words)]), "project": project, "workstream": workstream}
+    data["orders"][order_id] = {"text": args.words, "state": "open", "parts": dict.fromkeys(args.parts or [state.whole_order(args.words)]), "project": project, "workstream": workstream, "title": title}
     return order_id
 
 

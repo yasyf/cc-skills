@@ -18,7 +18,7 @@ def started(subagent_type: str, prompt: str, model: str | None = None) -> dict:
 
 
 def test_a_design_job_starts_as_the_designer(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Restores", "restores copy one store", "--kind", "build")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Restores", "restores copy one store", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
     monkeypatch.setattr("sys.stdin", io.StringIO(RESEARCH))
     run("job", "report", "j1", "-")
@@ -67,9 +67,9 @@ def test_a_ninth_builder_here_waits_and_its_refusal_names_each_builder_counted_a
 ) -> None:
     wrote = state.now() - timedelta(minutes=3)
     monkeypatch.setattr(watch, "last_write", lambda job, data: (wrote, None))
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "tidy the docs")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "fix the card", "--due", "+2h", "--thread", "1.2")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "fix the watch", "--due", "+1h", "--thread", "1.3")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "tidy the docs")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the card", "--due", "+2h", "--thread", "1.2")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the watch", "--due", "+1h", "--thread", "1.3")
     run("job", "add", "builder", "--order", "o1", "--goal", "tidy the docs")
     run("job", "add", "builder", "--order", "o2", "--goal", "fix the card")
     run("job", "add", "builder", "--order", "o3", "--goal", "fix the watch")

@@ -26,7 +26,8 @@ UNLANDABLE = (
     " --exempt <class> or --port-of <N>; his order reworking it takes its card down with drive order set <o> --rework <url>"
 )
 PORT_DATA_RULING = 'his Nov 12 words "port his visuals but always do it the fundamentally right way when it comes to modelng the data"'
-FILING = ("project", "workstream")
+FILING = ("project", "workstream", "title")
+TITLE_CHARS = 60
 TOOLING_FILING = ("The drive", "Drive tooling")
 JOB_ID = re.compile(r"j\d+")
 SLACK_USER = re.compile(r"[UW][A-Z0-9]{2,}")
@@ -255,6 +256,7 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
         if held:
             return held, state.load(name)["orders"][held], [f"{held} already holds these words, so no order was added"], []
     project, workstream = filing(state.load(name), args.words, args.project, args.workstream)
+    title = titled(args.title)
     if args.thread:
         check_thread(state.load(name), {"from": args.source, "from_thread": from_thread, "thread": args.thread})
     if tooling:
@@ -292,6 +294,7 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
             "owner": owner,
             "project": project,
             "workstream": workstream,
+            "title": title,
             "note": joined and joined["note"],
             "joins": joined and (joined["joins"] or args.joins),
         }
@@ -436,6 +439,13 @@ def filing(data: dict, words: str, project: str | None, workstream: str | None) 
     raise DriveError(f"refused, no order added: name {missing}, which file his order on the dashboard's Now screen, reusing a pair in use where it fits: {pairs}")
 
 
+def titled(title: str) -> str:
+    """The short title the dashboard names an order by, refused when blank, over TITLE_CHARS, or carrying a link or a second line, since his words stay whole in the task."""
+    if not title.strip() or len(title) > TITLE_CHARS or "\n" in title or re.search(r"https?://", title):
+        raise DriveError(f"--title {json.dumps(title, ensure_ascii=False)}: refused, a title is a few words on one line, at most {TITLE_CHARS} characters and no link, naming his order on the dashboard while his words stay whole in its task")
+    return title.strip()
+
+
 def need_thread(data: dict, order_id: str, order: dict) -> None:
     if not state.promise_thread(data, order):
         raise DriveError(f"{order_id}: refused, no time stored: a promised time needs the thread its line goes in; pass --thread <ts>")
@@ -481,7 +491,7 @@ def drive_post_at(link: str, data: dict, order_id: str, named_part: bool, asked:
         held = state.thread_order(data, posted.get("thread_ts"))
         joins = (
             "; when his message at the root of that thread is another alert on this incident, that alert is its own order, which the"
-            f' coordinator records with drive order add "<his alert>" --from slack:{state.CARD_LINK.search(link)[1]}/{root["ts"]}'
+            f' coordinator records with drive order add "<his alert>" --title "<a few words>" --from slack:{state.CARD_LINK.search(link)[1]}/{root["ts"]}'
             f" --thread {root['ts']} --joins {order_id} --project \"{data['orders'][order_id]['project']}\" --workstream \"{data['orders'][order_id]['workstream']}\", and this line goes on that order"
             if not held and data["orders"][order_id]["incident"] and root and root.get("from_user")
             else ""
@@ -506,7 +516,7 @@ def pick_parts(order_id: str, order: dict, named: list[str]) -> list[str]:
 
 
 def apart_from_filing(order: dict) -> str:
-    """The order apart from its project and workstream, so filing it alone leaves the time it last moved, which the dashboard reads as when a done order went live."""
+    """The order apart from its project, workstream and title, so filing or titling it alone leaves the time it last moved, which the dashboard reads as when a done order went live."""
     return json.dumps({field: value for field, value in order.items() if field not in FILING}, sort_keys=True)
 
 
@@ -541,6 +551,8 @@ def order_set(args: argparse.Namespace) -> int:
         check_tooling_words(name, args.words)
     if args.proof is not None:
         check_proof(args.proof)
+    if args.title is not None:
+        titled(args.title)
     alerts = alert_links(args.alerts)
     if (order["incident"] if args.incident is None else args.incident) and (order["options_only"] if args.options_only is None else args.options_only):
         raise DriveError(
@@ -616,7 +628,7 @@ def order_set(args: argparse.Namespace) -> int:
             order["reporter"] = reporter
         filed = [field for field in FILING if getattr(args, field) is not None]
         for field in filed:
-            order[field] = getattr(args, field) or None
+            order[field] = (getattr(args, field) or "").strip() or None
         if not filed or args.lined or apart_from_filing(order) != before:
             order["updated"] = state.stamp(moment)
         if args.lined:
@@ -661,14 +673,14 @@ def surface(data: dict, order: dict) -> str | None:
 
 def order_unfiled(args: argparse.Namespace) -> int:
     data = state.load(state.resolve(args.drive))
-    unfiled = {order_id: order for order_id, order in state.open_orders(data).items() if not (order["project"] and order["workstream"])}
+    unfiled = {order_id: order for order_id, order in state.open_orders(data).items() if not all(order[field] for field in FILING)}
     named = filing_pairs(data)
     lines = [
-        f"{order_id} needs {' and '.join(field for field in ('project', 'workstream') if not order[field])}: {render.cut(order['text'], 120)}"
+        f"{order_id} needs {' and '.join(field for field in FILING if not order[field])}: {render.cut(order['text'], 120)}"
         for order_id, order in unfiled.items()
     ]
     names = [f"in use: {project} / {workstream}" for project, workstream in named]
-    return emit(args, "\n".join([*lines, *names]) or "every open order names its project and workstream", {"unfiled": unfiled, "in_use": named})
+    return emit(args, "\n".join([*lines, *names]) or "every open order names its project, workstream and title", {"unfiled": unfiled, "in_use": named})
 
 
 def promise_said(due: str, held: str | None, where: tuple[str, str]) -> str:
@@ -2469,7 +2481,7 @@ def rewrite_refusal(data: dict, args: argparse.Namespace) -> str | None:
     return (
         "refused, nothing recorded: a ruling's skill rewrite is owed the moment the ruling is recorded, so name the"
         " meta session's open order carrying it with --rewrite <o>, adding it first with"
-        f' drive order add "{state.TOOLING} rewrite: <his words, verbatim>" when none holds it, which the watch chases until'
+        f' drive order add "{state.TOOLING} rewrite: <his words, verbatim>" --title "<a few words>" when none holds it, which the watch chases until'
         " its builder is done; his ruling 0c59046 went unbuilt for hours while nothing said its rewrite was owed"
     )
 
@@ -2948,6 +2960,7 @@ def parser() -> argparse.ArgumentParser:
         metavar="NAME",
         help=f'the workstream inside its project the Now screen files this order under, reusing one in use where it fits; needed on his order, and on a "{state.TOOLING}" order default {TOOLING_FILING[1]}',
     )
+    verb.add_argument("--title", metavar="WORDS", required=True, help=f"the few words, at most {TITLE_CHARS} characters and no link, the dashboard names this order by, since his words stay whole in its task")
     verb.set_defaults(run=order_add)
     verb = order.add_parser("set", parents=both)
     verb.add_argument("id", help="the order")
@@ -2989,13 +3002,14 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--once", action=argparse.BooleanOptionalAction, help="mark or unmark it as a repair he asked to run once, which puts up no PR")
     verb.add_argument("--project", metavar="NAME", help="the project the dashboard's Now screen files this order under; an empty name takes it out")
     verb.add_argument("--workstream", metavar="NAME", help="the workstream inside its project the Now screen files this order under; an empty name takes it out")
+    verb.add_argument("--title", metavar="WORDS", help=f"the few words, at most {TITLE_CHARS} characters and no link, the dashboard names this order by")
     verb.add_argument(
         "--record",
         metavar="SEQ",
         help="the report record a handler posted; a close from the communicator's session needs it and closes only an order its close attr names",
     )
     verb.set_defaults(run=order_set)
-    verb = order.add_parser("unfiled", parents=both, help="each open order that names no project or workstream yet, then the project and workstream pairs in use")
+    verb = order.add_parser("unfiled", parents=both, help="each open order that names no project, workstream or title yet, then the project and workstream pairs in use")
     verb.set_defaults(run=order_unfiled)
     verb = order.add_parser("posted", parents=both, help="the communicator posted a line in an order's thread, its cards' or its PRs' cards': a progress line, delivering no part, or the answer a part owes him, which the report record it carries delivers, there or in any other channel; or the session holding the order closes a part from the drive's post that already answered it")
     verb.add_argument("id", help="the order")
@@ -3069,6 +3083,7 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("--project", metavar="NAME", required=True, help="the project the dashboard's Now screen files it under")
     verb.add_argument("--workstream", metavar="NAME", required=True, help="the workstream inside its project the Now screen files it under")
+    verb.add_argument("--title", metavar="WORDS", required=True, help=f"the few words, at most {TITLE_CHARS} characters and no link, the dashboard names it by")
     verb.set_defaults(run=incident_open, incident=True, joins=None, kind=None, complex=False, options_only=False, once=False, owner=None)
     verb = incident.add_parser(
         "stop",

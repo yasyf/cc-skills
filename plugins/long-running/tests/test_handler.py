@@ -124,7 +124,7 @@ def test_a_handler_ending_hands_its_line_to_the_communicator_and_removes_its_ses
     communicator: str, run: Run, tmp_path: Path, started: list[list[str]], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     handler = start(run, tmp_path)
-    run("order", "add", "--project", "The drive", "--workstream", "Answers", "why is this card asking again?", "--kind", "answer")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Answers", "why is this card asking again?", "--kind", "answer")
     run("job", "add", "reader", "--order", "o1", "--goal", "answer him", "--agent", handler)
     transcript = tmp_path / "h-session.jsonl"
     bind(monkeypatch, handler, "h-session", transcript)

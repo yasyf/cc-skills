@@ -33,6 +33,7 @@ def order(
         "last_line": None,
         "project": None,
         "workstream": None,
+        "title": None,
         "incident": False,
     }
 

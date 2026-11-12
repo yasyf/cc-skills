@@ -276,7 +276,12 @@ def plain(text: str, limit: int) -> str:
 
 
 def said(text: str | None) -> str:
-    return cut(without_records(text or ""), NOW_CHARS)
+    flat = " ".join(without_records(text or "").split())
+    return flat if len(flat) <= NOW_CHARS else flat[:NOW_CHARS].rsplit(" ", 1)[0].rstrip(",;:") + "…"
+
+
+def order_title(order: dict) -> str:
+    return order["title"] or plain(order["text"], TITLE_CHARS)
 
 
 def thread_url(drive: dict, team_url: str, order: dict) -> str | None:
@@ -441,7 +446,7 @@ def tap_item(pr: dict, card: dict | None) -> dict:
 def late_item(drive: dict, order: dict, team_url: str) -> dict:
     return {
         "kind": "late",
-        "title": plain(order["text"], TITLE_CHARS),
+        "title": order_title(order),
         "detail": said(order.get("note")),
         "since": order["created"],
         "due": state.owed_at(order),
@@ -547,7 +552,7 @@ def feature(drive: dict, order_id: str, order: dict, moment: datetime, found: di
     prs = [pr for pr in drive["prs"].values() if pr["order"] == order_id]
     return {
         "id": order_id,
-        "title": plain(order["text"], TITLE_CHARS),
+        "title": order_title(order),
         "state": feature_state(order, jobs, prs),
         "now": latest_line(order, jobs),
         "project": order["project"],
@@ -616,9 +621,9 @@ def history(drive: dict, events: Iterable[dict], team_url: str) -> list[dict]:
         url = thread_url(drive, team_url, order)
         his = order["from"].startswith("slack:") and not order["reporter"]
         swears = len(SWEARS.findall(order["text"])) if his else 0
-        happened.append({"at": order["created"], "kind": "order", "text": plain(order["text"], TITLE_CHARS), "detail": "", "url": url, "feature": order_id, "swears": swears})
+        happened.append({"at": order["created"], "kind": "order", "text": order_title(order), "detail": "", "url": url, "feature": order_id, "swears": swears})
         if order["state"] == "done":
-            happened.append({"at": order["updated"], "kind": "live", "text": plain(order["text"], TITLE_CHARS), "detail": said(order.get("proof")), "url": url, "feature": order_id})
+            happened.append({"at": order["updated"], "kind": "live", "text": order_title(order), "detail": said(order.get("proof")), "url": url, "feature": order_id})
     for pr in prs.values():
         if pr["state"] == "merged":
             happened.append({"at": pr["updated"], "kind": "merged", "text": pr_title(pr), "detail": "", "url": pr["url"], "feature": pr["order"]})
@@ -665,7 +670,7 @@ def review_entry(key: str, pr: dict, drive: dict, found: dict) -> dict:
         "head": pr["head"],
         "group": group,
         "feature": pr["order"],
-        "feature_title": plain(order.get("text", ""), TITLE_CHARS),
+        "feature_title": order_title(order) if order else "",
         "detail": tap_detail(pr),
         "checks": pr["checks"],
         "review": pr["review"],
@@ -697,6 +702,9 @@ def board(drive: dict, found: dict, source: str, events: Iterable[dict], moment:
             "note": said(order.get("note")),
             "created": order["created"],
             "jobs": [job_entry(job_id, drive["jobs"][job_id], reports) for job_id in order["jobs"]],
+            "parts": [part_entry(drive, entry["id"], part) for part in order["parts"]],
+            "where": where_it_is(drive, order),
+            "holdup": holdup(drive, entry, found),
         }
     for item in (item for item in model["queue"] if item["kind"] == "question"):
         item["rail"] = rail(drive, item, reports)
@@ -712,10 +720,80 @@ def board(drive: dict, found: dict, source: str, events: Iterable[dict], moment:
     }
 
 
+def part_entry(drive: dict, order_id: str, part: str) -> dict:
+    """One part of an order as its task lists it: whether it is the whole order, delivered or not, and the newest job carrying it with that job's kind, state and when it last moved."""
+    newest = max(state.part_jobs(drive, order_id, part), key=lambda pair: state.parse_time(pair[1]["updated"]), default=None)
+    return {
+        "name": part,
+        "whole": part == state.whole_order(drive["orders"][order_id]["text"]),
+        "delivered": state.delivered(drive, order_id, part),
+        "posted": drive["orders"][order_id]["parts"][part]["posted"],
+        "job": newest and newest[0],
+        "kind": newest and newest[1]["kind"],
+        "state": newest and newest[1]["state"],
+        "at": newest and newest[1]["updated"],
+    }
+
+
+def where_it_is(drive: dict, order: dict) -> dict | None:
+    """The line Where it is draws whole: a done order's proof, else the newest job line with that job and its state now, so a report word the job has moved past reads as its last report, else the order's note."""
+    if order["state"] == "done" and order.get("proof"):
+        return {"text": " ".join(without_records(order["proof"]).split()), "job": None, "state": None, "at": order["updated"]}
+    lines = [(job_id, drive["jobs"][job_id]) for job_id in order["jobs"] if drive["jobs"][job_id].get("said")]
+    if lines:
+        job_id, job = max(lines, key=lambda pair: state.parse_time(pair[1]["updated"]))
+        return {"text": " ".join(without_records(job["said"]).split()), "job": job_id, "state": job["state"], "at": job["updated"]}
+    return {"text": " ".join(without_records(order["note"]).split()), "job": None, "state": None, "at": order["updated"]} if order.get("note") else None
+
+
+def holdup(drive: dict, entry: dict, found: dict) -> dict | None:
+    """What a task waits on, agreeing with the state it shows: the failed job or red PR blocking it, the job on it, his answer or tap, a PR's checks or wait, the job it waits behind, or its proof once merged; card and pr name what the phrase opens."""
+    order_id = entry["id"]
+    jobs = sorted(((job_id, drive["jobs"][job_id]) for job_id in drive["orders"][order_id]["jobs"]), key=lambda pair: state.parse_time(pair[1]["updated"]), reverse=True)
+    prs = [(key, pr) for key, pr in drive["prs"].items() if pr["order"] == order_id and pr["state"] == "open"]
+    match entry["state"]:
+        case "live":
+            return None
+        case "blocked":
+            if failed := newest_job(jobs, "failed"):
+                return waits_on(f"{failed[1]['kind']} {failed[0]} failed: {cut(failed[1]['goal'], TITLE_CHARS)}")
+            key, pr = next((key, pr) for key, pr in prs if pr["checks"] == "fail")
+            return waits_on(f"red checks on #{key.partition('#')[2]}", pr=key, url=pr["url"])
+        case "running":
+            job_id, job = newest_job(jobs, "running")
+            return waits_on(f"{job['kind']} {job_id} is on it: {cut(job['goal'], TITLE_CHARS)}")
+        case "merged":
+            return waits_on("waits on proof it works where you use it")
+        case "not started":
+            return waits_on("no job has started on it yet")
+    if entry["cards"]:
+        return waits_on(f"waits on your answer to {entry['cards'][0]['title']}", card=entry["cards"][0]["url"])
+    if tap := next(((key, pr) for key, pr in prs if waits_on_tap(pr, card_for(found["pr_cards"], pr["url"]))), None):
+        return waits_on(f"waits on your tap on #{tap[0].partition('#')[2]}", pr=tap[0], url=tap[1]["url"])
+    if checking := next(((key, pr) for key, pr in prs if pr["checks"] == "pending"), None):
+        return waits_on(f"waits on #{checking[0].partition('#')[2]}'s checks", pr=checking[0], url=checking[1]["url"])
+    if wait := next((wait for _, owner in [*jobs, *prs] if owner["state"] in ("built", "waiting", "open") for wait in owner["waits"]), None):
+        named = wait_entry(drive, wait, found)
+        return waits_on(f"waits on {named['title']}", url=named["url"])
+    if waiting := newest_job(jobs, "built", "waiting"):
+        return waits_on(f"waits on {waiting[1]['kind']} {waiting[0]}: {cut(waiting[1]['goal'], TITLE_CHARS)}")
+    if prs:
+        return waits_on(f"waits on #{prs[0][0].partition('#')[2]}", pr=prs[0][0], url=prs[0][1]["url"])
+    return waits_on("waits on nothing the drive tracks; its note says why")
+
+
+def newest_job(jobs: list[tuple[str, dict]], *states: str) -> tuple[str, dict] | None:
+    return next(((job_id, job) for job_id, job in jobs if job["state"] in states), None)
+
+
+def waits_on(text: str, card: str | None = None, pr: str | None = None, url: str | None = None) -> dict:
+    return {"text": text, "card": card, "pr": pr, "url": url}
+
+
 def incidents(drive: dict) -> list[dict]:
     """His incident orders still open, oldest first, but one the watch found over, its monitors OK and its fix live, while its close is posted."""
     live = [(order_id, order) for order_id, order in drive["orders"].items() if order["incident"] and order["state"] not in state.CLOSED_ORDER_STATES and not order["recovered"]]
-    return [{"id": order_id, "title": plain(order["text"], TITLE_CHARS), "created": order["created"]} for order_id, order in sorted(live, key=lambda item: state.parse_time(item[1]["created"]))]
+    return [{"id": order_id, "title": order_title(order), "created": order["created"]} for order_id, order in sorted(live, key=lambda item: state.parse_time(item[1]["created"]))]
 
 
 def glance(card: dict) -> dict:
@@ -724,7 +802,7 @@ def glance(card: dict) -> dict:
 
 
 def outline(entry: dict) -> dict:
-    return {key: value for key, value in entry.items() if key not in ("text", "jobs")} | {"running": sum(job["state"] == "running" for job in entry["jobs"])}
+    return {key: value for key, value in entry.items() if key not in ("text", "jobs", "parts", "where", "holdup")} | {"running": sum(job["state"] == "running" for job in entry["jobs"])}
 
 
 def summary(model: dict) -> dict:

@@ -121,7 +121,7 @@ def test_drive_start_starts_the_meta_session_beside_the_others_once_until_it_bin
 def test_a_sub_coordinator_binds_beside_the_top_for_a_project_an_order_is_filed_under_and_a_new_session_replaces_it(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, watch_process: WatchProcess
 ) -> None:
-    run("order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     watch_process.ensured.clear()
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
     code, out = run("start", "demo", "--role", "coordinator", "--project", "Iris")
@@ -148,7 +148,7 @@ def test_a_sub_coordinator_binds_beside_the_top_for_a_project_an_order_is_filed_
 def test_start_refuses_a_project_to_the_communicator_and_one_no_order_is_filed_under(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     assert cli.main(["start", "demo", "--role", "communicator", "--project", "Iris"]) == 2
     assert capsys.readouterr().err.strip() == "drive: --project binds a sub-coordinator, which holds the coordinator role; the communicator holds no project"
     assert cli.main(["start", "demo", "--role", "coordinator", "--project", "Platform"]) == 2
@@ -164,7 +164,7 @@ def test_start_refuses_a_project_whose_lane_another_sub_coordinator_the_drive_it
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], posted_lanes: set[str]
 ) -> None:
     for project in ("A/B", "A B", "Root", "Iris 2", "Handler", "Memory"):
-        run("order", "add", "--project", project, "--workstream", "W", f"work for {project}")
+        run("order", "add", "--title", "Short title", "--project", project, "--workstream", "W", f"work for {project}")
     posted_lanes.add("memory")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "ab-1")
     assert run("start", "demo", "--role", "coordinator", "--project", "A/B")[0] == 0
@@ -181,7 +181,7 @@ def test_start_refuses_a_project_whose_lane_another_sub_coordinator_the_drive_it
         "Memory": f"drive: --project Memory: its lane memory is a lane cci records of drive demo were posted as; {TAKEN}",
     }
     first = state.load("demo")["subcoordinators"]["A/B"]["from"]
-    run("order", "add", "--project", "A/B", "--workstream", "W", "more work")
+    run("order", "add", "--title", "Short title", "--project", "A/B", "--workstream", "W", "more work")
     posted_lanes.add("a-b")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "ab-2")
     assert run("start", "demo", "--role", "coordinator", "--project", "A/B")[0] == 0
@@ -192,8 +192,8 @@ def test_start_refuses_a_project_whose_lane_another_sub_coordinator_the_drive_it
 def test_a_session_holding_a_role_binds_no_sub_coordinator_and_a_sub_coordinators_session_takes_no_role(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page")
-    run("order", "add", "--project", "Platform", "--workstream", "Alerts", "fix the alert")
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Alerts", "fix the alert")
     assert cli.main(["start", "demo", "--role", "coordinator", "--project", "Iris"]) == 2
     assert capsys.readouterr().err.strip() == (
         "drive: --project Iris: session session-under-test holds the top coordinator role of drive demo; a sub-coordinator is a session"
@@ -213,7 +213,7 @@ def test_a_session_holding_a_role_binds_no_sub_coordinator_and_a_sub_coordinator
 
 
 def test_heard_returns_one_word_whatever_sub_coordinator_his_thread_is_filed_under(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    run("order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
     run("start", "demo", "--role", "coordinator", "--project", "Iris")
     assert run("heard") == (0, "heard")
@@ -231,7 +231,7 @@ def test_start_needs_a_role(run: Run) -> None:
 def test_each_role_binds_its_own_session_and_a_restart_rebinds_one(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "keep me")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "keep me")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "communicator-session")
     assert run("start", "demo", "--role", "communicator")[0] == 0
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "after-restart")
@@ -243,15 +243,15 @@ def test_each_role_binds_its_own_session_and_a_restart_rebinds_one(
     assert data["slack"]["channel"] == "D123"
     assert data["orders"]["o1"]["text"] == "keep me"
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "communicator-session")
-    assert run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "from the communicator") == (0, "o2")
+    assert run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "from the communicator") == (0, "o2")
 
 
 def test_each_order_has_one_owner_and_the_other_session_adds_no_job_to_it(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Releases", "fix the watch")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a verb for owners")
-    assert cli.main(["order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: another", "--owner", "coordinator"]) == 2
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "fix the watch")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a verb for owners")
+    assert cli.main(["order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: another", "--owner", "coordinator"]) == 2
     assert "a \"Drive tooling:\" order is the meta session's" in capsys.readouterr().err
     assert [order["owner"] for order in state.load("demo")["orders"].values()] == ["coordinator", "meta"]
     assert cli.main(["job", "add", "builder", "--order", "o2", "--goal", "build it"]) == 2
@@ -276,10 +276,10 @@ def test_each_order_has_one_owner_and_the_other_session_adds_no_job_to_it(
 def test_the_meta_session_holds_every_tooling_order_but_no_product_order(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a verb for owners")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a verb for owners")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "communicator-session")
     run("start", "demo", "--role", "communicator")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "--kind", "answer", "what does the watch hold")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "--kind", "answer", "what does the watch hold")
     assert [order["owner"] for order in state.load("demo")["orders"].values()] == ["meta", "communicator"]
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "meta-session")
     assert cli.main(["start", "demo", "--role", "meta", "--project", "The drive"]) == 2
@@ -289,12 +289,12 @@ def test_the_meta_session_holds_every_tooling_order_but_no_product_order(
     assert out.startswith("You are the meta session of drive demo: you hold drive tooling")
     assert out.splitlines()[-1] == "meta: session meta-session, in no Orca terminal"
     assert [order["owner"] for order in state.load("demo")["orders"].values()] == ["meta", "communicator"]
-    assert cli.main(["order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page"]) == 2
+    assert cli.main(["order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page"]) == 2
     assert 'the meta session adds only "Drive tooling:" orders and never touches his product orders' in capsys.readouterr().err
-    assert run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: cards say why") == (0, "o3")
+    assert run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: cards say why") == (0, "o3")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-under-test")
-    assert run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: the watch says why") == (0, "o4")
-    assert cli.main(["order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: another", "--owner", "communicator"]) == 2
+    assert run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: the watch says why") == (0, "o4")
+    assert cli.main(["order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: another", "--owner", "communicator"]) == 2
     assert "a \"Drive tooling:\" order is the meta session's" in capsys.readouterr().err
     assert [order["owner"] for order in state.load("demo")["orders"].values()] == ["meta", "communicator", "meta", "meta"]
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "communicator-session")
@@ -358,8 +358,8 @@ def test_status_and_context_print_who_holds_each_channel(run: Run) -> None:
 
 
 def test_status_lists_each_sub_coordinator_with_its_lane_session_place_and_whether_its_watch_runs(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    run("order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page")
-    run("order", "add", "--project", "The drive", "--workstream", "Releases", "fix the watch")
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "fix the watch")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
     run("start", "demo", "--role", "coordinator", "--project", "Iris")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "drive-1")
@@ -473,9 +473,9 @@ def test_start_rejects_a_name_that_is_not_a_directory_name(run: Run) -> None:
 
 
 def test_order_add_allocates_ids_and_stores_words_verbatim(run: Run, demo: str) -> None:
-    assert run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "first  words", "--from", "slack:D123/1.2", "--thread", "1.2") == (0, "o1")
-    assert run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "second", "--due", "+30m")[0] == 2
-    assert run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "second", "--due", "+30m", "--thread", "1.3") == (0, "o2")
+    assert run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "first  words", "--from", "slack:D123/1.2", "--thread", "1.2") == (0, "o1")
+    assert run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "second", "--due", "+30m")[0] == 2
+    assert run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "second", "--due", "+30m", "--thread", "1.3") == (0, "o2")
     orders = state.load("demo")["orders"]
     assert orders["o1"]["text"] == "first  words"
     assert orders["o1"]["from"] == "slack:D123/1.2"
@@ -502,7 +502,7 @@ def test_an_orders_thread_is_refused_unless_slack_reads_it_as_a_thread_where_its
         return threads[where[3]]
 
     monkeypatch.setattr(slack, "thread", thread)
-    words = ["order", "add", "--project", "The drive", "--workstream", "Drive tooling", "tell the stopped people", "--from", "slack:D123/1794200050.000200"]
+    words = ["order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "tell the stopped people", "--from", "slack:D123/1794200050.000200"]
     assert cli.main([*words, "--thread", "1794200090.000700"]) == 2
     assert "--thread 1794200090.000700: refused, it is no thread in D123, where the order's lines go: cc-slack can't read this conversation (thread_not_found)" in capsys.readouterr().err
     assert cli.main([*words, "--thread", "1794200050.000200"]) == 2
@@ -536,7 +536,7 @@ def test_an_order_from_his_reply_goes_in_the_thread_his_reply_is_in_in_the_chann
         return messages[where[1], where[3]]
 
     monkeypatch.setattr(slack, "thread", thread)
-    filed = ["order", "add", "--project", "The drive", "--workstream", "Drive tooling"]
+    filed = ["order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling"]
     assert run(*filed, "What the hell is this message?", "--from", f"slack:D123/{reply}") == (0, "o1")
     assert run(*filed, "the card still shows the old state", "--from", f"slack:C0BUGS1/{bug_reply}") == (0, "o2")
     assert run(*filed, "and the dashboard too", "--from", f"slack:C0BUGS1/{bug_reply}", "--thread", bug_root) == (0, "o3")
@@ -563,7 +563,7 @@ def test_an_order_from_his_reply_goes_in_the_thread_his_reply_is_in_in_the_chann
 def test_order_set_due_on_an_order_with_no_thread_stores_the_drives_own_time_which_the_next_replaces_and_a_close_never_reads(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "wait on the release")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "wait on the release")
     code, out = run("order", "set", "o1", "--due", "+30m")
     first = state.load("demo")["orders"]["o1"]["due"]
     said = (
@@ -579,7 +579,7 @@ def test_order_set_due_on_an_order_with_no_thread_stores_the_drives_own_time_whi
 
 
 def test_job_set_waits_on_the_release_of_a_pr_the_drive_tracks(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
     wait = "release:api:Forge-AI/monorepo#7"
     assert cli.main(["job", "set", "j1", "--waits", wait]) == 2
@@ -592,7 +592,7 @@ def test_job_set_waits_on_the_release_of_a_pr_the_drive_tracks(run: Run, demo: s
 def test_order_set_due_says_it_stored_the_time_and_what_it_waits_on_or_why_it_stored_none(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "send the numbers")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "send the numbers")
     past = "2026-01-01T09:00:00-08:00"
     assert cli.main(["order", "set", "o1", "--due", past, "--thread", "1.2"]) == 2
     assert f"o1: refused, no time stored: {render.when(past)} is already past" in capsys.readouterr().err
@@ -612,12 +612,12 @@ def test_order_set_due_says_it_stored_the_time_and_what_it_waits_on_or_why_it_st
 
 
 def test_an_incident_order_records_a_job_on_each_part_and_names_every_open_incident_with_its_record(run: Run, demo: str) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL fork copies fail on plat", "--incident", "--parts", "fix", "first check")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL fork copies fail on plat", "--incident", "--parts", "fix", "first check")
     run("order", "set", "o1", "--note", "record 3fa2c1")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "the dashboard is slow")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "an old outage", "--incident", "--parts", "rollback", "fix", "cause")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the dashboard is slow")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "an old outage", "--incident", "--parts", "rollback", "fix", "cause")
     run("order", "set", "o3", "--state", "done")
-    assert run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "sandsql-api times out on plat", "--incident", "--parts", "fix", "first check") == (
+    assert run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "sandsql-api times out on plat", "--incident", "--parts", "fix", "first check") == (
         0,
         (
             "o4\n"
@@ -632,30 +632,30 @@ def test_an_incident_order_records_a_job_on_each_part_and_names_every_open_incid
         ("codex", ["fix"], None, "running"),
         ("codex", ["first check"], None, "running"),
     ]
-    assert run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "why is the dashboard slow?") == (0, "o5")
+    assert run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why is the dashboard slow?") == (0, "o5")
 
 
 def test_an_incident_order_with_no_fix_part_is_refused_unless_it_joins_an_open_incident(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert cli.main(["order", "add", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL release 60 failed", "--incident", "--parts", "first check"]) == 2
+    assert cli.main(["order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL release 60 failed", "--incident", "--parts", "first check"]) == 2
     assert 'an incident order starts its fix job at the alert, beside diagnosis: name "fix" among --parts' in capsys.readouterr().err
     assert state.load("demo")["orders"] == {}
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL release 60 failed", "--incident", "--parts", "fix", "first check")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL release 60 failed", "--incident", "--parts", "fix", "first check")
     run("order", "set", "o1", "--note", "record 3fa2c1")
-    assert run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL mint endpoint failing", "--joins", "o1") == (
+    assert run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL mint endpoint failing", "--joins", "o1") == (
         0,
         "o2\njoins o1: record 3fa2c1; its owner job carries this order with --carries o2",
     )
     joined = state.load("demo")["orders"]["o2"]
     assert (joined["incident"], joined["note"], joined["jobs"]) == (True, "record 3fa2c1", [])
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "the dashboard is slow")
-    assert cli.main(["order", "add", "--project", "The drive", "--workstream", "Drive tooling", "the dashboard is slower", "--joins", "o3"]) == 2
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the dashboard is slow")
+    assert cli.main(["order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the dashboard is slower", "--joins", "o3"]) == 2
     assert "--joins o3: name an open incident order; o3 is open, not an incident" in capsys.readouterr().err
 
 
 def test_an_order_becomes_an_incident_only_once_a_job_owns_its_fix(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "runs fail for one team", "--parts", "first check")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "runs fail for one team", "--parts", "first check")
     assert cli.main(["order", "set", "o1", "--incident"]) == 2
     assert 'o1: refused, an incident order starts its fix job at the alert, beside diagnosis: give it a "fix" part' in capsys.readouterr().err
     assert state.load("demo")["orders"]["o1"]["incident"] is False
@@ -666,7 +666,7 @@ def test_an_order_becomes_an_incident_only_once_a_job_owns_its_fix(run: Run, dem
 
 
 RECORD = "sandsql on plat: release 60 cannot restore databases, since 9:16 PM"
-FILED = ("--project", "Platform", "--workstream", "SandSQL")
+FILED = ("--project", "Platform", "--workstream", "SandSQL", "--title", "SandSQL incident")
 
 
 def recorded(calls: list[list[str]]) -> Callable[[list[str], Path], str]:
@@ -722,7 +722,7 @@ def test_an_incident_records_the_monitor_or_sentry_issue_of_each_alert_and_refus
     monkeypatch.setattr(cli.reads, "run", recorded([]))
     monitor, lag, sentry = "https://app.datadoghq.com/monitors/315028134?group=forge_cluster%3Aplat", "https://us5.datadoghq.com/monitors/330850820", "https://forge-ai.sentry.io/issues/6012345678/"
     run("incident", "open", "SandSQL error logs on plat", "--alert", monitor, "--record", RECORD, *FILED)
-    run("order", "add", *FILED, "SandSQL replication lag on plat", "--joins", "o1", "--alert", sentry)
+    run("order", "add", "--title", "Short title", *FILED, "SandSQL replication lag on plat", "--joins", "o1", "--alert", sentry)
     run("order", "set", "o1", "--alert", lag, "--alert", monitor)
     assert cli.main(["order", "set", "o1", "--alert", "https://app.datadoghq.com/dashboard/abc-123"]) == 2
     assert "--alert https://app.datadoghq.com/dashboard/abc-123: refused, name the alert by its Datadog monitor link" in capsys.readouterr().err
@@ -740,7 +740,7 @@ def test_incident_stop_gives_an_open_incident_one_running_stop_job(
     assert (list(data["orders"]["o1"]["parts"]), data["jobs"]["j4"]["kind"]) == (["fix", "rollback", "cause", "stop"], "codex")
     assert cli.main(["incident", "stop", "o1"]) == 2
     assert "o1: refused, its stop runs as j4; resume that job instead" in capsys.readouterr().err
-    run("order", "add", "the dashboard is slow", *FILED)
+    run("order", "add", "--title", "Short title", "the dashboard is slow", *FILED)
     assert cli.main(["incident", "stop", "o2"]) == 2
     assert "o2: refused, it is no open incident order" in capsys.readouterr().err
 
@@ -811,7 +811,7 @@ def test_no_stop_ends_the_last_running_job_on_an_open_incidents_fix(
 def test_an_incident_job_waits_on_his_card_only_once_the_incident_thread_says_so(
     run: Run, demo: str, slack_thread: Thread, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL mint endpoint failing", "--thread", "1794200000.000100", "--incident", "--parts", "fix", "first check")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL mint endpoint failing", "--thread", "1794200000.000100", "--incident", "--parts", "fix", "first check")
     assert cli.main(["job", "set", "j1", "--card", DESIGN_CARD]) == 2
     refusal = capsys.readouterr().err
     assert "j1 works on incident o1: a card that blocks it is said in the incident's thread at once" in refusal
@@ -832,19 +832,19 @@ def test_an_incident_job_waits_on_his_card_only_once_the_incident_thread_says_so
     )
     assert run("job", "set", "j1", "--card", DESIGN_CARD, "--told", said)[0] == 0
     assert [question["card"] for question in state.load("demo")["jobs"]["j1"]["questions"]] == [DESIGN_CARD]
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "the dashboard is slow")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the dashboard is slow")
     run("job", "add", "builder", "--order", "o2", "--goal", "speed it up")
     assert run("job", "set", "j3", "--card", DESIGN_CARD)[0] == 0
 
 
 def test_order_add_json(run: Run, demo: str) -> None:
-    code, out = run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "words", "--json")
+    code, out = run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "words", "--json")
     assert code == 0
     assert json.loads(out)["id"] == "o1"
 
 
 def test_order_set_updates_given_fields_and_stamps_lined(run: Run, demo: str) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "words")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "words")
     code, out = run("order", "set", "o1", "--state", "working", "--note", "on it", "--lined")
     order = state.load("demo")["orders"]["o1"]
     assert code == 0
@@ -859,43 +859,61 @@ def test_order_set_updates_given_fields_and_stamps_lined(run: Run, demo: str) ->
 
 
 def test_an_order_is_filed_when_it_is_added_and_unfiled_lists_the_older_ones_still_missing_a_filing(run: Run, demo: str) -> None:
-    assert cli.main(["order", "add", "fix the composer", "--project", "Iris"]) == 2
+    assert cli.main(["order", "add", "--title", "Short title", "fix the composer", "--project", "Iris"]) == 2
     assert state.load("demo")["orders"] == {}
-    run("order", "add", "redo the dashboard", "--project", "The drive", "--workstream", "Dashboard")
+    run("order", "add", "--title", "Short title", "redo the dashboard", "--project", "The drive", "--workstream", "Dashboard")
     with state.edit("demo") as data:
         for order_id, words, project in (("o2", "move the tables", "Platform"), ("o3", "fix the composer", None), ("o4", "old work", None)):
             data["orders"][order_id] = data["orders"]["o1"] | {"text": words, "project": project, "workstream": None}
         data["orders"]["o4"]["state"] = "done"
+        data["orders"]["o2"]["title"] = None
     assert run("order", "unfiled") == (
         0,
-        "o2 needs workstream: move the tables\no3 needs project and workstream: fix the composer\nin use: The drive / Dashboard",
+        "o2 needs workstream and title: move the tables\no3 needs project and workstream: fix the composer\nin use: The drive / Dashboard",
     )
-    run("order", "set", "o2", "--workstream", "Tables")
+    run("order", "set", "o2", "--workstream", "Tables", "--title", "Move the tables")
     run("order", "set", "o3", "--project", "Iris", "--workstream", "Chats")
     run("order", "set", "o1", "--workstream", "")
     orders = state.load("demo")["orders"]
-    assert [(orders[key]["project"], orders[key]["workstream"]) for key in ("o1", "o2", "o3")] == [
-        ("The drive", None),
-        ("Platform", "Tables"),
-        ("Iris", "Chats"),
+    assert [(orders[key]["project"], orders[key]["workstream"], orders[key]["title"]) for key in ("o1", "o2", "o3")] == [
+        ("The drive", None, "Short title"),
+        ("Platform", "Tables", "Move the tables"),
+        ("Iris", "Chats", "Short title"),
     ]
     assert run("order", "unfiled")[1].splitlines()[0] == "o1 needs workstream: redo the dashboard"
 
 
+def test_an_order_is_added_only_with_a_short_one_line_title_and_his_words_stay_whole(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
+    filed = ("--project", "Iris", "--workstream", "Chats")
+    words = "the chat list should keep its scroll when a new chat lands, see https://example.com/report for the recording"
+    for title in ("", "   ", "x" * 61, "see https://example.com/report", "two\nlines"):
+        assert cli.main(["order", "add", words, *filed, "--title", title]) == 2
+        assert "refused, a title is a few words on one line, at most 60 characters and no link" in capsys.readouterr().err
+    with pytest.raises(SystemExit):
+        cli.main(["order", "add", words, *filed])
+    assert "--title" in capsys.readouterr().err
+    assert state.load("demo")["orders"] == {}
+    run("order", "add", words, *filed, "--title", "  Keep chat scroll  ")
+    order = state.load("demo")["orders"]["o1"]
+    assert (order["title"], order["text"]) == ("Keep chat scroll", words)
+    assert cli.main(["order", "set", "o1", "--title", ""]) == 2
+    assert state.load("demo")["orders"]["o1"]["title"] == "Keep chat scroll"
+
+
 def test_filing_an_order_keeps_the_time_it_last_moved_and_any_other_change_moves_it(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    run("order", "add", "ship the fix", "--project", "Platform", "--workstream", "SandSQL")
+    run("order", "add", "--title", "Short title", "ship the fix", "--project", "Platform", "--workstream", "SandSQL")
     run("order", "set", "o1", "--state", "done")
     went_live = state.load("demo")["orders"]["o1"]["updated"]
     monkeypatch.setattr(state, "now", lambda: state.parse_time(went_live) + timedelta(days=2))
-    run("order", "set", "o1", "--project", "Iris", "--workstream", "Chats and agents")
+    run("order", "set", "o1", "--project", "Iris", "--workstream", "Chats and agents", "--title", "Ship the composer fix")
     order = state.load("demo")["orders"]["o1"]
-    assert (order["project"], order["workstream"], order["updated"]) == ("Iris", "Chats and agents", went_live)
+    assert (order["project"], order["workstream"], order["title"], order["updated"]) == ("Iris", "Chats and agents", "Ship the composer fix", went_live)
     run("order", "set", "o1", "--project", "Platform", "--note", "moved back")
     assert state.load("demo")["orders"]["o1"]["updated"] != went_live
 
 
 def test_a_drive_stored_with_milestones_loads_without_them(run: Run, demo: str) -> None:
-    run("order", "add", "ship the fix", "--project", "Platform", "--workstream", "SandSQL")
+    run("order", "add", "--title", "Short title", "ship the fix", "--project", "Platform", "--workstream", "SandSQL")
     stored = json.loads(state.state_path("demo").read_text())
     stored["orders"]["o1"]["milestone"] = "Dashboard parity"
     state.state_path("demo").write_text(json.dumps(stored))
@@ -907,13 +925,13 @@ def test_order_set_unknown_order_fails(run: Run, demo: str) -> None:
 
 
 def test_order_set_rejects_unknown_state(run: Run, demo: str) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "words")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "words")
     with pytest.raises(SystemExit):
         run("order", "set", "o1", "--state", "finished")
 
 
 def test_job_add_links_the_order(run: Run, demo: str) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "words")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "words")
     code, out = run(
         "job", "add", "builder", "--order", "o1", "--goal", "do it", "--repo", "yasyf/cc-skills", "--branch", "b"
     )
@@ -930,13 +948,13 @@ def test_job_add_needs_a_known_order(run: Run, demo: str) -> None:
 
 
 def test_job_add_takes_designer_its_agent_types_name_as_a_design_job(run: Run, demo: str) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "pick the layout")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "pick the layout")
     assert run("job", "add", "designer", "--order", "o1", "--goal", "cards: the layout") == (0, "j1")
     assert state.load("demo")["jobs"]["j1"]["kind"] == "design"
 
 
 def test_job_set_appends_prs_once(run: Run, demo: str) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "words")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "words")
     run("job", "add", "codex", "--order", "o1", "--goal", "review")
     run("job", "set", "j1", "--agent", "a-1", "--said", "PR up", "--pr", PR)
     run("job", "set", "j1", "--pr", PR)
@@ -947,7 +965,7 @@ def test_job_set_appends_prs_once(run: Run, demo: str) -> None:
 
 
 def test_job_set_stores_each_pr_as_its_canonical_url(run: Run, demo: str) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "words")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "words")
     run("job", "add", "builder", "--order", "o1", "--goal", "build")
     run("job", "set", "j1", "--pr", PR + "/files", "--pr", PR)
     assert state.load("demo")["jobs"]["j1"]["prs"] == [PR]
@@ -974,7 +992,7 @@ def test_his_order_in_his_pr_cards_thread_names_that_card_and_leaves_it_up_until
 ) -> None:
     carded(monkeypatch, withdrawals)
     slack_thread.messages = [{"ts": "1794300000.000500", "thread_ts": "1794300000.000400"}]
-    code, out = run("order", "add", "--project", "Iris", "--workstream", "Topology", TOPOLOGY, "--kind", "build", "--from", "slack:D123/1794300000.000500")
+    code, out = run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Topology", TOPOLOGY, "--kind", "build", "--from", "slack:D123/1794300000.000500")
     assert (code, out.splitlines(), withdrawals.asked) == (0, ["o2", left_up("drive order set o2 --rework <PR>")], [])
     assert state.owed_step(state.load("demo")["prs"][with_pr]) == "card"
     code, out = run("order", "set", "o2", "--rework", PR)
@@ -989,7 +1007,7 @@ def test_his_order_added_with_rework_withdraws_the_card_of_the_pr_it_names_in_th
 ) -> None:
     carded(monkeypatch, withdrawals)
     slack_thread.messages = [{"ts": "1794300000.000500", "thread_ts": "1794300000.000400"}]
-    added = ["order", "add", "--project", "Iris", "--workstream", "Topology", TOPOLOGY, "--kind", "build", "--from", "slack:D123/1794300000.000500"]
+    added = ["order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Topology", TOPOLOGY, "--kind", "build", "--from", "slack:D123/1794300000.000500"]
     assert cli.main([*added, "--rework", "Forge-AI/monorepo#99"]) == 2
     assert capsys.readouterr().err.strip() == "drive: --rework Forge-AI/monorepo#99: refused, it names an open PR the drive tracks"
     code, out = run(*added, "--rework", with_pr)
@@ -1006,7 +1024,7 @@ def test_his_question_in_his_pr_cards_thread_leaves_that_card_up_when_it_turns_o
     carded(monkeypatch, withdrawals)
     slack_thread.messages = [{"ts": "1794300000.000500", "thread_ts": "1794300000.000400"}]
     asked = "Why is topology going to the api?"
-    code, out = run("order", "add", "--project", "Iris", "--workstream", "Topology", asked, "--kind", "answer", "--from", "slack:D123/1794300000.000500")
+    code, out = run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Topology", asked, "--kind", "answer", "--from", "slack:D123/1794300000.000500")
     assert (code, out.splitlines()) == (0, ["o2", left_up("drive order set o2 --rework <PR>")])
     code, out = run("order", "set", "o2", "--kind", "build")
     assert (code, out.splitlines()[-1], withdrawals.asked) == (0, left_up("drive order set o2 --rework <PR>"), [])
@@ -1017,7 +1035,7 @@ def test_a_job_carrying_his_order_leaves_his_open_card_on_its_pr_up_until_rework
     run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch, withdrawals: Withdrawals, capsys: pytest.CaptureFixture[str]
 ) -> None:
     carded(monkeypatch, withdrawals)
-    run("order", "add", "--project", "Iris", "--workstream", "Topology", TOPOLOGY, "--kind", "build")
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Topology", TOPOLOGY, "--kind", "build")
     code, out = run("job", "set", "j1", "--carries", "o2")
     assert (code, out.splitlines()[-1], withdrawals.asked) == (0, left_up("drive job set j1 --carries o2 --rework <PR>"), [])
     assert cli.main(["job", "set", "j1", "--rework", PR]) == 2
@@ -1034,7 +1052,7 @@ def test_job_set_waits_on_his_pr_card_by_its_slack_link_or_merge_waits_id_until_
     tap = {"asked": state.stamp(), "url": link, "prs": ["https://github.com/acme/app/pull/42"], "card": {"title": "New: land it?", "waits": merge}}
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [tap], "closed": []})
     view.refresh_cards("demo")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
     assert run("job", "set", "j1", "--waits", link, "--waits", merge)[0] == 0
     data = state.load("demo")
@@ -1055,7 +1073,7 @@ def test_job_set_waits_on_his_pr_card_by_its_slack_link_or_merge_waits_id_until_
 def test_job_set_repro_keeps_a_copy_in_the_drive_and_status_shows_it(
     run: Run, demo: str, tmp_path: Path, state_root: Path
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "reproduce the bug")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "reproduce the bug")
     run("job", "add", "builder", "--order", "o1", "--goal", "reproduce")
     run("order", "set", "o1", "--state", "done")
     steps = tmp_path / "steps.md"
@@ -1079,7 +1097,7 @@ def test_job_set_repro_keeps_a_copy_in_the_drive_and_status_shows_it(
 
 @pytest.fixture
 def asking(run: Run, demo: str) -> str:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "design the run page")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "design the run page")
     run("job", "add", "builder", "--order", "o1", "--goal", "design it")
     return "j1"
 
@@ -1971,7 +1989,7 @@ def test_job_ask_hands_jev_his_messages_in_its_orders_thread_and_refuses_the_one
 ) -> None:
     monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS | {"team_url": "https://acme.slack.com/"})
     view.refresh_cards("demo")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "design the run page", "--thread", "1794200000.000100")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "design the run page", "--thread", "1794200000.000100")
     run("job", "add", "builder", "--order", "o1", "--goal", "design it")
     moment = state.now()
     settles = slack_thread.post(moment, from_user=True, text="keep one snapshot file per finished run, no guessing")
@@ -1998,7 +2016,7 @@ def test_job_ask_refuses_a_question_offering_no_tap_for_an_amount_his_words_in_i
 ) -> None:
     monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS | {"team_url": "https://acme.slack.com/"})
     view.refresh_cards("demo")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "design the run page", "--thread", "1794200000.000100")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "design the run page", "--thread", "1794200000.000100")
     run("job", "add", "builder", "--order", "o1", "--goal", "design it")
     words = "You didn't give me a tap for keeping each finished snapshot 30 days, how many times do I have to say this"
     his = slack_thread.post(state.now(), from_user=True, text=words)
@@ -2018,7 +2036,7 @@ def test_job_ask_counts_an_amount_of_his_only_in_a_clause_sharing_the_questions_
 ) -> None:
     monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS | {"team_url": "https://acme.slack.com/"})
     view.refresh_cards("demo")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "design the run page", "--thread", "1794200000.000100")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "design the run page", "--thread", "1794200000.000100")
     run("job", "add", "builder", "--order", "o1", "--goal", "design it")
     words = "keep one snapshot file per finished run, ok if we're capped at under 2gb that feels ok right, also look at that 21GB db and why its so big"
     his = slack_thread.post(state.now(), from_user=True, text=words)
@@ -2038,8 +2056,8 @@ def test_job_ask_counts_an_amount_only_on_the_order_his_words_are_about_never_an
     view.refresh_cards("demo")
     words = "ok so for 1, lrts mske eveyhting standard on signal or 30 seconds both for 2 lfor mac and cloud each decide wherther `deliverSteers` or turn boundary is best"
     slack_thread.post(state.now() - timedelta(minutes=1), from_user=True, text=words)
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", f"any harm in making it uniform? Then, 5:06 AM, same thread: {words}", "--thread", "1794200000.000100")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "an answer he reads states only what was read in code or measured", "--thread", "1794200000.000100")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", f"any harm in making it uniform? Then, 5:06 AM, same thread: {words}", "--thread", "1794200000.000100")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "an answer he reads states only what was read in code or measured", "--thread", "1794200000.000100")
     run("job", "add", "builder", "--order", "o1", "--goal", "pick when the inbox is read")
     run("job", "add", "builder", "--order", "o2", "--goal", "check what a post read")
     block = tmp_path / "ask.md"
@@ -2054,7 +2072,7 @@ def test_job_ask_prints_the_answer_jev_reads_as_deciding_and_an_amount_he_named_
 ) -> None:
     monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS | {"team_url": "https://acme.slack.com/"})
     view.refresh_cards("demo")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "design the run page", "--thread", "1794200000.000100")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "design the run page", "--thread", "1794200000.000100")
     run("job", "add", "builder", "--order", "o1", "--goal", "design it")
     recorded.found = [FLAT_RULING]
     his = slack_thread.post(state.now(), from_user=True, text="keep one snapshot file per finished run for 30 days")
@@ -2220,7 +2238,7 @@ def test_job_ask_reads_a_remote_lanes_report_when_given_no_file(run: Run, asking
 def test_job_report_keeps_a_jobs_whole_return_from_stdin_and_prints_it_back(
     run: Run, demo: str, state_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
     kept_proof(tmp_path, "j1")
     assert run("job", "report", "j1")[0] == 2
@@ -2232,7 +2250,7 @@ def test_job_report_keeps_a_jobs_whole_return_from_stdin_and_prints_it_back(
 def test_a_return_on_a_job_that_already_returned_sets_its_line_and_history_and_leaves_its_agents_report_byte_identical(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "reader", "--order", "o1", "--goal", "grade", "--agent", "a")
     assert run("job", "replies", "j1") == (0, "j1 has sent nothing yet")
     agents = "DONE graded three PRs\nVERDICT 54182 port\nVERDICT 54104 drop\nVERDICT 54344 port\nCHECK: the three diffs\n"
@@ -2260,7 +2278,7 @@ def test_a_return_on_a_job_that_already_returned_sets_its_line_and_history_and_l
 def test_a_builders_done_names_its_proof_and_what_he_sees_is_proven_on_that_surface(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
     fetched = tmp_path / "view.json"
     fetched.write_text("{}")
@@ -2285,7 +2303,7 @@ def test_a_builders_done_names_its_proof_and_what_he_sees_is_proven_on_that_surf
 
 
 def test_job_report_refuses_an_empty_stdin(run: Run, demo: str, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
     monkeypatch.setattr("sys.stdin", io.StringIO("\n"))
     assert cli.main(["job", "report", "j1", "-"]) == 2
@@ -2296,7 +2314,7 @@ def test_job_report_refuses_an_empty_stdin(run: Run, demo: str, capsys: pytest.C
 def test_job_report_prints_the_one_line_result_of_a_job_that_kept_no_report_and_refuses_one_that_returned_nothing(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
     assert cli.main(["job", "report", "j1"]) == 2
     assert "j1 kept no report and has returned nothing yet" in capsys.readouterr().err
@@ -2323,7 +2341,7 @@ def kept_proof(tmp_path: Path, *job_ids: str) -> None:
 def test_a_builders_ready_naming_a_yasyf_pr_is_refused_until_it_keeps_a_proof_file_it_can_run(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
     ready = "READY https://github.com/yasyf/cc-skills/pull/7\n"
     code, err = keep(monkeypatch, capsys, "j1", ready)
@@ -2340,12 +2358,12 @@ def test_a_builders_ready_naming_a_yasyf_pr_is_refused_until_it_keeps_a_proof_fi
 def test_an_answer_order_is_one_readers_and_a_build_orders_builder_waits_on_its_readers_research(
     run: Run, communicator: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "why did the copy stall?", "--kind", "answer", "--complex")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why did the copy stall?", "--kind", "answer", "--complex")
     assert [state.load("demo")["orders"]["o1"][field] for field in ("kind", "complex")] == ["answer", True]
     assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "fix the copy"]) == 2
     assert "refused, no job added: o1 is an answer order: one reader researches it and answers him" in capsys.readouterr().err
     assert run("job", "add", "reader", "--order", "o1", "--goal", "answer him")[0] == 0
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "copy one store", "--kind", "build")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store", "--kind", "build")
     assert cli.main(["job", "add", "builder", "--order", "o2", "--goal", "build it"]) == 2
     assert "o2 is a build order, so its builder starts only once an Opus reader has kept a Researched: line" in capsys.readouterr().err
     run("job", "add", "reader", "--order", "o2", "--goal", "research: the copy")
@@ -2354,8 +2372,8 @@ def test_an_answer_order_is_one_readers_and_a_build_orders_builder_waits_on_its_
     capsys.readouterr()
     assert keep(monkeypatch, capsys, "j2", RESEARCH) == (0, "")
     assert run("job", "add", "builder", "--order", "o2", "--goal", "build it")[1].splitlines()[0] == "j3"
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "an order from an older skill")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL copies fail on plat", "--incident", "--parts", "fix", "first check")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "an order from an older skill")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL copies fail on plat", "--incident", "--parts", "fix", "first check")
     assert state.load("demo")["orders"]["o4"]["kind"] == "build"
     for order_id, part in (("o3", []), ("o4", ["--part", "fix"])):
         assert run("job", "add", "builder", "--order", order_id, "--goal", "fix it", *part)[0] == 0
@@ -2364,7 +2382,7 @@ def test_an_answer_order_is_one_readers_and_a_build_orders_builder_waits_on_its_
 def test_a_build_orders_design_job_waits_on_its_readers_research(
     run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
     assert cli.main(["job", "add", "design", "--order", "o1", "--goal", "cards: where the copy runs"]) == 2
     assert "o1 is a build order, so its design starts only once an Opus reader has kept a Researched: line" in capsys.readouterr().err
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
@@ -2376,7 +2394,7 @@ def test_a_build_orders_designer_and_builder_are_added_waiting_on_its_reader_sti
     run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run(
-        "order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: topologies", "--kind", "build",
+        "order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: topologies", "--kind", "build",
         "--parts", "answer", "control freak", "design options",
     )
     run("job", "add", "reader", "--order", "o1", "--part", "answer", "--goal", "research: topologies")
@@ -2401,7 +2419,7 @@ def test_a_build_orders_designer_and_builder_are_added_waiting_on_its_reader_sti
 
 
 def test_a_jobs_clock_is_a_time_to_come(run: Run, meta: str, capsys: pytest.CaptureFixture[str]) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store")
     run("job", "add", "codex", "--order", "o1", "--goal", "first check")
     assert cli.main(["job", "set", "j1", "--due", "2026-01-01T00:00:00+00:00"]) == 2
     assert "j1: refused, no clock set:" in capsys.readouterr().err
@@ -2413,7 +2431,7 @@ def test_a_jobs_clock_is_a_time_to_come(run: Run, meta: str, capsys: pytest.Capt
 def test_a_readers_design_holds_its_builder_until_its_kept_question_is_on_his_card_or_settled_with_no_design_job(
     run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
     one_option = DESIGN_RESEARCH.replace(SECOND_OPTION, "")
     for refused in (one_option, DESIGN_RESEARCH.replace("(recommended)", "")):
@@ -2451,7 +2469,7 @@ def test_a_readers_design_holds_its_builder_until_its_kept_question_is_on_his_ca
 def test_his_ruling_settling_a_readers_ask_before_its_card_draws_is_kept_on_its_question_and_frees_its_builder(
     run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
     keep(monkeypatch, capsys, "j1", DESIGN_RESEARCH)
     asked = str(state.drive_dir("demo") / "asks" / "j1-1377896a.md")
@@ -2492,7 +2510,7 @@ def test_the_immediate_fix_starts_at_once_past_the_research_the_design_and_optio
     run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run(
-        "order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build",
+        "order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build",
         "--parts", "the copy", "immediate fix", "--options-only",
     )
     assert cli.main(["job", "add", "builder", "--order", "o1", "--part", "the copy", "--goal", "build it"]) == 2
@@ -2513,7 +2531,7 @@ def test_the_immediate_fix_starts_at_once_past_the_research_the_design_and_optio
 
 def test_a_follow_up_he_orders_to_a_pr_gets_its_designer_at_once_with_no_reader_or_wait(run: Run, meta: str, capsys: pytest.CaptureFixture[str]) -> None:
     run(
-        "order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: land the card fix, then a follow-up that is not hacky",
+        "order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: land the card fix, then a follow-up that is not hacky",
         "--kind", "build", "--parts", "the card fix", "follow-up",
     )
     assert cli.main(["job", "add", "design", "--order", "o1", "--part", "the card fix", "--goal", "design it"]) == 2
@@ -2530,7 +2548,7 @@ def test_a_readers_design_on_a_reported_bug_names_the_immediate_fix_shipping_whi
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run(
-        "order", "add", "--project", "p", "--workstream", "w", "fix the stuck restores", "--kind", "build",
+        "order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "fix the stuck restores", "--kind", "build",
         "--thread", "1794200000.000100", "--reporter", REPORTED, "--parts", "the copy", "immediate fix",
     )
     assert run("job", "add", "builder", "--order", "o1", "--part", "immediate fix", "--goal", "repair the stuck restores") == (0, "j1")
@@ -2557,7 +2575,7 @@ def test_a_builder_landing_prs_he_approved_starts_with_no_research(run: Run, wit
 def test_a_readers_design_report_keeps_its_ask_in_the_same_call_or_keeps_nothing(
     run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
     unshaped = DESIGN_RESEARCH.replace("Findings:\n", "")
     code, err = keep(monkeypatch, capsys, "j1", unshaped)
@@ -2576,7 +2594,7 @@ def test_a_readers_design_report_keeps_its_ask_in_the_same_call_or_keeps_nothing
 def test_a_design_lanes_design_names_on_each_fork_line_a_question_it_kept(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "copy one store")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store")
     run("job", "add", "design", "--order", "o1", "--goal", "cards: the store copy")
     unkept = state.drive_dir("demo") / "asks" / "j1-0123abcd.md"
     code, err = keep(monkeypatch, capsys, "j1", DESIGNED.replace("Fork: none: one layout fits", f"Fork: {unkept}"))
@@ -2592,7 +2610,7 @@ def test_a_design_lanes_design_names_on_each_fork_line_a_question_it_kept(
 def test_a_builders_ready_says_how_it_reuses_what_its_research_found(
     run: Run, meta: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
     keep(monkeypatch, capsys, "j1", RESEARCH)
     run("job", "add", "builder", "--order", "o1", "--goal", "build it")
@@ -2602,7 +2620,7 @@ def test_a_builders_ready_says_how_it_reuses_what_its_research_found(
     assert code == 2
     assert "j2: refused, nothing kept: j1's research found what already does part of this: supervisor/copies.rs store_copy_at copies one store." in err
     assert keep(monkeypatch, capsys, "j2", ready + "REUSES: calls store_copy_at for each store\n") == (0, "")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a new verb", "--kind", "build")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a new verb", "--kind", "build")
     run("job", "add", "reader", "--order", "o2", "--goal", "research: the verb")
     keep(monkeypatch, capsys, "j3", RESEARCH.replace("exists: supervisor/copies.rs store_copy_at copies one store", "exists: none"))
     run("job", "add", "builder", "--order", "o2", "--goal", "build it")
@@ -2613,7 +2631,7 @@ def test_a_builders_ready_says_how_it_reuses_what_its_research_found(
 def test_a_builders_report_opens_with_a_result_word_and_a_handoff_stops_its_job(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
     code, err = keep(monkeypatch, capsys, "j1", "Summary: built the strip\nCHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n")
     assert code == 2
@@ -2632,7 +2650,7 @@ def test_a_builders_report_opens_with_a_result_word_and_a_handoff_stops_its_job(
 def test_a_report_naming_a_repro_file_keeps_it_on_the_job_first(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "why does the copy stall?")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why does the copy stall?")
     run("job", "add", "reader", "--order", "o1", "--goal", "reproduce the stall")
     script = tmp_path / "r.sh"
     script.write_text("echo stall\n")
@@ -2647,7 +2665,7 @@ def test_a_report_naming_a_repro_file_keeps_it_on_the_job_first(
 def test_a_design_lanes_report_is_the_design_in_its_shape_unless_it_stops_short(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "copy one store")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store")
     run("job", "add", "design", "--order", "o1", "--goal", "cards: the store copy")
     code, err = keep(monkeypatch, capsys, "j1", "DONE wrote the forks\n")
     assert code == 2
@@ -2670,7 +2688,7 @@ def test_a_design_lanes_report_is_the_design_in_its_shape_unless_it_stops_short(
 def test_a_design_of_several_changes_makes_each_a_part_of_its_order_waiting_on_each_earlier_change_its_line_names(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "copy one store", "--parts", "copy one store", "the reads through it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store", "--parts", "copy one store", "the reads through it")
     run("job", "add", "design", "--order", "o1", "--part", "copy one store", "--goal", "cards: the store copy")
     code, err = keep(monkeypatch, capsys, "j1", DESIGNED_IN_CHANGES.replace("(waits on change 2)", "(waits on change 1 and change 3)"))
     assert code == 2
@@ -2697,7 +2715,7 @@ def test_a_design_of_several_changes_makes_each_a_part_of_its_order_waiting_on_e
 def test_a_design_names_each_change_in_words_the_coordinator_types_as_its_part(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], change: str
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "copy one store")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store")
     run("job", "add", "design", "--order", "o1", "--goal", "cards: the store copy")
     code, err = keep(monkeypatch, capsys, "j1", DESIGNED_IN_CHANGES.replace("Change: the reads through it", f"Change: {change}"))
     assert code == 2
@@ -2709,7 +2727,7 @@ def test_a_design_names_each_change_in_words_the_coordinator_types_as_its_part(
 def test_order_set_parts_keeps_a_designs_changes_and_refuses_a_list_renaming_one_no_builder_delivered(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "copy one store")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store")
     run("job", "add", "design", "--order", "o1", "--goal", "cards: the store copy")
     assert keep(monkeypatch, capsys, "j1", DESIGNED_IN_CHANGES) == (0, "")
     designed = state.load("demo")["orders"]["o1"]["parts"]
@@ -2728,7 +2746,7 @@ def test_order_set_parts_keeps_a_designs_changes_and_refuses_a_list_renaming_one
 def test_a_research_readers_report_carries_its_filled_researched_block(
     run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
     code, err = keep(monkeypatch, capsys, "j1", "DONE found two callers\n")
     assert code == 2
@@ -2743,7 +2761,7 @@ def test_a_research_readers_report_carries_its_filled_researched_block(
 def test_a_readers_design_starts_from_the_root_cause_and_counts_only_its_options(
     run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
     code, err = keep(monkeypatch, capsys, "j1", DESIGN_RESEARCH.replace(ROOT_CAUSE, ""))
     assert code == 2
@@ -2755,7 +2773,7 @@ def test_a_readers_design_starts_from_the_root_cause_and_counts_only_its_options
 def test_a_done_or_ready_leaves_no_step_for_someone_else(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "backfill the copies")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "backfill the copies")
     run("job", "add", "builder", "--order", "o1", "--goal", "backfill")
     done = "DONE the copies page lists every store\nCHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n"
     for left in ("NEXT: coordinator runs the backfill once it ships", "UNPROVEN: the old stores, until the coordinator runs the backfill"):
@@ -2769,7 +2787,7 @@ def test_a_done_or_ready_leaves_no_step_for_someone_else(
 def test_a_limit_left_standing_is_his_choice_and_returns_ask_or_design(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "copy the bucket")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy the bucket")
     run("job", "add", "builder", "--order", "o1", "--goal", "copy it")
     check = "CHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n"
     for finding in (
@@ -2872,7 +2890,7 @@ DOORS = {
 def test_a_pr_of_a_two_part_job_naming_one_part_is_judged_against_that_part_and_the_answers_its_design_cites(
     run: Run, demo: str, judge: Judge, recorded: Answers, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "one abstraction everything goes through", "--parts", "moved-table abstraction", "doors close", "partitioning")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "one abstraction everything goes through", "--parts", "moved-table abstraction", "doors close", "partitioning")
     run("job", "add", "builder", "--order", "o1", "--part", "moved-table abstraction", "--part", "doors close", "--goal", "route every caller through Env")
     run("pr", "add", PR, "--job", "j1")
     run("pr", "add", STACKED, "--job", "j1")
@@ -2901,7 +2919,7 @@ def test_a_ready_is_judged_against_the_answers_its_design_line_names(
 
 
 def test_order_set_sorts_an_order_again(run: Run, demo: str) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "why did the copy stall?", "--kind", "answer")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why did the copy stall?", "--kind", "answer")
     assert run("order", "set", "o1", "--kind", "build", "--complex")[0] == 0
     assert [state.load("demo")["orders"]["o1"][field] for field in ("kind", "complex")] == ["build", True]
     run("order", "set", "o1", "--no-complex")
@@ -2925,7 +2943,7 @@ def test_order_set_sorts_an_order_again(run: Run, demo: str) -> None:
 def test_a_kept_report_sets_a_running_job_from_its_first_line(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str, first: str, taken: str | None
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", kind, "--order", "o1", "--goal", "ship")
     kept_proof(tmp_path, "j1")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship again")
@@ -2943,7 +2961,7 @@ def test_a_kept_report_sets_a_running_job_from_its_first_line(
 def test_a_built_return_sets_its_job_built_on_its_branches_waiting_on_each_card_it_names(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, branch: str
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
     card = "https://acme.slack.com/archives/D123/p1794200000000100"
     monkeypatch.setattr("sys.stdin", io.StringIO(f"BUILT {branch}, waits on demo:j1-3, {card}\nCHECK: build 12\n"))
@@ -2955,7 +2973,7 @@ def test_a_built_return_sets_its_job_built_on_its_branches_waiting_on_each_card_
 def test_a_report_takes_a_waiting_or_built_job_and_is_refused_on_a_stopped_one_keeping_nothing(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
     check = "CHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n"
     built = f"BUILT lr-move, waits on demo:j1-3\n{check}"
@@ -2976,7 +2994,7 @@ def test_a_report_takes_a_waiting_or_built_job_and_is_refused_on_a_stopped_one_k
 def test_a_waiting_line_names_what_frees_it_and_each_pr_and_release_it_names_is_a_wait(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
     run("pr", "add", PR, "--job", "j1")
     code, err = keep(monkeypatch, capsys, "j1", "WAITING release: #54575 merged after the newest release was cut\n")
@@ -2988,7 +3006,7 @@ def test_a_waiting_line_names_what_frees_it_and_each_pr_and_release_it_names_is_
 
 
 def test_job_set_refuses_any_state_but_stopped_changing_nothing(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship", "--agent", "a-1")
     run("job", "set", "j1", "--said", "DONE The lane comes from bookkeeping")
     for taken in ("waiting", "built", "done", "failed"):
@@ -3008,7 +3026,7 @@ def test_job_set_refuses_any_state_but_stopped_changing_nothing(run: Run, demo: 
 def test_a_design_job_ends_once_a_builder_takes_its_part_or_one_of_its_changes(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "copy one store")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store")
     run("job", "add", "design", "--order", "o1", "--goal", "cards: the store copy")
     assert keep(monkeypatch, capsys, "j1", DESIGNED) == (0, "")
     assert cli.main(["job", "set", "j1", "--state", "done"]) == 2
@@ -3016,7 +3034,7 @@ def test_a_design_job_ends_once_a_builder_takes_its_part_or_one_of_its_changes(
     run("job", "add", "builder", "--order", "o1", "--goal", "build the copy")
     run("job", "add", "design", "--order", "o1", "--goal", "cards: the store list")
     assert keep(monkeypatch, capsys, "j3", DESIGNED) == (0, "")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "move the tables", "--parts", "move the tables", "the old copy")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "move the tables", "--parts", "move the tables", "the old copy")
     run("job", "add", "design", "--order", "o2", "--part", "move the tables", "--goal", "cards: the moved tables")
     run("job", "add", "builder", "--order", "o2", "--part", "the old copy", "--goal", "drop the old copy")
     assert keep(monkeypatch, capsys, "j4", DESIGNED_IN_CHANGES) == (0, "")
@@ -3034,7 +3052,7 @@ def test_a_design_job_ends_once_a_builder_takes_its_part_or_one_of_its_changes(
 def test_job_set_naming_the_state_a_job_already_holds_changes_nothing_and_says_so(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "reader", "--order", "o1", "--goal", "read where it ships")
     monkeypatch.setattr("sys.stdin", io.StringIO("DONE it ships from the release branch\n"))
     assert run("job", "report", "j1", "-")[0] == 0
@@ -3047,7 +3065,7 @@ def test_job_set_naming_the_state_a_job_already_holds_changes_nothing_and_says_s
 
 
 def test_job_report_prints_a_remote_lanes_latest_report(run: Run, demo: str) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship", "--remote")
     with state.edit("demo") as data:
         data["jobs"]["j1"]["report"] = "DONE installed 1.0.76\nCHECK: drive --version"
@@ -3056,7 +3074,7 @@ def test_job_report_prints_a_remote_lanes_latest_report(run: Run, demo: str) -> 
 
 @pytest.fixture
 def with_pr(run: Run, demo: str) -> str:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "land it")
+    run("order", "add", "--title", "land it", "--project", "The drive", "--workstream", "Drive tooling", "land it")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     run("pr", "add", PR + "/files", "--job", "j1")
     return "Forge-AI/monorepo#42"
@@ -3077,7 +3095,7 @@ def test_pr_add_registers_under_the_key(run: Run, with_pr: str) -> None:
 def test_pr_add_waits_on_his_tap_unless_it_is_a_port_exempt_drive_tooling_outside_forge_ai_or_untapped_for_a_reason(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "land it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     key = "Forge-AI/monorepo#42"
     assert cli.main(["pr", "add", PR, "--job", "j1", "--no-tap"]) == 2
@@ -3103,7 +3121,7 @@ def test_pr_add_and_set_refuse_a_pr_someone_else_opened_unless_the_order_it_serv
     run: Run, demo: str, on_github: dict, capsys: pytest.CaptureFixture[str]
 ) -> None:
     key = "Forge-AI/monorepo#42"
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "land it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     on_github["author"] = {"login": "rowan", "is_bot": False}
     assert cli.main(["pr", "add", PR, "--job", "j1"]) == 2
@@ -3123,7 +3141,7 @@ def test_pr_add_and_set_refuse_a_pr_someone_else_opened_unless_the_order_it_serv
 def test_a_yasyf_pr_starts_one_lander_once_its_builders_ready_is_taken_with_its_proof_file_kept(
     run: Run, meta: str, tmp_path: Path, on_github: dict, landers: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: land it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: land it")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     url = "https://github.com/yasyf/cc-skills/pull/7"
     assert run("pr", "add", url, "--job", "j1") == (0, "yasyf/cc-skills#7")
@@ -3145,7 +3163,7 @@ def test_a_yasyf_pr_starts_one_lander_once_its_builders_ready_is_taken_with_its_
 
 
 def test_pr_add_of_a_port_takes_the_pure_port_exemption_and_no_tap(run: Run, demo: str, on_github: dict) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "land it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     on_github["title"] = "Port: land it"
     assert run("pr", "add", PR, "--job", "j1", "--port-of", "51234")[0] == 0
@@ -3154,7 +3172,7 @@ def test_pr_add_of_a_port_takes_the_pure_port_exemption_and_no_tap(run: Run, dem
 
 
 def test_pr_add_on_a_public_repo_takes_demo_pictures(run: Run, demo: str, on_github: dict, visibilities: dict) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "land it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     visibilities.update({"Forge-AI/monorepo": "public", "yasyf/cc-skills": "public"})
     on_github["body"] = (
@@ -3402,7 +3420,7 @@ def test_pr_set_tap_draws_a_body_with_no_releasable_section_and_a_step_after_the
 def test_pr_set_tap_serving_a_drive_tooling_order_needs_no_words_of_his_and_only_the_meta_session_sets_it(
     run: Run, meta: str, on_github: dict, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a tooling PR lands on his Approve")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a tooling PR lands on his Approve")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     run("pr", "add", PR, "--job", "j1")
     on_github["body"] = CARD_BODY.split("## His words")[0] + "## His words, step by step\nNone: drive tooling.\n"
@@ -3424,10 +3442,10 @@ def test_pr_set_tap_serving_a_drive_tooling_order_needs_no_words_of_his_and_only
 def test_a_tooling_orders_job_or_pr_never_carries_or_serves_his_feature_order_nor_the_reverse(
     run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: the ask card redraws")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: fix ask")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: the ask card redraws")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: fix ask")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "elsewhere")
-    run("order", "add", "--project", "The drive", "--workstream", "Releases", "show the run page")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "show the run page")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-under-test")
     run("job", "add", "builder", "--order", "o1", "--goal", "redraw it")
     run("pr", "add", PR, "--job", "j1")
@@ -3440,7 +3458,7 @@ def test_a_tooling_orders_job_or_pr_never_carries_or_serves_his_feature_order_no
     assert run("job", "set", "j1", "--carries", "o2")[0] == 0
     assert state.load("demo")["jobs"]["j1"]["carries"] == {"o2": ["Drive tooling: fix ask"]}
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "elsewhere")
-    run("order", "add", "--project", "The drive", "--workstream", "Releases", "land the page")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "land the page")
     run("job", "add", "builder", "--order", "o4", "--goal", "land it")
     assert cli.main(["job", "set", "j2", "--carries", "o2"]) == 2
     assert "j2 --carries o2: refused, o2 is a \"Drive tooling:\" order, which only the meta session acts on: send a defect record to meta@demo" in capsys.readouterr().err
@@ -3458,7 +3476,7 @@ def test_pr_set_tap_on_an_exempt_pr_draws_no_card_so_checks_none(run: Run, with_
 
 
 def test_a_port_changing_how_its_data_is_stored_is_no_pure_port(run: Run, demo: str, on_github: dict, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "land it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     on_github["title"] = "Port: land it"
     table = "api/migrations/0042_site_visuals.sql"
@@ -3530,7 +3548,7 @@ def test_pr_set_on_a_pr_the_drive_does_not_track_names_drive_pr_add(run: Run, de
 
 
 def test_pr_add_refuses_a_title_his_card_cannot_name_the_kind_of(run: Run, demo: str, on_github: dict, capsys: pytest.CaptureFixture[str]) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Releases", "move the strip")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "move the strip")
     run("job", "add", "builder", "--order", "o1", "--goal", "move it")
     on_github["title"] = "move strip"
     assert cli.main(["pr", "add", PR, "--job", "j1"]) == 2
@@ -3562,7 +3580,7 @@ def test_pr_set_tap_refuses_a_title_retitled_since_drive_pr_add_read_it(
 def test_pr_add_on_an_incident_order_refuses_a_revert_unless_it_waits_on_his_tap(
     run: Run, demo: str, on_github: dict, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Releases", "the mint endpoint fails", "--incident", "--parts", "fix", "first check")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "the mint endpoint fails", "--incident", "--parts", "fix", "first check")
     on_github.update(title="Fix: the mint endpoint answers again", body="Reverts Forge-AI/monorepo#41")
     assert cli.main(["pr", "add", PR, "--job", "j1", "--exempt", "incident fix"]) == 2
     refusal = capsys.readouterr().err
@@ -3580,7 +3598,7 @@ def test_job_add_records_a_local_builder_past_the_macs_cap_waiting_and_refuses_a
 ) -> None:
     monkeypatch.setattr(place, "busy", lambda: 0.95)
     monkeypatch.setattr(place, "limit", lambda: 0.8)
-    run("order", "add", "--project", "The drive", "--workstream", "Releases", "land the strip")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "land the strip")
     assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "land", "--repo", "Forge-AI/monorepo"]) == 2
     assert capsys.readouterr().err.strip() == (
         "drive: refused, no job added: this Mac is 95% busy, at or over its 80% limit, so this builder starts remote: add --remote,"
@@ -3604,7 +3622,7 @@ def test_job_add_records_a_local_builder_past_the_macs_cap_waiting_and_refuses_a
 def test_job_add_records_an_agent_already_running_past_the_macs_cap_and_its_limit(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(place, "busy", lambda: 0.95)
     monkeypatch.setattr(place, "limit", lambda: 0.8)
-    run("order", "add", "--project", "The drive", "--workstream", "Releases", "land the strip")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "land the strip")
     for _ in range(place.LOCAL_BUILDERS):
         assert run("job", "add", "builder", "--order", "o1", "--goal", "land", "--agent", "a")[0] == 0
     assert run("job", "add", "builder", "--order", "o1", "--goal", "land", "--repo", "Forge-AI/monorepo", "--agent", "a-9")[0] == 0
@@ -3613,12 +3631,12 @@ def test_job_add_records_an_agent_already_running_past_the_macs_cap_and_its_limi
 def test_job_brief_writes_native_interactions_would_he_ask_and_a_readers_research_and_keeps_each_flag_left_out(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Releases", "show the run page", "--kind", "build")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "show the run page", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the run page")
     code, out = run("job", "brief", "j1", "--serves", "his order", "--done-when", "researched", "--where", "yasyf/cc-skills main")
     assert code == 0
     assert "\nResearch: the Researched: block this build needs\n" in Path(out.splitlines()[0].removeprefix("Read your brief first: ")).read_text()
-    run("order", "add", "--project", "The drive", "--workstream", "Releases", "show the run's steps")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "show the run's steps")
     run("job", "add", "builder", "--order", "o2", "--goal", "draw the steps")
     assert cli.main(["job", "brief", "j2"]) == 2
     assert capsys.readouterr().err.strip() == "drive: j2 has no earlier brief to keep --serves, --done-when, --where from: name each"
@@ -3649,7 +3667,7 @@ def test_order_set_proves_done_on_his_surface_with_a_recording_or_the_live_post(
     view, walk, log, log_walk = (tmp_path / saved for saved in ("view.json", "walk.mov", "log.json", "log.mov"))
     for saved in (view, walk, log, log_walk):
         saved.write_text("saved")
-    run("order", "add", "--project", "The drive", "--workstream", "Releases", "show the run's steps")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "show the run's steps")
     run("job", "add", "builder", "--order", "o1", "--goal", "draw the steps")
     run(
         "job", "brief", "j1", "--serves", "his order", "--done-when", "merged", "--where", "yasyf/cc-skills main",
@@ -3661,11 +3679,11 @@ def test_order_set_proves_done_on_his_surface_with_a_recording_or_the_live_post(
     )
     assert state.load("demo")["orders"]["o1"]["state"] == "open"
     assert run("order", "set", "o1", "--state", "done", "--proof", str(walk))[0] == 0
-    run("order", "add", "--project", "The drive", "--workstream", "Releases", "count the runs")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "count the runs")
     run("job", "add", "builder", "--order", "o2", "--goal", "count them")
     run("job", "brief", "j2", "--serves", "his order", "--done-when", "merged", "--where", "yasyf/cc-skills main", "--native", "none: he never sees it")
     assert run("order", "set", "o2", "--state", "done", "--proof", str(view))[0] == 0
-    run("order", "add", "--project", "The drive", "--workstream", "Releases", "show the run's log")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "show the run's log")
     run("job", "add", "builder", "--order", "o3", "--goal", "draw the log")
     assert run("order", "set", "o3", "--proof", str(log))[0] == 0
     run(
@@ -3683,7 +3701,7 @@ def test_order_set_proves_done_on_his_surface_with_a_recording_or_the_live_post(
 def test_job_brief_refuses_an_adopted_prs_waiting_job_until_an_event_hands_it_off(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Releases", "land the strip")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "land the strip")
     run("job", "add", "builder", "--order", "o1", "--goal", "Fix: land it", "--repo", "Forge-AI/monorepo", "--remote")
     run("pr", "add", PR, "--job", "j1")
     monkeypatch.setattr("sys.stdin", io.StringIO(f"WAITING {PR}\n"))
@@ -3749,7 +3767,7 @@ def test_status_prints_an_open_pr_while_the_installed_cc_slack_lists_no_closed_c
 
 
 def test_status_reads_only_the_orders_its_ids_name(run: Run, with_pr: str) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "something else")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "something else")
     for key in ("o1", "j1", with_pr, PR):
         code, out = run("status", key)
         assert code == 0
@@ -3763,7 +3781,7 @@ def test_status_reads_only_the_orders_its_ids_name(run: Run, with_pr: str) -> No
 def test_status_reads_a_tracked_pr_by_its_bare_number_and_names_the_forms_an_id_takes(
     run: Run, with_pr: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "something else")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "something else")
     code, out = run("status", "42")
     assert (code, "land it" in out, "something else" in out) == (0, True, False)
     assert cli.main(["status", "53615"]) == 2
@@ -3775,7 +3793,7 @@ def test_status_reads_a_tracked_pr_by_its_bare_number_and_names_the_forms_an_id_
 
 
 def test_order_show_and_job_show_print_what_status_prints(run: Run, with_pr: str) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "something else")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "something else")
     for verb, key in (("order", "o1"), ("job", "j1"), ("job", "42")):
         shown = run(verb, "show", key)
         assert (shown[0], "land it" in shown[1]) == (0, True)
@@ -3784,8 +3802,8 @@ def test_order_show_and_job_show_print_what_status_prints(run: Run, with_pr: str
 
 def test_status_prints_each_order_its_ids_name_whole_and_closed_ones_too(run: Run, demo: str) -> None:
     words = "move the replica's restore " + "onto the primary's one restore code path, " * 4
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", words)
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "something else")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", words)
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "something else")
     run("job", "add", "builder", "--order", "o1", "--goal", "one restore code path " * 8)
     said = "DONE " + "merged and installed, the replica now calls the primary's restore code, " * 4
     with state.edit("demo") as data:
@@ -3821,7 +3839,7 @@ def test_view_prints_the_model_and_its_page(run: Run, with_pr: str) -> None:
 
 def test_drive_flag_picks_among_several(run: Run, demo: str) -> None:
     run("start", "other", "--role", "coordinator")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "for other", "--drive", "other")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "for other", "--drive", "other")
     assert state.load("other")["orders"]["o1"]["text"] == "for other"
     assert state.load("demo")["orders"] == {}
 
@@ -3967,7 +3985,7 @@ def test_desk_wait_forwards_to_lr_wait(tmp_path: Path) -> None:
 
 
 def test_an_order_lists_its_parts_and_each_job_names_the_ones_it_delivers(run: Run, demo: str) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "build the files design", "--parts", "stack 1", "stack 2", "stack 3")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "build the files design", "--parts", "stack 1", "stack 2", "stack 3")
     assert run("job", "add", "builder", "--order", "o1", "--goal", "all of it", "--agent", "a")[0] == 2
     assert run("job", "add", "builder", "--order", "o1", "--goal", "x", "--part", "stack 9")[0] == 2
     assert run("job", "add", "builder", "--order", "o1", "--goal", "stacks 2-3", "--part", "stack 2", "--part", "stack 3")[1] == "j1"
@@ -3979,7 +3997,7 @@ def test_an_order_lists_its_parts_and_each_job_names_the_ones_it_delivers(run: R
 
 
 def test_job_add_prints_each_live_job_already_carrying_its_part_under_its_id(run: Run, demo: str) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "three spikes", "--parts", "spike 1", "spike 2", "spike 3")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "three spikes", "--parts", "spike 1", "spike 2", "spike 3")
     run("job", "add", "builder", "--order", "o1", "--goal", "spike 1: restore cost at three database sizes, one operation at a time", "--part", "spike 1")
     run("job", "add", "reader", "--order", "o1", "--goal", "spike 2", "--part", "spike 2")
     with state.edit("demo") as data:
@@ -3997,7 +4015,7 @@ def test_job_add_prints_each_live_job_already_carrying_its_part_under_its_id(run
 
 
 def test_an_order_of_one_deliverable_is_one_part_its_jobs_take_by_default(run: Run, demo: str) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "fix   the\nwatch")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix   the\nwatch")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix", "--agent", "a")
     data = state.load("demo")
     assert list(data["orders"]["o1"]["parts"]) == ["fix the watch"]
@@ -4008,7 +4026,7 @@ def test_an_order_of_one_deliverable_is_one_part_its_jobs_take_by_default(run: R
 def test_setting_parts_keeps_what_a_kept_part_recorded(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, slack_thread: "Thread"
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "two answers", "--parts", "why", "how")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "two answers", "--parts", "why", "how")
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -4024,7 +4042,7 @@ def test_setting_parts_keeps_what_a_kept_part_recorded(
 def test_a_post_naming_no_part_of_an_order_of_several_is_a_progress_line_that_keeps_its_promised_time(
     run: Run, demo: str, slack_thread: "Thread", capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "stop the harm, roll back, find the cause", "--thread", "1794200000.000100", "--due", "+10m", "--parts", "stop the harm", "rollback", "cause")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "stop the harm, roll back, find the cause", "--thread", "1794200000.000100", "--due", "+10m", "--parts", "stop the harm", "rollback", "cause")
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -4047,7 +4065,7 @@ def test_a_post_naming_no_part_of_an_order_of_several_is_a_progress_line_that_ke
 
 
 def test_the_communicator_takes_back_a_parts_delivered_mark(run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "stop the harm, roll back", "--thread", "1794200000.000100", "--parts", "stop the harm", "rollback")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "stop the harm, roll back", "--thread", "1794200000.000100", "--parts", "stop the harm", "rollback")
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -4065,7 +4083,7 @@ def test_the_communicator_takes_back_a_parts_delivered_mark(run: Run, demo: str,
 def test_an_answer_counts_as_posted_in_the_thread_of_one_of_the_orders_cards(
     run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "how fast can restore go?", "--thread", "1794100000.000100")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "how fast can restore go?", "--thread", "1794100000.000100")
     run("job", "add", "design", "--order", "o1", "--goal", "faster restore")
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
@@ -4083,7 +4101,7 @@ def test_an_answer_counts_as_posted_in_the_thread_of_one_of_the_orders_cards(
 def test_a_line_in_the_thread_of_the_card_of_a_pr_on_the_order_is_in_the_orders_thread(
     run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship web search", "--thread", "1794100000.000100", "--due", "+30m")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship web search", "--thread", "1794100000.000100", "--due", "+30m")
     run("job", "add", "builder", "--order", "o1", "--goal", "web search")
     run("pr", "add", PR, "--job", "j1")
     run("start", "demo", "--role", "communicator")
@@ -4104,7 +4122,7 @@ def test_a_line_in_the_thread_of_the_card_of_a_pr_on_the_order_is_in_the_orders_
 def test_a_bare_link_to_a_line_under_the_card_of_a_pr_on_the_order_reads_the_card_its_thread_hangs_from(
     run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship web search", "--thread", "1794100000.000100")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship web search", "--thread", "1794100000.000100")
     run("job", "add", "builder", "--order", "o1", "--goal", "web search")
     run("pr", "add", PR, "--job", "j1")
     run("start", "demo", "--role", "communicator")
@@ -4124,7 +4142,7 @@ def test_a_part_delivered_in_another_channel_is_recorded_where_it_was_made_and_k
     run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch
 ) -> None:
     parts = ["answer why it fails silently", "tell the two stopped people now"]
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "tell the stopped people", "--thread", "1794100000.000100", "--due", "+30m", "--parts", *parts)
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "tell the stopped people", "--thread", "1794100000.000100", "--due", "+30m", "--parts", *parts)
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -4144,7 +4162,7 @@ def test_a_part_delivered_in_another_channel_is_recorded_where_it_was_made_and_k
 def test_a_post_for_a_report_delivers_the_part_its_record_names_in_any_thread(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, slack_thread: "Thread"
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL errors on plat", "--thread", "1794100000.000100", "--incident", "--parts", "fix", "first check")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL errors on plat", "--thread", "1794100000.000100", "--incident", "--parts", "fix", "first check")
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -4162,7 +4180,7 @@ def test_a_post_for_a_report_delivers_the_part_its_record_names_in_any_thread(
 def test_a_line_in_the_thread_of_another_alert_on_an_incident_is_refused_until_the_alert_joins_it_then_counts_on_either_order(
     run: Run, demo: str, slack_thread: "Thread", capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL errors on plat", "--thread", "1794100000.000100", "--incident", "--parts", "fix", "first check")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL errors on plat", "--thread", "1794100000.000100", "--incident", "--parts", "fix", "first check")
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -4172,11 +4190,11 @@ def test_a_line_in_the_thread_of_another_alert_on_an_incident_is_refused_until_t
     assert cli.main(["order", "posted", "o1", line]) == 2
     assert (
         "when his message at the root of that thread is another alert on this incident, that alert is its own order, which the coordinator"
-        ' records with drive order add "<his alert>" --from slack:D123/1794200000.000100 --thread 1794200000.000100 --joins o1'
+        ' records with drive order add "<his alert>" --title "<a few words>" --from slack:D123/1794200000.000100 --thread 1794200000.000100 --joins o1'
         ' --project "The drive" --workstream "Drive tooling", and this line goes on that order'
     ) in capsys.readouterr().err
     alert = "SandSQL replica lanes unproven on staging"
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", alert, "--from", "slack:D123/1794200000.000100", "--thread", "1794200000.000100", "--joins", "o1")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", alert, "--from", "slack:D123/1794200000.000100", "--thread", "1794200000.000100", "--joins", "o1")
     assert run("order", "posted", "o2", line) == (0, f"o2 progress line, no part delivered: {line}")
     assert run("order", "posted", "o1", line) == (0, f"o1 progress line, no part delivered: {line}")
 
@@ -4184,8 +4202,8 @@ def test_a_line_in_the_thread_of_another_alert_on_an_incident_is_refused_until_t
 def test_a_line_in_the_thread_of_an_order_outside_the_incident_is_refused_naming_that_order_and_no_join(
     run: Run, demo: str, slack_thread: "Thread", capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL errors on plat", "--thread", "1794100000.000100", "--incident", "--parts", "fix", "first check")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "why the copy stalls", "--thread", "1794200000.000100")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL errors on plat", "--thread", "1794100000.000100", "--incident", "--parts", "fix", "first check")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why the copy stalls", "--thread", "1794200000.000100")
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -4201,9 +4219,9 @@ def test_a_line_in_the_thread_of_an_order_outside_the_incident_is_refused_naming
 def test_a_line_in_the_thread_of_the_incident_an_alert_joined_keeps_the_alerts_promised_time_once_no_job_carries_it(
     run: Run, demo: str, slack_thread: "Thread"
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL errors on plat", "--thread", "1794200000.000100", "--incident", "--parts", "fix", "first check")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL errors on plat", "--thread", "1794200000.000100", "--incident", "--parts", "fix", "first check")
     alert = "SandSQL replica lanes unproven on staging"
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", alert, "--from", "slack:C0ALERTS1/1794300000.000100", "--thread", "1794300000.000100", "--joins", "o1", "--due", "+30m")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", alert, "--from", "slack:C0ALERTS1/1794300000.000100", "--thread", "1794300000.000100", "--joins", "o1", "--due", "+30m")
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -4216,9 +4234,9 @@ def test_a_line_in_the_thread_of_the_incident_an_alert_joined_keeps_the_alerts_p
 
 
 def test_an_alert_saved_before_joins_was_kept_loads_joined_to_the_incident_its_owner_job_carries_it_for(run: Run, demo: str) -> None:
-    run("order", "add", "--project", "p", "--workstream", "w", "SandSQL errors on plat", "--incident", "--parts", "fix", "first check")
-    run("order", "add", "--project", "p", "--workstream", "w", "SandSQL error log count", "--joins", "o1")
-    run("order", "add", "--project", "p", "--workstream", "w", "SandSQL restore runs retrying", "--joins", "o2")
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "SandSQL errors on plat", "--incident", "--parts", "fix", "first check")
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "SandSQL error log count", "--joins", "o1")
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "SandSQL restore runs retrying", "--joins", "o2")
     with state.locked("demo"):
         saved = json.loads(state.state_path("demo").read_text())
         assert [saved["orders"][order_id]["joins"] for order_id in ("o1", "o2", "o3")] == [None, "o1", "o1"]
@@ -4233,7 +4251,7 @@ def test_an_alert_saved_before_joins_was_kept_loads_joined_to_the_incident_its_o
 
 
 def test_only_his_own_message_withdraws_a_promised_line(run: Run, demo: str, slack_thread: "Thread") -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "send the numbers", "--thread", "1794200000.000100", "--due", "+30m")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "send the numbers", "--thread", "1794200000.000100", "--due", "+30m")
     ours = slack_thread.post(state.now() - timedelta(minutes=60), from_claude=True)
     his = slack_thread.post(state.now() - timedelta(minutes=59), from_user=True)
     assert run("order", "set", "o1", "--state", "dropped")[0] == 2
@@ -4259,7 +4277,7 @@ def test_the_line_a_closing_report_posts_keeps_the_time_owed_even_when_it_was_th
         lambda argv, checkout: json.dumps({"seq": argv[2], "kind": "report", "lane": "root", "at": reports[argv[2]][1].isoformat(), "fields": {"attrs": reports[argv[2]][0]}}),
     )
     for text in ("unfreeze and release", fix):
-        run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", text, "--thread", "1794200000.000100")
+        run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", text, "--thread", "1794200000.000100")
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -4298,7 +4316,7 @@ def test_a_handler_closes_only_an_order_its_report_record_closes(
     }
     monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "kind": "report", "lane": "root", "at": "2026-11-11T09:08:16.896Z", "fields": {"attrs": attrs[argv[2]]}}))
     for text in ("fix the watch", "fix the handler", "fix the say tool", "fix the card"):
-        run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", text)
+        run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", text)
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -4323,8 +4341,8 @@ def note_in(slack_thread: "Thread", ts: str, thread: str = "1794400100.000200", 
 def test_an_order_with_a_reporter_closes_done_only_once_its_one_fix_live_note_is_recorded_and_one_without_closes_as_before(
     run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "p", "--workstream", "w", "fix the stuck staging deploy", "--thread", "1794200000.000100", "--reporter", REPORTED)
-    run("order", "add", "--project", "p", "--workstream", "w", "fix the watch", "--thread", "1794200000.000100")
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "fix the stuck staging deploy", "--thread", "1794200000.000100", "--reporter", REPORTED)
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "fix the watch", "--thread", "1794200000.000100")
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -4349,10 +4367,10 @@ def test_an_order_with_a_reporter_closes_done_only_once_its_one_fix_live_note_is
 def test_a_reporter_the_bot_cannot_reach_is_told_in_their_group_dm_with_him_and_only_his_words_take_a_reporter_off(
     run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert cli.main(["order", "add", "--project", "p", "--workstream", "w", "fix it", "--reporter", "C0REPORTS01/1794400100.000200"]) == 2
+    assert cli.main(["order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "fix it", "--reporter", "C0REPORTS01/1794400100.000200"]) == 2
     assert "refused, name the bug report by its Slack permalink or as slack:<channel>/<its thread's ts>" in capsys.readouterr().err
     for words in ("fix the deploy", "fix the cache"):
-        run("order", "add", "--project", "p", "--workstream", "w", words, "--thread", "1794200000.000100", "--reporter", "slack:C0REPORTS01/1794400100.000200")
+        run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", words, "--thread", "1794200000.000100", "--reporter", "slack:C0REPORTS01/1794400100.000200")
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -4380,7 +4398,7 @@ def test_a_reporter_the_bot_cannot_reach_is_told_in_their_group_dm_with_him_and_
 def test_the_communicator_drops_an_order_no_record_names_with_a_note_and_closes_one_done_only_by_its_record(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "fix the watch")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the watch")
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -4396,7 +4414,7 @@ def test_the_communicator_drops_an_order_no_record_names_with_a_note_and_closes_
 def test_only_the_communicator_marks_an_answer_posted_and_the_coordinator_is_told_to_send_a_report_record(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "why?")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why?")
     assert cli.main(["order", "posted", "o1", "https://acme.slack.com/archives/D1/p2"]) == 2
     assert (
         "only the communicator records a post in an order's thread or takes back a part's mark: send the post's facts as a report record"
@@ -4415,7 +4433,7 @@ def report_records(monkeypatch: pytest.MonkeyPatch, attrs: dict[str, dict], lane
 def test_a_part_is_delivered_only_by_the_report_record_that_names_it_and_a_post_with_none_is_a_progress_line(
     run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "p", "--workstream", "w", "fix the unfurl", "--thread", "1794200000.000100", "--parts", "fix")
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "fix the unfurl", "--thread", "1794200000.000100", "--parts", "fix")
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -4440,7 +4458,7 @@ def test_a_part_is_delivered_only_by_the_report_record_that_names_it_and_a_post_
 def test_the_session_holding_an_order_closes_a_part_by_the_drives_post_that_already_answered_it(
     run: Run, demo: str, slack_thread: "Thread", capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "p", "--workstream", "w", "why does the search worker OOM?", "--thread", "1794200000.000100", "--parts", "cause", "fix")
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "why does the search worker OOM?", "--thread", "1794200000.000100", "--parts", "cause", "fix")
     answered = slack_thread.post(state.now(), from_claude=True)
     his = slack_thread.post(state.now() + timedelta(seconds=1))
     assert cli.main(["order", "posted", "o1", his, "--part", "cause"]) == 2
@@ -4455,8 +4473,8 @@ def test_the_session_holding_an_order_closes_a_part_by_the_drives_post_that_alre
 def test_one_post_delivers_each_part_its_report_names_on_every_order_an_item_names(
     run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--project", "p", "--workstream", "w", "fix the search worker", "--thread", "1794200000.000100", "--parts", "fix", "first check")
-    run("order", "add", "--project", "p", "--workstream", "w", "raise its RAM", "--thread", "1794200000.000100", "--parts", "increase the RAM")
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "fix the search worker", "--thread", "1794200000.000100", "--parts", "fix", "first check")
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "raise its RAM", "--thread", "1794200000.000100", "--parts", "increase the RAM")
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -4471,7 +4489,7 @@ def test_one_post_delivers_each_part_its_report_names_on_every_order_an_item_nam
 def test_order_posted_on_the_communicators_own_order_takes_the_report_its_handler_wrote_from_the_communicators_lane(
     run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "p", "--workstream", "w", "which page shows a run's history?", "--thread", "1794200000.000100", "--owner", "communicator")
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "which page shows a run's history?", "--thread", "1794200000.000100", "--owner", "communicator")
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -4492,7 +4510,7 @@ def test_order_posted_on_the_communicators_own_order_takes_the_report_its_handle
 def test_order_set_done_refuses_the_report_order_posted_refuses_so_one_check_decides_both_verbs(
     run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "p", "--workstream", "w", "ship the run page", "--thread", "1794200000.000100")
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "ship the run page", "--thread", "1794200000.000100")
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -4526,14 +4544,14 @@ def test_start_outside_an_orca_terminal_is_refused_naming_the_command_that_start
 
 
 def test_a_drive_tooling_order_keeps_his_thread_so_his_later_words_there_find_it(run: Run, demo: str) -> None:
-    tooling = ["order", "add", "--project", "p", "--workstream", "w", "Drive tooling: fix ask", "--thread", "1794378983.440769"]
+    tooling = ["order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "Drive tooling: fix ask", "--thread", "1794378983.440769"]
     assert run(*tooling) == (0, "o1")
     assert state.load("demo")["orders"]["o1"]["thread"] == "1794378983.440769"
     assert state.thread_order(state.load("demo"), "1794378983.440769") == "o1"
 
 
 def test_a_drive_tooling_order_his_words_already_hold_adds_none(run: Run, demo: str) -> None:
-    tooling = ["order", "add", "--project", "p", "--workstream", "w", "Drive tooling: fix ask"]
+    tooling = ["order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "Drive tooling: fix ask"]
     assert run(*tooling) == (0, "o1")
     assert run(*tooling) == (0, "o1\no1 already holds these words, so no order was added")
     assert list(state.load("demo")["orders"]) == ["o1"]
@@ -4560,7 +4578,7 @@ def test_a_drive_tooling_orders_words_pass_check_post_since_his_pr_card_quotes_t
     run: Run, demo: str, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, flagged: str, reworded: str
 ) -> None:
     monkeypatch.setattr(slack, "check_post", drive_terms)
-    filed = ["order", "add", "--project", "p", "--workstream", "w"]
+    filed = ["order", "add", "--title", "Short title", "--project", "p", "--workstream", "w"]
     assert cli.main([*filed, flagged]) == 2
     refused = capsys.readouterr().err
     assert refused.startswith(f"drive: refused, `cc-slack check-post` finds {'; '.join(drive_terms(flagged, []))}; ")
@@ -4593,7 +4611,7 @@ def test_a_drive_tooling_orders_words_may_cite_his_ruling_by_its_answer_id_but_n
 
     monkeypatch.setattr(slack, "check_post", commit_shas)
     monkeypatch.setattr(settled, "shown", shown)
-    filed = ["order", "add", "--project", "p", "--workstream", "w"]
+    filed = ["order", "add", "--title", "Short title", "--project", "p", "--workstream", "w"]
     assert cli.main([*filed, 'Drive tooling: check-post wrongly refuses handler posts; his ruling f03a0aa: "you need to fix the hookw henver it wrongly refuses yu"']) == 0
     assert cli.main([*filed, "Drive tooling: revert 1a2b3c4, which broke the card hook"]) == 2
     assert "finds 1:23 commit-sha '1a2b3c4': link the commit;" in capsys.readouterr().err
@@ -4602,9 +4620,9 @@ def test_a_drive_tooling_orders_words_may_cite_his_ruling_by_its_answer_id_but_n
 def test_a_drive_tooling_order_with_no_project_or_workstream_is_filed_under_the_drive_and_his_order_is_refused_naming_the_pairs_in_use(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert run("order", "add", "Drive tooling: the say tool drops a table") == (0, "o1")
-    assert run("order", "add", "--workstream", "Slack cards and posts", "Drive tooling: a card drops its chart") == (0, "o2")
-    assert cli.main(["order", "add", "--project", "Iris", "ship the run page"]) == 2
+    assert run("order", "add", "--title", "Short title", "Drive tooling: the say tool drops a table") == (0, "o1")
+    assert run("order", "add", "--title", "Short title", "--workstream", "Slack cards and posts", "Drive tooling: a card drops its chart") == (0, "o2")
+    assert cli.main(["order", "add", "--title", "Short title", "--project", "Iris", "ship the run page"]) == 2
     assert capsys.readouterr().err.strip() == (
         "drive: refused, no order added: name --workstream, which file his order on the dashboard's Now screen, reusing a pair in use"
         " where it fits: The drive / Drive tooling; The drive / Slack cards and posts"
@@ -4616,7 +4634,7 @@ def test_a_drive_tooling_order_with_no_project_or_workstream_is_filed_under_the_
 def test_a_proof_is_the_checks_link_file_or_output_never_a_claim(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
-    run("order", "add", "--project", "p", "--workstream", "w", "unquarantine the flaky test")
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "unquarantine the flaky test")
     assert cli.main(["order", "set", "o1", "--state", "done", "--proof", "unquarantined"]) == 2
     assert '--proof "unquarantined": refused, a proof is the check itself' in (refused := capsys.readouterr().err)
     assert "rerun the check and paste its output, or link its run" in refused
@@ -4631,7 +4649,7 @@ def test_a_proof_is_the_checks_link_file_or_output_never_a_claim(
 def test_an_order_limited_to_options_starts_no_builder_or_codex_job_until_he_picks(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "p", "--workstream", "w", "give me options for the cache layout", "--options-only")
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "give me options for the cache layout", "--options-only")
     for kind in ("builder", "codex"):
         assert cli.main(["job", "add", kind, "--order", "o1", "--goal", "build it"]) == 2
         refused = capsys.readouterr().err
@@ -4647,11 +4665,11 @@ def test_an_incident_order_is_never_limited_to_options_since_its_codex_jobs_star
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     for joined in ([], ["--joins", "o1"]):
-        assert cli.main(["order", "add", "--project", "p", "--workstream", "w", "give me options only", "--incident", "--parts", "fix", "--options-only", *joined]) == 2
+        assert cli.main(["order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "give me options only", "--incident", "--parts", "fix", "--options-only", *joined]) == 2
         assert "--options-only: refused, an incident order is never limited to options, since its codex jobs start at the alert" in capsys.readouterr().err
     assert (state.load("demo")["orders"], state.load("demo")["jobs"]) == ({}, {})
-    run("order", "add", "--project", "p", "--workstream", "w", "errors on the api", "--incident", "--parts", "fix")
-    run("order", "add", "--project", "p", "--workstream", "w", "give me options for the api fix", "--parts", "fix", "--options-only")
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "errors on the api", "--incident", "--parts", "fix")
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "give me options for the api fix", "--parts", "fix", "--options-only")
     run("job", "add", "reader", "--order", "o2", "--goal", "research the options", "--part", "fix")
     for changed in (["o1", "--options-only"], ["o2", "--incident"]):
         assert cli.main(["order", "set", *changed]) == 2
@@ -4662,7 +4680,7 @@ def test_an_incident_order_is_never_limited_to_options_since_its_codex_jobs_star
 
 
 def test_an_order_saved_before_options_only_and_once_loads_as_neither(run: Run, demo: str) -> None:
-    run("order", "add", "--project", "p", "--workstream", "w", "fix the watch")
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "fix the watch")
     with state.locked("demo"):
         saved = json.loads(state.state_path("demo").read_text())
         for field in ("options_only", "once"):
@@ -4673,7 +4691,7 @@ def test_an_order_saved_before_options_only_and_once_loads_as_neither(run: Run, 
 
 
 def test_a_repair_he_asked_to_run_once_puts_up_no_pr(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
-    run("order", "add", "--project", "p", "--workstream", "w", "rerun the backfill once", "--once")
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "rerun the backfill once", "--once")
     run("job", "add", "builder", "--order", "o1", "--goal", "run the backfill")
     assert cli.main(["pr", "add", PR, "--job", "j1"]) == 2
     assert "refused, o1 is a repair he asked to run once: run it, and put up no PR for it" in capsys.readouterr().err
@@ -4685,9 +4703,9 @@ def test_a_repair_he_asked_to_run_once_puts_up_no_pr(run: Run, demo: str, capsys
 def test_status_names_the_open_incidents_and_each_running_job_whose_session_ended(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--project", "p", "--workstream", "w", "errors on the api", "--incident", "--parts", "fix", "first check")
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "errors on the api", "--incident", "--parts", "fix", "first check")
     run("order", "set", "o1", "--note", "record 3fa2c1")
-    run("order", "add", "--project", "p", "--workstream", "w", "fix the watch")
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "fix the watch")
     run("job", "add", "builder", "--order", "o2", "--goal", "fix it")
     lines = run("status")[1].splitlines()
     assert lines[4:6] == [
@@ -4703,15 +4721,15 @@ def test_status_names_the_open_incidents_and_each_running_job_whose_session_ende
 
 
 def test_heard_prints_one_word_with_orders_in_use(run: Run, demo: str) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Releases", "fix the watch")
-    run("order", "add", "--project", "Billing", "--workstream", "Invoices", "why is the invoice late?")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "fix the watch")
+    run("order", "add", "--title", "Short title", "--project", "Billing", "--workstream", "Invoices", "why is the invoice late?")
     assert run("heard") == (0, "heard")
     assert run("heard", "--away") == (0, "away")
     assert "in_use" not in json.loads(run("heard", "--json")[1])
 
 
 def test_heard_reads_nothing_from_github_so_a_refusal_there_never_leaves_him_unheard(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Releases", "fix the watch")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "fix the watch")
     monkeypatch.setattr(github, "run", lambda *args, **kwargs: pytest.fail("drive heard read GitHub"))
     monkeypatch.setattr(card, "run", lambda *args, **kwargs: pytest.fail("drive heard read GitHub"))
     assert run("heard") == (0, "heard")
@@ -4719,7 +4737,7 @@ def test_heard_reads_nothing_from_github_so_a_refusal_there_never_leaves_him_unh
 
 
 def test_heard_refuses_his_words_repeating_a_part_no_live_job_carries(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Releases", "ship the unfurl fix and its check", "--parts", "fix", "check")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "ship the unfurl fix and its check", "--parts", "fix", "check")
     assert run("heard")[0] == 0
     owner = state.load("demo")["owner"]
     assert cli.main(["heard", "--repeats", "o1", "--part", "fix"]) == 2
@@ -4742,7 +4760,7 @@ def test_heard_refuses_his_words_repeating_a_part_no_live_job_carries(run: Run, 
 
 
 def test_heard_takes_a_part_a_done_jobs_card_still_open_waits_on(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Releases", "ship the unfurl fix and its check", "--parts", "fix", "check")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "ship the unfurl fix and its check", "--parts", "fix", "check")
     run("job", "add", "design", "--order", "o1", "--part", "fix", "--goal", "pick how the card unfurls")
     run("job", "set", "j1", "--card", DESIGN_CARD)
     with state.edit("demo") as data:
@@ -4766,7 +4784,7 @@ def test_drive_move_takes_his_word_records_it_on_the_role_and_prints_steps_two_t
     assert cli.main(["move", "coordinator", "--his-word", ours]) == 2
     assert f"{ours} is not his message; only his own words move a session" in capsys.readouterr().err
     his = slack_thread.post(state.now() - timedelta(minutes=1), from_user=True)
-    run("order", "add", "--project", "Billing", "--workstream", "Invoices", "the invoice run fails")
+    run("order", "add", "--title", "Short title", "--project", "Billing", "--workstream", "Invoices", "the invoice run fails")
     with state.edit("demo") as data:
         data["orders"]["o1"]["incident"] = True
         data["roles"]["coordinator"]["terminal"] = "term_coordinator"
@@ -4918,7 +4936,7 @@ def test_every_drive_command_the_skill_names_parses_with_the_cli() -> None:
         "drive order add X --from migrated: X --due X --project X --workstream X",
     ):
         assert refusal(guess, leaves)
-    for mention in ("drive order add X --from slack: X / X --due X --project X --workstream X", "drive order add --due", "drive job add --order X"):
+    for mention in ("drive order add X --from slack: X / X --due X --project X --workstream X --title X", "drive order add --due", "drive job add --order X"):
         assert refusal(mention, leaves) is None
 
 
@@ -5310,7 +5328,7 @@ def test_an_answer_under_a_card_lists_only_its_job_and_orders_cards_and_prs_and_
     run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     cards_asking(monkeypatch, PR)
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "the new tool")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the new tool")
     run("job", "add", "builder", "--order", "o2", "--goal", "build the tool")
     run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/44", "--job", "j3")
     run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/45", "--job", "j3")
@@ -5331,7 +5349,7 @@ def test_an_answer_stays_unfinished_until_each_job_waiting_on_an_order_it_touche
 ) -> None:
     cards_asking(monkeypatch, PR)
     run("job", "add", "builder", "--order", "o1", "--goal", "build the store")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "the new tool")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the new tool")
     run("job", "add", "builder", "--order", "o2", "--goal", "build the tool")
     with state.edit("demo") as data:
         data["jobs"]["j3"]["state"] = data["jobs"]["j4"]["state"] = "waiting"
@@ -5408,7 +5426,7 @@ def test_a_superseded_card_folds_its_job_into_a_live_one_and_the_card_he_tapped_
     run: Run, designing: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     cards_asking(monkeypatch, PR)
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "the new tool")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the new tool")
     run("job", "add", "builder", "--order", "o2", "--goal", "build the tool")
     assert run("answer", "a1", "--words", WORDS, "--link", TAP_CARD)[0] == 2
     assert list(state.load("demo")["answers"]["a1"]["cards"]) == ["demo:j2-7"]
@@ -5466,7 +5484,7 @@ def test_a_ruling_records_only_with_the_tooling_order_rewriting_the_skill_to_it(
 ) -> None:
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [], "closed": []})
     view.refresh_cards(demo)
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "design the run page")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "design the run page")
     ruling = ["answer", "--title", "How should cards read?", "--words", "Cards say why", "--link", "https://acme.slack.com/archives/D123/p1", "--label", "ruling"]
     for extra in ([], ["--rewrite", "o1"]):
         assert cli.main([*ruling, *extra]) == 2

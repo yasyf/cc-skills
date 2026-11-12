@@ -416,6 +416,7 @@ def follow_up(data: dict, head: str, group: list[str], created: str) -> str | No
         "owner": incident["owner"],
         "project": incident["project"],
         "workstream": incident["workstream"],
+        "title": incident["title"],
         "note": f"follow-up of incident {head}",
     }
     for job_id in jobs:

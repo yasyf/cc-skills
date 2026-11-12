@@ -40,6 +40,7 @@ def order(text: str, jobs: list[str], **overrides: object) -> dict:
         "last_line": None,
         "project": None,
         "workstream": None,
+        "title": None,
         "parts": {text: state.new_part()},
     }
     return base | overrides
@@ -776,3 +777,70 @@ def test_pr_card_words_name_his_open_tap_card_a_tap_on_a_redrawn_one_or_none() -
     assert view.pr_card_words(ledger, "live", pr) == f'card {again} answered "Approve" at {when(at(-5))}'
     assert view.pr_card_words(found(closed=[withdrawn]), "live", pr) == f"card {first} withdrawn at {when(at(-59))}: a new head, redrawn as card {again}, which cc-slack no longer keeps"
     assert view.pr_card_words(ledger, "live", "https://github.com/acme/app/pull/43") is None
+
+
+def test_a_task_is_named_by_its_short_title_with_his_words_whole_and_an_untitled_order_by_its_first_words() -> None:
+    words = "the chat list should keep its scroll when a new chat lands, see https://example.com/report for the recording"
+    data = drive_of({"o1": order(words, [], title="Keep chat scroll"), "o2": order("ship the page\nwith its tests", [])}, {}, [])
+    model = view.board(data, found(), "live", [], T0, set())
+    assert {entry["id"]: (entry["title"], entry["text"]) for group in model["status"] for entry in group["features"]} == {
+        "o1": ("Keep chat scroll", words),
+        "o2": ("ship the page", "ship the page\nwith its tests"),
+    }
+
+
+def test_a_line_too_long_for_its_row_ends_on_a_whole_word() -> None:
+    line = view.said("PUSHED " + "https://github.com/yasyf/cc-skills/pull/12 " * 3 + "retries once " * 20)
+    assert len(line) <= view.NOW_CHARS + 1
+    assert line.endswith("once…") or line.endswith("retries…")
+    assert set(line.removesuffix("…").split()) == {"PUSHED", "https://github.com/yasyf/cc-skills/pull/12", "retries", "once"}
+
+
+@pytest.mark.parametrize(
+    ("order_state", "jobs", "prs", "state_shown", "waits_on"),
+    [
+        ("working", {"j1": ("failed", "refund fee line"), "j2": ("running", "round like the ledger")}, {}, "blocked", {"text": "builder j1 failed: refund fee line"}),
+        ("waiting", {"j1": ("waiting", "g")}, {"checks": "fail"}, "blocked", {"text": "red checks on #7", "pr": "yasyf/cc-skills#7"}),
+        ("working", {"j1": ("running", "retry once")}, {"checks": "fail"}, "running", {"text": "builder j1 is on it: retry once"}),
+        ("waiting", {"j1": ("waiting", "g")}, {"wants_tap": True}, "waiting", {"text": "waits on your tap on #7", "pr": "yasyf/cc-skills#7"}),
+        ("waiting", {"j1": ("waiting", "g")}, {"checks": "pending"}, "waiting", {"text": "waits on #7's checks", "pr": "yasyf/cc-skills#7"}),
+        ("waiting", {"j1": ("waiting", "cart sync")}, None, "waiting", {"text": "waits on builder j1: cart sync"}),
+        ("waiting", {"j1": ("done", "g")}, {"state": "merged"}, "merged", {"text": "waits on proof it works where you use it"}),
+        ("open", {}, None, "not started", {"text": "no job has started on it yet"}),
+    ],
+)
+def test_a_task_header_names_what_it_waits_on_and_agrees_with_the_state_it_shows(order_state: str, jobs: dict, prs: dict | None, state_shown: str, waits_on: dict) -> None:
+    made = {job_id: job("o1", job_state, goal=goal, updated=-10 * n) for n, (job_id, (job_state, goal)) in enumerate(jobs.items(), 1)}
+    data = drive_of({"o1": order("ship it", list(jobs), state=order_state)}, made, [] if prs is None else [pr(7, "o1", **prs)])
+    [entry] = [entry for group in view.board(data, found(), "live", [], T0, set())["status"] for entry in group["features"]]
+    assert entry["state"] == state_shown
+    assert {key: value for key, value in entry["holdup"].items() if value and key != "url"} == waits_on
+
+
+def test_a_task_waiting_on_his_card_names_that_card_and_a_live_one_waits_on_nothing() -> None:
+    asked = question("Merge carts on sign-in?", -30)
+    data = drive_of(
+        {"o1": order("sync the cart", ["j1"]), "o2": order("stack promo codes", ["j2"], state="done", proof="live on #401")},
+        {"j1": job("o1", "waiting", waits=[asked["url"]]), "j2": job("o2", "done")},
+        [],
+    )
+    entries = {entry["id"]: entry for group in view.board(data, found([asked]), "live", [], T0, set())["status"] for entry in group["features"]}
+    assert entries["o1"]["holdup"] == {"text": "waits on your answer to Merge carts on sign-in?", "card": asked["url"], "pr": None, "url": None}
+    assert entries["o2"]["holdup"] is None
+
+
+def test_a_task_lists_each_part_with_the_newest_job_carrying_it_and_where_it_is_reads_that_jobs_whole_line() -> None:
+    line = "BLOCKED buildkite/test is red on https://github.com/yasyf/cc-skills/pull/7: the refund total rounds 0.005 down while the ledger rounds it up " * 2
+    data = drive_of(
+        {"o1": order("retry and receipt", ["j1", "j2"], parts={"retry": state.new_part(), "receipt": state.new_part(), "docs": state.new_part()})},
+        {"j1": job("o1", "done", "DONE retry", updated=-50, parts=["retry"]), "j2": job("o1", "failed", line, updated=-5, parts=["receipt"])},
+        [],
+    )
+    [entry] = [entry for group in view.board(data, found(), "live", [], T0, set())["status"] for entry in group["features"]]
+    assert [(part["name"], part["whole"], part["job"], part["state"]) for part in entry["parts"]] == [
+        ("retry", False, "j1", "done"),
+        ("receipt", False, "j2", "failed"),
+        ("docs", False, None, None),
+    ]
+    assert entry["where"] == {"text": line.strip(), "job": "j2", "state": "failed", "at": at(-5)}
+    assert not {"parts", "where", "holdup"} & set(view.outline(entry))

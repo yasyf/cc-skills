@@ -50,7 +50,7 @@ COMMUNICATOR_RULES = (
         " call more for a read-only question, so the watch holds his answer: the job tool with ops `[{add: {kind:"
         ' "reader", order: {words: "<his words, verbatim>", kind: "answer", complex: true, from:'
         ' "slack:<channel>/<ts>", thread: "<ts>", project: "<the project in use his words are about>", workstream:'
-        ' "<its workstream>"}, goal: "<one line>", agent: "<the id handler returned>"}}]`, leaving out complex only for'
+        ' "<its workstream>", title: "<a few words naming it>"}, goal: "<one line>", agent: "<the id handler returned>"}}]`, leaving out complex only for'
         " a one-fact lookup."
     ),
     (
@@ -185,7 +185,7 @@ COORDINATOR_RULES = (
         " `--others-stand` only once you have read every card and PR left."
     ),
     (
-        "Every part has an owner: an order add names its kind, answer or build, its project and workstream, and for a"
+        "Every part has an owner: an order add names its kind, answer or build, its project, workstream and short title, and for a"
         " build its parts, one per deliverable his words name; each job names its part, an ORPHAN line gets a job, a"
         " card or a close in the same turn, a part a post already answered closes with drive order posted <o> <link>"
         " --part, --record or not, and a job that waits on a release is added, or set, with --waits release:<service>:<owner>/<repo>#<n>,"
@@ -246,7 +246,7 @@ META_RULES = (
         " communicator's owner record about the drive,"
         ' his ruling or feedback included, each get, in this turn, one job call, ops `[{add: {kind: "reader", order: {words:'
         ' "Drive tooling: <what>", kind: "build", from: "<its From>", thread: "<its thread attr>", project: "The drive",'
-        ' workstream: "Drive tooling"}, goal: "research: <what>"}}]`, then a background long-running:reader, its prompt'
+        ' workstream: "Drive tooling", title: "<a few words naming it>"}, goal: "research: <what>"}}]`, then a background long-running:reader, its prompt'
         " the lines `Order: Drive tooling: <what>`, `From: cci:<seq>`, his words verbatim for an owner record,"
         " `Research: the Researched: block this build needs`, `Drive: <name>, order <o>, job <j>`, `Scratch: <folder>`."
         " His words in the thread of an open drive tooling order carry on that order instead: SendMessage its job's agent"
