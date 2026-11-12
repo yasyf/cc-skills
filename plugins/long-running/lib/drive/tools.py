@@ -65,9 +65,10 @@ RECORD = {
         "url": {
             "type": "string",
             "description": (
-                "his message's or the card's permalink; an owner or answer record whose message is in an open question card's"
-                " thread settles or withdraws that card in the same call, and one under a PR card leaves it up: only the"
-                " coordinator's --rework naming its PR, on his order or the job carrying it, withdraws a PR card"
+                "his message's or the card's permalink; it closes no card, so his words under a question card that answer"
+                " nothing it asks, such as feedback on the drive, leave it up: waits settles his question card, thread_card"
+                " withdraws it, and only the coordinator's --rework naming its PR, on his order or the job carrying it,"
+                " withdraws a PR card"
             ),
         },
         "thread": {"type": "string", "description": "the thread it is about, kept as attr thread"},
@@ -83,8 +84,9 @@ RECORD = {
         "thread_card": {
             "type": "string",
             "description": (
-                "the waits id his message's thread_card names when his owner words under a question card answer nothing it"
-                " asks, such as a rework: kept as attr thread_card, and the card is withdrawn in the same call, showing his words"
+                "the waits id his message's thread_card names when his owner words under a question card change what it asks,"
+                " such as a rework or a correction: kept as attr thread_card, and the card is withdrawn in the same call, showing"
+                " his words; left out for words that leave it asking, such as feedback on the drive, so the card stays up"
             ),
         },
         "undone": {"type": "boolean", "description": "an Undo tap: attr undone=<text> and the text undone: <text>"},
@@ -564,7 +566,7 @@ def his_cards(name: str) -> dict:
 def closed_by(name: str, data: dict, found: dict, index: int, made: dict) -> tuple[list[dict], tuple[str, str, str] | None]:
     """The question cards of his this record's words close, and else the question an answer settles that its job keeps with no card drawn, by its job, ask seq and file; an answer naming a card that no longer waits on him is refused, posting nothing."""
     attrs = made.get("attr") or {}
-    questions = superseded.closing(found, made["kind"], attrs, made.get("url"), made.get("re") or [])
+    questions = superseded.closing(found, made["kind"], attrs, made.get("topic"), made.get("re") or [])
     if questions or made["kind"] != "answer" or "undone" in attrs or not (attrs.get("job") or attrs.get("thread_card")):
         return questions, None
     if settling := uncarded(name, data, attrs, made.get("re") or []):

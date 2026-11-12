@@ -134,7 +134,7 @@ def dry(name: str, post: dict) -> str:
     card = f", card {post['card'].get('title')!r}" if post.get("card") else ""
     prs = f", PR card for {len(post['tap_prs'])} PRs" if post.get("tap_prs") else ""
     pictures = len([visual for visual in visuals if "picture" in visual]) + len(lifted)
-    return f"DRY {where}, {pictures} pictures{card}{prs}: {refs.slack(words, found)}"
+    return f"DRY {where}, {pictures} pictures{card}{prs}: {refs.slack(words, found, shown_in(name, post))}"
 
 
 def check(name: str, post: dict) -> None:
@@ -191,7 +191,7 @@ def posted(name: str, post: dict) -> dict:
     visuals, words, lifted = shown(name, post)
     card = post.get("card")
     stack = [state.pr_key(each) for each in post.get("tap_prs") or []]
-    sent = refs.slack(words, found)
+    sent = refs.slack(words, found, shown_in(name, post))
     pictures = [*(visual["picture"] for visual in visuals if "picture" in visual), *lifted]
     asked = cli.asked_on(name, card["waits"]) if card and card.get("waits") else set()
     first, *others = threads(name, post, stack)
@@ -225,13 +225,22 @@ def posted(name: str, post: dict) -> dict:
     if card or stack:
         view.refresh_cards(name)
     for thread in others:
-        linked(name, reply["permalink"], thread, stack, sent, kept)
+        linked(name, reply["permalink"], thread, stack, refs.slack(words, found, thread), kept)
     return reply
 
 
 def threads(name: str, post: dict, stack: list[str]) -> list[str | None]:
     """Each thread of his DM the post goes in, None for his DM root: the one it names, then for a PR card each thread of the orders its PRs carry out."""
     return list(dict.fromkeys(filter(None, [post.get("thread_ts"), *state.pr_threads(state.load(name), stack)]))) or [None]
+
+
+def shown_in(name: str, post: dict) -> str | None:
+    """The thread a post goes in first, the thread of the card its `about` names, where cc-slack puts that reply, or the thread an edit's post is in, None for his DM root: a card named in its own thread reads there as words."""
+    if post.get("edit"):
+        return view.card_thread(post["edit"])
+    if post.get("about"):
+        return view.card_thread(refs.card(refs.open_cards(name), state.load(name), post["about"])["url"])
+    return threads(name, post, [state.pr_key(each) for each in post.get("tap_prs") or []])[0]
 
 
 def linked(name: str, first: str, thread: str, stack: list[str], sent: str, kept: str) -> None:

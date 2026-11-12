@@ -74,7 +74,10 @@ reading of his words "your messages need to be way shorter rewrite this for a hu
   `waits` id, which `record_lines` refuses a report without, so the handler never searches.
 - When a line names a card or says something waits on him, name the card as `{card:<its waits id>}`
   in `say`'s text, which `say` links under words that name it. Slack then draws the card with its
-  buttons under the line, so he answers it where it sits.
+  buttons under the line, so he answers it where it sits. In that card's own thread `say` writes it
+  as the words after its `|` or as "this card", with no link, and cc-slack writes any link to a
+  thread's own parent as its words, since he is already under the card. His words: "why are you
+  showing me a card in the thread of the same post that this is a thread of".
 - Never paste the bare URL, which shows him a raw address, use the URL as its own label,
   `<permalink|permalink>`, which Slack never draws, or copy the card's words. `cc-slack check-post`
   refuses a waiting line with no open card linked, and a card link shown as a raw URL.

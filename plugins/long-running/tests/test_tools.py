@@ -461,6 +461,14 @@ def test_his_words_on_an_open_card_close_it_in_the_same_call_that_sends_them(dem
     assert len(posted) == 2
 
 
+def test_his_owner_words_under_a_question_card_naming_no_thread_card_leave_it_up(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, "#61\n", ""))
+    answered = open_cards(monkeypatch, "demo:j1-7")
+    feedback = {"kind": "owner", "text": "wat the fuck thats not acceptbale", "url": UNDER_CARD, "about": "drive"}
+    assert tools.run("record", demo, {"records": [feedback]}) == "1 owner #61"
+    assert answered == []
+
+
 def test_an_answer_closing_an_ask_his_recorded_rules_settled_before_any_card_drew_settles_its_kept_question(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -100,7 +100,7 @@ def refusals(payload: dict, names: list[str], records: list[dict]) -> Iterator[s
         yield misaddressed(payload, record)
         yield limits.misnamed(kind(record), attrs(record))
         yield settled.ask_refusal(names, attrs(record), record.get("text") or "") if kind(record) == "ask" else None
-        yield superseded.unclosed_refusal(names, kind(record), attrs(record), record.get("url"), listed(record.get("re")))
+        yield superseded.unclosed_refusal(names, kind(record), attrs(record), record.get("topic"), listed(record.get("re")))
         yield state.unabout(kind(record), attrs(record))
         yield unkinded(record)
         yield untapped(record, prs)

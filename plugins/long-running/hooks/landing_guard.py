@@ -537,7 +537,7 @@ def body_reason(script: str, shell: Shell) -> str | None:
 
 
 def cci_posts(script: str, shell: Shell) -> list[dict]:
-    """Each record a script posts with `cci post`, never a call asking for its help with `--help` or `-h`, which cci answers before it reads a record, in the shape the cci `post` tool takes: its kind, attrs, addressed lanes, text, body, url and answered seqs, each read as cci reads it: its text the positionals, else --text, else the first line of the file --path names, its body the file --body-file or --path names, and each `--attr` as cci's flag parser reads it, one `key=value` whole, commas and all, and with several `=` comma-separated `key=value` fields, quotes around one holding a comma."""
+    """Each record a script posts with `cci post`, never a call asking for its help with `--help` or `-h`, which cci answers before it reads a record, in the shape the cci `post` tool takes: its kind, attrs, addressed lanes, text, body, url, topic and answered seqs, each read as cci reads it: its text the positionals, else --text, else the first line of the file --path names, its body the file --body-file or --path names, and each `--attr` as cci's flag parser reads it, one `key=value` whole, commas and all, and with several `=` comma-separated `key=value` fields, quotes around one holding a comma."""
     posts = []
     for _, words, run_in in commands(script, shell):
         if (found := landing_of(words, (CCI_POST,))) and lands(found[0], found[2]):
@@ -550,6 +550,7 @@ def cci_posts(script: str, shell: Shell) -> list[dict]:
                 "text": " ".join(positionals) or (options.get("text") or [""])[-1] or first_line(run_in.cwd, path),
                 "body": file_text(run_in.cwd, (options.get("body-file") or [path])[-1]),
                 "url": (options.get("url") or [None])[-1],
+                "topic": (options.get("topic") or [None])[-1],
                 "re": [seq for value in options.get("re", []) for seq in value.split(",")],
             })
     return posts
@@ -702,7 +703,7 @@ def guarded_reason(payload: dict) -> str | None:
     posts = cci_posts(command, shell)
     if shell.driving and posts and cci_connected(payload):
         return CLI_POST
-    unclosed = (superseded.unclosed_refusal(names, post["kind"], post["attrs"], post["url"], post["re"]) for post in posts)
+    unclosed = (superseded.unclosed_refusal(names, post["kind"], post["attrs"], post["topic"], post["re"]) for post in posts)
     if names and (left_up := next(filter(None, unclosed), None)):
         return left_up
     if names and (unsaid := next(filter(None, (state.unabout(post["kind"], post["attrs"]) for post in posts)), None)):

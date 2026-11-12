@@ -545,7 +545,8 @@ def test_his_words_on_his_open_card_go_only_through_the_record_tool_that_closes_
     answer = refusal(record_lines.decision(post(kind="answer", text="the lazy copy", re=["7"], attrs={"job": "j1"})))
     assert f"his open card {CARD}" in answer and "send it with the drive's `record` tool" in answer
     under = f"{CARD}?thread_ts={CARD_THREAD}"
-    assert "the drive's `record` tool" in refusal(record_lines.decision(post(kind="owner", text="why is this card still up", url=under)))
+    assert record_lines.decision(post(kind="owner", text="why is this card still up", url=under, attrs={"about": "his work"})) is None
+    assert "the drive's `record` tool" in refusal(record_lines.decision(post(kind="owner", text="why is this card still up", topic=f"card:{CARD_THREAD}", attrs={"about": "his work"})))
     assert "the drive's `record` tool" in refusal(record_lines.decision(post(kind="owner", text="drop the sweeper", attrs={"thread_card": "demo:j1-7"})))
     assert record_lines.decision(post(kind="owner", text="a new order", attrs={"about": "his work"})) is None
     assert record_lines.decision(post(kind="answer", text="undone: Ring", re=["7"], attrs={"job": "j1", "undone": "Ring"})) is None
