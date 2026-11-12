@@ -31,7 +31,7 @@ def open_cards(data: dict, pr: dict, cards: dict | None) -> list[str]:
     if state.IMMEDIATE_FIX in job["parts"] or state.open_incidents(data, [job["order"], *job["carries"]]):
         return []
     waits = list(dict.fromkeys([*pr["waits"], *job["waits"]]))
-    return [wait for wait in view.holding(data, waits, cards) if wait not in data["jobs"] and not state.RELEASE_WAIT.fullmatch(wait)]
+    return [wait for wait in view.holding(data, waits, cards) if state.card_wait(data, wait)]
 
 
 def approved(pr: dict) -> bool:
