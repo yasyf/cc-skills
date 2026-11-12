@@ -9,6 +9,7 @@ from datetime import timedelta
 from pathlib import Path, PurePosixPath
 
 import pytest
+from conftest import commit_files, git_in
 from drive import github, install, settled, state
 
 SHA = "abc123def4567890"
@@ -430,20 +431,6 @@ def test_a_plugin_the_marketplace_does_not_name_fails_at_once(fake: Callable[...
     assert install.main("cci@skills", SHA, None, 900, None) == 1
     assert "the skills marketplace names no plugin cci" in capsys.readouterr().err
     assert (git.sleeps, git.claude_calls()) == ([], [])
-
-
-def git_in(repo: Path, *args: str) -> str:
-    identity = ["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"]
-    return subprocess.run(["git", "-C", str(repo), *identity, *args], check=True, capture_output=True, text=True).stdout.strip()
-
-
-def commit_files(repo: Path, message: str, files: dict[str, str]) -> str:
-    for name, text in files.items():
-        (repo / name).parent.mkdir(parents=True, exist_ok=True)
-        (repo / name).write_text(text)
-    git_in(repo, "add", "-A")
-    git_in(repo, "commit", "-q", "-m", message)
-    return git_in(repo, "rev-parse", "HEAD")
 
 
 @pytest.fixture

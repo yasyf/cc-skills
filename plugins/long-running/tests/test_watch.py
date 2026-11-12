@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import CodexAsk, Judge, Redraws, Thread, WatchProcess, Withdrawals
+from conftest import CodexAsk, Judge, Redraws, Thread, WatchProcess, Withdrawals, commit_files, git_in
 from drive import card, cli, github, install, land, reads, render, served, slack, state, talk, view, watch
 
 KEY = "Forge-AI/monorepo#42"
@@ -2597,13 +2597,24 @@ def test_his_approve_on_a_card_of_one_orders_prs_in_no_native_stack_starts_a_lan
     assert landers == [(KEY,), (OTHER,)]
 
 
-def enqueue_exiting(tmp_path: Path, name: str, code: int) -> None:
-    script = tmp_path / land.ENQUEUE
-    script.parent.mkdir(parents=True)
-    script.write_text(f'#!/bin/sh\necho "trunk said $*"\nexit {code}\n')
-    script.chmod(0o755)
-    with state.edit(name) as data:
-        data["roles"]["coordinator"]["cwd"] = str(tmp_path)
+def on_main(tmp_path: Path, name: str, script: str) -> str:
+    """Commit script as stack-enqueue on main of an origin that the coordinator's checkout is a clone of, both made on the first call; the commit."""
+    origin, clone = tmp_path / "origin", tmp_path / "clone"
+    if not origin.exists():
+        origin.mkdir()
+        git_in(origin, "init", "-q", "-b", "main")
+        (origin / land.ENQUEUE).parent.mkdir(parents=True)
+        (origin / land.ENQUEUE).touch(mode=0o755)
+    head = commit_files(origin, "stack-enqueue", {str(land.ENQUEUE): script})
+    if not clone.exists():
+        git_in(tmp_path, "clone", "-q", str(origin), str(clone))
+        with state.edit(name) as data:
+            data["roles"]["coordinator"]["cwd"] = str(clone)
+    return head
+
+
+def enqueue_exiting(tmp_path: Path, name: str, code: int) -> str:
+    return on_main(tmp_path, name, f'#!/bin/sh\necho "trunk said $*"\nexit {code}\n')
 
 
 @pytest.mark.parametrize("code", [0, 3])
@@ -2623,6 +2634,24 @@ def test_a_landers_outcome_is_said_on_its_prs_line_and_only_a_failure_wakes_its_
     assert watch.wakes(lines[0], state.load(demo)) == bool(code)
 
 
+def test_a_lander_runs_stack_enqueue_as_the_default_branchs_head_holds_it_from_a_worktree_it_removes_never_from_the_coordinators_checkout(
+    demo: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    approve(demo, KEY)
+    enqueue_exiting(tmp_path, demo, 3)
+    clone = tmp_path / "clone"
+    (clone / land.ENQUEUE).write_text('#!/bin/sh\necho "the checkout said $*"\nexit 3\n')
+    head = on_main(tmp_path, demo, '#!/bin/sh\necho "main said $*"\n')
+    untouched = (git_in(clone, "rev-parse", "HEAD"), git_in(clone, "status", "--porcelain"))
+    assert land.run(demo, [KEY]) == land.QUEUED
+    said = capsys.readouterr().out
+    checkout = state.drive_dir(demo) / land.LANDINGS / str(os.getpid())
+    assert f"{KEY}: stack-enqueue from {checkout}, a fresh worktree of Forge-AI/monorepo's main at {head}" in said
+    assert ("main said --check 42" in said, "main said --watch 42" in said, "the checkout said" in said) == (True, True, False)
+    assert (git_in(clone, "rev-parse", "HEAD"), git_in(clone, "status", "--porcelain")) == untouched
+    assert (len(git_in(clone, "worktree", "list").splitlines()), checkout.exists()) == (1, False)
+
+
 def test_a_lander_that_outlived_an_install_hands_its_outcome_to_the_newest_drive_which_records_it_and_logs_it_under_its_pr(
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -2634,8 +2663,8 @@ def test_a_lander_that_outlived_an_install_hands_its_outcome_to_the_newest_drive
     newer = tmp_path / "cache" / "9.9.9" / "bin" / "drive"
     queued = land.enqueued
 
-    def queued_then_installed(name: str, checkout: Path, keys: list[str]) -> str:
-        outcome = queued(name, checkout, keys)
+    def queued_then_installed(name: str, clone: Path, keys: list[str], dry_run: bool = False) -> str:
+        outcome = queued(name, clone, keys, dry_run)
         path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "9.9.9"}))
         return outcome
 
@@ -2672,8 +2701,7 @@ def test_an_approval_on_an_older_head_draws_no_card_and_reads_approved_on_an_old
 
 def enqueue_checking(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str, check: str) -> Path:
     """A stack-enqueue whose --check prints check and exits 1, and whose --watch queues, beside a gh that records each call; the file gh writes."""
-    enqueue_exiting(tmp_path, name, 0)
-    (tmp_path / land.ENQUEUE).write_text(f'#!/bin/sh\nif [ "$1" = --check ]; then printf "%s\\n" {shlex.quote(check)}; exit 1; fi\necho "trunk said $*"\n')
+    on_main(tmp_path, name, f'#!/bin/sh\nif [ "$1" = --check ]; then printf "%s\\n" {shlex.quote(check)}; exit 1; fi\necho "trunk said $*"\n')
     calls = tmp_path / "gh-calls"
     gh = tmp_path / "bin" / "gh"
     gh.parent.mkdir()
@@ -2711,7 +2739,7 @@ def test_a_lander_queues_nothing_while_a_pr_below_it_in_its_native_stack_lacks_h
         for key in (KEY, OTHER):
             data["prs"][key]["stack"] = [key]
     approve(demo, OTHER)
-    enqueue_exiting(tmp_path, demo, 0)
+    head = enqueue_exiting(tmp_path, demo, 0)
     monkeypatch.setattr(land.github, "below", lambda key: ["Forge-AI/monorepo#41", KEY] if key == OTHER else [])
     held = (
         f"not landed: Forge-AI/monorepo#41, {KEY} sits below {OTHER} in its stack with neither his Approve nor an exempt class, and stack-enqueue queues a stack"
@@ -2732,7 +2760,9 @@ def test_a_lander_queues_nothing_while_a_pr_below_it_in_its_native_stack_lacks_h
         data["prs"]["Forge-AI/monorepo#41"]["state"] = "open"
     assert land.run(demo, [KEY, OTHER], dry_run=True).startswith("not landed: Forge-AI/monorepo#41 sits below")
     monkeypatch.setattr(land.github, "below", lambda key: [KEY] if key == OTHER else [])
-    assert land.run(demo, [KEY, OTHER], dry_run=True) == f"would queue {KEY}, {OTHER} through stack-enqueue --watch: every PR below it is merged, approved by him or exempt"
+    assert land.run(demo, [KEY, OTHER], dry_run=True) == (
+        f"would queue {KEY}, {OTHER} through stack-enqueue --watch from main at {head[:12]}: every PR below it is merged, approved by him or exempt"
+    )
 
 
 def test_a_lander_queues_nothing_while_the_prs_head_on_github_is_not_the_one_checked_against_his_words_and_wakes_no_one(

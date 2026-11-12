@@ -252,8 +252,11 @@ clears the tap and any exemption and puts the PR back on his card with that line
 carry out one decision of his into one first, so he gets one card.
 
 **His Approve or an exempt class lands a `Forge-AI/monorepo` PR with no session turn.** The drive's
-lander, a process of its own, enqueues it into the Trunk merge queue with the coordinator checkout's
-script:
+lander, a process of its own, enqueues it into the Trunk merge queue with the script as the head of
+the repository's default branch holds it, run from a fresh worktree of that head made for the landing
+and removed after it, never from the coordinator checkout, whose commit and uncommitted files it leaves
+as they are. A landing fix merged to the default branch, such as a newly pinned toolchain, holds for
+the next landing at once:
 
     .agents/skills/submit-pr/scripts/stack-enqueue --check <PR>...
     .agents/skills/submit-pr/scripts/stack-enqueue --watch <PR>...
