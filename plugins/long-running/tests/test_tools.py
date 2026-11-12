@@ -177,8 +177,13 @@ def test_drive_break_glass_grants_in_the_jobs_name_then_runs_its_command_in_the_
             ["order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "count"],
             "drive order add: refused, nothing ran: a lane runs only these verbs: job report, job ask, job set, job replies, pr add, plan search, manual, status",
         ),
-        (["job", "report", "j8", "-"], "drive job report: refused, nothing ran: it names j8, and a lane's drive verbs act on its own job, j7, alone"),
+        (
+            ["job", "report", "j8", "-"],
+            "drive job report: refused, nothing ran: it names j8, and a lane's drive writes act on its own job, j7, alone, while its reads read any job",
+        ),
         (["job", "report", "--", "j8", "-"], "drive job report: refused, nothing ran: it names j8"),
+        (["job", "ask", "j8", "ask.md"], "drive job ask: refused, nothing ran: it names j8"),
+        (["job", "set", "j8", "--repro", "proof.sh"], "drive job set: refused, nothing ran: it names j8"),
         (["pr", "add", "https://github.com/yasyf/cc-skills/pull/1", "--jo=j8"], "drive pr add: refused, nothing ran: it names j8"),
         (
             ["break-glass", "j7", "--stack", "sandsql/plat-usw2-prod", "--reason", "x", "--", "aws", "s3", "ls"],
@@ -202,13 +207,27 @@ def test_a_sprite_lanes_verb_acting_on_another_job_or_drive_however_it_is_spelle
     assert capsys.readouterr().err.startswith(why)
 
 
-def test_a_sprite_lanes_verb_on_its_own_job_and_drive_runs_and_starts_nothing_carrying_its_mark(
+def test_a_sprite_lane_reads_another_job_as_a_mac_lane_does_its_bare_status_reads_its_own_job_and_nothing_it_starts_carries_its_mark(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv(reads.SPRITE_LANE, "1")
-    monkeypatch.setenv(state.OWN_JOB_ENV, "j7")
+    run("order", "add", "--title", "Copies", "--project", "The drive", "--workstream", "Drive tooling", "count the stranded table copies")
+    run("order", "add", "--title", "Cards", "--project", "The drive", "--workstream", "Drive tooling", "sweep the stale cards")
+    run("job", "add", "reader", "--order", "o1", "--goal", "count them")
+    run("job", "add", "builder", "--order", "o2", "--goal", "sweep them")
+    monkeypatch.setattr("sys.stdin", io.StringIO(RESEARCH))
+    run("job", "report", "j1", "-")
+    on_mac = {words: run(*words) for words in (("job", "report", "j1"), ("job", "replies", "j1"), ("status", "j1"), ("status", "j2"), ("status",))}
+    monkeypatch.setenv(state.OWN_JOB_ENV, "j2")
     monkeypatch.setenv("LONG_RUNNING_DRIVE", demo)
-    assert run("status")[0] == 0
+
+    def lane(*words: str) -> tuple[int, str]:
+        monkeypatch.setenv(reads.SPRITE_LANE, "1")
+        return run(*words)
+
+    for words in (("job", "report", "j1"), ("job", "replies", "j1"), ("status", "j1")):
+        assert lane(*words) == on_mac[words]
+    assert on_mac[("job", "report", "j1")][1].startswith(RESEARCH.strip().splitlines()[0])
+    assert lane("status") == on_mac[("status", "j2")] != on_mac[("status",)]
     assert reads.SPRITE_LANE not in os.environ
 
 

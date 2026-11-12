@@ -39,8 +39,8 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    branch, or check out the branch the brief names to adopt.
 2. Research before you write:
    - A `Researched: <job>` line names a reader's report on the order: read it first with
-     `drive job report <job>`, or on a Sprite under its `# Report of <job>` heading above your brief,
-     and build on what exists, never a second copy beside it. A `Plan:` line's report comes the same way.
+     `drive job report <job>`, on a Sprite too, or under its `# Report of <job>` heading above your
+     brief, and build on what exists, never a second copy beside it. A `Plan:` line's report comes the same way.
    - Search the code, the brief's plan section, the whole plan (`search_plan`, or
      `drive plan search <words>`) and his recorded answers (`answer_search`, or
      `ccn answer search`) on the whole area the change touches, never only the words of its order.
@@ -284,9 +284,12 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   if the pinned toolchain is missing; a TypeScript check still goes to CI.
 - Type each `drive` verb this file names as on this Mac: your Sprite's `drive` asks it of the
   coordinator's Mac as one blocking Orca question, carrying stdin and each file a word names, then
-  prints what it printed there and exits with its status. It runs `job report`, `job ask`,
-  `job set --repro`, `job replies`, `pr add`, `plan search`, `manual` and `status`,
-  each on your own job alone, and refuses, running nothing, any other verb, job or drive. A verb
+  prints all it printed there and exits with its status. It runs `job report`, `job ask`,
+  `job set --repro`, `job replies`, `pr add`, `plan search`, `manual` and `status` on your own
+  drive, and refuses, running nothing, any other verb or drive. Its reads read any job as on this
+  Mac, such as `drive job report <job>` and `drive job replies <job>` for a job your brief names,
+  and a bare `drive status` prints your own job; its writes, `drive job report <job> -`, `job ask`,
+  `job set --repro` and `pr add`, act on your own job alone. A verb
   stopped mid-run answers that it stopped and never runs twice: read what it changed before you type
   it again.
 - No Sprite lane runs `drive break-glass`, whose command would run on this Mac as its user, by his
