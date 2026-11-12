@@ -5,7 +5,6 @@ from pathlib import Path
 from drive import cli, picture, reads, refs, slack, state, view
 from drive.state import DriveError
 
-WEB = ("http://", "https://")
 CATCH_UP_TITLE = re.compile(r"\A\s*\**\s*catch-up since\b[^\n]*\n*", re.IGNORECASE)
 CARDS_A_MESSAGE = 5
 CARD_KINDS = (("question", "question"), ("tap", "PR card"))
@@ -249,13 +248,7 @@ def kind(visual: dict) -> str:
 
 
 def drawn(name: str, which: str, visual: dict) -> Path:
-    """The picture Slack shows for one visual, named after its caption, which Slack titles it with: code highlighted, a diagram or compare drawn as the dashboard draws it, an image as it is."""
-    source = visual["source"]
-    if visual["kind"] == "image" and not source.startswith(WEB):
-        if not (local := Path(source).expanduser()).is_absolute() or not local.is_file():
-            raise DriveError(f"{which}: {source} is neither a link nor a file here")
-        source = local.as_uri()
-    try:
-        return picture.cached(state.drive_dir(name) / "pictures", picture.file_name(visual.get("caption") or "") or "show-me", kind(visual), source)
-    except picture.PictureError as error:
-        raise DriveError(f"{which} ({visual['kind']}) does not draw, so nothing was posted: {error}") from None
+    """The picture Slack shows for one visual, named after its caption, which Slack titles it with: code highlighted, a diagram or compare drawn as the dashboard draws it, an image as it is; one that does not draw posts nothing."""
+    return picture.shot(
+        state.drive_dir(name) / "pictures", picture.file_name(visual.get("caption") or "") or "show-me", kind(visual), visual["source"], f"nothing was posted: {which} ({visual['kind']})"
+    )

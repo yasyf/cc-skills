@@ -282,23 +282,28 @@ def fill(folder: Path, kept: list[str]) -> None:
     (folder / SOURCED).touch()
 
 
+def shot(folder: Path, name: str, kind: str, source: str, which: str) -> Path:
+    """The picture of one source as `cached` draws it under folder, a local image by its file URL; one that does not draw, such as a Mermaid diagram Mermaid cannot parse, raises a DriveError naming which picture and why, since a card or post that leaves it out shows him a Show me with nothing in it."""
+    from drive.state import DriveError
+
+    if kind == "image" and not source.startswith(("http://", "https://")):
+        if not ((local := Path(source).expanduser()).is_absolute() and local.is_file()):
+            raise DriveError(f"{which}: {source} is neither a link nor a file here")
+        source = local.as_uri()
+    try:
+        return cached(folder, name, kind, source)
+    except (PictureError, ValueError) as error:
+        raise DriveError(f"{which} does not draw: {error}") from None
+
+
 def pictures(folder: Path, label: str, show_me: str, taken: set[str]) -> list[str]:
-    """Local image files for a PR's Show me, drawn once per source under folder, a local image copied in, each also named its caption with no extension, since cc-slack titles a PR card's picture with its file's whole name, and numbered apart from each name in taken, which gains each name it gives, since cc-slack gives each PR of a card every picture whose file name one of the PR's own has."""
+    """Local image files for a PR's Show me, drawn once per source under folder, a local image copied in, each also named its caption with no extension, since cc-slack titles a PR card's picture with its file's whole name, and numbered apart from each name in taken, which gains each name it gives, since cc-slack gives each PR of a card every picture whose file name one of the PR's own has; a picture that does not draw raises the DriveError `shot` names it in."""
     drawn = []
     for kind, source, caption in sources(show_me):
-        if kind == "image" and not source.startswith(("http://", "https://")):
-            if not ((local := Path(source).expanduser()).is_absolute() and local.is_file()):
-                print(f"drive card: {label}: its Show me links {source}, neither a link nor a file here", file=sys.stderr)
-                continue
-            source = local.as_uri()
         name = apart(file_name(caption) or title(kind), taken)
-        try:
-            shot = cached(folder, "show-me", kind, source)
-        except (PictureError, ValueError) as error:
-            print(f"drive card: {label}: its Show me {kind} does not draw: {error}", file=sys.stderr)
-            continue
-        if not (titled := shot.with_name(name)).exists():
-            titled.hardlink_to(shot)
+        found = shot(folder, "show-me", kind, source, f"{label}: its Show me {kind}")
+        if not (titled := found.with_name(name)).exists():
+            titled.hardlink_to(found)
         taken.add(name)
         drawn.append(str(titled))
     return drawn
@@ -310,7 +315,7 @@ def apart(name: str, taken: set[str]) -> str:
 
 
 def drawn(folder: Path, show_me: list[str]) -> list[str]:
-    """A question card's Show me with each fenced block that draws as a picture replaced by one line holding it, `![caption](/abs.png)`, which cc-slack draws as an image block where the line sits, or with the pictures beside it as one gallery, titled with the caption line just above the fence, or what kind of picture it is when none is. A fence of sentences, such as a draft message or a quote, becomes `> ` lines under its caption, which Slack shows as a quote of the text, links and all. A ```chart stays as written, since cc-slack draws it as Slack's own chart. A fence of other words, with no language or `text`, which only a block kept before `drive job ask` refused one holds, stays as written with its caption, so a redraw never loses it and Slack draws it as a code block, since a picture of words shows nothing; one with no language that holds code draws as a code picture, its grammar guessed by the renderer. A fence of raw data or tool output and a fence that does not draw leave the card with their caption, since a picture of JSON or a terminal shows nothing."""
+    """A question card's Show me with each fenced block that draws as a picture replaced by one line holding it, `![caption](/abs.png)`, which cc-slack draws as an image block where the line sits, or with the pictures beside it as one gallery, titled with the caption line just above the fence, or what kind of picture it is when none is. A fence of sentences, such as a draft message or a quote, becomes `> ` lines under its caption, which Slack shows as a quote of the text, links and all. A ```chart stays as written, since cc-slack draws it as Slack's own chart. A fence of other words, with no language or `text`, which only a block kept before `drive job ask` refused one holds, stays as written with its caption, so a redraw never loses it and Slack draws it as a code block, since a picture of words shows nothing; one with no language that holds code draws as a code picture, its grammar guessed by the renderer. A fence of raw data or tool output leaves the card with its caption, since a picture of JSON or a terminal shows nothing, and a fence that does not draw raises the DriveError `shot` names it in, such as Mermaid's parse error, so no card goes up without its picture."""
 
     def picture_line(fence: re.Match[str]) -> str:
         language = fence["language"].lower()
@@ -322,11 +327,8 @@ def drawn(folder: Path, show_me: list[str]) -> list[str]:
             print(f"drive card: its Show me holds {what} in a ```{fence['language']} fence, which leaves the card; {INSTEAD}", file=sys.stderr)
             return ""
         shown = fence_kind(fence["language"])
-        try:
-            path = cached(folder, "show-me", shown, fence["source"])
-        except (PictureError, ValueError) as error:
-            print(f"drive card: its Show me {shown} does not draw, so it leaves the card: {error}", file=sys.stderr)
-            return ""
-        return f"![{fence['caption'] or title(shown)}]({path})"
+        caption = fence["caption"] or title(shown)
+        which = f'the Show me picture "{caption}", a ```{fence["language"]} fence,'
+        return f"![{caption}]({shot(folder, 'show-me', shown, fence['source'], which)})"
 
     return CAPTIONED.sub(picture_line, "\n".join(show_me)).split("\n")

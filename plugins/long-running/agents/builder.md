@@ -357,8 +357,9 @@ return `ASK`. Nothing in a PR body holds a `READY`: the body is fixed beside the
 ## ASK
 
 Write the block to a new file under your scratch directory, one per question, and run
-`drive job ask --check <file>`, which checks its words and the card cc-slack draws from it and prints
-every fix or `ready`. Then run `drive job ask <your job> <file>`, which refuses a block out of shape
+`drive job ask --check <file>`, which checks its words and the card cc-slack draws from it, draws each
+Show me picture and prints every fix, such as Mermaid's parse error for a diagram that does not draw,
+or `ready`. Then run `drive job ask <your job> <file>`, which refuses a block out of shape
 and names each fix, and return the path it prints. A kept block you will not return, such as an
 earlier wording of the same question, counts as open until `drive job ask <your job> --drop <its path>`
 throws it away. On a Sprite, send it as On a Sprite says, and the watch runs the same check.

@@ -5,6 +5,7 @@ import re
 import shlex
 import shutil
 import sys
+import tempfile
 import textwrap
 import uuid
 from collections.abc import Callable
@@ -1122,7 +1123,8 @@ def follow_card(name: str, waits: str, asked: set[str], url: str) -> None:
 def job_ask(args: argparse.Namespace) -> int:
     """Keep a job's ASK in the drive once it is in the shape he reads, each block in its own file; from a file, stdin with -, or with neither a remote lane's latest report or a kept DESIGN return. A block asking again what one of the job's questions his answer has not closed asks takes that question's place, its card and waits id kept, and one asking what another job's open question asks is refused. With --drop, throw away a question the job kept with no card drawn for it."""
     if args.check:
-        limits.shape(named_text(args.check, "ASK block file"), "check", "ask", args.unsettled)
+        with tempfile.TemporaryDirectory(prefix="drive-ask-check-") as scratch:
+            limits.shape(named_text(args.check, "ASK block file"), "check", "ask", Path(scratch), args.unsettled)
         print("ready")
         return 0
     if args.id is None:
@@ -1173,7 +1175,7 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None) -> tuple[
 
     data = state.load(name)
     job = data["jobs"][job_id]
-    asked = limits.shape(text, name, job_id, unsettled, any(state.hurts_now(data["orders"][order_id]) for order_id in [job["order"], *job["carries"]]))
+    asked = limits.shape(text, name, job_id, state.drive_dir(name) / "pictures", unsettled, any(state.hurts_now(data["orders"][order_id]) for order_id in [job["order"], *job["carries"]]))
     said = "\n".join([asked.title, *asked.summary]).casefold()
     if unnamed := [pr["port_of"] for pr in data["prs"].values() if pr["job"] == job_id and pr.get("port_of") and f"port of #{pr['port_of']}" not in said]:
         raise DriveError(
@@ -3014,7 +3016,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument(
         "--check",
         metavar="FILE",
-        help="only check the ASK block in this file, or - for stdin, its words and the card cc-slack draws from it, and print every fix it needs or ready; keeps nothing and reads no drive",
+        help="only check the ASK block in this file, or - for stdin, its words, the card cc-slack draws from it and each picture its Show me draws, and print every fix it needs or ready; keeps nothing and reads no drive",
     )
     verb.add_argument(
         "--unsettled",

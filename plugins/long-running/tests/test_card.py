@@ -5,6 +5,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from conftest import Chrome
 from drive import card, cli, github, picture, render, state, view
 from drive.github import GithubError
 
@@ -842,6 +843,30 @@ def test_a_stack_cards_pictures_titled_alike_are_numbered_apart_so_each_pr_keeps
     monkeypatch.setattr(card, "run", gh)
     [drawn] = ask(asks(41, 42))["cards"]
     assert [[Path(path).name for path in row["pictures"]] for row in drawn["card"]["prs"]] == [["Diagram"], ["Diagram (2)"]]
+
+
+def test_a_stack_whose_show_me_diagram_does_not_draw_is_refused_with_mermaids_words_instead_of_carded_without_it(
+    stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch, chrome: Chrome
+) -> None:
+    stacked_gh = card.run
+
+    def gh(cmd: list[str], **_: str) -> str:
+        if cmd[1] == "api":
+            return stacked_gh(cmd)
+        pr = json.loads(stacked_gh(cmd))
+        pr["body"] += "\n## Show me\n```mermaid\nsequenceDiagram\n  Note over D: draws each picture; refuses one that fails\n```\n"
+        return json.dumps(pr)
+
+    monkeypatch.setattr(card, "run", gh)
+    chrome.refusal = "Parse error on line 2: Expecting 'SOLID_OPEN_ARROW', got 'NEWLINE'"
+    drawn = ask(asks(41, 42))
+    assert drawn["cards"] == []
+    reason = "monorepo PR 41: its Show me mermaid does not draw: Parse error on line 2: Expecting 'SOLID_OPEN_ARROW', got 'NEWLINE'"
+    assert [skipped["reason"] for skipped in drawn["skipped"]] == [reason, reason]
+    assert [state.load("demo")["prs"][f"Forge-AI/monorepo#{number}"]["refused"] for number in (41, 42)] == [reason, reason]
+    chrome.refusal = None
+    [carded] = ask(asks(41, 42))["cards"]
+    assert [[Path(path).name for path in row["pictures"]] for row in carded["card"]["prs"]] == [["Diagram"], ["Diagram (2)"]]
 
 
 def test_a_stack_longer_than_a_card_holds_is_refused_whole(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
