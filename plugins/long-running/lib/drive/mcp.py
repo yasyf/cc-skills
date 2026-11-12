@@ -74,7 +74,7 @@ SAY = {
     "inputSchema": {
         "type": "object",
         "properties": {
-            "text": {"type": "string", "description": "The post's exact words, with its references; none for a question card"},
+            "text": {"type": "string", "description": "The post's exact words, with its references, where a markdown table draws as Slack's own data table and the dashboard's table; none for a question card"},
             "thread_ts": {"type": "string", "description": "The thread the post goes in, in his DM unless channel_id names another channel; none for his DM root"},
             "channel_id": {
                 "type": "string",
