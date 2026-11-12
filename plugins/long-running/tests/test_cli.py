@@ -1895,30 +1895,41 @@ def test_job_ask_refuses_a_question_offering_no_tap_for_an_amount_his_words_in_i
     assert cli.main(["job", "ask", "j1", str(block), "--unsettled", why]) == 0
 
 
-IDLE_RULING = {
+FLAT_RULING = {
     "id": "ac6134849ff8a392c9f26294d4303635d1c27a58",
-    "title": "Owner Nov 9: close every completed or idle Claude or Codex session and its terminal, without asking\nsecond line",
+    "title": "Owner Nov 9: lay out every finished run's files flat, without asking\nsecond line",
+    "tags": ["scope:durable"],
 }
-MERGE_RULING = {"id": "33eaad946c1f36dc438a3a04d443eb7d71573815", "title": "What should the revert of the merge rule cover?"}
+PAGE_RULING = {"id": "33eaad946c1f36dc438a3a04d443eb7d71573815", "title": "Where do a finished run's files go once its page opens?", "tags": ["scope:durable"]}
 
 
-def test_job_ask_refuses_a_question_his_recorded_answer_may_settle_until_a_reason_names_it(
+def test_job_ask_keeps_a_question_his_recorded_answer_may_settle_pending_with_its_refusal_until_a_reason_names_it(
     run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], recorded: Answers
 ) -> None:
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
-    recorded.found = [IDLE_RULING]
+    recorded.found = [FLAT_RULING]
     assert cli.main(["job", "ask", asking, str(block)]) == 2
     refusal = capsys.readouterr().err
-    assert "- ac61348 Owner Nov 9: close every completed or idle Claude or Codex session and its terminal, without asking" in refusal
+    assert "- ac61348 Owner Nov 9: lay out every finished run's files flat, without asking" in refusal
     assert "second line" not in refusal
     assert recorded.asked[0].startswith("How should a finished run's files be laid out")
     assert "SQLite" not in recorded.asked[0]
-    assert state.load("demo")["jobs"]["j1"]["state"] == "running"
-    assert cli.main(["job", "ask", asking, str(block), "--unsettled", "it closes sessions, not a run's files"]) == 2
-    why = "ac61348: it closes sessions; this asks how a run's files are laid out"
+    kept = state.drive_dir("demo") / "asks" / f"j1-{state.ask_hash(SHORT_ASK)}.md"
+    assert f"{kept} keeps this ASK as j1's pending question with this refusal: no card draws for it" in refusal
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["state"], kept.read_text(), [question["file"] for question in job["questions"]]) == ("running", SHORT_ASK, [str(kept)])
+    assert job["questions"][0]["refused"].startswith("refused: these recorded answers of his may already settle this question.")
+    assert "refused, so no card draws: these recorded answers of his may already settle this question." in run("status")[1]
+    assert settled.ask_refusal(["demo"], {"ask": str(kept), "job": "j1"}, SHORT_ASK).startswith(f'refused: {kept} keeps j1\'s question "How should')
+    assert cli.main(["job", "card", asking]) == 2
+    assert "j1 keeps no ASK block" in capsys.readouterr().err
+    assert cli.main(["job", "ask", asking, str(block), "--unsettled", "it lays out files, not how its page opens them"]) == 2
+    assert "The reason given leaves out ac61348." in capsys.readouterr().err
+    assert len(state.load("demo")["jobs"]["j1"]["questions"]) == 1
+    why = "ac61348: it lays out the files; this asks how the page opens them"
     assert run("job", "ask", asking, str(block), "--unsettled", why)[0] == 0
-    assert state.load("demo")["jobs"]["j1"]["questions"][-1]["unsettled"] == why
+    assert [(question["unsettled"], question["refused"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [(why, None)]
 
 
 def test_job_ask_lists_every_candidate_in_the_same_order_whatever_the_reason_names(
@@ -1926,15 +1937,15 @@ def test_job_ask_lists_every_candidate_in_the_same_order_whatever_the_reason_nam
 ) -> None:
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
-    recorded.found = [IDLE_RULING, MERGE_RULING]
+    recorded.found = [FLAT_RULING, PAGE_RULING]
     refusals = []
-    for why in ("33eaad9: a merge-rule revert, not a run's files", "ac61348: it closes sessions, not a run's files"):
+    for why in ("33eaad9: where the files go, not how the page opens them", "ac61348: it lays out the files, not how the page opens them"):
         assert cli.main(["job", "ask", asking, str(block), "--unsettled", why]) == 2
         refusals.append(capsys.readouterr().err)
     listed = [[line for line in refusal.splitlines() if line.startswith("- ")] for refusal in refusals]
     assert listed[0] == listed[1] == [
-        "- ac61348 Owner Nov 9: close every completed or idle Claude or Codex session and its terminal, without asking",
-        "- 33eaad9 What should the revert of the merge rule cover?",
+        "- ac61348 Owner Nov 9: lay out every finished run's files flat, without asking",
+        "- 33eaad9 Where do a finished run's files go once its page opens?",
     ]
     form = '--unsettled one string that names every id below, such as --unsettled "ac61348: <why it does not settle this>; 33eaad9: <why it does not settle this>".'
     assert all(form in refusal for refusal in refusals)
@@ -1947,21 +1958,21 @@ def test_job_ask_checks_a_reworded_ask_against_the_answers_its_refusal_listed_un
 ) -> None:
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
-    recorded.found = [IDLE_RULING]
+    recorded.found = [FLAT_RULING]
     assert cli.main(["job", "ask", asking, str(block)]) == 2
     assert "- ac61348 " in capsys.readouterr().err
-    recorded.found = [MERGE_RULING]
+    recorded.found = [PAGE_RULING]
     where = SHORT_ASK.replace("ASK How should", "ASK Where should")
     block.write_text(where)
-    assert cli.main(["job", "ask", asking, str(block), "--unsettled", "ac61348: it closes sessions; this asks where a run's files go"]) == 2
+    assert cli.main(["job", "ask", asking, str(block), "--unsettled", "ac61348: it lays out the files; this asks where they go"]) == 2
     assert "The reason given leaves out 33eaad9." in capsys.readouterr().err
-    recorded.found = [IDLE_RULING]
+    recorded.found = [FLAT_RULING]
     block.write_text(where.replace("about 180 small files", "180 files"))
-    why = "33eaad9: a merge-rule revert, not where a run's files go"
+    why = "33eaad9: where the files go once the page opens, not where they are laid out"
     assert run("job", "ask", asking, str(block), "--unsettled", why)[0] == 0
     assert len(recorded.asked) == 2
     job = state.load("demo")["jobs"]["j1"]
-    assert (job["state"], job["questions"][-1]["unsettled"], job["may_settle"]) == ("waiting", why, None)
+    assert (job["state"], [(question["unsettled"], question["refused"]) for question in job["questions"]], job["may_settle"]) == ("waiting", [(why, None)], None)
 
 
 def test_job_ask_checks_a_link_by_its_label_never_the_words_of_its_url(run: Run, asking: str, tmp_path: Path, recorded: Answers) -> None:
@@ -4427,7 +4438,7 @@ def test_an_answer_tapped_on_a_pr_card_is_recorded_as_an_approval_and_his_words_
     ]
 
 
-def test_the_settled_check_skips_his_taps_approving_a_pr_and_still_lists_three_of_his_answers(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_settled_check_skips_his_taps_approving_a_pr(monkeypatch: pytest.MonkeyPatch) -> None:
     asked: list[list[str]] = []
     found = [
         {"id": "a1" * 20, "title": "Tap: #50203, canary diagnostics on the search", "tags": ["scope:durable", "kind:approval"]},
@@ -4443,7 +4454,7 @@ def test_the_settled_check_skips_his_taps_approving_a_pr_and_still_lists_three_o
         return subprocess.CompletedProcess(argv, 0, json.dumps(found), "")
 
     monkeypatch.setattr("drive.settled.subprocess", types.SimpleNamespace(run=ccn, TimeoutExpired=subprocess.TimeoutExpired))
-    assert [answer["id"][:2] for answer in MATCHED("where do a run's files go", "/work")] == ["b2", "c3", "e5"]
+    assert [answer["id"][:2] for answer in MATCHED("where do a run's files go", "/work")] == ["b2", "c3", "e5", "f6"]
     assert asked == [["ccn", "answer", "match", "-", "--label", "scope:durable", "--limit", "-1", "--json"]]
 
 
@@ -4458,6 +4469,47 @@ def test_the_settled_check_finds_his_answer_ranked_past_twenty_of_his_taps_appro
 
     monkeypatch.setattr("drive.settled.subprocess", types.SimpleNamespace(run=ccn, TimeoutExpired=subprocess.TimeoutExpired))
     assert [answer["id"][:2] for answer in MATCHED("where do a run's files go", "/work")] == ["b2"]
+
+
+MEMORY_ASK = "What becomes of the platform memories in mem-platform-voyage-4-512-f32 once MemorySchema leaves go/sand/next?"
+STORE_ASK = "Once go/sand/next drops its old path, what sends a team with no iris_memory_stores row to the new store in both trees?"
+PODS_ASK = "Should pods lose write access to the agents table after the pod PR runs everywhere, or now?"
+DREAM_ASK = "Should a dream night read at most a fixed number of the memories that changed since the last night?"
+RUN_WRITER = {
+    "id": "6d9a9e0" + "0" * 33,
+    "title": "What writes a workflow run that has no agent once step 6 deletes vm_run's lock, fence and seal, takeover.go and the per-run servers? (step-6 decide #97497 Q1, board card-run-writer)",
+    "tags": ["durable-agents-redesign", "provisional", "scope:durable", "step-5", "step-6", "step-7"],
+    "body": "go/sand/next MemorySchema iris_memory_stores the agents table pods write access platform memories " * 400,
+}
+UNRELATED = [
+    {"id": "53478d4" + "0" * 33, "title": "Proxy listener port differs: 10000 on plat, 3128 on SoFi. Which becomes the single value (the other cluster changes on its next apply)?", "tags": ["header:Proxy port", "scope:durable"]},
+    {"id": "e08f921" + "0" * 33, "title": "Lost dream batch (connection drops before OpenAI returns the batch id): resend the batch once, or skip the night's reviews?", "tags": ["card:lost-dream-batch", "from:owner", "pr:50074", "scope:durable"]},
+    {"id": "b321570" + "0" * 33, "title": "Memory search failures on the platform deadline: may a worker use the Turbopuffer production key for 10 read-only queries?", "tags": ["scope:durable"]},
+    {"id": "27a35cf" + "0" * 33, "title": "Keep 16 GB of journal room per cloud pod by giving cloud machines bigger disks?", "tags": ["cloud-pods", "drive:durable-agents", "scope:durable"]},
+    RUN_WRITER,
+]
+
+
+def test_the_settled_check_lists_only_his_answers_whose_own_question_names_the_subject_never_one_sharing_everyday_words_or_only_its_body(
+    recorded: Answers,
+) -> None:
+    recorded.found = UNRELATED
+    assert [settled.answers(asked, asked, asked, ["demo"], "/work") for asked in (MEMORY_ASK, STORE_ASK, PODS_ASK)] == [[], [], []]
+    stores = {"id": "5a7e000" + "0" * 33, "title": "Should a team with no iris_memory_stores row read the platform store?", "tags": ["scope:durable"]}
+    dream = {"id": "305dda6" + "0" * 33, "title": "Should the most memories an agent-mode night can write grow with a team's memory count too?", "tags": ["memory-dreaming", "owner-pick", "scope:durable"]}
+    run_writer = "Once vm_run's lock is gone, what writes a run with no agent?"
+    recorded.found = [*UNRELATED, stores, dream]
+    assert [[answer["id"][:7] for answer in settled.answers(asked, asked, asked, ["demo"], "/work")] for asked in (STORE_ASK, DREAM_ASK, run_writer)] == [
+        ["5a7e000"],
+        ["e08f921", "305dda6"],
+        ["6d9a9e0"],
+    ]
+
+
+def test_the_settled_check_lists_three_of_his_answers_on_the_subject_however_many_off_it_rank_first(recorded: Answers) -> None:
+    on_subject = [{"id": f"{n}a" * 20, "title": f"Where do the platform memories of mem-platform-voyage-4-512-f32 go, take {n}?", "tags": ["scope:durable"]} for n in range(4)]
+    recorded.found = [*UNRELATED, *on_subject]
+    assert [answer["id"][:2] for answer in settled.answers(MEMORY_ASK, MEMORY_ASK, MEMORY_ASK, ["demo"], "/work")] == ["0a", "1a", "2a"]
 
 
 def test_backfill_labels_as_approvals_only_his_taps_approving_a_pr_recorded_before_drive_answer_labelled_them(

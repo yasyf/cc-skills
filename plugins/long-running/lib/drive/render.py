@@ -440,7 +440,7 @@ def job_line(job_id: str, job: dict, limit: int = 100) -> str:
 
 def question_line(question: dict) -> str:
     drawn = question["card"] or question["waits"]
-    card = f"card {drawn}" if drawn else "no card drawn yet"
+    card = f"card {drawn}" if drawn else f"refused, so no card draws: {cut(question['refused'].removeprefix('refused: '), 120)}" if question["refused"] else "no card drawn yet"
     waits = f" ({question['waits']})" if question["card"] and question["waits"] else ""
     kept = f", kept in {question['file']}" if question["file"] else ""
     return f"asks him: {cut(question['title'] or 'his question card', 80)}; {card}{waits}{kept}"

@@ -50,8 +50,8 @@ background process. When you cannot tell, it counts, because a wrong shape costs
    - A Show me goes on only when it shows what the words cannot, such as each option's real calls
      in code: "show a sinippet when it makews sense". It counts toward no word limit, so it is never
      cut; the visual rules are in [Messages](messages.md).
-   - Nothing his words settle is asked. `drive job ask` catches only recorded answers, so also read
-     his threads on the area.
+   - Nothing his words settle is asked. `drive job ask` catches only recorded answers whose own
+     question names the question's subject, so also read his threads and answers on the area.
    - Meanwhile the recommended option's builder starts beside the cards and builds it on a pushed
      branch, because he wants work to go on while he decides. When his words on the order ask for
      options only, start no builder on the proper fix until he picks, in an incident too.
