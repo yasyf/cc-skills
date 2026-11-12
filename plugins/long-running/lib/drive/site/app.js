@@ -45,6 +45,15 @@ const REVIEW_FACTS = { approved: ['Review approved', 'good'], stale: ['Approved 
 const TALK_FOLLOW_MS = 15 * 60 * 1000;
 const FRAMES_KEPT = 4;
 const SLICES_KEPT = 40;
+const JUMP_ROWS = 40;
+const KEY_SHEET = [
+  ['Anywhere', [[['⌘K'], 'Jump to a screen, question, pull request, task or job'], [['?'], 'Show these keys'], [['Esc'], 'Close what is open, or step back up a level']]],
+  ['Your queue', [[['j', '→'], 'Next card'], [['k', '←'], 'Previous card'], [['1–9'], 'Answer with that choice once the card has focus; from outside the card, the key only moves focus to that choice'], [['⌘Z'], 'Take back an answer still waiting to be sent']]],
+  ['A pull request card', [[['←', '→'], 'Switch between Show me, The change and Context, with a tab focused']]],
+  ['Writing to Claude', [[['↵'], 'Send'], [['⇧↵'], 'Start a new line']]],
+  ['Jump', [[['↑', '↓'], 'Choose a match'], [['↵'], 'Open it']]],
+  ['An enlarged picture', [[['←', '→'], 'The previous or next picture on the same card']]],
+];
 const STOP_WORDS = { blocked: 'Blocked', running: 'Being built', built: 'Built, waits on your answers', waiting: 'Waiting', merged: 'Merged, not live yet', live: 'Live', 'not started': 'Not started' };
 const STOP_TONES = { blocked: 'bad', running: 'doing', built: 'you', waiting: 'waiting', merged: 'merged', live: 'done', 'not started': 'not-started' };
 const FILE_WORDS = { brief: 'Brief', report: 'Report', question: 'Question', repro: 'Reproduction', transcript: 'Transcript' };
@@ -453,12 +462,6 @@ function queueHref(filter, item) {
   return `#/queue/${filter}${item?.answer ? `/${cardTs(item.answer)}` : ''}`;
 }
 
-function currentItem() {
-  const { screen, id } = route();
-  if (screen !== 'queue') return null;
-  return shownQueue(filterOf(id)).find((item) => noticeKey(item) === queueAt) ?? null;
-}
-
 function move(delta) {
   const list = shownQueue(filterOf(route().id));
   const at = Math.max(0, Math.min(list.length - 1, current(list) + delta));
@@ -514,7 +517,7 @@ function decisionCard(item, at, total) {
     ...(card.facts ?? []).map((each) => fact(`${esc(each.label)}: ${inline(each.value)}`)),
   ].join('');
   return `<div class="queue-layout">
-    <article class="focus-card" aria-labelledby="item-title">
+    <article class="focus-card" aria-labelledby="item-title" tabindex="-1">
       <div class="card-content">
         <div class="card-top"><span class="type-label">Decision</span>${counter(at, total)}</div>
         <h2 class="card-title" id="item-title">${inline(card.title || item.title)}</h2>
@@ -579,7 +582,7 @@ function prCard(item, at, total) {
   const tabs = PR_TABS.map(([id, label]) => `<button role="tab" class="${id === tab ? 'on' : ''}" aria-selected="${id === tab}" data-prtab="${id}" data-item="${esc(key)}">${label}</button>`).join('');
   const thread = item.thread ? talkPane(item.thread, cardTs(item.answer)) : '<p class="rail-note">This change has no Slack card yet, so the answer comes back in your Slack DM.</p>';
   return `<div class="pr-layout" data-read="${esc(pr)}" data-head="${esc(head)}">
-    <article class="focus-card pr-card" aria-labelledby="item-title">
+    <article class="focus-card pr-card" aria-labelledby="item-title" tabindex="-1">
       <div class="card-content">
         <div class="card-top"><span class="type-label">Pull request <a href="${esc(row.url)}" target="_blank" rel="noopener" data-tip="Open it on GitHub">${esc(pr)}</a></span>${counter(at, total)}</div>
         <h2 class="card-title" id="item-title">${esc(title)}</h2>
@@ -630,7 +633,7 @@ function queueScreen(id) {
     </div>
     ${unread}
     ${shown}
-    <footer class="qfoot"><span>As of ${clock(model.at)}</span><span><kbd>←</kbd><kbd>→</kbd> move <kbd>1–9</kbd> answer <kbd>⌘Z</kbd> undo</span></footer>`;
+    <footer class="qfoot"><span>As of ${clock(model.at)}</span><span><kbd>j</kbd><kbd>k</kbd> move <kbd>1–9</kbd> answer, with the card focused <kbd>⌘Z</kbd> undo <button type="button" class="linkish" data-keys><kbd>?</kbd> every key</button></span></footer>`;
 }
 
 function nowScreen() {
@@ -1084,11 +1087,34 @@ function jobRow(job) {
   </li>`;
 }
 
-function openFile(file, title) {
+async function openFile(file, title) {
   const reader = $('#reader');
-  const url = `/artifact/${file}`;
-  reader.innerHTML = `<div class="dr-bar"><b>${esc(title)}</b><span class="acts"><a class="ext" href="${esc(url)}" target="_blank" rel="noopener">New tab ↗</a><button class="linkish" data-close>Close</button></span></div><iframe title="${esc(title)}" src="${esc(url)}"></iframe>`;
+  reader.dataset.file = file;
+  reader.innerHTML = `<div class="dr-bar"><b>${esc(title)}</b><span class="acts"><a class="ext" href="/#/file/${esc(file)}" target="_blank" rel="noopener">New tab ↗</a><button class="linkish" data-close>Close</button></span></div><div class="reader-body">${notRead(null)}</div>`;
   if (!reader.open) reader.showModal();
+  const read = await ask(`/api/file/${file}`);
+  if (reader.open && reader.dataset.file === file) reader.querySelector('.reader-body').innerHTML = fileBody(read);
+}
+
+function fileScreen(path) {
+  const read = slice(`/api/file/${path.map(encodeURIComponent).join('/')}`);
+  return `<div class="eyebrow">${esc(FILE_WORDS[path[1]] ?? 'File')}</div><h1 class="h1">${esc(read?.title ?? path.join(' '))}</h1><div class="reader-body">${fileBody(read)}</div>`;
+}
+
+function fileBody(read) {
+  if (!read?.ok) return notRead(read);
+  const facts = read.facts ? `<p class="meta">${esc(read.facts)}</p>` : '';
+  if (read.turns) return `${facts}${read.turns.map(turn).join('')}`;
+  if (read.code !== undefined) return `${facts}${visual(`code:${read.language}`, read.code)}`;
+  return `${facts}${read.docs.map((doc) => `<div class="doc">${prose(doc)}</div>`).join('')}`;
+}
+
+function turn({ who, tone, at, blocks }) {
+  const said = blocks.map((block) => {
+    if (!block.fold) return prose(block.text);
+    return `<details><summary>${esc(block.fold)}</summary>${block.text === undefined ? `<pre><code>${esc(block.code)}</code></pre>` : prose(block.text)}</details>`;
+  });
+  return `<article class="turn ${esc(tone)}"><h3>${esc(who)}${at ? `<time>${esc(at)}</time>` : ''}</h3>${said.join('')}</article>`;
 }
 
 const sourceSeen = new Map();
@@ -1263,22 +1289,50 @@ function laneInspector(job) {
 }
 
 function jumpItems() {
+  const queued = model.queue.map((item) => ({
+    kind: LABEL[item.kind],
+    title: item.title,
+    href: '#/queue/all',
+    item: noticeKey(item),
+    keys: item.kind === 'tap' ? (item.card?.prs ?? [{ url: item.url }]).map((row) => prKey(row.url)) : [],
+  }));
+  const onQueue = new Set(queued.flatMap((row) => row.keys));
   return [
-    ...SCREENS.map(([, href, title]) => ({ kind: 'Screen', title, href })),
-    ...model.queue.map((item) => ({ kind: LABEL[item.kind], title: item.title, href: '#/queue/all', item: noticeKey(item) })),
-    ...features().map((entry) => ({ kind: 'Feature', title: entry.title, href: `#/feature/${entry.id}` })),
-    ...model.review.map((entry) => ({ kind: 'Change', title: entry.title, pr: entry.key })),
-    ...(slice('/api/lanes')?.lanes ?? []).map((job) => ({ kind: 'Job', title: job.goal, href: `#/feature/${job.feature}` })),
+    ...SCREENS.map(([, href, title]) => ({ kind: 'Screen', title, href, keys: [] })),
+    ...queued,
+    ...features().map((entry) => ({ kind: 'Task', title: entry.title, href: `#/feature/${entry.id}`, keys: [] })),
+    ...model.review.filter((entry) => !onQueue.has(entry.key)).map((entry) => ({ kind: LABEL.tap, title: entry.title, pr: entry.key, keys: [entry.key] })),
+    ...(slice('/api/lanes')?.lanes ?? []).map((job) => {
+      const entry = featureOf(job.feature);
+      return { kind: 'Job', title: job.goal, href: zoomHref('work', fileKey(entry.project), fileKey(entry.workstream), job.id), keys: [job.id] };
+    }),
   ];
 }
 
 let jumpAt = 0;
 
+function highlighted(text, words) {
+  if (!words.length) return esc(text);
+  const found = new RegExp(`(${[...words].sort((a, b) => b.length - a.length).map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`, 'gi');
+  return String(text).split(found).map((part, i) => (i % 2 ? `<mark>${esc(part)}</mark>` : esc(part))).join('');
+}
+
 function drawJump() {
-  const words = $('#jumpfind').value.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  const found = jumpItems().filter((item) => words.every((word) => `${item.kind} ${item.title}`.toLowerCase().includes(word))).slice(0, 40);
-  jumpAt = Math.min(jumpAt, Math.max(0, found.length - 1));
-  $('#jumplist').innerHTML = found.map((item, i) => `<li class="${i === jumpAt ? 'on' : ''}" data-jump="${i}" ${item.pr ? `data-pr-jump="${esc(item.pr)}"` : `data-href="${esc(item.href)}"`}${item.item ? ` data-item="${esc(item.item)}"` : ''}><em>${esc(item.kind)}</em>${esc(item.title)}</li>`).join('') || '<li class="none">Nothing matches.</li>';
+  const typed = $('#jumpfind').value.trim();
+  const words = typed.toLowerCase().split(/\s+/).filter(Boolean);
+  const found = jumpItems().filter((item) => words.every((word) => `${item.kind} ${item.title} ${item.keys.join(' ')}`.toLowerCase().includes(word)));
+  const shown = found.slice(0, JUMP_ROWS);
+  jumpAt = Math.min(jumpAt, Math.max(0, shown.length - 1));
+  $('#jumplist').innerHTML = shown.map((item, i) => {
+    const key = item.keys.find((each) => words.some((word) => each.toLowerCase().includes(word))) ?? item.keys[0];
+    const more = item.keys.length > 1 ? ` +${item.keys.length - 1}` : '';
+    return `<li id="jump-${i}" role="option" aria-selected="${i === jumpAt}" class="${i === jumpAt ? 'on' : ''}" data-jump="${i}" ${item.pr ? `data-pr-jump="${esc(item.pr)}"` : `data-href="${esc(item.href)}"`}${item.item ? ` data-item="${esc(item.item)}"` : ''}><em>${esc(item.kind)}</em><span class="jump-title">${highlighted(item.title, words)}</span>${key ? `<code${more ? ` title="${esc(item.keys.join(', '))}"` : ''}>${highlighted(key, words)}${more}</code>` : ''}</li>`;
+  }).join('');
+  if (shown.length) $('#jumpfind').setAttribute('aria-activedescendant', `jump-${jumpAt}`);
+  else $('#jumpfind').removeAttribute('aria-activedescendant');
+  $('#jumpnote').textContent = !found.length ? `Nothing matches “${typed}”. Jump finds a screen, a question, a pull request by its title, number or repo, a task, or a job.`
+    : found.length > shown.length ? `The first ${shown.length} of ${found.length} matches. Type more to narrow them.`
+    : counted(found.length, 'match', 'matches');
 }
 
 function openJump() {
@@ -1289,6 +1343,13 @@ function openJump() {
   drawJump();
   if (!jump.open) jump.showModal();
   $('#jumpfind').focus();
+}
+
+function openKeys() {
+  const sheet = $('#keys');
+  sheet.innerHTML = `<div class="dr-bar"><h2 id="keys-title">Keyboard shortcuts</h2><button class="linkish" data-close autofocus>Close</button></div>
+    <div class="key-groups">${KEY_SHEET.map(([group, rows]) => `<section><h3>${esc(group)}</h3><dl>${rows.map(([keys, what]) => `<dt>${keys.map((key) => `<kbd>${esc(key)}</kbd>`).join('<span>or</span>')}</dt><dd>${esc(what)}</dd>`).join('')}</dl></section>`).join('')}</div>`;
+  if (!sheet.open) sheet.showModal();
 }
 
 function goJump(row) {
@@ -1486,7 +1547,7 @@ function render() {
   const { screen, id } = route();
   document.title = `${model.drive}: ${model.counts.queue} waiting on you`;
   $('#brand').textContent = model.drive;
-  const at = screen === 'feature' ? 'now' : SCREENS.some(([name]) => name === screen) ? screen : 'queue';
+  const at = { feature: 'now', file: 'work' }[screen] ?? (SCREENS.some(([name]) => name === screen) ? screen : 'queue');
   const counts = { queue: model.counts.queue };
   $('#tabs').innerHTML = SCREENS.map(([name, href, label]) => `<a class="tab${name === at ? ' on' : ''}" href="${href}"${name === at ? ' aria-current="page"' : ''}>${icon(name)}<span>${label}</span>${counts[name] ? `<b class="count" aria-label="${counts[name]} waiting on you">${counts[name]}</b>` : ''}</a>`).join('');
   $('#crumb').textContent = SCREENS.find(([name]) => name === at)[2];
@@ -1494,7 +1555,7 @@ function render() {
   morphChildren($('#alerts'), Object.assign(document.createElement('div'), { innerHTML: raised }));
   $('#alerts').hidden = !raised;
   morphChildren($('#incidents'), Object.assign(document.createElement('div'), { innerHTML: incidentList() }));
-  const screens = { queue: () => queueScreen(id), now: nowScreen, work: workScreen, history: historyScreen, feature: () => featureScreen(id) };
+  const screens = { queue: () => queueScreen(id), now: nowScreen, work: workScreen, history: historyScreen, feature: () => featureScreen(id), file: () => fileScreen(route().path) };
   const open = new Set(model.review.map((entry) => entry.key));
   for (const [key, frame] of slotted) {
     if (open.has(key)) continue;
@@ -1734,6 +1795,7 @@ document.addEventListener('click', (event) => {
   const file = event.target.closest('button[data-file]');
   if (file) return openFile(file.dataset.file, file.dataset.title);
   if (event.target.closest('#kbtn')) return openJump();
+  if (event.target.closest('[data-keys]')) return openKeys();
   if (event.target.closest('#notices')) return Notification.requestPermission().then(noticeButton);
   const jumped = event.target.closest('#jumplist [data-jump]');
   if (jumped) return goJump(jumped);
@@ -1764,7 +1826,7 @@ document.addEventListener('click', (event) => {
     });
     return;
   }
-  const closer = event.target.closest('[data-close]') ?? (event.target.matches('#drawer, #reader, #lightbox, .lb-stage') ? event.target : null);
+  const closer = event.target.closest('[data-close]') ?? (event.target.matches('#drawer, #reader, #keys, #lightbox, .lb-stage') ? event.target : null);
   if (closer) return closer.closest('dialog').close();
   const drtab = event.target.closest('[data-drtab]');
   if (drtab) {
@@ -1909,16 +1971,20 @@ document.addEventListener('keydown', (event) => {
     event.preventDefault();
     return go(up());
   }
+  if (free && event.key === '?') {
+    event.preventDefault();
+    return openKeys();
+  }
   if (free && screen === 'queue') {
-    const step = { ArrowLeft: -1, ArrowRight: 1 }[event.key];
+    const step = { ArrowLeft: -1, ArrowRight: 1, k: -1, j: 1 }[event.key];
     if (step) {
       event.preventDefault();
       return move(step);
     }
-    const option = currentItem()?.card?.options[Number(event.key) - 1];
-    if (/^[1-9]$/.test(event.key) && option) {
+    const choice = /^[1-9]$/.test(event.key) && document.querySelectorAll('#main .focus-card button[data-card]')[Number(event.key) - 1];
+    if (choice) {
       event.preventDefault();
-      return answer(currentItem().answer, option);
+      return event.target.closest('#main .focus-card') ? choice.click() : choice.focus();
     }
   }
   if ($('#lightbox').open && ['ArrowLeft', 'ArrowRight'].includes(event.key)) {
