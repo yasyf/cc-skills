@@ -1589,6 +1589,10 @@ def test_each_option_of_a_new_block_carries_does_data_and_touches_lines_which_it
         ("```rust\n// called from clone.rs\n```", "```rust\n// called from clone.rs\n```"),
         ("stdin/stdout lines, 3/5 of them, and/or", "stdin/stdout lines, 3/5 of them, and/or"),
         ("| clone | sandsql-storage/src/clone.rs |", "| clone | `sandsql-storage/src/clone.rs` |"),
+        ("the refs refs/cc-notes/* and src/*.ts", "the refs `refs/cc-notes/*` and `src/*.ts`"),
+        ("authority-v3.db.reindex-building, authority-v1.db.lock and go.sum", "`authority-v3.db.reindex-building`, `authority-v1.db.lock` and `go.sum`"),
+        ("internal/store/source_reindex.go:185 and clone.rs:105-111, at 6:32", "`internal/store/source_reindex.go:185` and `clone.rs:105-111`, at 6:32"),
+        ("*see lib/x.py* in v0.76.10, e.g. at 1.5 min", "*see `lib/x.py`* in v0.76.10, e.g. at 1.5 min"),
     ],
 )
 def test_a_card_draws_each_file_name_and_path_as_code_so_slack_links_none_of_them(line: str, drawn: str) -> None:
