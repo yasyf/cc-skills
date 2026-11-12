@@ -705,6 +705,9 @@ def home_drive() -> str:
 
 
 def unheard(ask: dict) -> dict:
+    """His tap on a card whose posting session ended: on a drive's question card it is that card's one answer record, as an `answer` request posts it, since cc-slack already shows the card answered; on any other card an `unheard` event for the home drive's coordinator."""
+    if ask["card"].partition(":")[0] in state.names():
+        return question_answered({"waits": ask["card"], "label": ask["label"], "url": ask["permalink"], "other": ask.get("other")}) | {"heard": True}
     name = home_drive()
     hear_tap(name)
     state.append_event(name, "unheard", **ask)

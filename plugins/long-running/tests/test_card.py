@@ -739,6 +739,17 @@ def test_answer_on_an_unknown_pr_fails(drive: str) -> None:
         ask({"answer": answer})
 
 
+def test_an_unheard_tap_on_a_drives_question_card_is_posted_as_its_one_answer_record_and_appends_no_event(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    posted: list[list[dict]] = []
+    ok = subprocess.CompletedProcess([], 0, "671608\n", "")
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append(json.loads(kwargs["input"])) or ok)
+    url = "https://acme.slack.com/archives/D123/p1794200000000100"
+    tap = {"card": f"{drive}:j3-661440", "label": "Ring", "question": "Which store keeps the tally?", "permalink": url, "at": "2026-11-12T08:40:42Z", "key": "slack-action:D123:1794200000.000100:1794472842.827253"}
+    assert ask({"unheard": tap}) == {"ok": True, "seq": "671608", "heard": True}
+    assert posted == [[{"kind": "answer", "to": [f"root@{drive}"], "url": url, "re": ["661440"], "text": "Ring", "attr": {"job": "j3"}}]]
+    assert [event["kind"] for event in events(drive)] == []
+
+
 def test_unheard_appends_an_event(drive: str) -> None:
     unheard = {
         "card": "1762700000.000200",
