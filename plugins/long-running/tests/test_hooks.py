@@ -10,6 +10,7 @@ import compacted_skill
 import landing_guard
 import no_file_tools
 import no_slack_reads
+import no_terminal_questions
 import one_line_result
 import pre_compact
 import pytest
@@ -195,6 +196,27 @@ def test_a_drive_role_reads_no_slack_thread_and_its_agents_and_other_sessions_do
     assert no_slack_reads.deny_reason(file_call(history, "talker")).startswith("refused: the communicator reads no Slack")
     assert no_slack_reads.deny_reason(file_call(thread, "talker", agent_id="a-1")) is None
     assert hook_output(no_slack_reads, monkeypatch, capsys, json.dumps(file_call(history, "someone-else"))) == ""
+
+
+def test_no_session_bound_to_a_drive_asks_in_its_terminal_and_a_session_bound_to_none_does(
+    demo: str, run: Run, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    question = {"questions": [{"question": "Which commit ships?", "options": [{"label": "9b6130cd"}]}]}
+    output = json.loads(hook_output(no_terminal_questions, monkeypatch, capsys, json.dumps(file_call("AskUserQuestion", tool_input=question))))
+    assert output["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert output["judged"] is False
+    reason = output["hookSpecificOutput"]["permissionDecisionReason"]
+    assert reason.startswith("refused: no drive session asks in its terminal")
+    assert "`drive job ask <job> <file>`" in reason
+    assert "communicator@demo as an `ask` record" in reason
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", "demo", "--role", "communicator")
+    assert no_terminal_questions.deny_reason(file_call("AskUserQuestion", "talker")) is not None
+    assert no_terminal_questions.deny_reason(file_call("AskUserQuestion", "talker", agent_id="a-1", agent_type="long-running:builder")) is not None
+    with state.edit(demo) as data:
+        data["handlers"]["h1"] = {"session": "handler-own", "started": state.stamp(), "holds": None, "held_back": []}
+    assert no_terminal_questions.deny_reason(file_call("AskUserQuestion", "handler-own", agent_type="long-running:handler")) is not None
+    assert hook_output(no_terminal_questions, monkeypatch, capsys, json.dumps(file_call("AskUserQuestion", "someone-else"))) == ""
 
 
 def agent_stop(message: str, session: str | None = None, **fields: object) -> dict:

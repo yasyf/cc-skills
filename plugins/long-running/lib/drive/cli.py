@@ -49,6 +49,11 @@ CLAUDE_BUILDS = Path.home() / ".local" / "share" / "claude" / "versions"
 BRIEF_FLAGS = ("serves", "done_when", "where", "runs_as", "ruling", "native", "interactions", "would_he_ask", "plan", "incident", "scratch")
 BRIEF_NEEDS = ("serves", "done_when", "where")
 READER_RESEARCH = "the Researched: block this build needs"
+ANSWER_FIRST = (
+    "his answer goes to his thread the moment you have it proven, before any reproduction file or full report: one `report`"
+    " record on the cci `post` tool, `to: [communicator@{drive}]`, `text: POST <the answer>`, `attrs: {attrs}`; then keep your"
+    " full report and return as usual"
+)
 NO_SURFACE = re.compile(r"\s*none\b", re.IGNORECASE)
 PROMISED_TIME = re.compile(
     r"\bnext (?:line|update|post|summary)(?:\s+(?:by|before|at))?\s+(?:about\s+|around\s+)?([01]?\d|2[0-3]):([0-5]\d)(?![:\d])(?:\s*([AP])\.?M\b)?", re.IGNORECASE
@@ -1738,6 +1743,13 @@ def checkout(data: dict) -> Path:
     return root
 
 
+def answer_first(name: str, order: dict, order_id: str, job_id: str) -> str:
+    """Where an answer order's reader sends his answer the moment it is proven, by his pick "answer-only jobs also post their answer once found": a progress report the communicator's handler posts in the order's thread, ahead of the full report the coordinator closes the order with."""
+    attrs = {"thread": order["thread"][1]} if order["thread"] else {}
+    attrs |= {"order": order_id, "job": job_id, "progress": "true"}
+    return ANSWER_FIRST.format(drive=name, attrs=json.dumps(attrs))
+
+
 def job_brief(args: argparse.Namespace) -> int:
     """Write a job's brief from what the drive holds: his order's words verbatim, each ruling's recorded words above the drive's notes, the earlier jobs' transcripts, and the lines the call names, each flag it leaves out kept from the job's earlier brief but a handoff's event."""
     name = state.resolve(args.drive)
@@ -1779,6 +1791,7 @@ def job_brief(args: argparse.Namespace) -> int:
         "Decisions that bind": rulings or "none named; search his answers on the area",
         "Research": planned and job["kind"] == "reader" and READER_RESEARCH,
         "Researched": found and found[0],
+        "Answer": order["kind"] == "answer" and job["kind"] == "reader" and answer_first(name, order, job["order"], args.id),
         "Native": flags["native"],
         "Interactions": flags["interactions"],
         "Would he ask": flags["would_he_ask"],
