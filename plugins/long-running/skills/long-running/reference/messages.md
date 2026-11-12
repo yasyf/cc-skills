@@ -28,6 +28,7 @@ reading of his words "your messages need to be way shorter rewrite this for a hu
 |---|---|
 | A line in his thread | 60 words |
 | A summary of two or more features, each under its own bold line | 120 words |
+| The open cards `say` draws under his catch-up | none: drawn whole, outside the 120 |
 | A question card: question, summary and options together | 150 words |
 | A question card's Show me, the worked example between its summary and options | none: drawn whole as its visuals, outside the 150 |
 | Each option on a card | one line of 25 words, saying what runs, on what trigger, what it reads and what reaches whom, then what he gets and what it costs |
@@ -404,9 +405,13 @@ the dashboard link. When a line says where things stand, link the page instead o
 - His next message, right after its ack, or his next card tap gets one catch-up at his DM root.
   `drive heard`, or the tap, tells the coordinator every order that changed while he was away or
   has a report held, and each held report; it sends one `report` for his DM root covering them,
-  grouped by feature with what waits on him last, then `--lined` each. Posting the catch-up lets go of every held report.
+  grouped by feature, then `--lined` each. Posting the catch-up lets go of every held report.
 - That report carries `catch_up=true`, so `say` opens the post with the bold title
-  `*Catch-up since <the time he was last heard>*` whatever the text says. The catch-up never goes in
+  `*Catch-up since <the time he was last heard>*` whatever the text says, and closes it with every
+  open card waiting on him, the list his status page queues, each on its own line under a count of
+  them and five a message, since Slack draws five a message. No writer lists a card in the catch-up:
+  a card the text names is not drawn twice, and the 120 words count the text alone, never the cards
+  `say` adds, so none is cut to fit. The catch-up never goes in
   the thread of the message that brought him back, because a thread gets only lines about its own
   order.
 - The minute a job built on a card's recommended option starts waiting on that card, the watch
