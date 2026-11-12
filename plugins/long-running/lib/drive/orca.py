@@ -63,6 +63,8 @@ class LaneEnd(NamedTuple):
     why: str
     branch: str | None
     worktree: str | None
+    terminal: str | None = None
+    run: str | None = None
 
 
 def request(*args: str, seconds: float = CALL_SECONDS) -> dict:
@@ -359,7 +361,7 @@ def launch(drive: str, lane: str, brief: Path, checkout: Path, run: str, route: 
         said = done.stderr.strip().splitlines()
         reason = said[-1] if said else "no output"
         attempt = brief.with_suffix(".worker")
-        if (attempt / "worker-start.unsent").exists():
+        if unsent(brief):
             raise Unstarted(reason)
         if (attempt / "worker-start.status").exists():
             raise OrcaError(
@@ -372,6 +374,11 @@ def launch(drive: str, lane: str, brief: Path, checkout: Path, run: str, route: 
         return {**receipt, "lane": lane, "workspace": None, "environment": None}
     prepared = json.loads((brief.with_suffix(".worker") / "prepared.json").read_text())
     return {**receipt, "environment": prepared["environment"]}
+
+
+def unsent(brief: Path) -> bool:
+    """Whether a launch of this brief prepared a Sprite whose worker-start sent nothing, which a launch of the same brief reuses."""
+    return (brief.with_suffix(".worker") / "worker-start.unsent").exists()
 
 
 def reclaim(run: str, dispatch: str, checkout: Path) -> str:
@@ -421,7 +428,7 @@ def gone(error: OrcaError) -> str | None:
 
 
 def lane_end(job: dict) -> LaneEnd | None:
-    """None while the lane's worker takes messages; else why it does not, the branch its terminal was on, and, for a worker that finished while Orca holds its terminal, on its Sprite or on this Mac, the worktree its next worker starts in. OrcaError when Orca cannot tell either way."""
+    """None while the lane's worker takes messages; else why it does not, the branch its terminal was on, and, for a worker that finished while Orca holds its terminal, on its Sprite or on this Mac, the worktree, terminal and Run its next worker starts on, read from Orca, since a dispatch recorded by hand records neither. OrcaError when Orca cannot tell either way."""
     try:
         shown = worker(job["dispatch"])
     except OrcaError as error:
@@ -435,23 +442,23 @@ def lane_end(job: dict) -> LaneEnd | None:
         raise OrcaError(f"orca orchestration worker-show: its worker's liveness is {verdict}")
     if (finished := shown["worker"]["state"]) in FINISHED:
         why = f"its worker {finished}, and Orca sends nothing to a finished worker {ON_MAC if state.on_mac(job) else 'on a Sprite'}"
-        return LaneEnd(why, branch, shown["worker"]["startOptions"]["worktree"])
+        return LaneEnd(why, branch, shown["worker"]["startOptions"]["worktree"], shown["terminal"]["handle"], shown["dispatch"]["runId"])
     return None
 
 
-def start_after(drive: str, lane: str, brief: Path, job: dict, worktree: str) -> dict:
-    """Start the job's next worker in the terminal and worktree of the one that finished, on its Sprite or on this Mac, with the brief as its Task spec: the start Orca names for a finished worker, with `--on` its paired server for a Sprite."""
+def start_after(drive: str, lane: str, brief: Path, job: dict, end: LaneEnd) -> dict:
+    """Start the job's next worker in the terminal and worktree of the one that finished, on its Run, on its Sprite or on this Mac, with the brief as its Task spec: the start Orca names for a finished worker, with `--on` its paired server for a Sprite."""
     argv = [
         "orca",
         "orchestration",
         "worker-start",
         "--run",
-        job["run"],
+        end.run,
         *(() if state.on_mac(job) else ("--on", job["environment"])),
         "--worktree",
-        worktree,
+        end.worktree,
         "--terminal",
-        job["terminal"],
+        end.terminal,
         "--task-title",
         lane,
         "--spec-file",
@@ -461,11 +468,18 @@ def start_after(drive: str, lane: str, brief: Path, job: dict, worktree: str) ->
         "--full",
         "--json",
     ]
-    receipt = result_of("orchestration worker-start", bound_command(drive, job["run"], argv))
+    receipt = result_of("orchestration worker-start", bound_command(drive, end.run, argv))
     if receipt["state"] != "ready":
         raise OrcaError(f"orca orchestration worker-start: its worker came back {receipt['state']}, not ready: {json.dumps(receipt)}")
-    fields = {field: job[field] for field in ("terminal", "workspace", "environment")}
-    return {**fields, "dispatch": receipt["dispatchId"], "task": receipt["taskId"], "lane": lane}
+    return {
+        "run": end.run,
+        "terminal": end.terminal,
+        "workspace": job["workspace"],
+        "environment": job["environment"],
+        "dispatch": receipt["dispatchId"],
+        "task": receipt["taskId"],
+        "lane": lane,
+    }
 
 
 def reply(drive: str, run: str, message_id: str, body: str) -> None:
