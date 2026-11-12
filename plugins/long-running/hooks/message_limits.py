@@ -78,11 +78,6 @@ PROMISE_RULE = (
     " named in the same message, because a promise with nothing behind it is one he cannot believe."
 )
 SWITCH_RULE = "A switch command he is given is the role's line `drive status` prints, word for word, naming a terminal a session of the drive runs in."
-PREVENTED_RULE = (
-    "A failure of the drive's that reaches him, such as a card refused, a check nobody ran, a message that never arrived or a"
-    " hook refusing a post he ordered, says on that same line how it is prevented: the tool change, the {order:} or {pr:}"
-    ' carrying it, and when it is live, by his words "thats not acceptable to dsay without telling me how you will prevent it".'
-)
 ORDERED_RULE = (
     "His message is the order, so no line answers it by a plan, record or answer of his that is missing, since his records are"
     ' read only so he is never asked again, by his words "Who cares if you have a record if they or not I\'m telling you to do it".'
@@ -116,6 +111,10 @@ WHOLE = (
     " It names no message of his as asked, so it is not an answer and keeps that limit. An answer to a question or"
     " order of his goes out whole, at any length: pass as asked each message of his it answers, word for word, one per line."
 )
+
+
+class Warned(str):
+    """A finding the session hears beside its post, which goes out as written: a word pattern that also matches the product's own refusals, such as a pod its check refused, warns rather than refuses, by his pick "1 and then if we kepe getting false rejects move to 3", whose third option reads "Cause and plain-words findings only warn the session ... posts go out"."""
 
 
 def his_drive(session: str) -> dict | None:
@@ -270,16 +269,18 @@ def unbacked(payload: dict, said: str) -> str | None:
     return agents.Ruled(f"refused: a line naming a cause carries {{record:<seq>}} of the record that measured it, on that line: {' | '.join(lines)}", CAUSE_RULE)
 
 
-def unprevented(said: str, found: dict[str, dict]) -> str | None:
-    """Why a line of a post to him names a failure, refusal or gap of the drive's own, or cites its defect record, with no word on how it is prevented."""
+def unprevented(said: str, found: dict[str, dict]) -> Warned | None:
+    """What the session hears when a line of its post to him reads as a failure, refusal or gap of the drive's own, or cites its defect record, with no word on how it is prevented: the post goes out as written."""
     if not (lines := refs.unprevented(said, found)):
         return None
-    return agents.Ruled(
-        "refused: a line telling him a card, check, hook, lane or session of the drive failed, refused, disconnected or"
-        " left a gap says on that same line how it is prevented: the tool change, the {order:<o>} or {pr:<n>} carrying it,"
-        " and when it is live. A disconnect is no excuse, since a session reaches another with SendMessage while cci is down."
-        f' His ruling 6a6edbf: "thats not acceptable to dsay without telling me how you will prevent it". The lines: {" | ".join(lines)}',
-        PREVENTED_RULE,
+    return Warned(
+        "message_limits: this post goes out as written, and these lines read as telling him a card, check, hook, lane or session"
+        " of the drive failed, refused, disconnected or left a gap, with no word on how it is prevented. When one does, reword"
+        " the post with say(edit=<its permalink>, text=…) adding on that line the tool change, the {order:<o>} or {pr:<n>}"
+        " carrying it and when it is live, or return a DEFECT line when no fix is started; a disconnect is no excuse, since a"
+        " session reaches another with SendMessage while cci is down. A line telling what the product does, such as a pod its"
+        ' own check refused, needs nothing. His ruling 6a6edbf: "thats not acceptable to dsay without telling me how you will'
+        f' prevent it". The lines: {" | ".join(lines)}'
     )
 
 
@@ -356,7 +357,8 @@ def unsaid(parts: list[str], said: str) -> list[str]:
 
 
 def deny_reason(payload: dict) -> str | None:
-    return checked(payload)[0]
+    reason = checked(payload)[0]
+    return None if isinstance(reason, Warned) else reason
 
 
 def checked(payload: dict) -> tuple[str | None, dict]:
@@ -377,7 +379,7 @@ def checked(payload: dict) -> tuple[str | None, dict]:
 
 
 def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> str | None:
-    """What the drive's checks find in a post, which the say hook hands Jev to judge against his words: a bug report's thread gets one fix-live note once the fix is proven live, an edit of his question card redraws it, an edit of a post say made goes through say, a post in his DM goes through say, a handler's line in his thread waits for its read of that thread, and then, every finding at once, the post keeps its length, links what it names, asks no tap that is not owed, backs each cause with its record, says how each failure of the drive's it names is prevented, answers his order by no plan, record or answer of his that is missing, calls nothing by a word he corrected, tells him no coordinator is down that was not restarted, calls no job stuck or silent before its poster read that job's transcript, says in a summary what a PR it names serves, which a PR card's line above its card already quotes, and `cc-slack check-post` passes its exact words."""
+    """What the drive's checks find in a post, which the say hook hands Jev to judge against his words: a bug report's thread gets one fix-live note once the fix is proven live, an edit of his question card redraws it, an edit of a post say made goes through say, a post in his DM goes through say, a handler's line in his thread waits for its read of that thread, and then, every finding at once, the post keeps its length, links what it names, asks no tap that is not owed, backs each cause with its record, answers his order by no plan, record or answer of his that is missing, calls nothing by a word he corrected, tells him no coordinator is down that was not restarted, calls no job stuck or silent before its poster read that job's transcript, says in a summary what a PR it names serves, which a PR card's line above its card already quotes, and `cc-slack check-post` passes its exact words; a line naming a failure of the drive's with no word on how it is prevented only warns the session, and the post goes out."""
     dm = drive["slack"]["channel"]
     tool_input = payload["tool_input"]
     if PLACEHOLDER.fullmatch(text := (tool_input.get("text") or "").strip()):
@@ -606,15 +608,16 @@ def unswitched(tool_input: dict, drive: dict) -> str | None:
 
 
 def every(refusals: list[str | None]) -> str | None:
-    """One refusal holding each check's, so a single rewrite fixes them all, its rules numbered as its findings are so Jev judges each finding by its own; a refusal no Jev judges comes back alone."""
+    """One refusal holding each check's, so a single rewrite fixes them all, its rules numbered as its findings are so Jev judges each finding by its own; a refusal no Jev judges comes back alone, and a warning only when nothing refuses."""
     found = [refusal for refusal in refusals if refusal]
-    if unjudged := next((refusal for refusal in found if isinstance(refusal, agents.Unjudged)), None):
+    refused = [refusal for refusal in found if not isinstance(refusal, Warned)]
+    if unjudged := next((refusal for refusal in refused if isinstance(refusal, agents.Unjudged)), None):
         return unjudged
-    if len(found) < 2:
-        return next(iter(found), None)
-    listed = "\n".join(f"{index}. {refusal.removeprefix('refused: ')}" for index, refusal in enumerate(found, 1))
-    rules = "\n".join(f"{index}. {refusal.rule}" for index, refusal in enumerate(found, 1) if isinstance(refusal, agents.Ruled))
-    return agents.Ruled(f"refused, {len(found)} ways; fix each, then post the fixed words once:\n{listed}", rules)
+    if len(refused) < 2:
+        return next(iter(refused or found), None)
+    listed = "\n".join(f"{index}. {refusal.removeprefix('refused: ')}" for index, refusal in enumerate(refused, 1))
+    rules = "\n".join(f"{index}. {refusal.rule}" for index, refusal in enumerate(refused, 1) if isinstance(refusal, agents.Ruled))
+    return agents.Ruled(f"refused, {len(refused)} ways; fix each, then post the fixed words once:\n{listed}", rules)
 
 
 def untapped(payload: dict) -> str | None:
@@ -688,6 +691,9 @@ def main() -> None:
             " out unchecked. Name it on a DEFECT line, and the post goes out once the check's fix is installed."
         ), payload["tool_input"]
     if not reason:
+        return
+    if isinstance(reason, Warned):
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": reason}}))
         return
     judged = {} if isinstance(reason, agents.Unjudged) else {"his_words": his_words(payload), "post": sent}
     print(json.dumps(denial(reason) | agents.ruled(reason) | judged))

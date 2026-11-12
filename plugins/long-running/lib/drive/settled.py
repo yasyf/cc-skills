@@ -160,7 +160,7 @@ def candidates(shown: str, whole: str, drives: list[str], cwd: str, under: list[
 
 
 def refusals(answer: dict | None, under: list[dict], heard: list[dict], offered: str, why: str | None) -> str | None:
-    """Every reason a question may not go to him, in one refusal, so one ask again meets them all: the one answer of his Jev reads as already deciding it, his words under its job's open card that --unsettled names, and an amount his words in the order's thread name that it offers no tap for."""
+    """Every reason a question may not go to him, in one refusal, so one ask again meets them all: the one answer of his Jev reads as already deciding it, his words under its job's open card that --unsettled names, and an amount the order's own words or his messages about it in its thread name that it offers no tap for."""
     layers = [decided_refusal(answer, why), open_card_refusal(under, why), unoffered_refusal(heard, offered)]
     return "\n".join(layer for layer in layers if layer) or None
 
@@ -251,9 +251,15 @@ def open_card_refusal(said: list[dict], why: str | None) -> str | None:
     )
 
 
-def thread_words(data: dict, order: dict, team_url: str, question: str) -> list[dict]:
-    """His messages in the order's own thread past the order itself sharing a rare word with the question, each with its permalink and the words shared."""
-    if not (where := state.promise_thread(data, order)):
+def own_words(data: dict, order_id: str, question: str) -> list[dict]:
+    """The order's own words, as its text keeps his message it came from and those he added to it, when they share a rare word with the question."""
+    text = data["orders"][order_id]["text"]
+    return [{"link": f"{order_id}'s own words", "text": text, "shared": shared}] if (shared := sorted(rare(question) & rare(text))) else []
+
+
+def thread_words(data: dict, order_id: str, team_url: str, question: str) -> list[dict]:
+    """His messages about the order in its own thread past its root, as state.message_order reads each, never one about another order sharing that thread, sharing a rare word with the question, each with its permalink and the words shared."""
+    if not (where := state.promise_thread(data, data["orders"][order_id])):
         return []
     try:
         messages = slack.thread("--channel", where[0], "--thread", where[1], "--limit", str(slack.WHOLE_THREAD))
@@ -264,12 +270,15 @@ def thread_words(data: dict, order: dict, team_url: str, question: str) -> list[
         {"link": f"{team_url}archives/{where[0]}/p{key}?thread_ts={where[1]}", "key": key, "text": message["text"], "shared": shared}
         for message in messages
         for key in [message["ts"].replace(".", "")]
-        if message.get("from_user") and message["ts"] != where[1] and (shared := sorted(asked & rare(message["text"])))
+        if message.get("from_user")
+        and message["ts"] != where[1]
+        and (shared := sorted(asked & rare(message["text"])))
+        and state.message_order(data, *where, message["ts"]) == order_id
     ]
 
 
 def unoffered_refusal(said: list[dict], offered: str) -> str | None:
-    """Why a question may not go to him: an amount a clause of his words in the order's thread names, as "30 day bonding" names 30 days, is in neither its question nor an option, so he has no tap for what he named. Only a clause sharing a rare word with the question counts, since one message can name a cap of another subject beside a word the question uses."""
+    """Why a question may not go to him: an amount a clause of the order's own words or of his message about it in its thread names, as "30 day bonding" names 30 days, is in neither its question nor an option, so he has no tap for what he named. Only a clause sharing a rare word with the question counts, since one message can name a cap of another subject beside a word the question uses."""
     have = amounts(offered)
     missing = {
         amount: message
@@ -282,7 +291,7 @@ def unoffered_refusal(said: list[dict], offered: str) -> str | None:
         return None
     listed = "\n".join(f'- {amount}: {message["link"]} "{cut(message["text"], 200)}"' for amount, message in missing.items())
     return (
-        "refused: his words in this order's thread name an amount this question offers no tap for. Give each its own option,"
+        "refused: his words on this order name an amount this question offers no tap for. Give each its own option,"
         f" in his words, or ask about it in the question ({UNOFFERED_RULING}).\n{listed}"
     )
 

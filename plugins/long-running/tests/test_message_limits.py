@@ -382,6 +382,11 @@ def say(transcript: Path, **tool_input: object) -> str | None:
     return message_limits.deny_reason(call("slack_dm_status", transcript, **tool_input) | {"tool_name": message_limits.SAY})
 
 
+def warning(transcript: Path, **tool_input: object) -> str | None:
+    found = message_limits.checked(call("slack_dm_status", transcript, **tool_input) | {"tool_name": message_limits.SAY})[0]
+    return found if isinstance(found, message_limits.Warned) else None
+
+
 def link(ts: str) -> str:
     return f"https://acme.slack.com/archives/{DM}/p{ts.replace('.', '')}"
 
@@ -1004,7 +1009,7 @@ def test_jev_judges_each_finding_by_the_rule_it_names_and_an_order_or_job_id_ref
     assert "the pool" not in unjudged and "'the drive'" not in unjudged
 
 
-def test_a_line_telling_him_the_drive_failed_names_the_order_or_pr_preventing_it(talker: str, transcript: Path) -> None:
+def test_a_line_telling_him_the_drive_failed_goes_out_warning_the_session_until_it_names_the_order_or_pr_preventing_it(talker: str, transcript: Path) -> None:
     failed = "Its card was refused: nobody checked that PR against your words."
     disconnected = "The meta session's cci disconnected, so your order never reached it."
     fix = "<https://github.com/yasyf/cc-skills/pull/4460|the card hook fix>"
@@ -1019,12 +1024,36 @@ def test_a_line_telling_him_the_drive_failed_names_the_order_or_pr_preventing_it
         )
     )
     assert refs.unprevented(said, {}) == [failed, disconnected]
-    refused = say(transcript, text=said)
-    assert refused is not None and "6a6edbf" in refused and refused.endswith(f"The lines: {failed} | {disconnected}")
-    assert say(transcript, text=f"Its card was refused: nobody checked that PR against your words. {fix} makes the card hook check it.") is None
+    told = f"{failed}\n{disconnected}"
+    assert say(transcript, text=told) is None
+    warned = warning(transcript, text=told)
+    assert warned.startswith("message_limits: this post goes out as written") and "6a6edbf" in warned
+    assert warned.endswith(f"The lines: {failed} | {disconnected}")
+    prevented = f"Its card was refused: nobody checked that PR against your words. {fix} makes the card hook check it."
+    assert message_limits.checked(call("slack_dm_status", transcript, text=prevented) | {"tool_name": message_limits.SAY})[0] is None
 
 
-def test_a_line_reading_as_a_drive_failure_or_citing_a_defect_record_owes_the_fix_preventing_it(
+def test_a_line_telling_what_the_product_refuses_goes_out_with_a_warning_jev_never_judges(
+    talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    old_pod = (
+        "2. The check that this pod still runs the agent compares `writer` in Postgres `agent_placements`"
+        " (<https://github.com/Forge-AI/monorepo/blob/e39f84cac477b65f7a0957b63b99e8c09a0532d8/api/src/entities/CloudAgent.ts#L213|CloudAgent.ts:213>)."
+        " `writer` is a number that goes up each time the agent moves to a new pod, so an old pod is refused. SandSQL cannot read Postgres."
+    )
+    staging = "The drive's staging request was refused by SandSQL's own check, which reads only rows of its env."
+    for text in (old_pod, staging):
+        assert say(transcript, text=text) is None, text
+        assert warning(transcript, text=text).endswith(f"The lines: {text}")
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(call("slack_dm_status", transcript, text=old_pod) | {"tool_name": message_limits.SAY})))
+    message_limits.main()
+    printed = json.loads(capsys.readouterr().out)
+    assert printed == {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": warning(transcript, text=old_pod)}}
+    refused = say(transcript, text=f"{old_pod}\nThe runs failed because the pool was full")
+    assert refused.startswith("refused: a line naming a cause") and old_pod not in refused and refused.rule == message_limits.CAUSE_RULE
+
+
+def test_a_line_reading_as_a_drive_failure_or_citing_a_defect_record_warns_the_session_it_owes_the_fix_preventing_it(
     talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     shown = {
@@ -1041,8 +1070,9 @@ def test_a_line_reading_as_a_drive_failure_or_citing_a_defect_record_owes_the_fi
     said = "\n".join((proof, uncited, cited, passive, defect, f"{cited} {fix} counts each table row on its own.", "SandSQL's answer is in {record:672190}."))
     flagged = [proof, uncited, cited, passive, defect]
     assert refs.unprevented(said, refs.resolved("demo", said)) == flagged
-    refused = say(transcript, text=said)
-    assert refused is not None and refused.endswith(f"The lines: {' | '.join(flagged)}")
+    told = f"{cited}\n{defect}"
+    assert say(transcript, text=told) is None
+    assert warning(transcript, text=told).endswith(f"The lines: {cited} | {defect}")
 
 
 def test_a_line_answering_his_order_by_a_missing_plan_or_record_is_found_and_a_line_doing_it_is_not(talker: str, transcript: Path) -> None:

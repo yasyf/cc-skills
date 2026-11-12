@@ -341,6 +341,9 @@ def test_a_drive_sessions_cci_post_in_bash_is_refused_for_the_cci_tools_while_it
     report = "cci post --kind report 'merged'"
     cci_delta(session, "addedNames", ["mcp__plugin_cc-inbox_cci__post", "mcp__plugin_cc-inbox_cci__close"])
     assert landing_guard.deny_reason(bash(report, transcript_path=str(session))) == landing_guard.CLI_POST
+    for help_asked in ("cci post --help", "cci post -h", "cci post --kind report -h", "cci post --help | head -40"):
+        assert landing_guard.deny_reason(bash(help_asked, transcript_path=str(session))) is None, help_asked
+    assert landing_guard.deny_reason(bash("cci post help", transcript_path=str(session))) == landing_guard.CLI_POST
     assert landing_guard.deny_reason(bash(report, transcript_path=str(session), session_id="another-session")) is None
     cci_delta(session, "failedMcpServers", ["plugin:cc-inbox:cci"])
     assert landing_guard.deny_reason(bash(report, transcript_path=str(session))) is None
@@ -362,6 +365,9 @@ def test_a_report_posted_with_cci_post_in_bash_gets_the_checks_the_cci_post_tool
     assert landing_guard.deny_reason(bash(post.format(attr="--attr 'part=o1:cause'"))) is None
     assert landing_guard.deny_reason(bash(post.format(attr="--attr 'progress=true,part=o1:cause'"))) is None
     assert 'delivers "cause", "fix", the last parts of o1' in landing_guard.deny_reason(bash(post.format(attr="--attr 'part=o1:cause;o1:fix'")))
+    failed = "cci post --kind report --to communicator@demo --attr 'part=o1:cause' 'POST the search worker OOMs; its card was refused since nobody checked it'"
+    assert landing_guard.deny_reason(bash(failed)) is None
+    assert landing_guard.unprevented_reports(bash(failed)).startswith("record_lines: this report goes out as written")
 
 
 def test_each_command_reads_the_stdin_its_own_text_gives_it() -> None:

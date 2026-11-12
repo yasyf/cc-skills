@@ -178,6 +178,8 @@ CCI_POST = Landing(
         "lane-ref", "mode", "outcome", "owned-by", "path", "pr", "quoted", "re", "resolves", "stack", "successor", "target",
         "text", "to", "topic", "ttl", "url",
     }),
+    {"h": "help"},
+    reads=("help",),
 )
 ASK_KEPT = Landing(("drive", "job", "ask"), frozenset({"drive", "unsettled", "check", "drop"}))
 RELEASE_START = Landing(("ci", "release", "start"), frozenset({"order"}))
@@ -535,10 +537,10 @@ def body_reason(script: str, shell: Shell) -> str | None:
 
 
 def cci_posts(script: str, shell: Shell) -> list[dict]:
-    """Each record a script posts with `cci post`, in the shape the cci `post` tool takes: its kind, attrs, addressed lanes, text, body, url and answered seqs, each read as cci reads it: its text the positionals, else --text, else the first line of the file --path names, its body the file --body-file or --path names, and each `--attr` as cci's flag parser reads it, one `key=value` whole, commas and all, and with several `=` comma-separated `key=value` fields, quotes around one holding a comma."""
+    """Each record a script posts with `cci post`, never a call asking for its help with `--help` or `-h`, which cci answers before it reads a record, in the shape the cci `post` tool takes: its kind, attrs, addressed lanes, text, body, url and answered seqs, each read as cci reads it: its text the positionals, else --text, else the first line of the file --path names, its body the file --body-file or --path names, and each `--attr` as cci's flag parser reads it, one `key=value` whole, commas and all, and with several `=` comma-separated `key=value` fields, quotes around one holding a comma."""
     posts = []
     for _, words, run_in in commands(script, shell):
-        if found := landing_of(words, (CCI_POST,)):
+        if (found := landing_of(words, (CCI_POST,))) and lands(found[0], found[2]):
             _, positionals, options = found
             path = (options.get("path") or [None])[-1]
             posts.append({
@@ -682,6 +684,14 @@ def judged_reason(payload: dict) -> str | None:
     return None
 
 
+def unprevented_reports(payload: dict) -> str | None:
+    """What a drive session's `cci post` in Bash hears beside its call, as the cci `post` tool's hook tells it: each POST report to the communicator telling him a failure of the drive's with no word on how it is prevented, which goes out as written."""
+    names, shell = shell_of(payload)
+    posts = cci_posts(payload["tool_input"]["command"], shell) if names else []
+    drive = state.load(names[0]) if posts else None
+    return "\n".join(filter(None, (reports.unprevented(drive, post) for post in posts))) or None
+
+
 def guarded_reason(payload: dict) -> str | None:
     """Why a Bash call must not run, a refusal capt-hook's Jev never weighs again: it lands a Forge-AI drive PR without his tap or merges with --admin there, in a drive session or agent lands a Forge-AI PR someone else opened that no order of his names, starts, approves or rolls back a production cut from a sub-coordinator's session, or starts one in a drive session on `--order` naming an answer of his that is no incident's and that Jev does not read as his pick to release, and in a drive session or agent lands a Forge-AI PR while his card on it is open, around the monorepo's queue or apart from its stack, puts up a drive's public PR body showing what only a private place may, in a drive session or agent whose cci MCP server is connected posts or closes a record with `cci post` in place of the cci `post` and `close` tools, or posts with `cci post` an owner or answer record of his words on an open card of his, which only the drive's `record` tool closes in the same call, or an owner record naming no about, which picks the session it reaches."""
     names, shell = shell_of(payload)
@@ -714,6 +724,7 @@ def main() -> None:
         payload = agents.seen(json.load(sys.stdin))
         judged = judged_reason(payload)
         reason = judged or guarded_reason(payload) or root_cause_case(payload)
+        context = None if reason else unprevented_reports(payload)
     except (ValueError, KeyError):
         return
     except github.GithubError as error:
@@ -725,6 +736,8 @@ def main() -> None:
     agents.hold(payload)
     if reason:
         print(json.dumps({"ask": reason, "his_words": [limits.root_cause_words(reason)]}))
+    elif context:
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": context}}))
 
 
 if __name__ == "__main__":

@@ -35,12 +35,13 @@ SECOND_REPORT = (
 )
 SECOND_REPORT_RULE = "A second report for a thread in one turn of the coordinator's or the meta session's that repeats what its first report there already sent, rather than news that came in since."
 UNPREVENTED = (
-    "refused: a POST line telling him a card, check, hook, lane or session of the drive failed, refused, disconnected or"
-    " left a gap says on that same line how it is prevented, naming the tool change and the order or PR URL carrying it and"
-    " when it is live; start that fix first, a defect record to meta@<drive> for a tool, then name it. His ruling 6a6edbf:"
-    ' "thats not acceptable to dsay without telling me how you will prevent it". The lines: {lines}'
+    "record_lines: this report goes out as written, and these POST lines read as telling him a card, check, hook, lane or"
+    " session of the drive failed, refused, disconnected or left a gap, with no word on how it is prevented. When one does,"
+    " start its fix, a defect record to meta@<drive> for a tool, and send the line again naming on it the tool change, the"
+    " order or PR URL carrying it and when it is live; a line telling what the product does, such as a pod its own check"
+    ' refused, needs nothing. His ruling 6a6edbf: "thats not acceptable to dsay without telling me how you will prevent it".'
+    " The lines: {lines}"
 )
-UNPREVENTED_RULE = "A line telling him the drive failed him, such as a card refused or a check nobody ran, that leaves out how that failure is prevented from now on."
 WAITS_ON_HIM = re.compile(r"\bwait(?:s|ing)? (?:on|for) (?:him|his|your|you)\b|\bneeds? (?:his|your) (?:tap|pick|answer|approval)\b", re.IGNORECASE)
 CARD_NAMED = re.compile(r"slack\.com/archives/|\{card:|\b[\w-]+:j\d+-\d+\b|github\.com/[^/\s]+/[^/\s]+/pull/\d+")
 UNCARDED = "refused: this report says something waits on him and names no card; add its permalink, the PR whose card it is, or its waits id with `--attr waits=<drive>:<j>-<seq>`, so the handler links the card"
@@ -86,11 +87,19 @@ def report_refusals(payload: dict, drive: dict, records: list[dict], index: int)
     yield off_thread(drive, record)
     yield UNCARDED if WAITS_ON_HIM.search(text) and not attrs(record).get("waits") and not CARD_NAMED.search(f"{text}\n{record.get('body') or ''}") else None
     yield VAGUE_WAIT if WAITS_ON_OTHER.search(text) and not (WAITED.search(text) and RUNNING.search(text)) else None
-    if posting and (lines := refs.unprevented(told := f"{text}\n{record.get('body') or ''}", refs.records(drive["name"], told))):
-        yield agents.Ruled(UNPREVENTED.format(lines=" | ".join(lines)), UNPREVENTED_RULE)
     if thread and state.session_role(drive, payload.get("session_id")) in ("coordinator", "meta") and not payload.get("agent_id"):
         yield second_report(payload, records, index, thread)
     yield agents.unread_job(payload, text)
+
+
+def unprevented(drive: dict, record: dict) -> str | None:
+    """What the session hears when a POST report to the communicator tells him a failure of the drive's with no word on how it is prevented, by his pick on the say hook's findings "1 and then if we kepe getting false rejects move to 3": the report goes out as written, since the pattern also matches the product's own refusals."""
+    text = (record.get("text") or "").strip()
+    if kind(record) != "report" or not addressed(record, "communicator") or not text.startswith("POST"):
+        return None
+    if not (lines := refs.unprevented(told := f"{text}\n{record.get('body') or ''}", refs.records(drive["name"], told))):
+        return None
+    return UNPREVENTED.format(lines=" | ".join(lines))
 
 
 def dm_url(drive: dict, record: dict) -> str | None:

@@ -2007,7 +2007,7 @@ def test_job_ask_refuses_a_question_offering_no_tap_for_an_amount_his_words_in_i
     why = f"{his}: he set how long a snapshot is kept, not its layout"
     assert cli.main(["job", "ask", "j1", str(block), "--unsettled", why]) == 2
     refusal = capsys.readouterr().err
-    assert "refused: his words in this order's thread name an amount this question offers no tap for" in refusal
+    assert "refused: his words on this order name an amount this question offers no tap for" in refusal
     assert f'- 30 day: {his} "{words}"' in refusal.splitlines()
     block.write_text(SHORT_ASK.replace("written when it ends, old runs", "written when it ends, kept 30 days, old runs"))
     assert cli.main(["job", "ask", "j1", str(block), "--unsettled", why]) == 0
@@ -2031,6 +2031,24 @@ def test_job_ask_counts_an_amount_of_his_only_in_a_clause_sharing_the_questions_
     assert cli.main(["job", "ask", "j1", str(block), "--unsettled", why]) == 0
 
 
+def test_job_ask_counts_an_amount_only_on_the_order_his_words_are_about_never_another_order_sharing_its_thread(
+    run: Run, demo: str, slack_thread: Thread, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS | {"team_url": "https://acme.slack.com/"})
+    view.refresh_cards("demo")
+    words = "ok so for 1, lrts mske eveyhting standard on signal or 30 seconds both for 2 lfor mac and cloud each decide wherther `deliverSteers` or turn boundary is best"
+    slack_thread.post(state.now() - timedelta(minutes=1), from_user=True, text=words)
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", f"any harm in making it uniform? Then, 5:06 AM, same thread: {words}", "--thread", "1794200000.000100")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "an answer he reads states only what was read in code or measured", "--thread", "1794200000.000100")
+    run("job", "add", "builder", "--order", "o1", "--goal", "pick when the inbox is read")
+    run("job", "add", "builder", "--order", "o2", "--goal", "check what a post read")
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK.replace("so the browser guesses", "so the cloud reader guesses"))
+    assert cli.main(["job", "ask", "j1", str(block)]) == 2
+    assert [line.split(' "')[0] for line in capsys.readouterr().err.splitlines() if line.startswith("- ")] == ["- 30 second: o1's own words"]
+    assert cli.main(["job", "ask", "j2", str(block)]) == 0
+
+
 def test_job_ask_prints_the_answer_jev_reads_as_deciding_and_an_amount_he_named_in_one_refusal(
     run: Run, demo: str, slack_thread: Thread, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], recorded: Answers, jev: Jev
 ) -> None:
@@ -2047,7 +2065,7 @@ def test_job_ask_prints_the_answer_jev_reads_as_deciding_and_an_amount_he_named_
     refusal = capsys.readouterr().err.removeprefix("drive: ")
     assert [line.split(".")[0] for line in refusal.splitlines() if line.startswith("refused: ")] == [
         "refused: his recorded answer ac61348 already decides this question",
-        "refused: his words in this order's thread name an amount this question offers no tap for",
+        "refused: his words on this order name an amount this question offers no tap for",
     ]
     assert f"- 30 day: {his}" in refusal
     block.write_text(SHORT_ASK.replace("written when it ends, old runs", "written when it ends, kept 30 days, old runs"))
@@ -2381,7 +2399,7 @@ def test_a_readers_design_holds_its_builder_until_its_kept_question_is_on_his_ca
     kept = state.new_question(asked, "Where does the copy run?", state.stamp())
     answered = state.new_question(asked, "Where does the copy run?", state.stamp(), card="https://acme.slack.com/archives/D123/p1794480049653959")
     jevs = state.new_question(asked, "Where does the copy run?", state.stamp(), refused="refused: his recorded answer 32164d3 already decides this question.")
-    others = state.new_question(asked, "Where does the copy run?", state.stamp(), refused="refused: his words in this order's thread name an amount this question offers no tap for.")
+    others = state.new_question(asked, "Where does the copy run?", state.stamp(), refused="refused: his words on this order name an amount this question offers no tap for.")
     replays = {
         "no question kept": ([], "j1 returned DESIGN, a choice for him its research found, and keeps it as no question of his: drive job ask j1"),
         "j1656 before his ruling": ([kept], f'j1 returned DESIGN, and its question "Where does the copy run?" kept in {asked} is on no card of his yet'),
@@ -2748,6 +2766,7 @@ def test_a_limit_left_standing_is_his_choice_and_returns_ask_or_design(
     run("job", "add", "builder", "--order", "o1", "--goal", "queue the cards")
     assert keep(monkeypatch, capsys, "j2", f"DONE the queue caps at 4 cards, as his order asked; the card title is unchanged\n{check}") == (0, "")
     assert keep(monkeypatch, capsys, "j2", f"DONE the 5k objects/s cap was never hit\n{check}") == (0, "")
+    assert keep(monkeypatch, capsys, "j2", f'DONE limits.py and cli.py never set "hints" (0 grep hits)\n{check}') == (0, "")
     for evidence in (
         f'DEFECT: ccx vcs gh refuses every read on this Sprite: "{refusal}"',
         f'Measured: stack-enqueue read the queue under its "GitHub rate limit floor" of 500 calls, then its 1:20 PM read was refused: "{refusal}"',
