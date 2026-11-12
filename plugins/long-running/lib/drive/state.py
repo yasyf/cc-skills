@@ -1370,10 +1370,20 @@ def carded_prs(data: dict, job_id: str) -> list[str]:
     return [key for key, pr in data["prs"].items() if pr["job"] == job_id and pr["state"] == "open" and pr["wants_tap"] and not pr.get("exempt")]
 
 
+def order_served(pr: dict) -> str:
+    """The order a PR carries out, its job's until `drive pr set --serves` names another."""
+    return pr.get("serves") or pr["order"]
+
+
+def card_unit(key: str, stack: tuple[str, ...], pr: dict) -> tuple[tuple[str, ...], str, str]:
+    """The card a PR draws on, the one rule the watch's ready record and `drive card` share: the stack his Approve lands it with, a native GitHub stack or PRs each on the one below's head branch, or for a PR in none, its repository's PRs serving its order, so sibling PRs of one order ready together draw one card."""
+    return (stack, "", "") if stack else ((), key.split("#")[0], order_served(pr))
+
+
 def served_orders(data: dict, pr: dict) -> list[str]:
     """The orders whose words a PR's change is checked against: the one it serves, its job's own and each its job carries."""
     job = data["jobs"][pr["job"]]
-    return list(dict.fromkeys([pr.get("serves") or pr["order"], job["order"], *job["carries"]]))
+    return list(dict.fromkeys([order_served(pr), job["order"], *job["carries"]]))
 
 
 def checked(data: dict, pr: dict) -> bool:

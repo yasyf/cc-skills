@@ -991,6 +991,58 @@ def test_a_stack_split_by_an_ask_missing_a_member_draws_one_card_once_asked_whol
     assert not any(state.load("demo")["prs"][f"Forge-AI/monorepo#{n}"].get("refused") for n in (41, 42, 43, 44))
 
 
+def siblings(monkeypatch: pytest.MonkeyPatch, orders: dict[int, str], drawn_alone: bool = False) -> list[str]:
+    keys = [f"Forge-AI/monorepo#{number}" for number in orders]
+    with state.edit("demo") as data:
+        for number, order in orders.items():
+            key = f"Forge-AI/monorepo#{number}"
+            served = {"serves": order, "checked": {"head": HEAD, "orders": ["o1", order], "patch": ""}}
+            data["prs"][key] = {**entry(), "url": stack_url(number), **served, **({"stack": [key]} if drawn_alone else {})}
+    monkeypatch.setattr(
+        card,
+        "run",
+        lambda cmd, **_: "[]" if cmd[1] == "api" else json.dumps(pr_json(title="Fix: one move of the cutover", url=stack_url(int(cmd[3])), base="main", branch=f"cutover-{cmd[3]}")),
+    )
+    return keys
+
+
+@pytest.mark.parametrize("drawn_alone", [False, True])
+def test_prs_of_one_order_in_no_native_stack_asked_together_draw_one_card_whose_approve_covers_each(
+    stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch, drawn_alone: bool
+) -> None:
+    keys = siblings(monkeypatch, {54591: "o601", 54602: "o601", 54608: "o601"}, drawn_alone)
+    [drawn] = ask(asks(54591, 54602, 54608))["cards"]
+    assert [row["url"] for row in drawn["card"]["prs"]] == [stack_url(n) for n in (54591, 54602, 54608)]
+    assert drawn["card"]["waits"] == "merge:Forge-AI:monorepo:54591-54608"
+    assert all(state.load("demo")["prs"][key]["stack"] == keys for key in keys)
+    ask({"answer": {"repo": "Forge-AI/monorepo", "number": 54591, "waits": drawn["card"]["waits"], "label": "Approve", "action_ts": "", "source": "slack"}})
+    assert [state.load("demo")["prs"][key]["tap"]["label"] for key in keys] == ["Approve"] * 3
+
+
+def test_prs_in_no_native_stack_draw_one_card_per_order_they_serve(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
+    siblings(monkeypatch, {51: "o601", 52: "o602", 53: "o601"})
+    drawn = ask(asks(51, 52, 53))["cards"]
+    assert [[row["url"] for row in each["card"]["prs"]] for each in drawn] == [[stack_url(51), stack_url(53)], [stack_url(52)]]
+
+
+def test_prs_of_one_order_past_what_a_card_holds_draw_on_cards_of_at_most_that_many(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(card, "STACK_MOST", 2)
+    siblings(monkeypatch, dict.fromkeys((51, 52, 53, 54, 55), "o601"))
+    drawn = ask(asks(51, 52, 53, 54, 55))
+    assert [[row["url"] for row in each["card"]["prs"]] for each in drawn["cards"]] == [[stack_url(51), stack_url(52)], [stack_url(53), stack_url(54)], [stack_url(55)]]
+    assert drawn["skipped"] == []
+
+
+def test_a_base_branch_chain_keeps_its_own_card_beside_a_sibling_pr_of_its_order_as_the_watch_names_them(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
+    with state.edit("demo") as data:
+        data["prs"]["Forge-AI/monorepo#50"] = {**entry(), "url": stack_url(50)}
+    stacked_gh = card.run
+    sibling = json.dumps(pr_json(title="Fix: a sibling on main", url=stack_url(50), base="main", branch="sibling-50"))
+    monkeypatch.setattr(card, "run", lambda cmd, **_: sibling if cmd[1] != "api" and cmd[3] == "50" else stacked_gh(cmd))
+    drawn = ask(asks(41, 42, 50))["cards"]
+    assert [[row["url"] for row in each["card"]["prs"]] for each in drawn] == [[stack_url(41), stack_url(42)], [stack_url(50)]]
+
+
 def test_a_chain_that_cuts_through_a_stored_stack_keeps_every_pr_on_one_card(stacked: list[list[str]]) -> None:
     ask(asks(41, 42))
     with state.edit("demo") as data:

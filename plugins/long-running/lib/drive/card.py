@@ -435,7 +435,7 @@ def pictured(name: str, key: str, pr: dict, taken: set[str]) -> tuple[str, ...]:
 
 
 def groups(known: dict[str, tuple[str, dict]], keys: list[str], reads: dict[str, dict]) -> list[list[str]]:
-    """The cards the asked PRs draw on, bottom PR first. A PR in a native GitHub stack, the one stack-enqueue and his Approve land, draws with every PR of it the drives track that is not closed, split by the card each was last drawn on, so a PR added to the stack later gets its own card. Any other read PR draws with the PRs its base branch chains it to among them, keeping the stack card it was drawn on, closed and natively stacked PRs left out, until they chain into a longer stack around it."""
+    """The cards the asked PRs draw on, bottom PR first. A PR in a native GitHub stack, the one stack-enqueue and his Approve land, draws with every PR of it the drives track that is not closed, split by the card each was last drawn on, so a PR added to the stack later gets its own card. Any other read PR draws on its loose_cards() card, the rule the watch's ready record names PRs by: its chain by base branch among them, else the PRs among them of its repository serving its order, keeping the card it was drawn on, closed and natively stacked PRs left out, until they group into a longer card around it."""
     native = github.stacks(list(dict.fromkeys([*keys, *(mate for key in keys for mate in known[key][1].get("stack") or [] if mate in known)])))
     stacked = {member for stack in native.values() for member, _ in stack}
     units = dict.fromkeys(tuple(member for member, status in native[key] if status != "closed" and member in known) for key in keys if key in native)
@@ -445,11 +445,28 @@ def groups(known: dict[str, tuple[str, dict]], keys: list[str], reads: dict[str,
             by_card.setdefault((unit, tuple(mate for mate in known[member][1].get("stack") or [] if mate in unit)), []).append(member)
     loose = [key for key in reads if key not in stacked]
     stored = list({tuple(stack): stack for key in loose if (stack := [mate for mate in known[key][1].get("stack") or [] if mate in known and mate not in stacked and known[mate][1]["state"] != "closed"])}.values())
-    grown = [chain for chain in chains(loose, reads) if grows(chain, stored)]
-    kept = [stack for stack in stored if not any(set(stack) <= set(chain) for chain in grown)]
+    grown = [group for group in loose_cards(known, loose, reads) if grows(group, stored)]
+    kept = [stack for stack in stored if not any(set(stack) <= set(group) for group in grown)]
     covered = {key for group in grown + kept for key in group}
-    fresh = chains([key for key in loose if key not in covered], reads)
+    fresh = loose_cards(known, [key for key in loose if key not in covered], reads)
     return [group for group in by_card.values() if not set(group).isdisjoint(keys)] + kept + grown + fresh
+
+
+def loose_cards(known: dict[str, tuple[str, dict]], keys: list[str], reads: dict[str, dict]) -> list[list[str]]:
+    """The cards PRs in no native GitHub stack draw on, by state.card_unit as the watch's ready record names them: each chain of them by base branch on its own card, bottom first, and the rest one card per repository and order they serve, a new card begun past STACK_MOST PRs on his tap, while one chain past it is refused whole."""
+    units: dict[tuple[str, tuple[tuple[str, ...], str, str]], list[str]] = {}
+    for chain in chains(keys, reads):
+        stack = tuple(chain) if len(chain) > 1 else ()
+        for key in chain:
+            units.setdefault((known[key][0], state.card_unit(key, stack, known[key][1])), []).append(key)
+    found: list[list[str]] = []
+    for (_, (stack, _, _)), members in units.items():
+        found.append([])
+        for key in members:
+            if not stack and len(on_tap(known, [*found[-1], key])) > STACK_MOST:
+                found.append([])
+            found[-1].append(key)
+    return found
 
 
 def group_of(known: dict[str, tuple[str, dict]], key: str) -> list[str]:
@@ -506,7 +523,7 @@ def drawn_card(shown: list[Member]) -> dict:
 
 def oversized(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
     """Why a stack is too long for his card, which shows each PR in its own section with its pictures: more than STACK_MOST open PRs that land on his tap."""
-    tapped = [key for key in members if known[key][1]["state"] == "open" and not (known[key][1].get("exempt") or state.merges_untapped(key))]
+    tapped = on_tap(known, members)
     if len(tapped) <= STACK_MOST:
         return ""
     return (
@@ -514,6 +531,10 @@ def oversized(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
         f" with its pictures: split it into stacks of that size, or fold PRs that carry one decision into one; exempt and"
         f" {state.NO_TAP_OWNER}/* PRs, which land with no tap, are not counted"
     )
+
+
+def on_tap(known: dict[str, tuple[str, dict]], members: list[str]) -> list[str]:
+    return [key for key in members if known[key][1]["state"] == "open" and not (known[key][1].get("exempt") or state.merges_untapped(key))]
 
 
 def holding(known: dict[str, tuple[str, dict]], key: str) -> dict[str, str]:
