@@ -896,3 +896,23 @@ def test_a_task_lists_each_part_with_the_newest_job_carrying_it_and_where_it_is_
     ]
     assert entry["where"] == {"text": line.strip(), "job": "j2", "state": "failed", "at": at(-5)}
     assert not {"parts", "where", "holdup"} & set(view.outline(entry))
+
+
+def test_where_it_is_takes_out_sentences_naming_record_ids_and_reads_a_line_whose_every_sentence_names_one_as_written() -> None:
+    data = drive_of(
+        {
+            "o1": order("retry", ["j1"]),
+            "o2": order("receipt", ["j2"]),
+            "o3": order("docs", [], state="done", proof="DONE yasyf/cc-notes#278 merged as 9219fa636f"),
+        },
+        {
+            "j1": job("o1", "waiting", "WAITING on #53778's checks at head 9c276243. The fix is pushed."),
+            "j2": job("o2", "done", "DONE reader  j2027 done, 1 of 3 parts delivered"),
+        },
+        [],
+    )
+    assert [view.where_it_is(data, data["orders"][key])["text"] for key in ("o1", "o2", "o3")] == [
+        "The fix is pushed.",
+        "DONE reader j2027 done, 1 of 3 parts delivered",
+        "DONE yasyf/cc-notes#278 merged as 9219fa636f",
+    ]

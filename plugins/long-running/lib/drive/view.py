@@ -752,12 +752,17 @@ def part_entry(drive: dict, order_id: str, part: str) -> dict:
 def where_it_is(drive: dict, order: dict) -> dict | None:
     """The line Where it is draws whole: a done order's proof, else the newest job line with that job and its state now, so a report word the job has moved past reads as its last report, else the order's note."""
     if order["state"] == "done" and order.get("proof"):
-        return {"text": " ".join(without_records(order["proof"]).split()), "job": None, "state": None, "at": order["updated"]}
+        return where_line(order["proof"], None, None, order["updated"])
     lines = [(job_id, drive["jobs"][job_id]) for job_id in order["jobs"] if drive["jobs"][job_id].get("said")]
     if lines:
         job_id, job = max(lines, key=lambda pair: state.parse_time(pair[1]["updated"]))
-        return {"text": " ".join(without_records(job["said"]).split()), "job": job_id, "state": job["state"], "at": job["updated"]}
-    return {"text": " ".join(without_records(order["note"]).split()), "job": None, "state": None, "at": order["updated"]} if order.get("note") else None
+        return where_line(job["said"], job_id, job["state"], job["updated"])
+    return where_line(order["note"], None, None, order["updated"]) if order.get("note") else None
+
+
+def where_line(text: str, job_id: str | None, job_state: str | None, at: str) -> dict:
+    """A Where it is line on one line with its record ids taken out, or as written when every sentence of it names one, so a line that says something never draws blank."""
+    return {"text": " ".join(without_records(text).split()) or " ".join(text.split()), "job": job_id, "state": job_state, "at": at}
 
 
 def holdup(drive: dict, entry: dict, found: dict) -> dict | None:
