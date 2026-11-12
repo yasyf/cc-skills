@@ -1241,9 +1241,10 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None) -> tuple[
     with state.edit(name) as data:
         job = data["jobs"][job_id]
         twins = [question for other, question in asking(data, asked.title, cards) if other == job_id]
-        reworded = [other for other in job["questions"] if other["refused"] and superseded.shared(asked.title, other["title"])]
+        reworded = [other for other in job["questions"] if other["refused"] and (state.same_question(asked.title, other["title"]) or superseded.shared(asked.title, other["title"]))]
         if refused:
-            question = state.new_question(str(kept), asked.title, state.stamp(), unsettled, refused=refused)
+            deciding = decided["answer"] if settled.decided_refusal(decided["answer"], unsettled) else None
+            question = state.new_question(str(kept), asked.title, state.stamp(), unsettled, refused=refused, settled=deciding and {"answer": deciding["id"], "at": state.stamp()})
             replaced = [*(twin for twin in twins if twin["refused"]), *reworded]
             job.update(updated=state.stamp(), may_settle=decided)
         else:

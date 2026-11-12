@@ -90,7 +90,7 @@ def research(name: str, data: dict, order_id: str) -> tuple[str, str] | None:
 
 
 def job_refusal(name: str, data: dict, order_id: str, kind: str, parts: list[str], lands: bool = False, waits: list[str] | None = None) -> str | None:
-    """Why a job of this kind may not start on the order: an order he limited to options gets no builder or codex job until he picks, an answer order is one reader's, and a build order's builder, designer or codex lane waits on its reader's research, added at once waiting on a reader of the order still at work when --waits names it, so no part sits in no job while it reads, and on a design lane when that research found a choice for him. A job of any kind may wait on his card, a drive PR or a release, which check_waits reads; only a reader is a job another waits on. The immediate fix of a bug hurting someone now, a red default branch's fix-forward among them, and a builder landing PRs he approved start at once past each of those, by his words: "always do the immediate fix (or rollback if prudent) in parallel to giving me options for the proper fix". A follow-up he orders to a PR gets its design job at once, doing its own research and waiting on nothing, beside landing that PR, by his words "start deisgnng the follow p right awya motherfucker dont wait"."""
+    """Why a job of this kind may not start on the order: an order he limited to options gets no builder or codex job until he picks, an answer order is one reader's, and a build order's builder, designer or codex lane waits on its reader's research, added at once waiting on a reader of the order still at work when --waits names it, so no part sits in no job while it reads, and a builder, when that research found a choice for him, on that choice reaching him: the reader's kept question on his card or settled by his recorded words, or a design lane. A job of any kind may wait on his card, a drive PR or a release, which check_waits reads; only a reader is a job another waits on. The immediate fix of a bug hurting someone now, a red default branch's fix-forward among them, and a builder landing PRs he approved start at once past each of those, by his words: "always do the immediate fix (or rollback if prudent) in parallel to giving me options for the proper fix". A follow-up he orders to a PR gets its design job at once, doing its own research and waiting on nothing, beside landing that PR, by his words "start deisgnng the follow p right awya motherfucker dont wait"."""
     order = data["orders"][order_id]
     at_once = state.IMMEDIATE_FIX in parts or lands
     listed = " ".join(f'"{part}"' for part in dict.fromkeys([*order["parts"], state.IMMEDIATE_FIX]))
@@ -148,13 +148,36 @@ def job_refusal(name: str, data: dict, order_id: str, kind: str, parts: list[str
         return f"--waits {', '.join(on_jobs)}: {found[0]} already kept {order_id}'s research, so this {kind} starts now: add it with no --waits {', '.join(on_jobs)}"
     reader, text = found
     designing = any(data["jobs"][job_id]["kind"] == "design" for job_id in order["jobs"] if data["jobs"][job_id]["order"] == order_id)
-    if kind == "builder" and text.lstrip().startswith("DESIGN") and not designing:
+    if kind == "builder" and text.lstrip().startswith("DESIGN") and not designing and (unasked := unasked_design(reader, data["jobs"][reader]["questions"])):
         return (
-            f"{reader} returned DESIGN: the choice its research found goes to him as cards, and the recommended option's builder starts"
-            f" beside them: drive job add design --order {order_id} first, in this turn, then a long-running:designer briefed"
-            f" Researched: {reader}, and this builder builds the recommended option on a branch; {immediate}"
+            f"{unasked}; a choice that needs a design of its own gets drive job add design --order {order_id} first, then a"
+            f" long-running:designer briefed Researched: {reader}; {immediate}"
         )
     return None
+
+
+def unasked_design(reader: str, questions: list[dict]) -> str | None:
+    """Why a reader's DESIGN holds its order's builder: the reader's kept question is the one record of its choice, so the builder starts once that question is on his card, building the recommended option beside it until his answer closes it, or once his recorded words settle it with no card drawn."""
+    if any(question["settled"] or question["card"] or question["waits"] for question in questions):
+        return None
+    if not questions:
+        return (
+            f"{reader} returned DESIGN, a choice for him its research found, and keeps it as no question of his: drive job ask {reader}"
+            " keeps that DESIGN as his question, whose ask record draws his card unless his recorded words already settle it, and"
+            " this builder starts once the card is up, building the recommended option beside it, or once his words settle it"
+        )
+    asked = questions[-1]
+    if asked["refused"]:
+        return (
+            f'{reader} returned DESIGN, and drive job ask refused its question "{cut(asked["title"] or "", 80)}" kept in {asked["file"]},'
+            f' so no card draws: {cut(asked["refused"].removeprefix("refused: "), 160)}; act on that refusal and ask again with'
+            f" drive job ask {reader} {asked['file']}"
+        )
+    return (
+        f'{reader} returned DESIGN, and its question "{cut(asked["title"] or "", 80)}" kept in {asked["file"]} is on no card of his yet:'
+        " its ask record draws the card, or, when his recorded words settle it, the record tool's answer naming that ask's waits id"
+        " settles it with no card; this builder starts once either is done"
+    )
 
 
 def brief_refusal(name: str, data: dict, job_id: str, brief: str) -> str | None:

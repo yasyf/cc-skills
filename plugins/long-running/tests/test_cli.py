@@ -2300,7 +2300,7 @@ def test_a_jobs_clock_is_a_time_to_come(run: Run, meta: str, capsys: pytest.Capt
     assert timedelta(minutes=9) < state.parse_time(state.load("demo")["jobs"]["j1"]["due"]) - state.now() <= timedelta(minutes=10)
 
 
-def test_a_readers_design_return_carries_his_options_and_holds_the_builder_until_a_design_job_starts(
+def test_a_readers_design_holds_its_builder_until_its_kept_question_is_on_his_card_or_settled_with_no_design_job(
     run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
@@ -2312,9 +2312,69 @@ def test_a_readers_design_return_carries_his_options_and_holds_the_builder_until
     assert run("job", "report", "j1")[0] == 2
     assert keep(monkeypatch, capsys, "j1", DESIGN_RESEARCH) == (0, "")
     assert state.load("demo")["jobs"]["j1"]["state"] == "done"
-    assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "build it"]) == 2
-    assert "j1 returned DESIGN: the choice its research found goes to him as cards, and the recommended option's builder starts beside them" in capsys.readouterr().err
+    asked = str(state.drive_dir("demo") / "asks" / "j1-1377896a.md")
+    kept = state.new_question(asked, "Where does the copy run?", state.stamp())
+    answered = state.new_question(asked, "Where does the copy run?", state.stamp(), card="https://acme.slack.com/archives/D123/p1794480049653959")
+    jevs = state.new_question(asked, "Where does the copy run?", state.stamp(), refused="refused: his recorded answer 32164d3 already decides this question.")
+    others = state.new_question(asked, "Where does the copy run?", state.stamp(), refused="refused: his words in this order's thread name an amount this question offers no tap for.")
+    replays = {
+        "no question kept": ([], "j1 returned DESIGN, a choice for him its research found, and keeps it as no question of his: drive job ask j1"),
+        "j1656 before his ruling": ([kept], f'j1 returned DESIGN, and its question "Where does the copy run?" kept in {asked} is on no card of his yet'),
+        "refused by an amount": ([others], "j1 returned DESIGN, and drive job ask refused its question \"Where does the copy run?\" kept in"),
+        "j1654, his card up": ([kept | {"waits": "demo:j1-671973", "card": answered["card"]}], None),
+        "j1651, his card answered": ([answered], None),
+        "j1656, settled by his ruling": ([kept | {"settled": {"seq": "671985", "ruling": "32164d3", "at": state.stamp()}}], None),
+        "decided by his answer": ([jevs | {"settled": {"answer": "32164d3", "at": state.stamp()}}], None),
+    }
+    for case, (questions, refusal) in replays.items():
+        with state.edit("demo") as data:
+            data["jobs"]["j1"]["questions"] = questions
+        code = cli.main(["job", "add", "builder", "--order", "o1", "--goal", "build it"])
+        assert (case, code, refusal and refusal in capsys.readouterr().err) == (case, 2 if refusal else 0, refusal and True), case
+    assert not [job for job in state.load("demo")["jobs"].values() if job["kind"] == "design"]
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"] = []
     assert run("job", "add", "design", "--order", "o1", "--goal", "cards: where the copy runs")[0] == 0
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "build it")[0] == 0
+
+
+def test_his_ruling_settling_a_readers_ask_before_its_card_draws_is_kept_on_its_question_and_frees_its_builder(
+    run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
+    run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
+    keep(monkeypatch, capsys, "j1", DESIGN_RESEARCH)
+    asked = str(state.drive_dir("demo") / "asks" / "j1-1377896a.md")
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"] = [state.new_question(asked, "Where does the copy run?", state.stamp())]
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "build it"]) == 2
+    assert "is on no card of his yet" in capsys.readouterr().err
+    posted: list[dict] = []
+    real = subprocess.run
+
+    def cci(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if argv[:2] == ["cci", "show"]:
+            return subprocess.CompletedProcess(argv, 0, json.dumps({"kind": "ask", "fields": {"attrs": {"ask": asked, "job": "j1"}}}), "")
+        if argv[:2] == ["cci", "post"]:
+            posted.extend(json.loads(str(kwargs["input"])))
+            return subprocess.CompletedProcess(argv, 0, "671985\n", "")
+        return real(argv, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", cci)
+    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
+    ruling = {"kind": "answer", "text": "always do the correct first-principels thing not. ahack", "waits": "demo:j1-671975", "ruling": "32164d3"}
+    with monkeypatch.context() as communicating:
+        communicating.setenv("CLAUDE_CODE_SESSION_ID", "communicator-session")
+        run("start", "demo", "--role", "communicator")
+        assert tools.run("record", "demo", {"records": [ruling]}).splitlines() == [
+            "1 answer 671985",
+            f'1 j1\'s question "Where does the copy run?" kept in {asked} is settled by 671985, closing ask 671975 with no card drawn',
+        ]
+        with pytest.raises(state.DriveError, match="1: refused, nothing posted: the card this answer names no longer waits on him"):
+            tools.run("record", "demo", {"records": [ruling]})
+    assert (len(posted), posted[0]["re"], posted[0]["resolves"], posted[0]["attr"]) == (1, ["671975"], ["671975"], {"job": "j1", "ruling": "32164d3"})
+    job = state.load("demo")["jobs"]["j1"]
+    assert (view.open_questions(job, view.NO_CARDS), job["questions"][0]["settled"]["ruling"]) == ([], "32164d3")
     assert run("job", "add", "builder", "--order", "o1", "--goal", "build it")[0] == 0
 
 

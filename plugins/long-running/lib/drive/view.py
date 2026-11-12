@@ -141,8 +141,8 @@ def card_open(url: str, found: dict | None) -> bool:
 
 
 def open_questions(job: dict, found: dict | None) -> list[dict]:
-    """The questions a job asked him that his answer has not closed: each not drawn yet, and each whose card, by its link or else its waits id, is still open."""
-    return [question for question in job["questions"] if not (drawn := question["card"] or question["waits"]) or card_open(drawn, found)]
+    """The questions a job asked him that neither his answer nor his recorded words have closed: each not drawn yet that his recorded words did not settle, a refused one staying until it is asked again or dropped, and each whose card, by its link or else its waits id, is still open."""
+    return [question for question in job["questions"] if (question["refused"] or not question["settled"]) and (not (drawn := question["card"] or question["waits"]) or card_open(drawn, found))]
 
 
 def open_cards(job: dict, found: dict | None) -> list[str]:
