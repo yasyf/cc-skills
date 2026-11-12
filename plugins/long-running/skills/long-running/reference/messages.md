@@ -304,17 +304,19 @@ When it is answered, replaced or redone:
   its PRs are green and approved. It is only for a PR that
   carries out an order of his whose words ask for it, or a `Forge-AI/*` drive tooling fix no exempt
   class covers, which serves its own order by [Scope](scope.md).
-- The line above it quotes that order at his DM root: his words, or the tooling order's
+- The line above it quotes that order: his words, or the tooling order's
   "Drive tooling: …" words. The say hook finds a PR card whose PR serves a drive tooling order while
   its text leaves out that order's words, naming them, for Jev to judge. Those words pass
   `cc-slack check-post`, which `drive order add` and `drive order set <o> --words` run on them. A
   port never gets one: he reads "port of #N landed" in its order's thread once it lands, and so for
   every class that lands with no tap.
-- `say(tap_prs=[<each url or owner/repo#number, bottom first>], text=<line>, thread_ts=<his thread>)`
-  makes cc-slack draw one card at his DM root for the stack those PRs form (`drive card`), with
-  Approve and Hold while it waits on him. It also posts the card's permalink under its question in
-  his thread, so that thread carries its buttons. The call's `card_permalink` names the card and its
-  `permalink` only the line. When the card command gives a PR no card, the call fails with its reason
+- `say(tap_prs=[<each url or owner/repo#number, bottom first>], text=<line>)` makes cc-slack draw
+  one card at his DM root for the stack those PRs form (`drive card`), with Approve and Hold while it
+  waits on him. The drive posts the line in the thread of each open order those PRs carry out, the
+  one each serves, its own and each its job carries, in his DM, and cc-slack puts the card's
+  permalink under it there, so whichever thread he reads carries its buttons; with none, the line
+  goes at his DM root. His words: "There's no approval button". The call's `card_permalink` names
+  the card and its `permalink` only the first line. When the card command gives a PR no card, the call fails with its reason
   and posts nothing.
 - The same PRs show under the line on the dashboard's history, each with where it stands now. A post
   naming a PR the drive does not hold is refused: `drive pr add` records it first.

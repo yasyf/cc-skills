@@ -114,8 +114,8 @@ Then do the row that matches. A row that names a section means every bullet of t
 
 ### A ready record
 
-- Draw the stack's card in one call: `say(tap_prs=[<every url, bottom first>], text=<one line quoting the order the stack carries out, from the record: his words, or a drive tooling order's own "Drive tooling: …" words>, thread_ts=<its thread>)`, leaving out `thread_ts` when the record names no thread, as a drive tooling one does. It draws the card at his DM root and, given a thread, posts the card's permalink there under the card's question.
-- In `say`'s result, the `CARD` permalink is the card; the `POSTED` one is only the line. A failure whose error says `posted` sent the line, so never post it again; any other failure sent nothing. One saying the thread is not one in your DM means the order's thread is in another channel: draw it again with no `thread_ts`.
+- Draw the stack's card in one call: `say(tap_prs=[<every url, bottom first>], text=<one line quoting the order the stack carries out, from the record: his words, or a drive tooling order's own "Drive tooling: …" words>)`, with no `thread_ts`. It draws the card at his DM root and posts the line, with the card's permalink under it, in the thread of each open order its PRs carry out, the one each serves, its own and each its job carries, in his DM, or at his DM root when none has one.
+- In `say`'s result, the `CARD` permalink is the card; the `POSTED` one is only the line. A failure whose error says `posted` sent the card, so never post it again; any other failure sent nothing.
 - A `drive card` refusal, such as a stack over four PRs, reaches the coordinator from the watch, so post nothing for it. Any other failure is a `DEFECT` line in your return. Draw a PR card only through `tap_prs`.
 
 ### A tooling builder's result
@@ -125,7 +125,7 @@ Read it with `drive job report <j>` and its order with `drive status <j>`. When 
 - `DONE`: post one line at his DM root saying which tool now works, what it unblocks, and the proof from the surface he uses, such as the installed command's output or the live post. For a ruling's rewrite, post it in his ruling's thread with his words as `asked`, listing each rule now in the installed skill. For his feedback on a post, post it in that feedback's thread with his words as `asked`, naming the check or drawing code that now refuses or redraws that class of post and how many of the drive's kept posts it flags.
 - Then record it with a broadcast on the cci `post` tool with `kind: report`, `lane: communicator`, `attrs: {close: <o>}`, its first words as `text` and no `to`, which no session hears. Run `drive order set <o> --proof <its proof>`, post the fix-live note by "A report record" when its order names a reporter, then `drive order set <o> --state done --record <that seq>`.
 - An `AFTER:` line in the report is a post he ordered that a hook refused: make it now by the share rules. A `DEFECT:` line in any report goes into your return as `DEFECT …`.
-- `READY`: a PR its `EXEMPT:` line names gets `drive pr set <url> --exempt <class>`, and your return `LAND <url>`. Every other PR gets `drive pr set <url> --tap --serves <o> --design none` and its card, drawn as for a `ready` record with no thread.
+- `READY`: a PR its `EXEMPT:` line names gets `drive pr set <url> --exempt <class>`, and your return `LAND <url>`. Every other PR gets `drive pr set <url> --tap --serves <o> --design none` and its card, drawn as for a `ready` record.
 - `BUILT`: nothing more, since its line set the job built on its branch, waiting on each card it names.
 - `ASK`: post a broadcast on the cci `post` tool with `kind: ask`, `lane: communicator`, `attrs: {ask: <the path>, job: <j>}`, the question as `text` and no `to`, then draw its card and close that record as for an `ask` record.
 - `BLOCKED`: run `drive job set <j> --state stopped --said "<what>"`, and return `DEFECT <the tool>: <what blocked it>`, so a fresh builder takes another route.

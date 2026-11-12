@@ -364,11 +364,8 @@ def ready_lines(watcher: Watcher, moment: datetime) -> list[str]:
         order = data["orders"][order_id]
         urls = " ".join(data["prs"][key]["url"] for key in heads)
         changed = "".join(f"; {key}: {fundamental}" for key in heads if (fundamental := data["prs"][key]["fundamental"]))
-        if order["text"].startswith(state.TOOLING):
-            record = {"kind": "ready", "to": [f"communicator@{watcher.name}"], "text": f"{urls}; {order['text']}{changed}"}
-        else:
-            record = {"kind": "ready", "to": [f"communicator@{watcher.name}"], "text": f'{urls}; his order {order_id} "{order["text"]}"{changed}'}
-            record |= {"attr": {"thread": order["thread"]}} if order["thread"] else {}
+        words = order["text"] if order["text"].startswith(state.TOOLING) else f'his order {order_id} "{order["text"]}"'
+        record = {"kind": "ready", "to": [f"communicator@{watcher.name}"], "text": f"{urls}; {words}{changed}"}
         try:
             tools.sent(watcher.name, LANE, [limits.shortened(record) or record])
         except state.DriveError as error:

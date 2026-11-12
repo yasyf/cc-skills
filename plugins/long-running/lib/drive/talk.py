@@ -77,7 +77,8 @@ def dry(name: str, post: dict) -> str:
     found = refs.resolved(name, post.get("text") or "")
     check(name, post)
     visuals, words, lifted = shown(name, post)
-    where = f"edit of {post['edit']}" if post.get("edit") else f"thread {post['thread_ts']}" if post.get("thread_ts") else "his DM root"
+    stack = [state.pr_key(each) for each in post.get("tap_prs") or []]
+    where = f"edit of {post['edit']}" if post.get("edit") else ", ".join(f"thread {thread}" if thread else "his DM root" for thread in threads(name, post, stack))
     where += f" of channel {post['channel_id']}" if post.get("channel_id") else ""
     card = f", card {post['card'].get('title')!r}" if post.get("card") else ""
     prs = f", PR card for {len(post['tap_prs'])} PRs" if post.get("tap_prs") else ""
@@ -132,7 +133,7 @@ def shown(name: str, post: dict) -> tuple[list[dict], str, list[str]]:
 
 
 def posted(name: str, post: dict) -> dict:
-    """cc-slack's reply to the post, or to the edit rewording a post of its own, which went out with its references linked, each visual drawn as a picture but a chart, which Slack draws itself, and each code or diagram fence of its text drawn as a picture too, and is kept as a said event for the dashboard, which draws each visual and fence live from its source and each PR of a stack card with its state now, an edit's words in place of its post's; a post check refuses goes nowhere."""
+    """cc-slack's reply to the post, or to the edit rewording a post of its own, which went out with its references linked, each visual drawn as a picture but a chart, which Slack draws itself, and each code or diagram fence of its text drawn as a picture too, and is kept as a said event for the dashboard, which draws each visual and fence live from its source and each PR of a stack card with its state now, an edit's words in place of its post's; a post check refuses goes nowhere. A PR card's line goes in each thread its PRs' orders have, so whichever he reads carries the card's link."""
     text = post.get("text") or ""
     found = refs.resolved(name, text)
     check(name, post)
@@ -142,17 +143,25 @@ def posted(name: str, post: dict) -> dict:
     sent = refs.slack(words, found)
     pictures = [*(visual["picture"] for visual in visuals if "picture" in visual), *lifted]
     asked = cli.asked_on(name, card["waits"]) if card and card.get("waits") else set()
+    first, *others = threads(name, post, stack)
     reply = slack.cc_slack(
-        *(["edit", "--url", post["edit"], "--text", sent] if post.get("edit") else replied(post, pictures, sent) if post.get("channel_id") else status(name, post, stack, pictures, sent))
+        *(
+            ["edit", "--url", post["edit"], "--text", sent]
+            if post.get("edit")
+            else replied(post, pictures, sent)
+            if post.get("channel_id")
+            else status(name, post | {"thread_ts": first}, stack, pictures, sent)
+        )
     )
     if card:
         reply |= {"card_permalink": " ".join([reply["permalink"], *filter(None, [reply.get("card_permalink")])])}
     if card and card.get("waits"):
         cli.follow_card(name, card["waits"], asked, reply["permalink"])
+    kept = refs.board(text, found) or (card or {}).get("title") or ""
     state.append_event(
         name,
         "said",
-        text=refs.board(text, found) or (card or {}).get("title") or "",
+        text=kept,
         channel=post.get("channel_id"),
         thread=reply.get("thread_ts"),
         url=reply["permalink"],
@@ -162,7 +171,23 @@ def posted(name: str, post: dict) -> dict:
         prs=stack,
         edited=bool(post.get("edit")),
     )
+    for thread in others:
+        linked(name, reply["permalink"], thread, stack, sent, kept)
     return reply
+
+
+def threads(name: str, post: dict, stack: list[str]) -> list[str | None]:
+    """Each thread of his DM the post goes in, None for his DM root: the one it names, then for a PR card each thread of the orders its PRs carry out."""
+    return list(dict.fromkeys(filter(None, [post.get("thread_ts"), *state.pr_threads(state.load(name), stack)]))) or [None]
+
+
+def linked(name: str, first: str, thread: str, stack: list[str], sent: str, kept: str) -> None:
+    """Post a PR card's line in one more thread of his DM, where cc-slack links the card it drew under the line, and keep it for the dashboard; a failure says the card already went out, so nothing is posted again."""
+    try:
+        reply = slack.cc_slack(*status(name, {"thread_ts": thread}, stack, [], sent))
+    except slack.SlackError as error:
+        raise slack.SlackError(f"posted {first} with its card, but its line in thread {thread} did not go out, so post neither again: {error}") from None
+    state.append_event(name, "said", text=kept, thread=reply.get("thread_ts"), url=reply["permalink"], card=reply.get("card_permalink"), order=None, visuals=[], prs=stack, edited=False)
 
 
 def status(name: str, post: dict, stack: list[str], pictures: list[str], sent: str) -> list[str]:
