@@ -192,6 +192,20 @@ def test_a_job_whose_agent_is_an_orca_dispatch_reads_as_a_lane_on_this_mac_read_
     assert (jobs["j2"]["agent"], jobs["j2"]["where"], jobs["j2"]["route"]) == ("agent-9", "local", None)
 
 
+def test_a_job_saved_before_jobs_recorded_where_they_run_reads_with_every_field_a_new_job_has_and_no_session_of_the_loader(
+    state_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    make("demo")
+    data = state.load("demo")
+    old = {"order": "o1", "kind": "builder", "goal": "fix", "parts": [], "agent": "a-1", "said": None, "state": "running", "created": "2026-11-09T02:56:00-08:00", "updated": "2026-11-09T02:56:00-08:00"}
+    data["jobs"] = {"j1": old, "j2": old | {"agent": None, "dispatch": "dispatch_1"}}
+    state.create(data)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "coordinator-session")
+    jobs = state.load("demo")["jobs"]
+    assert [(job["where"], job["session"]) for job in jobs.values()] == [("local", None), ("remote", None)]
+    assert jobs["j1"].keys() >= state.new_job("o1", "builder", "fix", [], old["created"]).keys()
+
+
 def test_an_order_whose_thread_is_its_own_post_outside_his_dm_and_watched_channels_reads_with_its_dm_thread(state_root: Path) -> None:
     make("demo")
     data = state.load("demo")
