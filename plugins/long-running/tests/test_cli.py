@@ -2156,7 +2156,7 @@ def test_his_words_under_a_card_answer_it_so_its_job_never_redraws_it_with_a_new
     )
     assert cli.main(["job", "card", kept[1], "--waits", "demo:j1-7"]) == 2
     refusal = capsys.readouterr().err
-    assert 'demo:j1-7: his words under that card answer it' in refusal
+    assert 'demo:j1-7: his answer on that card closed its question' in refusal
     assert '"its one snapshot file, just wait for the copy"' in refusal
     assert [question["file"] for question in state.load("demo")["jobs"]["j1"]["questions"] if question["waits"] == "demo:j1-7"] == [kept[0]]
     assert cli.main(["answer", "a2", "--words", "One snapshot file", "--link", link]) == 2
@@ -4075,7 +4075,7 @@ def test_pr_add_on_an_incident_order_refuses_a_revert_unless_it_waits_on_his_tap
     assert run("pr", "add", PR, "--job", "j1")[0] == 0
 
 
-def test_job_add_records_a_local_builder_past_the_macs_cap_waiting_its_turn_with_its_place_and_refuses_a_monorepo_one_while_drive_place_says_remote(
+def test_job_add_sends_a_builder_past_the_macs_cap_or_behind_its_line_to_a_sprite_at_once_and_refuses_a_monorepo_one_while_drive_place_says_remote(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(place, "busy", lambda: 0.95)
@@ -4093,24 +4093,24 @@ def test_job_add_records_a_local_builder_past_the_macs_cap_waiting_its_turn_with
     assert state.load(demo)["jobs"]["j9"]["state"] == "running"
     with state.edit("demo") as data:
         data["jobs"]["j9"].update(state.local_lane("dispatch-9"))
+    mac_only = "one whose brief runs drive break-glass, a release start, ci mac-box, ci devbox or a test Mac waits its turn for a slot here once its agent starts"
     code, added = run("job", "add", "builder", "--order", "o1", "--goal", "land", "--repo", "yasyf/cc-skills")
-    added_id, waits, *_ = added.splitlines()
+    added_id, sprite, *_ = added.splitlines()
     assert (code, added_id) == (0, "j10")
-    assert waits.startswith("j10 waits its turn for a builder slot on this Mac, 1 of 1 in line, since 8 builders already run on this Mac, its cap of 8 (j2 on o1")
-    assert waits.endswith("; j9 on o1, its Orca lane dispatch-9, not ended): start no agent for it until the watch's FREE line names it")
-    queued = state.load(demo)["jobs"]["j10"]
-    assert (queued["state"], queued["waits"], queued["agent"]) == ("waiting", [state.SLOT_WAIT], None)
+    assert sprite.startswith("j10 starts on a Sprite at once, since 8 builders already run on this Mac, its cap of 8 (j2 on o1")
+    assert sprite.endswith(f"; j9 on o1, its Orca lane dispatch-9, not ended): drive job launch j10 <brief>; {mac_only}")
+    routed = state.load(demo)["jobs"]["j10"]
+    assert (routed["state"], routed["waits"], routed["agent"], routed["where"]) == ("running", [], None, "remote")
     with state.edit("demo") as data:
         data["jobs"]["j2"]["state"] = "done"
+        place.queue(data["jobs"]["j10"], state.now())
     assert run("job", "add", "builder", "--order", "o1", "--goal", "land", "--repo", "yasyf/cc-skills")[1].splitlines()[1] == (
-        "j11 waits its turn for a builder slot on this Mac, 2 of 2 in line, since builders already wait their turn for a slot on this Mac"
-        " ahead of it, earliest due first (j10): start no agent for it until the watch's FREE line names it"
+        "j11 starts on a Sprite at once, since builders already wait their turn for a slot on this Mac ahead of it, earliest due first (j10):"
+        f" drive job launch j11 <brief>; {mac_only}"
     )
-    assert place.waiting_builders(state.load(demo)) == ["j10", "j11"]
-    shown = run("status")[1]
-    assert "j10 builder waiting: land; waits on a builder slot on this Mac, 1 of 2 in line" in shown
-    assert "j11 builder waiting: land; waits on a builder slot on this Mac, 2 of 2 in line" in shown
-    assert json.loads(run("status", "--json")[1])["jobs"]["j11"]["in_line"] == "2 of 2 in line"
+    assert place.waiting_builders(state.load(demo)) == ["j10"]
+    assert "j10 builder waiting: land; waits on a builder slot on this Mac, 1 of 1 in line" in run("status", "o1")[1]
+    assert json.loads(run("status", "--json")[1])["jobs"]["j10"]["in_line"] == "1 of 1 in line"
     assert run("job", "add", "reader", "--order", "o1", "--goal", "read")[0] == 0
 
 
@@ -4119,13 +4119,17 @@ def test_job_add_starts_an_open_incidents_fix_builder_31st_in_line_and_an_immedi
     for _ in range(place.LOCAL_BUILDERS):
         assert run("job", "add", "builder", "--order", "o1", "--goal", "build", "--agent", "a")[0] == 0
     for _ in range(30):
-        assert "waits its turn for a builder slot" in run("job", "add", "builder", "--order", "o1", "--goal", "wait")[1]
+        assert "starts on a Sprite at once" in run("job", "add", "builder", "--order", "o1", "--goal", "wait")[1]
+    with state.edit(demo) as data:
+        for job in data["jobs"].values():
+            if job["where"] == "remote":
+                place.queue(job, state.now())
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "you broke something again fix this asap", "--incident", "--parts", "fix", "first check")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the card is broken", "--parts", "the card", "immediate fix")
     for order_id, part in (("o2", "fix"), ("o3", "immediate fix")):
         code, added = run("job", "add", "builder", "--order", order_id, "--part", part, "--goal", "fix it")
         job = state.load(demo)["jobs"][added.splitlines()[0]]
-        assert (code, job["state"], job["waits"], "waits its turn" in added) == (0, "running", [], False)
+        assert (code, job["state"], job["waits"], job["where"], "Sprite" in added) == (0, "running", [], "local", False)
     assert len(place.waiting_builders(state.load(demo))) == 30
 
 

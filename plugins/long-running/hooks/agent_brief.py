@@ -77,14 +77,18 @@ def tooling_refusal(name: str, data: dict, text: str, role: str) -> str:
 
 
 def crowded(name: str, data: dict, text: str) -> str | None:
-    """Why no builder starts on this Mac now: a job waiting its turn for a builder slot starts only on the watch's FREE line naming it, and any other only while a slot is open, its cap's builders holding every other one, each named, and no builder waits its turn ahead of it, unless it builds for an open incident or an immediate fix, which starts at once; a refused job no agent runs and nothing else holds is held waiting its turn, so the watch reads it waiting, never abandoned, and frees the earliest due as each slot opens."""
+    """Why no builder starts on this Mac now: a job waiting its turn for a builder slot starts only on the watch's FREE line naming it, and any other only while a slot is open, its cap's builders holding every other one, each named, and no builder waits its turn ahead of it, unless it builds for an open incident or an immediate fix, which starts at once. A refused job whose brief this Mac alone runs, by place.MAC_ONLY, and that no agent runs and nothing else holds is held waiting its turn, so the watch reads it waiting, never abandoned, and frees the earliest due as each slot opens; any other starts on a Sprite at once."""
     match = brief.BRIEF_JOB.search(text)
     job_id = match[1] if match and match[1] in data["jobs"] else None
     moment = state.now()
     if job_id in (places := place.positions(data)):
-        return f"refused: {job_id} waits its turn for a builder slot on this Mac, {places[job_id]}{line(data)}"
-    if not (why := place.crowded(data, job_id, moment)):
+        why = f"{job_id} waits its turn for a builder slot on this Mac, {places[job_id]}"
+    elif not (why := place.crowded(data, job_id, moment)):
         return None
+    if job_id and not place.MAC_ONLY.search(text):
+        return f"refused: {why}, so {job_id} starts on a Sprite at once, since its brief runs no drive break-glass, release start, ci mac-box, ci devbox or test Mac: write this brief to a file and run drive job launch {job_id} <file>"
+    if job_id in places:
+        return f"refused: {why}{line(data)}"
     if job_id is None or not place.queueable(data, job_id):
         return f"refused: {why}, so this one waits: start it once a slot opens here with no builder waiting its turn{line(data)}"
     with state.edit(name) as data:
@@ -96,7 +100,7 @@ def line(data: dict) -> str:
     waiting = "; ".join(in_line(data, job_id) for job_id in place.waiting_builders(data))
     return (
         f". The watch's FREE line names each job waiting its turn as a slot opens, earliest due first: {waiting or 'none'}."
-        " A Forge-AI/monorepo builder need not wait: start it on a Sprite with drive job launch <j> <brief>"
+        " Only a builder whose brief runs drive break-glass, a release start, ci mac-box, ci devbox or a test Mac waits here; start any other on a Sprite at once with drive job launch <j> <brief>"
     )
 
 

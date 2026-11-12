@@ -1,5 +1,6 @@
 import ctypes
 import os
+import re
 import sys
 import time
 from datetime import datetime
@@ -10,6 +11,7 @@ from drive.render import when
 LIMIT_ENV = "HOOKS_ADMISSION_LOAD_PER_CORE"
 MONOREPO = "Forge-AI/monorepo"
 LOCAL_BUILDERS = 8
+MAC_ONLY = re.compile(r"\bdrive break-glass\b|\brelease start\b|\bci (?:mac-box|devbox)\b|\btest Mac\b")
 SAMPLE_SECONDS = 1.0
 HOST_CPU_LOAD_INFO = 3
 HOST_CPU_STATES = 4
@@ -111,12 +113,11 @@ def crowded(data: dict, job_id: str | None, moment: datetime) -> str | None:
 
 
 def queueable(data: dict, job_id: str) -> bool:
-    """Whether a builder job may wait its turn for a slot on this Mac: one here that no agent or lane runs, not finished, and that nothing else holds, no wait, card of his or open PR of its, so the line never frees work held on something else."""
+    """Whether a builder job may wait its turn for a slot on this Mac: one that no agent or lane runs, not finished, and that nothing else holds, no wait, card of his or open PR of its, so the line never frees work held on something else."""
     job = data["jobs"][job_id]
     return (
         job["kind"] == "builder"
         and job["state"] not in state.FINISHED_JOB_STATES
-        and job.get("where") != "remote"
         and not job.get("agent")
         and not job.get("dispatch")
         and not job["waits"]
@@ -127,7 +128,7 @@ def queueable(data: dict, job_id: str) -> bool:
 
 def queue(job: dict, moment: datetime) -> None:
     """Hold a builder job no agent runs waiting its turn for a slot on this Mac, so the watch reads it waiting, never abandoned, until its FREE line names it."""
-    job.update(state="waiting", waits=list(dict.fromkeys([*job["waits"], state.SLOT_WAIT])), said="waits its turn for a builder slot on this Mac", updated=state.stamp(moment))
+    job.update(state="waiting", where="local", waits=list(dict.fromkeys([*job["waits"], state.SLOT_WAIT])), said="waits its turn for a builder slot on this Mac", updated=state.stamp(moment))
 
 
 def turns(data: dict, moment: datetime) -> tuple[list[str], int]:
