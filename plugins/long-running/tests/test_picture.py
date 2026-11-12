@@ -339,3 +339,22 @@ def test_a_visual_chrome_dumped_before_it_finished_drawing_is_measured_again(tmp
 def test_a_card_whose_show_me_leaves_nothing_to_show_has_no_show_me() -> None:
     assert limits.card_body(["One snapshot file per run."], ["", ""]) == "One snapshot file per run."
     assert limits.card_body(["One snapshot file per run."], ["![Show me](/p.png)"]) == "One snapshot file per run.\n*Show me*\n![Show me](/p.png)"
+
+
+VIEWS_PAGE = """<!doctype html>
+<html><head><title>Prototype</title><style>main { color: red }</style></head>
+<body><main id="view"></main><template><p>a view still to build</p></template><noscript>turn scripts on</noscript>
+<script>document.getElementById("view").textContent = new URLSearchParams(location.search).has("slack") ? "Local Block Kit preview Approve Hold" : "Priority queue Decision 1 of 72";</script>
+</body></html>
+"""
+
+
+def test_a_pages_text_is_the_words_the_view_its_address_names_shows_once_its_scripts_run_and_a_page_chrome_cannot_load_raises(tmp_path, monkeypatch) -> None:
+    headless = picture.headless
+    monkeypatch.setattr(picture, "headless", lambda url, profile, *args: headless(url, profile, "--no-sandbox", *args))
+    page = tmp_path / "index.html"
+    page.write_text(VIEWS_PAGE)
+    assert picture.page_text(page.as_uri()) == "Priority queue Decision 1 of 72"
+    assert picture.page_text(f"{page.as_uri()}?slack=pr") == "Local Block Kit preview Approve Hold"
+    with pytest.raises(picture.PictureError, match="could not load .*missing.html: net::ERR_FILE_NOT_FOUND"):
+        picture.page_text((tmp_path / "missing.html").as_uri())

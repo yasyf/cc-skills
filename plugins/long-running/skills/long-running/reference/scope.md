@@ -111,7 +111,9 @@ the proper fix replaces it.
 A question card is the job's `ASK` as `drive job ask` kept it. Its question names each thing by its
 proper technical term, the function, flag, file, service, or table, by [messages.md](messages.md).
 One to three summary lines say what was found, what is being decided, the recommendation, and what
-happens meanwhile, with each thing he could open linked. A Show me, when a picture, flow, table, or
+happens meanwhile, with each thing he could open linked at the exact view they describe: a screen a
+route, tab, anchor or query string reaches is linked at that address, never the page's root, and a
+view not built yet is called unbuilt, by his words "I dont see tthe slack tab on that link what are you talking abit?". A Show me, when a picture, flow, table, or
 the real code shows what words cannot, is drawn whole with real contents in every row and cell. Two
 to four one-line options close it, each saying what runs, on what trigger, what it reads and what
 reaches whom, then what he gets and what it costs. `drive job ask` refuses a question or option that
@@ -125,7 +127,8 @@ principles:` that option, or `Root cause:` reads `fixed: <that structure>, remov
 PR's link>` on a card asking only whether to release that PR, `not found: <the job finding it>`, or
 `none: <why no defect is behind it>`, as on a pick between his designs or his approval of an action
 his rules hold for him, such as a benchmark run; `drive job ask` refuses a block without them, and
-Jev weighs each card by the part of the rule its `Root cause:` form names and prints its finding to the
+Jev weighs each card by the part of the rule its `Root cause:` form names, and the words each page it
+links shows once Chrome opens it against what the card says that page shows, and prints its finding to the
 agent, refusing no card on it, by his pick: "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits". His ruling: "Update your skill to not just brush over the root cause ever". On a bug hurting
 someone now, an incident's or one a reporter shared, the findings' `Interim fix:` line links the
 immediate fix shipping while he picks (its PR, release, rollback, repair, or the job building it),

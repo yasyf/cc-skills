@@ -494,7 +494,10 @@ restating it.
 - The coordinator writes its `report`, `ready` and `ask` records the same way, since a handler writes
   from their words.
 - Link everything he could open where it is named: a PR, a teammate's fix, a card, a release, a
-  build, an alert, a thread or an earlier decision, so he never has to look it up himself. A message
+  build, an alert, a thread or an earlier decision, so he never has to look it up himself. A link
+  opens the exact view its words describe: a screen a route, tab, anchor or query string reaches is
+  linked at that address, never the page's root, and a view not built yet is called unbuilt, by his
+  words "I dont see tthe slack tab on that link what are you talking abit?". A message
   that mentions a change names it with its PR's link, or it is not sent: never "a fix", "the change"
   or "a cc-slack fix" alone. When a record mentions a change without its PR, the handler finds the PR
   first, with `drive status` or `gh pr list --search`.

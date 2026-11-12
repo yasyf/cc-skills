@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import urllib.request
+from html.parser import HTMLParser
 from pathlib import Path
 
 FENCE = re.compile(r"^[ \t]*```[ \t]*([A-Za-z0-9_+-]*)[^\n]*\n(.*?)^[ \t]*```[ \t]*$", re.MULTILINE | re.DOTALL)
@@ -99,6 +100,8 @@ CAPTIONED = re.compile(
 CHROME_APPS = ("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/Applications/Chromium.app/Contents/MacOS/Chromium")
 CHROME_NAMES = ("google-chrome", "chromium", "chromium-browser", "chrome")
 CHROME_SECONDS = 60
+LOAD_FAILED = re.compile(r"Page load failed: (\S+)")
+UNSHOWN_TAGS = frozenset({"head", "script", "style", "noscript", "template"})
 DOWNLOAD_SECONDS = 20
 SOURCED = ".sourced"
 SOURCE = "source.json"
@@ -129,7 +132,39 @@ def headless(url: str, profile: Path, *args: str) -> str:
         raise PictureError(f"Chrome did not run: {error}") from None
     if result.returncode:
         raise PictureError(" ".join(result.stderr.split()) or f"Chrome exited {result.returncode}")
+    if failed := LOAD_FAILED.search(result.stderr):
+        raise PictureError(f"Chrome could not load {url}: {failed[1]}")
     return result.stdout
+
+
+class ShownWords(HTMLParser):
+    """The words of a serialized DOM a reader sees on the page: none inside its head, a script, a style, a noscript or a template."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.unshown = 0
+        self.words: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in UNSHOWN_TAGS:
+            self.unshown += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in UNSHOWN_TAGS and self.unshown:
+            self.unshown -= 1
+
+    def handle_data(self, data: str) -> None:
+        if not self.unshown:
+            self.words += data.split()
+
+
+def page_text(url: str) -> str:
+    """The words a web page shows once Chrome has opened it and run its scripts, in reading order, as he reads the view a link opens."""
+    with tempfile.TemporaryDirectory(prefix="drive-page-") as scratch:
+        dom = headless(url, Path(scratch) / "profile", "--dump-dom")
+    shown = ShownWords()
+    shown.feed(dom)
+    return " ".join(shown.words)
 
 
 def visual_png(kind: str, source: str, out: Path) -> None:
