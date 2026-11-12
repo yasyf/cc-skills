@@ -434,6 +434,24 @@ def test_resume_from_a_session_that_did_not_start_the_jobs_agent_hands_the_job_t
     assert (job["agent"], job["session"], job["handed_to"], job["state"]) == ("a-9", "meta-session", None, "running")
 
 
+def test_resume_hands_a_job_saved_before_jobs_recorded_where_they_run_and_their_session_to_this_sessions_fresh_agent(
+    demo: str, run: Run, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "meta-session")
+    run("start", "demo", "--role", "meta")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a verb for owners")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--agent", "a-1")
+    run("job", "brief", "j1", "--serves", "drive tooling", "--done-when", "merged", "--where", "yasyf/cc-skills main")
+    saved = json.loads(state.state_path(demo).read_text())
+    for field in ("where", "session"):
+        del saved["jobs"]["j1"][field]
+    state.state_path(demo).write_text(json.dumps(saved))
+    code, out = run("job", "resume", "j1", "PR checks failed")
+    handoff = state.drive_dir(demo) / "jobs" / "j1.handoff.md"
+    assert (code, out.splitlines()[0]) == (0, f"Read your brief first: {handoff}")
+    assert handoff.read_text().endswith("The message it never read, which you act on now:\n\nPR checks failed\n")
+
+
 def test_an_agent_that_stops_before_any_step_is_recorded_and_sent_back_to_keep_its_line(
     demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

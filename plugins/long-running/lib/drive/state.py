@@ -353,15 +353,8 @@ def load(name: str) -> dict:
             part["after"] = [part["after"]] if isinstance(part.get("after"), str) else part.get("after") or []
     mail = data.pop("lane_mail", {})
     for job in data["jobs"].values():
-        job.setdefault("carries", {})
         job["mail_seen"] = max(job.get("mail_seen", 0), mail.get(job.get("run"), 0))
-        job.setdefault("waiting_said", [])
-        job.setdefault("waiting_claims", {})
-        job.setdefault("waits", [])
-        job.setdefault("route", None)
-        job.setdefault("may_settle", None)
-        job.setdefault("due", None)
-        job.setdefault("undelivered", [])
+        job.setdefault("where", "remote" if job.get("dispatch") else "local")
         job.setdefault("returned", job["updated"])
         if job.pop("checks", None):
             job["parts"] = []
@@ -374,6 +367,8 @@ def load(name: str) -> dict:
         if "questions" not in job:
             asked, card = job.get("question"), job.get("card")
             job["questions"] = [new_question(asked, job["said"], job["updated"], job.get("unsettled"), card)] if asked or card else []
+        for field, blank in (new_job(None, None, None, [], None) | {"session": None}).items():
+            job.setdefault(field, blank)
     for order_id, order in data["orders"].items():
         if "joins" not in order:
             carriers = (data["jobs"][job_id]["order"] for job_id in order["jobs"]) if order["incident"] else ()
