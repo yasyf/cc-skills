@@ -1051,3 +1051,25 @@ def test_a_pr_added_to_its_native_stack_after_the_stack_card_was_drawn_gets_its_
     assert [row["url"] for row in drawn["card"]["prs"]] == [stack_url(44)]
     [again] = ask(asks(42) | {"redraw": True})["cards"]
     assert again["card"]["waits"] == "merge:Forge-AI:monorepo:41-43"
+
+
+def test_a_stack_mate_nobody_judged_holds_back_no_card_of_the_pr_below_it_and_gets_its_own_once_judged(
+    stacked: list[list[str]], native_stacks: dict[str, list[tuple[str, str]]]
+) -> None:
+    keys = [f"Forge-AI/monorepo#{n}" for n in (41, 42)]
+    with state.edit("demo") as data:
+        data["prs"] = {key: data["prs"][key] for key in keys}
+        data["prs"][keys[1]]["checked"] = None
+    for key in keys:
+        native_stacks[key] = [(member, "open") for member in keys]
+    [drawn] = ask(asks(41))["cards"]
+    assert ([row["url"] for row in drawn["card"]["prs"]], drawn["card"]["waits"]) == ([stack_url(41)], "merge:Forge-AI:monorepo:41")
+    refused = ask(asks(42))
+    assert (refused["cards"], [skipped["reason"] for skipped in refused["skipped"]]) == (
+        [],
+        [f"the change of {keys[1]} at its head is not checked against his words, so no card asks his tap until its builder returns READY on that head, which the drive judges as it takes it"],
+    )
+    with state.edit("demo") as data:
+        data["prs"][keys[1]]["checked"] = {"head": HEAD, "orders": ["o1"], "patch": ""}
+    [own] = ask(asks(42))["cards"]
+    assert ([row["url"] for row in own["card"]["prs"]], own["card"]["waits"]) == ([stack_url(42)], "merge:Forge-AI:monorepo:42")

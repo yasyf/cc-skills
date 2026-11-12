@@ -43,7 +43,11 @@ An empty `against` says the change meets his words."""
 
 
 class Against(DriveError):
-    """A change judged to go against his words, which its builder fixes, as against a read or judge that failed, which runs again."""
+    """A change judged to go against his words, which its builder fixes, as against a read or judge that failed, which runs again; keys are the PRs judged."""
+
+    def __init__(self, keys: list[str], said: str) -> None:
+        super().__init__(said)
+        self.keys = keys
 
 
 def check(name: str, job_id: str, also: list[str], tapping: list[str]) -> None:
@@ -57,6 +61,7 @@ def check(name: str, job_id: str, also: list[str], tapping: list[str]) -> None:
     if found := judged(name, words(data, data["jobs"][job_id], orders), changes):
         named = "; ".join(f'{item["order"]} "{cut(item["words"], 160)}": {cut(item["change"], 240)}' for item in found)
         raise Against(
+            keys,
             f"{', '.join(keys)} go against his words, judged from each PR's title and diff: {named}. Change the PRs to his words,"
             " push, and return READY again; a reading his words leave open goes to him as an ASK"
         )

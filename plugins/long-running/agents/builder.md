@@ -111,10 +111,11 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    first. `READY` counts only on a green required check, so `PUSHED` waits, waking nobody, until the
    watch's minute read of GitHub finds every check the base branch requires: green takes it as your
    `READY`, and a red one comes back as `PR … READY refused, its required <check> failed at <head>
-   (<build>)`, and `drive job report` refuses a `READY` while one is pending or red. It also judges
-   the change of each PR his card waits on, its title and diff at its head and never its body,
+   (<build>)`, and `drive job report` refuses a `READY` while one is pending or red. It, or the watch as it takes a
+   remote lane's result, also judges the change of each PR his card waits on, its title and diff at its head and never its body,
    against the words of your order and every order your job carries, and refuses a `PUSHED` naming
-   each of his words the change goes against: change the PRs to his words, push and return `PUSHED`
+   each of his words the change goes against, which reaches a remote lane as `PR … READY refused: …
+   go against his words …`: change the PRs to his words, push and return `PUSHED`
    again, or `ASK` for a reading his words leave open. The watch draws his
    card the minute GitHub reports a checked PR green and approved, whatever its body says; a port
    gets the coordinator's check against the old PR instead. A body is fixed beside
@@ -328,7 +329,7 @@ listing decisions that block nothing is not a result.
 | Result | When |
 | --- | --- |
 | `DONE <proof link or one-line proof>` | Live and checked where he uses it, which a merge alone is not. When he sees what you built (`NATIVE:` is not `none: he never sees it`), the proof comes from that surface: the live post's link, a picture of it, or a recording of the click through each view his words name (agent-browser's recording, or `screencapture -v` of the window), since data fetched from an API does not show what he sees. `drive job report` refuses a `DONE` without that proof on `CHECK:`. |
-| `PUSHED <pr url> [<pr url>…]` | Pushed and registered, its CI and review still running, and its change checked against his words by `drive job report`. It is the `READY` below held until the watch reads every check the base branch requires green, waking nobody meanwhile; a red one comes back to you. |
+| `PUSHED <pr url> [<pr url>…]` | Pushed and registered, its CI and review still running, and its change checked against his words by `drive job report`, or by the watch as it takes a remote lane's. It is the `READY` below held until the watch reads every check the base branch requires green, waking nobody meanwhile; a red one comes back to you. |
 | `READY <pr url> [<pr url>…]` | The same, with every check the base branch requires green; the watch draws his card once it is green and approved. A stack names every PR, bottom first, so it gets one card. When he sees what you built (`NATIVE:` is not `none: he never sees it`), a Show me on its card carries a before and an after screenshot of it, pushed beside the landing when it is missing. A question whose answer only lands PRs, such as an open PR below yours, is this `READY` naming each, never an `ASK`: their stack card is his tap and needs no Show me, and `drive job ask` refuses an ask to land PRs. |
 | `BUILT <branch>, waits on <cards>` | The recommended options built and pushed on `<branch>`, no PR open, waiting on his answer to each design card the brief names, by its waits id or Slack link. Its lines name the option built for each card and what his other picks would change. |
 | `WAITING <what, in plain words>` | Another PR or a release; never CI, a review or a queue on your own PR, which `PUSHED` covers. `WAITING <your PR> waits on <cards>`, each card by its waits id or Slack link, holds that PR's card until he answers each. |

@@ -527,13 +527,13 @@ def waiting(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
 
 
 def unchecked(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
-    """Why no fresh card is drawn for the members yet: one asking his tap has no check of its change at its head against the words of every order it serves, which its builder's READY runs through drive job report and the coordinator's drive pr set --serves runs for a remote lane's."""
+    """Why no fresh card is drawn for the members yet: one asking his tap has no check of its change at its head against the words of every order it serves, which the drive runs where it takes its builder's READY, drive job report for a local builder's and the watch for a remote lane's."""
     held = [key for key in members if state.asks_tap(entry := known[key][1]) and not state.checked(state.load(known[key][0]), entry)]
     if not held:
         return ""
     return (
-        f"the change of {', '.join(held)} at its head is not checked against his words, so no card asks his tap until drive job report"
-        " on its builder's READY or drive pr set --serves checks it"
+        f"the change of {', '.join(held)} at its head is not checked against his words, so no card asks his tap until its builder"
+        " returns READY on that head, which the drive judges as it takes it"
     )
 
 
@@ -560,7 +560,7 @@ def on_his_card(known: dict[str, tuple[str, dict]], reads: dict[str, dict], memb
 
 
 def cards(asked: list[dict], redraw: bool = False) -> dict:
-    """One card per stack the asked PRs form, by groups(), bottom PR first, each card drawn kept on its PRs so Approve lands exactly those. A redraw of a card cc-slack already posted draws it as the PRs stand now, a wait that holds back a fresh Approve shown on it rather than refusing it. A PR body's sections are drawn as they stand and never hold a card, but a Show me picture that does not draw, such as a Mermaid diagram Mermaid cannot parse, refuses its stack's card with why, which `refused` tells the session hearing its order, since a card without the picture shows him nothing for it."""
+    """One card per stack the asked PRs form, by groups(), bottom PR first, each card drawn kept on its PRs so Approve lands exactly those. A fresh card leaves off a stack-mate above every PR asked for whose change at its head is not checked against his words, such as one its builder has not returned READY on, so it holds back no card of the PRs below it and gets its own once judged. A redraw of a card cc-slack already posted draws it as the PRs stand now, a wait that holds back a fresh Approve shown on it rather than refusing it. A PR body's sections are drawn as they stand and never hold a card, but a Show me picture that does not draw, such as a Mermaid diagram Mermaid cannot parse, refuses its stack's card with why, which `refused` tells the session hearing its order, since a card without the picture shows him nothing for it."""
     known = drive_prs()
     asked_keys = keys_of(asked, known)
     for key in asked_keys:
@@ -577,9 +577,13 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
     for group in stacks:
         reads |= {key: pr for key in group if key not in reads and (pr := read(key, known[key][1]) or watched(known[key][1]))}
         members = [key for key in group if key in reads]
+        fresh = not (redraw or on_his_card(known, reads, members))
         if not members:
             continue
-        held = "" if redraw or on_his_card(known, reads, members) else waiting(known, members) or unchecked(known, members)
+        if fresh:
+            above = max(at for at, key in enumerate(members) if key in keys) + 1
+            members = members[:above] + [key for key in members[above:] if not unchecked(known, [key])]
+        held = waiting(known, members) or unchecked(known, members) if fresh else ""
         reason = foreign(known, members) or reworked(known, members) or held or oversized(known, members)
         if not reason:
             taken: set[str] = set()

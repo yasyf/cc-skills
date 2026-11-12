@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import Answers, Drawing, Jev
+from conftest import Answers, Drawing, Jev, Judge
 from drive import cli, github, orca, place, reads, render, slack, state, watch
 
 Run = Callable[..., tuple[int, str]]
@@ -1067,6 +1067,46 @@ def test_a_lanes_ready_is_kept_as_pushed_waking_no_one_until_a_read_after_it_fin
         "approvals": [], "mergeable": "MERGEABLE", "title": "Fix: x", "author": "yasyf", "labels": [], "native": [],
     }
     assert f"JOB j1 o1 READY {url}" in watch.run_pass(watching, T0 + timedelta(minutes=1))
+
+
+def test_a_lanes_ready_is_judged_against_his_words_as_the_watch_takes_it_so_its_pr_is_checked_with_no_coordinator_step(
+    remote: str, monkeypatch: pytest.MonkeyPatch, pr_reads: dict[str, dict], judge: Judge
+) -> None:
+    monkeypatch.setattr(state, "now", lambda: T0)
+    key, url = "Forge-AI/monorepo#7", "https://github.com/Forge-AI/monorepo/pull/7"
+    deliver(monkeypatch, [message("worker_done", f"READY {url}\nPR: Fix: x")])
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    assert watch.run_pass(watching, T0) == []
+    required = {"context": "buildkite/test", "state": "SUCCESS", "isRequired": True, "targetUrl": "https://buildkite.com/forge/monorepo/builds/7"}
+    pr_reads[key] = {
+        "state": "OPEN", "isDraft": False, "headRefOid": "abc1234", "mergeCommit": None, "checks": [required], "reviewDecision": None,
+        "approvals": [], "mergeable": "MERGEABLE", "title": "Fix: x", "author": "yasyf", "labels": [], "native": [],
+    }
+    assert f"JOB j1 o1 READY {url}" in watch.run_pass(watching, T0 + timedelta(minutes=1))
+    data = state.load(remote)
+    assert (len(judge.asked), data["prs"][key]["checked"]["head"], state.checked(data, data["prs"][key])) == (1, "abc1234", True)
+
+
+def test_a_lanes_ready_against_his_words_goes_back_to_the_lane_naming_them_and_stays_unchecked(
+    remote: str, monkeypatch: pytest.MonkeyPatch, judge: Judge
+) -> None:
+    key, url = "Forge-AI/monorepo#7", "https://github.com/Forge-AI/monorepo/pull/7"
+    deliver(monkeypatch, [message("worker_done", f"READY {url}\nPR: Fix: x")])
+    monkeypatch.setattr(github, "fetch", lambda keys: ({}, None))
+    judge.against = [{"order": "o1", "words": "ship the remote builder", "change": "lib/drive/orca.py drops the remote route"}]
+    resumed: list[list[str]] = []
+    monkeypatch.setattr(watch.reads, "run", lambda argv, checkout, env=None: resumed.append(argv) or "")
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    assert watch.run_pass(watching, T0) == []
+    why = (
+        f'{key} go against his words, judged from each PR\'s title and diff: o1 "ship the remote builder": lib/drive/orca.py drops the remote route.'
+        " Change the PRs to his words, push, and return READY again; a reading his words leave open goes to him as an ASK"
+    )
+    assert [str(watch.DRIVE), "job", "resume", "j1", f"PR {key}: READY refused: {why} [o1 j1]", "--drive", remote] in resumed
+    data = state.load(remote)
+    assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["said"], data["prs"][key]["checked"]) == ("waiting", f"READY refused: {why}", None)
+    watch.run_pass(watching, T0 + timedelta(minutes=1))
+    assert len(judge.asked) == 1
 
 
 def test_a_lane_that_finishes_after_asking_ends_its_question_and_its_result_sets_the_job(

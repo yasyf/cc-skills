@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 from conftest import CodexAsk, Redraws, Thread, WatchProcess, Withdrawals
-from drive import cli, github, install, land, reads, render, slack, state, talk, watch
+from drive import cli, github, install, land, reads, render, served, slack, state, talk, watch
 
 KEY = "Forge-AI/monorepo#42"
 OTHER = "Forge-AI/monorepo#43"
@@ -184,6 +184,28 @@ def test_a_red_required_check_ends_a_pushed_with_its_build_and_goes_back_to_a_la
     monkeypatch.setattr(watch.reads, "run", lambda argv, checkout: resumed.append(argv) or "")
     assert watch.handed(watching, [refused], T0) == []
     assert resumed == [[str(watch.DRIVE), "job", "resume", "j1", refused, "--drive", demo]]
+
+
+def test_a_pushed_whose_judge_against_his_words_fails_holds_until_a_judge_passes_and_says_so_from_its_third_failure(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="waiting", said=f"PUSHED {state.pr_url(KEY)}")
+        data["prs"][KEY] |= {"wants_tap": True, "checked": None}
+    serve(monkeypatch, {KEY: read(checks=[*RUNNING, {**REQUIRED, "state": "SUCCESS"}])})
+    timeout = state.DriveError(f"judging {KEY} against his words ran past 600 seconds; run this again")
+    failures = [timeout] * 3
+
+    def judged(name: str, said: str, changes: dict) -> list[dict]:
+        if failures:
+            raise failures.pop()
+        return []
+
+    monkeypatch.setattr(served, "judged", judged)
+    watching = watcher(demo)
+    said = [watch.run_pass(watching, T0 + timedelta(minutes=minute)) for minute in range(4)]
+    assert said == [[], [], [f"WATCH judge of j1's change against his words failed 3 times in a row: {timeout}"], [f"JOB j1 o1 READY {state.pr_url(KEY)}"]]
+    assert state.checked(data := state.load(demo), data["prs"][KEY])
 
 
 def test_unchanged_pr_emits_nothing(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1999,6 +2021,20 @@ def test_a_pr_mid_stack_gets_no_ready_of_its_own_until_every_pr_of_its_native_st
     [[record]] = ready_records
     urls = " ".join(state.pr_url(key) for key in STACKED)
     assert record.get("body", record["text"]) == f'{urls}; his order o1 "ship the watch"; his order o2 "split the stack"'
+
+
+def test_a_stack_mate_nobody_judged_is_left_out_of_its_stacks_ready_so_the_prs_below_it_draw_their_card(
+    demo: str, monkeypatch: pytest.MonkeyPatch, ready_records: list[list[dict]]
+) -> None:
+    three_stacked(demo, monkeypatch)
+    with state.edit(demo) as data:
+        data["prs"][THIRD]["checked"] = None
+    watching = watcher(demo)
+    lines = watch.run_pass(watching, T0) + watch.run_pass(watching, T0 + timedelta(minutes=10))
+    assert f"CARD his card for {KEY}, {OTHER} is drawing: green and approved, ready record sent to the communicator" in lines
+    [[record]] = ready_records
+    assert record.get("body", record["text"]).split("; ")[0] == f"{state.pr_url(KEY)} {state.pr_url(OTHER)}"
+    assert state.load(demo)["prs"][THIRD]["ready_said"] is None
 
 
 def test_a_native_stack_gets_one_ready_for_its_heads_and_another_only_once_a_restack_moves_a_head(

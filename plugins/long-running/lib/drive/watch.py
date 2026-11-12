@@ -2,6 +2,7 @@ import collections
 import contextlib
 import functools
 import hashlib
+import itertools
 import json
 import mmap
 import os
@@ -171,30 +172,51 @@ def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def pushed_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Settle each builder's PUSHED the watch hears once its GitHub read after the take finds the required checks of every PR it names: all green takes the READY it holds, its JOB line waking whoever acts on a READY; a red one ends the hold with a `READY refused` line per failed check, which goes back to a remote lane waiting for its next event and wakes the coordinator otherwise."""
+    """Judge and settle each builder's PUSHED the watch hears, a remote lane's READY included, which the watch takes as one. Its change is judged against his words where it enters the drive, outside the lock since a judge runs minutes, as drive job report judges a local builder's, so no card draws on a change nobody judged: one going against them ends the hold with a `READY refused` line naming his words, and a judge that fails runs again next read. A judged PUSHED settles once its GitHub read after the take finds the required checks of every PR it names: all green takes the READY it holds, its JOB line waking whoever acts on a READY; a red one ends the hold with a `READY refused` line per failed check. A `READY refused` goes back to a remote lane waiting for its next event and wakes the coordinator otherwise."""
     data = state.load(watcher.name)
-    if not any(settles(watcher, data, job_id) for job_id in data["jobs"]):
-        return []
-    lines = []
+    held = [job_id for job_id in data["jobs"] if holds_push(watcher, data, job_id)]
+    lines, against, unjudged = [], {}, set()
+    for job_id in held:
+        source = f"judge of {job_id}"
+        try:
+            served.check(watcher.name, job_id, [], [])
+        except served.Against as error:
+            against[job_id] = error
+        except state.DriveError as error:
+            unjudged.add(job_id)
+            lines += failed(watcher, source, f"judge of {job_id}'s change against his words", error, moment)
+            continue
+        watcher.failures.pop(source, None)
+    if not against and not any(settles(data, job_id) for job_id in held if job_id not in unjudged):
+        return lines
     with state.edit(watcher.name) as data:
-        for job_id, job in data["jobs"].items():
-            if not (verdict := settles(watcher, data, job_id)):
+        for job_id in held:
+            job = data["jobs"][job_id]
+            if job_id in unjudged or not holds_push(watcher, data, job_id):
                 continue
-            result, held = verdict
+            if error := against.get(job_id):
+                job.update(said=f"READY refused: {error}", updated=state.stamp(moment))
+                lines.append(f"PR {error.keys[0]}: READY refused: {error} [{job['order']} {job_id}]")
+                continue
+            if not (verdict := settles(data, job_id)):
+                continue
+            result, refused = verdict
             if result == "pass":
                 job["state"] = "running"
                 state.take_result(data, job_id, "READY" + job["said"].removeprefix("PUSHED"), state.report_text(watcher.name, job_id, job))
                 lines.append(f"JOB {job_id} {job['order']} {job['said']}")
                 continue
-            job.update(said="READY refused: " + "; ".join(f"{key}'s {why}" for key, why in held), updated=state.stamp(moment))
-            lines += [f"PR {key}: READY refused, its {why} [{job['order']} {job_id}]" for key, why in held]
+            job.update(said="READY refused: " + "; ".join(f"{key}'s {why}" for key, why in refused), updated=state.stamp(moment))
+            lines += [f"PR {key}: READY refused, its {why} [{job['order']} {job_id}]" for key, why in refused]
     return lines
 
 
-def settles(watcher: Watcher, data: dict, job_id: str) -> tuple[str, list[tuple[str, str]]] | None:
+def holds_push(watcher: Watcher, data: dict, job_id: str) -> bool:
     job = data["jobs"][job_id]
-    if job["kind"] != "builder" or job["state"] != "waiting" or not state.PUSHED_LINE.match(job["said"] or "") or not heard_job(watcher, data, job):
-        return None
+    return job["kind"] == "builder" and job["state"] == "waiting" and bool(state.PUSHED_LINE.match(job["said"] or "")) and heard_job(watcher, data, job)
+
+
+def settles(data: dict, job_id: str) -> tuple[str, list[tuple[str, str]]] | None:
     verdict = state.pushed_verdict(data, job_id)
     return verdict if verdict[0] != "pending" else None
 
@@ -385,7 +407,7 @@ def rework_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def ready_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Send the communicator one ready record per native GitHub stack, or per order for PRs in none, for the PRs that wait on his card alone, once a head, so `drive card` draws his card within one GitHub read of a PR going green and approved, with no coordinator turn, and says what changed on each PR whose builder's READY met his words reworking it. A stack's record waits until every open PR of it the drive tracks waits on its next step alone with no rework owed, then names each of them that asks his tap and marks it sent on its head, so no PR mid-stack gets a ready of its own and a pass repeats none until a head moves; a record that fails to post goes again next read."""
+    """Send the communicator one ready record per native GitHub stack, or per order for PRs in none, for the PRs that wait on his card alone, once a head, so `drive card` draws his card within one GitHub read of a PR going green and approved, with no coordinator turn, and says what changed on each PR whose builder's READY met his words reworking it. A stack's record covers its open PRs the drive tracks from the bottom up to the first whose change at its head is not checked against his words, waits until each of them waits on its next step alone with no rework owed, then names each of them that asks his tap and marks it sent on its head, so no PR mid-stack gets a ready of its own, a pass repeats none until a head moves, and a stack-mate nobody judged yet holds back no card of the PRs below it; a record that fails to post goes again next read."""
     if watcher.cards is None:
         return []
     from drive import tools
@@ -398,9 +420,11 @@ def ready_lines(watcher: Watcher, moment: datetime) -> list[str]:
             owed.setdefault((stack, "" if stack else pr.get("serves") or pr["order"]), []).append(key)
     lines = []
     for (stack, _), keys in owed.items():
-        if not all(view.next_step(data["prs"][member], data, watcher.cards) and not data["prs"][member]["rework"] for member in stack):
+        bottom = list(itertools.takewhile(lambda member: state.checked(data, data["prs"][member]), stack))
+        if not all(view.next_step(data["prs"][member], data, watcher.cards) and not data["prs"][member]["rework"] for member in bottom):
             continue
-        heads = {key: data["prs"][key]["head"] for key in [member for member in stack if state.asks_tap(data["prs"][member])] or keys}
+        if not (heads := {key: data["prs"][key]["head"] for key in ([member for member in bottom if state.asks_tap(data["prs"][member])] if stack else keys)}):
+            continue
         orders = list(dict.fromkeys(data["prs"][key].get("serves") or data["prs"][key]["order"] for key in heads))
         urls = " ".join(data["prs"][key]["url"] for key in heads)
         changed = "".join(f"; {key}: {fundamental}" for key in heads if (fundamental := data["prs"][key]["fundamental"]))
