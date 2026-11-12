@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import CodexAsk, Judge, Redraws, Thread, WatchProcess, Withdrawals, commit_files, git_in, staged
+from conftest import SHORT_ASK, CodexAsk, Judge, Redraws, Thread, WatchProcess, Withdrawals, commit_files, git_in, staged
 from drive import card, cli, github, install, land, reads, render, served, slack, state, talk, view, watch
 
 KEY = "Forge-AI/monorepo#42"
@@ -28,6 +28,7 @@ DRAWING = f"CARD his card for {KEY} is drawing: green and approved, ready record
 CHECKED = {"head": "aaaaaaa111", "orders": ["o1"], "patch": ""}
 BUILD = "https://buildkite.com/forge/monorepo/builds/7"
 REQUIRED = {"context": "buildkite/test", "targetUrl": BUILD}
+INCIDENT_THREAD = "1794494004.895129"
 
 
 def order(**overrides: object) -> dict:
@@ -597,6 +598,63 @@ def test_moved_due_fires_again(demo: str, monkeypatch: pytest.MonkeyPatch) -> No
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == []
     assert watch.run_pass(watching, T0 + timedelta(minutes=21))[0].startswith("DUE o1")
+
+
+def quiet_incident(demo: str) -> None:
+    with state.edit(demo) as data:
+        data["owner"] = {"heard": state.stamp(T0), "away": True}
+        data["orders"]["o1"].update(incident=True, joins=None, thread=["D123", INCIDENT_THREAD], note="674295", due=state.stamp(T0 + timedelta(minutes=10)), promised=state.stamp(T0))
+        data["orders"]["o2"] = order(text="the same alert again", incident=True, joins="o1", jobs=["j2"], last_line=state.stamp(T0 + timedelta(minutes=2)))
+        data["jobs"]["j2"] = job(order="o2", kind="codex")
+
+
+def test_an_open_incident_with_no_line_for_five_minutes_owes_him_one_through_a_report_and_a_handler_the_watch_starts_while_he_is_away_too(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    quiet_incident(demo)
+    calls = catching_up(monkeypatch, demo)
+    watching = watcher(demo)
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=6, seconds=59)) == []
+    assert calls == []
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=7)) == []
+    [(report, body), (start, _)] = calls
+    assert (report["text"], report["topic"], "to" in report) == ("POST incident o1 has had no line to him in 5 minutes: post where it stands now in its thread", "watch-quiet-o1", False)
+    assert report["attr"] == {"order": "o1", "progress": "true", "quiet": "true", "thread": INCIDENT_THREAD}
+    assert f"- {render.job_line('j2', state.load(demo)['jobs']['j2'])}" in body.splitlines()
+    assert "Evidence record: 674295" in body.splitlines()
+    assert start[-1] == f"Record: 901 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'quiet-901'}"
+    quiet = state.load(demo)["orders"]["o1"]["quiet"]
+    assert (quiet["record"], quiet["at"], quiet["handler"] in state.load(demo)["handlers"]) == ("901", state.stamp(T0 + timedelta(minutes=7)), True)
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=11, seconds=59)) == []
+    assert len(calls) == 2
+    with state.edit(demo) as data:
+        data["handlers"].clear()
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=12)) == []
+    assert (len(calls), calls[3][0][-1]) == (4, f"Record: 903 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'quiet-903'}")
+
+
+def test_a_quiet_incident_whose_thread_a_handler_holds_restarts_its_clock_with_no_second_handler_its_promised_time_says_no_due_and_its_live_fix_ends_it(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    quiet_incident(demo)
+    calls = catching_up(monkeypatch, demo)
+
+    def busy(name: str, brief: str) -> str:
+        raise watch.agents.Busy("refused, no handler started: handler h1 is at work on his message")
+
+    monkeypatch.setattr(watch.agents, "handle", busy)
+    watching = watcher(demo)
+    assert watch.due_lines(watching, T0 + timedelta(minutes=30)) == []
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=7)) == []
+    assert [call["topic"] for call, _ in calls] == ["watch-quiet-o1"]
+    assert state.load(demo)["orders"]["o1"]["quiet"] == {"record": "901", "at": state.stamp(T0 + timedelta(minutes=7)), "handler": None}
+    with state.edit(demo) as data:
+        data["orders"]["o2"]["last_line"] = state.stamp(T0 + timedelta(minutes=9))
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=13, seconds=59)) == []
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["fixed"] = "j3 proved it live: turns run again"
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=30)) == []
+    assert len(calls) == 1
 
 
 def test_tick_names_only_orders_with_news_since_their_last_line(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1527,6 +1585,28 @@ def test_the_watch_takes_a_codex_jobs_result_from_its_completed_run_whatever_its
     assert watch.run_pass(watcher(demo, state.now()), state.now()) == []
     job = state.load(demo)["jobs"]["j1"]
     assert (job["state"], job["said"], state.report_text(demo, "j1", job)) == ("done", "UNPROVEN two of three findings hold", "UNPROVEN two of three findings hold\nFinding 1\n")
+
+
+def test_a_codex_lane_that_built_its_recommended_option_has_the_ask_block_it_named_kept_as_its_run_is_taken_so_his_card_goes_up_as_it_returns(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, codex_ask: CodexAsk
+) -> None:
+    monkeypatch.setattr(watch, "local_gap", REAL_LOCAL_GAP)
+    monkeypatch.setattr(watch.view, "cards", lambda name: view.NO_CARDS)
+    block = tmp_path / "scratch" / "ask.md"
+    block.parent.mkdir()
+    block.write_text(SHORT_ASK)
+    reply = codex_ask.run("completed", f"DONE built one snapshot file per finished run on branch snapshot-file\nASK: {block}\n")
+    write_transcript(tmp_path / "config", relayed(reply, f"REPLY_FILE: {reply}"), timedelta(minutes=4))
+    with state.edit(demo) as data:
+        data["prs"][KEY]["state"] = "merged"
+        data["jobs"]["j1"].update(kind="codex", session="session-under-test", agent="a1", updated=state.stamp(state.now() - timedelta(minutes=10)))
+    kept = state.drive_dir(demo) / "asks" / f"j1-{state.ask_hash(SHORT_ASK)}.md"
+    assert watch.run_pass(watcher(demo, state.now()), state.now()) == [
+        f"JOB j1 o1 DONE built one snapshot file per finished run on branch snapshot-file; its ASK is kept: send its ask record, path {kept},"
+        " and the recommended option it built ships meanwhile"
+    ]
+    job = state.load(demo)["jobs"]["j1"]
+    assert (job["state"], [question["file"] for question in job["questions"]], kept.read_text()) == ("waiting", [str(kept)], SHORT_ASK)
 
 
 def test_a_local_agent_a_sub_coordinator_started_is_judged_by_its_transcript_under_that_session(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

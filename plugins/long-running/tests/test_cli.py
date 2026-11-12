@@ -14,7 +14,7 @@ from pathlib import Path
 
 import drive
 import pytest
-from conftest import CARD_BODY, RESEARCH, SHORT_ASK, Answers, explained, Chrome, Drawing, Heard, Jev, Judge, MetaLaunches, Thread, WatchProcess, Withdrawals
+from conftest import CARD_BODY, RESEARCH, SETTLED_NOTE, SHORT_ASK, Answers, explained, Chrome, Drawing, Heard, Jev, Judge, MetaLaunches, Thread, WatchProcess, Withdrawals
 from drive import (
     brief,
     card,
@@ -656,6 +656,7 @@ def test_an_incident_order_records_a_job_on_each_part_and_names_every_open_incid
             "o4\n"
             'j6 on "fix": start its agent now, its brief ending Drive: demo, order o4, job j6\n'
             'j7 on "first check": start its agent now, its brief ending Drive: demo, order o4, job j7\n'
+            f"{state.INCIDENT_BRIEF}\n"
             "o1 open incident: SandSQL fork copies fail on plat; record 3fa2c1"
         ),
     )
@@ -721,7 +722,8 @@ def test_incident_open_files_the_order_a_job_on_each_part_and_its_evidence_recor
         (
             "o1 record 5f6b2b5\n"
             'j1 on "fix": start its agent now, its brief ending Drive: demo, order o1, job j1\n'
-            'j2 on "first check": start its agent now, its brief ending Drive: demo, order o1, job j2'
+            'j2 on "first check": start its agent now, its brief ending Drive: demo, order o1, job j2\n'
+            f"{state.INCIDENT_BRIEF}"
         ),
     )
     assert calls == [["ccn", "investigation", "open", RECORD, "--body", f"{words}\n\nFrom terminal", "--label", "drive:demo", "--label", "incident", "--json"]]
@@ -768,7 +770,7 @@ def test_incident_stop_gives_an_open_incident_one_running_stop_job(
 ) -> None:
     monkeypatch.setattr(cli.reads, "run", recorded([]))
     run("incident", "open", "table moves rerun on every write", "--record", RECORD, *FILED)
-    assert run("incident", "stop", "o1") == (0, 'j4 on "stop": start its agent now, its brief ending Drive: demo, order o1, job j4')
+    assert run("incident", "stop", "o1") == (0, f'j4 on "stop": start its agent now, its brief ending Drive: demo, order o1, job j4\n{state.INCIDENT_BRIEF}')
     data = state.load("demo")
     assert (list(data["orders"]["o1"]["parts"]), data["jobs"]["j4"]["kind"]) == (["fix", "rollback", "cause", "stop"], "codex")
     assert cli.main(["incident", "stop", "o1"]) == 2
@@ -776,6 +778,20 @@ def test_incident_stop_gives_an_open_incident_one_running_stop_job(
     run("order", "add", "--title", "Short title", "the dashboard is slow", *FILED)
     assert cli.main(["incident", "stop", "o2"]) == 2
     assert "o2: refused, it is no open incident order" in capsys.readouterr().err
+
+
+def test_an_incident_jobs_brief_carries_the_rule_its_kind_follows_on_a_choice_on_its_incident_line_once(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cli.reads, "run", recorded([]))
+    run("incident", "open", "table moves rerun on every write", "--record", RECORD, *FILED)
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship the fix the codex lane built")
+    where = ("--serves", "his order", "--done-when", "fixed", "--where", "Forge-AI/monorepo dev")
+    run("job", "brief", "j1", *where, "--incident", "record 5f6b2b5")
+    run("job", "brief", "j4", *where)
+    jobs = state.load("demo")["jobs"]
+    assert f"\nIncident: record 5f6b2b5; {state.INCIDENT_CHOICE['codex']}\n" in Path(jobs["j1"]["brief"]).read_text()
+    assert f"\nIncident: {state.INCIDENT_CHOICE['builder']}\n" in Path(jobs["j4"]["brief"]).read_text()
+    run("job", "brief", "j1", "--incident", f"record 5f6b2b5; {state.INCIDENT_CHOICE['codex']}")
+    assert Path(state.load("demo")["jobs"]["j1"]["brief"]).read_text().count(state.INCIDENT_CHOICE["codex"]) == 1
 
 
 def test_incident_freeze_freezes_the_service_for_twelve_hours_and_notes_the_freeze(
@@ -1985,10 +2001,10 @@ def test_his_words_under_a_card_answer_it_so_its_job_never_redraws_it_with_a_new
     assert run("answer", "a2", "--sent", "j1")[0] == 0
     jev.settles("a2")
     monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace("ASK How should", "ASK When should")))
-    assert cli.main(["job", "ask", asking, "-"]) == 2
-    refusal = capsys.readouterr().err
-    assert refusal.startswith('drive: refused: his recorded answer a2 already decides this question. Asked "')
-    assert 'he said "One snapshot file". Go ahead on it. If his words decide something else, ask again with --unsettled "a2: <why>".' in refusal
+    code, settled_now = run("job", "ask", asking, "-")
+    assert code == 0
+    assert ' keeps j1\'s question settled, no card: his recorded answer a2 already decides this question. Asked "' in settled_now
+    assert settled_now.endswith('he said "One snapshot file". Go ahead on it. If his words decide something else, ask again with --unsettled "a2: <why>". j1 builds it now')
     assert sorted((answer["id"], answer["said"]) for request in jev.asked[-2:] for answer in request["state"]["answers"]) == [
         ("a1", "its one snapshot file, just wait for the copy"),
         ("a2", "One snapshot file"),
@@ -2057,11 +2073,13 @@ def test_job_ask_hands_jev_his_messages_in_its_orders_thread_and_refuses_the_one
     jev.settles(key)
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
-    assert cli.main(["job", "ask", "j1", str(block)]) == 2
-    assert capsys.readouterr().err.startswith(
-        f'drive: refused: his message in this order\'s thread {settles} already decides this question. Asked "design the run page",'
+    code, settled_now = run("job", "ask", "j1", str(block))
+    assert code == 0
+    assert (
+        f'his message in this order\'s thread {settles} already decides this question. Asked "design the run page",'
         ' he said "keep one snapshot file per finished run, no guessing".'
-    )
+    ) in settled_now
+    assert [(question["settled"]["answer"], question["settled"]["ruling"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [(key, None)]
     assert [(answer["id"], answer["asked"]) for answer in jev.asked[0]["state"]["answers"]] == [(key, "design the run page")]
     assert ("--channel", "D123", "--thread", "1794200000.000100", "--limit", "1000") in slack_thread.reads
     assert state.load("demo")["jobs"]["j1"]["state"] == "running"
@@ -2183,37 +2201,57 @@ PAGE_RULING = {
 }
 
 
-def test_job_ask_keeps_a_question_jev_reads_his_recorded_answer_as_deciding_pending_with_its_refusal_until_a_reason_names_it(
-    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], recorded: Answers, jev: Jev
+def test_job_ask_settles_a_question_jev_reads_his_recorded_answer_as_deciding_so_its_job_builds_on_his_words_with_no_card(
+    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], recorded: Answers, jev: Jev, settled_notes: list[tuple[str, str]]
 ) -> None:
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
     recorded.found = [FLAT_RULING]
     jev.settles("ac61348")
-    assert cli.main(["job", "ask", asking, str(block)]) == 2
-    refusal = capsys.readouterr().err
-    assert refusal.startswith(
-        "drive: refused: his recorded answer ac61348 already decides this question. Asked \"Owner Nov 9: lay out every finished run's files flat,"
-        " without asking second line\", he said \"Lay every finished run's files out flat, one snapshot file each.\". Go ahead on it."
+    kept = state.drive_dir("demo") / "asks" / f"j1-{state.ask_hash(SHORT_ASK)}.md"
+    assert run("job", "ask", asking, str(block)) == (
+        0,
+        f"{kept} keeps j1's question settled, no card: his recorded answer ac61348 already decides this question. Asked \"Owner Nov 9: lay out every"
+        " finished run's files flat, without asking second line\", he said \"Lay every finished run's files out flat, one snapshot file each.\". Go ahead"
+        ' on it. If his words decide something else, ask again with --unsettled "ac61348: <why>". j1 builds it now',
     )
     assert recorded.asked[0].startswith("How should a finished run's files be laid out")
-    assert "SQLite" not in recorded.asked[0]
-    kept = state.drive_dir("demo") / "asks" / f"j1-{state.ask_hash(SHORT_ASK)}.md"
-    assert f"{kept} keeps this ASK as j1's pending question with this refusal: no card draws for it" in refusal
     job = state.load("demo")["jobs"]["j1"]
-    assert (job["state"], kept.read_text(), [question["file"] for question in job["questions"]]) == ("running", SHORT_ASK, [str(kept)])
-    assert job["questions"][0]["refused"].startswith("refused: his recorded answer ac61348 already decides this question.")
-    assert "refused, so no card draws: his recorded answer ac61348 already decides this question." in run("status")[1]
-    assert settled.ask_refusal(["demo"], {"ask": str(kept), "job": "j1"}, SHORT_ASK).startswith(f'refused: {kept} keeps j1\'s question "How should')
-    assert cli.main(["job", "card", asking]) == 2
-    assert "j1 keeps no ASK block" in capsys.readouterr().err
+    assert (job["state"], kept.read_text(), [(question["file"], question["refused"], question["settled"]["ruling"]) for question in job["questions"]]) == (
+        "running",
+        SHORT_ASK,
+        [(str(kept), None, "ac61348")],
+    )
+    assert settled_notes == [("j1", "ac61348")]
+    assert "refused, so no card draws" not in run("status")[1]
     assert cli.main(["job", "ask", asking, str(block), "--unsettled", "it lays out files, not how its page opens them"]) == 2
     assert 'ask again with --unsettled "ac61348: <why>"' in capsys.readouterr().err
-    assert len(state.load("demo")["jobs"]["j1"]["questions"]) == 1
     why = "ac61348: it lays out the files; this asks how the page opens them"
     assert run("job", "ask", asking, str(block), "--unsettled", why)[0] == 0
-    assert [(question["unsettled"], question["refused"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [(why, None)]
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["state"], [(question["unsettled"], question["refused"]) for question in job["questions"]][-1]) == ("waiting", (why, None))
     assert len(jev.asked) == 1
+
+
+def test_a_settled_question_tells_the_session_holding_its_order_in_one_record_that_wakes_nobody(
+    run: Run, asking: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sent: list[tuple[str, list[dict]]] = []
+    monkeypatch.setattr(tools, "sent", lambda name, lane, records: sent.append((lane, records)) or ["#9"])
+    SETTLED_NOTE("demo", state.load("demo"), asking, "How should a finished run's files be laid out?", {"id": "ac61348"})
+    assert sent == [
+        (
+            "builder",
+            [
+                {
+                    "kind": "evidence",
+                    "to": ["root@demo"],
+                    "attr": {"job": "j1", "answer": "ac61348"},
+                    "text": 'j1 builds on his answer ac61348, which already decides its question "How should a finished run\'s files be laid out?", so no card draws for it',
+                }
+            ],
+        )
+    ]
 
 
 BLOB_STORE_RULING = {
@@ -2232,11 +2270,12 @@ def test_job_ask_hands_jev_the_rulings_of_its_drive_nearest_to_its_whole_block_a
     recorded.found = [FLAT_RULING]
     recorded.nearest = [BLOB_STORE_RULING, FLAT_RULING]
     jev.settles("f061aac")
-    assert cli.main(["job", "ask", asking, str(block)]) == 2
+    code, settled_now = run("job", "ask", asking, str(block))
+    assert code == 0
     assert recorded.near == [(settled.read(SHORT_ASK), ("--nearest", "--label", "drive:demo"))]
     assert "LTX files" in recorded.near[0][0]
     assert sorted(answer["id"] for request in jev.asked for answer in request["state"]["answers"]) == ["ac61348", "f061aac"]
-    assert capsys.readouterr().err.startswith("drive: refused: his recorded answer f061aac already decides this question.")
+    assert "settled, no card: his recorded answer f061aac already decides this question." in settled_now
     why = "f061aac: it says where a run's files go, not how they are laid out"
     assert run("job", "ask", asking, str(block), "--unsettled", why)[0] == 0
 
@@ -2261,8 +2300,7 @@ def test_job_ask_asks_jev_again_only_when_a_reworded_asks_title_changes(
     block.write_text(SHORT_ASK)
     recorded.found = [FLAT_RULING]
     jev.settles("ac61348")
-    assert cli.main(["job", "ask", asking, str(block)]) == 2
-    assert "his recorded answer ac61348 already decides this question" in capsys.readouterr().err
+    assert "his recorded answer ac61348 already decides this question" in run("job", "ask", asking, str(block))[1]
     recorded.found = [PAGE_RULING]
     jev.settles("33eaad9")
     where = SHORT_ASK.replace("ASK How should", "ASK Where should")
@@ -2275,7 +2313,7 @@ def test_job_ask_asks_jev_again_only_when_a_reworded_asks_title_changes(
     assert run("job", "ask", asking, str(block), "--unsettled", why)[0] == 0
     assert len(jev.asked) == 2
     job = state.load("demo")["jobs"]["j1"]
-    assert (job["state"], [(question["unsettled"], question["refused"]) for question in job["questions"]], job["may_settle"]) == ("waiting", [(why, None)], None)
+    assert (job["state"], [(question["unsettled"], question["refused"]) for question in job["questions"]], job["may_settle"]) == ("waiting", [(None, None), (why, None)], None)
 
 
 def test_job_ask_checks_a_link_by_its_label_never_the_words_of_its_url(run: Run, asking: str, tmp_path: Path, recorded: Answers) -> None:

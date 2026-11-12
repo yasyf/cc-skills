@@ -70,6 +70,11 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    work: your job's, or one a job sharing your part asked, the design you build included, since work
    does not land with a question of his on it unanswered.
    A brief on the order's `immediate fix` part is no design choice: build it and open its PR at once.
+   On an open incident a choice never stops you: return `ASK` the moment the fork shows, even
+   mid-build, and build its recommended option when the coordinator resumes you in that turn. Its
+   PR lands on that option while his card stays open, by his pick "The repair lands on the
+   recommendation, the question stays open, another pick is a follow-up: no incident waits; costs a
+   second PR."
 4. Write the change:
    - Change only what his words ask. What already exists, a value's printed form, a wire, file or
      API shape, a default, a command's output or a behavior, stays as it was unless his words name
@@ -364,8 +369,8 @@ listing decisions that block nothing is not a result.
 | `READY <pr url> [<pr url>…]` | The same, with every check its repository's rules require green; the watch draws his card once it is green and approved. A stack names every PR, bottom first, so it gets one card, as sibling PRs of one order ready together do. When he sees what you built (`NATIVE:` is not `none: he never sees it`), a Show me on its card carries a before and an after screenshot of it, pushed beside the landing when it is missing. A question whose answer only lands PRs, such as an open PR below yours, is this `READY` naming each, never an `ASK`: their stack card is his tap and needs no Show me, and `drive job ask` refuses an ask to land PRs. |
 | `BUILT <branch>, waits on <cards>` | The recommended options built and pushed on `<branch>`, no PR open, waiting on his answer to each design card the brief names, by its waits id or Slack link. Its lines name the option built for each card and what his other picks would change. |
 | `WAITING <what, in plain words>` | Another PR or a release; never CI, a review or a queue on your own PR, which `PUSHED` covers, nor his sign-in, Touch ID or cc-sudo for an AWS action, which this Mac's machine profile runs. `WAITING <your PR> waits on <cards>`, each card by its waits id or Slack link, holds that PR's card until he answers each. |
-| `ASK <path>` | Only for a change of scope, a design choice his words do not settle, or a line he holds; decide everything else. |
-| `BLOCKED <what>`, then what you tried | Only when no route works. A broken tool is not a block: route around it and name it, with a `defect` on the cci `post` tool, `lane: root` and `to: [meta@<drive>]`, quoting its refusal, or for drive tooling a `DEFECT:` line. |
+| `ASK <path>` | Only for a change of scope, a design choice his words do not settle, or a line he holds; decide everything else. On an open incident, the moment the fork shows, then build its recommended option once resumed. |
+| `BLOCKED <what>`, then what you tried | Only when no route works, never on a choice, which is an `ASK`. A broken tool is not a block: route around it and name it, with a `defect` on the cci `post` tool, `lane: root` and `to: [meta@<drive>]`, quoting its refusal, or for drive tooling a `DEFECT:` line. |
 | `HANDOFF <path>` | The session that started you told you to stop before you were done; the file, under your scratch directory, names the branch, what was decided and what is left. It sets the job stopped. |
 
 `drive job report` refuses a report whose first line opens with none of these words, naming them. It
@@ -391,7 +396,9 @@ Write the block to a new file under your scratch directory, one per question, an
 `drive job ask --check <file>`, which checks its words and the card cc-slack draws from it, draws each
 Show me picture and prints every fix, such as Mermaid's parse error for a diagram that does not draw,
 or `ready`. Then run `drive job ask <your job> <file>`, which refuses a block out of shape
-and names each fix, and return the path it prints. A kept block you will not return, such as an
+and names each fix, and return the path it prints. When his recorded answer already decides the
+question, it keeps the block settled by that answer instead, draws no card, tells the coordinator,
+and prints his words: build on them and return no `ASK`. A kept block you will not return, such as an
 earlier wording of the same question, counts as open until `drive job ask <your job> --drop <its path>`
 throws it away. On a Sprite, ask with the path it prints as On a Sprite says.
 

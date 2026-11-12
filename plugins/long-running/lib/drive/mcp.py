@@ -118,7 +118,7 @@ SAY = {
             "visuals": {"type": "array", "items": VISUAL},
             "order": {
                 "type": "string",
-                "description": "The order this post is on, which records it there, a clock time its words promise his next line by, such as \"Next line by 9:45\", becoming the order's due; refused, posting nothing, in none of its threads (its own, its incident's and every alert's joined to it with --joins, both ways, those he asked about it in, its cards' or its PRs' cards', or, when its record is about this order, the thread of the message of his the record answers, which the post adds to them), naming the order whose thread it is",
+                "description": "The order this post is on, which records it there, a clock time its words promise his next line by, such as \"Next line by 9:45\", becoming the order's due, but on an incident, whose next line the watch owes five quiet minutes after this one; refused, posting nothing, in none of its threads (its own, its incident's and every alert's joined to it with --joins, both ways, those he asked about it in, its cards' or its PRs' cards', or, when its record is about this order, the thread of the message of his the record answers, which the post adds to them), naming the order whose thread it is",
             },
             "record": {
                 "type": "string",

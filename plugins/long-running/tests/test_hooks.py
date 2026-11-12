@@ -629,6 +629,24 @@ def test_a_build_orders_builder_starts_only_on_a_brief_naming_its_readers_resear
     assert agents.shaped(drive_agent("long-running:builder", prompt, "sonnet")) == {"subagent_type": "long-running:builder", "prompt": prompt, "description": "d"}
 
 
+def test_an_incident_lanes_brief_carries_the_rule_its_kind_follows_on_a_choice_and_no_line_stopping_it_on_one(demo: str, run: Run) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Alerts", "chat turns fail on sand 0.162.3983", "--incident", "--parts", "fix", "first check")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship the fix the codex lane built")
+    stopping = "Order: chat turns fail on sand 0.162.3983\nIncident: record 674295\n4. If something is lost, stop and return `BLOCKED <what is lost>` with 2 to 4 options, before any PR\nDrive: demo, order o1, job j1"
+    reason = scratch_folder.deny_reason(drive_agent("codex:codex-wrapper", stopping))
+    assert reason.startswith("refused, no agent started: j1 works on o1, an incident, which a choice never stops, by his words \"fix ur tooling")
+    assert reason.endswith(f'its brief\'s Incident: line carries, word for word, "{state.INCIDENT_CHOICE["codex"]}"')
+    ruled = stopping.replace("record 674295", f"record 674295; {state.INCIDENT_CHOICE['codex']}")
+    assert scratch_folder.deny_reason(drive_agent("codex:codex-wrapper", ruled)).startswith(
+        "refused, no agent started: j1's brief stops it on a choice, \"If something is lost, stop and return `BLOCKED <what is lost>` with 2 to 4 options, before any PR\""
+    )
+    building = ruled.replace("4. If something is lost, stop and return `BLOCKED <what is lost>` with 2 to 4 options, before any PR", "4. Build the fix and open its PR, then return READY <pr url>")
+    assert scratch_folder.deny_reason(drive_agent("codex:codex-wrapper", building)) is None
+    assert scratch_folder.deny_reason(drive_agent("long-running:builder", building.replace("job j1", "job j3"))).startswith("refused, no agent started: j3 works on o1, an incident")
+    builder = building.replace(state.INCIDENT_CHOICE["codex"], state.INCIDENT_CHOICE["builder"]).replace("job j1", "job j3")
+    assert scratch_folder.deny_reason(drive_agent("long-running:builder", builder)) is None
+
+
 def test_a_brief_planning_his_touch_id_tap_for_an_aws_action_starts_no_agent_and_a_drive_tooling_brief_naming_one_does(demo: str, run: Run) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Search", "test hybrid search on a pass box")
     run("job", "add", "builder", "--order", "o1", "--goal", "run the test")

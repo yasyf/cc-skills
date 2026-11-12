@@ -82,7 +82,7 @@ changed and when, its findings the suspects, and its root cause the verdict.
    makes this a join, by [One incident, one record](#one-incident-one-record), and nothing below
    starts. Otherwise, open it in one call, filed under the area it hit: `drive incident open "<his
    words, or the alert text>" --from <its permalink> --record "<service> on <cluster>:
-   <symptom>, since <time>" --alert <link> --release --due +5m --project "<p>" --workstream "<w>" --title "<a few words>"`.
+   <symptom>, since <time>" --alert <link> --release --project "<p>" --workstream "<w>" --title "<a few words>"`.
    - `--alert`, once for each alert, is its Datadog monitor or Sentry issue link, from the alert's
      post; `drive order set <o> --alert <link>` adds one later. An incident from his words alone
      has none.
@@ -90,15 +90,18 @@ changed and when, its findings the suspects, and its root cause the verdict.
      `first check`. With neither flag they are `fix`, `rollback` and `cause`, and with
      `--no-rollback`, when no build lacks the failing path, `fix`, `stop` and `cause`.
    - It records a codex job on each part, opens the evidence record and names it on the order's
-     note, and prints each job's start line, then each other open incident order with its note.
+     note, and prints each job's start line, the rule each brief's `Incident:` line carries word for
+     word, then each other open incident order with its note.
    - The order sits on the dashboard's top strip until it closes. An order made another way gets
      `drive order set <o> --incident`, which refuses until a job owns its `fix` part.
 3. In the next message, start every job the verb printed, as [Jobs](#jobs) says, and no freeze,
    which waits until users are unblocked, by [Freeze the broken service](#freeze-the-broken-service).
    Each job is a `codex:codex-wrapper` running `codex-ask --incident`, never `-m astra`. Its brief
    carries the answer id from step 1, the record's id, and the brief template's `Incident:` line
-   written out in full. Its `Drive:` line names the job, which records the agent as it starts;
-   until then the watch says on every pass that the job has no agent recorded.
+   written out in full, ending in the rule the verb printed, by
+   [His card on an incident](#his-card-on-an-incident). Its `Drive:` line names the job, which
+   records the agent as it starts; until then the watch says on every pass that the job has no
+   agent recorded.
 4. A `report` to the communicator for his first line: the fix job and the code path it started
    at, and the diagnosis job beside it.
 
@@ -180,8 +183,26 @@ changed and when, its findings the suspects, and its root cause the verdict.
 
 ## His card on an incident
 
-- When incident work needs a decision of his, the card goes up in that turn. His words: "if its
-  more decisions fucking tell me dont just sit there".
+- When incident work needs a decision of his, the card goes up in that turn and the work goes on.
+  His words: "if its more decisions fucking tell me dont just sit there", and "fix ur tooling if it
+  stopped on that it shoukd. have brought a design question card to me asap not just stopped int eh
+  middle of the incident".
+- A choice never stops an incident lane. `drive job brief` and `drive incident open` end each
+  incident brief's `Incident:` line with the rule its kind follows on one. `brief_refusal` runs on
+  every launch of an incident lane and refuses a brief without that rule word for word, or with a
+  line ordering a `BLOCKED` return on a loss or a choice, such as "If something is lost, stop and
+  return `BLOCKED`".
+  - A codex lane writes its `ASK` block to a file in its scratch, builds the recommended option in
+    the same run, and returns its result with an `ASK: <that file>` line. Nothing resumes a codex
+    run, so the watch keeps that block as `drive job ask` does in the pass it takes the run, and
+    its `JOB <j> <o> …; its ASK is kept` line wakes you to send the ask record, its path named.
+  - A builder returns `ASK <path>` the moment the fork shows, and you resume it in that turn with
+    "build the recommended option meanwhile".
+- A question his recorded answer already decides draws no card and stops nothing. `drive job ask`
+  keeps it settled by that answer, prints his words and that the job builds on them now, and sends
+  the session holding the order one `evidence` record naming the job and the answer, which wakes
+  nobody. When the job already ended, such as a codex run, the printed line names the job to start
+  on its part, its brief naming his answer under `Decisions that bind`: start it in that turn.
 - When a question card of his blocks incident work, such as a design card on the fix, the
   incident's thread hears it at once. The line opens with the card linked, names what it blocks
   by its proper term, and names the recommended option the job builds on meanwhile.
@@ -191,8 +212,6 @@ changed and when, its findings the suspects, and its root cause the verdict.
   card is up: the cci `post` tool's hook marks an ask of a job on an open incident order
   `incident=true`, with the incident's thread as its `thread`, and `landing_guard` refuses a
   `cci post` in Bash without them.
-- The job keeps building on the recommendation and never waits on the card: its `ASK` resumes it
-  in that turn with "build the recommended option meanwhile", which runs the job again.
 - Its PR opens and lands on that recommendation while the card stays open: `drive pr add` takes
   it, `drive pr set --waits <card>` refuses on it, and a different pick of his starts a follow-up
   job on the same order. His pick: "The repair lands on the recommendation, the question stays
@@ -227,9 +246,10 @@ His stop carries the scope his words give it: "leave it alone here" stops the wo
 and nothing else. Nothing stops an open incident's fix, because users stay blocked until it lands.
 `drive job set <j> --state stopped` refuses the last running job on an open incident's `fix` part:
 add the job taking the fix over first, or close the order once its fix is live. A fix job that
-ends on its own, `BLOCKED` or done with no PR, leaves the fix with nobody, and the watch says
-`ORPHAN o<n> "fix": no fix job` on its next pass, naming the second job to start. Only his words
-saying he writes the fix himself close the incident for that reason.
+ends on its own, `BLOCKED` with no route left or done with no PR, leaves the fix with nobody, and
+the watch says `ORPHAN o<n> "fix": no fix job` on its next pass, naming the second job to start: a
+builder on the last job's brief, which `brief_refusal` already held to never stopping on a choice.
+Only his words saying he writes the fix himself close the incident for that reason.
 
 ## Clocks
 
@@ -241,18 +261,29 @@ check's verdict, or from the order when none ran.
 | First check: the live build's commit, and the default branch's newest build tried on a test machine | 10 minutes | A second job on the first check |
 | Rollback started on the proven target, or the evidence that no build can serve | 10 minutes | A second job on the rollback |
 | Every later step, until live | at most 10 minutes out | A second job on that step |
-| His next line, until users are unblocked | 5 minutes after his last | A line of what is running and when the next lands |
+| His next line, until the fix is live | 5 minutes after the incident's last line | The watch's report, and a handler posting where it stands |
 
-- His next line's clock is the order's due: each line ends with the time of the next as "Next line
-  by 9:45 PM", the one phrase the line's record makes the order's due, and the watch says `DUE` when
-  no drive post is in the order's thread by then.
+- His next line's clock is the watch's, never a time a line promises, by his pick "Watch-owned
+  clock: no 10-minute silence again, a line every five quiet minutes from a handler reading the
+  jobs; costs one handler session each". Five minutes after the newest drive post on any order of
+  the incident, or after it opened, the watch's `quiet_lines` sends the communicator a `report`
+  carrying `quiet=true` and the incident's thread, naming its orders and each job. It starts a
+  handler on that report, which reads the jobs and posts where the incident stands in that thread;
+  a handler already at work in the thread takes the report when it ends.
+  - It runs while he is away too, and restarts once a handler has the report, so a handler that
+    cannot post leaves the next five minutes owed.
+  - It stops once the fix is recorded live, by his words "werte still in incident until its fixed".
+  - An incident keeps no promised time: "Next line by" in its line sets no due, `drive incident
+    open` takes no `--due`, and no `DUE o<n>` comes for it.
 - A job's clock is its own, set with `drive job set <j> --due <time>`: the watch says `DUE j<n>` once
   if the job still runs then. Read its transcript, never wait for its message, since a stuck job
   sends none.
 - A second job is an Opus 5.5 `long-running:builder` on the same brief, started beside the first
-  in the turn the clock is missed; fast mode is a session's setting, which no agent definition or
-  Agent call sets. The first to deliver wins, and both write to the one record. The `agent_brief`
-  hook refuses a Fable model for it.
+  in the turn the clock is missed. The first to deliver wins, and both write to the one record. The
+  `agent_brief` hook refuses a Fable model for it.
+- His pick for incident speed is Claude's /fast plus the codex fast tier. A codex lane gets the
+  fast tier from `codex-ask --incident`; /fast is a session's setting, which no agent definition or
+  Agent call sets, so a Claude incident lane runs at the speed of the session that starts it.
 - A missed clock also sends him a line in that turn, before he asks: what is late, and the new
   time.
 
@@ -330,14 +361,15 @@ check's verdict, or from the order when none ran.
 
 Each line is a `report` to the communicator, with `--attr part=<o>:<part>` on one delivering a part, such as the
 first check or the cause, and `--attr progress=true` on every other. The `fix` part is delivered only once the fix runs where the
-incident hurt: by a report after the watch records the release shipping its fix job's change, or by one closing the incident, so
+incident hurt: by a report after its fix is recorded live, by the release shipping its fix job's change or a builder on it returning `DONE`, or by one closing the incident, so
 `record_lines` refuses an earlier report naming it and `say` marks it on no other post, by his words "werte still in incident until its fixed". The communicator posts it in his thread or
-the alert's thread, the alert's with `say(channel_id=<the alert's channel>, thread_ts=<its ts>)`, while he is away too. These rules bind the communicator, its handlers and any reader that posts for
-it.
+the alert's thread, the alert's with `say(channel_id=<the alert's channel>, thread_ts=<its ts>)`, while he is away too. A report on an open incident goes out the moment it is written: the one
+report per thread per turn that `record_lines` holds the coordinator and the meta session to never holds one, by his words "this is incident so uyou should be faster and communicating more with
+me". These rules bind the communicator, its handlers and any reader that posts for it.
 
-- Until users are unblocked he hears a line at least every 5 minutes. After that, each step of the
-  root fix reaches him once, as it happens. A link appears once, inline, where the sentence names
-  the thing it points at.
+- Until the fix is live he hears a line at least every five minutes, the watch owing one after any
+  five quiet minutes by [Clocks](#clocks), and each step below the moment it happens. A link
+  appears once, inline, where the sentence names the thing it points at.
 - Each line names the failing service, function, file or table by its proper term, never a
   stand-in, and carries no "not proven" paragraph under any label, by [messages.md](messages.md).
   It gives no side facts about a release, such as what else it applies, its counts or its parts.

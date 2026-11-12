@@ -533,7 +533,7 @@ def test_pr_url_round_trips() -> None:
 
 def test_a_moved_time_is_kept_only_by_lines_after_it_was_set() -> None:
     at = lambda minutes: REFERENCE + timedelta(minutes=minutes)
-    order = {"due": state.stamp(at(0)), "promised": state.stamp(at(-60)), "kept": None, "withdrawn": None, "next_due": None, "next_set": None}
+    order = {"due": state.stamp(at(0)), "promised": state.stamp(at(-60)), "kept": None, "withdrawn": None, "next_due": None, "next_set": None, "incident": False}
     state.promise(order, state.stamp(at(120)), at(30))
     state.keep(order, [at(-10), at(10)])
     assert (order["due"], order["promised"], order["kept"]) == (state.stamp(at(120)), state.stamp(at(30)), None)
@@ -545,7 +545,7 @@ def test_a_moved_time_is_kept_only_by_lines_after_it_was_set() -> None:
 
 def test_the_line_of_a_report_closing_the_order_keeps_the_time_it_told_him_and_a_line_before_the_report_does_not() -> None:
     at = lambda minutes: REFERENCE + timedelta(minutes=minutes)
-    order = {"due": None, "promised": None, "kept": None, "withdrawn": None, "next_due": None, "next_set": None, "due_said": None}
+    order = {"due": None, "promised": None, "kept": None, "withdrawn": None, "next_due": None, "next_set": None, "due_said": None, "incident": False}
     state.promise(order, state.stamp(at(28)), at(0))
     state.keep(order, [at(16)])
     state.keep(order, [at(16)], announced=False)
@@ -554,6 +554,11 @@ def test_the_line_of_a_report_closing_the_order_keeps_the_time_it_told_him_and_a
     assert state.owed(order)
     state.keep_closing(order, [at(16)], at(15))
     assert (order["kept"], order["next_due"], state.owed(order)) == (at(16).isoformat(), None, False)
+
+
+def test_an_incident_owes_no_promised_time_since_the_watch_owes_its_line_five_quiet_minutes_after_its_last() -> None:
+    order = {"due": state.stamp(REFERENCE), "promised": state.stamp(REFERENCE - timedelta(minutes=5)), "kept": None, "withdrawn": None, "incident": False}
+    assert (state.owed(order), state.owed(order | {"incident": True})) == (True, False)
 
 
 MONOREPO = "Forge-AI/monorepo"

@@ -26,6 +26,7 @@ FAILURES_BEFORE_SAYING = 3
 FAILURE_EVERY = timedelta(minutes=10)
 TICK_EVERY = timedelta(minutes=30)
 DUE_EVERY = timedelta(minutes=10)
+QUIET_INCIDENT = timedelta(minutes=5)
 TELL_AFTER = timedelta(minutes=10)
 WAKES = ("TAP ", "DUE ", "TELL ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "STUCK ", "FREE ", "EVENT unheard ", "EVENT stop ", "WATCH stopped")
 OWNER_MOVES = ("merged", "checks failed", "READY refused", served.NOT_READY, "conflicts with its base", "changes requested", "still red", "ejected from the merge queue", "not landed")
@@ -48,6 +49,7 @@ SETTLING = ""
 PR_LINE = re.compile(r"\s*(?:READY|PUSHED|PR:)")
 LANE_REPORT = re.compile(r"DRIVE job report\b")
 UNKEPT_ASK = "keep it with `drive job ask {job}`, which prints the file its ask record names, since no file holds it until then"
+ASK_FIELD = re.compile(r"^ASK:?[ \t]+([/~]\S*)[ \t]*$", re.MULTILINE)
 PAUSED = "The recommended answer to this question is built and paused on your pick: tap it and the work ships; another pick rebuilds it first."
 QUIET_FOR = timedelta(minutes=30)
 STUCK_FOR = timedelta(minutes=30)
@@ -995,7 +997,7 @@ def overdue(order: dict, moment: datetime, away: bool) -> bool:
 
 
 def due_lines(watcher: Watcher, moment: datetime) -> list[tuple[str, str]]:
-    """Each promised time that passed with no drive post in its order's thread or one of its cards' since it was promised, read from Slack, again every ten minutes until one is there; only the first while he is away. An order with no thread has no line to read, so its time is the drive's own, said once and kept by being said."""
+    """Each promised time that passed with no drive post in its order's thread or one of its cards' since it was promised, read from Slack, again every ten minutes until one is there; only the first while he is away. An incident promises none, since quiet_lines owes its next line five quiet minutes after its last. An order with no thread has no line to read, so its time is the drive's own, said once and kept by being said."""
     data = state.load(watcher.name)
     away = state.owner_away(data, moment)
     threads = {
@@ -1018,6 +1020,70 @@ def due_lines(watcher: Watcher, moment: datetime) -> list[tuple[str, str]]:
                 why = UNTHREADED if read is None else read[1] or f"no line in its thread since {when(order['promised'])}"
                 lines.append((order_id, f'DUE {order_id} "{cut(order["text"], 80)}" was due {when(state.owed_at(order))}: {why}'))
     return lines
+
+
+def quiet_since(data: dict, head: str) -> datetime:
+    """When an open incident last had a line: the newest drive post on any order of it, else when it was opened, or when the watch's last report on it reached a handler, whichever is newer."""
+    group = [data["orders"][order_id] for order_id in state.incident_orders(data, head)]
+    owed = data["orders"][head]["quiet"]
+    said = [order["last_line"] for order in group if order["last_line"]] or [data["orders"][head]["created"]]
+    return max(map(state.parse_time, [*said, *([owed["at"]] if owed and owed["at"] else [])]))
+
+
+def quiet_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Owe him a line on each open incident the watch hears whose fix is not live yet and that had none in five minutes, whatever its last line said and while he is away too, since he is in incident until it is fixed, by his pick "Watch-owned clock: no 10-minute silence again, a line every five quiet minutes from a handler reading the jobs; costs one handler session each": a report naming the incident's orders and jobs, written once, and a handler the watch starts on it, which reads the jobs and posts where the incident stands in its thread. A handler already at work in that thread takes the report when it ends. The clock restarts once a handler has the report, so one that cannot post owes him the next five minutes on; a failed write or start is said as a failed read is and tried again next pass with the same report."""
+    data = state.load(watcher.name)
+    owing = [
+        head
+        for head, order in heard_orders(watcher, data).items()
+        if order["incident"] and not order["joins"] and not order["fixed"] and moment - quiet_since(data, head) >= QUIET_INCIDENT
+    ]
+    lines = []
+    for head in owing:
+        source = f"quiet {head}"
+        owed = data["orders"][head]["quiet"]
+        try:
+            seq = owed["record"] if owed and not owed["at"] else quiet_report(watcher, data, head, moment)
+            with state.edit(watcher.name) as data:
+                data["orders"][head]["quiet"] = {"record": seq, "at": None, "handler": None}
+            try:
+                handler = agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'quiet-{seq}'}")
+            except agents.Busy:
+                handler = None
+        except (reads.ReadError, state.DriveError) as error:
+            lines += failed(watcher, source, f"line owed on quiet incident {head}", error, moment)
+            continue
+        watcher.failures.pop(source, None)
+        with state.edit(watcher.name) as data:
+            data["orders"][head]["quiet"] = {"record": seq, "at": state.stamp(moment), "handler": handler}
+    return lines
+
+
+def quiet_report(watcher: Watcher, data: dict, head: str, moment: datetime) -> str:
+    """Write the report owing him a line on a quiet incident, for the handler that posts it in the incident's thread; its seq."""
+    incident = data["orders"][head]
+    group = state.incident_orders(data, head)
+    since = quiet_since(data, head)
+    jobs = [f"- {render.job_line(job_id, data['jobs'][job_id])}" for order_id in group for job_id in data["orders"][order_id]["jobs"]]
+    facts = [
+        f"Incident {head}, {', '.join(group)}: {incident['text']}",
+        f"Evidence record: {incident['note'] or 'none'}",
+        f"No line to him since {when(state.stamp(since))}, {int((moment - since).total_seconds() // 60)} minutes.",
+        "Read each job below, its kept report with drive job report <j> and the transcript of one still at work, then post where the incident stands now in its thread: what each job found or is doing, a card of his that blocks it with the option built meanwhile, and what ships next.",
+        f"Jobs: {len(jobs)}",
+        *jobs,
+    ]
+    record = {
+        "kind": "report",
+        "topic": f"watch-quiet-{head}",
+        "attr": {"order": head, "progress": "true", "quiet": "true"} | ({"thread": incident["thread"][1]} if incident["thread"] else {}),
+        "text": f"POST incident {head} has had no line to him in {int((moment - since).total_seconds() // 60)} minutes: post where it stands now in its thread",
+        "body": "\n".join(facts) + "\n",
+    }
+    from drive import tools
+
+    [seq] = tools.sent(watcher.name, LANE, [record])
+    return seq
 
 
 def owes_tell(order: dict, moment: datetime) -> bool:
@@ -1262,6 +1328,23 @@ class Answered(str):
         codex.take(name, data, job_id, self.run)
 
 
+def codex_asks(name: str, job_id: str) -> list[str]:
+    """Keep the ASK block a codex job's reply names on its `ASK: <file>` line, or on an `ASK <file>` line it returned, as `drive job ask` keeps a builder's, in the pass its run is taken, so his card goes up as the lane returns while the recommended option it built ships, since a codex run is never resumed mid-run and an incident never stops on a choice; the JOB line waking the coordinator to send its ask record, the settled line when his recorded answer already decides it, or why it was not kept."""
+    from drive import cli
+
+    job = state.load(name)["jobs"][job_id]
+    if not (named := ASK_FIELD.search(state.report_text(name, job_id, job))):
+        return []
+    head = f"JOB {job_id} {job['order']} {job['said']}"
+    try:
+        kept, _, _, decided = cli.keep_ask(name, job_id, Path(named[1]).expanduser().read_text(), None)
+    except (OSError, state.DriveError, slack.SlackError) as error:
+        return [f"{head}; its ASK: {named[1]} is not kept: {error}; keep it with drive job ask {job_id} {named[1]}"]
+    if decided:
+        return [f"{head}; {decided}"]
+    return [f"{head}; its ASK is kept: send its ask record, path {kept}, and the recommended option it built ships meanwhile"]
+
+
 def session_of(job: dict, data: dict) -> dict | None:
     """The bound session whose agent runs a local job."""
     session = job.get("session")
@@ -1419,6 +1502,7 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
             for job_id, (call, line) in held.items():
                 data["jobs"][job_id]["stuck_call"] = call
                 lines.append(line)
+    lines += [line for job_id in taken for line in codex_asks(watcher.name, job_id)]
     watcher.made += lines
     unlisted, failed = untracked_prs(watcher, data, heads, moment)
     watcher.agent_gaps = {job_id: stranded(job_id, data, gaps.get(job_id), unlisted.get(job_id, {})) for job_id in gaps.keys() | heads.keys()}
@@ -1761,6 +1845,7 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
     lines += catch_up_lines(watcher, moment)
     due = due_lines(watcher, moment)
     lines += [line for _, line in due]
+    lines += quiet_lines(watcher, moment)
     lines += clock_lines(watcher, moment)
     lines += undelivered_lines(watcher, moment)
     lines += tell_lines(watcher, moment)
