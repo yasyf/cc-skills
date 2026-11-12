@@ -622,17 +622,25 @@ def test_no_tick_while_he_is_away(demo: str, monkeypatch: pytest.MonkeyPatch, ow
 BACK = T0 + timedelta(minutes=95)
 
 
-def catching_up(monkeypatch: pytest.MonkeyPatch, demo: str) -> list[tuple[list[str], str | None]]:
-    """Each command the drive runs, with the body file a cci post names read at the call, a cci post answering its seq."""
+def catching_up(monkeypatch: pytest.MonkeyPatch, demo: str) -> list[tuple[list[str] | dict, str | None]]:
+    """Each command the drive runs and each record it posts with its body, a post answering its seq."""
+    from drive import tools
+
     with state.edit(demo) as data:
         data["roles"]["communicator"] = {"session": "communicator-session", "terminal": None, "cwd": "/work", "started": state.stamp(T0)}
-    calls: list[tuple[list[str], str | None]] = []
+    calls: list[tuple[list[str] | dict, str | None]] = []
 
     def run(argv: list[str], checkout: Path, env: dict | None = None) -> str:
-        calls.append((argv, Path(argv[argv.index("--body-file") + 1]).read_text() if "--body-file" in argv else None))
-        return json.dumps({"seq": 900 + len(calls)}) if argv[:2] == ["cci", "post"] else ""
+        calls.append((argv, None))
+        return ""
+
+    def sent(name: str, lane: str, records: list[dict]) -> list[str]:
+        [record] = records
+        calls.append((record, record["body"]))
+        return [str(900 + len(calls))]
 
     monkeypatch.setattr(reads, "run", run)
+    monkeypatch.setattr(tools, "sent", sent)
     monkeypatch.setattr(state, "now", lambda: BACK)
     return calls
 
@@ -656,8 +664,8 @@ def test_his_next_message_after_away_owes_his_catch_up_which_the_watch_posts_thr
     assert state.load(demo)["catch_up"] == state.new_catch_up(state.stamp(T0), ["o1"])
     assert watch.catch_up_lines(watching, BACK) == []
     [(report, body), (start, _)] = calls
-    assert report[report.index("--text") + 1] == f"POST his catch-up since {render.when(state.stamp(T0))}: 1 orders with news, 0 reports held for it"
-    assert ("--to" not in report, report[report.index("--attr") + 1]) == (True, "catch_up=true")
+    assert report["text"] == f"POST his catch-up since {render.when(state.stamp(T0))}: 1 orders with news, 0 reports held for it"
+    assert ("to" not in report, report["kind"], report["attr"]) == (True, "report", {"catch_up": "true"})
     assert f"- {render.order_line('o1', state.load(demo)['orders']['o1'])}" in body.splitlines()
     assert start[:4] == ["claude", "--bg", "--agent", "long-running:handler"]
     assert start[-1] == f"Record: 901 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'catch-up-901'}"
@@ -703,7 +711,7 @@ def test_a_catch_up_whose_handler_failed_to_start_starts_one_next_pass_on_the_re
     assert watch.catch_up_lines(watching, BACK) == []
     assert (state.load(demo)["catch_up"]["record"], state.load(demo)["handlers"]) == ("901", {})
     assert watch.catch_up_lines(watching, BACK) == []
-    assert [argv[0] for argv, _ in calls] == ["cci", "claude", "claude"]
+    assert [call["kind"] if isinstance(call, dict) else call[0] for call, _ in calls] == ["report", "claude", "claude"]
     assert calls[2][0][-1].startswith("Record: 901 ")
 
 
@@ -724,7 +732,7 @@ def test_a_report_held_while_he_was_away_and_its_correction_go_on_his_catch_up(
     assert state.load(demo)["catch_up"]["orders"] == ["o2"]
     assert watch.catch_up_lines(watcher(demo, BACK), BACK) == []
     [(report, body), _] = calls
-    assert report[report.index("--text") + 1].endswith(": 1 orders with news, 1 reports held for it")
+    assert report["text"].endswith(": 1 orders with news, 1 reports held for it")
     assert "- report 669950 on o2, corrected by record 669952" in body.splitlines()
 
 
@@ -3159,11 +3167,11 @@ def test_an_incident_order_whose_last_release_wait_the_drives_watch_drops_is_tol
 MONITOR = "https://app.datadoghq.com/monitors/315028134"
 
 
-def monitors_read(monkeypatch: pytest.MonkeyPatch, statuses: dict[str, str]) -> list[tuple[list[str], str]]:
+def monitors_read(monkeypatch: pytest.MonkeyPatch, statuses: dict[str, str]) -> list[list[str]]:
     calls = []
 
     def run(argv: list[str], checkout: Path) -> str:
-        calls.append((argv, Path(argv[argv.index("--body-file") + 1]).read_text() if "--body-file" in argv else ""))
+        calls.append(argv)
         return json.dumps([{"id": int(monitor), "status": status} for monitor, status in statuses.items()]) if argv[0] == "pup" else ""
 
     monkeypatch.setattr(watch.reads, "run", run)
@@ -3175,7 +3183,7 @@ def monitors_read(monkeypatch: pytest.MonkeyPatch, statuses: dict[str, str]) -> 
     [("Alert", True, "fix", False), ("OK", False, "fix", False), ("OK", True, "stop", False), ("OK", True, "fix", True)],
 )
 def test_an_incident_closes_once_its_monitor_reads_ok_and_a_release_shipped_its_fix_moving_the_follow_ups_of_each_of_its_orders_to_a_plain_order(
-    demo: str, monkeypatch: pytest.MonkeyPatch, status: str, out: bool, part: str, closes: bool
+    demo: str, monkeypatch: pytest.MonkeyPatch, ready_records: list[list[dict]], status: str, out: bool, part: str, closes: bool
 ) -> None:
     serve(monkeypatch, {OTHER: read()})
     published = [release(2, "2026-11-09T15:00:00Z", "api")] if out else []
@@ -3192,31 +3200,25 @@ def test_an_incident_closes_once_its_monitor_reads_ok_and_a_release_shipped_its_
     watching = watcher(demo, T0 + timedelta(hours=1))
     lines = [line for line in watch.run_pass(watching, T0) if line.startswith(("LIVE", "RECOVERED"))]
     data = state.load(demo)
-    searches = [argv for argv, _ in calls if argv[0] == "pup"]
+    searches = [argv for argv in calls if argv[0] == "pup"]
     assert [argv[argv.index("--query") + 1] for argv in searches] == ["id:(315028134)"]
     if not closes:
-        assert (lines, [argv for argv, _ in calls if argv[0] == "cci"], data["orders"]["o1"]["recovered"], data["jobs"]["j2"]["order"]) == ([], [], None, "o1")
+        assert (lines, ready_records, data["orders"]["o1"]["recovered"], data["jobs"]["j2"]["order"]) == ([], [], None, "o1")
         assert [entry["id"] for entry in view.incidents(data)] == ["o1", "o2"]
         return
     shipped = f"release releases/2026-11-09/2 ships {KEY} on api"
     assert lines == [f"RECOVERED o1: {MONITOR} read OK and {shipped}, so the communicator posts its Live line and closes o1, o2; its live jobs, open PRs and parts left moved to the plain order o3"]
-    [(post, body)] = [(argv, body) for argv, body in calls if argv[0] == "cci"]
-    assert post[post.index("--kind") + 1 : post.index("--kind") + 4] == ["report", "--to", "communicator@demo"]
-    assert post[post.index("--attr") :] == [
-        "--attr",
-        "close=o1,o2",
-        "--attr",
-        "thread=1794200000.000100",
-        "--body-file",
-        post[post.index("--body-file") + 1],
-        "--text",
-        "POST incident o1 is over: its monitors read OK and its fix is live; post the Live line in its thread",
-    ]
-    assert body.splitlines() == [
-        "Incident: ship the watch",
-        f"Recovered: {MONITOR} read OK",
-        f"Fix live: {shipped}, {state.pr_url(KEY)}",
-        "Note: record 5f6b2b5; follow-up o3",
+    assert ready_records == [
+        [
+            {
+                "kind": "report",
+                "to": ["communicator@demo"],
+                "topic": "watch-recovered-o1",
+                "attr": {"close": "o1,o2", "thread": "1794200000.000100"},
+                "text": "POST incident o1 is over: its monitors read OK and its fix is live; post the Live line in its thread",
+                "body": f"Incident: ship the watch\nRecovered: {MONITOR} read OK\nFix live: {shipped}, {state.pr_url(KEY)}\nNote: record 5f6b2b5; follow-up o3\n",
+            }
+        ]
     ]
     incident, joined, follow = data["orders"]["o1"], data["orders"]["o2"], data["orders"]["o3"]
     assert (list(incident["parts"]), incident["jobs"], incident["fixed"], incident["recovered"]) == (["fix", "stop", "cause"], ["j1"], shipped, state.stamp(T0))
@@ -3233,7 +3235,36 @@ def test_an_incident_closes_once_its_monitor_reads_ok_and_a_release_shipped_its_
     assert (data["jobs"]["j2"]["order"], data["prs"][OTHER]["order"]) == ("o3", "o3")
     assert view.incidents(data) == []
     assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=1)) if line.startswith("RECOVERED")]
-    assert [argv[0] for argv, _ in calls] == ["pup", "cci"]
+    assert ([argv[0] for argv in calls], len(ready_records)) == (["pup"], 1)
+
+
+CLOSE_REPORT = {"id": "install-proved-j1", "kind": "report", "to": ["communicator@demo"], "topic": "install-proved-o1", "attr": {"close": "o1"}, "text": "POST Fix: the watch is live in long-running 1.0.3", "body": "Fixed: Fix: the watch\n"}
+
+
+def test_a_close_report_drive_install_kept_posts_from_the_watch_once_cci_takes_it_and_survives_a_refusal_to_the_next_watch(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    from drive import tools
+
+    serve(monkeypatch, {})
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["close_report"] = CLOSE_REPORT
+    posts: list[list[dict]] = []
+
+    def refused(name: str, lane: str, records: list[dict]) -> list[str]:
+        posts.append(records)
+        raise state.DriveError("cci: --body-file: not a JSON value")
+
+    monkeypatch.setattr(tools, "sent", refused)
+    first = watcher(demo)
+    for minute in range(3):
+        said = staged(watch.close_report_lines, first, T0 + timedelta(minutes=minute))
+    assert said == ["WATCH close report post to the communicator failed 3 times in a row: cci: --body-file: not a JSON value"]
+    assert (posts, state.load(demo)["orders"]["o1"]["close_report"]) == ([[CLOSE_REPORT]] * 3, CLOSE_REPORT)
+    monkeypatch.setattr(tools, "sent", lambda name, lane, records: posts.append(records) or ["#9"])
+    second = watcher(demo)
+    assert staged(watch.close_report_lines, second, T0 + timedelta(minutes=3)) == []
+    assert (posts[3:], state.load(demo)["orders"]["o1"]["close_report"]) == ([[CLOSE_REPORT]], None)
+    assert staged(watch.close_report_lines, second, T0 + timedelta(minutes=4)) == []
+    assert len(posts) == 4
 
 
 @pytest.mark.parametrize("count", [1, 100])
@@ -3246,7 +3277,7 @@ def test_the_watch_reads_every_open_incidents_monitors_in_one_search_a_pass(demo
     watching = watcher(demo)
     for minute in range(2):
         watch.run_pass(watching, T0 + timedelta(minutes=minute))
-    queries = [argv[argv.index("--query") + 1] for argv, _ in calls if argv[0] == "pup"]
+    queries = [argv[argv.index("--query") + 1] for argv in calls if argv[0] == "pup"]
     assert queries == [f"id:({' OR '.join(str(1000 + number) for number in range(count))})"] * 2
 
 

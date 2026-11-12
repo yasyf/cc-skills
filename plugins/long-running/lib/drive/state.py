@@ -363,6 +363,7 @@ def load(name: str) -> dict:
         order.setdefault("releases", {})
         order.setdefault("shipped", {})
         order.setdefault("fixed", None)
+        order.setdefault("close_report", None)
         order.setdefault("alerts", [])
         order.setdefault("recovered", None)
         order.setdefault("reporter", None)
@@ -775,6 +776,7 @@ def new_order(text: str, source: str, from_thread: str | None, thread: str | Non
         "workstream": None,
         "title": None,
         "proof": None,
+        "close_report": None,
         "note": None,
         "joins": None,
         "created": created,

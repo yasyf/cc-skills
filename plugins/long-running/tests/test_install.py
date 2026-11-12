@@ -942,22 +942,30 @@ def proof_events() -> list[tuple[str, str]]:
     return [(f"{event['repo']}#{event['number']}", event["change"]) for event, _ in state.read_events("demo") if event["kind"] == "proof"]
 
 
-def test_an_install_holding_a_merge_runs_its_jobs_proof_file_on_it_takes_done_and_sends_the_close_report(
+def test_an_install_holding_a_merge_runs_its_jobs_proof_file_on_it_takes_done_and_keeps_the_close_report_for_the_watch(
     config: Path, tmp_path: Path, fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
 ) -> None:
     git = fake([BUILD], {BUILD})
     script = proving(config, tmp_path, git, 0)
     assert install.main("long-running@skills", None, None, 900, None) == 0
     kept = state.report_path("demo", "j1").with_suffix(".proof.txt")
-    proven = f"{install.PROVEN} on long-running@skills 1.0.3: {script} exits 0, its output {kept}; its close report of o1 went to the communicator"
+    checked = f"{install.PROVEN} on long-running@skills 1.0.3: {script} exits 0, its output {kept}"
+    proven = f"{checked}; its close report of o1 waits on the order for the watch, which posts it to the communicator on its next read and again each read until cci takes it"
     assert capsys.readouterr().out.splitlines()[:2] == ["installed long-running@skills 1.0.3", f"demo j1: {proven}"]
     assert kept.read_text() == "ran on /cache/long-running/1.0.3/bin\n"
     data = state.load("demo")
     assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["said"]) == ("done", f"DONE {URL} live: {script} exits 0 on long-running@skills 1.0.3")
     assert data["orders"]["o1"]["proof"] == str(kept)
-    [post] = [call for call in git.other_calls() if call[:2] == ["cci", "post"]]
-    assert post[post.index("--attr") : post.index("--body-file")] == ["--attr", "close=o1"]
-    assert (post[post.index("--lane") + 1], post[-1]) == ("watch", "POST Fix: prove each install is live in long-running@skills 1.0.3")
+    assert data["orders"]["o1"]["close_report"] == {
+        "id": "install-proved-j1",
+        "kind": "report",
+        "to": ["communicator@demo"],
+        "topic": "install-proved-o1",
+        "attr": {"close": "o1"},
+        "text": "POST Fix: prove each install is live in long-running@skills 1.0.3",
+        "body": f"Fixed: Fix: prove each install, {URL}\nLive: long-running@skills 1.0.3\nProof: {checked}\n",
+    }
+    assert [call for call in git.other_calls() if call[:1] == ["cci"]] == []
     assert proof_events() == [("yasyf/cc-skills#7", proven)]
 
 
