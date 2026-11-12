@@ -5,7 +5,7 @@ import threading
 from pathlib import Path
 from typing import TextIO
 
-from drive import tools
+from drive import state, tools
 from drive.install import config_dir, installed
 
 PLUGIN = "long-running@skills"
@@ -147,7 +147,7 @@ def respond(request: dict, stdout: TextIO, writing: threading.Lock) -> None:
             reply["result"] = {
                 "protocolVersion": request["params"]["protocolVersion"],
                 "capabilities": {"tools": {"listChanged": True}},
-                "serverInfo": {"name": "drive", "version": json.loads((PLUGIN_ROOT / ".claude-plugin" / "plugin.json").read_text())["version"]},
+                "serverInfo": {"name": "drive", "version": state.VERSION},
                 "instructions": INSTRUCTIONS,
             }
         case "tools/list":

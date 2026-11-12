@@ -178,12 +178,22 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
                 outcome = enqueued(name, Path(data["roles"]["coordinator"]["cwd"]), keys)
     if dry_run:
         return outcome
-    with state.edit(name) as data:
-        for key in keys:
-            pr = data["prs"][key]
-            pr["lander"] = (pr["lander"] or {"head": pr["head"], "pid": os.getpid(), "at": state.stamp()}) | {"outcome": outcome, "below": below}
-            repo, number = key.split("#")
-            state.append_event(name, "landing", repo=repo, number=int(number), change=outcome, lane=state.heard_lane(data, pr["order"]))
+    return record(name, keys, outcome, below)
+
+
+def record(name: str, keys: list[str], outcome: str, below: list[str]) -> str:
+    """Record what came of a landing on each PR and as a landing event; when a newer install saved the drive while this lander waited on the queue or an install, hand the record to that install's `drive pr land --outcome`, since this code may misread the drive."""
+    try:
+        with state.edit(name) as data:
+            for key in keys:
+                pr = data["prs"][key]
+                pr["lander"] = (pr["lander"] or {"head": pr["head"], "pid": os.getpid(), "at": state.stamp()}) | {"outcome": outcome, "below": below}
+                repo, number = key.split("#")
+                state.append_event(name, "landing", repo=repo, number=int(number), change=outcome, lane=state.heard_lane(data, pr["order"]))
+    except state.NewerDrive:
+        if not (newer := install.upgraded()):
+            raise
+        os.execv(newer, [str(newer), "pr", "land", *map(state.pr_url, keys), "--drive", name, "--outcome", outcome, *(flag for key in below for flag in ("--below", key))])
     return outcome
 
 

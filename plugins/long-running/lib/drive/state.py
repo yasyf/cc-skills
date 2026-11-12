@@ -62,9 +62,14 @@ WAITS_ID = re.compile(r"([\w.-]+):(j\d+)-(\d+)")
 ORDER_LIST = re.compile(r"[\s,]+")
 ROUTED_KINDS = ("owner", "answer", "posted", "refused")
 APPROVALS_LABELLED = ".approvals-labelled"
+VERSION = json.loads((Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json").read_text())["version"]
 
 
 class DriveError(Exception):
+    pass
+
+
+class NewerDrive(Exception):
     pass
 
 
@@ -269,8 +274,10 @@ def saved(name: str) -> dict:
 
 
 def load(name: str) -> dict:
-    """Read a drive, bringing a drive saved by an older install up to the fields this one reads, from what is on this Mac alone."""
+    """Read a drive, bringing a drive saved by an older install up to the fields this one reads, from what is on this Mac alone; one a newer install saved is refused before any of it is read, since this code may misread its shapes."""
     data = saved(name)
+    if (saver := data.get("saved_by")) and tuple(map(int, saver.split("."))) > tuple(map(int, VERSION.split("."))):
+        raise NewerDrive(f"drive.json of {name} was saved by long-running {saver}, newer than this {VERSION}, which may misread it: run the newest install's drive")
     for order in data["orders"].values():
         if "parts" not in order:
             whole = whole_order(order["text"])
@@ -638,7 +645,7 @@ def same_question(one: str | None, other: str | None) -> bool:
 def save(name: str, data: dict) -> None:
     path = state_path(name)
     tmp = path.with_name("drive.json.tmp")
-    tmp.write_text(json.dumps(data, indent=2) + "\n")
+    tmp.write_text(json.dumps(data | {"saved_by": VERSION}, indent=2) + "\n")
     os.replace(tmp, path)
 
 
