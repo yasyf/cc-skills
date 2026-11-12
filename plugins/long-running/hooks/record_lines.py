@@ -101,7 +101,7 @@ def refusals(payload: dict, names: list[str], records: list[dict]) -> Iterator[s
         yield stray_parts(kind(record), attrs(record))
         yield limits.misnamed(kind(record), attrs(record))
         yield settled.ask_refusal(names, attrs(record), record.get("text") or "") if kind(record) == "ask" else None
-        yield superseded.unclosed_refusal(names, kind(record), attrs(record), record.get("topic"), listed(record.get("re")))
+        yield superseded.unclosed_refusal(names, kind(record), attrs(record), record.get("topic"), listed(record.get("re")), record.get("url"))
         yield state.unabout(kind(record), attrs(record))
         yield agents.Unjudged(unordered) if (unordered := state.unrecorded(state.session_role(drive, payload.get("session_id")), kind(record), attrs(record))) else None
         yield unkinded(record)

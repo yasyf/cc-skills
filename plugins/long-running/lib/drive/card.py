@@ -706,22 +706,53 @@ def answered(ask: dict) -> dict:
 
 
 def question_answered(ask: dict) -> dict:
-    """Post his answer on a drive's question card, by a tap, its number typed in its thread or his words in its Other box, as the one answer record the coordinator gets for it: `--re` its ask when the waits id names one, else `topic: card:<thread_ts>`; kept on the job the waits id names until drive job resume carries it there, as the record tool keeps one; History keeps it, or its undo, as his decision."""
-    from drive import tools, view
+    """End the question his tap on a drive's question card answers, by a button, its number typed in its thread or his words in its Other box, and post it as the one answer record the coordinator gets for it: `--re` its ask when the waits id names one, else `topic: card:<thread_ts>`, idempotent by his Slack action, so cc-slack runs this again until the drive takes it and shows the tap recorded only then. The question ends in the write after the post, each older open question of its job his answer decides, as Jev reads it, ends superseded, and each other card drawn for an ended question follows; cc-slack closes the tapped card itself. An Undo reopens each question on the card his tap answered, which cc-slack redraws. Kept on the job until drive job resume carries it there; History keeps it, or its undo, as his decision, once: a run again after one the card command's two minutes cut short finds his answer recorded by its record and adds nothing. A waits id naming no drive is not the drive's to record: `ok` false, so cc-slack hands the tap to the session it reached."""
+    from drive import superseded, tools, view
 
     name, _, _ = ask["waits"].partition(":")
     if name not in state.names():
-        raise state.DriveError(f"{ask['waits']} is no drive's question card, so his tap on it stays with the session it reached")
+        return {"ok": False, "why": f"{ask['waits']} is no drive's question card, so his tap on it stays with the session it reached"}
     hear_tap(name)
-    item = {"kind": "answer", "text": ask["label"], "url": ask["url"], "undone": ask.get("undone")}
+    undone = bool(ask.get("undone"))
+    item = {"kind": "answer", "text": ask["label"], "url": ask["url"], "undone": undone}
     item |= {"waits": ask["waits"]} if state.WAITS_ID.fullmatch(ask["waits"]) else {"topic": f"card:{view.card_thread(ask['url'])}"}
     item |= {"attrs": {"maps": "none"}} if ask.get("other") else {}
+    item |= {"id": f"tap:{ask['waits']}:{ask['action_ts']}{':undone' if undone else ''}"} if ask.get("action_ts") else {}
     data = state.load(name)
     made = tools.post(item, data, "root", (data["roles"].get("communicator") or {}).get("session"))
     [seq] = tools.sent(name, "communicator", [made])
-    tools.keep_undelivered(name, [made], [seq], [[]])
-    card = view.asked_card(view.stored_cards(name)[0], ask["url"])
-    state.append_event(name, "undone" if ask.get("undone") else "answered", url=ask["url"], label=ask["label"], question=card and card["question"])
+    closed = state.new_close("answered", ask["label"], ask["url"], seq=seq)
+    with state.edit(name) as data:
+        on_card = view.drawn_on(data, ask["waits"], ask["url"])
+        again = [(job_id, question) for job_id, question in on_card if (question["closed"] or {}).get("seq") == seq]
+        if undone:
+            fresh = [(job_id, question) for job_id, question in on_card if (question["closed"] or {}).get("how") == "answered" and question["closed"]["link"] == ask["url"]]
+            for job_id, question in fresh:
+                question["closed"] = None
+                data["jobs"][job_id]["updated"] = state.stamp()
+        else:
+            fresh = [each for job_id, question in on_card if question["closed"] is None for each in superseded.end(data, job_id, question, closed)]
+    ended = again + fresh
+    tools.keep_undelivered(name, [made], [seq], [ended])
+    shown = view.stored_cards(name)[0]
+    card = view.asked_card(shown, ask["url"])
+    if fresh or not on_card:
+        state.append_event(name, "undone" if undone else "answered", url=ask["url"], label=ask["label"], question=card and card["question"], undo_until=ask.get("undo_until"))
+    if undone:
+        return {"ok": True, "seq": seq}
+    data = state.load(name)
+    tapped = [(job_id, state.question_in(data["jobs"][job_id], question)) for job_id, question in ended if question["closed"]["how"] == "answered"]
+    decided = [(job_id, older, question) for job_id, question in tapped for older in superseded.decided_by(data, job_id, question, ask["label"], shown)]
+    if decided:
+        with state.edit(name) as data:
+            ended += [
+                each
+                for job_id, older, question in decided
+                if (kept := state.question_in(data["jobs"][job_id], older))["closed"] is None
+                for each in superseded.end(data, job_id, kept, superseded.superseded_by(closed, question))
+            ]
+    tapped_key = view.message_key(ask["url"])
+    superseded.follow(name, [(job_id, question) for job_id, question in ended if question["waits"] != ask["waits"] and not (question["card"] and view.message_key(question["card"]) == tapped_key)])
     return {"ok": True, "seq": seq}
 
 
@@ -739,16 +770,6 @@ def home_drive() -> str:
         if not (drives := state.names()):
             raise
         return max(drives, key=lambda name: state.last_started(state.load(name)))
-
-
-def unheard(ask: dict) -> dict:
-    """His tap on a card whose posting session ended: on a drive's question card it is that card's one answer record, as an `answer` request posts it, since cc-slack already shows the card answered; on any other card an `unheard` event for the home drive's coordinator."""
-    if ask["card"].partition(":")[0] in state.names():
-        return question_answered({"waits": ask["card"], "label": ask["label"], "url": ask["permalink"], "other": ask.get("other")}) | {"heard": True}
-    name = home_drive()
-    hear_tap(name)
-    state.append_event(name, "unheard", **ask)
-    return {"heard": True}
 
 
 def released(release: dict) -> dict:
@@ -784,8 +805,6 @@ def respond(request: dict) -> dict:
             return refused(asks)
         case {"answer": ask}:
             return answered(ask)
-        case {"unheard": ask}:
-            return unheard(ask)
         case {"release": release}:
             return released(release)
     raise state.DriveError(f"not a card request: {', '.join(request) or 'empty'}")

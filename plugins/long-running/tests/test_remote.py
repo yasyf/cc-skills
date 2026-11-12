@@ -1011,7 +1011,7 @@ def test_a_running_job_whose_lane_died_is_relaunched_that_pass_once(remote: str,
     assert relaunches == ["j1"]
     job = state.load(remote)["jobs"]["j1"]
     assert (job["state"], job["deaths"][-1]["relaunch"]) == ("running", {"pid": os.getpid(), "at": state.stamp(T0)})
-    assert view.owned(job, {}) is False
+    assert view.owned(job) is False
     assert "lane dead since" in render.job_line("j1", job)
 
 
@@ -1353,7 +1353,7 @@ def test_a_lane_question_opening_with_a_result_other_than_ask_is_that_result_and
     assert watch.run_pass(watching, T0) == [f"JOB j1 o1 {sent}"]
     job = state.load(remote)["jobs"]["j1"]
     assert (job["ask"], job["state"]) == (asked, taken)
-    assert (watch.unanswered("j1", job, None, T0 + timedelta(minutes=31)) is None) == (asked is None)
+    assert (watch.unanswered("j1", job, T0 + timedelta(minutes=31)) is None) == (asked is None)
 
 
 @pytest.mark.parametrize("kind", ["question", "worker_done"])
@@ -1390,7 +1390,7 @@ def test_a_lane_that_finishes_after_asking_ends_its_question_and_its_result_sets
     assert watch.run_pass(watching, T0 + timedelta(minutes=10)) == ["JOB j1 o1 READY #53090 head b6f66c236d70"]
     job = state.load(remote)["jobs"]["j1"]
     assert (job["ask"], job["state"], job["said"]) == (None, "waiting", "READY #53090 head b6f66c236d70")
-    assert watch.unanswered("j1", job, None, T0 + timedelta(minutes=41)) is None
+    assert watch.unanswered("j1", job, T0 + timedelta(minutes=41)) is None
 
 
 @pytest.mark.parametrize(

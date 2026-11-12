@@ -232,6 +232,52 @@ def test_a_job_saved_with_one_question_and_card_reads_as_a_list_of_its_questions
     assert jobs["j3"]["questions"] == []
 
 
+def test_a_drive_saved_while_the_card_store_held_whether_a_question_was_open_closes_each_question_its_card_closed_and_finishes_each_asked_reader_once(
+    state_root: Path,
+) -> None:
+    make("demo")
+    data = state.load("demo")
+    del data["closed_from_cards"]
+    moment = "2026-11-09T14:00:00-08:00"
+    shown, answered, withdrawn = (f"https://acme.slack.com/archives/D1/p17942000000001{n}0" for n in range(3))
+
+    def saved(file: str, title: str, card: str | None = None, settled: dict | None = None) -> dict:
+        return {key: value for key, value in state.new_question(file, title, moment, card=card).items() if key != "closed"} | {"settled": settled}
+
+    data["jobs"] = {
+        "j1": state.new_job("o1", "reader", "research: the copy", [], moment) | {"state": "waiting", "questions": [saved("/asks/j1-a.md", "Where?", shown)]},
+        "j2": state.new_job("o1", "builder", "build it", [], moment)
+        | {
+            "state": "waiting",
+            "questions": [
+                saved("/asks/j2-a.md", "Which?", answered),
+                saved("/asks/j2-b.md", "Who?", withdrawn),
+                saved("/asks/j2-c.md", "When?", settled={"seq": "671985", "ruling": "32164d3", "at": moment}),
+            ],
+        },
+    }
+    state.create(data)
+    state.report_path("demo", "j1").parent.mkdir(exist_ok=True)
+    state.report_path("demo", "j1").write_text("DESIGN where the copy runs\n")
+    store = {"source": "live", "team_url": "", "pr_cards": [], "questions": [{"url": shown, "card": {"title": "Where?"}}]}
+    closed = [
+        {"waits": None, "url": answered, "answer": {"label": "Team", "at": moment}},
+        {"waits": None, "url": withdrawn, "answer": {"label": "his order replaced it", "at": moment, "withdrawn": True}},
+    ]
+    state.cards_path("demo").write_text(json.dumps(store | {"closed": closed}))
+    jobs = state.load("demo")["jobs"]
+    assert (jobs["j1"]["state"], jobs["j1"]["questions"][0]["closed"], jobs["j2"]["state"]) == ("done", None, "waiting")
+    assert [question["closed"] for question in jobs["j2"]["questions"]] == [
+        state.new_close("answered", "Team", None, at=moment),
+        state.new_close("withdrawn", "his order replaced it", None, at=moment),
+        state.new_close("answered", None, None, seq="671985", ruling="32164d3", at=moment),
+    ]
+    with state.edit("demo") as data:
+        assert data["closed_from_cards"] is True
+    state.cards_path("demo").write_text(json.dumps(store | {"questions": [], "closed": [{"waits": None, "url": shown, "answer": {"label": "Here", "at": moment}}, *closed]}))
+    assert state.load("demo")["jobs"]["j1"]["questions"][0]["closed"] is None
+
+
 def test_an_answer_saved_before_answers_listed_waiting_jobs_reads_with_no_job_to_mark(state_root: Path) -> None:
     make("demo")
     data = state.load("demo")

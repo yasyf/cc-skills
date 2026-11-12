@@ -7,7 +7,7 @@ import shlex
 import subprocess
 from pathlib import Path
 
-from drive import brief, cli, limits, orca, reads, render, settled, slack, state, superseded, talk, view
+from drive import brief, cli, limits, orca, reads, render, settled, state, superseded, talk, view
 from drive.state import DriveError
 
 UNTYPED = {"help", "drive", "json"}
@@ -73,11 +73,13 @@ RECORD = {
         "url": {
             "type": "string",
             "description": (
-                "his message's or the card's permalink; it closes no card, so his words under a question card that answer"
-                " nothing it asks, such as feedback on the drive, leave it up: waits settles his question card, thread_card"
-                " withdraws it, and only the coordinator's --rework naming its PR, on his order or the job carrying it,"
-                " withdraws a PR card. A record that closes his card, settles a question or names a ruling is refused"
-                " unless his message or card answer here holds its text, and the ruling's words above Notes:"
+                "his message's or the card's permalink, always given for his words: an answer under a question card, in"
+                " whatever thread the record names, ends the job's question that card asks as answered, and owner words"
+                " under it about that card's work end it as withdrawn, and the card follows, showing his words with no"
+                " buttons; his feedback on the drive under a product card leaves it asking, and only the coordinator's"
+                " --rework naming its PR, on his order or the job carrying it, withdraws a PR card. A record that ends a"
+                " question or names a ruling is refused unless his message or card answer here holds its text, and the"
+                " ruling's words above Notes:"
             ),
         },
         "thread": {"type": "string", "description": "the thread it is about, kept as attr thread"},
@@ -85,7 +87,8 @@ RECORD = {
             "type": "string",
             "description": (
                 "the waits id, <drive>:<j>-<seq>, of the question card his tap or words answer: answers ask <seq> with attr"
-                " job=<j>, and the card settles in the same call, showing his words with no buttons; for an ask his recorded"
+                " job=<j>, ending the job's question as answered in the same call, and the card follows, showing his words"
+                " with no buttons; for an ask his recorded"
                 " words settled before any card drew, its ask record's waits id with his answer as ruling settles the job's"
                 " question kept in that ask's file, so no card draws"
             ),
@@ -93,9 +96,10 @@ RECORD = {
         "thread_card": {
             "type": "string",
             "description": (
-                "the waits id his message's thread_card names when his owner words under a question card change what it asks,"
-                " such as a rework or a correction: kept as attr thread_card, and the card is withdrawn in the same call, showing"
-                " his words; left out for words that leave it asking, such as feedback on the drive, so the card stays up"
+                "the waits id his message's thread_card names, given on every record of his words under a question card:"
+                " kept as attr thread_card; his owner words about that card's work, such as a rework or a correction, end the"
+                " job's question as withdrawn in the same call, and the card follows, showing his words, while his feedback"
+                " on the drive under a product card leaves it asking"
             ),
         },
         "undone": {"type": "boolean", "description": "an Undo tap: attr undone=<text> and the text undone: <text>"},
@@ -509,31 +513,36 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
     lane, other = {"communicator": ("communicator", "root"), "meta": ("meta", "communicator")}.get(role) or (state.project_lane(project) if project else "root", "communicator")
     posts = [post(item, data, other, session) for item in records]
     found = his_cards(name) if any(made["kind"] in ("owner", "answer") for made in posts) else view.NO_CARDS
-    closed = [closed_by(name, data, found, index, made) for index, made in enumerate(posts, start=1)]
+    closed = [closed_by(name, data, index, made) for index, made in enumerate(posts, start=1)]
     closes, settles = [questions for questions, _ in closed], [settling for _, settling in closed]
-    for index, (made, questions, settling) in enumerate(zip(posts, closes, settles, strict=True), start=1):
-        if (questions or settling or (made.get("attr") or {}).get("ruling")) and (unsaid := unheard(data, found, made)):
+    for index, (made, questions) in enumerate(zip(posts, closes, strict=True), start=1):
+        if (questions or (made.get("attr") or {}).get("ruling")) and (unsaid := unheard(data, found, made)):
             raise DriveError(f"{index}: refused, nothing posted: {unsaid}")
     ordering = [state.meta_alone(role, made["kind"], made.get("attr") or {}) for made in posts]
     if unordered := [index for index, (item, alone) in enumerate(zip(records, ordering, strict=True), start=1) if "order" in item and not alone]:
         raise DriveError(f"{unordered[0]}: refused, nothing posted: order is the order the communicator's owner record about the drive goes to; name the order any other record serves as attrs.order")
     for made, settling in zip(posts, settles, strict=True):
         if settling:
-            made["resolves"] = list(dict.fromkeys([*made.get("resolves", []), settling[1]]))
+            made["resolves"] = list(dict.fromkeys([*made.get("resolves", []), settling]))
     said = ordered_first(name, records, posts, ordering, dry_run)
     if dry_run:
         said += [f"{index} {lane}: {json.dumps(item, ensure_ascii=False)}" for index, item in enumerate(posts, start=1)]
-        said += [f"{index} would settle {settling[0]}'s question kept in {settling[2]}, closing ask {settling[1]}" for index, settling in enumerate(settles, start=1) if settling]
-    else:
-        try:
-            seqs = sent(name, lane, posts)
-        except DriveError as error:
-            raise DriveError("\n".join([*said, str(error)])) from None
-        said += [f"{index} {item['kind']} {seq}" for index, (item, seq) in enumerate(zip(posts, seqs, strict=True), start=1)]
-        keep_undelivered(name, posts, seqs, closes)
-        said += keep_settled(name, posts, seqs, settles)
-    for index, (made, questions) in enumerate(zip(posts, closes, strict=True), start=1):
-        close(said, index, made, questions, dry_run)
+        said += [
+            f"{index} would end {job_id}'s question \"{render.cut(question['title'] or '', 80)}\" {'answered' if made['kind'] == 'answer' else 'withdrawn'}"
+            + (", closing its card" if question["card"] or question["waits"] else f", closing ask {settling}" if settling else "")
+            for index, (made, questions, settling) in enumerate(zip(posts, closes, settles, strict=True), start=1)
+            for job_id, question in questions
+        ]
+        return "\n".join(said)
+    try:
+        seqs = sent(name, lane, posts)
+    except DriveError as error:
+        raise DriveError("\n".join([*said, str(error)])) from None
+    said += [f"{index} {item['kind']} {seq}" for index, (item, seq) in enumerate(zip(posts, seqs, strict=True), start=1)]
+    keep_undelivered(name, posts, seqs, closes)
+    ended = keep_closed(name, posts, seqs, closes, [superseded_by_answer(data, made, questions, found) for made, questions in zip(posts, closes, strict=True)])
+    said += [f"{index} {job_id}'s question \"{render.cut(question['title'] or '', 80)}\" ended {question['closed']['how']} by {seqs[index - 1]}" for index, job_id, question in ended]
+    said += superseded.follow(name, [(job_id, question) for _, job_id, question in ended])
     return "\n".join(said)
 
 
@@ -601,34 +610,42 @@ def unheard(data: dict, found: dict, made: dict) -> str | None:
     return next((unsaid for words in said if (unsaid := settled.unsaid(words, made.get("url"), found))), None)
 
 
-def keep_settled(name: str, posts: list[dict], seqs: list[str], settles: list[tuple[str, str, str] | None]) -> list[str]:
-    """Keep on each question an answer settled before any card drew for it that answer's seq and the ruling it carries, so the question reads closed everywhere, the builder gate of its order included; what was settled, a line each."""
-    done = []
+def superseded_by_answer(data: dict, made: dict, questions: list[tuple[str, dict]], found: dict) -> list[tuple[str, dict, dict]]:
+    """Each older open question of a job his answer ends a question of that it decides too, as Jev reads it, with the question his answer is on."""
+    if made["kind"] != "answer":
+        return []
+    return [(job_id, older, question) for job_id, question in questions for older in superseded.decided_by(data, job_id, question, made["text"], found)]
+
+
+def keep_closed(name: str, posts: list[dict], seqs: list[str], closes: list[list[tuple[str, dict]]], decided: list[list[tuple[str, dict, dict]]]) -> list[tuple[int, str, dict]]:
+    """End in one write each job question his words in these records are on, answered by an answer and withdrawn by other words, with his words, their link, the record and the ruling it names, and each older question of its job his answer decides too, superseded; each question ended, by its record's place and its job."""
+    ended = []
     with state.edit(name) as data:
-        for index, (made, seq, settling) in enumerate(zip(posts, seqs, settles, strict=True), start=1):
-            if not settling:
-                continue
-            job_id, asked, file = settling
-            question = state.kept_in(data["jobs"][job_id], Path(file))
-            question["settled"] = {"seq": seq, "ruling": (made.get("attr") or {}).get("ruling"), "at": state.stamp()}
-            done.append(f'{index} {job_id}\'s question "{render.cut(question["title"] or "", 80)}" kept in {file} is settled by {seq}, closing ask {asked} with no card drawn')
-    return done
+        for index, (made, seq, questions, deciding) in enumerate(zip(posts, seqs, closes, decided, strict=True), start=1):
+            closed = state.new_close("answered" if made["kind"] == "answer" else "withdrawn", made["text"], made.get("url"), seq=seq, ruling=(made.get("attr") or {}).get("ruling"))
+            for job_id, question in questions:
+                if (kept := state.question_in(data["jobs"][job_id], question))["closed"] is None:
+                    ended += [(index, *each) for each in superseded.end(data, job_id, kept, closed)]
+            for job_id, older, question in deciding:
+                if (kept := state.question_in(data["jobs"][job_id], older))["closed"] is None:
+                    ended += [(index, *each) for each in superseded.end(data, job_id, kept, superseded.superseded_by(closed, question))]
+    return ended
 
 
-def keep_undelivered(name: str, posts: list[dict], seqs: list[str], closes: list[list[dict]]) -> None:
-    """Keep each answer of his on the job that acts on it for each job it answers, the one its attr names and each whose card it closes, until drive job resume carries it there, so the watch says ANSWER undelivered for it meanwhile; an Undo tap takes the answer it undoes off those jobs."""
+def keep_undelivered(name: str, posts: list[dict], seqs: list[str], closes: list[list[tuple[str, dict]]]) -> None:
+    """Keep each answer of his on the job that acts on it for each job it answers, the one its attr names and each whose question it ends, until drive job resume carries it there, so the watch says ANSWER undelivered for it meanwhile; an Undo tap takes the answer it undoes off those jobs."""
     answers = [(made, seq, questions) for made, seq, questions in zip(posts, seqs, closes, strict=True) if made["kind"] == "answer"]
     if not answers:
         return
     with state.edit(name) as data:
         for made, seq, questions in answers:
             attrs = made.get("attr") or {}
-            named = [state.named_job(data, attrs), *(state.named_job(data, {"waits": card["card"].get("waits")}) for card in questions)]
+            named = [state.named_job(data, attrs), *(job_id for job_id, _ in questions)]
             for job_id in dict.fromkeys(filter(None, (hearer(data, job_id) for job_id in filter(None, named)))):
                 kept = data["jobs"][job_id]["undelivered"]
                 if "undone" in attrs:
                     kept[:] = [answer for answer in kept if answer["words"] != attrs["undone"]]
-                else:
+                elif all(answer["seq"] != seq for answer in kept):
                     kept.append({"seq": seq, "words": made["text"], "at": state.stamp(), "said": None})
 
 
@@ -652,36 +669,45 @@ def hearer(data: dict, job_id: str) -> str | None:
 
 
 def his_cards(name: str) -> dict:
-    """His open cards as cc-slack lists them now, read before a record of his words goes out, so each card it closes is closed in the same call."""
+    """His open cards as cc-slack lists them now, read before a record of his words goes out, so his words are checked against what each card shows and Jev reads his answer against the options of the questions it may decide."""
     view.refresh_cards(name)
     if (found := view.live_cards(name)) is None:
         raise DriveError(f"his cards could not be read ({view.stored_cards(name)[1]}), so a card these words close would stay up; nothing posted, run this again")
     return found
 
 
-def closed_by(name: str, data: dict, found: dict, index: int, made: dict) -> tuple[list[dict], tuple[str, str, str] | None]:
-    """The question cards of his this record's words close, and else the question an answer settles that its job keeps with no card drawn, by its job, ask seq and file; an answer naming a card that no longer waits on him is refused, posting nothing."""
+def closed_by(name: str, data: dict, index: int, made: dict) -> tuple[list[tuple[str, dict]], str | None]:
+    """The open job questions this record's words end, each by its job: each its waits id, ask seq, `thread_card` or `card:<thread_ts>` topic names or whose card his message sits under, whatever thread the record names, and else the question an answer settles that its job keeps with no card drawn, with the ask seq it closes; an answer naming only questions that already ended is refused, posting nothing, since his answer on each is recorded already."""
     attrs = made.get("attr") or {}
-    questions = superseded.closing(found, made["kind"], attrs, made.get("topic"), made.get("re") or [])
-    if questions or made["kind"] != "answer" or "undone" in attrs or not (attrs.get("job") or attrs.get("thread_card")):
+    named = superseded.closing(data, made["kind"], attrs, made.get("topic"), made.get("re") or [], made.get("url"))
+    if questions := [(job_id, question) for job_id, question in named if question["closed"] is None]:
         return questions, None
-    if settling := uncarded(name, data, attrs, made.get("re") or []):
-        return [], settling
+    if made["kind"] != "answer" or "undone" in attrs or not (attrs.get("job") or attrs.get("thread_card")):
+        return [], None
+    if not named and (settling := uncarded(name, data, attrs, made.get("re") or [])):
+        if settling[1]["closed"] is None:
+            return [settling[:2]], settling[2]
+        named = [settling[:2]]
+    if not named:
+        raise DriveError(
+            f"{index}: refused, nothing posted: no job of this drive keeps the question this answer names by its waits id, ask"
+            " seq, thread_card or card topic, so it answers nothing he was asked: name the waits id of the card he answered"
+        )
     raise DriveError(
-        f"{index}: refused, nothing posted: the card this answer names no longer waits on him, so his answer on it is"
+        f"{index}: refused, nothing posted: the question this answer names ended already, so his answer on it is"
         " recorded already: a tap or its number typed needs nothing more, and words he wrote are a message from him:"
         ' a question of fact, an order, one proposing a way such as "why not just X?" included, which replaces his'
         " tap with X, or a ruling"
     )
 
 
-def uncarded(name: str, data: dict, attrs: dict, answered: list[str]) -> tuple[str, str, str] | None:
-    """The job, ask seq and file of the question an answer settles before any card drew for it, as his recorded rulings settle one: the ask record it answers names by its `ask` attr the file its job keeps that question in, kept with no card, no refusal and nothing settling it yet."""
+def uncarded(name: str, data: dict, attrs: dict, answered: list[str]) -> tuple[str, dict, str] | None:
+    """The job, question and ask seq of the question an answer settles before any card drew for it, as his recorded rulings settle one: the ask record it answers names by its `ask` attr the file its job keeps that question in, kept with no card and no refusal, ended already or not."""
     if (job := data["jobs"].get(attrs.get("job") or "")) is None:
         return None
     for seq in answered:
-        if (file := asked_file(name, seq)) and (question := state.kept_in(job, Path(file))) and not (question["card"] or question["refused"] or question["settled"]):
-            return attrs["job"], seq, file
+        if (file := asked_file(name, seq)) and (question := state.kept_in(job, Path(file))) and not (question["card"] or question["refused"]):
+            return attrs["job"], question, seq
     return None
 
 
@@ -692,18 +718,6 @@ def asked_file(name: str, seq: str) -> str | None:
     except reads.ReadError as error:
         raise DriveError(f"nothing posted: the ask {seq} this answer answers could not be read, so whether it closes a question with no card is unknown: {error}") from None
     return found["fields"].get("attrs", {}).get("ask") if found["kind"] == "ask" else None
-
-
-def close(said: list[str], index: int, made: dict, questions: list[dict], dry_run: bool) -> None:
-    """Once the record is sent, close each question card of his its words close, settled showing his answer or withdrawn showing his other words; what was done, or would be on a dry run, appended to said a line each."""
-    for card in questions:
-        if dry_run:
-            said.append(f"{index} would {'settle' if made['kind'] == 'answer' else 'withdraw'} his card {card['url']} ({card['card'].get('waits')}), showing his words")
-            continue
-        try:
-            said.append(f"{index} {superseded.close_card(card, made['kind'], made['text'], made.get('url') or card['url'])}")
-        except slack.SlackError as error:
-            raise DriveError("\n".join([*said, f"{index} cc-slack card-answer on his card {card['url']} refused: {error}; the record went out, so close the card with slack_card_answer"])) from None
 
 
 def sent(name: str, lane: str, posts: list[dict]) -> list[str]:
@@ -721,7 +735,7 @@ def sent(name: str, lane: str, posts: list[dict]) -> list[str]:
         raise DriveError(f"cci post: {error}; {UNSENT.format(drive=name)}") from None
     if done.returncode:
         raise DriveError(f"{done.stdout}{done.stderr}".strip() + f"; {UNSENT.format(drive=name)}")
-    return done.stdout.split()
+    return [line.split()[0] for line in done.stdout.splitlines() if line.strip()]
 
 
 def post(item: dict, data: dict, other: str, session: str | None) -> dict:
@@ -733,7 +747,7 @@ def post(item: dict, data: dict, other: str, session: str | None) -> dict:
         raise DriveError(f"{typed}; nothing posted")
     text, attrs = item["text"], dict(item.get("attrs") or {})
     made = {"kind": item["kind"]}
-    for key in ("url", "resolves", "topic", "body"):
+    for key in ("url", "resolves", "topic", "body", "id"):
         if item.get(key):
             made[key] = item[key]
     if re := item.get("re"):

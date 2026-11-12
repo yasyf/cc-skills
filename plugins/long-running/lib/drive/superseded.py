@@ -1,9 +1,10 @@
 """What each answer or ruling of his leaves standing: the cards open and PRs not yet live when it was recorded that it could change, until each is marked standing, settled, superseded or reopened by it, and the jobs waiting on the orders it touches, until each has heard it or is marked untouched."""
 
 import re
+import sys
 from pathlib import Path
 
-from drive import github, limits, slack, state, view
+from drive import github, limits, settled, slack, state, view
 from drive.render import cut, when
 from drive.state import DriveError
 
@@ -12,20 +13,34 @@ SUBJECT_TERMS = 3
 
 
 def asking(data: dict, found: dict) -> dict[str, dict]:
-    """Every card asking him and every PR not yet live, by the key a mark names it with: each open question card by its waits id, each PR waiting on his tap, then each other open PR and each merged one whose job is still at work, by its PR key."""
-    asker = view.asked_by(data, found)
+    """Every card asking him and every PR not yet live, by the key a mark names it with: the card of each job's open question by its waits id, then each open question card cc-slack shows that no job asked, each PR waiting on his tap, then each other open PR and each merged one whose job is still at work, by its PR key."""
+    shown = {view.message_key(card["url"]): card for card in found["questions"]}
     asked = {}
+    for job_id, job in data["jobs"].items():
+        for question in view.open_questions(job):
+            if drawn := question["card"]:
+                card = shown.get(view.message_key(drawn)) or {"question": question["title"], "options": []}
+                asked[question["waits"] or view.message_key(drawn)] = {
+                    "kind": "question",
+                    "title": question["title"] or card["question"],
+                    "options": card["options"],
+                    "job": job_id,
+                    "order": job["order"],
+                    "url": drawn,
+                    "card": drawn,
+                }
+    asker = view.asked_by(data, found)
     for card in found["questions"]:
-        job_id = asker[card["url"]]
-        asked[card["card"].get("waits") or view.message_key(card["url"])] = {
-            "kind": "question",
-            "title": card["question"],
-            "options": card["options"],
-            "job": job_id,
-            "order": job_id and data["jobs"][job_id]["order"],
-            "url": card["url"],
-            "card": card["url"],
-        }
+        if asker[card["url"]] is None:
+            asked[card["card"].get("waits") or view.message_key(card["url"])] = {
+                "kind": "question",
+                "title": card["question"],
+                "options": card["options"],
+                "job": None,
+                "order": None,
+                "url": card["url"],
+                "card": card["url"],
+            }
     for key, pr in data["prs"].items():
         card = view.card_for(found["pr_cards"], pr["url"])
         if view.waits_on_tap(pr, card):
@@ -68,8 +83,6 @@ def record(data: dict, words: str, link: str, asked: dict[str, dict], changes: s
 
 def shared(title: str, other: str) -> list[str]:
     """The proper terms two questions share when they ask about one subject in other words, as three jobs asked about one search worker's cache disk; fewer than SUBJECT_TERMS shared is no subject in common."""
-    from drive import settled
-
     terms = sorted(settled.rare(title) & settled.rare(other))
     return terms if len(terms) >= SUBJECT_TERMS else []
 
@@ -101,26 +114,26 @@ def said_under(data: dict, job: dict) -> list[dict]:
     ]
 
 
-def open_under(data: dict, job: dict, found: dict | None) -> list[dict]:
-    """Each answer of his written under a card this job asked on while that card still asks him, with the card it answers."""
+def open_under(data: dict, job: dict) -> list[dict]:
+    """Each answer of his written under a card this job asked on while that card's question is open, with the card it answers."""
     return [
         {"id": answer_id, "card": question["card"], "words": answer["words"], "link": answer["link"]}
-        for question in job["questions"]
-        if question["card"] and view.card_open(question["card"], found)
+        for question in view.open_questions(job)
+        if question["card"]
         for answer_id, answer in data["answers"].items()
         if under(answer["link"], question["card"])
     ]
 
 
-def answer_cards(kept: dict, asked: dict[str, dict]) -> list[str]:
-    """Settle each question card still asking him that his answer is on or under, showing his words and a link to them with no buttons; what was settled, a line each."""
-    done = []
-    for key, entry in asked.items():
-        if entry["kind"] != "question" or not under(kept["link"], entry["card"]):
-            continue
-        if not answer_card(entry["card"], kept["words"], kept["link"], settled=True).get("already_answered"):
-            done.append(f"{key}: its card {entry['card']} now shows his words and a link to them, so it no longer asks him")
-    return done
+def answer_cards(data: dict, answer_id: str, kept: dict) -> list[tuple[str, dict]]:
+    """End as answered by his answer each open question whose card his answer is on or under, in the write the caller saves; the questions it ended, for their cards to follow."""
+    return [
+        ended
+        for job_id, job in data["jobs"].items()
+        for question in view.open_questions(job)
+        if question["card"] and under(kept["link"], question["card"])
+        for ended in end(data, job_id, question, state.new_close("answered", kept["words"], kept["link"], answer=answer_id))
+    ]
 
 
 def answer_card(card: str, words: str, link: str, settled: bool) -> dict:
@@ -128,36 +141,84 @@ def answer_card(card: str, words: str, link: str, settled: bool) -> dict:
     return slack.cc_slack("card-answer", "--card", card, "--label", words, *(("--settled", "--other") if settled else ("--withdrawn",)), "--via", link)
 
 
-def closing(found: dict, kind: str, attrs: dict, topic: str | None, answered: list[str]) -> list[dict]:
-    """The open question cards an owner or answer record of his words closes: each its `thread_card` attr, the ask seq it answers or its `card:<thread_ts>` topic names, never his message's place in a card's thread alone, since his words there may answer nothing it asks; an Undo, which reopens its card, closes none. His words never close a PR card: only his order on its thread, or a job carrying one, withdraws it."""
+def close_card(card: str, closed: dict) -> dict:
+    """Show on his question card how the question it asks ended, his words and a link to them with no buttons: settled for his answer, withdrawn for anything else."""
+    words = closed["words"] or f"settled by his answer {closed['answer'] or closed['ruling'] or closed['seq']}"
+    return answer_card(card, words, closed["link"] or card, settled=closed["how"] == "answered")
+
+
+def end(data: dict, job_id: str, question: dict, closed: dict) -> list[tuple[str, dict]]:
+    """End a job's open question as closed records, with each other open question of the job asking it in the same words superseded by it, in the write the caller saves: the one way a question stops asking him, which its card then follows. The questions it ended, by their job."""
+    job = data["jobs"][job_id]
+    twins = [other for other in view.open_questions(job) if other is not question and state.same_question(other["title"], question["title"])]
+    question["closed"] = closed
+    for twin in twins:
+        twin["closed"] = superseded_by(closed, question)
+    job["updated"] = closed["at"]
+    return [(job_id, question), *((job_id, twin) for twin in twins)]
+
+
+def superseded_by(closed: dict, question: dict) -> dict:
+    """How a question ends that his answer to another question supersedes: his words and their link, naming the question he answered."""
+    return closed | {"how": "superseded", "by": question["waits"] or question["file"]}
+
+
+def decided_by(data: dict, job_id: str, question: dict, words: str, found: dict | None) -> list[dict]:
+    """The job's other open questions, asked before this one, that his answer to it decides or makes moot as Jev reads it at the 0.8 bar, so his answer on a job's newer question ends the older ones it settles; none when Jev gives no reading, which leaves them asking him."""
+    asked = state.parse_time(question["asked"])
+    older = [other for other in view.open_questions(data["jobs"][job_id]) if other is not question and state.parse_time(other["asked"]) <= asked]
+    if not older:
+        return []
+    shown = {card["card"].get("waits"): card["options"] for card in (found or view.NO_CARDS)["questions"]}
+    entries = {f"{job_id}:q{index}": {"kind": "question", "title": other["title"] or "", "options": shown.get(other["waits"]) or []} for index, other in enumerate(older)}
+    try:
+        keys = settled.changed(question["title"] or "", words, entries, settled.SUPERSEDES_QUESTION, settled.DECIDES)
+    except state.DriveError as error:
+        print(f"his answer to {question['waits'] or question['file']} ends none of {job_id}'s older questions: {error}", file=sys.stderr)
+        return []
+    return [older[int(key.rpartition(":q")[2])] for key in sorted(keys)]
+
+
+def follow(name: str, ended: list[tuple[str, dict]]) -> list[str]:
+    """Show on each card drawn for a question that ended how it ended, his words and a link to them with no buttons, so it no longer asks him: settled for his answer, withdrawn for his other words, a withdraw or an answer superseding it. A card cc-slack does not close now the watch closes on its next pass. What was done, a line each."""
+    found, _ = view.stored_cards(name)
+    done = []
+    for _, question in ended:
+        closed = question["closed"]
+        drawn = {question["card"], *(card["url"] for card in found["questions"] if question["waits"] and card["card"].get("waits") == question["waits"])} - {None}
+        for card in drawn:
+            try:
+                result = close_card(card, closed)
+            except slack.SlackError as error:
+                done.append(f"{card}: cc-slack did not close it ({error}); the watch closes it on its next pass")
+                continue
+            if not result.get("already_answered"):
+                done.append(f"{question['waits'] or card}: his card {card} now shows his words with no buttons, its question {closed['how']}")
+    return done
+
+
+def closing(data: dict, kind: str, attrs: dict, topic: str | None, answered: list[str], link: str | None) -> list[tuple[str, dict]]:
+    """The job questions an owner or answer record of his words is on, open or ended: each its `waits` or `thread_card` names, the ask seq it answers names or its `card:<thread_ts>` topic is drawn in, and each whose card his message sits under, whatever thread the record names: his answer is on each, and his owner words only on a question whose work they are about, the drive's for a drive tooling order and his work for any other, so his feedback on the drive under a product card leaves it asking; an Undo, which reopens its card, is on none. His words never close a PR card: only his order on its thread, or a job carrying one, withdraws it."""
     if kind not in ("owner", "answer") or "undone" in attrs:
         return []
     return [
-        card
-        for card in found["questions"]
-        if (waits := card["card"].get("waits")) and (waits == attrs.get("thread_card") or waits.rpartition("-")[2] in answered) or topic == f"card:{view.card_thread(card['url'])}"
+        (job_id, question)
+        for job_id, job in data["jobs"].items()
+        if kind == "answer" or (attrs.get("about") == state.ABOUT_DRIVE) == (data["orders"][job["order"]]["owner"] == "meta")
+        for question in job["questions"]
+        if (waits := question["waits"]) and (waits == attrs.get("thread_card") or waits.rpartition("-")[2] in answered)
+        or (card := question["card"]) and (topic == f"card:{view.card_thread(card)}" or link and under(link, card))
     ]
 
 
-def close_card(card: dict, kind: str, words: str, link: str) -> str:
-    """Settle in place his question card that his answer answers, showing his words, or withdraw one his other words under it change, showing them as the reason, with no buttons either way, so a late tap records nothing; what was done, one line."""
-    answered = kind == "answer"
-    result = answer_card(card["url"], words, link, settled=answered)
-    waits = card["card"].get("waits") or card["url"]
-    if result.get("already_answered"):
-        return f"{waits}: his card {card['url']} already shows his answer {result['label']!r}"
-    return f"{waits}: his card {card['url']} now shows his words with no buttons, {'settled by' if answered else 'withdrawn for'} them"
-
-
-def unclosed_refusal(names: list[str], kind: str, attrs: dict, topic: str | None, answered: list[str]) -> str | None:
-    """Why an owner or answer record goes only through the drive's `record` tool: his words in it close an open question card of his, and only that tool settles or withdraws the card in the same call that sends them."""
+def unclosed_refusal(names: list[str], kind: str, attrs: dict, topic: str | None, answered: list[str], link: str | None) -> str | None:
+    """Why an owner or answer record goes only through the drive's `record` tool: his words in it end an open question of his, and only that tool ends it, and its card, in the call that sends them."""
     for name in names:
-        if cards := [card["url"] for card in closing(view.live_cards(name) or view.NO_CARDS, kind, attrs, topic, answered)]:
+        if ended := [question for _, question in closing(state.load(name), kind, attrs, topic, answered, link) if question["closed"] is None]:
             return (
-                f"refused: this {kind} record carries his words on his open card {cards[0]}, which keeps asking him until"
-                " something closes it; send it with the drive's `record` tool, his message's permalink as `url` and the card's"
-                " waits id as `waits` for his answer or as `thread_card` for his other words under it, which settles that"
-                " card or withdraws it in the same call. His words: \"So then why"
+                f"refused: this {kind} record carries his words on his open question \"{cut(ended[0]['title'] or '', 80)}\", which keeps"
+                " asking him until something ends it; send it with the drive's `record` tool, his message's permalink as `url`,"
+                " which ends that question and closes its card in the same call. His words: \"So then why"
                 ' didn\'t you withdraw this card? / Why do I have to keep telling you?"'
             )
     return None
@@ -168,30 +229,26 @@ def said_on(data: dict, card: str | None) -> list[dict]:
     return [answer for answer in data["answers"].values() if card and under(answer["link"], card)]
 
 
-def unanswered(data: dict, job: dict, found: dict | None) -> list[dict]:
-    """The questions a job asked him that neither his answer to their card nor his words under it have closed."""
-    return [question for question in view.open_questions(job, found) if not said_on(data, question["card"])]
-
-
-def redrawable(data: dict, title: str, found: dict | None) -> list[dict]:
-    """Each job's question asking what this title asks whose card was withdrawn with nothing drawn in its place and no words of his under it: asking it again on any job redraws that card under its waits id."""
+def redrawable(data: dict, title: str) -> list[dict]:
+    """Each job's question asking what this title asks that was withdrawn from a card with no answer of his under it: asking it again on any job redraws that card under its waits id."""
     return [
         question
         for job in data["jobs"].values()
         for question in job["questions"]
-        if state.same_question(question["title"], title) and view.withdrawn(found, question["card"] or question["waits"]) and not said_on(data, question["card"])
+        if state.same_question(question["title"], title)
+        and (question["card"] or question["waits"])
+        and (question["closed"] or {}).get("how") == "withdrawn"
+        and not said_on(data, question["card"])
     ]
 
 
 def redraw_refusal(data: dict, job: dict, waits: str, file: str) -> str | None:
-    """Why this card may not be redrawn with another question: his words under it already answered it."""
+    """Why this card may not be redrawn with another question: his tap, words or answer on it already answered the question drawn there."""
     drawn = next((question for question in job["questions"] if question["waits"] == waits and question["card"] and question["file"] != file), None)
-    said = said_on(data, drawn and drawn["card"])
-    if not said:
+    if not drawn or (closed := drawn["closed"] or {}).get("how") != "answered":
         return None
-    answer = said[-1]
     return (
-        f'{waits}: his words under that card answer it, {when(answer["at"])}: "{cut(answer["words"], 200)}" ({answer["link"]}).'
+        f'{waits}: his answer on that card closed its question, {when(closed["at"])}: "{cut(closed["words"] or "", 200)}" ({closed["link"] or drawn["card"]}).'
         " A direction he gives under a card is his answer: the card stays settled showing his words, and the work goes ahead"
         f" on them. Ask only what they leave open, on a card of its own drawn with its own ask record's waits id, never {waits}"
     )
@@ -277,7 +334,7 @@ def settled_refusal(data: dict, kept: dict, key: str, entry: dict, file: Path | 
         return None
     job_id = entry["job"]
     question = state.kept_in(data["jobs"][job_id], file)
-    if not question or question["refused"] or question["settled"] or question["card"] or question["waits"]:
+    if not question or question["refused"] or question["closed"] or question["card"] or question["waits"]:
         return (
             f"{file} keeps no question of {job_id} drawn on no card yet: keep what his answer leaves {key} asking with"
             f" drive job ask {job_id} <file>, then mark {key}=<the path it prints>"

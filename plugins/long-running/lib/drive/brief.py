@@ -167,7 +167,7 @@ def job_refusal(name: str, data: dict, order_id: str, kind: str, parts: list[str
 
 def unasked_design(reader: str, questions: list[dict]) -> str | None:
     """Why a reader's DESIGN holds its order's builder: the reader's kept question is the one record of its choice, so the builder starts once that question is on his card, building the recommended option beside it until his answer closes it, or once his recorded words settle it with no card drawn."""
-    if any(question["settled"] or question["card"] or question["waits"] for question in questions):
+    if any(question["closed"] or question["card"] or question["waits"] for question in questions):
         return None
     if not questions:
         return (

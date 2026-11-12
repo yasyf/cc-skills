@@ -601,7 +601,6 @@ def test_cards_an_older_cc_slack_lists_with_no_closed_field_read_as_none_closed(
     assert view.card_words(listed, source, gone) == f"card {gone}, which cc-slack no longer keeps"
     assert view.card_words(listed, source, "demo:j1-1") == "card demo:j1-1 never drawn"
     assert view.pr_card_words(listed, source, "https://github.com/acme/app/pull/43") is None
-    assert not view.withdrawn(listed, gone)
 
 
 def test_review_lists_every_open_pr_by_whether_it_waits_on_him_and_carries_its_card_and_its_thread() -> None:
@@ -816,7 +815,6 @@ def test_card_words_name_each_question_card_as_cc_slacks_store_holds_it_open_ans
     assert view.card_words(ledger, "live", None) == "never drawn"
     assert view.card_words(ledger, "live", "demo:j7-9") == "card demo:j7-9 never drawn"
     assert view.card_words(None, "unavailable: not signed in", first) == "his cards could not be read (unavailable: not signed in)"
-    assert (view.withdrawn(ledger, first), view.withdrawn(ledger, "demo:j7-2"), view.withdrawn(ledger, "demo:j8-1"), view.withdrawn(ledger, "demo:j9-3")) == (True, False, False, False)
 
 
 def test_pr_card_words_name_his_open_tap_card_a_tap_on_a_redrawn_one_or_none() -> None:
