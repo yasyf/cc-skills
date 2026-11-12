@@ -594,7 +594,7 @@ def test_a_handlers_handoff_goes_to_the_session_holding_the_order_its_order_attr
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
     run("start", demo, "--role", "communicator")
     with state.edit(demo) as data:
-        data["handlers"]["h1"] = {"session": "handler-1", "transcript": None, "started": state.stamp(), "holds": [], "held_back": [], "posted": []}
+        data["handlers"]["h1"] = {"session": "handler-1", "transcript": None, "started": state.stamp(), "holds": [], "handed": [], "posted": []}
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "handler-1")
     records = [{"kind": "handoff", "text": "redraw the run page card with both PRs", "attrs": {"order": order}} for order in ("o1", "o2", "o3")]
     said = tools.run("record", demo, {"records": records, "dry_run": True}).splitlines()

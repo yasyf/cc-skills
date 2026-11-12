@@ -1100,7 +1100,7 @@ def quiet_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 for head in heads:
                     data["orders"][head]["quiet"] = {"record": seq, "at": None, "handler": None}
             try:
-                handler = agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'quiet-{seq}'}")
+                handler, _ = agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'quiet-{seq}'}")
             except agents.Busy:
                 handler = None
         except (reads.ReadError, state.DriveError) as error:
@@ -1905,7 +1905,7 @@ def catch_up_lines(watcher: Watcher, moment: datetime) -> list[str]:
         seq = owed["record"] or catch_up_report(watcher, data)
         with state.edit(watcher.name) as data:
             data["catch_up"]["record"] = seq
-        handler = agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'catch-up-{seq}'}")
+        handler, _ = agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'catch-up-{seq}'}")
     except (reads.ReadError, state.DriveError) as error:
         return failed(watcher, "catch-up", "post of his catch-up", error, moment)
     watcher.failures.pop("catch-up", None)

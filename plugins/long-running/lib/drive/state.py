@@ -395,7 +395,7 @@ def saved(name: str) -> dict:
     data.setdefault("launched", {})
     for handler in data["handlers"].values():
         handler.setdefault("holds", None)
-        handler.setdefault("held_back", [])
+        handler["handed"] = [*handler.get("handed", []), *handler.pop("held_back", [])]
         handler.setdefault("posted", [])
     for held in data["roles"].values():
         held.setdefault("terminal", None)

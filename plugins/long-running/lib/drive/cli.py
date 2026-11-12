@@ -2839,7 +2839,9 @@ def handler(args: argparse.Namespace) -> int:
         )
     if re.search(rf"^{re.escape(agents.HIS_WORDS)}:", args.brief, re.MULTILINE):
         watch.hear(name, state.now(), args.away)
-    handler_id = agents.handle(name, args.brief)
+    handler_id, handed = agents.handle(name, args.brief)
+    if handed:
+        return emit(args, f"handed to {handler_id}", {"handler": handler_id, "handed": True})
     return emit(args, f"started {handler_id}", {"handler": handler_id})
 
 
@@ -3959,7 +3961,8 @@ def parser() -> argparse.ArgumentParser:
         parents=both,
         help=(
             "start a handler on its brief as its own claude --bg session, recording that he wrote when the brief carries his"
-            " words; its line comes back as one cci record when it ends; prints started <its id>"
+            " words; its line comes back as one cci record when it ends; prints started <its id>, or handed to <id> for a"
+            " record on the message of his a live handler is at work on"
         ),
     )
     verb.add_argument(

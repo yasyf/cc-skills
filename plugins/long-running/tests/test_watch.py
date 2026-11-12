@@ -673,7 +673,7 @@ def test_a_quiet_incident_whose_thread_a_handler_holds_restarts_its_clock_with_n
     quiet_incident(demo)
     calls = catching_up(monkeypatch, demo)
 
-    def busy(name: str, brief: str) -> str:
+    def busy(name: str, brief: str) -> tuple[str, bool]:
         raise watch.agents.Busy("refused, no handler started: handler h1 is at work on his message")
 
     monkeypatch.setattr(watch.agents, "handle", busy)

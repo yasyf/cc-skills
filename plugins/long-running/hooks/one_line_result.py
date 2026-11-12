@@ -137,10 +137,10 @@ def main() -> None:
     agents.hold(payload)
     reason = block_reason(payload)
     take_codex(payload)
+    if not reason and "handler_session" in payload:
+        reason = agents.end_handler(payload)
     if reason:
         print(json.dumps({"decision": "block", "reason": reason} | agents.ruled(reason)))
-    elif "handler_session" in payload:
-        agents.end_handler(payload)
 
 
 if __name__ == "__main__":
