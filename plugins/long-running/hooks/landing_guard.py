@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from drive import agents, card, github, land, limits, public_check, settled, slack, state, superseded, view
 from drive.cli import asked_report, tap_verdict
 from drive.github import repo_name
+from drive.render import cut
 from drive.shell import Stdin, expanded, runnable, stdins, templates
 
 ADMIN_REASON = "Admin merges bypass required review; never on Forge-AI repos"
@@ -168,6 +169,12 @@ CCI_POST = Landing(
     }),
 )
 ASK_KEPT = Landing(("drive", "job", "ask"), frozenset({"drive", "unsettled", "check", "drop"}))
+RELEASE_START = Landing(("ci", "release", "start"), frozenset({"order"}))
+RELEASE_CARD = (
+    "A release starts only on his order to release it, his pick on a card that asked whether to release it, or an incident's"
+    " order, the answer labelled incident, whose words approve the incident's own cut. Ask him with `drive job ask` whether"
+    " to release, and start it with `--order` naming the answer `drive answer` records for his pick"
+)
 ASK_READS = frozenset({"<<", "<"})
 ASK_UNREAD = (
     "Refused on purpose: landing_guard cannot read the ASK block this `drive job ask` keeps, since {why}, so Jev cannot"
@@ -407,10 +414,11 @@ def landing_reason(landing: Landing, refs: list[str], options: dict[str, list[st
 
 
 def cut_reason(words: list[str], session: str) -> str | None:
-    """Why a sub-coordinator's session, or an agent it started, may not start, approve or roll back a production cut: the top coordinator alone does, one at a time, since one cut carries every project's changes."""
+    """Why a drive session, or an agent it started, may not start, approve or roll back a production cut: a sub-coordinator's may not, since one cut carries every project's changes and the top coordinator alone runs them, one at a time; and none starts a release on `--order` naming an answer of his that approves no release."""
     if Path(words[0]).name != "ci" or words[1:2] != ["release"] or not RELEASE_CUTS & set(words[2:3]) or PLAN_ONLY & set(words):
         return None
-    for name in state.session_drives(session):
+    names = state.session_drives(session)
+    for name in names:
         data = state.load(name)
         if project := state.session_project(data, session):
             top = data["roles"].get("coordinator", {}).get("session") or "not started"
@@ -419,7 +427,23 @@ def cut_reason(words: list[str], session: str) -> str | None:
                 f" top coordinator of drive {name} (session {top}) does, one at a time. Send it a record at root@{name} naming"
                 " the merged changes the cut must carry"
             )
+    if names and (started := landing_of(words, (RELEASE_START,))) and (order := started[2].get("order")):
+        return order_reason(order[-1], " ".join(words), state.load(names[0])["roles"]["coordinator"]["cwd"])
     return None
+
+
+def order_reason(answer_id: str, command: str, cwd: str) -> str | None:
+    """Why `ci release start --order <id>` may not start a release on this answer of his: it is no incident's order, and Jev does not read it as his order or card pick to release, or gave no answer."""
+    try:
+        answer = settled.shown(answer_id, cwd)
+        if settled.INCIDENT in answer["tags"] or settled.approving(f"start this production release: `{command}`", {"id": answer_id, "asked": answer["title"], "said": answer["body"]}):
+            return None
+    except state.DriveError as error:
+        return f"refused: `--order {answer_id}` names no answer of his this hook could read: {error}. {RELEASE_CARD}"
+    except settled.Unheard as failure:
+        return f"refused: Jev did not say whether his answer {answer_id} approves this release ({failure}); run it again once Jev answers. {RELEASE_CARD}"
+    asked, said = cut(answer["title"], 200), cut(answer["body"], settled.QUOTED_CHARS)
+    return f'refused: `--order {answer_id}` names his answer to "{asked}", "{said}", and Jev does not read it as approving this release. {RELEASE_CARD}'
 
 
 def commands(script: str, shell: Shell) -> Iterator[tuple[list[str], list[str], Shell]]:
@@ -604,7 +628,7 @@ def judged_reason(payload: dict) -> str | None:
 
 
 def guarded_reason(payload: dict) -> str | None:
-    """Why a Bash call must not run, with no judgment to make: it lands a Forge-AI drive PR without his tap or merges with --admin there, in a drive session or agent lands a Forge-AI PR someone else opened that no order of his names, starts, approves or rolls back a production cut from a sub-coordinator's session, and in a drive session or agent lands a Forge-AI PR while his card on it is open, around the monorepo's queue or apart from its stack, puts up a drive's public PR body showing what only a private place may, or posts with `cci post` an owner or answer record of his words on an open card of his, which only the drive's `record` tool closes in the same call."""
+    """Why a Bash call must not run, a refusal capt-hook's Jev never weighs again: it lands a Forge-AI drive PR without his tap or merges with --admin there, in a drive session or agent lands a Forge-AI PR someone else opened that no order of his names, starts, approves or rolls back a production cut from a sub-coordinator's session, or starts one in a drive session on `--order` naming an answer of his that is no incident's and that Jev does not read as his pick to release, and in a drive session or agent lands a Forge-AI PR while his card on it is open, around the monorepo's queue or apart from its stack, puts up a drive's public PR body showing what only a private place may, or posts with `cci post` an owner or answer record of his words on an open card of his, which only the drive's `record` tool closes in the same call."""
     names, shell = shell_of(payload)
     command = payload["tool_input"]["command"]
     if shell.driving and (exposed := body_reason(command, shell)):

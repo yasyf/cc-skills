@@ -33,7 +33,14 @@ DECIDES_QUESTION = (
     "Which one answer, in his own words, already decides which of these options to build? Pick none when no single answer"
     " does, when an answer is about the same subject but another choice, when it only approves a pull request, or when unsure."
 )
+APPROVES_QUESTION = (
+    "Does this answer, in his own words, approve the action? Pick the answer when it is his order to ship, release or approve"
+    " the release the action starts, or his pick on a card that asked whether to release it. Pick none when it picks an option"
+    " on a card that asked anything else, such as whether to land a pull request, which design to build or whether a check"
+    " holds, or when unsure."
+)
 APPROVAL = "kind:approval"
+INCIDENT = "incident"
 TAP_HEADER = "header:Tap"
 TAP_QUESTION = re.compile(r"(?:PR )?(?:Taps?\b|Approv|Land\b).*?(?:#\d+|/pull/\d+)", re.IGNORECASE)
 RARE = re.compile(r"[a-z][a-z0-9-]{4,}")
@@ -149,32 +156,46 @@ def refusals(answer: dict | None, under: list[dict], heard: list[dict], offered:
 
 
 def decided(question: str, options: list[str], found: list[dict]) -> dict | None:
-    """The one of these answers Jev reads as already deciding which option to build, asked as captain_hook's permits_question asks with none first and picked at its 0.8 bar; none, a lower probability or no answer from Jev sends the question to him."""
+    """The one of these answers Jev reads as already deciding which option to build; none, a lower probability or no answer from Jev, said on stderr, sends the question to him."""
+    try:
+        return picked(DECIDES_QUESTION, "No single answer decides it.", {"question": question, "options": options}, found)
+    except Unheard as failure:
+        print(f"drive job ask: Jev did not say whether his answers decide this question, so it goes to him: {failure}", file=sys.stderr)
+        return None
+
+
+def approving(action: str, answer: dict) -> bool:
+    """Whether Jev reads this answer of his as his order or card pick approving the action, at the 0.8 bar; Unheard when Jev gave no answer."""
+    return picked(APPROVES_QUESTION, "It approves no such action.", {"action": action}, [answer]) is not None
+
+
+def picked(instructions: str, unpicked: str, asked: dict, found: list[dict]) -> dict | None:
+    """The one of these answers Jev picks for what asked holds, asked as captain_hook's permits_question asks with none first and picked at its 0.8 bar; none or a lower probability picks nothing."""
     if not found:
         return None
     answers = [{key: answer[key] for key in ("id", "asked", "said")} for answer in found]
-    label = {"instructions": DECIDES_QUESTION, "options": {UNDECIDED: "No single answer decides it.", **dict.fromkeys(answer["id"] for answer in found)}}
-    pick = jev({"state": {"question": question, "options": options, "answers": answers}, "questions": {"decides": {"label": label}}})
-    if not pick or pick["choice"] == UNDECIDED or pick["probabilities"][pick["choice"]] < DECIDES:
+    label = {"instructions": instructions, "options": {UNDECIDED: unpicked, **dict.fromkeys(answer["id"] for answer in found)}}
+    pick = jev({"state": asked | {"answers": answers}, "questions": {"decides": {"label": label}}})
+    if pick["choice"] == UNDECIDED or pick["probabilities"][pick["choice"]] < DECIDES:
         return None
     return next(answer for answer in found if answer["id"] == pick["choice"])
 
 
-def jev(request: dict) -> dict | None:
-    """Jev's answer to the label question `spawnllm decide` asks it, or None, said on stderr, when none came: no key, a timeout, a spawnllm without the verb, or Jev declining the question, which `spawnllm decide` prints as an answer of type refused with no choice."""
+class Unheard(Exception):
+    """Jev gave no answer: no key, a timeout, a spawnllm without the verb, or Jev declining the question."""
+
+
+def jev(request: dict) -> dict:
+    """Jev's answer to the label question `spawnllm decide` asks it; Unheard when none came, Jev declining the question included, which `spawnllm decide` prints as an answer of type refused with no choice."""
     try:
         done = subprocess.run(DECIDE, input=json.dumps(request), capture_output=True, text=True, timeout=60, check=False)
     except (OSError, subprocess.TimeoutExpired) as error:
-        return unheard(str(error))
+        raise Unheard(str(error)) from None
     if done.returncode:
-        return unheard(done.stderr.strip().rpartition("\n")[2])
+        raise Unheard(done.stderr.strip().rpartition("\n")[2])
     if (answer := json.loads(done.stdout)["answers"]["decides"])["type"] == "refused":
-        return unheard("Jev declined the question")
+        raise Unheard("Jev declined the question")
     return answer
-
-
-def unheard(failure: str) -> None:
-    print(f"drive job ask: Jev did not say whether his answers decide this question, so it goes to him: {failure}", file=sys.stderr)
 
 
 def decided_refusal(answer: dict | None, why: str | None) -> str | None:
