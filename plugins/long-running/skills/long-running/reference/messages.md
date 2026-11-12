@@ -349,7 +349,11 @@ When it is answered, replaced or redone:
   not green and his tap, and how it differs from the plan only when it does. A section its body lacks
   is left off and holds nothing, since a body is fixed beside the landing, never before it. A card
   already posted redraws in place on every change with what holds it now. A stack card whose other
-  PRs still ask his tap keeps Approve and Hold for them, and a held PR's section says why. Its Show me comes last,
+  PRs still ask his tap keeps Approve and Hold for them, and a held PR's section says why. A head that
+  moved under his card keeps Approve showing, its section saying it lands once that commit passes the
+  check against his words; a head that check judges against them redraws a card he has not answered
+  with no Approve, saying what it goes against, and sends back an Approve he gave, which the card
+  asking it again names under "Changed since your answer", by his words "Keep Approve showing: keeps Approve on a commit nobody judged; your tap lands after the judge passes, and a failed judge sends it back". Its Show me comes last,
   its pictures inline. The card's title and opening summary come from `## The stack` in its bottom PR.
 - Once he answers, the card folds to its title, his pick and one line per PR. When an answer or ruling
   of his replaces the work it carries, `drive answer` settles it as it does a question card.

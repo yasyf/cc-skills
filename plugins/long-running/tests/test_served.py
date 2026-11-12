@@ -57,5 +57,10 @@ def test_a_restack_carries_a_check_kept_on_the_text_of_gh_pr_diff_to_the_compare
         data["prs"][KEY] |= {"head": "head2", "checked": {"head": "head1", "orders": ["o1"], "patch": kept}}
     restacked = SMALL.replace(b"@@ -10,3 +10,3 @@", b"@@ -14,3 +14,3 @@").replace(b"1111111111aa", b"3333333333cc")
     monkeypatch.setattr(served, "change", lambda key: {"title": "Fix: run", "head": "head2", "diff": restacked})
-    served.carry(demo, [KEY])
+    assert served.carry(demo, [KEY]) == [KEY]
     assert state.load(demo)["prs"][KEY]["checked"] == {"head": "head2", "orders": ["o1"], "patch": kept}
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= {"head": "head3"}
+    monkeypatch.setattr(served, "change", lambda key: {"title": "Fix: run", "head": "head3", "diff": SMALL.replace(b"+  return !flag;", b"+  return flag && !staff();")})
+    assert served.carry(demo, [KEY]) == []
+    assert state.load(demo)["prs"][KEY]["checked"] is None

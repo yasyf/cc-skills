@@ -2527,7 +2527,7 @@ def approve(name: str, *keys: str) -> None:
 
 def stacked(name: str, native: list[str] | None = None) -> None:
     with state.edit(name) as data:
-        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "bbbbbbb222"}
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "bbbbbbb222", "checked": CHECKED | {"head": "bbbbbbb222"}}
         for key in (KEY, OTHER):
             data["prs"][key] |= {"stack": [KEY, OTHER], "native": [KEY, OTHER] if native is None else native, "checks": "pass", "review": "approved"}
 
@@ -2734,6 +2734,23 @@ def test_a_lander_queues_nothing_while_a_pr_below_it_in_its_native_stack_lacks_h
     monkeypatch.setattr(land.github, "below", lambda key: [KEY] if key == OTHER else [])
     assert land.run(demo, [KEY, OTHER], dry_run=True) == f"would queue {KEY}, {OTHER} through stack-enqueue --watch: every PR below it is merged, approved by him or exempt"
 
+
+def test_a_lander_queues_nothing_while_the_prs_head_on_github_is_not_the_one_checked_against_his_words_and_wakes_no_one(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    waiting_job(demo)
+    approve(demo, KEY)
+    enqueue_exiting(tmp_path, demo, 0)
+    monkeypatch.setattr(land.github, "heads", lambda keys: {KEY: "ccccccc333"})
+    watching = watcher(demo)
+    moved = f"{land.WAITS_CHECK}: GitHub holds {KEY} at ccccccc333, a head that check has not passed, so his Approve lands it once the watch's check passes there"
+    assert land.run(demo, [KEY]) == moved
+    [line] = watch.event_lines(watching)
+    assert (state.load(demo)["prs"][KEY]["lander"]["outcome"], line, watch.wakes(line, state.load(demo))) == (moved, f"PR {KEY}: {moved} [o1 j1]", False)
+    with state.edit(demo) as data:
+        data["prs"][KEY]["checked"] = None
+    with pytest.raises(state.DriveError, match="his Approve lands only a change that passed that check"):
+        land.run(demo, [KEY])
 
 def test_a_lander_refuses_a_pr_his_approve_does_not_cover(demo: str) -> None:
     with pytest.raises(state.DriveError, match="a Forge-AI/monorepo PR he approved or an exempt class lands"):

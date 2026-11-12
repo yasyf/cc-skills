@@ -247,6 +247,8 @@ def waits_on(pr: dict, entry: dict, held: tuple[str, ...]) -> str:
             return "Held by you"
         case _ if hold_labeled(pr):
             return "Held by the drive with the hold label on GitHub"
+        case _ if named := state.against(entry):
+            return f"Commit {entry['head'][:7]} goes against your words: {clipped(named)}. Its agent is changing it; Approve returns once a commit passes the check"
         case _ if pr["isDraft"]:
             return "Still a draft; the agent is finishing it"
         case _, "fail":
@@ -546,6 +548,13 @@ def holding(known: dict[str, tuple[str, dict]], key: str) -> dict[str, str]:
     return {wait: view.wait_words(data, wait, found) for wait in view.holding(data, entry["waits"], found)}
 
 
+def judging(known: dict[str, tuple[str, dict]], key: str, pr: dict) -> tuple[str, ...]:
+    """The check against his words his card says the PR lands once, in his card's words, while its change at the head drawn is not the one that check passed: Approve stays on it, and his Approve lands it only once that check passes."""
+    name, entry = known[key]
+    passed = state.checked(state.load(name), entry) and entry["checked"]["head"] == pr["headRefOid"]
+    return () if passed or state.owed_step(entry) != "card" else (f"commit {pr['headRefOid'][:7]} passes the check against your words",)
+
+
 def waiting(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
     """Why no fresh card is drawn for the members yet, while none of them asks his tap with nothing holding it: each design card of his still open, job not finished, PR open or release not out, that one of them waits on; a check still running holds none. One member asking his tap draws the card, each other's section saying what holds it."""
     if any(state.asks_tap(known[key][1]) and not holding(known, key) for key in members):
@@ -555,13 +564,14 @@ def waiting(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
 
 
 def unchecked(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
-    """Why no fresh card is drawn for the members yet: one asking his tap has no check of its change at its head against the words of every order it serves, which its builder's READY runs through drive job report and the coordinator's drive pr set --serves runs for a remote lane's."""
+    """Why no fresh card is drawn for the members yet: one asking his tap has no check of its change at its head against the words of every order it serves, which its builder's READY runs through drive job report and its order's holder's drive pr set --serves runs for a remote lane's."""
     held = [key for key in members if state.asks_tap(entry := known[key][1]) and not state.checked(state.load(known[key][0]), entry)]
     if not held:
         return ""
+    holders = sorted({state.title(state.load(known[key][0])["orders"][known[key][1]["order"]]["owner"] or "coordinator") for key in held})
     return (
-        f"the change of {', '.join(held)} at its head is not checked against his words, so no card asks his tap until drive job report"
-        " on its builder's READY or drive pr set --serves checks it"
+        f"the change of {', '.join(held)} at its head is not checked against his words, so no card asks his tap until its builder's READY"
+        f" checks it through drive job report, or its order's holder, the {' or the '.join(holders)}, runs drive pr set --serves"
     )
 
 
@@ -624,7 +634,9 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
         if not reason:
             taken: set[str] = set()
             try:
-                card = drawn_card([(reads[key], known[key][1], pictured(known[key][0], key, reads[key], taken), tuple(holding(known, key).values())) for key in members])
+                card = drawn_card(
+                    [(reads[key], known[key][1], pictured(known[key][0], key, reads[key], taken), (*holding(known, key).values(), *judging(known, key, reads[key]))) for key in members]
+                )
             except state.DriveError as error:
                 reason = str(error)
         if reason:
@@ -690,7 +702,7 @@ def answered(ask: dict) -> dict:
             entry = data["prs"][member]
             if entry["state"] != "open":
                 continue
-            entry["tap"] = {"label": ask["label"], "at": state.stamp(), "head": entry["head"], "source": ask["source"]}
+            entry["tap"] = {"label": ask["label"], "at": state.stamp(), "head": ask["heads"].get(member, entry["head"]), "source": ask["source"]}
             entry["fundamental"] = None
             entry["updated"] = entry["tap"]["at"]
             repo, number = member.split("#")
@@ -700,11 +712,12 @@ def answered(ask: dict) -> dict:
                 repo=repo,
                 number=int(number),
                 label=ask["label"],
-                head=entry["head"],
+                head=entry["tap"]["head"],
                 source=ask["source"],
                 action_ts=ask["action_ts"],
                 lane=state.heard_lane(data, entry["order"]),
             )
+            state.send_back(entry)
     if ask["label"] == "Approve":
         from drive import land, view
 

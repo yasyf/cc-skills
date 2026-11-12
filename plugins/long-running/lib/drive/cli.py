@@ -2045,6 +2045,9 @@ def pr_set(args: argparse.Namespace) -> int:
         refuse_a_part_its_job_lacks(known, key, args.part)
     if args.serves:
         refuse_a_crossed_order(name, known, order, args.serves, f"{key} --serves")
+    if (args.serves or args.design) and (refused := state.held_elsewhere(known, order, state.session_role(known, os.environ.get("CLAUDE_CODE_SESSION_ID")))):
+        raise DriveError(f"{key}: refused, nothing set: {refused}")
+    if args.serves:
         refuse_an_unwritten_rule(known, key)
         refuse_a_change_against_his_words(name, known, key, args)
     if args.serves and not args.design and (known["prs"][key]["wants_tap"] if args.tap is None else args.tap):

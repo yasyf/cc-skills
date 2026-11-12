@@ -391,6 +391,8 @@ def load(name: str) -> dict:
         pr.setdefault("branch", None)
         pr.setdefault("lander", None)
         pr.setdefault("checker", None)
+        if pr["checker"]:
+            pr["checker"].setdefault("against", "")
         pr.setdefault("ejected", False)
         pr.setdefault("review_asked", None)
         pr.setdefault("author", None)
@@ -1091,8 +1093,8 @@ def held_elsewhere(data: dict, order_id: str, role: str | None) -> str | None:
     session = (data["roles"].get(holder) or {}).get("session") or "not started"
     lane = order_lane(data, order) if holder == "coordinator" else holder
     return (
-        f"{order_id} is the {title(holder)}'s order, session {session}: only the {title(holder)} adds its jobs, starts its agents"
-        f" and posts its reports; send the {title(holder)} the step as a handoff record on the drive's record tool instead,"
+        f"{order_id} is the {title(holder)}'s order, session {session}: only the {title(holder)} adds its jobs, starts its agents,"
+        f" checks its PRs and posts its reports; send the {title(holder)} the step as a handoff record on the drive's record tool instead,"
         f' to "{lane}" and attrs {{"order": "{order_id}"}}'
     )
 
@@ -1410,8 +1412,23 @@ def checked(data: dict, pr: dict) -> bool:
     return bool(stamp) and stamp["head"] == pr["head"] and set(served_orders(data, pr)) <= set(stamp["orders"])
 
 
+def against(pr: dict) -> str:
+    """Each of his words the PR's change at its head goes against, as the watch's check judged that head, or "" when no check judged it against them."""
+    checker = pr["checker"]
+    return checker["against"] if checker and checker["head"] == pr["head"] else ""
+
+
+def send_back(pr: dict) -> None:
+    """Send his Approve of a PR whose change at its head goes against his words back to him: nothing lands it, and the card that asks his Approve again says why under "Changed since your answer"."""
+    tap = pr["tap"]
+    if (tap or {}).get("label") != "Approve" or not (named := against(pr)):
+        return
+    said = f"Commit {pr['head'][:7]} goes against your words, so your Approve of commit {tap['head'][:7]} went back: {named}"
+    pr.update(tap=None, fundamental=said, ready_said=None, updated=stamp())
+
+
 def tap_refused(pr: dict) -> str | None:
-    """Why his card on the PR offers no Approve, so no fresh card draws for it; None when it does: open, his card owed, and neither his Approve nor the hold label on it."""
+    """Why his card on the PR offers no Approve, so no fresh card draws for it; None when it does: open, his card owed, its change at its head not judged against his words, and neither his Approve nor the hold label on it."""
     if pr["state"] != "open":
         return f"it is {pr['state']}"
     match owed_step(pr):
@@ -1421,6 +1438,8 @@ def tap_refused(pr: dict) -> str | None:
             return "it is being reworked to his words"
         case None:
             return "its author or its own builder lands it with no tap"
+    if named := against(pr):
+        return f"its change at its head goes against his words: {named}"
     if (pr["tap"] or {}).get("label") == "Approve":
         return "he approved it already"
     if pr["hold_label"]:
