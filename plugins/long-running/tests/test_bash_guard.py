@@ -15,6 +15,7 @@ Run = Callable[..., tuple[int, str]]
 RESUMED = "d8677ab9-1e8c-4adb-a3bb-3f661dc45b77"
 CREATE = f'orca terminal create --worktree path:/work --title demo-coordinator --command "claude --resume {RESUMED} -n demo-coordinator" --json'
 CACHED = "~/.claude/plugins/cache/x/long-running/1.0.1/skills/long-running/reference"
+LIVE_PID = orca.live_pid
 
 
 @pytest.fixture(autouse=True)
@@ -35,6 +36,7 @@ def bash(command: str, session: str = SESSION, call: dict | None = None, **field
 def running(monkeypatch: pytest.MonkeyPatch, config: Path, pids: dict[int, int]) -> None:
     (config / "sessions" / "4123.json").write_text(json.dumps({"sessionId": RESUMED}))
     monkeypatch.setattr(orca, "parents", lambda: pids)
+    monkeypatch.setattr(orca, "live_pid", LIVE_PID)
 
 
 def test_a_builder_opens_its_pr_the_repositorys_way(demo: str) -> None:
@@ -144,7 +146,8 @@ def test_a_sub_coordinators_session_is_found_like_a_roles_by_its_session_and_ter
     assert bash_guard.deny_reason(bash(CREATE)).startswith(f"refused: session {RESUMED} still runs as pid 4123, in a terminal Orca only hides")
 
 
-def test_a_terminal_command_ends_with_the_claude_command(demo: str) -> None:
+def test_a_terminal_command_ends_with_the_claude_command(demo: str, live_sessions: dict[str, int | None]) -> None:
+    live_sessions["x"] = None
     reason = bash_guard.deny_reason(bash('orca terminal create --worktree path:/work --command "claude --resume x; exec zsh -l"'))
     assert reason.startswith("refused: the terminal's --command runs `zsh` after claude")
     assert bash_guard.deny_reason(bash('orca terminal create --worktree path:/work --command "claude --resume x"')) is None

@@ -291,6 +291,13 @@ def redraws(monkeypatch: pytest.MonkeyPatch) -> Redraws:
 
 
 @pytest.fixture(autouse=True)
+def live_sessions(monkeypatch: pytest.MonkeyPatch) -> dict[str, int | None]:
+    pids: dict[str, int | None] = {}
+    monkeypatch.setattr(orca, "live_pid", lambda session: pids.get(session, 4242))
+    return pids
+
+
+@pytest.fixture(autouse=True)
 def agents_at_work(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(watch, "local_gap", lambda job_id, job, data, moment: None)
     monkeypatch.setattr(watch, "last_write", lambda job, data: (state.now(), None))

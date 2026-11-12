@@ -195,9 +195,7 @@ def live_resume(found: list[list[str]]) -> str | None:
         session = option(words, "--resume") or option(words, "-r")
         if Path(words[0]).name != "claude" or not session or "--fork-session" in words:
             continue
-        running = orca.parents()
-        pid = next((pid for pid in orca.claude_pids(session) if pid in running), None)
-        if pid is None:
+        if (pid := orca.live_pid(session)) is None:
             continue
         owner = role_of(session=session)
         if owner and (show := hidden(state.bound_sessions(owner[0])[owner[1]])):

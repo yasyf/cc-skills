@@ -928,6 +928,17 @@ def test_a_line_answering_his_order_by_a_missing_plan_or_record_is_found_and_a_l
         assert say(transcript, text=text) is None
 
 
+def test_a_post_saying_a_coordinator_is_down_is_found_and_one_saying_it_was_restarted_is_not(talker: str, transcript: Path) -> None:
+    with state.edit("demo") as data:
+        data["roles"]["coordinator"] = {"session": "coordinator-session", "terminal": None, "cwd": "/work", "started": state.stamp()}
+    for text in ("The coordinator is down, so no record has moved since 2 PM.", "The coordinator's process exited at 2 PM, so the records wait."):
+        refused = say(transcript, text=text)
+        assert refused is not None and refused.startswith("refused: a coordinator that is down is restarted that minute, never reported to him as down"), text
+        assert "creating the terminal resuming session coordinator-session in /work, or a sub-coordinator's session" in refused
+    for text in ("The coordinator's process exited at 2 PM; I restarted it at 2:01 PM and the records move again.", "The coordinator answered every record since 2 PM."):
+        assert say(transcript, text=text) is None, text
+
+
 def test_a_word_he_corrected_is_found_in_the_text_a_links_words_a_caption_or_a_card_and_not_in_a_quote_of_him(talker: str, transcript: Path) -> None:
     with state.edit("demo") as data:
         data["stand_ins"]["backup"] = "S3 replica"
