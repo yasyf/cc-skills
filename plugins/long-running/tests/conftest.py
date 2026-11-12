@@ -140,6 +140,13 @@ def landers(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, ...]]:
     return started
 
 
+@pytest.fixture(autouse=True)
+def native_stacks(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[tuple[str, str]]]:
+    stacks: dict[str, list[tuple[str, str]]] = {}
+    monkeypatch.setattr(github, "stacks", lambda keys: {key: stacks[key] for key in keys if key in stacks})
+    return stacks
+
+
 @dataclass
 class Thread:
     messages: list[dict] = field(default_factory=list)

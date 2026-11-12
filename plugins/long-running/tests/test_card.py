@@ -893,7 +893,7 @@ def test_a_pr_added_to_the_stack_later_gets_its_own_card(stacked: list[list[str]
     [drawn] = ask(asks(44))["cards"]
     assert [row["url"] for row in drawn["card"]["prs"]] == [stack_url(44)]
     assert drawn["card"]["waits"] == "merge:Forge-AI:monorepo:44"
-    assert "stack" not in state.load("demo")["prs"]["Forge-AI/monorepo#44"]
+    assert state.load("demo")["prs"]["Forge-AI/monorepo#44"]["stack"] == ["Forge-AI/monorepo#44"]
 
 
 def test_a_pr_added_on_top_joins_the_stack_card_when_asked_with_it(stacked: list[list[str]]) -> None:
@@ -962,3 +962,47 @@ def test_a_tap_on_a_single_pr_card_taps_only_that_pr(stacked: list[list[str]]) -
     answer = {"repo": "Forge-AI/monorepo", "number": 41, "waits": "merge:Forge-AI:monorepo:41", "label": "Hold", "action_ts": "", "source": "s"}
     ask({"answer": answer})
     assert [event["number"] for event in events("demo")] == [41]
+
+
+def test_a_pr_in_a_native_stack_draws_its_native_stack_and_the_rest_of_the_chain_it_was_drawn_on_chain_by_base(
+    stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch, native_stacks: dict[str, list[tuple[str, str]]]
+) -> None:
+    keys = {n: f"Forge-AI/monorepo#{n}" for n in (41, 42, 43, 44, 45, 46)}
+    with state.edit("demo") as data:
+        for n in (45, 46):
+            data["prs"][keys[n]] = {**entry(), "url": stack_url(n)}
+        data["prs"][keys[43]]["state"] = "closed"
+        for key in keys.values():
+            data["prs"][key]["stack"] = list(keys.values())
+    for n in (41, 42, 43, 44):
+        native_stacks[keys[n]] = [("Forge-AI/monorepo#40", "open"), (keys[41], "open"), (keys[42], "open"), (keys[43], "closed"), (keys[44], "open")]
+    loose = {45: ("Fix: retry the upload", "main", "retry-1"), 46: ("Fix: retry the download", "retry-1", "retry-2")}
+    stacked_gh = card.run
+
+    def gh(cmd: list[str], **_: str) -> str:
+        if cmd[1] == "api" or int(cmd[3]) not in loose:
+            return stacked_gh(cmd)
+        title, base, branch = loose[int(cmd[3])]
+        return json.dumps(pr_json(title=title, url=stack_url(int(cmd[3])), base=base, branch=branch))
+
+    monkeypatch.setattr(card, "run", gh)
+    monkeypatch.setattr(card, "STACK_MOST", 3)
+    drawn = ask(asks(41, 42, 44, 45, 46))["cards"]
+    assert [[row["url"] for row in each["card"]["prs"]] for each in drawn] == [[stack_url(n) for n in (41, 42, 44)], [stack_url(45), stack_url(46)]]
+    assert [each["card"]["waits"] for each in drawn] == ["merge:Forge-AI:monorepo:41-44", "merge:Forge-AI:monorepo:45-46"]
+    assert state.load("demo")["prs"][keys[44]]["stack"] == [keys[41], keys[42], keys[44]]
+
+
+def test_a_pr_added_to_its_native_stack_after_the_stack_card_was_drawn_gets_its_own_card(
+    stacked: list[list[str]], native_stacks: dict[str, list[tuple[str, str]]]
+) -> None:
+    keys = [f"Forge-AI/monorepo#{n}" for n in (41, 42, 43, 44)]
+    for key in keys[:3]:
+        native_stacks[key] = [(member, "open") for member in keys[:3]]
+    ask(asks(41, 42, 43))
+    for key in keys:
+        native_stacks[key] = [(member, "open") for member in keys]
+    [drawn] = ask(asks(44))["cards"]
+    assert [row["url"] for row in drawn["card"]["prs"]] == [stack_url(44)]
+    [again] = ask(asks(42) | {"redraw": True})["cards"]
+    assert again["card"]["waits"] == "merge:Forge-AI:monorepo:41-43"
