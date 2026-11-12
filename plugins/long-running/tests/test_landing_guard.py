@@ -222,7 +222,7 @@ def stored_stack(drive_pr: str, run: Run) -> list[str]:
         approve(key)
     with state.edit("demo") as data:
         for key in keys:
-            data["prs"][key]["stack"] = keys
+            data["prs"][key] |= {"stack": keys, "native": keys}
     return keys
 
 
@@ -239,6 +239,13 @@ def test_enqueueing_every_open_pr_of_a_stored_stack_passes(stored_stack: list[st
     with state.edit("demo") as data:
         data["prs"][stored_stack[0]]["state"] = "merged"
     assert landing_guard.deny_reason(bash("stack-enqueue 42 43")) is None
+
+
+def test_enqueueing_one_sibling_pr_of_his_order_card_alone_passes_since_stack_enqueue_lands_each_on_its_own(stored_stack: list[str], no_calls: None) -> None:
+    with state.edit("demo") as data:
+        for key in stored_stack:
+            data["prs"][key]["native"] = []
+    assert landing_guard.deny_reason(bash("stack-enqueue 41")) is None
 
 
 def test_his_typed_approval_recorded_with_its_source_lets_the_pr_land(drive_pr: str, run: Run, no_calls: None) -> None:

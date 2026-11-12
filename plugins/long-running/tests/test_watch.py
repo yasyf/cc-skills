@@ -2289,6 +2289,26 @@ def test_a_pr_on_another_open_prs_branch_gets_no_ready_of_its_own_and_one_ready_
     assert record.get("body", record["text"]) == f"{state.pr_url(OTHER)} {state.pr_url(KEY)}; {words}"
 
 
+def test_sibling_prs_of_one_order_in_no_stack_get_one_ready_naming_each_and_a_pr_of_another_order_gets_its_own(
+    demo: str, monkeypatch: pytest.MonkeyPatch, ready_records: list[list[dict]]
+) -> None:
+    waiting_job(demo)
+    with state.edit(demo) as data:
+        data["orders"]["o2"] = order(text="a cloud agent signs in as its own principal", jobs=["j2"])
+        data["jobs"]["j1"]["prs"].append(state.pr_url(OTHER))
+        data["jobs"]["j2"] = job(order="o2", prs=[state.pr_url(THIRD)], state="waiting")
+        data["prs"][KEY]["wants_tap"] = True
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"checked": CHECKED | {"head": "bbbbbbb222"}}
+        data["prs"][THIRD] = state.new_pr(state.pr_url(THIRD), "j2", "o2") | {"checked": CHECKED | {"head": "ccccccc333", "orders": ["o2"]}}
+    heads = {KEY: "aaaaaaa111", OTHER: "bbbbbbb222", THIRD: "ccccccc333"}
+    serve(monkeypatch, {key: read(headRefOid=head, baseRefName="dev", headRefName=f"cutover-{key.split('#')[1]}", checks=GREEN, reviewDecision="APPROVED") for key, head in heads.items()})
+    watch.run_pass(watcher(demo), T0)
+    assert [record.get("body", record["text"]) for [record] in ready_records] == [
+        f'{state.pr_url(KEY)} {state.pr_url(OTHER)}; his order o1 "ship the watch"',
+        f'{state.pr_url(THIRD)}; his order o2 "a cloud agent signs in as its own principal"',
+    ]
+
+
 def test_a_pr_reworked_to_his_words_gets_no_ready_and_loses_a_card_left_up_until_its_builders_ready_says_how_they_are_met(
     demo: str, monkeypatch: pytest.MonkeyPatch, ready_records: list[list[dict]], withdrawals: Withdrawals
 ) -> None:
@@ -2505,11 +2525,11 @@ def approve(name: str, *keys: str) -> None:
             data["prs"][key] |= {"wants_tap": True, "tap": {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "pressed the button"}}
 
 
-def stacked(name: str) -> None:
+def stacked(name: str, native: list[str] | None = None) -> None:
     with state.edit(name) as data:
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "bbbbbbb222"}
         for key in (KEY, OTHER):
-            data["prs"][key] |= {"stack": [KEY, OTHER], "checks": "pass", "review": "approved"}
+            data["prs"][key] |= {"stack": [KEY, OTHER], "native": [KEY, OTHER] if native is None else native, "checks": "pass", "review": "approved"}
 
 
 def test_his_approve_starts_one_lander_once_its_pr_is_green_and_conflict_free_and_again_only_on_a_head_no_lander_tried(
@@ -2566,6 +2586,15 @@ def test_a_lander_queues_a_stack_its_job_waits_on_yet_holds_a_pr_waiting_on_an_o
         data["prs"][THIRD]["state"] = "merged"
     assert land.start(demo, [KEY, OTHER], NO_CARDS) == [(KEY, OTHER)]
     assert landers == [(KEY, OTHER)]
+
+
+def test_his_approve_on_a_card_of_one_orders_prs_in_no_native_stack_starts_a_lander_on_each_since_stack_enqueue_refuses_them_named_together(
+    demo: str, landers: list[tuple[str, ...]]
+) -> None:
+    stacked(demo, native=[])
+    approve(demo, KEY, OTHER)
+    assert land.start(demo, [KEY, OTHER], NO_CARDS) == [(KEY,), (OTHER,)]
+    assert landers == [(KEY,), (OTHER,)]
 
 
 def enqueue_exiting(tmp_path: Path, name: str, code: int) -> None:

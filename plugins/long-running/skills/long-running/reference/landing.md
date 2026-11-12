@@ -261,8 +261,10 @@ lander posts `@forge-pr-reviewer review` on that PR, once a head, and `--watch` 
 approvals and queues it. His card tap starts it when the PR is already green, approved by the
 reviewer bot, on its head or an older one, and free of conflicts, and the watch starts it within
 one GitHub read, 60 seconds, of the PR getting there. It
-names the PRs of his card's stack bottom first, up to the first neither his Approve nor an exempt
-class clears, and starts on
+names each stack on his card that his Approve lands together bottom first, a native GitHub stack or PRs
+each on the one below's head branch, up to the first neither his Approve nor an exempt class clears,
+and each other PR of his card in a call of its own, since `stack-enqueue` refuses PRs named together
+that no stack links, such as one order's sibling PRs on `dev`. It starts on
 none while a card of his that the PR or its job waits on is open, or the PR is a draft, held or in
 conflict. Each head gets one try. Its outcome comes back as the PR's line: `PR … queued for merge`
 wakes no one, while `PR … not landed: <why>` and `PR … ejected from the merge queue` wake the job's

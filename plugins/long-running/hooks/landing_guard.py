@@ -378,14 +378,12 @@ def pr_reason(landing: Landing, key: str, shell: Shell) -> str | None:
 
 
 def stacked(keys: list[str], session: str) -> list[str]:
-    """The named PRs with every open PR of each stack a named PR's card drew, each stack bottom first."""
-    named = {key.lower() for key in keys}
-    stacks = [judged[1].get("stack") or [] for key in keys if (judged := judged_by(key, session))]
-    members = [
-        member
-        for member in dict.fromkeys(member for stack in stacks for member in stack)
-        if member.lower() in named or ((judged := judged_by(member, session)) and judged[1]["state"] == "open")
-    ]
+    """The named PRs with every open PR his Approve lands with each, by land.together: the PRs of its card that share its stack, each stack bottom first."""
+    members: dict[str, None] = {}
+    for key in keys:
+        if judged := judged_by(key, session):
+            data = state.load(judged[0])
+            members |= dict.fromkeys(land.together(data, land.landing_stacks(data), state.pr_key(judged[1]["url"])))
     shown = {member.lower() for member in members}
     return [*members, *(key for key in keys if key.lower() not in shown)]
 

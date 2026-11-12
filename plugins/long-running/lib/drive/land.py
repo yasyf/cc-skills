@@ -83,10 +83,36 @@ def landing(pr: dict) -> bool:
     return lander.get("head") == pr["head"] and (running(pr) or lander.get("outcome") == QUEUED)
 
 
-def unit(data: dict, key: str) -> tuple[str, ...]:
-    """The PRs one lander queues with key, bottom first: the open PRs of the stack his card drew it in, else key alone, up to the first neither his Approve nor an exempt class clears."""
-    members = [member for member in data["prs"][key].get("stack") or [key] if data["prs"][member]["state"] == "open"]
-    return tuple(takewhile(lambda member: state.cleared(data["prs"][member]), members))
+def landing_stacks(data: dict) -> dict[str, tuple[str, ...]]:
+    """Each open PR the drive tracks in a stack, mapped to the stack's open tracked PRs bottom first, as the watch last read them: the PRs his Approve lands together, joined as stack-enqueue lands them, a PR sitting on the one before it in its native GitHub stack or, in none, on the open PR whose head branch is its base."""
+    opened = {key: pr for key, pr in data["prs"].items() if pr["state"] == "open"}
+    by_branch = {(github.repo_of(key), pr["branch"]): key for key, pr in opened.items() if pr["branch"]}
+    under: dict[str, str | None] = {}
+    for key, pr in opened.items():
+        native = [member for member in pr["native"] if member in opened]
+        under[key] = (native[native.index(key) - 1] if native.index(key) else None) if key in native else by_branch.get((github.repo_of(key), pr["base"]))
+
+    def depth(key: str) -> int:
+        return depth(parent) + 1 if (parent := under[key]) else 0
+
+    def bottom(key: str) -> str:
+        return bottom(parent) if (parent := under[key]) else key
+
+    stacks: dict[str, list[str]] = {}
+    for key in opened:
+        stacks.setdefault(bottom(key), []).append(key)
+    return {key: tuple(sorted(members, key=depth)) for members in stacks.values() if len(members) > 1 or opened[members[0]]["native"] for key in members}
+
+
+def together(data: dict, stacks: dict[str, tuple[str, ...]], key: str) -> list[str]:
+    """The open PRs his Approve lands with key, bottom first: those of the card his Approve covered it on that share its landing stack, else key alone, since stack-enqueue refuses PRs named together that no stack links, such as the sibling PRs of one order his card draws together."""
+    landed = stacks.get(key, (key,))
+    return [member for member in data["prs"][key].get("stack") or [key] if data["prs"][member]["state"] == "open" and member in landed]
+
+
+def unit(data: dict, stacks: dict[str, tuple[str, ...]], key: str) -> tuple[str, ...]:
+    """The PRs one lander queues with key, bottom first, up to the first neither his Approve nor an exempt class clears."""
+    return tuple(takewhile(lambda member: state.cleared(data["prs"][member]), together(data, stacks, key)))
 
 
 def ready(data: dict, keys: tuple[str, ...], cards: dict) -> bool:
@@ -126,7 +152,8 @@ def held_below(keys: list[str], below: list[str]) -> str:
 
 
 def units(data: dict, keys: list[str], cards: dict) -> list[tuple[str, ...]]:
-    found = dict.fromkeys(unit(data, key) for key in keys if state.queued_by_lander(key) and data["prs"][key]["state"] == "open")
+    stacks = landing_stacks(data)
+    found = dict.fromkeys(unit(data, stacks, key) for key in keys if state.queued_by_lander(key) and data["prs"][key]["state"] == "open")
     return [members for members in found if members and ready(data, members, cards)]
 
 
