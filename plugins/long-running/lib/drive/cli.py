@@ -1490,7 +1490,7 @@ def job_report(args: argparse.Namespace) -> int:
             raise DriveError(f"{args.id}: refused, nothing kept: {refused}")
         if job["kind"] == "builder" and re.match(r"(?:READY|PUSHED)\b", line):
             try:
-                served.check(name, args.id, [], [], [line for line in whole.splitlines() if line.startswith("DESIGN:")], {})
+                served.check(name, state.carded_prs(data, args.id), [], [line for line in whole.splitlines() if line.startswith("DESIGN:")], {})
             except DriveError as error:
                 raise DriveError(f"{args.id}: refused, nothing kept: {error}") from None
         if job["kind"] == "builder" and re.match(r"READY\b", line) and (held := unready(data, job, line)):
@@ -2059,11 +2059,11 @@ def refuse_a_part_its_job_lacks(data: dict, key: str, parts: list[str]) -> None:
 
 
 def refuse_a_change_against_his_words(name: str, data: dict, key: str, args: argparse.Namespace) -> None:
-    """Refuse a PR serving an order while its change at its head, judged with its job's other PRs his card waits on, goes against the words of that order, its job's or any its job carries, or of the answers of his this --design cites, judged for the parts this --part names, a PR this --tap sets waiting on his tap judged too, as a remote lane's READY reaches the drive with no drive job report to judge it; one its builder's READY passed at this head is not judged again."""
+    """Refuse a PR serving an order while its change at its head, judged with its job's other PRs his card waits on, goes against the words of that order, its job's or any its job carries, or of the answers of his this --design cites, judged for the parts this --part names, a PR this --tap sets waiting on his tap judged too; one its builder's READY or the watch's check passed at this head is not judged again."""
     job_id = data["prs"][key]["job"]
     try:
         setting = ({"design": args.design} if args.design else {}) | ({"parts": args.part} if args.part else {})
-        served.check(name, job_id, [args.serves], [key] if args.tap else [], [], {key: setting})
+        served.check(name, list(dict.fromkeys([*state.carded_prs(data, job_id), *([key] if args.tap else [])])), [args.serves], [], {key: setting})
     except served.Against as error:
         resume = f"drive job resume {job_id} with this refusal" if data["jobs"][job_id]["where"] == "remote" else f"a fresh builder on {job_id} briefed with this refusal"
         raise DriveError(f"{key}: refused, nothing set: {error}. Send it back by {resume}") from None
@@ -2296,6 +2296,14 @@ def pr_land(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     outcome = land.record(name, keys, args.outcome, args.below) if args.outcome else land.run(name, keys, args.dry_run)
     return emit(args, outcome, {"keys": keys, "outcome": outcome})
+
+
+def pr_check(args: argparse.Namespace) -> int:
+    """Judge one PR against his words as the watch's check; when a newer install saved drive.json while the judge ran, the newest install's `drive pr check` judges it again in place of this process, since this code may misread the drive."""
+    key, name = state.pr_key(args.url), state.resolve(args.drive)
+    with install.handed_to_newest(["pr", "check", args.url, "--drive", name, *(["--json"] if args.json else [])]):
+        outcome = served.verdict(name, key)
+    return emit(args, f"{key}: {outcome}", {"key": key, "outcome": outcome})
 
 
 def answer(args: argparse.Namespace) -> int:
@@ -3390,6 +3398,13 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--outcome", help="land nothing and record this outcome, as a lander older than the drive hands its record to the newest install")
     verb.add_argument("--below", action="append", default=[], metavar="PR", help="with --outcome, a PR below it without his Approve that held it; repeat for each")
     verb.set_defaults(run=pr_land)
+    verb = pr.add_parser(
+        "check",
+        parents=both,
+        help="what the watch starts on a builder's READY: judge one PR his card waits on at its head against his words, and say CHECKED, which draws his card once it is green and approved, or NOT READY, which goes to its builder",
+    )
+    verb.add_argument("url", help="the PR's URL")
+    verb.set_defaults(run=pr_check)
 
     verbs.add_parser("place", parents=both, help="where the next monorepo builder starts").set_defaults(run=place_job)
     verb = verbs.add_parser("bound", parents=both, help="run one command with a lane's Run bound to this terminal, under the drive's binding lock, then bind the drive's own Run, which no lane mails")

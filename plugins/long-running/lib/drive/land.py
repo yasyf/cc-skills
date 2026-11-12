@@ -174,17 +174,7 @@ def mark(data: dict, keys: tuple[str, ...], pid: int, head: str | None = None) -
 
 def spawn(name: str, keys: tuple[str, ...]) -> int:
     """Run `drive pr land` on the keys as its own process, outliving the watch pass or card tap that started it, its output appended to the drive's landing log."""
-    env = {key: value for key, value in os.environ.items() if key != "CLAUDE_CODE_SESSION_ID"}
-    with (state.drive_dir(name) / LOG).open("a") as log:
-        return subprocess.Popen(
-            [str(DRIVE), "pr", "land", *map(state.pr_url, keys), "--drive", name],
-            cwd=state.drive_dir(name),
-            env=env,
-            stdin=subprocess.DEVNULL,
-            stdout=log,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-        ).pid
+    return state.detach(name, ["pr", "land", *map(state.pr_url, keys)], LOG)
 
 
 def run(name: str, keys: list[str], dry_run: bool = False) -> str:

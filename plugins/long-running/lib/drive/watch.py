@@ -29,7 +29,7 @@ TICK_EVERY = timedelta(minutes=30)
 DUE_EVERY = timedelta(minutes=10)
 TELL_AFTER = timedelta(minutes=10)
 WAKES = ("TAP ", "DUE ", "LIVE ", "TELL ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "STUCK ", "FREE ", "EVENT catch-up ", "EVENT unheard ", "EVENT stop ", "WATCH stopped")
-OWNER_MOVES = ("merged", "checks failed", "READY refused", "conflicts with its base", "changes requested", "still red", "ejected from the merge queue", "not landed")
+OWNER_MOVES = ("merged", "checks failed", "READY refused", served.NOT_READY, "conflicts with its base", "changes requested", "still red", "ejected from the merge queue", "not landed")
 PR_EVENT = re.compile(r"PR (?P<key>\S+): (?P<change>.+) \[(?P<order>o\d+) (?P<job>j\d+)\]$")
 TAP_EVENT = re.compile(r"TAP (?P<label>\S+) (?P<key>\S+)")
 LANE = "watch"
@@ -60,14 +60,15 @@ COMPACT_WHEN_QUIET = timedelta(minutes=10)
 NOT_SLUG = re.compile(r"[^A-Za-z0-9]")
 PR_LINE = re.compile(r"\s*(?:READY|PUSHED|PR:)")
 READY_LINE = re.compile(r"READY\b")
+RETURNED_LINE = re.compile(r"(?:READY(?! refused)|PUSHED)\b")
 STUCK_WORDS = {
     "red": "still red",
     "card": "green and approved with no card drawn",
-    "unchecked": "green and approved, its change at this head not checked against his words by drive pr set --serves, with no card drawn",
+    "unchecked": "green and approved with no card drawn, as no check against his words passed its change at this head",
     "landing": "green, approved and exempt, and not landed",
 }
 ABOUT = re.compile(r"\[(?P<order>o\d+) (?P<job>j\d+)\]$|^(?:FREE (?:\S+ )?j\d+|ORPHAN|DUE(?: j\d+)?|LIVE|TELL|JOB j\d+|LANE j\d+|STUCK j\d+) (?P<named>o\d+)\b")
-OWN_MOVES = ("new head", "checks passed", "approved", land.QUEUED)
+OWN_MOVES = ("new head", "checks passed", "approved", land.QUEUED, served.CHECKED)
 
 
 @dataclass
@@ -550,13 +551,13 @@ def card_owed(pr: dict, data: dict, cards: dict) -> bool:
 
 
 def unchecked_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Say each open PR his card waits on five minutes after its builder returned READY naming it, while the coordinator has neither checked it against his words with drive pr set nor had his card drawn, since nothing else wakes anyone once that READY is missed; again every 30 minutes while it stays unchecked, kept across watch restarts."""
+    """Say each port his card would wait on five minutes after its builder returned READY naming it, while the coordinator has neither checked it against its old-tree PR with drive pr set --port-of nor had his card drawn, since the watch checks every other READY against his words itself; again every 30 minutes while it stays unchecked, kept across watch restarts."""
     if watcher.cards is None:
         return []
     data = state.load(watcher.name)
     owed = {}
     for key, pr in data["prs"].items():
-        since = hears(watcher, data, pr["order"]) and returned_at(key, pr, data, watcher.cards)
+        since = hears(watcher, data, pr["order"]) and returned_at(watcher.name, key, pr, data, watcher.cards)
         if since and moment - state.parse_time(since) >= UNCHECKED_FOR and unsaid(pr, since, moment):
             owed[key] = since
     if not owed:
@@ -566,18 +567,38 @@ def unchecked_lines(watcher: Watcher, moment: datetime) -> list[str]:
         for key, since in owed.items():
             pr = data["prs"][key]
             pr["unchecked"] = {"since": since, "said": state.stamp(moment)}
-            lines.append(f"PR {key}: READY returned {minutes(moment - state.parse_time(since))} minutes ago, check owed {ids(pr)}")
+            lines.append(f"PR {key}: READY of a port returned {minutes(moment - state.parse_time(since))} minutes ago, its check against the old-tree PR owed {ids(pr)}")
     return lines
 
 
-def returned_at(key: str, pr: dict, data: dict, cards: dict) -> str | None:
-    """When the PR's builder returned READY naming it, while the PR waits on the coordinator's check alone: open, his card owed and untapped, no design recorded or its change at its head not checked against his words, no wait and no card of his drawn."""
+def returned_at(name: str, key: str, pr: dict, data: dict, cards: dict) -> str | None:
+    """When the PR's builder returned READY naming it as a port, while it waits on the coordinator's check against the old-tree PR alone: open, his card owed and untapped, no design recorded or its change at its head not checked against his words, no wait and no card of his drawn."""
     builder = data["jobs"][pr["job"]]
     returned = builder["state"] == "waiting" and READY_LINE.match(builder["said"] or "") and key in state.named_prs(data, builder["order"], builder["said"])
     settled = pr.get("design") and state.checked(data, pr)
     if not returned or pr["state"] != "open" or state.owed_step(pr) != "card" or pr["tap"] or settled or pr["waits"] or view.card_for(cards["pr_cards"], pr["url"]):
         return None
-    return builder["updated"]
+    return builder["updated"] if served.ported(state.report_text(name, pr["job"], builder)) else None
+
+
+def checks(watcher: Watcher, moment: datetime) -> None:
+    """Start the check against his words of each PR the watch hears that owes one, within one GitHub read of its builder's READY and with no coordinator turn: its CHECKED line draws his card once the PR is green and approved, and its NOT READY line goes to its builder."""
+    if watcher.cards is None:
+        return
+    data = state.load(watcher.name)
+    if owed := [key for key, pr in data["prs"].items() if hears(watcher, data, pr["order"]) and check_owed(watcher.name, key, pr, data, watcher.cards, moment)]:
+        served.start(watcher.name, owed)
+
+
+def check_owed(name: str, key: str, pr: dict, data: dict, cards: dict, moment: datetime) -> bool:
+    """Whether a PR owes the check of its change against his words: its builder waits on a READY or PUSHED naming it, the PR open with his card owed and untapped, its change at its head not checked, nothing it waits on holding it and no card of his drawn, its builder's report no port of an old-tree PR, which the coordinator checks against that PR, and no check of it running or done at this head since that return; a PUSHED is checked while its CI runs, so his card draws the minute it is green and approved."""
+    job = data["jobs"][pr["job"]]
+    returned = job["state"] == "waiting" and RETURNED_LINE.match(job["said"] or "") and key in state.named_prs(data, job["order"], job["said"])
+    if not returned or pr["state"] != "open" or state.owed_step(pr) != "card" or pr["tap"]:
+        return False
+    if state.checked(data, pr) or view.holding(data, pr["waits"], cards) or view.card_for(cards["pr_cards"], pr["url"]):
+        return False
+    return not served.ported(state.report_text(name, pr["job"], job)) and not served.tried(pr, job["returned"], moment)
 
 
 def unsaid(pr: dict, since: str, moment: datetime) -> bool:
@@ -948,7 +969,7 @@ def event_line(event: dict, prs: dict) -> str:
     suffix = f" {ids(prs[key])}" if key in prs else ""
     if event["kind"] == "tap":
         return f"TAP {event['label']} {key}{suffix}"
-    if event["kind"] == "landing":
+    if event["kind"] in ("landing", "check"):
         return f"PR {key}: {event['change']}{suffix}"
     details = " ".join(f"{name}={value}" for name, value in event.items() if name not in ("kind", "at", "lane"))
     return f"EVENT {event['kind']} {details}".rstrip() + suffix
@@ -1604,7 +1625,7 @@ def tick_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """One loop of the watch: his cards, GitHub, a lander on each PR his Approve covers that qualifies, his PR cards whose PRs all ended, the waits his answers or a job's end release, a READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the communicator's compaction, the status page and a coordinator whose process exited every 60 s, GitHub again next poll after a failure, new events, promised times still owed a line, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries, a tick every 30 minutes while he is here."""
+    """One loop of the watch: his cards, GitHub, a lander on each PR his Approve covers that qualifies, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, the waits his answers or a job's end release, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the communicator's compaction, the status page and a coordinator whose process exited every 60 s, GitHub again next poll after a failure, new events, promised times still owed a line, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries, a tick every 30 minutes while he is here."""
     lines = []
     if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
         watcher.read_at = moment
@@ -1614,6 +1635,7 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
         lines += github_lines(watcher, moment)
         lines += carried_lines(watcher, moment)
         landed(watcher)
+        checks(watcher, moment)
         lines += settle_lines(watcher, moment)
         lines += rework_lines(watcher, moment)
         lines += waits_lines(watcher, moment)
