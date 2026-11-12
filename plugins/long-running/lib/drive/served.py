@@ -100,7 +100,7 @@ def files(diff: bytes) -> list[tuple[str, str]]:
     """The path of each file a git-format diff changes with its part of the diff as text, a byte UTF-8 cannot read shown as U+FFFD."""
     text = diff.decode(errors="replace")
     found = list(FILE_DIFF.finditer(text))
-    return [(match[1], text[match.start() : end]) for match, end in zip(found, [*(match.start() for match in found[1:]), len(text)], strict=True)]
+    return [(match[1], text[match.start() : end]) for match, end in zip(found, [*(match.start() for match in found[1:]), len(text)][: len(found)], strict=True)]
 
 
 def words(data: dict, job: dict, orders: list[str]) -> str:

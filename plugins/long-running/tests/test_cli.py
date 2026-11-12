@@ -2308,7 +2308,7 @@ def test_the_immediate_fix_starts_at_once_past_the_research_the_design_and_optio
     assert state.load("demo")["jobs"]["j1"]["parts"] == ["immediate fix"]
 
 
-def test_a_follow_up_he_orders_to_a_pr_gets_its_designer_at_once_with_no_reader_or_wait(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
+def test_a_follow_up_he_orders_to_a_pr_gets_its_designer_at_once_with_no_reader_or_wait(run: Run, communicator: str, capsys: pytest.CaptureFixture[str]) -> None:
     run(
         "order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: land the card fix, then a follow-up that is not hacky",
         "--kind", "build", "--parts", "the card fix", "follow-up",

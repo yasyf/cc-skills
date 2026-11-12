@@ -279,10 +279,10 @@ def test_a_post_report_telling_him_the_drive_failed_says_how_that_is_prevented(r
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     with state.edit(demo) as data:
         data["orders"]["o1"]["thread"] = THREAD
-    failed = "POST j1 merged; its card was refused because nobody checked that PR against your words"
+    failed = "POST j1 merged; its card was refused since nobody checked that PR against your words"
     reason = refusal(record_lines.decision(coordinator(turn, kind="report", text=failed, to=TO, attrs={"close": "o1", "thread": THREAD})))
     assert "6a6edbf" in reason and reason.endswith(f"The lines: {failed}")
-    prevented = f"{failed}; {{order:o2}} makes the card hook read each PR against his words, live tonight"
+    prevented = f"{failed}; {{order:o2}} fixes the card hook"
     assert record_lines.decision(coordinator(turn, kind="report", text=prevented, to=TO, attrs={"close": "o1", "thread": THREAD})) is None
 
 
