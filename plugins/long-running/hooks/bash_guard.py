@@ -1,12 +1,13 @@
 import json
 import re
+import subprocess
 import sys
 from itertools import pairwise
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, install, orca, state
+from drive import agents, github, install, orca, settled, state
 from drive.orca import OrcaError
 from drive.shell import runnable, simple_commands
 
@@ -19,6 +20,14 @@ VALUED = {"-C", "-R", "--repo", "--drive"}
 ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*")
 PUSHES = (("gh", "pr", "create"), ("git", "push"), ("jj", "git", "push"), ("ccx", "vcs", "ship"), ("gt", "submit"))
 CACHED_PAGE = re.compile(r"plugins/cache/([^/\s'\"]+)/long-running/([^/\s'\"]+)/skills/long-running/reference/")
+RERUNS = (("ci", "bk", "rerun"), ("bk", "job", "retry"), ("bk", "build", "rebuild"), ("gh", "run", "rerun"))
+FLAKE = "--flake"
+HELPER = "capt-hook"
+HELPER_REPO = "yasyf/captain-hook"
+HELPER_RUNS = re.compile(r"helper v(\S+)")
+HELPER_ASKED = "Captain-hook update, your Mac: install {release} now? It restarts the hook helper once"
+INSTALL_NOW = "Install now"
+EVERY_INSTALL = "Installs never need me"
 UNSEEN_PROMPT = (
     "refused: Claude Code asked for permission to run this command, and nobody watches a drive agent's terminal, so the"
     " prompt would hold your job unseen for hours. Bypass permissions mode still asks when Claude Code's parser cannot"
@@ -117,6 +126,49 @@ def shell_after_claude(scripts: list[list[list[str]]]) -> str | None:
     return None
 
 
+def retried(found: list[list[str]]) -> str | None:
+    """Why a call retries past a failing check: `stack-enqueue --flake` requeues a PR past its failed verification, and a rerun runs the failed job again unchanged."""
+    for words in found:
+        named = verb(words)
+        if named[0] == "stack-enqueue" and any(word == FLAKE or word.startswith(f"{FLAKE}=") for word in words):
+            step = f"stack-enqueue {FLAKE}"
+        elif not (step := next((" ".join(rerun) for rerun in RERUNS if tuple(named[: len(rerun)]) == rerun), None)):
+            continue
+        return (
+            f"refused: `{step}` retries past a failing check, and a check that fails is fixed at its cause, never retried past"
+            f" with {FLAKE} or a rerun. Read the failed job's own output with `tools/ci bk log <job>`, or `gh run view <run>"
+            " --log-failed` on GitHub Actions, fix the cause and push the fix; a test that flakes gets a flake fix of its own"
+        )
+    return None
+
+
+def helper_install(found: list[list[str]], drives: list[str]) -> str | None:
+    """Why a call may not run `capt-hook helper install`, which installs captain-hook's newest release and restarts the hook helper every session on this Mac shares: no answer of his picks Install now on the card asking to install that release, or the helper already runs it, so the call is a second restart he never approved."""
+    if not any(named[index + 1 : index + 3] == ["helper", "install"] and re.split(r"[@=<>]", named[index])[0] == HELPER for words in found for named in [verb(words)] for index in range(len(named))):
+        return None
+    try:
+        release = github.read("captain-hook's newest release", ["gh", "release", "view", "-R", HELPER_REPO, "--json", "tagName", "-q", ".tagName"], max_age="5m").strip().removeprefix("v")
+        answers = json.loads(settled.ccn(["ccn", "answer", "list", "--label", "scope:durable", "--limit", "0", "--full", "--json"], "", state.load(drives[0])["roles"]["coordinator"]["cwd"], "could not read his recorded answers"))
+        runs = HELPER_RUNS.search(subprocess.run([HELPER, "helper", "status"], capture_output=True, text=True, timeout=30, check=False).stdout)
+    except (github.GithubError, state.DriveError, OSError, subprocess.TimeoutExpired) as error:
+        return f"refused: `capt-hook helper install` restarts the hook helper every session on this Mac shares, and whether he approved this one could not be read: {error}"
+    if runs and runs[1] == release:
+        return (
+            f"refused: the hook helper already runs captain-hook {release}, the newest release, so `capt-hook helper install`"
+            " only restarts it again, a restart every session on this Mac shares that he never approved; leave it running"
+        )
+    for answer in answers:
+        picked = answer["body"].partition("\n")[0]
+        if EVERY_INSTALL in picked or (INSTALL_NOW in picked and re.search(rf"\binstall {re.escape(release)} now\b", answer["title"])):
+            return None
+    return (
+        f"refused: `capt-hook helper install` installs captain-hook {release}, the newest release, and restarts the hook"
+        " helper every session on this Mac shares; he approves each such restart on its own card, and no answer of his picks"
+        f' {INSTALL_NOW} for {release}. Ask him with `drive job ask`: "{HELPER_ASKED.format(release=release)}", options {INSTALL_NOW} (recommended),'
+        f" {EVERY_INSTALL} and Not now, and run it once `drive answer` records his pick"
+    )
+
+
 def role_of(session: str | None = None, terminal: str | None = None) -> tuple[dict, str] | None:
     """The drive and role whose recorded session or terminal this is."""
     for name in state.names():
@@ -184,7 +236,7 @@ def mid_incident(found: list[list[str]]) -> str | None:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive session's or drive agent's call must not run: a designer pushes, a read takes a stale version's cached skill page, `drive job resume` runs in the background, or a session is resumed while it runs, from a shell-ending command, or ended mid-incident; and why Claude Code's permission prompt on a drive agent's command gets a refusal rather than an answer nobody gives."""
+    """Why a drive session's or drive agent's call must not run: a designer pushes, a read takes a stale version's cached skill page, `drive job resume` runs in the background, or a session is resumed while it runs, from a shell-ending command, or ended mid-incident, a call retries past a failing check, or installs the hook helper he never approved on a card; and why Claude Code's permission prompt on a drive agent's command gets a refusal rather than an answer nobody gives."""
     call = payload["tool_input"]
     session = payload.get("session_id") or ""
     drives = state.session_drives(session)
@@ -206,6 +258,8 @@ def deny_reason(payload: dict) -> str | None:
         lambda: shell_after_claude(scripts),
         lambda: live_resume(found + [words for inner in scripts for words in inner]),
         lambda: mid_incident(found),
+        lambda: retried(found),
+        lambda: helper_install(found, drives) if drives else None,
     )
     return next(filter(None, (reason() for reason in reasons)), None)
 

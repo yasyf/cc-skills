@@ -1,12 +1,14 @@
 import io
 import json
+import subprocess
+import types
 from collections.abc import Callable
 from pathlib import Path
 
 import bash_guard
 import pytest
 from conftest import SESSION
-from drive import orca, state
+from drive import github, orca, settled, state
 from drive.orca import OrcaError
 
 Run = Callable[..., tuple[int, str]]
@@ -161,3 +163,43 @@ def test_no_session_is_moved_while_an_incident_order_is_open(demo: str, run: Run
     with state.edit(demo) as data:
         data["orders"]["o1"]["state"] = "done"
     assert bash_guard.deny_reason(bash(send)) is None
+
+
+def test_a_drive_call_retrying_past_a_failing_check_is_refused_naming_the_log_read(demo: str) -> None:
+    for command, step in (
+        ("cd /work && .agents/skills/submit-pr/scripts/stack-enqueue 4244 --flake", "stack-enqueue --flake"),
+        ("tools/ci bk rerun 0190a1b2-job", "ci bk rerun"),
+        ("gh run rerun 123 --failed -R yasyf/cc-skills", "gh run rerun"),
+    ):
+        reason = bash_guard.deny_reason(bash(command))
+        assert reason.startswith(f"refused: `{step}` retries past a failing check, and a check that fails is fixed at its cause")
+        assert "`tools/ci bk log <job>`" in reason
+    assert bash_guard.deny_reason(bash("tools/ci bk log 0190a1b2-job")) is None
+    assert bash_guard.deny_reason(bash(".agents/skills/submit-pr/scripts/stack-enqueue 4244")) is None
+    assert bash_guard.deny_reason(bash("tools/ci bk rerun 0190a1b2-job", session="ordinary")) is None
+
+
+HELPER_CARD = "Captain-hook update, your Mac: install {} now? It restarts the hook helper once"
+HELPER_OPTIONS = "Options: Install now (recommended) | Installs never need me | Not now"
+
+
+def test_a_hook_helper_install_runs_only_on_his_install_now_for_the_newest_release_once(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    helper = {"newest": "v12.121.70", "runs": "helper v12.121.69 ok=True cli v12.121.70"}
+    answers = [{"id": "1352576", "title": HELPER_CARD.format("12.121.63"), "body": f"Install now: the misfire stops for every session on this Mac.\n{HELPER_OPTIONS}", "tags": []}]
+    monkeypatch.setattr(github, "read", lambda what, cmd, max_age="0s", text=True: f"{helper['newest']}\n")
+    monkeypatch.setattr(settled, "ccn", lambda argv, text, cwd, failure: json.dumps(answers))
+
+    def status(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(argv, 1, helper["runs"], "")
+
+    monkeypatch.setattr(bash_guard, "subprocess", types.SimpleNamespace(run=status, TimeoutExpired=subprocess.TimeoutExpired))
+    reason = bash_guard.deny_reason(bash("uvx capt-hook helper install"))
+    assert reason.startswith("refused: `capt-hook helper install` installs captain-hook 12.121.70, the newest release, and restarts the hook helper")
+    assert f'"{HELPER_CARD.format("12.121.70")}"' in reason
+    answers.append({"id": "a1", "title": HELPER_CARD.format("12.121.70"), "body": f"Not now\n{HELPER_OPTIONS}", "tags": []})
+    assert bash_guard.deny_reason(bash("capt-hook helper install")).startswith("refused: `capt-hook helper install` installs captain-hook 12.121.70")
+    answers.append({"id": "a2", "title": HELPER_CARD.format("12.121.70"), "body": f"Install now\n{HELPER_OPTIONS}", "tags": []})
+    assert bash_guard.deny_reason(bash("uvx --from capt-hook capt-hook helper install")) is None
+    helper["runs"] = "helper v12.121.70 ok=True cli v12.121.70"
+    assert bash_guard.deny_reason(bash("capt-hook helper install")).startswith("refused: the hook helper already runs captain-hook 12.121.70")
+    assert bash_guard.deny_reason(bash("capt-hook helper status")) is None

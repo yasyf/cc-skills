@@ -173,7 +173,9 @@ No tap and no green gate: by his standing rule a `yasyf/*` PR merges without ask
      `<main>` from the build its `.goreleaser.yaml` names (cc-transcript: `cargo build --release`), and
      rerun the case against that binary.
    - Ask him on a card before each install that restarts the hook helper every session on this Mac
-     shares, such as capt-hook's: he approved one such restart, not all of them.
+     shares, such as capt-hook's: he approved one such restart, not all of them. The `bash_guard` hook
+     refuses `capt-hook helper install`, which installs captain-hook's newest release, until `drive answer`
+     records his Install now on the card naming that release, and again once the helper runs it.
 
 ## Forge-AI/monorepo
 
@@ -255,7 +257,9 @@ incident fix lands as [incidents.md](incidents.md) says.
 **Every red on your PR is yours**, whether your change or `dev` caused it. Fix your own; for an
 inherited one, restack onto a `dev` that has the fix, or fix it forward in its own PR. On a conflict or
 a queue ejection, restack, read the entry's history and verification build, fix the cause, and enqueue
-once more. Fix a test that keeps failing at its root; never retry past it with `--flake` or a rerun.
+once more. Fix a test that keeps failing at its root; never retry past it with `--flake` or a rerun, which
+the `bash_guard` hook refuses in a drive session or agent (`stack-enqueue --flake`, `tools/ci bk rerun`,
+`bk job retry`, `bk build rebuild`, `gh run rerun`), naming `tools/ci bk log <job>` instead.
 
 ## Read-only repositories
 
