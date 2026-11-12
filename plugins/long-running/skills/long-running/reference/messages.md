@@ -653,6 +653,15 @@ restating it.
   started at 4:55 AM. A promise of a time to come, such as "next line by 5:40 AM" or "due 6 AM", a time
   quoted as a tool printed it, in backticks, and a linked time pass. His ruling of Nov 3: "the agent
   should never be passing in a time".
+- A job's or record's stamp as another action's time. `{started:<job>}` draws as the job's start,
+  labelled so, as "9:52 AM (job start)", and `{at:<seq>}` as when its record went out; neither is when
+  a release, build or deploy started. Quote that start as its build or tool printed it, in backticks or
+  its link's words, on the line linking it, as in
+  ``<https://buildkite.com/forge/release/builds/15020|the release build> started `11:30 AM` ``.
+  Every write path the clock-time check runs on refuses a line saying when a release, build or deploy
+  started with either stamp in a clause naming no job or record, or a quoted time on a line linking no
+  build or tool: on Nov 12 two posts said the SandSQL release started at its job's start, over an hour
+  before its release build did.
 
 ## Examples
 

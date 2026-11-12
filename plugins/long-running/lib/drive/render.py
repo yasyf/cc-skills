@@ -130,7 +130,8 @@ COORDINATOR_RULES = (
         " finishes, --attr close=<o>, part=<o>:<part> or progress=true, and carries every part of its order a finished job"
         " answered and no post delivered. What he reads names things by their proper"
         " technical terms, never a stand-in, and no drive id he cannot open. A job's start is {started:<job>} and a"
-        " record's time {at:<seq>}, never a clock time you type. "
+        " record's time {at:<seq>}, never a clock time you type, and neither is when a release, build or deploy started,"
+        " which is quoted as its build or tool printed it, in backticks or its link's words, on the line linking it. "
         + PREVENTED
     ),
     REACHING,
