@@ -93,9 +93,9 @@ def under(link: str, card: str) -> bool:
 
 
 def said_under(data: dict, job: dict) -> list[dict]:
-    """Each answer of his written under a card this job asked on, as `drive job ask`'s settled check lists one."""
+    """Each answer of his written under a card this job asked on, with the question that card asked, as `drive job ask` hands Jev one."""
     return [
-        {"id": answer_id, "title": f"his {said(answer['link'], question['card'])} this job's card {question['card']}: {cut(answer['words'], 160)}"}
+        {"id": answer_id[:7], "asked": question["title"] or "", "said": answer["words"]}
         for question in job["questions"]
         if question["card"]
         for answer_id, answer in data["answers"].items()
@@ -163,10 +163,6 @@ def unclosed_refusal(names: list[str], kind: str, attrs: dict, url: str | None, 
                 ' didn\'t you withdraw this card? / Why do I have to keep telling you?"'
             )
     return None
-
-
-def said(link: str, card: str) -> str:
-    return "pick on" if view.message_key(link) == view.message_key(card) else "words under"
 
 
 def said_on(data: dict, card: str | None) -> list[dict]:

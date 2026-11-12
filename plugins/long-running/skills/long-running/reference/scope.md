@@ -68,24 +68,21 @@ words in the order's thread and run `ccn answer search "<words>"`, because his a
 past the question it was given under and names the subject only in his words.
 
 `drive job ask` and the hook on every `ask` record check the part he reads against his recorded
-answers and his pick or words on each card the job asked. A recorded answer counts only when its own
-question, its title and plain labels, names the question title's subject: a table, call, file, path
-or PR both name, or two rare words both use, never words only its body shares, since an answer
-recording a whole plan shares words with nearly every question. Each refusal lists, by id and first
-line, every answer that may settle it; read each. One that settles it is his answer, and the work goes
-ahead on it. One that names what you recommend, such as a service he said to build, settles what
-that thing does, so build it and ask nothing. Only when none does, ask with one `--unsettled`
-string, or the record's `unsettled` attr, naming every id and why it does not settle this question,
-such as `--unsettled "1396ce1: <why>; 729fb9a: <why>"`. His pick or words on this job's own card
-answer that card, by [His answer](#his-answer): `drive job ask` refuses an `--unsettled` naming them
-while that card still asks him, until `drive answer <id>` settles it with his words, and only once
-it is closed does a follow-up name them with why they leave it open. `drive job ask` also reads the
-order's own thread and lists each message of his there that shares a rare word with the question,
-refusing until `--unsettled` names each by its permalink and why it does not settle this. It runs
-every one of these checks on each ask and prints every refusal at once, with one `--unsettled`
-example naming each id and permalink, so one ask again meets them all. A tap
-approving a PR settles only that PR's landing, so the check never counts an answer labelled
-`kind:approval`, which every recorded tap on a PR card carries, whatever his words. A block one of these refusals stops stays kept under `asks/` as the job's pending
+answers, his pick or words on each card the job asked, and each message of his in the order's own
+thread that shares a rare word with the question. Jev reads them beside the question and its options
+and picks the one answer that already decides which option to build, or none. A pick it is at least
+0.8 sure of refuses the question, quoting that answer; none, a less sure pick, or no word from Jev
+sends it to him, since an unsure check asks him. The answer it quotes is his answer, and the work
+goes ahead on it. One that names what you recommend, such as a service he said to build, settles
+what that thing does, so build it and ask nothing. Only when it does not decide this question, ask
+with one `--unsettled` string, or the record's `unsettled` attr, naming that answer's id, or that
+message's permalink, and why, such as `--unsettled "1396ce1: <why>"`. His pick or words on this
+job's own card answer that card, by [His answer](#his-answer): `drive job ask` refuses an
+`--unsettled` naming them while that card still asks him, until `drive answer <id>` settles it with
+his words, and only once it is closed does a follow-up name them with why they leave it open. It runs
+every one of these checks on each ask and prints every refusal at once, so one ask again meets them
+all. A tap approving a PR settles only that PR's landing, so no answer labelled `kind:approval`,
+which every recorded tap on a PR card carries, reaches Jev. A block one of these refusals stops stays kept under `asks/` as the job's pending
 question with its refusal: no card draws from it and no `ask` record may name it, `drive status`
 lists it refused, and the watch says its job waits on a card never posted until the job asks it
 again, in its words or others sharing three rare words, or `drive job ask <j> --drop <file>` drops

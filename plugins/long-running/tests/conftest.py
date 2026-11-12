@@ -379,6 +379,22 @@ def recorded(monkeypatch: pytest.MonkeyPatch) -> Answers:
     return answers
 
 
+@dataclass
+class Jev:
+    asked: list[dict] = field(default_factory=list)
+    answer: dict | None = field(default_factory=lambda: {"type": "label", "choice": "none", "probabilities": {"none": 0.9}, "confidence": 0.9})
+
+    def picks(self, choice: str, probability: float = 0.9) -> None:
+        self.answer = {"type": "label", "choice": choice, "probabilities": {"none": round(1 - probability, 2), choice: probability}, "confidence": probability}
+
+
+@pytest.fixture(autouse=True)
+def jev(monkeypatch: pytest.MonkeyPatch) -> Jev:
+    judged = Jev()
+    monkeypatch.setattr(settled, "jev", lambda request: judged.asked.append(request) or judged.answer)
+    return judged
+
+
 @pytest.fixture(autouse=True)
 def on_github(monkeypatch: pytest.MonkeyPatch) -> dict:
     pr = {

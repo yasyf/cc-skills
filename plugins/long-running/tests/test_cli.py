@@ -14,7 +14,7 @@ from pathlib import Path
 
 import drive
 import pytest
-from conftest import CARD_BODY, RESEARCH, SHORT_ASK, Answers, Chrome, Drawing, Judge, Thread, WatchProcess, Withdrawals
+from conftest import CARD_BODY, RESEARCH, SHORT_ASK, Answers, Chrome, Drawing, Jev, Judge, Thread, WatchProcess, Withdrawals
 from drive import (
     card,
     cli,
@@ -1793,7 +1793,7 @@ def test_job_ask_refuses_a_question_another_jobs_open_card_asks_naming_the_wait_
 
 
 def test_his_words_under_a_card_answer_it_so_its_job_never_redraws_it_with_a_new_question(
-    run: Run, asking: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    run: Run, asking: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], jev: Jev
 ) -> None:
     monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
     link = "https://acme.slack.com/archives/D123/p1794300000000100"
@@ -1822,11 +1822,13 @@ def test_his_words_under_a_card_answer_it_so_its_job_never_redraws_it_with_a_new
     assert cli.main(["answer", "a2", "--words", "One snapshot file", "--link", link]) == 2
     assert "  j1 waits on o1 and has not heard a2: SendMessage it his words verbatim, or mark it untouched" in capsys.readouterr().err
     assert run("answer", "a2", "--sent", "j1")[0] == 0
+    jev.picks("a2")
     monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace("ASK How should", "ASK When should")))
     assert cli.main(["job", "ask", asking, "-"]) == 2
     refusal = capsys.readouterr().err
-    assert f"- a1 his words under this job's card {link}: its one snapshot file, just wait for the copy" in refusal
-    assert f"- a2 his pick on this job's card {link}: One snapshot file" in refusal
+    assert refusal.startswith('drive: refused: his recorded answer a2 already decides this question. Asked "')
+    assert 'he said "One snapshot file". Go ahead on it. If his words decide something else, ask again with --unsettled "a2: <why>".' in refusal
+    assert [(answer["id"], answer["said"]) for answer in jev.asked[-1]["state"]["answers"]] == [("a1", "its one snapshot file, just wait for the copy"), ("a2", "One snapshot file")]
     monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
     view.refresh_cards("demo")
     monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace("ASK How should", "ASK When should")))
@@ -1876,8 +1878,8 @@ def test_the_open_card_refusal_gives_a_drive_answer_command_for_each_answer_of_h
     assert "settle the card with `drive answer 6251dff`, then `drive answer 729fb9a`, which shows his words on it" in refusal
 
 
-def test_job_ask_refuses_a_question_his_words_in_its_orders_thread_may_settle_until_unsettled_names_each_by_permalink(
-    run: Run, demo: str, slack_thread: Thread, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_job_ask_hands_jev_his_messages_in_its_orders_thread_and_refuses_the_one_it_reads_as_deciding_until_unsettled_names_its_permalink(
+    run: Run, demo: str, slack_thread: Thread, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], jev: Jev
 ) -> None:
     monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS | {"team_url": "https://acme.slack.com/"})
     view.refresh_cards("demo")
@@ -1887,14 +1889,16 @@ def test_job_ask_refuses_a_question_his_words_in_its_orders_thread_may_settle_un
     settles = slack_thread.post(moment, from_user=True, text="keep one snapshot file per finished run, no guessing")
     slack_thread.post(moment + timedelta(seconds=1), from_user=True, text="ok go ahead")
     slack_thread.post(moment + timedelta(seconds=2), from_claude=True, text="building one snapshot file per finished run")
+    key = re.search(r"/(p\d+)\?", settles)[1]
+    jev.picks(key)
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
     assert cli.main(["job", "ask", "j1", str(block)]) == 2
-    refusal = capsys.readouterr().err
-    assert "his words in this order's thread may already settle this question" in refusal
-    listed = [line for line in refusal.splitlines() if line.startswith("- ")]
-    assert listed == [f'- {settles} "keep one snapshot file per finished run, no guessing" (shares finished, guessing, snapshot)']
-    assert f'such as --unsettled "{settles}: <why it does not settle this>"' in refusal
+    assert capsys.readouterr().err.startswith(
+        f'drive: refused: his message in this order\'s thread {settles} already decides this question. Asked "design the run page",'
+        ' he said "keep one snapshot file per finished run, no guessing".'
+    )
+    assert [(answer["id"], answer["asked"]) for answer in jev.asked[0]["state"]["answers"]] == [(key, "design the run page")]
     assert ("--channel", "D123", "--thread", "1794200000.000100", "--limit", "1000") in slack_thread.reads
     assert state.load("demo")["jobs"]["j1"]["state"] == "running"
     why = f"{settles}: he picked the file layout, not where its map sits"
@@ -1939,8 +1943,8 @@ def test_job_ask_counts_an_amount_of_his_only_in_a_clause_sharing_the_questions_
     assert cli.main(["job", "ask", "j1", str(block), "--unsettled", why]) == 0
 
 
-def test_job_ask_prints_every_refusal_in_one_run_with_one_unsettled_example_naming_each_answer_and_message(
-    run: Run, demo: str, slack_thread: Thread, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], recorded: Answers
+def test_job_ask_prints_the_answer_jev_reads_as_deciding_and_an_amount_he_named_in_one_refusal(
+    run: Run, demo: str, slack_thread: Thread, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], recorded: Answers, jev: Jev
 ) -> None:
     monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS | {"team_url": "https://acme.slack.com/"})
     view.refresh_cards("demo")
@@ -1948,19 +1952,19 @@ def test_job_ask_prints_every_refusal_in_one_run_with_one_unsettled_example_nami
     run("job", "add", "builder", "--order", "o1", "--goal", "design it")
     recorded.found = [FLAT_RULING]
     his = slack_thread.post(state.now(), from_user=True, text="keep one snapshot file per finished run for 30 days")
+    jev.picks("ac61348")
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
     assert cli.main(["job", "ask", "j1", str(block)]) == 2
     refusal = capsys.readouterr().err.removeprefix("drive: ")
     assert [line.split(".")[0] for line in refusal.splitlines() if line.startswith("refused: ")] == [
-        "refused: these recorded answers of his may already settle this question",
-        "refused: his words in this order's thread may already settle this question",
+        "refused: his recorded answer ac61348 already decides this question",
         "refused: his words in this order's thread name an amount this question offers no tap for",
     ]
-    assert refusal.count(f'such as --unsettled "ac61348: <why it does not settle this>; {his}: <why it does not settle this>"') == 2
-    why = f"ac61348: it lays out the files, not how long they stay; {his}: he set how long a snapshot is kept, not its layout"
+    assert f"- 30 day: {his}" in refusal
     block.write_text(SHORT_ASK.replace("written when it ends, old runs", "written when it ends, kept 30 days, old runs"))
-    assert cli.main(["job", "ask", "j1", str(block), "--unsettled", why]) == 0
+    assert cli.main(["job", "ask", "j1", str(block), "--unsettled", "ac61348: it lays out the files, not how long they stay"]) == 0
+    assert len(jev.asked) == 1
 
 
 def test_an_amount_names_a_unit_never_a_word_the_count_check_skips() -> None:
@@ -1970,79 +1974,84 @@ def test_an_amount_names_a_unit_never_a_word_the_count_check_skips() -> None:
 FLAT_RULING = {
     "id": "ac6134849ff8a392c9f26294d4303635d1c27a58",
     "title": "Owner Nov 9: lay out every finished run's files flat, without asking\nsecond line",
+    "body": "Lay every finished run's files out flat, one snapshot file each.",
     "tags": ["scope:durable"],
 }
-PAGE_RULING = {"id": "33eaad946c1f36dc438a3a04d443eb7d71573815", "title": "Where do a finished run's files go once its page opens?", "tags": ["scope:durable"]}
+PAGE_RULING = {
+    "id": "33eaad946c1f36dc438a3a04d443eb7d71573815",
+    "title": "Where do a finished run's files go once its page opens?",
+    "body": "Beside the run, in its own folder.",
+    "tags": ["scope:durable"],
+}
 
 
-def test_job_ask_keeps_a_question_his_recorded_answer_may_settle_pending_with_its_refusal_until_a_reason_names_it(
-    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], recorded: Answers
+def test_job_ask_keeps_a_question_jev_reads_his_recorded_answer_as_deciding_pending_with_its_refusal_until_a_reason_names_it(
+    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], recorded: Answers, jev: Jev
 ) -> None:
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
     recorded.found = [FLAT_RULING]
+    jev.picks("ac61348")
     assert cli.main(["job", "ask", asking, str(block)]) == 2
     refusal = capsys.readouterr().err
-    assert "- ac61348 Owner Nov 9: lay out every finished run's files flat, without asking" in refusal
-    assert "second line" not in refusal
+    assert refusal.startswith(
+        "drive: refused: his recorded answer ac61348 already decides this question. Asked \"Owner Nov 9: lay out every finished run's files flat,"
+        " without asking second line\", he said \"Lay every finished run's files out flat, one snapshot file each.\". Go ahead on it."
+    )
     assert recorded.asked[0].startswith("How should a finished run's files be laid out")
     assert "SQLite" not in recorded.asked[0]
     kept = state.drive_dir("demo") / "asks" / f"j1-{state.ask_hash(SHORT_ASK)}.md"
     assert f"{kept} keeps this ASK as j1's pending question with this refusal: no card draws for it" in refusal
     job = state.load("demo")["jobs"]["j1"]
     assert (job["state"], kept.read_text(), [question["file"] for question in job["questions"]]) == ("running", SHORT_ASK, [str(kept)])
-    assert job["questions"][0]["refused"].startswith("refused: these recorded answers of his may already settle this question.")
-    assert "refused, so no card draws: these recorded answers of his may already settle this question." in run("status")[1]
+    assert job["questions"][0]["refused"].startswith("refused: his recorded answer ac61348 already decides this question.")
+    assert "refused, so no card draws: his recorded answer ac61348 already decides this question." in run("status")[1]
     assert settled.ask_refusal(["demo"], {"ask": str(kept), "job": "j1"}, SHORT_ASK).startswith(f'refused: {kept} keeps j1\'s question "How should')
     assert cli.main(["job", "card", asking]) == 2
     assert "j1 keeps no ASK block" in capsys.readouterr().err
     assert cli.main(["job", "ask", asking, str(block), "--unsettled", "it lays out files, not how its page opens them"]) == 2
-    assert "The reason given leaves out ac61348." in capsys.readouterr().err
+    assert 'ask again with --unsettled "ac61348: <why>"' in capsys.readouterr().err
     assert len(state.load("demo")["jobs"]["j1"]["questions"]) == 1
     why = "ac61348: it lays out the files; this asks how the page opens them"
     assert run("job", "ask", asking, str(block), "--unsettled", why)[0] == 0
     assert [(question["unsettled"], question["refused"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [(why, None)]
+    assert len(jev.asked) == 1
 
 
-def test_job_ask_lists_every_candidate_in_the_same_order_whatever_the_reason_names(
-    asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], recorded: Answers
+def test_job_ask_sends_the_question_to_him_when_jev_picks_none_is_less_sure_than_eight_in_ten_or_gives_no_answer(
+    run: Run, asking: str, tmp_path: Path, recorded: Answers, jev: Jev
 ) -> None:
     block = tmp_path / "ask.md"
-    block.write_text(SHORT_ASK)
-    recorded.found = [FLAT_RULING, PAGE_RULING]
-    refusals = []
-    for why in ("33eaad9: where the files go, not how the page opens them", "ac61348: it lays out the files, not how the page opens them"):
-        assert cli.main(["job", "ask", asking, str(block), "--unsettled", why]) == 2
-        refusals.append(capsys.readouterr().err)
-    listed = [[line for line in refusal.splitlines() if line.startswith("- ")] for refusal in refusals]
-    assert listed[0] == listed[1] == [
-        "- ac61348 Owner Nov 9: lay out every finished run's files flat, without asking",
-        "- 33eaad9 Where do a finished run's files go once its page opens?",
-    ]
-    form = '--unsettled one string that names every id below, such as --unsettled "ac61348: <why it does not settle this>; 33eaad9: <why it does not settle this>".'
-    assert all(form in refusal for refusal in refusals)
-    assert "The reason given leaves out ac61348." in refusals[0]
-    assert "The reason given leaves out 33eaad9." in refusals[1]
+    recorded.found = [FLAT_RULING]
+    jev.picks("ac61348", 0.79)
+    for title, answer in (("How should", Jev().answer), ("Where should", jev.answer), ("When should", None)):
+        jev.answer = answer
+        block.write_text(SHORT_ASK.replace("ASK How should", f"ASK {title}"))
+        assert run("job", "ask", asking, str(block))[0] == 0
+    assert [question["refused"] for question in state.load("demo")["jobs"]["j1"]["questions"]] == [None, None, None]
+    assert state.load("demo")["jobs"]["j1"]["state"] == "waiting"
 
 
-def test_job_ask_checks_a_reworded_ask_against_the_answers_its_refusal_listed_until_its_title_changes(
-    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], recorded: Answers
+def test_job_ask_asks_jev_again_only_when_a_reworded_asks_title_changes(
+    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], recorded: Answers, jev: Jev
 ) -> None:
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
     recorded.found = [FLAT_RULING]
+    jev.picks("ac61348")
     assert cli.main(["job", "ask", asking, str(block)]) == 2
-    assert "- ac61348 " in capsys.readouterr().err
+    assert "his recorded answer ac61348 already decides this question" in capsys.readouterr().err
     recorded.found = [PAGE_RULING]
+    jev.picks("33eaad9")
     where = SHORT_ASK.replace("ASK How should", "ASK Where should")
     block.write_text(where)
     assert cli.main(["job", "ask", asking, str(block), "--unsettled", "ac61348: it lays out the files; this asks where they go"]) == 2
-    assert "The reason given leaves out 33eaad9." in capsys.readouterr().err
-    recorded.found = [FLAT_RULING]
+    assert "his recorded answer 33eaad9 already decides this question" in capsys.readouterr().err
+    jev.picks("none")
     block.write_text(where.replace("about 180 small files", "180 files"))
     why = "33eaad9: where the files go once the page opens, not where they are laid out"
     assert run("job", "ask", asking, str(block), "--unsettled", why)[0] == 0
-    assert len(recorded.asked) == 2
+    assert len(jev.asked) == 2
     job = state.load("demo")["jobs"]["j1"]
     assert (job["state"], [(question["unsettled"], question["refused"]) for question in job["questions"]], job["may_settle"]) == ("waiting", [(why, None)], None)
 
@@ -4481,7 +4490,7 @@ PICK = "https://acme.slack.com/archives/D123/p1794300000000300?thread_ts=1794300
 WORDS = "Iris proposes with one new tool, guided by each topology's use-when line"
 STACKED = "https://github.com/Forge-AI/monorepo/pull/43"
 ANSWERED = ("card-answer", "--card", DESIGN_CARD, "--label", WORDS, "--settled", "--other", "--via", PICK)
-MATCHED, BACKFILL = settled.matched, settled.backfill
+MATCHED, BACKFILL, ASK_JEV = settled.matched, settled.backfill, settled.jev
 
 
 def cards_asking(monkeypatch: pytest.MonkeyPatch, *prs: str) -> list[tuple[str, ...]]:
@@ -4602,45 +4611,86 @@ def test_the_settled_check_finds_his_answer_ranked_past_twenty_of_his_taps_appro
     assert [answer["id"][:2] for answer in MATCHED("where do a run's files go", "/work")] == ["b2"]
 
 
-MEMORY_ASK = "What becomes of the platform memories in mem-platform-voyage-4-512-f32 once MemorySchema leaves go/sand/next?"
-STORE_ASK = "Once go/sand/next drops its old path, what sends a team with no iris_memory_stores row to the new store in both trees?"
-PODS_ASK = "Should pods lose write access to the agents table after the pod PR runs everywhere, or now?"
-DREAM_ASK = "Should a dream night read at most a fixed number of the memories that changed since the last night?"
-RUN_WRITER = {
-    "id": "6d9a9e0" + "0" * 33,
-    "title": "What writes a workflow run that has no agent once step 6 deletes vm_run's lock, fence and seal, takeover.go and the per-run servers? (step-6 decide #97497 Q1, board card-run-writer)",
-    "tags": ["durable-agents-redesign", "provisional", "scope:durable", "step-5", "step-6", "step-7"],
-    "body": "go/sand/next MemorySchema iris_memory_stores the agents table pods write access platform memories " * 400,
+UPLOAD_MINT = {"id": "61d71da", "asked": "Where is an upload's ID reserved before the write lands?", "said": "Clients journal mint time with each write reservation, no server change"}
+JEV_CASES = {
+    "tap": ("Which token should the CI review step sign in to GitHub with?", ["A reviewer GitHub App's installation token", "A personal access token"], [], None),
+    "mint": (
+        "How does the upload worker keep each upload ID's mint time?",
+        ["Each upload records its mint time in a new UploadReserved journal event", "Each upload keeps its mint time in memory until the write lands"],
+        [{"id": "b26dd47", "asked": "Who mints upload IDs: the server or each client?", "said": "So do 1 but no server issuing IDs"}, UPLOAD_MINT],
+        {"none": 0.1, "b26dd47": 0.02, "61d71da": 0.88},
+    ),
+    "poller": (
+        "Who starts each queue poller the first time a queue is created?",
+        ["The worker, at boot, for every queue it finds", "The first enqueue on a new queue"],
+        [{"id": "e86f7ae", "asked": "Which queue store does every worker register on?", "said": "the shared queue store everywhere (Recommended)"}],
+        {"none": 0.94, "e86f7ae": 0.06},
+    ),
+    "autoscaler": (
+        "Should each browser pool get its own autoscaler, or should one autoscaler serve each tier?",
+        ["One autoscaler per pool", "One autoscaler per tier"],
+        [
+            {"id": "8653f0f", "asked": "Which browser does each tier run?", "said": "The light tier runs the small headless browser, the heavy tier the full one"},
+            {"id": "1439f73", "asked": "Which tiers keep warm browsers ready?", "said": "Warm browsers for the normal tier only"},
+        ],
+        {"none": 0.86, "8653f0f": 0.08, "1439f73": 0.06},
+    ),
+    "journal": (
+        "Where should the upload worker journal the write reservation that keeps an upload ID's mint time?",
+        ["In a new UploadReserved run event", "In memory, beside the pending write"],
+        [
+            {
+                "id": "ad564f4",
+                "asked": "The log agent's broken-pipe warnings (about 60 a minute): fix them in the old deploy scripts or the new infrastructure code?",
+                "said": "1, but should be in the new infrastructure code and again build a proper abstraction for it, not in the old scripts",
+            },
+            UPLOAD_MINT,
+        ],
+        {"none": 0.15, "ad564f4": 0.01, "61d71da": 0.84},
+    ),
 }
-UNRELATED = [
-    {"id": "53478d4" + "0" * 33, "title": "Proxy listener port differs: 10000 on plat, 3128 on SoFi. Which becomes the single value (the other cluster changes on its next apply)?", "tags": ["header:Proxy port", "scope:durable"]},
-    {"id": "e08f921" + "0" * 33, "title": "Lost dream batch (connection drops before OpenAI returns the batch id): resend the batch once, or skip the night's reviews?", "tags": ["card:lost-dream-batch", "from:owner", "pr:50074", "scope:durable"]},
-    {"id": "b321570" + "0" * 33, "title": "Memory search failures on the platform deadline: may a worker use the Turbopuffer production key for 10 read-only queries?", "tags": ["scope:durable"]},
-    {"id": "27a35cf" + "0" * 33, "title": "Keep 16 GB of journal room per cloud pod by giving cloud machines bigger disks?", "tags": ["cloud-pods", "drive:durable-agents", "scope:durable"]},
-    RUN_WRITER,
-]
 
 
-def test_the_settled_check_lists_only_his_answers_whose_own_question_names_the_subject_never_one_sharing_everyday_words_or_only_its_body(
-    recorded: Answers,
+@pytest.mark.parametrize("case", JEV_CASES)
+def test_jev_decides_a_question_only_by_the_one_answer_it_picks_at_eight_in_ten_or_more(case: str, jev: Jev) -> None:
+    question, options, found, recorded = JEV_CASES[case]
+    choice = recorded and max(recorded, key=recorded.__getitem__)
+    jev.answer = recorded and {"type": "label", "choice": choice, "probabilities": recorded, "confidence": recorded[choice]}
+    picked = settled.decided(question, options, found)
+    assert (picked and picked["id"]) == {"mint": "61d71da", "journal": "61d71da"}.get(case)
+    if not found:
+        assert jev.asked == []
+        return
+    [asked] = jev.asked
+    assert asked["state"] == {"question": question, "options": options, "answers": found}
+    assert list(asked["questions"]["decides"]["label"]["options"]) == ["none", *(answer["id"] for answer in found)]
+
+
+def test_jev_is_asked_through_spawnllm_decide_and_a_failed_call_is_said_on_stderr_and_decides_nothing(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    recorded.found = UNRELATED
-    assert [settled.answers(asked, asked, asked, ["demo"], "/work") for asked in (MEMORY_ASK, STORE_ASK, PODS_ASK)] == [[], [], []]
-    stores = {"id": "5a7e000" + "0" * 33, "title": "Should a team with no iris_memory_stores row read the platform store?", "tags": ["scope:durable"]}
-    dream = {"id": "305dda6" + "0" * 33, "title": "Should the most memories an agent-mode night can write grow with a team's memory count too?", "tags": ["memory-dreaming", "owner-pick", "scope:durable"]}
-    run_writer = "Once vm_run's lock is gone, what writes a run with no agent?"
-    recorded.found = [*UNRELATED, stores, dream]
-    assert [[answer["id"][:7] for answer in settled.answers(asked, asked, asked, ["demo"], "/work")] for asked in (STORE_ASK, DREAM_ASK, run_writer)] == [
-        ["5a7e000"],
-        ["e08f921", "305dda6"],
-        ["6d9a9e0"],
+    calls: list[tuple[list[str], dict]] = []
+    answer = {"type": "label", "choice": "none", "probabilities": {"none": 0.9}, "confidence": 0.9}
+    results = [
+        subprocess.CompletedProcess([], 0, json.dumps({"model": "jev-1.13.0", "answers": {"decides": answer}}), ""),
+        subprocess.CompletedProcess([], 1, "", "Installed 15 packages in 5ms\nError: No such command 'decide'.\n"),
+        subprocess.TimeoutExpired(settled.DECIDE, 60),
     ]
 
+    def spawnllm(argv: list[str], input: str, **_: object) -> subprocess.CompletedProcess[str]:
+        calls.append((argv, json.loads(input)))
+        if isinstance(result := results.pop(0), Exception):
+            raise result
+        return result
 
-def test_the_settled_check_lists_three_of_his_answers_on_the_subject_however_many_off_it_rank_first(recorded: Answers) -> None:
-    on_subject = [{"id": f"{n}a" * 20, "title": f"Where do the platform memories of mem-platform-voyage-4-512-f32 go, take {n}?", "tags": ["scope:durable"]} for n in range(4)]
-    recorded.found = [*UNRELATED, *on_subject]
-    assert [answer["id"][:2] for answer in settled.answers(MEMORY_ASK, MEMORY_ASK, MEMORY_ASK, ["demo"], "/work")] == ["0a", "1a", "2a"]
+    monkeypatch.setattr("drive.settled.subprocess", types.SimpleNamespace(run=spawnllm, TimeoutExpired=subprocess.TimeoutExpired))
+    request = {"state": {"question": "Which store?"}, "questions": {"decides": {"label": {"instructions": "Which?", "options": {"none": "No"}}}}}
+    assert [ASK_JEV(request) for _ in range(3)] == [answer, None, None]
+    assert calls == [(settled.DECIDE, request)] * 3
+    assert capsys.readouterr().err.splitlines() == [
+        "drive job ask: Jev did not say whether his answers decide this question, so it goes to him: Error: No such command 'decide'.",
+        f"drive job ask: Jev did not say whether his answers decide this question, so it goes to him: Command '{settled.DECIDE}' timed out after 60 seconds",
+    ]
 
 
 def test_backfill_labels_as_approvals_every_tap_on_a_pr_card_by_its_question_whatever_his_words(

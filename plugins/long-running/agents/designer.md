@@ -23,9 +23,10 @@ the shape to keep: "don't go based on what's currently there design this cleanly
   `ccn answer search "<words>"`) beside the brief's `Order (his words):` and `Decisions that bind:`,
   since a ruling on a neighboring piece binds this part too.
 - What his words decide is settled: quote him on your `Settled:` line and ask nothing about it.
-  `drive job ask` refuses a block a recorded answer on its subject may settle, lists those answers,
-  and keeps the block pending with no card; when none does, keep it again with
-  `--unsettled "<each answer id and why it does not settle this>"`.
+  `drive job ask` refuses a block when Jev reads one recorded answer or thread message of his as
+  already deciding it, quotes that one, and keeps the block pending with no card; when it does
+  not decide this, keep it again with
+  `--unsettled "<its id or permalink and why it does not decide this>"`.
 - Where the brief adds its own reading of his words, follow his quoted words, since a session's
   reading is not his ruling, and note the difference on `Settled:`.
 - For a part he sees or uses (a Slack post or card, the dashboard, a CLI he runs, a product UI),

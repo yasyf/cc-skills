@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import Answers, Drawing
+from conftest import Answers, Drawing, Jev
 from drive import cli, github, orca, place, reads, render, slack, state, watch
 
 Run = Callable[..., tuple[int, str]]
@@ -1286,16 +1286,19 @@ def test_an_ask_in_shape_is_kept_in_the_drive_as_drive_job_ask_keeps_one_and_wak
     assert [(question["file"], question["title"]) for question in job["questions"]] == [(str(kept_ask(remote)), "Where should the nightly store copy run?")]
 
 
-def test_an_ask_his_recorded_answer_may_settle_stays_pending_with_its_refusal_and_its_job_waits_on_a_card_never_posted(
-    remote: str, monkeypatch: pytest.MonkeyPatch, drawing: Drawing, recorded: Answers
+def test_an_ask_jev_reads_his_recorded_answer_as_deciding_stays_pending_with_its_refusal_and_its_job_waits_on_a_card_never_posted(
+    remote: str, monkeypatch: pytest.MonkeyPatch, drawing: Drawing, recorded: Answers, jev: Jev
 ) -> None:
-    recorded.found = [{"id": "ac6134849ff8a392c9f26294d4303635d1c27a58", "title": "Owner Nov 9: run the nightly store copy on the primary", "tags": ["scope:durable"]}]
+    recorded.found = [
+        {"id": "ac6134849ff8a392c9f26294d4303635d1c27a58", "title": "Owner Nov 9: where does the nightly store copy run?", "body": "On the primary", "tags": ["scope:durable"]}
+    ]
+    jev.picks("ac61348")
     deliver(monkeypatch, [message("question", ASK_IN_SHAPE, id="msg_ask")])
     monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"the watch replied {args}"))
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
     [line] = watch.run_pass(watching, T0)
     assert line.startswith("JOB j1 o1 ASK Where should the nightly store copy run?; `drive job ask j1` refused it: ")
-    assert "- ac61348 Owner Nov 9: run the nightly store copy on the primary" in line
+    assert 'his recorded answer ac61348 already decides this question. Asked "Owner Nov 9: where does the nightly store copy run?", he said "On the primary".' in line
     assert f"{kept_ask(remote)} keeps this ASK as j1's pending question with this refusal" in line
     assert kept_ask(remote).read_text() == ASK_IN_SHAPE
     job = state.load(remote)["jobs"]["j1"]
@@ -1306,7 +1309,7 @@ def test_an_ask_his_recorded_answer_may_settle_stays_pending_with_its_refusal_an
     )
     assert watch.job_gap(watching, "j1", job, state.load(remote), T0 + timedelta(minutes=3)).startswith(
         'j1 waits on a card never posted: drive job ask refused its question "Where should the nightly store copy run?"'
-        f" kept in {kept_ask(remote)}: these recorded answers of his may already settle this question."
+        f" kept in {kept_ask(remote)}: his recorded answer ac61348 already decides this question."
     )
 
 
