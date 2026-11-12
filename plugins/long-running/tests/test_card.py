@@ -12,6 +12,7 @@ from drive.github import GithubError
 URL = "https://github.com/Forge-AI/monorepo/pull/42"
 HEAD = "0123456789abcdef0123456789abcdef01234567"
 MOVED = "fedcba9876543210fedcba9876543210fedcba98"
+HIS_TAPS = "https://acme.slack.com/archives/D123/p1794515484282799"
 SUMMARY = "`upload.Retry` retries a failed upload up to five times instead of dropping the file."
 FIX_BODY = f"""## Summary
 {SUMMARY}
@@ -133,11 +134,11 @@ def test_a_change_since_his_tap_asks_again_with_what_changed() -> None:
     )
 
 
-def test_after_his_approve_while_ci_runs_it_drops_the_buttons() -> None:
+def test_after_his_approve_while_ci_runs_it_drops_the_buttons_and_says_he_approved_it() -> None:
     assert card.render(pr_json(), entry(tap="Approve")) == {
         "status": "info",
         "title": "Fix: retry flaky uploads",
-        "prs": [row(blocks="Lands once CI passes")],
+        "prs": [row(blocks="Approved by you. Lands once CI passes")],
     }
 
 
@@ -159,19 +160,18 @@ def test_a_closed_pr_says_it_closed_without_merging() -> None:
 
 def test_checks_the_watch_read_on_another_head_read_as_still_running_and_an_approved_green_monorepo_pr_reads_as_queued_by_the_drive() -> None:
     passed = entry(tap="Approve", checks="pass")
-    assert card.render(pr_json(), passed)["prs"][0]["blocks"] == "CI passed; the drive queues it for merge"
+    assert card.render(pr_json(), passed)["prs"][0]["blocks"] == "Approved by you. CI passed; the drive queues it for merge"
     assert card.render(pr_json(review="APPROVED"), entry(exempt="test-only", checks="pass"))["prs"][0]["blocks"] == "CI passed; the drive queues it for merge"
-    assert card.render(pr_json(), {**passed, "head": "f" * 40})["prs"][0]["blocks"] == "Lands once CI passes"
+    assert card.render(pr_json(), {**passed, "head": "f" * 40})["prs"][0]["blocks"] == "Approved by you. Lands once CI passes"
+    other = pr_json(url="https://github.com/Forge-AI/design-docs/pull/42")
+    assert card.render(other, {**passed, "url": other["url"]})["prs"][0]["blocks"] == "Approved by you. CI passed; the agent is landing it"
 
 
-def test_a_held_pr_keeps_its_buttons_and_says_held() -> None:
+def test_a_held_pr_drops_its_buttons_and_says_held_by_you() -> None:
     assert card.render(pr_json(), entry(tap="Hold", checks="pass")) == {
-        "status": "needs_you",
-        "title": "Fix: approve retry flaky uploads?",
-        "prs": [row(blocks="Held by you", lands="you approve")],
-        "options": ["Approve", "Hold"],
-        "recommended": "Approve",
-        "waits": "merge:Forge-AI:monorepo:42",
+        "status": "info",
+        "title": "Fix: retry flaky uploads",
+        "prs": [row(blocks="Held by you")],
     }
 
 
@@ -568,7 +568,7 @@ def test_a_pr_whose_wait_holds_redraws_his_open_card_with_its_buttons_saying_wha
     assert (drawn["card"]["status"], drawn["card"]["options"], drawn["card"]["waits"]) == ("needs_you", ["Approve", "Hold"], "merge:Forge-AI:monorepo:42")
     release = "the dashboard release carrying [retry flaky uploads](https://github.com/Forge-AI/monorepo/pull/7) is out"
     assert drawn["card"]["prs"][0]["lands"] == f"you approve, CI passes and {release}"
-    assert card.render(pr_json(), entry(tap="Approve", checks="pass"), (), (release,))["prs"][0]["blocks"] == f"Lands once {release}"
+    assert card.render(pr_json(), entry(tap="Approve", checks="pass"), (), (release,))["prs"][0]["blocks"] == f"Approved by you. Lands once {release}"
 
 
 def test_a_tap_card_whose_body_has_only_a_title_draws_with_approve(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -594,6 +594,7 @@ def test_a_drive_tooling_pr_whose_his_words_say_none_draws_its_card_with_approve
     [
         ({"exempt": "pure port"}, [], "OPEN", 'its exempt class "pure port" lands it with no tap'),
         ({"tap": {"label": "Approve", "at": "2026-11-09T08:00:00-08:00", "head": HEAD, "source": "slack"}}, [], "OPEN", "he approved it already"),
+        ({"tap": {"label": "Hold", "at": "2026-11-09T08:00:00-08:00", "head": HEAD, "source": "slack"}}, [], "OPEN", "he held it"),
         ({}, [{"name": github.HOLD_LABEL}], "OPEN", "it carries the hold label"),
         ({}, [], "MERGED", "GitHub reads it merged"),
     ],
@@ -785,10 +786,10 @@ def test_a_head_that_moved_under_his_card_keeps_approve_and_his_approve_of_the_h
     [tapped] = [event for event in events(drive) if event["kind"] == "tap"]
     assert (state.load(drive)["prs"][key]["tap"]["head"], tapped["head"], landers) == (HEAD, HEAD, [])
     [held] = ask(redraw)["cards"]
-    assert ("options" in held["card"], held["card"]["prs"][0]["blocks"]) == (False, f"Lands once {judging}")
+    assert ("options" in held["card"], held["card"]["prs"][0]["blocks"]) == (False, f"Approved by you. Lands once {judging}")
     assert cli.main(["pr", "check", URL, "--drive", drive]) == 0
     assert (state.load(drive)["prs"][key]["checked"]["head"], state.load(drive)["prs"][key]["tap"]["label"], redraws.asked) == (MOVED, "Approve", [URL])
-    assert ask(redraw)["cards"][0]["card"]["prs"][0]["blocks"] == "CI passed; the drive queues it for merge"
+    assert ask(redraw)["cards"][0]["card"]["prs"][0]["blocks"] == "Approved by you. CI passed; the drive queues it for merge"
     assert land.start(drive, [key], view.live_cards(drive)) == [(key,)]
     assert landers == [(key,)]
 
@@ -1166,6 +1167,55 @@ def test_a_tap_on_a_single_pr_card_taps_only_that_pr(stacked: list[list[str]]) -
     answer = {"repo": "Forge-AI/monorepo", "number": 41, "waits": "merge:Forge-AI:monorepo:41", "label": "Hold", "heads": {}, "action_ts": "", "source": "s"}
     ask({"answer": answer})
     assert [event["number"] for event in events("demo")] == [41]
+
+
+def typed(number: int, label: str) -> None:
+    assert cli.main(["pr", "set", stack_url(number), "--tapped", label, "--tap-source", HIS_TAPS, "--drive", "demo"]) == 0
+
+
+def on_his_stack_card(monkeypatch: pytest.MonkeyPatch, *numbers: int) -> str:
+    """His stack card drawn on the PRs, cc-slack listing it open as his card for each; its waits id."""
+    assert cli.main(["order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page", "--drive", "demo"]) == 0
+    [drawn] = ask(asks(*numbers))["cards"]
+    posted = {"url": "https://acme.slack.com/archives/D123/p1794515083771169", "prs": [stack_url(n) for n in numbers], "asked": "2026-11-12T12:24:41-08:00", "card": drawn["card"]}
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [posted], "closed": []})
+    return drawn["card"]["waits"]
+
+
+def test_his_typed_approve_of_one_pr_and_hold_of_the_other_redraw_their_stack_card_in_place_with_no_buttons_saying_each_and_a_later_tap_redraws_it_until_it_is_replaced(
+    stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch, redraws: Redraws, capsys: pytest.CaptureFixture[str]
+) -> None:
+    on_his_stack_card(monkeypatch, 41, 42)
+    with state.edit("demo") as data:
+        data["prs"]["Forge-AI/monorepo#41"]["checks"] = "fail"
+    capsys.readouterr()
+    typed(41, "Approve")
+    assert capsys.readouterr().out.strip().endswith("redrawing in place the 1 open card(s) of his carrying it, to show his Approve")
+    typed(42, "Hold")
+    assert redraws.asked == [stack_url(41), stack_url(42)]
+    [redrawn] = ask(asks(41, 42) | {"redraw": True})["cards"]
+    assert (redrawn["card"]["status"], "options" in redrawn["card"], "waits" in redrawn["card"]) == ("info", False, False)
+    assert [row["blocks"] for row in redrawn["card"]["prs"]] == ["Approved by you. CI failed; the agent is fixing it", "Held by you"]
+    collapsed = {"url": "https://acme.slack.com/archives/D123/p1794515083771169", "prs": [stack_url(41), stack_url(42)], "waits": "merge:Forge-AI:monorepo:41-42", "answer": None, "replaced_by": "", "tapped": "This PR no longer waits on your tap."}
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [], "closed": [collapsed]})
+    typed(42, "Approve")
+    assert redraws.asked == [stack_url(41), stack_url(42), stack_url(42)]
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [], "closed": [collapsed | {"replaced_by": "https://acme.slack.com/archives/D123/p1794515999000000"}]})
+    typed(42, "Hold")
+    assert redraws.asked == [stack_url(41), stack_url(42), stack_url(42)]
+
+
+def test_a_tap_on_his_stack_card_after_his_typed_approve_of_one_pr_keeps_that_approve_and_taps_the_rest(
+    stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch, redraws: Redraws
+) -> None:
+    waits = on_his_stack_card(monkeypatch, 41, 42)
+    typed(41, "Approve")
+    [asking] = ask(asks(41, 42) | {"redraw": True})["cards"]
+    assert (asking["card"]["options"], [row["blocks"] for row in asking["card"]["prs"]]) == (["Approve", "Hold"], ["Approved by you. Lands once CI passes", ""])
+    ask({"answer": {"repo": "Forge-AI/monorepo", "number": 41, "waits": waits, "label": "Hold", "heads": {}, "action_ts": "1794516000.000001", "source": "slack"}})
+    prs = state.load("demo")["prs"]
+    assert [prs[f"Forge-AI/monorepo#{n}"]["tap"]["label"] for n in (41, 42)] == ["Approve", "Hold"]
+    assert [(event["kind"], event["number"], event["label"]) for event in events("demo") if event["kind"] == "tap"] == [("tap", 42, "Hold")]
 
 
 def test_a_pr_in_a_native_stack_draws_its_native_stack_and_the_rest_of_the_chain_it_was_drawn_on_chain_by_base(
