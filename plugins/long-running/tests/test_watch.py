@@ -568,6 +568,24 @@ def test_a_report_held_while_he_was_away_puts_its_order_and_itself_on_his_catch_
     assert watch.run_pass(watching, T0) == [f"EVENT catch-up dm=D123 since={render.when(state.stamp(T0))} orders=o1 o2 held=700"]
 
 
+def test_a_correction_of_a_held_report_reaches_drive_status_and_his_catch_up_with_it(
+    demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], cci_corrections: dict[str, list[str]]
+) -> None:
+    held_at = state.stamp(T0 + timedelta(minutes=10))
+    with state.edit(demo) as data:
+        data["owner"] = {"heard": state.stamp(T0), "away": True}
+        data["held"]["669950"] = {"order": "o1", "at": held_at, "told": "669957"}
+    cci_corrections["669950"] = ["669952"]
+    serve(monkeypatch, {})
+    watching = watcher(demo)
+    monkeypatch.setattr(state, "now", lambda: T0 + timedelta(minutes=95))
+    assert cli.main(["status", "--drive", demo]) == 0
+    assert f"- report 669950 (o1), held {render.when(held_at)}, its writer told in record 669957, corrected by record 669952" in capsys.readouterr().out.splitlines()
+    assert cli.main(["heard", "--drive", demo]) == 0
+    assert capsys.readouterr().out.strip() == "heard"
+    assert watch.run_pass(watching, T0) == [f"EVENT catch-up dm=D123 since={render.when(state.stamp(T0))} orders=o1 held=669950 corrected=669950:669952"]
+
+
 def test_a_catch_up_naming_eighty_orders_reaches_the_coordinator_whole(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     sent = posts(monkeypatch)
@@ -1023,7 +1041,7 @@ def test_a_done_builder_delivers_its_part_and_a_done_reader_codex_or_design_job_
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
     assert cli.main(["start", demo, "--role", "communicator"]) == 0
     assert cli.main(["order", "posted", "o2", his, "--drive", demo]) == 2
-    monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "lane": "root", "at": "2026-11-11T09:08:16.896Z", "fields": {"attrs": {"job": "j2", "part": "why do old runs fail?"}}}))
+    monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "kind": "report", "lane": "root", "at": "2026-11-11T09:08:16.896Z", "fields": {"attrs": {"job": "j2", "part": "why do old runs fail?"}}}))
     assert cli.main(["order", "posted", "o2", answer, "--record", "661300", "--drive", demo]) == 0
     capsys.readouterr()
     assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []

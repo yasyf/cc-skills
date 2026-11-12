@@ -174,6 +174,13 @@ def cci_records(monkeypatch: pytest.MonkeyPatch) -> dict[str, dict]:
 
 
 @pytest.fixture(autouse=True)
+def cci_corrections(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[str]]:
+    kept: dict[str, list[str]] = {}
+    monkeypatch.setattr(agents, "corrections", lambda name, seqs: {seq: kept[seq] for seq in seqs if seq in kept})
+    return kept
+
+
+@pytest.fixture(autouse=True)
 def ended_sessions(monkeypatch: pytest.MonkeyPatch) -> set[str]:
     ended: set[str] = set()
     monkeypatch.setattr(agents, "gone", lambda session: session in ended)

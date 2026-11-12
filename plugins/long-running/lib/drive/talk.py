@@ -2,7 +2,7 @@ import json
 import re
 from pathlib import Path
 
-from drive import cli, picture, reads, refs, slack, state, view
+from drive import agents, cli, picture, reads, refs, render, slack, state, view
 from drive.state import DriveError
 
 WEB = ("http://", "https://")
@@ -16,25 +16,32 @@ TICKET_FLAGS = {"ticket_id": "--ticket", "ticket_tree": "--ticket-tree", "ticket
 
 
 def say(name: str, post: dict) -> str:
-    """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or with a person's user id as channel_id and no thread in the group DM of that person, him and the bot, or reword one already in his DM, and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title and the open cards it closes with its only additions; a post in an order's thread is recorded on that order too, delivering the parts its report record names, and one on an order in none of its threads posts nothing. What the drive's checks find in its words, the say hook hands Jev to judge against his words before this runs."""
+    """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or with a person's user id as channel_id and no thread in the group DM of that person, him and the bot, or reword one already in his DM, and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title and the open cards it closes with its only additions; a post in an order's thread is recorded on that order too, delivering the parts its report record names, and one on an order in none of its threads posts nothing. A report's post names each correction cci holds re it, which the post may lack, and a correction of a report held for his catch-up or carried by it posts nothing, naming where that report's copy is. What the drive's checks find in its words, the say hook hands Jev to judge against his words before this runs."""
     report = cli.report_attrs(post["record"]) if post.get("record") else {}
     if order := post.get("order"):
         data = state.load(name)
         where = (post.get("channel_id") or data["slack"]["channel"], post.get("thread_ts"))
         if refused := cli.report_refusal(data, order, report) or cli.thread_refusal(data, order, where, report):
             raise DriveError(f"nothing posted: {refused}")
+    known = state.load(name)
+    if refused := correction_refusal(known, post.get("record"), report):
+        raise DriveError(f"nothing posted: {refused}")
     if report.get("catch_up"):
         post = post | {"text": titled(name, post.get("text") or "") + waiting(name, post.get("text") or "")}
     if post.get("dry_run"):
         return dry(name, post)
+    held = list(known["held"]) if report.get("catch_up") else []
+    corrected = agents.corrections(name, [post["record"], *held]) if post.get("record") else {}
     reply = posted(name, post)
     line = f"{'EDITED' if post.get('edit') else 'POSTED'} {reply['permalink']}"
     if card := reply.get("card_permalink"):
         line += f" CARD {card}"
     if warning := reply.get("warning"):
         line += f" WARNING {warning}"
+    if found := corrected.get(post.get("record")):
+        line += f"; cci holds corrections of report {post['record']}, {', '.join(found)}: unless this post carries each, reword it with say(edit={reply['permalink']}, text=…)"
     if report.get("catch_up"):
-        line += released(name)
+        line += released(name, reply["permalink"], corrected)
     if order:
         try:
             line += "; " + cli.record_post(name, order, reply["permalink"], report)[0]
@@ -44,7 +51,7 @@ def say(name: str, post: dict) -> str:
 
 
 def hold(name: str, seq: str, report: dict, order_id: str | None) -> str:
-    """Mark a report whose line waits for his catch-up held on the drive, once, answering it with a refused record to the coordinator or meta session that wrote it, else the coordinator session hearing its order; that record's seq."""
+    """Mark a report whose line waits for his catch-up held on the drive, once, answering it with a refused record to the coordinator or meta session that wrote it, else the coordinator session hearing its order, naming each correction cci already holds re it; that record's seq."""
     data = state.load(name)
     if mark := data["held"].get(seq):
         return mark["told"]
@@ -52,8 +59,10 @@ def hold(name: str, seq: str, report: dict, order_id: str | None) -> str:
     lane = report["writer"] if report["writer"] in writers else state.heard_lane(data, order_id) if order_id else "root"
     argv = ["cci", "post", "--drive", name, "--lane", "communicator", "--kind", "refused", "--re", seq, "--to", f"{lane}@{name}", "--id", f"held-{seq}"]
     argv += ["--attr", f"held={seq}", *(["--attr", f"order={order_id}"] if order_id else [])]
+    corrected = agents.corrections(name, [seq]).get(seq, [])
+    text = HELD.format(seq=seq) + (f"; the catch-up carries it{render.corrected_by(corrected)}" if corrected else "")
     try:
-        told = str(json.loads(reads.run([*argv, "--json", "--text", HELD.format(seq=seq)], Path.cwd()))["seq"])
+        told = str(json.loads(reads.run([*argv, "--json", "--text", text], Path.cwd()))["seq"])
     except reads.ReadError as error:
         raise DriveError(f"report {seq} could not be marked held: {error}") from None
     with state.edit(name) as data:
@@ -61,11 +70,28 @@ def hold(name: str, seq: str, report: dict, order_id: str | None) -> str:
     return told
 
 
-def released(name: str) -> str:
-    """Let go of every report held for his catch-up, which the catch-up just posted covers, and name them."""
+def released(name: str, post: str, corrected: dict[str, list[str]]) -> str:
+    """Let go of every report held for his catch-up, which the catch-up just posted at post covers, keeping post as the copy each went out in, and name them, with each correction cci held re one that the catch-up event never named, which the post lacks."""
     with state.edit(name) as data:
         held, data["held"] = data["held"], {}
-    return f"; it carries the reports held for it, no longer held: {', '.join(held)}" if held else ""
+        data["carried"] |= dict.fromkeys(held, post)
+    if not held:
+        return ""
+    [*_, back] = [event for event, _ in state.read_events(name) if event["kind"] == "catch-up"]
+    named = {fix for pair in back.get("corrected", "").split() for fix in pair.partition(":")[2].split(",")}
+    late = [fix for seq in held for fix in corrected.get(seq, []) if fix not in named]
+    line = f"; it carries the reports held for it, no longer held: {', '.join(held)}"
+    return line + (f"; its catch-up event named none of corrections {', '.join(late)}, so reword this post with say(edit={post}, text=…) to carry them" if late else "")
+
+
+def correction_refusal(data: dict, seq: str | None, report: dict) -> str | None:
+    """Why a correction's post goes nowhere: the report it corrects is held for his catch-up, which carries the correction with it, or went out in his catch-up, whose post the correction rewords."""
+    corrected = report.get("corrects")
+    if corrected in data["held"]:
+        return f"record {seq} corrects report {corrected}, held for his catch-up, which carries this correction with it: return NOTHING held for his catch-up"
+    if post := data["carried"].get(corrected):
+        return f"record {seq} corrects report {corrected}, which his catch-up {post} carried: reword that post with say(edit={post}, text=…)"
+    return None
 
 
 def titled(name: str, text: str) -> str:

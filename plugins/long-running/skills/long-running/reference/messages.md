@@ -407,11 +407,17 @@ the dashboard link. When a line says where things stand, link the page instead o
   refuses any other handler line. Summaries, due-time lines and job results wait.
   A report whose line the hook holds is marked held on the drive, `drive status` lists it under
   `Held for his catch-up`, and a `refused` record carrying `held=<seq>` tells the coordinator
-  session that wrote it, so nobody takes it for a line he got.
+  session that wrote it, so nobody takes it for a line he got. A correction record `--re` a held
+  report travels with it, since cci never changes the report: `drive status` names it on the
+  report's line, the `refused` record names one already written, and a `say` of the correction
+  posts nothing while its report is held.
 - His next message, right after its ack, or his next card tap gets one catch-up at his DM root.
   `drive heard`, or the tap, tells the coordinator every order that changed while he was away or
-  has a report held, and each held report; it sends one `report` for his DM root covering them,
-  grouped by feature, then `--lined` each. Posting the catch-up lets go of every held report.
+  has a report held, and each held report with the corrections cci holds re it; it sends one
+  `report` for his DM root covering them, grouped by feature and each held report's facts as its
+  corrections give them, then `--lined` each. Posting the catch-up lets go of every held report,
+  and `say` names any correction its catch-up event missed. A correction that comes after rewords
+  the catch-up post: `say` of it posts nothing and names that post.
 - That report carries `catch_up=true`, so `say` opens the post with the bold title
   `*Catch-up since <the time he was last heard>*` whatever the text says, and closes it with every
   open card waiting on him, the list his status page queues, each on its own line under a count of
