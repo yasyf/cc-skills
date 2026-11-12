@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import re
 from collections.abc import Callable
 from pathlib import Path
 
@@ -170,10 +171,10 @@ def test_one_message_of_his_has_one_handler_at_a_time_whichever_record_names_it(
     }
     message = HIS_MESSAGE.format(scratch=tmp_path / "h1")
     handler = tools.run("handler", "demo", {"brief": message}).removeprefix("started ")
-    with pytest.raises(state.DriveError, match=f"handler {handler} is at work on {HIS_LINK}.*; this copy needs no handler of its own"):
+    with pytest.raises(state.DriveError, match=f"handler {handler} is at work on {re.escape(HIS_LINK)}.*; this copy needs no handler of its own"):
         tools.run("handler", "demo", {"brief": message})
     for seq in ("668291", "668300", "668288"):
-        with pytest.raises(state.DriveError, match=f"refused, no handler started: handler {handler} is at work on {HIS_LINK}.*its done record names this brief"):
+        with pytest.raises(state.DriveError, match=f"refused, no handler started: handler {handler} is at work on {re.escape(HIS_LINK)}.*its done record names this brief"):
             tools.run("handler", "demo", {"brief": f"Record: {seq} Drive: demo Scratch: {tmp_path / seq}"})
     other = tools.run("handler", "demo", {"brief": f"Record: 668400 Drive: demo Scratch: {tmp_path / '668400'}"}).removeprefix("started ")
     with pytest.raises(state.DriveError, match=f"handler {other} is at work on record 668400.*; this copy needs no handler of its own"):
