@@ -349,22 +349,26 @@ def rework_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def ready_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Send the communicator one ready record per order for the PRs that wait on his card alone, once a head, so `drive card` draws his card within one GitHub read of a PR going green and approved, with no coordinator turn, and says what changed on each PR whose builder's READY met his words reworking it; a record that fails to post goes again next read."""
+    """Send the communicator one ready record per native GitHub stack, or per order for PRs in none, for the PRs that wait on his card alone, once a head, so `drive card` draws his card within one GitHub read of a PR going green and approved, with no coordinator turn, and says what changed on each PR whose builder's READY met his words reworking it. A stack's record waits until every open PR of it the drive tracks waits on its next step alone with no rework owed, then names each of them that asks his tap and marks it sent on its head, so no PR mid-stack gets a ready of its own and a pass repeats none until a head moves; a record that fails to post goes again next read."""
     if watcher.cards is None:
         return []
     from drive import tools
 
     data = state.load(watcher.name)
-    owed: dict[str, dict[str, str]] = {}
+    owed: dict[tuple[tuple[str, ...], str], list[str]] = {}
     for key, pr in data["prs"].items():
         if hears(watcher, data, pr["order"]) and card_owed(pr, data, watcher.cards):
-            owed.setdefault(pr.get("serves") or pr["order"], {})[key] = pr["head"]
+            stack = native_stack(data, key)
+            owed.setdefault((stack, "" if stack else pr.get("serves") or pr["order"]), []).append(key)
     lines = []
-    for order_id, heads in owed.items():
-        order = data["orders"][order_id]
+    for (stack, _), keys in owed.items():
+        if not all(view.next_step(data["prs"][member], data, watcher.cards) and not data["prs"][member]["rework"] for member in stack):
+            continue
+        heads = {key: data["prs"][key]["head"] for key in [member for member in stack if state.asks_tap(data["prs"][member])] or keys}
+        orders = list(dict.fromkeys(data["prs"][key].get("serves") or data["prs"][key]["order"] for key in heads))
         urls = " ".join(data["prs"][key]["url"] for key in heads)
         changed = "".join(f"; {key}: {fundamental}" for key in heads if (fundamental := data["prs"][key]["fundamental"]))
-        words = order["text"] if order["text"].startswith(state.TOOLING) else f'his order {order_id} "{order["text"]}"'
+        words = "; ".join(order_words(data, order_id) for order_id in orders)
         record = {"kind": "ready", "to": [f"communicator@{watcher.name}"], "text": f"{urls}; {words}{changed}"}
         try:
             tools.sent(watcher.name, LANE, [limits.shortened(record) or record])
@@ -377,6 +381,16 @@ def ready_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 data["prs"][key]["ready_said"] = head
         lines.append(f"CARD his card for {', '.join(heads)} is drawing: green and approved, ready record sent to the communicator")
     return lines
+
+
+def native_stack(data: dict, key: str) -> tuple[str, ...]:
+    """The open PRs of the PR's native GitHub stack that the drive tracks, bottom first, as the watch last read it; none for a PR in no native stack."""
+    return tuple(member for member in data["prs"][key]["native"] if member in data["prs"] and data["prs"][member]["state"] == "open")
+
+
+def order_words(data: dict, order_id: str) -> str:
+    order = data["orders"][order_id]
+    return order["text"] if order["text"].startswith(state.TOOLING) else f'his order {order_id} "{order["text"]}"'
 
 
 def card_owed(pr: dict, data: dict, cards: dict) -> bool:

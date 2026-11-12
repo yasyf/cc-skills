@@ -68,6 +68,7 @@ def read(**overrides: object) -> dict:
         "title": "Fix: the watch",
         "author": "yasyf",
         "labels": [],
+        "native": [],
     }
     return {**base, **overrides}
 
@@ -1778,6 +1779,66 @@ def test_a_pr_green_and_approved_draws_his_card_from_the_watch_once_a_head_with_
     assert sent == [("watch", [{"kind": "ready", "to": ["communicator@demo"], "text": f'{state.pr_url(KEY)}; his order o1 "ship the watch"'}])]
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
     assert len(sent) == 1
+
+
+THIRD = "Forge-AI/monorepo#44"
+STACKED = (KEY, OTHER, THIRD)
+
+
+def three_stacked(demo: str, monkeypatch: pytest.MonkeyPatch) -> dict[str, dict]:
+    waiting_job(demo)
+    with state.edit(demo) as data:
+        data["orders"]["o2"] = order(text="split the stack", jobs=["j2"])
+        data["jobs"]["j2"] = job(order="o2", prs=[state.pr_url(OTHER), state.pr_url(THIRD)], state="waiting")
+        data["prs"][KEY]["wants_tap"] = True
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j2", "o2")
+        data["prs"][THIRD] = state.new_pr(state.pr_url(THIRD), "j2", "o2")
+    monkeypatch.setattr(watch.view, "cards", lambda drive: watch.view.NO_CARDS)
+    reads = {key: stacked_read(head) for key, head in zip(STACKED, ("aaaaaaa111", "bbbbbbb222", "ccccccc333"))}
+    serve(monkeypatch, reads)
+    return reads
+
+
+def stacked_read(head: str, **overrides: object) -> dict:
+    return read(headRefOid=head, checks=GREEN, reviewDecision="APPROVED", native=[(key, "open") for key in STACKED], **overrides)
+
+
+def test_a_pr_mid_stack_gets_no_ready_of_its_own_until_every_pr_of_its_native_stack_is_ready_and_then_the_stack_gets_one(
+    demo: str, monkeypatch: pytest.MonkeyPatch, ready_records: list[list[dict]]
+) -> None:
+    reads = three_stacked(demo, monkeypatch)
+    reads[OTHER] = stacked_read("bbbbbbb222", labels=[github.HOLD_LABEL])
+    with state.edit(demo) as data:
+        state.rework(data["prs"][THIRD], "o2", "Split the stack by its native GitHub stack")
+    watching = watcher(demo)
+    watch.run_pass(watching, T0)
+    assert ready_records == []
+    reads[OTHER] = stacked_read("bbbbbbb222")
+    watch.run_pass(watching, T0 + timedelta(minutes=10))
+    assert ready_records == []
+    with state.edit(demo) as data:
+        data["prs"][THIRD]["rework"] = None
+    lines = watch.run_pass(watching, T0 + timedelta(minutes=20))
+    assert f"CARD his card for {KEY}, {OTHER}, {THIRD} is drawing: green and approved, ready record sent to the communicator" in lines
+    [[record]] = ready_records
+    urls = " ".join(state.pr_url(key) for key in STACKED)
+    assert record.get("body", record["text"]) == f'{urls}; his order o1 "ship the watch"; his order o2 "split the stack"'
+
+
+def test_a_native_stack_gets_one_ready_for_its_heads_and_another_only_once_a_restack_moves_a_head(
+    demo: str, monkeypatch: pytest.MonkeyPatch, ready_records: list[list[dict]]
+) -> None:
+    reads = three_stacked(demo, monkeypatch)
+    watching = watcher(demo)
+    watch.run_pass(watching, T0)
+    watch.run_pass(watching, T0 + timedelta(minutes=10))
+    assert len(ready_records) == 1
+    reads[OTHER] = stacked_read("ddddddd444")
+    watch.run_pass(watching, T0 + timedelta(minutes=20))
+    watch.run_pass(watching, T0 + timedelta(minutes=30))
+    urls = " ".join(state.pr_url(key) for key in STACKED)
+    assert [record.get("body", record["text"]).split("; ")[0] for [record] in ready_records] == [urls, urls]
+    assert state.load(demo)["prs"][OTHER]["ready_said"] == "ddddddd444"
 
 
 def test_a_pr_reworked_to_his_words_gets_no_ready_and_loses_a_card_left_up_until_its_builders_ready_says_how_they_are_met(

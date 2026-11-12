@@ -169,7 +169,7 @@ def checks(rollup: list[dict], failed: list[str]) -> str:
 
 
 def live(read: dict, stored: dict) -> dict:
-    """The drive's stored fields (state, checks, the checks that failed on its head, review, head, title, author, whether it carries the hold label, conflict) of one fetched PR against its stored row; conflict only once GitHub has worked it out, since it reads UNKNOWN for a while after its base moves."""
+    """The drive's stored fields (state, checks, the checks that failed on its head, review, head, title, author, whether it carries the hold label, the PRs of its native GitHub stack that are not closed, conflict) of one fetched PR against its stored row; conflict only once GitHub has worked it out, since it reads UNKNOWN for a while after its base moves."""
     failed = sorted({*failed_before(stored, read["headRefOid"]), *(check_name(check) for check in counted(read["checks"]) if outcome(check) in FAILED)})
     fields = {
         "state": PR_STATES[read["state"]],
@@ -180,6 +180,7 @@ def live(read: dict, stored: dict) -> dict:
         "title": read["title"],
         "author": read["author"],
         "hold_label": HOLD_LABEL in read["labels"],
+        "native": [member for member, status in read["native"] if status != "closed"],
     }
     if read["mergeable"] in CONFLICTS:
         fields["conflict"] = CONFLICTS[read["mergeable"]]
@@ -194,7 +195,7 @@ def nodes(payload: dict, keys: list[str]) -> dict[str, dict]:
 
 
 def parse(payload: dict, keys: list[str]) -> dict[str, dict]:
-    return {key: flatten(node) for key, node in nodes(payload, keys).items()}
+    return {key: flatten(node) | {"native": entries(repo_of(key), node["stack"]) if node["stack"] else []} for key, node in nodes(payload, keys).items()}
 
 
 def graphql(text: str, what: str) -> dict:
@@ -259,12 +260,12 @@ def ships(release: dict, service: str) -> bool:
 
 
 def fetch(keys: list[str]) -> tuple[dict[str, dict], GithubError | None]:
-    """Read every PR key ("owner/name#123") PRS_PER_QUERY to a `gh api graphql` call, since GitHub refuses a query past its resource limits: the reads of every call that answered, and an error joining what the others could not read, so one refused call loses only its own PRs."""
+    """Read every PR key ("owner/name#123"), its native GitHub stack included, PRS_PER_QUERY to a `gh api graphql` call, since GitHub refuses a query past its resource limits: the reads of every call that answered, and an error joining what the others could not read, so one refused call loses only its own PRs."""
     found, refused = {}, []
     for start in range(0, len(keys), PRS_PER_QUERY):
         chunk = keys[start : start + PRS_PER_QUERY]
         try:
-            found |= parse(graphql(query(chunk), f"{len(chunk)} PRs of {', '.join(sorted({repo_of(key) for key in chunk}))}"), chunk)
+            found |= parse(graphql(query(chunk, f"{FIELDS} {STACK}"), f"{len(chunk)} PRs of {', '.join(sorted({repo_of(key) for key in chunk}))}"), chunk)
         except GithubError as error:
             refused.append(str(error))
     return found, GithubError("; ".join(refused)) if refused else None

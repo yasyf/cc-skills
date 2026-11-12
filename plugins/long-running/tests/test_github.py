@@ -23,6 +23,7 @@ def node(**overrides: object) -> dict:
         "mergeCommit": None,
         "labels": {"nodes": []},
         "commits": {"nodes": [{"commit": {"statusCheckRollup": {"contexts": {"nodes": GREEN}}}}]},
+        "stack": None,
     }
     return {**base, **overrides}
 
@@ -32,7 +33,7 @@ def stored(head: str = "abc", failed: list[str] | None = None) -> dict:
 
 
 def pr_read(rollup: list[dict], **overrides: object) -> dict:
-    return {"state": "OPEN", "checks": rollup, "reviewDecision": None, "approvals": [], "mergeable": "MERGEABLE", "headRefOid": "abc", "title": "T", "author": "yasyf", "labels": [], **overrides}
+    return {"state": "OPEN", "checks": rollup, "reviewDecision": None, "approvals": [], "mergeable": "MERGEABLE", "headRefOid": "abc", "title": "T", "author": "yasyf", "labels": [], "native": [], **overrides}
 
 
 def test_query_aliases_one_repository_per_repo_and_one_pull_per_number() -> None:
@@ -59,6 +60,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             latestOpinionatedReviews={"nodes": reviews},
             labels={"nodes": [{"name": "hold"}]},
             author=None,
+            stack={"entries": {"nodes": [{"position": 2, "pullRequest": {"number": 2, "state": "MERGED"}}, {"position": 1, "pullRequest": {"number": 1, "state": "OPEN"}}]}},
         )
         return json.dumps({"data": {"r0": {"p1": node(), "p2": merged}, "r1": {"p7": None}}})
 
@@ -80,6 +82,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "title": "Fix the thing",
             "author": "yasyf",
             "labels": [],
+            "native": [],
         },
         "a/one#2": {
             "state": "MERGED",
@@ -93,6 +96,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "title": "Fix the thing",
             "author": "ghost",
             "labels": ["hold"],
+            "native": [("a/one#1", "open"), ("a/one#2", "merged")],
         },
     }
 
@@ -194,7 +198,8 @@ def test_fetch_names_an_unreadable_reply(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 def test_live_maps_a_read_onto_the_stored_vocabulary() -> None:
-    read = pr_read([*GREEN, {"context": "buildkite/deploy", "state": "ERROR"}], reviewDecision="CHANGES_REQUESTED", mergeable="CONFLICTING")
+    native = [("a/one#1", "merged"), ("a/one#2", "closed"), ("a/one#3", "open")]
+    read = pr_read([*GREEN, {"context": "buildkite/deploy", "state": "ERROR"}], reviewDecision="CHANGES_REQUESTED", mergeable="CONFLICTING", native=native)
     assert github.live(read, stored()) == {
         "state": "open",
         "checks": "fail",
@@ -204,6 +209,7 @@ def test_live_maps_a_read_onto_the_stored_vocabulary() -> None:
         "title": "T",
         "author": "yasyf",
         "hold_label": False,
+        "native": ["a/one#1", "a/one#3"],
         "conflict": True,
     }
 
