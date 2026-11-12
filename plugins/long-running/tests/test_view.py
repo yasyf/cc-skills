@@ -488,6 +488,18 @@ def test_cards_are_read_from_the_file_the_watch_rewrites_only_on_change(demo: st
     assert view.stored_cards(demo) == (view.NO_CARDS, "unavailable: not signed in")
 
 
+def test_cards_an_older_cc_slack_lists_with_no_closed_field_read_as_none_closed(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    gone = f"{TEAM}archives/D123/p1794200000000300"
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": TEAM, "questions": [], "pr_cards": []})
+    view.refresh_cards(demo)
+    listed, source = view.stored_cards(demo)
+    assert (listed, source) == (found(), "live")
+    assert view.card_words(listed, source, gone) == f"card {gone}, which cc-slack no longer keeps"
+    assert view.card_words(listed, source, "demo:j1-1") == "card demo:j1-1 never drawn"
+    assert view.pr_card_words(listed, source, "https://github.com/acme/app/pull/43") is None
+    assert not view.withdrawn(listed, gone)
+
+
 def test_review_lists_every_open_pr_by_whether_it_waits_on_him_and_carries_its_card_and_its_thread() -> None:
     data = drive_of(
         {"o1": order("ship the page", ["j1"])},

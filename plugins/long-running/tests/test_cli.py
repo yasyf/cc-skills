@@ -3656,6 +3656,14 @@ def test_status_reads_the_prs_from_the_drive_and_never_from_github(run: Run, wit
     assert json.loads(run("status", "--json")[1])["prs"][with_pr]["title"] == "Fix: the watched title"
 
 
+def test_status_prints_an_open_pr_while_the_installed_cc_slack_lists_no_closed_cards(run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": []})
+    code, out = run("status")
+    assert code == 0
+    assert out.splitlines()[0] == "demo: 1 open of 1 orders"
+    assert json.loads(run("status", "--json")[1])["prs"][with_pr]["card_state"] is None
+
+
 def test_status_reads_only_the_orders_its_ids_name(run: Run, with_pr: str) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "something else")
     for key in ("o1", "j1", with_pr, PR):

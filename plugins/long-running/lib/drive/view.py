@@ -106,11 +106,12 @@ def refresh_cards(name: str) -> None:
 
 
 def stored_cards(name: str) -> tuple[dict, str]:
-    """His cards as the drive last stored them, and `live` or why they are missing."""
+    """His cards as the drive last stored them, each list the installed cc-slack does not return read as empty, and `live` or why they are missing."""
     path = state.cards_path(name)
     if not path.exists():
         return NO_CARDS, UNREAD
-    found = json.loads(path.read_text())
+    # TODO: read the stored file as is once long-running requires the cc-slack release that returns the closed list (cc-slack#348).
+    found = {**NO_CARDS, **json.loads(path.read_text())}
     return found, found.pop("source")
 
 
