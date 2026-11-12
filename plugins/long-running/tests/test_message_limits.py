@@ -9,7 +9,7 @@ from pathlib import Path
 import message_limits
 import pytest
 from conftest import Checked, Thread
-from drive import limits, refs, slack, state, talk, view
+from drive import agents, limits, refs, slack, state, talk, view
 from drive.state import DriveError
 
 Run = Callable[..., tuple[int, str]]
@@ -22,6 +22,10 @@ REPORTED = "https://acme.slack.com/archives/C0REPORTS01/p1794400100000200"
 HANDLER = "a1"
 HIS_WORDS = "Message (his words): why does the browser guess at the page map? explain the layout in full"
 WHOLE = "pass as asked each message of his it answers, word for word, one per line."
+RELAY_BRIEF = (
+    "Record: 670054 report from meta (job j1546, closes o598)\nDrive: demo\nContext: read 670054 whole. Post it in o598's thread if it"
+    " has one, else at his DM root. He is away, so say may hold it for his catch-up.\nDeliverable: the line from 670054 posted, or held for his catch-up"
+)
 NOT_HIS = "Copy each message of his this post answers word for word, one per line, with … where you skip words."
 
 BAD_STATE_THREAD = "1794292846.190589"
@@ -548,17 +552,19 @@ def test_the_installed_confirmation_quoting_his_ruling_goes_out_whole(talker: st
     assert posted(briefed, text=CONFIRMATION + "\n" + said(40), thread_ts="1.2", asked=HIS_RULING) is None
 
 
-def test_his_words_in_the_brief_lift_the_limit_with_no_thread_read(talker: str, transcript: Path, slack_thread: Thread) -> None:
+def test_his_words_copied_into_the_brief_lift_nothing_until_his_message_in_the_thread_holds_them(
+    talker: str, transcript: Path, slack_thread: Thread
+) -> None:
+    assert posted(transcript, text=said(400), thread_ts="1.2", asked="Explain the layout in   full").startswith("refused: this post is 400 words")
+    his(slack_thread, "why does the browser guess at the page map? explain the layout in full")
     assert posted(transcript, text=said(400), thread_ts="1.2", asked="Explain the layout in   full") is None
-    assert slack_thread.reads == []
 
 
-def test_his_words_quoted_in_the_record_a_handler_was_started_with_lift_the_limit(
+def test_words_the_record_a_handler_was_started_with_quotes_as_his_lift_nothing(
     talker: str, briefed: Path, slack_thread: Thread, records: dict[str, str]
 ) -> None:
-    assert posted(briefed, text=said(400), thread_ts="1.2", asked="is that live and working yhet?").startswith("refused: this post is 400 words")
     records["658738"] = 'POST j1 is installed\nThis answers his "is that live and working yhet?"'
-    assert posted(briefed, text=said(400), thread_ts="1.2", asked="is that live and working yhet?") is None
+    assert posted(briefed, text=said(400), thread_ts="1.2", asked="is that live and working yhet?").startswith("refused: this post is 400 words")
 
 
 @pytest.mark.parametrize(
@@ -574,7 +580,7 @@ def test_words_he_did_not_write_lift_nothing_and_the_refusal_names_them(
     reason = posted(transcript, text=said(400), thread_ts="1.2", asked=asked)
     assert reason.startswith("refused: this post is 400 words, and a line in his thread is at most 60 words")
     assert "It is not an answer, so it keeps that limit" in reason
-    assert f"no answer of his a card there shows, nor your brief: {named}. {NOT_HIS}" in reason
+    assert f"in no message of his in the thread this post goes to and no answer of his a card there shows: {named}. {NOT_HIS}" in reason
 
 
 def test_words_only_the_bot_wrote_in_the_thread_lift_nothing(talker: str, briefed: Path, slack_thread: Thread) -> None:
@@ -590,8 +596,8 @@ def test_his_answer_on_a_card_in_the_thread_is_his_words_for_asked_and_for_jev(t
     reason = posted(transcript, text=said(100), thread_ts="1.2", asked=BREAK_GLASS)
     assert reason is None
     words = message_limits.his_words(call("slack_dm_status", transcript, text=said(100), thread_ts="1.2"))
-    assert [(word["id"], word["source"]) for word in words] == [("brief", "brief"), ("slack:1794310000.000000", "slack"), ("card:1794418890.901979:0", "card")]
-    assert words[2]["quote"] == f"<{HIS_PICK}|{BREAK_GLASS}> · 9:41am"
+    assert [(word["id"], word["source"]) for word in words] == [("slack:1794310000.000000", "slack"), ("card:1794418890.901979:0", "card")]
+    assert words[1]["quote"] == f"<{HIS_PICK}|{BREAK_GLASS}> · 9:41am"
     assert posted(transcript, text=said(100), thread_ts="1.2", asked="Use break glass every time").startswith("refused: this post is 100 words")
 
 
@@ -603,7 +609,7 @@ def test_a_refused_post_carries_his_words_for_jev_and_one_the_checks_pass_carrie
         monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(call("slack_dm_status", transcript, text=text, thread_ts="1.2"))))
         message_limits.main()
         printed = capsys.readouterr().out
-        assert (json.loads(printed)["his_words"][1]["quote"] if printed else None) == ("is the release out?" if judged else None)
+        assert (json.loads(printed)["his_words"][0]["quote"] if printed else None) == ("is the release out?" if judged else None)
 
 
 def test_an_unreadable_thread_refuses_with_why(talker: str, briefed: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1432,6 +1438,25 @@ def test_a_report_held_while_he_is_away_is_marked_held_and_its_coordinator_told_
     assert {seq: (mark["order"], mark["told"]) for seq, mark in state.load("demo")["held"].items()} == {"700": ("o1", "701")}
     assert say(transcript, text="Users are unblocked.", record="710") is None
     assert list(state.load("demo")["held"]) == ["700"]
+
+
+def test_a_handlers_own_session_hands_jev_none_of_its_brief_as_his_words_and_his_own_message_still_posts(
+    talker: str, tmp_path: Path, slack_thread: Thread, records: dict[str, str]
+) -> None:
+    records["670054"] = "POST resume works from any session\no598 has no thread, so the line goes at his DM root."
+    own = tmp_path / "handler.jsonl"
+    handler(own, RELAY_BRIEF, "1.2")
+    with state.edit("demo") as data:
+        data["owner"] = {"heard": state.stamp(), "away": True}
+        data["handlers"]["f796ccf3"] = {"session": "handler-session", "started": state.stamp(), "holds": None, "held_back": []}
+    relayed = {"session_id": "handler-session", "transcript_path": str(own), "agent_type": "long-running:handler", "tool_name": message_limits.SAY}
+    root = agents.seen(relayed | {"tool_input": {"text": "Resume works from any session now."}})
+    assert message_limits.deny_reason(root).startswith("Refused on purpose: he is away")
+    assert message_limits.his_words(root) == []
+    his(slack_thread, "tell me when resume works from the meta session")
+    answer = agents.seen(relayed | {"tool_input": {"text": "Resume works from the meta session now.", "thread_ts": "1.2"}})
+    assert [(word["id"], word["quote"]) for word in message_limits.his_words(answer)] == [("slack:1794310000.000000", "tell me when resume works from the meta session")]
+    assert message_limits.deny_reason(answer | {"tool_input": answer["tool_input"] | {"asked": "tell me when resume works from the meta session"}}) is None
 
 
 def test_a_say_code_visual_of_raw_data_is_refused_and_a_short_snippet_goes_out(talker: str, transcript: Path) -> None:
