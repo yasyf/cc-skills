@@ -347,3 +347,10 @@ def repo_name(remote: str) -> str:
 def checkout_repo(checkout: str) -> str:
     """The owner/name its origin remote names, of the checkout a drive's remote lanes clone."""
     return repo_name(run(["git", "-C", checkout, "remote", "get-url", "origin"]))
+
+
+def fetched(clone: str, branch: str) -> str:
+    """The sha of branch's head as origin holds it now, fetched with one call into the clone's refs/remotes/origin/<branch>."""
+    git = ["git", "-C", clone]
+    run([*git, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin", f"+refs/heads/{branch}:refs/remotes/origin/{branch}"])
+    return run([*git, "rev-parse", f"refs/remotes/origin/{branch}"]).strip()

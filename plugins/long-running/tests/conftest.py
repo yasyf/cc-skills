@@ -121,6 +121,39 @@ def commit_files(repo: Path, message: str, files: dict[str, str]) -> str:
     return git_in(repo, "rev-parse", "HEAD")
 
 
+def cloned(tmp_path: Path, name: str, files: dict[str, str] | None = None) -> str:
+    """Commit files, by default an .orca.json, on main of an origin that the drive's coordinator checkout is a clone of, both made on the first call, as the drive's checkout is moved to before a launch; main's head."""
+    origin, clone = tmp_path / "origin", tmp_path / "clone"
+    if not origin.exists():
+        origin.mkdir()
+        git_in(origin, "init", "-q", "-b", "main")
+    head = commit_files(origin, "the launch files", files or {".orca.json": "{}"})
+    if not clone.exists():
+        git_in(tmp_path, "clone", "-q", str(origin), str(clone))
+        with state.edit(name) as data:
+            data["roles"]["coordinator"]["cwd"] = str(clone)
+    return head
+
+
+FAKE_CCX = """#!/bin/sh
+[ "$1 $2 $3 $5 $6" = "vcs worktree add --jj none" ] || exit 64
+echo "$4" >>"{made}"
+exec git worktree add -q -b "$4" "{root}/$4" origin/main
+"""
+
+
+@pytest.fixture
+def ccx_worktrees(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A ccx first on PATH whose vcs worktree add makes a git worktree on a new branch cut from origin/main under the folder it returns, as ccx does under its worktree root, naming each branch it made in that folder's made file."""
+    root, bin_dir = tmp_path / "worktrees", tmp_path / "ccx-bin"
+    root.mkdir()
+    bin_dir.mkdir()
+    (bin_dir / "ccx").write_text(FAKE_CCX.format(made=root / "made", root=root))
+    (bin_dir / "ccx").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    return root
+
+
 @pytest.fixture
 def state_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     root = tmp_path / "long-running"
