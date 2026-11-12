@@ -12,7 +12,7 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from drive import agents, artifacts, brief, github, land, limits, orca, picture, place, reads, render, served, settled, slack, state, watch
+from drive import agents, artifacts, brief, github, install, land, limits, orca, picture, place, reads, render, served, settled, slack, state, watch
 from drive.state import DriveError
 
 DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
@@ -1668,7 +1668,11 @@ def job_launch(args: argparse.Namespace) -> int:
 
 def bound(args: argparse.Namespace) -> int:
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
-    done = orca.bound_command(state.resolve(args.drive), args.lane_run, command)
+    try:
+        done = orca.bound_command(state.resolve(args.drive), args.lane_run, command)
+    except orca.Unstarted as error:
+        print(f"drive: {error}", file=sys.stderr)
+        return orca.UNSTARTED
     sys.stdout.write(done.stdout)
     sys.stderr.write(done.stderr)
     return done.returncode
@@ -2620,14 +2624,10 @@ def move(args: argparse.Namespace) -> int:
 
 
 def install_plugin(args: argparse.Namespace) -> int:
-    from drive import install
-
     return install.main(args.plugin, args.sha, args.repo, args.timeout)
 
 
 def reload_plugins(args: argparse.Namespace) -> int:
-    from drive import install
-
     return install.reload_main()
 
 
@@ -3442,6 +3442,9 @@ def parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run one verb, in the newest installed drive when this process started from an older install, such as a launch's bind prefix, handing over before any verb acts, since an older install refuses a drive.json a newer one saved."""
+    if argv is None and (newer := install.upgraded()):
+        os.execv(newer, [str(newer), *sys.argv[1:]])
     args = parser().parse_args(argv)
     try:
         return args.run(args)

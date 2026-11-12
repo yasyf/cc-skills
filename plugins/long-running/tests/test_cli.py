@@ -19,6 +19,7 @@ from drive import (
     card,
     cli,
     github,
+    install,
     limits,
     orca,
     picture,
@@ -3470,7 +3471,7 @@ def test_card_with_no_request_on_stdin_names_card_command_and_what_stdin_held(
 
 def test_install_dispatches_its_arguments(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     calls = []
-    fake_module(monkeypatch, "install", lambda *args: calls.append(args) or 0)
+    monkeypatch.setattr(cli.install, "main", lambda *args: calls.append(args) or 0)
     assert run("install", "long-running@skills", "--sha", "abc", "--repo", "yasyf/cc-skills")[0] == 0
     assert run("install", "long-running@skills", "--timeout", "60")[0] == 0
     assert calls == [("long-running@skills", "abc", "yasyf/cc-skills", 900), ("long-running@skills", None, None, 60)]
@@ -4963,3 +4964,28 @@ def test_a_pr_carrying_a_code_ruling_is_refused_until_it_writes_his_words_into_t
     diff = diff.replace(b"go/sand/AGENTS.md", b"go/sand/other/AGENTS.md")
     with pytest.raises(state.DriveError, match='his ruling 23ff059 on how go/sand/cache must work, "Key the cache on the run id", is not written'):
         cli.refuse_an_unwritten_rule(data, "Forge-AI/monorepo#7")
+
+
+def test_a_drive_started_from_an_older_install_hands_its_verb_to_the_newest_install_before_a_drive_json_it_saved_refuses_it(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = state.state_path(demo)
+    path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "9.9.9"}))
+    newer = tmp_path / "cache" / "9.9.9" / "bin" / "drive"
+    argv = ["drive", "status", "--drive", demo]
+
+    class Execed(Exception):
+        pass
+
+    def execv(drive: Path, args: list[str]) -> None:
+        raise Execed(drive, args)
+
+    monkeypatch.setattr(cli.os, "execv", execv)
+    monkeypatch.setattr(cli.sys, "argv", argv)
+    monkeypatch.setattr(install, "upgraded", lambda: newer)
+    with pytest.raises(Execed) as execed:
+        cli.main()
+    assert execed.value.args == (newer, [str(newer), *argv[1:]])
+    monkeypatch.setattr(install, "upgraded", lambda: None)
+    assert cli.main() == 2
+    assert capsys.readouterr().err.startswith(f"drive: drive.json of {demo} was saved by long-running 9.9.9")

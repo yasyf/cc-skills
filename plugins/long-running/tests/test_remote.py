@@ -1620,14 +1620,67 @@ def test_every_lane_call_leaves_the_terminal_on_the_drives_own_run_made_once_eve
     with pytest.raises(orca.OrcaError):
         orca.reply(remote, RUN, "msg_1", "an answer")
     assert calls == [
-        ("run-use", "--id", RUN),
         ("run-create", "--objective", f"drive {remote}: the coordinator's own Run, which no lane mails"),
+        ("run-use", "--id", RUN),
         ("run-use", "--id", DRIVE_RUN),
         ("run-use", "--id", RUN),
         ("reply", "--id", "msg_1"),
         ("run-use", "--id", DRIVE_RUN),
     ]
     assert state.load(remote)["run"] == DRIVE_RUN
+
+
+def test_bound_keeps_the_worker_start_receipt_and_status_when_a_newer_install_saves_the_drive_while_it_runs(
+    remote: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    binds = []
+    monkeypatch.setattr(orca, "call", lambda *args: binds.append(args[2]) if args[0] == "run-use" else {})
+    path = state.state_path(remote)
+    receipt = json.dumps({"ok": True, "result": {"state": "ready", "dispatchId": DISPATCH}})
+
+    def worker_start(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "9.9.9"}))
+        return subprocess.CompletedProcess(argv, 0, stdout=receipt, stderr="")
+
+    monkeypatch.setattr(orca.subprocess, "run", worker_start)
+    assert cli.main(["bound", "--drive", remote, RUN, "--", "orca", "orchestration", "worker-start"]) == 0
+    assert capsys.readouterr().out == receipt
+    assert binds == [RUN, DRIVE_RUN]
+
+
+NO_RUN = "orca orchestration run-use: run_not_found: no such Run"
+
+
+@pytest.mark.parametrize(
+    ("refused", "starts", "binds"),
+    [
+        ("newer drive", 0, []),
+        ("lane binding", 0, [RUN, DRIVE_RUN]),
+        ("lane binding after a fence", 1, [RUN, RUN, DRIVE_RUN]),
+    ],
+)
+def test_bound_exits_75_when_it_refuses_before_a_worker_start_could_start_anything(
+    remote: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], refused: str, starts: int, binds: list[str]
+) -> None:
+    path = state.state_path(remote)
+    if refused == "newer drive":
+        path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "9.9.9"}))
+    bound = []
+
+    def orca_call(*args: str) -> dict:
+        bound.append(args[2])
+        if bound == binds[:-1]:
+            raise orca.OrcaError(NO_RUN)
+        return {}
+
+    fenced = json.dumps({"ok": False, "error": {"code": orca.FENCED}})
+    started = []
+    monkeypatch.setattr(orca, "call", orca_call)
+    monkeypatch.setattr(orca.subprocess, "run", lambda argv, **kwargs: started.append(argv) or subprocess.CompletedProcess(argv, 1, stdout=fenced, stderr=""))
+    assert cli.main(["bound", "--drive", remote, RUN, "--", "orca", "orchestration", "worker-start"]) == orca.UNSTARTED
+    refusal = f"drive.json of {remote} was saved by long-running 9.9.9" if refused == "newer drive" else NO_RUN
+    out, err = capsys.readouterr()
+    assert (out, err.startswith(f"drive: {refusal}"), len(started), bound) == ("", True, starts, binds)
 
 
 def test_a_root_recorded_by_its_orca_dispatch_is_read_through_worker_show_and_its_run_mail_and_is_no_orphan(

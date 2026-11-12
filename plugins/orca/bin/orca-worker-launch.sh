@@ -34,6 +34,7 @@ if [ ${#worker_env[@]} -gt 0 ]; then
 fi
 
 read -ra bind <<<"${WORKER_BIND:-}"
+bind_unstarted=75
 
 repo_value() {
   [ ! -f .orca.json ] || jq -r --arg key "$1" '.[$key] // empty | if type == "array" then join(" ") else . end' .orca.json
@@ -176,6 +177,11 @@ start_worker() {
   fi
   echo "$status" >"$attempt/worker-start.status"
   if [ "$status" -ne 0 ]; then
+    if [ "$route" = sprite ] && [ ${#bind[@]} -gt 0 ] && [ "$status" -eq "$bind_unstarted" ]; then
+      echo >"$attempt/worker-start.unsent"
+      error=$(tail -n 1 "$attempt/worker-start.err")
+      die "no worker started on Sprite $workspace: WORKER_BIND refused before worker-start ran${error:+: $error}; its terminal $terminal waits idle, and launching this brief again retries worker-start in it"
+    fi
     if [ -n "$request" ]; then
       echo "$request" >"$attempt/worker-start.unsent"
       error=$(jq -r '"\(.error.code): \(.error.message | split(". ")[0] | rtrimstr("."))"' "$attempt/worker-start.json" 2>/dev/null) || error=
