@@ -2208,20 +2208,32 @@ def test_job_report_keeps_a_jobs_whole_return_from_stdin_and_prints_it_back(
     assert run("job", "report", "j1") == (0, "READY https://github.com/yasyf/cc-skills/pull/1\nSERVES: his order\nDESIGN: none")
 
 
-def test_a_job_on_this_mac_that_reports_twice_keeps_both_returns_in_its_history(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_return_on_a_job_that_already_returned_sets_its_line_and_history_and_leaves_its_agents_report_byte_identical(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "reader", "--order", "o1", "--goal", "grade", "--agent", "a")
     assert run("job", "replies", "j1") == (0, "j1 has sent nothing yet")
-    for whole in ("DONE graded two PRs\nVERDICT 54182 port\nVERDICT 54104 drop\n", "DONE graded one more\nVERDICT 54344 port\n"):
-        monkeypatch.setattr("sys.stdin", io.StringIO(whole))
-        assert run("job", "report", "j1", "-")[0] == 0
-    assert run("job", "report", "j1") == (0, "DONE graded one more\nVERDICT 54344 port")
+    agents = "DONE graded three PRs\nVERDICT 54182 port\nVERDICT 54104 drop\nVERDICT 54344 port\nCHECK: the three diffs\n"
+    restated = "DONE graded three PRs: two ports\nCHECK: reports/j1.md\nUNPROVEN: none\n"
+    monkeypatch.setattr("sys.stdin", io.StringIO(agents))
+    assert run("job", "report", "j1", "-") == (0, str(state.report_path("demo", "j1")))
+    before = hashlib.sha256(state.report_path("demo", "j1").read_bytes()).hexdigest()
+    monkeypatch.setattr("sys.stdin", io.StringIO(restated))
+    assert run("job", "report", "j1", "-") == (
+        0,
+        (
+            f"j1 had already returned, so this return set only its said line and its history, `drive job replies j1`: {state.report_path('demo', 'j1')}"
+            " is written only by its own agent's return while it runs"
+        ),
+    )
+    assert hashlib.sha256(state.report_path("demo", "j1").read_bytes()).hexdigest() == before
+    assert (state.load("demo")["jobs"]["j1"]["said"], run("job", "report", "j1")) == ("DONE graded three PRs: two ports", (0, agents.rstrip("\n")))
     kept = json.loads(run("job", "replies", "j1", "--json")[1])
     assert [(reply["type"], reply["subject"], reply["body"]) for reply in kept] == [
-        ("worker_done", "DONE graded two PRs", "DONE graded two PRs\nVERDICT 54182 port\nVERDICT 54104 drop\n"),
-        ("worker_done", "DONE graded one more", "DONE graded one more\nVERDICT 54344 port\n"),
+        ("worker_done", "DONE graded three PRs", agents),
+        ("worker_done", "DONE graded three PRs: two ports", restated),
     ]
-    assert "VERDICT 54104 drop" in run("job", "replies", "j1")[1]
 
 
 def test_a_builders_done_names_its_proof_and_what_he_sees_is_proven_on_that_surface(
@@ -2892,7 +2904,8 @@ def test_a_report_takes_a_waiting_or_built_job_and_is_refused_on_a_stopped_one_k
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
     check = "CHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n"
-    assert keep(monkeypatch, capsys, "j1", f"BUILT lr-move, waits on demo:j1-3\n{check}") == (0, "")
+    built = f"BUILT lr-move, waits on demo:j1-3\n{check}"
+    assert keep(monkeypatch, capsys, "j1", built) == (0, "")
     assert keep(monkeypatch, capsys, "j1", f"WAITING on his card demo:j1-3\n{check}") == (0, "")
     assert state.load("demo")["jobs"]["j1"]["state"] == "waiting"
     done = "DONE installed 1.0.392\nCHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n"
@@ -2902,7 +2915,7 @@ def test_a_report_takes_a_waiting_or_built_job_and_is_refused_on_a_stopped_one_k
     run("job", "set", "j1", "--state", "stopped", "--said", "handed to j2")
     code, err = keep(monkeypatch, capsys, "j1", "DONE The lane comes from bookkeeping\nCHECK: https://github.com/yasyf/cc-skills/actions/runs/13\n")
     assert (code, "j1: refused, nothing kept: j1 is stopped, so its work goes on in another job" in err) == (2, True)
-    assert state.report_path("demo", "j1").read_text() == done
+    assert state.report_path("demo", "j1").read_text() == built
     assert state.load("demo")["jobs"]["j1"]["state"] == "stopped"
 
 

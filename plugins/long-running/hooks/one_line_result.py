@@ -37,7 +37,7 @@ def block_reason(payload: dict) -> str | None:
         handler = payload.get("agent_type") == agents.HANDLER
         return (
             unread(payload, data, handler, job_id, message)
-            or unkept(names[0], data, job_id, message)
+            or unkept(data, job_id, message)
             or overfull(handler, message)
             or unopened(handler, message)
         )
@@ -55,12 +55,12 @@ def block_reason(payload: dict) -> str | None:
     )
 
 
-def unkept(name: str, data: dict, job_id: str | None, line: str) -> str | None:
+def unkept(data: dict, job_id: str | None, line: str) -> str | None:
     """Why a job's agent but a codex relay may not end on its one line yet: its whole return, a line per fact, is not kept in the drive, and only `drive job report` sets a job's state from it, so whoever acts on the job reads only that line and the job stays running; a reader's one line on an answer or incident order can be its whole return."""
     if not job_id or line.startswith("ASK "):
         return None
     job = data["jobs"][job_id]
-    if job["kind"] == "codex" or job["state"] != "running" and state.kept_return(name, job_id, job, line):
+    if job["kind"] == "codex" or job["state"] != "running" and state.kept_return(job, line):
         return None
     order = data["orders"][job["order"]]
     researched = job["kind"] == "reader" and order["kind"] == "build" and not order["incident"]

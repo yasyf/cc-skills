@@ -1492,7 +1492,7 @@ def keep_waits(job: dict, file: Path, waits: str) -> None:
 
 
 def job_report(args: argparse.Namespace) -> int:
-    """Keep a job's whole return from stdin in the drive and its history, its first line setting the job's state, or refuse it with nothing kept, naming the fix, when that line would set none; a reader's DESIGN is kept as its ASK in the same call, whose path it prints. With no stdin, print the newest kept, or a remote lane's latest report."""
+    """Keep a job's whole return from stdin in its history and, while the job runs, as its report, its first line setting the job's state, or refuse it with nothing kept, naming the fix, when that line would set none; a reader's DESIGN is kept as its ASK in the same call, whose path it prints. With no stdin, print the kept report, or a remote lane's latest one."""
     name = state.resolve(args.drive)
     data = state.load(name)
     job = find(data["jobs"], args.id, "job")
@@ -1516,12 +1516,17 @@ def job_report(args: argparse.Namespace) -> int:
                 asked = keep_ask(name, args.id, whole.strip(), None)[0]
             except DriveError as error:
                 raise DriveError(f"{args.id}: refused, its report not kept: a reader's DESIGN is his card as it stands, kept as its ASK, and drive job ask refused it: {error}") from None
-        kept = state.keep_report(name, args.id, line, whole)
+        wrote = state.keep_report(name, args.id, job, line, whole)
         with state.edit(name) as data:
             state.take_result(data, args.id, line, whole)
             state.add_changes(data, args.id, whole)
-        shown = f"{kept}\nits ASK is kept in {asked}, the path its ask record names" if asked else str(kept)
-        return emit(args, shown, {"id": args.id, "report": str(kept), "ask": asked and str(asked)})
+        kept = state.report_path(name, args.id)
+        where = str(kept) if wrote else (
+            f"{args.id} had already returned, so this return set only its said line and its history, `drive job replies {args.id}`:"
+            f" {kept} is written only by its own agent's return while it runs"
+        )
+        shown = f"{where}\nits ASK is kept in {asked}, the path its ask record names" if asked else where
+        return emit(args, shown, {"id": args.id, "report": str(kept) if wrote else None, "ask": asked and str(asked)})
     text = state.report_text(name, args.id, job)
     if not text and not job["said"]:
         raise DriveError(f"{args.id} kept no report and has returned nothing yet")
@@ -3221,8 +3226,9 @@ def parser() -> argparse.ArgumentParser:
         help="keep a job's whole return in the drive, or print it",
         description=(
             "A job returns one line; the rest of its return, the inputs to what he would be told, one fact a line,"
-            " is kept here before it returns, piped in on stdin. With -, keep stdin, set a running job's state and said line"
-            " from its first line, and print where; with nothing, print the kept report, or a remote lane's latest one."
+            " is kept here before it returns, piped in on stdin. With -, keep stdin in the job's history, set its state and said line"
+            " from its first line, write it as the job's report only while the job runs, and print where; with nothing, print the"
+            " kept report, or a remote lane's latest one."
         ),
     )
     verb.add_argument("id")
