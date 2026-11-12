@@ -226,7 +226,9 @@ breaks a service.
 His stop carries the scope his words give it: "leave it alone here" stops the work in that thread
 and nothing else. Nothing stops an open incident's fix, because users stay blocked until it lands.
 `drive job set <j> --state stopped` refuses the last running job on an open incident's `fix` part:
-add the job taking the fix over first, or close the order once its fix is live. Only his words
+add the job taking the fix over first, or close the order once its fix is live. A fix job that
+ends on its own, `BLOCKED` or done with no PR, leaves the fix with nobody, and the watch says
+`ORPHAN o<n> "fix": no fix job` on its next pass, naming the second job to start. Only his words
 saying he writes the fix himself close the incident for that reason.
 
 ## Clocks

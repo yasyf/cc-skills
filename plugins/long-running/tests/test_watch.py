@@ -1080,6 +1080,29 @@ def test_a_done_builder_delivers_its_part_and_a_done_reader_codex_or_design_job_
     assert part == state.new_part() | {"posted": answer}
 
 
+@pytest.mark.parametrize("ended", ["failed", "done"])
+def test_an_open_incidents_fix_whose_jobs_ended_with_no_pr_has_no_fix_job_and_names_the_second_to_start_until_one_runs(
+    demo: str, monkeypatch: pytest.MonkeyPatch, ended: str
+) -> None:
+    serve(monkeypatch, {})
+    earlier = state.stamp(T0 - timedelta(minutes=10))
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="done", updated=earlier)
+        data["orders"]["o2"] = order(text="runs never start", incident=True, jobs=["j2"], parts={state.INCIDENT_FIX: state.new_part()}, updated=earlier)
+        data["jobs"]["j2"] = job(order="o2", kind="codex", goal="fix: runs never start", state=ended, parts=[state.INCIDENT_FIX], updated=earlier)
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == [
+        f'ORPHAN o2 "fix": no fix job: j2 ended {ended} with no open PR; start the second fix job now, an Opus 5.5 long-running:builder on j2\'s brief:'
+        " drive job add builder --order o2 --part fix --goal 'fix: runs never start' (incidents: Clocks)"
+    ]
+    with state.edit(demo) as data:
+        data["orders"]["o2"]["jobs"].append("j3")
+        data["jobs"]["j3"] = job(order="o2", goal="fix: runs never start", parts=[state.INCIDENT_FIX])
+    assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
+    assert watch.run_pass(watching, T0 + watch.HANDOFF) == []
+    assert state.load(demo)["orders"]["o2"]["parts"][state.INCIDENT_FIX]["orphan_said"] is None
+
+
 def test_a_waiting_job_lives_while_its_card_is_open_and_is_an_orphan_once_the_card_is_withdrawn(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
