@@ -2766,6 +2766,7 @@ def test_a_limit_left_standing_is_his_choice_and_returns_ask_or_design(
     run("job", "add", "builder", "--order", "o1", "--goal", "queue the cards")
     assert keep(monkeypatch, capsys, "j2", f"DONE the queue caps at 4 cards, as his order asked; the card title is unchanged\n{check}") == (0, "")
     assert keep(monkeypatch, capsys, "j2", f"DONE the 5k objects/s cap was never hit\n{check}") == (0, "")
+    assert keep(monkeypatch, capsys, "j2", f'DONE limits.py and cli.py never set "hints" (0 grep hits)\n{check}') == (0, "")
     for evidence in (
         f'DEFECT: ccx vcs gh refuses every read on this Sprite: "{refusal}"',
         f'Measured: stack-enqueue read the queue under its "GitHub rate limit floor" of 500 calls, then its 1:20 PM read was refused: "{refusal}"',

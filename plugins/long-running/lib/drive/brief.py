@@ -333,7 +333,7 @@ def unlisted_waits(text: str) -> str | None:
 
 
 def limit_finding(lines: list[str]) -> str | None:
-    """The first statement, as written, naming a limit beside a number, in one clause, as a finding left standing: left as is, unchanged, hit or exceeded, a word ruling that out just before it, as "never hit" does, aside. Only the report's own words count, so a quote, code, link or URL it cites as evidence reads as blank, except on an UNPROVEN: line, where a quoted refusal is the reason it gives for leaving the step unproven."""
+    """The first statement, as written, naming a limit beside a number, in one clause, as a finding left standing: left as is, unchanged, hit or exceeded, a word ruling that out just before it, as "never hit" does, aside. Only the report's own words count, so a quote, code, file path, identifier, link or URL it cites as evidence reads as blank, as limits.py names no limit, except on an UNPROVEN: line, where a quoted refusal is the reason it gives for leaving the step unproven."""
     for line in lines:
         for found in STATEMENT.finditer(limits.masked(line)):
             statement = line[found.start() : found.end()]

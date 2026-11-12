@@ -71,6 +71,7 @@ WORD = re.compile(r"\S*[^\W_]\S*")
 LABELLED = re.compile(r"<[^<>|]*\|([^<>]*)>")
 TOKEN = re.compile(r"<[^<>]*>")
 URL = re.compile(r"https?://\S+")
+CODE_NAME = re.compile(r"(?<![\w.-])(?:[\w.-]+/)*[A-Za-z0-9-]+(?<!-)(?:(?:\.(?=[A-Za-z_])|::|_+)[A-Za-z0-9-]+(?<!-))+")
 FEATURE = re.compile(r"^\*[^*\n]+\*[ \t]*$", re.MULTILINE)
 FINDINGS = re.compile(r"^[ \t]*Findings:[ \t]*$", re.MULTILINE)
 SHOW_ME = re.compile(r"^[ \t]*Show me:[ \t]*$", re.MULTILINE)
@@ -1109,8 +1110,8 @@ def unlinked(linked: list[str], plain: list[str], kinds: tuple[str, ...], mentio
 
 
 def masked(line: str) -> str:
-    """The line with each code fence, link, URL and quote blanked to as many marks, so no phrase runs across one and every other word keeps its place."""
-    for pattern in (FENCED, MARKDOWN_LINK, TOKEN, URL, QUOTED):
+    """The line with each code fence, link, URL, quote and code name blanked to as many marks, so no phrase runs across one and every other word keeps its place: a code name is a file path or identifier such as limits.py, state.thread_order, event::on or MAX_CARDS, whose words, as limits.py names no limit, are never his reader's words."""
+    for pattern in (FENCED, MARKDOWN_LINK, TOKEN, URL, QUOTED, CODE_NAME):
         line = pattern.sub(lambda found: MASK * len(found[0]), line)
     return line
 
