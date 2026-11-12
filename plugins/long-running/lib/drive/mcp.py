@@ -53,7 +53,8 @@ SAY = {
     "name": "say",
     "description": (
         "Post a line, an answer, a PR card (tap_prs) or a question card (card) to his Slack DM, with any visuals, and"
-        " show it on the drive's dashboard, in one call. In text, {card:<waits id>}, {pr:<number, owner/repo#number or"
+        " show it on the drive's dashboard, in one call; with channel_id, post a line in a thread outside his DM, such as an"
+        " alert's, through cc-slack reply, which cc-slack's Slack permission hook judges as it judges slack_reply. In text, {card:<waits id>}, {pr:<number, owner/repo#number or"
         " URL>} and {order:<id>} link under the words naming the card, PR or order, or the words after a |, as"
         " {pr:298|the fix that draws charts}; Slack draws the card under the link. {record:<seq>} links what that record"
         " links under the first clause of its own words, at most ten, or under the words after a |. Returns POSTED"
@@ -70,7 +71,11 @@ SAY = {
         "type": "object",
         "properties": {
             "text": {"type": "string", "description": "The post's exact words, with its references; none for a question card"},
-            "thread_ts": {"type": "string", "description": "His thread the post goes in; none for his DM root"},
+            "thread_ts": {"type": "string", "description": "The thread the post goes in, in his DM unless channel_id names another channel; none for his DM root"},
+            "channel_id": {
+                "type": "string",
+                "description": "The channel of a thread outside his DM the post goes in, such as an alert's, with its thread_ts; none for his DM. It takes no card, tap_prs, about or edit",
+            },
             "asked": {
                 "anyOf": [TEXT, {"type": "array", "items": TEXT}],
                 "description": "Each message of his this post answers, word for word, one per entry, so the answer goes out whole",

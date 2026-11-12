@@ -9,14 +9,17 @@ WEB = ("http://", "https://")
 CATCH_UP_TITLE = re.compile(r"\A\s*\**\s*catch-up since\b[^\n]*\n*", re.IGNORECASE)
 HELD = "report {seq} held for his catch-up, since he is away; drive status lists it until the catch-up posts"
 EDIT_TAKES = {"edit", "text", "asked", "dry_run"}
+DM_ONLY = ("card", "tap_prs", "about", "edit")
+TICKET_FLAGS = {"ticket_id": "--ticket", "ticket_tree": "--ticket-tree", "ticket_agent": "--ticket-agent", "ticket_call": "--ticket-call", "ticket_fingerprint": "--ticket-fingerprint"}
 
 
 def say(name: str, post: dict) -> str:
-    """Post one message to his DM through cc-slack, or reword one already there, and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title its only addition; a post in an order's thread is recorded on that order too, delivering the parts its report record names, and one on an order in none of its threads posts nothing. What the drive's checks find in its words, the say hook hands Jev to judge against his words before this runs."""
+    """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or reword one already in his DM, and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title its only addition; a post in an order's thread is recorded on that order too, delivering the parts its report record names, and one on an order in none of its threads posts nothing. What the drive's checks find in its words, the say hook hands Jev to judge against his words before this runs."""
     report = cli.report_attrs(post["record"]) if post.get("record") else {}
     if order := post.get("order"):
         data = state.load(name)
-        if refused := cli.report_refusal(data, order, report) or cli.thread_refusal(data, order, post.get("thread_ts")):
+        where = (post.get("channel_id") or data["slack"]["channel"], post.get("thread_ts"))
+        if refused := cli.report_refusal(data, order, report) or cli.thread_refusal(data, order, where, report):
             raise DriveError(f"nothing posted: {refused}")
     if report.get("catch_up"):
         post = post | {"text": titled(name, post.get("text") or "")}
@@ -75,6 +78,7 @@ def dry(name: str, post: dict) -> str:
     check(name, post)
     visuals, words, lifted = shown(name, post)
     where = f"edit of {post['edit']}" if post.get("edit") else f"thread {post['thread_ts']}" if post.get("thread_ts") else "his DM root"
+    where += f" of channel {post['channel_id']}" if post.get("channel_id") else ""
     card = f", card {post['card'].get('title')!r}" if post.get("card") else ""
     prs = f", PR card for {len(post['tap_prs'])} PRs" if post.get("tap_prs") else ""
     pictures = len([visual for visual in visuals if "picture" in visual]) + len(lifted)
@@ -82,7 +86,14 @@ def dry(name: str, post: dict) -> str:
 
 
 def check(name: str, post: dict) -> None:
-    """Refuse an edit carrying anything but new words for its post, or a fence that draws as a picture, which an edit of a Slack message cannot add, and a PR card naming a PR the drive holds none of, which it cannot draw."""
+    """Refuse an edit carrying anything but new words for its post, or a fence that draws as a picture, which an edit of a Slack message cannot add, a PR card naming a PR the drive holds none of, which it cannot draw, and a post outside his DM with no thread, naming his DM, or carrying what only cc-slack dm-status draws."""
+    if channel := post.get("channel_id"):
+        if channel == state.load(name)["slack"]["channel"]:
+            raise DriveError(f"nothing posted: channel_id {channel} is his DM; leave channel_id out, and say posts there through cc-slack dm-status")
+        if not post.get("thread_ts"):
+            raise DriveError(f"nothing posted: channel_id {channel} names the channel of a thread outside his DM, so it takes that thread's thread_ts")
+        if extra := [key for key in DM_ONLY if post.get(key)]:
+            raise DriveError(f"nothing posted: {', '.join(extra)} draws only in his DM, through cc-slack dm-status, so a post with channel_id takes none")
     if post.get("edit") and (extra := sorted(key for key, value in post.items() if value and key not in EDIT_TAKES)):
         raise DriveError(
             f"nothing edited: an edit rewords the text of one post of yours, so it takes edit, text and asked alone, and this one also"
@@ -131,7 +142,9 @@ def posted(name: str, post: dict) -> dict:
     sent = refs.slack(words, found)
     pictures = [*(visual["picture"] for visual in visuals if "picture" in visual), *lifted]
     asked = cli.asked_on(name, card["waits"]) if card and card.get("waits") else set()
-    reply = slack.cc_slack(*(["edit", "--url", post["edit"], "--text", sent] if post.get("edit") else status(name, post, stack, pictures, sent)))
+    reply = slack.cc_slack(
+        *(["edit", "--url", post["edit"], "--text", sent] if post.get("edit") else replied(post, pictures, sent) if post.get("channel_id") else status(name, post, stack, pictures, sent))
+    )
     if card:
         reply |= {"card_permalink": " ".join([reply["permalink"], *filter(None, [reply.get("card_permalink")])])}
     if card and card.get("waits"):
@@ -140,6 +153,7 @@ def posted(name: str, post: dict) -> dict:
         name,
         "said",
         text=refs.board(text, found) or (card or {}).get("title") or "",
+        channel=post.get("channel_id"),
         thread=reply.get("thread_ts"),
         url=reply["permalink"],
         card=reply.get("card_permalink"),
@@ -164,6 +178,13 @@ def status(name: str, post: dict, stack: list[str], pictures: list[str], sent: s
     argv += [flag for key in stack for flag in ("--tap-pr", prs[key]["url"])]
     argv += [flag for path in pictures for flag in ("--file", path)]
     return [*argv, "--", sent] if sent else argv
+
+
+def replied(post: dict, pictures: list[str], sent: str) -> list[str]:
+    """The `cc-slack reply` call making a new post in a thread outside his DM, with the ticket cc-slack's Slack permission hook attached to the say call."""
+    argv = ["reply", "--agent", "claude", "--channel", post["channel_id"], "--thread", post["thread_ts"], "--text", sent]
+    argv += [flag for path in pictures for flag in ("--file", path)]
+    return argv + [each for field, flag in TICKET_FLAGS.items() if post.get(field) for each in (flag, post[field])]
 
 
 def unquoted_tooling(data: dict, stack: list[str], text: str) -> str | None:
