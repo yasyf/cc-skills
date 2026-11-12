@@ -199,8 +199,6 @@ def refuse_unreworkable(data: dict, urls: list[str], job_id: str | None = None) 
 
 
 def thread_cards(name: str, order: dict) -> list[dict]:
-    from drive import view
-
     return [card for card in fresh_pr_cards(name) if state.link_thread(card["url"]) == state.promise_thread(order)] if order["thread"] else []
 
 
@@ -1116,7 +1114,7 @@ def job_set(args: argparse.Namespace) -> int:
     if jobs := [wait for wait in args.waits if wait in known["jobs"] and known["jobs"][wait]["kind"] not in state.CHANGE_KINDS]:
         found = view.live_cards(name)
         holds = [
-            *(card for job_id in jobs for card in view.open_cards(known["jobs"][job_id], found)),
+            *(card for job_id in jobs for card in view.open_cards(known["jobs"][job_id])),
             *(key for job_id in jobs for key in map(state.pr_key, known["jobs"][job_id]["prs"]) if (pr := known["prs"].get(key)) and pr["state"] == "open"),
         ]
         instead = (
@@ -1324,23 +1322,29 @@ def job_ask(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     if args.drop:
         dropped = Path(args.drop).expanduser()
-        question = drop_ask(name, args.id, dropped)
-        line = f'{args.id} no longer asks "{render.cut(question["title"] or "", 80)}": its question kept in {dropped} is dropped and the file deleted, so no ask record may name it'
-        return emit(args, line, {"id": args.id, "dropped": str(dropped), "title": question["title"]})
+        title, replaced = drop_ask(name, args.id, dropped)
+        gone = "a later ask of it replaced its question, so only the file is deleted" if replaced else "its question kept there is dropped and the file deleted"
+        line = f'{args.id} no longer asks "{render.cut(title or "", 80)}" from {dropped}: {gone}, so no ask record may name it'
+        return emit(args, line, {"id": args.id, "dropped": str(dropped), "title": title, "replaced": replaced})
     job = find(state.load(name)["jobs"], args.id, "job")
     text = named_text(args.file, "ASK block file") if args.file else job.get("report")
     if not text:
         raise DriveError(f"{args.id} sent no report to read an ASK from; pass the file its ASK block is in, or - and the block on stdin")
     kept, asked, question, decided = keep_ask(name, args.id, text, args.unsettled)
-    return emit(args, decided or str(kept), {"id": args.id, "question": str(kept), "waits": question["waits"], "settled": question["settled"], **vars(asked)})
+    return emit(args, decided or str(kept), {"id": args.id, "question": str(kept), "waits": question["waits"], "closed": question["closed"], **vars(asked)})
 
 
-def drop_ask(name: str, job_id: str, file: Path) -> dict:
-    """Throw away a question the job kept with no card drawn or being drawn for it, such as a near copy of one already asking him: it leaves the job's questions, so nothing counts it open and no ask record may name it, and its file is deleted unless another of the job's questions keeps it; a question on a card is refused, since only his answer to that card closes it."""
+def drop_ask(name: str, job_id: str, file: Path) -> tuple[str | None, bool]:
+    """Throw away a question the job kept with no card drawn or being drawn for it, such as a near copy of one already asking him: it leaves the job's questions, so nothing counts it open and no ask record may name it, and its file is deleted unless another of the job's questions keeps it; a question on a card is refused, since only his answer to that card closes it. A file of the job's whose question a later ask of the job replaced, as drive job ask printed its path, is deleted alone. Its title, and whether a later ask had replaced it."""
+    asks = state.drive_dir(name) / "asks"
     with state.edit(name) as data:
         job = find(data["jobs"], job_id, "job")
         if (question := state.kept_in(job, file)) is None:
-            raise DriveError(f"{file} keeps no question of {job_id}; drive status {job_id} names the file each of its questions is kept in")
+            if file.parent.resolve() != asks.resolve() or not file.name.startswith(f"{job_id}-") or not file.exists():
+                raise DriveError(f"{file} keeps no question of {job_id}; drive status {job_id} names the file each of its questions is kept in")
+            title = limits.ask_block(file.read_text()).splitlines()[0].removeprefix("ASK ").strip()
+            file.unlink()
+            return title, True
         if drawn := question["card"] or question["waits"]:
             raise DriveError(
                 f'refused, nothing dropped: {job_id}\'s question "{render.cut(question["title"] or "", 80)}" kept in {file} is on his card {drawn},'
@@ -1352,7 +1356,7 @@ def drop_ask(name: str, job_id: str, file: Path) -> dict:
         job["updated"] = state.stamp()
     if state.kept_in(job, file) is None:
         file.unlink(missing_ok=True)
-    return question
+    return question["title"], False
 
 
 def keep_ask(name: str, job_id: str, text: str, unsettled: str | None) -> tuple[Path, limits.Question, dict, str | None]:
@@ -1372,10 +1376,7 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None) -> tuple[
             f'{job_id}\'s PR is a port of #{unnamed[0]}: its ASK\'s summary says "port of #{unnamed[0]}", as the text of that PR\'s link,'
             f" and what in the target tree forces a choice #{unnamed[0]} did not make, such as what that tree lacks"
         )
-    if any(state.same_question(question["title"], asked.title) and (question["card"] or question["waits"]) for other in data["jobs"].values() for question in other["questions"]):
-        view.refresh_cards(name)
-    cards = view.live_cards(name)
-    if found_elsewhere := elsewhere(data, job_id, asked.title, cards, unsettled):
+    if found_elsewhere := elsewhere(data, job_id, asked.title, unsettled):
         raise DriveError(asked_elsewhere(job_id, *found_elsewhere))
     shown = "\n".join([asked.title, *asked.summary, *asked.options])
     order = data["orders"][job["order"]]
@@ -1385,7 +1386,7 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None) -> tuple[
         found = settled.candidates(shown, text, [name], data["roles"]["coordinator"]["cwd"], superseded.said_under(data, job), heard, order["text"])
         decided = {"title": asked.title, "answer": settled.decided(asked.title, asked.options, found)}
     refused = settled.refusals(
-        decided["answer"], superseded.open_under(data, job, cards), [*settled.own_words(data, job["order"], shown), *heard], "\n".join([asked.title, *asked.options]), unsettled
+        decided["answer"], superseded.open_under(data, job), [*settled.own_words(data, job["order"], shown), *heard], "\n".join([asked.title, *asked.options]), unsettled
     )
     deciding = decided["answer"] if refused and not unsettled and refused == settled.decided_refusal(decided["answer"], None) else None
     kept = state.drive_dir(name) / "asks" / f"{job_id}-{state.ask_hash(text)}.md"
@@ -1395,26 +1396,30 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None) -> tuple[
         settled_note(name, data, job_id, asked.title, deciding)
     with state.edit(name) as data:
         job = data["jobs"][job_id]
-        twins = [question for other, question in asking(data, asked.title, cards) if other == job_id]
+        twins = [question for other, question in asking(data, asked.title) if other == job_id]
         reworded = [other for other in job["questions"] if other["refused"] and (state.same_question(asked.title, other["title"]) or superseded.shared(asked.title, other["title"]))]
         if deciding:
-            question = state.new_question(str(kept), asked.title, state.stamp(), unsettled, settled={"answer": deciding["id"], "ruling": None if "link" in deciding else deciding["id"], "at": state.stamp()})
+            closed = state.new_close("answered", deciding["said"], deciding.get("link"), answer=deciding["id"], ruling=None if "link" in deciding else deciding["id"])
+            question = state.new_question(str(kept), asked.title, state.stamp(), unsettled, closed=closed)
             replaced = [*twins, *reworded]
             job.update(updated=state.stamp(), may_settle=decided)
         elif refused:
             answered = decided["answer"] if settled.decided_refusal(decided["answer"], unsettled) else None
-            question = state.new_question(str(kept), asked.title, state.stamp(), unsettled, refused=refused, settled=answered and {"answer": answered["id"], "at": state.stamp()})
+            closed = answered and state.new_close("answered", answered["said"], answered.get("link"), answer=answered["id"])
+            question = state.new_question(str(kept), asked.title, state.stamp(), unsettled, refused=refused, closed=closed)
             replaced = [*(twin for twin in twins if twin["refused"]), *reworded]
             job.update(updated=state.stamp(), may_settle=decided)
         else:
-            withdrawn = superseded.redrawable(data, asked.title, cards)
+            withdrawn = superseded.redrawable(data, asked.title)
             held = next((twin for twin in [*twins, *withdrawn] if twin["card"]), None) or next((twin for twin in twins if twin["waits"]), None)
             question = state.new_question(str(kept), asked.title, held["asked"] if held else state.stamp(), unsettled)
             if held:
                 question.update(waits=held["waits"], card=held["card"])
             replaced = [*twins, *withdrawn, *reworded]
             moment = state.stamp()
-            job.update(state="waiting", said=asked.title, updated=moment, returned=moment, may_settle=None)
+            job.update(said=asked.title, updated=moment, returned=moment, may_settle=None)
+            if not (job["kind"] == "reader" and job["state"] == "done"):
+                job["state"] = "waiting"
         job["questions"] = [*(other for other in job["questions"] if not any(other is gone for gone in replaced)), question]
     if refused and not deciding:
         raise DriveError(
@@ -1433,7 +1438,7 @@ def settled_note(name: str, data: dict, job_id: str, title: str, answer: dict) -
     from drive import tools
 
     try:
-        tools.sent(name, "builder", [{"kind": "evidence", "to": [f"{lane}@{name}"], "attr": {"job": job_id, "answer": answer["id"]}, "text": text}])
+        tools.sent(name, job_id, [{"kind": "evidence", "to": [f"{lane}@{name}"], "attr": {"job": job_id, "answer": answer["id"]}, "text": text}])
     except DriveError as error:
         raise DriveError(f"nothing kept: his answer {answer['id']} decides {job_id}'s question, and the record telling {lane}@{name} so did not post: {error}") from None
 
@@ -1447,24 +1452,19 @@ def settled_line(job_id: str, job: dict, question: dict, answer: dict) -> str:
     return f'{question["file"]} keeps {job_id}\'s question settled, no card: {settled.decided_line(answer)} {then}'
 
 
-def asking(data: dict, title: str, cards: dict | None) -> list[tuple[str, dict]]:
-    """Each job's open question asking him what this title asks, oldest first, by its job, his words under its card closing it as his pick does: one question has one card, so every ask of it after the first redraws that card."""
-    from drive import superseded
+def asking(data: dict, title: str) -> list[tuple[str, dict]]:
+    """Each job's open question asking him what this title asks, oldest first, by its job: one question has one card, so every ask of it after the first redraws that card."""
+    from drive import view
 
-    return [
-        (job_id, question)
-        for job_id, job in data["jobs"].items()
-        for question in superseded.unanswered(data, job, cards)
-        if state.same_question(question["title"], title)
-    ]
+    return [(job_id, question) for job_id, job in data["jobs"].items() for question in view.open_questions(job) if state.same_question(question["title"], title)]
 
 
-def elsewhere(data: dict, job_id: str, title: str, cards: dict | None, unsettled: str | None) -> tuple[str, dict, list[str]] | None:
+def elsewhere(data: dict, job_id: str, title: str, unsettled: str | None) -> tuple[str, dict, list[str]] | None:
     """Another job's open question asking him what this title asks, or about the same subject in other words, with the proper terms the two share; a subject match `unsettled` names by its card's waits id or its block's file, saying why this asks something else, is none."""
-    from drive import superseded
+    from drive import superseded, view
 
     for other_id, other in data["jobs"].items():
-        for question in superseded.unanswered(data, other, cards) if other_id != job_id else []:
+        for question in view.open_questions(other) if other_id != job_id else []:
             if question["refused"]:
                 continue
             if state.same_question(question["title"], title):
@@ -1531,7 +1531,7 @@ def question_card(name: str, path: Path, waits: str) -> dict:
     job_id = waits.partition(":")[2].partition("-")[0]
     if job := data["jobs"].get(job_id):
         question = state.kept_in(job, path) or next(
-            (question for other, question in reversed(asking(data, asked.title, view.live_cards(name))) if other == job_id and question["file"]), None
+            (question for other, question in reversed(asking(data, asked.title)) if other == job_id and question["file"]), None
         )
         if question and Path(question["file"]).resolve() != path.resolve():
             path = Path(question["file"])
@@ -1596,27 +1596,21 @@ def cards_redraw(args: argparse.Namespace) -> int:
 
 
 def cards_withdraw(args: argparse.Namespace) -> int:
-    """Withdraw his open question card that his words, wherever he wrote them, withdraw, or whose question or options they change: it settles in place showing his words and a link to them, with no buttons, so a late tap records nothing and no question asks him on a card while its work is being redone; its job asks again under the card's waits id once the work is back, which redraws it."""
+    """End as withdrawn each open question drawn on his card that his words, wherever he wrote them, withdraw, or whose question or options they change, and its card follows: it shows his words and a link to them, with no buttons, so a late tap records nothing and no question asks him on a card while its work is being redone; its job asks again under the card's waits id once the work is back, which redraws it."""
     from drive import superseded, view
 
     name = state.resolve(args.drive)
-    view.refresh_cards(name)
-    if (found := view.live_cards(name)) is None:
-        raise DriveError(f"his open cards could not be read, so none is withdrawn: {view.stored_cards(name)[1]}")
-    shown = next(
-        (card for card in found["questions"] if args.card == card["card"].get("waits") or view.message_key(args.card) == view.message_key(card["url"])), None
-    )
-    if shown is None:
-        raise DriveError(f"{args.card}: not one of his open question cards, by its waits id or permalink; drive view --json lists each open card")
-    if unsaid := settled.unsaid(args.words, args.via, found):
+    if unsaid := settled.unsaid(args.words, args.via, view.live_cards(name)):
         raise DriveError(f"{args.card}: refused, not withdrawn: {unsaid}")
-    superseded.settle(shown["url"], {"words": args.words, "link": args.via})
-    view.refresh_cards(name)
-    waits = shown["card"].get("waits") or view.message_key(shown["url"])
-    job_id = waits.partition(":")[2].partition("-")[0]
-    again = f"; {job_id} asks again under {waits} once its work is back, which redraws this card" if job_id in state.load(name)["jobs"] else ""
-    line = f"withdrew his card {shown['url']} ({waits}): it shows his words and a link to them, with no buttons{again}"
-    return emit(args, line, {"card": shown["url"], "waits": waits, "job": job_id or None})
+    with state.edit(name) as data:
+        closed = state.new_close("withdrawn", args.words, args.via)
+        ended = [each for job_id, question in view.drawn_on(data, args.card) if question["closed"] is None for each in superseded.end(data, job_id, question, closed)]
+    if not ended:
+        raise DriveError(f"{args.card}: no open question of this drive is drawn on that card, by its waits id or permalink; drive status <job> names the card each question is drawn on")
+    done = superseded.follow(name, ended)
+    asked = sorted({f"{job_id} asks again under {question['waits']} once its work is back, which redraws its card" for job_id, question in ended if question["waits"]})
+    line = "\n".join([f"withdrew {len(ended)} question(s) drawn on his card {args.card}", *done, *asked])
+    return emit(args, line, {"card": args.card, "ended": [{"job": job_id, "waits": question["waits"], "card": question["card"]} for job_id, question in ended]})
 
 
 def ask_source(name: str, shown: dict) -> Path:
@@ -1797,8 +1791,10 @@ def job_brief(args: argparse.Namespace) -> int:
     earlier = [line for other in order["jobs"] if other != args.id and (line := transcript_line(other, data["jobs"][other]))]
     planned = order["kind"] == "build" and not order["incident"]
     found = brief.research(name, data, job["order"]) if planned and job["kind"] in brief.RESEARCHED_KINDS else None
-    settles = [ruling for question in data["jobs"][found[0]]["questions"] if (ruling := (question["settled"] or {}).get("ruling"))] if found else []
-    rulings = [ruling_words(answer_id, checkout_dir) for answer_id in dict.fromkeys([*(flags["ruling"] or []), *settles])]
+    researched = [closed for question in data["jobs"][found[0]]["questions"] if (closed := question["closed"]) and closed["how"] != "withdrawn"] if found else []
+    settles = [closed["ruling"] for closed in researched if closed["ruling"]]
+    heard = [f'his answer "{closed["words"]}"' + (f" ({closed['link']})" if closed["link"] else "") for closed in researched if not closed["ruling"] and closed["words"]]
+    rulings = [*(ruling_words(answer_id, checkout_dir) for answer_id in dict.fromkeys([*(flags["ruling"] or []), *settles])), *dict.fromkeys(heard)]
     scratch = Path(flags["scratch"]).expanduser() if flags["scratch"] else state.drive_dir(name) / "scratch" / args.id
     scratch.mkdir(parents=True, exist_ok=True)
     fields = {
@@ -2414,7 +2410,7 @@ def check_waits(name: str, waits: list[str]) -> None:
         view.refresh_cards(name)
         found = view.live_cards(name)
     for wait in cards:
-        if not (WAITS_CARD.fullmatch(wait) and view.card_open(wait, found)):
+        if not (WAITS_CARD.fullmatch(wait) and view.holds(data, wait, found)):
             raise DriveError(
                 f"--waits {wait}: name a job of this drive, the Slack link or waits id of a card of his still open, a question"
                 " card or a PR card still waiting on his tap, whose waits id is merge:<owner>:<repo>:<n>, a PR of this drive as"
@@ -2641,10 +2637,12 @@ def answer(args: argparse.Namespace) -> int:
             changes = settled.changed(shown["title"], args.words, asked)
         with state.edit(name) as data:
             data["answers"][args.id] = superseded.record(data, args.words, args.link, asked, changes, state.stamp())
+    done = []
+    if not marking:
+        with state.edit(name) as data:
+            ended = superseded.answer_cards(data, args.id, data["answers"][args.id])
+        done = superseded.follow(name, ended)
     kept = data["answers"][args.id]
-    done = [] if marking else superseded.answer_cards(kept, asked)
-    if done:
-        view.refresh_cards(name)
     open_keys = superseded.unmarked(kept, asked)
     named = [*args.stands, *(key for key, _ in [*args.settled, *args.superseded, *args.reopened])]
     told = [*args.sent, *args.untouched]
@@ -2680,7 +2678,7 @@ def answer(args: argparse.Namespace) -> int:
                 done += [*rework_prs(name, [state.pr_url(key)], args.id, kept["words"]), f"{key} reopened by his answer {args.id}: {job_id} reworks it to his words, so brief {job_id} with them"]
                 continue
             if card and card not in cleared:
-                superseded.settle(card, kept)
+                ended_on(name, args.id, kept, key, card, "superseded")
                 cleared.add(card)
             if superseded.stops_open_pr(data, key, job_id):
                 superseded.close(key)
@@ -2707,24 +2705,34 @@ def answer(args: argparse.Namespace) -> int:
     return emit(args, "\n".join([line, *done]), {"id": args.id, **kept})
 
 
+def ended_on(name: str, answer_id: str, kept: dict, key: str, card: str, how: str) -> None:
+    """End, answered or superseded by his answer, each open question drawn on the card a mark names, and its card follows, showing his words with no buttons; a card no question of the drive is drawn on, one asked outside any job, is closed in place."""
+    from drive import superseded, view
+
+    with state.edit(name) as data:
+        closed = state.new_close(how, kept["words"], kept["link"], answer=answer_id)
+        drawn = view.drawn_on(data, key, card)
+        ended = [each for job_id, question in drawn if question["closed"] is None for each in superseded.end(data, job_id, question, closed)]
+    if drawn:
+        superseded.follow(name, ended)
+    else:
+        superseded.settle(card, kept, settled=how == "answered")
+
+
 def settle_card(name: str, answer_id: str, kept: dict, key: str, entry: dict, file: Path | None) -> str:
     """Show his answer in place on the question card it decides, settling its job's question, or redraw the card it decides in part to the ASK its job keeps asking what is left, through the ask record that redraws a card under its waits id; either way the card's job, while live, waits to hear his words. What was done, one line."""
-    from drive import superseded, tools, view
+    from drive import tools
 
     job_id, card = entry["job"], entry["card"]
     if file:
         attrs = {"job": job_id, "ask": str(file), "waits": key} | settled.incident_marks([name], {"job": job_id, "ask": str(file)})
-        tools.sent(name, "builder", [{"kind": "ask", "to": [f"communicator@{name}"], "attr": attrs, "path": str(file)}])
+        tools.sent(name, job_id, [{"kind": "ask", "to": [f"communicator@{name}"], "attr": attrs, "path": str(file)}])
     else:
-        superseded.settle(card, kept, settled=True)
+        ended_on(name, answer_id, kept, key, card, "answered")
     with state.edit(name) as data:
         job = data["jobs"][job_id]
         if file:
             keep_waits(job, file, key)
-        else:
-            for question in job["questions"]:
-                if question["waits"] == key or question["card"] and view.message_key(question["card"]) == view.message_key(card):
-                    question["settled"] = {"answer": answer_id, "ruling": None, "at": state.stamp()}
         data["answers"][answer_id]["cards"][key] = {"mark": "redrawn" if file else "settled", "job": job_id, "card": card, **({"ask": str(file)} if file else {})}
         if job["state"] not in state.FINISHED_JOB_STATES:
             data["answers"][answer_id]["jobs"].setdefault(job_id, None)
@@ -2805,11 +2813,10 @@ def refuse_an_unheld_repeat(name: str, data: dict, order_id: str | None, named: 
     if order_id is None:
         raise DriveError("--part names the part his words repeat of the order --repeats names: pass --repeats <o> with it")
     order = find(data["orders"], order_id, "order")
-    found = view.live_cards(name)
     holding = [
         job
         for job in data["jobs"].values()
-        if job["state"] not in state.FINISHED_JOB_STATES or job["state"] == "done" and view.open_cards(job, found)
+        if job["state"] not in state.FINISHED_JOB_STATES or job["state"] == "done" and view.open_cards(job)
     ]
     unheld = [part for part in pick_parts(order_id, order, named) if not any(part in state.job_parts(job, order_id) for job in holding)]
     if unheld:

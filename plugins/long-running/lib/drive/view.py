@@ -152,14 +152,6 @@ def closed_card(found: dict, card: str) -> dict | None:
     return next((closed for closed in reversed(found["closed"]) if closed["waits"] == card or message_key(closed["url"]) == message_key(card)), None)
 
 
-def withdrawn(found: dict | None, card: str | None) -> bool:
-    """Whether his card under this waits id or link was withdrawn with nothing drawn in its place, so its question asked again redraws it under the same waits id."""
-    if not (found and card) or card_open(card, found):
-        return False
-    closed = closed_card(found, card)
-    return bool(closed and closed["answer"] and closed["answer"].get("withdrawn") and not closed["replaced_by"])
-
-
 def card_words(found: dict | None, source: str, card: str | None) -> str:
     """His card under this waits id or link as cc-slack's store holds it now: open since when, answered, withdrawn or redrawn, each by its link, or never drawn."""
     if found is None:
@@ -189,19 +181,30 @@ def pr_card_words(found: dict | None, source: str, url: str) -> str | None:
     return shown and card_words(found, source, shown["url"])
 
 
-def open_questions(job: dict, found: dict | None) -> list[dict]:
-    """The questions a job asked him that neither his answer nor his recorded words have closed: each not drawn yet that his recorded words did not settle, a refused one staying until it is asked again or dropped, and each whose card, by its link or else its waits id, is still open."""
-    return [question for question in job["questions"] if (question["refused"] or not question["settled"]) and (not (drawn := question["card"] or question["waits"]) or card_open(drawn, found))]
+def open_questions(job: dict) -> list[dict]:
+    """The questions a job asked him that nothing has closed: no tap, words or ruling of his answered it, nobody withdrew it and no answer of his superseded it, a refused one included until it is asked again or dropped; his card on each follows it."""
+    return [question for question in job["questions"] if question["closed"] is None]
 
 
-def open_cards(job: dict, found: dict | None) -> list[str]:
-    """The cards of his a job's questions are drawn on that he has not answered, each by its link or else its waits id."""
-    return [drawn for question in open_questions(job, found) if (drawn := question["card"] or question["waits"])]
+def open_cards(job: dict) -> list[str]:
+    """The cards of his a job's open questions are drawn on, each by its link or else its waits id."""
+    return [drawn for question in open_questions(job) if (drawn := question["card"] or question["waits"])]
 
 
-def owned(job: dict, cards: dict | None) -> bool:
+def drawn_on(drive: dict, *cards: str) -> list[tuple[str, dict]]:
+    """Each job's question his question card under any of these waits ids or Slack links is drawn for, by its job: a question asked again on a withdrawn card shares its waits id with the one first drawn there."""
+    keys = {message_key(card) for card in cards}
+    return [
+        (job_id, question)
+        for job_id, job in drive["jobs"].items()
+        for question in job["questions"]
+        if question["waits"] in cards or question["card"] and message_key(question["card"]) in keys
+    ]
+
+
+def owned(job: dict) -> bool:
     """Whether a PR's job holds it: a running builder whose lane lives owns its pushes and CI, and a job asking him holds its PR."""
-    return job["state"] == "running" and not state.lane_death(job) or bool(open_cards(job, cards))
+    return job["state"] == "running" and not state.lane_death(job) or bool(open_cards(job))
 
 
 def unblocked(pr: dict, data: dict, cards: dict | None, reviews: tuple[str, ...] = ("approved",)) -> bool:
@@ -212,7 +215,7 @@ def unblocked(pr: dict, data: dict, cards: dict | None, reviews: tuple[str, ...]
 
 def next_step(pr: dict, data: dict, cards: dict | None) -> bool:
     """Whether a PR waits on its next step alone: unblocked, and its job not holding it."""
-    return unblocked(pr, data, cards) and not owned(data["jobs"][pr["job"]], cards)
+    return unblocked(pr, data, cards) and not owned(data["jobs"][pr["job"]])
 
 
 def held(pr: dict) -> bool:
@@ -229,6 +232,8 @@ def holds(drive: dict, wait: str, found: dict | None) -> bool:
         return drive["jobs"][wait]["state"] not in state.FINISHED_JOB_STATES
     if wait in drive["prs"]:
         return drive["prs"][wait]["state"] == "open"
+    if drawn := drawn_on(drive, wait):
+        return any(question["closed"] is None for _, question in drawn)
     return bool(state.RELEASE_WAIT.fullmatch(wait)) or card_open(wait, found)
 
 

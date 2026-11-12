@@ -706,13 +706,16 @@ def test_his_words_in_the_thread_of_a_card_an_orders_job_drew_go_to_the_session_
     assert state.thread_order(state.load(demo), CARD_THREAD) == "o1"
 
 
-def test_his_words_on_his_open_card_go_only_through_the_record_tool_that_closes_it(demo: str) -> None:
-    shown = {"url": CARD, "question": LAYOUT, "asked": state.stamp(), "card": {"title": LAYOUT, "waits": "demo:j1-7"}}
-    state.cards_path(demo).write_text(json.dumps({"source": "live", "team_url": "", "questions": [shown], "closed": [], "pr_cards": []}))
+def test_his_words_on_his_open_question_go_only_through_the_record_tool_that_ends_it_and_closes_its_card(run: Callable[..., tuple[int, str]], demo: str) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build it")
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["questions"] = [state.new_question(str(state.drive_dir(demo) / "asks" / "j1-7.md"), LAYOUT, state.stamp(), card=CARD) | {"waits": "demo:j1-7"}]
     answer = refusal(record_lines.decision(post(kind="answer", text="the lazy copy", re=["7"], attrs={"job": "j1"})))
-    assert f"his open card {CARD}" in answer and "send it with the drive's `record` tool" in answer
+    assert "his open question" in answer and "send it with the drive's `record` tool" in answer
     under = f"{CARD}?thread_ts={CARD_THREAD}"
-    assert record_lines.decision(post(kind="owner", text="why is this card still up", url=under, attrs={"about": "his work"})) is None
+    assert "the drive's `record` tool" in refusal(record_lines.decision(post(kind="owner", text="no, keep the runs flat", url=under, attrs={"about": "his work"})))
+    assert record_lines.decision(post(kind="owner", text="this card should say why", url=under, attrs={"about": "drive"})) is None
     assert "the drive's `record` tool" in refusal(record_lines.decision(post(kind="owner", text="why is this card still up", topic=f"card:{CARD_THREAD}", attrs={"about": "his work"})))
     assert "the drive's `record` tool" in refusal(record_lines.decision(post(kind="owner", text="drop the sweeper", attrs={"thread_card": "demo:j1-7"})))
     assert record_lines.decision(post(kind="owner", text="a new order", attrs={"about": "his work"})) is None

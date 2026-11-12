@@ -36,7 +36,7 @@ def open_cards(data: dict, job_id: str, waits: list[str], cards: dict | None) ->
     if state.IMMEDIATE_FIX in job["parts"] or state.open_incidents(data, [job["order"], *job["carries"]]):
         return []
     waited = [wait for wait in view.holding(data, list(dict.fromkeys([*waits, *job["waits"]])), cards) if state.card_wait(data, wait)]
-    asked = [card for sharer in state.sharing(data, job_id) for card in view.open_cards(data["jobs"][sharer], cards)]
+    asked = [card for sharer in state.sharing(data, job_id) for card in view.open_cards(data["jobs"][sharer])]
     return list(dict.fromkeys([*waited, *asked]))
 
 

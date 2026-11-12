@@ -6,7 +6,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from drive import limits, slack, state, superseded, view
+from drive import limits, slack, state, view
 from drive.render import cut
 from drive.state import DriveError
 
@@ -48,6 +48,11 @@ CHANGES_QUESTION = (
     " worded with always, every or never, such as how every bug, landing or release is handled: it changes each open question about"
     " work of that kind whatever its subject, when the rule rules out an option or decides part of what it asks. Pick none when it"
     " changes none of them."
+)
+SUPERSEDES_QUESTION = (
+    "His answer below was given to a newer question of the same job. Which of these older open questions does it decide or make"
+    " moot, so that card asks him nothing his answer leaves open? Pick none when each of them still asks something his answer"
+    " does not settle."
 )
 ORDERED = (
     " He ordered what this question asks about, so build the option his words leave that removes the root cause, the recommended"
@@ -111,10 +116,8 @@ def ask_refusal(names: list[str], named: dict[str, str], text: str) -> str | Non
         return f'refused: {file} keeps {job_id}\'s question "{question["title"]}", which this record does not ask, and {keep}'
     if question["refused"]:
         return f'refused: {file} keeps {job_id}\'s question "{question["title"]}" pending, since `drive job ask` refused it, so no card draws from it; act on that refusal and ask again: {question["refused"]}'
-    if question["card"] or question["waits"]:
-        view.refresh_cards(name)
-    if not any(open_question is question for open_question in superseded.unanswered(data, job, view.live_cards(name))):
-        return f'refused: his answer closed {job_id}\'s question "{question["title"]}" kept in {file}, so its card never draws again, and {keep}'
+    if question["closed"]:
+        return f'refused: {job_id}\'s question "{question["title"]}" kept in {file} ended {question["closed"]["how"]}, so its card never draws again, and {keep}'
     if marks := incident_marks(names, named):
         orders = ", ".join(state.open_incidents(data, [job["order"], *job["carries"]]))
         return UNMARKED_INCIDENT.format(job=job_id, orders=orders, flags=" ".join(f"--attr {key}={value}" for key, value in marks.items()))
@@ -250,13 +253,13 @@ def decided(question: str, options: list[str], found: list[dict]) -> dict | None
     return None
 
 
-def changed(title: str, words: str, asked: dict[str, dict]) -> set[str]:
-    """The question cards still asking him that a new answer of his decides, rules options out of or makes moot, as Jev reads it against all of them in one call, so each card is weighed beside the others: each Jev gives at least CHANGES, since a card held wrongly costs one --stands mark and one missed keeps asking him what he already decided."""
+def changed(title: str, words: str, asked: dict[str, dict], instructions: str = CHANGES_QUESTION, bar: float = CHANGES) -> set[str]:
+    """The question cards still asking him that a new answer of his decides, rules options out of or makes moot, as Jev reads it against all of them in one call, so each card is weighed beside the others: each Jev gives at least CHANGES, since a card held wrongly costs one --stands mark and one missed keeps asking him what he already decided; asked instead which older questions of the job an answer decides, each at the bar given."""
     cards = {key.rpartition(":")[2]: key for key, entry in asked.items() if entry["kind"] == "question"}
     if not cards:
         return set()
     options = {short: f'{asked[key]["title"]} Options: {" | ".join(asked[key]["options"])}' for short, key in cards.items()}
-    label = {"instructions": CHANGES_QUESTION, "options": {UNDECIDED: "It changes none of them.", **options}}
+    label = {"instructions": instructions, "options": {UNDECIDED: "It changes none of them.", **options}}
     try:
         read = jev({"state": {"answer": {"asked": title, "said": words[:BODY_CHARS]}}, "questions": {"changes": {"label": label}}})["changes"]
     except Unheard as failure:
@@ -264,7 +267,7 @@ def changed(title: str, words: str, asked: dict[str, dict]) -> set[str]:
             f"nothing recorded in the drive: Jev did not read his answer against his {len(cards)} open {'card' if len(cards) == 1 else 'cards'} ({failure}), so each"
             " card it settles would keep asking him; run this drive answer again"
         ) from None
-    return {cards[short] for short, probability in read["probabilities"].items() if short in cards and probability >= CHANGES}
+    return {cards[short] for short, probability in read["probabilities"].items() if short in cards and probability >= bar}
 
 
 def approving(action: str, answer: dict) -> bool:

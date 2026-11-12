@@ -28,7 +28,7 @@ TICK_EVERY = timedelta(minutes=30)
 DUE_EVERY = timedelta(minutes=10)
 QUIET_INCIDENT = timedelta(minutes=5)
 TELL_AFTER = timedelta(minutes=10)
-WAKES = ("TAP ", "DUE ", "TELL ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "STUCK ", "FREE ", "EVENT unheard ", "EVENT stop ", "WATCH stopped")
+WAKES = ("TAP ", "DUE ", "TELL ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "STUCK ", "FREE ", "EVENT stop ", "WATCH stopped")
 OWNER_MOVES = ("merged", "checks failed", "READY refused", served.NOT_READY, "conflicts with its base", "changes requested", "still red", "ejected from the merge queue", "not landed")
 PR_EVENT = re.compile(r"PR (?P<key>\S+): (?P<change>.+) \[(?P<order>o\d+) (?P<job>j\d+)\]$")
 NOT_LANDED = "not landed"
@@ -244,7 +244,7 @@ def stuck_as(key: str, pr: dict, data: dict, cards: dict | None) -> str | None:
         return None
     if land.approved(pr) and state.queued_by_lander(key):
         return "tapped" if cards is not None and land.stall(data, key, cards) else None
-    if view.owned(data["jobs"][pr["job"]], cards):
+    if view.owned(data["jobs"][pr["job"]]):
         return None
     if pr["checks"] == "fail":
         return "red"
@@ -292,14 +292,14 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
     data = state.load(watcher.name)
     out, lines = shipped(watcher, data, moment)
     owners = [
-        *(job for job in data["jobs"].values() if heard_job(watcher, data, job) and not view.open_cards(job, watcher.cards)),
+        *(job for job in data["jobs"].values() if heard_job(watcher, data, job) and not view.open_cards(job)),
         *(pr for pr in data["prs"].values() if hears(watcher, data, pr["order"])),
     ]
     if not out and all(view.holding(data, owner["waits"], watcher.cards) == owner["waits"] for owner in owners):
         return lines
     with state.edit(watcher.name) as data:
         for job_id, job in data["jobs"].items():
-            if not heard_job(watcher, data, job) or view.open_cards(job, watcher.cards):
+            if not heard_job(watcher, data, job) or view.open_cards(job):
                 continue
             fixing(data, [job["order"], *job["carries"]], job, job, out)
             if (ended := released(data, job, watcher.cards, out)) and job["state"] not in state.FINISHED_JOB_STATES and not merged_ready(data, job_id):
@@ -501,6 +501,27 @@ def settle_lines(watcher: Watcher, moment: datetime) -> list[str]:
         watcher.failures.pop("card settle", None)
         done |= {view.message_key(link) for link in withdrawn}
         lines += [f"CARD {link} settled in place: {reason}" for link in withdrawn]
+    return lines
+
+
+def follow_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Close in place each of his question cards still showing buttons whose every question ended, showing how the newest ended, since the drive's question decides its card: a close cc-slack missed when the question ended goes again here, and one that fails goes again next read."""
+    if watcher.cards is None:
+        return []
+    data = state.load(watcher.name)
+    lines = []
+    for card in watcher.cards["questions"]:
+        drawn = view.drawn_on(data, *filter(None, [card["card"].get("waits"), card["url"]]))
+        if not drawn or any(question["closed"] is None for _, question in drawn):
+            continue
+        closed = max((question["closed"] for _, question in drawn), key=lambda closed: closed["at"])
+        try:
+            superseded.close_card(card["url"], closed)
+        except slack.SlackError as error:
+            lines += failed(watcher, "card follow", "question card follow", error, moment)
+            continue
+        watcher.failures.pop("card follow", None)
+        lines.append(f"CARD {card['url']} closed in place: its question {closed['how']}")
     return lines
 
 
@@ -1616,9 +1637,9 @@ def relaunch(name: str, job_id: str) -> int:
     return state.detach(name, ["job", "resume", job_id, CARRY_ON], RELAUNCHES_LOG)
 
 
-def can_wake(job_id: str, job: dict, data: dict, cards: dict | None, moment: datetime) -> bool:
+def can_wake(job_id: str, job: dict, data: dict, moment: datetime) -> bool:
     """Whether something can wake a waiting or built job: its lane's question, his open card, a wait the watch has not freed yet, an open PR of its, its proof to come, or a time to come, its own clock from drive job set --due or its orders' due times."""
-    if job.get("ask") or view.open_cards(job, cards) or job["waits"] or proving(data, job_id):
+    if job.get("ask") or view.open_cards(job) or job["waits"] or proving(data, job_id):
         return True
     if any(pr["job"] == job_id and pr["state"] == "open" for pr in data["prs"].values()):
         return True
@@ -1626,12 +1647,12 @@ def can_wake(job_id: str, job: dict, data: dict, cards: dict | None, moment: dat
     return any(due and state.parse_time(due) > moment for due in dues)
 
 
-def unanswered(job_id: str, job: dict, cards: dict | None, moment: datetime) -> str | None:
+def unanswered(job_id: str, job: dict, moment: datetime) -> str | None:
     """A lane's question no resume has answered for 30 minutes, whatever card or PR it has: only his card drawn for it since it came answers it, since an older card asks him something else; his answer since it came that no resume carried leads the line."""
     if not job.get("ask"):
         return None
     asked = state.parse_time(job["ask_at"])
-    drawn = (question for question in view.open_questions(job, cards) if question["card"] or question["waits"])
+    drawn = (question for question in view.open_questions(job) if question["card"] or question["waits"])
     if moment - asked < QUIET_FOR or any(state.parse_time(question["asked"]) >= asked for question in drawn):
         return None
     question = f'"{cut(job["said"] or "", 80)}" {minutes(moment - asked)} minutes ago'
@@ -1647,14 +1668,14 @@ def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, moment: dateti
     if job["state"] == "running":
         return watcher.agent_gaps.get(job_id)
     if job["state"] in ("waiting", "built"):
-        if refused := next((question for question in job["questions"] if question["refused"]), None):
+        if refused := next((question for question in view.open_questions(job) if question["refused"]), None):
             return (
                 f'{job_id} waits on a card never posted: drive job ask refused its question "{cut(refused["title"], 80)}" kept in {refused["file"]}:'
                 f" {cut(refused['refused'].removeprefix('refused: '), 160)}"
             )
-        if asked := unanswered(job_id, job, watcher.cards, moment):
+        if asked := unanswered(job_id, job, moment):
             return asked
-        if can_wake(job_id, job, data, watcher.cards, moment):
+        if can_wake(job_id, job, data, moment):
             return None
         if merged_ready(data, job_id):
             return None if unproven(data, job_id) and job.get("unproven_said") == job["said"] else merged_gap(job_id, data)
@@ -1667,7 +1688,7 @@ def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, moment: dateti
             return None
         drawn = [question for question in job["questions"] if question["card"]]
         answered = "card is" if len(drawn) == 1 else "cards are"
-        return None if view.open_cards(job, watcher.cards) else f"{job_id}'s {answered} answered and no job carries his answer"
+        return None if view.open_cards(job) else f"{job_id}'s {answered} answered and no job carries his answer"
     return f"{job_id} {job['state']}"
 
 
@@ -1930,6 +1951,7 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
         landed(watcher)
         checks(watcher, moment)
         lines += settle_lines(watcher, moment)
+        lines += follow_lines(watcher, moment)
         lines += rework_lines(watcher, moment)
         lines += waits_lines(watcher, moment)
         finished(watcher, moment)

@@ -5,8 +5,8 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from conftest import Chrome, Judge, Redraws
-from drive import card, cli, github, land, picture, state, view
+from conftest import Chrome, Jev, Judge, Redraws
+from drive import card, cli, github, land, picture, state, superseded, view
 from drive.github import GithubError
 
 URL = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -680,16 +680,29 @@ def test_an_answer_on_a_drives_question_card_is_posted_as_its_one_answer_record_
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append((argv, json.loads(kwargs["input"]))) or ok)
     tap = {"waits": f"{drive}:j3-661440", "label": "Ring", "url": url, "action_ts": "1794200001.000100", "source": "slack"}
     assert ask({"answer": tap}) == {"ok": True, "seq": "661500"}
-    ask({"answer": tap | {"label": "neither, keep both", "other": True}})
-    ask({"answer": tap | {"undone": True}})
-    ask({"answer": tap | {"waits": f"{drive}:hier-1", "label": "Keep both until Friday", "other": True}})
+    ask({"answer": tap | {"label": "neither, keep both", "other": True, "action_ts": "1794200002.000100"}})
+    ask({"answer": tap | {"undone": True, "action_ts": "1794200003.000100"}})
+    ask({"answer": tap | {"waits": f"{drive}:hier-1", "label": "Keep both until Friday", "other": True, "action_ts": "1794200004.000100"}})
     batch = ["cci", "post", "--drive", drive, "--lane", "communicator", "--batch", "-"]
     answer = {"kind": "answer", "to": [f"root@{drive}"], "url": url, "re": ["661440"]}
     assert posted == [
-        (batch, [answer | {"text": "Ring", "attr": {"job": "j3"}}]),
-        (batch, [answer | {"text": "neither, keep both", "attr": {"maps": "none", "job": "j3"}}]),
-        (batch, [answer | {"text": "undone: Ring", "attr": {"job": "j3", "undone": "Ring"}}]),
-        (batch, [{"kind": "answer", "to": [f"root@{drive}"], "url": url, "topic": "card:1794200000.000100", "text": "Keep both until Friday", "attr": {"maps": "none"}}]),
+        (batch, [answer | {"text": "Ring", "attr": {"job": "j3"}, "id": f"tap:{drive}:j3-661440:1794200001.000100"}]),
+        (batch, [answer | {"text": "neither, keep both", "attr": {"maps": "none", "job": "j3"}, "id": f"tap:{drive}:j3-661440:1794200002.000100"}]),
+        (batch, [answer | {"text": "undone: Ring", "attr": {"job": "j3", "undone": "Ring"}, "id": f"tap:{drive}:j3-661440:1794200003.000100:undone"}]),
+        (
+            batch,
+            [
+                {
+                    "kind": "answer",
+                    "to": [f"root@{drive}"],
+                    "url": url,
+                    "topic": "card:1794200000.000100",
+                    "text": "Keep both until Friday",
+                    "attr": {"maps": "none"},
+                    "id": f"tap:{drive}:hier-1:1794200004.000100",
+                }
+            ],
+        ),
     ]
     assert [(event["kind"], event["label"], event["question"], event["url"]) for event in events(drive)] == [
         ("answered", "Ring", "Ring or knock?", url),
@@ -697,8 +710,78 @@ def test_an_answer_on_a_drives_question_card_is_posted_as_its_one_answer_record_
         ("undone", "Ring", "Ring or knock?", url),
         ("answered", "Keep both until Friday", "Ring or knock?", url),
     ]
-    with pytest.raises(state.DriveError, match="step-3:merge is no drive's question card"):
-        card.respond({"answer": tap | {"waits": "step-3:merge"}})
+    assert card.respond({"answer": tap | {"waits": "step-3:merge"}}) == {
+        "ok": False,
+        "why": "step-3:merge is no drive's question card, so his tap on it stays with the session it reached",
+    }
+
+
+OLDER_CARD = "https://acme.slack.com/archives/D123/p1794100000000100"
+NEWER_CARD = "https://acme.slack.com/archives/D123/p1794200000000100"
+
+
+def two_questions_of_j3(drive: str, monkeypatch: pytest.MonkeyPatch) -> tuple[list[tuple[str, str, str, bool]], list[list[dict]]]:
+    """j3's older question on one card and its newer one on another, as cc-slack lists his cards; each card the drive closes in place, and each record batch posted."""
+    with state.edit(drive) as data:
+        data["jobs"]["j3"] = state.new_job("o1", "builder", "the door", [], "2026-11-12T08:00:00-08:00")
+        data["jobs"]["j3"]["questions"] = [
+            state.new_question("asks/j3-bell.md", "Bell or knocker?", "2026-11-12T08:10:00-08:00", card=OLDER_CARD) | {"waits": f"{drive}:j3-661000"},
+            state.new_question("asks/j3-ring.md", "Ring or knock?", "2026-11-12T08:20:00-08:00", card=NEWER_CARD) | {"waits": f"{drive}:j3-661440"},
+        ]
+    shown = [
+        {"question": "Bell or knocker?", "url": OLDER_CARD, "card": {"waits": f"{drive}:j3-661000"}, "options": ["Bell", "Knocker"]},
+        {"question": "Ring or knock?", "url": NEWER_CARD, "card": {"waits": f"{drive}:j3-661440"}, "options": ["Ring", "Knock"]},
+    ]
+    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS | {"questions": shown})
+    view.refresh_cards(drive)
+    answered: list[tuple[str, str, str, bool]] = []
+    posted: list[list[dict]] = []
+    ok = subprocess.CompletedProcess([], 0, "661500\n", "")
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append(json.loads(kwargs["input"])) or ok)
+    monkeypatch.setattr(superseded, "answer_card", lambda card, words, link, settled: answered.append((card, words, link, settled)) or {})
+    return answered, posted
+
+
+def closes(question: dict) -> tuple[str | None, ...] | None:
+    closed = question["closed"]
+    return closed and (closed["how"], closed["words"], closed["link"], closed["seq"], closed["by"])
+
+
+def test_his_tap_on_a_jobs_newer_question_ends_the_older_one_it_decides_whose_card_follows_and_its_undo_reopens_only_the_tapped_one(
+    drive: str, monkeypatch: pytest.MonkeyPatch, jev: Jev
+) -> None:
+    answered, _ = two_questions_of_j3(drive, monkeypatch)
+    jev.changes = {"q0": 0.95}
+    tap = {"waits": f"{drive}:j3-661440", "label": "Ring", "url": NEWER_CARD, "action_ts": "1794200001.000100", "source": "slack"}
+    assert ask({"answer": tap}) == {"ok": True, "seq": "661500"}
+    job = state.load(drive)["jobs"]["j3"]
+    assert [closes(question) for question in job["questions"]] == [
+        ("superseded", "Ring", NEWER_CARD, "661500", f"{drive}:j3-661440"),
+        ("answered", "Ring", NEWER_CARD, "661500", None),
+    ]
+    assert answered == [(OLDER_CARD, "Ring", NEWER_CARD, False)]
+    assert [answer["seq"] for answer in job["undelivered"]] == ["661500"]
+    ask({"answer": tap | {"undone": True, "action_ts": "1794200002.000100"}})
+    job = state.load(drive)["jobs"]["j3"]
+    assert [closes(question) for question in job["questions"]] == [("superseded", "Ring", NEWER_CARD, "661500", f"{drive}:j3-661440"), None]
+    assert (job["undelivered"], [event["kind"] for event in events(drive)]) == ([], ["answered", "undone"])
+
+
+def test_a_tap_cc_slack_runs_again_after_its_card_command_was_cut_short_posts_its_one_record_keeps_his_answer_once_and_finishes_what_was_left(
+    drive: str, monkeypatch: pytest.MonkeyPatch, jev: Jev
+) -> None:
+    answered, posted = two_questions_of_j3(drive, monkeypatch)
+    tap = {"waits": f"{drive}:j3-661440", "label": "Ring", "url": NEWER_CARD, "action_ts": "1794200001.000100", "source": "slack"}
+    jev.answer = None
+    assert ask({"answer": tap}) == {"ok": True, "seq": "661500"}
+    assert closes(state.load(drive)["jobs"]["j3"]["questions"][0]) is None
+    jev.answer, jev.changes = {"type": "label", "choice": "none", "probabilities": {"none": 0.9}, "confidence": 0.9}, {"q0": 0.95}
+    assert ask({"answer": tap}) == {"ok": True, "seq": "661500"}
+    assert [record["id"] for [record] in posted] == [f"tap:{drive}:j3-661440:1794200001.000100"] * 2
+    job = state.load(drive)["jobs"]["j3"]
+    assert [(closes(question) or ("open",))[0] for question in job["questions"]] == ["superseded", "answered"]
+    assert ([answer["seq"] for answer in job["undelivered"]], [event["kind"] for event in events(drive)]) == (["661500"], ["answered"])
+    assert answered == [(OLDER_CARD, "Ring", NEWER_CARD, False)]
 
 
 def test_answer_stores_his_tap_and_appends_a_tap_event(drive: str) -> None:
@@ -840,38 +923,11 @@ def test_answer_on_an_unknown_pr_fails(drive: str) -> None:
         ask({"answer": answer})
 
 
-def test_an_unheard_tap_on_a_drives_question_card_is_posted_as_its_one_answer_record_and_kept_for_history(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    posted: list[list[dict]] = []
-    ok = subprocess.CompletedProcess([], 0, "671608\n", "")
-    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append(json.loads(kwargs["input"])) or ok)
-    url = "https://acme.slack.com/archives/D123/p1794200000000100"
-    tap = {"card": f"{drive}:j3-661440", "label": "Ring", "question": "Which store keeps the tally?", "permalink": url, "at": "2026-11-12T08:40:42Z", "key": "slack-action:D123:1794200000.000100:1794472842.827253"}
-    assert ask({"unheard": tap}) == {"ok": True, "seq": "671608", "heard": True}
-    assert posted == [[{"kind": "answer", "to": [f"root@{drive}"], "url": url, "re": ["661440"], "text": "Ring", "attr": {"job": "j3"}}]]
-    assert [(event["kind"], event["label"], event["question"]) for event in events(drive)] == [("answered", "Ring", None)]
-
-
-def test_unheard_appends_an_event(drive: str) -> None:
-    unheard = {
-        "card": "1762700000.000200",
-        "label": "Other",
-        "question": "Which drive first?",
-        "other": True,
-        "permalink": "https://forge.slack.com/archives/D123/p1762700000000200",
-        "key": "q1",
-    }
-    assert ask({"unheard": unheard}) == {"heard": True}
-    [event] = events(drive)
-    assert event["kind"] == "unheard"
-    assert event["question"] == "Which drive first?"
-
-
 @pytest.mark.parametrize(
     "tap",
     [
         {"answer": {"repo": "Forge-AI/monorepo", "number": 42, "waits": "merge:Forge-AI:monorepo:42", "label": "Approve", "heads": {}, "action_ts": "", "source": "slack"}},
         {"answer": {"waits": "demo:j3-661440", "label": "Ring", "url": "https://acme.slack.com/archives/D123/p1794200000000100", "action_ts": "", "source": "slack"}},
-        {"unheard": {"card": "1762700000.000200", "label": "Other", "question": "Which drive first?", "other": True, "permalink": "", "key": "q1"}},
     ],
 )
 def test_his_tap_on_any_card_records_him_heard_and_brings_the_catch_up_he_was_held_for_reading_nothing_from_github(

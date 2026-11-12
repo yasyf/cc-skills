@@ -561,7 +561,7 @@ def test_the_communicators_owner_or_answer_record_goes_to_the_session_hearing_it
         ("answer", ["iris@demo"]),
         ("defect", ["meta@demo"]),
     ]
-    assert said[4:] == [f"3 would settle his card {CARD} (demo:j1-7), showing his words"]
+    assert said[4:] == ['3 would end j1\'s question "Which ring?" answered, closing its card']
 
 
 def test_a_handlers_handoff_goes_to_the_session_holding_the_order_its_order_attr_names(
@@ -587,13 +587,16 @@ def test_a_handlers_handoff_goes_to_the_session_holding_the_order_its_order_attr
 
 
 def open_cards(monkeypatch: pytest.MonkeyPatch, *waits: str, prs: tuple[str, ...] = ()) -> list[tuple[str, ...]]:
-    """His open question card for each waits id, the first at CARD, and a PR card at PR_CARD carrying the PRs named; each card-answer call cc-slack gets, answered as a card that was waiting."""
+    """His open question card for each waits id, the first at CARD, its question kept on the job the waits id names as drawn there, and a PR card at PR_CARD carrying the PRs named; each card-answer call cc-slack gets, answered as a card that was waiting."""
+    urls = [CARD if index == 0 else f"{CARD[:-2]}{index:02d}" for index in range(len(waits))]
+    if waits:
+        with state.edit("demo") as data:
+            for wait, url in zip(waits, urls, strict=True):
+                job_id = wait.partition(":")[2].partition("-")[0]
+                data["jobs"][job_id]["questions"].append(state.new_question(None, "Which ring?", state.stamp(), card=url) | {"waits": wait})
     found = {
         "team_url": "",
-        "questions": [
-            {"card": {"waits": wait, "title": "Which ring?"}, "url": CARD if index == 0 else f"{CARD[:-2]}{index:02d}", "question": "Which ring?"}
-            for index, wait in enumerate(waits)
-        ],
+        "questions": [{"card": {"waits": wait, "title": "Which ring?"}, "url": url, "question": "Which ring?", "options": ["Ring", "Knock"]} for wait, url in zip(waits, urls, strict=True)],
         "closed": [], "pr_cards": [{"url": PR_CARD, "prs": list(prs), "card": {"options": ["Approve", "Hold"]}}] if prs else [],
     }
     monkeypatch.setattr(view, "cards", lambda name: found)
@@ -613,30 +616,62 @@ def test_his_answer_waits_on_each_job_it_answers_until_that_job_resumes(demo: st
     assert (kept["seq"], kept["words"], kept["said"]) == ("#61", "the lazy copy, no sweeper", None)
 
 
-def test_his_words_on_an_open_card_close_it_in_the_same_call_that_sends_them(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_his_words_on_an_open_card_end_its_question_and_close_it_in_the_same_call_that_sends_them(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build the page")
     posted: list[list[dict]] = []
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append(json.loads(kwargs["input"])) or subprocess.CompletedProcess([], 0, "#51\n", ""))
     answered = open_cards(monkeypatch, "demo:j1-7", "demo:j2-8")
     answer = {"kind": "answer", "text": "the lazy copy, no sweeper", "url": UNDER_CARD, "waits": "demo:j1-7"}
-    assert tools.run("record", demo, {"records": [answer], "dry_run": True}).splitlines()[1:] == [f"1 would settle his card {CARD} (demo:j1-7), showing his words"]
+    assert tools.run("record", demo, {"records": [answer], "dry_run": True}).splitlines()[1:] == ['1 would end j1\'s question "Which ring?" answered, closing its card']
     assert answered == [] and posted == []
-    assert tools.run("record", demo, {"records": [answer]}) == f"1 answer #51\n1 demo:j1-7: his card {CARD} now shows his words with no buttons, settled by them"
+    assert tools.run("record", demo, {"records": [answer]}).splitlines() == [
+        "1 answer #51",
+        '1 j1\'s question "Which ring?" ended answered by #51',
+        f"demo:j1-7: his card {CARD} now shows his words with no buttons, its question answered",
+    ]
     assert answered == [("card-answer", "--card", CARD, "--label", "the lazy copy, no sweeper", "--settled", "--other", "--via", UNDER_CARD)]
     rework = {"kind": "owner", "text": "So then why didn't you withdraw this card?", "url": f"{CARD[:-2]}01?thread_ts=1794200000.000701", "thread_card": "demo:j2-8", "about": "his work"}
     tools.run("record", demo, {"records": [rework]})
     assert answered[-1] == ("card-answer", "--card", f"{CARD[:-2]}01", "--label", rework["text"], "--withdrawn", "--via", rework["url"])
     assert posted[-1][0]["attr"] == {"thread_card": "demo:j2-8", "about": "his work"}
-    with pytest.raises(DriveError, match="1: refused, nothing posted: the card this answer names no longer waits on him"):
+    assert [question["closed"]["how"] for job_id in ("j1", "j2") for question in state.load(demo)["jobs"][job_id]["questions"]] == ["answered", "withdrawn"]
+    with pytest.raises(DriveError, match="1: refused, nothing posted: the question this answer names ended already"):
+        tools.run("record", demo, {"records": [answer]})
+    with pytest.raises(DriveError, match="1: refused, nothing posted: no job of this drive keeps the question this answer names"):
         tools.run("record", demo, {"records": [{"kind": "answer", "text": "Ring", "waits": "demo:j3-9"}]})
     assert len(posted) == 2
 
 
-def test_his_owner_words_under_a_question_card_naming_no_thread_card_leave_it_up(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_his_owner_words_under_a_question_card_end_its_question_when_about_its_work_and_his_drive_feedback_leaves_a_product_card_asking(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: cards say why")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build it")
+    run("job", "add", "builder", "--order", "o2", "--goal", "build the cards")
+    with state.edit(demo) as data:
+        data["orders"]["o2"]["owner"] = "meta"
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, "#61\n", ""))
-    answered = open_cards(monkeypatch, "demo:j1-7")
+    answered = open_cards(monkeypatch, "demo:j1-7", "demo:j2-8")
     feedback = {"kind": "owner", "text": "wat the fuck thats not acceptbale", "url": UNDER_CARD, "about": "drive"}
     assert tools.run("record", demo, {"records": [feedback]}) == "1 owner #61"
-    assert answered == []
+    assert (answered, view.open_questions(state.load(demo)["jobs"]["j1"]) != []) == ([], True)
+    rework = {"kind": "owner", "text": "no, keep the runs flat", "url": UNDER_CARD, "about": "his work"}
+    assert tools.run("record", demo, {"records": [rework]}).splitlines() == [
+        "1 owner #61",
+        '1 j1\'s question "Which ring?" ended withdrawn by #61',
+        f"demo:j1-7: his card {CARD} now shows his words with no buttons, its question withdrawn",
+    ]
+    tooling = {"kind": "owner", "text": "this card should say why", "url": f"{CARD[:-2]}01?thread_ts=1794200000.000701", "about": "drive"}
+    tools.run("record", demo, {"records": [tooling]})
+    assert answered == [
+        ("card-answer", "--card", CARD, "--label", rework["text"], "--withdrawn", "--via", UNDER_CARD),
+        ("card-answer", "--card", f"{CARD[:-2]}01", "--label", tooling["text"], "--withdrawn", "--via", tooling["url"]),
+    ]
 
 
 def test_an_answer_closing_an_ask_his_recorded_rules_settled_before_any_card_drew_settles_its_kept_question(
@@ -660,7 +695,7 @@ def test_an_answer_closing_an_ask_his_recorded_rules_settled_before_any_card_dre
     open_cards(monkeypatch)
     answer = {"kind": "answer", "text": "one subject has one card", "waits": "demo:j1-672331", "ruling": "320b7a7"}
     shown["ask"] = str(state.drive_dir(demo) / "asks" / "j1-other.md")
-    with pytest.raises(DriveError, match="1: refused, nothing posted: the card this answer names no longer waits on him"):
+    with pytest.raises(DriveError, match="1: refused, nothing posted: no job of this drive keeps the question this answer names"):
         tools.run("record", demo, {"records": [answer]})
     shown["ask"] = asked
     heard.refusal = "no permalink names where he said it"
@@ -668,12 +703,13 @@ def test_an_answer_closing_an_ask_his_recorded_rules_settled_before_any_card_dre
         tools.run("record", demo, {"records": [answer]})
     assert heard.checked == [("one subject has one card", None)]
     heard.refusal = None
-    assert tools.run("record", demo, {"records": [answer], "dry_run": True}).splitlines()[1:] == [f"1 would settle j1's question kept in {asked}, closing ask 672331"]
+    assert tools.run("record", demo, {"records": [answer], "dry_run": True}).splitlines()[1:] == ['1 would end j1\'s question "Which card keeps the subject?" answered, closing ask 672331']
     assert posted == []
     assert tools.run("record", demo, {"records": [answer]}).splitlines()[0] == "1 answer 672342"
     assert posted[0][0]["resolves"] == ["672331"]
     job = state.load(demo)["jobs"]["j1"]
-    assert (job["questions"][0]["settled"], view.open_questions(job, view.NO_CARDS)) == ({"seq": "672342", "ruling": "320b7a7", "at": job["questions"][0]["settled"]["at"]}, [])
+    closed = job["questions"][0]["closed"]
+    assert ((closed["how"], closed["words"], closed["seq"], closed["ruling"]), view.open_questions(job)) == (("answered", "one subject has one card", "672342", "320b7a7"), [])
 
 
 def test_his_answer_settling_a_finished_readers_question_reaches_the_builder_at_work_on_its_research_and_never_the_reader(

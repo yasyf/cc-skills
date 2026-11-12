@@ -708,7 +708,7 @@ def guarded_reason(payload: dict) -> str | None:
     if shell.driving and (exposed := body_reason(command, shell)):
         return exposed
     posts = cci_posts(command, shell)
-    unclosed = (superseded.unclosed_refusal(names, post["kind"], post["attrs"], post["topic"], post["re"]) for post in posts)
+    unclosed = (superseded.unclosed_refusal(names, post["kind"], post["attrs"], post["topic"], post["re"], post["url"]) for post in posts)
     if names and (left_up := next(filter(None, unclosed), None)):
         return left_up
     if names and (unsaid := next(filter(None, (state.unabout(post["kind"], post["attrs"]) for post in posts)), None)):

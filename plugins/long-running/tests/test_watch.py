@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 from conftest import SHORT_ASK, CodexAsk, Judge, Redraws, Thread, WatchProcess, Withdrawals, commit_files, git_in, staged
-from drive import card, cli, github, install, land, reads, render, served, slack, state, talk, view, watch
+from drive import card, cli, github, install, land, reads, render, served, slack, state, superseded, talk, view, watch
 
 KEY = "Forge-AI/monorepo#42"
 OTHER = "Forge-AI/monorepo#43"
@@ -108,6 +108,13 @@ def ready_records(monkeypatch: pytest.MonkeyPatch) -> list[list[dict]]:
     sent: list[list[dict]] = []
     monkeypatch.setattr(tools, "sent", lambda name, lane, records: sent.append(records) or ["#9"])
     return sent
+
+
+@pytest.fixture(autouse=True)
+def closed_cards(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, str, bool]]:
+    closes: list[tuple[str, str, str, bool]] = []
+    monkeypatch.setattr(superseded, "answer_card", lambda card, words, link, settled: closes.append((card, words, link, settled)) or {})
+    return closes
 
 
 REAL_ENSURE = watch.ensure
@@ -850,8 +857,8 @@ def test_a_drive_an_older_install_saved_with_reports_held_owes_his_catch_up_sinc
 def test_an_event_with_line_breaks_stays_one_line(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     watching = watcher(demo)
-    state.append_event(demo, "unheard", question="first line\nsecond\r\nthird\rfourth\n\n" + "x" * 300)
-    assert watch.run_pass(watching, T0) == ["EVENT unheard question=first line second third fourth " + "x" * 300]
+    state.append_event(demo, "refused", question="first line\nsecond\r\nthird\rfourth\n\n" + "x" * 300)
+    assert watch.run_pass(watching, T0) == ["EVENT refused question=first line second third fourth " + "x" * 300]
 
 
 def test_second_instance_exits_quietly(demo: str, capsys: pytest.CaptureFixture[str]) -> None:
@@ -1044,12 +1051,12 @@ def test_a_projects_watch_hears_only_its_orders_jobs_prs_and_orphans_and_the_dri
     iris, top = watch.Watcher(demo, offset=state.events_end(demo), ticked_at=T0, project="Iris"), watcher(demo)
     for number, order_id in ((42, "o1"), (43, "o2")):
         state.append_event(demo, "tap", repo="Forge-AI/monorepo", number=number, label="Approve", lane=state.heard_lane(state.load(demo), order_id))
-    state.append_event(demo, "unheard", question="Which?", pick="Yes")
+    state.append_event(demo, "refused", question="Which?", pick="Yes")
     assert watch.run_pass(iris, T0) == [f"PR {KEY}: checks failed [o1 j1]", f"TAP Approve {KEY} [o1 j1]", 'ORPHAN o3 "the logs page": no job']
     assert watch.run_pass(top, T0) == [
         f"PR {OTHER}: checks failed [o2 j2]",
         f"TAP Approve {OTHER} [o2 j2]",
-        "EVENT unheard question=Which? pick=Yes",
+        "EVENT refused question=Which? pick=Yes",
         'ORPHAN o4 "a page for alerts": no job',
     ]
     assert calls == [[KEY], [OTHER]]
@@ -1227,7 +1234,7 @@ def test_his_answer_kept_on_a_job_is_said_undelivered_ten_minutes_on_and_every_t
     assert watch.run_pass(watching, T0 + timedelta(minutes=20)) == [line]
 
 
-def test_his_tap_on_a_lane_questions_card_leads_its_orphan_and_tick_lines_until_his_undo_takes_it_back(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_his_tap_on_a_lane_questions_card_leads_its_orphan_and_tick_lines_until_his_undo_reopens_the_question_his_card_asks_again(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     monkeypatch.setattr(watch.view, "cards", lambda name: watch.view.NO_CARDS)
     asked = "Which fixture keeps the hold test deterministic?"
@@ -1250,10 +1257,8 @@ def test_his_tap_on_a_lane_questions_card_leads_its_orphan_and_tick_lines_until_
     with monkeypatch.context() as clock:
         clock.setattr(state, "now", lambda: T0 + timedelta(minutes=31))
         card.question_answered({"waits": "demo:j1-7", "label": "Ring", "url": CARD, "undone": True})
-    assert watch.run_pass(watching, T0 + timedelta(minutes=60)) == [
-        f'ORPHAN o1 "ship the watch": j1\'s lane asked "{asked}" 60 minutes ago and nothing answered it: drive job resume j1 "<the answer>" answers it',
-        "TICK o1",
-    ]
+    assert view.open_cards(state.load(demo)["jobs"]["j1"]) == [CARD]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=60)) == ["TICK o1"]
 
 
 def test_a_part_staffed_within_five_minutes_of_its_order_moving_is_never_an_orphan(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1401,11 +1406,12 @@ def test_an_open_incidents_fix_whose_jobs_ended_with_no_pr_has_no_fix_job_and_na
     assert state.load(demo)["orders"]["o2"]["parts"][state.INCIDENT_FIX]["orphan_said"] is None
 
 
-def test_a_waiting_job_lives_while_its_card_is_open_and_is_an_orphan_once_the_card_is_withdrawn(
-    demo: str, monkeypatch: pytest.MonkeyPatch
+def test_a_waiting_job_lives_while_its_question_is_open_and_is_an_orphan_once_it_is_withdrawn_whose_card_the_watch_then_closes_once(
+    demo: str, monkeypatch: pytest.MonkeyPatch, closed_cards: list[tuple[str, str, str, bool]]
 ) -> None:
     card = {"question": "Which store?", "options": ["Team", "Run"], "recommended": "Team", "asked": state.stamp(T0), "url": f"{CARD}?thread_ts=1.2", "card": {"title": "Which store?"}}
-    monkeypatch.setattr(watch.view, "cards", lambda name: {"team_url": "", "questions": [card], "closed": [], "pr_cards": []})
+    shown = {"team_url": "", "questions": [card], "closed": [], "pr_cards": []}
+    monkeypatch.setattr(watch.view, "cards", lambda name: shown)
     with state.edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["jobs"]["j1"].update(
@@ -1414,9 +1420,18 @@ def test_a_waiting_job_lives_while_its_card_is_open_and_is_an_orphan_once_the_ca
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == []
     monkeypatch.setattr(watch.view, "cards", lambda name: watch.view.NO_CARDS)
-    assert watch.run_pass(watching, T0 + timedelta(seconds=60)) == [
-        'ORPHAN o1 "ship the watch": j1 waits on "ASK which store?" and no open PR, card or due time can wake it'
+    assert watch.run_pass(watching, T0 + timedelta(seconds=60)) == []
+    monkeypatch.setattr(watch.view, "cards", lambda name: shown)
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["questions"][0]["closed"] = state.new_close("withdrawn", "his order replaced it", REPORTED, at=state.stamp(T0 - timedelta(minutes=10)))
+    assert watch.run_pass(watching, T0 + timedelta(seconds=120)) == [
+        f"CARD {CARD}?thread_ts=1.2 closed in place: its question withdrawn",
+        'ORPHAN o1 "ship the watch": j1 waits on "ASK which store?" and no open PR, card or due time can wake it',
     ]
+    assert closed_cards == [(f"{CARD}?thread_ts=1.2", "his order replaced it", REPORTED, False)]
+    shown["questions"] = []
+    assert watch.run_pass(watching, T0 + timedelta(seconds=180)) == []
+    assert len(closed_cards) == 1
 
 
 def test_a_built_job_whose_ask_drive_job_ask_refused_is_said_to_wait_on_a_card_never_posted(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1432,6 +1447,22 @@ def test_a_built_job_whose_ask_drive_job_ask_refused_is_said_to_wait_on_a_card_n
         f'ORPHAN o1 "ship the watch": j1 waits on a card never posted: drive job ask refused its question "{asked}" kept in /drive/asks/j1-ab.md:'
         " these recorded answers of his may already settle this question. Read each with `ccn answer show <id>`"
     ]
+
+
+def test_a_refused_question_his_recorded_answer_since_settled_no_longer_waits_on_a_card_never_posted(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(watch.view, "cards", lambda name: watch.view.NO_CARDS)
+    refused = "refused: his recorded answer 5630432 already decides this question."
+    asked = "Which credential reads Slack as him?"
+    with state.edit(demo) as data:
+        data["prs"][KEY]["state"] = "merged"
+        data["jobs"]["j1"].update(
+            state="waiting",
+            said=asked,
+            due=state.stamp(T0 + timedelta(minutes=80)),
+            questions=[state.new_question("/drive/asks/j1-cd.md", asked, state.stamp(T0), refused=refused, closed=state.new_close("answered", "the browser session token", None, answer="5630432"))],
+            updated=state.stamp(T0 - timedelta(minutes=10)),
+        )
+    assert watch.run_pass(watcher(demo), T0) == []
 
 
 def test_a_waiting_job_lives_while_its_own_clock_is_to_come(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1467,6 +1498,8 @@ def test_a_done_design_job_is_carried_by_its_open_card_and_its_part_needs_a_job_
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == []
     monkeypatch.setattr(watch.view, "cards", lambda name: watch.view.NO_CARDS)
+    with state.edit(demo) as data:
+        data["jobs"]["j2"]["questions"][0]["closed"] = state.new_close("answered", "First", None, seq="#9", at=state.stamp(T0 - timedelta(minutes=10)))
     assert watch.run_pass(watching, T0 + timedelta(seconds=60)) == [
         'ORPHAN o2 "options: only the owning machine writes": j2\'s card is answered and no job carries his answer'
     ]
@@ -2099,7 +2132,10 @@ def test_a_built_job_asking_him_its_own_question_is_freed_only_once_he_answers_i
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
     assert state.load(demo)["jobs"]["j1"]["waits"] == ["demo:j1-7-a"]
     asking(monkeypatch, demo)
-    assert watch.run_pass(watching, T0 + timedelta(minutes=2)) == ["FREE j1 o1: demo:j1-7-a answered or done, nothing else holds it, built on lane/built"]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=2)) == []
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["questions"][0]["closed"] = state.new_close("answered", "Yes", asked, seq="#9")
+    assert watch.run_pass(watching, T0 + timedelta(minutes=3)) == ["FREE j1 o1: demo:j1-7-a answered or done, nothing else holds it, built on lane/built"]
 
 
 def test_a_card_holding_a_built_job_is_told_once_in_its_own_thread_and_again_after_a_failed_post(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2676,7 +2712,6 @@ def test_a_line_the_coordinator_acts_on_now_wakes_it_and_the_rest_wait_for_its_b
         'ANSWER a1 "one new tool": 1 card with no mark',
         "JOB j1 o1 READY https://github.com/Forge-AI/monorepo/pull/42",
         'LANE j1 o1 died on Sprite s1: gone, while it worked on "watch".',
-        "EVENT unheard question=Which? pick=Yes",
         "FREE j1 o1: demo:j1-7-a answered or done, nothing else holds it, built on lane/built",
     ]
     batched = [
@@ -2796,7 +2831,9 @@ def test_a_question_of_his_open_on_a_job_sharing_its_work_holds_its_stack_from_l
     cards = NO_CARDS | {"questions": [question("demo:j2-1-a")]}
     assert land.open_cards(state.load(demo), "j1", [], cards) == (["demo:j2-1-a"] if held else [])
     assert land.start(demo, [KEY, OTHER], cards) == ([] if held else [(KEY, OTHER)])
-    assert land.start(demo, [KEY, OTHER], NO_CARDS) == ([(KEY, OTHER)] if held else [])
+    with state.edit(demo) as data:
+        data["jobs"]["j2"]["questions"][0]["closed"] = state.new_close("answered", "Team", None, seq="#9")
+    assert land.start(demo, [KEY, OTHER], cards) == ([(KEY, OTHER)] if held else [])
 
 
 def test_a_lander_queues_a_stacks_ready_bottom_and_the_pr_above_once_the_open_pr_it_waits_on_merges(demo: str, landers: list[tuple[str, ...]]) -> None:

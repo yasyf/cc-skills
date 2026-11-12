@@ -367,6 +367,7 @@ def new_drive(
         "carried": {},
         "catch_up": None,
         "launched": {},
+        "closed_from_cards": True,
     }
 
 
@@ -506,10 +507,39 @@ def load(name: str) -> dict:
     for job in data["jobs"].values():
         for question in job["questions"]:
             question.setdefault("refused", None)
-            question.setdefault("settled", None)
+            if "settled" in question:
+                settled = question.pop("settled")
+                question["closed"] = settled and new_close("answered", None, None, seq=settled.get("seq"), answer=settled.get("answer"), ruling=settled.get("ruling"), at=settled["at"])
+            question.setdefault("closed", None)
             if question["waits"] and not question["file"] and (kept := rebuilt_ask(name, question["waits"])).exists():
                 question["file"] = str(kept)
+    if not data.get("closed_from_cards"):
+        finish_asked_readers(name, data)
+        close_from_cards(name, data)
     return data
+
+
+def finish_asked_readers(name: str, data: dict) -> None:
+    """Set back to done each reader that returned DESIGN and was set waiting when drive job ask kept its question, since a reader's question waits on his card, never the reader, and its builder's brief carries his answer."""
+    for job_id, job in data["jobs"].items():
+        if job["kind"] == "reader" and job["state"] == "waiting" and (report := report_path(name, job_id)).exists() and report.read_text().lstrip().startswith("DESIGN"):
+            job["state"] = "done"
+
+
+def close_from_cards(name: str, data: dict) -> None:
+    """Close each drawn question whose card cc-slack's stored cards no longer list open, answered or withdrawn as its card shows, since until the question decided its card the card store held whether it was open; marked so this runs once, from cards read live."""
+    from drive import view
+
+    found, source = view.stored_cards(name)
+    if source not in ("live", view.UNREAD):
+        return
+    for job in data["jobs"].values() if source == "live" else ():
+        for question in job["questions"]:
+            if question["closed"] or not (drawn := question["card"] or question["waits"]) or view.card_open(drawn, found):
+                continue
+            answer = (view.closed_card(found, drawn) or {}).get("answer") or {}
+            question["closed"] = new_close("withdrawn" if answer.get("withdrawn") else "answered", answer.get("label"), None, at=answer.get("at") or job["updated"])
+    data["closed_from_cards"] = True
 
 
 def rebuilt_ask(name: str, waits: str) -> Path:
@@ -780,7 +810,7 @@ def unlive_fix(data: dict, order_id: str, part: str) -> bool:
 def unposted_answer(data: dict, job_id: str) -> bool:
     """Whether a finished job's answer reaches him only by a post: it drew no card of his, which carries an answer itself, his recorded words settled none of its questions, and no builder carries its design."""
     job = data["jobs"][job_id]
-    return job["state"] == "done" and not any(question["card"] or question["settled"] for question in job["questions"]) and not design_builder(data, job_id)
+    return job["state"] == "done" and not any(question["card"] or question["closed"] for question in job["questions"]) and not design_builder(data, job_id)
 
 
 def answered_parts(data: dict, order_id: str) -> dict[str, list[str]]:
@@ -921,14 +951,26 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
 
 
 def new_question(
-    file: str | None, title: str | None, asked: str, unsettled: str | None = None, card: str | None = None, refused: str | None = None, settled: dict | None = None
+    file: str | None, title: str | None, asked: str, unsettled: str | None = None, card: str | None = None, refused: str | None = None, closed: dict | None = None
 ) -> dict:
-    return {"file": file, "title": title, "asked": asked, "unsettled": unsettled, "waits": None, "card": card, "refused": refused, "settled": settled}
+    return {"file": file, "title": title, "asked": asked, "unsettled": unsettled, "waits": None, "card": card, "refused": refused, "closed": closed}
+
+
+def new_close(
+    how: str, words: str | None, link: str | None, seq: str | None = None, answer: str | None = None, ruling: str | None = None, by: str | None = None, at: str | None = None
+) -> dict:
+    """How a job's question ended, the one record of whether it still asks him that its card follows: answered by his tap, words or a ruling, withdrawn for his other words or by the asker, or superseded by his answer to another question; his words and their link, the record, recorded answer and ruling carrying them, the question whose answer superseded it, and when."""
+    return {"how": how, "words": words, "link": link, "seq": seq, "answer": answer, "ruling": ruling, "by": by, "at": at or stamp()}
 
 
 def kept_in(job: dict, file: Path) -> dict | None:
     """The job's newest question kept in this ASK file."""
     return next((question for question in reversed(job["questions"]) if question["file"] and Path(question["file"]).resolve() == file.resolve()), None)
+
+
+def question_in(job: dict, question: dict) -> dict:
+    """The job's question as this load of the drive holds it, asked at the same time from the same file under the same waits id as one an earlier load read."""
+    return next(kept for kept in job["questions"] if (kept["asked"], kept["file"], kept["waits"]) == (question["asked"], question["file"], question["waits"]))
 
 
 def same_question(one: str | None, other: str | None) -> bool:

@@ -1981,6 +1981,9 @@ def test_a_question_asked_twice_before_its_card_is_drawn_draws_its_newest_block_
     assert (first["waits"], second["waits"]) == ("demo:j1-7", "demo:j1-7")
     assert first == second and "opens in 3 calls" in first["body"]
     assert [(question["file"], question["waits"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [(kept[1], "demo:j1-7")]
+    code, out = run("job", "ask", asking, "--drop", kept[0])
+    assert (code, out.endswith("a later ask of it replaced its question, so only the file is deleted, so no ask record may name it")) == (0, True)
+    assert not Path(kept[0]).exists() and Path(kept[1]).exists()
 
 
 def test_a_question_asked_again_after_he_answered_its_card_goes_on_a_card_of_its_own(
@@ -1996,6 +1999,8 @@ def test_a_question_asked_again_after_he_answered_its_card_goes_on_a_card_of_its
     run("job", "card", first, "--waits", "demo:j1-7")
     run("job", "set", asking, "--card", link)
     listed.clear()
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"][0]["closed"] = state.new_close("answered", "Yes", link)
     monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace("opens in 3 requests", "opens in 3 calls")))
     again = run("job", "ask", asking, "-")[1]
     assert json.loads(run("job", "card", again, "--waits", "demo:j1-9")[1])["waits"] == "demo:j1-9"
@@ -2020,12 +2025,16 @@ def test_a_question_asked_again_after_its_card_was_withdrawn_redraws_that_card_u
     listed.clear()
     withdrawn = {"label": "his order replaced it", "at": state.stamp(), "withdrawn": True}
     closed.append({"waits": "demo:j1-7", "title": "How should?", "prs": [], "asked": shown["asked"], "url": link, "answer": withdrawn, "tapped": "", "replaced_by": ""})
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"][0]["closed"] = state.new_close("withdrawn", withdrawn["label"], None)
     monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace("opens in 3 requests", "opens in 3 calls")))
     again = json.loads(run("job", "ask", asking, "-", "--json")[1])
     assert again["waits"] == "demo:j1-7"
     assert json.loads(run("job", "card", again["question"], "--waits", "demo:j1-9")[1])["waits"] == "demo:j1-7"
     assert [(question["file"], question["waits"], question["card"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [(again["question"], "demo:j1-7", link)]
     assert f"card {link} withdrawn at {render.when(withdrawn['at'])}: his order replaced it (demo:j1-7)" in run("status")[1]
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"][0]["closed"] = state.new_close("withdrawn", withdrawn["label"], None)
     run("job", "add", "builder", "--order", "o1", "--goal", "design it again")
     monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace("opens in 3 requests", "opens in 2 calls")))
     assert json.loads(run("job", "ask", "j2", "-", "--json")[1])["waits"] == "demo:j1-7"
@@ -2050,7 +2059,7 @@ def test_job_ask_drop_throws_away_a_near_copy_kept_with_no_card_so_nothing_count
     assert cli.main(["job", "ask", asking, "--drop", first]) == 2
     assert f"kept in {first} is on his card {link}, which only his answer closes" in capsys.readouterr().err
     code, out = run("job", "ask", asking, "--drop", copy)
-    assert code == 0 and out.startswith('j1 no longer asks "How should') and f"kept in {copy} is dropped and the file deleted" in out
+    assert code == 0 and out.startswith('j1 no longer asks "How should') and f"from {copy}: its question kept there is dropped and the file deleted" in out
     job = state.load("demo")["jobs"]["j1"]
     assert [(question["file"], question["waits"], question["card"]) for question in job["questions"]] == [(first, "demo:j1-7", link)]
     assert job["said"] == SHORT_ASK.split("\n")[0].removeprefix("ASK ")
@@ -2191,7 +2200,7 @@ def test_job_ask_hands_jev_his_messages_in_its_orders_thread_and_refuses_the_one
         f'his message in this order\'s thread {settles} already decides this question. Asked "design the run page",'
         ' he said "keep one snapshot file per finished run, no guessing".'
     ) in settled_now
-    assert [(question["settled"]["answer"], question["settled"]["ruling"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [(key, None)]
+    assert [(question["closed"]["how"], question["closed"]["answer"], question["closed"]["ruling"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [("answered", key, None)]
     assert [(answer["id"], answer["asked"]) for answer in jev.asked[0]["state"]["answers"]] == [(key, "design the run page")]
     assert ("--channel", "D123", "--thread", "1794200000.000100", "--limit", "1000") in slack_thread.reads
     assert state.load("demo")["jobs"]["j1"]["state"] == "running"
@@ -2329,7 +2338,7 @@ def test_job_ask_settles_a_question_jev_reads_his_recorded_answer_as_deciding_so
     )
     assert recorded.asked[0].startswith("How should a finished run's files be laid out")
     job = state.load("demo")["jobs"]["j1"]
-    assert (job["state"], kept.read_text(), [(question["file"], question["refused"], question["settled"]["ruling"]) for question in job["questions"]]) == (
+    assert (job["state"], kept.read_text(), [(question["file"], question["refused"], question["closed"]["ruling"]) for question in job["questions"]]) == (
         "running",
         SHORT_ASK,
         [(str(kept), None, "ac61348")],
@@ -2728,8 +2737,8 @@ def test_a_readers_design_holds_its_builder_until_its_kept_question_is_on_his_ca
         "refused by an amount": ([others], "j1 returned DESIGN, and drive job ask refused its question \"Where does the copy run?\" kept in"),
         "j1654, his card up": ([kept | {"waits": "demo:j1-671973", "card": answered["card"]}], None),
         "j1651, his card answered": ([answered], None),
-        "j1656, settled by his ruling": ([kept | {"settled": {"seq": "671985", "ruling": "32164d3", "at": state.stamp()}}], None),
-        "decided by his answer": ([jevs | {"settled": {"answer": "32164d3", "at": state.stamp()}}], None),
+        "j1656, settled by his ruling": ([kept | {"closed": state.new_close("answered", None, None, seq="671985", ruling="32164d3")}], None),
+        "decided by his answer": ([jevs | {"closed": state.new_close("answered", None, None, answer="32164d3")}], None),
     }
     for case, (questions, refusal) in replays.items():
         with state.edit("demo") as data:
@@ -2773,13 +2782,13 @@ def test_his_ruling_settling_a_readers_ask_before_its_card_draws_is_kept_on_its_
         run("start", "demo", "--role", "communicator")
         assert tools.run("record", "demo", {"records": [ruling]}).splitlines() == [
             "1 answer 671985",
-            f'1 j1\'s question "Where does the copy run?" kept in {asked} is settled by 671985, closing ask 671975 with no card drawn',
+            '1 j1\'s question "Where does the copy run?" ended answered by 671985',
         ]
-        with pytest.raises(state.DriveError, match="1: refused, nothing posted: the card this answer names no longer waits on him"):
+        with pytest.raises(state.DriveError, match="1: refused, nothing posted: the question this answer names ended already"):
             tools.run("record", "demo", {"records": [ruling]})
     assert (len(posted), posted[0]["re"], posted[0]["resolves"], posted[0]["attr"]) == (1, ["671975"], ["671975"], {"job": "j1", "ruling": "32164d3"})
     job = state.load("demo")["jobs"]["j1"]
-    assert (view.open_questions(job, view.NO_CARDS), job["questions"][0]["settled"]["ruling"]) == ([], "32164d3")
+    assert (view.open_questions(job), job["questions"][0]["closed"]["ruling"]) == ([], "32164d3")
     assert run("job", "add", "builder", "--order", "o1", "--goal", "build it")[0] == 0
 
 
@@ -5577,7 +5586,7 @@ def test_an_answer_is_recorded_only_as_his_words_at_the_permalink_it_names(
     ("words", "link", "said", "refusal"),
     [
         (WORDS, PICK, f"{WORDS}.", None),
-        ("Iris proposes … use-when line", PICK, f"<https://example.com|Iris> *proposes* with one new tool, guided by each topology's use-when line", None),
+        ("Iris proposes … use-when line", PICK, "<https://example.com|Iris> *proposes* with one new tool, guided by each topology's use-when line", None),
         ("Iris proposes [one way:] two new tools", PICK, WORDS, f'his words at {PICK} do not say "two new tools"'),
         ("Iris should propose topologies itself", PICK, WORDS, f'his words at {PICK} do not say "Iris should propose topologies itself"'),
         (WORDS, PICK, None, f"{PICK} is neither his own message nor a card he answered"),
@@ -6072,7 +6081,7 @@ def test_settled_shows_his_answer_on_a_card_it_decides_settles_its_jobs_question
     assert settled == [ANSWERED, ("card-answer", "--card", LAYOUT_CARD, "--label", WORDS, "--settled", "--other", "--via", PICK)]
     data = state.load("demo")
     assert data["answers"]["a1"]["cards"]["demo:j3-9"] == {"mark": "settled", "job": "j3", "card": LAYOUT_CARD}
-    assert [question["settled"] and question["settled"]["answer"] for question in data["jobs"]["j3"]["questions"]] == ["a1"]
+    assert [question["closed"] and (question["closed"]["how"], question["closed"]["answer"]) for question in data["jobs"]["j3"]["questions"]] == [("answered", "a1")]
 
 
 def test_settled_redraws_a_card_it_decides_in_part_to_the_ask_its_job_keeps_for_what_is_left_and_refuses_one_unkept_or_not_linking_his_answer(
@@ -6106,7 +6115,7 @@ def test_settled_redraws_a_card_it_decides_in_part_to_the_ask_its_job_keeps_for_
             f"demo:j3-9: its card {LAYOUT_CARD} is redrawn in place to {redrawn}, asking only what his answer a1 leaves open, by the ask record sent to communicator@demo",
         ],
     )
-    assert sent == [("builder", [{"kind": "ask", "to": ["communicator@demo"], "attr": {"job": "j3", "ask": redrawn, "waits": "demo:j3-9"}, "path": redrawn}])]
+    assert sent == [("j3", [{"kind": "ask", "to": ["communicator@demo"], "attr": {"job": "j3", "ask": redrawn, "waits": "demo:j3-9"}, "path": redrawn}])]
     data = state.load("demo")
     kept = [(question["file"], question["waits"], question["card"]) for question in data["jobs"]["j3"]["questions"]]
     assert kept == [(str(unlinked), None, None), (str(narrowed), "demo:j3-9", LAYOUT_CARD)]
