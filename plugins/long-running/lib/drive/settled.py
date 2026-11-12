@@ -159,14 +159,16 @@ def decided(question: str, options: list[str], found: list[dict]) -> dict | None
 
 
 def jev(request: dict) -> dict | None:
-    """Jev's answer to the label question `spawnllm decide` asks it, or None, said on stderr, when none came: no key, a timeout, a spawnllm without the verb."""
+    """Jev's answer to the label question `spawnllm decide` asks it, or None, said on stderr, when none came: no key, a timeout, a spawnllm without the verb, or Jev declining the question, which `spawnllm decide` prints as an answer of type refused with no choice."""
     try:
         done = subprocess.run(DECIDE, input=json.dumps(request), capture_output=True, text=True, timeout=60, check=False)
     except (OSError, subprocess.TimeoutExpired) as error:
         return unheard(str(error))
     if done.returncode:
         return unheard(done.stderr.strip().rpartition("\n")[2])
-    return json.loads(done.stdout)["answers"]["decides"]
+    if (answer := json.loads(done.stdout)["answers"]["decides"])["type"] == "refused":
+        return unheard("Jev declined the question")
+    return answer
 
 
 def unheard(failure: str) -> None:
