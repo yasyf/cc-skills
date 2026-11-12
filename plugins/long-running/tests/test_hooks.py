@@ -599,7 +599,7 @@ def test_a_build_orders_codex_lane_is_added_and_started_only_on_its_readers_rese
     assert "o1 is a build order, so its codex starts only once an Opus reader has kept" in capsys.readouterr().err
     assert run("job", "add", "codex", "--order", "o1", "--part", "immediate fix", "--goal", "stop it") == (0, "j1")
     run("job", "add", "reader", "--order", "o1", "--part", "the copy", "--goal", "research: the copy")
-    assert run("job", "add", "codex", "--order", "o1", "--part", "the copy", "--goal", "build it", "--waits", "j2") == (0, "j3")
+    assert run("job", "add", "codex", "--order", "o1", "--part", "the copy", "--goal", "build it", "--waits", "j2")[1].startswith("j3\nj3 waits on j2: ")
     bare = "Order: Drive tooling: copy one store\nDrive: demo, order o1, job {}"
     assert scratch_folder.deny_reason(drive_agent("codex:codex-wrapper", bare.format("j1"))) is None
     assert scratch_folder.deny_reason(drive_agent("codex:codex-wrapper", bare.format("j3"))).startswith(

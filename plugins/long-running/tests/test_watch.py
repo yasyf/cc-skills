@@ -1869,8 +1869,8 @@ def test_job_set_never_waits_on_a_job_and_the_refusal_names_the_card_or_pr_to_wa
         data["jobs"]["j3"] = job(goal="asked him", state="waiting", questions=[state.new_question(None, "Pick?", state.stamp(T0)) | {"waits": "demo:j1-7-a"}])
     assert cli.main(["job", "set", "j2", "--waits", "j1", "--drive", demo]) == 2
     assert capsys.readouterr().err.strip().endswith(
-        "--waits j1: a job waits on his card, a PR the drive tracks or a release, and on another job only as a build order's designer or"
-        f" builder added waiting on its reader, drive job add <kind> --order <o> --waits <the reader>; open on j1: {KEY}; wait on the one"
+        "--waits j1: a job waits on his card, a PR the drive tracks or a release, and on another job only as a build order's designer,"
+        f" builder or codex lane added waiting on its reader, drive job add <kind> --order <o> --waits <the reader>; open on j1: {KEY}; wait on the one"
         f" this job needs, as --waits {KEY}"
     )
     assert cli.main(["job", "set", "j2", "--waits", "j3", "--drive", demo]) == 2
