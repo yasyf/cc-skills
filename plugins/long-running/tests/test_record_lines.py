@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import record_lines
 from conftest import SHORT_ASK
-from drive import limits, reads, settled, state, view
+from drive import agents, limits, reads, settled, state, view
 
 SESSION = "session-under-test"
 ALERT = "1794413465.441409"
@@ -361,11 +361,29 @@ def test_a_report_about_an_order_in_another_orders_thread_is_refused_when_writte
     assert record_lines.decision(coordinator(turn, kind="report", text="POST The table fix is building now", to=TO, attrs={"progress": "true", "order": "o1", "thread": THREAD})) is None
 
 
-def test_a_report_whose_thread_is_no_slack_thread_is_refused_naming_his_dm_root(run: Callable[..., tuple[int, str]], demo: str, turn: Path) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
-    reason = refusal(record_lines.decision(coordinator(turn, kind="report", text="POST j1 merged", to=TO, attrs={"close": "o1", "thread": "none"})))
-    assert "thread none is no Slack thread" in reason and "leave thread out for a post at his DM root" in reason
+def test_a_report_whose_thread_is_none_goes_without_it_and_one_naming_no_slack_thread_is_refused_every_time(run: Callable[..., tuple[int, str]], demo: str, turn: Path) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix", "--parts", "cause", "fix")
+    for named in ({"close": "o1"}, {"part": "o1:cause"}):
+        made = record_lines.decision(coordinator(turn, kind="report", text="POST j1 merged", to=TO, attrs=named | {"thread": "none"}))
+        assert made["updatedInput"]["attrs"] == named
+    for thread in ("dm", "1794478810"):
+        reason = refusal(record_lines.decision(coordinator(turn, kind="report", text="POST j1 merged", to=TO, attrs={"part": "o1:cause", "thread": thread})))
+        assert f"thread {thread} is no Slack thread" in reason and "leave thread out for a post at his DM root" in reason
+        assert agents.ruled(reason) == {"judged": False}
     assert record_lines.decision(coordinator(turn, kind="report", text="POST j1 merged", to=TO, attrs={"close": "o1"})) is None
+
+
+def test_a_part_whose_name_a_cut_or_its_writer_left_spaces_around_is_saved_trimmed_so_a_part_attr_names_it(
+    run: Callable[..., tuple[int, str]], demo: str, turn: Path
+) -> None:
+    words = "both PRs he approved this morning and the stack he tapped an hour later sat for two hours with no attempt to land them"
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", words)
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the search worker", "--parts", "fix ", " first check")
+    run("order", "set", "o2", "--parts", "fix", " first check", "cause ")
+    whole = "both PRs he approved this morning and the stack he tapped an hour later sat for"
+    assert [list(order["parts"]) for order in state.load(demo)["orders"].values()] == [[whole], ["fix", "first check", "cause"]]
+    assert record_lines.decision(coordinator(turn, kind="report", text="POST the stack landed", to=TO, attrs={"part": f"o1:{whole}", "close": "o1"})) is None
+    assert record_lines.decision(coordinator(turn, kind="report", text="POST the fix is live", to=TO, attrs={"part": "o2:fix"})) is None
 
 
 def test_a_post_report_telling_him_the_drive_failed_goes_out_warning_the_session_until_it_says_how_that_is_prevented(
