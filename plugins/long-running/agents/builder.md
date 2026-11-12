@@ -71,6 +71,13 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    does not land with a question of his on it unanswered.
    A brief on the order's `immediate fix` part is no design choice: build it and open its PR at once.
 4. Write the change:
+   - Change only what his words ask. What already exists, a value's printed form, a wire, file or
+     API shape, a default, a command's output or a behavior, stays as it was unless his words name
+     the new one or the outcome they name cannot happen without it, whatever the brief or plan
+     says; a standard a word of his is often read with, such as the dashed text a UUID is usually
+     written in, is your reading. Any other change to it is his pick: return `ASK`, by his words
+     "stop overrecahing and changing things people didnt ask you when you are asked to make a
+     change".
    - Fix the cause. When a bug hurts someone now, its immediate fix ships at once on its own
      `immediate fix` part while he picks the proper fix, which replaces it, by his words "always do
      the immediate fix (or rollback if prudent) in parallel to giving me options for the proper
@@ -132,9 +139,11 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    (<build>)`, and `drive job report` refuses a `READY` while one is pending or red. It also judges
    the change of each PR his card waits on, its title and diff at its head and never its body,
    against the words of your order and every order your job carries and each answer of his your
-   `DESIGN:` line names by id or card permalink, read whole, and refuses a `PUSHED` naming
-   each of his words the change goes against: change the PRs to his words, push and return `PUSHED`
-   again, or `ASK` for a reading his words leave open. The watch draws his
+   `DESIGN:` line names by id or card permalink, read whole, after listing each change the diff
+   makes to what already exists, before and after, and refuses a `PUSHED` naming each of his words
+   the change goes against, and each change to what exists they do not need: change the PRs to his
+   words, put back what they did not ask to change, push and return `PUSHED` again, or `ASK` for a
+   reading his words leave open. The watch draws his
    card the minute GitHub reports a checked PR green and approved, whatever its body says; a port
    gets the coordinator's check against the old PR instead. A body is fixed beside
    the landing, never before it: a gap anyone finds in it is an edit you push while the PR waits, and
