@@ -59,19 +59,19 @@ def at_cap(builders: dict[str, str]) -> str:
 
 
 def local_builders(data: dict, moment: datetime) -> dict[str, str]:
-    """The builders holding a slot on this Mac, each job beside its order and its agent's or lane's last write: a job here no agent runs yet, which job add let in under the cap or the watch's FREE line gave its turn, an agent here still in its turn, or an Orca lane started with --local that launches or has not ended."""
+    """The builders holding a slot on this Mac, each job beside its order and its agent's or lane's last write: a job here the watch's FREE line freed whose agent has not started yet, an agent here still in its turn, or an Orca lane started with --local that launches or has not ended."""
     return {
         job_id: f"{job_id} on {job['order']}, {work}"
         for job_id, job in data["jobs"].items()
-        if job["kind"] == "builder" and job["state"] == "running" and (work := at_work_here(job_id, job, data, moment))
+        if job["kind"] == "builder" and job["state"] in ("running", "waiting") and (work := at_work_here(job_id, job, data, moment))
     }
 
 
 def at_work_here(job_id: str, job: dict, data: dict, moment: datetime) -> str | None:
+    if job["state"] == "waiting":
+        return None if job["waits"] or job["agent"] or job.get("where") == "remote" else "freed to start here, its agent not started yet"
     if job.get("where") != "remote":
-        if not job["agent"]:
-            return "its agent not started yet"
-        if watch.local_gap(job_id, job, data, moment) is not None:
+        if not job["agent"] or watch.local_gap(job_id, job, data, moment) is not None:
             return None
         wrote, turn = watch.last_write(job, data)
         return None if turn and agents.ended(turn) else f"its agent {job['agent']} last wrote at {when(state.stamp(wrote), seconds=True)}"

@@ -98,6 +98,6 @@ def test_a_ninth_builder_here_is_held_waiting_its_turn_and_only_the_one_the_watc
         " start it once a slot opens here with no builder waiting its turn. The watch's FREE line"
     )
     with state.edit(demo) as data:
-        data["jobs"]["j1"].update(state="running", waits=[])
+        data["jobs"]["j1"]["waits"] = []
     assert agent_brief.deny_reason(started("long-running:builder", f"{order}order o3, job j1")) is None
     assert agent_brief.deny_reason(started("long-running:builder", f"{order}order o2, job j11")).startswith("refused: j11 waits its turn for a builder slot on this Mac, 1 of 2 in line.")

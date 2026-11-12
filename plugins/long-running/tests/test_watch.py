@@ -2001,11 +2001,11 @@ def test_a_builder_waiting_its_turn_for_a_slot_is_no_orphan_and_the_watch_frees_
     freed = T0 + timedelta(minutes=33)
     assert watch.run_pass(watching, freed) == ["FREE j11 o3: its turn came as a builder slot opened on this Mac, 7 of its 8 held, nothing else holds it"]
     data = state.load(demo)
-    assert {field: data["jobs"]["j11"][field] for field in ("state", "waits", "agent")} == {"state": "running", "waits": [], "agent": None}
+    assert {field: data["jobs"]["j11"][field] for field in ("state", "waits", "agent")} == {"state": "waiting", "waits": [], "agent": None}
     assert place.turns(data, freed) == ([], place.LOCAL_BUILDERS)
     assert watch.run_pass(watching, T0 + timedelta(minutes=35)) == []
     with state.edit(demo) as data:
-        data["jobs"]["j11"]["agent"] = "a11"
+        data["jobs"]["j11"].update(state="running", agent="a11")
     assert watch.run_pass(watching, T0 + timedelta(minutes=37)) == []
     with state.edit(demo) as data:
         data["jobs"]["j3"]["state"] = "done"

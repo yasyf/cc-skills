@@ -20,10 +20,9 @@ Contents:
   session starts its agents and posts its reports, and the watch sends it the order's lines. The
   coordinator starts no agent on it and sends `meta@<drive>` a `defect` record naming the job and its
   `Read your brief first:` line.
-- At most eight builders hold this Mac's builder slots at once: each builder job here no agent runs
-  yet, which `drive job add builder` let in or the watch's `FREE` line gave its turn, each agent here
-  still in its turn, and each Orca worker started here with `drive job launch --local` while it
-  launches or runs. An agent that ended its turn, on a result line or a question, does not count, nor
+- At most eight builders hold this Mac's builder slots at once: each builder job here the watch's
+  `FREE` line freed whose agent has not started yet, each agent here still in its turn, and each Orca
+  worker started here with `drive job launch --local` while it launches or runs. An agent that ended its turn, on a result line or a question, does not count, nor
   does a launch that started no worker or a lane on a Sprite. `drive job add builder` past eight, or
   while builders wait their turn, records the job waiting on `builder-slot`, its turn for a slot, and
   prints its place in line and why, naming each builder it counted with its order and when its agent
