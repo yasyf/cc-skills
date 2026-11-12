@@ -307,7 +307,7 @@ def test_his_words_on_an_open_card_close_it_in_the_same_call_that_sends_them(dem
     assert tools.run("record", demo, {"records": [answer], "dry_run": True}).splitlines()[1:] == [f"1 would settle his card {CARD} (demo:j1-7), showing his words"]
     assert answered == [] and posted == []
     assert tools.run("record", demo, {"records": [answer]}) == f"1 answer #51\n1 demo:j1-7: his card {CARD} now shows his words with no buttons, settled by them"
-    assert answered == [("card-answer", "--card", CARD, "--label", "the lazy copy, no sweeper", "--settled", "--via", UNDER_CARD)]
+    assert answered == [("card-answer", "--card", CARD, "--label", "the lazy copy, no sweeper", "--settled", "--other", "--via", UNDER_CARD)]
     rework = {"kind": "owner", "text": "So then why didn't you withdraw this card?", "url": f"{CARD[:-2]}01?thread_ts=1794200000.000701", "thread_card": "demo:j2-8"}
     tools.run("record", demo, {"records": [rework]})
     assert answered[-1] == ("card-answer", "--card", f"{CARD[:-2]}01", "--label", rework["text"], "--withdrawn", "--via", rework["url"])
@@ -317,7 +317,7 @@ def test_his_words_on_an_open_card_close_it_in_the_same_call_that_sends_them(dem
     assert len(posted) == 2
 
 
-def test_his_owner_words_under_a_pr_card_withdraw_it_and_his_typed_approve_leaves_it_up(
+def test_his_owner_words_under_a_pr_card_leave_it_up_since_only_his_order_on_its_thread_withdraws_it(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, withdrawals: Withdrawals
 ) -> None:
     run("order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page")
@@ -325,18 +325,12 @@ def test_his_owner_words_under_a_pr_card_withdraw_it_and_his_typed_approve_leave
     pr = "https://github.com/Forge-AI/monorepo/pull/54084"
     run("pr", "add", pr, "--job", "j1")
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, "#61\n", ""))
-    open_cards(monkeypatch, prs=(pr,))
-    reply = f"{PR_CARD}?thread_ts=1794200000.000900"
-    rework = {"kind": "owner", "text": "Rework it to drop the sweeper", "url": reply}
-    [_, withdraw] = tools.run("record", demo, {"records": [rework], "dry_run": True}).splitlines()
-    assert withdraw.startswith(f"1 drive pr set {pr} ") and "--no-tap" in withdraw and "being reworked to his words: Rework it to drop the sweeper" in withdraw
-    assert withdrawals.asked == []
-    approve = {"kind": "owner", "text": "This seems correct I approve it", "url": reply, "attrs": {"tap": "Approve"}}
-    assert tools.run("record", demo, {"records": [approve]}) == "1 owner #61"
-    assert withdrawals.asked == []
-    assert tools.run("record", demo, {"records": [rework]}).splitlines()[0] == "1 owner #61"
-    assert withdrawals.asked == [(pr, "being reworked to his words: Rework it to drop the sweeper")]
-    assert state.load(demo)["prs"]["Forge-AI/monorepo#54084"]["wants_tap"] is False
+    answered = open_cards(monkeypatch, prs=(pr,))
+    asked = {"kind": "owner", "text": "Why is this card gone when the PR is approved?", "url": f"{PR_CARD}?thread_ts=1794200000.000900"}
+    assert tools.run("record", demo, {"records": [asked]}) == "1 owner #61"
+    assert (withdrawals.asked, answered) == ([], [])
+    pr_entry = state.load(demo)["prs"]["Forge-AI/monorepo#54084"]
+    assert (pr_entry["wants_tap"], pr_entry["rework"]) == (True, None)
 
 
 def test_a_brief_carries_his_order_and_each_ruling_word_for_word(demo: str, run: Callable[..., tuple[int, str]], recorded: Answers) -> None:

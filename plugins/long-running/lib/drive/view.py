@@ -240,7 +240,7 @@ def tap_of(pr: dict) -> str | None:
         return None
     if pr["hold_label"]:
         return "labeled"
-    return "wanted" if state.owed_step(pr) == "card" else None
+    return {"card": "wanted", "reworking": "reworking"}.get(state.owed_step(pr))
 
 
 def pr_entry(pr: dict) -> dict:
@@ -299,7 +299,8 @@ def tap_detail(pr: dict) -> str:
     checks = {"pass": "green", "fail": "red", "pending": "CI running"}.get(pr["checks"], "no CI")
     review = {"approved": "approved", "changes": "changes requested"}.get(pr["review"], "no review yet")
     changed = f"; changed since your tap: {pr['fundamental']}" if pr.get("fundamental") else ""
-    return f"{checks}, {review}{changed}"
+    reworking = "; being reworked to his words, card down until its builder's READY" if state.owed_step(pr) == "reworking" else ""
+    return f"{checks}, {review}{changed}{reworking}"
 
 
 def question_item(drive: dict, card: dict, features: list[dict], waiting: list[dict]) -> dict:

@@ -7,7 +7,6 @@ from drive.render import cut, when
 from drive.state import DriveError
 
 OTHERS_STAND = 3
-TYPED_TAPS = ("Approve", "Hold")
 SUBJECT_TERMS = 3
 
 
@@ -121,29 +120,31 @@ def answer_cards(kept: dict, asked: dict[str, dict]) -> list[str]:
     for key, entry in asked.items():
         if entry["kind"] != "question" or not under(kept["link"], entry["card"]):
             continue
-        result = slack.cc_slack("card-answer", "--card", entry["card"], "--label", kept["words"], "--settled", "--other", "--via", kept["link"])
-        if not result.get("already_answered"):
+        if not answer_card(entry["card"], kept["words"], kept["link"], settled=True).get("already_answered"):
             done.append(f"{key}: its card {entry['card']} now shows his words and a link to them, so it no longer asks him")
     return done
 
 
-def closing(found: dict, kind: str, attrs: dict, url: str | None, answered: list[str]) -> tuple[list[dict], list[dict]]:
-    """The open question cards and PR cards an owner or answer record of his words closes: each question card its `thread_card` attr, the ask seq it answers or his message's place in the card's thread names, and, for an owner record, each PR card his message is under, but for his typed Approve or Hold, which its `tap` attr carries; an Undo, which reopens its card, closes none."""
+def answer_card(card: str, words: str, link: str, settled: bool) -> dict:
+    """Close his question card in place showing his words and a link to them with no buttons, so a late tap records nothing: settled by them as his written-in answer, or withdrawn for them; every route that closes a question card goes through this one call."""
+    return slack.cc_slack("card-answer", "--card", card, "--label", words, *(("--settled", "--other") if settled else ("--withdrawn",)), "--via", link)
+
+
+def closing(found: dict, kind: str, attrs: dict, url: str | None, answered: list[str]) -> list[dict]:
+    """The open question cards an owner or answer record of his words closes: each its `thread_card` attr, the ask seq it answers or his message's place in the card's thread names; an Undo, which reopens its card, closes none. His words never close a PR card: only his order on its thread, or a job carrying one, withdraws it."""
     if kind not in ("owner", "answer") or "undone" in attrs:
-        return [], []
-    questions = [
+        return []
+    return [
         card
         for card in found["questions"]
         if (waits := card["card"].get("waits")) and (waits == attrs.get("thread_card") or waits.rpartition("-")[2] in answered) or (url and under(url, card["url"]))
     ]
-    reworked = kind == "owner" and url and attrs.get("tap") not in TYPED_TAPS
-    return questions, [card for card in found["pr_cards"] if reworked and under(url, card["url"])]
 
 
 def close_card(card: dict, kind: str, words: str, link: str) -> str:
     """Settle in place his question card that his answer answers, showing his words, or withdraw one his other words under it change, showing them as the reason, with no buttons either way, so a late tap records nothing; what was done, one line."""
     answered = kind == "answer"
-    result = slack.cc_slack("card-answer", "--card", card["url"], "--label", words, "--settled" if answered else "--withdrawn", "--via", link)
+    result = answer_card(card["url"], words, link, settled=answered)
     waits = card["card"].get("waits") or card["url"]
     if result.get("already_answered"):
         return f"{waits}: his card {card['url']} already shows his answer {result['label']!r}"
@@ -151,15 +152,14 @@ def close_card(card: dict, kind: str, words: str, link: str) -> str:
 
 
 def unclosed_refusal(names: list[str], kind: str, attrs: dict, url: str | None, answered: list[str]) -> str | None:
-    """Why an owner or answer record goes only through the drive's `record` tool: his words in it close an open card of his, and only that tool settles or withdraws the card in the same call that sends them."""
+    """Why an owner or answer record goes only through the drive's `record` tool: his words in it close an open question card of his, and only that tool settles or withdraws the card in the same call that sends them."""
     for name in names:
-        questions, pr_cards = closing(view.live_cards(name) or view.NO_CARDS, kind, attrs, url, answered)
-        if cards := [card["url"] for card in [*questions, *pr_cards]]:
+        if cards := [card["url"] for card in closing(view.live_cards(name) or view.NO_CARDS, kind, attrs, url, answered)]:
             return (
                 f"refused: this {kind} record carries his words on his open card {cards[0]}, which keeps asking him until"
                 " something closes it; send it with the drive's `record` tool, his message's permalink as `url` and the card's"
-                " waits id as `waits` for his answer or as `thread_card` for his other words under it, which settles a question"
-                " card or withdraws it, and withdraws a PR card his words rework, in the same call. His words: \"So then why"
+                " waits id as `waits` for his answer or as `thread_card` for his other words under it, which settles that"
+                " card or withdraws it in the same call. His words: \"So then why"
                 ' didn\'t you withdraw this card? / Why do I have to keep telling you?"'
             )
     return None
@@ -260,8 +260,7 @@ def others_refusal(answer_id: str, kept: dict, asked: dict[str, dict], named: li
 
 def settle(card: str, kept: dict) -> None:
     """Settle a superseded card in place, showing his words and a link to them with no buttons, so a late tap records nothing."""
-    result = slack.cc_slack("card-answer", "--card", card, "--label", kept["words"], "--withdrawn", "--via", kept["link"])
-    if result.get("already_answered"):
+    if (result := answer_card(card, kept["words"], kept["link"], settled=False)).get("already_answered"):
         raise DriveError(f"{card} already shows his answer {result['label']!r}, so it no longer asks him and needs no mark; the drive's cards are reread now, run this again")
 
 
@@ -293,17 +292,6 @@ def reopen_refusal(data: dict, key: str, entry: dict, by: str) -> str | None:
     if by not in data["jobs"] or data["jobs"][by]["state"] in state.FINISHED_JOB_STATES:
         return f"{by} is not a live job of this drive; start the job that reworks {key} to his words, then name it"
     return None
-
-
-def reopen(data: dict, answer_id: str, key: str, by: str) -> list[str]:
-    """Hand the PR to the job that reworks it to his answer: drop his tap on it and mark its head with his words, so no card asks his tap on it and a stack card's Approve skips it until its rework is pushed, when it asks again."""
-    kept, pr = data["answers"][answer_id], data["prs"][key]
-    dropped = pr["tap"]
-    pr.update(tap=None, rework={"answer": answer_id, "job": by, "head": pr["head"], "why": kept["words"], "at": kept["at"]}, updated=state.stamp())
-    return [
-        *([f"{key}: his {dropped['label']} on it is dropped"] if dropped else []),
-        f"{key} reopened by his answer {answer_id}: {by} reworks it to his words, so brief {by} with them; it asks his tap again once {by} pushes the rework",
-    ]
 
 
 def stops_open_pr(data: dict, key: str, into: str | None) -> bool:

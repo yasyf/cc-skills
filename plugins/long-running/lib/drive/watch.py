@@ -146,25 +146,16 @@ def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
         watcher.failures.pop("github", None)
     if not reads:
         return lines
-    reworked = []
     with state.edit(watcher.name) as data:
         for key, read in reads.items():
             pr = data["prs"][key]
-            reworking = state.in_rework(pr)
             changes = pr_changes(pr, read)
-            if reworking and not state.in_rework(pr):
-                reworked.append(pr["url"])
             if watcher.cards is not None and not moves_owed(pr, data, watcher.cards):
                 changes = [change for change in changes if not change.startswith(OWN_MOVES)]
             if stuck := stuck_for(pr, data, watcher.cards, moment):
                 changes.append(stuck)
             pr["updated"] = state.stamp(moment)
             lines.extend(f"PR {key}: {change} {ids(pr)}" for change in changes)
-    for url in reworked:
-        try:
-            slack.redraw_pr_cards(url)
-        except slack.SlackError as error:
-            lines.append(f"WATCH his open card for {url} still says it is being reworked, since its redraw failed: {error}")
     return lines
 
 
@@ -312,8 +303,27 @@ def settle_lines(watcher: Watcher, moment: datetime) -> list[str]:
     return lines
 
 
+def rework_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Withdraw each open card of his still carrying a PR being reworked to his words, whose order or answer failed to withdraw it, his words its reason; one that fails goes again next read."""
+    if watcher.cards is None:
+        return []
+    data = state.load(watcher.name)
+    lines = []
+    for key, pr in data["prs"].items():
+        if not (pr["state"] == "open" and pr["rework"] and view.card_for(watcher.cards["pr_cards"], pr["url"]) and hears(watcher, data, pr["order"])):
+            continue
+        try:
+            withdrawn = slack.withdraw_pr_card(pr["url"], state.rework_reason(pr))
+        except slack.SlackError as error:
+            lines += failed(watcher, "rework withdraw", "reworked PR card withdrawal", error, moment)
+            continue
+        watcher.failures.pop("rework withdraw", None)
+        lines += [f"CARD {link} withdrawn: {key} is being reworked to his words" for link in withdrawn]
+    return lines
+
+
 def ready_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Send the communicator one ready record per order for the PRs that wait on his card alone, once a head, so `drive card` draws his card within one GitHub read of a PR going green and approved, with no coordinator turn; a record that fails to post goes again next read."""
+    """Send the communicator one ready record per order for the PRs that wait on his card alone, once a head, so `drive card` draws his card within one GitHub read of a PR going green and approved, with no coordinator turn, and says what changed on each PR whose builder's READY met his words reworking it; a record that fails to post goes again next read."""
     if watcher.cards is None:
         return []
     from drive import tools
@@ -327,10 +337,11 @@ def ready_lines(watcher: Watcher, moment: datetime) -> list[str]:
     for order_id, heads in owed.items():
         order = data["orders"][order_id]
         urls = " ".join(data["prs"][key]["url"] for key in heads)
+        changed = "".join(f"; {key}: {fundamental}" for key in heads if (fundamental := data["prs"][key]["fundamental"]))
         if order["text"].startswith(state.TOOLING):
-            record = {"kind": "ready", "to": [f"communicator@{watcher.name}"], "text": f"{urls}; {order['text']}"}
+            record = {"kind": "ready", "to": [f"communicator@{watcher.name}"], "text": f"{urls}; {order['text']}{changed}"}
         else:
-            record = {"kind": "ready", "to": [f"communicator@{watcher.name}"], "text": f'{urls}; his order {order_id} "{order["text"]}"'}
+            record = {"kind": "ready", "to": [f"communicator@{watcher.name}"], "text": f'{urls}; his order {order_id} "{order["text"]}"{changed}'}
             record |= {"attr": {"thread": order["thread"]}} if order["thread"] else {}
         try:
             tools.sent(watcher.name, LANE, [limits.shortened(record) or record])
@@ -479,7 +490,7 @@ def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetim
     elif kind in ("question", "worker_done"):
         if job.get("ask"):
             job.update(ask=None, state="running")
-        state.take_result(data, job_id, job["said"])
+        state.take_result(data, job_id, job["said"], body)
         state.add_changes(data, job_id, body)
     if kept:
         return f"JOB {job_id} {job['order']} ASK {kept}"
@@ -1306,6 +1317,7 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
         lines += github_lines(watcher, moment)
         landed(watcher)
         lines += settle_lines(watcher, moment)
+        lines += rework_lines(watcher, moment)
         lines += waits_lines(watcher, moment)
         lines += ready_lines(watcher, moment)
         lines += waiting_lines(watcher, moment)

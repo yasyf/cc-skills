@@ -22,6 +22,7 @@ RESULT_STATES = {"DONE": "done", "READY": "waiting", "WAITING": "waiting", "DESI
 BUILT_LINE = re.compile(r"BUILT (?P<branch>[^\s,]+),? waits on (?P<cards>.+)")
 WAITING_LINE = re.compile(r"WAITING (?P<prs>.+?) waits on (?P<cards>.+)")
 ASK_LINE = re.compile(r"ASK (?P<file>\S+)")
+REPORT_CHANGE = re.compile(r"^CHANGE:[ \t]*(?P<change>.+?)[ \t]*$", re.MULTILINE)
 CHANGE_LINE = re.compile(r"^Change:[ \t]*(?P<change>.+?)(?:[ \t]*\(waits on change (?P<after>\d+)\))?[ \t]*$", re.MULTILINE)
 BUILT_CARD = re.compile(r"https://[^\s,]+/archives/[^\s,]+/p\d+[^\s,]*|[\w.-]+:j\d+-\d+[\w-]*")
 EXEMPT_CLASSES = ("pure port", "test-only", "ci-only", "flake fix", "incident fix")
@@ -315,7 +316,9 @@ def load(name: str) -> dict:
         pr.setdefault("lander", None)
         pr.setdefault("ejected", False)
         if (verdict := pr.pop("verdict", None)) and verdict.get("answer") and not verdict["ready"]:
-            pr["rework"] = {field: verdict[field] for field in ("answer", "job", "head", "why", "at")}
+            pr["rework"] = verdict
+        if (rework := pr.get("rework")) and "answer" in rework:
+            pr["rework"] = {"by": rework["answer"], "words": rework["why"], "at": rework["at"]} if rework["head"] == pr["head"] else None
         pr.setdefault("rework", None)
     data.setdefault("answers", {})
     for answer in data["answers"].values():
@@ -439,8 +442,8 @@ def kept_return(name: str, job_id: str, job: dict, line: str) -> bool:
     return kept_result(name, job_id, job, line) == line
 
 
-def take_result(data: dict, job_id: str, line: str) -> None:
-    """Move a running job to the state its result line opens with, with that line as its said line, built on its branch and waiting on each card a BUILT line names, each PR a WAITING line names waiting on each card it names; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
+def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
+    """Move a running job to the state its result line opens with, with that line as its said line, built on its branch and waiting on each card a BUILT line names, each PR a WAITING line names waiting on each card it names, keep each verdict a reader's answer gives on the PR it names, and end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
     job = data["jobs"][job_id]
     taken = result_state(job, line)
     if job["state"] != "running" or not taken:
@@ -455,6 +458,12 @@ def take_result(data: dict, job_id: str, line: str) -> None:
             data["prs"][key]["waits"] = list(dict.fromkeys([*data["prs"][key]["waits"], *BUILT_CARD.findall(waiting["cards"])]))
     if taken == "done":
         drop_carries(data, job_id)
+    if job["kind"] == "builder" and re.match(r"READY\b", line):
+        met = REPORT_CHANGE.search(report)
+        for key in named_prs(data, job["order"], line):
+            if rework := data["prs"][key]["rework"]:
+                changed = f'Reworked to your words "{rework["words"]}": {met["change"] if met else line}'
+                data["prs"][key].update(rework=None, fundamental=changed, ready_said=None, updated=job["updated"])
     if taken == "done" and job["kind"] == "builder":
         for design_id, design in data["jobs"].items():
             if design["kind"] == "design" and design["state"] == "waiting" and design_builder(data, design_id) == job_id:
@@ -997,22 +1006,27 @@ def queued_on_tap(key: str) -> bool:
 
 
 def owed_step(pr: dict) -> str | None:
-    """What the drive owes a PR once it is green and approved: its landing when an exempt class lands it with no tap, its builder's rework while his answer reopened it on its head now and he has not tapped it since, nothing when its author or its own builder lands it, and else his card."""
+    """What the drive owes a PR once it is green and approved: its landing when an exempt class lands it with no tap, its builder's rework to an order of his until the builder's READY says how his words are met, nothing when its author or its own builder lands it, and else his card."""
     if pr.get("exempt"):
         return "landing"
-    if in_rework(pr) and not pr["tap"]:
-        return "rework"
+    if pr["rework"]:
+        return "reworking"
     return "card" if pr["wants_tap"] else None
-
-
-def in_rework(pr: dict) -> bool:
-    """Whether his answer reopened the PR on its head now, so its builder still owes the rework he asked for."""
-    return bool(pr["rework"]) and pr["rework"]["head"] == pr["head"]
 
 
 def asks_tap(pr: dict) -> bool:
     """Whether his card on the PR offers his Approve: open, his card owed, and neither his Approve nor the hold label on it."""
     return pr["state"] == "open" and owed_step(pr) == "card" and (pr["tap"] or {}).get("label") != "Approve" and not pr["hold_label"]
+
+
+def rework(pr: dict, by: str, words: str) -> None:
+    """Mark a PR reworked to his words, by his order or answer: no card, ready or tap of his stands on it until its builder's READY says how they are met."""
+    at = stamp()
+    pr.update(rework={"by": by, "words": words, "at": at}, tap=None, ready_said=None, updated=at)
+
+
+def rework_reason(pr: dict) -> str:
+    return f'Being reworked to your words "{pr["rework"]["words"]}". A fresh card asks your tap once its builder says how they are met'
 
 
 def new_pr(url: str, job_id: str, order_id: str) -> dict:
