@@ -287,6 +287,7 @@ def saved(name: str) -> dict:
     for handler in data["handlers"].values():
         handler.setdefault("holds", None)
         handler.setdefault("held_back", [])
+        handler.setdefault("posted", [])
     for held in data["roles"].values():
         held.setdefault("terminal", None)
     return data

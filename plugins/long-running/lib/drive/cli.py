@@ -2425,7 +2425,7 @@ def handler(args: argparse.Namespace) -> int:
             if kept and args.brief.strip() not in entry["held_back"]:
                 entry["held_back"].append(args.brief.strip())
         else:
-            data["handlers"][handler_id] = {"session": None, "started": state.stamp(), "holds": holds, "held_back": []}
+            data["handlers"][handler_id] = {"session": None, "started": state.stamp(), "holds": holds, "held_back": [], "posted": []}
     if held:
         then = f"its done record names this brief, to start then and post only what {held} left out" if kept else "this copy needs no handler of its own"
         raise DriveError(f"refused, no handler started: handler {held} is at work on {his}, and one message of his has one handler at a time; {then}")

@@ -12,6 +12,7 @@ from drive.brief import BRIEF_JOB, carried, heavier
 RECORD = re.compile(r"^Record: (\d+)\b", re.MULTILINE)
 LINK = re.compile(r"^Link:\s*(\S+)", re.MULTILINE)
 THREAD = re.compile(r"^Thread:\s*\S+\s+(\d+\.\d+)", re.MULTILINE)
+RETYPED = re.compile(r"\b(?:POSTED|EDITED|CARD)(?:\s+https://\S+)+\s*;?\s*")
 HIS_KINDS = ("owner", "answer")
 RE_HOPS = 8
 CORRECTION_BYTES = 1 << 20
@@ -231,13 +232,15 @@ def bind_handler(payload: dict, handler: str) -> None:
 
 
 def end_handler(payload: dict) -> None:
-    """Hand the line a handler ended on to the communicator as one cci record, naming each brief drive handler held back while it worked on his message, and remove its session, which would otherwise sit idle holding its memory: `claude rm` takes the short id `claude agents` lists for it. A job the handler held keeps its transcript's path, since the drive forgets the handler."""
+    """Hand the line a handler ended on to the communicator as one cci record, each post's POSTED, EDITED and CARD links in it say's own result, whole with its thread_ts, in place of any the handler typed, naming each brief drive handler held back while it worked on his message, and remove its session, which would otherwise sit idle holding its memory: `claude rm` takes the short id `claude agents` lists for it. A job the handler held keeps its transcript's path, since the drive forgets the handler."""
     name = state.session_drives(payload["session_id"])[0]
     with state.edit(name) as data:
         ended_handler = data["handlers"].pop(payload["agent_id"])
         if job_id := state.agent_job(data, payload["agent_id"]):
             data["jobs"][job_id]["transcript"] = payload["agent_transcript_path"]
     line = (payload.get("last_assistant_message") or "").strip()
+    if posted := ended_handler["posted"]:
+        line = "; ".join(filter(None, [*posted, RETYPED.sub("", line).strip(" ;")]))
     if held_back := ended_handler["held_back"]:
         line += f" | held back for this handler, start each now: {' | '.join(held_back)}"
     cwd = Path(payload["cwd"])
