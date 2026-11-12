@@ -1248,21 +1248,17 @@ def down_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def dashboard_lines(watcher: Watcher) -> list[str]:
-    """Start the drive's dashboard again on this watch's install when nothing listens on its port, as after a crash, telling the coordinator once each time it went down, since a crash is a defect of the drive's code."""
-    port = dashboard.port_of(watcher.name)
-    if watcher.project or dashboard.listening(port):
+    """Hand the drive's dashboard to its launch agent when no agent keeps it, as one started before the agent existed, telling the coordinator once each time it then does not start, a defect of the drive's code; a proof's drive and a project's watch leave it alone."""
+    if watcher.project or state.scratch() or dashboard.kept(watcher.name):
         watcher.dashboard_down = False
         return []
     try:
-        dashboard.start(watcher.name, port)
+        dashboard.start(watcher.name, dashboard.port_of(watcher.name))
     except state.DriveError as error:
-        started = f"did not start again: {error}"
-    else:
-        started = f"was started again on long-running {state.VERSION}"
-    if watcher.dashboard_down:
-        return []
-    watcher.dashboard_down = True
-    return [f"WATCH the dashboard on port {port} had exited, so it {started}; its log is {state.drive_dir(watcher.name) / 'dashboard.log'}"]
+        said, watcher.dashboard_down = watcher.dashboard_down, True
+        return [] if said else [f"WATCH no launch agent kept the dashboard, and it did not start under one: {error}; its log is {state.drive_dir(watcher.name) / 'dashboard.log'}"]
+    watcher.dashboard_down = False
+    return []
 
 
 def said_last(entry: dict) -> str:

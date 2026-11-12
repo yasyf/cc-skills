@@ -4,6 +4,7 @@ import http.client
 import json
 import math
 import os
+import plistlib
 import re
 import socket
 import subprocess
@@ -119,6 +120,55 @@ def test_a_dashboard_answer_cut_off_as_it_stops_reads_as_nothing_serving_so_a_re
 
     monkeypatch.setattr(dashboard.urllib.request, "urlopen", lambda url, timeout: Stopping())
     assert dashboard.serving("demo", 41330) is None
+
+
+def test_a_dashboard_no_launch_agent_keeps_is_stopped_and_handed_to_one_that_runs_the_newest_install_and_starts_it_again_after_any_exit(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    port = dashboard.port_of(demo)
+    links = dashboard.links_of(port, None)
+    answers = iter([{"links": links, "pid": 4242, "code": "/elsewhere"}, None, {"links": links}, {"links": links}])
+    killed: list[tuple[int, int]] = []
+    ran: list[tuple[str, ...]] = []
+    config = tmp_path / "config"
+    newest = tmp_path / "cache" / "long-running" / "9.9.9"
+    (newest / "bin").mkdir(parents=True)
+    (newest / "bin" / "drive").write_text('#!/bin/sh\necho "$@"\n')
+    (newest / "bin" / "drive").chmod(0o755)
+    (config / "plugins").mkdir(parents=True)
+    installs = [{"installPath": str(tmp_path / "cache" / "long-running" / "9.9.8"), "lastUpdated": "2026-11-11T00:00:00Z"}, {"installPath": str(newest), "lastUpdated": "2026-11-12T00:00:00Z"}]
+    (config / "plugins" / "installed_plugins.json").write_text(json.dumps({"plugins": {"long-running@skills": installs}}))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config))
+    monkeypatch.setenv("OPENAI_API_KEY", "a session secret")
+    monkeypatch.setattr(dashboard, "serving", lambda name, port: next(answers))
+    monkeypatch.setattr(dashboard, "kept", lambda name: False)
+    monkeypatch.setattr(dashboard.os, "kill", lambda pid, signum: killed.append((pid, signum)))
+    monkeypatch.setattr(dashboard, "launchctl", lambda *args: ran.append(args))
+    monkeypatch.setattr(dashboard, "LAUNCH_AGENTS", tmp_path / "LaunchAgents")
+    assert dashboard.start(demo, port) == links
+    plist = tmp_path / "LaunchAgents" / f"com.yasyf.long-running.dashboard.{demo}.plist"
+    agent = plistlib.loads(plist.read_bytes())
+    assert killed == [(4242, dashboard.signal.SIGTERM)]
+    assert ran == [("bootstrap", f"gui/{os.getuid()}", str(plist))]
+    assert (agent["KeepAlive"], agent["RunAtLoad"], agent["ThrottleInterval"]) == (True, True, dashboard.RESTART_SECONDS)
+    assert agent["StandardOutPath"] == agent["StandardErrorPath"] == str(state.drive_dir(demo) / "dashboard.log")
+    assert "OPENAI_API_KEY" not in agent["EnvironmentVariables"]
+    started = subprocess.run(agent["ProgramArguments"], env=agent["EnvironmentVariables"], capture_output=True, text=True, check=True)
+    assert started.stdout.split() == ["dashboard", "--drive", demo, "--port", str(port), "--serve"]
+
+
+def test_a_kept_dashboard_serving_its_links_is_left_alone_and_one_that_is_not_is_started_again_at_once(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    port = dashboard.port_of(demo)
+    links = dashboard.links_of(port, None)
+    ran: list[tuple[str, ...]] = []
+    monkeypatch.setattr(dashboard, "launchctl", lambda *args: ran.append(args))
+    monkeypatch.setattr(dashboard, "serving", lambda name, port: {"links": links})
+    assert dashboard.start(demo, port) == links
+    assert ran == []
+    answers = iter([None, {"links": links}, {"links": links}])
+    monkeypatch.setattr(dashboard, "serving", lambda name, port: next(answers))
+    assert dashboard.start(demo, port) == links
+    assert ran == [("kickstart", "-k", dashboard.agent(demo))]
 
 
 def test_a_drive_saved_by_a_newer_install_hands_the_port_to_that_install_which_answers_throughout(
