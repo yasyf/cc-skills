@@ -590,6 +590,19 @@ def test_a_post_outside_his_dm_takes_a_thread_and_nothing_only_his_dm_draws(demo
     assert (posts, said(demo)) == ([], [])
 
 
+def test_a_note_to_a_person_with_no_thread_goes_out_through_cc_slack_send_into_their_group_dm_with_him_and_the_bot(demo: str, posts: list[tuple[str, ...]]) -> None:
+    note = {"text": "The run page shows its history again, since 6:40 PM.", "channel_id": "U0REPORTER"}
+    assert talk.say(demo, note | {"dry_run": True}) == f"DRY the group DM of U0REPORTER, him and the bot, 0 pictures: {note['text']}"
+    assert talk.say(demo, note | TICKET).startswith(f"POSTED {POSTED}")
+    assert posts == [
+        (
+            "send", "--agent", "claude", "--channel", "U0REPORTER", "--text", note["text"],
+            "--ticket", "t1", "--ticket-tree", "tree1", "--ticket-agent", "agent1", "--ticket-call", "call1", "--ticket-fingerprint", "print1",
+        )
+    ]
+    assert said(demo)[0]["channel"] == "U0REPORTER"
+
+
 def test_a_post_whose_report_is_about_its_order_in_another_orders_thread_is_told_to_post_in_its_own_never_with_the_other(
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -365,8 +365,8 @@ merged and installed, listing each rule now in the skill.
   of the report on that order posts it with `slack_reply` in the same step as his own line, then
   records it with `drive order told`. When the bot cannot post in that thread, as in a person's 1:1
   DM with him, the handler posts the same note as usual in the group DM of that person, him and the
-  bot, with one `slack_send` whose `channel_id` is the person's user id, which cc-slack's refusal
-  names, and records it with `drive order told --group-dm <that user id>`. His words: "Dm him in group
+  bot, with one `say` whose `channel_id` is the person's user id, which cc-slack's refusal names,
+  and no `thread_ts`, and records it with `drive order told --group-dm <that user id>`. His words: "Dm him in group
   with bot then as usual".
 - The drive holds it to once and to after the fix: `drive order set --state done` refuses an order
   with a reporter until the note is recorded, the watch says `TELL` once when the proof sat 10 minutes

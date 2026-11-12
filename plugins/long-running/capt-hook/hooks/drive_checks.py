@@ -126,6 +126,8 @@ def judged(evt: BaseHookEvent, reason: str, rule: str, words: list[Evidence]) ->
     post = dict(evt.input.raw)
     place = {"thread": str(post.get("thread_ts") or "")} | ({"channel": post["channel_id"]} if post.get("channel_id") else {})
     where = f"in thread {place['thread']} of channel {post['channel_id']}" if post.get("channel_id") else "to him in his DM"
+    if post.get("channel_id") and not place["thread"]:
+        where = f"in the group DM of {post['channel_id']}, him and the bot"
     ctx = Context.of(evt, DRIVE_POST, Proposal(place, {"post": post, "findings": reason, "rule": rule}, f"post this line {where}"))
     if not (items := [*JUDGE.items(ctx), *words]):
         return evt.block(f"Jev found no words of his to weigh this post against, so what the drive's checks found stands: fix each finding below, then call say again.\n```\n{reason}\n```")
