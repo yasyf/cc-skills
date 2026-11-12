@@ -262,9 +262,10 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 | `BREAK-GLASS --stack <domain>/<env> --reason "<why>" -- <command>` | For a command that needs the admin role of that env's account, such as a production read or the hand repair above: the `forge/break-glass` grant, its reason your drive, job and `<why>`, then the command in the coordinator's checkout under this Mac's machine profile for that env, as `drive break-glass` runs it, with no sign-in; the grant's link, then the output's first 12,000 characters. A read writes nothing; a production write runs only on his word or an incident order at 0 deletes and 0 replaces. |
 
 - No drive's records are here, so skip `drive pr add`, `drive job set --repro` and keeping a block
-  with `drive job ask`: your report's `PR:` line carries the PR's link, an `EXEMPT:` line names an
-  exempt class, and a port's `SERVES: port of #N` line names its old PR, and the coordinator
-  registers all three. A `REPRO:` line names the file, with its whole text in a fence on the lines
+  with `drive job ask`: the watch registers each PR your report's `PR:` line links the minute it
+  arrives, as `drive pr add` does, so a `yasyf/*` one's lander merges and installs it; an `EXEMPT:`
+  line names an exempt class and a port's `SERVES: port of #N` line names its old PR, which the
+  coordinator registers. A `REPRO:` line names the file, with its whole text in a fence on the lines
   under it, which the watch keeps in the drive's `repro/` folder as `drive job set --repro` does. An
   `ASK` report is the block itself, in the ASK section's shape. The drive's watch on the
   coordinator's Mac keeps it the moment it arrives, within about a minute, in the drive's `asks/`

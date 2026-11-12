@@ -1125,6 +1125,15 @@ def test_job_ask_check_says_ready_or_every_fix_its_words_and_card_need_with_no_d
     assert "drive job ask <j> <file>; drive job ask --check <file> only checks its shape" in capsys.readouterr().err
 
 
+def test_job_ask_reads_a_readers_design_return_as_the_ask_its_first_line_asks(run: Run, asking: str, tmp_path: Path) -> None:
+    block = tmp_path / "design.md"
+    block.write_text(DESIGN_RESEARCH)
+    assert run("job", "ask", "--check", str(block)) == (0, "ready")
+    code, out = run("job", "ask", asking, str(block))
+    assert (code, Path(out).read_text()) == (0, f"ASK {DESIGN_RESEARCH.removeprefix('DESIGN ')}")
+    assert state.load("demo")["jobs"]["j1"]["said"] == DESIGN_TITLE
+
+
 def test_job_ask_check_refuses_a_summary_answering_none_of_his_next_questions_unless_its_findings_say_none_follows(
     state_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

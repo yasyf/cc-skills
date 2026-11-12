@@ -1168,10 +1168,10 @@ def follow_card(name: str, waits: str, asked: set[str], url: str) -> None:
 
 
 def job_ask(args: argparse.Namespace) -> int:
-    """Keep a job's ASK in the drive once it is in the shape he reads, each block in its own file; from a file, stdin with -, or with neither a remote lane's latest report. A block asking again what one of the job's questions his answer has not closed asks takes that question's place, its card and waits id kept, and one asking what another job's open question asks is refused. With --drop, throw away a question the job kept with no card drawn for it."""
+    """Keep a job's ASK in the drive once it is in the shape he reads, each block in its own file; from a file, stdin with -, or with neither a remote lane's latest report, one opening `DESIGN <question>`, a reader's return, read as the ASK it puts to him. A block asking again what one of the job's questions his answer has not closed asks takes that question's place, its card and waits id kept, and one asking what another job's open question asks is refused. With --drop, throw away a question the job kept with no card drawn for it."""
     if args.check:
         with tempfile.TemporaryDirectory(prefix="drive-ask-check-") as scratch:
-            limits.shape(named_text(args.check, "ASK block file"), "check", "ask", Path(scratch), args.unsettled)
+            limits.shape(limits.ask_block(named_text(args.check, "ASK block file")), "check", "ask", Path(scratch), args.unsettled)
         print("ready")
         return 0
     if args.id is None:
@@ -1211,9 +1211,10 @@ def drop_ask(name: str, job_id: str, file: Path) -> dict:
 
 
 def keep_ask(name: str, job_id: str, text: str, unsettled: str | None) -> tuple[Path, limits.Question, dict]:
-    """Keep the job's ASK block in its own file once it is in the shape he reads, in place of the job's open question asking the same, and set the job waiting on it; one Jev reads an answer of his as already deciding stays kept as the job's pending question with its refusal, which draws no card, so the watch says the job waits on a card never posted until it asks again or drops it."""
+    """Keep the job's ASK block, or the ASK a DESIGN return puts to him, in its own file once it is in the shape he reads, in place of the job's open question asking the same, and set the job waiting on it; one Jev reads an answer of his as already deciding stays kept as the job's pending question with its refusal, which draws no card, so the watch says the job waits on a card never posted until it asks again or drops it."""
     from drive import superseded, view
 
+    text = limits.ask_block(text)
     data = state.load(name)
     job = data["jobs"][job_id]
     asked = limits.shape(text, name, job_id, state.drive_dir(name) / "pictures", unsettled, any(state.hurts_now(data["orders"][order_id]) for order_id in [job["order"], *job["carries"]]))
@@ -1495,7 +1496,7 @@ def job_report(args: argparse.Namespace) -> int:
         asked = None
         if job["kind"] == "reader" and line.startswith("DESIGN"):
             try:
-                asked = keep_ask(name, args.id, f"ASK {whole.strip().removeprefix('DESIGN').lstrip()}", None)[0]
+                asked = keep_ask(name, args.id, whole.strip(), None)[0]
             except DriveError as error:
                 raise DriveError(f"{args.id}: refused, its report not kept: a reader's DESIGN is his card as it stands, kept as its ASK, and drive job ask refused it: {error}") from None
         kept = state.keep_report(name, args.id, line, whole)
@@ -1868,49 +1869,55 @@ def job_end(args: argparse.Namespace) -> int:
 
 
 def pr_add(args: argparse.Namespace) -> int:
-    from drive import view
-
     name = state.resolve(args.drive)
     key = state.pr_key(args.url)
-    url = state.pr_url(key)
     if args.no_tap and not args.why:
         raise DriveError("--no-tap needs --why <reason>: every PR waits on his tap unless it is a port, exempt or drive tooling outside Forge-AI")
-    read = github_pr(key)
-    refuse_an_unkinded_title(key, read, args.port_of)
-    if args.port_of:
-        refuse_a_port_storing_data(key, args.port_of)
+    pr, merging = add_pr(name, key, args.job, github_pr(key), args.port_of, args.exempt, args.no_tap)
+    if merging is None:
+        return emit(args, key, {"key": key, **pr})
+    return emit(args, f"{key}: {merging}", {"key": key, **pr, "merging": merging})
+
+
+def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = None, exempt: str | None = None, no_tap: bool = False) -> tuple[dict, str | None]:
+    """Register a PR on its job from its GitHub read, refused as `drive pr add` refuses, and start the lander on a yasyf/* one, which merges it and installs what it changes; the PR as registered and what its lander does or why it does not, or None for a PR his tap or an exempt class lands. `drive pr add` runs it for a builder on this Mac, and the watch for each PR a remote lane's mail names, so a PR built on a Sprite lands as one built here does."""
+    from drive import view
+
+    url = state.pr_url(key)
+    refuse_an_unkinded_title(key, read, port_of)
+    if port_of:
+        refuse_a_port_storing_data(key, port_of)
     known = state.load(name)
-    added = find(known["jobs"], args.job, "job")
+    added = find(known["jobs"], job_id, "job")
     author = read["author"]["login"]
     if why := state.foreign(key, author, [known["orders"][added["order"]]]):
         raise DriveError(f"{key}: refused, nothing added: {why}")
-    if (args.exempt or args.no_tap) and (incidents := state.open_incidents(known, [added["order"], *added["carries"]])):
-        refuse_an_exempt_revert(known, key, incidents[0], read, f"Add it waiting on his tap with drive pr add {url} --job {args.job}. ")
+    if (exempt or no_tap) and (incidents := state.open_incidents(known, [added["order"], *added["carries"]])):
+        refuse_an_exempt_revert(known, key, incidents[0], read, f"Add it waiting on his tap with drive pr add {url} --job {job_id}. ")
     with state.edit(name) as data:
-        job = find(data["jobs"], args.job, "job")
+        job = find(data["jobs"], job_id, "job")
         if data["orders"][job["order"]]["once"]:
             raise DriveError(f"refused, {job['order']} is a repair he asked to run once: run it, and put up no PR for it")
         cards = [wait for wait in view.holding(data, job["waits"], view.live_cards(name)) if state.card_wait(data, wait)]
         if cards and key not in data["prs"] and not state.open_incidents(data, [job["order"], *job["carries"]]) and state.IMMEDIATE_FIX not in job["parts"]:
             raise DriveError(
-                f"{args.job} waits on his answer to {', '.join(cards)}: it puts up no PR until he answers each;"
+                f"{job_id} waits on his answer to {', '.join(cards)}: it puts up no PR until he answers each;"
                 " the watch says FREE when the last is answered"
             )
         wants_tap = state.guarded(key) or not tooling(data["orders"][job["order"]])
-        pr = data["prs"].setdefault(key, state.new_pr(url, args.job, job["order"]) | {"wants_tap": wants_tap})
-        pr.update(job=args.job, order=job["order"], author=author)
-        if args.port_of:
-            pr.update(port_of=args.port_of, exempt="pure port", wants_tap=False)
-        if args.exempt:
-            pr["exempt"] = args.exempt
-        if args.no_tap:
+        pr = data["prs"].setdefault(key, state.new_pr(url, job_id, job["order"]) | {"wants_tap": wants_tap})
+        pr.update(job=job_id, order=job["order"], author=author)
+        if port_of:
+            pr.update(port_of=port_of, exempt="pure port", wants_tap=False)
+        if exempt:
+            pr["exempt"] = exempt
+        if no_tap:
             pr["wants_tap"] = False
         if url not in job["prs"]:
             job["prs"].append(url)
     if not state.merges_untapped(key):
-        return emit(args, key, {"key": key, **pr})
-    merging = land.merge_ready(name, key, read)
-    return emit(args, f"{key}: {merging}", {"key": key, **pr, "merging": merging})
+        return pr, None
+    return pr, land.merge_ready(name, key, read)
 
 
 def design_basis(text: str) -> str:

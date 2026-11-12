@@ -75,6 +75,7 @@ FEATURE = re.compile(r"^\*[^*\n]+\*[ \t]*$", re.MULTILINE)
 FINDINGS = re.compile(r"^[ \t]*Findings:[ \t]*$", re.MULTILINE)
 SHOW_ME = re.compile(r"^[ \t]*Show me:[ \t]*$", re.MULTILINE)
 SHOWN = re.compile(r"^\*Show me\*[ \t]*$", re.MULTILINE)
+DESIGN_OPENING = re.compile(r"\A\s*DESIGN\b[ \t]*")
 OPTIONS_HEADING = re.compile(r"options:", re.IGNORECASE)
 QUOTE = ">"
 REDONE = "*This question is being redone:* "
@@ -415,6 +416,11 @@ def from_ask(card: dict) -> str:
     """How a drive's question card, one with a waits id that is no cc-slack permission card's, is redrawn once its words are fixed."""
     waits = card.get("waits") or ""
     return FROM_ASK.format(waits=waits) if waits and not waits.startswith(PERMISSION_WAITS) else ""
+
+
+def ask_block(text: str) -> str:
+    """The ASK block a return puts to him: one opening `DESIGN <question>`, a reader's choice for him, is his card as it stands, read as the ASK its first line asks."""
+    return DESIGN_OPENING.sub("ASK ", text, count=1)
 
 
 def question(text: str, kept: bool = False, unsettled: str | None = None, hurting: bool = False) -> Question:

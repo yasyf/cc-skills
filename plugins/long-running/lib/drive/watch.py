@@ -637,7 +637,7 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
             continue
         watcher.failures.pop(source, None)
     refusals, asks, unkept, said = keep_asks(watcher, data, lanes, messages, kept, moment)
-    lines += said
+    lines += said + add_lane_prs(watcher, data, lanes, messages, kept)
     if messages:
         with state.edit(watcher.name) as data:
             heard = lane_handles(watcher, data)
@@ -727,17 +727,41 @@ def sender(lanes: dict[str, dict[str | None, str]], run: str, message: dict) -> 
     return handles.get(None) or handles.get(message["from_handle"])
 
 
-def track_lane_prs(data: dict, job_id: str, body: str) -> None:
-    job = data["jobs"][job_id]
-    for line in body.splitlines():
-        if not PR_LINE.match(line):
+def add_lane_prs(watcher: Watcher, data: dict, lanes: dict[str, dict[str | None, str]], messages: list[tuple[str, dict]], kept: Callable[[str], set[str]]) -> list[str]:
+    """Register each PR the drive does not track yet that a remote lane's new mail names, through `drive pr add`'s own add_pr, before its line is taken so its result waits on it: a yasyf/* one starts the lander that merges it and installs what it changes, as it does for a PR built on this Mac. A refusal, a failed read or a lander that does not start is the lane's JOB line, naming why."""
+    from drive import cli
+
+    lines, tracked = [], set(data["prs"])
+    for run, message in messages:
+        job_id = sender(lanes, run, message)
+        if not job_id or message["sequence"] <= data["jobs"][job_id]["mail_seen"] or message["id"] in kept(job_id):
             continue
-        for match in state.PR_URL.finditer(line):
-            key = f"{match[1]}/{match[2]}#{match[3]}"
-            url = state.pr_url(key)
-            data["prs"].setdefault(key, state.new_pr(url, job_id, job["order"]) | {"wants_tap": True})
-            if url not in job["prs"]:
-                job["prs"].append(url)
+        for key in lane_prs(message["body"] or ""):
+            if key in tracked:
+                continue
+            tracked.add(key)
+            url, order = state.pr_url(key), data["jobs"][job_id]["order"]
+            try:
+                merging = cli.add_pr(watcher.name, key, job_id, cli.github_pr(key))[1]
+            except (state.DriveError, github.GithubError) as error:
+                lines.append(f"JOB {job_id} {order} PR {url}: the watch's drive pr add {url} --job {job_id} failed: {error}")
+                continue
+            if merging and merging.startswith(land.NOT_MERGING):
+                lines.append(f"JOB {job_id} {order} PR {url}: {merging}")
+    return lines
+
+
+def track_lane_prs(data: dict, job_id: str, body: str) -> None:
+    """List on the lane's job each PR the drive tracks that its mail names, one add_lane_prs registered included."""
+    job = data["jobs"][job_id]
+    for key in lane_prs(body):
+        if key in data["prs"] and (url := state.pr_url(key)) not in job["prs"]:
+            job["prs"].append(url)
+
+
+def lane_prs(body: str) -> list[str]:
+    """The key of each PR a lane's message names on a READY, PUSHED or PR: line."""
+    return list(dict.fromkeys(state.pr_key(found[0]) for line in body.splitlines() if PR_LINE.match(line) for found in state.PR_URL.finditer(line)))
 
 
 def read_lines(watcher: Watcher, data: dict, moment: datetime) -> list[str]:
