@@ -3174,7 +3174,7 @@ def monitors_read(monkeypatch: pytest.MonkeyPatch, statuses: dict[str, str]) -> 
     ("status", "out", "part", "closes"),
     [("Alert", True, "fix", False), ("OK", False, "fix", False), ("OK", True, "stop", False), ("OK", True, "fix", True)],
 )
-def test_an_incident_closes_once_its_monitor_reads_ok_and_a_release_shipped_its_fix_moving_its_follow_up_to_a_plain_order(
+def test_an_incident_closes_once_its_monitor_reads_ok_and_a_release_shipped_its_fix_moving_the_follow_ups_of_each_of_its_orders_to_a_plain_order(
     demo: str, monkeypatch: pytest.MonkeyPatch, status: str, out: bool, part: str, closes: bool
 ) -> None:
     serve(monkeypatch, {OTHER: read()})
@@ -3188,6 +3188,7 @@ def test_an_incident_closes_once_its_monitor_reads_ok_and_a_release_shipped_its_
         data["jobs"]["j1"].update(kind="codex", parts=[part], state="waiting", waits=[f"release:api:{KEY}"], updated=state.stamp(T0 - timedelta(minutes=10)))
         data["jobs"]["j2"] = job(parts=["follow-up"], prs=[state.pr_url(OTHER)])
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j2", "o1") | {"head": "aaaaaaa111"}
+        data["orders"]["o2"] = order(text="also the migration check should not stop a sand that can read", jobs=[], incident=True, joins="o1", parts={"the migration check": state.new_part()})
     watching = watcher(demo, T0 + timedelta(hours=1))
     lines = [line for line in watch.run_pass(watching, T0) if line.startswith(("LIVE", "RECOVERED"))]
     data = state.load(demo)
@@ -3195,15 +3196,15 @@ def test_an_incident_closes_once_its_monitor_reads_ok_and_a_release_shipped_its_
     assert [argv[argv.index("--query") + 1] for argv in searches] == ["id:(315028134)"]
     if not closes:
         assert (lines, [argv for argv, _ in calls if argv[0] == "cci"], data["orders"]["o1"]["recovered"], data["jobs"]["j2"]["order"]) == ([], [], None, "o1")
-        assert [entry["id"] for entry in view.incidents(data)] == ["o1"]
+        assert [entry["id"] for entry in view.incidents(data)] == ["o1", "o2"]
         return
     shipped = f"release releases/2026-11-09/2 ships {KEY} on api"
-    assert lines == [f"RECOVERED o1: {MONITOR} read OK and {shipped}, so the communicator posts its Live line and closes o1; its live jobs, open PRs and parts left moved to the plain order o2"]
+    assert lines == [f"RECOVERED o1: {MONITOR} read OK and {shipped}, so the communicator posts its Live line and closes o1, o2; its live jobs, open PRs and parts left moved to the plain order o3"]
     [(post, body)] = [(argv, body) for argv, body in calls if argv[0] == "cci"]
     assert post[post.index("--kind") + 1 : post.index("--kind") + 4] == ["report", "--to", "communicator@demo"]
     assert post[post.index("--attr") :] == [
         "--attr",
-        "close=o1",
+        "close=o1,o2",
         "--attr",
         "thread=1794200000.000100",
         "--body-file",
@@ -3215,20 +3216,21 @@ def test_an_incident_closes_once_its_monitor_reads_ok_and_a_release_shipped_its_
         "Incident: ship the watch",
         f"Recovered: {MONITOR} read OK",
         f"Fix live: {shipped}, {state.pr_url(KEY)}",
-        "Note: record 5f6b2b5; follow-up o2",
+        "Note: record 5f6b2b5; follow-up o3",
     ]
-    incident, follow = data["orders"]["o1"], data["orders"]["o2"]
+    incident, joined, follow = data["orders"]["o1"], data["orders"]["o2"], data["orders"]["o3"]
     assert (list(incident["parts"]), incident["jobs"], incident["fixed"], incident["recovered"]) == (["fix", "stop", "cause"], ["j1"], shipped, state.stamp(T0))
+    assert (list(joined["parts"]), joined["recovered"]) == ([], state.stamp(T0))
     assert incident["proof"] == f"{MONITOR} read OK at {render.when(state.stamp(T0))}; {shipped}"
     assert (follow["incident"], follow["kind"], list(follow["parts"]), follow["jobs"], follow["thread"], follow["note"]) == (
         False,
         "build",
-        ["follow-up"],
+        ["follow-up", "the migration check"],
         ["j2"],
         "1794200000.000100",
         "follow-up of incident o1",
     )
-    assert (data["jobs"]["j2"]["order"], data["prs"][OTHER]["order"]) == ("o2", "o2")
+    assert (data["jobs"]["j2"]["order"], data["prs"][OTHER]["order"]) == ("o3", "o3")
     assert view.incidents(data) == []
     assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=1)) if line.startswith("RECOVERED")]
     assert [argv[0] for argv, _ in calls] == ["pup", "cci"]

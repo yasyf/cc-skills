@@ -406,17 +406,21 @@ def closed(watcher: Watcher, head: str, links: list[str], moment: datetime) -> l
 
 
 def follow_up(data: dict, head: str, group: list[str], created: str) -> str | None:
-    """Move what is left of an incident that is over to a plain build order in its thread, so closing it leaves no work on it: each open PR of its orders and that PR's job, each part of the head beyond the incident's own not yet delivered, and each live job carrying one; that order's id, also on the head's note, or None when nothing is left."""
+    """Move what is left of an incident that is over to a plain build order in its thread, so closing it leaves no work on it: each open PR of its orders and that PR's job, each part of its orders beyond the incident's own not yet delivered, and each live job carrying one; that order's id, also on the head's note, or None when nothing is left."""
     own = {state.INCIDENT_FIX, *(part for parts in state.INCIDENT_PARTS.values() for part in parts)}
     incident = data["orders"][head]
-    left = [part for part in incident["parts"] if part not in own and not state.delivered(data, head, part)]
+    left = {other: [part for part in data["orders"][other]["parts"] if part not in own and not state.delivered(data, other, part)] for other in group}
     prs = [pr for pr in state.open_prs(data) if pr["order"] in group]
-    live = [job_id for job_id, job in data["jobs"].items() if job["state"] not in state.FINISHED_JOB_STATES and set(state.job_parts(job, head)) & set(left)]
+    live = [
+        job_id
+        for job_id, job in data["jobs"].items()
+        if job["state"] not in state.FINISHED_JOB_STATES and any(set(state.job_parts(job, other)) & set(names) for other, names in left.items())
+    ]
     jobs = list(dict.fromkeys([*(pr["job"] for pr in prs), *live]))
-    if not (left or jobs):
+    if not (any(left.values()) or jobs):
         return None
     order_id = state.next_id(data["orders"], "o")
-    parts = {part: incident["parts"].pop(part) for part in left}
+    parts = {part: data["orders"][other]["parts"].pop(part) for other, names in left.items() for part in names}
     follow = data["orders"][order_id] = state.new_order(incident["text"], incident["from"], incident["from_thread"], incident["thread"], parts, created) | {
         "owner": incident["owner"],
         "project": incident["project"],
