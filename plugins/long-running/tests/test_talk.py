@@ -104,6 +104,22 @@ def test_a_reference_to_nothing_the_drive_holds_refuses_the_post_and_sends_nothi
     assert posts[0][-1] == "<https://github.com/Forge-AI/monorepo/pull/7|Forge-AI/monorepo#7>"
 
 
+RELEASE = "https://buildkite.com/acme/release/builds/14765"
+
+
+def test_a_reference_or_link_inside_a_raw_links_words_refuses_the_post_naming_the_nesting_and_sends_nothing(demo: str, posts: list[tuple[str, ...]]) -> None:
+    line = {"text": f"<{RELEASE}|The release carrying {{pr:7|the fix that makes the view route return the read's real error}}> is failing on its `runtime-api-next` image build.", "thread_ts": "1794200000.000100"}
+    refused = f"{{pr:7|the fix that makes the view route return the read's real error}} sits inside the words of the link to {RELEASE}"
+    for post in (line, line | {"dry_run": True}):
+        with pytest.raises(DriveError, match=re.escape(refused)):
+            talk.say(demo, post)
+    with pytest.raises(DriveError, match=re.escape(f"<{PR_URL}|the fix> sits inside the words of the link to {RELEASE}")):
+        talk.say(demo, {"text": f"<{RELEASE}|The release carrying <{PR_URL}|the fix>> is failing."})
+    assert (posts, said(demo)) == ([], [])
+    talk.say(demo, {"text": f"<{RELEASE}|Release 14765>, carrying {{pr:7|the fix}}, is failing; Slack draws `<{RELEASE}|its <link>>` broken."})
+    assert posts[0][-1] == f"<{RELEASE}|Release 14765>, carrying <{PR_URL}|the fix>, is failing; Slack draws `<{RELEASE}|its <link>>` broken."
+
+
 def test_a_card_he_answered_or_the_drive_withdrew_still_links_by_its_waits_id(demo: str, posts: list[tuple[str, ...]]) -> None:
     settled = "https://acme.slack.com/archives/D123/p1794300000000500"
     with state.edit(demo) as data:
@@ -628,6 +644,21 @@ def test_a_line_in_an_alerts_thread_goes_out_through_cc_slack_reply_with_the_tic
         f" {ALERT} with channel_id C0ALERT1; post it in one of them"
     )
     assert len(posts) == 1
+
+
+def test_an_edit_of_a_line_in_an_alerts_thread_goes_out_with_the_ticket_its_hook_named_and_the_dashboard_shows_its_new_words(
+    demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], slack_thread: Thread
+) -> None:
+    alert_order(run, slack_thread)
+    talk.say(demo, {"text": "The release failed on the migration.", "channel_id": "C0ALERT1", "thread_ts": ALERT, "order": "o1"} | TICKET)
+    assert talk.say(demo, {"edit": POSTED, "text": "The release failed on the migration {pr:7} fixes."} | TICKET) == f"EDITED {POSTED}"
+    assert posts[1] == (
+        "edit", "--url", POSTED, "--text", f"The release failed on the migration <{PR_URL}|the run page shows its history> fixes.",
+        "--ticket", "t1", "--ticket-tree", "tree1", "--ticket-agent", "agent1", "--ticket-call", "call1", "--ticket-fingerprint", "print1",
+    )
+    history = view.history(state.load(demo), (event for event, _ in state.read_events(demo)), "https://acme.slack.com/")
+    [shown] = [entry for entry in history if entry["kind"] == "said"]
+    assert shown["text"] == f"The release failed on the migration [the run page shows its history]({PR_URL}) fixes."
 
 
 @pytest.mark.parametrize(

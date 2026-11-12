@@ -112,7 +112,7 @@ def checked(evt: BaseHookEvent, script: str) -> HookResult | None:
     found = output.get("hookSpecificOutput") or {}
     if reason := found.get("permissionDecisionReason") or (output.get("decision") == "block" and output["reason"]):
         if (words := output.get("his_words")) is not None:
-            return judged(evt, reason, output.get("rule") or "", [Evidence.model_validate(word) for word in words])
+            return judged(evt, reason, output.get("rule") or "", [Evidence.model_validate(word) for word in words], output["post"])
         return evt.block(reason, confirm=Confirm(rule=output.get("rule") or reason) if output.get("judged", True) else None)
     if made := found.get("updatedInput"):
         return evt.rewrite(made)
@@ -121,9 +121,8 @@ def checked(evt: BaseHookEvent, script: str) -> HookResult | None:
     return None
 
 
-def judged(evt: BaseHookEvent, reason: str, rule: str, words: list[Evidence]) -> HookResult | None:
-    """Jev's verdict on a post the drive's checks found something in, judged as the Slack permission hook judges a write without a ticket: the post goes out when his words, in this thread, on a card, in the brief or in the transcripts, show the findings do not hold against it, and stays back with Jev's reason when a rule of his does; a judge that gives no verdict lets it out with the findings noted, as a check that could not finish does."""
-    post = dict(evt.input.raw)
+def judged(evt: BaseHookEvent, reason: str, rule: str, words: list[Evidence], post: dict) -> HookResult | None:
+    """Jev's verdict on a post the drive's checks found something in, judged as the Slack permission hook judges a write without a ticket: Jev reads the post as Slack gets it, each of say's references linked, the words the checks found something in, and it goes out when his words, in this thread, on a card, in the brief or in the transcripts, show the findings do not hold against it, and stays back with Jev's reason when a rule of his does; a judge that gives no verdict lets it out with the findings noted, as a check that could not finish does."""
     place = {"thread": str(post.get("thread_ts") or "")} | ({"channel": post["channel_id"]} if post.get("channel_id") else {})
     where = f"in thread {place['thread']} of channel {post['channel_id']}" if post.get("channel_id") else "to him in his DM"
     if post.get("channel_id") and not place["thread"]:

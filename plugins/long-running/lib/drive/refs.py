@@ -6,6 +6,9 @@ from drive import dashboard, picture, reads, state, view
 from drive.state import DriveError
 
 REF = re.compile(r"\{(card|pr|order|record):([^{}\s|]+)(?:\|([^{}]+))?\}")
+OPEN_LINK = re.compile(r"<((?:https?://|mailto:)[^<>|\s]*)\|[^<>]*\Z")
+INNER = re.compile(r"<[^<>]*>?")
+CODE = re.compile(r"`[^`\n]+`")
 LINK_WORDS = str.maketrans({"<": "", ">": "", "|": "/", "[": "(", "]": ")"})
 CAUSE = re.compile(r"\b(?:because|caus(?:e|ed|es|ing)|due to|culprit)\b", re.IGNORECASE)
 QUOTED = re.compile(r'"[^"\n]*"|\u201c[^\u201d\n]*\u201d')
@@ -20,7 +23,9 @@ RECORD_WORDS = 10
 
 
 def resolved(name: str, text: str) -> dict[str, dict]:
-    """Each reference the text holds, read from the drive: {card:<waits id>}, {pr:<number, owner/repo#number or URL>}, {order:<id>} and {record:<seq>}, with the words that name it, the words after a | when it has them, and where it opens; one that names nothing refuses the post."""
+    """Each reference the text holds, read from the drive: {card:<waits id>}, {pr:<number, owner/repo#number or URL>}, {order:<id>} and {record:<seq>}, with the words that name it, the words after a | when it has them, and where it opens; one that names nothing, or a reference or link inside a raw link's words, refuses the post."""
+    if refusal := nested(text):
+        raise DriveError(refusal)
     found = {}
     cards = None
     data = None
@@ -42,6 +47,18 @@ def resolved(name: str, text: str) -> dict[str, dict]:
         if label:
             found[match[0]]["title"] = label
     return found
+
+
+def nested(text: str) -> str | None:
+    """Why the text, outside its code, writes a reference, link or mention inside the words of a raw <url|words> link, which Slack draws as a literal <, a link whose words are its own URL, and a literal >."""
+    plain = CODE.sub("", picture.FENCE.sub("", text))
+    for inner in sorted([*REF.finditer(plain), *INNER.finditer(plain)], key=lambda found: found.start()):
+        if outer := OPEN_LINK.search(plain, 0, inner.start()):
+            return (
+                f"{inner[0]} sits inside the words of the link to {outer[1]}, and a link's words cannot hold a link, which Slack"
+                f" draws broken: give that link a few words of its own and close it with >, then put {inner[0]} after it"
+            )
+    return None
 
 
 def unbacked(text: str) -> list[str]:
