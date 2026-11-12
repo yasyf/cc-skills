@@ -130,7 +130,9 @@ No tap and no green gate: by his standing rule a `yasyf/*` PR merges without ask
    (`gh pr view <n> -R <repo> --json mergeCommit`):
    - A Claude Code plugin: `drive install <plugin>@<marketplace> --sha <merge sha>` (such as
      `long-running@skills`), which the lander runs itself, waits for the release that holds the merge, updates the plugin, and
-     prints the installed version. A release holds it when the merge is in the release's commit and
+     prints the installed version. It updates each scope's install with its own `claude plugin update --scope`, the user
+     scope's and each project or local scope's from its folder, skipping one whose folder is gone, and checks each holds the
+     merge, since a session loads the install its folder's scope names and an update moves one scope. A release holds it when the merge is in the release's commit and
      in the tag of each binary the plugin pins from that repo through a `*.binrun` file, since a
      binary is built at its tag, which can predate the version sync that names it (cc-inbox 0.54.27's
      sync merged after a fix its `cci` was built without). While it waits it prints a line naming
@@ -147,8 +149,8 @@ No tap and no green gate: by his standing rule a `yasyf/*` PR merges without ask
      on `plugins/.update.lock` in the Claude config directory, a few seconds each. Claude Code
      re-clones a stale marketplace into one fixed `<marketplace>..clone` directory, where two clones
      at once delete each other's files, and two pulls of one tap clone at once collide on its index lock. It refuses
-     when the update left the plugin at a commit without the merge, as a marketplace clone holding
-     moved tags does, or running a binary whose release tag lacks it, naming the installed version,
+     when the update left any scope's install at a commit without the merge, as a marketplace clone holding
+     moved tags does, or running a binary whose release tag lacks it, naming that scope and its folder, the installed version,
      that commit or release, and the merge sha. It also refuses when the bare binary still runs a
      release without the merge at the timeout, naming that release. Installing long-running also restarts each drive's dashboard still serving other code, a
      line each, so no page keeps serving old code until someone restarts it; one it cannot restart names

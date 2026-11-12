@@ -41,12 +41,12 @@ def sleep(seconds: float) -> None:
     time.sleep(seconds)
 
 
-def run(cmd: list[str], deadline: float) -> str:
+def run(cmd: list[str], deadline: float, cwd: str | None = None) -> str:
     left = deadline - clock()
     if left <= 0:
         raise InstallError(f"no time left to run {' '.join(cmd)}")
     try:
-        done = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=left)
+        done = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=left, cwd=cwd)
     except subprocess.TimeoutExpired:
         raise InstallError(f"{' '.join(cmd)} ran past the deadline ({left:.0f}s left when it started)") from None
     if done.returncode != 0:
@@ -180,14 +180,15 @@ def await_release(clone: str, repo: str, plugin: str, sha: str, deadline: float,
 
 
 def check_holds(clone: str, repo: str, key: str, entry: dict, sha: str, deadline: float) -> None:
-    """Refuse an update that left the plugin at a commit without the awaited sha, as a marketplace clone holding moved tags does, or running a binary from a release without it."""
+    """Refuse an update that left one scope's install of the plugin at a commit without the awaited sha, as a marketplace clone holding moved tags does, or running a binary from a release without it."""
     commit = entry["gitCommitSha"]
+    scope = f"the {entry['scope']} scope" + (f" of {entry['projectPath']}" if entry.get("projectPath") else "")
     git(clone, *FETCH, commit, deadline=deadline)
     if not holds(clone, commit, sha, deadline):
-        raise InstallError(f"{key} is still at {entry['version']} ({commit[:12]}) after the update, which does not hold {sha[:12]}, the sha awaited")
+        raise InstallError(f"{key} in {scope} is still at {entry['version']} ({commit[:12]}) after the update, which does not hold {sha[:12]}, the sha awaited")
     binruns = [path.read_text() for path in sorted(Path(entry["installPath"]).rglob("*.binrun"))]
     if binary := binary_lacking(clone, repo, binruns, sha, deadline):
-        raise InstallError(f"{key} {entry['version']} runs {binary} after the update, which does not hold {sha[:12]}, the sha awaited")
+        raise InstallError(f"{key} {entry['version']} in {scope} runs {binary} after the update, which does not hold {sha[:12]}, the sha awaited")
 
 
 def await_homebrew(clone: str, binary: str, sha: str | None, deadline: float, timeout: int) -> None:
@@ -221,16 +222,24 @@ def upgraded() -> Path | None:
     if not DRIVE.is_relative_to((config_dir() / "plugins" / "cache").resolve()):
         return None
     plugins = json.loads((config_dir() / "plugins" / "installed_plugins.json").read_text())["plugins"]
-    installs = [entry for key, entries in plugins.items() if key.partition("@")[0] == "long-running" for entry in entries]
-    newest = Path(max(installs, key=lambda entry: entry.get("lastUpdated") or entry.get("installedAt") or "")["installPath"]) / "bin" / "drive"
-    return None if newest.resolve() == DRIVE else newest
+    drive = Path(newest([entry for key, entries in plugins.items() if key.partition("@")[0] == "long-running" for entry in entries])["installPath"]) / "bin" / "drive"
+    return None if drive.resolve() == DRIVE else drive
+
+
+def newest(entries: list[dict]) -> dict:
+    return max(entries, key=lambda entry: entry.get("lastUpdated") or entry.get("installedAt") or "")
+
+
+def installs(key: str) -> list[dict]:
+    """Each install of the plugin a session can load: the user scope's, and each project or local scope's whose folder is still on this Mac. Claude Code loads the one its folder's scope names, and `claude plugin update` moves one scope, so each is updated and checked on its own."""
+    plugins = json.loads((config_dir() / "plugins" / "installed_plugins.json").read_text())["plugins"]
+    if not (found := [entry for entry in plugins.get(key, []) if "projectPath" not in entry or Path(entry["projectPath"]).is_dir()]):
+        raise InstallError(f"{key} is not in installed_plugins.json in any scope whose folder is on this Mac")
+    return found
 
 
 def installed(key: str) -> dict:
-    plugins = json.loads((config_dir() / "plugins" / "installed_plugins.json").read_text())["plugins"]
-    if not plugins.get(key):
-        raise InstallError(f"{key} is not in installed_plugins.json after the update")
-    return max(plugins[key], key=lambda entry: entry.get("lastUpdated") or entry.get("installedAt") or "")
+    return newest(installs(key))
 
 
 def install(key: str, sha: str | None, repo: str | None, deadline: float, timeout: int) -> str:
@@ -241,10 +250,13 @@ def install(key: str, sha: str | None, repo: str | None, deadline: float, timeou
             await_release(clone, repo, plugin, sha, deadline, timeout)
         with state.flocked(config_dir() / "plugins" / UPDATE_LOCK):
             run(["claude", "plugin", "marketplace", "update", marketplace], deadline)
-            run(["claude", "plugin", "update", key], deadline)
-            entry = installed(key)
+            for each in installs(key):
+                run(["claude", "plugin", "update", key, "--scope", each["scope"]], deadline, each.get("projectPath"))
+            entries = installs(key)
         if sha:
-            check_holds(clone, repo, key, entry, sha, deadline)
+            for each in entries:
+                check_holds(clone, repo, key, each, sha, deadline)
+        entry = newest(entries)
         if after := AFTER_UPDATE.get(plugin):
             run([str(Path(entry["installPath"]) / after[0]), *after[1:]], deadline)
         if binary := HOMEBREW.get(plugin):

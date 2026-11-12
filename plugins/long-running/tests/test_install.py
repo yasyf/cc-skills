@@ -23,6 +23,8 @@ SENT = {"ok": True, "result": {"send": {"accepted": True}}}
 TAP_DIR = "/opt/homebrew/Library/Taps/yasyf/homebrew-tap"
 BREW_TAP = ["brew", "--repository", "yasyf/tap"]
 TAP_PULL = ["git", "-C", TAP_DIR, "pull", "--ff-only", "--quiet"]
+SEEDED = ("long-running@skills", "cc-context@skills", "cc-inbox@skills", "codex@skills")
+OLD_COMMIT = "0ld0c0mm1t0ld"
 
 
 def upgrade(binary: str) -> list[str]:
@@ -48,6 +50,28 @@ class FakeGit:
         self.bare: list[str] = []
         self.install_root = Path("/cache")
         self.together = threading.Barrier(1)
+        self.projects: list[str] = []
+        self.stuck: set[str] = set()
+        self.cwds: list[str | None] = []
+
+    def seed(self) -> None:
+        def entry(scope: str, **fields: str) -> dict:
+            return {"scope": scope, "version": "1.0.2", "lastUpdated": "2026-11-08T10:00:00.000Z", "installPath": "/cache/1.0.2", "gitCommitSha": OLD_COMMIT} | fields
+
+        gone = entry("project", projectPath="/gone/worktree", version="0.7.2119", lastUpdated="2026-11-12T10:00:00.000Z", installPath="/cache/old")
+        plugins = {key: [gone, entry("user"), *(entry("project", projectPath=folder) for folder in self.projects)] for key in SEEDED}
+        self.write_installed(plugins)
+
+    def write_installed(self, plugins: dict) -> None:
+        (self.config / "plugins" / "installed_plugins.json").write_text(json.dumps({"version": 2, "plugins": plugins}))
+
+    def update(self, key: str, scope: str, cwd: str | None) -> None:
+        plugins = json.loads((self.config / "plugins" / "installed_plugins.json").read_text())["plugins"]
+        moved = next(each for each in plugins[key] if each["scope"] == scope and each.get("projectPath") == (None if scope == "user" else cwd))
+        if scope not in self.stuck:
+            plugin = key.partition("@")[0]
+            moved |= {"version": "1.0.3", "lastUpdated": "2026-11-09T10:00:00.000Z", "installPath": str(self.install_root / plugin / "1.0.3"), "gitCommitSha": self.installed_sha or self.refs[0]}
+        self.write_installed(plugins)
 
     def clock(self) -> float:
         return self.now
@@ -61,12 +85,15 @@ class FakeGit:
             return self.orca(cmd, options["timeout"])
         self.calls.append(cmd)
         self.timeouts.append(options["timeout"])
+        self.cwds.append(options.get("cwd"))
         if self.call_seconds > options["timeout"]:
             self.now += options["timeout"]
             raise subprocess.TimeoutExpired(cmd, options["timeout"])
         self.now += self.call_seconds
         if cmd[0] == "gh":
             return subprocess.CompletedProcess(cmd, 1, "", "gh: API rate limit exceeded (HTTP 403)")
+        if cmd[:3] == ["claude", "plugin", "update"]:
+            self.update(cmd[3], cmd[5], options.get("cwd"))
         return subprocess.CompletedProcess(cmd, 0, self.answer(cmd), "")
 
     def orca(self, cmd: list[str], timeout: float) -> subprocess.CompletedProcess:
@@ -99,18 +126,6 @@ class FakeGit:
             return TAP_DIR + "\n"
         if verb[:2] == ["rev-list", "--count"]:
             return "0\n" if verb[-1].removeprefix("^") in self.holding else "4\n"
-        if cmd[:3] == ["claude", "plugin", "update"]:
-            plugin = cmd[3].partition("@")[0]
-            entry = {
-                "scope": "user",
-                "version": "1.0.3",
-                "lastUpdated": "2026-11-09T10:00:00.000Z",
-                "installPath": str(self.install_root / plugin / "1.0.3"),
-                "gitCommitSha": self.installed_sha or self.refs[0],
-            }
-            stale = {"scope": "project", "version": "0.7.2119", "lastUpdated": "2026-11-01T10:00:00.000Z", "installPath": "/cache/old"}
-            installed = {"version": 2, "plugins": {cmd[3]: [stale, entry]}}
-            (self.config / "plugins" / "installed_plugins.json").write_text(json.dumps(installed))
         return ""
 
     def git_calls(self) -> list[list[str]]:
@@ -144,6 +159,7 @@ def config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, state_root: Path) ->
 def fake(config: Path, monkeypatch: pytest.MonkeyPatch) -> Callable[..., FakeGit]:
     def make(refs: list[str], holding: set[str], call_seconds: float = 0, path: str | None = None) -> FakeGit:
         git = FakeGit(config, refs, holding, call_seconds, path)
+        git.seed()
         monkeypatch.setattr(install.subprocess, "run", git.run)
         monkeypatch.setattr(install, "clock", git.clock)
         monkeypatch.setattr(install, "sleep", git.sleep)
@@ -183,8 +199,33 @@ def test_a_tag_that_already_contains_the_sha_updates_and_prints_the_version(
     ]
     assert git.claude_calls() == [
         ["claude", "plugin", "marketplace", "update", "skills"],
-        ["claude", "plugin", "update", "long-running@skills"],
+        ["claude", "plugin", "update", "long-running@skills", "--scope", "user"],
     ]
+
+
+def test_each_scope_installed_in_a_folder_still_here_is_updated_in_that_folder(fake: Callable[..., FakeGit], tmp_path: Path) -> None:
+    git = fake(["long-running--v1.0.3"], {"long-running--v1.0.3"})
+    git.projects = [str(tmp_path / "durable-agents")]
+    (tmp_path / "durable-agents").mkdir()
+    git.seed()
+    assert install.main("long-running@skills", SHA, None, 900) == 0
+    updates = [(call[-1], cwd) for call, cwd in zip(git.calls, git.cwds, strict=True) if call[:3] == ["claude", "plugin", "update"]]
+    assert updates == [("user", None), ("project", str(tmp_path / "durable-agents"))]
+
+
+def test_a_scope_the_update_left_without_the_sha_is_refused_naming_its_folder(
+    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    git = fake(["long-running--v1.0.3"], {"long-running--v1.0.3"})
+    git.projects = [str(tmp_path / "durable-agents")]
+    (tmp_path / "durable-agents").mkdir()
+    git.seed()
+    git.stuck = {"project"}
+    assert install.main("long-running@skills", SHA, None, 900) == 1
+    assert capsys.readouterr().err.strip() == (
+        f"drive install: long-running@skills in the project scope of {tmp_path / 'durable-agents'} is still at 1.0.2 ({OLD_COMMIT[:12]}) after the update,"
+        f" which does not hold {SHA[:12]}, the sha awaited"
+    )
 
 
 def test_an_update_left_at_a_commit_without_the_sha_is_refused_naming_both(
@@ -196,7 +237,7 @@ def test_an_update_left_at_a_commit_without_the_sha_is_refused_naming_both(
     assert install.main("long-running@skills", SHA, None, 900) == 1
     out, err = capsys.readouterr()
     assert out == ""
-    assert err.strip() == f"drive install: long-running@skills is still at 1.0.3 (0ldc0mm1t5ha) after the update, which does not hold {SHA[:12]}, the sha awaited"
+    assert err.strip() == f"drive install: long-running@skills in the user scope is still at 1.0.3 (0ldc0mm1t5ha) after the update, which does not hold {SHA[:12]}, the sha awaited"
     assert git.git_calls()[-2:] == [[*install.FETCH, "0ldc0mm1t5ha99"], holds(SHA, "0ldc0mm1t5ha99")]
     assert git.orca_calls == []
 
@@ -212,7 +253,7 @@ def test_an_update_running_a_binary_from_a_release_without_the_sha_is_refused_na
     (bin_dir / "codex-ask.binrun.tmpl").write_text("{{ not json }}")
     assert install.main("long-running@skills", SHA, None, 900) == 1
     assert capsys.readouterr().err.strip() == (
-        f"drive install: long-running@skills 1.0.3 runs codex-ask from release v1.15.2 after the update, which does not hold {SHA[:12]}, the sha awaited"
+        f"drive install: long-running@skills 1.0.3 in the user scope runs codex-ask from release v1.15.2 after the update, which does not hold {SHA[:12]}, the sha awaited"
     )
     assert git.git_calls()[-2:] == [[*install.FETCH, "+refs/tags/v1.15.2:refs/tags/v1.15.2"], holds(SHA, "v1.15.2")]
 
