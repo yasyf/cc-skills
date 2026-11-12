@@ -317,6 +317,7 @@ def load(name: str) -> dict:
         pr.setdefault("failed_checks", [])
         pr.setdefault("hold_label", False)
         pr.setdefault("ready_said", None)
+        pr.setdefault("native", [])
         pr.setdefault("lander", None)
         pr.setdefault("ejected", False)
         pr.setdefault("review_asked", None)
@@ -1109,6 +1110,7 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "conflict": False,
         "hold_label": False,
         "ready_said": None,
+        "native": [],
         "draft": False,
         "merged_sha": None,
         "stuck": None,
