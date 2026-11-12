@@ -630,6 +630,14 @@ restating it.
 - The current time, and any time you estimated: Slack already stamps every post. Compute a promised
   time from `date`, or write it as `+30m` to `--due` and read it back from `drive status`, never from
   your sense of how long the turn has run, which drifts.
+- A clock time typed for work already done. Name the job or record and let the drive's stamp give the
+  time: `{started:<job>}` for when a job started and `{at:<seq>}` for when a record went out, which `say`
+  fills. The cci `post` hook, a Bash `cci post`, `say`, a SendMessage from the coordinator or meta
+  session, a defect through `record` and `drive job report` refuse a time such as "started at 4:55 AM",
+  naming the write's stamp and each named job's: on Nov 12 a report posted at 4:50 AM said its builder
+  started at 4:55 AM. A promise of a time to come, such as "next line by 5:40 AM" or "due 6 AM", a time
+  quoted as a tool printed it, in backticks, and a linked time pass. His ruling of Nov 3: "the agent
+  should never be passing in a time".
 
 ## Examples
 

@@ -2827,10 +2827,26 @@ def test_a_limit_left_standing_is_his_choice_and_returns_ask_or_design(
     assert keep(monkeypatch, capsys, "j2", f'DONE limits.py and cli.py never set "hints" (0 grep hits)\n{check}') == (0, "")
     for evidence in (
         f'DEFECT: ccx vcs gh refuses every read on this Sprite: "{refusal}"',
-        f'Measured: stack-enqueue read the queue under its "GitHub rate limit floor" of 500 calls, then its 1:20 PM read was refused: "{refusal}"',
-        f'Measured: gh pr view was refused 3 times between 1:10 PM and 1:24 PM, each "{refusal}"',
+        f'Measured: stack-enqueue read the queue under its "GitHub rate limit floor" of 500 calls, then its `1:20 PM` read was refused: "{refusal}"',
+        f'Measured: gh pr view was refused 3 times between `1:10 PM` and `1:24 PM`, each "{refusal}"',
     ):
         assert keep(monkeypatch, capsys, "j2", f"DONE the copy finished\n{check}{evidence}\n") == (0, "")
+
+
+def test_a_job_report_typing_when_past_work_happened_is_refused_naming_the_jobs_stamp(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy the bucket")
+    run("job", "add", "builder", "--order", "o1", "--goal", "copy it")
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["created"] = state.stamp(state.now().replace(hour=4, minute=50, second=21, microsecond=0))
+    check = "CHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n"
+    code, err = keep(monkeypatch, capsys, "j1", f"DONE j1 started at 4:55 AM and the copy finished\n{check}")
+    assert code == 2
+    assert 'j1: refused, nothing kept: "4:55 AM" is a time typed for work already done' in err
+    assert "j1 was created at 4:50:21 AM, which {started:j1} says" in err
+    assert state.load(demo)["jobs"]["j1"]["state"] == "running"
+    assert keep(monkeypatch, capsys, "j1", f"DONE j1 started at {{started:j1}} and the copy finished\n{check}") == (0, "")
 
 
 def test_a_builders_ready_is_kept_whatever_its_pr_body_says(

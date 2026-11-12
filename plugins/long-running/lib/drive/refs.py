@@ -5,7 +5,7 @@ from pathlib import Path
 from drive import dashboard, picture, reads, render, settled, state, view
 from drive.state import DriveError
 
-REF = re.compile(r"\{(card|pr|order|record|answer):([^{}\s|]+)(?:\|([^{}]+))?\}")
+REF = re.compile(r"\{(card|pr|order|record|answer|started|at):([^{}\s|]+)(?:\|([^{}]+))?\}")
 ACK = re.compile(r"\bAck: (https://\S+)")
 RAW_ANSWER = re.compile(r"^\d+:\d+ commit-sha '([0-9a-f]{7,40})'")
 OPEN_LINK = re.compile(r"<((?:https?://|mailto:)[^<>|\s]*)\|[^<>]*\Z")
@@ -41,7 +41,7 @@ RECORD_WORDS = 10
 
 
 def resolved(name: str, text: str) -> dict[str, dict]:
-    """Each reference the text holds, read from the drive: {card:<waits id>}, {pr:<number, owner/repo#number or URL>}, {order:<id>}, {record:<seq>} and {answer:<id>}, with the words that name it, the words after a | when it has them, and where it opens; one that names nothing, or a reference or link inside a raw link's words, refuses the post."""
+    """Each reference the text holds, read from the drive: {card:<waits id>}, {pr:<number, owner/repo#number or URL>}, {order:<id>}, {record:<seq>}, {answer:<id>}, and {started:<job>} and {at:<seq>}, the time a job started and a record went out, with the words that name it, the words after a | when it has them, and where it opens; one that names nothing, or a reference or link inside a raw link's words, refuses the post."""
     if refusal := nested(text):
         raise DriveError(refusal)
     found = {}
@@ -64,6 +64,10 @@ def resolved(name: str, text: str) -> dict[str, dict]:
                 found[match[0]] = record(name, match[2])
             case "answer":
                 found[match[0]] = answer(data, match[2])
+            case "started":
+                found[match[0]] = started(data, match[2])
+            case "at":
+                found[match[0]] = posted_at(name, match[2])
         if label:
             found[match[0]]["title"] = label
     return found
@@ -176,10 +180,7 @@ def order(name: str, data: dict, order_id: str) -> dict:
 
 def record(name: str, seq: str) -> dict:
     """A cci record under the opening of its own words, so a cause links the measurement behind it in a few words and the record's whole text never joins the post: a link to what the record measured, its url, which report_refusals keeps off a report naming his message, or those words alone when it links nothing."""
-    try:
-        found = json.loads(reads.run(["cci", "show", seq, "--json", "--drive", name], Path.cwd()))
-    except reads.ReadError as error:
-        raise DriveError(f"{{record:{seq}}} could not be read: {error}") from None
+    found = shown(name, "record", seq)
     url = found["refs"].get("url")
     return {"kind": "record", "title": opening(found["text"]), "url": url, "board": url, "defect": found["kind"] == "defect"}
 
@@ -208,6 +209,26 @@ def answered(answer_id: str, data: dict) -> bool:
     except DriveError:
         return False
     return True
+
+
+def started(data: dict, job_id: str) -> dict:
+    """When a job started, the stamp the drive wrote as it added the job, so no session types the time."""
+    if job_id not in data["jobs"]:
+        raise DriveError(f"{{started:{job_id}}} names no job of the drive's; drive status lists them")
+    return {"kind": "started", "title": render.when(data["jobs"][job_id]["created"]), "url": None, "board": None}
+
+
+def posted_at(name: str, seq: str) -> dict:
+    """When a cci record went out, its own stamp read in local time, so no session types the time."""
+    moment = state.parse_time(shown(name, "at", seq)["at"]).astimezone()
+    return {"kind": "at", "title": render.when(state.stamp(moment)), "url": None, "board": None}
+
+
+def shown(name: str, kind: str, seq: str) -> dict:
+    try:
+        return json.loads(reads.run(["cci", "show", seq, "--json", "--drive", name], Path.cwd()))
+    except reads.ReadError as error:
+        raise DriveError(f"{{{kind}:{seq}}} could not be read: {error}") from None
 
 
 def opening(text: str) -> str:

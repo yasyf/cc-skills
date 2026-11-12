@@ -1538,7 +1538,7 @@ def keep_waits(job: dict, file: Path, waits: str) -> None:
 
 
 def job_report(args: argparse.Namespace) -> int:
-    """Keep a job's whole return from stdin in its history and, while the job runs, as its report, its first line setting the job's state, or refuse it with nothing kept, naming the fix, when that line would set none; a reader's DESIGN is kept as its ASK in the same call, whose path it prints. With no stdin, print the kept report, or a remote lane's latest one."""
+    """Keep a job's whole return from stdin in its history and, while the job runs, as its report, its first line setting the job's state, or refuse it with nothing kept, naming the fix, when that line would set none or it types a clock time for work already done; a reader's DESIGN is kept as its ASK in the same call, whose path it prints. With no stdin, print the kept report, or a remote lane's latest one."""
     name = state.resolve(args.drive)
     data = state.load(name)
     job = find(data["jobs"], args.id, "job")
@@ -1547,7 +1547,7 @@ def job_report(args: argparse.Namespace) -> int:
         if not whole.strip():
             raise DriveError(f"stdin held no report for {args.id}; pipe its whole return in: printf '%s\\n' '<line>' ... | drive job report {args.id} -")
         line = whole.strip().splitlines()[0].strip()
-        if refused := brief.report_refusal(name, data, args.id, whole) or state.result_refusal(data, args.id, line, whole):
+        if refused := brief.report_refusal(name, data, args.id, whole) or state.result_refusal(data, args.id, line, whole) or limits.typed_time(whole, data):
             raise DriveError(f"{args.id}: refused, nothing kept: {refused}")
         if job["kind"] == "builder" and re.match(r"(?:READY|PUSHED)\b", line):
             try:

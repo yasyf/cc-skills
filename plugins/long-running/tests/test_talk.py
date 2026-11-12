@@ -2,7 +2,7 @@ import json
 import os
 import re
 from collections.abc import Callable
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -203,6 +203,18 @@ def test_his_ruling_draws_as_his_words_and_when_he_said_them_linked_to_their_ack
     assert posts[0][-1] == f'Fixed under <{ack}|his {when} ruling "you need to fix the hookw henver it wrongly refuses…">.'
     commit = "1:30 commit-sha '1a2b3c4': link the commit"
     assert refs.answer_ids(["1:12 commit-sha 'f03a0aa': link the commit", commit], state.load(demo)) == [commit]
+
+
+def test_a_jobs_start_and_a_records_time_are_filled_from_the_drives_stamps(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
+    today = state.now().replace(microsecond=0)
+    with state.edit(demo) as data:
+        data["jobs"]["j1860"] = state.new_job("o1", "builder", "fix the replication sync", [], state.stamp(today.replace(hour=4, minute=50, second=21)))
+    went_out = today.replace(hour=4, minute=47, second=9).astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    monkeypatch.setattr(reads, "run", lambda argv, checkout: json.dumps({"at": went_out, "text": "POST Yes to both", "refs": {}}))
+    talk.say(demo, {"text": "A second fix job started at {started:j1860}, after the report of {at:673251}."})
+    assert posts[0][-1] == "A second fix job started at 4:50 AM, after the report of 4:47 AM."
+    with pytest.raises(DriveError, match=r"\{started:j9\} names no job of the drive's"):
+        talk.say(demo, {"text": "It started at {started:j9}."})
 
 
 def test_a_card_asked_again_with_new_words_moves_its_question_and_each_wait_on_it_to_the_new_card(demo: str, posts: list[tuple[str, ...]]) -> None:

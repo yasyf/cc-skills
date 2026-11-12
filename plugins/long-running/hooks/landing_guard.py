@@ -665,7 +665,7 @@ def shell_of(payload: dict) -> tuple[list[str], Shell]:
 
 
 def judged_reason(payload: dict) -> str | None:
-    """Why a drive session's Bash call looks wrong in a way Jev judges before it stands: it posts a drive's ask record past the check against his answers or naming an ASK file that keeps another question than its own or one his answer closed, a report naming an attr a separator, a capital or one letter from one the drive reads, a record to lanes other than the drive routes it to, or a report to the communicator that the checks the cci `post` tool's hook runs refuse, such as one leaving out a part a finished job answered, or is the coordinator's or the meta session's own order work."""
+    """Why a drive session's Bash call looks wrong in a way Jev judges before it stands: it posts a drive's ask record past the check against his answers or naming an ASK file that keeps another question than its own or one his answer closed, a report naming an attr a separator, a capital or one letter from one the drive reads, a record to lanes other than the drive routes it to, a report to the communicator that the checks the cci `post` tool's hook runs refuse, such as one leaving out a part a finished job answered, or a record other than his words typing a clock time for work already done, or is the coordinator's or the meta session's own order work."""
     names, shell = shell_of(payload)
     session = shell.session
     command = payload["tool_input"]["command"]
@@ -679,6 +679,8 @@ def judged_reason(payload: dict) -> str | None:
     drive = state.load(names[0]) if names and posts else None
     if drive and (unreported := next(filter(None, (refused for index in range(len(posts)) for refused in reports.report_refusals(payload, drive, posts, index))), None)):
         return unreported
+    if drive and (typed := next(filter(None, (agents.typed_time(f"{post['text']}\n{post['body'] or ''}", drive) for post in posts if post["kind"] not in agents.HIS_KINDS)), None)):
+        return typed
     roles = [] if payload.get("agent_id") else [state.session_role(state.load(name), session) for name in names]
     who = next((role for role in roles if role in ("coordinator", "meta")), None)
     if who and (step := own_work(command, shell)):

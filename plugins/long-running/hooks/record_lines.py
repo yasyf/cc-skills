@@ -106,6 +106,7 @@ def refusals(payload: dict, names: list[str], records: list[dict]) -> Iterator[s
         yield untapped(record, prs)
         yield unchecked(record, drives)
         yield from report_refusals(payload, drive, records, index)
+        yield None if kind(record) in agents.HIS_KINDS else agents.typed_time(f"{record.get('text') or ''}\n{record.get('body') or ''}", drive)
 
 
 def readdressed(drives: dict[str, dict], session: str | None, record: dict) -> dict:
