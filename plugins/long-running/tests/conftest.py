@@ -1,5 +1,6 @@
 import json
 import os
+import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -79,6 +80,20 @@ Root cause: none: a design choice, with no defect behind it
 (1) What a journal file is: a run's journal is a SQLite database, copied to the team's bucket as LTX files.
 (2) Each LTX file ends with a page map; its length sits in the last 24 bytes.
 """
+
+
+def git_in(repo: Path, *args: str) -> str:
+    identity = ["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"]
+    return subprocess.run(["git", "-C", str(repo), *identity, *args], check=True, capture_output=True, text=True).stdout.strip()
+
+
+def commit_files(repo: Path, message: str, files: dict[str, str]) -> str:
+    for name, text in files.items():
+        (repo / name).parent.mkdir(parents=True, exist_ok=True)
+        (repo / name).write_text(text)
+    git_in(repo, "add", "-A")
+    git_in(repo, "commit", "-q", "-m", message)
+    return git_in(repo, "rev-parse", "HEAD")
 
 
 @pytest.fixture

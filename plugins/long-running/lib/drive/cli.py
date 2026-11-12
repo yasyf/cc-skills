@@ -3455,7 +3455,7 @@ def parser() -> argparse.ArgumentParser:
         help="what the watch, his Approve and pr add start: queue PRs he approved through stack-enqueue --watch, or merge a yasyf/* PR with --admin and install it",
     )
     verb.add_argument("urls", nargs="+", help="one PR, or a stack bottom first")
-    verb.add_argument("--dry-run", action="store_true", help="say what it would do, refusing as it would, and land and record nothing")
+    verb.add_argument("--dry-run", action="store_true", help="run stack-enqueue --check from a fresh worktree of the default branch, say what it would do, refusing as it would, and queue and record nothing")
     verb.add_argument("--outcome", help="land nothing and record this outcome, as a lander older than the drive hands its record to the newest install")
     verb.add_argument("--below", action="append", default=[], metavar="PR", help="with --outcome, a PR below it without his Approve that held it; repeat for each")
     verb.set_defaults(run=pr_land)

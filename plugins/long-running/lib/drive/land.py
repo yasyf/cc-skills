@@ -1,6 +1,8 @@
 import os
 import re
 import subprocess
+from collections.abc import Iterator
+from contextlib import contextmanager
 from itertools import takewhile
 from pathlib import Path
 
@@ -10,6 +12,8 @@ from drive.render import cut
 ENQUEUE = Path(".agents/skills/submit-pr/scripts/stack-enqueue")
 DRIVE = Path(__file__).resolve().parents[2] / "bin" / "drive"
 LOG = "landings.log"
+LANDINGS = "landing"
+CHECKOUT_SECONDS = 600
 SAID_CHARS = 400
 SAID_LINES = 4
 QUEUED = "queued for merge"
@@ -241,7 +245,7 @@ def spawn(name: str, keys: tuple[str, ...]) -> int:
 
 
 def run(name: str, keys: list[str], dry_run: bool = False) -> str:
-    """Land one unit his Approve or exempt classes clear, or one yasyf/* PR, never one someone else opened that no order of his it serves names, then record what came of it on each PR and as a landing event, which the watch says on the PR's line: a failure wakes its job, a queued one does not. His Approve lands only a change checked against his words at its head, so a PR his Approve clears is refused while its head is unchecked, and not queued while GitHub holds another head, which the watch's check judges; nor is a unit with a PR below it that nothing clears, since stack-enqueue would queue that PR too, nor one with a PR its changes put outside its exempt class. A dry run says what it would do and records nothing."""
+    """Land one unit his Approve or exempt classes clear, or one yasyf/* PR, never one someone else opened that no order of his it serves names, then record what came of it on each PR and as a landing event, which the watch says on the PR's line: a failure wakes its job, a queued one does not. His Approve lands only a change checked against his words at its head, so a PR his Approve clears is refused while its head is unchecked, and not queued while GitHub holds another head, which the watch's check judges; nor is a unit with a PR below it that nothing clears, since stack-enqueue would queue that PR too, nor one with a PR its changes put outside its exempt class. A dry run runs stack-enqueue --check as the landing would, says what it would do, and queues and records nothing."""
     data = state.load(name)
     if refused := [key for key in keys if not (state.merges_untapped(key) or state.queued_by_lander(key) and state.cleared(data["prs"][key]))]:
         raise state.DriveError(f"{', '.join(refused)}: the drive lands a yasyf/* PR, or a Forge-AI/monorepo PR he approved or an exempt class lands, and no other")
@@ -266,10 +270,8 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
                 outcome = f"{WAITS_CHECK}: GitHub holds {', '.join(moved)}, a head that check has not passed, so his Approve lands it once the watch's check passes there"
             elif below:
                 outcome = held_below(keys, below)
-            elif dry_run:
-                outcome = f"would queue {', '.join(keys)} through stack-enqueue --watch: every PR below it is merged, approved by him or exempt"
             else:
-                outcome = enqueued(name, Path(data["roles"]["coordinator"]["cwd"]), keys)
+                outcome = enqueued(name, Path(data["roles"]["coordinator"]["cwd"]), keys, dry_run)
     if dry_run:
         return outcome
     return record(name, keys, outcome, below)
@@ -291,25 +293,48 @@ def said(output: str) -> str:
     return cut("; ".join([line for line in output.splitlines() if line.strip()][-SAID_LINES:]), SAID_CHARS)
 
 
-def enqueued(name: str, checkout: Path, keys: list[str]) -> str:
-    """Queue the unit through the coordinator checkout's stack-enqueue: --check first, whose BLOCKED lines end the landing, unless each gap is an approval on an older head, which stack-enqueue names only once ai-review finished on the head; then forge-pr-reviewer is asked to review each such head once, and --watch waits until Trunk holds every PR of it or one needs a fix rather than a wait; what came of it."""
-    script = str(checkout / ENQUEUE)
+def enqueued(name: str, clone: Path, keys: list[str], dry_run: bool = False) -> str:
+    """Queue the unit through stack-enqueue as the head of its repository's default branch holds it, run from a fresh() worktree of the coordinator checkout's clone and never from that checkout: --check first, whose BLOCKED lines end the landing, unless each gap is an approval on an older head, which stack-enqueue names only once ai-review finished on the head; a dry run stops there, saying what it would queue; then forge-pr-reviewer is asked to review each such head once, and --watch waits until Trunk holds every PR of it or one needs a fix rather than a wait; what came of it."""
+    repo = github.repo_of(keys[0])
     numbers = [key.split("#")[1] for key in keys]
     try:
-        checked = subprocess.run([script, "--check", *numbers], cwd=checkout, capture_output=True, text=True)
-    except OSError as error:
-        return f"not landed: {script} did not start: {error}"
-    print(checked.stdout + checked.stderr, flush=True)
-    blocked = list(BLOCKED_LINE.finditer(checked.stdout))
-    if any(not OLDER_HEAD.fullmatch(gap) for line in blocked for gap in line["gaps"].split("; ")):
-        return f"not landed: {cut('; '.join(line[0] for line in blocked), SAID_CHARS)}; its whole output is in {state.drive_dir(name) / LOG}"
-    if refused := ask_review(name, github.repo_of(keys[0]), {line["number"]: line["head"] for line in blocked}):
-        return refused
-    done = subprocess.run([script, "--watch", *numbers], cwd=checkout, capture_output=True, text=True)
+        branch = github.default_branch(repo)
+        with fresh(name, clone, branch) as (checkout, sha):
+            script = str(checkout / ENQUEUE)
+            print(f"{', '.join(keys)}: stack-enqueue from {checkout}, a fresh worktree of {repo}'s {branch} at {sha}", flush=True)
+            try:
+                checked = subprocess.run([script, "--check", *numbers], cwd=checkout, capture_output=True, text=True)
+            except OSError as error:
+                return f"not landed: {script} did not start: {error}"
+            print(checked.stdout + checked.stderr, flush=True)
+            blocked = list(BLOCKED_LINE.finditer(checked.stdout))
+            if any(not OLDER_HEAD.fullmatch(gap) for line in blocked for gap in line["gaps"].split("; ")):
+                return f"not landed: {cut('; '.join(line[0] for line in blocked), SAID_CHARS)}; its whole output is in {state.drive_dir(name) / LOG}"
+            if dry_run:
+                return f"would queue {', '.join(keys)} through stack-enqueue --watch from {branch} at {sha[:12]}: every PR below it is merged, approved by him or exempt"
+            if refused := ask_review(name, repo, {line["number"]: line["head"] for line in blocked}):
+                return refused
+            done = subprocess.run([script, "--watch", *numbers], cwd=checkout, capture_output=True, text=True)
+    except github.GithubError as error:
+        return f"not landed: no fresh worktree of {repo}'s default branch to run stack-enqueue from: {cut(str(error), SAID_CHARS)}"
     print(done.stdout + done.stderr, flush=True)
     if done.returncode == 0:
         return QUEUED
     return f"not landed: stack-enqueue --watch exited {done.returncode}: {said(done.stdout + done.stderr)}; its whole output is in {state.drive_dir(name) / LOG}"
+
+
+@contextmanager
+def fresh(name: str, clone: Path, branch: str) -> Iterator[tuple[Path, str]]:
+    """A worktree of the clone's repository at the head of branch as origin holds it now, made for one landing in the drive's landing folder and removed once it ends: its path and that head's sha. A landing runs the repository's scripts, and the toolchain its mise.toml pins for them, as that head holds them, never as the coordinator's checkout holds them at whatever commit and edits it carries, which it leaves untouched. Every core checks it out at once, with no hook, since the monorepo's post-checkout hook warms node_modules that no landing step reads."""
+    git = ["git", "-C", str(clone)]
+    github.run([*git, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin", f"+refs/heads/{branch}:refs/remotes/origin/{branch}"])
+    sha = github.run([*git, "rev-parse", f"refs/remotes/origin/{branch}"]).strip()
+    checkout = state.drive_dir(name) / LANDINGS / str(os.getpid())
+    github.run([*git, "-c", "core.hooksPath=/dev/null", "-c", "checkout.workers=0", "worktree", "add", "-q", "--detach", str(checkout), sha], timeout=CHECKOUT_SECONDS)
+    try:
+        yield checkout, sha
+    finally:
+        subprocess.run([*git, "worktree", "remove", "--force", str(checkout)])
 
 
 def ask_review(name: str, repo: str, heads: dict[str, str]) -> str | None:
