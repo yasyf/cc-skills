@@ -121,12 +121,16 @@ legacy=$dir/${name%.*}.dispatch.json
 [ ! -e "$legacy" ] && [ ! -L "$legacy" ] ||
   die "$legacy holds an earlier launch of this brief, and a brief gets one attempt; inspect it instead"
 sha=$(shasum -a 256 "$brief" | cut -d' ' -f1)
-if [ "$route" = sprite ] && [ -d "$attempt" ] && [ ! -L "$attempt" ] && [ ! -e "$attempt/worker-start.status" ] &&
-  read -r failed 2>/dev/null <"$attempt/prepare.status" && [[ $failed =~ ^[1-9][0-9]*$ ]]; then
-  retired=$attempt.1
+bytes=$(wc -c <"$brief" | tr -d ' ')
+retire() {
+  local retired=$attempt.1
   while [ -e "$retired" ] || [ -L "$retired" ]; do retired=$attempt.$((${retired##*.} + 1)); done
   mv "$attempt" "$retired"
-  echo "$retired keeps the earlier attempt, whose prepare exited $failed before any worker started; preparing again" >&2
+  echo "$retired keeps the earlier attempt, $1; preparing again" >&2
+}
+if [ "$route" = sprite ] && [ -d "$attempt" ] && [ ! -L "$attempt" ] && [ ! -e "$attempt/worker-start.status" ] &&
+  read -r failed 2>/dev/null <"$attempt/prepare.status" && [[ $failed =~ ^[1-9][0-9]*$ ]]; then
+  retire "whose prepare exited $failed before any worker started"
 fi
 reused= unsent=
 if [ -e "$attempt" ] || [ -L "$attempt" ]; then
@@ -134,14 +138,25 @@ if [ -e "$attempt" ] || [ -L "$attempt" ]; then
     [ "$(jq -r '.error.code // empty' "$attempt/worker-start.json" 2>/dev/null)" = consumer_fenced ] ||
     { [ -f "$attempt/tools.err" ] && [ ! -e "$attempt/worker-start.status" ]; }; } ||
     die "$attempt holds an earlier attempt of this brief, and a brief gets one attempt; inspect it instead"
-  [ "$(jq -r .brief.sha256 "$attempt/prepared.json")" = "$sha" ] ||
-    die "$attempt prepared a Sprite for another version of this brief, and its worker-start started no worker; launch the brief it prepared"
   reused=1
   [ ! -f "$attempt/worker-start.unsent" ] || read -r unsent <"$attempt/worker-start.unsent"
-else
-  mkdir "$attempt"
+  IFS=$'\t' read -r host ssh_config path workspace <<<"$(jq -r '[.forward.host, .forward.config, .brief.path, .workspace] | @tsv' "$attempt/prepared.json")"
+  printf -v target %q "$path"
+  copied=0
+  error=$(ssh -F "$ssh_config" -o BatchMode=yes -o ConnectTimeout=30 "$host" "cat >$target" <"$brief" 2>&1) || copied=$?
+  case $copied in
+    0)
+      jq --arg sha "$sha" --argjson bytes "$bytes" '.task.brief += {sha256: $sha, bytes: $bytes}' "$attempt/allocation.json" >"$attempt/allocation.json.new"
+      mv "$attempt/allocation.json.new" "$attempt/allocation.json"
+      ;;
+    255)
+      retire "whose Sprite $workspace answered no ssh connection before any worker started: ${error##*$'\n'}"
+      reused= unsent=
+      ;;
+    *) die "the Sprite $workspace did not take the brief at $path: ${error##*$'\n'}; the prepared worker stays idle and unattached, and launching this brief again copies it again" ;;
+  esac
 fi
-bytes=$(wc -c <"$brief" | tr -d ' ')
+[ -n "$reused" ] || mkdir "$attempt"
 jq -n --arg lane "$lane" --arg run "$run" --arg route "$route" --arg kind "$kind" --arg model "$model_id" --arg effort "$effort" \
   --arg tier "$tier" --arg ref "$ref" --arg expect "$expect" --arg path "$brief" --arg sha "$sha" --argjson bytes "$bytes" \
   --arg worktree "${worktree:-}" '

@@ -99,8 +99,16 @@ refuses before it runs `worker-start` exits 75: the launcher writes an empty
 `worker-start.unsent` and says in one line that no worker started and its
 prepared terminal waits idle. A Sprite attempt whose `worker-start` came back
 `consumer_fenced`, or holds that `worker-start.unsent`, starts again from the
-same attempt with the same brief: it reuses the prepared Sprite and runs only
+same attempt: it reuses the prepared Sprite, reruns the tool step and runs
 `worker-start`.
+
+Every relaunch that reuses a prepared Sprite first copies the brief as it now
+reads over the Sprite's copy at `prepared.json`'s `brief.path`, through the ssh
+forward the tool step uses, and records its new SHA-256 and size in
+`allocation.json` and `prepared.json`, so a brief rewritten between launches
+reaches the worker. When that ssh exits 255, it reached no Sprite: the launcher
+moves the attempt to `<brief-stem>.worker.<n>` and prepares a fresh Sprite. Any
+other failure keeps the attempt and names the Sprite's error.
 
 A Sprite `worker-start` can fail before Orca records it, as when this Mac's
 Orca gives up after 15 seconds waiting for a freshly paired Sprite's runtime:
@@ -254,8 +262,8 @@ In that last case no task reached any worker, so launching the brief again moves
 the attempt to `<brief-stem>.worker.<n>`, keeping its files, and prepares afresh. The directory records `request.json` with the requested route, model, effort,
 tier, ref, optional expected base, and local brief hash/bytes.
 
-The remote route retains the raw `allocation.json`, `prepare.err`, and
-`prepare.status`. It validates the requested lane, actual workspace, requested
+The remote route retains `allocation.json`, raw but for the brief a relaunch
+copied, `prepare.err`, and `prepare.status`. It validates the requested lane, actual workspace, requested
 ref, allocation kind, task HEAD, agent, brief, environment, terminal, and
 `<repoId>::<projectRoot>` worktree before extracting the task into
 `prepared.json`. It then runs `worker-start` with `--on` the prepared
