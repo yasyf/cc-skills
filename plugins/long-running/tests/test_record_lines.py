@@ -248,6 +248,27 @@ def test_an_ask_attaching_its_kept_file_takes_it_as_its_ask(demo: str) -> None:
     assert made["updatedInput"]["attrs"] == asked
 
 
+def test_an_ask_attaching_its_kept_file_with_no_text_asks_the_line_cci_stores_from_it(demo: str) -> None:
+    asked = kept(demo, "j1", IDLE)
+    file = Path(asked["ask"])
+    file.parent.mkdir(parents=True, exist_ok=True)
+    file.write_text(f"\n  ASK {IDLE}\nThe idle ones hold a slot each.\n")
+    assert record_lines.decision(post(kind="ask", path=asked["ask"], attrs=asked)) is None
+    made = record_lines.decision(post(kind="ask", path=asked["ask"], attrs={"job": "j1"}))["updatedInput"]
+    assert made["attrs"] == asked and "text" not in made
+    file.write_text(f"ASK {LAYOUT}\n")
+    reason = refusal(record_lines.decision(post(kind="ask", path=asked["ask"], attrs=asked)))
+    assert "which this record does not ask" in reason and "on the cci `post` tool" in reason and "cci post --" not in reason
+
+
+def test_a_report_attaching_a_file_with_no_text_is_checked_by_the_files_first_line(demo: str, tmp_path: Path) -> None:
+    facts = tmp_path / "j702.md"
+    facts.write_text("POST j702 merged\nproof: https://github.com/yasyf/cc-skills/pull/4093\n")
+    assert record_lines.decision(post(kind="report", to=TO, path=str(facts), attrs=PROGRESS)) is None
+    facts.write_text("j702 merged\n")
+    assert "`POST`" in refusal(record_lines.decision(post(kind="report", to=TO, path=str(facts), attrs=PROGRESS)))
+
+
 def test_an_ask_for_a_job_on_an_open_incident_order_says_so_and_names_the_incidents_thread(run: Callable[..., tuple[int, str]], demo: str) -> None:
     run("order", "add", "--title", "Short title", "--project", "SandSQL", "--workstream", "Alerts", "--from", f"slack:C0822AHFY3G/{ALERT}", "unknown column case_v2.audit_status", "--incident", "--parts", "fix", "first check")
     asked = kept(demo, "j1", IDLE) | {"order": "o1"}

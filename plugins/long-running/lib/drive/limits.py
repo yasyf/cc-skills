@@ -1377,9 +1377,21 @@ def phrase(words: str) -> re.Pattern[str]:
     return re.compile(rf"(?<![\w-]){r'\s+'.join(map(re.escape, words.split()))}(?:e?s)?(?![\w-])", re.IGNORECASE)
 
 
+def opening_line(text: str) -> str:
+    """The text's first line that is not blank, trimmed, which cci stores as the text of a post that gives none and attaches the text's file."""
+    return text.strip().split("\n", 1)[0].strip()
+
+
+def as_stored(record: dict) -> dict:
+    """The record with the text cci stores for it, which every check reads: its own text, else the opening line of the file its path attaches."""
+    if record.get("text") or not record.get("path"):
+        return record
+    return record | {"text": opening_line(Path(record["path"]).read_text())}
+
+
 def first_line(text: str) -> str:
-    """A record's line as the other session sees it: its first line, cut at a word to the record limit."""
-    line = text.strip().split("\n", 1)[0].strip()
+    """A record's line as the other session sees it: its opening line, cut at a word to the record limit."""
+    line = opening_line(text)
     if len(line) <= RECORD_CHARS:
         return line
     return line[: RECORD_CHARS - 1].rsplit(" ", 1)[0].rstrip(" ,;:") + "…"

@@ -277,8 +277,8 @@ META_RULES = (
         " works, what it unblocks and the proof from the surface he uses; a ruling's rewrite lists each rule as it now"
         " reads in the installed skill, in his ruling's thread. READY on a Forge-AI PR gets drive pr set <url> --tap"
         " --serves <o> --design none, or with an EXEMPT line drive pr set <url> --exempt <class> and a builder briefed"
-        " `Handoff: LAND <url> Drive: <name> Scratch: <folder>`. ASK gets an ask record to communicator@<drive> with"
-        " `--attr ask=<its path> --attr job=<j> --path <its path>` and no text; BUILT, PUSHED and WAITING need nothing; BLOCKED gets drive job set <j> --state"
+        " `Handoff: LAND <url> Drive: <name> Scratch: <folder>`. ASK gets an ask record to communicator@<drive> on the cci"
+        " `post` tool with `attrs: {ask: <its path>, job: <j>}`, `path: <its path>` and no text; BUILT, PUSHED and WAITING need nothing; BLOCKED gets drive job set <j> --state"
         " stopped and a fresh builder on another route; an AFTER line goes in a POST report, and a DEFECT line gets its"
         " own order and reader."
     ),
