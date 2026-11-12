@@ -381,6 +381,8 @@ def load(name: str) -> dict:
         pr.setdefault("hold_label", False)
         pr.setdefault("ready_said", None)
         pr.setdefault("native", [])
+        pr.setdefault("base", None)
+        pr.setdefault("branch", None)
         pr.setdefault("lander", None)
         pr.setdefault("checker", None)
         pr.setdefault("ejected", False)
@@ -1414,6 +1416,8 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "hold_label": False,
         "ready_said": None,
         "native": [],
+        "base": None,
+        "branch": None,
         "draft": False,
         "merged_sha": None,
         "stuck": None,

@@ -2754,7 +2754,7 @@ def test_a_builders_ready_counts_only_on_a_green_required_check_and_one_still_ru
     run: Run, with_pr: str, on_github: dict, pr_reads: dict[str, dict], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     build = "https://buildkite.com/forge/monorepo/builds/7"
-    read = {"state": "OPEN", "isDraft": False, "headRefOid": "abc", "mergeCommit": None, "reviewDecision": None, "approvals": [], "mergeable": "MERGEABLE"}
+    read = {"state": "OPEN", "isDraft": False, "headRefOid": "abc", "baseRefName": "main", "headRefName": "land-it", "mergeCommit": None, "reviewDecision": None, "approvals": [], "mergeable": "MERGEABLE"}
     read |= {"title": "Fix: land it", "author": "yasyf", "labels": [], "native": []}
     for outcome, held in (
         ("PENDING", f"{with_pr}'s required checks still run at abc: return"),
