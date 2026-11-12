@@ -275,10 +275,12 @@ write-up; only the handler that writes to him writes prose.
   `drive job report` refuses a builder's or designer's report that opens with any other word.
 - The rest of the kept report is one fact a line: links, numbers, paths, exact quotes, and what it
   could not prove.
-- Whoever acts on it reads it with `drive job report <j>`, which prints the newest kept, and a remote
-  lane's Orca report the same way; an `ASK` keeps its block through `drive job ask` instead. A job
-  that reports again replaces what `drive job report <j>` prints, never what it kept: `drive job
-  replies <j>` prints each return it kept, oldest first, beside each message a remote lane sent.
+- Whoever acts on it reads it with `drive job report <j>`, which prints the report its own agent
+  kept, and a remote lane's Orca report the same way; an `ASK` keeps its block through `drive job ask`
+  instead. Only a return made while the job runs writes that report: one piped after the job
+  returned, such as a coordinator restating its result, sets its said line and history and leaves
+  the agent's report as it was. `drive job replies <j>` prints each return it kept, oldest first,
+  beside each message a remote lane sent.
 
 ## Rules for every job
 

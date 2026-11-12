@@ -195,13 +195,15 @@ def report_text(name: str, job_id: str, job: dict) -> str:
     return path.read_text() if path.exists() else job.get("report") or ""
 
 
-def keep_report(name: str, job_id: str, line: str, whole: str) -> Path:
-    """Keep a return a job on this Mac made: reports/<j>.md holds the newest, which every reader takes as its report, and its history keeps each, as it keeps a remote lane's, so a later return never loses an earlier one."""
+def keep_report(name: str, job_id: str, job: dict, line: str, whole: str) -> bool:
+    """Keep a return a job on this Mac made in its history, which keeps each, as it keeps a remote lane's, so a later return never loses an earlier one, and, while the job runs, as reports/<j>.md, which every reader takes as its report: only the job's own turn writes that file, so a return on a job that already returned, such as a coordinator restating its result, leaves its agent's report as it was. Whether it wrote the file."""
+    keep_reply(name, job_id, {"created_at": stamp(), "id": f"report_{uuid.uuid4().hex[:12]}", "type": "worker_done", "subject": line, "body": whole})
+    if job["state"] != "running":
+        return False
     kept = report_path(name, job_id)
     kept.parent.mkdir(exist_ok=True)
     kept.write_text(whole)
-    keep_reply(name, job_id, {"created_at": stamp(), "id": f"report_{uuid.uuid4().hex[:12]}", "type": "worker_done", "subject": line, "body": whole})
-    return kept
+    return True
 
 
 def keep_reply(name: str, job_id: str, message: dict) -> None:
@@ -519,12 +521,11 @@ def reported(line: str) -> bool:
     return bool(BUILT_LINE.match(line)) or opening in RESULT_STATES and opening != "ASK"
 
 
-def kept_return(name: str, job_id: str, job: dict, line: str) -> bool:
-    """Whether the line a job's agent returned is the result the drive keeps for it, word for word: an `ASK <path>` naming the block `drive job ask` kept for one of its questions, else its kept report's first line."""
+def kept_return(job: dict, line: str) -> bool:
+    """Whether the line a job's agent returned is the result the drive keeps for it, word for word: an `ASK <path>` naming the block `drive job ask` kept for one of its questions, else its said line, which its newest return set, since a return made after the job returned keeps its report file as it was."""
     if (asked := ASK_LINE.fullmatch(line)) and kept_in(job, Path(asked["file"])):
         return True
-    kept = report_text(name, job_id, job).strip().splitlines()
-    return bool(kept) and kept[0].strip() == line
+    return job["said"] == line
 
 
 def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | None:
