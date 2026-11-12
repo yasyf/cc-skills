@@ -143,19 +143,25 @@ def matching(title: str, card: str, whole: str, drives: list[str], cwd: str, und
     return found + [answer for answer in under if answer["id"][:7] not in {other["id"][:7] for other in found}]
 
 
-def refusal(found: list[dict], why: str | None, override: str) -> str | None:
+def refusals(found: list[dict], under: list[dict], heard: list[dict], offered: str, why: str | None) -> str | None:
+    """Every reason a question may not go to him, in one refusal, so one ask again meets them all: his recorded answers, his words under its job's open card, his words in the order's thread, and the amounts those words name. One --unsettled example names every answer id and permalink, since the one string replaces the last."""
+    example = "; ".join(f"{name}: <why it does not settle this>" for name in [*(answer["id"][:7] for answer in found), *(message["link"] for message in heard)])
+    layers = [refusal(found, why, example), open_card_refusal(under, why), thread_refusal(heard, why, example), unoffered_refusal(heard, offered)]
+    return "\n".join(layer for layer in layers if layer) or None
+
+
+def refusal(found: list[dict], why: str | None, example: str) -> str | None:
     """Why a question may not go to him: one of these recorded answers of his may settle it, and no reason names that answer and says why it does not."""
     ids = [answer["id"][:7] for answer in found]
     if not (unnamed := [short for short in ids if short not in (why or "")]):
         return None
     listed = "\n".join(f"- {answer['id'][:7]} {answer['title'].splitlines()[0]}" for answer in found)
-    example = "; ".join(f"{short}: <why it does not settle this>" for short in ids)
     left_out = f" The reason given leaves out {', '.join(unnamed)}." if why else ""
     return (
         "refused: these recorded answers of his may already settle this question. Read each with `ccn answer show <id>`:"
         " a question one settles is never asked again, in any wording, and the work goes ahead on that answer. One that"
         " already names what you recommend, such as a service he said to build, settles what that thing does: build it."
-        f' Only when none does, ask again with {override} one string that names every id below, such as {override} "{example}".'
+        f' Only when none does, ask again with --unsettled one string that names every id below, such as --unsettled "{example}".'
         f"{left_out}\n{listed}"
     )
 
@@ -190,12 +196,11 @@ def thread_words(data: dict, order: dict, team_url: str, question: str) -> list[
     ]
 
 
-def thread_refusal(said: list[dict], why: str | None) -> str | None:
+def thread_refusal(said: list[dict], why: str | None, example: str) -> str | None:
     """Why a question may not go to him: his words in the order's thread may settle it, and no reason names each of those messages by its permalink."""
-    if not (unnamed := [message for message in said if f"p{message['key']}" not in (why or "")]):
+    if not any(f"p{message['key']}" not in (why or "") for message in said):
         return None
     listed = "\n".join(f'- {message["link"]} "{cut(message["text"], 200)}" (shares {", ".join(message["shared"])})' for message in said)
-    example = "; ".join(f"{message['link']}: <why it does not settle this>" for message in unnamed)
     return (
         "refused: his words in this order's thread may already settle this question. Read each: a question his words settle is"
         " never asked, and the work goes ahead on them. Only when none does, ask again with --unsettled naming each permalink"
@@ -204,9 +209,16 @@ def thread_refusal(said: list[dict], why: str | None) -> str | None:
 
 
 def unoffered_refusal(said: list[dict], offered: str) -> str | None:
-    """Why a question may not go to him: an amount his words in the order's thread name, as "30 day bonding" names 30 days, is in neither its question nor an option, so he has no tap for what he named."""
+    """Why a question may not go to him: an amount a clause of his words in the order's thread names, as "30 day bonding" names 30 days, is in neither its question nor an option, so he has no tap for what he named. Only a clause sharing a rare word with the question counts, since one message can name a cap of another subject beside a word the question uses."""
     have = amounts(offered)
-    if not (missing := {amount: message for message in said for amount in sorted(amounts(message["text"]) - have)}):
+    missing = {
+        amount: message
+        for message in said
+        for part in limits.CLAUSE_BREAK.split(read(message["text"]))
+        if rare(part) & set(message["shared"])
+        for amount in sorted(amounts(part) - have)
+    }
+    if not missing:
         return None
     listed = "\n".join(f'- {amount}: {message["link"]} "{cut(message["text"], 200)}"' for amount, message in missing.items())
     return (

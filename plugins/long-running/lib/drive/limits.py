@@ -166,9 +166,9 @@ COUNTED = re.compile(
 MEASURES = frozenset(
     "seconds secs minutes mins hours hrs days weeks months years nights milliseconds times bytes kbs mbs gbs tbs kilobytes megabytes"
     " gigabytes terabytes characters chars words lines letters digits pages rows columns percents points dollars cents cores requests"
-    " calls queries reads writes trips retries attempts tries hops threads workers processes replicas shards nodes connections slots"
-    " was has does its this thus plus less unless across yes".split()
+    " calls queries reads writes trips retries attempts tries hops threads workers processes replicas shards nodes connections slots".split()
 )
+NOT_NOUNS = frozenset("was has does its this thus plus less unless across yes".split())
 BOUND = re.compile(
     r"(?:\b(?:at most|at least|up to|more than|fewer than|less than|over|under|about|around|roughly|nearly|almost|some|every|per|each|within|than)|[~<>≤≥])\s*$",
     re.IGNORECASE,
@@ -556,7 +556,7 @@ def counted_problems(title: str, summary: list[str], options: list[str], show_me
     for line, bare, match in counted:
         noun, before = match["noun"].casefold(), bare[: match.start()]
         count = NUMBER_WORDS.get(match["count"].casefold()) or int(match["count"])
-        if noun not in MEASURES and not BOUND.search(before) and count not in sizes:
+        if noun not in MEASURES | NOT_NOUNS and not BOUND.search(before) and count not in sizes:
             found.append(
                 f'"{" ".join(line[match.start() : match.end()].split())}" names {count} {match["noun"]}, and the card lists no {count} of them:'
                 f' name each where the count is, as "four strategies: A, B, C and D", or give each its own option, Show me table row or caption ({COUNTED_RULING})'

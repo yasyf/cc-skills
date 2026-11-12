@@ -1193,10 +1193,8 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None) -> tuple[
     cards = view.live_cards(name)
     if found_elsewhere := elsewhere(data, job_id, asked.title, cards, unsettled):
         raise DriveError(asked_elsewhere(job_id, *found_elsewhere))
-    refused = settled.refusal(matched["answers"], unsettled, "--unsettled") or settled.open_card_refusal(superseded.open_under(data, job, cards), unsettled)
-    if not refused:
-        heard = settled.thread_words(data, data["orders"][job["order"]], view.stored_cards(name)[0]["team_url"], shown)
-        refused = settled.thread_refusal(heard, unsettled) or settled.unoffered_refusal(heard, "\n".join([asked.title, *asked.options]))
+    heard = settled.thread_words(data, data["orders"][job["order"]], view.stored_cards(name)[0]["team_url"], shown)
+    refused = settled.refusals(matched["answers"], superseded.open_under(data, job, cards), heard, "\n".join([asked.title, *asked.options]), unsettled)
     kept = state.drive_dir(name) / "asks" / f"{job_id}-{state.ask_hash(text)}.md"
     kept.parent.mkdir(exist_ok=True)
     kept.write_text(text)
