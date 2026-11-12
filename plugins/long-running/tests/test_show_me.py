@@ -245,7 +245,7 @@ UPGRADING_CHAT_SHOTS = r'''![1 · Before, dev at de31bf9]({root}/durable-agents/
 def ask(show_me: str, options: str) -> str:
     shown = show_me.replace("{root}", str(state.root()))
     return explained(
-        f"ASK Which way should this go?\nThe pick below decides it, so the work waits on it; the recommended option is marked.\nShow me:\n{shown}\n{options}\nFindings:\nRoot cause: none: a design pick\nKept on disk.\n"
+        f"ASK Which way should this go?\nThe pick below decides it, so the work waits on it; the recommended option is marked.\nShow me:\n{shown}\n{options}\nFindings:\nRoot cause: none: a design pick\nHolds: none: no option changes code any job builds\nKept on disk.\n"
     )
 
 
@@ -459,7 +459,7 @@ def partitioned(show_me: str, summary: str = "The rule picks one at the 1.7 GB l
         f"{summary}\nShow me:\n{show_me}\n"
         "- Insertion order: no copying at the line; old parts go quiet for restores (recommended)\n"
         "- Hash by key: every update reaches one part; all parts stay busy\n"
-        "Findings:\nRoot cause: none: a design pick\nKept on disk.\n"
+        "Findings:\nRoot cause: none: a design pick\nHolds: none: no option changes code any job builds\nKept on disk.\n"
     )
 
 

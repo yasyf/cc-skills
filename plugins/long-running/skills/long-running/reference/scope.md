@@ -118,8 +118,8 @@ pick, because he wants to choose the fix. Work does not land with a question of 
 unanswered: outside an incident's repair, the `bash_guard` hook refuses the `ccx vcs ship` that would
 open a proper-fix PR, on this Mac and on a Sprite, and the lander,
 the `landing_guard` hook and a `yasyf/*` PR's merge each hold one, while any open card of his bears
-on its work, its job's or one asked by a job on its order sharing its part, the design it builds
-included. The immediate fix of a bug hurting someone now is never held: its own
+on its work: one it or its job waits on, or one whose question's `Holds:` line names a change its
+job builds, the design it builds included. The immediate fix of a bug hurting someone now is never held: its own
 `immediate fix` job starts at once, options-only orders too, its PR waits on none of his cards, and
 the proper fix replaces it.
 
@@ -151,7 +151,9 @@ agent, refusing no card on it, by his pick: "Advisory judge: drive job ask keeps
 someone now, an incident's or one a reporter shared, the findings' `Interim fix:` line links the
 immediate fix shipping while he picks (its PR, release, rollback, repair, or the job building it),
 or reads `Interim fix: none: <why nobody is hurt now>`; `drive job ask` and a reader's `DESIGN` are
-refused without it. No option asks a
+refused without it. The findings' `Holds:` line names, in each change's own words, every change of the
+order its options alter, or reads `Holds: none: <why>`, and his open card holds from landing only
+the PRs of jobs working a change it names. No option asks a
 reporter or anyone else to retry or confirm. The findings stay in the job's file, and Explain more
 on the card posts the one section he asks about, never a findings post of its own.
 

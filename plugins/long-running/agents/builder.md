@@ -66,10 +66,11 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    either shape and return `ASK` with options from your evidence, even mid-build. The exception: when
    `Decisions that bind` names an open card's option to build, build it, push the branch, open no PR
    and return `BUILT`. He ruled the recommended option may be built but no PR for the proper fix
-   goes up until he answers. While any open card of his bears on your work, your job's or one a job
-   sharing your part asked, the design you build included, the `bash_guard` hook refuses a
-   `ccx vcs ship` that would open your PR, on this Mac and on a Sprite, since work does not land with
-   a question of his on it unanswered: push the branch with `ccx vcs ship --no-pr`.
+   goes up until he answers. While any open card of his bears on your work, one your job waits on or
+   one whose question's `Holds:` line names a change your job builds, the design you build included,
+   the `bash_guard` hook refuses a `ccx vcs ship` that would open your PR, on this Mac and on a
+   Sprite, and `drive pr add` refuses the PR, since work does not land with a question of his on it
+   unanswered: push the branch with `ccx vcs ship --no-pr`.
    A brief on the order's `immediate fix` part is no design choice: build it and open its PR at once.
    On an open incident a choice never stops you: return `ASK` the moment the fork shows, even
    mid-build, and build its recommended option when the coordinator resumes you in that turn. Its
@@ -439,6 +440,7 @@ Findings:
 Root cause: <the structure that lets the defect happen, by its proper terms; or fixed: <that structure>, removed by <the merged PR's link>; or not found: <the job finding it>; or none: <why no defect is behind this question>>
 First principles: <the option that removes that structure so the defect cannot occur, by its words>
 Interim fix: <on a bug hurting someone now: the link of the PR, release, rollback or repair shipping the immediate fix, or the job building it; or none: <why nobody is hurt now>>
+Holds: <each change of the order its options alter, in that change's words; or none: <why no option alters what any job builds>>
 <the evidence, for the record: what was hit, what was measured, the cause, and what backs each option's description>
 ````
 
@@ -458,6 +460,12 @@ Interim fix: <on a bug hurting someone now: the link of the PR, release, rollbac
   Jev reads its recommended option against its root cause and his quoted words, and the words each page it links shows once Chrome opens it against what the card says that page shows, and prints its finding to you, keeping the card whatever it finds, by his pick: "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits". On an incident or a bug a reporter shared,
   `Interim fix:` links the immediate fix shipping while he picks, which his pick replaces, and the
   summary names it; `drive job ask` refuses the block without it.
+- `Holds:` names, in each change's own words, every change of the order the options alter: a part
+  of the order. His open card then holds from landing only the PRs of jobs
+  working a change it names, so a card on another subject holds no PR its options leave alone, and
+  `Holds: none: <why>` holds nothing. `drive job ask` refuses a block without the line, or one
+  naming no part of its job's orders. His pick: "Each question names the changes it holds,
+  kept with it".
 - The summary answers his next question: why, did he already decide this, is it a port, what comes
   after, or why it is held. `drive job ask` refuses one that answers none of them unless `Findings:`
   carries `Next question: none: <why>`.

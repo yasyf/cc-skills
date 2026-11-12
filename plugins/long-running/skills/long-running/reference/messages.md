@@ -172,6 +172,10 @@ summary of one feature is a line of at most 60 words.
   hold for him (his ruling "Update your skill to not just brush over the root cause ever"), and, on a bug hurting someone now, an incident's
   or one a reporter shared, one whose findings carry no `Interim fix:` line linking the immediate fix
   shipping while he picks, or `Interim fix: none: <why nobody is hurt now>`.
+- The findings carry a `Holds:` line naming, in each change's own words, every change of the order
+  its options alter, a part of the order or a design's `Change:` line, or `Holds: none: <why>`; his
+  open card holds from landing only the PRs of jobs working a change it names, by his pick "Each
+  question names the changes it holds, kept with it". `drive job ask` refuses a block without it.
 - Give two to four options, each one line of at most 25 words saying what he gets and what it
   costs; `drive job ask` refuses any other count or length. cc-slack adds Other, which takes his own
   words, and Explain more to every card that waits on him, and refuses an option that repeats either.

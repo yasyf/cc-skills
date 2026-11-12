@@ -65,6 +65,7 @@ The nightly store copy reads every store once; it can run on the primary or on i
   Each night a new worker in `supervisor/worker.rs` reads every store from the team's bucket and copies it there, so the primary serves only queries; each cluster runs one more process.
 Findings:
 {DESIGN_PICK}
+Holds: none: no option changes code any job builds
 One copy took 40 minutes on the primary.
 """
 

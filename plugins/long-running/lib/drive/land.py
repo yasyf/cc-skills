@@ -32,12 +32,18 @@ CI_FILES = re.compile(r"^(?:\.github|\.buildkite)/|^(?:go|tools)/ci/")
 
 
 def open_cards(data: dict, job_id: str, waits: list[str], cards: dict | None) -> list[str]:
-    """His open cards holding a job's work from landing, since work does not land with a question of his on it unanswered: each card its PR or job waits on, and each card a question of a job sharing its work is drawn on, the design it builds included; none on an open incident, whose repair lands on the recommended option, or an immediate fix, which lands while he picks the proper fix."""
+    """His open cards holding a job's work from landing, since work does not land with a question of his on it unanswered: each card its PR or job waits on, and each card of an open question, any job's on an order it serves, whose `Holds:` line names a change it works on there, the design it builds included; none on an open incident, whose repair lands on the recommended option, or an immediate fix, which lands while he picks the proper fix."""
     job = data["jobs"][job_id]
     if state.IMMEDIATE_FIX in job["parts"] or state.open_incidents(data, [job["order"], *job["carries"]]):
         return []
     waited = [wait for wait in view.holding(data, list(dict.fromkeys([*waits, *job["waits"]])), cards) if state.card_wait(data, wait)]
-    asked = [card for sharer in state.sharing(data, job_id) for card in view.open_cards(data["jobs"][sharer])]
+    asked = [
+        drawn
+        for order_id in [job["order"], *job["carries"]]
+        for asker in data["orders"][order_id]["jobs"]
+        for question in view.open_questions(data["jobs"][asker])
+        if (drawn := question["card"] or question["waits"]) and state.names_part(question["holds"], state.worked(data, job_id, order_id))
+    ]
     return list(dict.fromkeys([*waited, *asked]))
 
 
@@ -124,7 +130,7 @@ def together(data: dict, stacks: dict[str, tuple[str, ...]], key: str) -> list[s
 
 
 def unready(data: dict, key: str, cards: dict) -> str | None:
-    """Why a lander does not queue the PR now, the first condition it fails, or None when it lands: his Approve or an exempt class clears it, it is green and approved, or approved only on an older head, whose review `drive pr land` asks for, nothing holds it, its change at its head is checked against his words unless an exempt class lands it, whatever head his Approve was tapped on, it is no draft, has no conflict with its base and no card of his open on its work, its job's or a job sharing it, and no lander runs on it. A job still running on it does not hold it, since his Approve lands it at once."""
+    """Why a lander does not queue the PR now, the first condition it fails, or None when it lands: his Approve or an exempt class clears it, it is green and approved, or approved only on an older head, whose review `drive pr land` asks for, nothing holds it, its change at its head is checked against his words unless an exempt class lands it, whatever head his Approve was tapped on, it is no draft, has no conflict with its base and no card of his open on its work, one it or its job waits on or a question naming a change its job builds, and no lander runs on it. A job still running on it does not hold it, since his Approve lands it at once."""
     pr = data["prs"][key]
     if not state.cleared(pr):
         return "neither his Approve nor an exempt class clears it"

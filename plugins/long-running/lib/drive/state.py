@@ -522,6 +522,7 @@ def load(name: str) -> dict:
                 settled = question.pop("settled")
                 question["closed"] = settled and new_close("answered", None, None, seq=settled.get("seq"), answer=settled.get("answer"), ruling=settled.get("ruling"), at=settled["at"])
             question.setdefault("closed", None)
+            question.setdefault("holds", "")
             if question["waits"] and not question["file"] and (kept := rebuilt_ask(name, question["waits"])).exists():
                 question["file"] = str(kept)
     if not data.get("closed_from_cards"):
@@ -835,14 +836,10 @@ def designed(data: dict, job_id: str, order_id: str) -> set[str]:
     return {part for part, held in data["orders"][order_id]["parts"].items() if held["design"] == job_id}
 
 
-def sharing(data: dict, job_id: str) -> list[str]:
-    """The job and every other job whose questions to him bear on its work: each on an order it serves whose parts there, with the changes it designed, meet its own, or where either names no part."""
-    job = data["jobs"][job_id]
-    found = [job_id]
-    for order_id in [job["order"], *job["carries"]]:
-        mine = worked(data, job_id, order_id)
-        found += [other for other in data["orders"][order_id]["jobs"] if other not in found and (not mine or not (theirs := worked(data, other, order_id)) or mine & theirs)]
-    return found
+def names_part(holds: str, parts: Iterable[str]) -> bool:
+    """Whether a question's `Holds:` words name one of these parts, each by its words whatever their case and spacing."""
+    said = " ".join(holds.split()).casefold()
+    return bool(said) and any(part.casefold() in said for part in parts)
 
 
 def worked(data: dict, job_id: str, order_id: str) -> set[str]:
@@ -1009,9 +1006,9 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
 
 
 def new_question(
-    file: str | None, title: str | None, asked: str, unsettled: str | None = None, card: str | None = None, refused: str | None = None, closed: dict | None = None
+    file: str | None, title: str | None, asked: str, unsettled: str | None = None, card: str | None = None, refused: str | None = None, closed: dict | None = None, holds: str = ""
 ) -> dict:
-    return {"file": file, "title": title, "asked": asked, "unsettled": unsettled, "waits": None, "card": card, "refused": refused, "closed": closed}
+    return {"file": file, "title": title, "asked": asked, "unsettled": unsettled, "waits": None, "card": card, "refused": refused, "closed": closed, "holds": holds}
 
 
 def new_close(
