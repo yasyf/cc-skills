@@ -41,6 +41,7 @@ case "$1 $2" in
     ;;
   "open "*) ;;
   "get url") echo "$LANDED" ;;
+  "eval "*) echo "$SIGNIN_PAGE" ;;
   *) echo "Unknown command: $1" >&2; exit 1 ;;
 esac
 """
@@ -70,7 +71,9 @@ def stub(bin_dir: Path, name: str, body: str) -> None:
     path.chmod(0o755)
 
 
-def seed(tmp_path: Path, landed: str, *flags: str, wedge: bool = False) -> subprocess.CompletedProcess[str]:
+def seed(
+    tmp_path: Path, landed: str, *flags: str, signin_page: bool = False, wedge: bool = False
+) -> subprocess.CompletedProcess[str]:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     stub(bin_dir, "cookiesync", COOKIESYNC)
@@ -81,6 +84,7 @@ def seed(tmp_path: Path, landed: str, *flags: str, wedge: bool = False) -> subpr
         "HOME": str(tmp_path),
         "AB_LOG": str(tmp_path / "agent-browser.log"),
         "LANDED": landed,
+        "SIGNIN_PAGE": "true" if signin_page else "false",
         "CS_LOG": str(tmp_path / "cookiesync.log"),
     }
     if wedge:
@@ -105,6 +109,16 @@ def test_login_landing_names_where_to_sign_in(tmp_path: Path):
     assert "hidden" not in proc.stderr
     calls = (tmp_path / "agent-browser.log").read_text().splitlines()
     assert calls[-2:] == ["open https://app.example.com/workflow", "get url"]
+
+
+def test_a_sign_in_page_at_an_app_url_names_where_to_sign_in(tmp_path: Path):
+    proc = seed(tmp_path, "https://app.example.com/?redir=%2Fworkflow", signin_page=True)
+    assert proc.returncode == 3, proc.stderr
+    assert "landed on https://app.example.com/)" in proc.stderr
+    assert "sign in at https://app.example.com in Chrome or Arc on Test Mac (arc:Default, chrome:Default)" in proc.stderr
+    calls = (tmp_path / "agent-browser.log").read_text().splitlines()
+    assert calls[-3:-1] == ["open https://app.example.com/workflow", "get url"]
+    assert calls[-1].startswith("eval ")
 
 
 def test_a_named_profile_reaches_every_cookies_call(tmp_path: Path):
