@@ -991,3 +991,24 @@ def test_an_install_short_of_a_merge_or_of_a_plugin_it_leaves_alone_proves_nothi
     proving(config, tmp_path, git, 0)
     assert install.main(key, None, None, 900, None) == 0
     assert (state.load("demo")["jobs"]["j1"]["state"], proof_events()) == ("waiting", [])
+
+
+def test_a_release_read_that_fails_is_said_as_it_fails_and_read_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    reads = iter([install.InstallError("git fetch exited 128: unable to access"), ({"name": "cc-notes", "source": "./plugin"}, True)])
+
+    def listed(clone: str, plugin: str, deadline: float) -> tuple[dict, bool]:
+        read = next(reads)
+        if isinstance(read, install.InstallError):
+            raise read
+        return read
+
+    monkeypatch.setattr(install, "listed", listed)
+    monkeypatch.setattr(install, "newest_release", lambda clone, entry, deadline: ("v0.76.11", "plugin"))
+    monkeypatch.setattr(install, "release_lacking", lambda clone, repo, named, sha, deadline: None)
+    monkeypatch.setattr(install, "sleep", lambda seconds: None)
+    assert install.await_release(str(tmp_path / "clone"), "yasyf/cc-notes", "cc-notes", SHA, install.clock() + 60, 60) == ("v0.76.11", "plugin")
+    assert capsys.readouterr().err.splitlines() == [
+        f"drive install: a read of the cc-notes release failed, reading again within {install.POLL_SECONDS}s: git fetch exited 128: unable to access"
+    ]

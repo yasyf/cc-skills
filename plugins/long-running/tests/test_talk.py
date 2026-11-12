@@ -554,12 +554,13 @@ def test_a_post_cc_slack_reports_failing_after_it_went_out_is_kept_and_recorded_
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
 ) -> None:
     thread = "1794200000.000100"
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "why the copy stalls", "--thread", thread)
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why the copy stalls", "--thread", thread)
     run("start", "demo", "--role", "communicator")
     with state.edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "https://acme.slack.com/", "questions": [], "pr_cards": [], "closed": []})
+    monkeypatch.setattr(view, "stored_cards", lambda name: ({"team_url": "https://acme.slack.com/", "questions": [], "pr_cards": [], "closed": []}, "live"))
     reaches = {"post": True}
 
     def cc_slack(*argv: str) -> dict:

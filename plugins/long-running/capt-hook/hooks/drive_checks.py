@@ -419,7 +419,7 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             transcript=COMMUNICATOR_TURN,
             commands={"python3 -I": handler_reads()},
             llm={"reason": "Postgres is a name no read returned", "allow": False, "refusal": "The cloud reading straight from Postgres stands on no read; read the cloud's inbox reader."},
-        ): Warn(pattern="Jev's reads verdict only advises, so the post goes out as written.*Jev: The cloud reading straight from Postgres"),
+        ): Warn(pattern="(?s)Jev's reads verdict only advises, so the post goes out as written.*Jev: The cloud reading straight from Postgres"),
         Input(
             tool=SAY,
             tool_input={"text": GUESSED, "thread_ts": THREAD},

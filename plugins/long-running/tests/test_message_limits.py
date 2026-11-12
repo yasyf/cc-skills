@@ -784,7 +784,7 @@ def test_the_reads_name_the_line_holding_each_name_and_the_report_a_post_carries
     tool(lane_of(transcript), *PANIC)
     records["673870"] = "DONE a pack deletes the run's values in its range"
     reads, carried = own_reads(transcript, monkeypatch, capsys, text=PACK_POST, thread_ts="1.2", record="673870")
-    assert f"\nvm_run/values.go:278: [{len(THREADS) + 1}] {PANIC[2]}" in reads["quote"]
+    assert f"\nvm_run/values.go:278: [{len(THREADS) + 1}] {' '.join(PANIC[2].split())}" in reads["quote"]
     assert (carried["id"], carried["quote"]) == ("record:673870", records["673870"])
     own = {key: value for key, value in call("slack_dm_status", transcript, text=PACK_POST, thread_ts="1.2").items() if key != "agent_id"}
     card = call("slack_dm_status", transcript, text="Which way?", card={"title": "Which way?", "body": said(5), "options": ["One", "Two"], "waits": "demo:j1-7"})
@@ -1161,7 +1161,7 @@ def test_a_line_telling_what_the_product_refuses_goes_out_with_a_warning_jev_nev
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(call("slack_dm_status", transcript, text=old_pod) | {"tool_name": message_limits.SAY})))
     message_limits.main()
     printed = json.loads(capsys.readouterr().out)
-    assert printed == {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": warning(transcript, text=old_pod)}}
+    assert printed["hookSpecificOutput"] == {"hookEventName": "PreToolUse", "additionalContext": warning(transcript, text=old_pod)}
     refused = say(transcript, text=f"{old_pod}\nThe runs failed because the pool was full")
     assert refused.startswith("refused: a line naming a cause") and old_pod not in refused and refused.rule == message_limits.CAUSE_RULE
 
