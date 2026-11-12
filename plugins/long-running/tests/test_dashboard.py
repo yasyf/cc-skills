@@ -75,6 +75,7 @@ def test_a_plain_http_link_to_the_tailnet_port_moves_to_https_on_the_full_name()
 def test_the_page_stays_live_across_one_dropped_stream_and_says_not_live_once_its_reconnect_fails(tmp_path: Path) -> None:
     seen = browse(tmp_path, """
 const banner = () => !document.querySelector('#stale').hidden && document.querySelector('#stale').textContent.startsWith('Not live');
+while (document.querySelector('#fresh').textContent !== 'Live') await wait(20);
 EventSource.CONNECTING = 0;
 STREAM.readyState = 0;
 STREAM.onerror();
