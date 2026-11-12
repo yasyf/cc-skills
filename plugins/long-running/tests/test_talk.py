@@ -470,6 +470,7 @@ def test_a_report_delivers_only_the_parts_its_posts_words_carry_and_its_dry_run_
     with state.edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
+        data["orders"]["o1"]["fixed"] = "release 13990 ships #54336 on sand"
     answer = slack_thread.post(state.now(), from_claude=True, text=INCIDENT_REPORT)
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": answer, "thread_ts": thread})
     report(monkeypatch, {"incident": "true", "order": "o1", "thread": thread, "part": "o1:first check;o1:fix;o1:cause"})
@@ -901,7 +902,9 @@ def test_a_report_answering_his_message_records_on_the_order_it_names_in_the_thr
     report(monkeypatch, {"progress": "true", "order": "o1"}, answers=671734)
     answer = slack_thread.post(state.now() + timedelta(minutes=1), from_claude=True)
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": answer, "thread_ts": asked})
-    assert talk.say(demo, {"text": "Rendering and the zoomed-out view are live.", "thread_ts": asked, "order": "o1", "record": "671739"}) == (
+    line = {"text": "Rendering and the zoomed-out view are live.", "thread_ts": asked, "order": "o1", "record": "671739"}
+    assert talk.say(demo, line | {"dry_run": True}) == f"DRY thread {asked}, 0 pictures: {line['text']}; o1 progress line, no part delivered"
+    assert talk.say(demo, line) == (
         f"POSTED {answer}; o1 progress line, no part delivered: {answer}, in thread {asked}, where he asked about it, now one of its threads"
     )
     assert [where[:2] for where in state.load(demo)["orders"]["o1"]["asked_in"]] == [["D123", asked]]
