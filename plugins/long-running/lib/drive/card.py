@@ -543,15 +543,11 @@ def waiting(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
 
 
 def unchecked(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
-    """Why no fresh card is drawn for the members yet: one asking his tap has no check of its change at its head against the words of every order it serves, which its builder's READY runs through drive job report and its order's holder's drive pr set --serves runs for a remote lane's."""
+    """Why no fresh card is drawn for the members yet: one asking his tap has no check of its change at its head against the words of every order it serves, which the watch's drive pr check runs once its builder returns."""
     held = [key for key in members if state.asks_tap(entry := known[key][1]) and not state.checked(state.load(known[key][0]), entry)]
     if not held:
         return ""
-    holders = sorted({state.title(state.load(known[key][0])["orders"][known[key][1]["order"]]["owner"] or "coordinator") for key in held})
-    return (
-        f"the change of {', '.join(held)} at its head is not checked against his words, so no card asks his tap until its builder's READY"
-        f" checks it through drive job report, or its order's holder, the {' or the '.join(holders)}, runs drive pr set --serves"
-    )
+    return f"the change of {', '.join(held)} at its head is not checked against his words, so no card asks his tap until the watch's drive pr check passes it there"
 
 
 def untapped(known: dict[str, tuple[str, dict]], reads: dict[str, dict], members: list[str]) -> str:

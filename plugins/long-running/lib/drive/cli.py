@@ -1678,11 +1678,6 @@ def job_report(args: argparse.Namespace) -> int:
         line = whole.strip().splitlines()[0].strip()
         if refused := brief.report_refusal(name, data, args.id, whole) or state.result_refusal(data, args.id, line, whole) or limits.typed_time(whole, data):
             raise DriveError(f"{args.id}: refused, nothing kept: {refused}")
-        if job["kind"] == "builder" and re.match(r"(?:READY|PUSHED)\b", line):
-            try:
-                served.check(name, state.carded_prs(data, args.id), [], [line for line in whole.splitlines() if line.startswith("DESIGN:")], {})
-            except DriveError as error:
-                raise DriveError(f"{args.id}: refused, nothing kept: {error}") from None
         if job["kind"] == "builder" and re.match(r"READY\b", line) and (held := unready(data, job, line)):
             raise DriveError(f"{args.id}: refused, nothing kept: {held}")
         asked = decided = None
@@ -2304,7 +2299,7 @@ def pr_set(args: argparse.Namespace) -> int:
         raise DriveError(f"{key}: refused, nothing set: {refused}")
     if args.serves:
         refuse_an_unwritten_rule(known, key)
-        refuse_a_change_against_his_words(name, known, key, args)
+        served.answers(known, [args.design or ""], view.live_cards(name))
     if args.serves and not args.design and (known["prs"][key]["wants_tap"] if args.tap is None else args.tap):
         raise DriveError(
             "--serves on a PR waiting on his tap needs --design asked:<his answer id or card permalink> for each design decision"
@@ -2373,17 +2368,6 @@ def refuse_a_part_its_job_lacks(data: dict, key: str, parts: list[str]) -> None:
     if unknown := [part for part in parts if part not in delivered]:
         listed = ", ".join(f'"{part}"' for part in delivered)
         raise DriveError(f"{key}: refused, nothing set: its job {job_id} delivers no part {', '.join(unknown)}; its parts are {listed}")
-
-
-def refuse_a_change_against_his_words(name: str, data: dict, key: str, args: argparse.Namespace) -> None:
-    """Refuse a PR serving an order while its change at its head, judged with its job's other PRs his card waits on, goes against the words of that order, its job's or any its job carries, or of the answers of his this --design cites, judged for the parts this --part names, a PR this --tap sets waiting on his tap judged too; one its builder's READY or the watch's check passed at this head is not judged again."""
-    job_id = data["prs"][key]["job"]
-    try:
-        setting = ({"design": args.design} if args.design else {}) | ({"parts": args.part} if args.part else {})
-        served.check(name, list(dict.fromkeys([*state.carded_prs(data, job_id), *([key] if args.tap else [])])), [args.serves], [], {key: setting})
-    except served.Against as error:
-        resume = f"drive job resume {job_id} with this refusal" if data["jobs"][job_id]["where"] == "remote" else f"a fresh builder on {job_id} briefed with this refusal"
-        raise DriveError(f"{key}: refused, nothing set: {error}. Send it back by {resume}") from None
 
 
 def refuse_an_unwritten_rule(data: dict, key: str) -> None:
@@ -2493,6 +2477,8 @@ def set_pr(pr: dict, args: argparse.Namespace) -> None:
         pr.update(wants_tap=args.tap, ready_said=None)
     if args.serves or args.design:
         pr["ready_said"] = None
+    if args.serves or args.design or args.part:
+        pr["checker"] = None
     if args.fundamental:
         pr.update(fundamental=args.fundamental, tap=None, exempt=None, wants_tap=True, ready_said=None)
     if args.exempt:
@@ -3819,13 +3805,13 @@ def parser() -> argparse.ArgumentParser:
         "--design",
         type=design_basis,
         metavar="asked:<answer>|none",
-        help="his answer or card that settled each design decision the PR makes, or none; --serves needs it, its words check reads each answer whole as his words, and a card he has not answered or a message he did not write is refused",
+        help="his answer or card that settled each design decision the PR makes, or none; --serves needs it, the watch's check reads each answer whole as his words, and a card he has not answered or a message he did not write is refused",
     )
     verb.add_argument(
         "--part",
         action="append",
         default=[],
-        help="a part of its job's orders this PR delivers, replacing the parts it named; its job's change is judged against the parts its PRs name, every part of the job when none names one",
+        help="a part of its job's orders this PR delivers, replacing the parts it named; the watch judges the PR against the parts it names, every part its job delivers when it names none",
     )
     exemption = verb.add_mutually_exclusive_group()
     exemption.add_argument("--exempt", choices=state.EXEMPT_CLASSES)

@@ -1747,11 +1747,6 @@ def owed_step(pr: dict) -> str | None:
     return "card" if pr["wants_tap"] else None
 
 
-def carded_prs(data: dict, job_id: str) -> list[str]:
-    """The job's open PRs his card waits on, which its builder's READY hands him: wanting his tap and in no exempt class."""
-    return [key for key, pr in data["prs"].items() if pr["job"] == job_id and pr["state"] == "open" and pr["wants_tap"] and not pr.get("exempt")]
-
-
 def order_served(pr: dict) -> str:
     """The order a PR carries out, its job's until `drive pr set --serves` names another."""
     return pr.get("serves") or pr["order"]
@@ -1763,9 +1758,11 @@ def card_unit(key: str, stack: tuple[str, ...], pr: dict) -> tuple[tuple[str, ..
 
 
 def served_orders(data: dict, pr: dict) -> list[str]:
-    """The orders whose words a PR's change is checked against: the one it serves, its job's own and each its job carries."""
+    """The orders whose words a PR's change is checked against: the one `drive pr set --serves` names alone, else its job's own and each its job carries."""
+    if pr.get("serves"):
+        return [pr["serves"]]
     job = data["jobs"][pr["job"]]
-    return list(dict.fromkeys([order_served(pr), job["order"], *job["carries"]]))
+    return list(dict.fromkeys([pr["order"], job["order"], *job["carries"]]))
 
 
 def checked(data: dict, pr: dict) -> bool:

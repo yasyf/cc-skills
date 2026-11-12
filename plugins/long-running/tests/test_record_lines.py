@@ -167,7 +167,7 @@ def test_a_ready_record_for_a_pr_whose_change_at_its_head_nobody_checked_against
     assert reason.startswith(
         "refused: this ready record asks his tap on Forge-AI/monorepo#4242 at ebc1038 (order o1, held by the communicator), whose change at that head is not checked against his words"
     )
-    assert "its order's holder runs drive pr set <url> --serves <o> --design <asked:<his answer> or none>" in reason
+    assert "The watch's drive pr check judges it once its builder returns" in reason
     with state.edit(demo) as data:
         data["prs"]["Forge-AI/monorepo#4242"]["checked"]["head"] = "ebc103801ea6"
     assert record_lines.decision(ready) is None

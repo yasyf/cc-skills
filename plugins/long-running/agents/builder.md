@@ -143,14 +143,16 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    branch name and any GitHub marks required on the head, one not yet posted holding it too, or
    settles it at that read when they name none: green takes it as your `READY`, and a red one comes
    back as `PR … READY refused, its required <check> failed at <head>
-   (<build>)`, and `drive job report` refuses a `READY` while one is pending or red. It also judges
-   the change of each PR his card waits on, its title and diff at its head and never its body,
-   against the words of your order and every order your job carries and each answer of his your
-   `DESIGN:` line names by id or card permalink, read whole, after listing each change the diff
-   makes to what already exists, before and after, and refuses a `PUSHED` naming each of his words
-   the change goes against, and each change to what exists they do not need: change the PRs to his
-   words, put back what they did not ask to change, push and return `PUSHED` again, or `ASK` for a
-   reading his words leave open. The watch draws his
+   (<build>)`, and `drive job report` refuses a `READY` while one is pending or red. It keeps your
+   report whatever the change holds: the watch's check alone judges each PR his card waits on, at
+   each new head once you return, its title and diff and never its body, against the words of the
+   order it serves, the one `drive pr set --serves` names or else your order and every order your
+   job carries, for the parts the PR carries, those `drive pr set --part` names or else your job's,
+   and each answer of his your `DESIGN:` line names by id or card permalink, read whole, after
+   listing each change the diff makes to what already exists, before and after. Its `NOT READY`
+   comes back to you naming each of his words the change goes against, and each change to what
+   exists they do not need: change the PRs to his words, put back what they did not ask to change,
+   push and return `PUSHED` again, or `ASK` for a reading his words leave open. The watch draws his
    card the minute GitHub reports a checked PR green and approved, whatever its body says; a port
    gets the coordinator's check against the old PR instead. A body is fixed beside
    the landing, never before it: a gap anyone finds in it is an edit you push while the PR waits, and
@@ -372,7 +374,7 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 | `SERVES:` | `port of #N`, or the order of his it carries out, quoted from your brief |
 | `CHANGE:` | what changed for him; on a PR reworked to his words, how they are met, which its fresh card shows him |
 | `CHECK:` | the proof: a link, or the absolute path of a file that exists |
-| `DESIGN:` | on a `READY`, each design decision the PR makes beside the answer id or card permalink of his that settled it, or `none`; `drive job report` reads each answer it names whole as his words when it judges the change |
+| `DESIGN:` | on a `READY`, each design decision the PR makes beside the answer id or card permalink of his that settled it, or `none`; the watch's check reads each answer it names whole as his words when it judges the change |
 | `NATIVE:` | what the platform he sees it on already does for this and what the change builds on, with links, or `none: he never sees it` |
 | `RULINGS:` | each ruling of his on the area you followed, quoted |
 | `REUSES:` | on a `READY` whose research found something that exists, how the PR calls or extends it; `drive job report` refuses a `READY` without it |
@@ -387,7 +389,7 @@ listing decisions that block nothing is not a result.
 | Result | When |
 | --- | --- |
 | `DONE <proof link or one-line proof>` | Live and checked where he uses it, which a merge alone is not. When he sees what you built (`NATIVE:` is not `none: he never sees it`), the proof comes from that surface: the live post's link, a picture of it, or a recording of the click through each view his words name (agent-browser's recording, or `screencapture -v` of the window), since data fetched from an API does not show what he sees. `drive job report` refuses a `DONE` without that proof on `CHECK:`. |
-| `PUSHED <pr url> [<pr url>…]` | Pushed and registered, its CI and review still running, and its change checked against his words by `drive job report`. It is the `READY` below held until the watch reads green every check its repository's default branch rules name, one not yet posted holding it too, or at its first read when they name none, waking nobody meanwhile; a red one comes back to you. |
+| `PUSHED <pr url> [<pr url>…]` | Pushed and registered, its CI and review still running; the watch's check judges its change against his words at its head. It is the `READY` below held until the watch reads green every check its repository's default branch rules name, one not yet posted holding it too, or at its first read when they name none, waking nobody meanwhile; a red one comes back to you. |
 | `READY <pr url> [<pr url>…]` | The same, with every check its repository's rules require green; the watch draws his card once it is green and approved. A stack names every PR, bottom first, so it gets one card, as sibling PRs of one order ready together do. When he sees what you built (`NATIVE:` is not `none: he never sees it`), a Show me on its card carries a before and an after screenshot of it, pushed beside the landing when it is missing. A question whose answer only lands PRs, such as an open PR below yours, is this `READY` naming each, never an `ASK`: their stack card is his tap and needs no Show me, and `drive job ask` refuses an ask to land PRs. |
 | `BUILT <branch>, waits on <cards>` | The recommended options built and pushed on `<branch>`, no PR open, waiting on his answer to each design card the brief names, by its waits id or Slack link. Its lines name the option built for each card and what his other picks would change. |
 | `WAITING <what, in plain words>` | Another PR or a release; never CI, a review or a queue on your own PR, which `PUSHED` covers, nor his sign-in, Touch ID or cc-sudo for an AWS action, which this Mac's machine profile runs. `WAITING <your PR> waits on <cards>`, each card by its waits id or Slack link, holds that PR's card until he answers each. |
