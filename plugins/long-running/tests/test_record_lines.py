@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 import record_lines
-from conftest import SHORT_ASK
+from conftest import SHORT_ASK, Thread
 from drive import agents, limits, reads, settled, state, view
 
 SESSION = "session-under-test"
@@ -376,6 +376,20 @@ def test_a_report_about_an_order_in_another_orders_thread_is_refused_when_writte
     assert f"this report is about o1, and thread {OTHER} is none of its threads: {THREAD}" in reason and "pass re naming the record of his message" in reason
     assert record_lines.decision(coordinator(turn, kind="report", text="POST The table fix is building now", to=TO, re="672468", attrs=unnamed)) is None
     assert record_lines.decision(coordinator(turn, kind="report", text="POST The table fix is building now", to=TO, attrs={"progress": "true", "order": "o1", "thread": THREAD})) is None
+
+
+def test_a_report_about_an_order_in_another_orders_thread_his_message_started_is_taken_when_written_and_a_thread_he_did_not_start_refused(
+    run: Callable[..., tuple[int, str]], demo: str, turn: Path, slack_thread: Thread
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the incident badge counts only live incidents")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "how is the dashboard looking")
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["thread"] = ["D123", THREAD]
+        data["orders"]["o2"]["thread"] = ["D123", OTHER]
+    slack_thread.messages.append({"ts": OTHER, "thread_ts": OTHER, "from_user": True, "text": "how is the dashboard looking"})
+    assert record_lines.decision(coordinator(turn, kind="report", text="POST The incident badge counts only live incidents.", to=TO, attrs={"close": "o1", "thread": OTHER})) is None
+    reason = refusal(record_lines.decision(coordinator(turn, kind="report", text="POST The fix is building.", to=TO, attrs={"progress": "true", "order": "o1", "thread": ALERT})))
+    assert f"this report is about o1, and thread {ALERT} is none of its threads: {THREAD}, nor one his message started." in reason
 
 
 def test_a_report_whose_thread_is_none_goes_without_it_and_one_naming_no_slack_thread_is_refused_every_time(run: Callable[..., tuple[int, str]], demo: str, turn: Path) -> None:

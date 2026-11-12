@@ -106,6 +106,11 @@ def names_order_pr(data: dict, order_id: str, root: dict | None) -> bool:
     return any(key.casefold() in named for key, pr in data["prs"].items() if order_id in state.served_orders(data, pr))
 
 
+def his_thread(data: dict, order_id: str, report: dict, root: dict | None) -> bool:
+    """Whether a line carrying the report answers him in a thread his own message started, such as his question or an alert he shared, which takes a line about every order the report is about, whichever order holds the thread, and joins it to each one's threads once the line is posted."""
+    return bool(root and root.get("from_user")) and order_id in state.report_orders(data, report)
+
+
 def order_threads(data: dict, order_id: str, order: dict) -> list[tuple[str, str]]:
     """The threads a line for an order goes in: its own, then on an incident the own thread of each other order of it, the incident an alert's order joined and every alert joined to it, both ways, then each thread of his where a report on one of them answered his message, then each of their cards'."""
     others = [data["orders"][other] for other in state.incident_orders(data, order_id) if other != order_id]
