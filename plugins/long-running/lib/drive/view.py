@@ -362,12 +362,15 @@ def tap_detail(pr: dict) -> str:
     return f"{checks}, {review}{changed}{reworking}"
 
 
-def question_item(drive: dict, card: dict, features: list[dict], waiting: list[dict]) -> dict:
+def question_item(drive: dict, card: dict, features: list[dict], waiting: list[dict], asker: str | None) -> dict:
     pick = f"Recommended: {card['recommended']}" if card.get("recommended") else " / ".join(card["options"])
+    finished = held_up(drive, card)
     return {
         "kind": "question",
-        "holds": held_up(drive, card),
-        "blocks": [entry["title"] for entry in features if any(held["url"] == card["url"] for held in entry["cards"])],
+        "job": asker,
+        "holds": len(finished),
+        "rail": {"held": finished},
+        "blocks": [{"id": entry["id"], "title": entry["title"]} for entry in features if any(held["url"] == card["url"] for held in entry["cards"])],
         "built": [{"job": entry["job"], "branch": entry["branch"]} for entry in waiting if entry["card"]["url"] == card["url"]],
         "title": card["question"],
         "detail": pick,
@@ -381,12 +384,35 @@ def question_item(drive: dict, card: dict, features: list[dict], waiting: list[d
     }
 
 
-def held_up(drive: dict, card: dict) -> int:
-    """How many green approved open PRs and built jobs wait on his question card."""
+def held_up(drive: dict, card: dict) -> list[dict]:
+    """The green approved open PRs and built jobs that wait on his question card, each PR by its title and link and each job by its goal and branch."""
     names = {card["card"].get("waits"), message_key(card["url"])}
-    finished = [pr for pr in drive["prs"].values() if pr["state"] == "open" and pr["checks"] == "pass" and pr["review"] == "approved"]
-    built = [job for job in drive["jobs"].values() if job["state"] == "built"]
-    return sum(any(message_key(wait) in names for wait in owner["waits"]) for owner in [*finished, *built])
+    finished = [pr for pr in drive["prs"].values() if pr["state"] == "open" and pr["checks"] == "pass" and pr["review"] == "approved" and any(message_key(wait) in names for wait in pr["waits"])]
+    built = [job for job in drive["jobs"].values() if job["state"] == "built" and any(message_key(wait) in names for wait in job["waits"])]
+    return [
+        *({"kind": "pr", "feature": pr["order"], "title": pr_title(pr), "url": pr["url"]} for pr in finished),
+        *({"kind": "job", "feature": job["order"], "title": cut(job["goal"], TITLE_CHARS), "branch": job["branch"]} for job in built),
+    ]
+
+
+def asked_by(drive: dict, found: dict) -> dict[str, str | None]:
+    """The job that asked each of his open question cards, by the card's link: the job whose question drew the card, else the job its waits id names."""
+    drawn = {message_key(question["card"]): job_id for job_id, job in drive["jobs"].items() for question in job["questions"] if question["card"]}
+    asker = {}
+    for card in found["questions"]:
+        named = (card["card"].get("waits") or "").partition(":")[2].partition("-")[0]
+        asker[card["url"]] = drawn.get(message_key(card["url"])) or (named if named in drive["jobs"] else None)
+    return asker
+
+
+def rail(drive: dict, item: dict, reports: set[str]) -> dict:
+    """What the dashboard draws beside a question card beyond the card itself: what it holds up, the job that asked it with the files the drive keeps for it, and his recorded answers the drive matched to the card, newest first."""
+    key = item["card"].get("waits") or message_key(item["answer"])
+    answers = sorted((answer for answer in drive["answers"].values() if key in answer["cards"]), key=lambda answer: state.parse_time(answer["at"]), reverse=True)
+    return item["rail"] | {
+        "asker": item["job"] and job_entry(item["job"], drive["jobs"][item["job"]], reports),
+        "answers": [{"words": answer["words"], "at": answer["at"], "mark": (answer["cards"][key] or {}).get("mark")} for answer in answers],
+    }
 
 
 def tap_item(pr: dict, card: dict | None) -> dict:
@@ -428,8 +454,9 @@ def queue(drive: dict, found: dict, moment: datetime, features: list[dict]) -> l
     taps.sort(key=lambda entry: (entry[1] is None, entry[1] and state.parse_time(entry[1]["asked"])))
     late = sorted((order for order in drive["orders"].values() if is_late(order, moment)), key=lambda order: state.parse_time(state.owed_at(order)))
     waiting = waiting_on_him(drive, found)
+    asker = asked_by(drive, found)
     return [
-        *sorted((question_item(drive, card, features, waiting) for card in found["questions"]), key=lambda item: (not item["built"], -item["holds"])),
+        *sorted((question_item(drive, card, features, waiting, asker[card["url"]]) for card in found["questions"]), key=lambda item: (not item["built"], -item["holds"])),
         *(tap_item(pr, card) for pr, card in taps),
         *(late_item(drive, order, found["team_url"]) for order in late),
     ]
@@ -650,6 +677,8 @@ def board(drive: dict, found: dict, source: str, events: Iterable[dict], moment:
             "created": order["created"],
             "jobs": [job_entry(job_id, drive["jobs"][job_id], reports) for job_id in order["jobs"]],
         }
+    for item in (item for item in model["queue"] if item["kind"] == "question"):
+        item["rail"] = rail(drive, item, reports)
     active = [job_entry(job_id, job, reports) for job_id, job in drive["jobs"].items() if job["order"] in shown_ids and job["state"] not in state.FINISHED_JOB_STATES]
     active.sort(key=lambda entry: (entry["state"] != "running", state.parse_time(entry["updated"])))
     return model | {
@@ -678,10 +707,10 @@ def outline(entry: dict) -> dict:
 
 
 def summary(model: dict) -> dict:
-    """The board without its history and lanes, each card at a glance and each feature without its order's words and jobs."""
+    """The board without its history and lanes, each card at a glance without its rail and each feature without its order's words and jobs."""
     rest = {key: value for key, value in model.items() if key not in ("history", "work")}
     return rest | {
-        "queue": [item | {"card": glance(item["card"])} if item.get("card") else item for item in model["queue"]],
+        "queue": [{key: value for key, value in item.items() if key != "rail"} | {"card": glance(item["card"])} if item.get("card") else item for item in model["queue"]],
         "review": [entry | {"card": entry["card"] and glance(entry["card"])} for entry in model["review"]],
         "status": [group | {"features": [outline(entry) for entry in group["features"]]} for group in model["status"]],
     }

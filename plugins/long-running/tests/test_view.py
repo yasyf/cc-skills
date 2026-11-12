@@ -197,13 +197,44 @@ def test_each_feature_names_the_open_cards_of_his_that_block_it_and_each_card_th
     assert features["ship the page"]["cards"] == [{"title": "Which layout?", "url": layout["url"], "asked": layout["asked"]}]
     assert features["free to go"]["cards"] == []
     assert {item["title"]: item["blocks"] for item in model["queue"]} == {
-        "Which layout?": ["rank the cards", "ship the page"],
-        "Rename it?": ["rank the cards"],
+        "Which layout?": [{"id": "o1", "title": "rank the cards"}, {"id": "o2", "title": "ship the page"}],
+        "Rename it?": [{"id": "o1", "title": "rank the cards"}],
         "Release now?": [],
     }
     markdown = page.render(model, DASHBOARD)
     assert f"waits on your answer to [Which layout?]({layout['url']}), asked {when(layout['asked'])}; [Rename it?]({rename['url']})" in markdown
     assert "· blocks rank the cards; ship the page ·" in markdown
+
+
+def test_a_question_cards_rail_names_the_job_that_asked_it_what_it_holds_up_and_his_answers_matched_to_it_newest_first() -> None:
+    layout, rename = question("Which layout?", -40, "demo:j2-7-a"), question("Rename it?", -20, "demo:j3-2-a")
+    data = drive_of(
+        {"o1": order("rank the cards", ["j1", "j2"]), "o2": order("ship the page", ["j3"])},
+        {
+            "j1": job("o1", "waiting", goal="read the ranking", questions=asked_on(layout["url"]), brief="/tmp/brief.md"),
+            "j2": job("o1", "built", goal="rank by age", branch="lane/age", waits=["demo:j2-7-a"]),
+            "j3": job("o2", "running", goal="rank by size"),
+        },
+        [pr(1, "o2", waits=["demo:j2-7-a"]), pr(2, "o2", waits=["demo:j2-7-a"], checks="fail")],
+    )
+    said = {"link": f"{TEAM}archives/D123/p1", "said": at(-90), "jobs": {}}
+    data["answers"] = {
+        "a1": said | {"words": "older words", "at": at(-90), "cards": {"demo:j2-7-a": None}},
+        "a2": said | {"words": "newer words", "at": at(-60), "cards": {"demo:j2-7-a": {"mark": "stands"}}},
+        "a3": said | {"words": "other words", "at": at(-50), "cards": {"demo:j3-2-a": None}},
+    }
+    model = view.board(data, found([layout, rename]), "live", [], T0, set())
+    items = {item["title"]: item for item in model["queue"]}
+    assert {title: (item["job"], item["holds"]) for title, item in items.items()} == {"Which layout?": ("j1", 2), "Rename it?": ("j3", 0)}
+    rail = items["Which layout?"]["rail"]
+    assert rail["held"] == [
+        {"kind": "pr", "feature": "o2", "title": view.pr_title(data["prs"]["yasyf/cc-skills#1"]), "url": "https://github.com/yasyf/cc-skills/pull/1"},
+        {"kind": "job", "feature": "o1", "title": "rank by age", "branch": "lane/age"},
+    ]
+    assert (rail["asker"]["id"], rail["asker"]["goal"], rail["asker"]["state"], rail["asker"]["files"]) == ("j1", "read the ranking", "waiting", ["brief"])
+    assert rail["answers"] == [{"words": "newer words", "at": at(-60), "mark": "stands"}, {"words": "older words", "at": at(-90), "mark": None}]
+    assert items["Rename it?"]["rail"]["answers"] == [{"words": "other words", "at": at(-50), "mark": None}]
+    assert all("rail" not in item for item in view.summary(model)["queue"])
 
 
 def test_his_question_cards_come_most_finished_work_held_up_first_and_a_pr_waiting_on_one_asks_no_tap() -> None:

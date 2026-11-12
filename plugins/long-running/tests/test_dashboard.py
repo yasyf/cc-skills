@@ -803,18 +803,137 @@ done({ counter: document.querySelector('#main .counter span').textContent, selec
     assert seen == {"counter": "1 of 2", "selected": "context", "focused": "context"}
 
 
-def test_escape_closes_the_ask_box_and_gives_focus_back_to_its_button(tmp_path: Path) -> None:
+def test_a_decision_shows_its_ask_box_beside_the_card_without_a_click_as_a_pr_card_does(tmp_path: Path) -> None:
+    tap = {"kind": "tap", "url": "https://github.com/a/b/pull/7", "title": "fix the lock", "answer": None, "thread": None, "card": None, "since": None, "holds": 0, "blocks": []}
     seen = browse(tmp_path, """
 location.hash = '#/queue/all';
 await wait(100);
-document.querySelector('#main [data-ask]').click();
+const decision = { box: !!document.querySelector('#main .context-rail form.say textarea'), button: !!document.querySelector('#main [data-ask], #main .ask-open') };
+document.querySelector('#main [data-move="1"]').click();
+await wait(100);
+done({ decision, pr: !!document.querySelector('#main .context-rail form.say textarea') });
+""", board(queue=[QUESTION, tap]))
+    assert seen == {"decision": {"box": True, "button": False}, "pr": True}
+
+
+def test_a_decisions_rail_lists_each_held_task_once_with_its_place_and_state_the_asking_job_and_his_earlier_words(tmp_path: Path) -> None:
+    other = {"title": "Other one?", "url": "https://x.slack.com/archives/D1/p1794382999000100", "asked": "2026-11-10T22:00:00-08:00"}
+    asked = {"title": "Raise the limit?", "url": QUESTION["answer"], "asked": "2026-11-10T23:00:00-08:00"}
+    shipping = FEATURE | {"cards": [asked]}
+    stuck = FEATURE | {"id": "o2", "title": "unblock the lane", "state": "blocked", "workstream": None, "cards": [asked, other]}
+    asker = board()["work"][0] | {"goal": "read the limits", "state": "waiting", "files": ["brief", "report"]}
+    rail = {
+        "held": [{"kind": "pr", "feature": "o1", "title": "raise it", "url": "https://github.com/a/b/pull/7"}, {"kind": "job", "feature": "o2", "title": "shard it", "branch": "lane/two"}],
+        "asker": asker,
+        "answers": [{"words": "newer words", "at": "2026-11-10T22:30:00-08:00", "mark": "stands"}, {"words": "older words", "at": "2026-11-10T21:00:00-08:00", "mark": None}],
+    }
+    item = QUESTION | {"holds": 2, "blocks": [{"id": "o2", "title": "unblock the lane"}, {"id": "o1", "title": "ship the fix"}], "rail": rail}
+    seen = browse(tmp_path, """
+location.hash = '#/queue/all';
+await wait(150);
+const rail = document.querySelector('#main .context-rail');
+const rows = [...rail.querySelectorAll('.held')].map((row) => ({
+  where: row.querySelector('.crumbs').textContent.replace(/\\s+/g, ''),
+  title: row.querySelector('.held-title').textContent,
+  href: row.querySelector('.held-title').getAttribute('href'),
+  state: row.querySelector('.pill').textContent,
+  finished: row.querySelector('small').textContent,
+}));
+const job = { goal: rail.querySelector('.jobs .title').textContent.trim(), files: [...rail.querySelectorAll('.jobs [data-file]')].map((button) => button.textContent) };
+const words = [...rail.querySelectorAll('.said-list q')].map((said) => said.textContent);
+rail.querySelectorAll('.held small')[1].dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
 await wait(50);
-const typing = document.activeElement.matches('.ask-box textarea');
-document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+const hovered = document.querySelector('#srctip').textContent;
+rail.querySelector('.held-title').focus();
 await wait(50);
-done({ typing, open: !!document.querySelector('#main .ask-box'), focus: document.activeElement.matches('[data-ask]'), hash: location.hash });
-""", board(queue=[QUESTION]))
-    assert seen == {"typing": True, "open": False, "focus": True, "hash": "#/queue/all/1794382453.859209"}
+done({ rows, job, words, hovered, focused: document.querySelector('#srctip').textContent });
+""", board(queue=[item], status=[{"state": "running", "features": [shipping, stuck]}]))
+    assert seen == {
+        "rows": [
+            {"where": "Platform/SandSQL", "title": "ship the fix", "href": "#/feature/o1", "state": "Being built", "finished": "a/b#7 green and approved"},
+            {"where": "Platform/Unfiled", "title": "unblock the lane", "href": "#/feature/o2", "state": "Blocked", "finished": "built on lane/two"},
+        ],
+        "job": {"goal": "read the limits", "files": ["Brief", "Report"]},
+        "words": ["newer words", "older words"],
+        "hovered": "unblock the lane. Blocked. Finished and held: built on lane/two. Waits on this answer and on “Other one?”.",
+        "focused": "ship the fix. Being built. Finished and held: a/b#7 green and approved. Waits on this answer.",
+    }
+
+
+LONG_BODY = "\n\n".join(f"Reason {n}: the shard map keeps every journal on one node, so a restart replays all of them before the first read answers." for n in range(14))
+
+
+def test_the_rail_stays_beside_a_long_decision_as_he_scrolls_and_folds_into_the_card_under_1100_px(tmp_path: Path) -> None:
+    item = QUESTION | {"card": QUESTION["card"] | {"body": LONG_BODY}}
+    steps = """
+location.hash = '#/queue/all';
+await wait(150);
+document.querySelector('#main [data-more]').click();
+await wait(50);
+scrollTo(0, 400);
+await wait(50);
+const layout = getComputedStyle(document.querySelector('#main .queue-layout'));
+const rail = document.querySelector('#main .context-rail').getBoundingClientRect();
+const card = document.querySelector('#main .focus-card');
+done({ scrolled: scrollY, railTop: Math.round(rail.top), beside: rail.left >= card.getBoundingClientRect().right, under: Math.round(rail.top) === Math.round(card.getBoundingClientRect().bottom), frame: layout.borderTopWidth, cardFrame: getComputedStyle(card).borderTopWidth });
+"""
+    wide = browse(tmp_path / "wide", steps, board(queue=[item]), "1440,600")
+    narrow = browse(tmp_path / "narrow", steps, board(queue=[item]), "1000,600")
+    assert wide == {"scrolled": 400, "railTop": 92, "beside": True, "under": False, "frame": "0px", "cardFrame": "1px"}
+    assert {key: narrow[key] for key in ("beside", "under", "frame", "cardFrame")} == {"beside": False, "under": True, "frame": "1px", "cardFrame": "0px"}
+
+
+def test_the_rail_tells_a_mouse_to_hover_a_choice_and_a_touch_screen_to_tap_one(tmp_path: Path) -> None:
+    steps = """
+location.hash = '#/queue/all';
+await wait(100);
+done(document.querySelector('#main .rail-note').innerText);
+"""
+    mouse = browse(tmp_path / "mouse", steps, board(queue=[QUESTION]), "1200,600", "--blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4")
+    touch = browse(tmp_path / "touch", steps, board(queue=[QUESTION]), "390,844", "--blink-settings=primaryHoverType=1,availableHoverTypes=1,primaryPointerType=2,availablePointerTypes=2")
+    assert mouse == "Hover or focus a choice to read it here. An answer waits 10 seconds before it is sent, so Undo or ⌘Z takes it back."
+    assert touch == "Tap a choice to answer it. An answer waits 10 seconds before it is sent, so Undo takes it back."
+
+
+def test_explain_more_is_a_button_that_cuts_the_summary_on_a_whole_line_and_shows_less_once_open(tmp_path: Path) -> None:
+    long = QUESTION | {"card": QUESTION["card"] | {"body": f"| Shard | Nodes |\n| --- | --- |\n| a | 3 |\n| b | 4 |\n\n{LONG_BODY}"}}
+    short = QUESTION | {"answer": "https://x.slack.com/archives/D1/p1794382999000100", "card": QUESTION["card"] | {"body": "One line."}}
+    seen = browse(tmp_path, """
+location.hash = '#/queue/all';
+await wait(150);
+const button = () => document.querySelector('#main [data-more]');
+const fold = () => document.querySelector('#main .fold');
+const state = () => ({ text: button().textContent, expanded: button().getAttribute('aria-expanded'), open: fold().classList.contains('open') });
+const straddling = () => {
+  const top = fold().getBoundingClientRect().top;
+  const edge = fold().clientHeight;
+  const boxes = [...fold().querySelectorAll('tr')].map((row) => row.getBoundingClientRect());
+  const text = document.createTreeWalker(fold(), NodeFilter.SHOW_TEXT);
+  for (let node = text.nextNode(); node; node = text.nextNode()) {
+    const line = document.createRange();
+    line.selectNodeContents(node);
+    boxes.push(...line.getClientRects());
+  }
+  return boxes.filter((box) => box.top - top < edge - 0.5 && box.bottom - top > edge + 0.5).length;
+};
+const closed = { ...state(), controls: button().getAttribute('aria-controls') === fold().id, straddling: straddling() };
+button().focus();
+button().click();
+await wait(50);
+const opened = { ...state(), focused: document.activeElement === button() };
+button().click();
+await wait(50);
+const again = state();
+document.querySelector('#main [data-move="1"]').click();
+await wait(150);
+done({ closed, opened, again, shortShown: getComputedStyle(button()).display !== 'none' });
+""", board(queue=[long, short]))
+    assert seen == {
+        "closed": {"text": "Explain more", "expanded": "false", "open": False, "controls": True, "straddling": 0},
+        "opened": {"text": "Show less", "expanded": "true", "open": True, "focused": True},
+        "again": {"text": "Explain more", "expanded": "false", "open": False},
+        "shortShown": False,
+    }
 
 
 def test_j_and_k_step_through_the_queue_a_question_mark_shows_every_key_and_a_number_answers_only_inside_the_card(tmp_path: Path) -> None:
@@ -997,7 +1116,7 @@ let reloads = 0;
 window.reloadPage = () => { reloads += 1; };
 location.hash = '#/queue/all';
 await wait(100);
-document.querySelector('#main [data-ask]').click();
+document.querySelector('#main .context-rail textarea').focus();
 await wait(50);
 await push({ ...MODEL, code: '/plugins/long-running/9.9.9/lib/drive', at: '2026-11-11T00:09:00-08:00' });
 const typing = { reloads, chip: document.querySelector('#stale').textContent, shown: !document.querySelector('#stale').hidden, kept: document.querySelector('.qfoot').textContent.includes('12:00') };

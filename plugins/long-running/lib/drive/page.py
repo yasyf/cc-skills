@@ -58,7 +58,7 @@ def queue_line(number: int, item: dict) -> str:
     if item.get("holds"):
         parts.append(f"holds up {item['holds']} finished")
     if item.get("blocks"):
-        parts.append(f"blocks {'; '.join(cut(title, TITLE_CHARS) for title in item['blocks'])}")
+        parts.append(f"blocks {'; '.join(cut(entry['title'], TITLE_CHARS) for entry in item['blocks'])}")
     if item["kind"] == "late":
         parts.append(f"promised {when(item['due'])}")
     elif item["since"]:
