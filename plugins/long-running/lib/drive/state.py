@@ -19,7 +19,7 @@ FINISHED_JOB_STATES = ("done", "failed", "stopped")
 INCIDENT_STOP = "stop"
 IMMEDIATE_FIX = "immediate fix"
 RESULT_STATES = {"DONE": "done", "READY": "waiting", "WAITING": "waiting", "DESIGN": "waiting", "ASK": "waiting", "BLOCKED": "failed", "HANDOFF": "stopped"}
-BUILT_LINE = re.compile(r"BUILT (?P<branch>[^\s,]+),? waits on (?P<cards>.+)")
+BUILT_LINE = re.compile(r"BUILT (?P<branch>[^\s,]+(?:, [^\s,]+)*?),? waits on (?P<cards>.+)")
 WAITING_LINE = re.compile(r"WAITING (?P<prs>.+?) waits on (?P<cards>.+)")
 ASK_LINE = re.compile(r"ASK (?P<file>\S+)")
 REPORT_CHANGE = re.compile(r"^CHANGE:[ \t]*(?P<change>.+?)[ \t]*$", re.MULTILINE)
@@ -424,6 +424,12 @@ def drop_carries(data: dict, job_id: str) -> None:
 
 def agent_job(data: dict, agent: str | None) -> str | None:
     return next((job_id for job_id, job in data["jobs"].items() if agent and job.get("agent") == agent), None)
+
+
+def hold_unstarted(job: dict) -> None:
+    """A job no agent or lane has started waits, rather than runs, while anything it waits on holds it, so the watch reads it waiting, never as not started, and says FREE once the last wait ends."""
+    if job["state"] == "running" and job["waits"] and not job.get("agent") and not job.get("dispatch"):
+        job.update(state="waiting", said=f"waits on {', '.join(job['waits'])}")
 
 
 def result_state(job: dict, line: str) -> str | None:
