@@ -1473,7 +1473,7 @@ def test_job_card_draws_the_show_me_code_as_pictures_on_lines_of_their_own(
     assert drawn == ["code:http", "code:http", "choice", "choice", "choice"]
     assert (card["waits"], card["recommended"]) == ("demo:j1-7", "One snapshot file per finished run, written when it ends, old runs backfilled: opens in 3 requests")
     assert run("job", "card", str(block), "--waits", "demo:j1-7") == (0, printed)
-    assert drawn == ["code:http", "code:http"]
+    assert drawn == ["code:http", "code:http", "choice", "choice", "choice"]
 
 
 def test_job_ask_check_keep_and_card_refuse_a_show_me_picture_that_does_not_draw_with_why_and_keep_it_once_it_draws(
