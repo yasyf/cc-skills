@@ -1997,6 +1997,28 @@ def test_a_green_approved_pr_gets_no_ready_and_no_card_while_the_check_at_its_he
     assert (record["kind"], state.load(demo)["prs"][KEY]["checked"]["head"]) == ("ready", "bbbbbbb222")
 
 
+def test_a_check_names_every_pr_its_job_and_the_job_it_was_handed_from_carry_with_merged_ones_marked_so_a_part_a_merged_pr_delivers_gets_no_not_ready(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    merged, closed = "yasyf/cc-skills#4484", "yasyf/cc-skills#4490"
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["prs"] += [state.pr_url(merged), state.pr_url(closed), state.pr_url(OTHER)]
+        data["jobs"]["j2"] = job(prs=[state.pr_url(KEY)])
+        data["prs"][KEY] |= {"job": "j2", "wants_tap": True, "checked": None}
+        data["prs"][merged] = state.new_pr(state.pr_url(merged), "j1", "o1") | {"state": "merged", "title": "Fix: a Sprite lane gets the wasm toolchain"}
+        data["prs"][closed] = state.new_pr(state.pr_url(closed), "j1", "o1") | {"state": "closed", "title": "Fix: the toolchain, abandoned"}
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"title": "Fix: the stack's top"}
+    delivered = f'its job\'s merged PRs already deliver their share of these orders: {merged} "Fix: a Sprite lane gets the wasm toolchain"'
+    told: list[str] = []
+    wasm = {"order": "o1", "words": "ship the watch", "change": "no PR gives Sprites the wasm toolchain"}
+    monkeypatch.setattr(served, "judged", lambda name, said, changes: told.append(said) or ([] if delivered in said else [wasm]))
+    assert cli.main(["pr", "check", state.pr_url(KEY), "--drive", demo]) == 0
+    [said] = told
+    assert f'{delivered}\nits job\'s other open PRs, each judged on its own, deliver their share of these orders: {OTHER} "Fix: the stack\'s top"' in said
+    assert closed not in said
+    assert state.load(demo)["prs"][KEY]["checker"]["outcome"].startswith(f"{served.CHECKED} against the words of o1 at aaaaaaa111")
+
+
 def test_a_check_whose_judge_failed_is_said_nowhere_and_tried_again_ten_minutes_after_it_started(
     demo: str, monkeypatch: pytest.MonkeyPatch, checkers: list[str]
 ) -> None:
