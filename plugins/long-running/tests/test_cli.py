@@ -2253,36 +2253,23 @@ def test_job_report_keeps_a_jobs_whole_return_from_stdin_and_prints_it_back(
     kept_proof(tmp_path, "j1")
     assert run("job", "report", "j1")[0] == 2
     monkeypatch.setattr("sys.stdin", io.StringIO("READY https://github.com/yasyf/cc-skills/pull/1\nSERVES: his order\nDESIGN: none\n"))
-    assert run("job", "report", "j1", "-") == (0, str(state_root / "demo" / "reports" / "j1.md"))
+    assert run("job", "report", "j1", "-") == (0, str(state_root / "demo" / "jobs" / "j1.replies.jsonl"))
     assert run("job", "report", "j1") == (0, "READY https://github.com/yasyf/cc-skills/pull/1\nSERVES: his order\nDESIGN: none")
 
 
-def test_a_return_on_a_job_that_already_returned_sets_its_line_and_history_and_leaves_its_agents_report_byte_identical(
-    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_later_return_sits_above_its_agents_report_and_an_identical_one_prints_once(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "reader", "--order", "o1", "--goal", "grade", "--agent", "a")
-    assert run("job", "replies", "j1") == (0, "j1 has sent nothing yet")
     agents = "DONE graded three PRs\nVERDICT 54182 port\nVERDICT 54104 drop\nVERDICT 54344 port\nCHECK: the three diffs\n"
-    restated = "DONE graded three PRs: two ports\nCHECK: reports/j1.md\nUNPROVEN: none\n"
-    monkeypatch.setattr("sys.stdin", io.StringIO(agents))
-    assert run("job", "report", "j1", "-") == (0, str(state.report_path("demo", "j1")))
-    before = hashlib.sha256(state.report_path("demo", "j1").read_bytes()).hexdigest()
-    monkeypatch.setattr("sys.stdin", io.StringIO(restated))
-    assert run("job", "report", "j1", "-") == (
-        0,
-        (
-            f"j1 had already returned, so this return set only its said line and its history, `drive job replies j1`: {state.report_path('demo', 'j1')}"
-            " is written only by its own agent's return while it runs"
-        ),
+    restated = "DONE graded three PRs: two ports\nCHECK: the agent's report\nUNPROVEN: none\n"
+    for whole in (agents, restated, agents):
+        monkeypatch.setattr("sys.stdin", io.StringIO(whole))
+        assert run("job", "report", "j1", "-") == (0, str(state.replies_path("demo", "j1")))
+    assert (state.load("demo")["jobs"]["j1"]["said"], run("job", "report", "j1")) == (
+        "DONE graded three PRs",
+        (0, f"{agents.rstrip()}\n\n{restated.rstrip()}"),
     )
-    assert hashlib.sha256(state.report_path("demo", "j1").read_bytes()).hexdigest() == before
-    assert (state.load("demo")["jobs"]["j1"]["said"], run("job", "report", "j1")) == ("DONE graded three PRs: two ports", (0, agents.rstrip("\n")))
-    kept = json.loads(run("job", "replies", "j1", "--json")[1])
-    assert [(reply["type"], reply["subject"], reply["body"]) for reply in kept] == [
-        ("worker_done", "DONE graded three PRs", agents),
-        ("worker_done", "DONE graded three PRs: two ports", restated),
-    ]
+    assert not (state.drive_dir("demo") / "reports").exists()
 
 
 def test_a_builders_done_names_its_proof_and_what_he_sees_is_proven_on_that_surface(
@@ -2591,14 +2578,33 @@ def test_a_readers_design_report_keeps_its_ask_in_the_same_call_or_keeps_nothing
     code, err = keep(monkeypatch, capsys, "j1", unshaped)
     assert (code, "j1: refused, its report not kept: a reader's DESIGN is his card as it stands, kept as its ASK, and drive job ask refused it:" in err) == (2, True)
     job = state.load("demo")["jobs"]["j1"]
-    assert (job["state"], job["questions"], state.report_path("demo", "j1").exists()) == ("running", [], False)
+    assert (job["state"], job["questions"], state.report_text("demo", "j1")) == ("running", [], "")
     monkeypatch.setattr("sys.stdin", io.StringIO(DESIGN_RESEARCH))
     code, out = run("job", "report", "j1", "-")
     job = state.load("demo")["jobs"]["j1"]
     [question] = job["questions"]
     assert (code, job["state"], question["title"], question["refused"]) == (0, "done", DESIGN_TITLE, None)
-    assert out == f"{state.report_path('demo', 'j1')}\nits ASK is kept in {question['file']}, the path its ask record names"
+    assert out == f"{state.replies_path('demo', 'j1')}\nits ASK is kept in {question['file']}, the path its ask record names"
     assert Path(question["file"]).read_text().startswith(f"ASK {DESIGN_TITLE}\n")
+
+
+def test_a_readers_design_kept_by_either_verb_is_in_its_history_and_report_takes_unsettled_as_job_ask_does(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
+    run("job", "add", "reader", "--order", "o1", "--goal", "research: where the copy runs")
+    run("job", "add", "reader", "--order", "o1", "--goal", "research: when the copy pauses")
+    pausing = DESIGN_RESEARCH.replace(f"DESIGN {DESIGN_TITLE}", "DESIGN When should store_copy_at in supervisor/copies.rs pause each store copy?")
+    block = tmp_path / "design.md"
+    block.write_text(pausing)
+    assert run("job", "ask", "j2", str(block))[0] == 0
+    [asked] = state.load("demo")["jobs"]["j2"]["questions"]
+    code, err = keep(monkeypatch, capsys, "j1", DESIGN_RESEARCH)
+    assert (code, f"when this asks something else, ask again with --unsettled naming {Path(asked['file']).name} and why" in err) == (2, True)
+    assert state.report_text("demo", "j1") == ""
+    monkeypatch.setattr("sys.stdin", io.StringIO(DESIGN_RESEARCH))
+    assert run("job", "report", "j1", "-", "--unsettled", f"{Path(asked['file']).name}: it asks when a copy pauses, this asks where it runs")[0] == 0
+    assert (state.report_text("demo", "j1"), state.report_text("demo", "j2")) == (DESIGN_RESEARCH.rstrip(), pausing.rstrip())
 
 
 def test_a_design_lanes_design_names_on_each_fork_line_a_question_it_kept(
@@ -2988,7 +2994,8 @@ def test_a_report_takes_a_waiting_or_built_job_and_is_refused_on_a_stopped_one_k
     check = "CHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n"
     built = f"BUILT lr-move, waits on demo:j1-3\n{check}"
     assert keep(monkeypatch, capsys, "j1", built) == (0, "")
-    assert keep(monkeypatch, capsys, "j1", f"WAITING on his card demo:j1-3\n{check}") == (0, "")
+    waiting = f"WAITING on his card demo:j1-3\n{check}"
+    assert keep(monkeypatch, capsys, "j1", waiting) == (0, "")
     assert state.load("demo")["jobs"]["j1"]["state"] == "waiting"
     done = "DONE installed 1.0.392\nCHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n"
     assert keep(monkeypatch, capsys, "j1", done) == (0, "")
@@ -2997,7 +3004,7 @@ def test_a_report_takes_a_waiting_or_built_job_and_is_refused_on_a_stopped_one_k
     run("job", "set", "j1", "--state", "stopped", "--said", "handed to j2")
     code, err = keep(monkeypatch, capsys, "j1", "DONE The lane comes from bookkeeping\nCHECK: https://github.com/yasyf/cc-skills/actions/runs/13\n")
     assert (code, "j1: refused, nothing kept: j1 is stopped, so its work goes on in another job" in err) == (2, True)
-    assert state.report_path("demo", "j1").read_text() == built
+    assert state.report_text("demo", "j1") == f"{done.rstrip()}\n\n{waiting.rstrip()}\n\n{built.rstrip()}"
     assert state.load("demo")["jobs"]["j1"]["state"] == "stopped"
 
 
@@ -3074,12 +3081,13 @@ def test_job_set_naming_the_state_a_job_already_holds_changes_nothing_and_says_s
     assert run("job", "set", "j2", "--state", "running")[1].splitlines()[0] == "j2 is already running"
 
 
-def test_job_report_prints_a_remote_lanes_latest_report(run: Run, demo: str) -> None:
+def test_job_report_prints_a_remote_lanes_results_and_questions_newest_first_and_never_its_status(run: Run, demo: str) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship", "--remote")
-    with state.edit("demo") as data:
-        data["jobs"]["j1"]["report"] = "DONE installed 1.0.76\nCHECK: drive --version"
-    assert run("job", "report", "j1") == (0, "DONE installed 1.0.76\nCHECK: drive --version")
+    sent = [("question", "ASK Which store?"), ("status", "copying the second store"), ("worker_done", "DONE installed 1.0.76\nCHECK: drive --version")]
+    for seq, (kind, body) in enumerate(sent):
+        state.keep_reply("demo", "j1", {"created_at": state.stamp(), "id": f"msg_{seq}", "type": kind, "subject": body.splitlines()[0], "body": body})
+    assert run("job", "report", "j1") == (0, "DONE installed 1.0.76\nCHECK: drive --version\n\nASK Which store?")
 
 
 @pytest.fixture

@@ -30,6 +30,7 @@ UNLIVE_FIX = (
 IMMEDIATE_FIX = "immediate fix"
 FOLLOW_UP = "follow-up"
 RESULT_STATES = {"DONE": "done", "READY": "waiting", "PUSHED": "waiting", "WAITING": "waiting", "DESIGN": "waiting", "ASK": "waiting", "BLOCKED": "failed", "HANDOFF": "stopped"}
+RETURNS = ("worker_done", "question")
 BUILT_LINE = re.compile(r"BUILT (?P<branch>[^\s,]+(?:, [^\s,]+)*?),? waits on (?P<cards>.+)")
 WAITING_LINE = re.compile(r"WAITING (?P<prs>.+?) waits on (?P<cards>.+)")
 ASK_LINE = re.compile(r"ASK (?P<file>\S+)")
@@ -190,29 +191,19 @@ def replies_path(name: str, job_id: str) -> Path:
     return drive_dir(name) / "jobs" / f"{job_id}.replies.jsonl"
 
 
-def report_path(name: str, job_id: str) -> Path:
-    return drive_dir(name) / "reports" / f"{job_id}.md"
-
-
 def repro_path(name: str, job_id: str, suffix: str) -> Path:
     return drive_dir(name) / "repro" / f"{job_id}{suffix}"
 
 
-def report_text(name: str, job_id: str, job: dict) -> str:
-    """A job's whole return as kept in the drive, or a remote lane's latest report, or nothing."""
-    path = report_path(name, job_id)
-    return path.read_text() if path.exists() else job.get("report") or ""
+def report_text(name: str, job_id: str) -> str:
+    """Every return the job took, newest first, each body once, so a later return such as a coordinator restating its result sits above its agent's report and never replaces it; a remote lane's results and questions count as its returns."""
+    taken = [reply["body"] or "" for reply in reversed(replies(name, job_id)) if reply["type"] in RETURNS]
+    return "\n\n".join(body.rstrip("\n") for body in dict.fromkeys(taken))
 
 
-def keep_report(name: str, job_id: str, job: dict, line: str, whole: str) -> bool:
-    """Keep a return a job on this Mac made in its history, which keeps each, as it keeps a remote lane's, so a later return never loses an earlier one, and, while the job runs, as reports/<j>.md, which every reader takes as its report: only the job's own turn writes that file, so a return on a job that already returned, such as a coordinator restating its result, leaves its agent's report as it was. Whether it wrote the file."""
+def keep_report(name: str, job_id: str, line: str, whole: str) -> None:
+    """Add a return a job on this Mac made to its history, as the watch adds each message a remote lane sends."""
     keep_reply(name, job_id, {"created_at": stamp(), "id": f"report_{uuid.uuid4().hex[:12]}", "type": "worker_done", "subject": line, "body": whole})
-    if job["state"] != "running":
-        return False
-    kept = report_path(name, job_id)
-    kept.parent.mkdir(exist_ok=True)
-    kept.write_text(whole)
-    return True
 
 
 def keep_reply(name: str, job_id: str, message: dict) -> None:
@@ -536,7 +527,7 @@ def reported(line: str) -> bool:
 
 
 def kept_return(job: dict, line: str) -> bool:
-    """Whether the line a job's agent returned is the result the drive keeps for it, word for word: an `ASK <path>` naming the block `drive job ask` kept for one of its questions, else its said line, which its newest return set, since a return made after the job returned keeps its report file as it was."""
+    """Whether the line a job's agent returned is the result the drive keeps for it, word for word: an `ASK <path>` naming the block `drive job ask` kept for one of its questions, else its said line, which its newest return set."""
     if (asked := ASK_LINE.fullmatch(line)) and kept_in(job, Path(asked["file"])):
         return True
     return job["said"] == line

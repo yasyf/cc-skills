@@ -948,7 +948,7 @@ def test_an_install_holding_a_merge_runs_its_jobs_proof_file_on_it_takes_done_an
     git = fake([BUILD], {BUILD})
     script = proving(config, tmp_path, git, 0)
     assert install.main("long-running@skills", None, None, 900, None) == 0
-    kept = state.report_path("demo", "j1").with_suffix(".proof.txt")
+    kept = state.repro_path("demo", "j1", ".proof.txt")
     proven = f"{install.PROVEN} on long-running@skills 1.0.3: {script} exits 0, its output {kept}; its close report of o1 went to the communicator"
     assert capsys.readouterr().out.splitlines()[:2] == ["installed long-running@skills 1.0.3", f"demo j1: {proven}"]
     assert kept.read_text() == "ran on /cache/long-running/1.0.3/bin\n"

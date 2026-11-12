@@ -338,11 +338,9 @@ def test_a_sprite_brief_carries_every_drive_file_it_names_whole_a_lanes_report_k
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     for goal in ("research it", "design it", "list it"):
         run("job", "add", "reader", "--order", "o1", "--goal", goal)
-    with state.edit(demo) as data:
-        data["jobs"]["j2"]["report"] = "DESIGN the whole design\n"
+    for job_id, whole in (("j1", "DONE the reader's findings\nexists: lib/thing.py\n"), ("j2", "DESIGN the whole design\n"), ("j3", "DONE a job the brief only lists as a transcript\n")):
+        state.keep_report(demo, job_id, whole.splitlines()[0], whole)
     files = {
-        state.report_path(demo, "j1"): "DONE the reader's findings\nexists: lib/thing.py\n",
-        state.report_path(demo, "j3"): "DONE a job the brief only lists as a transcript\n",
         folder / "asks" / "j2-0c1d2e3f.md": "ASK Which store?\n",
         state.repro_path(demo, "j1", ".sh"): "exit 1\n",
         folder / "scratch" / "j1" / "notes.md": "the notes\n",

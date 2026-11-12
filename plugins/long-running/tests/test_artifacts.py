@@ -27,7 +27,7 @@ def turn(kind: str, *blocks: dict, message_id: str | None = None, **fields: obje
 
 def test_a_job_lists_the_files_the_drive_keeps_for_it_in_reading_order() -> None:
     remote = {"where": "remote", "brief": "/b.md", "report": "DONE", "questions": [state.new_question("/q.md", "Q?", "now")], "repro": "/r.md", "agent": None, "session": None}
-    assert artifacts.kept("j1", remote, set()) == ["brief", "report", "question", "repro"]
+    assert artifacts.kept("j1", remote, {"j1"}) == ["brief", "report", "question", "repro"]
     assert artifacts.kept("j2", JOB, {"j2"}) == ["brief", "report", "transcript"]
     assert artifacts.kept("j3", JOB | {"session": None}, set()) == []
 
@@ -64,12 +64,15 @@ def test_the_question_file_holds_every_question_the_job_asked_oldest_first(tmp_p
     }
 
 
-def test_a_kept_report_reads_from_its_file_before_the_lane_text(drive_home: Path) -> None:
-    kept = drive_home / "drives" / "demo" / "reports" / "j1.md"
-    kept.parent.mkdir(parents=True)
-    kept.write_text("DONE the whole return\n")
-    assert artifacts.read("demo", "j1", JOB | {"report": "DONE short"}, "report")["docs"] == ["DONE the whole return\n"]
-    assert artifacts.read("demo", "j2", JOB | {"report": "DONE short"}, "report") == {"title": "j2 report: fix the load gate", "facts": "the lane's latest report", "docs": ["DONE short"]}
+def test_a_report_reads_every_return_its_history_holds_newest_first(drive_home: Path) -> None:
+    (drive_home / "drives" / "demo").mkdir(parents=True)
+    for whole in ("DONE the whole return\nCHECK: the diff\n", "DONE short\n"):
+        state.keep_report("demo", "j1", whole.splitlines()[0], whole)
+    assert artifacts.read("demo", "j1", JOB, "report") == {
+        "title": "j1 report: fix the load gate",
+        "facts": f"every return it took, newest first · {drive_home / 'drives' / 'demo' / 'jobs' / 'j1.replies.jsonl'}",
+        "docs": ["DONE short\n\nDONE the whole return\nCHECK: the diff"],
+    }
 
 
 def test_a_reproduction_in_code_keeps_every_line_and_its_language(tmp_path: Path) -> None:

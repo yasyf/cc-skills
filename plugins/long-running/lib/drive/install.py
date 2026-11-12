@@ -542,7 +542,7 @@ def prove(name: str, job_id: str, key: str, repo: str, clone: str, deadline: flo
         code, output = "past drive install's deadline", f"{expired.stdout or ''}{expired.stderr or ''}"
     except OSError as error:
         code, output = f"unrun ({error})", ""
-    kept = state.report_path(name, job_id).with_suffix(".proof.txt")
+    kept = state.repro_path(name, job_id, ".proof.txt")
     kept.parent.mkdir(exist_ok=True)
     kept.write_text(output)
     versions = ", ".join(f"{plugin} {build['version']}" for plugin, build in builds.items())
@@ -557,7 +557,7 @@ def prove(name: str, job_id: str, key: str, repo: str, clone: str, deadline: flo
             return None
         seen = [found for found in brief.proofs(output) if brief.SEEN_PROOF.search(found)]
         whole = f"{line}\nPR: {urls}\nCHECK: {' '.join([str(kept), *seen])}\n"
-        state.keep_report(name, job_id, job, line, whole)
+        state.keep_report(name, job_id, line, whole)
         state.take_result(data, job_id, line, whole)
         unseen = cli.surface(data, order) if not seen else None
         closes = code == 0 and not unseen and all(state.delivered(data, job["order"], part) for part in order["parts"])

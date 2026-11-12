@@ -266,8 +266,7 @@ def drive_files(drive: str, brief: str) -> dict[str, str | None]:
     prefix = "|".join(re.escape(f"{root}/") for root in roots)
     named = [PATH_END.sub("", found) for found in re.findall(rf"(?<![\w./~-])(?:{prefix})?((?:{CARRIED})/{PATH_CHARS})", brief)]
     reports = [*REPORT_JOB.findall("\n".join(REPORT_LINE.findall(brief))), *(found[1] for name in named if (found := REPORT_FILE.fullmatch(name)))]
-    jobs = state.load(drive)["jobs"]
-    files = {f"Report of {job_id}": state.report_text(drive, job_id, jobs.get(job_id, {})) or None for job_id in reports}
+    files = {f"Report of {job_id}": state.report_text(drive, job_id) or None for job_id in reports}
     for name in named:
         file = folder / name
         if not REPORT_FILE.fullmatch(name) and not file.is_dir():

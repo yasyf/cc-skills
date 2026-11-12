@@ -279,12 +279,12 @@ write-up; only the handler that writes to him writes prose.
   `drive job report` refuses a builder's or designer's report that opens with any other word.
 - The rest of the kept report is one fact a line: links, numbers, paths, exact quotes, and what it
   could not prove.
-- Whoever acts on it reads it with `drive job report <j>`, which prints the report its own agent
-  kept, and a remote lane's Orca report the same way; an `ASK` keeps its block through `drive job ask`
-  instead. Only a return made while the job runs writes that report: one piped after the job
-  returned, such as a coordinator restating its result, sets its said line and history and leaves
-  the agent's report as it was. `drive job replies <j>` prints each return it kept, oldest first,
-  beside each message a remote lane sent.
+- Whoever acts on it reads it with `drive job report <j>`, which prints every return the job took,
+  newest first, each body once, a remote lane's Orca results and questions among them; an `ASK` keeps
+  its block through `drive job ask` instead. Each `drive job report <j> -` adds its return to the
+  job's history and nothing replaces one, so a coordinator restating a result sits above the agent's
+  report. A reader's `DESIGN` that `drive job ask` refuses without `--unsettled` takes the same flag
+  on `drive job report`, and one `drive job ask` keeps from a file is in the history too.
 
 ## Rules for every job
 

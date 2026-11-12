@@ -85,7 +85,7 @@ def research(name: str, data: dict, order_id: str) -> tuple[str, str] | None:
     """The newest reader of the order whose kept report carries a filled Researched: block, with that report."""
     for job_id in reversed(data["orders"][order_id]["jobs"]):
         job = data["jobs"][job_id]
-        if job["kind"] == "reader" and job["order"] == order_id and filled(researched(text := state.report_text(name, job_id, job))):
+        if job["kind"] == "reader" and job["order"] == order_id and filled(researched(text := state.report_text(name, job_id))):
             return job_id, text
     return None
 
@@ -208,7 +208,7 @@ def brief_refusal(name: str, data: dict, job_id: str, brief: str) -> str | None:
             " naming the reader whose kept report holds the order's rulings, what exists and its open questions"
         )
     reader = data["jobs"].get(named[1])
-    if not (reader and reader["kind"] == "reader" and reader["order"] == order_id and filled(researched(state.report_text(name, named[1], reader)))):
+    if not (reader and reader["kind"] == "reader" and reader["order"] == order_id and filled(researched(state.report_text(name, named[1])))):
         return f"Researched: {named[1]} names no reader of {order_id} that kept {BLOCK} in its report"
     return None
 
