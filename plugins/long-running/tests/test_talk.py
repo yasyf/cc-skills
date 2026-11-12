@@ -235,13 +235,63 @@ def test_a_code_or_diagram_fence_in_the_text_goes_to_slack_as_its_picture_while_
     assert talk.say(demo, {"text": text, "dry_run": True}) == f"DRY his DM root, 2 pictures: {sent}"
 
 
-def test_a_stack_card_names_each_pr_by_its_url_and_the_dashboard_keeps_the_stack(demo: str, posts: list[tuple[str, ...]]) -> None:
+def building(demo: str) -> None:
+    with state.edit(demo) as data:
+        data["jobs"]["j1"] = state.new_job("o1", "builder", "show a run's history", [state.whole_order(data["orders"]["o1"]["text"])], state.stamp())
+        data["orders"]["o1"]["jobs"].append("j1")
+
+
+def test_a_stack_card_names_each_pr_by_its_url_and_the_dashboard_keeps_the_stack(
+    demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Run page", "show a run's history")
+    building(demo)
     with pytest.raises(DriveError, match=r"tap_prs names yasyf/cc-skills#8, which the drive holds no PR for"):
         talk.say(demo, {"text": "land these", "tap_prs": [PR_URL, "https://github.com/yasyf/cc-skills/pull/8"]})
     assert (posts, said(demo)) == ([], [])
     talk.say(demo, {"text": "land these", "tap_prs": ["yasyf/cc-skills#7"]})
     assert posts[0] == ("dm-status", "--agent", "claude", "--tap-pr", PR_URL, "--", "land these")
     assert said(demo)[0]["prs"] == ["yasyf/cc-skills#7"]
+
+
+def test_a_pr_card_goes_in_the_thread_of_each_open_order_its_pr_carries_out_so_the_one_he_reads_carries_its_link(
+    demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Run page", "show a run's history", "--thread", "1794200000.000100")
+    run("order", "add", "--project", "The drive", "--workstream", "Run page", "There's no approval button", "--thread", "1794300000.000100")
+    run("order", "add", "--project", "The drive", "--workstream", "Run page", "why is the page slow?", "--thread", "1794400000.000100")
+    run("order", "add", "--project", "The drive", "--workstream", "Run page", "one more check", "--from", "slack:C9TEAM/1794500000.000100")
+    building(demo)
+    with state.edit(demo) as data:
+        for order_id in ("o2", "o3", "o4"):
+            state.carry(data, "j1", order_id, list(data["orders"][order_id]["parts"]))
+        data["orders"]["o3"]["state"] = "done"
+    assert talk.say(demo, {"text": "land these", "tap_prs": [PR_URL], "dry_run": True}) == "DRY thread 1794200000.000100, thread 1794300000.000100, 0 pictures, PR card for 1 PRs: land these"
+    talk.say(demo, {"text": "land these", "tap_prs": [PR_URL]})
+    assert posts == [
+        ("dm-status", "--agent", "claude", "--thread", thread, "--tap-pr", PR_URL, "--", "land these") for thread in ("1794200000.000100", "1794300000.000100")
+    ]
+    assert [event["prs"] for event in said(demo)] == [["yasyf/cc-skills#7"]] * 2
+
+
+def test_a_pr_cards_line_that_fails_in_a_later_thread_says_the_card_went_out_so_none_is_posted_again(
+    demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Run page", "show a run's history", "--thread", "1794200000.000100")
+    run("order", "add", "--project", "The drive", "--workstream", "Run page", "There's no approval button", "--thread", "1794300000.000100")
+    building(demo)
+    with state.edit(demo) as data:
+        state.carry(data, "j1", "o2", list(data["orders"]["o2"]["parts"]))
+
+    def slack_post(*argv: str) -> dict:
+        if "1794300000.000100" in argv:
+            raise slack.SlackError("ratelimited")
+        return {"permalink": POSTED, "thread_ts": "1794200000.000100"}
+
+    monkeypatch.setattr(slack, "cc_slack", slack_post)
+    with pytest.raises(slack.SlackError, match=f"posted {POSTED} with its card, but its line in thread 1794300000.000100 did not go out, so post neither again: ratelimited"):
+        talk.say(demo, {"text": "land these", "tap_prs": [PR_URL]})
+    assert [event["url"] for event in said(demo)] == [POSTED]
 
 
 @pytest.mark.parametrize(

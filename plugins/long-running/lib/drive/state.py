@@ -925,6 +925,24 @@ def promise_thread(data: dict, order: dict) -> tuple[str, str] | None:
     return (channel, thread) if channel and thread else None
 
 
+def pr_threads(data: dict, keys: list[str]) -> list[str]:
+    """The threads of his DM a card for these PRs is linked in: the thread of each open order they carry out, the one each serves, its own and each its job carries."""
+    orders = dict.fromkeys(
+        order_id
+        for key in keys
+        for order_id in filter(None, [data["prs"][key].get("serves"), data["prs"][key]["order"], *data["jobs"][data["prs"][key]["job"]]["carries"]])
+    )
+    return list(
+        dict.fromkeys(
+            where[1]
+            for order_id in orders
+            if data["orders"][order_id]["state"] not in CLOSED_ORDER_STATES
+            and (where := promise_thread(data, data["orders"][order_id]))
+            and where[0] == data["slack"]["channel"]
+        )
+    )
+
+
 def incident_threads(data: dict, order_ids: list[str]) -> list[str]:
     """The thread of each of these incident orders, where the drive says at once that a card of his blocks it."""
     return [where[1] for order_id in order_ids if (where := promise_thread(data, data["orders"][order_id]))]

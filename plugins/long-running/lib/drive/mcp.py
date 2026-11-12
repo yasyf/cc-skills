@@ -86,7 +86,8 @@ SAY = {
                 "items": TEXT,
                 "description": (
                     "The PRs on his tap, bottom of the stack first, each as its URL or owner/repo#number, drawn as one stack"
-                    " card; refused while text leaves out the words of a drive tooling order one of them serves"
+                    " card at his DM root, its line and link posted in the thread of each open order they carry out; refused"
+                    " while text leaves out the words of a drive tooling order one of them serves"
                 ),
             },
             "about": {"type": "string", "description": "The waits id of the card this reply is about"},
