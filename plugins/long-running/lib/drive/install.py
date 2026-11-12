@@ -402,10 +402,18 @@ def install(key: str, sha: str | None, repo: str | None, deadline: float, timeou
 
 
 def proved(key: str, repo: str | None, deadline: float) -> list[str]:
-    """Prove each fix the install of key made live, with no session turn: each builder of every drive still waiting on its READY or PUSHED with a kept proof file, whose PRs the drive saw merge into the plugin's repo, once the newest install of every plugin its merges change holds them, key among them; a line for each."""
+    """Prove each fix the install of key made live, with no session turn: each builder of every drive still waiting on its READY or PUSHED with a kept proof file, whose PRs the drive saw merge into the plugin's repo, once the newest install of every plugin its merges change holds them, key among them; a line for each. A drive a newer install saved refuses this code, which a newer install on this Mac then takes over; with none here, its fixes wait for one."""
     if not (repo := repo or source_repo(known_marketplaces()[key.partition("@")[2]]["source"])):
         return []
-    if not (due := [(name, job_id) for name in state.names() for job_id in provable(state.load(name), repo)]):
+    due = []
+    for name in state.names():
+        try:
+            due += [(name, job_id) for job_id in provable(state.load(name), repo)]
+        except state.NewerDrive as error:
+            if upgraded():
+                raise
+            print(f"drive install: proves nothing on {name}: {error}", file=sys.stderr)
+    if not due:
         return []
     with tempfile.TemporaryDirectory(prefix="drive-install-") as clone:
         bare_clone(clone, repo, deadline)
@@ -557,7 +565,7 @@ def reload_main() -> int:
 
 
 def main(plugin_at_marketplace: str, sha: str | None, repo: str | None, timeout: int, drive: str | None) -> int:
-    """Wait for a release holding sha, its commit and each binary it pins, bring each sibling its manifest there needs up to that release first, Captain Hook.app only once he tapped Install now on the drive's card for it, update the plugin and its Homebrew twin until the bare binary holds sha, print the installed version, reload every drive session on this Mac, and prove each fix the install made live; each drive's dashboard hands itself to the new install on its own."""
+    """Wait for a release holding sha, its commit and each binary it pins, bring each sibling its manifest there needs up to that release first, Captain Hook.app only once he tapped Install now on the drive's card for it, update the plugin and its Homebrew twin until the bare binary holds sha, print the installed version, prove each fix the install made live, then reload every drive session on this Mac; each drive's dashboard hands itself to the new install on its own. A proof refused because a newer install saved a drive, as an install of long-running itself may meet, is handed whole to the newest install's drive install, which installs nothing new and reloads each session once."""
     deadline = clock() + timeout
     try:
         version = install(plugin_at_marketplace, sha, repo, deadline, timeout, drive)
@@ -566,13 +574,16 @@ def main(plugin_at_marketplace: str, sha: str | None, repo: str | None, timeout:
         return 1
     updated = state.now()
     print(f"installed {plugin_at_marketplace} {version}")
-    for line in reload_sessions(version, updated, deadline):
-        print(line)
+    handed = ["install", plugin_at_marketplace, *(["--sha", sha] if sha else []), *(["--repo", repo] if repo else []), "--timeout", str(max(1, int(deadline - clock()))), *(["--drive", drive] if drive else [])]
+    failed = None
     try:
-        lines = proved(plugin_at_marketplace, repo, deadline)
+        with handed_to_newest(handed):
+            lines = proved(plugin_at_marketplace, repo, deadline)
     except InstallError as error:
-        print(f"drive install: installed, but its proof of the fixes it made live failed: {error}", file=sys.stderr)
-        return 1
-    for line in lines:
+        lines, failed = [], f"drive install: installed, but its proof of the fixes it made live failed: {error}"
+    for line in [*lines, *reload_sessions(version, updated, deadline)]:
         print(line)
+    if failed:
+        print(failed, file=sys.stderr)
+        return 1
     return 0

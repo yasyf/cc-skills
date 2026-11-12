@@ -35,12 +35,9 @@ SECOND_REPORT = (
 )
 SECOND_REPORT_RULE = "A second report for a thread in one turn of the coordinator's or the meta session's that repeats what its first report there already sent, rather than news that came in since."
 UNPREVENTED = (
-    "record_lines: this report goes out as written, and these POST lines read as telling him a card, check, hook, lane or"
-    " session of the drive failed, refused, disconnected or left a gap, with no word on how it is prevented. When one does,"
-    " start its fix, a defect record to meta@<drive> for a tool, and send the line again naming on it the tool change, the"
-    " order or PR URL carrying it and when it is live; a line telling what the product does, such as a pod its own check"
-    ' refused, needs nothing. His ruling 6a6edbf: "thats not acceptable to dsay without telling me how you will prevent it".'
-    " The lines: {lines}"
+    "record_lines: this report goes out as written, but these POST lines may tell him the drive failed with no word on how that"
+    " is prevented. If one does, start its fix and send that line again naming the tool change and the order or PR URL"
+    " carrying it; a line about what the product does needs nothing.\n```\n{lines}\n```"
 )
 WAITS_ON_HIM = re.compile(r"\bwait(?:s|ing)? (?:on|for) (?:him|his|your|you)\b|\bneeds? (?:his|your) (?:tap|pick|answer|approval)\b", re.IGNORECASE)
 CARD_NAMED = re.compile(r"slack\.com/archives/|\{card:|\b[\w-]+:j\d+-\d+\b|github\.com/[^/\s]+/[^/\s]+/pull/\d+")
@@ -99,7 +96,7 @@ def unprevented(drive: dict, record: dict) -> str | None:
         return None
     if not (lines := refs.unprevented(told := f"{text}\n{record.get('body') or ''}", refs.records(drive["name"], told))):
         return None
-    return UNPREVENTED.format(lines=" | ".join(lines))
+    return UNPREVENTED.format(lines="\n".join(lines))
 
 
 def dm_url(drive: dict, record: dict) -> str | None:

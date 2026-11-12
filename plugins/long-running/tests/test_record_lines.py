@@ -352,18 +352,16 @@ def test_a_post_report_telling_him_the_drive_failed_goes_out_warning_the_session
     failed = "POST j1 merged; its card was refused since nobody checked that PR against your words"
     warned = record_lines.decision(coordinator(turn, kind="report", text=failed, to=TO, attrs={"close": "o1", "thread": THREAD}))
     assert set(warned) == {"additionalContext"}
-    assert warned["additionalContext"].startswith("record_lines: this report goes out as written") and "6a6edbf" in warned["additionalContext"]
-    assert warned["additionalContext"].endswith(f"The lines: {failed}")
+    assert warned["additionalContext"].startswith("record_lines: this report goes out as written")
+    assert warned["additionalContext"].endswith(f"```\n{failed}\n```")
     prevented = f"{failed}; {{order:o2}} fixes the card hook"
     assert record_lines.decision(coordinator(turn, kind="report", text=prevented, to=TO, attrs={"close": "o1", "thread": THREAD})) is None
     old_pod = "POST j1 merged; the check that this pod still runs the agent compares writer, so an old pod is refused"
-    assert record_lines.decision(coordinator(turn, kind="report", text=old_pod, to=TO, attrs={"close": "o1", "thread": THREAD}))["additionalContext"].endswith(
-        f"The lines: {old_pod}"
-    )
+    assert record_lines.decision(coordinator(turn, kind="report", text=old_pod, to=TO, attrs={"close": "o1", "thread": THREAD}))["additionalContext"].endswith(f"```\n{old_pod}\n```")
     monkeypatch.setattr(reads, "run", lambda argv, checkout: json.dumps({"kind": "defect", "text": "check-post refused a status table", "refs": {}}))
     cited = "POST j1 merged; tables post as Slack tables again, {record:671981}"
     warned = record_lines.decision(coordinator(turn, kind="report", text=cited, to=TO, attrs={"close": "o1", "thread": THREAD}))
-    assert warned["additionalContext"].endswith(f"The lines: {cited}")
+    assert warned["additionalContext"].endswith(f"```\n{cited}\n```")
 
 
 def test_a_post_report_names_what_its_post_finishes_and_the_last_part_of_an_order_closes_it(run: Callable[..., tuple[int, str]], demo: str, turn: Path) -> None:
