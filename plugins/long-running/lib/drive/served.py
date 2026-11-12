@@ -12,6 +12,7 @@ EFFORT = "high"
 JUDGE_SECONDS = 600
 CHANGE_CHARS = 80_000
 FILE_CHARS = 12_000
+LEFT_OUT_CHARS = 8_000
 FILE_DIFF = re.compile(r"^diff --git a/(\S+) ", re.MULTILINE)
 TESTS = re.compile(r"(?:^|/)(?:tests?|e2e|__tests__|fixtures|testdata)/|[._-](?:test|spec)\.\w+$|_test\.\w+$")
 VERDICT = {
@@ -78,20 +79,28 @@ def carry(name: str, keys: list[str]) -> None:
                 pr["checked"] = pr["checked"] | {"head": read["head"]} if patch(read["diff"]) == pr["checked"]["patch"] else None
 
 
-def patch(diff: str) -> str:
+def patch(diff: bytes) -> str:
     """The id of the change a diff makes wherever its hunks land, by `git patch-id --stable`, so a restack onto a moved base keeps it."""
-    return subprocess.run(["git", "patch-id", "--stable"], input=diff, capture_output=True, text=True, check=True).stdout.split(" ")[0]
+    return subprocess.run(["git", "patch-id", "--stable"], input=diff, capture_output=True, check=True).stdout.decode().split(" ")[0]
 
 
 def change(key: str) -> dict:
-    """A PR's title, head and diff as GitHub has them now, the head read first, so a push between the two reads leaves the head kept older than the diff judged and the PR checked again."""
+    """A PR's title, head and diff as GitHub has them now, the diff the bytes of GitHub's compare of the base and head just read, the diff `gh pr diff` gives with no cap on its files, so the head kept is the head judged."""
     repo, number = key.split("#")
     try:
-        read = json.loads(github.read(f"{key}'s title and head", ["gh", "pr", "view", number, "--repo", repo, "--json", "title,headRefOid"]))
-        diff = github.read(f"{key}'s diff", ["gh", "pr", "diff", number, "--repo", repo])
+        read = json.loads(github.read(f"{key}'s title, base and head", ["gh", "pr", "view", number, "--repo", repo, "--json", "title,baseRefOid,headRefOid"]))
+        compare = f"repos/{repo}/compare/{read['baseRefOid']}...{read['headRefOid']}"
+        diff = github.read(f"{key}'s diff", ["gh", "api", compare, "-H", "Accept: application/vnd.github.diff", "--allow-escape-sequences"], text=False)
     except github.GithubError as error:
         raise DriveError(f"{key}: {error}; run this again") from None
     return {"title": read["title"], "head": read["headRefOid"], "diff": diff}
+
+
+def files(diff: bytes) -> list[tuple[str, str]]:
+    """The path of each file a git-format diff changes with its part of the diff as text, a byte UTF-8 cannot read shown as U+FFFD."""
+    text = diff.decode(errors="replace")
+    found = list(FILE_DIFF.finditer(text))
+    return [(match[1], text[match.start() : end]) for match, end in zip(found, [*(match.start() for match in found[1:]), len(text)], strict=True)]
 
 
 def words(data: dict, job: dict, orders: list[str]) -> str:
@@ -105,21 +114,18 @@ def words(data: dict, job: dict, orders: list[str]) -> str:
 
 
 def shown(changes: dict[str, dict]) -> str:
-    """Each PR's title and diff, its source files before its tests, each file cut at FILE_CHARS and the whole at CHANGE_CHARS, naming every file left out."""
+    """Each PR's title and diff, its source files before its tests, each file cut at FILE_CHARS and the whole at CHANGE_CHARS, counting the files left out and naming them up to LEFT_OUT_CHARS."""
     left, out, omitted = CHANGE_CHARS, [], []
     for key, read in changes.items():
-        starts = [found.start() for found in FILE_DIFF.finditer(read["diff"])]
-        files = [read["diff"][start:end] for start, end in zip(starts, [*starts[1:], len(read["diff"])], strict=True)]
-        files.sort(key=lambda text: bool(TESTS.search(FILE_DIFF.match(text)[1])))
         out.append(f'### {key} "{read["title"]}"')
-        for text in files:
+        for path, text in sorted(files(read["diff"]), key=lambda item: bool(TESTS.search(item[0]))):
             piece = text if len(text) <= FILE_CHARS else text[:FILE_CHARS] + "\n[cut]\n"
             if len(piece) > left:
-                omitted.append(f"{key} {FILE_DIFF.match(text)[1]}")
+                omitted.append(f"{key} {path}")
                 continue
             out.append(piece)
             left -= len(piece)
-    return "\n".join([*out, *([f"Files left out for length: {', '.join(omitted)}"] if omitted else [])])
+    return "\n".join([*out, *([f"{len(omitted)} files left out for length: {cut(', '.join(omitted), LEFT_OUT_CHARS)}"] if omitted else [])])
 
 
 def judged(name: str, said: str, changes: dict[str, dict]) -> list[dict]:

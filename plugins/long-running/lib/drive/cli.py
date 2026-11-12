@@ -1970,18 +1970,13 @@ def refuse_an_unwritten_rule(data: dict, key: str) -> None:
     ]
     if not owed:
         return
-    repo, number = key.split("#")
-    try:
-        pages = json.loads(github.read(f"{key}'s changed files", ["gh", "api", "--paginate", "--slurp", f"repos/{repo}/pulls/{number}/files?per_page=100"]))
-    except github.GithubError as error:
-        raise DriveError(f"{key}: {error}; run this again") from None
+    changed = served.files(served.change(key)["diff"])
     for answer_id, ruled, directory in owed:
         written = [
             line[1:].strip().lstrip(">").strip()
-            for page in pages
-            for changed in page
-            if Path(changed["filename"]).name == "AGENTS.md" and Path(directory).is_relative_to(Path(changed["filename"]).parent)
-            for line in (changed.get("patch") or "").splitlines()
+            for path, text in changed
+            if Path(path).name == "AGENTS.md" and Path(directory).is_relative_to(Path(path).parent)
+            for line in text.splitlines()
             if line.startswith("+") and not line.startswith("+++")
         ]
         said = ruled["body"].partition("\nNotes:")[0].strip().splitlines()[0]

@@ -24,6 +24,7 @@ from drive import (
     picture,
     place,
     render,
+    served,
     settled,
     slack,
     state,
@@ -4827,9 +4828,9 @@ def test_a_pr_carrying_a_code_ruling_is_refused_until_it_writes_his_words_into_t
 ) -> None:
     recorded.shown["23ff059"] = {"id": "23ff059", "title": "How should the cache key?", "body": '"Key the cache on the run id"\nNotes: cci owner 1', "tags": ["ruling", "code:go/sand/cache"]}
     data = {"roles": {"coordinator": {"cwd": "/repo"}}, "prs": {"Forge-AI/monorepo#7": {"job": "j1"}}, "jobs": {"j1": {"brief_flags": {"ruling": ["23ff059"]}}}}
-    files = [[{"filename": "go/sand/AGENTS.md", "patch": "@@ -1 +1,2 @@\n # Sand\n+- Key the cache on the run id (Nov 11)"}]]
-    monkeypatch.setattr(github, "read", lambda what, cmd: json.dumps(files))
+    diff = b"diff --git a/go/sand/AGENTS.md b/go/sand/AGENTS.md\n--- a/go/sand/AGENTS.md\n+++ b/go/sand/AGENTS.md\n@@ -1 +1,2 @@\n # Sand\n+- Key the cache on the run id (Nov 11)\n"
+    monkeypatch.setattr(served, "change", lambda key: {"title": "Fix: cache key", "head": "aaaaaaa111", "diff": diff})
     cli.refuse_an_unwritten_rule(data, "Forge-AI/monorepo#7")
-    files[0][0]["filename"] = "go/sand/other/AGENTS.md"
+    diff = diff.replace(b"go/sand/AGENTS.md", b"go/sand/other/AGENTS.md")
     with pytest.raises(state.DriveError, match='his ruling 23ff059 on how go/sand/cache must work, "Key the cache on the run id", is not written'):
         cli.refuse_an_unwritten_rule(data, "Forge-AI/monorepo#7")
