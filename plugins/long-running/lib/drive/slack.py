@@ -107,10 +107,11 @@ def names_order_pr(data: dict, order_id: str, root: dict | None) -> bool:
 
 
 def order_threads(data: dict, order_id: str, order: dict) -> list[tuple[str, str]]:
-    """The threads a line for an order goes in: its own, then on an incident the own thread of each other order of it, the incident an alert's order joined and every alert joined to it, both ways, then each of their cards'."""
+    """The threads a line for an order goes in: its own, then on an incident the own thread of each other order of it, the incident an alert's order joined and every alert joined to it, both ways, then each thread of his where a report on one of them answered his message, then each of their cards'."""
     others = [data["orders"][other] for other in state.incident_orders(data, order_id) if other != order_id]
     own = filter(None, (state.promise_thread(data, each) for each in [order, *others]))
-    return list(dict.fromkeys([*own, *incident_cards(data, order_id)]))
+    asked = (tuple(where) for each in [order, *others] for where in each["asked_in"])
+    return list(dict.fromkeys([*own, *asked, *incident_cards(data, order_id)]))
 
 
 def incident_cards(data: dict, order_id: str) -> list[tuple[str, str]]:

@@ -174,6 +174,11 @@ def answered(seq: str) -> dict:
     return {"message": None, "link": None, "thread": thread}
 
 
+def asked_thread(seqs: Iterable[str]) -> tuple[str, str] | None:
+    """The channel and thread of his message that the records seqs name carry or answer, read up each one's re chain, from the first that leads to one."""
+    return next((state.link_thread(link) for seq in seqs if (link := answered(seq)["link"])), None)
+
+
 def shown(seq: str) -> dict:
     try:
         return json.loads(reads.run(["cci", "show", seq, "--json"], Path.cwd()).splitlines()[0])

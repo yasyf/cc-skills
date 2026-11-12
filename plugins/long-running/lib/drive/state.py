@@ -339,6 +339,7 @@ def load(name: str) -> dict:
         order.setdefault("once", False)
         order.setdefault("thread", None)
         order.setdefault("from_thread", None)
+        order.setdefault("asked_in", [])
         order.setdefault("releases", {})
         order.setdefault("shipped", {})
         order.setdefault("fixed", None)
@@ -713,6 +714,7 @@ def new_order(text: str, source: str, from_thread: str | None, thread: str | Non
         "from": source,
         "from_thread": from_thread,
         "thread": thread,
+        "asked_in": [],
         "state": "open",
         "due": None,
         "due_said": None,
@@ -752,8 +754,8 @@ def new_part() -> dict:
 
 def reporter(link: str) -> dict:
     """The bug report an order fixes, as the Slack thread its one fix-live note goes in, read from its permalink, a reply's carrying its thread's ts, or from slack:<channel>/<thread ts>, with no Slack call, since the bot may not be in that channel; none told yet."""
-    if found := CARD_LINK.search(link):
-        channel, thread = found[1], found[4] or f"{found[2]}.{found[3]}"
+    if linked := link_thread(link):
+        channel, thread = linked
     elif found := SLACK_SOURCE.fullmatch(link):
         channel, thread = found[1], found[2]
     else:
@@ -939,8 +941,14 @@ def heard_lane(data: dict, order_id: str) -> str:
 
 def card_threads(data: dict, order: dict) -> list[tuple[str, str]]:
     """The channel and thread of each card the order's jobs drew, where his answers to that card go."""
-    links = (CARD_LINK.search(question["card"]) for job_id in order["jobs"] for question in data["jobs"][job_id]["questions"] if question["card"])
-    return list(dict.fromkeys((link[1], link[4] or f"{link[2]}.{link[3]}") for link in links if link))
+    links = (link_thread(question["card"]) for job_id in order["jobs"] for question in data["jobs"][job_id]["questions"] if question["card"])
+    return list(dict.fromkeys(filter(None, links)))
+
+
+def link_thread(link: str) -> tuple[str, str] | None:
+    """The channel and thread of the Slack message a permalink names: its thread's ts for a reply, else its own ts, the thread under it."""
+    found = CARD_LINK.search(link)
+    return found and (found[1], found[4] or f"{found[2]}.{found[3]}")
 
 
 def incident_orders(data: dict, order_id: str) -> list[str]:
