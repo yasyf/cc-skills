@@ -222,7 +222,10 @@ refused a post he ordered.
 - Your order is the one whose `from` in `drive status --json` is your `From`, and your job its newest.
 - A ruling's rewrite changes in place the section of each prompt surface that states the rule: the
   skill's `SKILL.md` and reference pages, `agents/*.md`, the role rules in `lib/drive/render.py` and
-  the drive MCP tool descriptions. Your report lists each rule as it now reads in the installed skill.
+  the drive MCP tool descriptions. A rule for one record, event, result or verb goes only in its
+  `drive manual` row, never the role rules, which hold what binds a coordinator's or meta session's
+  every turn and the communicator's whole turn. Your report lists each rule as it now reads in the
+  installed skill.
 - Copy an `After:` line into your report as `AFTER:`; a tool that breaks on you is a `DEFECT:` line
   there, which the meta session starts a fix from.
 - A record you send the session that started you, such as an `FYI` report, goes to `meta@<drive>` on the cci `post` tool with
