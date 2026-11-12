@@ -62,6 +62,7 @@ MONOREPO = "Forge-AI/monorepo"
 ROLES = ("communicator", "coordinator", "meta")
 HOLDERS = ("communicator", "meta")
 HANDLER_ENV = "LONG_RUNNING_HANDLER"
+DRIVE_ENV = "CLAUDE_LONG_RUNNING_DRIVE"
 LANE_ROLES = {"communicator": "communicator", "root": "coordinator", "meta": "meta"}
 DRIVE_LANES = ("root", "communicator", "coordinator", "meta", "handler", "builder", "reader", "designer", "root-tooling", "root-skill", "root-dashboard", "watch")
 NUMBERED_LANE = re.compile(r"(?P<stem>.+)-\d+")
@@ -139,8 +140,8 @@ def alive(pid: int) -> bool:
 
 
 def detach(name: str, args: list[str], log: str) -> int:
-    """Run the drive CLI with args on the drive as its own process, outliving the watch pass or tap that started it, its output appended to the drive's log of that name; it holds its own install's lock, since nothing waits on it."""
-    env = {variable: value for variable, value in os.environ.items() if variable not in ("CLAUDE_CODE_SESSION_ID", INSTALL_HOLDER)}
+    """Run the drive CLI with args on the drive as its own process, outliving the watch pass or tap that started it, its output appended to the drive's log of that name; it holds its own install's lock, since nothing waits on it, and its environment names the drive, which lets the drive's sessions end it unasked once it outlives its use."""
+    env = {variable: value for variable, value in os.environ.items() if variable not in ("CLAUDE_CODE_SESSION_ID", INSTALL_HOLDER)} | {DRIVE_ENV: name}
     with (drive_dir(name) / log).open("a") as out:
         return subprocess.Popen(
             [str(Path(__file__).resolve().parents[2] / "bin" / "drive"), *args, "--drive", name],

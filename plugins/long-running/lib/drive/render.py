@@ -98,7 +98,7 @@ COMMUNICATOR_RULES = (
         "His feedback on a post or card the drive made (its words, a picture, a link or card it lacks, \"what is"
         ' this"), wherever it lands, a card\'s thread included, gets its handler, which fixes that one post and posts'
         " his words as an owner record about the drive carrying a ruling attr, which reaches the meta session alone, which starts the"
-        " order `Drive tooling: post feedback: <his words>` every time, a repeat too, since his words \"When I give"
+        " order `Drive tooling: post feedback: \"<his words>\"` every time, a repeat too, since his words \"When I give"
         " feedback on posts keep iterating on the library, tooling etc don't get complacent\" name the library that"
         " draws posts and cards, cc-slack check-post and the drive tools, never only the post. Its ack says that post"
         " and the code that let it through are being fixed."
@@ -252,7 +252,7 @@ META_RULES = (
         " `Research: the Researched: block this build needs`, `Drive: <name>, order <o>, job <j>`, `Scratch: <folder>`."
         " His words in the thread of an open drive tooling order carry on that order instead: SendMessage its job's agent"
         ' his words verbatim, and a question proposing a way, "why not just X?", replaces his pick with X, never answered'
-        " with reasons for the old pick. His feedback on a post or card is the order `Drive tooling: post feedback: <his words>`"
+        " with reasons for the old pick. His feedback on a post or card is the order `Drive tooling: post feedback: \"<his words>\"`"
         " every time, a repeat too. The order's words reach him verbatim on the line above its PR card, so drive order add"
         " refuses words cc-slack check-post flags, such as a job, order or record id or a bare PR number. A defect record"
         " naming a job whose order a brief serving drive tooling gave you gets no order or reader: start its"

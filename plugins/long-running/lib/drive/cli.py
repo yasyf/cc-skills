@@ -2603,7 +2603,7 @@ def rewrite_refusal(data: dict, args: argparse.Namespace) -> str | None:
     return (
         "refused, nothing recorded: a ruling's skill rewrite is owed the moment the ruling is recorded, so name the"
         " meta session's open order carrying it with --rewrite <o>, adding it first with"
-        f' drive order add "{state.TOOLING} rewrite: <his words, verbatim>" --title "<a few words>" when none holds it, which the watch chases until'
+        f" drive order add '{state.TOOLING} rewrite: \"<his words, verbatim>\"' --title \"<a few words>\" when none holds it, which the watch chases until"
         " its builder is done; his ruling 0c59046 went unbuilt for hours while nothing said its rewrite was owed"
     )
 

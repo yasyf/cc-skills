@@ -314,8 +314,8 @@ def open_card_refusal(said: list[dict], why: str | None) -> str | None:
 
 
 def own_words(data: dict, order_id: str, question: str) -> list[dict]:
-    """The order's own words, as its text keeps his message it came from and those he added to it, when they share a rare word with the question."""
-    text = data["orders"][order_id]["text"]
+    """His words in the order, as limits.his_words reads them, when they share a rare word with the question."""
+    text = limits.his_words(data["orders"][order_id])
     return [{"link": f"{order_id}'s own words", "text": text, "shared": shared}] if (shared := sorted(rare(question) & rare(text))) else []
 
 

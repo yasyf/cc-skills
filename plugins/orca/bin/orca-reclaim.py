@@ -14,7 +14,7 @@ import sys
 import threading
 import time
 from collections import Counter
-from collections.abc import Callable, Container, Iterator
+from collections.abc import Callable, Container, Iterable, Iterator
 from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -55,6 +55,7 @@ TERMINAL_KEY = re.compile(r"\bORCA_TERMINAL_HANDLE=(\S+)")
 SQUASH = re.compile(r" \(#(?P<number>\d+)\)$")
 GITHUB_ORIGIN = re.compile(r"github\.com[:/](?P<slug>[^/\s]+/[^/\s]+?)(?:\.git)?/?$")
 UNKNOWN_TO_GITHUB = re.compile(r"HTTP 4(04|22)")
+UNREADABLE = "unreadable"
 REPO_VALUES = json.loads(Path(".orca.json").read_text()) if Path(".orca.json").is_file() else {}
 CC_REMOTE = os.environ.get("WORKER_CC_REMOTE") or REPO_VALUES.get("ccRemote") or "cc-remote"
 if "ccRemoteConfig" in REPO_VALUES:
@@ -613,7 +614,7 @@ class CcRemote:
     def checkout(self, sprite: Sprite) -> Checkout | str:
         git_c = f"git -C {shlex.quote(sprite.root)}"
         off_origin = f"{{ {git_c} for-each-ref --format='%(refname) %(refname:short) %(objectname)' refs/heads refs/stash | while read -r ref name tip; do [ -z \"$({git_c} rev-list -1 \"$ref\" --not HEAD --remotes=origin)\" ] || printf '%s:%s ' \"$name\" \"$tip\"; done; echo; }}"
-        changed = f"{{ {git_c} worktree list --porcelain | sed -n 's/^worktree //p' | while read -r tree; do [ ! -e \"$tree\" ] || {{ if listed=$(git -C \"$tree\" status --porcelain); then files=$(printf %s \"$listed\" | grep -c '^'); else files=unreadable; fi; [ \"$files\" = 0 ] || printf '%s %s\\t' \"$files\" \"$tree\"; }}; done; echo; }}"
+        changed = f"{{ {git_c} worktree list --porcelain | sed -n 's/^worktree //p' | while read -r tree; do [ ! -e \"$tree\" ] || {{ if listed=$(git -C \"$tree\" status --porcelain); then files=$(printf %s \"$listed\" | grep -c '^'); else files={UNREADABLE}; fi; [ \"$files\" = 0 ] || printf '%s %s\\t' \"$files\" \"$tree\"; }}; done; echo; }}"
         done = self.ssh(sprite, f"{git_c} remote get-url origin && {off_origin} && {changed} && {git_c} status --porcelain=v2 --branch")
         if done.returncode != 0:
             return f"ssh to {sprite.host} could not read {sprite.root}: {(done.stderr.strip().splitlines() or [f'exit {done.returncode}'])[-1]}"
@@ -697,7 +698,7 @@ def unsaved(checkout: Checkout, remote: Remote) -> str | None:
 
 def holdings(checkout: Checkout, remote: Remote) -> Iterator[str]:
     if checkout.dirty:
-        yield uncommitted(checkout)
+        yield uncommitted(checkout.changed)
     try:
         if off := [name for name, tip in checkout.off_origin if not remote.holds(tip)]:
             yield f"commits on no remote on {', '.join(off)}"
@@ -707,9 +708,9 @@ def holdings(checkout: Checkout, remote: Remote) -> Iterator[str]:
         yield str(refused)
 
 
-def uncommitted(checkout: Checkout) -> str:
-    counts = {"unreadable": "git cannot read it", "1": "1 file"}
-    trees = ", ".join(f"{tree} ({counts.get(files, f'{files} files')})" for files, tree in checkout.changed)
+def uncommitted(changed: Iterable[tuple[str, str]]) -> str:
+    counts = {UNREADABLE: "git cannot read it", "1": "1 file"}
+    trees = ", ".join(f"{tree} ({counts.get(files, f'{files} files')})" for files, tree in changed)
     return f"uncommitted changes in {trees}" if trees else "uncommitted changes"
 
 
@@ -754,15 +755,17 @@ def save(workspace: str, lane: str, cc_remote: CcRemote) -> str | None:
             refs.setdefault(checkout.branch or checkout.head[:10], checkout.head)
     except GitHubRefusal as refused:
         raise Unsaved(str(refused)) from None
-    trees = [tree for _, tree in checkout.changed]
-    if not (refs or trees):
-        return None
-    done = cc_remote.ssh(sprite, save_script(sprite, checkout.repository, lane, refs, trees), f"{github_token()}\n")
+    readable = [(files, tree) for files, tree in checkout.changed if files != UNREADABLE]
+    left = [tree for files, tree in checkout.changed if files == UNREADABLE]
+    kept = f"{', '.join(left)} left on {sprite.workspace}, as git cannot read it" if left else None
+    if not (refs or readable):
+        return kept
+    done = cc_remote.ssh(sprite, save_script(sprite, checkout.repository, lane, refs, [tree for _, tree in readable]), f"{github_token()}\n")
     if done.returncode != 0:
         raise Unsaved(f"the save on {sprite.host} failed: {'; '.join(filter(None, map(str.strip, done.stderr.splitlines()))) or f'exit {done.returncode}'}")
-    held = "; ".join([*([uncommitted(checkout)] if trees else []), *([f"commits on no remote on {', '.join(refs)}"] if refs else [])])
+    held = "; ".join([*([uncommitted(readable)] if readable else []), *([f"commits on no remote on {', '.join(refs)}"] if refs else [])])
     branches = ", ".join(" at ".join(line.split()) for line in done.stdout.splitlines())
-    return f"{held}, now on {checkout.repository} as {branches}"
+    return "; ".join(filter(None, [f"{held}, now on {checkout.repository} as {branches}", kept]))
 
 
 def save_script(sprite: Sprite, slug: str, lane: str, refs: dict[str, str], trees: list[str]) -> str:

@@ -907,6 +907,7 @@ def test_ensure_starts_the_watch_with_no_session_unless_one_runs(demo: str, monk
     [(argv, options)] = started
     assert argv == [str(watch.DRIVE), "watch", "--loop", "--drive", demo]
     assert "CLAUDE_CODE_SESSION_ID" not in options["env"] and options["start_new_session"]
+    assert options["env"][state.DRIVE_ENV] == demo
     state.pid_path(demo).write_text(f"{os.getppid()}\n")
     assert REAL_ENSURE(demo).startswith(f"the watch runs as pid {os.getppid()} ")
     assert len(started) == 1
@@ -2995,48 +2996,32 @@ def tried(name: str, outcome: str) -> None:
         data["prs"][YASYF] = state.new_pr(state.pr_url(YASYF), "j1", "o1") | {"head": "aaaaaaa111", "wants_tap": False, "lander": lander}
 
 
-@pytest.mark.parametrize(
-    ("merge", "update", "outcome", "wakes"),
-    [
-        (
-            BASE_MOVED,
-            (0, "✓ PR branch updated"),
-            f"{land.UPDATED} with gh pr update-branch, as gh pr merge --squash --admin refused it: {BASE_MOVED}; the lander merges its new head once the watch reads it",
-            False,
-        ),
-        (
-            DIRTY,
-            (1, "X Cannot update PR branch due to conflicts"),
-            f"not landed: gh pr merge --squash --admin refused it: {DIRTY}; gh pr update-branch answered: X Cannot update PR branch due to conflicts",
-            True,
-        ),
-        (
-            BASE_MOVED,
-            (0, "✓ PR branch already up-to-date"),
-            f"not landed: gh pr merge --squash --admin refused it: {BASE_MOVED}; gh pr update-branch answered: ✓ PR branch already up-to-date",
-            True,
-        ),
-    ],
-)
-def test_a_yasyf_merge_gh_refuses_brings_its_base_into_its_branch_and_wakes_its_job_only_when_git_cannot_merge_the_two(
-    demo: str, monkeypatch: pytest.MonkeyPatch, merge: str, update: tuple[int, str], outcome: str, wakes: bool
-) -> None:
-    answers = {"merge": (1, merge), "update-branch": update}
+def test_a_yasyf_merge_whose_base_moved_merges_again_on_the_new_base_and_never_updates_its_branch(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    merges = iter([(1, "", BASE_MOVED), (1, "", BASE_MOVED), (0, "", "")])
     runs: list[list[str]] = []
-    monkeypatch.setattr(
-        land.subprocess, "run", lambda argv, **kwargs: runs.append(argv) or land.subprocess.CompletedProcess(argv, answers[argv[2]][0], "", answers[argv[2]][1] + "\n")
-    )
-    assert land.merged(demo, YASYF) == outcome
-    assert runs == [["gh", "pr", "merge", "7", "-R", "yasyf/cc-skills", "--squash", "--admin"], ["gh", "pr", "update-branch", "7", "-R", "yasyf/cc-skills"]]
+    monkeypatch.setattr(github, "run", lambda cmd, **kwargs: "ccc333ddd444eee\n" if cmd[2] == "view" else "README.md\n")
+    monkeypatch.setattr(install, "touched", lambda repo, files: [])
+    monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: runs.append(argv) or land.subprocess.CompletedProcess(argv, *next(merges)))
+    tried(demo, "")
+    assert land.merged(demo, YASYF) == "merged at ccc333ddd444; it changes no plugin installed on this Mac"
+    assert runs == [["gh", "pr", "merge", "7", "-R", "yasyf/cc-skills", "--squash", "--admin"]] * 3
+
+
+def test_a_yasyf_merge_gh_refuses_for_any_other_reason_is_not_landed_and_wakes_its_job(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    runs: list[list[str]] = []
+    monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: runs.append(argv) or land.subprocess.CompletedProcess(argv, 1, "", DIRTY + "\n"))
+    outcome = land.merged(demo, YASYF)
+    assert outcome == f"not landed: gh pr merge --squash --admin refused it: {DIRTY}"
+    assert runs == [["gh", "pr", "merge", "7", "-R", "yasyf/cc-skills", "--squash", "--admin"]]
     waiting_job(demo)
     tried(demo, outcome)
-    assert watch.wakes(f"PR {YASYF}: {outcome} [o1 j1]", state.load(demo)) == wakes
+    assert watch.wakes(f"PR {YASYF}: {outcome} [o1 j1]", state.load(demo))
 
 
 def test_a_yasyf_pr_whose_head_moved_past_its_landers_merges_at_the_next_read_free_of_conflicts_with_no_builder_registering_it(
     demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
 ) -> None:
-    tried(demo, f"{land.UPDATED} with gh pr update-branch, as gh pr merge --squash --admin refused it: {BASE_MOVED}")
+    tried(demo, f"not landed: gh pr merge --squash --admin refused it: {DIRTY}")
     reads = {KEY: read(), YASYF: read()}
     serve(monkeypatch, reads)
     watching = watcher(demo)
