@@ -102,6 +102,7 @@ def ready_records(monkeypatch: pytest.MonkeyPatch) -> list[list[dict]]:
 
 
 REAL_ENSURE = watch.ensure
+REAL_FETCH = github.fetch
 REAL_LISTEN = watch.listen
 
 
@@ -2076,6 +2077,7 @@ def test_a_watch_pass_reads_github_twenty_five_open_prs_a_call_however_many_it_w
             key = f"Forge-AI/monorepo#{1000 + number}"
             data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"head": f"head{number}"}
     asked: list[list[str]] = []
+    monkeypatch.setattr(github, "fetch", REAL_FETCH)
     monkeypatch.setattr(github, "run", lambda cmd, **_: asked.append(cmd) or json.dumps({"data": {}}))
     watch.run_pass(watcher(demo), T0)
     assert [(cmd[:3], cmd[4].count("pullRequest(")) for cmd in asked] == [(["gh", "api", "graphql"], size) for size in queries]
