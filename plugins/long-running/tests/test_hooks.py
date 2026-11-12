@@ -51,7 +51,7 @@ def origin_is(monkeypatch: pytest.MonkeyPatch, remote: str) -> None:
 
 
 def bash(command: str, cwd: str = "/work") -> dict:
-    return {"tool_name": "Bash", "tool_input": {"command": command}, "cwd": cwd}
+    return {"tool_name": "Bash", "tool_input": {"command": command}, "cwd": cwd, "transcript_path": "/work/session.jsonl"}
 
 
 def approve(key: str) -> None:

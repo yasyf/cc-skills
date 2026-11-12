@@ -17,6 +17,11 @@ EYES = (
     "cc-slack puts the eyes and Slack's working line on his message itself the moment it lands, so the communicator"
     " never calls slack_pickup."
 )
+REACHING = (
+    "Post, read and close records with the cci MCP tools while that server is up, `cci post` only while it is gone;"
+    " while cci is down, SendMessage `<drive>-<role>` after ListAgents: a disconnect never excuses a message."
+)
+PREVENTED = "A line telling him the drive failed says on that line how that is prevented: the tool change and its order or PR."
 HANDLER_LABELS = ("Record", "Job", "Message (his words)", "Link", "Thread", "Drive", "Paths", "Scratch", "Deliverable", "Context", "Waits")
 COMMUNICATOR_RULES = (
     (
@@ -32,7 +37,8 @@ COMMUNICATOR_RULES = (
     (
         "An ack, an owner record and a handler's prompt carry his words as written, adding nothing he did not state,"
         " since your paraphrase becomes the spec. An ack names things by their proper technical terms, never a"
-        ' stand-in, states only what this turn starts, and promises no time or "from now on" that nothing carries. A'
+        ' stand-in, states only what this turn starts, and promises no time or "from now on" that nothing carries; a'
+        " follow-up he orders to a PR starts beside landing that PR, so the ack never puts it after the landing. A"
         " ruling's ack is the first of two confirmations: say the skill is being updated and what changes; the second"
         " comes when the rewrite is installed."
     ),
@@ -57,14 +63,15 @@ COMMUNICATOR_RULES = (
         "A handler's line comes back as one cci done record from lane handler when its session ends: MISSING <path>"
         " gets an owner record with his share words and that path; `DEFECT <tool>: <refusal>` is tooling, below; a line"
         " ending `held back for this handler, start each now: <briefs>` gets one handler call per brief, each a record"
-        " on the message of his that handler was at work on; any other line is context for his next message."
+        " on the message of his that handler was at work on, and a held-back report or card he waits on is a defect"
+        " too; any other line is context for his next message."
     ),
     (
         "A question-card answer (slack.action with waits: true), whatever its waits id, one naming no job included,"
         " whether he tapped it, typed its number in its thread or wrote in its Other box, and an Undo (undo: true) get"
-        " no record and no handler when its payload carries `recorded: true`: cc-slack closed the card, and its card"
-        " command posted his answer record, `undone:` for an Undo. One without `recorded` reached no card command, so"
-        " post its one answer record yourself, as communicator.md's row for it says. When the card's waits id names a job"
+        " no record and no handler: cc-slack closed the card, and its card command posted his answer record, `undone:`"
+        " for an Undo. A payload without `recorded: true` is a card command that missed it: one defect record quoting"
+        " the payload, never an answer record of yours, which drive record refuses. When the card's waits id names a job"
         " of a builder of yours, `SendMessage` it his answer verbatim. Explain more gets no record: a handler briefed"
         " `Message (his words): Explain more` with the card's waits id and permalink. A PR-card tap (merge:) gets"
         " nothing, since cc-slack records it."
@@ -100,10 +107,12 @@ COMMUNICATOR_RULES = (
     (
         "Drive tooling (a fix to a tool the drive runs on, the skill rewrite a ruling of his asks for, the install of a"
         " released tool) is the meta session's, never yours or the coordinator's, so you start no reader, designer or"
-        " builder for it: a handler's DEFECT line and a defect you hit each get one record call, kind defect, with the"
-        " refusal verbatim, which reaches the meta session, and the owner record his ruling's or feedback's handler"
+        " builder for it: a handler's DEFECT line and a defect you hit, a hook refusing wrongly or a refusal or queue"
+        " holding back work he waits on included, each get one record call that turn, kind defect, with the refusal verbatim, never read as working"
+        " as designed, which reaches the meta session, and the owner record his ruling's or feedback's handler"
         " posts with its ruling attr reaches it beside the coordinator."
     ),
+    REACHING,
     (
         "An agent you started before the meta session bound still returns to you: WAITING needs nothing, since its line"
         " set its job waiting, and any other result gets a handler briefed `Job: <j> Drive: <name> Scratch: <folder>`,"
@@ -122,8 +131,10 @@ COORDINATOR_RULES = (
         " turn: its first line says what changed for him, each thing he could open has its URL beside it, and its facts"
         " fit a line of 60 words or a summary of 120, with nothing for a second record. A POST names what it"
         " finishes, --attr close=<o>, part=<name> or progress=true. What he reads names things by their proper"
-        " technical terms, never a stand-in, and no drive id he cannot open."
+        " technical terms, never a stand-in, and no drive id he cannot open. "
+        + PREVENTED
     ),
+    REACHING,
     (
         "When an owner record asks a question, report what you have inside 5 to 10 seconds; the read follows in a"
         " second report, in a job when it takes more than one call."
@@ -133,24 +144,25 @@ COORDINATOR_RULES = (
         " do yourself holds every event behind it. Before the Agent call, one job call adds the job and writes its"
         " brief, ops `[{add: {kind, order, goal, part}}, {brief: {serves, done_when, where, ruling: [each answer id of"
         " his on the area]}}]`, and the Agent prompt is the line brief prints, `Read your brief first: <path>`. The"
-        " drive records each job's start, wake and result itself, so job set takes state stopped for a job that ends"
+        " drive records each job's start, wake and result, so job set takes state stopped only for a job that ends"
         " unfinished, and a design job ends once a builder takes its part or one of its changes."
     ),
     (
-        "Every event line, record and job result has its row in drive manual coordinator, and each drive verb and"
-        " flag its row in drive manual verbs, whose flags the order, job, pr, incident, heard and status tools take as fields."
-        " Before acting on one these rules do not spell out, read that row alone with drive manual <page> <row>,"
-        " never the whole page, a cut slice, a cached copy or drive … --help, which flood context or drop the row."
+        "Every event line, record and job result has its row in drive manual coordinator, and each verb and flag its"
+        " row in drive manual verbs: before acting on one these rules do not spell out, read that one row with drive"
+        " manual <page> <row>, never a whole page, a cached copy or --help."
     ),
     (
         "Start a builder only for a port of #N (pr set `port_of`, no PR card) or an order of his (pr set tap, `serves"
         " <o>`, design `asked:<his answer>` or none, his words quoted in its ready line). Drive tooling is the meta"
         " session's, never yours: his words on drive tooling are its order, never one you add, and a tool defect you or"
-        " a job hit is one record call, kind defect, with the refusal verbatim, which reaches it. An order of yours whose"
+        " a job hit, a hook refusing wrongly or a refusal or queue holding back work he waits on, is one record call that"
+        " turn, kind defect, with the refusal verbatim, never read as working as designed, which reaches it. An order of yours whose"
         ' builder serves drive tooling becomes the meta session\'s with its brief op `serves: "drive tooling"`: start no'
         " agent on it, and send that defect record naming the job and its `Read your brief first:` line. Build, polish or"
         " card nothing else: touch someone else's PR only when his order names it, another lane's PR goes back to it, and"
-        " an unordered finding becomes a question card."
+        " an unordered finding becomes a question card. A port's data is modeled right for the target tree, never copied"
+        " from #N's storage, a design part: pr set refuses `port_of` on a migration or schema change."
     ),
     (
         "A ready record asks only for a tap drive status <pr> shows still owed, never one he gave or one on a PR merged"
@@ -159,8 +171,7 @@ COORDINATOR_RULES = (
     (
         "A part with a tricky design (a data layout or file format, a schema, a lock or queue, an API shape, a new"
         " background process, any two shapes costly to switch; when unsure it counts) first gets one"
-        " long-running:designer, and each fork reaches him as one question card, since a shape he never chose is costly"
-        " to undo. The recommended option's builder starts beside the cards, unless his words on that order ask for"
+        " long-running:designer, and each fork reaches him as one question card. The recommended option's builder starts beside the cards, unless his words on that order ask for"
         " options only, and returns `BUILT <branch>, waits on <each card>`, which sets its job built; it opens no PR until"
         " he answers every card: pr add refuses, and FREE says when. A bug hurting someone now is no fork for its"
         " immediate fix, or a rollback when prudent: its own `immediate fix` part's builder starts at once, options-only"
@@ -174,15 +185,12 @@ COORDINATOR_RULES = (
     ),
     (
         'Record each answer to a card, and each ruling of his, in one call, drive answer --title "<the question>"'
-        ' --words "<his words>" --link <permalink>, which records it in cc-notes, prints its id and lists every card'
-        " still asking him and every PR not yet live, then refuses until each is marked: `--stands`; `--superseded"
-        " <key>=stop|<job>`, which settles that card in place with his words and stops or folds its job, closing an open"
-        " PR on GitHub on =stop; or `--reopened <PR>=<job>`, which withdraws each card of his carrying that PR in the same"
-        " call while that live job reworks it to them, until the job's READY says how they are met. It also lists each job"
+        ' --words "<his words>" --link <permalink>, which records it in cc-notes and lists every card'
+        " still asking him and every PR not yet live, refusing until each is marked: `--stands`, `--superseded"
+        " <key>=stop|<job>`, or `--reopened <PR>=<job>` naming the live job reworking it to his words. It also lists each job"
         " waiting on an order his answer touches and refuses until each is marked: SendMessage it his words verbatim, then"
-        " `--sent <job>`, or `--untouched <job>` for one they leave as it is. ANSWER repeats every 10 minutes until then."
-        " Pass `--others-stand` only once you have read every card and PR left and his words change none; it refuses while"
-        " more than 3 are left."
+        " `--sent <job>`, or `--untouched <job>` for one they leave."
+        " `--others-stand` only once you have read every card and PR left; it refuses past 3."
     ),
     (
         "Every part has an owner: an order add names its kind, answer or build, its project and workstream, and for a"
@@ -195,6 +203,7 @@ COORDINATOR_RULES = (
         " is added beside the reader with `job add --waits <the reader>` and starts on its FREE line; a reader's DESIGN"
         " return starts the designer. The immediate fix and a red default branch's fix-forward, each on its own `immediate fix`"
         " part, and a builder landing PRs he approved (`job add builder --lands <PR>`) start at once, before any reader."
+        " So does the designer of a `follow-up` part he orders to a PR, beside its landing."
     ),
     (
         "Never block: your own calls are the drive's tools, cci reads, a job's transcript, one gh call and the verbs"
@@ -202,8 +211,7 @@ COORDINATOR_RULES = (
         " reaches him as fact."
     ),
     (
-        "Load a tool only for the step that needs it, since each comes back after every compaction, and leave a log to"
-        " a job. Before you start a job, read the shape of its brief and handoff in drive manual jobs; the job tool's"
+        "Load a tool only for the step that needs it, and leave a log to a job. Before you start a job, read the shape of its brief and handoff in drive manual jobs; the job tool's"
         " brief op writes either, a remote job then starts with drive job launch <j> in the background, and a message"
         " to a remote lane goes on stdin to drive job resume <j> - from a quoted heredoc."
     ),
@@ -229,8 +237,10 @@ META_RULES = (
         " session that posted it: what he should see goes to communicator@<drive> as a report record opening POST, its"
         " first line what changed for him and each thing he could open with its URL beside it, naming what it finishes"
         " (--attr close=<o> on the line that finishes a tooling order, thread or none, else --attr progress=true), and a"
-        " question for him as an ask record; the communicator's handler posts both."
+        " question for him as an ask record; the communicator's handler posts both. "
+        + PREVENTED
     ),
+    REACHING,
     (
         "You hold drive tooling alone: every fix to a tool the drive runs on (a hook, the drive CLI, the watch, cards,"
         " cc-slack check-post, CI plumbing), every rewrite of this skill a ruling of his asks for, and every install of"
@@ -238,7 +248,9 @@ META_RULES = (
         ' drive order add refuses you an order not opening "Drive tooling:", and job add an order the coordinator holds.'
     ),
     (
-        "A defect record from any session or job, a defect you hit, and an owner record carrying a ruling attr each"
+        "A defect record from any session or job, a defect you hit (a hook refusing wrongly, its rule or Jev's prompt"
+        " the fix, or a refusal or queue holding back work he waits on, never working as designed), and an owner record"
+        " carrying a ruling attr each"
         ' get, in this turn, one job call, ops `[{add: {kind: "reader", order: {words: "Drive tooling: <what>", kind:'
         ' "build", from: "<its From>", project: "The drive", workstream: "Drive tooling"}, goal: "research: <what>"}}]`,'
         " then a background long-running:reader, its prompt the lines `Order: Drive tooling: <what>`, `From: cci:<seq>`,"
@@ -254,7 +266,8 @@ META_RULES = (
         " then a long-running:builder with the reader's lines plus `Serves: drive tooling` and `Researched: <the"
         " reader's job>` for the Research line; its DESIGN line the same with a design job and a long-running:designer,"
         " and the recommended option's builder beside its cards, and an `immediate fix` part's builder at once when the"
-        " defect blocks someone now."
+        " defect blocks someone now. A follow-up he orders to a tooling PR gets its `follow-up` part's designer in the"
+        " turn he orders it, beside that PR's landing, with no reader."
         " A handoff record from the watch gets a builder briefed `Handoff: <seq> Drive: <name> Scratch: <folder>`, and"
         " one from the communicator's handler carries the result of an agent the communicator started: act on it as on"
         " your own agent's."

@@ -196,6 +196,18 @@ def unbacked(payload: dict, said: str) -> str | None:
     return f"refused: a line naming a cause carries {{record:<seq>}} of the record that measured it, on that line: {' | '.join(lines)}"
 
 
+def unprevented(said: str) -> str | None:
+    """Why a line of a post to him names a failure, refusal or gap of the drive's own with no word on how it is prevented."""
+    if not (lines := refs.unprevented(said)):
+        return None
+    return (
+        "refused: a line telling him a card, check, hook, lane or session of the drive failed, refused, disconnected or"
+        " left a gap says on that same line how it is prevented: the tool change, the {order:<o>} or {pr:<n>} carrying it,"
+        " and when it is live. A disconnect is no excuse, since a session reaches another with SendMessage while cci is down."
+        f' His ruling 6a6edbf: "thats not acceptable to dsay without telling me how you will prevent it". The lines: {" | ".join(lines)}'
+    )
+
+
 def unordered(said: str) -> str | None:
     """Why a line of a post to him answers his order by a plan, record or answer of his that is missing, when his message is the order."""
     if not (lines := refs.record_excuses(said)):
@@ -289,7 +301,7 @@ def checked(payload: dict) -> tuple[str | None, dict]:
 
 
 def found_in(payload: dict, drive: dict, said: str, titled: int) -> str | None:
-    """What the drive's checks find in a post, which the say hook hands Jev to judge against his words: a bug report's thread gets one fix-live note once the fix is proven live, an edit of his question card redraws it, an edit of a post say made goes through say, a post in his DM goes through say, a handler's line in his thread waits for its read of that thread, and then, every finding at once, the post keeps its length, links what it names, asks no tap that is not owed, backs each cause with its record, answers his order by no plan, record or answer of his that is missing, calls nothing by a word he corrected, tells him no coordinator is down that was not restarted, and `cc-slack check-post` passes its exact words."""
+    """What the drive's checks find in a post, which the say hook hands Jev to judge against his words: a bug report's thread gets one fix-live note once the fix is proven live, an edit of his question card redraws it, an edit of a post say made goes through say, a post in his DM goes through say, a handler's line in his thread waits for its read of that thread, and then, every finding at once, the post keeps its length, links what it names, asks no tap that is not owed, backs each cause with its record, says how each failure of the drive's it names is prevented, answers his order by no plan, record or answer of his that is missing, calls nothing by a word he corrected, tells him no coordinator is down that was not restarted, and `cc-slack check-post` passes its exact words."""
     dm = drive["slack"]["channel"]
     tool_input = payload["tool_input"]
     if PLACEHOLDER.fullmatch(text := (tool_input.get("text") or "").strip()):
@@ -317,6 +329,7 @@ def found_in(payload: dict, drive: dict, said: str, titled: int) -> str | None:
             unswitched(tool_input, drive),
             unchecked(tool_input),
             unbacked(payload, said),
+            unprevented(said),
             unordered(said),
             corrected(tool_input, drive),
             untooled(payload, drive, said),

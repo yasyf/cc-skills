@@ -919,6 +919,26 @@ def test_a_line_naming_a_cause_with_no_record_is_found_and_his_own_words_are_not
     assert refs.unbacked("```text\nThe cause is the pool\n```\nDue to a full pool, runs wait.") == ["Due to a full pool, runs wait."]
 
 
+def test_a_line_telling_him_the_drive_failed_names_the_order_or_pr_preventing_it(talker: str, transcript: Path) -> None:
+    failed = "Its card was refused: nobody checked that PR against your words."
+    disconnected = "The meta session's cci disconnected, so your order never reached it."
+    fix = "<https://github.com/yasyf/cc-skills/pull/4460|the card hook fix>"
+    said = "\n".join(
+        (
+            failed,
+            disconnected,
+            f"The card hook refused it at 1 AM; {fix} makes that hook read each PR's title.",
+            "An older SandSQL reader in the api refused that session's newer format.",
+            "> nobody checked the card",
+            'You asked "why was the card refused"; the card is up now.',
+        )
+    )
+    assert refs.unprevented(said) == [failed, disconnected]
+    refused = say(transcript, text=said)
+    assert refused is not None and "6a6edbf" in refused and refused.endswith(f"The lines: {failed} | {disconnected}")
+    assert say(transcript, text=f"Its card was refused: nobody checked that PR against your words. {fix} makes the card hook check it.") is None
+
+
 def test_a_line_answering_his_order_by_a_missing_plan_or_record_is_found_and_a_line_doing_it_is_not(talker: str, transcript: Path) -> None:
     excuse = "Left the compact window at 600k: no plan or recorded answer of his names 1024 tokens."
     refused = say(transcript, text=excuse)

@@ -11,17 +11,17 @@ The communicator is the only session he talks to: its turn on his message is a o
 
 The coordinator turns his messages into orders and gives each to a job owning one deliverable end to end: code, PR, CI, merge, install, check. It routes its watch's events, lands, installs, and sends the communicator what to post as records. Neither it nor the meta session posts to Slack, since his reply under a post reaches only the session that posted it. A drive may also run a coordinator per project beside the top one (`coordinator`).
 
-The drive's state is one file only the `drive` CLI writes, and his rulings are cc-notes answers. The sessions talk only through cci records, which outlive compactions. An agent answers only to the session that started it: the communicator starts only handlers and his read-only questions' readers, the meta session only drive tooling jobs, the coordinator every other job.
+The drive's state is one file only the `drive` CLI writes, and his rulings are cc-notes answers. The sessions talk through cci records, which outlive compactions: posted, read and closed with the cci MCP tools while that server is up, `cci post` only while it is gone, and while cci is down a session reaches another with ListAgents, then SendMessage to `<drive>-<role>`, so a disconnect never excuses a message that did not go (`records`). An agent answers only to the session that started it: the communicator starts only handlers and his read-only questions' readers, the meta session only drive tooling jobs, the coordinator every other job.
 
 ## Rules
 
-This file holds the fundamental rules; one that fires on one input is a tested refusal in the verb or hook seeing it, so it survives a compaction. Do what a refusal says, never route around it; a wrong one is a tool defect (Tooling). A rule is live once installed, and changing one edits every place stating it: this file, its pages, `agents/*.md`, `render.py`'s role rules and `mcp.py`'s tool descriptions.
+This file holds the fundamental rules; one that fires on one input is a tested refusal in the verb or hook seeing it, so it survives a compaction. Do what a refusal says, never route around it; a wrong one, or one holding back work he waits on, is a tool defect (Tooling), never working as designed. A rule is live once installed, and changing one edits every place stating it: this file, its pages, `agents/*.md`, `render.py`'s role rules and `mcp.py`'s tool descriptions.
 
 ### Jobs
 
 - The coordinator runs only `drive`, `cci`, transcript reads and one `gh` call, so its turn never blocks; a hook refuses its build, ship, loop or `orca` call.
-- Build only a port of an old PR, his order, or drive tooling under its own order, since his attention is for work he asked for; an unordered finding becomes a question card.
-- An order is an answer, one job doing its own research, or a build, whose builder starts on an Opus reader's `Researched:` block, its immediate fix's at once.
+- Build only a port of an old PR, his order, or drive tooling under its own order, since his attention is for work he asked for; an unordered finding becomes a question card. A port carries the old PR's behavior and visuals, and its data is modeled the fundamentally right way for the target tree, never copied from the old PR's storage, a design part of its order (`scope`).
+- An order is an answer, one job doing its own research, or a build, whose builder starts on an Opus reader's `Researched:` block, its immediate fix's at once. A follow-up he orders to a PR is its own `follow-up` part, whose designer starts the turn he orders it, beside landing that PR, never after it lands (`design`).
 - A job returns facts, numbers, links, quotes and what is unproven, never a write-up: only handlers write for him.
 - The job that meets a blocker on his work resolves it; only a decision of his goes to him. A rule forbidding one way of doing his pick never cancels it: build it the way the rule allows, asking nothing.
 
@@ -51,7 +51,7 @@ This file holds the fundamental rules; one that fires on one input is a tested r
 
 - Read state from `drive status`, GitHub, CI logs, transcripts, and a release's commit and build, never from memory. Call a job silent, stuck, or done only after reading its transcript.
 - Done is proven where he sees it: a recording of the click, the live post, the installed command's output. Fetched data proves no screen.
-- Promise him something only naming the order, due time or job doing it; a hook refuses a bare one.
+- Promise him something only naming the order, due time or job doing it; a hook refuses a bare one. A line telling him the drive failed him, a card refused, a check nobody ran, a message that never arrived, says on that line how it is prevented, naming the tool change and the order or PR carrying it, and a hook refuses one that does not (`messages`).
 - Cards and posts name each thing by its proper technical term, never a stand-in (`messages`). Plain words drop only drive ids he cannot open: job, order and waits ids, record seqs.
 - Events and job results feed the next summary, never a record or post each (`messages`).
 
@@ -78,4 +78,4 @@ Read a page, or its rows naming `<row>`, with `drive manual <page> [<row>]`, nev
 
 ## Tooling
 
-Drive tooling, every tool fix, skill rewrite and install, is the meta session's (`meta`). A defect anyone hits is a `defect` record to `meta@<drive>` quoting the refusal, and the blocked work goes ahead another way, with no excuse or question to him. With no meta session bound, the communicator holds drive tooling and its records.
+Drive tooling, every tool fix, skill rewrite and install, is the meta session's (`meta`). A defect anyone hits, a tool or hook refusing wrongly and a refusal or queue holding back work he waits on included, is a `defect` record to `meta@<drive>` quoting the refusal, the turn it is hit, and the meta session starts its fix that turn with no word from him, by his words "you need to fix the hookw henver it wrongly refuses yu" and "fix this kinda thing dont just ingore it wtf"; the blocked work goes ahead another way, with no excuse or question to him. With no meta session bound, the communicator holds drive tooling and its records.

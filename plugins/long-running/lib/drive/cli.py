@@ -23,6 +23,8 @@ FREEZE_FOR = timedelta(hours=12)
 RELEASE_NAME = re.compile(r"[a-z]+-[a-z]+")
 INCIDENT_EXEMPTION = "incident fix"
 REVERT = re.compile(r"^Reverts?\s|⏪|\bThis reverts\b", re.MULTILINE)
+STORED_DATA = re.compile(r"(?:^|/)migrations?/|(?:^|/)[^/]*schema[^/]*$|\.(?:sql|proto)$", re.IGNORECASE)
+PORT_DATA_RULING = 'his Nov 12 words "port his visuals but always do it the fundamentally right way when it comes to modelng the data"'
 FILING = ("project", "workstream")
 JOB_ID = re.compile(r"j\d+")
 SLACK_USER = re.compile(r"[UW][A-Z0-9]{2,}")
@@ -874,7 +876,7 @@ def job_add(args: argparse.Namespace) -> int:
     with state.edit(name) as data:
         order = find(data["orders"], args.order, "order")
         parts = pick_parts(args.order, order, args.part)
-        refuse_a_shared_immediate_fix(parts)
+        refuse_a_shared_at_once_part(parts)
         role = state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
         if refused := state.held_elsewhere(data, args.order, role) or unlandable(data, lands) or brief.job_refusal(name, data, args.order, args.kind, parts, bool(lands), args.waits):
             raise DriveError(f"refused, no job added: {refused}")
@@ -913,15 +915,12 @@ def unlandable(data: dict, keys: list[str]) -> str | None:
     return None
 
 
-def refuse_a_shared_immediate_fix(parts: list[str]) -> None:
-    """The immediate fix is a job of its own, since its PR lands at once while the proper fix's waits on his cards."""
-    if state.IMMEDIATE_FIX not in parts or len(parts) == 1:
-        return
-    others = ", ".join(json.dumps(part, ensure_ascii=False) for part in parts if part != state.IMMEDIATE_FIX)
-    raise DriveError(
-        f'the "{state.IMMEDIATE_FIX}" part is a job of its own: its PR lands at once, while the proper fix\'s waits on his cards,'
-        f' so one job takes "{state.IMMEDIATE_FIX}" and another {others}'
-    )
+def refuse_a_shared_at_once_part(parts: list[str]) -> None:
+    """The immediate fix and a follow-up are each a job of its own, since each starts at once past the gates the order's other parts wait on: the immediate fix's PR lands while the proper fix's waits on his cards, and a follow-up's design starts while the PR it follows lands."""
+    for part, why in ((state.IMMEDIATE_FIX, "its PR lands at once, while the proper fix's waits on his cards"), (state.FOLLOW_UP, "its design starts at once, while the PR it follows lands")):
+        if part in parts and len(parts) > 1:
+            others = ", ".join(json.dumps(other, ensure_ascii=False) for other in parts if other != part)
+            raise DriveError(f'the "{part}" part is a job of its own: {why}, so one job takes "{part}" and another {others}')
 
 
 def job_set(args: argparse.Namespace) -> int:
@@ -988,7 +987,7 @@ def job_set(args: argparse.Namespace) -> int:
         elif args.part:
             added = pick_parts(job["order"], data["orders"][job["order"]], args.part)
             job["parts"] = list(dict.fromkeys([*job["parts"], *added]))
-            refuse_a_shared_immediate_fix(job["parts"])
+            refuse_a_shared_at_once_part(job["parts"])
         if args.agent and args.agent == job.get("dispatch"):
             job.update(where="remote", agent=None, handed_to=None)
         elif args.agent and args.agent.startswith(state.DISPATCH_PREFIX):
@@ -1849,6 +1848,8 @@ def pr_add(args: argparse.Namespace) -> int:
         raise DriveError("--no-tap needs --why <reason>: every PR waits on his tap unless it is a port, exempt or drive tooling outside Forge-AI")
     read = github_pr(key)
     refuse_an_unkinded_title(key, read, args.port_of)
+    if args.port_of:
+        refuse_a_port_storing_data(key, args.port_of)
     known = state.load(name)
     added = find(known["jobs"], args.job, "job")
     author = read["author"]["login"]
@@ -1952,6 +1953,8 @@ def pr_set(args: argparse.Namespace) -> int:
         read = github_pr(key)
         if args.port_of or args.tap:
             refuse_an_unkinded_title(key, read, args.port_of)
+        if args.port_of:
+            refuse_a_port_storing_data(key, args.port_of)
         if args.exempt == INCIDENT_EXEMPTION:
             refuse_an_exempt_revert(known, key, order, read)
     if args.tap or args.serves or args.design:
@@ -2159,6 +2162,19 @@ def refuse_an_unkinded_title(key: str, read: dict, port_of: int | None) -> None:
     raise DriveError(
         f'{key}: refused, its title "{title}" does not open {opening}, the kind of change his card names it by:'
         f' retitle it with gh pr edit {number} -R {repo} --title "{retitled}", then run this again'
+    )
+
+
+def refuse_a_port_storing_data(key: str, port_of: int) -> None:
+    """A port that changes how data is stored, a migration, schema or wire format, is no pure port: its data is modeled the fundamentally right way for the target tree, a design part of the order he settles, never #N's storage carried across with no tap."""
+    stored = [path for path, _ in served.files(served.change(key)["diff"]) if STORED_DATA.search(path)]
+    if not stored:
+        return
+    raise DriveError(
+        f"{key}: refused, nothing set: it changes {', '.join(stored)}, how its data is stored, so it is no pure port of #{port_of}."
+        " A port carries #N's behavior and visuals, and its data is modeled the fundamentally right way for the target tree,"
+        f" never copied from #N's storage, by {PORT_DATA_RULING}. That model is a design part of the order: a design job puts it"
+        " on his card, and the PR serves the order with drive pr set <url> --tap --serves <o> --design asked:<his answer>"
     )
 
 
@@ -2758,7 +2774,8 @@ def parser() -> argparse.ArgumentParser:
         choices=state.ORDER_KINDS,
         help=(
             "answer: one reader lane researches it and answers him, with no other job; build: an Opus reader keeps its"
-            " Researched: block before any builder or designer starts, except the immediate fix's, and their briefs name it."
+            " Researched: block before any builder or designer starts, except the immediate fix's and a follow-up part's designer,"
+            " which start at once, and their briefs name it."
             " An incident order is a build"
         ),
     )
@@ -3213,7 +3230,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--job", required=True, help="the job that opened or took it over")
     verb.add_argument("--why", help="with --no-tap, why it lands with no tap of his")
     untapped = verb.add_mutually_exclusive_group()
-    untapped.add_argument("--port-of", type=int, metavar="PR", help="a pure port of this old-tree PR number: exempt, with no tap card")
+    untapped.add_argument("--port-of", type=int, metavar="PR", help="a pure port of this old-tree PR number: exempt, with no tap card; refused for a PR changing a migration, schema or wire format, whose data model is a design part of his order")
     untapped.add_argument("--exempt", choices=state.EXEMPT_CLASSES)
     untapped.add_argument("--no-tap", action="store_true", help="it lands with no tap of his; needs --why. Every other PR waits on his tap")
     verb.set_defaults(run=pr_add)
@@ -3234,7 +3251,7 @@ def parser() -> argparse.ArgumentParser:
     exemption.add_argument("--exempt", choices=state.EXEMPT_CLASSES)
     exemption.add_argument("--no-exempt", action="store_true", help="clear the exemption")
     exemption.add_argument(
-        "--port-of", type=int, metavar="PR", help="a pure port of this old-tree PR number: exempt, with no tap card"
+        "--port-of", type=int, metavar="PR", help="a pure port of this old-tree PR number: exempt, with no tap card; refused for a PR changing a migration, schema or wire format, whose data model is a design part of his order"
     )
     verb.add_argument("--fundamental", help="what changed; clears his tap and any exemption")
     tapped = verb.add_mutually_exclusive_group()

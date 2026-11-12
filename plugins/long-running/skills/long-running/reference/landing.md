@@ -199,7 +199,10 @@ class wherever he sees it, and its order's thread gets one line naming the class
 "port of #N landed."
 
 - `pure port`: a `Port:` PR that does what its old-tree PR #N does, line for line, with that PR's tests,
-  and nothing more. The coordinator records it with `drive pr set <url> --port-of <N>`.
+  and nothing more. The coordinator records it with `drive pr set <url> --port-of <N>`. A port that
+  changes how data is stored, a migration, schema or `.proto` file, is not pure: its data model is a
+  design part of its order, by his words "port his visuals but always do it the fundamentally right
+  way when it comes to modelng the data", and `drive pr add` and `drive pr set` refuse it `--port-of`.
 - `test-only`: only test and fixture files.
 - `ci-only`: only CI configuration and CI tooling.
 - `flake fix`: the whole change fixes one named flaking test, in test or fixture code, and adds no

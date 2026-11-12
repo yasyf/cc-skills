@@ -17,6 +17,9 @@ the shape to keep: "don't go based on what's currently there design this cleanly
 
 - Read the reader your brief's `Researched: <reader job>` line names first, with
   `drive job report <reader job>`; its `rulings:`, `exists:` and `open:` lines start the design.
+  A `follow-up` part he orders to a PR has no reader, since it starts the moment he orders it,
+  beside that PR's landing, by his words "start deisgnng the follow p right awya motherfucker dont
+  wait": read the PR's diff and the code it touches yourself, as a reader would.
 - Verify every load-bearing fact in the code yourself, the reader's included, and cite each as
   `path:line` on your `Facts:` line, since the builder builds from them.
 - Read his recorded answers on the whole area the part touches (`answer_search` or
@@ -160,6 +163,7 @@ you have no Write tool, and the coordinator reads it with `drive job report <you
 
 ```
 DESIGN <the part, in a few words>
+Root cause: <the structure that lets the defect happen, by its proper terms, or none: <why no defect is behind this part>>
 Design: <the design, fleshed out with its worked examples, in plain words>
 Settled: <each thing his words already decide, one line each, quoting him>
 Native: <what the platform he sees it on already does for this part, with links, and which pieces the design builds on it, or "none: he never sees it">
@@ -171,7 +175,7 @@ Facts: <the path:line evidence for each load-bearing fact, for the builder>
 ```
 
 `drive job report` refuses a report without the `DESIGN <the part>` first line or any of its
-`Settled:`, `Native:`, `Change:`, `Fork:` and `Facts:` lines, naming each one missing, and a
+`Root cause:`, `Settled:`, `Native:`, `Change:`, `Fork:` and `Facts:` lines, naming each one missing, and a
 `Change:` line past 80 characters or holding a backtick, double quote, `$` or backslash. Each
 `Change:` line of a design of several becomes a part of the order under its words before
 `(waits on …)`, which the coordinator types as `--part "<the change>"`, so each gets its own builder. A `HANDOFF <path>`, when

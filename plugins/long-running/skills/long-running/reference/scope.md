@@ -7,10 +7,15 @@ and say it in the brief's `Serves:` line, the builder's `READY`, its `ready` rec
 summary line about it, because work stopped before it starts wastes nothing.
 
 - **A port**, "port of #N": a change carried between the old and new trees, with no behavior beyond
-  what #N needs in the target tree. Its title opens `Port:`; every line he sees calls it
-  "port of #N". The coordinator reads it against #N's diff and records it with
+  what #N needs in the target tree. It carries #N's behavior and visuals, and its data is modeled the
+  fundamentally right way for the target tree, never copied from #N's storage, such as key-value rows
+  where the target tree keeps a typed table, by his words "port his visuals but always do it the
+  fundamentally right way when it comes to modelng the data". That data model is a design part of the
+  order, settled on his card by [Design first](design.md). Its title opens `Port:`; every line he sees
+  calls it "port of #N". The coordinator reads it against #N's diff and records it with
   `drive pr set <url> --port-of <N>`, which sets the `pure port` exemption, withdraws its open card,
-  and refuses `--tap`. A handoff builder lands it; he reads one line in its order's thread,
+  and refuses `--tap`, and refuses a PR changing a migration, schema or `.proto` file, whose data model
+  is that design part. A handoff builder lands it; he reads one line in its order's thread,
   "port of #N landed", as every exempt class does in [landing.md](landing.md). A port needing his
   pick is not pure: its question card says it ports #N and what in the target tree forces the pick.
 - **His order**: his message or picked card option asking for this build, quoted wherever the PR is

@@ -508,8 +508,8 @@ the dashboard link. When a line says where things stand, link the page instead o
 - Answer his next question in the same message: why, did he already decide this, is it a port, what
   comes after, why it is held.
 - A line that says something waits on X says how long and whether X is running, or `record_lines`
-  refuses the report. Past two hours with nothing running, it reports a failure with its owner,
-  because a wait that long is a failure, never a state.
+  refuses the report. Past two hours with nothing running, it reports a failure with its owner and
+  how it is prevented, because a wait that long is a failure, never a state.
 - Done means live and checked on the surface he uses: a recording of the click for a page, the live
   post for a card or message, the installed command's output for a tool. Data fetched from an API
   proves no screen. Say how you checked in a few words, with the link.
@@ -532,10 +532,16 @@ the dashboard link. When a line says where things stand, link the page instead o
 
 ## What stays out
 
-- The machinery: pins, packs, installs-as-process, who handed what to whom, which hook refused what.
-  When he asks why, give the mechanism in one or two sentences and quote back the instruction he
-  gave, then the fix and when it is live. When a hook refuses a post he ordered, tell him in one line
-  that it goes out once the fix is installed.
+- The machinery: pins, packs, installs-as-process, who handed what to whom. A failure of the drive's
+  that reaches him anyway, such as a card refused, a check nobody ran, a message that never arrived or
+  a hook refusing a post he ordered, says on that same line how it is prevented: the tool change, the
+  `{order:}` or `{pr:}` carrying it, and when it is live, so that fix starts before the line goes out.
+  His words of Nov 12, 12:44 AM, under "Its card was refused because nobody checked that PR against
+  your words": "thats not acceptable to dsay without telling me how you will prevent it". A disconnect
+  is never the reason, since a session reaches another through SendMessage while cci is down, by
+  [records.md](records.md). When he asks why, give the mechanism in one or two sentences and quote
+  back the instruction he gave, then the fix and when it is live. The post hook and `record_lines`
+  find a line naming such a failure with no order or PR on it, and Jev judges it against his words.
 - A second ask for a post he ordered. His order to post, in his DM, in a terminal or by a tap on a
   card, is his permission for one post in the place he named. No card asks him to approve it, no line
   says a hook needs his Yes, and a card already up asking that is closed the moment it is seen.

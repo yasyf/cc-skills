@@ -2308,6 +2308,21 @@ def test_the_immediate_fix_starts_at_once_past_the_research_the_design_and_optio
     assert state.load("demo")["jobs"]["j1"]["parts"] == ["immediate fix"]
 
 
+def test_a_follow_up_he_orders_to_a_pr_gets_its_designer_at_once_with_no_reader_or_wait(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
+    run(
+        "order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: land the card fix, then a follow-up that is not hacky",
+        "--kind", "build", "--parts", "the card fix", "follow-up",
+    )
+    assert cli.main(["job", "add", "design", "--order", "o1", "--part", "the card fix", "--goal", "design it"]) == 2
+    capsys.readouterr()
+    assert run("job", "add", "reader", "--order", "o1", "--part", "the card fix", "--goal", "research: the card fix") == (0, "j1")
+    assert cli.main(["job", "add", "design", "--order", "o1", "--part", "follow-up", "--waits", "j1", "--goal", "design the follow-up"]) == 2
+    assert 'a "follow-up" design starts now, beside landing the PR it follows' in capsys.readouterr().err
+    assert cli.main(["job", "add", "design", "--order", "o1", "--part", "follow-up", "--part", "the card fix", "--goal", "both"]) == 2
+    assert 'the "follow-up" part is a job of its own: its design starts at once' in capsys.readouterr().err
+    assert run("job", "add", "design", "--order", "o1", "--part", "follow-up", "--goal", "design the follow-up") == (0, "j2")
+
+
 def test_a_readers_design_on_a_reported_bug_names_the_immediate_fix_shipping_while_he_picks(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -3107,6 +3122,21 @@ def test_pr_set_tap_on_an_exempt_pr_draws_no_card_so_checks_none(run: Run, with_
     run("pr", "set", PR, "--exempt", "test-only")
     on_github["body"] = "## Summary\nTests only."
     assert run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")[0] == 0
+
+
+def test_a_port_changing_how_its_data_is_stored_is_no_pure_port(run: Run, demo: str, on_github: dict, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "land it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    on_github["title"] = "Port: land it"
+    table = "api/migrations/0042_site_visuals.sql"
+    diff = f"diff --git a/{table} b/{table}\n--- /dev/null\n+++ b/{table}\n@@ -0,0 +1 @@\n+create table site_visuals (key text, value text);\n"
+    monkeypatch.setattr(served, "change", lambda key: {"title": "Port: land it", "head": "abc", "diff": diff.encode()})
+    assert cli.main(["pr", "add", PR, "--job", "j1", "--port-of", "51234"]) == 2
+    refused = capsys.readouterr().err
+    assert f"it changes {table}, how its data is stored, so it is no pure port of #51234" in refused and "modelng the data" in refused
+    assert "Forge-AI/monorepo#42" not in state.load("demo")["prs"]
+    monkeypatch.setattr(served, "change", lambda key: {"title": "Port: land it", "head": "abc", "diff": diff.replace(table, "dashboard/src/visuals.ts").encode()})
+    assert run("pr", "add", PR, "--job", "j1", "--port-of", "51234")[0] == 0
 
 
 def test_pr_set_port_of_refuses_a_title_that_does_not_open_port(
