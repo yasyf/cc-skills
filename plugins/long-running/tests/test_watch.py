@@ -1739,7 +1739,7 @@ def test_a_pr_reworked_to_his_words_gets_no_ready_and_loses_a_card_left_up_until
         state.take_result(data, "j1", f"READY {state.pr_url(KEY)}", f"READY {state.pr_url(KEY)}\nCHANGE: it reads the meta table")
     assert DRAWING in watch.run_pass(watcher(demo), T0 + timedelta(minutes=10))
     [[sent]] = ready_records
-    assert sent["text"] == f'{state.pr_url(KEY)}; his order o1 "ship the watch"; {KEY}: Reworked to your words "Topology goes in the meta table": it reads the meta table'
+    assert sent["body"] == f'{state.pr_url(KEY)}; his order o1 "ship the watch"; {KEY}: Reworked to your words "Topology goes in the meta table": it reads the meta table'
 
 
 @pytest.mark.parametrize("wants_tap", [False, True])
