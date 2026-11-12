@@ -400,6 +400,38 @@ def test_his_words_on_an_open_card_close_it_in_the_same_call_that_sends_them(dem
     assert len(posted) == 2
 
 
+def test_an_answer_closing_an_ask_his_recorded_rules_settled_before_any_card_drew_settles_its_kept_question(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--project", "Iris", "--workstream", "Durable agents", "one card per subject")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build it")
+    asked = str(state.drive_dir(demo) / "asks" / "j1-5c1d.md")
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["questions"] = [state.new_question(asked, "Which card keeps the subject?", state.stamp())]
+    shown = {"ask": asked}
+    posted: list[list[dict]] = []
+
+    def cci(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if argv[:2] == ["cci", "show"]:
+            return subprocess.CompletedProcess(argv, 0, json.dumps({"kind": "ask", "fields": {"attrs": shown | {"job": "j1"}}}), "")
+        posted.append(json.loads(str(kwargs["input"])))
+        return subprocess.CompletedProcess(argv, 0, "672342\n", "")
+
+    monkeypatch.setattr(subprocess, "run", cci)
+    open_cards(monkeypatch)
+    answer = {"kind": "answer", "text": "one subject has one card", "waits": "demo:j1-672331", "ruling": "320b7a7"}
+    shown["ask"] = str(state.drive_dir(demo) / "asks" / "j1-other.md")
+    with pytest.raises(DriveError, match="1: refused, nothing posted: the card this answer names no longer waits on him"):
+        tools.run("record", demo, {"records": [answer]})
+    shown["ask"] = asked
+    assert tools.run("record", demo, {"records": [answer], "dry_run": True}).splitlines()[1:] == [f"1 would settle j1's question kept in {asked}, closing ask 672331"]
+    assert posted == []
+    assert tools.run("record", demo, {"records": [answer]}).splitlines()[0] == "1 answer 672342"
+    assert posted[0][0]["resolves"] == ["672331"]
+    job = state.load(demo)["jobs"]["j1"]
+    assert (job["questions"][0]["settled"], view.open_questions(job, view.NO_CARDS)) == ({"seq": "672342", "ruling": "320b7a7", "at": job["questions"][0]["settled"]["at"]}, [])
+
+
 def test_his_owner_words_under_a_pr_card_leave_it_up_since_only_his_order_on_its_thread_withdraws_it(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, withdrawals: Withdrawals
 ) -> None:

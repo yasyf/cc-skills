@@ -393,6 +393,7 @@ def load(name: str) -> dict:
     for job in data["jobs"].values():
         for question in job["questions"]:
             question.setdefault("refused", None)
+            question.setdefault("settled", None)
             if question["waits"] and not question["file"] and (kept := rebuilt_ask(name, question["waits"])).exists():
                 question["file"] = str(kept)
     return data
@@ -627,9 +628,9 @@ def delivered(data: dict, order_id: str, part: str) -> bool:
 
 
 def unposted_answer(data: dict, job_id: str) -> bool:
-    """Whether a finished job's answer reaches him only by a post: it drew no card of his, which carries an answer itself, and no builder carries its design."""
+    """Whether a finished job's answer reaches him only by a post: it drew no card of his, which carries an answer itself, his recorded words settled none of its questions, and no builder carries its design."""
     job = data["jobs"][job_id]
-    return job["state"] == "done" and not any(question["card"] for question in job["questions"]) and not design_builder(data, job_id)
+    return job["state"] == "done" and not any(question["card"] or question["settled"] for question in job["questions"]) and not design_builder(data, job_id)
 
 
 def answered_parts(data: dict, order_id: str) -> dict[str, list[str]]:
@@ -726,8 +727,10 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
     }
 
 
-def new_question(file: str | None, title: str | None, asked: str, unsettled: str | None = None, card: str | None = None, refused: str | None = None) -> dict:
-    return {"file": file, "title": title, "asked": asked, "unsettled": unsettled, "waits": None, "card": card, "refused": refused}
+def new_question(
+    file: str | None, title: str | None, asked: str, unsettled: str | None = None, card: str | None = None, refused: str | None = None, settled: dict | None = None
+) -> dict:
+    return {"file": file, "title": title, "asked": asked, "unsettled": unsettled, "waits": None, "card": card, "refused": refused, "settled": settled}
 
 
 def kept_in(job: dict, file: Path) -> dict | None:
