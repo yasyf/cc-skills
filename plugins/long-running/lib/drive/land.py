@@ -17,8 +17,7 @@ CHECKOUT_SECONDS = 600
 SAID_CHARS = 400
 SAID_LINES = 4
 QUEUED = "queued for merge"
-UPDATED = "updated its branch onto its base"
-UP_TO_DATE = "already up-to-date"
+BASE_MOVED = "Base branch was modified"
 NOT_MERGING = "not merging it"
 WAITS_CHECK = "waits on its check against his words"
 NEWER_INSTALL = "not landed: a newer long-running saved the drive while stack-enqueue --check ran, so the landing runs again on it"
@@ -201,7 +200,7 @@ def merge_ready(name: str, key: str, read: dict) -> str:
 
 
 def follow(name: str, keys: list[str]) -> list[str]:
-    """Start the lander on each yasyf/* PR among keys whose head moved past the one its last lander tried, by its builder's push or the lander's own update of its branch, marking it under the drive's lock so no second lander starts on that head; the PRs started."""
+    """Start the lander on each yasyf/* PR among keys whose head moved past the one its last lander tried, by its builder's push, marking it under the drive's lock so no second lander starts on that head; the PRs started."""
     prs = state.load(name)["prs"]
     if not any(moved(key, prs[key]) for key in keys):
         return []
@@ -362,11 +361,12 @@ def ask_review(name: str, repo: str, heads: dict[str, str]) -> str | None:
 
 
 def merged(name: str, key: str) -> str:
-    """Merge a yasyf/* PR with --admin past its checks, by his rule for his own repositories, with gh itself since ccx's GitHub gateway refuses a merge, record its merge commit on its row, then install from it each plugin of this Mac it changes, whose drive install proves the PR's job, having let go of its install's lock, which an install of long-running would wait on; what came of it."""
+    """Merge a yasyf/* PR with --admin past its checks, by his rule for his own repositories, with gh itself since ccx's GitHub gateway refuses a merge, record its merge commit on its row, then install from it each plugin of this Mac it changes, whose drive install proves the PR's job, having let go of its install's lock, which an install of long-running would wait on; what came of it. GitHub refuses a merge whose base moved while it merged, which another merge into that base did, so the lander merges again on the new base, and any other refusal is not landed."""
     repo, number = key.split("#")
-    done = subprocess.run(["gh", "pr", "merge", number, "-R", repo, "--squash", "--admin"], capture_output=True, text=True)
+    while (done := subprocess.run(["gh", "pr", "merge", number, "-R", repo, "--squash", "--admin"], capture_output=True, text=True)).returncode and BASE_MOVED in done.stderr:
+        print(f"{key}: {' '.join(done.stderr.split())}; merging it again on its new base", flush=True)
     if done.returncode:
-        return updated(repo, number, cut(" ".join(done.stderr.split()), SAID_CHARS))
+        return f"not landed: gh pr merge --squash --admin refused it: {cut(' '.join(done.stderr.split()), SAID_CHARS)}"
     try:
         sha = github.run(["gh", "pr", "view", number, "-R", repo, "--json", "mergeCommit", "-q", ".mergeCommit.oid"]).strip()
         files = github.run(["gh", "api", "--paginate", f"repos/{repo}/pulls/{number}/files", "--jq", ".[].filename"]).splitlines()
@@ -384,12 +384,3 @@ def merged(name: str, key: str) -> str:
         print(done.stdout + done.stderr, flush=True)
         lines.append(done.stdout.splitlines()[0] if done.returncode == 0 else f"but drive install {plugin} --sha {sha[:12]} failed: {said(done.stderr)}")
     return "; ".join(lines)
-
-
-def updated(repo: str, number: str, refused: str) -> str:
-    """Merge its base into a yasyf/* PR's branch with gh pr update-branch once gh pr merge refused it, as when its base moved under the merge, so the lander merges the new head the watch reads next; not landed, naming both answers, when git cannot merge the two cleanly or the branch already holds its base."""
-    update = subprocess.run(["gh", "pr", "update-branch", number, "-R", repo], capture_output=True, text=True)
-    answer = cut(" ".join(update.stderr.split()), SAID_CHARS)
-    if update.returncode == 0 and UP_TO_DATE not in answer:
-        return f"{UPDATED} with gh pr update-branch, as gh pr merge --squash --admin refused it: {refused}; the lander merges its new head once the watch reads it"
-    return f"not landed: gh pr merge --squash --admin refused it: {refused}; gh pr update-branch answered: {answer}"

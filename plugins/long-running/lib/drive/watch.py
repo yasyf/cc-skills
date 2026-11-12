@@ -68,7 +68,7 @@ STUCK_WORDS = {
     "landing": "green, approved and exempt, and not landed",
 }
 ABOUT = re.compile(r"\[(?P<order>o\d+) (?P<job>j\d+)\]$|^(?:FREE (?:\S+ )?j\d+|ORPHAN|DUE(?: j\d+)?|RECOVERED|TELL|JOB j\d+|LANE j\d+|STUCK j\d+) (?P<named>o\d+)\b")
-OWN_MOVES = ("new head", "checks passed", "approved", land.QUEUED, land.UPDATED, land.WAITS_CHECK, served.CHECKED, PROVEN)
+OWN_MOVES = ("new head", "checks passed", "approved", land.QUEUED, land.WAITS_CHECK, served.CHECKED, PROVEN)
 
 
 @dataclass
@@ -1914,14 +1914,14 @@ def loop_argv(drive: Path, name: str, project: str | None) -> list[str]:
 
 
 def ensure(name: str, project: str | None = None) -> str:
-    """Start the drive's watch, or a project's, as its own process unless one runs or the drive sits under LONG_RUNNING_STATE, its output in its own log; the line saying which. A project's watch first reads the events from where the log ended as its sub-coordinator was bound."""
+    """Start the drive's watch, or a project's, as its own process unless one runs or the drive sits under LONG_RUNNING_STATE, its output in its own log and its environment naming the drive, which lets the drive's sessions end it unasked; the line saying which. A project's watch first reads the events from where the log ended as its sub-coordinator was bound."""
     watcher = f"the watch for {project}" if project else "the watch"
     reader = f"the sub-coordinator for {project}" if project else "the coordinator"
     if state.scratch():
         return f"{watcher} does not start for a drive under LONG_RUNNING_STATE={state.root()}; a proof runs its passes in-process with watch.run_pass(watch.Watcher(...), moment)"
     if pid := holder(state.pid_path(name, project)):
         return f"{watcher} runs as pid {pid} and posts its lines to {reader} over cci; arm no Monitor for it"
-    env = {key: value for key, value in os.environ.items() if key != "CLAUDE_CODE_SESSION_ID"} | {"CLAUDE_LONG_RUNNING_LANE": LANE}
+    env = {key: value for key, value in os.environ.items() if key != "CLAUDE_CODE_SESSION_ID"} | {"CLAUDE_LONG_RUNNING_LANE": LANE, state.DRIVE_ENV: name}
     with state.watch_log_path(name, project).open("a") as log:
         started = subprocess.Popen(
             loop_argv(DRIVE, name, project),

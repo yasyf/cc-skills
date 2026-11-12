@@ -125,18 +125,18 @@ No tap and no green gate: by his standing rule a `yasyf/*` PR merges without ask
    a process of its own, outliving your turn, that merges it with `gh pr merge <n> -R <repo> --squash --admin`,
    whatever its checks show, records the merge sha on the PR, then runs `drive install` from it for
    each plugin installed on this Mac whose folder the merge changes, or that is its marketplace's only
-   plugin. When GitHub refuses the merge, as when `main` moved under it, the lander merges `main` into
-   its branch with `gh pr update-branch <n> -R <repo>`, its `PR … updated its branch onto its base`
-   line waking no one, and the watch starts the lander again on the new head within one GitHub read,
-   60 seconds. The watch does the same for a head its builder pushes after a refusal, once GitHub
-   reads it free of conflicts, so nobody registers a rebased PR again. Once the newest install of
+   plugin. When GitHub refuses the merge with `Base branch was modified`, which another merge into
+   `main` while this one ran causes, the lander merges again on the new base, as GitHub's own refusal
+   asks, and never touches the PR's branch. After any other refusal the watch starts the lander again
+   on the head its builder pushes, once GitHub reads it free of conflicts, so nobody registers a
+   rebased PR again. Once the newest install of
    each plugin the merge changes holds it, `drive install` runs the job's proof file with those
    plugins' `bin/` first on `PATH`, keeps its output beside the job's report, takes `DONE` on exit 0
    or `BLOCKED` otherwise, and on a `DONE` that finishes the order sends the communicator its close
    report. The lander writes its output to the drive's `landings.log`, ending in one line of the PR's
    key and its outcome, such as `yasyf/cc-skills#7: merged at <sha>; …`. Its outcome reaches the
-   job's holder as `PR … merged at <sha>; <each install's version line or no release: line>` or `PR … not landed: <why>`,
-   which comes only when `gh pr update-branch` cannot bring `main` in either, on a conflict git
+   job's holder as `PR … merged at <sha>; <each install's version line or no release: line>` or
+   `PR … not landed: gh pr merge --squash --admin refused it: <its answer>`, such as a conflict git
    cannot merge, and the proof's as `PR … proven live by drive install …` or
    `PR … drive install's proof failed: …`. The report's output, or `drive pr add` again, prints why
    it started none: a draft, the `hold` label, a lander already running on it, or a base other than

@@ -658,3 +658,21 @@ def test_a_drive_saved_with_one_change_a_part_waited_on_loads_it_as_the_list_of_
     state.state_path("demo").write_text(json.dumps(saved))
     loaded = state.load("demo")["orders"]["o1"]["parts"]
     assert {part: held["after"] for part, held in loaded.items()} == {"the interface": [], "the reads": ["the interface"], "the order": []}
+
+
+def test_a_detached_verb_names_its_drive_and_no_session_in_its_environment(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    make("demo")
+    started = []
+
+    class Started:
+        pid = 4242
+
+        def __init__(self, argv: list[str], **options: object) -> None:
+            started.append((argv, options))
+
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "s1")
+    monkeypatch.setattr(state.subprocess, "Popen", Started)
+    assert state.detach("demo", ["pr", "land", "https://github.com/yasyf/cc-skills/pull/7"], "landings.log") == 4242
+    [(argv, options)] = started
+    assert argv[1:] == ["pr", "land", "https://github.com/yasyf/cc-skills/pull/7", "--drive", "demo"]
+    assert options["env"][state.DRIVE_ENV] == "demo" and "CLAUDE_CODE_SESSION_ID" not in options["env"]

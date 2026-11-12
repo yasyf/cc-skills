@@ -2114,7 +2114,7 @@ def test_job_ask_counts_an_amount_only_on_the_order_his_words_are_about_never_an
     view.refresh_cards("demo")
     words = "ok so for 1, lrts mske eveyhting standard on signal or 30 seconds both for 2 lfor mac and cloud each decide wherther `deliverSteers` or turn boundary is best"
     slack_thread.post(state.now() - timedelta(minutes=1), from_user=True, text=words)
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", f"any harm in making it uniform? Then, 5:06 AM, same thread: {words}", "--thread", "1794200000.000100")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", f'any harm in making it uniform? Then, 5:06 AM, same thread: "{words}"', "--thread", "1794200000.000100")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "an answer he reads states only what was read in code or measured", "--thread", "1794200000.000100")
     run("job", "add", "builder", "--order", "o1", "--goal", "pick when the inbox is read")
     run("job", "add", "builder", "--order", "o2", "--goal", "check what a post read")
@@ -2123,6 +2123,22 @@ def test_job_ask_counts_an_amount_only_on_the_order_his_words_are_about_never_an
     assert cli.main(["job", "ask", "j1", str(block)]) == 2
     assert [line.split(' "')[0] for line in capsys.readouterr().err.splitlines() if line.startswith("- ")] == ["- 30 second: o1's own words"]
     assert cli.main(["job", "ask", "j2", str(block)]) == 0
+
+
+def test_job_ask_counts_only_his_quoted_words_in_an_order_the_drive_wrote(
+    run: Run, meta: str, slack_thread: Thread, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS | {"team_url": "https://acme.slack.com/"})
+    view.refresh_cards("demo")
+    words = 'Drive tooling: the finished snapshot page waited 10 minutes for its card, and he ruled "keep each finished snapshot 30 days"'
+    run("order", "add", "--title", "Short title", words)
+    run("job", "add", "builder", "--order", "o1", "--goal", "design it")
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    assert cli.main(["job", "ask", "j1", str(block)]) == 2
+    assert [line.split(' "')[0] for line in capsys.readouterr().err.splitlines() if line.startswith("- ")] == ["- 30 day: o1's own words"]
+    block.write_text(SHORT_ASK.replace("written when it ends, old runs", "written when it ends, kept 30 days, old runs"))
+    assert cli.main(["job", "ask", "j1", str(block)]) == 0
 
 
 def test_job_ask_prints_the_answer_jev_reads_as_deciding_and_an_amount_he_named_in_one_refusal(

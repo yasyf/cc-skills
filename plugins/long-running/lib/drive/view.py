@@ -634,8 +634,7 @@ def history(drive: dict, events: Iterable[dict], team_url: str) -> list[dict]:
     undoable: dict[str, dict] = {}
     for order_id, order in drive["orders"].items():
         url = thread_url(drive, team_url, order)
-        his = order["from"].startswith("slack:") and not order["reporter"]
-        swears = len(SWEARS.findall(order["text"])) if his else 0
+        swears = len(SWEARS.findall(limits.his_words(order)))
         happened.append({"at": order["created"], "kind": "order", "text": order_title(order), "detail": "", "url": url, "feature": order_id, "swears": swears})
         if order["state"] == "done":
             happened.append({"at": order["updated"], "kind": "live", "text": order_title(order), "detail": said(order.get("proof")), "url": url, "feature": order_id})

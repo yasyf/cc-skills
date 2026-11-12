@@ -1300,6 +1300,13 @@ def kind_refusal(text: str, said: str, data: dict) -> str | None:
     return f"refused: this summary names a PR and never says what it serves, the first thing he asks of a PR; say it where each is named: {kinds}"
 
 
+def his_words(order: dict) -> str:
+    """The words of an order that are his: the whole text of one added from his own Slack message, which keeps his message and the words he added to it verbatim, else only its quoted spans, since a "Drive tooling:" order, a reporter's bug and an order added from the terminal or a record are the drive's words quoting his."""
+    if order["from"].startswith("slack:") and not order["reporter"] and not order["text"].startswith(TOOLING):
+        return order["text"]
+    return " ".join(SAID.findall(order["text"]))
+
+
 def kind_words(data: dict, pr: dict) -> str:
     """The words that say what a drive PR serves: port of #N, Drive tooling, or the order of his it carries out as `{order:o<n>}`, which `say` links under his words."""
     if pr.get("port_of"):

@@ -9,6 +9,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from dataclasses import replace
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
 from unittest import mock
@@ -1118,6 +1119,31 @@ class SaveTest(unittest.TestCase):
         self.assertEqual(given, "ghs_lent\n")
         self.assertNotIn("ghs_lent", script)
         self.assertIn("push --quiet https://github.com/acme/repo.git 'refs/heads/saved/demo-j1/*:refs/heads/saved/demo-j1/*'", script)
+
+    def test_save_skips_a_worktree_git_cannot_read_saves_the_rest_and_names_it(self):
+        sprite, base, held, tips = self.sprite_holding_work()
+        root, loose, github, broken = base / "repo", base / "loose", base / "github.git", base / "broken"
+        broken.mkdir()
+        (broken / ".git").write_text("")
+        held = replace(held, changed=(*held.changed, (orca_gc.UNREADABLE, str(broken))))
+        with mock.patch.object(orca_gc, "github_token", return_value="ghs_lent"):
+            said = orca_gc.save("pool-abc", "demo-j1", SavingCcRemote(sprite, held, github))
+        loose_head = git_in(loose, "rev-parse", "HEAD")
+        saved = dict(line.split() for line in git_in(github, "for-each-ref", "--format=%(refname:lstrip=2) %(objectname)", "refs/heads/saved/").splitlines())
+        self.assertEqual(sorted(saved), sorted(["saved/demo-j1/lane", "saved/demo-j1/other", f"saved/demo-j1/{loose_head[:10]}"]))
+        branches = ", ".join(f"{name} at {sha[:10]}" for name, sha in sorted(saved.items()))
+        self.assertEqual(
+            said,
+            f"uncommitted changes in {root} (2 files), {loose} (1 file); commits on no remote on other, lane, now on acme/repo as {branches};"
+            f" {broken} left on pool-abc, as git cannot read it",
+        )
+        self.assertEqual(orca_gc.unsaved(held, REMOTE), f"uncommitted changes in {root} (2 files), {loose} (1 file), {broken} (git cannot read it)")
+
+    def test_save_of_a_sprite_holding_only_a_worktree_git_cannot_read_runs_nothing_and_names_it(self):
+        gone = "/home/sprite/repo/.worktrees/gone"
+        cc_remote = SavingCcRemote(SPRITE, checkout(SPRITE.root, dirty=True, changed=((orca_gc.UNREADABLE, gone),)), Path("/nonexistent"))
+        self.assertEqual(orca_gc.save("pool-abc", "demo-j1", cc_remote), f"{gone} left on pool-abc, as git cannot read it")
+        self.assertEqual(cc_remote.sent, [])
 
     def test_a_failed_push_leaves_each_commit_on_a_local_saved_branch_so_the_sprite_still_reads_as_holding_it(self):
         sprite, base, held, tips = self.sprite_holding_work()
