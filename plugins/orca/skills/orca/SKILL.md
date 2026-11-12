@@ -470,6 +470,16 @@ why the read or the save failed; a failed push leaves each commit on its
 lane. A branch whose tip is already in GitHub's default branch, such as a local
 `dev` at a squash merge, counts as on a remote for both verbs.
 
+`orca-reclaim.py --destroy <workspace>` destroys the Sprite cc-remote records
+under that workspace name with `cc-remote destroy`, which closes its forward and
+removes its Orca environment, once the same read finds nothing `--held` would
+name. Like `--held`, it needs no Dispatch, so it reaches a Sprite whose Dispatch
+Orca dropped, and the gc pause does not hold it. It prints the workspace it
+destroyed, or nothing when no task records a Sprite under that name, and exits 1
+naming what keeps the Sprite. `drive job end` runs it after `--done`, `drive job
+resume` runs it on a dead lane's Sprite once the relaunch starts on a fresh one,
+and a drive's watch runs it on the Sprite of each done, failed or stopped job.
+
 When `orca worktree rm` answers with an error such as `runtime_unavailable`
 but the directory is gone, the reclaimer counts the worktree as removed. The
 Orca error prints on its own `error` line, and a dropped runtime connection

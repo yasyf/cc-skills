@@ -41,6 +41,7 @@ CUT_OFF = (
 DRIVE = Path(__file__).resolve().parents[2] / "bin" / "drive"
 OWING_STATES = ("working", "waiting")
 LIVE_JOB_STATES = ("running", "waiting")
+RELEASES_AT_ONCE = 2
 LINE_BREAKS = re.compile(r"[\r\n]+")
 HANDOFF = timedelta(minutes=2)
 SETTLING = ""
@@ -85,6 +86,8 @@ class Watcher:
     unsent: dict[str, list[str]] = field(default_factory=dict)
     down: str | None = None
     dashboard_down: bool = False
+    releasing: dict[str, subprocess.Popen] = field(default_factory=dict)
+    released: set[str] = field(default_factory=set)
 
     @property
     def lane(self) -> str:
@@ -1470,6 +1473,25 @@ def stranded(job_id: str, data: dict, gap: str | None, unlisted: dict[str, dict]
     return "; ".join([gap or f"{job_id} is running", *tracked, *untracked])
 
 
+def release_sprites(watcher: Watcher) -> None:
+    """Destroy the Sprite of each done, failed or stopped job it hears that cc-remote still records, with the reclaimer's --destroy in a process of its own, at most two at once and each Sprite once a watch, so it and its Orca environment go once it holds nothing on no remote; what each run printed goes to the watch log."""
+    if state.scratch():
+        return
+    watcher.releasing = {workspace: run for workspace, run in watcher.releasing.items() if run.poll() is None}
+    data = state.load(watcher.name)
+    live = {job.get("workspace") for job in data["jobs"].values() if job["state"] not in state.FINISHED_JOB_STATES}
+    for job in data["jobs"].values():
+        if len(watcher.releasing) >= RELEASES_AT_ONCE:
+            return
+        if job["state"] not in state.FINISHED_JOB_STATES or job.get("workspace") in watcher.released | live:
+            continue
+        if not heard_job(watcher, data, job) or not orca.holds_sprite(job):
+            continue
+        watcher.released.add(job["workspace"])
+        with state.watch_log_path(watcher.name, watcher.project).open("a") as log:
+            watcher.releasing[job["workspace"]] = orca.release_detached(job["workspace"], Path(data["roles"]["coordinator"]["cwd"]), log)
+
+
 def death_lines(name: str, deaths: dict[str, tuple[str, str]], moment: datetime) -> list[str]:
     """Record each remote lane's death on its job and say it once, with what the coordinator's next resume does."""
     if not deaths:
@@ -1749,6 +1771,7 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
         lines += waiting_lines(watcher, moment)
         lines += answer_lines(watcher, moment)
         lines += lane_lines(watcher, moment)
+        release_sprites(watcher)
         lines += pushed_lines(watcher, moment)
         lines += agent_lines(watcher, moment)
         lines += compact_lines(watcher, moment)
