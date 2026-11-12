@@ -510,6 +510,22 @@ def test_history_lists_every_day_newest_first_with_his_taps_answers_and_undos_ea
     assert [entry["swears"] for entry in history if entry["kind"] in ("order", "answer")] == [1, 0, 0, 0, 2]
 
 
+def test_a_dashboard_answer_offers_its_undo_in_history_until_an_undo_of_its_card_follows() -> None:
+    data = drive_of({"o1": order("ship the page", [], created=at(-30))}, {}, [])
+    taken, kept = "https://acme.slack.com/archives/D123/p1", "https://acme.slack.com/archives/D123/p2"
+    events = [
+        {"kind": "answered", "at": at(-5), "url": taken, "label": "Raise it", "question": "Raise the limit?", "undo_until": at(5)},
+        {"kind": "answered", "at": at(-4), "url": kept, "label": "Keep it", "question": "Keep the cache?", "undo_until": at(6)},
+        {"kind": "undone", "at": at(-3), "url": taken, "label": "Raise it", "question": "Raise the limit?"},
+    ]
+    history = view.board(data, found(), "live", events, T0, set())["history"]
+    assert [(entry["kind"], entry["url"], entry["undo_until"]) for entry in history if entry["kind"] in ("answered", "undone")] == [
+        ("undone", taken, None),
+        ("answered", kept, at(6)),
+        ("answered", taken, None),
+    ]
+
+
 def test_a_stack_card_sent_to_him_shows_each_pr_as_it_stands_now() -> None:
     data = drive_of({"o1": order("ship the page", ["j1"])}, {"j1": job("o1", "waiting", "READY")}, [pr(1, "o1", wants_tap=True), pr(2, "o1", state="merged")])
     events = [

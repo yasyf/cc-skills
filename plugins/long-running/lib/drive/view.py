@@ -607,10 +607,11 @@ def progress(drive: dict) -> dict:
 
 
 def history(drive: dict, events: Iterable[dict], team_url: str) -> list[dict]:
-    """What happened on every day of the drive, newest first: his orders, his recorded answers, features gone live, merges, failed jobs, his taps and answers on cards and their undos, refused cards and every message he was sent, with its visuals, a message reworded in place showing its newest words at the time it was sent; the swears counted are those in his own words, his Slack orders and recorded answers."""
+    """What happened on every day of the drive, newest first: his orders, his recorded answers, features gone live, merges, failed jobs, his taps and answers on cards and their undos, a dashboard answer offering its Undo until cc-slack's window closes or a later undo or answer of its card, refused cards and every message he was sent, with its visuals, a message reworded in place showing its newest words at the time it was sent; the swears counted are those in his own words, his Slack orders and recorded answers."""
     prs = drive["prs"]
     happened = []
     sent: dict[str, dict] = {}
+    undoable: dict[str, dict] = {}
     for order_id, order in drive["orders"].items():
         url = thread_url(drive, team_url, order)
         his = order["from"].startswith("slack:") and not order["reporter"]
@@ -631,7 +632,12 @@ def history(drive: dict, events: Iterable[dict], team_url: str) -> list[dict]:
         if event["kind"] == "answered" and message_key(event["url"]) in recorded:
             continue
         if event["kind"] in ("answered", "undone"):
-            happened.append({"at": event["at"], "kind": event["kind"], "text": event["question"] or "a card", "detail": event["label"], "url": event["url"], "feature": None})
+            if taken := undoable.pop(message_key(event["url"]), None):
+                taken["undo_until"] = None
+            decided = {"at": event["at"], "kind": event["kind"], "text": event["question"] or "a card", "detail": event["label"], "url": event["url"], "feature": None, "undo_until": event.get("undo_until")}
+            if decided["undo_until"]:
+                undoable[message_key(event["url"])] = decided
+            happened.append(decided)
             continue
         if event["kind"] == "said" and event.get("edited") and (post := sent.get(message_key(event["url"]))):
             post["text"] = event["text"]

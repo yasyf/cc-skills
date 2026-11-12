@@ -49,7 +49,7 @@ const SLICES_KEPT = 40;
 const JUMP_ROWS = 40;
 const KEY_SHEET = [
   ['Anywhere', [[['⌘K'], 'Jump to a screen, question, pull request, task or job'], [['?'], 'Show these keys'], [['Esc'], 'Close what is open, or step back up a level']]],
-  ['Your queue', [[['j', '→'], 'Next card'], [['k', '←'], 'Previous card'], [['1–9'], 'Answer with that choice once the card has focus; from outside the card, the key only moves focus to that choice'], [['⌘Z'], 'Take back an answer still waiting to be sent']]],
+  ['Your queue', [[['j', '→'], 'Next card'], [['k', '←'], 'Previous card'], [['1–9'], 'Answer with that choice once the card has focus; from outside the card, the key only moves focus to that choice'], [['⌘Z'], 'Take back the newest answer that still shows Undo']]],
   ['A pull request card', [[['←', '→'], 'Switch between Show me, The change and Context, with a tab focused']]],
   ['Writing to Claude', [[['↵'], 'Send'], [['⇧↵'], 'Start a new line']]],
   ['Jump', [[['↑', '↓'], 'Choose a match'], [['↵'], 'Open it']]],
@@ -90,11 +90,13 @@ let shownHash = null;
 let queueAt = null;
 let queueSlot = 0;
 let picked = null;
+let touched = false;
 const expanded = new Set();
 const answers = new Map();
 const drafts = new Map();
 const sent = new Map();
 const toasts = new Map();
+const restored = new Set();
 let outdated = false;
 const prTabs = new Map();
 const prRows = new Map();
@@ -407,7 +409,8 @@ function choices(item, keyed = false) {
       <span class="arrow" aria-hidden="true">›</span>
     </button>`;
   });
-  return `<div class="${item.kind === 'tap' ? 'pr-picks' : 'choices'}">${buttons.join('')}</div>${failed}`;
+  const back = restored.has(item.answer) ? '<p class="restored" role="status">Restored. This is being asked again.</p>' : '';
+  return `${back}<div class="${item.kind === 'tap' ? 'pr-picks' : 'choices'}">${buttons.join('')}</div>${failed}`;
 }
 
 function sayBox(key, under, placeholder, about = '', thread = '') {
@@ -510,7 +513,7 @@ function decisionRail(item) {
   const read = `${links ? `<ul class="rail-list">${links}</ul>` : ''}${pictures(card.pictures)}`;
   return `<aside class="context-rail" aria-label="About this decision">
     ${meaning(item, index)}
-    <p class="rail-note"><span class="pointer">Hover or focus a choice to read it here.</span><span class="touch">Tap a choice to answer it.</span> An answer waits ${model.undo_seconds} seconds before it is sent, so Undo<span class="pointer"> or ⌘Z</span> takes it back.</p>
+    <p class="rail-note"><span class="pointer">Hover or focus a choice to read it here.</span><span class="touch">Tap a choice to answer it.</span> An answer is sent ${model.undo_seconds} seconds after you pick it. While its Undo shows, Undo<span class="pointer"> or ⌘Z</span> takes it back and asks it again.</p>
     ${tasks.length ? `<div class="rail-block"><div class="eyebrow">What it holds up</div><ul class="held-list">${tasks.map((entry) => heldRow(item, entry, rail.held)).join('')}</ul></div>` : ''}
     ${rail.asker ? `<div class="rail-block"><div class="eyebrow">Asked by</div><ul class="jobs">${jobRow(rail.asker)}</ul></div>` : ''}
     ${rail.answers.length ? `<div class="rail-block"><div class="eyebrow">Your earlier words on it</div><ul class="said-list">${rail.answers.map(earlierWords).join('')}</ul></div>` : ''}
@@ -1426,6 +1429,7 @@ function historyRow(entry) {
       <div>${momentText(entry)}</div>
       ${entry.detail && !DECIDED[entry.kind] ? `<div class="meta">${esc(entry.detail)}</div>` : ''}
     </div>
+    ${Date.parse(entry.undo_until) > Date.now() ? `<button class="btn ghost" data-undo="${esc(entry.url)}" data-label="${esc(entry.detail)}" data-title="${esc(entry.text)}">Undo</button>` : ''}
   </li>`;
 }
 
@@ -1680,6 +1684,7 @@ function fresh() {
 
 async function answer(card, label) {
   const asked = [...model.queue, ...model.review].find((candidate) => candidate.answer === card);
+  restored.delete(card);
   answers.set(card, { label });
   toast(card, { label, title: asked.title, until: Date.now() + model.undo_seconds * 1000, state: 'held' });
   render();
@@ -1693,7 +1698,7 @@ async function answer(card, label) {
       toast(card, { ...toasts.get(card), state: 'undone' });
     } else {
       answers.set(card, { label: said.label || label, at: said.at || new Date().toISOString(), done: true });
-      toast(card, { ...toasts.get(card), state: 'sent' });
+      toast(card, { ...toasts.get(card), state: 'sent', undoUntil: said.undo_until });
     }
   } catch (error) {
     answers.set(card, { label, error: error.message });
@@ -1705,24 +1710,36 @@ async function answer(card, label) {
   if (shown) shown.outerHTML = choices({ ...asked, kind: asked.kind ?? 'tap' });
 }
 
-async function undo(card) {
-  toast(card, { ...toasts.get(card), state: 'undoing' });
+async function undo(card, about = toasts.get(card)) {
+  toast(card, { ...about, state: 'undoing' });
   const said = await ask('/api/undo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ card }) });
-  if (!said.ok) toast(card, { ...toasts.get(card), state: 'late', error: said.error });
+  if (!said.ok) return toast(card, { ...about, state: 'late', error: said.error });
+  if (!said.restored) return;
+  answers.delete(card);
+  restored.add(card);
+  if (route().screen === 'queue') history.replaceState(history.state, '', queueHref(filterOf(route().id) === 'tap' ? 'all' : filterOf(route().id), { answer: card }));
+  toast(card, { ...about, state: 'restored' });
+  render();
 }
 
 const TOAST_SAID = {
   held: (shown) => `Sending in ${Math.max(0, Math.ceil((shown.until - Date.now()) / 1000))}s`,
   undoing: () => 'Taking it back…',
   undone: () => 'Undone. It waits on you again.',
-  sent: () => 'Sent.',
+  sent: (shown) => (shown.undoUntil ? `Sent. Undo until ${timeOf(shown.undoUntil)}` : 'Sent.'),
+  restored: () => 'Restored. This is being asked again.',
   late: (shown) => shown.error,
   failed: (shown) => `Not sent: ${shown.error}`,
 };
 
+function undoable(shown) {
+  return shown.state === 'held' || (shown.state === 'sent' && Date.parse(shown.undoUntil) > Date.now());
+}
+
 function toast(card, shown) {
   toasts.set(card, shown);
-  if (!['held', 'undoing'].includes(shown.state)) setTimeout(() => toasts.get(card) === shown && toasts.delete(card) && drawToasts(), 5000);
+  const lasts = shown.state === 'sent' && shown.undoUntil ? Date.parse(shown.undoUntil) - Date.now() : 5000;
+  if (!['held', 'undoing'].includes(shown.state)) setTimeout(() => toasts.get(card) === shown && toasts.delete(card) && drawToasts(), lasts);
   drawToasts();
 }
 
@@ -1730,7 +1747,9 @@ function drawToasts() {
   $('#toasts').innerHTML = [...toasts].map(([card, shown]) => `<div class="toast ${shown.state}" role="status">
     <span><b>${esc(shown.label)}</b> · ${esc(shown.title)}</span>
     <span class="meta">${esc(TOAST_SAID[shown.state](shown))}</span>
-    ${shown.state === 'held' ? `<button class="btn" data-undo="${esc(card)}">Undo</button>` : ''}
+    ${undoable(shown) ? `<button class="btn" data-undo="${esc(card)}">Undo</button>` : ''}
+    ${shown.state === 'restored' ? `<a class="btn" href="${queueHref('all', { answer: card })}">Open it</a>` : ''}
+    <button class="toast-x" data-dismiss="${esc(card)}" aria-label="Dismiss">×</button>
   </div>`).join('');
 }
 
@@ -1819,8 +1838,18 @@ document.addEventListener('submit', (event) => {
   say(form.dataset.say, form.dataset.under, drafts.get(form.dataset.say) ?? '', form.dataset.about, form.dataset.thread);
 });
 document.addEventListener('click', (event) => {
+  if (touched) {
+    const tipped = !event.target.closest('a, button') && event.target.closest('[data-tip]');
+    if (tipped) return $('#srctip').dataset.key === `tip:${tipped.dataset.tip}` ? hideSource() : showTip(tipped);
+    hideSource();
+  }
   const undone = event.target.closest('button[data-undo]');
-  if (undone) return undo(undone.dataset.undo);
+  if (undone) return undo(undone.dataset.undo, toasts.get(undone.dataset.undo) ?? { label: undone.dataset.label, title: undone.dataset.title });
+  const dismissed = event.target.closest('button[data-dismiss]');
+  if (dismissed) {
+    toasts.delete(dismissed.dataset.dismiss);
+    return drawToasts();
+  }
   const pick = event.target.closest('button[data-card]');
   if (pick) return answer(pick.dataset.card, pick.dataset.label);
   const pr = event.target.closest('button[data-pr]');
@@ -1908,6 +1937,7 @@ document.addEventListener('mouseout', (event) => {
   render();
 });
 document.addEventListener('mouseover', (event) => {
+  if (touched) return;
   const choice = event.target.closest('#main .choice[data-preview]');
   if (choice) preview(choice);
   const cited = event.target.closest('a[data-src]');
@@ -1924,7 +1954,7 @@ document.addEventListener('focusin', (event) => {
   }
   if (event.target.matches('#main .choice[data-preview]')) preview(event.target);
   if (event.target.matches('a[data-src]')) showSource(event.target);
-  else if (event.target.closest('[data-tip]')) showTip(event.target.closest('[data-tip]'));
+  else if (!touched && event.target.closest('[data-tip]')) showTip(event.target.closest('[data-tip]'));
 });
 document.addEventListener('focusout', (event) => {
   if (event.target.closest('a[data-src], [data-tip]')) hideSource();
@@ -1932,6 +1962,9 @@ document.addEventListener('focusout', (event) => {
 window.addEventListener('hashchange', () => {
   hideSource();
   if (render() || history.state?.y !== undefined) window.scrollTo(0, history.state?.y ?? 0);
+});
+document.addEventListener('pointerover', (event) => {
+  touched = event.pointerType !== 'mouse';
 });
 document.addEventListener('pointerdown', (event) => {
   const viewport = event.target.closest('#main .viewport');
@@ -1971,11 +2004,13 @@ document.addEventListener('wheel', (event) => {
   zoomAround(Math.exp(event.deltaY * (event.ctrlKey ? 0.01 : 0.0016)), event.clientX - r.left, event.clientY - r.top);
 }, { passive: false });
 window.addEventListener('scroll', () => {
+  if (touched) hideSource();
   clearTimeout(keepPlace.timer);
   keepPlace.timer = setTimeout(keepPlace, 120);
 }, { passive: true });
 document.addEventListener('click', keepPlace, true);
 document.addEventListener('keydown', (event) => {
+  touched = false;
   const box = event.target.closest?.('textarea[data-draft]');
   if (box && event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
     event.preventDefault();
@@ -1995,7 +2030,7 @@ document.addEventListener('keydown', (event) => {
   }
   const writing = event.target.closest?.('input, textarea');
   if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === 'z' && !writing) {
-    const held = [...toasts].findLast(([, shown]) => shown.state === 'held');
+    const held = [...toasts].findLast(([, shown]) => undoable(shown));
     if (!held) return;
     event.preventDefault();
     return undo(held[0]);
