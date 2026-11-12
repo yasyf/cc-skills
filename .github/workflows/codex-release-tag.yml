@@ -1,9 +1,7 @@
 name: codex release tag
 
 on:
-  workflow_run:
-    workflows: [codex CI]
-    types: [completed]
+  push:
     branches: [main]
 
 permissions:
