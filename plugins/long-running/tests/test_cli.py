@@ -82,6 +82,43 @@ Q1. How should a run's files be laid out so the browser never guesses at a page 
 - Snapshot each finished run when it lands (recommended)
 - A map file beside every journal file
 """
+SPLIT_JOURNAL_ASK = """ASK How should readers reach a split run journal's record database?
+Format step 16 and its sibling runner are built and pushed on branch `journal-split` at d62edf6882. A raised journal's page drops `vals`, `call_traces`, `llm_calls` and `nodes` once its record database uploads. No named answer says how the five readers of those tables reach them afterwards. Recommended: the journal engine attaches the record, so no reader's SQL changes. Meanwhile, runners stay at format 15, so nothing splits yet.
+Show me:
+Where each reader's reads of the four moved tables go, per option
+```compare
+| Reader | The journal engine attaches the record | Each reader routes by table | Only the run server reads the record |
+|---|---|---|---|
+| journal-next views, about 20 queries | unchanged; the read attaches `record` | each query picks page or record | unchanged; the read attaches `record` |
+| Go runread and runpkg, through the data API | unchanged; the server attaches `record` | two connections; meteredSQL and LoadSeal split in two | unchanged; the server attaches `record` |
+| Run server follower | follows the record beside the page | follows the record beside the page | follows the record beside the page |
+| Browser, wasm Journal.paged | a second paged file attached as `record` | a second JournalDb; PROGRAM_SQL, TRACE_COLUMNS and LoadSeal rerouted | calls, values and nodes fetched from runtime-api |
+| Raw SQL over a run | sees all four tables | sees the page tables only | sees all four, on the server only |
+```
+- The journal engine attaches the record: every reader's SQL stays as written; it costs one attach path natively and in wasm (recommended)
+  Does: a read of a page with no `vals` table attaches `<page key>-record` as schema `record`. SQLite resolves the four table names there. The Go follower follows the record beside a split page, and the browser follows it as a second paged lane attached to the page.
+  Data: the four tables in the record database `<page key>-record`, followed lazily: its first segment, then the segments a read touches. No new tables.
+  Touches: `lineage.rs` and the views crate in `sandsql-journal-next`, `read_attached` in `sandsql-server/src/data.rs`, `go/sand/next/internal/sandsql/local/followed.go`, the wasm engine's Journal, and dashboard/src/iris/journal. No write path changes.
+- Each reader routes by table: no engine change; every reader knows where each table lives and splits statements that read both
+  Does: each reader holds two connections and sends a statement to the database that holds its table. A statement reading both, such as `meteredSQL` in runpkg, becomes two reads joined in Go or TypeScript.
+  Data: the same two databases; each reader reads them separately.
+  Touches: `views/src/lib.rs`, `go/sand/next/internal/vm_run/runread`, `go/sand/next/internal/vm/builtins/runpkg`, `dashboard/src/iris/journal/reader.ts` and `vmframe-wasm`, each carrying its own routing.
+- Only the run server reads the record: one attach on the server; the browser stops reading calls, values and nodes from the bucket
+  Does: the browser asks runtime-api for every call, value and node; only the server attaches the record.
+  Data: the same two databases; the browser reads the page from the bucket and the record through runtime-api.
+  Touches: the server code of the first option, and `dashboard/src/iris/journal`, which loses its direct bucket reads for the Calls section, values and the program.
+Findings:
+Root cause: none: the split is new work; it moves four tables into a second database while every reader today opens one database per run.
+First principles: The journal engine attaches the record
+Interim fix: none: no runner writes format 16 yet, so no reader meets a split journal.
+- The card behind answer 0507794 says, in every option: "Readers attach the record only when a step, value or binding opens." No answer says how a reader attaches it.
+- Some statements read both databases. `meteredSQL` at `runpkg.go:783` reads `lifecycle_events` from the page and `call_traces` from the record. `LoadSeal` at `runread/nodes.go:45` joins `progress` to `nodes`, and `views/src/lib.rs:2166` reads `call_traces` beside page tables.
+- The native server already attaches other databases per read: `inspect` in `lineage.rs` attaches each fork base through `inspect_attached` and `read_attached` in `data.rs`. SQLite resolves an unqualified table name across attached schemas, so the views' SQL stays as written.
+- The Go follower already follows extra databases beside a mount: `holdBases` in `followed.go` follows each base.
+- The browser opens one `engine.Journal.paged()` per run with no attach, in `dashboard/src/iris/journal/sqlite.ts`. `reader.ts:56` and `:58` read `nodes` and `call_traces`.
+- Followed copies restore lazily, per `rust/crates/sandsql-replica/SPEC.md:112` and `:160`: the first segment, then only what reads touch once a database holds more than 16 MiB. So following the record reads it in pieces, as answer 8c0ed43 requires.
+- The plan's S4 section, lines 392-396 of `journal-layout-bandwidth.md`, sits on the coordinator's Mac outside the drive folders, so no READ reaches it; if it settles this, its words answer this card.
+"""
 
 
 def test_start_creates_the_drive_and_prints_the_roles_context(run: Run, tmp_path: Path) -> None:
@@ -1183,6 +1220,25 @@ def test_job_ask_refuses_findings_before_the_question(
     assert "the summary is 0 lines" in refusal
     assert "0 options; an ASK has 2 to 4" in refusal
     assert state.load("demo")["jobs"]["j1"]["state"] == "running"
+
+
+def test_job_ask_refuses_a_compare_fence_holding_a_markdown_table_by_the_fence_its_parse_error_and_the_json_it_wants_and_keeps_nothing(
+    run: Run, asking: str, tmp_path: Path, state_root: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    block = tmp_path / "ask.md"
+    block.write_text(SPLIT_JOURNAL_ASK)
+    for argv in (["job", "ask", "--check", str(block)], ["job", "ask", asking, str(block)]):
+        assert cli.main(argv) == 2
+        refusal = capsys.readouterr().err
+        assert refusal.startswith("drive: the ASK is out of shape")
+        assert (
+            "the Show me ```compare fence is not the JSON it draws from: Expecting value at its line 1, column 1;"
+            f" write {limits.COMPARE_SHAPE}, or put a markdown table outside any fence, which Slack draws as its own table"
+        ) in refusal
+        assert "Traceback" not in refusal
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["state"], job["questions"]) == ("running", [])
+    assert not (state_root / "demo" / "asks").exists()
 
 
 def test_job_ask_check_says_ready_or_every_fix_its_words_and_card_need_with_no_drive_and_keeps_nothing(

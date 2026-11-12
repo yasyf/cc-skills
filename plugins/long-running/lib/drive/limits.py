@@ -48,11 +48,16 @@ VISUALS = (
     " an ```arch diagram for components, the real call in a fence naming its language (```sand, ```sql, ```go) when the"
     " question is about a code or API shape, or a picture on a line of its own"
 )
-JSON_KINDS = ("arch", "chart", "compare")
 COMPARE_SHAPE = '{"options": [{"name": …, "recommended": true, "language": …, "code": …, "points": ["+ a gain", "- a cost"]}, …]}'
+ARCH_SHAPE = '{"arch": 1, "name": …, "title": …, "nodes": [{"id": …, "kind": "service", "name": …, "role": …}, …], "edges": [{"from": …, "to": …}, …]}'
 SEPARATOR_CELL = re.compile(r":?-+:?")
 CHART_MARKS = ("bar", "line", "area", "arc")
 CHART_SHAPE = "a bar, line or area mark plotting one quantitative axis against one of categories, or an arc of a theta field by a color field, its rows inline in data.values"
+JSON_SHAPES = {
+    "arch": ARCH_SHAPE,
+    "chart": f"a Vega-Lite spec of {CHART_SHAPE}",
+    "compare": f"{COMPARE_SHAPE}, or put a markdown table outside any fence, which Slack draws as its own table",
+}
 CHART_TITLE = 50
 CHART_LABEL = 20
 CHART_SERIES = 12
@@ -718,14 +723,14 @@ def named_count(after: str) -> int:
 
 
 def listed_sizes(options: list[str], show_me: list[str]) -> set[int]:
-    """How many things each way a card lists things holds: its options, each Show me table's rows and columns, each run of list lines, its numbered captions, pictures and fenced blocks, and each compare's options."""
+    """How many things each way a card lists things holds: its options, each Show me table's rows and columns, each run of list lines, its numbered captions, pictures and fenced blocks, and the options of each compare holding the JSON it draws from, since one that does not is refused for that by name."""
     shown = captions(show_me)
     fences = list(picture.FENCE.finditer("\n".join(show_me)))
     sizes = {len(options), len(fences), len([line for line in shown if PICTURE.fullmatch(line)]), len([line for line in shown if OPTION_CAPTION.match(line)])}
     for table in tables(show_me):
         sizes |= {len([row for row in table[1:] if not all(SEPARATOR_CELL.fullmatch(cell) for cell in row)]), len(table[0]) - 1}
     sizes |= {len(list(run)) for listed, run in groupby(show_me, key=lambda line: bool(LIST_LINE.match(line))) if listed}
-    sizes |= {len(json.loads(fence[2])["options"]) for fence in fences if fence[1].casefold() == "compare"}
+    sizes |= {len(json.loads(fence[2])["options"]) for fence in fences if fence[1].casefold() == "compare" and json_problem("compare", fence[2]) is None}
     return sizes
 
 
@@ -1133,14 +1138,14 @@ def drawn_by_hand(path: str) -> bool:
 
 
 def json_problem(kind: str, source: str) -> str | None:
-    if kind not in JSON_KINDS:
+    if kind not in JSON_SHAPES:
         return None
     try:
         drawn = json.loads(source)
     except json.JSONDecodeError as error:
-        return f"is not the JSON it draws from: {error}"
+        return f"is not the JSON it draws from: {error.msg} at its line {error.lineno}, column {error.colno}; write {JSON_SHAPES[kind]}"
     if not isinstance(drawn, dict):
-        return "holds JSON that is not an object"
+        return f"holds JSON that is not an object; write {JSON_SHAPES[kind]}"
     if kind == "compare" and sum(1 for option in drawn.get("options") or [] if isinstance(option, dict) and option.get("name")) < 2:
         return f"compares fewer than two named options; it holds {COMPARE_SHAPE}"
     return None

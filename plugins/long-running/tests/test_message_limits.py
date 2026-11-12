@@ -1665,6 +1665,13 @@ def test_the_keeper_and_the_hook_count_a_kept_block_alike_and_a_drive_card_carri
         ("```text\nSand 0.142 is ready\n```", 'the Show me fence holding "Sand 0.142 is ready" names no language'),
         ('```compare\n{"options": [{"name": "Listener"}]}\n```', "the Show me ```compare fence compares fewer than two named options"),
         ('```chart\n{"mark": "bar",}\n```', "the Show me ```chart fence is not the JSON it draws from"),
+        ("```chart\nmark: bar\n```", f"the Show me ```chart fence is not the JSON it draws from: Expecting value at its line 1, column 1; write a Vega-Lite spec of {limits.CHART_SHAPE}"),
+        (
+            "```compare\n| Reader | Attach | Route |\n|---|---|---|\n| views | unchanged | split |\n```",
+            f"the Show me ```compare fence is not the JSON it draws from: Expecting value at its line 1, column 1; write {limits.COMPARE_SHAPE}, or put a markdown table outside any fence",
+        ),
+        ('```compare\n["Listener", "Poller"]\n```', f"the Show me ```compare fence holds JSON that is not an object; write {limits.COMPARE_SHAPE}"),
+        ("```arch\nnodes: [drive, picture]\n```", f"the Show me ```arch fence is not the JSON it draws from: Expecting value at its line 1, column 1; write {limits.ARCH_SHAPE}"),
         ("", "the Show me holds no visual, only words"),
         ('```json\n{"type": "slack.message", "watch_id": 2816}\n```', 'the Show me ```json fence holding "{"type": "slack.message", "watch_id": 2816}" is JSON'),
         ("```yaml\nwatch: [C0822AHFY3G]\n```", "is YAML, raw data or tool output"),
