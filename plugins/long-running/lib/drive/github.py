@@ -20,8 +20,7 @@ FAILED = {"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STAR
 PASSED = {"SUCCESS", "NEUTRAL", "SKIPPED"}
 REVIEWS = {"APPROVED": "approved", "CHANGES_REQUESTED": "changes"}
 CONFLICTS = {"CONFLICTING": True, "MERGEABLE": False}
-COMPONENTS = re.compile(r"^Components: (?P<names>.+)$", re.MULTILINE)
-CANDIDATE = "rc/"
+PRODUCTION = re.compile(r"^Production: (?P<names>.+)$", re.MULTILINE)
 HOLDS = ("ahead", "identical")
 HOLD_LABEL = "hold"
 EJECTED_LABEL = "trunk-failed"
@@ -273,7 +272,7 @@ def stacks(keys: list[str]) -> dict[str, list[tuple[str, str]]]:
 
 
 def release_of(key: str, service: str, commit: str) -> str | None:
-    """The name of the newest published release that ships the service, when it holds the commit; a release candidate, named rc/, ships to staging and never counts."""
+    """The name of the newest published release that ships the service to production, when it holds the commit."""
     repo = repo_of(key)
     shipping = [release for release in json.loads(read(f"{repo}'s releases", ["gh", "api", f"repos/{repo}/releases?per_page=100"], max_age="60s")) if ships(release, service)]
     if not shipping:
@@ -284,10 +283,9 @@ def release_of(key: str, service: str, commit: str) -> str | None:
 
 
 def ships(release: dict, service: str) -> bool:
-    """Whether a published release's notes list the service among the components it shipped."""
-    listed = COMPONENTS.search(release["body"] or "")
-    published = not release["draft"] and not release["prerelease"] and not release["name"].startswith(CANDIDATE)
-    return published and bool(listed) and service in listed["names"].split(", ")
+    """Whether a published release's notes name the service on their Production line, which go/ci's release finish step writes from the components it applied to an environment flagged prod: true in infra/envs; a release with no such line, staging-only or written before it, never counts."""
+    listed = PRODUCTION.search(release["body"] or "")
+    return not release["draft"] and bool(listed) and service in listed["names"].split(", ")
 
 
 def fetch(keys: list[str]) -> tuple[dict[str, dict], GithubError | None]:
