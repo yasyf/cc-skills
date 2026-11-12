@@ -2761,10 +2761,10 @@ def test_a_yasyf_lander_merges_with_admin_and_installs_each_plugin_its_merge_cha
     monkeypatch.setattr(
         land.subprocess, "run", lambda argv, **kwargs: runs.append(argv) or land.subprocess.CompletedProcess(argv, 0, "long-running@skills 1.0.4 installed\n", "")
     )
-    assert land.merged("yasyf/cc-skills#7") == "merged at ccc333ddd444; long-running@skills 1.0.4 installed"
+    assert land.merged("demo", "yasyf/cc-skills#7") == "merged at ccc333ddd444; long-running@skills 1.0.4 installed"
     assert runs == [
         ["gh", "pr", "merge", "7", "-R", "yasyf/cc-skills", "--squash", "--admin"],
-        [str(land.DRIVE), "install", "long-running@skills", "--sha", "ccc333ddd444eee"],
+        [str(land.DRIVE), "install", "long-running@skills", "--sha", "ccc333ddd444eee", "--drive", "demo"],
     ]
 
 
@@ -2805,7 +2805,7 @@ def test_a_yasyf_merge_gh_refuses_brings_its_base_into_its_branch_and_wakes_its_
     monkeypatch.setattr(
         land.subprocess, "run", lambda argv, **kwargs: runs.append(argv) or land.subprocess.CompletedProcess(argv, answers[argv[2]][0], "", answers[argv[2]][1] + "\n")
     )
-    assert land.merged(YASYF) == outcome
+    assert land.merged(demo, YASYF) == outcome
     assert runs == [["gh", "pr", "merge", "7", "-R", "yasyf/cc-skills", "--squash", "--admin"], ["gh", "pr", "update-branch", "7", "-R", "yasyf/cc-skills"]]
     waiting_job(demo)
     tried(demo, outcome)

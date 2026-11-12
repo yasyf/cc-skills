@@ -141,7 +141,13 @@ No tap and no green gate: by his standing rule a `yasyf/*` PR merges without ask
    (`gh pr view <n> -R <repo> --json mergeCommit`):
    - A Claude Code plugin: `drive install <plugin>@<marketplace> --sha <merge sha>` (such as
      `long-running@skills`), which the lander runs itself, waits for the release that holds the merge, updates the plugin, and
-     prints the installed version. It updates each scope's install with its own `claude plugin update --scope`, the user
+     prints the installed version. Before it updates anything it reads the `dependencies` floors of that release's
+     `plugin.json` and installs each sibling below its floor first, waiting until its release is out: a plugin that
+     reads a sibling's new field, such as long-running reading cc-slack's `closed`, crashes on the old sibling. A
+     captain-hook floor, or captain-hook's own release, also needs Captain Hook.app, whose hook worker runs every
+     session's hooks, at that release: while it is older, the install holds and prints his Install now card, naming
+     its ASK file once a job keeps one, and installs nothing; run it again once `drive answer` records his tap, and it
+     runs `capt-hook helper install` first. It updates each scope's install with its own `claude plugin update --scope`, the user
      scope's and each project or local scope's from its folder, skipping one whose folder is gone, and checks each holds the
      merge, since a session loads the install its folder's scope names and an update moves one scope. A release holds it when the merge is in the release's commit and
      in the tag of each binary the plugin pins from that repo through a `*.binrun` file, since a
@@ -185,8 +191,9 @@ No tap and no green gate: by his standing rule a `yasyf/*` PR merges without ask
      rerun the case against that binary.
    - Ask him on a card before each install that restarts the hook helper every session on this Mac
      shares, such as capt-hook's: he approved one such restart, not all of them. The `bash_guard` hook
-     refuses `capt-hook helper install`, which installs captain-hook's newest release, until `drive answer`
-     records his Install now on the card naming that release, and again once the helper runs it.
+     refuses any session's `capt-hook helper install`, which installs captain-hook's newest release, and its
+     `brew upgrade` or `brew reinstall` of captain-hook, until `drive answer` records his Install now on the card
+     naming that release, and again once the helper runs it; the refusal names the card's ASK file.
 
 ## Forge-AI/monorepo
 

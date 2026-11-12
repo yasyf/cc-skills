@@ -1,5 +1,6 @@
 import json
 import os
+import plistlib
 import re
 import subprocess
 import sys
@@ -11,7 +12,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 
-from drive import state
+from drive import github, state
 
 POLL_SECONDS = 20
 GITHUB_REPO = re.compile(r"github\.com[/:]([^/]+/[^/]+?)(?:\.git)?/?$")
@@ -25,6 +26,16 @@ RELOADS = "reloads.json"
 UPDATE_LOCK = ".update.lock"
 RELOAD_WAIT_SECONDS = 30
 DRIVE = Path(__file__).resolve().parents[2] / "bin" / "drive"
+MANIFEST = ".claude-plugin/plugin.json"
+FLOOR = re.compile(r">=(\d+\.\d+\.\d+)")
+HOOKS = "captain-hook"
+HELPER = "capt-hook"
+HELPER_REPO = "yasyf/captain-hook"
+APP_PLIST = Path.home() / "Applications" / "Captain Hook.app" / "Contents" / "Info.plist"
+HELPER_ASKED = "Captain-hook update, your Mac: install {release} now? It restarts the hook helper once"
+INSTALL_NOW = "Install now"
+EVERY_INSTALL = "Installs never need me"
+HELPER_OPTIONS = f"{INSTALL_NOW} (recommended), {EVERY_INSTALL} and Not now"
 
 
 class InstallError(Exception):
@@ -142,9 +153,8 @@ def binary_lacking(clone: str, repo: str, binruns: list[str], sha: str, deadline
     return None
 
 
-def release_lacking(clone: str, repo: str, plugin: str, sha: str, deadline: float) -> str | None:
+def release_lacking(clone: str, repo: str, named: tuple[str, str] | None, sha: str, deadline: float) -> str | None:
     """What of the newest release the marketplace names for the plugin lacks sha, its commit or a binary it pins, or None once it holds sha."""
-    named = newest_release(clone, plugin, deadline)
     if named is None:
         return "the marketplace names no release of it"
     ref, folder = named
@@ -157,17 +167,23 @@ def release_lacking(clone: str, repo: str, plugin: str, sha: str, deadline: floa
     return None
 
 
-def await_release(clone: str, repo: str, plugin: str, sha: str, deadline: float, timeout: int) -> None:
-    last = "no release read"
-    failure = ""
+def bare_clone(clone: str, repo: str, deadline: float) -> None:
     run(["git", "init", "--bare", "--quiet", clone], deadline)
     git(clone, "remote", "add", "origin", f"https://github.com/{repo}", deadline=deadline)
+
+
+def await_release(clone: str, repo: str, plugin: str, sha: str, deadline: float, timeout: int) -> tuple[str, str]:
+    """The newest release the marketplace names for the plugin once it holds sha, its ref and the plugin's folder in it."""
+    last = "no release read"
+    failure = ""
+    bare_clone(clone, repo, deadline)
     while True:
         try:
-            lacking = release_lacking(clone, repo, plugin, sha, deadline)
+            named = newest_release(clone, plugin, deadline)
+            lacking = release_lacking(clone, repo, named, sha, deadline)
             failure = ""
-            if lacking is None:
-                return
+            if named and lacking is None:
+                return named
             if lacking != last:
                 print(f"drive install: waiting for a {plugin} release holding {sha[:12]}: {lacking}", file=sys.stderr, flush=True)
             last = lacking
@@ -203,10 +219,7 @@ def await_homebrew(clone: str, binary: str, sha: str | None, deadline: float, ti
             run(["env", "HOMEBREW_NO_AUTO_UPDATE=1", "brew", "upgrade", f"{TAP}/{binary}"], deadline)
         if sha is None:
             return
-        printed = run([binary, "--version"], deadline).strip()
-        if not (version := RELEASE_VERSION.search(printed)):
-            raise InstallError(f"bare {binary} --version printed {printed!r}, which names no release")
-        tag = f"v{version.group()}"
+        tag = f"v{bare_release(binary, deadline)}"
         fetch_tag(clone, tag, deadline)
         if holds(clone, tag, sha, deadline):
             return
@@ -216,6 +229,101 @@ def await_homebrew(clone: str, binary: str, sha: str | None, deadline: float, ti
         last = lacking
         if deadline - clock() <= POLL_SECONDS:
             raise InstallError(f"timed out after {timeout}s waiting for bare {binary} to hold {sha[:12]}; {lacking}")
+        sleep(POLL_SECONDS)
+
+
+def bare_release(binary: str, deadline: float) -> str:
+    printed = run([binary, "--version"], deadline).strip()
+    if not (version := RELEASE_VERSION.search(printed)):
+        raise InstallError(f"bare {binary} --version printed {printed!r}, which names no release")
+    return version.group()
+
+
+def at_least(version: str, floor: str) -> bool:
+    return tuple(map(int, RELEASE_VERSION.search(version).group().split("."))) >= tuple(map(int, floor.split(".")))
+
+
+def app_release() -> str | None:
+    """The captain-hook release Captain Hook.app holds, its Info.plist's CFBundleShortVersionString, the key captain-hook's hook.binrun reads to pick the release every session's hooks run in; None while no app is installed."""
+    if not APP_PLIST.exists():
+        return None
+    return plistlib.loads(APP_PLIST.read_bytes())["CFBundleShortVersionString"]
+
+
+def helper_release() -> str:
+    """captain-hook's newest release, the one `capt-hook helper install` installs."""
+    return github.read("captain-hook's newest release", ["gh", "release", "view", "-R", HELPER_REPO, "--json", "tagName", "-q", ".tagName"], max_age="5m").strip().removeprefix("v")
+
+
+def helper_approved(drives: list[str], release: str) -> bool:
+    """Whether an answer of his recorded for one of the drives picks Installs never need me, or Install now on the card asking to install release."""
+    from drive import settled
+
+    for drive in drives:
+        cwd = state.load(drive)["roles"]["coordinator"]["cwd"]
+        for answer in json.loads(settled.ccn(["ccn", "answer", "list", "--label", "scope:durable", "--limit", "0", "--full", "--json"], "", cwd, "could not read his recorded answers")):
+            picked = answer["body"].partition("\n")[0]
+            if EVERY_INSTALL in picked or (INSTALL_NOW in picked and re.search(rf"\binstall {re.escape(release)} now\b", answer["title"])):
+                return True
+    return False
+
+
+def helper_card(drives: list[str], release: str) -> str:
+    """His card asking to install release: the ASK file a job of one of the drives keeps for it, or the words `drive job ask` asks it with."""
+    title = HELPER_ASKED.format(release=release)
+    asked = (question for drive in drives for job in state.load(drive)["jobs"].values() for question in job["questions"])
+    if kept := next((question["file"] for question in asked if question["file"] and state.same_question(question["title"], title)), None):
+        return f"his card {kept}"
+    return f'his card "{title}" ({HELPER_OPTIONS}), asked with drive job ask'
+
+
+def meet_helper(key: str, floor: str, deadline: float, drive: str | None) -> None:
+    """Move Captain Hook.app onto captain-hook's newest release with `capt-hook helper install` when its Info.plist names a release below the floor the plugin needs, once he tapped Install now on the card asking it, since the restart reaches every session on this Mac; held with that card named until then."""
+    with state.flocked(config_dir() / "plugins" / UPDATE_LOCK):
+        if (runs := app_release()) and at_least(runs, floor):
+            return
+        try:
+            release = helper_release()
+            drives = [state.resolve(drive)]
+            approved = helper_approved(drives, release)
+            card = helper_card(drives, release)
+        except (github.GithubError, state.DriveError) as error:
+            raise InstallError(f"{key} needs captain-hook {floor}, above the release Captain Hook.app runs, and whether he approved its restart did not read: {error}") from None
+        if not at_least(release, floor):
+            raise InstallError(f"{key} needs captain-hook {floor}, and its newest release is {release}")
+        if not approved:
+            raise InstallError(
+                f"holds {key} for {card}: it needs captain-hook {floor}, and Captain Hook.app, which runs every hook, runs"
+                f" {runs or 'no release'}; run this again once `drive answer` records his pick"
+            )
+        run([HELPER, "helper", "install"], deadline)
+        if not ((runs := app_release()) and at_least(runs, floor)):
+            raise InstallError(f"{HELPER} helper install left Captain Hook.app on {runs or 'no release'}, below captain-hook {floor}, which {key} needs")
+
+
+def sibling_lacking(key: str, floor: str, deadline: float) -> str | None:
+    """What of the sibling plugin runs a release below floor: one scope's install, or its Homebrew twin's bare binary, which sessions run before the plugin's own."""
+    for entry in installs(key):
+        if not at_least(entry["version"], floor):
+            return f"{key} in the {entry['scope']} scope is at {entry['version']}"
+    if (binary := HOMEBREW.get(key.partition("@")[0])) and not at_least(bare := bare_release(binary, deadline), floor):
+        return f"bare {binary} runs {bare}"
+    return None
+
+
+def meet_sibling(key: str, floor: str, deadline: float, timeout: int, drive: str | None) -> None:
+    """Install the sibling plugin until every install of it and its Homebrew twin run floor or above, waiting while its release is not out."""
+    lacking = sibling_lacking(key, floor, deadline)
+    last = None
+    while lacking:
+        install(key, None, None, deadline, timeout, drive)
+        if not (lacking := sibling_lacking(key, floor, deadline)):
+            return
+        if lacking != last:
+            print(f"drive install: waiting for {key} {floor}: {lacking}", file=sys.stderr, flush=True)
+        last = lacking
+        if deadline - clock() <= POLL_SECONDS:
+            raise InstallError(f"timed out after {timeout}s waiting for {key} {floor}; {lacking}")
         sleep(POLL_SECONDS)
 
 
@@ -255,12 +363,26 @@ def installed(key: str) -> dict:
     return newest(installs(key))
 
 
-def install(key: str, sha: str | None, repo: str | None, deadline: float, timeout: int) -> str:
+def install(key: str, sha: str | None, repo: str | None, deadline: float, timeout: int, drive: str | None) -> str:
     plugin, _, marketplace = key.partition("@")
+    repo = repo or marketplace_repo(marketplace)
     with tempfile.TemporaryDirectory(prefix="drive-install-") as clone:
         if sha:
-            repo = repo or marketplace_repo(marketplace)
-            await_release(clone, repo, plugin, sha, deadline, timeout)
+            named = await_release(clone, repo, plugin, sha, deadline, timeout)
+        else:
+            bare_clone(clone, repo, deadline)
+            named = newest_release(clone, plugin, deadline)
+        if named is None:
+            raise InstallError(f"the {marketplace} marketplace names no release of {plugin}, so what it needs of its siblings does not read")
+        manifest = json.loads(git(clone, "show", f"{named[0]}:{PurePosixPath(named[1]) / MANIFEST}", deadline=deadline))
+        if plugin == HOOKS:
+            meet_helper(key, manifest["version"], deadline, drive)
+        for each in manifest.get("dependencies", []):
+            if not (floor := FLOOR.search(each["version"])):
+                continue
+            if each["name"] == HOOKS:
+                meet_helper(key, floor[1], deadline, drive)
+            meet_sibling(f"{each['name']}@{each['marketplace']}", floor[1], deadline, timeout, drive)
         with state.flocked(config_dir() / "plugins" / UPDATE_LOCK):
             run(["claude", "plugin", "marketplace", "update", marketplace], deadline)
             for each in installs(key):
@@ -334,11 +456,11 @@ def reload_main() -> int:
     return 0
 
 
-def main(plugin_at_marketplace: str, sha: str | None, repo: str | None, timeout: int) -> int:
-    """Wait for a release holding sha, its commit and each binary it pins, update the plugin and its Homebrew twin until the bare binary holds sha, print the installed version, then reload every drive session on this Mac; each drive's dashboard hands itself to the new install on its own."""
+def main(plugin_at_marketplace: str, sha: str | None, repo: str | None, timeout: int, drive: str | None) -> int:
+    """Wait for a release holding sha, its commit and each binary it pins, bring each sibling its manifest there needs up to that release first, Captain Hook.app only once he tapped Install now on the drive's card for it, update the plugin and its Homebrew twin until the bare binary holds sha, print the installed version, then reload every drive session on this Mac; each drive's dashboard hands itself to the new install on its own."""
     deadline = clock() + timeout
     try:
-        version = install(plugin_at_marketplace, sha, repo, deadline, timeout)
+        version = install(plugin_at_marketplace, sha, repo, deadline, timeout, drive)
     except InstallError as error:
         print(f"drive install: {error}", file=sys.stderr)
         return 1

@@ -212,7 +212,7 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
         raise state.DriveError("; ".join(foreign))
     below: list[str] = []
     if state.merges_untapped(keys[0]):
-        outcome = "would merge it with gh pr merge --squash --admin, then install each plugin it changes" if dry_run else merged(keys[0])
+        outcome = "would merge it with gh pr merge --squash --admin, then install each plugin it changes" if dry_run else merged(name, keys[0])
     else:
         try:
             below = uncleared_below(data, keys)
@@ -285,7 +285,7 @@ def ask_review(name: str, repo: str, heads: dict[str, str]) -> str | None:
     return None
 
 
-def merged(key: str) -> str:
+def merged(name: str, key: str) -> str:
     """Merge a yasyf/* PR with --admin past its checks, by his rule for his own repositories, with gh itself since ccx's GitHub gateway refuses a merge, then install from its merge commit each plugin of this Mac it changes; what came of it."""
     repo, number = key.split("#")
     done = subprocess.run(["gh", "pr", "merge", number, "-R", repo, "--squash", "--admin"], capture_output=True, text=True)
@@ -301,7 +301,7 @@ def merged(key: str) -> str:
         return f"merged at {sha[:12]}; it changes no plugin installed on this Mac"
     lines = [f"merged at {sha[:12]}"]
     for plugin in plugins:
-        done = subprocess.run([str(DRIVE), "install", plugin, "--sha", sha], capture_output=True, text=True)
+        done = subprocess.run([str(DRIVE), "install", plugin, "--sha", sha, "--drive", name], capture_output=True, text=True)
         print(done.stdout + done.stderr, flush=True)
         lines.append(done.stdout.splitlines()[0] if done.returncode == 0 else f"but drive install {plugin} --sha {sha[:12]} failed: {said(done.stderr)}")
     return "; ".join(lines)
