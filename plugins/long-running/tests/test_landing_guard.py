@@ -378,3 +378,13 @@ def test_the_hook_hands_jev_the_case_and_his_ruling_in_place_of_a_refusal(
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(bash(f"drive job ask j1 - < {block}", session_id=SESSION))))
     landing_guard.main()
     assert json.loads(capsys.readouterr().out) == {"ask": limits.root_cause_review(SHORT_ASK, None), "his_words": [limits.ROOT_CAUSE_WORDS]}
+
+
+@pytest.mark.parametrize("command", [".agents/skills/submit-pr/scripts/stack-enqueue 42", "gh pr merge 42 -R Forge-AI/monorepo --squash"])
+def test_a_drive_session_lands_no_pr_someone_else_opened_that_no_order_of_his_names(drive_pr: str, on_github: dict, no_calls: None, command: str) -> None:
+    approve(drive_pr)
+    on_github["author"] = {"login": "rowan", "is_bot": False}
+    assert landing_guard.deny_reason(bash(command)) == f"Refused on purpose: {state.foreign(drive_pr, 'rowan', [])}. Land, enqueue, label and rebase nothing of it"
+    assert landing_guard.deny_reason(bash(command, session_id="ordinary")) is None
+    on_github["author"] = {"login": "yasyf", "is_bot": False}
+    assert landing_guard.deny_reason(bash(command)) == (None if "stack-enqueue" in command else landing_guard.QUEUE_REASON.format(key=drive_pr))

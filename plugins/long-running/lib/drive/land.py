@@ -155,10 +155,12 @@ def spawn(name: str, keys: tuple[str, ...]) -> int:
 
 
 def run(name: str, keys: list[str], dry_run: bool = False) -> str:
-    """Land one unit his Approve covers, or one yasyf/* PR, then record what came of it on each PR and as a landing event, which the watch says on the PR's line: a failure wakes its job, a queued one does not. A unit with a PR below it he has not approved is not queued, since stack-enqueue would queue that PR too. A dry run says what it would do and records nothing."""
+    """Land one unit his Approve covers, or one yasyf/* PR, never one someone else opened that no order of his it serves names, then record what came of it on each PR and as a landing event, which the watch says on the PR's line: a failure wakes its job, a queued one does not. A unit with a PR below it he has not approved is not queued, since stack-enqueue would queue that PR too. A dry run says what it would do and records nothing."""
     data = state.load(name)
     if refused := [key for key in keys if not (state.merges_untapped(key) or state.queued_on_tap(key) and approved(data["prs"][key]))]:
         raise state.DriveError(f"{', '.join(refused)}: the drive lands a yasyf/* PR, or a Forge-AI/monorepo PR he approved, and no other")
+    if foreign := [why for key in keys if (why := state.foreign_pr(data, key))]:
+        raise state.DriveError("; ".join(foreign))
     below: list[str] = []
     if state.merges_untapped(keys[0]):
         outcome = "would merge it with gh pr merge --squash --admin, then install each plugin it changes" if dry_run else merged(keys[0])

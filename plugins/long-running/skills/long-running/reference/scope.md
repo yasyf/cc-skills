@@ -27,8 +27,12 @@ summary line about it, because work stopped before it starts wastes nothing.
   `drive pr set <url> --tap --serves <its Drive tooling order> --design none` and gets a PR card at
   his DM root. That card's top line quotes the order's "Drive tooling: …" words, and his Approve
   lands it.
-- **Neither**: the drive does not build, polish, or card it. Another lane's PR or bug report goes
-  back to that lane in a `handoff` record. A sweep's finding, a teammate's report, or a job's own
+- **Neither**: the drive does not build, polish, or card it. A PR someone other than him opened on
+  GitHub is the drive's only when his order's words name it by #N or link, by his ruling 5815316 on a
+  teammate's PRs, "Don't touch old tree or his PRs." Otherwise `drive pr add` and `drive pr set`
+  refuse it, the watch withdraws its card and drops it with nothing done on GitHub, and the lander
+  and `landing_guard` refuse landing it. Another lane's PR or bug report goes back to that lane in a
+  `handoff` record. A sweep's finding, a teammate's report, or a job's own
   finding he has not ordered becomes a question card saying what was found, and nothing is built
   before his pick, because he decides what the drive takes on. When a job's report, an incident's
   included, names a limit, a capacity, or an architecture question, take it to him that turn,

@@ -150,7 +150,8 @@ COORDINATOR_RULES = (
         " a job hit is one record call, kind defect, with the refusal verbatim, which reaches it. An order of yours whose"
         ' builder serves drive tooling becomes the meta session\'s with its brief op `serves: "drive tooling"`: start no'
         " agent on it, and send that defect record naming the job and its `Read your brief first:` line. Build, polish or"
-        " card nothing else: another lane's PR goes back to it, and an unordered finding becomes a question card."
+        " card nothing else: touch someone else's PR only when his order names it, another lane's PR goes back to it, and"
+        " an unordered finding becomes a question card."
     ),
     (
         "A ready record asks only for a tap drive status <pr> shows still owed, never one he gave or one on a PR merged"

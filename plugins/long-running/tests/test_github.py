@@ -16,6 +16,7 @@ def node(**overrides: object) -> dict:
         "isDraft": False,
         "headRefOid": "abc1234def",
         "title": "Fix the thing",
+        "author": {"login": "yasyf"},
         "reviewDecision": None,
         "latestOpinionatedReviews": {"nodes": []},
         "mergeable": "MERGEABLE",
@@ -31,7 +32,7 @@ def stored(head: str = "abc", failed: list[str] | None = None) -> dict:
 
 
 def pr_read(rollup: list[dict], **overrides: object) -> dict:
-    return {"state": "OPEN", "checks": rollup, "reviewDecision": None, "approvals": [], "mergeable": "MERGEABLE", "headRefOid": "abc", "title": "T", "labels": [], **overrides}
+    return {"state": "OPEN", "checks": rollup, "reviewDecision": None, "approvals": [], "mergeable": "MERGEABLE", "headRefOid": "abc", "title": "T", "author": "yasyf", "labels": [], **overrides}
 
 
 def test_query_aliases_one_repository_per_repo_and_one_pull_per_number() -> None:
@@ -51,7 +52,13 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
         calls.append(cmd)
         reviews = [{"state": "APPROVED", "commit": {"oid": "abc1234def"}}, {"state": "CHANGES_REQUESTED", "commit": {"oid": "0ld"}}, {"state": "APPROVED", "commit": None}]
         merged = node(
-            state="MERGED", mergeCommit={"oid": "fff000"}, commits={"nodes": []}, reviewDecision="APPROVED", latestOpinionatedReviews={"nodes": reviews}, labels={"nodes": [{"name": "hold"}]}
+            state="MERGED",
+            mergeCommit={"oid": "fff000"},
+            commits={"nodes": []},
+            reviewDecision="APPROVED",
+            latestOpinionatedReviews={"nodes": reviews},
+            labels={"nodes": [{"name": "hold"}]},
+            author=None,
         )
         return json.dumps({"data": {"r0": {"p1": node(), "p2": merged}, "r1": {"p7": None}}})
 
@@ -71,6 +78,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "approvals": [],
             "mergeable": "MERGEABLE",
             "title": "Fix the thing",
+            "author": "yasyf",
             "labels": [],
         },
         "a/one#2": {
@@ -83,6 +91,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "approvals": ["abc1234def", None],
             "mergeable": "MERGEABLE",
             "title": "Fix the thing",
+            "author": "ghost",
             "labels": ["hold"],
         },
     }
@@ -193,6 +202,7 @@ def test_live_maps_a_read_onto_the_stored_vocabulary() -> None:
         "review": "changes",
         "head": "abc",
         "title": "T",
+        "author": "yasyf",
         "hold_label": False,
         "conflict": True,
     }

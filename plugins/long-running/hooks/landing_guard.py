@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, github, land, limits, public_check, settled, slack, state, superseded, view
+from drive import agents, card, github, land, limits, public_check, settled, slack, state, superseded, view
 from drive.cli import asked_report, tap_verdict
 from drive.github import repo_name
 from drive.shell import Stdin, expanded, runnable, stdins, templates
@@ -336,6 +336,15 @@ def judged_by(key: str, session: str) -> tuple[str, dict] | None:
     return max(known, key=lambda entry: entry[:2])[2:] if known else None
 
 
+def foreign_reason(key: str, shell: Shell) -> str | None:
+    """Why a drive session may not land a PR: someone other than him opened it, and no order of his the drive tracks it for names it, read from GitHub since the drive drops such a PR."""
+    if (read := card.read(key)) is None:
+        raise github.GithubError(f"could not read who opened {key}")
+    judged = judged_by(key, shell.session)
+    why = state.foreign(key, read["author"]["login"], state.served(state.load(judged[0]), judged[1]) if judged else [])
+    return why and f"Refused on purpose: {why}. Land, enqueue, label and rebase nothing of it"
+
+
 def pr_reason(landing: Landing, key: str, shell: Shell) -> str | None:
     if (judged := judged_by(key, shell.session)) is None:
         return None
@@ -386,6 +395,8 @@ def landing_reason(landing: Landing, refs: list[str], options: dict[str, list[st
         return ADMIN_REASON
     selected = selected_repo(landing, options, shell)
     keys = [resolve_key(ref, repo, selected, shell.cwd) for ref in named]
+    if shell.driving and (foreign := next(filter(None, (foreign_reason(key, shell) for key in keys)), None)):
+        return foreign
     if landing.every_pr and shell.driving:
         every = stacked(keys, shell.session)
         listed = {key.lower() for key in keys}
@@ -593,7 +604,7 @@ def judged_reason(payload: dict) -> str | None:
 
 
 def guarded_reason(payload: dict) -> str | None:
-    """Why a Bash call must not run, with no judgment to make: it lands a Forge-AI drive PR without his tap or merges with --admin there, starts, approves or rolls back a production cut from a sub-coordinator's session, and in a drive session or agent lands a Forge-AI PR while his card on it is open, around the monorepo's queue or apart from its stack, puts up a drive's public PR body showing what only a private place may, or posts with `cci post` an owner or answer record of his words on an open card of his, which only the drive's `record` tool closes in the same call."""
+    """Why a Bash call must not run, with no judgment to make: it lands a Forge-AI drive PR without his tap or merges with --admin there, in a drive session or agent lands a Forge-AI PR someone else opened that no order of his names, starts, approves or rolls back a production cut from a sub-coordinator's session, and in a drive session or agent lands a Forge-AI PR while his card on it is open, around the monorepo's queue or apart from its stack, puts up a drive's public PR body showing what only a private place may, or posts with `cci post` an owner or answer record of his words on an open card of his, which only the drive's `record` tool closes in the same call."""
     names, shell = shell_of(payload)
     command = payload["tool_input"]["command"]
     if shell.driving and (exposed := body_reason(command, shell)):

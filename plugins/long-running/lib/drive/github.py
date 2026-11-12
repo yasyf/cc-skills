@@ -7,7 +7,7 @@ from itertools import groupby, takewhile
 from pathlib import Path
 
 FIELDS = (
-    "state isDraft headRefOid title reviewDecision latestOpinionatedReviews(first: 20, writersOnly: true) { nodes { state commit { oid } } } "
+    "state isDraft headRefOid title author { login } reviewDecision latestOpinionatedReviews(first: 20, writersOnly: true) { nodes { state commit { oid } } } "
     "mergeable mergeCommit { oid } labels(first: 50) { nodes { name } } "
     "commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { "
     "... on CheckRun { name conclusion detailsUrl checkSuite { workflowRun { workflow { name } } } } ... on StatusContext { context state } } } } } } }"
@@ -25,6 +25,7 @@ EJECTED_LABEL = "trunk-failed"
 RUN_URL = re.compile(r"/actions/runs/(?P<run>\d+)/")
 PRS_PER_QUERY = 25
 STACK = "stack { entries(first: 100) { nodes { position pullRequest { number state } } } }"
+DELETED_AUTHOR = "ghost"
 CALLER = " ".join([Path(sys.argv[0]).name, *takewhile(re.compile(r"[a-z][a-z_-]*").fullmatch, sys.argv[1:3])])
 
 
@@ -106,6 +107,7 @@ def flatten(node: dict) -> dict:
         "approvals": [(review["commit"] or {}).get("oid") for review in node["latestOpinionatedReviews"]["nodes"] if review["state"] == "APPROVED"],
         "mergeable": node["mergeable"],
         "title": node["title"],
+        "author": (node["author"] or {"login": DELETED_AUTHOR})["login"],
         "labels": [label["name"] for label in node["labels"]["nodes"]],
     }
 
@@ -167,7 +169,7 @@ def checks(rollup: list[dict], failed: list[str]) -> str:
 
 
 def live(read: dict, stored: dict) -> dict:
-    """The drive's stored fields (state, checks, the checks that failed on its head, review, head, title, whether it carries the hold label, conflict) of one fetched PR against its stored row; conflict only once GitHub has worked it out, since it reads UNKNOWN for a while after its base moves."""
+    """The drive's stored fields (state, checks, the checks that failed on its head, review, head, title, author, whether it carries the hold label, conflict) of one fetched PR against its stored row; conflict only once GitHub has worked it out, since it reads UNKNOWN for a while after its base moves."""
     failed = sorted({*failed_before(stored, read["headRefOid"]), *(check_name(check) for check in counted(read["checks"]) if outcome(check) in FAILED)})
     fields = {
         "state": PR_STATES[read["state"]],
@@ -176,6 +178,7 @@ def live(read: dict, stored: dict) -> dict:
         "review": review(read),
         "head": read["headRefOid"],
         "title": read["title"],
+        "author": read["author"],
         "hold_label": HOLD_LABEL in read["labels"],
     }
     if read["mergeable"] in CONFLICTS:

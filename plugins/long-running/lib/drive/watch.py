@@ -149,16 +149,39 @@ def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
         watcher.failures.pop("github", None)
     if not reads:
         return lines
+    foreign = {}
     with state.edit(watcher.name) as data:
         for key, read in reads.items():
             pr = data["prs"][key]
             changes = pr_changes(pr, read)
+            if why := state.foreign_pr(data, key):
+                foreign[key] = (pr["url"], pr["author"], f"{why} {ids(pr)}")
+                continue
             if watcher.cards is not None and not moves_owed(pr, data, watcher.cards):
                 changes = [change for change in changes if not change.startswith(OWN_MOVES)]
             if stuck := stuck_for(pr, data, watcher.cards, moment):
                 changes.append(stuck)
             pr["updated"] = state.stamp(moment)
             lines.extend(f"PR {key}: {change} {ids(pr)}" for change in changes)
+    return lines + dropped_lines(watcher, foreign, moment)
+
+
+def dropped_lines(watcher: Watcher, foreign: dict[str, tuple[str, str, str]], moment: datetime) -> list[str]:
+    """Stop tracking each PR someone else opened that no order of his it serves names, with nothing done on GitHub: each open card of his carrying it withdrawn first, saying who opened it, then the PR dropped from the drive; one whose withdrawal fails stays, refused everywhere, and goes again next read."""
+    lines, gone = [], []
+    for key, (url, author, why) in foreign.items():
+        try:
+            withdrawn = slack.withdraw_pr_card(url, f"Dropped from the drive: {author} opened it, and the drive tracks no one else's PR unless your order names it")
+        except slack.SlackError as error:
+            lines += failed(watcher, "foreign drop", "withdrawal of a dropped PR's card", error, moment)
+            continue
+        watcher.failures.pop("foreign drop", None)
+        gone.append(key)
+        lines += [f"DROPPED {key}: {why}", *(f"CARD {link} withdrawn: {key} is dropped" for link in withdrawn)]
+    if gone:
+        with state.edit(watcher.name) as data:
+            for key in gone:
+                state.drop_pr(data, key)
     return lines
 
 
