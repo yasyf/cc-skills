@@ -132,7 +132,9 @@ on the card posts the one section he asks about, never a findings post of its ow
 
 ## His answer
 
-His answer is the option he tapped, or his own words under or about the card, a direction included.
+His answer is the option he tapped, or his own words under or about the card, a direction included,
+and so is a question proposing a way, such as "why not just X?", before or after his tap: X is
+built in place of any option he tapped.
 They settle the card, which closes showing them, and the work goes ahead on them, never mapped to
 the closest option. Only a reply that leaves the question open, such as "neither of these" with no
 other way named, gets a follow-up question, on a new card; the card he answered is never redrawn.

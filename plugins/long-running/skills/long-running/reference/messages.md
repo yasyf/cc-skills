@@ -279,8 +279,9 @@ Posting it:
 
 When it is answered, replaced or redone:
 
-- His words written under a card answer it: the card closes showing them, and the work goes ahead on
-  them. `drive job card` refuses to redraw that card with another question, so put a question his
+- His words written under a card answer it, a question proposing a way such as "why not just X?"
+  included, which X answers: the card closes showing them, and the work goes ahead on them. Only a
+  question asking for facts or options is answered in its thread while the card waits. `drive job card` refuses to redraw that card with another question, so put a question his
   words leave open on a new card.
 - When an answer or ruling he gave elsewhere replaces a card, the coordinator's `drive answer`
   settles it in place, showing his words and a link to them where its buttons were, so a late tap
