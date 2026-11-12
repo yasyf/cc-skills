@@ -114,6 +114,23 @@ def test_drive_job_resume_runs_in_the_foreground_however_it_is_called(demo: str,
     assert bash_guard.foreground(bash(resume, session="ordinary", call={"run_in_background": True}, **builder)) == foreground
 
 
+def test_a_job_agents_report_runs_as_its_own_jobs_and_any_other_call_runs_as_it_is(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "reader", "--order", "o1", "--goal", "grade", "--agent", "a-9")
+    report = "drive job report j1 - <<'EOF'\nDONE graded\nEOF"
+    agent = {"agent_id": "a-9", "agent_type": "long-running:reader"}
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(bash(report, **agent))))
+    bash_guard.main()
+    made = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
+    assert made == {"hookEventName": "PreToolUse", "updatedInput": {"command": f"export {state.OWN_JOB_ENV}=j1\n{report}"}}
+    assert bash_guard.own_report(bash(report), {"command": report}) == {"command": report}
+    assert bash_guard.own_report(bash(report, agent_id="a-2"), {"command": report}) == {"command": report}
+    assert bash_guard.own_report(bash("drive status", **agent), {"command": "drive status"}) == {"command": "drive status"}
+    assert bash_guard.own_report(bash(report, session="ordinary", **agent), {"command": report}) == {"command": report}
+
+
 def test_a_session_is_resumed_only_once_its_process_exits(demo: str, config: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     running(monkeypatch, config, {4123: 1})
     reason = bash_guard.deny_reason(bash(CREATE))

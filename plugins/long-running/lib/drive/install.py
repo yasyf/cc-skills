@@ -597,7 +597,7 @@ def prove(name: str, job_id: str, timeout: int) -> str:
         kept.write_text(output)
         seen = [found for found in brief.proofs(output) if brief.SEEN_PROOF.search(found)]
         whole = f"{line}\nPR: {urls}\nCHECK: {' '.join([str(kept), *seen])}\n"
-        state.keep_report(name, job_id, job, line, whole)
+        state.keep_report(name, job_id, line, whole, own=False)
         state.take_result(data, job_id, line, whole)
         unseen = cli.surface(data, order) if not seen else None
         closes = code == 0 and not unseen and all(state.delivered(data, job["order"], part) for part in order["parts"])

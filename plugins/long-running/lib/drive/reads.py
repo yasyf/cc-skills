@@ -139,7 +139,7 @@ def answer(question: str, checkout: Path, drive: str, job_id: str) -> str:
 
 
 def lane_drive(question: str, checkout: Path, drive: str, job_id: str) -> str:
-    """Run a Sprite lane's drive command here, where the drive's records live, as `drive` would on this Mac: its first line `DRIVE <its words>`, the rest the JSON the Sprite's drive sent with it, `stdin` for a `-` and the text of each file a word names under that word, each written to a folder of its own here for the run and named by its Sprite path in what it prints. It acts on the asking lane's drive and job alone, in the coordinator's checkout with no session of this Mac's, and answers `drive exited <status>` over what it printed, which the Sprite's drive prints and exits with."""
+    """Run a Sprite lane's drive command here, where the drive's records live, as `drive` would on this Mac: its first line `DRIVE <its words>`, the rest the JSON the Sprite's drive sent with it, `stdin` for a `-` and the text of each file a word names under that word, each written to a folder of its own here for the run and named by its Sprite path in what it prints. It acts on the asking lane's drive and job alone, in the coordinator's checkout with no session of this Mac's, as that job's own lane, and answers `drive exited <status>` over what it printed, which the Sprite's drive prints and exits with."""
     line, _, rest = question.partition("\n")
     try:
         argv = shlex.split(DRIVE.fullmatch(line)[1])
@@ -161,7 +161,7 @@ def lane_drive(question: str, checkout: Path, drive: str, job_id: str) -> str:
             done = subprocess.run(
                 [str(DRIVE_BIN), *(here.get(word, word) for word in argv)],
                 cwd=checkout,
-                env=session | {"LONG_RUNNING_DRIVE": drive},
+                env=session | {"LONG_RUNNING_DRIVE": drive, state.OWN_JOB_ENV: job_id},
                 input=sent.get("stdin", ""),
                 capture_output=True,
                 text=True,

@@ -2410,12 +2410,13 @@ def test_job_report_keeps_a_jobs_whole_return_from_stdin_and_prints_it_back(
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
     kept_proof(tmp_path, "j1")
     assert run("job", "report", "j1")[0] == 2
+    monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
     monkeypatch.setattr("sys.stdin", io.StringIO("READY https://github.com/yasyf/cc-skills/pull/1\nSERVES: his order\nDESIGN: none\n"))
     assert run("job", "report", "j1", "-") == (0, str(state_root / "demo" / "reports" / "j1.md"))
     assert run("job", "report", "j1") == (0, "READY https://github.com/yasyf/cc-skills/pull/1\nSERVES: his order\nDESIGN: none")
 
 
-def test_a_return_on_a_job_that_already_returned_sets_its_line_and_history_and_leaves_its_agents_report_byte_identical(
+def test_a_return_its_own_agent_did_not_send_sets_its_line_and_history_and_leaves_its_agents_report_byte_identical(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
@@ -2423,15 +2424,17 @@ def test_a_return_on_a_job_that_already_returned_sets_its_line_and_history_and_l
     assert run("job", "replies", "j1") == (0, "j1 has sent nothing yet")
     agents = "DONE graded three PRs\nVERDICT 54182 port\nVERDICT 54104 drop\nVERDICT 54344 port\nCHECK: the three diffs\n"
     restated = "DONE graded three PRs: two ports\nCHECK: reports/j1.md\nUNPROVEN: none\n"
+    monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
     monkeypatch.setattr("sys.stdin", io.StringIO(agents))
     assert run("job", "report", "j1", "-") == (0, str(state.report_path("demo", "j1")))
     before = hashlib.sha256(state.report_path("demo", "j1").read_bytes()).hexdigest()
+    monkeypatch.delenv(state.OWN_JOB_ENV)
     monkeypatch.setattr("sys.stdin", io.StringIO(restated))
     assert run("job", "report", "j1", "-") == (
         0,
         (
-            f"j1 had already returned, so this return set only its said line and its history, `drive job replies j1`: {state.report_path('demo', 'j1')}"
-            " is written only by its own agent's return while it runs"
+            f"j1's own agent did not send this return, so it set only its said line and its history, `drive job replies j1`: {state.report_path('demo', 'j1')}"
+            " is written only by its own agent's or lane's return"
         ),
     )
     assert hashlib.sha256(state.report_path("demo", "j1").read_bytes()).hexdigest() == before
@@ -2441,6 +2444,27 @@ def test_a_return_on_a_job_that_already_returned_sets_its_line_and_history_and_l
         ("worker_done", "DONE graded three PRs", agents),
         ("worker_done", "DONE graded three PRs: two ports", restated),
     ]
+
+
+def test_a_resumed_agents_second_return_replaces_its_report_whatever_state_its_first_left(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "reader", "--order", "o1", "--goal", "grade", "--agent", "a")
+    monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
+    monkeypatch.setattr("sys.stdin", io.StringIO("BLOCKED the diffs are not fetched\n"))
+    assert run("job", "report", "j1", "-")[0] == 0
+    assert state.load("demo")["jobs"]["j1"]["state"] == "failed"
+    monkeypatch.setattr("sys.stdin", io.StringIO("DONE graded three PRs\nCHECK: the three diffs\n"))
+    assert run("job", "report", "j1", "-") == (0, str(state.report_path("demo", "j1")))
+    assert (state.load("demo")["jobs"]["j1"]["state"], state.report_path("demo", "j1").read_text()) == ("done", "DONE graded three PRs\nCHECK: the three diffs\n")
+
+
+def test_another_jobs_agent_never_writes_a_jobs_report(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "reader", "--order", "o1", "--goal", "grade")
+    monkeypatch.setenv(state.OWN_JOB_ENV, "j2")
+    monkeypatch.setattr("sys.stdin", io.StringIO("DONE graded three PRs\n"))
+    assert run("job", "report", "j1", "-")[0] == 0
+    assert (state.load("demo")["jobs"]["j1"]["said"], state.report_path("demo", "j1").exists()) == ("DONE graded three PRs", False)
 
 
 def test_a_builders_done_names_its_proof_and_what_he_sees_is_proven_on_that_surface(
@@ -2473,6 +2497,7 @@ def test_a_builders_done_names_its_proof_and_what_he_sees_is_proven_on_that_surf
 def test_job_report_refuses_an_empty_stdin(run: Run, demo: str, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
+    monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
     monkeypatch.setattr("sys.stdin", io.StringIO("\n"))
     assert cli.main(["job", "report", "j1", "-"]) == 2
     assert "stdin held no report for j1" in capsys.readouterr().err
@@ -2492,6 +2517,7 @@ def test_job_report_prints_the_one_line_result_of_a_job_that_kept_no_report_and_
 
 
 def keep(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], job_id: str, text: str) -> tuple[int, str]:
+    monkeypatch.setenv(state.OWN_JOB_ENV, job_id)
     monkeypatch.setattr("sys.stdin", io.StringIO(text))
     code = cli.main(["job", "report", job_id, "-"])
     return code, capsys.readouterr().err
@@ -2750,6 +2776,7 @@ def test_a_readers_design_report_keeps_its_ask_in_the_same_call_or_keeps_nothing
     assert (code, "j1: refused, its report not kept: a reader's DESIGN is his card as it stands, kept as its ASK, and drive job ask refused it:" in err) == (2, True)
     job = state.load("demo")["jobs"]["j1"]
     assert (job["state"], job["questions"], state.report_path("demo", "j1").exists()) == ("running", [], False)
+    monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
     monkeypatch.setattr("sys.stdin", io.StringIO(DESIGN_RESEARCH))
     code, out = run("job", "report", "j1", "-")
     job = state.load("demo")["jobs"]["j1"]
@@ -2757,6 +2784,23 @@ def test_a_readers_design_report_keeps_its_ask_in_the_same_call_or_keeps_nothing
     assert (code, job["state"], question["title"], question["refused"]) == (0, "done", DESIGN_TITLE, None)
     assert out == f"{state.report_path('demo', 'j1')}\nits ASK is kept in {question['file']}, the path its ask record names"
     assert Path(question["file"]).read_text().startswith(f"ASK {DESIGN_TITLE}\n")
+
+
+def test_a_readers_design_report_after_its_own_ask_keeps_that_asks_unsettled_and_writes_its_report(
+    run: Run, meta: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
+    run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
+    swept = DESIGN_RESEARCH.replace("from the bucket and copies it there\n", "from the bucket, and a sweeper deletes stale copies\n", 1)
+    why = f"{limits.NO_SWEEPERS}: a copy a crashed worker left has no owner to end it"
+    monkeypatch.setattr("sys.stdin", io.StringIO(swept))
+    assert run("job", "ask", "j1", "-", "--unsettled", why)[0] == 0
+    assert state.load("demo")["jobs"]["j1"]["state"] == "waiting"
+    monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
+    monkeypatch.setattr("sys.stdin", io.StringIO(swept))
+    assert run("job", "report", "j1", "-")[0] == 0
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["state"], [question["unsettled"] for question in job["questions"]], state.report_path("demo", "j1").read_text()) == ("done", [why], swept)
 
 
 def test_a_design_lanes_design_names_on_each_fork_line_a_question_it_kept(
@@ -3182,6 +3226,7 @@ def test_a_built_return_sets_its_job_built_on_its_branches_waiting_on_each_card_
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
     card = "https://acme.slack.com/archives/D123/p1794200000000100"
+    monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
     monkeypatch.setattr("sys.stdin", io.StringIO(f"BUILT {branch}, waits on demo:j1-3, {card}\nCHECK: build 12\n"))
     run("job", "report", "j1", "-")
     job = state.load("demo")["jobs"]["j1"]
@@ -3205,7 +3250,7 @@ def test_a_report_takes_a_waiting_or_built_job_and_is_refused_on_a_stopped_one_k
     run("job", "set", "j1", "--state", "stopped", "--said", "handed to j2")
     code, err = keep(monkeypatch, capsys, "j1", "DONE The lane comes from bookkeeping\nCHECK: https://github.com/yasyf/cc-skills/actions/runs/13\n")
     assert (code, "j1: refused, nothing kept: j1 is stopped, so its work goes on in another job" in err) == (2, True)
-    assert state.report_path("demo", "j1").read_text() == built
+    assert state.report_path("demo", "j1").read_text() == done
     assert state.load("demo")["jobs"]["j1"]["state"] == "stopped"
 
 
@@ -3272,6 +3317,7 @@ def test_job_set_naming_the_state_a_job_already_holds_changes_nothing_and_says_s
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "reader", "--order", "o1", "--goal", "read where it ships")
+    monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
     monkeypatch.setattr("sys.stdin", io.StringIO("DONE it ships from the release branch\n"))
     assert run("job", "report", "j1", "-")[0] == 0
     code, out = run("job", "set", "j1", "--state", "done", "--said", "read")
@@ -3365,6 +3411,7 @@ def test_a_yasyf_pr_starts_one_lander_once_its_builders_ready_is_taken_with_its_
     assert run("pr", "add", url, "--job", "j1") == (0, "yasyf/cc-skills#7")
     assert landers == []
     kept_proof(tmp_path, "j1")
+    monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
     monkeypatch.setattr("sys.stdin", io.StringIO(f"READY {url}\n"))
     code, out = run("job", "report", "j1", "-")
     assert (code, out.splitlines()[1].startswith("yasyf/cc-skills#7: merging it with gh pr merge --squash --admin, then installing")) == (0, True)
@@ -3946,6 +3993,7 @@ def test_job_brief_refuses_an_adopted_prs_waiting_job_until_an_event_hands_it_of
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "land the strip")
     run("job", "add", "builder", "--order", "o1", "--goal", "Fix: land it", "--repo", "Forge-AI/monorepo", "--remote")
     run("pr", "add", PR, "--job", "j1")
+    monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
     monkeypatch.setattr("sys.stdin", io.StringIO(f"WAITING {PR}\n"))
     assert run("job", "report", "j1", "-")[0] == 0
     brief = ["job", "brief", "j1", "--serves", "his order", "--done-when", "merged", "--where", "Forge-AI/monorepo main"]

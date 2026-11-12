@@ -1310,12 +1310,15 @@ def drop_ask(name: str, job_id: str, file: Path) -> dict:
 
 
 def keep_ask(name: str, job_id: str, text: str, unsettled: str | None) -> tuple[Path, limits.Question, dict, str | None]:
-    """Keep the job's ASK block, or the ASK a DESIGN return puts to him, in its own file once it is in the shape he reads, in place of the job's open question asking the same, and set the job waiting on it; a question any job asked on a card since withdrawn keeps that card's waits id, so asking it again redraws that card. One Jev reads an answer of his as already deciding, asked with no --unsettled and refused for nothing else, is kept settled by that answer, draws no card and leaves the job as it was, so it goes straight to building on his words, and the session holding its order hears so in one record; one refused for anything else stays kept as the job's pending question with its refusal, which draws no card, so the watch says the job waits on a card never posted until it asks again or drops it."""
+    """Keep the job's ASK block, or the ASK a DESIGN return puts to him, in its own file once it is in the shape he reads, in place of the job's open question asking the same, and set the job waiting on it; asked again with no --unsettled, as a reader's DESIGN report re-asks it, it keeps the --unsettled its kept question with that title carries; a question any job asked on a card since withdrawn keeps that card's waits id, so asking it again redraws that card. One Jev reads an answer of his as already deciding, asked with no --unsettled and refused for nothing else, is kept settled by that answer, draws no card and leaves the job as it was, so it goes straight to building on his words, and the session holding its order hears so in one record; one refused for anything else stays kept as the job's pending question with its refusal, which draws no card, so the watch says the job waits on a card never posted until it asks again or drops it."""
     from drive import superseded, view
 
     text = limits.ask_block(text)
     data = state.load(name)
     job = data["jobs"][job_id]
+    if unsettled is None:
+        title = next(line.strip() for line in text.splitlines() if line.strip()).removeprefix("ASK ").strip()
+        unsettled = next((question["unsettled"] for question in job["questions"] if question["unsettled"] and state.same_question(question["title"], title)), None)
     asked = limits.shape(text, name, job_id, state.drive_dir(name) / "pictures", unsettled, any(state.hurts_now(data["orders"][order_id]) for order_id in [job["order"], *job["carries"]]))
     said = "\n".join([asked.title, *asked.summary]).casefold()
     if unnamed := [pr["port_of"] for pr in data["prs"].values() if pr["job"] == job_id and pr.get("port_of") and f"port of #{pr['port_of']}" not in said]:
@@ -1614,7 +1617,7 @@ def keep_waits(job: dict, file: Path, waits: str) -> None:
 
 
 def job_report(args: argparse.Namespace) -> int:
-    """Keep a job's whole return from stdin in its history and, while the job runs, as its report, its first line setting the job's state, or refuse it with nothing kept, naming the fix, when that line would set none or it types a clock time for work already done; a reader's DESIGN is kept as its ASK in the same call, whose path it prints. With no stdin, print the kept report, or a remote lane's latest one."""
+    """Keep a job's whole return from stdin in its history and, when its own agent or lane sent it, as its report, its first line setting the job's state, or refuse it with nothing kept, naming the fix, when that line would set none or it types a clock time for work already done; a reader's DESIGN is kept as its ASK in the same call, whose path it prints. With no stdin, print the kept report, or a remote lane's latest one."""
     name = state.resolve(args.drive)
     data = state.load(name)
     job = find(data["jobs"], args.id, "job")
@@ -1638,14 +1641,14 @@ def job_report(args: argparse.Namespace) -> int:
                 asked, _, _, decided = keep_ask(name, args.id, whole.strip(), None)
             except DriveError as error:
                 raise DriveError(f"{args.id}: refused, its report not kept: a reader's DESIGN is his card as it stands, kept as its ASK, and drive job ask refused it: {error}") from None
-        wrote = state.keep_report(name, args.id, job, line, whole)
+        wrote = state.keep_report(name, args.id, line, whole, os.environ.get(state.OWN_JOB_ENV) == args.id)
         with state.edit(name) as data:
             state.take_result(data, args.id, line, whole)
             state.add_changes(data, args.id, whole)
         kept = state.report_path(name, args.id)
         where = str(kept) if wrote else (
-            f"{args.id} had already returned, so this return set only its said line and its history, `drive job replies {args.id}`:"
-            f" {kept} is written only by its own agent's return while it runs"
+            f"{args.id}'s own agent did not send this return, so it set only its said line and its history, `drive job replies {args.id}`:"
+            f" {kept} is written only by its own agent's or lane's return"
         )
         merging = merge_reported(name, args.id)
         shown = f"{where}\n{decided}" if decided else f"{where}\nits ASK is kept in {asked}, the path its ask record names" if asked else where
@@ -3459,7 +3462,7 @@ def parser() -> argparse.ArgumentParser:
         description=(
             "A job returns one line; the rest of its return, the inputs to what he would be told, one fact a line,"
             " is kept here before it returns, piped in on stdin. With -, keep stdin in the job's history, set its state and said line"
-            " from its first line, write it as the job's report only while the job runs, and print where; with nothing, print the"
+            " from its first line, write it as the job's report only when its own agent or lane sent it, and print where; with nothing, print the"
             " kept report, or a remote lane's latest one."
         ),
     )

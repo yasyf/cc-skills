@@ -23,6 +23,7 @@ RERUNS = (("ci", "bk", "rerun"), ("bk", "job", "retry"), ("bk", "build", "rebuil
 FLAKE = "--flake"
 BREW_RESTARTS = {"upgrade", "reinstall"}
 RESUME_TIMEOUT = 20000
+REPORT_CALL = re.compile(r"\bjob\s+report\b")
 UNSEEN_PROMPT = (
     "refused: Claude Code asked for permission to run this command, and nobody watches a drive agent's terminal, so the"
     " prompt would hold your job unseen for hours. Bypass permissions mode still asks when Claude Code's parser cannot"
@@ -267,18 +268,28 @@ def foreground(payload: dict) -> dict | None:
     return call | {"run_in_background": False, "timeout": RESUME_TIMEOUT}
 
 
+def own_report(payload: dict, call: dict) -> dict:
+    """A job agent's Bash call piping into `drive job report`, run with LONG_RUNNING_OWN_JOB naming the job the drive records the agent on, since only a hook knows which agent made a call and only the job's own agent writes reports/<j>.md; any other call as it is."""
+    if payload.get("hook_event_name") == "PermissionRequest" or payload["tool_name"] != "Bash" or not REPORT_CALL.search(call["command"]):
+        return call
+    names = state.session_drives(payload.get("session_id") or "")
+    if not names or not (job_id := state.agent_job(state.load(names[0]), payload.get("agent_id"))):
+        return call
+    return call | {"command": f"export {state.OWN_JOB_ENV}={job_id}\n{call['command']}"}
+
+
 def main() -> None:
     try:
         payload = agents.seen(json.load(sys.stdin))
         reason = deny_reason(payload)
-        made = foreground(payload)
+        made = own_report(payload, foreground(payload) or payload["tool_input"])
     except ValueError:
         return
     if reason and payload.get("hook_event_name") == "PermissionRequest":
         decided = {"hookEventName": "PermissionRequest", "decision": {"behavior": "deny", "message": reason}}
     elif reason:
         decided = {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}
-    elif made:
+    elif made != payload["tool_input"]:
         decided = {"hookEventName": "PreToolUse", "updatedInput": made}
     else:
         return
