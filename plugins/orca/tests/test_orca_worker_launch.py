@@ -58,6 +58,8 @@ PREPARED = {
     "baseCommit": BASE,
 }
 RELEASES = (("ccx", "yasyf/cc-context", "v0.95.43", "a" * 64, ""), ("cc-notes", "yasyf/cc-notes", "v0.76.7", "b" * 64, "ccn"))
+REWRITTEN = BRIEF + "\nA later line.\n"
+INSTALLED = {"out": "ccx v0.95.43\ncc-notes v0.76.7\nccn v0.76.7\n"}
 RECEIPT = {"ok": True, "result": {"runId": RUN, "taskId": "task_a", "dispatchId": "ctx_a", "state": "ready", "stage": "remote_input_accepted"}}
 ALLOCATION_KEPT = ["allocation.json", "prepare.err", "prepare.status", "request.json"]
 PREPARE_KEPT = sorted([*ALLOCATION_KEPT, "prepared.json"])
@@ -90,7 +92,7 @@ state = os.environ["FAKE_STATE"]
 name = os.path.basename(sys.argv[0])
 args = sys.argv[1:]
 with open(os.path.join(state, "calls"), "a") as calls:
-    calls.write(json.dumps({"argv": [name, *args], "real": os.path.realpath(sys.argv[0]), "env": {"CC_REMOTE_CONFIG": os.environ.get("CC_REMOTE_CONFIG")}}) + "\\n")
+    calls.write(json.dumps({"argv": [name, *args], "real": os.path.realpath(sys.argv[0]), "env": {"CC_REMOTE_CONFIG": os.environ.get("CC_REMOTE_CONFIG")}, "stdin": sys.stdin.read() if name == "ssh" else None}) + "\\n")
 words = [arg for arg in args[:2] if not arg.startswith("-") and "/" not in arg]
 queue = os.path.join(state, "_".join([name, *words]))
 replies = json.load(open(queue)) if os.path.exists(queue) else []
@@ -178,13 +180,13 @@ class Launch:
     def reply(self, command: str, *replies: dict) -> None:
         (self.fake / command.replace(" ", "_")).write_text(json.dumps(list(replies)))
 
-    def sprite(self, prepared: dict | str = PREPARED, version: dict | None = None, started: dict | None = None, allocated: dict | str | None = None) -> None:
+    def sprite(self, prepared: dict | str = PREPARED, version: dict | None = None, started: dict | None = None, allocated: dict | str | None = None, copied: dict | None = None) -> None:
         self.reply("cc-remote version", version or {"err": f"{PIN}\n"})
         self.reply("orca orchestration run-current", BOUND)
         response = allocated if allocated is not None else prepared if isinstance(prepared, str) else allocation(prepared)
         self.reply("cc-remote orca prepare", {"out": response if isinstance(response, str) else json.dumps(response), "err": "prepared on sprites\n"})
         self.reply("gh api", *({"out": f"{tag}\t{download(repo, tag, bin)}\tsha256:{sha}\n"} for bin, repo, tag, sha, _ in RELEASES))
-        self.reply("ssh", {"out": "ccx v0.95.43\ncc-notes v0.76.7\nccn v0.76.7\n"})
+        self.reply("ssh", *(() if copied is None else (copied,)), INSTALLED)
         self.reply("orca orchestration worker-start", started or {"out": RECEIPT})
 
     def local(self, wait: dict | None = None, started: dict | None = None) -> None:
@@ -226,8 +228,11 @@ class Launch:
         words = " ".join(f"{bin} {tag} {download(repo, tag, bin)} {sha} {alias or "''"}" for bin, repo, tag, sha, alias in RELEASES)
         return [*latest, ["ssh", "-F", PREPARED["forward"]["config"], "-o", "BatchMode=yes", "-o", "ConnectTimeout=30", WORKSPACE, f"bash -s -- {words}"]]
 
-    def start(self, prepared: dict = PREPARED, retry: str | None = None) -> list[str]:
-        spec = f"Lane {LANE}: read the whole brief at {prepared['brief']['path']}, verify its SHA-256 is {SHA} and its size is {BYTES} bytes, then follow it exactly."
+    def copy(self) -> list[str]:
+        return ["ssh", "-F", PREPARED["forward"]["config"], "-o", "BatchMode=yes", "-o", "ConnectTimeout=30", WORKSPACE, f"cat >{PREPARED['brief']['path']}"]
+
+    def start(self, prepared: dict = PREPARED, retry: str | None = None, brief: str = BRIEF) -> list[str]:
+        spec = f"Lane {LANE}: read the whole brief at {prepared['brief']['path']}, verify its SHA-256 is {hashlib.sha256(brief.encode()).hexdigest()} and its size is {len(brief.encode())} bytes, then follow it exactly."
         placement = ["--on", prepared["environment"], "--worktree", f"id:{prepared['worktreeId']}", "--terminal", prepared["terminal"]]
         retried = ["--retry-request", retry] if retry else []
         return ["orca", "orchestration", "worker-start", "--run", RUN, "--spec", spec, "--task-title", LANE, *placement, *retried, "--timeout-ms", "600000", "--full", "--json"]
@@ -744,11 +749,11 @@ class SpriteTest(LaunchTest):
         self.assert_failed(self.launch, self.launch.run(), line, first)
         self.assertEqual(self.launch.kept(), sorted([*SPRITE_KEPT, "worker-start.unsent"]))
         self.assertEqual(self.launch.receipt("worker-start.unsent"), f"{REQUEST}\n")
-        self.launch.sprite()
+        self.launch.sprite(copied={})
         relaunched = self.launch.run()
         self.assertEqual(relaunched.returncode, 0, relaunched.stderr)
         self.assertEqual(json.loads(relaunched.stdout)["dispatch"], "ctx_a")
-        self.assertEqual(self.launch.calls(), [*first, VERSION, CURRENT, *self.launch.tools(), self.launch.start(retry=REQUEST)])
+        self.assertEqual(self.launch.calls(), [*first, VERSION, CURRENT, self.launch.copy(), *self.launch.tools(), self.launch.start(retry=REQUEST)])
         self.assertEqual(self.launch.kept(), SPRITE_KEPT)
 
     def test_a_bind_that_refuses_before_worker_start_fails_in_one_line_and_a_relaunch_retries_it_on_the_same_sprite(self):
@@ -761,24 +766,65 @@ class SpriteTest(LaunchTest):
         self.assert_failed(self.launch, self.launch.run(WORKER_BIND="bound --"), line, first)
         self.assertEqual(self.launch.receipt("worker-start.status"), "75\n")
         self.assertEqual(self.launch.receipt("worker-start.unsent"), "\n")
-        self.launch.sprite()
+        self.launch.sprite(copied={})
         relaunched = self.launch.run(WORKER_BIND="bound --")
         self.assertEqual(relaunched.returncode, 0, relaunched.stderr)
         self.assertEqual(json.loads(relaunched.stdout)["dispatch"], "ctx_a")
-        self.assertEqual(self.launch.calls(), [*first, VERSION, *self.launch.tools(), ["bound", "--", *self.launch.start()], self.launch.start()])
+        self.assertEqual(self.launch.calls(), [*first, VERSION, self.launch.copy(), *self.launch.tools(), ["bound", "--", *self.launch.start()], self.launch.start()])
         self.assertEqual(self.launch.kept(), SPRITE_KEPT)
 
-    def test_an_unrecorded_worker_start_never_reruns_another_version_of_its_brief(self):
+    def test_a_relaunch_copies_a_rewritten_brief_to_the_prepared_sprite_and_starts_its_worker_on_it(self):
+        rewritten = {**PREPARED, "brief": {**PREPARED["brief"], "sha256": hashlib.sha256(REWRITTEN.encode()).hexdigest(), "bytes": len(REWRITTEN.encode())}}
+        for failed in ("tools", "worker-start"):
+            with self.subTest(failed=failed):
+                launch = self.fresh()
+                launch.sprite()
+                if failed == "tools":
+                    launch.reply("ssh", {"rc": 1, "err": "zig: download failed\n"})
+                else:
+                    launch.reply("orca orchestration worker-start", UNREACHED, UNREACHED)
+                    launch.reply("orca orchestration request-show", request_state("absent"), request_state("absent"))
+                self.assertEqual(launch.run().returncode, 1)
+                first = launch.calls()
+                launch.brief.write_text(REWRITTEN)
+                launch.sprite(copied={})
+                relaunched = launch.run()
+                self.assertEqual(relaunched.returncode, 0, relaunched.stderr)
+                self.assertEqual(json.loads(relaunched.stdout)["dispatch"], "ctx_a")
+                retry = REQUEST if failed == "worker-start" else None
+                self.assertEqual(launch.calls(), [*first, VERSION, CURRENT, launch.copy(), *launch.tools(), launch.start(retry=retry, brief=REWRITTEN)])
+                self.assertEqual(launch.records()[len(first) + 2]["stdin"], REWRITTEN)
+                self.assertEqual(json.loads(launch.receipt("prepared.json")), rewritten)
+                self.assertEqual(json.loads(launch.receipt("allocation.json"))["task"], rewritten)
+                self.assertEqual(launch.kept(), SPRITE_KEPT)
+
+    def test_a_relaunch_whose_prepared_sprite_answers_no_ssh_retires_the_attempt_and_prepares_afresh(self):
+        rewritten = {**PREPARED, "brief": {**PREPARED["brief"], "sha256": hashlib.sha256(REWRITTEN.encode()).hexdigest(), "bytes": len(REWRITTEN.encode())}}
+        gone = "ssh: connect to host pool-spare port 22: Connection refused"
         self.launch.sprite()
-        self.launch.reply("orca orchestration worker-start", UNREACHED, UNREACHED)
-        self.launch.reply("orca orchestration request-show", request_state("absent"), request_state("absent"))
+        self.launch.reply("ssh", {"rc": 1, "err": "zig: download failed\n"})
         self.assertEqual(self.launch.run().returncode, 1)
-        self.launch.brief.write_text(BRIEF + "\nA later line.\n")
+        first = self.launch.calls()
+        self.launch.brief.write_text(REWRITTEN)
+        self.launch.sprite(prepared=rewritten, copied={"rc": 255, "err": f"{gone}\n"})
+        relaunched = self.launch.run()
+        self.assertEqual(relaunched.returncode, 0, relaunched.stderr)
+        retired = self.launch.attempt.with_name(f"{self.launch.attempt.name}.1")
+        self.assertEqual(relaunched.stderr, f"{retired} keeps the earlier attempt, whose Sprite {WORKSPACE} answered no ssh connection before any worker started: {gone}; preparing again\n")
+        self.assertEqual(self.launch.calls(), [*first, VERSION, CURRENT, self.launch.copy(), self.launch.prepare(), *self.launch.tools(), self.launch.start(brief=REWRITTEN)])
+        self.assertEqual(sorted(path.name for path in retired.iterdir()), TOOLS_KEPT)
+        self.assertEqual(self.launch.kept(), SPRITE_KEPT)
+
+    def test_a_prepared_sprite_that_refuses_the_brief_keeps_the_attempt_for_another_launch(self):
+        refused = f"bash: line 1: {PREPARED['brief']['path']}: No such file or directory"
         self.launch.sprite()
-        calls = self.launch.calls()
-        result = self.launch.run()
-        self.assert_failed(self.launch, result, f"{self.launch.attempt} prepared a Sprite for another version of this brief, and its worker-start started no worker; launch the brief it prepared", [*calls, VERSION, CURRENT])
-        self.assertEqual(self.launch.receipt("worker-start.unsent"), f"{REQUEST}\n")
+        self.launch.reply("ssh", {"rc": 1, "err": "zig: download failed\n"})
+        self.assertEqual(self.launch.run().returncode, 1)
+        first = self.launch.calls()
+        self.launch.sprite(copied={"rc": 1, "err": f"{refused}\n"})
+        line = f"the Sprite {WORKSPACE} did not take the brief at {PREPARED['brief']['path']}: {refused}; the prepared worker stays idle and unattached, and launching this brief again copies it again"
+        self.assert_failed(self.launch, self.launch.run(), line, [*first, VERSION, CURRENT, self.launch.copy()])
+        self.assertEqual(self.launch.kept(), TOOLS_KEPT)
 
     def test_a_sprite_that_cannot_take_the_released_tools_stays_idle_and_a_relaunch_reruns_them_on_it(self):
         unreleased = {"out": "v0.95.43\n"}
@@ -796,11 +842,11 @@ class SpriteTest(LaunchTest):
                 first = [VERSION, CURRENT, launch.prepare(), *launch.tools()[:reached]]
                 self.assert_failed(launch, launch.run(), line, first)
                 self.assertEqual(launch.kept(), TOOLS_KEPT)
-                launch.sprite()
+                launch.sprite(copied={})
                 relaunched = launch.run()
                 self.assertEqual(relaunched.returncode, 0, relaunched.stderr)
                 self.assertEqual(json.loads(relaunched.stdout)["dispatch"], "ctx_a")
-                self.assertEqual(launch.calls(), [*first, VERSION, CURRENT, *launch.tools(), launch.start()])
+                self.assertEqual(launch.calls(), [*first, VERSION, CURRENT, launch.copy(), *launch.tools(), launch.start()])
                 self.assertEqual(launch.kept(), SPRITE_KEPT)
 
     def test_an_unproven_ready_never_prints_success_or_retries(self):
