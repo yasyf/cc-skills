@@ -949,24 +949,24 @@ def refuse_a_shared_at_once_part(parts: list[str]) -> None:
 
 
 def job_set(args: argparse.Namespace) -> int:
-    """Change a job; a state it already holds changes nothing, and stopped is the one state set by hand; an order it carries reworks only the PRs of the job --rework names, and each other open card of his on the job's PRs is named and left up."""
+    """Change a job; a state it already holds changes nothing, stopped is the one state set by hand, done only on a design a builder carries, and any other --state is refused with nothing changed, since the job's return sets it; an order it carries reworks only the PRs of the job --rework names, and each other open card of his on the job's PRs is named and left up."""
     from drive import view
 
     name = state.resolve(args.drive)
     known = state.load(name)
-    held = find(known["jobs"], args.id, "job")["state"]
-    already = f"{args.id} is already {held}\n" if args.state == held else ""
+    found = find(known["jobs"], args.id, "job")
+    already = f"{args.id} is already {found['state']}\n" if args.state == found["state"] else ""
     if already:
         args.state = None
     elif args.state == "done" and (builder := state.design_builder(known, args.id)):
         already = f"{args.id}'s design is carried by builder {builder}\n"
     elif args.state not in (None, "stopped"):
-        already = (
-            f"{args.id} stays {held}: --state sets only stopped, for a job that ends unfinished, and done for a design job a builder"
-            " carries, which ends on its own once drive job add builder --part or drive job set <builder> --part names its part or a"
-            " change its DESIGN listed; every other state comes from the line the job returns\n"
+        line = f", its first line `{found['said']}`" if found["said"] else ""
+        raise DriveError(
+            f"{args.id}: refused, nothing changed: --state sets only stopped, for a job that ends unfinished, and done for a design job a"
+            " builder carries, which ends on its own once drive job add builder --part or drive job set <builder> --part names its part or a"
+            f" change its DESIGN listed; every other state comes from the job's return: pipe it into `drive job report {args.id} -`{line}"
         )
-        args.state = None
     if args.state == "stopped":
         fix_kept(state.load(name), args.id)
     changes = {"agent": args.agent, "state": args.state, "said": args.said, "branch": args.branch, "due": job_clock(args.id, args.due)}
@@ -1167,7 +1167,7 @@ def follow_card(name: str, waits: str, asked: set[str], url: str) -> None:
 
 
 def job_ask(args: argparse.Namespace) -> int:
-    """Keep a job's ASK in the drive once it is in the shape he reads, each block in its own file; from a file, stdin with -, or with neither a remote lane's latest report or a kept DESIGN return. A block asking again what one of the job's questions his answer has not closed asks takes that question's place, its card and waits id kept, and one asking what another job's open question asks is refused. With --drop, throw away a question the job kept with no card drawn for it."""
+    """Keep a job's ASK in the drive once it is in the shape he reads, each block in its own file; from a file, stdin with -, or with neither a remote lane's latest report. A block asking again what one of the job's questions his answer has not closed asks takes that question's place, its card and waits id kept, and one asking what another job's open question asks is refused. With --drop, throw away a question the job kept with no card drawn for it."""
     if args.check:
         with tempfile.TemporaryDirectory(prefix="drive-ask-check-") as scratch:
             limits.shape(named_text(args.check, "ASK block file"), "check", "ask", Path(scratch), args.unsettled)
@@ -1182,7 +1182,7 @@ def job_ask(args: argparse.Namespace) -> int:
         line = f'{args.id} no longer asks "{render.cut(question["title"] or "", 80)}": its question kept in {dropped} is dropped and the file deleted, so no ask record may name it'
         return emit(args, line, {"id": args.id, "dropped": str(dropped), "title": question["title"]})
     job = find(state.load(name)["jobs"], args.id, "job")
-    text = named_text(args.file, "ASK block file") if args.file else asked_report(name, args.id, job)
+    text = named_text(args.file, "ASK block file") if args.file else job.get("report")
     if not text:
         raise DriveError(f"{args.id} sent no report to read an ASK from; pass the file its ASK block is in, or - and the block on stdin")
     kept, asked, question = keep_ask(name, args.id, text, args.unsettled)
@@ -1207,12 +1207,6 @@ def drop_ask(name: str, job_id: str, file: Path) -> dict:
     if state.kept_in(job, file) is None:
         file.unlink(missing_ok=True)
     return question
-
-
-def asked_report(name: str, job_id: str, job: dict) -> str | None:
-    """The ASK a job sent when no file names one: a remote lane's latest report, else its kept DESIGN return, a choice for him read as the ASK block it is."""
-    kept = state.report_text(name, job_id, job)
-    return job.get("report") or (f"ASK {kept.removeprefix('DESIGN').lstrip()}" if kept.startswith("DESIGN") else None)
 
 
 def keep_ask(name: str, job_id: str, text: str, unsettled: str | None) -> tuple[Path, limits.Question, dict]:
@@ -1258,7 +1252,8 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None) -> tuple[
             if held:
                 question.update(waits=held["waits"], card=held["card"])
             replaced = [*twins, *reworded]
-            job.update(state="waiting", said=asked.title, updated=state.stamp(), may_settle=None)
+            moment = state.stamp()
+            job.update(state="waiting", said=asked.title, updated=moment, returned=moment, may_settle=None)
         job["questions"] = [*(other for other in job["questions"] if not any(other is gone for gone in replaced)), question]
     if refused:
         raise DriveError(
@@ -1328,7 +1323,7 @@ def job_card(args: argparse.Namespace) -> int:
 
 
 def card_source(name: str, args: argparse.Namespace) -> tuple[Path, str]:
-    """The kept ASK block a card draws and the waits id given for it: after a job, its newest kept block or the one named, or its kept DESIGN return kept as its ASK when it keeps none, under --waits or the waits id its card already has; a file alone, under --waits. `question_card` draws a question already holding a waits id under that one."""
+    """The kept ASK block a card draws and the waits id given for it: after a job, its newest kept block or the one named, under --waits or the waits id its card already has; a file alone, under --waits. `question_card` draws a question already holding a waits id under that one."""
     if not JOB_ID.fullmatch(args.ask):
         if not args.waits:
             raise DriveError(f"{args.ask}: a card drawn from a file needs --waits <drive>:<job>-<the ask record's seq>; drive job card <j> draws a job's newest kept ASK")
@@ -1336,9 +1331,6 @@ def card_source(name: str, args: argparse.Namespace) -> tuple[Path, str]:
     job = find(state.load(name)["jobs"], args.ask, "job")
     named = Path(args.file).expanduser().resolve() if args.file else None
     kept = [question for question in job["questions"] if question["file"] and not question["refused"] and named in (None, Path(question["file"]).resolve())]
-    if not kept and not args.file and (designed := asked_report(name, args.ask, job)) and not job.get("report"):
-        path, _, _ = keep_ask(name, args.ask, designed, None)
-        kept = [question for question in find(state.load(name)["jobs"], args.ask, "job")["questions"] if question["file"] == str(path)]
     if not kept:
         raise DriveError(f"{args.ask} keeps no ASK block{f' in {args.file}' if args.file else ''}: keep one with drive job ask {args.ask} <file>")
     question = kept[-1]
@@ -1480,7 +1472,7 @@ def keep_waits(job: dict, file: Path, waits: str) -> None:
 
 
 def job_report(args: argparse.Namespace) -> int:
-    """Keep a job's whole return from stdin in the drive and its history, its first line setting a running job's state, or print the newest kept, or a remote lane's latest report."""
+    """Keep a job's whole return from stdin in the drive and its history, its first line setting the job's state, or refuse it with nothing kept, naming the fix, when that line would set none; a reader's DESIGN is kept as its ASK in the same call, whose path it prints. With no stdin, print the newest kept, or a remote lane's latest report."""
     name = state.resolve(args.drive)
     data = state.load(name)
     job = find(data["jobs"], args.id, "job")
@@ -1488,21 +1480,28 @@ def job_report(args: argparse.Namespace) -> int:
         whole = sys.stdin.read()
         if not whole.strip():
             raise DriveError(f"stdin held no report for {args.id}; pipe its whole return in: printf '%s\\n' '<line>' ... | drive job report {args.id} -")
-        if refused := brief.report_refusal(name, data, args.id, whole):
+        line = whole.strip().splitlines()[0].strip()
+        if refused := brief.report_refusal(name, data, args.id, whole) or state.result_refusal(data, args.id, line, whole):
             raise DriveError(f"{args.id}: refused, nothing kept: {refused}")
-        if job["kind"] == "builder" and re.match(r"(?:READY|PUSHED)\b", whole.strip()):
+        if job["kind"] == "builder" and re.match(r"(?:READY|PUSHED)\b", line):
             try:
                 served.check(name, args.id, [], [])
             except DriveError as error:
                 raise DriveError(f"{args.id}: refused, nothing kept: {error}") from None
-        line = whole.strip().splitlines()[0].strip()
         if job["kind"] == "builder" and re.match(r"READY\b", line) and (held := unready(data, job, line)):
             raise DriveError(f"{args.id}: refused, nothing kept: {held}")
+        asked = None
+        if job["kind"] == "reader" and line.startswith("DESIGN"):
+            try:
+                asked = keep_ask(name, args.id, f"ASK {whole.strip().removeprefix('DESIGN').lstrip()}", None)[0]
+            except DriveError as error:
+                raise DriveError(f"{args.id}: refused, its report not kept: a reader's DESIGN is his card as it stands, kept as its ASK, and drive job ask refused it: {error}") from None
         kept = state.keep_report(name, args.id, line, whole)
         with state.edit(name) as data:
             state.take_result(data, args.id, line, whole)
             state.add_changes(data, args.id, whole)
-        return emit(args, str(kept), {"id": args.id, "report": str(kept)})
+        shown = f"{kept}\nits ASK is kept in {asked}, the path its ask record names" if asked else str(kept)
+        return emit(args, shown, {"id": args.id, "report": str(kept), "ask": asked and str(asked)})
     text = state.report_text(name, args.id, job)
     if not text and not job["said"]:
         raise DriveError(f"{args.id} kept no report and has returned nothing yet")
@@ -1531,7 +1530,7 @@ def keep_repro(name: str, job_id: str, source: str) -> str:
     kept = state.repro_path(name, job_id, path.suffix)
     kept.parent.mkdir(exist_ok=True)
     if not kept.exists() or not kept.samefile(path):
-        shutil.copyfile(path, kept)
+        shutil.copy(path, kept)
     return str(kept)
 
 

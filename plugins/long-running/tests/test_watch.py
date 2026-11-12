@@ -20,6 +20,7 @@ RED = [{"name": "test", "conclusion": "FAILURE"}]
 ASKED = "Should Iris, desktop and the sand CLI show sign-in when an api session expires?"
 REPORTED = "https://acme.slack.com/archives/C0REPORTS01/p1794400100000200"
 UNRECORDED = 'ORPHAN o1 "ship the watch": j1\'s agent finished and its result is not recorded: "'
+REPORT_IT = "; only drive job report j1 - sets it, or names why it refuses, so SendMessage from the session that started it wakes it to pipe its return there"
 DRAWING = f"CARD his card for {KEY} is drawing: green and approved, ready record sent to the communicator"
 CHECKED = {"head": "aaaaaaa111", "orders": ["o1"], "patch": ""}
 BUILD = "https://buildkite.com/forge/monorepo/builds/7"
@@ -184,6 +185,18 @@ def test_a_red_required_check_ends_a_pushed_with_its_build_and_goes_back_to_a_la
     monkeypatch.setattr(watch.reads, "run", lambda argv, checkout: resumed.append(argv) or "")
     assert watch.handed(watching, [refused], T0) == []
     assert resumed == [[str(watch.DRIVE), "job", "resume", "j1", refused, "--drive", demo]]
+
+
+def test_a_ready_waits_on_the_pr_it_names_and_the_watch_frees_its_job_once_that_pr_merges(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {KEY: read(state="MERGED", mergeCommit="ccc333")})
+    with state.edit(demo) as data:
+        state.take_result(data, "j1", f"READY {state.pr_url(KEY)}")
+    assert state.load(demo)["jobs"]["j1"]["waits"] == [KEY]
+    watching = watcher(demo)
+    said = watch.run_pass(watching, T0) + watch.run_pass(watching, T0 + timedelta(seconds=61))
+    assert f"PR {KEY}: merged [o1 j1]" in said
+    assert [line for line in said if line.startswith("FREE ")] == [f"FREE j1 o1: {KEY} answered or done, nothing else holds it"]
+    assert state.load(demo)["jobs"]["j1"]["waits"] == []
 
 
 def test_unchanged_pr_emits_nothing(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1169,7 +1182,7 @@ RESULT = {"type": "user", "message": {"content": [{"type": "tool_result"}]}}
 @pytest.mark.parametrize(
     ("entries", "quiet", "gap"),
     [
-        ([CALLING, FINISHED], timedelta(minutes=10), 'j1\'s agent finished and its result is not recorded: "DONE shipped"'),
+        ([CALLING, FINISHED], timedelta(minutes=10), 'j1\'s agent finished and its result is not recorded: "DONE shipped"' + REPORT_IT),
         ([FINISHED, {"type": "user", "message": {"content": "next event"}}], timedelta(minutes=10), None),
         ([CALLING, RESULT], timedelta(minutes=10), None),
         ([CALLING, RESULT], timedelta(minutes=45), "j1's agent has written nothing for 45 minutes"),
@@ -1282,7 +1295,7 @@ def test_a_local_agent_a_sub_coordinator_started_is_judged_by_its_transcript_und
     os.utime(path, (stamp, stamp))
     sub_coordinated(demo, cwd="/iris")
     job_of = {"session": "iris-1", "agent": "a1", "kind": "builder"}
-    assert REAL_LOCAL_GAP("j1", job_of, state.load(demo), state.now()) == 'j1\'s agent finished and its result is not recorded: "DONE shipped"'
+    assert REAL_LOCAL_GAP("j1", job_of, state.load(demo), state.now()) == 'j1\'s agent finished and its result is not recorded: "DONE shipped"' + REPORT_IT
 
 
 def test_a_local_agents_tool_call_with_no_result_for_five_minutes_is_said_stuck_once(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1336,41 +1349,23 @@ def returned(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: s
 
 
 @pytest.mark.parametrize(
-    ("kind", "text", "report", "taken", "said"),
-    [
-        ("reader", "ASK {kept}\n\nThe card asks whether sessions renew while used.", None, "waiting", ASKED),
-        ("reader", "ASK {kept}", "DONE OURS migration 0340 gave every session one expiry\nError he sees: Cannot reach the thread index\n", "waiting", ASKED),
-        ("builder", "DONE shipped\nPR: x", "DONE shipped\nPR: x\n", "done", "DONE shipped"),
-        ("builder", "DONE shipped, reworded at the stop", "DONE shipped\nPR: x\n", "done", "DONE shipped"),
-        ("builder", "WAITING builds unstarted", "WAITING the test builds are scheduled and unstarted\n", "waiting", "WAITING the test builds are scheduled and unstarted"),
-        ("reader", "My report was kept before your message arrived, so I did not resubmit.", "DONE ccx stages its sweep\nResearched:\n", "done", "DONE ccx stages its sweep"),
-    ],
-)
-def test_a_local_agent_that_ended_on_a_result_line_has_the_result_the_drive_keeps_taken_and_is_no_orphan(
-    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str, text: str, report: str | None, taken: str, said: str
-) -> None:
-    returned(demo, tmp_path, monkeypatch, kind, text, report)
-    watching = watcher(demo, state.now())
-    assert watch.run_pass(watching, state.now()) == []
-    job = state.load(demo)["jobs"]["j1"]
-    assert (job["state"], job["said"], state.report_text(demo, "j1", job)) == (taken, said, report or "")
-    assert watch.run_pass(watching, state.now() + watch.HANDOFF + timedelta(minutes=1)) == []
-
-
-@pytest.mark.parametrize(
     ("kind", "text", "report"),
     [
         ("builder", "DONE shipped\nPR: x", None),
         ("reader", "ASK {kept}.old", None),
+        ("reader", "ASK {kept}\n\nThe card asks whether sessions renew while used.", None),
+        ("builder", "DONE shipped, reworded at the stop", "DONE shipped\nPR: x\n"),
+        ("reader", "My report was kept before your message arrived, so I did not resubmit.", "DONE ccx stages its sweep\nResearched:\n"),
     ],
 )
-def test_a_local_agent_that_ended_on_a_result_line_with_nothing_kept_is_an_orphan(
+def test_a_running_local_agent_that_ended_on_a_result_line_is_an_orphan_whatever_it_kept_since_the_watch_takes_no_result(
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str, text: str, report: str | None
 ) -> None:
     returned(demo, tmp_path, monkeypatch, kind, text, report)
     [line] = watch.run_pass(watcher(demo, state.now()), state.now())
-    assert line.startswith(UNRECORDED)
-    assert state.load(demo)["jobs"]["j1"]["state"] == "running"
+    assert (line.startswith(UNRECORDED), line.endswith(REPORT_IT)) == (True, True)
+    job = state.load(demo)["jobs"]["j1"]
+    assert (job["state"], job["said"]) == ("running", ASKED)
 
 
 def talking(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entries: list[dict], quiet: timedelta, heard: timedelta) -> None:
@@ -1869,8 +1864,8 @@ def test_job_set_never_waits_on_a_job_and_the_refusal_names_the_card_or_pr_to_wa
         data["jobs"]["j3"] = job(goal="asked him", state="waiting", questions=[state.new_question(None, "Pick?", state.stamp(T0)) | {"waits": "demo:j1-7-a"}])
     assert cli.main(["job", "set", "j2", "--waits", "j1", "--drive", demo]) == 2
     assert capsys.readouterr().err.strip().endswith(
-        "--waits j1: a job waits on his card, a PR the drive tracks or a release, and on another job only as a build order's designer or"
-        f" builder added waiting on its reader, drive job add <kind> --order <o> --waits <the reader>; open on j1: {KEY}; wait on the one"
+        "--waits j1: a job waits on his card, a PR the drive tracks or a release, and on another job only as a build order's designer,"
+        f" builder or codex lane added waiting on its reader, drive job add <kind> --order <o> --waits <the reader>; open on j1: {KEY}; wait on the one"
         f" this job needs, as --waits {KEY}"
     )
     assert cli.main(["job", "set", "j2", "--waits", "j3", "--drive", demo]) == 2

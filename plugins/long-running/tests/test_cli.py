@@ -40,8 +40,14 @@ PLACEHOLDER = re.compile(r"<[^<>`]*>|\"[^\"]*\"|…|\[|\]|\.\.\.")
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
 REPORTED = "https://acme.slack.com/archives/C0REPORTS01/p1794400100000200"
 ROOT_CAUSE = "Root cause: none: where a copy runs is a pick between two designs, with no defect behind it\n"
-DESIGN_RESEARCH = RESEARCH.replace("DONE researched the store copy", "DESIGN where the copy runs") + (
-    "- on the primary, beside the queries it serves (recommended)\n- on a separate worker that reads the bucket\n" + ROOT_CAUSE
+DESIGN_TITLE = "Where should store_copy_at in supervisor/copies.rs run each store copy?"
+SECOND_OPTION = "- store_copy_at runs on a separate worker that reads each store from the bucket and copies it there\n"
+DESIGN_RESEARCH = (
+    f"DESIGN {DESIGN_TITLE}\n"
+    "store_copy_at copies one store, and it can run on the primary or on a separate worker that reads the bucket.\n"
+    "Recommended: on the primary; held until you pick, so nothing ships meanwhile.\n"
+    "- store_copy_at runs on the primary, beside the queries it serves, copying each store in list order (recommended)\n"
+    f"{SECOND_OPTION}Findings:\n{ROOT_CAUSE}{RESEARCH.removeprefix('DONE researched the store copy\n')}"
 )
 DESIGNED = f"""DESIGN the store copy
 Design: one copy per store, in the order the stores list
@@ -1044,6 +1050,12 @@ def test_job_set_repro_keeps_a_copy_in_the_drive_and_status_shows_it(
     steps.unlink()
     kept = state_root / "demo" / "repro" / "j1.md"
     assert state.load("demo")["jobs"]["j1"]["repro"] == str(kept)
+    script = tmp_path / "repro.sh"
+    script.write_text("#!/bin/sh\nexit 1\n")
+    script.chmod(0o755)
+    assert run("job", "set", "j1", "--repro", str(script))[0] == 0
+    assert os.access(state_root / "demo" / "repro" / "j1.sh", os.X_OK)
+    assert run("job", "set", "j1", "--repro", str(kept))[0] == 0
     assert kept.read_text() == "1. run it\n"
     assert f"- j1 (o1): {kept}" in run("status")[1]
     assert run("job", "set", "j1", "--repro", str(steps))[0] == 2
@@ -2293,7 +2305,7 @@ def test_a_readers_design_return_carries_his_options_and_holds_the_builder_until
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
-    one_option = DESIGN_RESEARCH.replace("- on a separate worker that reads the bucket\n", "")
+    one_option = DESIGN_RESEARCH.replace(SECOND_OPTION, "")
     for refused in (one_option, DESIGN_RESEARCH.replace("(recommended)", "")):
         code, err = keep(monkeypatch, capsys, "j1", refused)
         assert (code, "j1: refused, nothing kept: a reader's DESIGN return is a choice for him" in err) == (2, True)
@@ -2372,14 +2384,39 @@ def test_a_builder_landing_prs_he_approved_starts_with_no_research(run: Run, wit
     assert run("job", "add", "builder", "--order", "o1", "--lands", PR, "--goal", "land it")[0] == 0
 
 
-def test_a_readers_kept_design_return_is_the_ask_its_card_draws(
+def test_a_readers_design_report_keeps_its_ask_in_the_same_call_or_keeps_nothing(
     run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
-    assert cli.asked_report("demo", "j1", state.load("demo")["jobs"]["j1"]) is None
-    assert keep(monkeypatch, capsys, "j1", DESIGN_RESEARCH) == (0, "")
-    assert cli.asked_report("demo", "j1", state.load("demo")["jobs"]["j1"]).startswith("ASK where the copy runs\n")
+    unshaped = DESIGN_RESEARCH.replace("Findings:\n", "")
+    code, err = keep(monkeypatch, capsys, "j1", unshaped)
+    assert (code, "j1: refused, its report not kept: a reader's DESIGN is his card as it stands, kept as its ASK, and drive job ask refused it:" in err) == (2, True)
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["state"], job["questions"], state.report_path("demo", "j1").exists()) == ("running", [], False)
+    monkeypatch.setattr("sys.stdin", io.StringIO(DESIGN_RESEARCH))
+    code, out = run("job", "report", "j1", "-")
+    job = state.load("demo")["jobs"]["j1"]
+    [question] = job["questions"]
+    assert (code, job["state"], question["title"], question["refused"]) == (0, "done", DESIGN_TITLE, None)
+    assert out == f"{state.report_path('demo', 'j1')}\nits ASK is kept in {question['file']}, the path its ask record names"
+    assert Path(question["file"]).read_text().startswith(f"ASK {DESIGN_TITLE}\n")
+
+
+def test_a_design_lanes_design_names_on_each_fork_line_a_question_it_kept(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "copy one store")
+    run("job", "add", "design", "--order", "o1", "--goal", "cards: the store copy")
+    unkept = state.drive_dir("demo") / "asks" / "j1-0123abcd.md"
+    code, err = keep(monkeypatch, capsys, "j1", DESIGNED.replace("Fork: none: one layout fits", f"Fork: {unkept}"))
+    assert (code, f"j1: refused, nothing kept: its Fork: line names {unkept}, which keeps no question of j1 his card can draw" in err) == (2, True)
+    assert state.load("demo")["jobs"]["j1"]["state"] == "running"
+    block = tmp_path / "fork.md"
+    block.write_text(SHORT_ASK)
+    asked = run("job", "ask", "j1", str(block))[1]
+    assert keep(monkeypatch, capsys, "j1", DESIGNED.replace("Fork: none: one layout fits", f"Fork: {asked}")) == (0, "")
+    assert state.load("demo")["jobs"]["j1"]["state"] == "waiting"
 
 
 def test_a_builders_ready_says_how_it_reuses_what_its_research_found(
@@ -2660,7 +2697,7 @@ def test_order_set_sorts_an_order_again(run: Run, demo: str) -> None:
     [
         ("builder", "DONE installed 1.0.76", "done"),
         ("builder", "READY https://github.com/yasyf/cc-skills/pull/1", "waiting"),
-        ("builder", "WAITING: CI on #7", "waiting"),
+        ("builder", "WAITING: CI on #7", None),
         ("design", "DESIGN the table move", "waiting"),
         ("builder", "BLOCKED no order of his names this", "failed"),
         ("builder", "HANDOFF /scratch/j1/left.md", "stopped"),
@@ -2698,19 +2735,54 @@ def test_a_built_return_sets_its_job_built_on_its_branches_waiting_on_each_card_
     assert (job["state"], job["branch"], job["waits"]) == ("built", branch, ["demo:j1-3", card])
 
 
-def test_job_set_keeps_a_jobs_state_for_any_state_but_stopped_and_still_sets_the_rest(run: Run, demo: str) -> None:
+def test_a_report_takes_a_waiting_or_built_job_and_is_refused_on_a_stopped_one_keeping_nothing(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
-    kept = (
-        "j1 stays running: --state sets only stopped, for a job that ends unfinished, and done for a design job a builder carries,"
-        " which ends on its own once drive job add builder --part or drive job set <builder> --part names its part or a change its"
-        " DESIGN listed; every other state comes from the line the job returns"
-    )
-    for taken in ("waiting", "built", "done", "failed"):
-        code, out = run("job", "set", "j1", "--state", taken, "--said", f"asked {taken}")
-        assert (code, out.splitlines()[0]) == (0, kept)
+    check = "CHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n"
+    assert keep(monkeypatch, capsys, "j1", f"BUILT lr-move, waits on demo:j1-3\n{check}") == (0, "")
+    assert keep(monkeypatch, capsys, "j1", f"WAITING on his card demo:j1-3\n{check}") == (0, "")
+    assert state.load("demo")["jobs"]["j1"]["state"] == "waiting"
+    done = "DONE installed 1.0.392\nCHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n"
+    assert keep(monkeypatch, capsys, "j1", done) == (0, "")
     job = state.load("demo")["jobs"]["j1"]
-    assert (job["state"], job["said"]) == ("running", "asked failed")
+    assert (job["state"], job["said"]) == ("done", "DONE installed 1.0.392")
+    run("job", "set", "j1", "--state", "stopped", "--said", "handed to j2")
+    code, err = keep(monkeypatch, capsys, "j1", "DONE The lane comes from bookkeeping\nCHECK: https://github.com/yasyf/cc-skills/actions/runs/13\n")
+    assert (code, "j1: refused, nothing kept: j1 is stopped, so its work goes on in another job" in err) == (2, True)
+    assert state.report_path("demo", "j1").read_text() == done
+    assert state.load("demo")["jobs"]["j1"]["state"] == "stopped"
+
+
+def test_a_waiting_line_names_what_frees_it_and_each_pr_and_release_it_names_is_a_wait(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship")
+    run("pr", "add", PR, "--job", "j1")
+    code, err = keep(monkeypatch, capsys, "j1", "WAITING release: #54575 merged after the newest release was cut\n")
+    assert (code, "j1: refused, nothing kept: its WAITING names nothing the watch frees it on: name the release as release:<service>" in err) == (2, True)
+    assert state.load("demo")["jobs"]["j1"]["state"] == "running"
+    assert keep(monkeypatch, capsys, "j1", "WAITING release:api:Forge-AI/monorepo#42 and release:api:Forge-AI/monorepo#9\n") == (0, "")
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["state"], job["waits"]) == ("waiting", ["release:api:Forge-AI/monorepo#42"])
+
+
+def test_job_set_refuses_any_state_but_stopped_changing_nothing(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship", "--agent", "a-1")
+    run("job", "set", "j1", "--said", "DONE The lane comes from bookkeeping")
+    for taken in ("waiting", "built", "done", "failed"):
+        assert cli.main(["job", "set", "j1", "--state", taken, "--said", f"asked {taken}"]) == 2
+        assert capsys.readouterr().err == (
+            "drive: j1: refused, nothing changed: --state sets only stopped, for a job that ends unfinished, and done for a design job a"
+            " builder carries, which ends on its own once drive job add builder --part or drive job set <builder> --part names its part or a"
+            " change its DESIGN listed; every other state comes from the job's return: pipe it into `drive job report j1 -`, its first line"
+            " `DONE The lane comes from bookkeeping`\n"
+        )
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["state"], job["said"]) == ("running", "DONE The lane comes from bookkeeping")
     assert run("job", "set", "j1", "--state", "stopped")[0] == 0
     assert state.load("demo")["jobs"]["j1"]["state"] == "stopped"
 
@@ -2721,7 +2793,8 @@ def test_a_design_job_ends_once_a_builder_takes_its_part_or_one_of_its_changes(
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "copy one store")
     run("job", "add", "design", "--order", "o1", "--goal", "cards: the store copy")
     assert keep(monkeypatch, capsys, "j1", DESIGNED) == (0, "")
-    assert run("job", "set", "j1", "--state", "done")[1].startswith("j1 stays waiting: --state sets only stopped")
+    assert cli.main(["job", "set", "j1", "--state", "done"]) == 2
+    assert "drive: j1: refused, nothing changed: --state sets only stopped" in capsys.readouterr().err
     run("job", "add", "builder", "--order", "o1", "--goal", "build the copy")
     run("job", "add", "design", "--order", "o1", "--goal", "cards: the store list")
     assert keep(monkeypatch, capsys, "j3", DESIGNED) == (0, "")
@@ -3375,9 +3448,9 @@ def test_job_brief_refuses_an_adopted_prs_waiting_job_until_an_event_hands_it_of
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Releases", "land the strip")
     run("job", "add", "builder", "--order", "o1", "--goal", "Fix: land it", "--repo", "Forge-AI/monorepo", "--remote")
-    monkeypatch.setattr("sys.stdin", io.StringIO(f"WAITING {PR}\n"))
-    run("job", "report", "j1", "-")
     run("pr", "add", PR, "--job", "j1")
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"WAITING {PR}\n"))
+    assert run("job", "report", "j1", "-")[0] == 0
     brief = ["job", "brief", "j1", "--serves", "his order", "--done-when", "merged", "--where", "Forge-AI/monorepo main"]
     assert cli.main(brief) == 2
     assert capsys.readouterr().err.strip() == (

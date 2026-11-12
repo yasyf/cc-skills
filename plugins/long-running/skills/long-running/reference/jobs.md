@@ -64,10 +64,11 @@ call through, and a merge, release or public-body refusal of `landing_guard` blo
 
 The brief's `Drive:` line names the job, or, when it names none, the job `--agent` already recorded
 the agent on. The agent's first Bash, Read, Write or Edit call, or its stop, records the agent on that
-job, and its first call after a `SendMessage` marks the job running again, when its type is one the
-job's kind runs as: `long-running:builder` on a builder, `long-running:reader` on a reader,
+job, and its first call after a prompt that reached it after its return, such as a `SendMessage`,
+marks the job running again, when its type is one the job's kind runs as: `long-running:builder` on a builder, `long-running:reader` on a reader,
 `long-running:designer` on a design job, and `codex:codex-wrapper` or an incident's second-lane
-`long-running:builder` on a codex job. An agent of any other type is never recorded this way, even
+`long-running:builder` on a codex job; a call or stop after its return with no such prompt leaves
+the return standing. An agent of any other type is never recorded this way, even
 when its brief, the brief file it names or the record it is briefed with names a job: a
 `long-running:handler` started to run `drive job launch <j>` leaves `<j>` to the lane it launches
 and its return sets nothing on `<j>`, and an `orca:orca-doctor` or Explore agent that reads a lane's
@@ -75,8 +76,14 @@ brief leaves the job to that lane. No agent is recorded over a remote job's disp
 Orca lane holds it, and `drive job resume` restarts that lane once it dies. A handler holds a job
 only when the communicator names it with `agent`, the id the `handler` tool returned, as it adds a
 read-only question's reader job. `drive job set <j> --agent <the dispatch the job records>` puts a
-remote job an agent took back on its own lane, its Sprite kept, so `drive job resume` reaches it. The line the agent returns, or the first line it pipes to `drive job report <j> -`, sets the
-state and said line of every job but a codex job:
+remote job an agent took back on its own lane, its Sprite kept, so `drive job resume` reaches it. The first line the agent pipes to `drive job report <j> -` sets the state and said line of every job
+but a codex job, and nothing else does: the stop sends back a line not kept, `drive job set` refuses
+every state but `stopped`, and `drive job report` refuses, naming the fix, a stopped job, a line
+opening with no result, a `WAITING` naming nothing the watch frees it on, a design lane's `DESIGN`
+whose `Fork:` line names a file keeping no question of the job, and a reader's `DESIGN` that
+`drive job ask` refuses as his card. Each drive PR and `release:<service>:<owner>/<repo>#<n>` a
+`READY`, `PUSHED` or `WAITING` line names becomes a wait, which the watch's `FREE` line ends once
+the PR merges or closes or the release is out:
 
 | First line | The job's state |
 |---|---|
@@ -94,13 +101,8 @@ the said line and the whole reply kept as the job's report; a failed or dead run
 `BLOCKED codex-ask <state>:` and its log's last line; a run still going sets nothing and raises no
 gap, whatever the relay ended on. A relay that asked codex nothing is parked like any agent below.
 
-The watch reads the agent's transcript, never the stored state. A running job whose agent ended its
-turn on a result line takes the result the drive keeps for it, as the stop would have: that line when
-it is an `ASK <path>` naming the block `drive job ask` kept, else its kept report's first line,
-whatever line the agent ended on. A kept report is the job's result, since a wake or the stop itself
-re-runs a job after its report took its result, and the `one_line_result` hook can send a stop back
-before it takes one. A running job whose agent ended its turn on a result line with nothing kept,
-ended it 30 minutes ago on any other line, wrote nothing for 30 minutes, or belonged to an earlier
+The watch reads the agent's transcript, never the stored state, and takes no result. A running job
+whose agent ended its turn on a result line, ended it 30 minutes ago on any other line, wrote nothing for 30 minutes, or belonged to an earlier
 session makes its parts `ORPHAN`s. An agent that ends its turn on a line with
 no result word is parked on a task of its own, which usually wakes it; one still parked after 30
 minutes is said with the remedy, a `SendMessage` to wake it.

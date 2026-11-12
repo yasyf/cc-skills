@@ -138,6 +138,8 @@ def test_a_handler_ending_hands_its_line_to_the_communicator_and_removes_its_ses
         "run",
         lambda argv, checkout, env=None: started.append(argv) or (json.dumps([{"id": "b7f2", "sessionId": "h-session"}, {"id": "c1", "sessionId": "x"}]) if argv[1] == "agents" else ""),
     )
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"{LINE}\n"))
+    assert run("job", "report", "j1", "-")[0] == 0
     assert stop(monkeypatch, capsys, "h-session", transcript, LINE) == ""
     assert started[-2] == [
         "cci", "post", "--drive", "demo", "--lane", "handler", "--kind", "done", "--to", "communicator@demo", "--id", f"handler-{handler}", "--text", LINE,

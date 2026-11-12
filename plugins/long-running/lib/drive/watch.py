@@ -182,7 +182,6 @@ def pushed_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 continue
             result, held = verdict
             if result == "pass":
-                job["state"] = "running"
                 state.take_result(data, job_id, "READY" + job["said"].removeprefix("PUSHED"), state.report_text(watcher.name, job_id, job))
                 lines.append(f"JOB {job_id} {job['order']} {job['said']}")
                 continue
@@ -578,7 +577,7 @@ def first_line(text: str) -> str:
 
 
 def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetime, kept: Path | None, unkept: str | None) -> str | None:
-    """Record one message from a remote lane on its job, a final report setting its state and ending any question the lane asked before it, a question opening with a result other than ASK being that result, and the file a `REPRO:` line carries in the fence under it kept as `drive job set --repro` keeps one; the event line it wakes the coordinator with, if any, which for a question naming `LOG <url>`s says drive job resume reads them ahead of the answer, for an `ASK` the watch kept is `ASK <its file>`, as a job's own return is, and for one it could not keep says why, or that `drive job ask` keeps it."""
+    """Record one message from a remote lane on its job, a final report ending any question the lane asked before it and setting its state unless state.result_refusal refuses it, which the event line names, a question opening with a result other than ASK being that result, and the file a `REPRO:` line carries in the fence under it kept as `drive job set --repro` keeps one, executable when it opens with a shebang; the event line it wakes the coordinator with, if any, which for a question naming `LOG <url>`s says drive job resume reads them ahead of the answer, for an `ASK` the watch kept is `ASK <its file>`, as a job's own return is, and for one it could not keep says why, or that `drive job ask` keeps it."""
     job = data["jobs"][job_id]
     kind = message["type"]
     body = message["body"] or ""
@@ -594,6 +593,8 @@ def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetim
     if repro := LANE_REPRO.search(body):
         (path := state.repro_path(name, job_id, Path(repro["path"]).suffix)).parent.mkdir(exist_ok=True)
         path.write_text(repro["text"])
+        if repro["text"].startswith("#!"):
+            path.chmod(0o755)
         job["repro"] = str(path)
     if kind == "question" and (kept or not state.reported(job["said"])):
         job.update(ask=message["id"], ask_at=job["updated"], state="waiting")
@@ -602,6 +603,8 @@ def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetim
             job.update(ask=None, state="running")
         if job["kind"] == "builder":
             job["said"] = re.sub(r"^READY\b", "PUSHED", job["said"])
+        if refused := state.result_refusal(data, job_id, job["said"], body):
+            return f'JOB {job_id} {job["order"]} {job["said"]}; refused, its state unset: {refused}; drive job resume {job_id} "<the refusal>" sends it back'
         state.take_result(data, job_id, job["said"], body)
         state.add_changes(data, job_id, body)
         if state.PUSHED_LINE.match(job["said"]):
@@ -649,8 +652,8 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 if message["type"] == "question" and (question := reads.request(message["body"] or "") or refusals.get(message["id"])):
                     data["jobs"][job_id].setdefault("reads", {})[message["id"]] = question
                     continue
-                lines.append(mail_line(watcher.name, data, job_id, message, moment, asks.get(message["id"]), unkept.get(message["id"])))
                 track_lane_prs(data, job_id, message["body"] or "")
+                lines.append(mail_line(watcher.name, data, job_id, message, moment, asks.get(message["id"]), unkept.get(message["id"])))
     return [line for line in lines + read_lines(watcher, data, moment) if line]
 
 
@@ -1058,20 +1061,6 @@ def said_last(entry: dict) -> str:
     return first_line(texts[-1]) if texts else "nothing"
 
 
-class Unrecorded(str):
-    """A running local job's gap when its agent ended its turn on a result line its job never took, carrying the line its take records: that one, or the result the drive keeps for the job."""
-
-    line: str
-
-    def __new__(cls, job_id: str, line: str) -> Self:
-        made = super().__new__(cls, f'{job_id}\'s agent finished and its result is not recorded: "{cut(line, 100)}"')
-        made.line = line
-        return made
-
-    def take(self, name: str, data: dict, job_id: str) -> None:
-        state.take_result(data, job_id, self.line)
-
-
 class Answered(str):
     """A running codex job's gap when its relay ended its turn after the codex-ask run it asked ended, carrying that run, which the watch takes as the job's result."""
 
@@ -1132,7 +1121,10 @@ def local_gap(job_id: str, job: dict, data: dict, moment: datetime) -> str | Non
             if run:
                 return Answered(job_id, run) if run.ended else None
         elif state.result_state(job, line):
-            return Unrecorded(job_id, line)
+            return (
+                f'{job_id}\'s agent finished and its result is not recorded: "{cut(line, 100)}"; only drive job report {job_id} - sets it,'
+                " or names why it refuses, so SendMessage from the session that started it wakes it to pipe its return there"
+            )
         if quiet >= QUIET_FOR:
             missing = "codex-ask run" if job["kind"] == "codex" else "result line"
             return f'{job_id}\'s agent ended its turn {minutes(quiet)} minutes ago on "{cut(line, 100)}" with no {missing}: SendMessage from the session that started it wakes it, and drive job resume {job_id} <the event> from any other'
@@ -1180,7 +1172,7 @@ def launching(job: dict, moment: datetime) -> bool:
 
 
 def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each running job's gap from its agent or lane, with each PR it has open, and a remote lane, running or waiting, whose worker died; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness. A local agent that ended its turn on a result line has the result the drive keeps for its job taken, as its stop hook takes it, so a stop that skipped the take leaves no gap: that line when it is an `ASK <path>` naming the block `drive job ask` kept, else its kept report's first line, whatever line the agent ended on, since a wake or a stop can re-run a job after its report took its result; a codex job's relay that ended its turn has its codex-ask run taken once that run ended, so a relay that ended before codex answered needs no wake."""
+    """Each running job's gap from its agent or lane, with each PR it has open, and a remote lane, running or waiting, whose worker died; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness. A local agent that ended its turn on a result line its job never took is a gap, since only `drive job report` sets a job's state from its return; a codex job's relay that ended its turn has its codex-ask run taken once that run ended, so a relay that ended before codex answered needs no wake."""
     data = state.load(watcher.name)
     gaps, deaths, heads, found, taken, held, lines = {}, {}, {}, {}, {}, {}, []
     for order in heard_orders(watcher, data).values():
@@ -1194,9 +1186,8 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 if running and (call := held_call(job_id, job, data, moment)):
                     held[job_id] = call
                 gap = running and local_gap(job_id, job, data, moment)
-                kept = isinstance(gap, Unrecorded) and state.kept_result(watcher.name, job_id, job, gap.line)
-                if isinstance(gap, Answered) or kept:
-                    taken[job_id] = Unrecorded(job_id, kept) if kept else gap
+                if isinstance(gap, Answered):
+                    taken[job_id] = gap
                     heads.pop(job_id, None)
                 elif running:
                     gaps[job_id] = gap

@@ -175,7 +175,8 @@ Facts: <the path:line evidence for each load-bearing fact, for the builder>
 ```
 
 `drive job report` refuses a report without the `DESIGN <the part>` first line or any of its
-`Root cause:`, `Settled:`, `Native:`, `Change:`, `Fork:` and `Facts:` lines, naming each one missing, and a
+`Root cause:`, `Settled:`, `Native:`, `Change:`, `Fork:` and `Facts:` lines, naming each one missing, a `Fork:`
+path that keeps no question of your job, and a
 `Change:` line past 80 characters or holding a backtick, double quote, `$` or backslash. Each
 `Change:` line of a design of several becomes a part of the order under its words before
 `(waits on …)`, which the coordinator types as `--part "<the change>"`, so each gets its own builder. A `HANDOFF <path>`, when
