@@ -600,7 +600,7 @@ def board(**changed: object) -> dict:
     counts = {"queue": 0, "blocked": 0, "running": 1, "built": 0, "waiting": 0, "merged": 0, "live": 0, "not started": 0}
     return {
         "drive": "demo", "at": "2026-11-11T00:00:00-08:00", "counts": counts, "queue": [], "status": [{"state": "running", "features": [FEATURE]}], "cards": "live",
-        "review": [], "work": lanes, "history": moments, "incidents": [], "repo": "", "undo_seconds": 10, "links": [], "channel": "D1",
+        "review": [], "work": lanes, "history": moments, "incidents": [], "bug_reports": [], "repo": "", "undo_seconds": 10, "links": [], "channel": "D1",
     } | changed
 
 
@@ -832,6 +832,48 @@ done({ strip, opened, rows, closed: !list.matches(':popover-open'), hash: locati
         ],
         "closed": True,
         "hash": "#/feature/o2",
+    }
+
+
+def test_the_top_strip_counts_bug_reports_beside_incidents_until_each_reporter_is_told_and_lists_them_by_stage(tmp_path: Path) -> None:
+    pr = {"title": "fix", "url": "https://github.com/a/b/pull/3", "state": "open", "checks": "pending", "review": "none", "tap": None}
+    outage = FEATURE | {"id": "o4", "title": "SandSQL journal failing"}
+    fixing = FEATURE | {"id": "o1", "title": "Runs page errors", "jobs": [{"id": "j1", "state": "running"}], "prs": [pr]}
+    merged = FEATURE | {"id": "o2", "title": "GET /api/runs fails", "updated": "2026-11-10T21:00:00-08:00"}
+    told = FEATURE | {"id": "o3", "title": "Questions stopped showing"}
+    reports = [
+        {"id": "o3", "title": told["title"], "created": "2026-11-10T19:00:00-08:00", "stage": "told"},
+        {"id": "o2", "title": merged["title"], "created": "2026-11-10T20:00:00-08:00", "stage": "merged"},
+        {"id": "o1", "title": fixing["title"], "created": "2026-11-10T21:00:00-08:00", "stage": "fixing"},
+    ]
+    seen = browse(tmp_path, """
+const strip = () => [...document.querySelectorAll('#alerts > *')].map((each) => each.textContent);
+const before = strip();
+document.querySelector('#alerts [popovertarget="bug-reports"]').click();
+await wait(50);
+const list = document.querySelector('#bug-reports');
+const opened = list.matches(':popover-open');
+const head = [list.querySelector('.inc-head b').textContent, list.querySelector('.inc-head span').textContent];
+const rows = [...list.querySelectorAll('li a')].map((row) => [row.getAttribute('href'), row.querySelector('.meta').textContent.replace(/\\s+/g, ' ').split(' · ')]);
+list.querySelector('li a').click();
+await wait(50);
+const closed = !list.matches(':popover-open');
+const hash = location.hash;
+await push({ ...MODEL, bug_reports: MODEL.bug_reports.map((report) => (report.id === 'o2' ? { ...report, stage: 'told' } : report)) });
+done({ before, opened, head, rows, closed, hash, after: strip() });
+""", board(status=[{"state": "running", "features": [outage, fixing, merged, told]}], incidents=[{"id": "o4", "title": outage["title"], "created": "2026-11-10T20:00:00-08:00"}], bug_reports=reports))
+    assert seen == {
+        "before": ["1 incident open", "2 bug reports open"],
+        "opened": True,
+        "head": ["2 bug reports open", "1 being fixed · 1 merged · 1 told, each open until its reporter is told the fix is live"],
+        "rows": [
+            ["#/feature/o1", ["Being fixed", "reported Nov 10 9:00 PM", "1 job working", "1 open PR"]],
+            ["#/feature/o2", ["Fix merged, waits on proof it is live", "reported Nov 10 8:00 PM", "nothing moving since Nov 10 9:00 PM"]],
+            ["#/feature/o3", ["Its reporter was told it is fixed", "reported Nov 10 7:00 PM"]],
+        ],
+        "closed": True,
+        "hash": "#/feature/o1",
+        "after": ["1 incident open", "1 bug report open"],
     }
 
 
