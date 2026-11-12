@@ -1487,7 +1487,7 @@ def job_report(args: argparse.Namespace) -> int:
             raise DriveError(f"{args.id}: refused, nothing kept: {refused}")
         if job["kind"] == "builder" and re.match(r"(?:READY|PUSHED)\b", line):
             try:
-                served.check(name, args.id, [], [])
+                served.check(name, args.id, [], [], [line for line in whole.splitlines() if line.startswith("DESIGN:")], {})
             except DriveError as error:
                 raise DriveError(f"{args.id}: refused, nothing kept: {error}") from None
         if job["kind"] == "builder" and re.match(r"READY\b", line) and (held := unready(data, job, line)):
@@ -1953,10 +1953,12 @@ def pr_set(args: argparse.Namespace) -> int:
     if args.no_tapped:
         refuse_a_tap_of_his(name, key, dropped)
     order = known["prs"][key]["order"]
+    if args.part:
+        refuse_a_part_its_job_lacks(known, key, args.part)
     if args.serves:
         refuse_a_crossed_order(name, known, order, args.serves, f"{key} --serves")
         refuse_an_unwritten_rule(known, key)
-        refuse_a_change_against_his_words(name, known, key, args.serves, args.tap)
+        refuse_a_change_against_his_words(name, known, key, args)
     if args.serves and not args.design and (known["prs"][key]["wants_tap"] if args.tap is None else args.tap):
         raise DriveError(
             "--serves on a PR waiting on his tap needs --design asked:<his answer id or card permalink> for each design decision"
@@ -1994,6 +1996,8 @@ def pr_set(args: argparse.Namespace) -> int:
         if args.serves:
             served = f"\nserves {args.serves}, his words: {find(data['orders'], args.serves, 'order')['text']}"
         set_pr(pr, args)
+        if args.part:
+            served += f"\ndelivers {'; '.join(pr['parts'])}"
     untapped = ""
     if args.no_tapped:
         repo, number = key.split("#")
@@ -2014,11 +2018,22 @@ def pr_set(args: argparse.Namespace) -> int:
     return emit(args, line, {"key": key, "withdrawn": withdrawn, **pr})
 
 
-def refuse_a_change_against_his_words(name: str, data: dict, key: str, serves: str, tap: bool | None) -> None:
-    """Refuse a PR serving an order while its change at its head, judged with its job's other PRs his card waits on, goes against the words of that order, its job's or any its job carries, a PR this --tap sets waiting on his tap judged too, as a remote lane's READY reaches the drive with no drive job report to judge it; one its builder's READY passed at this head is not judged again."""
+def refuse_a_part_its_job_lacks(data: dict, key: str, parts: list[str]) -> None:
+    """Refuse a --part its job delivers on no order, since the PR's change is judged against the parts its job's PRs name."""
+    job_id = data["prs"][key]["job"]
+    job = data["jobs"][job_id]
+    delivered = [*job["parts"], *(part for carried in job["carries"].values() for part in carried)]
+    if unknown := [part for part in parts if part not in delivered]:
+        listed = ", ".join(f'"{part}"' for part in delivered)
+        raise DriveError(f"{key}: refused, nothing set: its job {job_id} delivers no part {', '.join(unknown)}; its parts are {listed}")
+
+
+def refuse_a_change_against_his_words(name: str, data: dict, key: str, args: argparse.Namespace) -> None:
+    """Refuse a PR serving an order while its change at its head, judged with its job's other PRs his card waits on, goes against the words of that order, its job's or any its job carries, or of the answers of his this --design cites, judged for the parts this --part names, a PR this --tap sets waiting on his tap judged too, as a remote lane's READY reaches the drive with no drive job report to judge it; one its builder's READY passed at this head is not judged again."""
     job_id = data["prs"][key]["job"]
     try:
-        served.check(name, job_id, [serves], [key] if tap else [])
+        setting = ({"design": args.design} if args.design else {}) | ({"parts": args.part} if args.part else {})
+        served.check(name, job_id, [args.serves], [key] if args.tap else [], [], {key: setting})
     except served.Against as error:
         resume = f"drive job resume {job_id} with this refusal" if data["jobs"][job_id]["where"] == "remote" else f"a fresh builder on {job_id} briefed with this refusal"
         raise DriveError(f"{key}: refused, nothing set: {error}. Send it back by {resume}") from None
@@ -2111,6 +2126,8 @@ def set_pr(pr: dict, args: argparse.Namespace) -> None:
         pr["serves"] = args.serves
     if args.design:
         pr["design"] = args.design
+    if args.part:
+        pr["parts"] = list(dict.fromkeys(args.part))
     if args.port_of:
         pr.update(port_of=args.port_of, exempt="pure port", wants_tap=False)
     if args.tap is not None:
@@ -3297,7 +3314,13 @@ def parser() -> argparse.ArgumentParser:
         "--design",
         type=design_basis,
         metavar="asked:<answer>|none",
-        help="his answer or card that settled each design decision the PR makes, or none; --serves needs it",
+        help="his answer or card that settled each design decision the PR makes, or none; --serves needs it, and its words check reads each answer whole as his words",
+    )
+    verb.add_argument(
+        "--part",
+        action="append",
+        default=[],
+        help="a part of its job's orders this PR delivers, replacing the parts it named; its job's change is judged against the parts its PRs name, every part of the job when none names one",
     )
     exemption = verb.add_mutually_exclusive_group()
     exemption.add_argument("--exempt", choices=state.EXEMPT_CLASSES)

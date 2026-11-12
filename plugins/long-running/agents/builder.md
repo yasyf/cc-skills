@@ -115,7 +115,8 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    `READY`, and a red one comes back as `PR … READY refused, its required <check> failed at <head>
    (<build>)`, and `drive job report` refuses a `READY` while one is pending or red. It also judges
    the change of each PR his card waits on, its title and diff at its head and never its body,
-   against the words of your order and every order your job carries, and refuses a `PUSHED` naming
+   against the words of your order and every order your job carries and each answer of his your
+   `DESIGN:` line names by id or card permalink, read whole, and refuses a `PUSHED` naming
    each of his words the change goes against: change the PRs to his words, push and return `PUSHED`
    again, or `ASK` for a reading his words leave open. The watch draws his
    card the minute GitHub reports a checked PR green and approved, whatever its body says; a port
@@ -317,7 +318,7 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 | `SERVES:` | `port of #N`, or the order of his it carries out, quoted from your brief |
 | `CHANGE:` | what changed for him; on a PR reworked to his words, how they are met, which its fresh card shows him |
 | `CHECK:` | the proof: a link, or the absolute path of a file that exists |
-| `DESIGN:` | on a `READY`, each design decision the PR makes beside the answer id or card permalink of his that settled it, or `none` |
+| `DESIGN:` | on a `READY`, each design decision the PR makes beside the answer id or card permalink of his that settled it, or `none`; `drive job report` reads each answer it names whole as his words when it judges the change |
 | `NATIVE:` | what the platform he sees it on already does for this and what the change builds on, with links, or `none: he never sees it` |
 | `RULINGS:` | each ruling of his on the area you followed, quoted |
 | `REUSES:` | on a `READY` whose research found something that exists, how the PR calls or extends it; `drive job report` refuses a `READY` without it |
