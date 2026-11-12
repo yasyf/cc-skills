@@ -4,7 +4,7 @@ import subprocess
 from itertools import takewhile
 from pathlib import Path
 
-from drive import github, install, state, view
+from drive import github, install, served, state, view
 from drive.render import cut
 
 ENQUEUE = Path(".agents/skills/submit-pr/scripts/stack-enqueue")
@@ -18,6 +18,9 @@ LANDS_ON = ("approved", "stale")
 REVIEW_ASK = "@forge-pr-reviewer review"
 BLOCKED_LINE = re.compile(r"^#(?P<number>\d+) BLOCKED (?P<head>\w+) (?P<gaps>.+)$", re.MULTILINE)
 OLDER_HEAD = re.compile(r"awaiting approval on head from \S+ \(approved [^,]+, (?:on an older head|dismissed by a push)\)")
+REVERT = re.compile(r"^Reverts?\s|⏪|\bThis reverts\b", re.MULTILINE)
+STORED_DATA = re.compile(r"(?:^|/)migrations?/|(?:^|/)[^/]*schema[^/]*$|\.(?:sql|proto)$", re.IGNORECASE)
+CI_FILES = re.compile(r"^(?:\.github|\.buildkite)/|^(?:go|tools)/ci/")
 
 
 def open_cards(data: dict, pr: dict, cards: dict | None) -> list[str]:
@@ -31,6 +34,35 @@ def open_cards(data: dict, pr: dict, cards: dict | None) -> list[str]:
 
 def approved(pr: dict) -> bool:
     return (pr["tap"] or {}).get("label") == "Approve"
+
+
+def stored(paths: list[str]) -> list[str]:
+    """The paths that change how data is stored, a migration, schema or wire format, which no pure port carries."""
+    return [path for path in paths if STORED_DATA.search(path)]
+
+
+def unexempt(data: dict, key: str) -> str | None:
+    """Why a PR landing by its exempt class rather than his Approve is not in that class, by its changed files, title and body on GitHub now, by his ruling that the landing tool checks the PR really is in the exempt class before it lands; None when it is, or he approved it."""
+    pr = data["prs"][key]
+    if approved(pr):
+        return None
+    read = served.change(key)
+    paths = [path for path, _ in served.files(read["diff"])]
+    match pr["exempt"]:
+        case "pure port":
+            outside = stored(paths)
+            why = f"it changes {', '.join(outside)}, how its data is stored, which a port models anew for the target tree on his card" if outside else ""
+        case "test-only" | "flake fix":
+            outside = [path for path in paths if not served.TESTS.search(path)]
+            why = f"it changes {', '.join(outside)}, outside test and fixture code" if outside else ""
+        case "ci-only":
+            outside = [path for path in paths if not CI_FILES.search(path)]
+            why = f"it changes {', '.join(outside)}, outside CI configuration and CI tooling" if outside else ""
+        case "incident fix":
+            why = "its title or body says it reverts a change, which lands only on his tap" if REVERT.search(f"{read['title']}\n{read['body']}") else ""
+    if not why:
+        return None
+    return f'{key} is no "{pr["exempt"]}": {why}; it lands on his Approve once drive pr set {state.pr_url(key)} --no-exempt --tap puts it on his card'
 
 
 def running(pr: dict) -> bool:
@@ -50,9 +82,9 @@ def landing(pr: dict) -> bool:
 
 
 def unit(data: dict, key: str) -> tuple[str, ...]:
-    """The PRs one lander queues with key, bottom first: the open PRs of the stack his card drew it in, else key alone, up to the first he has not approved."""
+    """The PRs one lander queues with key, bottom first: the open PRs of the stack his card drew it in, else key alone, up to the first neither his Approve nor an exempt class clears."""
     members = [member for member in data["prs"][key].get("stack") or [key] if data["prs"][member]["state"] == "open"]
-    return tuple(takewhile(lambda member: approved(data["prs"][member]), members))
+    return tuple(takewhile(lambda member: state.cleared(data["prs"][member]), members))
 
 
 def ready(data: dict, keys: tuple[str, ...], cards: dict) -> bool:
@@ -71,33 +103,33 @@ def ready(data: dict, keys: tuple[str, ...], cards: dict) -> bool:
 
 
 def tried(data: dict, pr: dict) -> bool:
-    """Whether a lander tried the PR's head and nothing it waited on has moved since: one that found PRs below it without his Approve tries again once he approves each of them or it merges."""
+    """Whether a lander tried the PR's head and nothing it waited on has moved since: one that found PRs below it neither his Approve nor an exempt class clears tries again once each of them is cleared or merges."""
     lander = pr["lander"] or {}
     if lander.get("head") != pr["head"]:
         return False
-    return not lander.get("below") or not all(key in data["prs"] and (approved(data["prs"][key]) or data["prs"][key]["state"] == "merged") for key in lander["below"])
+    return not lander.get("below") or not all(key in data["prs"] and (state.cleared(data["prs"][key]) or data["prs"][key]["state"] == "merged") for key in lander["below"])
 
 
-def unapproved_below(data: dict, keys: list[str]) -> list[str]:
-    """The open PRs stack-enqueue would queue with keys, below one of them in its native GitHub stack or under one through its base, that he has not approved."""
+def uncleared_below(data: dict, keys: list[str]) -> list[str]:
+    """The open PRs stack-enqueue would queue with keys, below one of them in its native GitHub stack or under one through its base, that neither his Approve nor an exempt class clears."""
     under = dict.fromkeys(key for target in keys for key in github.below(target) if key not in keys)
-    return [key for key in under if not (key in data["prs"] and approved(data["prs"][key]))]
+    return [key for key in under if not (key in data["prs"] and state.cleared(data["prs"][key]))]
 
 
 def held_below(keys: list[str], below: list[str]) -> str:
     return (
-        f"not landed: {', '.join(below)} sits below {', '.join(keys)} in its stack without his Approve, and stack-enqueue queues a stack from its bottom, "
-        "so his Approve on a PR above would land it too; it lands once he approves each of them or they merge"
+        f"not landed: {', '.join(below)} sits below {', '.join(keys)} in its stack with neither his Approve nor an exempt class, and stack-enqueue queues a stack"
+        " from its bottom, so landing a PR above would land it too; it lands once he approves each of them or they merge"
     )
 
 
 def units(data: dict, keys: list[str], cards: dict) -> list[tuple[str, ...]]:
-    found = dict.fromkeys(unit(data, key) for key in keys if state.queued_on_tap(key) and data["prs"][key]["state"] == "open")
+    found = dict.fromkeys(unit(data, key) for key in keys if state.queued_by_lander(key) and data["prs"][key]["state"] == "open")
     return [members for members in found if members and ready(data, members, cards)]
 
 
 def start(name: str, keys: list[str], cards: dict | None) -> list[tuple[str, ...]]:
-    """Start a lander on each unit his Approve covers among keys that is ready, marking its PRs under the drive's lock so no second lander starts on their heads; the units started. With his cards unread, none, since a card of his may hold one."""
+    """Start a lander on each unit his Approve or exempt classes clear among keys that is ready, marking its PRs under the drive's lock so no second lander starts on their heads; the units started. With his cards unread, none, since a card of his may hold one."""
     if cards is None or not units(state.load(name), keys, cards):
         return []
     with state.edit(name) as data:
@@ -156,10 +188,10 @@ def spawn(name: str, keys: tuple[str, ...]) -> int:
 
 
 def run(name: str, keys: list[str], dry_run: bool = False) -> str:
-    """Land one unit his Approve covers, or one yasyf/* PR, never one someone else opened that no order of his it serves names, then record what came of it on each PR and as a landing event, which the watch says on the PR's line: a failure wakes its job, a queued one does not. A unit with a PR below it he has not approved is not queued, since stack-enqueue would queue that PR too. A dry run says what it would do and records nothing."""
+    """Land one unit his Approve or exempt classes clear, or one yasyf/* PR, never one someone else opened that no order of his it serves names, then record what came of it on each PR and as a landing event, which the watch says on the PR's line: a failure wakes its job, a queued one does not. A unit with a PR below it that nothing clears is not queued, since stack-enqueue would queue that PR too, nor one with a PR its changes put outside its exempt class. A dry run says what it would do and records nothing."""
     data = state.load(name)
-    if refused := [key for key in keys if not (state.merges_untapped(key) or state.queued_on_tap(key) and approved(data["prs"][key]))]:
-        raise state.DriveError(f"{', '.join(refused)}: the drive lands a yasyf/* PR, or a Forge-AI/monorepo PR he approved, and no other")
+    if refused := [key for key in keys if not (state.merges_untapped(key) or state.queued_by_lander(key) and state.cleared(data["prs"][key]))]:
+        raise state.DriveError(f"{', '.join(refused)}: the drive lands a yasyf/* PR, or a Forge-AI/monorepo PR he approved or an exempt class lands, and no other")
     if foreign := [why for key in keys if (why := state.foreign_pr(data, key))]:
         raise state.DriveError("; ".join(foreign))
     below: list[str] = []
@@ -167,14 +199,17 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
         outcome = "would merge it with gh pr merge --squash --admin, then install each plugin it changes" if dry_run else merged(keys[0])
     else:
         try:
-            below = unapproved_below(data, keys)
-        except github.GithubError as error:
+            below = uncleared_below(data, keys)
+            misfiled = "; ".join(why for key in keys if (why := unexempt(data, key)))
+        except (github.GithubError, state.DriveError) as error:
             outcome = f"not landed: {cut(str(error), SAID_CHARS)}"
         else:
-            if below:
+            if misfiled:
+                outcome = f"not landed: {misfiled}"
+            elif below:
                 outcome = held_below(keys, below)
             elif dry_run:
-                outcome = f"would queue {', '.join(keys)} through stack-enqueue --watch: every PR below it is merged or approved by him"
+                outcome = f"would queue {', '.join(keys)} through stack-enqueue --watch: every PR below it is merged, approved by him or exempt"
             else:
                 outcome = enqueued(name, Path(data["roles"]["coordinator"]["cwd"]), keys)
     if dry_run:

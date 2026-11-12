@@ -29,7 +29,7 @@ def test_a_pr_past_githubs_300_file_diff_reads_whole_as_bytes_from_the_compare_o
 
     def gh(cmd: list[str], text: bool = False, **_: object) -> subprocess.CompletedProcess:
         calls.append(cmd)
-        out = json.dumps({"title": "Cleanup: move the fixtures", "baseRefOid": "base1", "headRefOid": "head1"}).encode() if "view" in cmd else MOVE
+        out = json.dumps({"title": "Cleanup: move the fixtures", "body": "", "baseRefOid": "base1", "headRefOid": "head1"}).encode() if "view" in cmd else MOVE
         return subprocess.CompletedProcess(cmd, 0, out.decode() if text else out, "" if text else b"")
 
     monkeypatch.setattr(github.subprocess, "run", gh)

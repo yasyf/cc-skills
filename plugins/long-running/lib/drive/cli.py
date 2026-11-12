@@ -22,8 +22,11 @@ INCIDENT_PARTS = {"release": ["first check"], "rollback": ["rollback", "cause"],
 FREEZE_FOR = timedelta(hours=12)
 RELEASE_NAME = re.compile(r"[a-z]+-[a-z]+")
 INCIDENT_EXEMPTION = "incident fix"
-REVERT = re.compile(r"^Reverts?\s|⏪|\bThis reverts\b", re.MULTILINE)
-STORED_DATA = re.compile(r"(?:^|/)migrations?/|(?:^|/)[^/]*schema[^/]*$|\.(?:sql|proto)$", re.IGNORECASE)
+UNLANDABLE = (
+    "{key}: refused, nothing {done}: only his tap or an exempt class lands a Forge-AI PR, and this leaves it with neither, so no card"
+    " of his would ask his Approve and the lander would never queue it. Keep it waiting on his tap, or record its class with"
+    " --exempt <class> or --port-of <N>; his order reworking it takes its card down with drive order set <o> --rework <url>"
+)
 PORT_DATA_RULING = 'his Nov 12 words "port his visuals but always do it the fundamentally right way when it comes to modelng the data"'
 FILING = ("project", "workstream")
 TOOLING_FILING = ("The drive", "Drive tooling")
@@ -1873,6 +1876,8 @@ def pr_add(args: argparse.Namespace) -> int:
     key = state.pr_key(args.url)
     if args.no_tap and not args.why:
         raise DriveError("--no-tap needs --why <reason>: every PR waits on his tap unless it is a port, exempt or drive tooling outside Forge-AI")
+    if args.no_tap and state.guarded(key):
+        raise DriveError(UNLANDABLE.format(key=key, done="added"))
     pr, merging = add_pr(name, key, args.job, github_pr(key), args.port_of, args.exempt, args.no_tap)
     if merging is None:
         return emit(args, key, {"key": key, **pr})
@@ -1956,6 +1961,11 @@ def pr_set(args: argparse.Namespace) -> int:
         raise DriveError(f"no drive PR {key}: add it first with drive pr add {args.url} --job <j>, then set it")
     if why := state.foreign_pr(known, key):
         raise DriveError(f"{key}: refused, nothing set: {why}")
+    before = known["prs"][key]
+    after = dict(before)
+    set_pr(after, args)
+    if state.guarded(key) and (before["wants_tap"] or before.get("exempt")) and not (after["wants_tap"] or after.get("exempt")):
+        raise DriveError(UNLANDABLE.format(key=key, done="set"))
     dropped = known["prs"][key]["tap"]
     if args.no_tapped:
         refuse_a_tap_of_his(name, key, dropped)
@@ -2142,7 +2152,7 @@ def set_pr(pr: dict, args: argparse.Namespace) -> None:
     if args.serves or args.design:
         pr["ready_said"] = None
     if args.fundamental:
-        pr.update(fundamental=args.fundamental, tap=None, exempt=None, ready_said=None)
+        pr.update(fundamental=args.fundamental, tap=None, exempt=None, wants_tap=True, ready_said=None)
     if args.exempt:
         pr["exempt"] = args.exempt
     if args.no_exempt:
@@ -2220,7 +2230,7 @@ def refuse_an_unkinded_title(key: str, read: dict, port_of: int | None) -> None:
 
 def refuse_a_port_storing_data(key: str, port_of: int) -> None:
     """A port that changes how data is stored, a migration, schema or wire format, is no pure port: its data is modeled the fundamentally right way for the target tree, a design part of the order he settles, never #N's storage carried across with no tap."""
-    stored = [path for path, _ in served.files(served.change(key)["diff"]) if STORED_DATA.search(path)]
+    stored = land.stored([path for path, _ in served.files(served.change(key)["diff"])])
     if not stored:
         return
     raise DriveError(
@@ -2233,7 +2243,7 @@ def refuse_a_port_storing_data(key: str, port_of: int) -> None:
 
 def refuse_an_exempt_revert(data: dict, key: str, order_id: str, read: dict, adding: str = "") -> None:
     """A PR whose title or body says it reverts a change takes that change out, which no incident order approves: it lands only on his tap, on a card stating the bug in that change."""
-    if not REVERT.search(f"{read['title']}\n{read['body']}"):
+    if not land.REVERT.search(f"{read['title']}\n{read['body']}"):
         return
     record = data["orders"][order_id]["note"] or "none noted yet"
     raise DriveError(
@@ -3308,7 +3318,7 @@ def parser() -> argparse.ArgumentParser:
     untapped = verb.add_mutually_exclusive_group()
     untapped.add_argument("--port-of", type=int, metavar="PR", help="a pure port of this old-tree PR number: exempt, with no tap card; refused for a PR changing a migration, schema or wire format, whose data model is a design part of his order")
     untapped.add_argument("--exempt", choices=state.EXEMPT_CLASSES)
-    untapped.add_argument("--no-tap", action="store_true", help="it lands with no tap of his; needs --why. Every other PR waits on his tap")
+    untapped.add_argument("--no-tap", action="store_true", help="it lands with no tap of his, outside Forge-AI; needs --why. Every other PR waits on his tap")
     verb.set_defaults(run=pr_add)
     verb = pr.add_parser("set", parents=[*both, waits_opt])
     verb.add_argument("url", help="the PR's URL")

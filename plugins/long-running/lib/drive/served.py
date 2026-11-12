@@ -93,15 +93,15 @@ def patch(diff: bytes) -> str:
 
 
 def change(key: str) -> dict:
-    """A PR's title, head and diff as GitHub has them now, the diff the bytes of GitHub's compare of the base and head just read, the diff `gh pr diff` gives with no cap on its files, so the head kept is the head judged."""
+    """A PR's title, body, head and diff as GitHub has them now, the diff the bytes of GitHub's compare of the base and head just read, the diff `gh pr diff` gives with no cap on its files, so the head kept is the head judged."""
     repo, number = key.split("#")
     try:
-        read = json.loads(github.read(f"{key}'s title, base and head", ["gh", "pr", "view", number, "--repo", repo, "--json", "title,baseRefOid,headRefOid"]))
+        read = json.loads(github.read(f"{key}'s title, body, base and head", ["gh", "pr", "view", number, "--repo", repo, "--json", "title,body,baseRefOid,headRefOid"]))
         compare = f"repos/{repo}/compare/{read['baseRefOid']}...{read['headRefOid']}"
         diff = github.read(f"{key}'s diff", ["gh", "api", compare, "-H", "Accept: application/vnd.github.diff", "--allow-escape-sequences"], text=False)
     except github.GithubError as error:
         raise DriveError(f"{key}: {error}; run this again") from None
-    return {"title": read["title"], "head": read["headRefOid"], "diff": diff}
+    return {"title": read["title"], "body": read["body"], "head": read["headRefOid"], "diff": diff}
 
 
 def files(diff: bytes) -> list[tuple[str, str]]:

@@ -1211,9 +1211,14 @@ def guarded(key: str) -> bool:
     return key.split("/")[0].lower() == GUARDED_OWNER
 
 
-def queued_on_tap(key: str) -> bool:
-    """Whether his Approve lands the PR with no session turn: a Forge-AI/monorepo one, which the drive's lander queues through stack-enqueue."""
+def queued_by_lander(key: str) -> bool:
+    """Whether the drive's lander lands the PR with no session turn once his Approve or an exempt class clears it: a Forge-AI/monorepo one, which it queues through stack-enqueue."""
     return key.split("#")[0].lower() == MONOREPO.lower()
+
+
+def cleared(pr: dict) -> bool:
+    """Whether the PR may land with no more word from him: he approved it, or an exempt class lands it with no tap."""
+    return (pr["tap"] or {}).get("label") == "Approve" or bool(pr.get("exempt"))
 
 
 def names_pr(words: str, key: str) -> bool:
@@ -1280,9 +1285,26 @@ def checked(data: dict, pr: dict) -> bool:
     return bool(stamp) and stamp["head"] == pr["head"] and set(served_orders(data, pr)) <= set(stamp["orders"])
 
 
+def tap_refused(pr: dict) -> str | None:
+    """Why his card on the PR offers no Approve, so no fresh card draws for it; None when it does: open, his card owed, and neither his Approve nor the hold label on it."""
+    if pr["state"] != "open":
+        return f"it is {pr['state']}"
+    match owed_step(pr):
+        case "landing":
+            return f'its exempt class "{pr["exempt"]}" lands it with no tap'
+        case "reworking":
+            return "it is being reworked to his words"
+        case None:
+            return "its author or its own builder lands it with no tap"
+    if (pr["tap"] or {}).get("label") == "Approve":
+        return "he approved it already"
+    if pr["hold_label"]:
+        return "it carries the hold label"
+    return None
+
+
 def asks_tap(pr: dict) -> bool:
-    """Whether his card on the PR offers his Approve: open, his card owed, and neither his Approve nor the hold label on it."""
-    return pr["state"] == "open" and owed_step(pr) == "card" and (pr["tap"] or {}).get("label") != "Approve" and not pr["hold_label"]
+    return tap_refused(pr) is None
 
 
 def rework(pr: dict, by: str, words: str) -> None:

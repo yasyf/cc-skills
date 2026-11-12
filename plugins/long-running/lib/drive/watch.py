@@ -1528,7 +1528,7 @@ def carried_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def landed(watcher: Watcher) -> None:
-    """Start the drive's lander on each PR the watch hears that his Approve covers once it qualifies, within one GitHub read of it going green and approved."""
+    """Start the drive's lander on each PR the watch hears that his Approve or an exempt class clears once it qualifies, within one GitHub read of it going green and approved."""
     data = state.load(watcher.name)
     land.start(watcher.name, [key for key in state.open_pr_keys(data) if hears(watcher, data, data["prs"][key]["order"])], watcher.cards)
 
@@ -1541,8 +1541,8 @@ def holder_line(line: str, data: dict) -> str | None:
 
 
 def needs_step(line: str, data: dict) -> bool:
-    """Whether a line asks for a step now: any line but a PR's, his Approve of a PR the drive's lander queues only when it is red or conflicts with its base, and a PR's when its job is not running to take it, its new head, checks passed, approval or queueing only when the coordinator owes it its exempt landing; never his card itself, which the watch draws, nor its landing after his Approve, which the lander does, nor GitHub's merged line for a PR the lander merges and says so itself, nor when its author or its own builder lands it."""
-    if (tapped := TAP_EVENT.match(line)) and tapped["label"] == "Approve" and state.queued_on_tap(tapped["key"]):
+    """Whether a line asks for a step now: any line but a PR's, his Approve of a PR the drive's lander queues only when it is red or conflicts with its base, and a PR's when its job is not running to take it, its new head, checks passed, approval or queueing only when the coordinator owes it its exempt landing, which the drive's lander does for a Forge-AI/monorepo one; never his card itself, which the watch draws, nor its landing after his Approve, which the lander does, nor GitHub's merged line for a PR the lander merges and says so itself, nor when its author or its own builder lands it."""
+    if (tapped := TAP_EVENT.match(line)) and tapped["label"] == "Approve" and state.queued_by_lander(tapped["key"]):
         pr = data["prs"].get(tapped["key"])
         return pr is None or pr["checks"] == "fail" or bool(pr["conflict"])
     found = PR_EVENT.match(line)
@@ -1551,7 +1551,7 @@ def needs_step(line: str, data: dict) -> bool:
     pr = data["prs"][found["key"]]
     if found["change"] == "merged" and land.reported(found["key"], pr):
         return False
-    owes = state.owed_step(pr) == "landing"
+    owes = state.owed_step(pr) == "landing" and not state.queued_by_lander(found["key"])
     return data["jobs"][found["job"]]["state"] != "running" and (owes or not found["change"].startswith(OWN_MOVES))
 
 
