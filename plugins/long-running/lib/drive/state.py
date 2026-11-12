@@ -23,6 +23,10 @@ FINISHED_JOB_STATES = ("done", "failed", "stopped")
 INCIDENT_FIX = "fix"
 INCIDENT_STOP = "stop"
 INCIDENT_PARTS = {"release": ["first check"], "rollback": ["rollback", "cause"], "none": [INCIDENT_STOP, "cause"]}
+UNLIVE_FIX = (
+    '{order}\'s "{part}" is the fix of an open incident, which a post delivers only once the fix runs where the incident hurt:'
+    " after the watch records it live, when the release shipping its fix job's change is out, or by closing the incident"
+)
 IMMEDIATE_FIX = "immediate fix"
 FOLLOW_UP = "follow-up"
 RESULT_STATES = {"DONE": "done", "READY": "waiting", "PUSHED": "waiting", "WAITING": "waiting", "DESIGN": "waiting", "ASK": "waiting", "BLOCKED": "failed", "HANDOFF": "stopped"}
@@ -672,6 +676,11 @@ def delivered(data: dict, order_id: str, part: str) -> bool:
     return bool(data["orders"][order_id]["parts"][part]["posted"]) or done
 
 
+def unlive_fix(data: dict, order_id: str, part: str) -> bool:
+    """Whether the part is the fix of an open incident the watch has not recorded live, which no post delivers, since the incident lasts until its fix runs where it hurt: only the watch's fix-live record, the order's fixed, set once the release shipping its fix job's change is out, or the incident's close delivers it."""
+    return part == INCIDENT_FIX and bool(open_incidents(data, [order_id])) and not data["orders"][order_id]["fixed"]
+
+
 def unposted_answer(data: dict, job_id: str) -> bool:
     """Whether a finished job's answer reaches him only by a post: it drew no card of his, which carries an answer itself, his recorded words settled none of its questions, and no builder carries its design."""
     job = data["jobs"][job_id]
@@ -679,11 +688,11 @@ def unposted_answer(data: dict, job_id: str) -> bool:
 
 
 def answered_parts(data: dict, order_id: str) -> dict[str, list[str]]:
-    """Each part of the order a finished job answered that no post delivered and no job still works on, with the jobs holding its answer: the parts the watch says are answered and not posted to him, which the next report on the order carries."""
+    """Each part of the order a finished job answered that no post delivered, no job still works on and a post may deliver, so never an open incident's fix before the watch records it live, with the jobs holding its answer: the parts the watch says are answered and not posted to him, which the next report on the order carries."""
     found = {}
     for part in data["orders"][order_id]["parts"]:
         jobs = part_jobs(data, order_id, part)
-        if delivered(data, order_id, part) or any(job["state"] not in FINISHED_JOB_STATES for _, job in jobs):
+        if delivered(data, order_id, part) or unlive_fix(data, order_id, part) or any(job["state"] not in FINISHED_JOB_STATES for _, job in jobs):
             continue
         if answered := [job_id for job_id, _ in jobs if unposted_answer(data, job_id)]:
             found[part] = answered

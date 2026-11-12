@@ -60,12 +60,16 @@ def test_each_record_of_a_batch_is_cut_and_his_stay_whole(demo: str) -> None:
     assert whole == records[1]
 
 
-def test_a_long_record_that_attaches_a_file_is_cut_to_one_line_and_keeps_its_file(demo: str) -> None:
-    asked = f"ASK j12 asks which layout the run page keeps; the whole question and its options are in {'/x' * 40}/j12-ab12cd34.md"
-    made = record_lines.decision(post(records=[post(kind="report", text=LONG)["tool_input"], {"kind": "report", "text": asked, "path": "/tmp/facts.md"}]))
+def test_a_long_record_that_attaches_a_file_keeps_its_whole_text_atop_its_body_and_the_file_under_it(demo: str, tmp_path: Path) -> None:
+    facts = tmp_path / "j1936.md"
+    facts.write_text("DONE dev already fixes it\n")
+    asked = f"POST mechanism found: the failing Macs run an older sand, and their reports name migration 10 in {'/x' * 40}/j1936.md"
+    made = record_lines.decision(post(records=[post(kind="report", text=LONG)["tool_input"], {"kind": "report", "text": asked, "path": str(facts)}]))
     cut = made["updatedInput"]["records"][1]
-    assert cut == {"kind": "report", "text": limits.first_line(asked), "path": "/tmp/facts.md"}
+    assert cut == {"kind": "report", "text": limits.first_line(asked), "body": f"{asked}\n\nDONE dev already fixes it\n"}
     assert len(cut["text"]) <= limits.RECORD_CHARS
+    both = record_lines.decision(post(kind="report", text=asked, body="facts: drive job report j1936", path=str(facts)))["updatedInput"]
+    assert both == {"kind": "report", "text": limits.first_line(asked), "body": f"{asked}\n\nfacts: drive job report j1936\n\nDONE dev already fixes it\n"}
 
 
 IDLE = "Close these 14 idle sessions and their terminals?"
@@ -381,6 +385,7 @@ def test_a_post_report_names_what_its_post_finishes_and_the_last_part_of_an_orde
     assert record_lines.decision(coordinator(turn, **merged, attrs={"job": "j1", "part": "fix", "close": "o1"})) is None
     with state.edit(demo) as data:
         data["orders"]["o1"]["incident"] = True
+        data["orders"]["o1"]["fixed"] = "release 13990 ships #54336 on sand"
     assert record_lines.decision(coordinator(turn, **merged, attrs={"job": "j1", "part": "fix"})) is None
     with state.edit(demo) as data:
         data["orders"]["o1"]["state"] = "done"
@@ -409,6 +414,25 @@ def test_a_post_report_on_an_order_carries_each_part_a_finished_job_answered_and
         data["jobs"]["j2"]["state"] = "stopped"
         data["orders"]["o1"]["parts"]["cause"]["posted"] = CARD
     assert record_lines.decision(coordinator(turn, **progress, attrs={"job": "j1", **PROGRESS})) is None
+
+
+def test_a_report_on_an_open_incident_neither_needs_nor_names_its_fix_until_the_watch_records_it_live(
+    run: Callable[..., tuple[int, str]], demo: str, turn: Path
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Journal", "the journal will not open on two Macs", "--parts", "fix", "first check")
+    run("job", "add", "reader", "--order", "o1", "--part", "fix", "--goal", "find what fixes it")
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["incident"] = True
+        data["jobs"]["j1"]["state"] = "done"
+    mechanism = {"kind": "report", "text": "POST mechanism found: the failing Macs run an older sand, and no release has reached them yet", "to": TO}
+    assert record_lines.decision(coordinator(turn, **mechanism, attrs={"order": "o1", **PROGRESS})) is None
+    reason = refusal(record_lines.decision(coordinator(turn, **mechanism, attrs={"order": "o1", "part": "o1:fix", **PROGRESS})))
+    assert 'o1\'s "fix" is the fix of an open incident' in reason and 'drop "o1:fix" from the part attr' in reason and "`--attr close=o1`" in reason
+    assert record_lines.decision(coordinator(turn, **mechanism, attrs={"order": "o1", "part": "o1:fix", "close": "o1"})) is None
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["fixed"] = "release 13990 ships #54336 on sand"
+    assert '`--attr part="o1:fix"`' in refusal(record_lines.decision(coordinator(turn, **mechanism, attrs={"order": "o1", **PROGRESS})))
+    assert record_lines.decision(coordinator(turn, **mechanism, attrs={"order": "o1", "part": "o1:fix", **PROGRESS})) is None
 
 
 def test_a_part_attr_names_parts_of_several_orders_and_each_must_be_one_the_drive_holds(run: Callable[..., tuple[int, str]], demo: str, turn: Path) -> None:

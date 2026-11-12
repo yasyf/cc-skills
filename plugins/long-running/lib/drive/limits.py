@@ -1357,14 +1357,13 @@ def first_line(text: str) -> str:
 
 
 def shortened(record: dict) -> dict | None:
-    """The record with its text cut to one line and the whole text at the top of its body, or for a record that attaches a file as its body, which holds the rest, the line alone; his words and incidents stay whole."""
+    """The record with its text cut to one line and the whole text at the top of its body, above the body it carries and then the file it attaches, which moves into that body, since the cci `post` tool keeps a body or a file but never both; his words and incidents stay whole."""
     text = (record.get("text") or "").strip()
     if (record.get("kind") or "").lower() in WHOLE_KINDS or (line := first_line(text)) == text:
         return None
-    if record.get("path"):
-        return record | {"text": line}
-    body = record.get("body")
-    return record | {"text": line, "body": f"{text}\n\n{body}" if body else text}
+    attached = Path(record["path"]).read_text() if record.get("path") else None
+    body = "\n\n".join(filter(None, [text, record.get("body"), attached]))
+    return {key: value for key, value in record.items() if key != "path"} | {"text": line, "body": body}
 
 
 def one_edit(word: str, other: str) -> bool:

@@ -329,7 +329,9 @@ check's verdict, or from the order when none ran.
 ## What he hears
 
 Each line is a `report` to the communicator, with `--attr part=<o>:<part>` on one delivering a part, such as the
-first check or the cause, and `--attr progress=true` on every other. The communicator posts it in his thread or
+first check or the cause, and `--attr progress=true` on every other. The `fix` part is delivered only once the fix runs where the
+incident hurt: by a report after the watch records the release shipping its fix job's change, or by one closing the incident, so
+`record_lines` refuses an earlier report naming it and `say` marks it on no other post, by his words "werte still in incident until its fixed". The communicator posts it in his thread or
 the alert's thread, the alert's with `say(channel_id=<the alert's channel>, thread_ts=<its ts>)`, while he is away too. These rules bind the communicator, its handlers and any reader that posts for
 it.
 
