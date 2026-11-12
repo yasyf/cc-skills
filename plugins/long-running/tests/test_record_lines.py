@@ -128,19 +128,22 @@ def test_a_jobs_second_question_from_a_remote_lane_goes_out_on_the_new_file_driv
 TAPPED = "https://github.com/Forge-AI/monorepo/pull/4242"
 
 
-def test_a_ready_record_for_a_pr_the_drive_owes_no_tap_on_is_refused(demo: str) -> None:
+def test_a_ready_record_to_the_communicator_for_a_pr_the_drive_owes_no_tap_on_is_refused_and_a_line_saying_he_tapped_it_goes_out(
+    demo: str,
+) -> None:
     with state.edit(demo) as data:
         data["prs"]["Forge-AI/monorepo#4242"] = state.new_pr(TAPPED, "j1", "o1")
-    assert record_lines.decision(post(kind="ready", text="j1 green, his order o1", pr=[TAPPED])) is None
+    assert record_lines.decision(post(kind="ready", text="j1 green, his order o1", pr=[TAPPED], to=TO)) is None
     with state.edit(demo) as data:
-        data["prs"]["Forge-AI/monorepo#4242"] |= {"tap": {"label": "Approve", "at": "2026-11-10T18:40:00-08:00", "head": "abc", "source": "slack"}, "state": "merged"}
-    made = record_lines.decision(post(kind="ready", text="j1 green, his order o1", pr=[TAPPED]))
-    assert made["permissionDecision"] == "deny"
-    assert "Forge-AI/monorepo#4242: he tapped Approve at " in made["permissionDecisionReason"]
-    assert "he tapped Approve" in record_lines.decision(post(kind="report", text=f"POST the update-button fix needs your tap: {TAPPED}"))["permissionDecisionReason"]
-    tap = f"tap Approve on {TAPPED}?"
-    assert "he tapped Approve" in record_lines.decision(post(kind="ask", text=tap, attrs=kept(demo, "j1", tap)))["permissionDecisionReason"]
-    assert record_lines.decision(post(kind="report", text=f"FYI the update-button fix merged: {TAPPED}")) is None
+        data["prs"]["Forge-AI/monorepo#4242"] |= {"tap": {"label": "Approve", "at": "2026-11-10T18:40:00-08:00", "head": "abc", "source": "slack"}}
+    reason = refusal(record_lines.decision(post(kind="ready", text="j1 green, his order o1", pr=[TAPPED], to=TO)))
+    assert "Forge-AI/monorepo#4242: he tapped Approve at " in reason
+    for said in ("carries his Approve tap", "he tapped Approve at 6:40 PM", "his approval landed at 6:40 PM"):
+        for to in (["root@demo"], META):
+            assert record_lines.decision(post(kind="ready", text=f"land it, his order o1: {said}", pr=[TAPPED], to=to)) is None
+        assert record_lines.decision(post(kind="handoff", text=f"land {TAPPED}: {said}", to=["root@demo"])) is None
+    for said in ("no longer waits on his tap", "he did tap Approve", "he tapped Approve"):
+        assert record_lines.decision(post(kind="report", text=f"FYI {TAPPED} {said}", to=["root@demo"])) is None
 
 
 TO = ["communicator@demo"]
