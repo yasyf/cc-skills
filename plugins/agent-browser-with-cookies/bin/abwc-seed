@@ -6,7 +6,8 @@
 # appends --local to every child ab call, browserbase exports the resolved API key so
 # no child can re-resolve it; pass --local anywhere to force the local browser, same
 # as ab, and --session <name> to forward the per-agent session override to every ab
-# call.
+# call. --browser <b> and --profile <p> read one profile, as a cookiesync next-step
+# line names it; --host <host> reads that host's browsers and seeds no web storage.
 #
 #   • local       → one merged Playwright storageState over a short-lived FIFO
 #                   (cookies + localStorage), then per-origin sessionStorage seeding
@@ -54,25 +55,34 @@ trap cleanup EXIT
 
 local_flag=()
 session_flag=()
-want_session=0
+cookie_flags=()
+peer=""
+want=""
 hosts=()
 for a in "$@"; do
-  if [[ "$want_session" == 1 ]]; then
-    [[ -n "$a" ]] || die "--session needs a value"
-    session_flag=(--session "$a")
-    want_session=0
+  if [[ -n "$want" ]]; then
+    [[ -n "$a" ]] || die "$want needs a value"
+    case "$want" in
+    --session) session_flag=(--session "$a") ;;
+    --host)
+      peer="$a"
+      cookie_flags+=(--host "$a")
+      ;;
+    *) cookie_flags+=("$want" "$a") ;;
+    esac
+    want=""
     continue
   fi
   case "$a" in
   --local) local_flag=(--local) ;;
-  --session) want_session=1 ;;
+  --session | --browser | --profile | --host) want="$a" ;;
   *) hosts+=("$a") ;;
   esac
 done
-[[ "$want_session" == 0 ]] || die "--session needs a value"
+[[ -z "$want" ]] || die "$want needs a value"
 
 if [[ ${#hosts[@]} -eq 0 ]]; then
-  echo "usage: abwc-seed [--local] [--session <name>] <url-or-host>..." >&2
+  echo "usage: abwc-seed [--local] [--session <name>] [--browser <b> --profile <p> | --host <host>] <url-or-host>..." >&2
   exit 2
 fi
 primary="${hosts[0]}"
@@ -108,7 +118,8 @@ bare_host() { # url-or-host -> host: scheme, userinfo, port, path/query/fragment
 # github.com. Returns non-zero if any origin failed.
 seed_storage() {
   local kind="$1" origins o origin script fails=0
-  origins="$(cookiesync cookies --format webstorage -- "${hosts[@]}" |
+  [[ -z "$peer" ]] || return 0
+  origins="$(cookiesync cookies --format webstorage ${cookie_flags[@]+"${cookie_flags[@]}"} -- "${hosts[@]}" |
     jq -c --arg kind "${kind}Storage" '.origins[] | select((.[$kind] // []) | length > 0)')" || {
     echo "abwc-seed: could not extract ${kind}Storage from cookiesync" >&2
     return 1
@@ -144,8 +155,8 @@ seed_local() {
   # the open itself, so a reader that never comes cannot pin the writer. The loader
   # runs under its own timeout, which also bounds its read-open of the FIFO.
   # shellcheck disable=SC2016
-  timeout -k 5 300 bash -c 'f="$1"; shift; exec cookiesync cookies --format playwright -- "$@" >"$f"' \
-    seedwriter "$TMPD/state" "${hosts[@]}" 2>"$TMPD/err" &
+  timeout -k 5 300 bash -c 'f="$1"; shift; exec cookiesync cookies --format playwright "$@" >"$f"' \
+    seedwriter "$TMPD/state" ${cookie_flags[@]+"${cookie_flags[@]}"} -- "${hosts[@]}" 2>"$TMPD/err" &
   wpid=$!
   # Load concurrently so payloads larger than the pipe buffer (>64KB) drain.
   timeout -k 5 330 "$ab" ${local_flag[@]+"${local_flag[@]}"} ${session_flag[@]+"${session_flag[@]}"} state load "$TMPD/state" >"$TMPD/load" 2>&1 &
@@ -194,7 +205,7 @@ seed_browserbase() {
   # url-scoped.
   for u in "${hosts[@]}"; do
     if ! run_ab open "https://$(bare_host "$u")" ||
-      ! cookiesync cookies --format header -- "$u" |
+      ! cookiesync cookies --format header ${cookie_flags[@]+"${cookie_flags[@]}"} -- "$u" |
         run_ab cookies set --curl /dev/stdin; then
       echo "abwc-seed: cookie seeding failed for $u" >&2
       fails=$((fails + 1))
@@ -213,14 +224,15 @@ seed_browserbase() {
 login_url='^https?://([^/?#]*[.-])?(login|signin|accounts|auth|sso|okta)[.-][^/?#]*([/?#]|$)|^https?://[^/?#]+/([^?#]*/)?(login|log-in|signin|sign-in|sign_in|sso|auth|authorize|session/new)([/?#]|$)'
 
 require_session() {
-  local landed host self profiles
+  local landed host target machine profiles
   landed="$(run_ab get url)" || die "could not read the landed url"
   [[ "$landed" =~ $login_url && ! "$primary" =~ $login_url ]] || return 0
   host="$(bare_host "$primary")"
-  self="$(cookiesync self)" || die "'cookiesync self' failed"
-  profiles="$(cookiesync browser ls | awk -v p="$self:" 'index($0, p) == 1 { out = out sep substr($0, length(p) + 1); sep = ", " } END { print out }')"
-  echo "abwc-seed: no session for $host in any reachable browser (landed on ${landed%%[?#]*})." >&2
-  echo "abwc-seed: sign in at https://$host in Chrome or Arc on $(scutil --get ComputerName) (${profiles:-no registered profile}), then re-run abwc-seed." >&2
+  target="${peer:-$(cookiesync self)}" || die "'cookiesync self' failed"
+  machine="${peer:-$(scutil --get ComputerName)}"
+  profiles="$(cookiesync browser ls | awk -v p="$target:" 'index($0, p) == 1 { out = out sep substr($0, length(p) + 1); sep = ", " } END { print out }')"
+  echo "abwc-seed: no session for $host in the browsers cookiesync reads on $machine (landed on ${landed%%[?#]*})." >&2
+  echo "abwc-seed: sign in at https://$host in Chrome or Arc on $machine (${profiles:-no registered profile}), then re-run abwc-seed." >&2
   exit 3
 }
 

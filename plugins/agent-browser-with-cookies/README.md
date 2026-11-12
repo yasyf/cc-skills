@@ -35,7 +35,7 @@ Single-page apps often split the frontend and API across domains, leaving sessio
 Check the billing page on app.example.com as me (it calls api.example.com)
 ```
 
-The skill parses the primary URL and the extra host, authorizes once with Touch ID, and runs `abwc-seed https://app.example.com api.example.com` to stream cookies and web storage for both hosts in one pass. If `abwc-seed` exits `3` because the primary URL landed on a sign-in or SSO page, the skill opens the site in your desktop browser, waits for you to sign in and confirm, and then re-seeds. `IndexedDB` can't be restored in either mode, so a site whose sign-in lives only there (such as Firebase) needs a live-browser fallback. Separately, passing `--bridge` on every `ab` call routes through a local `cookiesync` Chrome DevTools Protocol bridge, a throwaway Chrome already seeded with your cookies, and skips `abwc-seed`. It defaults to `chrome:Default`; `--bridge=<host:browser:profile>` picks another browser or profile.
+The skill parses the primary URL and the extra host, authorizes once with Touch ID, and runs `abwc-seed https://app.example.com api.example.com` to stream cookies and web storage for both hosts in one pass. If `abwc-seed` exits `3` because the primary URL landed on a sign-in or SSO page, the skill opens the site in your desktop browser, waits for you to sign in and confirm, and then re-seeds. `IndexedDB` can't be restored in either mode, so a site whose sign-in lives only there (such as Firebase) needs a live-browser fallback. Separately, passing `--bridge` on every `ab` call routes through a local `cookiesync` Chrome DevTools Protocol bridge, a throwaway Chrome seeded with only the cookies of the URL the first `open` names and of each `--bridge-url=<url>`, and skips `abwc-seed`. It defaults to `chrome:Default`; `--bridge=<host:browser:profile>` picks another browser or profile.
 
 ## What's inside
 
@@ -44,7 +44,7 @@ The skill parses the primary URL and the extra host, authorizes once with Touch 
 | `agent-browser-with-cookies:agent-browser-with-cookies` | skill | Authorizes once with Touch ID, seeds a browser session with your sign-in for every host the task touches, does the task, and closes the session |
 | Setup hook | hook | On `claude --init`, installs `cookiesync` and the `clark-browser` stealth Chromium, and points `~/.agent-browser/config.json` at it |
 | `ab` | CLI (bin/) | The one entry point for every browser command; picks Browserbase, the local stealth browser (`--local`), or the cookiesync bridge (`--bridge`); `--session <name>` for a separate per-agent session; `ab mode` prints the backend |
-| `abwc-seed` | CLI (bin/) | Streams cookies and `localStorage`/`sessionStorage` for the listed hosts into the session and ends on the primary URL |
+| `abwc-seed` | CLI (bin/) | Streams cookies and `localStorage`/`sessionStorage` for the listed hosts from this Mac's browsers into the session and ends on the primary URL; `--browser`/`--profile` read one profile and `--host` another Mac's browsers |
 | `abwc-press` | CLI (bin/) | Key-press workaround `ab` routes `press` through, avoiding an agent-browser 0.38 phantom-keydown flood in macOS Chrome |
 
 Part of [cc-skills](../../README.md).
