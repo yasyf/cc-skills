@@ -392,9 +392,12 @@ Fixed: Iris picks up again right after you answer its question, on today's build
 ```
 
 **The status page.** You never write it: the drive's watch redraws the drive's canvas, a tab in his
-DM with the app, within a minute of any change. It shows what waits on him first and in full, then
-each open feature as one line by state, then finished work as counts with the newest five named, then
-the dashboard link. When a line says where things stand, link the page instead of restating it.
+DM with the app, within a minute of any change, and `drive view` prints the same page. It is native
+Slack tables under a line linking the dashboard. A strip counts what waits on him and each state.
+Tables follow for his questions, his PR taps, promised times that passed, every project's count by
+state, each open state's features, and finished work. Each table shows its first eight rows and says
+how many more the dashboard holds. When a line says where things stand, link the page instead of
+restating it.
 
 ## When it goes out
 

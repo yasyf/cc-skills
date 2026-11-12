@@ -3748,7 +3748,7 @@ def test_view_prints_the_model_and_its_page(run: Run, with_pr: str) -> None:
     assert (model["drive"], model["cards"]) == ("demo", "live")
     assert [group["features"][0]["title"] for group in model["status"] if group["features"]] == ["land it"]
     code, out = run("view")
-    assert "## Waiting on you" in out
+    assert "| 🙋 Needs you | 🔴 Blocked |" in out
     assert "land it" in out
 
 
