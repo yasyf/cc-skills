@@ -1139,6 +1139,46 @@ def test_job_ask_check_says_ready_or_every_fix_its_words_and_card_need_with_no_d
     assert "drive job ask <j> <file>; drive job ask --check <file> only checks its shape" in capsys.readouterr().err
 
 
+def test_job_ask_check_refuses_an_option_with_no_diagram_of_what_it_touches_what_it_leaves_out_or_what_starts_on_his_pick(
+    state_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    block = tmp_path / "ask.md"
+    unchosen = re.sub(r"(- A map file beside each journal file[^\n]*\n)(?:  .*\n)+", r"\1", SHORT_ASK)
+    block.write_text(unchosen)
+    assert cli.main(["job", "ask", "--check", str(block)]) == 2
+    assert (
+        'option "A map file beside each journal file" has no `Touches:` and its diagram or `Leaves out:` or `Starts:` under it'
+    ) in capsys.readouterr().err
+    block.write_text(SHORT_ASK.replace("  Starts: a map file written beside each new journal file\n", ""))
+    assert cli.main(["job", "ask", "--check", str(block)]) == 2
+    assert 'option "A map file beside each journal file" has no `Starts:` under it' in capsys.readouterr().err
+    block.write_text(SHORT_ASK.replace("  ```mermaid\n  flowchart TD\n    journal", "  ```go\n  flowchart TD\n    journal"))
+    assert cli.main(["job", "ask", "--check", str(block)]) == 2
+    assert "draws what it touches in a ```go fence: draw it in a ```mermaid or ```arch fence" in capsys.readouterr().err
+    assert limits.question(unchosen, kept=True).choices == ()
+
+
+def test_job_card_draws_each_choice_as_a_numbered_picture_keeping_its_diagram_and_both_lines_beside_it(
+    run: Run, asking: str, tmp_path: Path, chrome: Chrome
+) -> None:
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    path = run("job", "ask", asking, str(block))[1]
+    card = json.loads(run("job", "card", path, "--waits", "demo:j1-0")[1])
+    pictured = [line for line in card["body"].split("\n*Show me*\n")[1].splitlines() if line.startswith("![")]
+    captions = [line[2:].split("](")[0] for line in pictured]
+    assert captions[-3:] == ["1 · One snapshot file per finished run, written when it ends, old runs backfilled", "2 · A map file beside each journal file", "3 · Map at the start of each file"]
+    kept = json.loads(Path(pictured[-2].split("](")[1].removesuffix(")")).with_name(picture.SOURCE).read_text())
+    assert kept["kind"] == "choice"
+    assert json.loads(kept["source"]) == {
+        "option": "A map file beside each journal file: no guessing, but one request per file and twice the objects",
+        "touches": {"kind": "mermaid", "source": "flowchart TD\n  journal[each journal file] --> map[its .map file]\n"},
+        "outside": "any snapshot, so a page still makes one request per file",
+        "starts": "a map file written beside each new journal file",
+    }
+    assert ("choice", kept["source"]) in chrome.drawn
+
+
 def test_job_ask_reads_a_readers_design_return_as_the_ask_its_first_line_asks(run: Run, asking: str, tmp_path: Path) -> None:
     block = tmp_path / "design.md"
     block.write_text(DESIGN_RESEARCH)
@@ -1628,6 +1668,7 @@ def test_cards_redraw_rebuilds_a_card_whose_linked_question_asks_something_else_
     rebuilt = state_root / "demo" / "asks" / "j1-8.md"
     assert limits.redrawn(rebuilt.read_text()).title == json.loads(printed)["title"]
     assert rebuilt.read_text().endswith("\nFindings:\n" + SHORT_ASK.split("Findings:\n", 1)[1])
+    assert SHORT_ASK.split("Show me:\n", 1)[1].split("- One snapshot", 1)[1].split("\nFindings:", 1)[0].strip() in rebuilt.read_text()
     assert [(question["file"], question["waits"], question["card"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [
         (str(rebuilt), "demo:j1-8", shown["url"])
     ]

@@ -71,8 +71,29 @@ GET journal/0001.ltx  one page range
 ... 180 files, two requests each
 ```
 - One snapshot file per finished run, written when it ends, old runs backfilled: opens in 3 requests (recommended)
+  Touches:
+  ```mermaid
+  flowchart TD
+    run[finished run] --> snapshot[snapshot.ltx in the team bucket]
+  ```
+  Leaves out: the live journal files and their format
+  Starts: the snapshot writer, then the backfill of old runs
 - A map file beside each journal file: no guessing, but one request per file and twice the objects
+  Touches:
+  ```mermaid
+  flowchart TD
+    journal[each journal file] --> map[its .map file]
+  ```
+  Leaves out: any snapshot, so a page still makes one request per file
+  Starts: a map file written beside each new journal file
 - Map at the start of each file: changes the shared file format and still needs a length read first
+  Touches:
+  ```mermaid
+  flowchart TD
+    format[the shared LTX format] --> journal[every journal file]
+  ```
+  Leaves out: old journal files, which keep their map at the end
+  Starts: a format change in the shared LTX writer
 
 Findings:
 Root cause: none: a design choice, with no defect behind it

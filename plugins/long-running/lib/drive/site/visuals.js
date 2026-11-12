@@ -60,6 +60,9 @@ const CSS = `
 .visual-option>ul{margin:0;padding:6px 10px 8px 24px}
 .visual-option>ul>li.plus::marker{content:"+  ";color:#1a7f37;font-weight:700}
 .visual-option>ul>li.minus::marker{content:"\\2212  ";color:#cf222e;font-weight:700}
+.visual-choice{display:flex;flex-direction:column;gap:6px;font:13px/1.45 ${SANS};color:#1f2328}
+.visual-choice>h5{margin:4px 0 0;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:${MUTED}}
+.visual-choice>p{margin:0}
 `;
 
 hljs.registerLanguage("sand", (hljs) => ({
@@ -180,6 +183,17 @@ async function dot(host, source) {
   host.replaceChildren(drawn);
 }
 
+async function choice(host, source) {
+  const { touches, outside, starts } = JSON.parse(source);
+  const document = host.ownerDocument;
+  const part = (tag, textContent) => Object.assign(document.createElement(tag), { textContent });
+  const diagram = document.createElement("div");
+  const shown = Object.assign(document.createElement("div"), { className: "visual-choice" });
+  shown.append(part("h5", "What it touches"), diagram, part("h5", "What it leaves out"), part("p", outside), part("h5", "What starts when you pick it"), part("p", starts));
+  host.replaceChildren(shown);
+  await draw(diagram, touches.kind, touches.source);
+}
+
 async function arch(host, source) {
   const { mount } = await import(ARCH_MAP);
   const drawn = mount(host, JSON.parse(source), { key: false });
@@ -208,6 +222,8 @@ export async function draw(host, kind, source) {
       return dot(host, source);
     case "arch":
       return arch(host, source);
+    case "choice":
+      return choice(host, source);
   }
-  throw new Error(`${kind} is no kind of visual: code, arch, mermaid, dot, chart or compare`);
+  throw new Error(`${kind} is no kind of visual: code, arch, mermaid, dot, chart, compare or choice`);
 }

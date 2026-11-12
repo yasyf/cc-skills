@@ -160,6 +160,12 @@ summary of one feature is a line of at most 60 words.
   what it reads and what reaches whom, then what he gets and what it costs; `drive job ask` refuses
   any other count or length. cc-slack adds Other, which takes his own words,
   and Explain more to every card that waits on him, and refuses an option that repeats either.
+- Under each option write what the choice touches, leaves out and starts: `Touches:` over a
+  ```mermaid or ```arch fence of the services, files and tables it touches, then `Leaves out: <at
+  most 25 words>` and `Starts: <what starts the moment he picks it, at most 25 words>`, each
+  indented under the option's `- ` line. `drive job ask` refuses an option without all three. The
+  card draws each choice as one picture, `N · <option>`, in its Show me, which Slack shows as the
+  card's gallery, and the dashboard draws the same source beside the choice he points at.
 - Name each mechanism by what it does, such as "the Mac reruns the check function every 30 seconds
   and compares its output; a change sends one inbox message that wakes the agent". The summary's
   first line says this of what every option shares, and the title asks only what the options differ

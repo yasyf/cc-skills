@@ -479,7 +479,22 @@ function meaning(item, index) {
   const option = card.options[index];
   const [title, detail] = optionParts(option);
   const label = option === card.recommended ? 'Recommended' : `Choice ${index + 1} of ${card.options.length}`;
-  return `<div class="rail-block" data-means><div class="eyebrow">${label}</div><div class="consequence-title">${esc(title)}</div>${detail ? `<p>${esc(detail)}</p>` : ''}</div>`;
+  const chosen = choiceOf(card, option);
+  return `<div class="rail-block" data-means><div class="eyebrow">${label}</div><div class="consequence-title">${esc(title)}</div>${detail ? `<p>${esc(detail)}</p>` : ''}${chosen ? visual('choice', chosen) : ''}</div>`;
+}
+
+function choicePicture(line) {
+  const drawn = sources.get(line.match(PICTURE_LINE)?.[2]);
+  return drawn?.kind === 'choice' ? drawn.source : null;
+}
+
+function choiceOf(card, option) {
+  return String(card.body ?? '').split('\n').map(choicePicture).find((source) => source && JSON.parse(source).option === option) ?? null;
+}
+
+function unchosen(body) {
+  const lines = String(body ?? '').split('\n').filter((line) => !choicePicture(line));
+  return (lines.at(-1)?.trim() === '*Show me*' ? lines.slice(0, -1) : lines).join('\n');
 }
 
 function heldRow(item, entry, held) {
@@ -526,7 +541,7 @@ function decisionRail(item) {
 function decisionCard(item, at, total) {
   const card = item.card;
   const rows = (card.rows ?? []).map((row) => `<li>${inline(row.text)}</li>`).join('');
-  const body = [card.body ? prose(card.body) : '', rows ? `<ul class="rows">${rows}</ul>` : ''].join('');
+  const body = [card.body ? prose(unchosen(card.body)) : '', rows ? `<ul class="rows">${rows}</ul>` : ''].join('');
   const facts = [
     item.since ? fact(esc(`Asked ${clock(item.since)}`), `Waiting on you for ${ago(item.since)}`) : '',
     item.holds ? fact(esc(`Holds up ${item.holds} finished`), `${item.holds} green, approved ${item.holds === 1 ? 'change or built job waits' : 'changes or built jobs wait'} on this answer`, 'warn') : '',
@@ -629,13 +644,17 @@ function lateCard(item, at, total) {
   </article>`;
 }
 
+function cardSlice(answer) {
+  return `/api/card?${new URLSearchParams({ answer })}`;
+}
+
 function queueScreen(id) {
   const filter = filterOf(id);
   const list = shownQueue(filter);
   const at = current(list);
   const item = list[at];
   if (location.hash !== queueHref(filter, item)) history.replaceState(history.state, '', queueHref(filter, item));
-  const read = item?.answer && slice(`/api/card?${new URLSearchParams({ answer: item.answer })}`);
+  const read = item?.answer && slice(cardSlice(item.answer));
   const filters = QUEUE_FILTERS.map(([each, label]) => `<a href="#/queue/${each}" class="${each === filter ? 'on' : ''}"${each === filter ? ' aria-current="true"' : ''}>${label}<span class="n">${shownQueue(each).length}</span></a>`).join('');
   const unread = model.cards === 'live' ? '' : `<p class="refused">Your questions are not listed here: cc-slack ${esc(model.cards)}</p>`;
   const rest = shownQueue('all').length;
@@ -1162,7 +1181,8 @@ function preview(choice) {
   picked = { card: choice.dataset.card, index };
   const item = model.queue.find((each) => each.answer === choice.dataset.card);
   const rail = document.querySelector('#main [data-means]');
-  if (item && rail) rail.outerHTML = meaning(item, index);
+  const read = item && slices.get(cardSlice(item.answer))?.read;
+  if (item && rail) rail.outerHTML = meaning(read?.ok ? { ...item, card: read.card } : item, index);
   for (const each of choice.parentElement.querySelectorAll('.choice')) each.classList.toggle('on', each === choice);
 }
 

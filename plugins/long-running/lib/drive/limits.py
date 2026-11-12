@@ -1,5 +1,6 @@
 import json
 import re
+import textwrap
 from dataclasses import dataclass
 from itertools import groupby, pairwise, permutations
 from pathlib import Path
@@ -221,6 +222,20 @@ NEGATION = re.compile(r"\b(?:no|not|never|without|nothing|none|neither|nor)\b|n'
 CLAUSE_END = re.compile(r"[.;:,!?\n]")
 MECHANISM_SHAPE = "what runs, on what trigger, what it reads and what reaches whom"
 OPTION_SHAPE = f"{MECHANISM_SHAPE}, then what he gets and what it costs"
+CHOICE_LINE = re.compile(r"[ \t]*(?:Touches|Leaves out|Starts):")
+TOUCHES = re.compile(r"[ \t]*Touches:[ \t]*")
+LEAVES_OUT = re.compile(r"[ \t]*Leaves out:[ \t]*(.*?)[ \t]*")
+STARTS = re.compile(r"[ \t]*Starts:[ \t]*(.*?)[ \t]*")
+CHOICE_DIAGRAMS = ("mermaid", "arch")
+CHOICE_SHAPE = (
+    "`Touches:` over a ```mermaid or ```arch fence of the services, files and tables the choice touches, then `Leaves out: <what"
+    " it does not do, at most 25 words>` and `Starts: <what starts the moment he picks it, at most 25 words>`, each under the"
+    " option's `- ` line"
+)
+CHOICE_RULING = (
+    'his Nov 12 4:05 AM words "the righr side context on our current one is not nearly as useful as the design / should be even'
+    ' more than that"'
+)
 MECHANISM_RULING = (
     'his Nov 11 1:14 AM words "That wasn\'t clear from the card, polling is fine for seeing when the function output changed.'
     ' Get rid of all this and ask me the question again properly"'
@@ -297,6 +312,7 @@ class Question:
     show_me: list[str]
     options: list[str]
     recommended: str
+    choices: tuple[dict, ...] = ()
 
     def card(self, drive: str, waits: str) -> dict:
         """The question card a handler draws from this block."""
@@ -354,16 +370,22 @@ def card_body(summary: list[str], show_me: list[str]) -> str:
 
 
 def rebuilt(card: dict, asks: Path) -> str:
-    """The ASK block a posted question card draws again, rebuilt from the card as the drive stored it for a question whose job kept no file: its question, summary and options in the words he read, the recommended one marked, each Show me picture as the fence its source.json keeps, under its caption, or as the picture's line where none is kept, and the Findings `kept_findings` finds in asks."""
+    """The ASK block a posted question card draws again, rebuilt from the card as the drive stored it for a question whose job kept no file: its question, summary and options in the words he read, the recommended one marked, each choice's picture back as the lines under its option, each Show me picture as the fence its source.json keeps, under its caption, or as the picture's line where none is kept, and the Findings `kept_findings` finds in asks."""
     lines = card["body"].split("\n")
     shown = lines.index("*Show me*") if "*Show me*" in lines else len(lines)
-    show_me = unpictured(lines[shown + 1 :])
+    pictured = lines[shown + 1 :]
+    chosen = {found["option"]: found for line in pictured if (found := choice_shown(line))}
+    show_me = unpictured([line for line in pictured if not choice_shown(line)])
     return "\n".join(
         [
             f"ASK {card['title']}",
             *(line for line in lines[:shown] if not line.startswith(REDONE)),
             *(["Show me:", *show_me] if show_me else []),
-            *(f"- {option}{' (recommended)' if option == card['recommended'] else ''}" for option in card["options"]),
+            *(
+                line
+                for option in card["options"]
+                for line in [f"- {option}{' (recommended)' if option == card['recommended'] else ''}", *choice_lines(chosen.get(option))]
+            ),
             "Findings:",
             kept_findings(asks, card),
             "",
@@ -371,13 +393,46 @@ def rebuilt(card: dict, asks: Path) -> str:
     )
 
 
+def choice_shown(line: str) -> dict | None:
+    """The choice a posted card's picture line draws, read from the source.json the drive keeps beside the picture; None for any other line."""
+    posted = POSTED_PICTURE.fullmatch(line.strip())
+    kept = posted and Path(posted["path"]).with_name(picture.SOURCE)
+    if not (kept and kept.is_file() and (source := json.loads(kept.read_text()))["kind"] == "choice"):
+        return None
+    return json.loads(source["source"])
+
+
+def choice_lines(found: dict | None) -> list[str]:
+    """The lines an ASK block writes under an option for its choice; none for an option with no choice."""
+    if not found:
+        return []
+    touches = found["touches"]
+    return [
+        "  Touches:",
+        f"  ```{touches['kind']}",
+        *(f"  {line}".rstrip() for line in touches["source"].rstrip("\n").split("\n")),
+        "  ```",
+        f"  Leaves out: {found['outside']}",
+        f"  Starts: {found['starts']}",
+    ]
+
+
+def chosen(folder: Path, asked: Question) -> list[str]:
+    """One picture line for each of the question's choices, `![<number> · <option up to its first colon>](/abs.png)`, numbered as his card numbers its options, which cc-slack draws beside each other as one gallery and the dashboard draws again from the source.json kept beside each, the choice whole; a diagram that does not draw, such as a Mermaid diagram Mermaid cannot parse, raises the DriveError naming its option."""
+    return [
+        f"![{caption}]({picture.shot(folder, 'choice', 'choice', json.dumps(found), f'the picture of the choice {caption!r}, its Touches diagram,')})"
+        for number, found in enumerate(asked.choices, 1)
+        for caption in [f"{number} · {option_head(found['option'])}"]
+    ]
+
+
 def unpictured(show_me: list[str]) -> list[str]:
-    """A posted card's Show me lines, each picture the drive drew from a fence it keeps the source.json of back as that fence, under its caption."""
+    """A posted card's Show me lines, each picture the drive drew from a fence it keeps the source.json of back as that fence, under its caption; a choice's picture, drawn from no fence, stays its line."""
     found = []
     for line in show_me:
         posted = POSTED_PICTURE.fullmatch(line.strip())
         kept = posted and Path(posted["path"]).with_name("source.json")
-        if not (kept and kept.is_file() and (source := json.loads(kept.read_text()))["kind"] != "image"):
+        if not (kept and kept.is_file() and (source := json.loads(kept.read_text()))["kind"] not in ("image", "choice")):
             found.append(line)
             continue
         if not NAMELESS_CAPTION.fullmatch(posted["caption"]):
@@ -445,29 +500,32 @@ def question(text: str, kept: bool = False, unsettled: str | None = None, hurtin
     """The one question a job's ASK block puts to him, refused with every way it is out of shape; a block `drive job ask` already kept is read with no second check of its Show me's visuals or its options' content, so a card it kept under older rules still redraws, an option that cleans up a bad state passes only when `unsettled` names his ruling against it and why, and a question on a bug hurting someone now names the immediate fix shipping while he picks."""
     asked, *findings = FINDINGS.split(text, maxsplit=1)
     head, *example = SHOW_ME.split(asked, maxsplit=1)
-    lines = [line.strip() for line in head.splitlines() if line.strip()]
+    raw = head.splitlines()
+    lines = [line.strip() for line in raw if line.strip()]
     if not lines or not lines[0].startswith("ASK "):
         raise DriveError("an ASK block opens with `ASK <the question, one line>`")
-    title, rest = lines[0].removeprefix("ASK ").strip(), lines[1:]
+    title, rest = lines[0].removeprefix("ASK ").strip(), raw[next(at for at, line in enumerate(raw) if line.strip()) + 1 :]
     first_option = options_start(rest)
-    summary, above = rest[:first_option], rest[first_option:]
+    summary, above = [line.strip() for line in rest[:first_option] if line.strip()], rest[first_option:]
     show_me, after = shown_and_options(example[0] if example else "")
-    headings = [line for line in above + after if OPTIONS_HEADING.fullmatch(line)]
-    after = [line for line in above + after if not OPTIONS_HEADING.fullmatch(line)]
-    options = [line.removeprefix("- ").strip() for line in after if line.startswith("- ")]
+    options, under, headings, strays = option_lines([*above, *after])
     marked = [option for option in options if RECOMMENDED.search(option)]
     options = [RECOMMENDED.sub("", option) for option in options]
+    read = [choice(option, lines) for option, lines in zip(options, under, strict=True)]
+    choices = tuple(found for found, _ in read) if all(found for found, _ in read) else ()
     problems = []
     if not 1 <= len(summary) <= SUMMARY_LINES:
         problems.append(
             f"the summary is {len(summary)} lines; it is one to three: what was found and what is being decided,"
             " the recommendation, what happens meanwhile"
         )
-    problems += show_me_problems(show_me, bool(example and above), kept, len(options))
+    problems += show_me_problems(show_me, bool(example and any(line.strip() for line in above)), kept, len(options))
     if headings and not kept:
         problems.append(f'"{headings[0]}" is not a line of an ASK block: the `- ` options follow the Show me directly, with no heading')
-    if strays := [line for line in after if not line.startswith("- ")]:
-        problems.append(f"only `- ` option lines follow the Show me, then `Findings:`; these are neither: {strays}")
+    if strays:
+        problems.append(f"only `- ` option lines and the lines under each saying its choice follow the Show me, then `Findings:`; these are neither: {strays}")
+    if not kept and REBUILT not in "".join(findings[:1]):
+        problems += [problem for _, found in read for problem in found]
     if len(options) not in OPTION_COUNT:
         problems.append(f"{len(options)} options; an ASK has {OPTION_COUNT.start} to {OPTION_COUNT.stop - 1}, one line each")
     if len(marked) != 1:
@@ -479,7 +537,7 @@ def question(text: str, kept: bool = False, unsettled: str | None = None, hurtin
         for option in options
         if words(option) > OPTION_WORDS
     ]
-    shown = [title, *summary, *options]
+    shown = [title, *summary, *options, *(words for found in choices for words in (found["outside"], found["starts"]))]
     if (count := card_words({"title": title, "body": card_body(summary, show_me), "options": options})) > QUESTION_WORDS:
         problems.append(f"the question, summary and options are {count} words; at most {QUESTION_WORDS} in all, the Show me not counted")
     plain = URL.sub(" ", TOKEN.sub(" ", "\n".join(shown)))
@@ -526,15 +584,16 @@ def question(text: str, kept: bool = False, unsettled: str | None = None, hurtin
         problems += interim_fix_problems("".join(findings[:1]))
     if problems:
         raise DriveError("the ASK is out of shape, " + READING + ":\n- " + "\n- ".join(problems))
-    return Question(title, summary, show_me, options, RECOMMENDED.sub("", marked[0]))
+    return Question(title, summary, show_me, options, RECOMMENDED.sub("", marked[0]), choices)
 
 
 def shape(text: str, drive: str, job_id: str, pictures: Path, unsettled: str | None = None, hurting: bool = False) -> Question:
-    """The question a job's ASK block puts to him once its three checks pass: its words, then the card it draws, which cc-slack refuses in its own words, then each picture of its Show me, drawn under pictures, where its card finds them, and refused with why one does not draw, such as Mermaid's parse error. `drive job ask <j>`, `drive job ask --check` and the watch on a remote lane's ASK check here alike; `drive job ask <j>`, which the watch then runs on that ASK, also checks it against his recorded answers."""
+    """The question a job's ASK block puts to him once its three checks pass: its words, then the card it draws, which cc-slack refuses in its own words, then each picture of its Show me and of its choices, drawn under pictures, where its card finds them, and refused with why one does not draw, such as Mermaid's parse error. `drive job ask <j>`, `drive job ask --check` and the watch on a remote lane's ASK check here alike; `drive job ask <j>`, which the watch then runs on that ASK, also checks it against his recorded answers."""
     asked = question(text, unsettled=unsettled, hurting=hurting)
     if refused := slack.draw_refusal(asked.card(drive, f"{drive}:{job_id}-0")):
         raise DriveError(f"the ASK's card is out of shape, so cc-slack would not draw it: {refused}")
     picture.drawn(pictures, asked.show_me)
+    chosen(pictures, asked)
     return asked
 
 
@@ -589,10 +648,55 @@ def redrawn(text: str) -> Question:
 
 
 def shown_and_options(example: str) -> tuple[list[str], list[str]]:
-    """The Show me's lines as written, fences and blank lines kept, and the lines where the options start on."""
+    """The Show me's lines as written, fences and blank lines kept, and the lines where the options start on, as written."""
     lines = example.strip("\n").splitlines()
     start = options_start(lines)
-    return lines[:start], [line.strip() for line in lines[start:] if line.strip()]
+    return lines[:start], lines[start:]
+
+
+def option_lines(lines: list[str]) -> tuple[list[str], list[list[str]], list[str], list[str]]:
+    """The options among the lines where they start, each `- ` line's words with the lines under it saying its choice, as written, then each bare `Options:` heading and each other line, stripped."""
+    options: list[str] = []
+    under: list[list[str]] = []
+    headings, strays, fenced = [], [], False
+    for line in lines:
+        bare = line.strip()
+        if fenced or FENCE.match(line) or CHOICE_LINE.match(line):
+            fenced ^= bool(FENCE.match(line))
+            if under:
+                under[-1].append(line)
+            else:
+                strays.append(bare)
+        elif OPTIONS_HEADING.fullmatch(bare):
+            headings.append(bare)
+        elif bare.startswith("- "):
+            options.append(bare.removeprefix("- ").strip())
+            under.append([])
+        elif bare:
+            strays.append(bare)
+    return options, under, headings, strays
+
+
+def choice(option: str, lines: list[str]) -> tuple[dict | None, list[str]]:
+    """The choice the lines under an option say, the diagram of what it touches, what it leaves out and what starts on his pick, or None, with each way they are out of shape."""
+    text = textwrap.dedent("\n".join(lines))
+    head = option_head(option)
+    touched = [fence for fence in picture.FENCE.finditer(text) if TOUCHES.fullmatch(text[: fence.start()].rstrip("\n").rpartition("\n")[2])]
+    outside = next((found[1] for line in text.splitlines() if (found := LEAVES_OUT.fullmatch(line))), "")
+    starts = next((found[1] for line in text.splitlines() if (found := STARTS.fullmatch(line))), "")
+    missing = [name for name, found in (("`Touches:` and its diagram", touched), ("`Leaves out:`", outside), ("`Starts:`", starts)) if not found]
+    if missing:
+        return None, [f'option "{head}" has no {" or ".join(missing)} under it: write {CHOICE_SHAPE}; his card draws them as the choice\'s picture and the dashboard beside the choice ({CHOICE_RULING})']
+    kind, source = touched[0][1].lower(), touched[0][2]
+    problems = [] if kind in CHOICE_DIAGRAMS else [f'option "{head}" draws what it touches in a ```{kind or "plain"} fence: draw it in a ```mermaid or ```arch fence ({CHOICE_RULING})']
+    if problem := json_problem(kind, source):
+        problems.append(f'option "{head}"\'s ```{kind} fence {problem}')
+    problems += [
+        f'option "{head}"\'s `{name}` line is {words(said)} words; it is at most {OPTION_WORDS}'
+        for name, said in (("Leaves out:", outside), ("Starts:", starts))
+        if words(said) > OPTION_WORDS
+    ]
+    return {"option": option, "touches": {"kind": kind, "source": source}, "outside": outside, "starts": starts}, problems
 
 
 def options_start(lines: list[str]) -> int:

@@ -58,8 +58,8 @@ naming each line missing.
 A finding that leaves him a choice, such as a limit or cost, opens your report
 `DESIGN <the choice>` in proper technical terms, then two to four `- ` options, exactly one ending
 `(recommended)`, for a design job to turn into his cards. Written in the ASK block's shape, which
-`drive job ask --check` passes with `ASK` for `DESIGN` and your research under `Findings:`, it is his
-card as it stands: `drive job card <j>` draws it with no file written by hand. It starts from the root cause your
+`drive job ask --check` passes with `ASK` for `DESIGN` and your research under `Findings:`, each option
+with its `Touches:` diagram, `Leaves out:` and `Starts:` lines under it, it is his card as it stands: `drive job card <j>` draws it with no file written by hand. It starts from the root cause your
 evidence finds, the structure that lets the defect happen: a `Root cause:` line names it, and a
 `First principles:` line names the option that removes it so the defect cannot occur, always offered
 and recommended, and on drive tooling the simplest build that does his words, with the fewest checks, steps,

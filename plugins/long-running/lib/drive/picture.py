@@ -19,7 +19,7 @@ DIAGRAMS = ("arch", "mermaid", "chart", "compare", "dot")
 NATIVE = ("chart",)
 WORDS = ("", "text", "txt", "plain")
 TITLE_CHARS = 150
-TITLES = {"arch": "Architecture map", "mermaid": "Diagram", "compare": "Options side by side", "dot": "Graph", "code:": "Code", "image": "Picture"}
+TITLES = {"arch": "Architecture map", "mermaid": "Diagram", "compare": "Options side by side", "dot": "Graph", "code:": "Code", "image": "Picture", "choice": "Choice"}
 RAW = {
     **dict.fromkeys(("json", "jsonc", "json5", "jsonl", "ndjson"), "JSON"),
     **dict.fromkeys(("yaml", "yml"), "YAML"),
@@ -74,7 +74,7 @@ VISUAL_WINDOW = 1200
 VISUAL_SCALE = 2
 VISUAL_TRIES = 3
 VISUAL_PAGE = """<!doctype html>
-<html data-print><head><meta charset="utf-8"><style>html,body{margin:0;background:#fff}#visual{display:inline-block}#visual:not([data-kind=code]){padding:8px}#visual[data-kind=arch]{display:block;width:960px}.smap.printing>.smap-canvas{max-height:none!important}.smap-readout:not(:has(> :not(.smap-hint))){display:none}</style></head>
+<html data-print><head><meta charset="utf-8"><style>html,body{margin:0;background:#fff}#visual{display:inline-block}#visual:not([data-kind=code]){padding:8px}#visual[data-kind=arch]{display:block;width:960px}#visual[data-kind=choice]{display:block;width:640px}.smap.printing>.smap-canvas{max-height:none!important}.smap-readout:not(:has(> :not(.smap-hint))){display:none}</style></head>
 <body><div id="visual"></div><script type="application/json" id="source">SOURCE</script>
 <script type="module">VISUALS
 const host = document.getElementById("visual");

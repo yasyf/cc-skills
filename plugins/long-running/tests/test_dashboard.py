@@ -800,6 +800,30 @@ done({ hovered, left: { on: document.querySelectorAll('#main .choice.on').length
     assert seen == {"hovered": {"on": "2", "rail": "Choice 2 of 2"}, "left": {"on": 0, "rail": "Recommended"}}
 
 
+def test_the_rail_draws_the_choice_he_points_at_with_what_it_touches_leaves_out_and_starts_and_the_card_body_leaves_choices_to_it(tmp_path: Path) -> None:
+    lines = []
+    for number, option in enumerate(QUESTION["card"]["options"], 1):
+        home = tmp_path / "pictures" / f"choice{number}"
+        home.mkdir(parents=True)
+        (home / "choice.png").write_bytes(b"\x89PNG\r\n")
+        made = {"option": option, "touches": {"kind": "mermaid", "source": f"flowchart TD\n  a --> b{number}\n"}, "outside": f"left out {number}", "starts": f"starts {number}"}
+        (home / picture.SOURCE).write_text(json.dumps({"kind": "choice", "source": json.dumps(made)}))
+        lines.append(f"![{number} · {option}]({home / 'choice.png'})")
+    question = QUESTION | {"card": QUESTION["card"] | {"body": "Two ways to hold more rows.\n*Show me*\n" + "\n".join(lines)}}
+    seen = browse(tmp_path, """
+location.hash = '#/queue/all';
+await wait(300);
+const drawn = () => [...document.querySelectorAll('#main [data-visual="choice"]')].map((host) => ({ inRail: Boolean(host.closest('[data-means]')), ...JSON.parse(host.dataset.source) }));
+const first = drawn();
+document.querySelectorAll('#main .choice')[1].dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+await wait(50);
+done({ first, hovered: drawn(), body: document.querySelector('#main .focus-card').textContent.includes('Show me') });
+""", board(queue=[question]))
+    assert [(each["inRail"], each["option"], each["outside"], each["starts"], each["touches"]["source"]) for each in seen["first"]] == [(True, "Raise it", "left out 1", "starts 1", "flowchart TD\n  a --> b1\n")]
+    assert [(each["inRail"], each["option"], each["outside"], each["starts"]) for each in seen["hovered"]] == [(True, "Shard it", "left out 2", "starts 2")]
+    assert seen["body"] is False
+
+
 def test_arrow_keys_on_a_pr_cards_tabs_switch_tabs_and_leave_the_queue_where_it_is(tmp_path: Path) -> None:
     tap = {"kind": "tap", "url": "https://github.com/a/b/pull/7", "title": "fix the lock", "answer": None, "thread": None, "card": None, "since": None, "holds": 0, "blocks": []}
     seen = browse(tmp_path, """

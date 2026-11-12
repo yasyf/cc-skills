@@ -70,6 +70,29 @@ def test_a_mermaid_picture_draws_rounded_unshadowed_nodes_in_a_legible_sans_with
     }
 
 
+CHOICE_LOOK = r"""<!doctype html>
+<html><body><div id="visual"></div><script type="module">VISUALS
+const host = document.getElementById("visual");
+await draw(host, "choice", JSON.stringify({ option: "A checkpoint row per export", touches: { kind: "mermaid", source: "flowchart TD\n  worker[export worker] --> row[(exports_checkpoints)]" }, outside: "the export format", starts: "a migration adding exports_checkpoints" }));
+const shown = host.querySelector(".visual-choice");
+document.documentElement.dataset.look = JSON.stringify({
+  parts: [...shown.children].map((part) => part.querySelector("svg") ? "diagram" : part.textContent),
+  nodes: [...host.querySelectorAll(".nodeLabel")].map((label) => label.textContent),
+});
+</script></body></html>
+"""
+
+
+def test_a_choice_draws_what_it_touches_as_its_diagram_then_what_it_leaves_out_and_what_starts_on_his_pick(tmp_path) -> None:
+    page = tmp_path / "choice.html"
+    page.write_text(CHOICE_LOOK.replace("VISUALS", picture.VISUALS.read_text(), 1))
+    dumped = picture.headless(page.as_uri(), tmp_path / "profile", "--window-size=1200,1200", "--no-sandbox", "--dump-dom")
+    assert json.loads(html.unescape(LOOK.search(dumped)[1])) == {
+        "parts": ["What it touches", "diagram", "What it leaves out", "the export format", "What starts when you pick it", "a migration adding exports_checkpoints"],
+        "nodes": ["export worker", "exports_checkpoints"],
+    }
+
+
 def test_a_mermaid_diagram_mermaid_cannot_parse_raises_its_parse_error_and_draws_once_its_semicolon_is_written_as_its_entity_code(tmp_path, monkeypatch) -> None:
     headless = picture.headless
     monkeypatch.setattr(picture, "headless", lambda url, profile, *args: headless(url, profile, "--no-sandbox", *args))

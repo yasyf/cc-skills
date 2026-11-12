@@ -1380,8 +1380,8 @@ def question_card(name: str, path: Path, waits: str) -> dict:
     pr_cards = (view.live_cards(name) or view.NO_CARDS)["pr_cards"]
     if refused := view.tap_claim_refusal(data, job["order"] if job else "", "\n".join([asked.title, *asked.summary, *asked.options]), pr_cards):
         raise DriveError(f"{path}: {refused}.{limits.FROM_ASK.format(waits=waits)}")
-    show_me = picture.drawn(state.drive_dir(name) / "pictures", asked.show_me)
-    card = asked.card(name, waits) | {"body": limits.card_body(asked.summary, show_me)}
+    folder = state.drive_dir(name) / "pictures"
+    card = asked.card(name, waits) | {"body": limits.card_body(asked.summary, [*picture.drawn(folder, asked.show_me), *limits.chosen(folder, asked)])}
     if job_id in data["jobs"]:
         with state.edit(name) as data:
             keep_waits(data["jobs"][job_id], path, waits)
@@ -3165,7 +3165,8 @@ def parser() -> argparse.ArgumentParser:
             " picture on a line of its own as ![caption](/absolute/path.png); never words, JSON, YAML, logs, a terminal"
             " session, an HTTP exchange, command output or a stack trace in a fence), captions of at most 25 words,"
             " two to four `- ` options of at most 25 words, each saying what runs, on what trigger, what it reads and what"
-            " reaches whom, then what he gets and what it costs, with exactly one ending (recommended), no mechanism such as"
+            " reaches whom, then what he gets and what it costs, with exactly one ending (recommended), each with `Touches:`"
+            " over a mermaid or arch fence of what it touches, `Leaves out: <words>` and `Starts: <words>` under it, no mechanism such as"
             " polling, a push or an event named by a bare word on the question or an option, the question, summary and"
             " options at most 150 words in all, in plain words, each thing he"
             " could open linked where it is named, then `Findings:` with the evidence, its `Root cause:` line naming the"

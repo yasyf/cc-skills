@@ -390,7 +390,13 @@ Show me:
 ```
 ![<what the screenshot shows, for a UI>](<its absolute path>)
 - <option: what runs, on what trigger, what it reads and what reaches whom, then what he gets and what it costs, at most 25 words> (recommended)
-- <option>
+  Touches:
+  ```<mermaid or arch>
+  <the services, files and tables this choice touches and how they connect>
+  ```
+  Leaves out: <what this choice does not do, at most 25 words>
+  Starts: <what starts the moment he picks it, at most 25 words>
+- <option, with its own Touches, Leaves out and Starts lines>
 Findings:
 Root cause: <the structure that lets the defect happen, by its proper terms; or fixed: <that structure>, removed by <the merged PR's link>; or not found: <the job finding it>; or none: <why no defect is behind this question>>
 First principles: <the option that removes that structure so the defect cannot occur, by its words>
