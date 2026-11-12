@@ -2,7 +2,7 @@ import shlex
 import sys
 from datetime import datetime
 
-from drive.state import DRIVE_TOOLING, ROLES, VERSION, agent_gone, lane_death, now, open_orders, owed_step, parse_time, pr_key, pr_url, project_lane, promise_thread, title
+from drive.state import DRIVE_TOOLING, ROLES, SLOT_WAIT, VERSION, agent_gone, lane_death, now, open_orders, owed_step, parse_time, pr_key, pr_url, project_lane, promise_thread, title
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 DRIVE_TOOLS = "mcp__plugin_long-running_drive__"
@@ -348,7 +348,8 @@ def job_line(job_id: str, job: dict, limit: int = 100) -> str:
     repro = f"; repro {job['repro']}" if job.get("repro") else ""
     carries = f"; {job['order']}'s job, carrying " + ", ".join(job["carries"]) if job.get("carries") else ""
     built = f" on {job['branch']}" if job["state"] == "built" else ""
-    waits = f"; waits on {', '.join(job['waits'])}" if job.get("waits") else ""
+    slot = f"a builder slot on this Mac, {job['in_line']}" if job.get("in_line") else "a builder slot on this Mac"
+    waits = f"; waits on {', '.join(slot if wait == SLOT_WAIT else wait for wait in job['waits'])}" if job.get("waits") else ""
     shown = f"lane dead since {when(dead['at'])} ({dead['why']})" if job["state"] == "running" and (dead := lane_death(job)) else job["state"]
     return f"{job_id} {job['kind']} {shown}{built}{handle}: {cut(job['goal'], limit)}{repro}{carries}{waits}"
 

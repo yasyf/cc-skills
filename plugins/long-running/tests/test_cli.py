@@ -3976,7 +3976,7 @@ def test_pr_add_on_an_incident_order_refuses_a_revert_unless_it_waits_on_his_tap
     assert run("pr", "add", PR, "--job", "j1")[0] == 0
 
 
-def test_job_add_records_a_local_builder_past_the_macs_cap_waiting_and_refuses_a_monorepo_one_while_drive_place_says_remote(
+def test_job_add_records_a_local_builder_past_the_macs_cap_waiting_its_turn_with_its_place_and_refuses_a_monorepo_one_while_drive_place_says_remote(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(place, "busy", lambda: 0.95)
@@ -3991,14 +3991,27 @@ def test_job_add_records_a_local_builder_past_the_macs_cap_waiting_and_refuses_a
     for _ in range(place.LOCAL_BUILDERS - 1):
         assert run("job", "add", "builder", "--order", "o1", "--goal", "land", "--repo", "yasyf/cc-skills", "--agent", "a")[0] == 0
     assert run("job", "add", "builder", "--order", "o1", "--goal", "land", "--repo", "yasyf/cc-skills")[0] == 0
+    assert state.load(demo)["jobs"]["j9"]["state"] == "running"
     with state.edit("demo") as data:
         data["jobs"]["j9"].update(state.local_lane("dispatch-9"))
     code, added = run("job", "add", "builder", "--order", "o1", "--goal", "land", "--repo", "yasyf/cc-skills")
     added_id, waits, *_ = added.splitlines()
     assert (code, added_id) == (0, "j10")
-    assert waits.startswith("j10 waits for a builder here to finish, since 8 builders already run on this Mac, its cap of 8 (j2 on o1")
-    assert waits.endswith("; j9 on o1, its Orca lane dispatch-9, not ended); start the first waiting once one does: j10")
-    assert place.waiting_builders(state.load(demo)) == ["j10"]
+    assert waits.startswith("j10 waits its turn for a builder slot on this Mac, 1 of 1 in line, since 8 builders already run on this Mac, its cap of 8 (j2 on o1")
+    assert waits.endswith("; j9 on o1, its Orca lane dispatch-9, not ended): start no agent for it until the watch's FREE line names it")
+    queued = state.load(demo)["jobs"]["j10"]
+    assert (queued["state"], queued["waits"], queued["agent"]) == ("waiting", [state.SLOT_WAIT], None)
+    with state.edit("demo") as data:
+        data["jobs"]["j2"]["state"] = "done"
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "land", "--repo", "yasyf/cc-skills")[1].splitlines()[1] == (
+        "j11 waits its turn for a builder slot on this Mac, 2 of 2 in line, since builders already wait their turn for a slot on this Mac"
+        " ahead of it, earliest due first (j10): start no agent for it until the watch's FREE line names it"
+    )
+    assert place.waiting_builders(state.load(demo)) == ["j10", "j11"]
+    shown = run("status")[1]
+    assert "j10 builder waiting: land; waits on a builder slot on this Mac, 1 of 2 in line" in shown
+    assert "j11 builder waiting: land; waits on a builder slot on this Mac, 2 of 2 in line" in shown
+    assert json.loads(run("status", "--json")[1])["jobs"]["j11"]["in_line"] == "2 of 2 in line"
     assert run("job", "add", "reader", "--order", "o1", "--goal", "read")[0] == 0
 
 

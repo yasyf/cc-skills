@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 from conftest import SHORT_ASK, CodexAsk, Judge, Redraws, Thread, WatchProcess, Withdrawals, commit_files, git_in, staged
-from drive import card, cli, github, install, land, reads, render, served, slack, state, superseded, talk, view, watch
+from drive import card, cli, github, install, land, place, reads, render, served, slack, state, superseded, talk, view, watch
 
 KEY = "Forge-AI/monorepo#42"
 OTHER = "Forge-AI/monorepo#43"
@@ -1974,6 +1974,43 @@ def test_a_job_whose_wait_ends_is_freed_before_any_orphan_and_said_to_be_strande
     assert watch.run_pass(watching, T0 + timedelta(minutes=31)) == [
         f'ORPHAN o1 "ship the watch": j1 waits on "{said}" and no open PR, card or due time can wake it'
     ]
+
+
+def test_a_builder_waiting_its_turn_for_a_slot_is_no_orphan_and_the_watch_frees_the_earliest_due_once_as_each_slot_opens(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    serve(monkeypatch, {})
+    monkeypatch.setattr(watch, "local_gap", lambda job_id, job, data, moment: None if job.get("agent") else REAL_LOCAL_GAP(job_id, job, data, moment))
+    with state.edit(demo) as data:
+        data["prs"].clear()
+        data["jobs"]["j1"].update(prs=[], agent="a1", session="session-under-test")
+        for number in range(2, place.LOCAL_BUILDERS + 1):
+            data["jobs"][f"j{number}"] = job(agent=f"a{number}", session="session-under-test")
+        data["orders"]["o1"]["jobs"] = [f"j{number}" for number in range(1, place.LOCAL_BUILDERS + 2)]
+        data["orders"]["o2"] = order(text="fix the card", jobs=["j10"])
+        data["orders"]["o3"] = order(text="fix the watch", jobs=["j11"])
+        for job_id, order_id, added in (("j9", "o1", 10), ("j10", "o2", 20), ("j11", "o3", 30)):
+            data["jobs"][job_id] = job(order=order_id, session="session-under-test", created=state.stamp(T0 - timedelta(minutes=added)), updated=state.stamp(T0 - timedelta(minutes=10)))
+            place.queue(data["jobs"][job_id], T0 - timedelta(minutes=10))
+    watching = watcher(demo, T0 + timedelta(hours=1))
+    assert watch.run_pass(watching, T0) == []
+    assert place.positions(state.load(demo)) == {"j11": "1 of 3 in line", "j10": "2 of 3 in line", "j9": "3 of 3 in line"}
+    assert watch.run_pass(watching, T0 + timedelta(minutes=31)) == []
+    with state.edit(demo) as data:
+        data["jobs"]["j2"]["state"] = "done"
+    freed = T0 + timedelta(minutes=33)
+    assert watch.run_pass(watching, freed) == ["FREE j11 o3: its turn came as a builder slot opened on this Mac, 7 of its 8 held, nothing else holds it"]
+    data = state.load(demo)
+    assert {field: data["jobs"]["j11"][field] for field in ("state", "waits", "agent")} == {"state": "running", "waits": [], "agent": None}
+    assert place.turns(data, freed) == ([], place.LOCAL_BUILDERS)
+    assert watch.run_pass(watching, T0 + timedelta(minutes=35)) == []
+    with state.edit(demo) as data:
+        data["jobs"]["j11"]["agent"] = "a11"
+    assert watch.run_pass(watching, T0 + timedelta(minutes=37)) == []
+    with state.edit(demo) as data:
+        data["jobs"]["j3"]["state"] = "done"
+    assert watch.run_pass(watching, T0 + timedelta(minutes=39)) == ["FREE j10 o2: its turn came as a builder slot opened on this Mac, 7 of its 8 held, nothing else holds it"]
+    assert place.waiting_builders(state.load(demo)) == ["j9"]
 
 
 def release(number: int, published: str, components: str, name: str = "releases") -> dict:
