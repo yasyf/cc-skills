@@ -63,6 +63,7 @@ def read(**overrides: object) -> dict:
         "mergeCommit": None,
         "checks": RUNNING,
         "reviewDecision": None,
+        "approvals": [],
         "mergeable": "MERGEABLE",
         "title": "Fix: the watch",
         "labels": [],
@@ -2067,6 +2068,56 @@ def test_a_landers_outcome_is_said_on_its_prs_line_and_only_a_failure_wakes_its_
     lines = watch.event_lines(watching)
     assert lines == [f"PR {KEY}: {change} [o1 j1]"]
     assert watch.wakes(lines[0], state.load(demo)) == bool(code)
+
+
+def test_an_approval_on_an_older_head_draws_no_card_and_reads_approved_on_an_older_head_yet_his_approve_starts_its_lander(
+    demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
+) -> None:
+    waiting_job(demo)
+    with state.edit(demo) as data:
+        data["prs"][KEY]["wants_tap"] = True
+    monkeypatch.setattr(watch.view, "cards", lambda drive: NO_CARDS)
+    serve(monkeypatch, {KEY: read(headRefOid="bbbbbbb222", checks=GREEN, reviewDecision="APPROVED", approvals=["bbbbbbb222", "aaaaaaa111"])})
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == []
+    pr = state.load(demo)["prs"][KEY]
+    assert (pr["review"], watch.view.tap_detail(pr), landers) == ("stale", "green, approved on an older head", [])
+    approve(demo, KEY)
+    watch.run_pass(watching, T0 + timedelta(minutes=1))
+    assert landers == [(KEY,)]
+
+
+def enqueue_checking(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str, check: str) -> Path:
+    """A stack-enqueue whose --check prints check and exits 1, and whose --watch queues, beside a gh that records each call; the file gh writes."""
+    enqueue_exiting(tmp_path, name, 0)
+    (tmp_path / land.ENQUEUE).write_text(f'#!/bin/sh\nif [ "$1" = --check ]; then printf "%s\\n" {shlex.quote(check)}; exit 1; fi\necho "trunk said $*"\n')
+    calls = tmp_path / "gh-calls"
+    gh = tmp_path / "bin" / "gh"
+    gh.parent.mkdir()
+    gh.write_text(f'#!/bin/sh\necho "$*" >> {calls}\necho https://github.com/Forge-AI/monorepo/pull/42#issuecomment-1\n')
+    gh.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{gh.parent}{os.pathsep}{os.environ['PATH']}")
+    return calls
+
+
+def test_a_lander_whose_only_gap_is_an_approval_on_an_older_head_asks_forge_pr_reviewer_once_a_head_and_watches(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    approve(demo, KEY)
+    stale = "awaiting approval on head from {} (approved 316c682c69, on an older head)"
+    calls = enqueue_checking(tmp_path, monkeypatch, demo, f"#42 BLOCKED 34087d1264 {stale.format('forge-pr-reviewer[bot]')}; {stale.format('poetic-svc')}")
+    assert land.run(demo, [KEY]) == land.QUEUED
+    assert land.run(demo, [KEY]) == land.QUEUED
+    assert calls.read_text() == "pr comment 42 -R Forge-AI/monorepo --body @forge-pr-reviewer review\n"
+    assert state.load(demo)["prs"][KEY]["review_asked"] == "34087d1264"
+
+
+def test_a_lander_stops_on_any_other_gap_with_stack_enqueues_blocked_line_and_never_watches(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    approve(demo, KEY)
+    blocked = "#42 BLOCKED 34087d1264 awaiting approval on head from poetic-svc (approved 316c682c69, on an older head); required check test is FAILURE"
+    calls = enqueue_checking(tmp_path, monkeypatch, demo, blocked)
+    assert land.run(demo, [KEY]) == f"not landed: {blocked}; its whole output is in {state.drive_dir(demo) / land.LOG}"
+    assert not calls.exists()
 
 
 def test_a_lander_queues_nothing_while_a_pr_below_it_in_its_native_stack_lacks_his_approve_and_tries_again_once_he_approves_it(

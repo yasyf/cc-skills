@@ -7,7 +7,8 @@ from itertools import groupby, takewhile
 from pathlib import Path
 
 FIELDS = (
-    "state isDraft headRefOid title reviewDecision mergeable mergeCommit { oid } labels(first: 50) { nodes { name } } "
+    "state isDraft headRefOid title reviewDecision latestOpinionatedReviews(first: 20, writersOnly: true) { nodes { state commit { oid } } } "
+    "mergeable mergeCommit { oid } labels(first: 50) { nodes { name } } "
     "commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { "
     "... on CheckRun { name conclusion detailsUrl checkSuite { workflowRun { workflow { name } } } } ... on StatusContext { context state } } } } } } }"
 )
@@ -101,10 +102,19 @@ def flatten(node: dict) -> dict:
         "mergeCommit": (node["mergeCommit"] or {}).get("oid"),
         "checks": [context(check) for check in rollup["contexts"]["nodes"]] if rollup else [],
         "reviewDecision": node["reviewDecision"],
+        "approvals": [(review["commit"] or {}).get("oid") for review in node["latestOpinionatedReviews"]["nodes"] if review["state"] == "APPROVED"],
         "mergeable": node["mergeable"],
         "title": node["title"],
         "labels": [label["name"] for label in node["labels"]["nodes"]],
     }
+
+
+def review(read: dict) -> str:
+    """approved once every reviewer's latest approval is on the PR's head, the only approval stack-enqueue counts; stale while GitHub's reviewDecision still counts one given on an older head; changes or none otherwise."""
+    decision = REVIEWS.get(read["reviewDecision"], "none")
+    if decision == "approved" and any(commit != read["headRefOid"] for commit in read["approvals"]):
+        return "stale"
+    return decision
 
 
 def outcome(check: dict) -> str:
@@ -162,7 +172,7 @@ def live(read: dict, stored: dict) -> dict:
         "state": PR_STATES[read["state"]],
         "checks": checks(read["checks"], failed),
         "failed_checks": failed,
-        "review": REVIEWS.get(read["reviewDecision"], "none"),
+        "review": review(read),
         "head": read["headRefOid"],
         "title": read["title"],
         "hold_label": HOLD_LABEL in read["labels"],
@@ -267,7 +277,7 @@ def open_on(heads: list[tuple[str, str]]) -> dict[str, dict]:
             found[f"{repo}#{node['number']}"] = {
                 "branch": branch,
                 "checks": checks(pulled["checks"], []),
-                "review": REVIEWS.get(pulled["reviewDecision"], "none"),
+                "review": review(pulled),
             }
     return found
 

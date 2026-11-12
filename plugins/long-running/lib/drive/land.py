@@ -1,4 +1,5 @@
 import os
+import re
 import subprocess
 from itertools import takewhile
 from pathlib import Path
@@ -12,6 +13,10 @@ LOG = "landings.log"
 SAID_CHARS = 400
 SAID_LINES = 4
 QUEUED = "queued for merge"
+LANDS_ON = ("approved", "stale")
+REVIEW_ASK = "@forge-pr-reviewer review"
+BLOCKED_LINE = re.compile(r"^#(?P<number>\d+) BLOCKED (?P<head>\w+) (?P<gaps>.+)$", re.MULTILINE)
+OLDER_HEAD = re.compile(r"awaiting approval on head from \S+ \(approved [^,]+, (?:on an older head|dismissed by a push)\)")
 
 
 def open_cards(data: dict, pr: dict, cards: dict | None) -> list[str]:
@@ -50,10 +55,10 @@ def unit(data: dict, key: str) -> tuple[str, ...]:
 
 
 def ready(data: dict, keys: tuple[str, ...], cards: dict) -> bool:
-    """Whether a unit is queued now: each PR of it green and approved with nothing holding it, no draft, no conflict with its base, no card of his open on it or its job and no lander running on it, and one of them on a head no lander has tried. A job still running on it does not hold it, since his Approve lands it at once."""
+    """Whether a unit is queued now: each PR of it green and approved, or approved only on an older head, whose review `drive pr land` asks for, with nothing holding it, no draft, no conflict with its base, no card of his open on it or its job and no lander running on it, and one of them on a head no lander has tried. A job still running on it does not hold it, since his Approve lands it at once."""
     prs = [data["prs"][key] for key in keys]
     fit = all(
-        view.unblocked(pr, data, cards)
+        view.unblocked(pr, data, cards, LANDS_ON)
         and not pr["draft"]
         and not pr["conflict"]
         and not open_cards(data, pr, cards)
@@ -185,16 +190,39 @@ def said(output: str) -> str:
 
 
 def enqueued(name: str, checkout: Path, keys: list[str]) -> str:
-    """Queue the unit through the coordinator checkout's stack-enqueue, which watches until Trunk holds every PR of it or one needs a fix rather than a wait; what came of it."""
-    argv = [str(checkout / ENQUEUE), "--watch", *(key.split("#")[1] for key in keys)]
+    """Queue the unit through the coordinator checkout's stack-enqueue: --check first, whose BLOCKED lines end the landing, unless each gap is an approval on an older head, which stack-enqueue names only once ai-review finished on the head; then forge-pr-reviewer is asked to review each such head once, and --watch waits until Trunk holds every PR of it or one needs a fix rather than a wait; what came of it."""
+    script = str(checkout / ENQUEUE)
+    numbers = [key.split("#")[1] for key in keys]
     try:
-        done = subprocess.run(argv, cwd=checkout, capture_output=True, text=True)
+        checked = subprocess.run([script, "--check", *numbers], cwd=checkout, capture_output=True, text=True)
     except OSError as error:
-        return f"not landed: {argv[0]} did not start: {error}"
+        return f"not landed: {script} did not start: {error}"
+    print(checked.stdout + checked.stderr, flush=True)
+    blocked = list(BLOCKED_LINE.finditer(checked.stdout))
+    if any(not OLDER_HEAD.fullmatch(gap) for line in blocked for gap in line["gaps"].split("; ")):
+        return f"not landed: {cut('; '.join(line[0] for line in blocked), SAID_CHARS)}; its whole output is in {state.drive_dir(name) / LOG}"
+    if refused := ask_review(name, github.repo_of(keys[0]), {line["number"]: line["head"] for line in blocked}):
+        return refused
+    done = subprocess.run([script, "--watch", *numbers], cwd=checkout, capture_output=True, text=True)
     print(done.stdout + done.stderr, flush=True)
     if done.returncode == 0:
         return QUEUED
     return f"not landed: stack-enqueue --watch exited {done.returncode}: {said(done.stdout + done.stderr)}; its whole output is in {state.drive_dir(name) / LOG}"
+
+
+def ask_review(name: str, repo: str, heads: dict[str, str]) -> str | None:
+    """Post the comment ai-review names for a head it will not review on its own on each PR whose head, as stack-enqueue names it, was not asked before, and record that head on the PR so none is asked twice; why not, when GitHub refused one."""
+    asked = state.load(name)["prs"]
+    for number, head in heads.items():
+        if asked[f"{repo}#{number}"]["review_asked"] == head:
+            continue
+        done = subprocess.run(["gh", "pr", "comment", number, "-R", repo, "--body", REVIEW_ASK], capture_output=True, text=True)
+        if done.returncode:
+            return f"not landed: #{number} waits on a review of head {head}, and gh pr comment refused {REVIEW_ASK!r}: {cut(' '.join(done.stderr.split()), SAID_CHARS)}"
+        print(f"#{number} asked forge-pr-reviewer to review head {head}: {done.stdout.strip()}", flush=True)
+        with state.edit(name) as data:
+            data["prs"][f"{repo}#{number}"]["review_asked"] = head
+    return None
 
 
 def merged(key: str) -> str:

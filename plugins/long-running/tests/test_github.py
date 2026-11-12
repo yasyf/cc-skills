@@ -17,6 +17,7 @@ def node(**overrides: object) -> dict:
         "headRefOid": "abc1234def",
         "title": "Fix the thing",
         "reviewDecision": None,
+        "latestOpinionatedReviews": {"nodes": []},
         "mergeable": "MERGEABLE",
         "mergeCommit": None,
         "labels": {"nodes": []},
@@ -30,7 +31,7 @@ def stored(head: str = "abc", failed: list[str] | None = None) -> dict:
 
 
 def pr_read(rollup: list[dict], **overrides: object) -> dict:
-    return {"state": "OPEN", "checks": rollup, "reviewDecision": None, "mergeable": "MERGEABLE", "headRefOid": "abc", "title": "T", "labels": [], **overrides}
+    return {"state": "OPEN", "checks": rollup, "reviewDecision": None, "approvals": [], "mergeable": "MERGEABLE", "headRefOid": "abc", "title": "T", "labels": [], **overrides}
 
 
 def test_query_aliases_one_repository_per_repo_and_one_pull_per_number() -> None:
@@ -48,7 +49,10 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
 
     def fake(cmd: list[str], **_: object) -> str:
         calls.append(cmd)
-        merged = node(state="MERGED", mergeCommit={"oid": "fff000"}, commits={"nodes": []}, reviewDecision="APPROVED", labels={"nodes": [{"name": "hold"}]})
+        reviews = [{"state": "APPROVED", "commit": {"oid": "abc1234def"}}, {"state": "CHANGES_REQUESTED", "commit": {"oid": "0ld"}}, {"state": "APPROVED", "commit": None}]
+        merged = node(
+            state="MERGED", mergeCommit={"oid": "fff000"}, commits={"nodes": []}, reviewDecision="APPROVED", latestOpinionatedReviews={"nodes": reviews}, labels={"nodes": [{"name": "hold"}]}
+        )
         return json.dumps({"data": {"r0": {"p1": node(), "p2": merged}, "r1": {"p7": None}}})
 
     monkeypatch.setattr(github, "run", fake)
@@ -64,6 +68,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "mergeCommit": None,
             "checks": GREEN,
             "reviewDecision": None,
+            "approvals": [],
             "mergeable": "MERGEABLE",
             "title": "Fix the thing",
             "labels": [],
@@ -75,6 +80,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "mergeCommit": "fff000",
             "checks": [],
             "reviewDecision": "APPROVED",
+            "approvals": ["abc1234def", None],
             "mergeable": "MERGEABLE",
             "title": "Fix the thing",
             "labels": ["hold"],
@@ -96,6 +102,16 @@ def test_fetch_reads_twenty_five_prs_a_graphql_query_and_open_on_every_branch_in
     github.fetch([f"a/one#{number}" for number in range(1, count + 1)])
     OPEN_ON([("a/one", f"branch-{number}") for number in range(count)])
     assert sizes == [*((size, 0) for size in queries), (0, count)]
+
+
+@pytest.mark.parametrize(
+    ("decision", "approvals", "review"),
+    [("APPROVED", ["abc", "abc"], "approved"), ("APPROVED", ["abc", "0ld"], "stale"), ("APPROVED", [None], "stale"), ("CHANGES_REQUESTED", ["0ld"], "changes"), (None, ["0ld"], "none")],
+)
+def test_an_approval_counts_only_on_the_prs_head_and_one_github_still_counts_from_an_older_head_reads_stale(
+    decision: str | None, approvals: list[str | None], review: str
+) -> None:
+    assert github.live(pr_read(GREEN, reviewDecision=decision, approvals=approvals), stored())["review"] == review
 
 
 def test_a_refused_query_loses_only_its_own_prs_and_names_them(monkeypatch: pytest.MonkeyPatch) -> None:

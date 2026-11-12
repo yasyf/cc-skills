@@ -202,10 +202,18 @@ carry out one decision of his into one first, so he gets one card.
 **His Approve lands a `Forge-AI/monorepo` PR with no session turn.** The drive's lander, a process of
 its own, enqueues it into the Trunk merge queue with the coordinator checkout's script:
 
+    .agents/skills/submit-pr/scripts/stack-enqueue --check <PR>...
     .agents/skills/submit-pr/scripts/stack-enqueue --watch <PR>...
 
-His card tap starts it when the PR is already green, approved by the reviewer bot and free of
-conflicts, and the watch starts it within one GitHub read, 60 seconds, of the PR getting there. It
+The drive counts a review approval only on the PR's current head, as stack-enqueue does: an
+approval GitHub still counts from an older head reads `approved on an older head`, never approved,
+and draws no card. Its `--check` runs first, and a `BLOCKED` line it prints ends the landing as
+`PR … not landed: <that line>`, unless each gap it names is an approval on an older head, which
+stack-enqueue names only once `ai-review` finished on that head without approving it. Then the
+lander posts `@forge-pr-reviewer review` on that PR, once a head, and `--watch` waits for the
+approvals and queues it. His card tap starts it when the PR is already green, approved by the
+reviewer bot, on its head or an older one, and free of conflicts, and the watch starts it within
+one GitHub read, 60 seconds, of the PR getting there. It
 names the PRs of his card's stack bottom first, up to the first he has not approved, and starts on
 none while a card of his that the PR or its job waits on is open, or the PR is a draft, held or in
 conflict. Each head gets one try. Its outcome comes back as the PR's line: `PR … queued for merge`
