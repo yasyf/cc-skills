@@ -127,7 +127,7 @@ NAMED_SOURCE = (
     " doc, report, PR body or brief shows what that source says, never what the code it describes does, whoever wrote it"
 )
 DOC_SOURCE = "; {docs} this read opens is a doc, which backs a line telling what that doc says and no line on what code does, even word for word"
-CITED_SOURCE = "a record the post cites as {record:} or a claim names as its read, held whole, its writer on its first line: it backs a line telling what it says, and any other line only where it measured what that line says"
+CITED_SOURCE = "a record the post cites as {record:} or a claim names as its read, held whole, its first line naming its writer and, after >, the lanes it went to, root being the coordinator's: it backs a line telling what it says or where it went, and any other line only where it measured what that line says"
 UNCLAIMED = {"id": "claims:none", "source": "the reads the posting handler's claims name", "quote": "none: the post names no claim and no read behind one"}
 CARRIED_SOURCE = "the report this post carries as say's record, another agent's words, which back a line only as the record that measured it"
 

@@ -165,7 +165,7 @@ class Weighed(Decide):
 
 
 ASK_JUDGE = Decide(ASK_RULES, contexts=(UnshownCall(),), second_opinion=False)
-JUDGE = Weighed(POST_RULES, frame=POST_FRAME, second_opinion=False, transcript=JUDGED_TURNS, root_transcript=JUDGED_TURNS, tool_results=True)
+JUDGE = Weighed(POST_RULES, frame=POST_FRAME, model="medium", second_opinion=False, transcript=JUDGED_TURNS, root_transcript=JUDGED_TURNS, tool_results=True)
 HANDLER_JUDGE = replace(JUDGE, over=(UserAnswered(approved=False),))
 JEV_UNSURE = {"permits": LabelAnswer(UNPERMITTED, {UNPERMITTED: 1.0}, 0.9)}
 SAID_AT = datetime(2026, 11, 11, 17, 40, tzinfo=UTC)
