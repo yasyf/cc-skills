@@ -40,7 +40,8 @@ def posts(demo: str, monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, ...]]:
 
 
 def question_card(url: str, question: str, waits: str) -> dict:
-    return {"question": question, "options": ["Each chat"], "recommended": "Each chat", "asked": ASKED, "url": url, "card": {"title": question, "waits": waits}}
+    card = {"title": question, "body": "Each chat's database or the whole table.", "options": ["Each chat"], "recommended": "Each chat", "waits": waits}
+    return {"question": question, "options": card["options"], "recommended": card["recommended"], "asked": ASKED, "url": url, "card": card}
 
 
 def said(name: str) -> list[dict]:

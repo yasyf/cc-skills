@@ -151,7 +151,7 @@ def shown(name: str, post: dict) -> tuple[list[dict], str, list[str]]:
 
 
 def posted(name: str, post: dict) -> dict:
-    """cc-slack's reply to the post, or to the edit rewording a post of its own, which went out with its references linked, each visual drawn as a picture but a chart, which Slack draws itself, and each code or diagram fence of its text drawn as a picture too, and is kept as a said event for the dashboard, which draws each visual and fence live from its source and each PR of a stack card with its state now, an edit's words in place of its post's; a post check refuses goes nowhere. A PR card's line goes in each thread its PRs' orders have, so whichever he reads carries the card's link."""
+    """cc-slack's reply to the post, or to the edit rewording a post of its own, which went out with its references linked, each visual drawn as a picture but a chart, which Slack draws itself, and each code or diagram fence of its text drawn as a picture too, and is kept as a said event for the dashboard, which draws each visual and fence live from its source and each PR of a stack card with its state now, an edit's words in place of its post's; a post that draws a card stores his cards as cc-slack lists them now, so the next post's hook sees that card; a post check refuses goes nowhere. A PR card's line goes in each thread its PRs' orders have, so whichever he reads carries the card's link."""
     text = post.get("text") or ""
     found = refs.resolved(name, text)
     check(name, post)
@@ -189,6 +189,8 @@ def posted(name: str, post: dict) -> dict:
         prs=stack,
         edited=bool(post.get("edit")),
     )
+    if card or stack:
+        view.refresh_cards(name)
     for thread in others:
         linked(name, reply["permalink"], thread, stack, sent, kept)
     return reply

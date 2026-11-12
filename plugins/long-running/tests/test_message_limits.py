@@ -691,6 +691,29 @@ def test_a_post_saying_a_pr_waits_on_his_tap_is_refused_unless_he_has_its_tap_ca
     assert "Forge-AI/monorepo#53971: no open tap card of his stands at its head" in posted(transcript, text=f"{text} <{link}|Its tap card> is up.")
 
 
+def test_a_tap_card_say_just_drew_lets_the_next_say_link_it_as_what_the_pr_waits_on(
+    run: Run, talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
+    url, link = "https://github.com/yasyf/cc-skills/pull/7", f"https://acme.slack.com/archives/{DM}/p1794300000000500"
+    with state.edit("demo") as data:
+        data["prs"]["yasyf/cc-skills#7"] = state.new_pr(url, "j1", "o1") | {"head": "f3ed5a7"}
+    drawn: list[dict] = []
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": drawn})
+    view.refresh_cards("demo")
+    text = f"<{url}|The unfurl fix> waits on your Approve: <{link}|its tap card>."
+    assert "yasyf/cc-skills#7: no open tap card of his stands at its head" in say(transcript, text=text)
+
+    def draw(*argv: str) -> dict:
+        drawn.append({"asked": state.stamp(), "url": link, "prs": [url], "card": {"title": "Fix: land it?", "prs": [{"url": url, "head": "f3ed5a7"}]}})
+        return {"permalink": f"https://acme.slack.com/archives/{DM}/p1794300000000400", "card_permalink": link}
+
+    monkeypatch.setattr(slack, "cc_slack", draw)
+    talk.say("demo", {"text": "ship the fix", "tap_prs": [url]})
+    assert say(transcript, text=text) is None
+
+
 def test_a_post_that_is_one_slack_link_or_mention_goes_out(talker: str, transcript: Path) -> None:
     assert posted(transcript, thread_ts="1.2", text="<https://github.com/yasyf/cc-skills/pull/1|the fix>") is None
     assert posted(transcript, thread_ts="1.2", text="<@U123>") is None
