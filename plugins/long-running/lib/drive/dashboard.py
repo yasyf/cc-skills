@@ -138,10 +138,10 @@ def relay(text: str, under: str) -> dict:
 
 
 def pr_read(key: str, entry: dict) -> dict | None:
-    """The PR as its Slack card reads it, with its Show me section cut by the parser that card uses; None for a PR GitHub refuses that was never read."""
+    """The PR as its Slack card reads it, with its Show me section cut by the parser that card uses and the row his card would draw for it; None for a PR GitHub refuses that was never read."""
     if not (pr := card.read(key, entry)):
         return None
-    return pr | {"show_me": sections(body_of(pr)).get("show me", "")}
+    return pr | {"show_me": sections(body_of(pr)).get("show me", ""), "row": card.render(pr, entry)["prs"][0]}
 
 
 @functools.cache
@@ -455,7 +455,7 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 return
             try:
                 self.answered(200, {"url": board.assistant.url(key, board.heads[key])})
-            except (DriveError, install.InstallError, subprocess.TimeoutExpired) as error:
+            except (DriveError, install.InstallError) as error:
                 self.answered(502, {"error": str(error)})
 
         def answer(self, asked: dict, via: str) -> None:

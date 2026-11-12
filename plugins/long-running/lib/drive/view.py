@@ -424,9 +424,10 @@ def rail(drive: dict, item: dict, reports: set[str]) -> dict:
     }
 
 
-def tap_item(pr: dict, card: dict | None) -> dict:
+def tap_item(drive: dict, pr: dict, card: dict | None) -> dict:
+    """A PR card in his queue, with each of its PRs as the drive holds it now, in the card's order, since a stacked PR can merge while the card still waits on him."""
     if not card:
-        return {"kind": "tap", "title": pr_title(pr), "detail": f"{tap_detail(pr)}; no Slack card yet", "since": None, "due": None, "url": pr["url"], "links": [], "pr": pr["url"], "checks": pr["checks"]}
+        return {"kind": "tap", "title": pr_title(pr), "detail": f"{tap_detail(pr)}; no Slack card yet", "since": None, "due": None, "url": pr["url"], "links": [], "pr": pr["url"], "checks": pr["checks"], "prs": [pr_entry(pr)]}
     return {
         "kind": "tap",
         "title": pr_title(pr),
@@ -440,6 +441,7 @@ def tap_item(pr: dict, card: dict | None) -> dict:
         "card": card["card"],
         "answer": card["url"],
         "thread": card_thread(card["url"]),
+        "prs": [pr_entry(named_pr(drive["prs"], state.pr_key(row["url"]))) for row in card["card"].get("prs") or []],
     }
 
 
@@ -468,7 +470,7 @@ def queue(drive: dict, found: dict, moment: datetime, features: list[dict]) -> l
     asker = asked_by(drive, found)
     return [
         *sorted((question_item(drive, card, features, waiting, asker[card["url"]]) for card in found["questions"]), key=lambda item: (not item["built"], -item["holds"])),
-        *(tap_item(pr, card) for pr, card in taps),
+        *(tap_item(drive, pr, card) for pr, card in taps),
         *(late_item(drive, order, found["team_url"]) for order in late),
     ]
 

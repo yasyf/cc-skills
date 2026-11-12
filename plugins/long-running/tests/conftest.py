@@ -38,7 +38,7 @@ LIVE_WORKER = {
     "terminal": {"lastOutputAt": None},
 }
 CARD_BODY = """## Summary
-`land.py` lands the PR once his tap comes in.
+`land.py` lands the PR once your tap comes in.
 
 ## What you'll hate most
 It lands without a second look.

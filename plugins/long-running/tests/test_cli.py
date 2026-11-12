@@ -3562,6 +3562,20 @@ def test_pr_add_refuses_a_title_his_card_cannot_name_the_kind_of(run: Run, demo:
         assert run("pr", "add", PR, "--job", "j1")[0] == 0
 
 
+def test_pr_add_refuses_a_body_whose_shown_sections_speak_of_him_as_he_or_his(run: Run, demo: str, on_github: dict, capsys: pytest.CaptureFixture[str]) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Releases", "land it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land it")
+    on_github["body"] = CARD_BODY.replace("once your tap comes in", "once his tap comes in")
+    assert cli.main(["pr", "add", PR, "--job", "j1"]) == 2
+    assert capsys.readouterr().err.strip() == (
+        'drive: Forge-AI/monorepo#42: refused, nothing added: its card shows him these sections, which speak of him as he or his: summary: "`land.py` lands the PR once his tap comes in.".'
+        ' Say you and your instead, as in "Your Nov 11 words narrowed it", edit the body with gh pr edit 42 -R Forge-AI/monorepo --body-file <file>, then run this again'
+    )
+    assert state.load("demo")["prs"] == {}
+    on_github["body"] = CARD_BODY.replace("once your tap comes in", 'once your tap comes in, as `he` and "his tap" say')
+    assert run("pr", "add", PR, "--job", "j1")[0] == 0
+
+
 def test_pr_set_tap_refuses_a_title_retitled_since_drive_pr_add_read_it(
     run: Run, with_pr: str, on_github: dict, capsys: pytest.CaptureFixture[str]
 ) -> None:

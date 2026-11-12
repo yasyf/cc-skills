@@ -550,10 +550,11 @@ def board(**changed: object) -> dict:
     } | changed
 
 
-def browse(tmp_path: Path, steps: str, model: dict, size: str = "1200,600", *flags: str) -> object:
+def browse(tmp_path: Path, steps: str, model: dict, size: str = "1200,600", *flags: str, before: str = "") -> object:
     """Serve the dashboard of model from the real handler and load it in headless Chrome with only its stream stubbed: the page reads the summary
-    once, and push(model) shows the board model and hands the page its summary. Run steps, an async module that may call push(model) and wait(ms),
-    and return what steps put in done(result)."""
+    once, and push(model) shows the board model and hands the page its summary. Run before, a script ahead of app.js that may stand in for the
+    server's reads, then steps, an async module that may call push(model) and wait(ms), and return what steps put in done(result); /test/embed
+    serves EMBED, a stand-in for cc-review's embedded review."""
     harness = f"""<script>
 const MODEL = {json.dumps(model)};
 window.EventSource = class {{ constructor() {{ window.STREAM = this; fetch('/api/view').then((reply) => reply.text()).then((data) => this.onmessage({{ data }})); }} }};
@@ -563,7 +564,7 @@ const done = (result) => {{ document.documentElement.dataset.result = JSON.strin
 </script>"""
     site = tmp_path / "site"
     site.mkdir(parents=True)
-    page = (SITE / "index.html").read_text().replace('<script src="/app.js"></script>', f'{harness}<script src="/app.js"></script><script type="module">await wait(100);\n{steps}</script>')
+    page = (SITE / "index.html").read_text().replace('<script src="/app.js"></script>', f'{harness}<script>{before}</script><script src="/app.js"></script><script type="module">await wait(100);\n{steps}</script>')
     (site / "index.html").write_text(page)
     for name in ("app.js", "app.css"):
         (site / name).symlink_to(SITE / name)
@@ -573,6 +574,11 @@ const done = (result) => {{ document.documentElement.dataset.result = JSON.strin
     server, port = serving(shown)
 
     class Pushed(server.RequestHandlerClass):
+        def do_GET(self) -> None:
+            if not self.path.startswith("/test/embed"):
+                return super().do_GET()
+            self.reply(EMBED.encode(), "text/html; charset=utf-8")
+
         def do_POST(self) -> None:
             if self.path != "/test/push":
                 return super().do_POST()
@@ -1034,6 +1040,244 @@ await wait(100);
 done({ counter: document.querySelector('#main .counter span').textContent, selected: document.querySelector('#main [data-prtab][aria-selected="true"]').dataset.prtab, focused: document.activeElement.dataset.prtab });
 """, board(queue=[tap, QUESTION]))
     assert seen == {"counter": "1 of 2", "selected": "context", "focused": "context"}
+
+
+DEMO = "https://github.com/demo-org/demo-app/pull"
+SHOW_ME = "### Before\n\n" + "\n\n".join(f"Held lock {n} never lets go." for n in range(30)) + "\n\n### After\n\n" + "\n\n".join(f"Held lock {n} lets go after 30 s." for n in range(30))
+READ = {
+    "title": "Fix: time out the lock", "url": f"{DEMO}/41", "body": f"## Show me\n{SHOW_ME}", "show_me": SHOW_ME, "additions": 12, "deletions": 3, "changedFiles": 2,
+    "headRefName": "lock-timeout", "baseRefName": "main", "isDraft": False, "row": {},
+}
+STACK = {
+    "kind": "tap", "title": "Fix: the lock stack", "url": f"{DEMO}/40", "answer": "https://x.slack.com/archives/D1/p1794382453859300", "thread": None, "since": None,
+    "detail": "", "due": None, "links": [],
+    "card": {
+        "title": "Fix: approve the lock stack?", "options": ["Approve", "Hold"], "recommended": "Approve",
+        "prs": [
+            {"url": f"{DEMO}/40", "title": "move the lock", "head": "a" * 40, "summary": "Moves the lock.", "lands": "", "blocks": "Merged"},
+            {"url": f"{DEMO}/41", "title": "time out the lock", "head": "b" * 40, "summary": "A held lock lets go at `lib/lock.py:12`.", "hate_most": "The old queue still waits at `lib/queue.py:90`.", "lands": "you approve", "blocks": ""},
+            {"url": f"{DEMO}/42", "title": "drop the old queue", "head": "c" * 40, "summary": "Drops the old queue.", "lands": "", "blocks": "CI failed; the agent is fixing it"},
+        ],
+    },
+    "prs": [
+        {"title": "Fix: move the lock", "url": f"{DEMO}/40", "state": "merged", "checks": "pass", "review": "approved", "tap": None},
+        {"title": "Fix: time out the lock", "url": f"{DEMO}/41", "state": "open", "checks": "pass", "review": "approved", "tap": "wanted"},
+        {"title": "Fix: drop the old queue", "url": f"{DEMO}/42", "state": "open", "checks": "fail", "review": "none", "tap": None},
+    ],
+}
+OPEN = [
+    {"key": f"demo-org/demo-app#{number}", "title": title, "url": f"{DEMO}/{number}", "head": head * 40, "card": None, "answer": None, "thread": None, "since": None}
+    for number, title, head in ((41, "Fix: time out the lock", "b"), (42, "Fix: drop the old queue", "c"))
+]
+STAND_IN = f"""
+window.HEARD = [];
+window.FAILS = [];
+window.STARTS = 0;
+{{
+  const served = window.fetch;
+  const reply = (body, status = 200) => new Response(JSON.stringify(body), {{ status }});
+  window.fetch = async (url, options) => {{
+    if (String(url).startsWith('/api/pr/')) return reply({json.dumps(READ)});
+    if (!String(url).startsWith('/api/review/')) return served(url, options);
+    STARTS += 1;
+    await wait(200);
+    const error = FAILS.shift();
+    return error ? reply({{ error }}, 502) : reply({{ url: `${{location.origin}}/test/embed` }});
+  }};
+}}
+"""
+EMBED = """<!doctype html><body>the review<script>
+parent.postMessage({ type: 'cc-review:ready', files: ['lib/lock.py', 'lib/queue.py'] }, '*');
+addEventListener('message', (event) => {
+  parent.HEARD.push({ ...event.data, embed: new URLSearchParams(location.search).get('embed') });
+  if (event.data.type !== 'cc-review:say') return;
+  const refused = event.data.line === 90 ? { error: `line 90 of ${event.data.path} is outside the diff's hunks` } : {};
+  parent.postMessage({ type: 'cc-review:said', id: event.data.id, ...refused }, '*');
+});
+</script>"""
+
+
+@pytest.mark.parametrize("size", ["1440,900", "390,844"])
+def test_a_stack_card_opens_on_its_first_pr_still_waiting_with_landed_prs_collapsed_and_the_chosen_pr_in_the_address(tmp_path: Path, size: str) -> None:
+    seen = browse(tmp_path, """
+location.hash = '#/queue/all';
+await wait(300);
+const rows = () => [...document.querySelectorAll('#main ol.stack > li')].map((li) => [li.className, ...[...li.querySelectorAll('.name, .fact')].map((part) => part.textContent)]);
+const chosen = () => ({ hash: location.hash, row: document.querySelector('#main .stack [aria-current="true"]').dataset.row, link: document.querySelector('#main .type-label a').textContent });
+const opened = { rows: rows(), ...chosen() };
+document.querySelector('#main .stack [data-row="2"]').click();
+await wait(100);
+const picked = chosen();
+location.hash = '#/queue/all/1794382453.859300/41';
+await wait(100);
+const linked = chosen();
+await push({ ...MODEL, queue: [{ ...MODEL.queue[0], prs: MODEL.queue[0].prs.map((pr, i) => (i === 1 ? { ...pr, state: 'merged' } : pr)) }] });
+await wait(100);
+done({ opened, picked, linked, merged: { kinds: rows().map(([kind]) => kind), ...chosen() } });
+""", board(queue=[STACK], review=OPEN), size, before=STAND_IN)
+    address = "#/queue/all/1794382453.859300"
+    assert seen == {
+        "opened": {
+            "rows": [
+                ["gone", "demo-org/demo-app#40 · move the lock", "Landed"],
+                ["", "demo-org/demo-app#41 · time out the lock", "Tests pass", "Review approved", "Approve lands it"],
+                ["", "demo-org/demo-app#42 · drop the old queue", "Tests fail", "No review yet", "CI failed; the agent is fixing it"],
+            ],
+            "hash": f"{address}/41", "row": "1", "link": "demo-org/demo-app#41",
+        },
+        "picked": {"hash": f"{address}/42", "row": "2", "link": "demo-org/demo-app#42"},
+        "linked": {"hash": f"{address}/41", "row": "1", "link": "demo-org/demo-app#41"},
+        "merged": {"kinds": ["gone", "gone", ""], "hash": f"{address}/42", "row": "2", "link": "demo-org/demo-app#42"},
+    }
+
+
+@pytest.mark.parametrize("size", ["1440,900", "390,844"])
+def test_a_pr_cards_tabs_share_one_pane_height_and_its_action_bar_stays_on_screen_above_the_review(tmp_path: Path, size: str) -> None:
+    seen = browse(tmp_path, """
+location.hash = '#/queue/all';
+await wait(600);
+const card = document.querySelector('#main .pr-card');
+const measured = [];
+for (const tab of ['show', 'change', 'context']) {
+  document.querySelector(`#main [data-prtab="${tab}"]`).click();
+  await wait(100);
+  const bar = document.querySelector('#main .pr-actions').getBoundingClientRect();
+  const hit = document.elementFromPoint(bar.left + 30, bar.top + bar.height / 2);
+  const frame = document.querySelector('#frames iframe');
+  measured.push({ tab, card: Math.round(card.getBoundingClientRect().height), bar: Math.round(bar.top), shown: bar.bottom <= innerHeight && Boolean(hit.closest('.pr-actions')), frame: !frame.hidden });
+}
+done(measured);
+""", board(queue=[STACK], review=OPEN), size, before=STAND_IN)
+    assert len({each["card"] for each in seen}) == 1
+    assert len({each["bar"] for each in seen}) == 1
+    assert [(each["tab"], each["shown"], each["frame"]) for each in seen] == [("show", True, False), ("change", True, True), ("context", True, False)]
+
+
+def test_the_change_tab_shows_progress_while_cc_review_starts_then_why_it_failed_with_retry_then_the_embedded_review(tmp_path: Path) -> None:
+    reason = "GitHub did not answer cc-review in time (cc-review said: net/http: TLS handshake timeout)"
+    seen = browse(tmp_path, """
+location.hash = '#/queue/all';
+await wait(20);
+document.querySelector('#main [data-prtab="change"]').click();
+await wait(20);
+const pane = () => document.querySelector('#main .pr-pane.change');
+const starting = { steps: [...pane().querySelectorAll('.steps li')].map((li) => [li.className, li.textContent]), bar: Boolean(pane().querySelector('.progress')) };
+await wait(400);
+const failed = { said: pane().querySelector('.refused').textContent, retry: pane().querySelector('[data-retry]').textContent, frames: document.querySelectorAll('#frames iframe').length };
+pane().querySelector('[data-retry]').click();
+await wait(20);
+const retried = pane().querySelector('.steps .on').textContent;
+await wait(600);
+const frame = document.querySelector('#frames iframe');
+const [slot, shown] = [pane().querySelector('[data-slot]'), frame].map((el) => { const box = el.getBoundingClientRect(); return [box.left, box.top, box.width, box.height].map(Math.round); });
+done({ starting, failed, retried, embed: new URL(frame.src).search, title: frame.title, waiting: Boolean(pane().querySelector('.review-wait')), visible: getComputedStyle(frame).visibility, fits: String(slot) === String(shown), starts: STARTS });
+""", board(queue=[STACK], review=OPEN), "1440,900", before=f"{STAND_IN}FAILS.push({json.dumps(reason)});")
+    assert seen == {
+        "starting": {"steps": [["on", "Start cc-review for demo-org/demo-app#41 at bbbbbbb"], ["", "Load its diff"]], "bar": True},
+        "failed": {"said": f"cc-review could not open demo-org/demo-app#41: {reason}", "retry": "Retry", "frames": 0},
+        "retried": "Start cc-review for demo-org/demo-app#41 at bbbbbbb",
+        "embed": "?embed=1",
+        "title": "Code and review of demo-org/demo-app#41",
+        "waiting": False,
+        "visible": "visible",
+        "fits": True,
+        "starts": 2,
+    }
+
+
+def test_the_pr_rail_jumps_into_show_me_and_the_change_and_adds_a_question_or_line_comment_to_its_review(tmp_path: Path) -> None:
+    seen = browse(tmp_path, """
+location.hash = '#/queue/all';
+await wait(600);
+const rail = document.querySelector('#main .pr-rail');
+const texts = (selector) => [...rail.querySelectorAll(selector)].map((el) => el.textContent.trim());
+const tab = () => document.querySelector('#main [data-prtab][aria-selected="true"]').dataset.prtab;
+const drawn = { heads: texts('.eyebrow'), facts: texts('.rail-block:first-child .fact'), lands: texts('.rail-list li'), spots: texts('[data-spot]'), cites: texts('[data-point][data-line]'), files: texts('[data-point]:not([data-line])') };
+rail.querySelectorAll('[data-spot]')[1].click();
+await wait(800);
+const pane = document.querySelector('#main .pr-pane.show');
+const after = pane.querySelectorAll('h4.hd')[1].getBoundingClientRect().top - pane.getBoundingClientRect().top;
+const jumped = { tab: tab(), scrolled: pane.scrollTop > 0, near: after >= 0 && after < 40 };
+const add = async (words) => {
+  const box = rail.querySelector('form[data-note] textarea');
+  box.value = words;
+  box.dispatchEvent(new Event('input', { bubbles: true }));
+  rail.querySelector('form[data-note]').requestSubmit();
+  await wait(200);
+  return rail.querySelector('form[data-note] > :last-child').textContent.replace(/\\d{1,2}:\\d{2} [AP]M/, '<time>');
+};
+rail.querySelector('[data-point][data-line="12"]').click();
+await wait(100);
+const pointed = { tab: tab(), at: rail.querySelector('.point code').textContent };
+const commented = await add('why 30 s?');
+rail.querySelector('[data-point][data-line="90"]').click();
+await wait(100);
+const refused = await add('and this one?');
+rail.querySelector('[data-unpoint]').click();
+await wait(50);
+const asked = await add('does the queue drain first?');
+done({ drawn, jumped, pointed, commented, refused, asked, heard: HEARD.map(({ id, ...said }) => said) });
+""", board(queue=[STACK], review=OPEN), "1440,900", before=STAND_IN)
+    shown = {"pr": 41, "embed": "1"}
+    assert seen == {
+        "drawn": {
+            "heads": ["Attached to this change bbbbbbb", "Jump to a point in the change", "Question or line comment", "Tell the drive what to change"],
+            "facts": ["Tests pass", "Review approved"],
+            "lands": ["demo-org/demo-app#40 Landed", "demo-org/demo-app#41 lands once you approve", "demo-org/demo-app#42 does not land on Approve: CI failed; the agent is fixing it"],
+            "spots": ["Before", "After"],
+            "cites": ["lib/lock.py:12", "lib/queue.py:90"],
+            "files": ["lib/lock.py", "lib/queue.py"],
+        },
+        "jumped": {"tab": "show", "scrolled": True, "near": True},
+        "pointed": {"tab": "change", "at": "lib/lock.py:12"},
+        "commented": "✓ Added <time> on lib/lock.py:12. The review's assistant answers it in The change.",
+        "refused": "Not added: line 90 of lib/queue.py is outside the diff's hunks",
+        "asked": "✓ Added <time>. The review's assistant answers it in The change.",
+        "heard": [
+            {"type": "cc-review:show", "path": "lib/lock.py", **shown},
+            {"type": "cc-review:say", "text": "why 30 s?", "path": "lib/lock.py", "line": 12, **shown},
+            {"type": "cc-review:show", "path": "lib/queue.py", **shown},
+            {"type": "cc-review:say", "text": "and this one?", "path": "lib/queue.py", "line": 90, **shown},
+            {"type": "cc-review:say", "text": "does the queue drain first?", **shown},
+        ],
+    }
+
+
+@pytest.mark.parametrize("size", ["1440,900", "390,844"])
+def test_a_pr_outside_the_queue_opens_in_the_drawer_as_the_queue_cards_pr_component_with_focus_in_it(tmp_path: Path, size: str) -> None:
+    tapped = {"title": "Fix: retry the upload", "url": f"{DEMO}/43", "state": "open", "checks": "pass", "review": "approved", "tap": "Approve"}
+    entry = {"key": "demo-org/demo-app#43", "head": "d" * 40, "group": "decided", "detail": "green, approved", "since": None, "answer": None, "thread": None, "card": None} | tapped
+    seen = browse(tmp_path, """
+location.hash = '#/feature/o1';
+await wait(100);
+const opener = document.querySelector('#main [data-pr="demo-org/demo-app#43"]');
+opener.focus();
+opener.click();
+await wait(600);
+const drawer = document.querySelector('#drawer');
+const card = drawer.querySelector('.pr-card');
+const opened = {
+  open: drawer.open, hash: location.hash, parts: [...card.children].map((part) => part.className), rail: Boolean(drawer.querySelector('.pr-rail')),
+  title: card.querySelector('.card-title').textContent, counter: Boolean(card.querySelector('.counter')), actions: card.querySelector('.pr-actions').textContent.trim(),
+  focus: document.activeElement.matches('#drawer [data-prtab][aria-selected="true"]'),
+};
+drawer.querySelector('[data-prtab="change"]').click();
+await wait(300);
+const frame = drawer.querySelector('.review-slot iframe');
+const changed = { embed: new URL(frame.src).search, visible: getComputedStyle(frame).visibility, overlays: document.querySelectorAll('#frames iframe').length, files: [...drawer.querySelectorAll('[data-point]')].map((file) => file.textContent) };
+drawer.querySelector('[data-close]').click();
+await wait(50);
+done({ opened, changed, closed: !drawer.open, back: document.activeElement === opener });
+""", board(review=[entry], status=[{"state": "running", "features": [FEATURE | {"prs": [tapped]}]}]), size, before=STAND_IN)
+    assert seen == {
+        "opened": {
+            "open": True, "hash": "#/feature/o1", "parts": ["card-content", "pr-tabs", "pr-pane show", "pr-pane change", "pr-pane context", "pr-actions"], "rail": True,
+            "title": "Fix: retry the upload", "counter": False, "actions": "You answered Approve on its card; green, approved.", "focus": True,
+        },
+        "changed": {"embed": "?embed=1", "visible": "visible", "overlays": 0, "files": ["lib/lock.py", "lib/queue.py"]},
+        "closed": True,
+        "back": True,
+    }
 
 
 def test_a_decision_shows_its_ask_box_beside_the_card_without_a_click_as_a_pr_card_does(tmp_path: Path) -> None:
@@ -1562,7 +1806,7 @@ window.scrollTo(0, document.documentElement.scrollHeight);
 for (const slide of document.querySelector('#toasts .toast').getAnimations()) slide.finish();
 done({
   bar: { bottom: Math.round(bar.bottom) === innerHeight, across: Math.round(bar.width) === innerWidth, row: new Set(tabs.map((tab) => Math.round(tab.top))).size },
-  small: [...targets, ...shown].filter((el) => box(el).height < 44 || box(el).width < 44).map((el) => el.textContent.trim()),
+  small: [...targets, ...shown].filter((el) => el.checkVisibility() && (box(el).height < 44 || box(el).width < 44)).map((el) => el.textContent.trim()),
   strip: new Set([...document.querySelectorAll('#alerts > *')].map((chip) => Math.round(box(chip).top))).size,
   gutter: innerWidth - Math.round(box(document.querySelector('#main .focus-card')).width),
   clear: { page: box(document.querySelector('#main').lastElementChild).bottom <= bar.top, toast: box(document.querySelector('#toasts .toast')).bottom <= bar.top },

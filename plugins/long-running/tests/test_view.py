@@ -623,6 +623,15 @@ def test_a_pr_card_carrying_a_stack_is_one_queue_item_and_each_card_less_pr_is_i
     ]
 
 
+def test_a_stack_card_in_his_queue_carries_each_of_its_prs_as_it_stands_now_in_the_cards_order() -> None:
+    data = drive_of({"o1": order("ship the page", ["j1"])}, {"j1": job("o1", "running")}, [pr(1, "o1", state="merged"), pr(2, "o1", wants_tap=True)])
+    urls = [f"https://github.com/yasyf/cc-skills/pull/{n}" for n in (1, 2)]
+    card = {"prs": urls, "asked": at(-50), "url": f"{TEAM}archives/D123/p1794200000000100", "card": {"title": "Fix: approve the stack?", "options": ["Approve", "Hold"], "prs": [{"url": url} for url in urls]}}
+    [item] = view.build(data, found(pr_cards=[card]), T0)["queue"]
+    assert item["prs"] == [view.pr_entry(data["prs"]["yasyf/cc-skills#1"]), view.pr_entry(data["prs"]["yasyf/cc-skills#2"])]
+    assert [(each["state"], each["tap"]) for each in item["prs"]] == [("merged", None), ("open", "wanted")]
+
+
 def test_a_card_posted_inside_a_thread_reads_that_thread_on_the_queue_and_in_review() -> None:
     data = drive_of({"o1": order("ship the page", ["j1"])}, {"j1": job("o1", "running")}, [pr(1, "o1", wants_tap=True)])
     drawn = {"title": "Fix: approve change 1?", "options": ["Approve", "Hold"], "prs": [{"url": "https://github.com/yasyf/cc-skills/pull/1"}]}

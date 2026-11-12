@@ -54,3 +54,28 @@ def test_his_requests_are_served_once_per_attempt_and_only_his_own_comments(assi
         assistant.offer(KEY, event)
     served = assistant.queues[KEY]
     assert [served.get_nowait() for _ in range(served.qsize())] == [asked, answered, his]
+
+
+@pytest.mark.parametrize(
+    ("said", "shown"),
+    [
+        ("gh: API rate limit exceeded for user", "GitHub's API rate limit for your account is used up, so cc-review could not read the PR until it resets within the hour (cc-review said: gh: API rate limit exceeded for user)"),
+        ("Get https://api.github.com: net/http: TLS handshake timeout", "GitHub did not answer cc-review in time (cc-review said: Get https://api.github.com: net/http: TLS handshake timeout)"),
+        ("fetch pr: context deadline exceeded", "GitHub did not answer cc-review in time (cc-review said: fetch pr: context deadline exceeded)"),
+        ("no such PR", "cc-review said: no such PR"),
+    ],
+)
+def test_a_review_that_cannot_start_says_why_in_plain_words(assistant: review.Assistant, monkeypatch: pytest.MonkeyPatch, said: str, shown: str) -> None:
+    monkeypatch.setattr(review.subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess(argv, 1, "", f"{said}\n"))
+    with pytest.raises(review.DriveError) as refused:
+        assistant.url(KEY, "h1", viewing=False)
+    assert str(refused.value) == shown
+
+
+def test_a_review_that_takes_too_long_to_start_says_the_dashboard_stopped_waiting(assistant: review.Assistant, monkeypatch: pytest.MonkeyPatch) -> None:
+    def slow(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        raise subprocess.TimeoutExpired(argv, review.START_SECONDS)
+
+    monkeypatch.setattr(review.subprocess, "run", slow)
+    with pytest.raises(review.DriveError, match="^cc-review took more than 2 minutes to open the review, so the dashboard stopped waiting$"):
+        assistant.url(KEY, "h1", viewing=False)
