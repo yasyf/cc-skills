@@ -1788,18 +1788,29 @@ def test_the_watch_registers_each_pr_a_lane_names_on_a_ready_or_pr_line(remote: 
     assert data["jobs"]["j1"]["prs"] == ["https://github.com/Forge-AI/monorepo/pull/8"]
 
 
-def test_a_lanes_yasyf_pr_is_registered_as_drive_pr_add_does_starting_the_lander_that_merges_and_installs_it(
+def test_a_lanes_yasyf_pr_is_registered_as_drive_pr_add_does_and_its_ready_kept_with_its_proof_file_starts_the_lander(
     remote: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
 ) -> None:
     with state.edit(remote) as data:
         data["orders"]["o1"]["text"] = "Drive tooling: ship the remote builder"
     url = "https://github.com/yasyf/cc-skills/pull/7"
-    deliver(monkeypatch, [message("worker_done", f"READY {url}\nPR: {url}")])
+    proof = "REPRO: proof.sh\n```sh\n#!/bin/sh\nexit 0\n```\n"
+    deliver(monkeypatch, [message("worker_done", f"READY {url}\nPR: {url}\n{proof}")])
     assert watch.lane_lines(watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0), T0) == []
     data = state.load(remote)
     pr, job = data["prs"]["yasyf/cc-skills#7"], data["jobs"]["j1"]
     assert (landers, pr["job"], pr["wants_tap"], pr["author"], pr["lander"]["head"]) == ([("yasyf/cc-skills#7",)], "j1", False, "yasyf", "abc")
     assert (job["said"], job["prs"], job["waits"]) == (f"PUSHED {url}", [url], ["yasyf/cc-skills#7"])
+
+
+def test_a_lanes_ready_on_a_yasyf_pr_with_no_proof_file_is_refused_and_starts_no_lander(
+    remote: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
+) -> None:
+    url = "https://github.com/yasyf/cc-skills/pull/7"
+    deliver(monkeypatch, [message("worker_done", f"READY {url}\nPR: {url}")])
+    [line] = watch.lane_lines(watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0), T0)
+    assert line.startswith(f"JOB j1 o1 PUSHED {url}; refused, its state unset: it names yasyf/cc-skills#7, which merges once this is taken")
+    assert (state.load(remote)["jobs"]["j1"]["state"], landers) == ("running", [])
 
 
 def test_a_lanes_pr_drive_pr_add_refuses_stays_untracked_and_its_refusal_wakes_the_coordinator(

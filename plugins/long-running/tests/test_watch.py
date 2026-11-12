@@ -2780,7 +2780,7 @@ def test_a_pr_trunk_ejects_from_the_merge_queue_is_said_once_and_wakes_its_job(d
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
 
 
-def test_a_yasyf_lander_merges_with_admin_and_installs_each_plugin_its_merge_changes(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_yasyf_lander_merges_with_admin_records_its_merge_commit_and_installs_each_plugin_its_merge_changes(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     answers = {"view": "ccc333ddd444eee\n", "api": "plugins/long-running/lib/drive/land.py\nREADME.md\n"}
 
     def gh(cmd: list[str], cwd: str | None = None, timeout: int = 120, max_age: str = "0s") -> str:
@@ -2792,11 +2792,30 @@ def test_a_yasyf_lander_merges_with_admin_and_installs_each_plugin_its_merge_cha
     monkeypatch.setattr(
         land.subprocess, "run", lambda argv, **kwargs: runs.append(argv) or land.subprocess.CompletedProcess(argv, 0, "long-running@skills 1.0.4 installed\n", "")
     )
-    assert land.merged("demo", "yasyf/cc-skills#7") == "merged at ccc333ddd444; long-running@skills 1.0.4 installed"
+    with state.edit(demo) as data:
+        data["prs"]["yasyf/cc-skills#7"] = state.new_pr("https://github.com/yasyf/cc-skills/pull/7", "j1", "o1")
+    assert land.merged(demo, "yasyf/cc-skills#7") == "merged at ccc333ddd444; long-running@skills 1.0.4 installed"
+    assert state.load(demo)["prs"]["yasyf/cc-skills#7"]["merged_sha"] == "ccc333ddd444eee"
     assert runs == [
         ["gh", "pr", "merge", "7", "-R", "yasyf/cc-skills", "--squash", "--admin"],
         [str(land.DRIVE), "install", "long-running@skills", "--sha", "ccc333ddd444eee", "--drive", "demo"],
     ]
+
+
+@pytest.mark.parametrize(
+    ("state_after", "change", "wakes"),
+    [
+        ("waiting", "merged at ccc333ddd444; long-running@skills 1.0.4 installed", True),
+        ("done", "merged at ccc333ddd444; long-running@skills 1.0.4 installed", False),
+        ("done", f"{install.PROVEN} on long-running@skills 1.0.4: /p.sh exits 0", False),
+        ("failed", "merged at ccc333ddd444; long-running@skills 1.0.4 installed", False),
+        ("failed", "drive install's proof failed: https://github.com/yasyf/cc-skills/pull/7: /p.sh exits 1", True),
+    ],
+)
+def test_a_merge_drive_install_proved_wakes_no_one_and_a_failed_proof_wakes_the_holder(demo: str, state_after: str, change: str, wakes: bool) -> None:
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["state"] = state_after
+    assert watch.wakes(f"PR {KEY}: {change} [o1 j1]", state.load(demo)) is wakes
 
 
 def tried(name: str, outcome: str) -> None:

@@ -2218,10 +2218,11 @@ def test_job_ask_reads_a_remote_lanes_report_when_given_no_file(run: Run, asking
 
 
 def test_job_report_keeps_a_jobs_whole_return_from_stdin_and_prints_it_back(
-    run: Run, demo: str, state_root: Path, monkeypatch: pytest.MonkeyPatch
+    run: Run, demo: str, state_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
+    kept_proof(tmp_path, "j1")
     assert run("job", "report", "j1")[0] == 2
     monkeypatch.setattr("sys.stdin", io.StringIO("READY https://github.com/yasyf/cc-skills/pull/1\nSERVES: his order\nDESIGN: none\n"))
     assert run("job", "report", "j1", "-") == (0, str(state_root / "demo" / "reports" / "j1.md"))
@@ -2308,6 +2309,32 @@ def keep(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], jo
     monkeypatch.setattr("sys.stdin", io.StringIO(text))
     code = cli.main(["job", "report", job_id, "-"])
     return code, capsys.readouterr().err
+
+
+def kept_proof(tmp_path: Path, *job_ids: str) -> None:
+    script = tmp_path / "proof.sh"
+    script.write_text("#!/bin/sh\nexit 0\n")
+    script.chmod(0o755)
+    with state.edit("demo") as data:
+        for job_id in job_ids:
+            data["jobs"][job_id]["repro"] = str(script)
+
+
+def test_a_builders_ready_naming_a_yasyf_pr_is_refused_until_it_keeps_a_proof_file_it_can_run(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship")
+    ready = "READY https://github.com/yasyf/cc-skills/pull/7\n"
+    code, err = keep(monkeypatch, capsys, "j1", ready)
+    assert (code, state.load("demo")["jobs"]["j1"]["state"]) == (2, "running")
+    assert "it names yasyf/cc-skills#7, which merges once this is taken and drive install proves by running j1's proof file, and j1 keeps none it can run" in err
+    steps = tmp_path / "steps.md"
+    steps.write_text("1. run it\n")
+    run("job", "set", "j1", "--repro", str(steps))
+    assert keep(monkeypatch, capsys, "j1", ready)[0] == 2
+    kept_proof(tmp_path, "j1")
+    assert keep(monkeypatch, capsys, "j1", ready) == (0, "")
 
 
 def test_an_answer_order_is_one_readers_and_a_build_orders_builder_waits_on_its_readers_research(
@@ -2563,12 +2590,13 @@ def test_a_design_lanes_design_names_on_each_fork_line_a_question_it_kept(
 
 
 def test_a_builders_ready_says_how_it_reuses_what_its_research_found(
-    run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    run: Run, meta: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
     keep(monkeypatch, capsys, "j1", RESEARCH)
     run("job", "add", "builder", "--order", "o1", "--goal", "build it")
+    kept_proof(tmp_path, "j2")
     ready = "READY https://github.com/yasyf/cc-skills/pull/1\nSERVES: drive tooling\n"
     code, err = keep(monkeypatch, capsys, "j2", ready)
     assert code == 2
@@ -2578,11 +2606,12 @@ def test_a_builders_ready_says_how_it_reuses_what_its_research_found(
     run("job", "add", "reader", "--order", "o2", "--goal", "research: the verb")
     keep(monkeypatch, capsys, "j3", RESEARCH.replace("exists: supervisor/copies.rs store_copy_at copies one store", "exists: none"))
     run("job", "add", "builder", "--order", "o2", "--goal", "build it")
+    kept_proof(tmp_path, "j4")
     assert keep(monkeypatch, capsys, "j4", ready) == (0, "")
 
 
 def test_a_builders_report_opens_with_a_result_word_and_a_handoff_stops_its_job(
-    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
@@ -2593,6 +2622,7 @@ def test_a_builders_report_opens_with_a_result_word_and_a_handoff_stops_its_job(
         " READY, PUSHED, BUILT, WAITING, ASK, BLOCKED, DESIGN or HANDOFF"
     ) in err
     assert state.load("demo")["jobs"]["j1"]["state"] == "running"
+    kept_proof(tmp_path, "j1")
     assert keep(monkeypatch, capsys, "j1", "READY https://github.com/yasyf/cc-skills/pull/4244\n") == (0, "")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship again")
     assert keep(monkeypatch, capsys, "j2", "HANDOFF /scratch/j2/left.md\nBRANCH: lr-strip\n") == (0, "")
@@ -2893,10 +2923,11 @@ def test_order_set_sorts_an_order_again(run: Run, demo: str) -> None:
     ],
 )
 def test_a_kept_report_sets_a_running_job_from_its_first_line(
-    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, kind: str, first: str, taken: str | None
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str, first: str, taken: str | None
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", kind, "--order", "o1", "--goal", "ship")
+    kept_proof(tmp_path, "j1")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship again")
     run("job", "set", "j2", "--state", "stopped")
     rest = DESIGNED.split("\n", 1)[1] if kind == "design" else ""
@@ -3089,14 +3120,18 @@ def test_pr_add_and_set_refuse_a_pr_someone_else_opened_unless_the_order_it_serv
     assert state.load("demo")["prs"][key]["exempt"] is None
 
 
-def test_pr_add_of_a_yasyf_pr_starts_one_lander_that_merges_and_installs_it(
-    run: Run, meta: str, on_github: dict, landers: list[tuple[str, ...]]
+def test_a_yasyf_pr_starts_one_lander_once_its_builders_ready_is_taken_with_its_proof_file_kept(
+    run: Run, meta: str, tmp_path: Path, on_github: dict, landers: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: land it")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     url = "https://github.com/yasyf/cc-skills/pull/7"
-    code, out = run("pr", "add", url, "--job", "j1")
-    assert (code, out.startswith("yasyf/cc-skills#7: merging it with gh pr merge --squash --admin, then installing")) == (0, True)
+    assert run("pr", "add", url, "--job", "j1") == (0, "yasyf/cc-skills#7")
+    assert landers == []
+    kept_proof(tmp_path, "j1")
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"READY {url}\n"))
+    code, out = run("job", "report", "j1", "-")
+    assert (code, out.splitlines()[1].startswith("yasyf/cc-skills#7: merging it with gh pr merge --squash --admin, then installing")) == (0, True)
     assert landers == [("yasyf/cc-skills#7",)]
     assert state.load("demo")["prs"]["yasyf/cc-skills#7"]["lander"]["head"] == "abc"
     assert run("pr", "add", url, "--job", "j1")[1] == f"yasyf/cc-skills#7: not merging it: lander pid {os.getpid()} already merges it"

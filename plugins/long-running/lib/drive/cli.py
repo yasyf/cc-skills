@@ -1527,8 +1527,10 @@ def job_report(args: argparse.Namespace) -> int:
             f"{args.id} had already returned, so this return set only its said line and its history, `drive job replies {args.id}`:"
             f" {kept} is written only by its own agent's return while it runs"
         )
+        merging = merge_reported(name, args.id)
         shown = f"{where}\nits ASK is kept in {asked}, the path its ask record names" if asked else where
-        return emit(args, shown, {"id": args.id, "report": str(kept) if wrote else None, "ask": asked and str(asked)})
+        shown = "\n".join([shown, *(f"{key}: {said}" for key, said in merging)])
+        return emit(args, shown, {"id": args.id, "report": str(kept) if wrote else None, "ask": asked and str(asked), "merging": dict(merging)})
     text = state.report_text(name, args.id, job)
     if not text and not job["said"]:
         raise DriveError(f"{args.id} kept no report and has returned nothing yet")
@@ -1931,14 +1933,15 @@ def pr_add(args: argparse.Namespace) -> int:
         raise DriveError("--no-tap needs --why <reason>: every PR waits on his tap unless it is a port, exempt or drive tooling outside Forge-AI")
     if args.no_tap and state.guarded(key):
         raise DriveError(UNLANDABLE.format(key=key, done="added"))
-    pr, merging = add_pr(name, key, args.job, github_pr(key), args.port_of, args.exempt, args.no_tap)
+    pr = add_pr(name, key, args.job, github_pr(key), args.port_of, args.exempt, args.no_tap)
+    merging = dict(merge_reported(name, args.job)).get(key)
     if merging is None:
         return emit(args, key, {"key": key, **pr})
     return emit(args, f"{key}: {merging}", {"key": key, **pr, "merging": merging})
 
 
-def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = None, exempt: str | None = None, no_tap: bool = False) -> tuple[dict, str | None]:
-    """Register a PR on its job from its GitHub read, refused as `drive pr add` refuses, and start the lander on a yasyf/* one, which merges it and installs what it changes; the PR as registered and what its lander does or why it does not, or None for a PR his tap or an exempt class lands. `drive pr add` runs it for a builder on this Mac, and the watch for each PR a remote lane's mail names, so a PR built on a Sprite lands as one built here does."""
+def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = None, exempt: str | None = None, no_tap: bool = False) -> dict:
+    """Register a PR on its job from its GitHub read, refused as `drive pr add` refuses; the PR as registered. `drive pr add` runs it for a builder on this Mac, and the watch for each PR a remote lane's mail names, so a PR built on a Sprite lands as one built here does."""
     from drive import view
 
     url = state.pr_url(key)
@@ -1973,9 +1976,24 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
             pr["wants_tap"] = False
         if url not in job["prs"]:
             job["prs"].append(url)
-    if not state.merges_untapped(key):
-        return pr, None
-    return pr, land.merge_ready(name, key, read)
+    return pr
+
+
+def merge_reported(name: str, job_id: str) -> list[tuple[str, str]]:
+    """Start the lander on each open yasyf/* PR the drive tracks that a builder's taken READY or PUSHED names, so it merges the head its builder means to ship once the proof file drive install runs after it is kept; each PR with what its lander does or why it does not. `drive job report` and the watch run it on a report they take, and `drive pr add` on a PR registered after its report."""
+    data = state.load(name)
+    job = data["jobs"][job_id]
+    if job["kind"] != "builder" or job["state"] != "waiting" or not state.REPORTED_LINE.match(job["said"] or ""):
+        return []
+    started = []
+    for key in state.named_prs(data, job["order"], job["said"]):
+        if not state.merges_untapped(key) or data["prs"][key]["state"] != "open" or data["prs"][key]["merged_sha"]:
+            continue
+        try:
+            started.append((key, land.merge_ready(name, key, github_pr(key))))
+        except DriveError as error:
+            started.append((key, f"{land.NOT_MERGING}: {error}; drive pr add {state.pr_url(key)} --job {job_id} starts its lander again"))
+    return started
 
 
 def design_basis(text: str) -> str:

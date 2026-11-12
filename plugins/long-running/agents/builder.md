@@ -139,9 +139,13 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    `drive job report` refuses one without it.
    - A PR that is not a port and whose brief names no order of his is not his order. Drive tooling
      is such a PR: its his-words section says none rather than borrow his words for the order it
-     unblocks. A `yasyf/*` one lands from `drive pr add` on, whose lander merges it with `--admin` and
-     installs each plugin it changes, so it returns `READY` and its `PR … merged at` line brings the
-     handoff that proves it live. A `Forge-AI/*` one returns `READY` with
+     unblocks. A `yasyf/*` one lands once its `READY` or `PUSHED` is taken: the lander merges it with
+     `--admin` and installs each plugin it changes, and `drive install` then runs your job's proof file
+     on the new build, takes `DONE` or `BLOCKED` on your job and sends the close report. Keep that
+     file before you return, with `drive job set <your job> --repro <file>`: an executable script
+     exiting 0 once the installed plugins hold the fix and nonzero while they do not, read-only, run
+     with each changed plugin's `bin/` first on `PATH`; `drive job report` refuses the `READY` or
+     `PUSHED` without one. A `Forge-AI/*` one returns `READY` with
      `SERVES: drive tooling: <what it unblocks>`, and an `EXEMPT:` line when an exempt class covers
      it; the meta session registers it under its Drive tooling order, and the exempt class
      or his Approve on its PR card lands it. Any other PR with no order of his returns
@@ -222,7 +226,7 @@ event needs. The first four events then return as step 7 says.
 | A review | Answer or fix every finding; a non-critical bot finding you judge wrong gets a one-line reply saying why. |
 | His answers to the design cards a built branch or open PR waited on | Rebuild wherever his pick differs from the option built, and open the PR if none is open. |
 | His tap or order to land | Land it by the landing reference for its repository (`drive manual landing`). While a question card of his on the change is open, land and enqueue nothing, which the `landing_guard` hook refuses, and return `WAITING` naming the card: neither his order nor its recommended option answers it. |
-| A merge | Install or deploy it, prove it live with the brief's `INSTALL:` and `PROVE:` lines and return `DONE`, then remove the worktree and leave nothing running. |
+| A merge | Install or deploy it, prove it live with the brief's `INSTALL:` and `PROVE:` lines and return `DONE`, then remove the worktree and leave nothing running. A `yasyf/*` merge needs none of this: `drive install` proves it with your proof file and records the result. |
 
 ## Releases
 
@@ -275,7 +279,8 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 
 - No drive's records are here, so skip `drive pr add`, `drive job set --repro` and keeping a block
   with `drive job ask`: the watch registers each PR your report's `PR:` line links the minute it
-  arrives, as `drive pr add` does, so a `yasyf/*` one's lander merges and installs it; an `EXEMPT:`
+  arrives, as `drive pr add` does, and a `yasyf/*` one's lander merges and installs it once your
+  `READY` or `PUSHED` with its `REPRO:` proof file is taken; an `EXEMPT:`
   line names an exempt class and a port's `SERVES: port of #N` line names its old PR, which the
   coordinator registers. A `REPRO:` line names the file, with its whole text in a fence on the lines
   under it, which the watch keeps in the drive's `repro/` folder as `drive job set --repro` does. An
@@ -336,7 +341,7 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 | `RULINGS:` | each ruling of his on the area you followed, quoted |
 | `REUSES:` | on a `READY` whose research found something that exists, how the PR calls or extends it; `drive job report` refuses a `READY` without it |
 | `INSTALL:` and `PROVE:` | once the PR is open, the install command and the check that proves it live, so a later handoff runs them without your transcript |
-| `REPRO:` | the reproduction file's path, when you saved one |
+| `REPRO:` | the reproduction file's path, when you saved one; a `yasyf/*` PR's proof file, which `drive install` runs once it merges |
 | `UNPROVEN:` | what you could not show |
 | `NEXT:` | what the next handoff does, and any agent run the work needs, such as a fresh handler on a rewritten skill, since you cannot start agents |
 
