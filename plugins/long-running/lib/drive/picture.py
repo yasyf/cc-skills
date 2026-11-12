@@ -116,10 +116,10 @@ def chrome() -> str:
     raise PictureError("no Chrome or Chromium here; install Google Chrome or set CHROME to one")
 
 
-def headless(page: Path, *args: str) -> str:
+def headless(url: str, profile: Path, *args: str) -> str:
     try:
         result = subprocess.run(
-            [chrome(), "--headless=new", "--disable-gpu", "--no-first-run", "--hide-scrollbars", f"--user-data-dir={page.parent / 'profile'}", "--virtual-time-budget=15000", *args, page.as_uri()],
+            [chrome(), "--headless=new", "--disable-gpu", "--no-first-run", "--hide-scrollbars", f"--user-data-dir={profile}", "--virtual-time-budget=15000", *args, url],
             check=False,
             capture_output=True,
             text=True,
@@ -138,12 +138,12 @@ def visual_png(kind: str, source: str, out: Path) -> None:
         page = Path(scratch) / "visual.html"
         shown = json.dumps({"kind": kind, "source": source}).replace("</", "<\\/")
         page.write_text(VISUAL_PAGE.replace("VISUALS", VISUALS.read_text(), 1).replace("SOURCE", shown, 1))
-        measured = (DRAWN.search(headless(page, f"--window-size={VISUAL_WINDOW},{VISUAL_WINDOW}", "--dump-dom")) for _ in range(VISUAL_TRIES))
+        measured = (DRAWN.search(headless(page.as_uri(), page.parent / "profile", f"--window-size={VISUAL_WINDOW},{VISUAL_WINDOW}", "--dump-dom")) for _ in range(VISUAL_TRIES))
         if not (drawn := next(filter(None, measured), None)):
             raise PictureError(f"the {kind} did not finish drawing in {VISUAL_TRIES} tries")
         if not (size := SIZE.fullmatch(said := html.unescape(drawn[1]))):
             raise PictureError(said)
-        headless(page, f"--window-size={size[1]},{size[2]}", f"--force-device-scale-factor={VISUAL_SCALE}", f"--screenshot={out}")
+        headless(page.as_uri(), page.parent / "profile", f"--window-size={size[1]},{size[2]}", f"--force-device-scale-factor={VISUAL_SCALE}", f"--screenshot={out}")
     if not out.is_file():
         raise PictureError("Chrome wrote no screenshot")
 

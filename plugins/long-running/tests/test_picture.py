@@ -61,7 +61,7 @@ def chrome() -> None:
 def test_a_mermaid_picture_draws_rounded_unshadowed_nodes_in_a_legible_sans_with_quiet_edge_labels_and_no_margin_past_the_diagram(tmp_path) -> None:
     page = tmp_path / "look.html"
     page.write_text(MERMAID_LOOK.replace("VISUALS", picture.VISUALS.read_text(), 1))
-    dumped = picture.headless(page, "--window-size=1200,1200", "--no-sandbox", "--dump-dom")
+    dumped = picture.headless(page.as_uri(), tmp_path / "profile", "--window-size=1200,1200", "--no-sandbox", "--dump-dom")
     assert json.loads(html.unescape(LOOK.search(dumped)[1])) == {
         "node": {"fill": "rgb(246, 248, 250)", "border": "rgb(175, 184, 193)", "corner": "6px", "shadow": "none"},
         "text": {"size": "15px", "font": "-apple-system"},
@@ -72,7 +72,7 @@ def test_a_mermaid_picture_draws_rounded_unshadowed_nodes_in_a_legible_sans_with
 
 def test_a_mermaid_diagram_mermaid_cannot_parse_raises_its_parse_error_and_draws_once_its_semicolon_is_written_as_its_entity_code(tmp_path, monkeypatch) -> None:
     headless = picture.headless
-    monkeypatch.setattr(picture, "headless", lambda page, *args: headless(page, "--no-sandbox", *args))
+    monkeypatch.setattr(picture, "headless", lambda url, profile, *args: headless(url, profile, "--no-sandbox", *args))
     with pytest.raises(picture.PictureError, match=r"Parse error on line \d"):
         picture.visual_png("mermaid", NOTED, tmp_path / "noted.png")
     picture.visual_png("mermaid", NOTED.replace("picture; refuses", "picture#59; refuses"), tmp_path / "noted.png")
@@ -322,7 +322,7 @@ def test_a_visual_chrome_dumped_before_it_finished_drawing_is_measured_again(tmp
     dumps = iter(["<html><body></body></html>", '<html data-print data-drawn="40x20"><body></body></html>'])
     sizes = []
 
-    def headless(page, *args: str) -> str:
+    def headless(url, profile, *args: str) -> str:
         sizes.append(args[0])
         if shot := next((arg.removeprefix("--screenshot=") for arg in args if arg.startswith("--screenshot=")), None):
             Path(shot).write_bytes(b"\x89PNG\r\n")

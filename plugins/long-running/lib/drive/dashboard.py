@@ -55,6 +55,7 @@ SENT = "too late: that answer was already sent"
 UNDO_SECONDS = 10
 ELSEWHERE = "that is not a card thread of this drive"
 REDRAWN = "the card was drawn again while your answer was held, so nothing was sent; read it again and answer it as it stands"
+TLS_HANDSHAKE = b"\x16"
 
 
 class Tailnet(NamedTuple):
@@ -151,6 +152,12 @@ def home_repo(checkout: str) -> str | None:
         return None
 
 
+def card_pictures(card: dict) -> set[str]:
+    """Each picture a card draws: those its body shows by path, its own and those of each PR it carries."""
+    drawn = {match[1] for match in picture.IMAGE.finditer(card.get("body") or "") if match[1] and Path(match[1]).is_absolute()}
+    return drawn | {*(card.get("pictures") or []), *(path for row in card.get("prs") or [] for path in row.get("pictures") or [])}
+
+
 def changes(name: str) -> Iterator[None]:
     """Yield at once, then after each write kqueue reports to the drive's state directory or its events log."""
     queue = select.kqueue()
@@ -194,17 +201,37 @@ class Certificate:
         return self.context.wrap_socket(request, server_side=True, do_handshake_on_connect=False)
 
 
+class Upgrade(BaseHTTPRequestHandler):
+    """Sends a plain HTTP request on a TLS port to the same path over HTTPS, so a link from before the tailnet issued certificates still opens."""
+
+    def do_GET(self) -> None:
+        self.send_response(301)
+        self.send_header("Location", f"https://{self.server.certificate.name}:{self.server.server_address[1]}{self.path}")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    do_HEAD = do_GET
+
+    def log_message(self, format: str, *args: object) -> None:
+        pass
+
+
 class Server(ThreadingHTTPServer):
-    """One address's server, speaking TLS with the certificate when given one; the handshake runs in the request's own thread."""
+    """One address's server, speaking TLS with the certificate when given one and redirecting plain HTTP there to HTTPS; the first byte is read and the handshake runs in the request's own thread."""
 
     def __init__(self, address: str, port: int, page: type[BaseHTTPRequestHandler], certificate: Certificate | None) -> None:
         self.address_family = socket.AF_INET6 if ":" in address else socket.AF_INET
         self.certificate = certificate
         super().__init__((address, port), page)
 
-    def get_request(self) -> tuple[socket.socket, object]:
-        request, client = super().get_request()
-        return (self.certificate.wrap(request) if self.certificate else request), client
+    def finish_request(self, request: socket.socket, client_address: tuple) -> None:
+        if not self.certificate:
+            super().finish_request(request, client_address)
+        elif request.recv(1, socket.MSG_PEEK) != TLS_HANDSHAKE:
+            Upgrade(request, client_address, self)
+        else:
+            with self.certificate.wrap(request) as secured:
+                super().finish_request(secured, client_address)
 
 
 class Board:
@@ -216,6 +243,7 @@ class Board:
         self.changed = threading.Condition()
         self.version = 0
         self.body = b""
+        self.model: dict = {}
         self.events: list[dict] = []
         self.offset = 0
         self.answers: dict[str, list[str]] = {}
@@ -244,28 +272,28 @@ class Board:
         drive = state.load(self.name)
         repo = home_repo(drive["roles"]["coordinator"]["cwd"])
         model = view.board(drive, found, source, self.events, state.now(), reports) | {"code": CODE, "pid": os.getpid(), "links": self.links, "undo_seconds": UNDO_SECONDS, "repo": repo}
-        answers = {item["answer"]: item["card"]["options"] for item in [*model["queue"], *model["review"]] if item.get("answer")}
-        revisions = {item["answer"]: revision(item["card"]) for item in [*model["queue"], *model["review"]] if item.get("answer")}
-        heads = {entry["key"]: entry["head"] for entry in model["review"]}
+        self.reports = reports
+        self.show(model)
+        self.assistant.warm((entry["key"], entry["head"]) for entry in model["review"] if entry["group"] == "you")
+
+    def show(self, model: dict) -> None:
+        """Hand every open page the summary of model, keeping model whole for the screens that read their own part of it."""
+        asked = [item for item in [*model["queue"], *model["review"]] if item.get("answer")]
         cards = [item["card"] for item in [*model["queue"], *model["review"]] if item.get("card")]
-        drawn = {match[1] for card in cards for match in picture.IMAGE.finditer(card.get("body") or "") if match[1] and Path(match[1]).is_absolute()}
-        pictures = drawn | {path for card in cards for path in [*(card.get("pictures") or []), *(path for row in card.get("prs") or [] for path in row.get("pictures") or [])]}
+        pictures = {path for card in cards for path in card_pictures(card)}
         pictures |= {visual["picture"] for entry in model["history"] for visual in entry.get("visuals") or [] if "picture" in visual}
-        model["visuals"] = {path: json.loads(shown.read_text()) for path in pictures if (shown := Path(path).with_name("source.json")).is_file()}
-        body = json.dumps(model).encode()
         with self.changed:
-            self.body = body
-            self.answers = answers
-            self.revisions = revisions
-            self.heads = heads
+            self.version += 1
+            self.body = json.dumps(view.summary(model) | {"version": self.version}).encode()
+            self.model = model
+            self.answers = {item["answer"]: item["card"]["options"] for item in asked}
+            self.revisions = {item["answer"]: revision(item["card"]) for item in asked}
+            self.heads = {entry["key"]: entry["head"] for entry in model["review"]}
             self.pictures = pictures
             self.threads = {item["thread"] for item in [*model["queue"], *model["review"]] if item.get("thread")}
-            self.reports = reports
-            self.repo = repo
+            self.repo = model["repo"]
             self.channel = model["channel"]
-            self.version += 1
             self.changed.notify_all()
-        self.assistant.warm((entry["key"], entry["head"]) for entry in model["review"] if entry["group"] == "you")
 
     def follow(self) -> None:
         built = None
@@ -275,7 +303,7 @@ class Board:
                 self.rebuild()
 
     def after(self, version: int) -> tuple[int, bytes]:
-        """The model once it is newer than version, waiting for the next change when it is not."""
+        """The summary once it is newer than version, waiting for the next change when it is not."""
         with self.changed:
             self.changed.wait_for(lambda: self.version > version)
             return self.version, self.body
@@ -287,12 +315,24 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
 
     class Page(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
+            where = urllib.parse.urlsplit(self.path)
+            asked = dict(urllib.parse.parse_qsl(where.query))
             if self.headers.get("Host") not in hosts:
                 self.send_error(403)
             elif self.path == "/api/view":
                 self.reply(board.after(0)[1], "application/json")
             elif self.path == "/api/stream":
                 self.stream()
+            elif where.path == "/api/card":
+                self.card(asked["answer"])
+            elif where.path == "/api/task":
+                self.task(asked["id"])
+            elif where.path == "/api/story":
+                self.answered(200, {"moments": view.story(board.model, set(asked["ids"].split(",")) if "ids" in asked else None)})
+            elif where.path == "/api/history":
+                self.answered(200, view.history_page(board.model, asked.get("day"), asked.get("show", "all"), int(asked.get("page", 1))))
+            elif self.path == "/api/lanes":
+                self.answered(200, {"lanes": board.model["work"]})
             elif found := PR_PATH.fullmatch(self.path):
                 self.pull_request(f"{found[1]}#{found[2]}")
             elif found := THREAD_PATH.fullmatch(self.path):
@@ -326,6 +366,21 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 self.undo(json.loads(self.rfile.read(int(self.headers["Content-Length"])))["card"])
             else:
                 self.answer(json.loads(self.rfile.read(int(self.headers["Content-Length"]))), f"{page}/")
+
+        def card(self, answer: str) -> None:
+            found = next((item["card"] for item in board.model["queue"] if item.get("answer") == answer), None)
+            if not found:
+                self.answered(404, {"error": GONE})
+                return
+            drawn = {path: json.loads(source.read_text()) for path in card_pictures(found) if (source := Path(path).with_name("source.json")).is_file()}
+            self.answered(200, {"card": found, "visuals": drawn})
+
+        def task(self, order_id: str) -> None:
+            found = next((entry for group in board.model["status"] for entry in group["features"] if entry["id"] == order_id), None)
+            if found:
+                self.answered(200, {"task": found})
+            else:
+                self.answered(404, {"error": f"{order_id} is no longer on the dashboard"})
 
         def thread(self, ts: str) -> None:
             if not owner_calling(self.client_address[0], net):

@@ -18,23 +18,19 @@ const JOB_STATES = { running: 'Running', waiting: 'Waiting', built: 'Built, no P
 const HAPPENED = { order: 'You asked', live: 'Live', merged: 'Merged', failed: 'Failed', refused: 'No card drawn', said: 'Sent you' };
 const FEATURE_KINDS = new Set(['order', 'live', 'failed']);
 const HISTORY_FILTERS = [
-  ['all', 'Everything', () => true],
-  ['prs', 'PRs merged', (entry) => entry.kind === 'merged'],
-  ['you', 'Your asks and taps', (entry) => ['order', 'tap'].includes(entry.kind)],
-  ['said', 'Sent to you', (entry) => entry.kind === 'said'],
+  ['all', 'Everything'],
+  ['prs', 'PRs merged'],
+  ['you', 'Your asks and taps'],
+  ['said', 'Sent to you'],
 ];
 const NONE = '~';
 const UNFILED = 'Unfiled';
 const RANK = ['blocked', 'built', 'running', 'waiting', 'not started', 'merged', 'live'];
-const STORY_KINDS = new Set(['order', 'live', 'merged', 'tap']);
-const STORY_LINES = 6;
 const PACKET_SECONDS = 9;
 const ORBIT_SECONDS = 100;
 const MAP_ZOOMS = [0.7, 0.85, 1, 1.2, 1.45];
 const SATELLITES = 14;
 const RING_LIMIT = 8;
-const RECENT_MOMENTS = 80;
-const DAY_MS = 24 * 60 * 60 * 1000;
 const SWEAR_WORDS = 'damn, shit and fuck';
 const QUEUE_FILTERS = [
   ['all', 'All', () => true],
@@ -48,6 +44,7 @@ const CHECK_FACTS = { pass: ['Tests pass', 'good'], fail: ['Tests fail', 'bad'],
 const REVIEW_FACTS = { approved: ['Review approved', 'good'], stale: ['Approved on an older head', ''], changes: ['Changes requested', 'bad'] };
 const TALK_FOLLOW_MS = 15 * 60 * 1000;
 const FRAMES_KEPT = 4;
+const SLICES_KEPT = 40;
 const STOP_WORDS = { blocked: 'Blocked', running: 'Being built', built: 'Built, waits on your answers', waiting: 'Waiting', merged: 'Merged, not live yet', live: 'Live', 'not started': 'Not started' };
 const STOP_TONES = { blocked: 'bad', running: 'doing', built: 'you', waiting: 'waiting', merged: 'merged', live: 'done', 'not started': 'not-started' };
 const FILE_WORDS = { brief: 'Brief', report: 'Report', question: 'Question', repro: 'Reproduction', transcript: 'Transcript' };
@@ -99,6 +96,8 @@ const reading = new Set();
 const again = new Set();
 const slotted = new Map();
 const followed = new Map();
+const slices = new Map();
+const sources = new Map();
 const TYPED_MARK = '_You, on the dashboard:_ ';
 let reviewing = null;
 let viewing = null;
@@ -153,8 +152,13 @@ function shownFilter() {
   return HISTORY_FILTERS.some(([id]) => id === asked) ? asked : 'all';
 }
 
-function historyHref(day, filter = shownFilter()) {
-  return `#/history${day ? `/${day}` : ''}${filter === 'all' ? '' : `?show=${filter}`}`;
+function historyPage() {
+  return Math.max(1, parseInt(route().query.get('page'), 10) || 1);
+}
+
+function historyHref(day, filter = shownFilter(), page = 1) {
+  const query = new URLSearchParams([...(filter === 'all' ? [] : [['show', filter]]), ...(page > 1 ? [['page', page]] : [])]);
+  return `#/history${day ? `/${day}` : ''}${query.size ? `?${query}` : ''}`;
 }
 
 function up() {
@@ -257,7 +261,7 @@ function fenced(language, source) {
 }
 
 function shown(path, caption) {
-  const drawn = model.visuals?.[path];
+  const drawn = sources.get(path);
   return drawn && drawn.kind !== 'image' ? visual(drawn.kind, drawn.source, caption) : shot(path, caption);
 }
 
@@ -328,6 +332,26 @@ async function ask(url, options) {
   } catch (failure) {
     return { ok: false, error: `Could not reach the dashboard server (${failure.message}).` };
   }
+}
+
+function slice(url) {
+  const held = slices.get(url) ?? {};
+  slices.delete(url);
+  slices.set(url, held);
+  if (held.asked !== model.version) {
+    const version = (held.asked = model.version);
+    ask(url).then((read) => {
+      if (version < held.version) return;
+      for (const [path, source] of Object.entries(read.visuals ?? {})) sources.set(path, source);
+      Object.assign(held, { version, read });
+      render();
+    });
+  }
+  return held.read;
+}
+
+function notRead(read) {
+  return read ? `<p class="refused">${esc(read.error)}</p>` : '<p class="empty small">Reading…</p>';
 }
 
 function table(lines, cite) {
@@ -589,11 +613,12 @@ function queueScreen(id) {
   const at = current(list);
   const item = list[at];
   if (location.hash !== queueHref(filter, item)) history.replaceState(history.state, '', queueHref(filter, item));
+  const read = item?.answer && slice(`/api/card?${new URLSearchParams({ answer: item.answer })}`);
   const filters = QUEUE_FILTERS.map(([each, label]) => `<a href="#/queue/${each}" class="${each === filter ? 'on' : ''}"${each === filter ? ' aria-current="true"' : ''}>${label}<span class="n">${shownQueue(each).length}</span></a>`).join('');
   const unread = model.cards === 'live' ? '' : `<p class="refused">Your questions are not listed here: cc-slack ${esc(model.cards)}</p>`;
   const rest = shownQueue('all').length;
   const done = `<div class="focus-card done"><span class="bigcheck" aria-hidden="true">✓</span><h2>${filter === 'all' ? 'Nothing waits on you.' : NONE_LEFT[filter]}</h2>${filter !== 'all' && rest ? `<p><a href="#/queue/all">${rest} other ${rest === 1 ? 'thing waits' : 'things wait'} in All ›</a></p>` : ''}</div>`;
-  const shown = item ? { question: decisionCard, tap: prCard, late: lateCard }[item.kind](item, at, list.length) : done;
+  const shown = item ? { question: decisionCard, tap: prCard, late: lateCard }[item.kind](read?.ok ? { ...item, card: read.card } : item, at, list.length) : done;
   return `<div class="page-head">
       <h1 class="h1">${list.length ? `${list.length} ${list.length === 1 ? 'thing waits' : 'things wait'} on you` : 'Your queue'}</h1>
       <nav class="subtabs" aria-label="Show">${filters}</nav>
@@ -822,11 +847,11 @@ function momentText(entry) {
 }
 
 function story(scope) {
-  const ids = scope && new Set(scope.map((entry) => entry.id));
-  const told = model.history.filter((entry) => STORY_KINDS.has(entry.kind) && (!ids || ids.has(entry.feature))).slice(0, STORY_LINES);
+  const read = slice(`/api/story${scope ? `?${new URLSearchParams({ ids: scope.map((entry) => entry.id).join(',') })}` : ''}`);
+  const told = read?.ok ? read.moments : [];
   return `<aside class="story" aria-label="The live story">
     <div class="eyebrow">The live story</div>
-    ${told.length ? `<ol>${told.map((entry) => `<li><time>${clock(entry.at)}</time><p>${momentText(entry)}</p></li>`).join('')}</ol>` : '<p class="meta">Nothing has happened here yet.</p>'}
+    ${!read?.ok ? notRead(read) : told.length ? `<ol>${told.map((entry) => `<li><time>${clock(entry.at)}</time><p>${momentText(entry)}</p></li>`).join('')}</ol>` : '<p class="meta">Nothing has happened here yet.</p>'}
     <a class="more" href="#/history">All of history ›</a>
   </aside>`;
 }
@@ -1132,27 +1157,30 @@ function laneState(job) {
   return isStalled(job) ? `Quiet ${ago(job.updated)}` : JOB_STATES[job.state];
 }
 
-const laneTree = perModel(() => {
+function laneTree(work) {
   const filed = (job, field) => fileKey(featureOf(job.feature)[field]);
-  const projects = [...Map.groupBy(model.work, (job) => filed(job, 'project'))].sort(byName);
+  const projects = [...Map.groupBy(work, (job) => filed(job, 'project'))].sort(byName);
   return new Map(projects.map(([project, lanes]) => [project, new Map([...Map.groupBy(lanes, (job) => filed(job, 'workstream'))].sort(byName))]));
-});
+}
 
 function workScreen() {
+  const read = slice('/api/lanes');
+  if (!read?.ok) return notRead(read);
   const [project, stream, laneId] = route().path;
-  const streams = laneTree().get(project);
+  const tree = laneTree(read.lanes);
+  const streams = tree.get(project);
   const lanes = streams?.get(stream);
-  const running = model.work.filter((job) => job.state === 'running').length;
+  const running = read.lanes.filter((job) => job.state === 'running').length;
   const keys = [project, stream].filter((key) => key !== undefined);
   const where = [[model.drive, '#/work'], ...keys.map((key, i) => [fileName(key), zoomHref('work', ...keys.slice(0, i + 1))])];
   const zooms = stream === undefined ? `<button class="map-btn" data-zoom="-1" aria-label="Zoom out"${mapZoom === 0 ? ' disabled' : ''}>−</button><button class="map-btn" data-zoom="1" aria-label="Zoom in"${mapZoom === MAP_ZOOMS.length - 1 ? ' disabled' : ''}>+</button>` : '';
-  const shown = project === undefined ? projectMap()
+  const shown = project === undefined ? projectMap(tree)
     : !streams ? '<p class="empty topo-empty">This project has no lane running or waiting now. <a href="#/work">All projects</a></p>'
     : stream === undefined ? streamMap(project, streams)
     : lanes ? laneZoom(zoomHref('work', project, stream), lanes, laneId)
     : `<p class="empty topo-empty">This workstream has no lane running or waiting now. <a href="${zoomHref('work', project)}">${esc(fileName(project))}</a></p>`;
   return `<div class="page-head">
-      <div><div class="eyebrow">Work</div><h1 class="h1">Inside the machine.</h1><p class="lead">${counted(model.work.length, 'lane')}, ${running} working. Click a project to zoom into its workstreams, then a workstream to see each lane.</p></div>
+      <div><div class="eyebrow">Work</div><h1 class="h1">Inside the machine.</h1><p class="lead">${counted(read.lanes.length, 'lane')}, ${running} working. Click a project to zoom into its workstreams, then a workstream to see each lane.</p></div>
       <button class="secondary" data-motion aria-pressed="${Boolean(paused)}">${paused ? '▷ Resume motion' : 'Ⅱ Pause motion'}</button>
     </div>
     <section class="topology${paused ? ' paused' : ''}" style="--zoom:${MAP_ZOOMS[mapZoom]}" aria-label="Agent topology">
@@ -1162,8 +1190,8 @@ function workScreen() {
     </section>`;
 }
 
-function projectMap() {
-  const nodes = [...laneTree()].map(([key, streams]) => ({ key, href: zoomHref('work', key), sub: key === NONE ? 'Orders not filed yet' : counted(streams.size, 'workstream'), lanes: [...streams.values()].flat() }));
+function projectMap(tree) {
+  const nodes = [...tree].map(([key, streams]) => ({ key, href: zoomHref('work', key), sub: key === NONE ? 'Orders not filed yet' : counted(streams.size, 'workstream'), lanes: [...streams.values()].flat() }));
   return topoMap(model.drive, 'Coordinator ↔ communicator', nodes);
 }
 
@@ -1235,7 +1263,7 @@ function jumpItems() {
     ...model.queue.map((item) => ({ kind: LABEL[item.kind], title: item.title, href: '#/queue/all', item: noticeKey(item) })),
     ...features().map((entry) => ({ kind: 'Feature', title: entry.title, href: `#/feature/${entry.id}` })),
     ...model.review.map((entry) => ({ kind: 'Change', title: entry.title, pr: entry.key })),
-    ...model.work.map((job) => ({ kind: 'Job', title: job.goal, href: `#/feature/${job.feature}` })),
+    ...(slice('/api/lanes')?.lanes ?? []).map((job) => ({ kind: 'Job', title: job.goal, href: `#/feature/${job.feature}` })),
   ];
 }
 
@@ -1279,7 +1307,7 @@ function strip() {
 function incidentList() {
   const rows = model.incidents.map((incident) => {
     const entry = featureOf(incident.id);
-    const running = entry.jobs.filter((job) => job.state === 'running').length;
+    const running = entry.running;
     const prs = entry.prs.filter((pr) => pr.state === 'open').length;
     const asks = entry.cards.length;
     const facts = [
@@ -1321,19 +1349,6 @@ function historyRow(entry) {
   </li>`;
 }
 
-const days = perModel(() => {
-  if (!model.history.length) return [];
-  const byDay = Map.groupBy(model.history, (entry) => dayOf(entry.at));
-  const series = [];
-  const last = dayOf(model.at);
-  for (let day = dayOf(model.history.at(-1).at); day <= last; day = new Date(Date.parse(`${day}T00:00:00Z`) + DAY_MS).toISOString().slice(0, 10)) {
-    const moments = byDay.get(day) ?? [];
-    const asked = moments.filter((entry) => entry.kind === 'order');
-    series.push({ day, moments, merged: moments.filter((entry) => entry.kind === 'merged').length, swears: asked.reduce((sum, entry) => sum + entry.swears, 0), asked: asked.length });
-  }
-  return series;
-});
-
 function quietFor(minutes) {
   return minutes < 120 ? `${minutes} min` : `${Math.round(minutes / 60)} hours`;
 }
@@ -1359,18 +1374,20 @@ function dayChart(series, field, title, note, unit, zoomed) {
 }
 
 function historyScreen() {
-  const series = days();
-  const zoomed = series.find((each) => each.day === route().id);
   const filter = shownFilter();
-  const [, , keep] = HISTORY_FILTERS.find(([id]) => id === filter);
+  const read = slice(`/api/history?${new URLSearchParams({ day: route().id ?? '', show: filter, page: historyPage() })}`);
+  if (!read?.ok) return notRead(read);
+  const { days: series, moments: listed, page, pages } = read;
+  const zoomed = series.find((each) => each.day === read.day);
   const scope = zoomed ? [zoomed] : series;
-  const moments = zoomed ? zoomed.moments : model.history;
-  const listed = moments.filter(keep).slice(0, zoomed ? undefined : RECENT_MOMENTS);
   const total = (field) => scope.reduce((sum, each) => sum + each[field], 0);
-  const stats = [[total('merged'), 'PRs merged'], [total('swears'), 'swear words in your orders'], [total('asked'), 'orders from you'], [moments.length, 'moments']];
+  const stats = [[total('merged'), 'PRs merged'], [total('swears'), 'swear words in your orders'], [total('asked'), 'orders from you'], [total('moments'), 'moments']];
   const filters = HISTORY_FILTERS.map(([id, label]) => `<a href="${historyHref(zoomed?.day, id)}" class="${id === filter ? 'on' : ''}"${id === filter ? ' aria-current="true"' : ''}>${label}</a>`).join('');
   const latest = series.at(-1);
   const zoom = zoomed ? `<a class="map-btn" href="${historyHref()}">← All days</a>` : latest ? `<a class="map-btn" href="${historyHref(latest.day)}">Zoom to ${dayName(latest.day, { month: 'long', day: 'numeric' })} ›</a>` : '';
+  const newer = page > 1 ? `<a class="map-btn" href="${historyHref(zoomed?.day, filter, page - 1)}">‹ Newer</a>` : '';
+  const older = page < pages ? `<a class="map-btn" href="${historyHref(zoomed?.day, filter, page + 1)}">Older ›</a>` : '';
+  const where = `${zoomed ? `Every moment of ${dayName(zoomed.day, { month: 'long', day: 'numeric' })}` : page > 1 ? 'Older moments' : `The newest ${counted(listed.length, 'moment')}`}${pages > 1 ? `, page ${page} of ${pages}` : ''}`;
   return `<div class="page-head">
       <div><div class="eyebrow">History</div><h1 class="h1">${zoomed ? esc(dayName(zoomed.day, { weekday: 'long', month: 'long', day: 'numeric' })) : 'A little momentum. A little profanity.'}</h1><p class="lead">${zoomed ? 'Every moment of the day, newest first.' : 'Click a day to zoom in.'} Click a moment to follow it back to the work.</p></div>
       <nav class="subtabs" aria-label="Show">${filters}</nav>
@@ -1380,7 +1397,7 @@ function historyScreen() {
         <div class="history-stats">${stats.map(([n, label]) => `<div><b>${n}</b><span>${label}</span></div>`).join('')}</div>
         ${series.length ? dayChart(series, 'merged', 'PRs merged', 'By the Pacific day each merged', 'PR', zoomed) : ''}
         ${series.length ? dayChart(series, 'swears', 'A vocabulary of urgency', 'Swear words in your orders, by the day you sent each', 'swear word', zoomed) : ''}
-        <div class="history-zoom"><span>${zoomed ? `Every moment of ${dayName(zoomed.day, { month: 'long', day: 'numeric' })}` : `The newest ${counted(listed.length, 'moment')}`}</span>${zoom}</div>
+        <div class="history-zoom"><span>${where}</span><span>${[newer, older, zoom].filter(Boolean).join(' ')}</span></div>
         <ul class="history">${timeline(listed, !zoomed) || '<li class="empty">Nothing yet.</li>'}</ul>
       </section>
       ${series.length ? historySide(series, zoomed) : ''}
@@ -1434,7 +1451,10 @@ function featureScreen(id) {
     <div class="now-grid"><div class="zoom-body">${taskBody(entry)}</div>${story([entry])}</div>`;
 }
 
-function taskBody(entry) {
+function taskBody({ id }) {
+  const read = slice(`/api/task?${new URLSearchParams({ id })}`);
+  if (!read?.ok) return notRead(read);
+  const entry = read.task;
   const facts = [
     entry.now ? ['Where it is', esc(entry.now)] : null,
     ['Asked', clock(entry.created)],
@@ -1485,6 +1505,7 @@ function render() {
   else morphChildren($('#main'), Object.assign(document.createElement('main'), { innerHTML: html }));
   settleCamera(arrived);
   if ($('#jump').open) drawJump();
+  for (const url of [...slices.keys()].slice(0, -SLICES_KEPT)) slices.delete(url);
   measure();
   fill();
   fresh();
