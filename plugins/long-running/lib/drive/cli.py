@@ -1626,10 +1626,11 @@ def job_brief(args: argparse.Namespace) -> int:
             " which its builder walks through and records as its proof"
         )
     checkout_dir = Path(data["roles"]["coordinator"]["cwd"])
-    rulings = [ruling_words(answer_id, checkout_dir) for answer_id in flags["ruling"] or []]
     earlier = [line for other in order["jobs"] if other != args.id and (line := transcript_line(other, data["jobs"][other]))]
     planned = order["kind"] == "build" and not order["incident"]
     found = brief.research(name, data, job["order"]) if planned and job["kind"] in brief.RESEARCHED_KINDS else None
+    settles = [ruling for question in data["jobs"][found[0]]["questions"] if (ruling := (question["settled"] or {}).get("ruling"))] if found else []
+    rulings = [ruling_words(answer_id, checkout_dir) for answer_id in dict.fromkeys([*(flags["ruling"] or []), *settles])]
     scratch = Path(flags["scratch"]).expanduser() if flags["scratch"] else state.drive_dir(name) / "scratch" / args.id
     scratch.mkdir(parents=True, exist_ok=True)
     fields = {
@@ -3240,8 +3241,9 @@ def parser() -> argparse.ArgumentParser:
         help="write a job's brief from his order's words, each ruling's words and the earlier jobs' transcripts, and print where",
         description=(
             "Write the brief reference/jobs.md shapes into the drive and print its path: Order from the words the order"
-            " holds, verbatim; Goal from the job; Decisions that bind from each --ruling's recorded answer, its title and"
-            " body whole; Transcripts from each earlier job on the order; Scratch, by default a folder of the drive's;"
+            " holds, verbatim; Goal from the job; Decisions that bind from each --ruling's recorded answer and each one that"
+            " settled a question of the reader its Researched: line names, its title and body whole; Transcripts from each"
+            " earlier job on the order; Scratch, by default a folder of the drive's;"
             " the Drive line; a reader's on a build order, Research: the Researched: block this build needs; and each line"
             " the flags name. A flag left out keeps the job's earlier brief's, all but --handoff, and the output names each kept;"
             " a first brief names --serves, --done-when and --where. An adopted PR's job, waiting with no agent, is briefed only"

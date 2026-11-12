@@ -372,6 +372,8 @@ def load(name: str) -> dict:
             job["questions"] = [new_question(asked, job["said"], job["updated"], job.get("unsettled"), card)] if asked or card else []
         for field, blank in (new_job(None, None, None, [], None) | {"session": None}).items():
             job.setdefault(field, blank)
+        if job["kind"] == "reader" and job["state"] in FINISHED_JOB_STATES:
+            job["undelivered"] = []
     for order_id, order in data["orders"].items():
         if "joins" not in order:
             carriers = (data["jobs"][job_id]["order"] for job_id in order["jobs"]) if order["incident"] else ()

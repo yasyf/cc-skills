@@ -3,10 +3,11 @@ import io
 import json
 import subprocess
 from collections.abc import Callable, Iterator
+from datetime import timedelta
 
 import pytest
-from drive import card, cli, limits, mcp, reads, slack, state, tools, view
-from conftest import Answers, Withdrawals
+from drive import card, cli, limits, mcp, reads, slack, state, tools, view, watch
+from conftest import RESEARCH, Answers, Withdrawals
 from drive.state import DriveError
 
 THREAD = "1794200000.000100"
@@ -490,6 +491,45 @@ def test_an_answer_closing_an_ask_his_recorded_rules_settled_before_any_card_dre
     assert posted[0][0]["resolves"] == ["672331"]
     job = state.load(demo)["jobs"]["j1"]
     assert (job["questions"][0]["settled"], view.open_questions(job, view.NO_CARDS)) == ({"seq": "672342", "ruling": "320b7a7", "at": job["questions"][0]["settled"]["at"]}, [])
+
+
+def test_his_answer_settling_a_finished_readers_question_reaches_the_builder_at_work_on_its_research_and_never_the_reader(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, recorded: Answers
+) -> None:
+    recorded.shown["73060f0"] = ANSWER
+    run("order", "add", "--project", "Iris", "--workstream", "Durable agents", "one card per subject", "--kind", "build")
+    run("job", "add", "reader", "--order", "o1", "--goal", "research: the card")
+    state.keep_report(demo, "j1", "DONE researched the store copy", RESEARCH)
+    first, second = (str(state.drive_dir(demo) / "asks" / f"j1-{key}.md") for key in ("5c1d", "9e2f"))
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="done", questions=[state.new_question(first, "Which card keeps the subject?", state.stamp())])
+        data["jobs"]["j1"]["undelivered"] = [{"seq": "673013", "words": "one card", "at": state.stamp(), "said": None}]
+    assert state.load(demo)["jobs"]["j1"]["undelivered"] == []
+    shown = {"ask": first}
+
+    def cci(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if argv[:2] == ["cci", "show"]:
+            return subprocess.CompletedProcess(argv, 0, json.dumps({"kind": "ask", "fields": {"attrs": shown | {"job": "j1"}}}), "")
+        return subprocess.CompletedProcess(argv, 0, f"{shown['seq']}\n", "")
+
+    monkeypatch.setattr(subprocess, "run", cci)
+    open_cards(monkeypatch)
+    shown["seq"] = "673125"
+    tools.run("record", demo, {"records": [{"kind": "answer", "text": "one subject has one card", "waits": "demo:j1-673100", "ruling": "73060f0"}]})
+    assert state.load(demo)["jobs"]["j1"]["undelivered"] == []
+    run("job", "add", "builder", "--order", "o1", "--goal", "build it")
+    tools.run("job", demo, {"ops": [{"brief": {"id": "j2", "serves": "his order", "done_when": "installed", "where": "yasyf/cc-skills main"}}]})
+    written = (state.drive_dir(demo) / "jobs" / "j2.brief.md").read_text()
+    assert f"Decisions that bind:\n- {ANSWER['title']} (73060f0)\n" in written and "\nResearched: j1\n" in written
+    watching = watch.Watcher(demo, offset=state.events_end(demo), ticked_at=state.now())
+    assert watch.undelivered_lines(watching, state.now() + timedelta(minutes=11)) == []
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["questions"].append(state.new_question(second, "Which card keeps the thread?", state.stamp()))
+    shown.update(ask=second, seq="673200")
+    tools.run("record", demo, {"records": [{"kind": "answer", "text": "the thread's own card", "waits": "demo:j1-673190"}]})
+    drive = state.load(demo)
+    assert ([kept["seq"] for kept in drive["jobs"]["j2"]["undelivered"]], drive["jobs"]["j1"]["undelivered"]) == (["673200"], [])
+    assert [line.split(":")[0] for line in watch.undelivered_lines(watching, state.now() + timedelta(minutes=11))] == ["ANSWER undelivered j2"]
 
 
 def test_his_owner_words_under_a_pr_card_leave_it_up_since_only_his_order_on_its_thread_withdraws_it(
