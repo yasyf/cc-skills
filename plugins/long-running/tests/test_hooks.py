@@ -6,6 +6,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import agent_brief
+import compacted_skill
 import landing_guard
 import no_file_tools
 import no_slack_reads
@@ -106,16 +107,18 @@ def test_session_start_names_the_channels_each_role_holds(run: Run, monkeypatch:
     assert "Hold with slack_watch: his DM D123" in context
 
 
-def test_session_start_after_a_compaction_adds_the_newest_installed_skill_page_without_its_frontmatter(demo: str) -> None:
-    payload = {"session_id": os.environ["CLAUDE_CODE_SESSION_ID"]}
-    page = (session_start.PLUGIN / "skills" / "long-running" / "SKILL.md").read_text()
+def test_a_compaction_brings_the_newest_installed_skill_page_as_a_hook_output_of_its_own_beside_the_role_block(demo: str) -> None:
+    payload = {"session_id": os.environ["CLAUDE_CODE_SESSION_ID"], "source": "compact"}
+    page = (compacted_skill.PLUGIN / "skills" / "long-running" / "SKILL.md").read_text()
     body = page.split("\n---\n", 1)[1].strip()
-    compacted = session_start.respond(payload | {"source": "compact"})["hookSpecificOutput"]["additionalContext"]
-    resumed = session_start.respond(payload | {"source": "resume"})["hookSpecificOutput"]["additionalContext"]
-    assert compacted.startswith("You are the coordinator of drive demo: ")
-    assert compacted.rstrip().endswith(body)
-    assert "name: long-running" not in compacted
-    assert body not in resumed
+    skill = compacted_skill.respond(payload)["hookSpecificOutput"]
+    block = session_start.respond(payload)["hookSpecificOutput"]["additionalContext"]
+    assert (skill["hookEventName"], skill["additionalContext"].strip()) == ("SessionStart", body)
+    assert body not in block and block.startswith("You are the coordinator of drive demo: ")
+    assert compacted_skill.respond({**payload, "agent_id": "a64e718803d352214"}) is None
+    assert compacted_skill.respond({**payload, "session_id": "someone-else"}) is None
+    hooks = json.loads((compacted_skill.PLUGIN / "hooks" / "hooks.json").read_text())["hooks"]["SessionStart"]
+    assert [group["matcher"] for group in hooks if group["hooks"][0]["command"].endswith(" compacted_skill.py")] == ["compact"]
 
 
 def test_session_start_gives_a_subagent_of_a_role_no_role_context(demo: str) -> None:

@@ -6,6 +6,12 @@
         "hooks": [
           { "type": "command", "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" session_start.py" }
         ]
+      },
+      {
+        "matcher": "compact",
+        "hooks": [
+          { "type": "command", "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" compacted_skill.py" }
+        ]
       }
     ],
     "Stop": [
