@@ -145,7 +145,7 @@ def checked(evt: BaseHookEvent, script: str) -> HookResult | None:
             return judged(evt, reason, output.get("rule") or "", [Evidence.model_validate(word) for word in words], output["post"])
         return evt.block(reason, confirm=Confirm(rule=output.get("rule") or reason) if output.get("judged", True) else None)
     if made := found.get("updatedInput"):
-        return evt.rewrite(made)
+        return evt.rewrite(made, note=found.get("additionalContext"))
     if context := found.get("additionalContext"):
         return evt.context(context)
     return None
@@ -386,6 +386,12 @@ def message_limits(evt: BaseHookEvent) -> HookResult | None:
             transcript=TURN,
             decide=UNCONFIRMED,
         ): Allow(),
+        Input(
+            tool=POST,
+            tool_input={"kind": "report", "to": "communicator@fixture", "text": "POST The check that this pod still runs the agent refused an old pod.", "attrs": {"progress": "true"}},
+            session_id=COORDINATOR,
+            transcript=TURN,
+        ): Warn(pattern="this report goes out as written"),
         Input(tool=POST, tool_input={"kind": "report", "to": "communicator@fixture", "text": ASKED, "attrs": {"progress": "true"}}, session_id=COORDINATOR): Rewrite(
             body="the counts match"
         ),

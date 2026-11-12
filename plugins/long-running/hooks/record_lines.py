@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
 from drive import agents, limits, settled, state, superseded
-from drive.reports import addressed, attrs, kind, listed, report_refusals
+from drive.reports import addressed, attrs, kind, listed, report_refusals, unprevented
 
 SILENT_LANES = {"long-running:reader", "long-running:designer"}
 TO_OWNER = (
@@ -92,7 +92,7 @@ def readdressed(drives: dict[str, dict], session: str | None, record: dict) -> d
 
 
 def decision(payload: dict) -> dict | None:
-    """What a drive session's post becomes: refused with the fix while a record in it breaks a rule its kind keeps, else every record in it completed from what the drive knows, trimmed of the attrs it never carries and one line, the rest in its body for whoever acts on it, and each record sent where its drive routes it."""
+    """What a drive session's post becomes: refused with the fix while a record in it breaks a rule its kind keeps, else posted with a warning on each POST line telling him a failure of the drive's with no word on how it is prevented, and every record in it completed from what the drive knows, trimmed of the attrs it never carries and one line, the rest in its body for whoever acts on it, and each record sent where its drive routes it."""
     names = state.session_drives(payload.get("session_id") or "")
     if not names:
         return None
@@ -102,13 +102,15 @@ def decision(payload: dict) -> dict | None:
     records = [trimmed(completed(names, drive, record)) for record in given]
     if refused := next(filter(None, refusals(payload, names, records)), None):
         return {"permissionDecision": "deny", "permissionDecisionReason": refused}
+    warned = [warning for record in records if (warning := unprevented(drive, record))]
+    context = {"additionalContext": "\n".join(warned)} if warned else {}
     drives = state.bound_drives(names)
     made = [limits.shortened(routed) or routed for routed in (readdressed(drives, payload.get("session_id"), record) for record in records)]
     if made == given:
-        return None
+        return context or None
     if tool_input.get("records"):
-        return {"updatedInput": tool_input | {"records": made}}
-    return {"updatedInput": made[0]}
+        return {"updatedInput": tool_input | {"records": made}} | context
+    return {"updatedInput": made[0]} | context
 
 
 def main() -> None:

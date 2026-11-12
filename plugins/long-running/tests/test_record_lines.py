@@ -322,21 +322,27 @@ def test_a_report_whose_thread_is_no_slack_thread_is_refused_naming_his_dm_root(
     assert record_lines.decision(coordinator(turn, kind="report", text="POST j1 merged", to=TO, attrs={"close": "o1"})) is None
 
 
-def test_a_post_report_telling_him_the_drive_failed_says_how_that_is_prevented(
+def test_a_post_report_telling_him_the_drive_failed_goes_out_warning_the_session_until_it_says_how_that_is_prevented(
     run: Callable[..., tuple[int, str]], demo: str, turn: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     with state.edit(demo) as data:
         data["orders"]["o1"]["thread"] = THREAD
     failed = "POST j1 merged; its card was refused since nobody checked that PR against your words"
-    reason = refusal(record_lines.decision(coordinator(turn, kind="report", text=failed, to=TO, attrs={"close": "o1", "thread": THREAD})))
-    assert "6a6edbf" in reason and reason.endswith(f"The lines: {failed}")
+    warned = record_lines.decision(coordinator(turn, kind="report", text=failed, to=TO, attrs={"close": "o1", "thread": THREAD}))
+    assert set(warned) == {"additionalContext"}
+    assert warned["additionalContext"].startswith("record_lines: this report goes out as written") and "6a6edbf" in warned["additionalContext"]
+    assert warned["additionalContext"].endswith(f"The lines: {failed}")
     prevented = f"{failed}; {{order:o2}} fixes the card hook"
     assert record_lines.decision(coordinator(turn, kind="report", text=prevented, to=TO, attrs={"close": "o1", "thread": THREAD})) is None
+    old_pod = "POST j1 merged; the check that this pod still runs the agent compares writer, so an old pod is refused"
+    assert record_lines.decision(coordinator(turn, kind="report", text=old_pod, to=TO, attrs={"close": "o1", "thread": THREAD}))["additionalContext"].endswith(
+        f"The lines: {old_pod}"
+    )
     monkeypatch.setattr(reads, "run", lambda argv, checkout: json.dumps({"kind": "defect", "text": "check-post refused a status table", "refs": {}}))
     cited = "POST j1 merged; tables post as Slack tables again, {record:671981}"
-    reason = refusal(record_lines.decision(coordinator(turn, kind="report", text=cited, to=TO, attrs={"close": "o1", "thread": THREAD})))
-    assert reason.endswith(f"The lines: {cited}")
+    warned = record_lines.decision(coordinator(turn, kind="report", text=cited, to=TO, attrs={"close": "o1", "thread": THREAD}))
+    assert warned["additionalContext"].endswith(f"The lines: {cited}")
 
 
 def test_a_post_report_names_what_its_post_finishes_and_the_last_part_of_an_order_closes_it(run: Callable[..., tuple[int, str]], demo: str, turn: Path) -> None:

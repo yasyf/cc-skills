@@ -246,11 +246,13 @@ Its Show me:
   table rows or columns, list lines, numbered captions, pictures or fences, or by name right after
   the count, as "four strategies: spill values, insertion order, hash by key, and equal cut" does.
   A measure such as "30 days", "3 requests" or "2 threads" and a bound such as "at most 3" pass.
-- Give him a tap for each amount he named. `drive job ask` refuses a question when a clause of his
-  words in the order's thread shares its words and names an amount its question and options leave
-  out, as "30 day bonding" names 30 days; `--unsettled` does not lift it. An amount in a clause of
-  the same message that shares none of its words, as "capped at under 2gb" beside a question on
-  write reservations, is not counted. Offer it as its own option, in his words.
+- Give him a tap for each amount he named. `drive job ask` refuses a question when a clause of the
+  order's own words, or of his message about it in its thread, shares its words and names an amount
+  its question and options leave out, as "30 day bonding" names 30 days; `--unsettled` does not lift
+  it. His message in a thread two orders share is about the order it started, else the one that came
+  into the thread last before he sent it, so another order's amount there is not counted. An amount
+  in a clause of the same message that shares none of its words, as "capped at under 2gb" beside a
+  question on write reservations, is not counted either. Offer it as its own option, in his words.
 - A visual that still fails to draw leaves the Slack card with its caption and nothing in its place,
   and the dashboard with its source as text.
 
@@ -564,8 +566,12 @@ restating it.
   [records.md](records.md). When he asks why, give the mechanism in one or two sentences and quote
   back the instruction he gave, then the fix and when it is live. The post hook and `record_lines`
   find a line naming such a failure, or citing the defect record the drive filed for one, with no
-  order or PR on it, and Jev judges it by this rule, which his words then carry, so a line naming
-  the fix and its order is never read as work outside them.
+  order or PR on it, and only warn the session sending it, which posts as written: the same words
+  tell the product's own refusals too, such as a pod its check refused, by his pick "1 and then if
+  we kepe getting false rejects move to 3", whose third option reads "Cause and plain-words findings
+  only warn the session". On that warning, a line that does tell a failure of the drive's is
+  reworded in place naming the fix and its order, and Jev reads such a line as within his words,
+  never as work outside them.
 - A second ask for a post he ordered. His order to post, in his DM, in a terminal or by a tap on a
   card, is his permission for one post in the place he named. No card asks him to approve it, no line
   says a hook needs his Yes, and a card already up asking that is closed the moment it is seen.

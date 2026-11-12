@@ -960,16 +960,26 @@ def incident_orders(data: dict, order_id: str) -> list[str]:
     return [head, *(other_id for other_id, other in data["orders"].items() if other["joins"] == head)]
 
 
-def thread_order(data: dict, thread: str | None) -> str | None:
-    """The order that came last into a thread of his: added with it as its own thread or the thread of a card its jobs drew, or joined to it by a post answering his message there, the newer order winning a tie; None when no order is in it."""
+def thread_order(data: dict, thread: str | None, until: datetime | None = None) -> str | None:
+    """The order that came last into a thread of his, by until when given: added with it as its own thread or the thread of a card its jobs drew, or joined to it by a post answering his message there, the newer order winning a tie; None when no order is in it."""
     if not thread:
         return None
     came = [
-        (parse_time(at), index, order_id)
+        (moment, index, order_id)
         for index, (order_id, order) in enumerate(data["orders"].items())
         for at in ([order["created"]] if thread in (order["thread"], *(ts for _, ts in card_threads(data, order))) else []) + [at for _, ts, at in order["asked_in"] if ts == thread]
+        for moment in [parse_time(at)]
+        if until is None or moment <= until
     ]
     return max(came)[2] if came else None
+
+
+def message_order(data: dict, channel: str, thread: str, ts: str) -> str | None:
+    """The order his message in a thread is about: the order it started, else the one that came last into the thread by the time he sent it, so a thread two orders share splits his words between them by when each came in."""
+    started = f"slack:{channel}/{ts}"
+    return next((order_id for order_id, order in data["orders"].items() if order["from"] == started), None) or thread_order(
+        data, thread, datetime.fromtimestamp(float(ts)).astimezone()
+    )
 
 
 def report_order(data: dict, attrs: dict) -> str | None:
