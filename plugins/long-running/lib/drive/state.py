@@ -522,7 +522,7 @@ def load(name: str) -> dict:
 def finish_asked_readers(name: str, data: dict) -> None:
     """Set back to done each reader that returned DESIGN and was set waiting when drive job ask kept its question, since a reader's question waits on his card, never the reader, and its builder's brief carries his answer."""
     for job_id, job in data["jobs"].items():
-        if job["kind"] == "reader" and job["state"] == "waiting" and (report := report_path(name, job_id)).exists() and report.read_text().lstrip().startswith("DESIGN"):
+        if job["kind"] == "reader" and job["state"] == "waiting" and report_text(name, job_id).startswith("DESIGN"):
             job["state"] = "done"
 
 
