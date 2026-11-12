@@ -528,10 +528,17 @@ def test_a_drive_question_the_watch_cannot_parse_exits_2_naming_why(question: st
     assert reads.answer(question, fake_drive, "demo", "j7").startswith(f"drive exited 2\n{question.partition(chr(10))[0]}: ")
 
 
-def test_a_drive_question_runs_its_verb_as_the_lanes_job_marked_as_a_sprite_lane_so_drive_refuses_any_other(fake_drive: Path) -> None:
+def test_a_drive_question_runs_its_verb_as_the_lanes_job_marked_as_a_sprite_lane_so_drive_refuses_its_writes_to_any_other(fake_drive: Path) -> None:
     fake_drive.mkdir()
     reads.DRIVE_BIN.write_text(f'#!/bin/sh\necho "${reads.SPRITE_LANE} ${state.OWN_JOB_ENV}"\n')
     assert reads.answer("DRIVE status", fake_drive, "demo", "j7") == "drive exited 0\n1 j7"
+
+
+def test_a_drive_answer_carries_all_its_verb_printed_as_a_mac_lane_reads_it(fake_drive: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_drive.mkdir()
+    monkeypatch.setattr(reads, "BUDGET", 5)
+    reads.DRIVE_BIN.write_text("#!/bin/sh\necho 'every return j2051 took'\n")
+    assert reads.answer("DRIVE job report j2051", fake_drive, "demo", "j7") == "drive exited 0\nevery return j2051 took"
 
 
 def launched_once_written(marker: Path, monkeypatch: pytest.MonkeyPatch, then: Callable[[], None] = lambda: None) -> list[datetime]:

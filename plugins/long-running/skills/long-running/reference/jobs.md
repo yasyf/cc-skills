@@ -150,11 +150,14 @@ minutes is said with the remedy, a `SendMessage` to wake it.
 `drive job launch` has the `orca` skill's launcher place in the Sprite's `~/.local/bin`, asks each
 as one blocking Orca question, `DRIVE <its words>` over the JSON of its stdin and of each file a
 word names, and the watch queues it as a read. `drive job read` runs it in the coordinator's
-checkout with no session of this Mac's, on the lane's own job and drive alone, and answers
-what it printed under a first line naming its exit status, each file named by the lane's own path,
+checkout with no session of this Mac's, as the lane's own job on its own drive, and answers
+all it printed under a first line naming its exit status, each file named by the lane's own path,
 which the lane's `drive` prints and exits with. It runs `job report`, `job ask`, `job set --repro`,
-`job replies`, `pr add`, `plan search`, `manual` and `status`, and refuses, running
-nothing, any other verb, such as `pr set --tap` or an order verb, another job or another drive. It
+`job replies`, `pr add`, `plan search`, `manual` and `status`, its reads on any job as a Mac lane's,
+so a lane reads the `job report` or `job replies` of any job its brief names, and a bare `status`
+on its own job. It refuses, running nothing, any other verb, such as `pr set --tap` or an order
+verb, a write naming another job, which is a `job report` keeping stdin, `job ask`, `job set` or
+`pr add`, and another drive. It
 refuses `break-glass` too, since its command would run on this Mac as your user, by his pick
 "No Sprite lane runs break-glass: a step needing a grant moves to a lane on this Mac": the lane returns `BLOCKED` naming the step and its command, and you move that step to a
 lane on this Mac.

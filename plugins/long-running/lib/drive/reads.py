@@ -37,6 +37,7 @@ LANE_VERBS = (
     ("manual",),
     ("status",),
 )
+LANE_WRITES = (("job", "ask"), ("job", "set"), ("pr", "add"))
 NO_SPRITE_GRANT = 'his pick "No Sprite lane runs break-glass: a step needing a grant moves to a lane on this Mac"'
 GRANT_STEP = re.compile(r"\bdrive break-glass\b")
 JOB_WORD = re.compile(r"j\d+")
@@ -155,7 +156,7 @@ def answer(question: str, checkout: Path, drive: str, job_id: str) -> str:
 
 
 def lane_drive(question: str, checkout: Path, drive: str, job_id: str) -> str:
-    """Run a Sprite lane's drive command here, where the drive's records live, as `drive` would on this Mac: its first line `DRIVE <its words>`, the rest the JSON the Sprite's drive sent with it, `stdin` for a `-` and the text of each file a word names under that word, each written to a folder of its own here for the run and named by its Sprite path in what it prints. It runs in the coordinator's checkout with no session of this Mac's, as the asking lane's job's own lane, marked as a SPRITE_LANE, so the drive it runs refuses, as lane_refusal says, a verb no Sprite lane runs and whatever it parsed the words as acting on but that job and drive, and answers `drive exited <status>` over what it printed, which the Sprite's drive prints and exits with."""
+    """Run a Sprite lane's drive command here, where the drive's records live, as `drive` would on this Mac: its first line `DRIVE <its words>`, the rest the JSON the Sprite's drive sent with it, `stdin` for a `-` and the text of each file a word names under that word, each written to a folder of its own here for the run and named by its Sprite path in what it prints. It runs in the coordinator's checkout with no session of this Mac's, as the asking lane's job's own lane, marked as a SPRITE_LANE, so the drive it runs refuses, as lane_refusal says, a verb no Sprite lane runs, a write acting on another job and any verb acting on another drive, and reads a bare `status` as the lane's own job, and answers `drive exited <status>` over all it printed, as a Mac lane reads it, which the Sprite's drive prints and exits with."""
     line, _, rest = question.partition("\n")
     try:
         argv = shlex.split(DRIVE.fullmatch(line)[1])
@@ -188,11 +189,11 @@ def lane_drive(question: str, checkout: Path, drive: str, job_id: str) -> str:
     printed = "\n".join(part.strip() for part in (done.stdout, done.stderr) if part.strip())
     for path, copy in here.items():
         printed = printed.replace(copy, path)
-    return lane_exit(done.returncode, head(printed))
+    return lane_exit(done.returncode, printed)
 
 
 def lane_refusal(args: argparse.Namespace, parse: Callable[[list[str]], argparse.Namespace], drive: str, job_id: str) -> str | None:
-    """Why a Sprite lane's drive command, as drive parsed it to run, may not: a `break-glass`, whose command would run on this Mac as its user, so the step moves to a lane on this Mac; a verb no builder runs, such as a tap or an order verb; a job other than its own in any value it parsed; a `job set` other than its `--repro`; or another drive. It reads the parsed values, so an abbreviated flag, a `--flag=value` and a word after `--` mean here what they mean to the verb."""
+    """Why a Sprite lane's drive command, as drive parsed it to run, may not: a `break-glass`, whose command would run on this Mac as its user, so the step moves to a lane on this Mac; a verb no builder runs, such as a tap or an order verb; a write, a `job report` keeping stdin or one of LANE_WRITES, naming a job other than its own in any value it parsed, while a read, such as another job's `job report`, `job replies` or `status`, reads it as a Mac lane does; a `job set` other than its `--repro`; or another drive. It reads the parsed values, so an abbreviated flag, a `--flag=value` and a word after `--` mean here what they mean to the verb."""
     words = tuple(word for word in (args.verb, getattr(args, "action", None)) if word)
     verb = next((verb for verb in LANE_VERBS if words[: len(verb)] == verb), None)
     refused = f"drive {' '.join(words)}: refused, nothing ran:"
@@ -202,8 +203,9 @@ def lane_refusal(args: argparse.Namespace, parse: Callable[[list[str]], argparse
         return f"{refused} a lane runs only these verbs: {', '.join(' '.join(verb) for verb in LANE_VERBS)}"
     parsed = {key: value for key, value in vars(args).items() if key != "run"}
     values = {word for value in parsed.values() for word in (value if isinstance(value, list | tuple) else [value]) if isinstance(word, str)}
-    if others := sorted({word for word in values if JOB_WORD.fullmatch(word)} - {job_id}):
-        return f"{refused} it names {', '.join(others)}, and a lane's drive verbs act on its own job, {job_id}, alone"
+    writes = verb in LANE_WRITES or verb == ("job", "report") and args.stdin
+    if writes and (others := sorted({word for word in values if JOB_WORD.fullmatch(word)} - {job_id})):
+        return f"{refused} it names {', '.join(others)}, and a lane's drive writes act on its own job, {job_id}, alone, while its reads read any job"
     if verb == ("job", "set") and (
         flags := sorted(f"--{key.replace('_', '-')}" for key, value in vars(parse(["job", "set", job_id])).items() if key in parsed and key not in ("repro", "json", "drive") and parsed[key] != value)
     ):

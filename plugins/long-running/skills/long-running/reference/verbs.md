@@ -18,9 +18,11 @@ newest, such as a launch's bind prefix, hands itself to the newest install's `dr
 acts. A Sprite lane's `drive`, which its launch puts on the Sprite, asks each verb of this Mac as
 one Orca question, `DRIVE <its words>` with stdin and each file a word names, and the watch runs it
 here: `job report`, `job ask`, `job set --repro`, `job replies`, `pr add`, `plan search`, `manual`
-and `status`, each on that lane's own job and drive alone, answering what it printed
-and its exit status, which the lane's `drive` prints and exits with; `break-glass` it refuses, since
-its command would run on this Mac as its user.
+and `status`, each on that lane's own drive alone, its reads on any job as a Mac lane's, a bare
+`status` on its own job, and its writes, a `job report` keeping stdin, `job ask`, `job set --repro`
+and `pr add`, on its own job alone, answering all it printed and its exit status, which the lane's
+`drive` prints and exits with; `break-glass` it refuses, since its command would run on this Mac as
+its user.
 
 ## Tool or Bash
 
