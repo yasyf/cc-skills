@@ -3390,7 +3390,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument(
         "--unsettled",
         metavar="WHY",
-        help="one string naming every recorded answer of his the refusal listed, by id, and why it does not settle this question",
+        help="one string naming every recorded answer of his drive job ask read as settling this question or its refusal listed, by id, and why it does not settle it",
     )
     verb.add_argument(
         "--drop",

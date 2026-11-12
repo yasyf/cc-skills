@@ -99,7 +99,9 @@ reading of his words "your messages need to be way shorter rewrite this for a hu
   watch holds the drive to it from Slack's own record, not a session's memory, and no `--due` follows
   the line. `drive order add --due` counts from when the order is added, and `drive order set --due`
   from the next line in the order's thread. The watch says `DUE` every 10
-  minutes until a drive post is in that thread, and the order cannot close before one is.
+  minutes until a drive post is in that thread, and the order cannot close before one is. An open
+  incident keeps no such time: the watch owes its next line five quiet minutes after its last, by
+  [Clocks](incidents.md#clocks).
 - The handler records each post in an order's thread through the post itself,
   `say(order=<o>, record=<the report's seq>)`, which delivers each part the report's `part` attr
   names, or each part of an order its `close` attr names. Jev reads the post's own words for each
@@ -450,8 +452,10 @@ restating it.
   next summary of its thread, never a line of its own. The watch's `TICK` comes every 30 minutes and
   names the orders with news; the coordinator sends at most one `report` per thread per tick, then
   `drive order set <o> --lined` for each order it covered.
-- An incident is the exception: until users are unblocked he hears a line at least every 5 minutes,
-  then each step of the root fix once, by [incidents.md](incidents.md).
+- An incident is the exception: until its fix is live he hears each step the moment it happens and
+  a line at least every five minutes, which the watch owes after any five quiet minutes and has a
+  handler post. A report on it goes out even when its thread already had one that turn, by
+  [incidents.md](incidents.md).
 - He is away when he says he is going to sleep or stepping out (`drive heard --away`), or when he has
   neither written nor tapped a card for an hour, since each tap on a card records him heard as a
   message does. While he is away only cards, the watch's one reply under a card holding built work,
