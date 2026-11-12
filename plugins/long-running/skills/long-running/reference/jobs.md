@@ -157,9 +157,12 @@ question.
 - The watch answers it itself, with no event: it runs `tools/ci bk`, `ccx vcs job-log`, `cci` or
   `ccn` in the directory the coordinator started the drive from and replies with the output, cut to
   12,000 characters. A `BREAK-GLASS` read runs as `drive break-glass` does, its grant's reason
-  naming the drive and job: the `forge/break-glass` grant, then the command under this Mac's
-  machine profile for the env, with no sign-in. Its command writes in production only on his word
-  or an incident order at 0 deletes and 0 replaces. A `LOG` answer leads each failed job's share with its failure lines, such as a
+  naming the drive and job: the `forge/break-glass` grant, then the command holding only the env's
+  admin credentials, minted on this Mac's machine profile to end with the grant, with no sign-in.
+  Its command writes in production only on his word or an incident order at 0 deletes and 0
+  replaces. The watch keeps each answer under its question's message id before it replies, so a
+  refused reply sends the same answer again, and a `BREAK-GLASS` command a stopped watch cut off is
+  answered as cut off, never run twice. A `LOG` answer leads each failed job's share with its failure lines, such as a
   Go `--- FAIL:` line or a Rust `panicked at`, then each failure's own output, a Go test's lines
   from its `=== RUN` and anything else's failure line with the two lines after it, then fills the
   rest with the output's last characters. A test's failure often sits far before the end of its

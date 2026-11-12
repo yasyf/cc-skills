@@ -33,6 +33,10 @@ PR_EVENT = re.compile(r"PR (?P<key>\S+): (?P<change>.+) \[(?P<order>o\d+) (?P<jo
 TAP_EVENT = re.compile(r"TAP (?P<label>\S+) (?P<key>\S+)")
 LANE = "watch"
 UNTHREADED = "the order has no thread, so its time was the drive's own and is said this once"
+CUT_OFF = (
+    "the watch stopped while this command ran, so whether it finished and what it printed are unknown, and no watch runs a"
+    " BREAK-GLASS command twice: read what it changed, then ask again if it must run again"
+)
 DRIVE = Path(__file__).resolve().parents[2] / "bin" / "drive"
 OWING_STATES = ("working", "waiting")
 LIVE_JOB_STATES = ("running", "waiting")
@@ -765,16 +769,13 @@ def lane_prs(body: str) -> list[str]:
 
 
 def read_lines(watcher: Watcher, data: dict, moment: datetime) -> list[str]:
-    """Answer each `LOG`, `READ` or `BREAK-GLASS` question a live lane queued, here, since a Sprite holds no CI or AWS credentials or drive records; one the read cannot answer gets why as its answer and a `JOB` line saying so. A question leaves its job's queue only once its answer goes through; with no line since nothing is owed on it, once Orca says it already holds another answer, since a lane whose wait ends waits again on the same question; or with one `JOB` line once Orca says the question's dispatch closed, since no lane waits on it then: any other refused reply or a watch stopped mid-answer only delays it."""
+    """Answer each `LOG`, `READ` or `BREAK-GLASS` question a live lane queued, here, since a Sprite holds no CI or AWS credentials or drive records; one the read cannot answer gets why as its answer and a `JOB` line saying so. Its answer is kept under its message id before it is sent, so a refused reply sends that answer again and never reruns the read. A question leaves its job's queue only once its answer goes through; with no line since nothing is owed on it, once Orca says it already holds another answer, since a lane whose wait ends waits again on the same question; or with one `JOB` line once Orca says the question's dispatch closed, since no lane waits on it then: any other refused reply, or a watch stopped mid-read on any read but a `BREAK-GLASS` command, only delays it."""
     checkout = Path(data["roles"]["coordinator"]["cwd"])
     lines = []
     for job_id, job in live_lanes(watcher, data).items():
         for message_id, question in job.get("reads", {}).items():
             source = f"the answer to {job_id}'s"
-            try:
-                said, why = reads.answer(question, checkout, f"{watcher.name} {job_id}"), None
-            except reads.ReadError as error:
-                said = why = f"{question}: {error}"
+            said, why = job.get("read_answers", {}).get(message_id) or answer_read(watcher.name, job_id, message_id, question, checkout)
             try:
                 orca.reply(watcher.name, job["run"], message_id, said)
             except orca.OrcaError as error:
@@ -788,7 +789,25 @@ def read_lines(watcher: Watcher, data: dict, moment: datetime) -> list[str]:
             watcher.failures.pop(source, None)
             with state.edit(watcher.name) as fresh:
                 fresh["jobs"][job_id]["reads"].pop(message_id, None)
+                fresh["jobs"][job_id].get("read_answers", {}).pop(message_id, None)
     return lines
+
+
+def answer_read(name: str, job_id: str, message_id: str, question: str, checkout: Path) -> list[str | None]:
+    """Run a lane's read and keep its answer, and why it is no answer when it failed, under its message id. A `BREAK-GLASS` command, which may write production, first keeps the answer a watch stopped mid-run leaves, so no later watch runs it twice."""
+    if reads.BREAK_GLASS.fullmatch(question):
+        keep_answer(name, job_id, message_id, [f"{question}: {CUT_OFF}"] * 2)
+    try:
+        kept = [reads.answer(question, checkout, f"{name} {job_id}"), None]
+    except reads.ReadError as error:
+        kept = [f"{question}: {error}"] * 2
+    keep_answer(name, job_id, message_id, kept)
+    return kept
+
+
+def keep_answer(name: str, job_id: str, message_id: str, kept: list[str | None]) -> None:
+    with state.edit(name) as data:
+        data["jobs"][job_id].setdefault("read_answers", {})[message_id] = kept
 
 
 def page_lines(watcher: Watcher, moment: datetime) -> list[str]:

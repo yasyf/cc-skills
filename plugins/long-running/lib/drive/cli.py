@@ -4,6 +4,7 @@ import os
 import re
 import shlex
 import shutil
+import subprocess
 import sys
 import tempfile
 import textwrap
@@ -2671,17 +2672,17 @@ def plan_search(args: argparse.Namespace) -> int:
 
 
 def break_glass(args: argparse.Namespace) -> int:
-    """Run one command under this Mac's machine profile for a stack's env once the forge/break-glass grant, started in the job's or order's name with its reason, passes: the command replaces this process, so its output and exit status are the verb's, and nobody signs in."""
+    """Run one command under the forge/break-glass grant for a stack, started in the job's or order's name with its reason, holding only the stack's env's admin credentials, minted on this Mac's machine profile to end no later than the grant: its output and exit status are the verb's, and nobody signs in."""
     name = state.resolve(args.drive)
     data = state.load(name)
     records, label = (data["jobs"], "job") if JOB_ID.fullmatch(args.id) else (data["orders"], "order")
     find(records, args.id, label)
     try:
-        granted, profile = reads.break_glass(args.stack, args.reason, f"{name} {args.id}", Path(data["roles"]["coordinator"]["cwd"]))
+        with reads.break_glass(args.stack, args.reason, f"{name} {args.id}", Path(data["roles"]["coordinator"]["cwd"])) as granted:
+            print(f"break-glass grant {granted.link} passed; running {args.command[0]} {reads.held(granted)}", file=sys.stderr, flush=True)
+            return subprocess.run(args.command, env=granted.env, check=False).returncode
     except reads.ReadError as error:
         raise DriveError(f"break-glass: {error}") from None
-    print(f"break-glass grant {granted} passed; running {args.command[0]} under the {profile} profile", file=sys.stderr, flush=True)
-    os.execvpe(args.command[0], args.command, {**os.environ, "AWS_PROFILE": profile})
 
 
 def move(args: argparse.Namespace) -> int:
@@ -3534,13 +3535,16 @@ def parser() -> argparse.ArgumentParser:
     verb = verbs.add_parser(
         "break-glass",
         parents=[drive_opt],
-        help="run one command under this Mac's machine profile once the forge/break-glass grant passes, with no sign-in",
+        help="run one command holding only a stack's admin credentials, minted on this Mac's machine profile to end with its break-glass grant",
         description=(
-            "Start the forge/break-glass grant with bk build create, its reason the job or order and --reason, wait for it to"
-            " pass, then run the command after -- with AWS_PROFILE set to the profile in ~/.aws/config that assumes the env's"
-            " account admin role through source_profile from a credential_process, never an SSO sign-in. A read writes nothing;"
-            " a production write runs only on his word or an incident order at 0 deletes and 0 replaces. A remote lane asks the"
-            " same with a BREAK-GLASS read, these flags after it."
+            "Start the forge/break-glass grant with bk build create, its reason the job or order and --reason, which may not be"
+            " blank, and wait for it to pass. Then mint the env's account admin role with aws sts assume-role from the source_profile"
+            " of the profile in ~/.aws/config that reaches it from a credential_process, never an SSO sign-in, to end a minute"
+            " before the grant's recorded end, and run the command after -- with an AWS config naming that one profile alone, so"
+            " a command naming another stack's profile finds none; the credentials are deleted when it exits. A grant ending"
+            " within 15 minutes, the shortest credentials STS mints, runs nothing. A read writes nothing; a production write runs"
+            " only on his word or an incident order at 0 deletes and 0 replaces. A remote lane asks the same with a BREAK-GLASS"
+            " read, these flags after it."
         ),
     )
     verb.add_argument("id", metavar="JOB|ORDER", help="the job or order the grant is for, named in its reason")

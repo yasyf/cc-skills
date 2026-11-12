@@ -17,6 +17,7 @@ RUN = "run_drive0001"
 FRESH_RUN = "run_relaunch1"
 DRIVE_RUN = "run_coordinator1"
 DISPATCH = "ctx_lane0001"
+BREAK_GLASS_READ = 'BREAK-GLASS --stack sandsql/plat-usw2-prod --reason "drop the stranded copies" -- psql -c "drop table copy_1"'
 SEQUENCE = itertools.count(1)
 FINISHED_WORKER = {
     "worker": {"state": "succeeded", "startOptions": {"worktree": "id:repo-1::/home/sprite/monorepo"}},
@@ -1303,6 +1304,50 @@ def test_a_read_the_watch_stopped_before_answering_is_answered_by_the_next_watch
         ("reply", "--id", "relay_read", "--run", RUN, "--body", 'READ ccn answer search "dom extraction": empty, the read printed nothing'),
         ("run-use", "--id", DRIVE_RUN),
     ]
+
+
+def test_a_break_glass_answer_orca_refuses_is_sent_again_and_its_command_never_runs_twice(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    deliver(monkeypatch, [message("question", BREAK_GLASS_READ, id="msg_glass")])
+    ran = []
+    monkeypatch.setattr(reads, "answer", lambda question, root, asker: ran.append(question) or "DROP TABLE")
+    replies, refusals = [], iter(range(2))
+
+    def refused_twice(*args: str) -> dict:
+        if args[0] == "reply" and next(refusals, None) is not None:
+            raise orca.OrcaError("orca orchestration reply: consumer_fenced: This caller is bound to Run run_other")
+        replies.append(args)
+        return {}
+
+    monkeypatch.setattr(orca, "call", refused_twice)
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    for seconds in (0, 5):
+        watch.run_pass(watching, T0 + timedelta(seconds=seconds))
+        assert state.load(remote)["jobs"]["j1"]["read_answers"] == {"msg_glass": ["DROP TABLE", None]}
+    assert watch.run_pass(watching, T0 + timedelta(seconds=10)) == []
+    assert ran == [BREAK_GLASS_READ]
+    assert ("reply", "--id", "msg_glass", "--run", RUN, "--body", "DROP TABLE") in replies
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["reads"], job["read_answers"]) == ({}, {})
+
+
+def test_a_break_glass_command_the_watch_stopped_mid_run_is_answered_as_cut_off_and_never_run_again(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    deliver(monkeypatch, [message("question", BREAK_GLASS_READ, id="msg_glass")])
+
+    def stopped(question: str, root: Path, asker: str) -> str:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(reads, "answer", stopped)
+    with pytest.raises(KeyboardInterrupt):
+        watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0), T0)
+    replies = []
+    monkeypatch.setattr(reads, "answer", lambda question, root, asker: pytest.fail(f"the next watch ran {question} again"))
+    monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
+    cut_off = f"{BREAK_GLASS_READ}: {watch.CUT_OFF}"
+    assert watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0), T0 + timedelta(minutes=5)) == [
+        f"JOB j1 o1 READ unanswered, its lane was told why: {cut_off}"
+    ]
+    assert ("reply", "--id", "msg_glass", "--run", RUN, "--body", cut_off) in replies
+    assert state.load(remote)["jobs"]["j1"]["read_answers"] == {}
 
 
 def test_an_open_question_kept_before_the_watch_read_it_as_a_read_is_answered_and_its_lane_runs_again(
