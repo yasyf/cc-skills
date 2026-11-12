@@ -8,6 +8,7 @@ BRIEF_JOB = re.compile(r"^Drive:[^\n]*?\bjob (j\d+)\b", re.MULTILINE)
 BRIEF_FILE = re.compile(r"/\S+/jobs/j\d+\.(?:brief|handoff)\.md\b")
 HANDOFF = re.compile(r"^Handoff:", re.MULTILINE)
 SERVES_TOOLING = re.compile(r"^Serves:[ \t]*drive tooling\b", re.MULTILINE | re.IGNORECASE)
+PLANNED = re.compile(r"^(Goal|Done when|Where|Runs as|Native|Interactions|Would he ask|Plan|Incident):[ \t]*(.+)$", re.MULTILINE)
 RESEARCHED = re.compile(r"^Researched:[ \t]*$", re.MULTILINE)
 RESEARCHED_LINE = re.compile(r"^Researched:", re.MULTILINE)
 RESEARCHED_BY = re.compile(r"^Researched:[ \t]*(j\d+)\b", re.MULTILINE)
@@ -181,7 +182,9 @@ def unasked_design(reader: str, questions: list[dict]) -> str | None:
 
 
 def brief_refusal(name: str, data: dict, job_id: str, brief: str) -> str | None:
-    """Why this brief may not start its job's agent: a build order's builder, designer or codex lane needs the Researched: line naming its reader, unless it ships the immediate fix or designs a follow-up he ordered, which starts at once doing its own research, and an answer order's one lane does its own research."""
+    """Why this brief may not start its job's agent: the lines its writer plans the job with ask him for a sign-in, Touch ID or cc-sudo on an AWS action this Mac's machine profile runs, a drive tooling brief aside, whose lines name the sign-ins the drive's checks refuse; a build order's builder, designer or codex lane needs the Researched: line naming its reader, unless it ships the immediate fix or designs a follow-up he ordered, which starts at once doing its own research, and an answer order's one lane does its own research."""
+    if not SERVES_TOOLING.search(brief) and (asked := limits.sign_in_problems([(f"its {found[1]} line", found[2]) for found in PLANNED.finditer(brief)])):
+        return f"{job_id}'s brief plans a sign-in of his: {asked[0]}"
     job = data["jobs"][job_id]
     order_id = job["order"]
     order = data["orders"][order_id]

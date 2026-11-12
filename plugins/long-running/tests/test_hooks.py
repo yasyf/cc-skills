@@ -611,6 +611,20 @@ def test_a_build_orders_builder_starts_only_on_a_brief_naming_its_readers_resear
     assert agents.shaped(drive_agent("long-running:builder", prompt, "sonnet")) == {"subagent_type": "long-running:builder", "prompt": prompt, "description": "d"}
 
 
+def test_a_brief_planning_his_touch_id_tap_for_an_aws_action_starts_no_agent_and_a_drive_tooling_brief_naming_one_does(demo: str, run: Run) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Search", "test hybrid search on a pass box")
+    run("job", "add", "builder", "--order", "o1", "--goal", "run the test")
+    brief = "Order (his words): test hybrid search on a pass box\nGoal: {}\nDrive: demo, order o1, job j1"
+    planned = drive_agent("long-running:builder", brief.format("start the pass box and read its key; he taps Touch ID once for cc-sudo"))
+    assert scratch_folder.deny_reason(planned).startswith(
+        "refused, no agent started: j1's brief plans a sign-in of his: its Goal line asks him to sign in with \"he taps Touch ID\":"
+        " this Mac's machine profile runs it with no sign-in, Touch ID or cc-sudo"
+    )
+    assert scratch_folder.deny_reason(drive_agent("long-running:builder", brief.format("start the pass box and read its key under the machine profile"))) is None
+    tooling = brief.format("refuse a card asking him for Touch ID on a pass box key read") + "\nServes: drive tooling"
+    assert scratch_folder.deny_reason(drive_agent("long-running:builder", tooling)) is None
+
+
 def test_a_build_orders_codex_lane_is_added_and_started_only_on_its_readers_research_and_its_immediate_fix_at_once(
     meta: str, run: Run, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
