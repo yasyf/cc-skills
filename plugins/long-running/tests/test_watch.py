@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import shlex
 from collections.abc import Callable
 from datetime import datetime, timedelta
@@ -578,16 +579,48 @@ def test_the_watch_waits_for_one_an_older_install_ran_under_a_monitor_and_sends_
     assert posted(sent) == [("evidence", f"root@{demo}", f"PR {KEY}: approved [o1 j1]")]
 
 
-def test_a_crashed_watch_wakes_the_coordinator_before_it_ends(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_crashed_watch_wakes_the_coordinator_naming_its_version_and_the_line_of_the_drives_code_that_raised(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     def crash(watching: watch.Watcher, moment: datetime) -> list[str]:
-        raise OSError("disk full")
+        state.load("gone")
+        return []
 
     monkeypatch.setattr(watch, "run_pass", crash)
     sent = posts(monkeypatch)
-    with pytest.raises(OSError):
+    with pytest.raises(state.DriveError):
         watch.main(demo)
-    assert posted(sent) == [("handoff", f"root@{demo}", "WATCH stopped: disk full; drive watch starts it again")]
+    [(kind, to, text)] = posted(sent)
+    assert (kind, to) == ("handoff", f"root@{demo}")
+    log = re.escape(str(state.watch_log_path(demo)))
+    assert re.fullmatch(rf"WATCH stopped on long-running {re.escape(state.VERSION)}: DriveError at state\.py:\d+ in saved: no drive named gone; its traceback is in {log}; drive watch starts it again", text)
     assert not state.pid_path(demo).exists()
+
+
+def test_a_pass_that_finds_the_drive_saved_by_a_newer_install_hands_the_watch_to_that_install_and_says_nothing(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    newer = tmp_path / "cache" / "9.9.9" / "bin" / "drive"
+    installs = iter([None, newer])
+    monkeypatch.setattr(watch, "upgraded", lambda: next(installs))
+    path = state.state_path(demo)
+
+    def saved_by_newer(watching: watch.Watcher, moment: datetime) -> list[str]:
+        path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "9.9.9"}))
+        state.load(demo)
+        return []
+
+    class Execed(Exception):
+        pass
+
+    def execv(drive: Path, argv: list[str]) -> None:
+        raise Execed(drive, argv)
+
+    monkeypatch.setattr(watch, "run_pass", saved_by_newer)
+    monkeypatch.setattr(watch.os, "execv", execv)
+    sent = posts(monkeypatch)
+    with pytest.raises(Execed) as execed:
+        watch.main(demo)
+    assert execed.value.args == (newer, [str(newer), "watch", "--loop", "--drive", demo])
+    assert sent == []
 
 
 def test_ensure_starts_the_watch_with_no_session_unless_one_runs(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -727,7 +760,10 @@ def test_a_projects_watch_runs_as_its_own_process_from_where_the_drives_watch_st
     monkeypatch.setattr(watch, "run_pass", crash)
     with pytest.raises(OSError):
         watch.main(demo, "Iris")
-    assert posted(sent)[-1] == ("handoff", f"iris@{demo}", "WATCH stopped: disk full; drive watch --project Iris starts it again")
+    kind, to, text = posted(sent)[-1]
+    assert (kind, to) == ("handoff", f"iris@{demo}")
+    log = re.escape(str(state.watch_log_path(demo, "Iris")))
+    assert re.fullmatch(rf"WATCH stopped on long-running {re.escape(state.VERSION)}: OSError at watch\.py:\d+ in watching: disk full; its traceback is in {log}; drive watch --project Iris starts it again", text)
 
 
 def test_drive_watch_project_starts_only_from_its_sub_coordinators_session_and_points_that_channel_at_it(
@@ -2196,6 +2232,33 @@ def test_a_landers_outcome_is_said_on_its_prs_line_and_only_a_failure_wakes_its_
     lines = watch.event_lines(watching)
     assert lines == [f"PR {KEY}: {change} [o1 j1]"]
     assert watch.wakes(lines[0], state.load(demo)) == bool(code)
+
+
+def test_a_lander_that_outlived_an_install_hands_its_outcome_to_the_newest_drive_which_records_it(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    waiting_job(demo)
+    approve(demo, KEY)
+    enqueue_exiting(tmp_path, demo, 0)
+    watching = watcher(demo)
+    path = state.state_path(demo)
+    newer = tmp_path / "cache" / "9.9.9" / "bin" / "drive"
+    queued = land.enqueued
+
+    def queued_then_installed(name: str, checkout: Path, keys: list[str]) -> str:
+        outcome = queued(name, checkout, keys)
+        path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "9.9.9"}))
+        return outcome
+
+    execs: list[tuple[Path, list[str]]] = []
+    monkeypatch.setattr(land, "enqueued", queued_then_installed)
+    monkeypatch.setattr(install, "upgraded", lambda: newer)
+    monkeypatch.setattr(land.os, "execv", lambda drive, argv: execs.append((drive, argv)))
+    assert land.run(demo, [KEY]) == land.QUEUED
+    assert execs == [(newer, [str(newer), "pr", "land", state.pr_url(KEY), "--drive", demo, "--outcome", land.QUEUED])]
+    assert json.loads(path.read_text())["prs"][KEY]["lander"] is None
+    path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": state.VERSION}))
+    assert cli.main(["pr", "land", state.pr_url(KEY), "--drive", demo, "--outcome", land.QUEUED]) == 0
+    assert state.load(demo)["prs"][KEY]["lander"]["outcome"] == land.QUEUED
+    assert watch.event_lines(watching) == [f"PR {KEY}: {land.QUEUED} [o1 j1]"]
 
 
 def test_an_approval_on_an_older_head_draws_no_card_and_reads_approved_on_an_older_head_yet_his_approve_starts_its_lander(

@@ -9,6 +9,7 @@ import re
 import shlex
 import subprocess
 import time
+import traceback
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -16,7 +17,7 @@ from pathlib import Path
 from typing import Self
 
 from drive import agents, codex, dashboard, github, land, limits, orca, page, reads, served, slack, state, superseded, view
-from drive.install import config_dir
+from drive.install import config_dir, upgraded
 from drive.render import cut, subscribe, when
 
 POLL_SECONDS = 5
@@ -1592,19 +1593,13 @@ def listen(name: str, session: str, project: str | None = None) -> None:
     reads.run(argv, Path(state.load(name)["roles"]["coordinator"]["cwd"]), os.environ | {"CLAUDE_CODE_SESSION_ID": session})
 
 
-def upgraded() -> Path | None:
-    """The drive of the newest installed long-running, when the watch runs from the plugin cache and a newer one is installed."""
-    if not DRIVE.is_relative_to((config_dir() / "plugins" / "cache").resolve()):
-        return None
-    plugins = json.loads((config_dir() / "plugins" / "installed_plugins.json").read_text())["plugins"]
-    installs = [entry for key, entries in plugins.items() if key.partition("@")[0] == "long-running" for entry in entries]
-    newest = Path(max(installs, key=lambda entry: entry.get("lastUpdated") or entry.get("installedAt") or "")["installPath"]) / "bin" / "drive"
-    return None if newest.resolve() == DRIVE else newest
-
-
 def stopped(watcher: Watcher, error: Exception) -> None:
+    """Say the watch stopped, naming its version and where the error was raised, the innermost frame of this package's code, so the line alone says which line to read."""
+    frame = next(frame for frame in reversed(traceback.extract_tb(error.__traceback__)) if Path(frame.filename).resolve().parent == Path(__file__).resolve().parent)
+    where = f"{type(error).__name__} at {Path(frame.filename).name}:{frame.lineno} in {frame.name}"
+    said = f"{where}: {cut(str(error), 200)}" if str(error) else where
     again = shlex.join(["drive", "watch", *(["--project", watcher.project] if watcher.project else [])])
-    line = f"WATCH stopped: {cut(str(error) or type(error).__name__, 200)}; {again} starts it again"
+    line = f"WATCH stopped on long-running {state.VERSION}: {said}; its traceback is in {state.watch_log_path(watcher.name, watcher.project)}; {again} starts it again"
     with contextlib.suppress(reads.ReadError):
         sent(watcher, watcher.lane, [line], state.now())
 
@@ -1628,7 +1623,7 @@ def main(drive_name: str | None = None, project: str | None = None) -> int:
 
 
 def watching(watcher: Watcher) -> None:
-    """Hand each pass's lines to whoever acts on them, and let a newer install take over in place before a pass, so no pass runs older code on a drive a newer install saved; a crash wakes the coordinator session it posts to first."""
+    """Hand each pass's lines to whoever acts on them, and let a newer install take over in place before a pass, or the moment a pass finds the drive saved by one, so no pass runs older code on a drive a newer install saved; a crash wakes the coordinator session it posts to first."""
     state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
     try:
         while True:
@@ -1641,5 +1636,7 @@ def watching(watcher: Watcher) -> None:
                 state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
             time.sleep(POLL_SECONDS)
     except Exception as error:
+        if isinstance(error, state.NewerDrive) and (newer := upgraded()):
+            os.execv(newer, loop_argv(newer, watcher.name, watcher.project))
         stopped(watcher, error)
         raise

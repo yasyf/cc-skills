@@ -1,12 +1,9 @@
-import json
 import shlex
 import sys
 from datetime import datetime
-from pathlib import Path
 
-from drive.state import ROLES, agent_gone, hears, now, open_orders, owed, owed_at, owed_step, parse_time, pr_key, pr_url, project_lane, promise_thread, title
+from drive.state import ROLES, VERSION, agent_gone, hears, now, open_orders, owed, owed_at, owed_step, parse_time, pr_key, pr_url, project_lane, promise_thread, title
 
-PLUGIN_JSON = Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json"
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 DRIVE_TOOLS = "mcp__plugin_long-running_drive__"
 COMMUNICATOR_SLACK = ("slack_dm_status", "slack_reply", "slack_react", "slack_watch")
@@ -570,7 +567,7 @@ def context(drive: dict, role: str, project: str | None = None) -> str:
         lines.extend(owed_lines(drive, project))
     lines += [
         (
-            f"This block comes from long-running {json.loads(PLUGIN_JSON.read_text())['version']}, installed now. The"
+            f"This block comes from long-running {VERSION}, installed now. The"
             " long-running skill text Claude Code brings back after a compaction is the one this session first loaded,"
             " at the version its base directory names, and no install since replaces it: where that text disagrees with"
             " this block, this block wins."

@@ -21,6 +21,7 @@ RELEASE_VERSION = re.compile(r"\d+\.\d+\.\d+")
 RELOADS = "reloads.json"
 UPDATE_LOCK = ".update.lock"
 RELOAD_WAIT_SECONDS = 30
+DRIVE = Path(__file__).resolve().parents[2] / "bin" / "drive"
 
 
 class InstallError(Exception):
@@ -213,6 +214,16 @@ def await_homebrew(clone: str, binary: str, sha: str | None, deadline: float, ti
         sleep(POLL_SECONDS)
 
 
+def upgraded() -> Path | None:
+    """The drive of the newest installed long-running, when this code runs from the plugin cache and a newer one is installed."""
+    if not DRIVE.is_relative_to((config_dir() / "plugins" / "cache").resolve()):
+        return None
+    plugins = json.loads((config_dir() / "plugins" / "installed_plugins.json").read_text())["plugins"]
+    installs = [entry for key, entries in plugins.items() if key.partition("@")[0] == "long-running" for entry in entries]
+    newest = Path(max(installs, key=lambda entry: entry.get("lastUpdated") or entry.get("installedAt") or "")["installPath"]) / "bin" / "drive"
+    return None if newest.resolve() == DRIVE else newest
+
+
 def installed(key: str) -> dict:
     plugins = json.loads((config_dir() / "plugins" / "installed_plugins.json").read_text())["plugins"]
     if not plugins.get(key):
@@ -244,7 +255,7 @@ def reload_session(drive: str, seat: str, version: str, updated: datetime, deadl
     from drive import orca
 
     who = f"{drive} {seat}"
-    terminal = state.bound_sessions(state.load(drive)).get(seat, {}).get("terminal")
+    terminal = state.bound_sessions(state.saved(drive)).get(seat, {}).get("terminal")
     if not terminal:
         return f"{who}: no terminal recorded, skipped"
     if sent := claim_reload(drive, seat, version, updated):
@@ -281,18 +292,17 @@ def unclaim_reload(drive: str, role: str, version: str) -> None:
 
 
 def reload_sessions(version: str, updated: datetime, deadline: float) -> list[str]:
-    """Reload every session bound to every drive: the communicator, the top coordinator, the meta session and each sub-coordinator."""
-    sessions = [(name, seat) for name in state.names() for seat in state.bound_sessions(state.load(name))]
+    """Reload every session bound to every drive: the communicator, the top coordinator, the meta session and each sub-coordinator, read from each drive's saved bindings alone, since a newer install than this code may have saved the drive since its update."""
+    sessions = [(name, seat) for name in state.names() for seat in state.bound_sessions(state.saved(name))]
     with ThreadPoolExecutor() as pool:
         return list(pool.map(lambda session: reload_session(*session, version, updated, deadline), sessions))
 
 
 def reload_main() -> int:
     """Reload every drive session on this Mac now, as an install does after its update, whatever installs reloaded them before."""
-    from drive import orca, render
+    from drive import orca
 
-    version = json.loads(render.PLUGIN_JSON.read_text())["version"]
-    for line in reload_sessions(version, state.now(), clock() + RELOAD_WAIT_SECONDS + orca.SUBMIT_SECONDS):
+    for line in reload_sessions(state.VERSION, state.now(), clock() + RELOAD_WAIT_SECONDS + orca.SUBMIT_SECONDS):
         print(line)
     return 0
 

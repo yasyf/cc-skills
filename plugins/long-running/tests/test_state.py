@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -34,6 +35,20 @@ def test_edit_saves_atomically_and_leaves_no_temp(state_root: Path) -> None:
     assert state.load("demo")["orders"]["o1"]["text"] == "ship it"
     assert not (state_root / "demo" / "drive.json.tmp").exists()
     assert (state_root / "demo" / ".lock").exists()
+
+
+def test_a_drive_a_newer_install_saved_is_refused_before_any_of_it_is_read_while_its_bindings_still_read(state_root: Path) -> None:
+    make("demo", session="session-1")
+    path = state_root / "demo" / "drive.json"
+    assert json.loads(path.read_text())["saved_by"] == state.VERSION
+    major, minor, patch = state.VERSION.split(".")
+    path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": f"{major}.{minor}.{int(patch) - 1}"}))
+    assert state.load("demo")["roles"]["coordinator"]["session"] == "session-1"
+    newer = f"{major}.{minor}.{int(patch) + 1}"
+    path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": newer, "orders": {"o1": {"parts": "a shape no install reads yet"}}}))
+    with pytest.raises(state.NewerDrive, match=f"saved by long-running {re.escape(newer)}, newer than this {re.escape(state.VERSION)}"):
+        state.load("demo")
+    assert state.saved("demo")["roles"]["coordinator"]["session"] == "session-1"
 
 
 def test_load_gives_each_picture_drawn_before_pictures_kept_their_source_its_kept_question_or_pr_fence_once(state_root: Path) -> None:

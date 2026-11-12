@@ -2123,7 +2123,8 @@ def pr_tapped(args: argparse.Namespace) -> int:
 
 def pr_land(args: argparse.Namespace) -> int:
     keys = [state.pr_key(url) for url in args.urls]
-    outcome = land.run(state.resolve(args.drive), keys, args.dry_run)
+    name = state.resolve(args.drive)
+    outcome = land.record(name, keys, args.outcome, args.below) if args.outcome else land.run(name, keys, args.dry_run)
     return emit(args, outcome, {"keys": keys, "outcome": outcome})
 
 
@@ -2625,7 +2626,7 @@ def parser() -> argparse.ArgumentParser:
     waits_opt.add_argument("--no-waits", action="store_true", help="drop every wait it carries before adding any --waits")
 
     root = argparse.ArgumentParser(prog="drive", description="State and events of a long-running drive.")
-    root.add_argument("--version", action="version", version=f"drive {json.loads(render.PLUGIN_JSON.read_text())['version']}")
+    root.add_argument("--version", action="version", version=f"drive {state.VERSION}")
     verbs = root.add_subparsers(dest="verb", required=True)
 
     verb = verbs.add_parser("start", parents=[json_opt], help="create the drive or bind one of its two roles to this session")
@@ -3167,6 +3168,8 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("urls", nargs="+", help="one PR, or a stack bottom first")
     verb.add_argument("--dry-run", action="store_true", help="say what it would do, refusing as it would, and land and record nothing")
+    verb.add_argument("--outcome", help="land nothing and record this outcome, as a lander older than the drive hands its record to the newest install")
+    verb.add_argument("--below", action="append", default=[], metavar="PR", help="with --outcome, a PR below it without his Approve that held it; repeat for each")
     verb.set_defaults(run=pr_land)
 
     verbs.add_parser("place", parents=both, help="where the next monorepo builder starts").set_defaults(run=place_job)
@@ -3377,6 +3380,6 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
         return args.run(args)
-    except (DriveError, slack.SlackError, github.GithubError) as error:
+    except (DriveError, state.NewerDrive, slack.SlackError, github.GithubError) as error:
         print(f"drive: {error}", file=sys.stderr)
         return 2

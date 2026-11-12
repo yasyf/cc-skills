@@ -518,6 +518,20 @@ def test_an_install_types_reload_plugins_into_both_drive_sessions_once_each_is_i
     ]
 
 
+def test_an_install_reloads_the_sessions_of_a_drive_a_newer_install_saved_after_its_update(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
+    start_drive("demo", communicator="term_comm", coordinator="term_coord")
+    path = state.state_path("demo")
+    path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "9.9.9"}))
+    git = fake(["unused"], set())
+    git.together = threading.Barrier(2, timeout=5)
+    assert install.main("long-running@skills", None, None, 900) == 0
+    assert capsys.readouterr().out.splitlines() == [
+        "installed long-running@skills 1.0.3",
+        "demo communicator: reloaded in term_comm",
+        "demo coordinator: reloaded in term_coord",
+    ]
+
+
 def test_a_session_still_busy_after_the_wait_gets_reload_plugins_queued_behind_its_turn(
     fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
 ) -> None:
