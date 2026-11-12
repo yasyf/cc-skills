@@ -76,15 +76,27 @@ def tooling_refusal(name: str, data: dict, text: str, role: str) -> str:
     )
 
 
-def crowded(data: dict) -> str | None:
-    """Why no builder starts on this Mac now: its cap of builders already runs here, naming each builder it counted and the builder jobs that wait for one, oldest due first."""
-    builders = place.local_builders(data, state.now())
-    if len(builders) < place.LOCAL_BUILDERS:
+def crowded(name: str, data: dict, text: str) -> str | None:
+    """Why no builder starts on this Mac now: a job waiting its turn for a builder slot starts only on the watch's FREE line naming it, and any other only while a slot is open, its cap's builders holding every other one, each named, and no builder waits its turn ahead of it; a refused job no agent runs is held waiting its turn, so the watch reads it waiting, never abandoned, and frees the earliest due as each slot opens."""
+    match = brief.BRIEF_JOB.search(text)
+    job_id = match[1] if match and match[1] in data["jobs"] else None
+    moment = state.now()
+    if job_id in (places := place.positions(data)):
+        return f"refused: {job_id} waits its turn for a builder slot on this Mac, {places[job_id]}{line(data)}"
+    if not (why := place.crowded(data, job_id, moment)):
         return None
+    job = data["jobs"].get(job_id) or {}
+    if job.get("kind") != "builder" or job["state"] in state.FINISHED_JOB_STATES or job.get("where") == "remote" or job.get("agent") or job.get("dispatch"):
+        return f"refused: {why}, so this one waits: start it once a slot opens here with no builder waiting its turn{line(data)}"
+    with state.edit(name) as data:
+        place.queue(data["jobs"][job_id], moment)
+    return f"refused: {why}, so {job_id} waits its turn for a builder slot on this Mac, {place.positions(data)[job_id]}{line(data)}"
+
+
+def line(data: dict) -> str:
     waiting = "; ".join(in_line(data, job_id) for job_id in place.waiting_builders(data))
     return (
-        f"refused: {place.at_cap(builders)}, so this one waits: start no"
-        f" builder here until one finishes, then start the first job waiting, oldest due first: {waiting or 'none is added yet'}."
+        f". The watch's FREE line names each job waiting its turn as a slot opens, earliest due first: {waiting or 'none'}."
         " A Forge-AI/monorepo builder need not wait: start it on a Sprite with drive job launch <j> <brief>"
     )
 
@@ -96,7 +108,7 @@ def in_line(data: dict, job_id: str) -> str:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive session may not start this agent, in the shape `agents.shaped` gives its call: a handler starts with the drive's handler tool, a build order's codex lane waits on its reader's research, a builder's brief says its scope, drive tooling is the meta session's alone, and a builder starts here only under this Mac's cap of builders."""
+    """Why a drive session may not start this agent, in the shape `agents.shaped` gives its call: a handler starts with the drive's handler tool, a build order's codex lane waits on its reader's research, a builder's brief says its scope, drive tooling is the meta session's alone, and a builder starts here only in its turn for one of this Mac's builder slots."""
     if payload.get("agent_id"):
         return None
     session = payload.get("session_id") or ""
@@ -117,7 +129,7 @@ def deny_reason(payload: dict) -> str | None:
     text = brief.carried(prompt)
     if kind == BUILDER and role not in (None, "meta") and brief.SERVES_TOOLING.search(text):
         return tooling_refusal(names[0], data, text, role)
-    return builder_refusal(text) or crowded(data) if kind == BUILDER else None
+    return builder_refusal(text) or crowded(names[0], data, text) if kind == BUILDER else None
 
 
 def main() -> None:

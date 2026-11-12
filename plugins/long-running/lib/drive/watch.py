@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Self
 
-from drive import agents, codex, dashboard, github, land, limits, orca, page, reads, render, served, slack, state, superseded, view
+from drive import agents, codex, dashboard, github, land, limits, orca, page, place, reads, render, served, slack, state, superseded, view
 from drive.install import MERGED_DONE, PROVEN, config_dir, merged_done, merged_ready, product, proof_gap, said_on_prs, upgraded
 from drive.render import cut, subscribe, when
 
@@ -288,21 +288,25 @@ def bare(wait: str) -> str:
 
 
 def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Drop each wait of a job or PR that ended, his card answered, the job finished or the release out, and say once, as its last wait ends, that nothing holds it, holding back the job's ORPHAN for 30 minutes, but for a builder's READY or PUSHED whose PRs all merged, which the watch finishes next in the same pass, or else says once as an ORPHAN naming who finishes it; the cards a job asked him on hold it too, so it keeps its waits until he answers them. His open card for a PR whose waits ended is redrawn in place, so it names only the waits that still hold. The release that ships the last release wait of a job or PR on an open incident's fix is kept on the incident as its fix live, by the watch dropping that wait."""
+    """Drop each wait of a job or PR that ended, his card answered, the job finished, the release out or a builder slot on this Mac given to the earliest due builder waiting its turn, one per slot no builder holds, and say once, as its last wait ends, that nothing holds it, holding back the job's ORPHAN for 30 minutes, but for a builder's READY or PUSHED whose PRs all merged, which the watch finishes next in the same pass, or else says once as an ORPHAN naming who finishes it; a builder given its slot waits on nothing with no agent yet, and holds that slot until its agent starts. The cards a job asked him on hold it too, so it keeps its waits until he answers them. His open card for a PR whose waits ended is redrawn in place, so it names only the waits that still hold. The release that ships the last release wait of a job or PR on an open incident's fix is kept on the incident as its fix live, by the watch dropping that wait."""
     data = state.load(watcher.name)
     out, lines = shipped(watcher, data, moment)
+    turns, held = place.turns(data, moment)
+    turned = {job_id for job_id in turns if heard_job(watcher, data, data["jobs"][job_id])}
     owners = [
         *(job for job in data["jobs"].values() if heard_job(watcher, data, job) and not view.open_cards(job)),
         *(pr for pr in data["prs"].values() if hears(watcher, data, pr["order"])),
     ]
-    if not out and all(view.holding(data, owner["waits"], watcher.cards) == owner["waits"] for owner in owners):
+    if not out and not turned and all(view.holding(data, owner["waits"], watcher.cards) == owner["waits"] for owner in owners):
         return lines
+    slot = {state.SLOT_WAIT: f"its turn came as a builder slot opened on this Mac, {held} of its {place.LOCAL_BUILDERS} held"}
     with state.edit(watcher.name) as data:
         for job_id, job in data["jobs"].items():
             if not heard_job(watcher, data, job) or view.open_cards(job):
                 continue
             fixing(data, [job["order"], *job["carries"]], job, job, out)
-            if (ended := released(data, job, watcher.cards, out)) and job["state"] not in state.FINISHED_JOB_STATES and not merged_ready(data, job_id):
+            turn = job_id in turned and job["state"] == "waiting" and state.SLOT_WAIT in job["waits"]
+            if (ended := released(data, job, watcher.cards, out | slot if turn else out)) and job["state"] not in state.FINISHED_JOB_STATES and not merged_ready(data, job_id):
                 job["updated"] = state.stamp(moment)
                 for order_id in [job["order"], *job["carries"]]:
                     parts = data["orders"][order_id]["parts"]

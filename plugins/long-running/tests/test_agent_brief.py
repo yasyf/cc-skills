@@ -62,7 +62,7 @@ def test_a_builder_passing_over_a_teams_data_names_what_it_runs_as(demo: str) ->
         assert agent_brief.deny_reason(started("long-running:builder", f"{order}Goal: {goal}")) is None
 
 
-def test_a_ninth_builder_here_waits_and_its_refusal_names_each_builder_counted_and_the_jobs_waiting_oldest_due_first(
+def test_a_ninth_builder_here_is_held_waiting_its_turn_and_only_the_one_the_watch_frees_starts_while_others_wait(
     demo: str, run: Run, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     wrote = state.now() - timedelta(minutes=3)
@@ -70,21 +70,34 @@ def test_a_ninth_builder_here_waits_and_its_refusal_names_each_builder_counted_a
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "tidy the docs")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the card", "--due", "+2h", "--thread", "1.2")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the watch", "--due", "+1h", "--thread", "1.3")
-    run("job", "add", "builder", "--order", "o1", "--goal", "tidy the docs")
-    run("job", "add", "builder", "--order", "o2", "--goal", "fix the card")
     run("job", "add", "builder", "--order", "o3", "--goal", "fix the watch")
     for number in range(1, 9):
         run("job", "add", "builder", "--order", "o1", "--goal", f"build part {number}", "--agent", f"a{number}")
+    run("job", "add", "builder", "--order", "o1", "--goal", "tidy the docs")
+    run("job", "add", "builder", "--order", "o2", "--goal", "fix the card")
     run("job", "add", "builder", "--order", "o3", "--goal", "fix the watch on a Sprite", "--remote")
-    brief = "Order (his words): fix the watch\nServes: his order\nGoal: fix it\nDrive: demo, order o3, job j3"
-    refused = agent_brief.deny_reason(started("long-running:builder", brief))
-    counted = "; ".join(f"j{number + 3} on o1, its agent a{number} last wrote at {when(state.stamp(wrote), seconds=True)}" for number in range(1, 9))
+    order = "Order (his words): fix the watch\nServes: his order\nGoal: fix it\nDrive: demo, "
+    refused = agent_brief.deny_reason(started("long-running:builder", f"{order}order o3, job j1"))
+    counted = "; ".join(f"j{number + 1} on o1, its agent a{number} last wrote at {when(state.stamp(wrote), seconds=True)}" for number in range(1, 9))
     assert refused.startswith(
-        f"refused: 8 builders already run on this Mac, its cap of 8 ({counted}), so this one waits: start no builder here until one"
-        " finishes, then start the first job waiting, oldest due first: j3 (due "
+        f"refused: 8 builders already run on this Mac, its cap of 8 ({counted}), so j1 waits its turn for a builder slot on this Mac, 1 of 3 in line."
+        " The watch's FREE line names each job waiting its turn as a slot opens, earliest due first: j1 (due "
     )
-    assert refused.index('"fix the watch"; j2 (due ') < refused.index('"fix the card"; j1 (no time promised) "tidy the docs".')
+    assert refused.index('"fix the watch"; j11 (due ') < refused.index('"fix the card"; j10 (no time promised) "tidy the docs".')
     assert "j12" not in refused
     assert refused.endswith("A Forge-AI/monorepo builder need not wait: start it on a Sprite with drive job launch <j> <brief>")
-    run("job", "set", "j4", "--state", "stopped")
-    assert agent_brief.deny_reason(started("long-running:builder", brief)) is None
+    held = state.load(demo)["jobs"]["j1"]
+    assert (held["state"], held["waits"], held["said"]) == ("waiting", [state.SLOT_WAIT], "waits its turn for a builder slot on this Mac")
+    run("job", "set", "j2", "--state", "stopped")
+    for job_id, place in (("j1", "1 of 3"), ("j11", "2 of 3"), ("j10", "3 of 3")):
+        assert agent_brief.deny_reason(started("long-running:builder", f"{order}order o3, job {job_id}")).startswith(
+            f"refused: {job_id} waits its turn for a builder slot on this Mac, {place} in line. The watch's FREE line names"
+        )
+    assert agent_brief.deny_reason(started("long-running:builder", "Order (his words): fix the watch\nServes: his order\nGoal: fix it")).startswith(
+        "refused: builders already wait their turn for a slot on this Mac ahead of it, earliest due first (j1, j11, j10), so this one waits:"
+        " start it once a slot opens here with no builder waiting its turn. The watch's FREE line"
+    )
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["waits"] = []
+    assert agent_brief.deny_reason(started("long-running:builder", f"{order}order o3, job j1")) is None
+    assert agent_brief.deny_reason(started("long-running:builder", f"{order}order o2, job j11")).startswith("refused: j11 waits its turn for a builder slot on this Mac, 1 of 2 in line.")

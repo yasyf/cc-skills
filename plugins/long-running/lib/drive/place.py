@@ -59,15 +59,17 @@ def at_cap(builders: dict[str, str]) -> str:
 
 
 def local_builders(data: dict, moment: datetime) -> dict[str, str]:
-    """The builders at work on this Mac, each job beside its order and its agent's or lane's last write: an agent here still in its turn, or an Orca lane started with --local that launches or has not ended."""
+    """The builders holding a slot on this Mac, each job beside its order and its agent's or lane's last write: a job here the watch's FREE line freed whose agent has not started yet, an agent here still in its turn, or an Orca lane started with --local that launches or has not ended."""
     return {
         job_id: f"{job_id} on {job['order']}, {work}"
         for job_id, job in data["jobs"].items()
-        if job["kind"] == "builder" and job["state"] == "running" and (work := at_work_here(job_id, job, data, moment))
+        if job["kind"] == "builder" and job["state"] in ("running", "waiting") and (work := at_work_here(job_id, job, data, moment))
     }
 
 
 def at_work_here(job_id: str, job: dict, data: dict, moment: datetime) -> str | None:
+    if job["state"] == "waiting":
+        return None if job["waits"] or job["agent"] or job.get("where") == "remote" else "freed to start here, its agent not started yet"
     if job.get("where") != "remote":
         if not job["agent"] or watch.local_gap(job_id, job, data, moment) is not None:
             return None
@@ -83,13 +85,39 @@ def at_work_here(job_id: str, job: dict, data: dict, moment: datetime) -> str | 
 
 
 def waiting_builders(data: dict) -> list[str]:
-    """The builder jobs for this Mac that no agent runs yet, oldest due first: the earliest time promised him on an order each serves, then the oldest added."""
-    waiting = [
-        job_id
-        for job_id, job in data["jobs"].items()
-        if job["kind"] == "builder" and job["state"] == "running" and job.get("where") != "remote" and not job["agent"]
-    ]
+    """The builder jobs waiting their turn for a slot on this Mac, earliest due first: the earliest time promised him on an order each serves, then the oldest added."""
+    waiting = [job_id for job_id, job in data["jobs"].items() if job["state"] == "waiting" and state.SLOT_WAIT in job["waits"]]
     return sorted(waiting, key=lambda job_id: due_first(data, data["jobs"][job_id]))
+
+
+def positions(data: dict) -> dict[str, str]:
+    """Each builder job waiting its turn for a slot on this Mac, with its place in line."""
+    line = waiting_builders(data)
+    return {job_id: f"{number} of {len(line)} in line" for number, job_id in enumerate(line, 1)}
+
+
+def crowded(data: dict, job_id: str | None, moment: datetime) -> str | None:
+    """Why the builder job takes no slot on this Mac now, None when it may: the cap's builders hold every slot but its own, or builders wait their turn ahead of a job that holds none, since the watch's FREE line gives each open slot to the earliest due."""
+    builders = local_builders(data, moment)
+    others = {other: line for other, line in builders.items() if other != job_id}
+    if len(others) >= LOCAL_BUILDERS:
+        return at_cap(others)
+    if job_id not in builders and (line := [other for other in waiting_builders(data) if other != job_id]):
+        return f"builders already wait their turn for a slot on this Mac ahead of it, earliest due first ({', '.join(line)})"
+    return None
+
+
+def queue(job: dict, moment: datetime) -> None:
+    """Hold a builder job no agent runs waiting its turn for a slot on this Mac, so the watch reads it waiting, never abandoned, until its FREE line names it."""
+    job.update(state="waiting", waits=list(dict.fromkeys([*job["waits"], state.SLOT_WAIT])), said="waits its turn for a builder slot on this Mac", updated=state.stamp(moment))
+
+
+def turns(data: dict, moment: datetime) -> tuple[list[str], int]:
+    """The builder jobs whose turn comes now, earliest due first, one for each slot on this Mac no builder holds, and how many builders hold one."""
+    if not (line := waiting_builders(data)):
+        return [], 0
+    held = len(local_builders(data, moment))
+    return line[: max(LOCAL_BUILDERS - held, 0)], held
 
 
 def promised(data: dict, job: dict) -> str | None:

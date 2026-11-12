@@ -1048,6 +1048,7 @@ def job_add(args: argparse.Namespace) -> int:
             if (other := data["jobs"][other_id])["state"] in ("running", "waiting")
             and (shared := [part for part in parts if part in (other["parts"] if other["order"] == args.order else other["carries"][args.order])])
         ]
+        crowd = args.kind == "builder" and not args.remote and not args.agent and not args.waits and place.crowded(data, None, state.now())
         job_id = state.next_id(data["jobs"], "j")
         job = data["jobs"][job_id] = state.new_job(args.order, args.kind, args.goal, parts, created) | {
             "agent": args.agent,
@@ -1058,12 +1059,14 @@ def job_add(args: argparse.Namespace) -> int:
             "waits": list(dict.fromkeys(args.waits)),
         }
         state.hold_unstarted(job)
+        if crowd:
+            place.queue(job, state.parse_time(created))
         order["jobs"].append(job_id)
         order["updated"] = created
         state.end_carried_designs(data, args.order, created)
     waiting = [f"{job_id} {job['said']}: start no agent for it until the watch's FREE line says its last wait ended"] if args.waits else []
-    if args.kind == "builder" and job["where"] == "local" and not args.agent and not args.waits and len(builders := place.local_builders(data, state.now())) >= place.LOCAL_BUILDERS:
-        waiting.append(f"{job_id} waits for a builder here to finish, since {place.at_cap(builders)}; start the first waiting once one does: {', '.join(place.waiting_builders(data))}")
+    if crowd:
+        waiting.append(f"{job_id} waits its turn for a builder slot on this Mac, {place.positions(data)[job_id]}, since {crowd}: start no agent for it until the watch's FREE line names it")
     return emit(args, "\n".join([job_id, *waiting, *beside]), {"id": job_id, **job, "beside": beside})
 
 
@@ -1731,7 +1734,7 @@ def place_job(args: argparse.Namespace) -> int:
 
 
 def refuse_a_local_builder(repo: str | None) -> None:
-    """A monorepo builder starts on this Mac only while its load says local; one past this Mac's cap of builders is added waiting with no agent, and the agent_brief hook starts none here until a builder finishes."""
+    """A monorepo builder starts on this Mac only while its load says local; one past this Mac's cap of builders is added waiting its turn for a builder slot, which the watch's FREE line gives it, and the agent_brief hook starts no other builder here while it waits."""
     if (repo or "").casefold() != place.MONOREPO.casefold():
         return
     where, why = place.verdict(place.busy(), place.limit(), {})
@@ -1876,8 +1879,8 @@ def launched(args: argparse.Namespace, name: str) -> dict:
         raise DriveError(f"{args.id} already started as dispatch {dispatch}")
     if adopted := orca.adopted(launch_brief(name, args.id)):
         return {field: adopted[field] for field in LAUNCHED}
-    if job["waits"]:
-        raise DriveError(f"{args.id} waits on {', '.join(job['waits'])}: launch it on the watch's FREE line, which comes once the last wait ends")
+    if waits := [wait for wait in job["waits"] if args.local or wait != state.SLOT_WAIT]:
+        raise DriveError(f"{args.id} waits on {', '.join(waits)}: launch it on the watch's FREE line, which comes once the last wait ends")
     taker = other_sessions_agent(job)
     if job.get("agent") and not taker:
         remote_job(data, args.id)
@@ -1900,7 +1903,7 @@ def launched(args: argparse.Namespace, name: str) -> dict:
         if taker:
             job.update(agent=None, session=taker)
         if not job.get("agent"):
-            job.update(where="remote", route=state.LOCAL_ROUTE if args.local else None, launching=state.stamp())
+            job.update(where="remote", route=state.LOCAL_ROUTE if args.local else None, launching=state.stamp(), waits=[wait for wait in job["waits"] if wait != state.SLOT_WAIT])
     kept = launch_brief(name, args.id)
     kept.parent.mkdir(exist_ok=True)
     try:
@@ -2897,6 +2900,8 @@ def status(args: argparse.Namespace) -> int:
         question["card_state"] = view.card_words(found, source, question["card"] or question["waits"])
     for pr in data["prs"].values():
         pr["card_state"] = view.pr_card_words(found, source, pr["url"]) if pr["state"] == "open" else None
+    for job_id, in_line in place.positions(data).items():
+        data["jobs"][job_id]["in_line"] = in_line
     corrected = agents.corrections(name, data["held"])
     for seq, mark in data["held"].items():
         mark["corrections"] = corrected.get(seq, [])
