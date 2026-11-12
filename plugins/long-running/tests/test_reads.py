@@ -269,6 +269,30 @@ def test_a_search_read_passes_its_words_before_the_first_flag_as_one_query(
     assert calls == [argv]
 
 
+@pytest.mark.parametrize(
+    ("command", "argv"),
+    [
+        ("ccn answer search 'Where should a chat's pin be stored'", ["ccn", "answer", "search", "Where should a chat's pin be stored"]),
+        ("ccn answer search the dead lane's saved branch", ["ccn", "answer", "search", "the dead lane's saved branch"]),
+        ("cci grep don't \"chat's pin\" --drive d", ["cci", "grep", "don't chat's pin", "--drive", "d"]),
+        ('ccn note search "unclosed quote --limit 5', ["ccn", "note", "search", '"unclosed quote', "--limit", "5"]),
+    ],
+)
+def test_a_read_in_free_text_takes_each_apostrophe_and_stray_quote_as_a_letter_of_its_word(
+    command: str, argv: list[str], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls = []
+    monkeypatch.setattr(reads, "run", lambda ran, checkout: calls.append(ran) or "his words")
+    assert reads.answer(f"READ {command}", tmp_path, "demo", "j7") == "his words"
+    assert calls == [argv]
+
+
+def test_a_read_request_in_prose_is_told_the_reads_that_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(reads, "run", lambda argv, checkout: pytest.fail(f"ran {argv}"))
+    with pytest.raises(reads.ReadError, match="^only these reads run here: cci show"):
+        reads.answer("READ request for j1618 (a read, not a report): the dead lane's saved branch is picked up", tmp_path, "demo", "j7")
+
+
 @pytest.mark.parametrize("command", ["cci post --text hi", "ccn answer add x", "ccn -R / answer search x", "rm -rf ."])
 def test_a_record_read_refuses_anything_but_a_listed_read(
     command: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path

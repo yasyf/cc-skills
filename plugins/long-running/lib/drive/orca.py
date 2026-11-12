@@ -13,6 +13,7 @@ from drive.state import DriveError
 
 LAUNCHER = "orca-worker-launch.sh"
 RECLAIMER = "orca-reclaim.py"
+TOOLS = "orca-sprite-tools.sh"
 MODEL = "claude-opus-5-5"
 EFFORT = "xhigh"
 LANE_LIMIT = 55
@@ -40,6 +41,7 @@ PATH_CHARS = r"[^\s`'\"<>()\[\]{}*,;|]+"
 PATH_END = re.compile(r"[^\w/]+$")
 DRIVE = PLUGIN / "bin" / "drive"
 SPRITE_DRIVE = PLUGIN / "lib" / "sprite" / "drive"
+SPRITE_TOOLS = f"drive={SPRITE_DRIVE}"
 CALL_SECONDS = 60
 ON_MAC = "on this Mac"
 PUSH_FIRST = "Commit and push before any long build."
@@ -50,7 +52,9 @@ TIMEOUT = "timeout"
 ANSWERED_ELSEWHERE = "answer_conflict"
 DISPATCH_CLOSED = "dispatch_inactive"
 UNSTARTED = 75
-CC_REMOTE_WORKSPACES = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "cc-remote" / "workspaces"
+CC_REMOTE = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "cc-remote"
+CC_REMOTE_WORKSPACES = CC_REMOTE / "workspaces"
+CC_REMOTE_TASKS = CC_REMOTE / "orca"
 
 
 class OrcaError(DriveError):
@@ -350,7 +354,7 @@ def launch(drive: str, lane: str, brief: Path, checkout: Path, run: str, route: 
     if workspace:
         env["WORKER_WORKSPACE"] = workspace
     local = route == state.LOCAL_ROUTE
-    env |= {"WORKER_LOCAL": "1", "WORKER_REPO": request("repo", "show", "--repo", f"path:{main_checkout(str(checkout))}")["repo"]["id"]} if local else {"WORKER_TOOLS": f"drive={SPRITE_DRIVE}"}
+    env |= {"WORKER_LOCAL": "1", "WORKER_REPO": request("repo", "show", "--repo", f"path:{main_checkout(str(checkout))}")["repo"]["id"]} if local else {"WORKER_TOOLS": SPRITE_TOOLS}
     try:
         done = subprocess.run(
             [tool(LAUNCHER), lane, MODEL, EFFORT, str(brief)],
@@ -507,7 +511,9 @@ def lane_end(job: dict) -> LaneEnd | None:
 
 
 def start_after(drive: str, lane: str, brief: Path, job: dict, end: LaneEnd) -> dict:
-    """Start the job's next worker in the terminal and worktree of the one that finished, on its Run, on its Sprite or on this Mac, with the brief as its Task spec: the start Orca names for a finished worker, with `--on` its paired server for a Sprite."""
+    """Start the job's next worker in the terminal and worktree of the one that finished, on its Run, on its Sprite or on this Mac, with the brief as its Task spec: the start Orca names for a finished worker, with `--on` its paired server for a Sprite, whose `~/.local/bin` first takes the tools a launch gives it, this plugin's `drive` among them, since the Sprite may have been launched before they changed."""
+    if not state.on_mac(job):
+        place_tools(job["workspace"])
     argv = [
         "orca",
         "orchestration",
@@ -540,6 +546,21 @@ def start_after(drive: str, lane: str, brief: Path, job: dict, end: LaneEnd) -> 
         "task": receipt["taskId"],
         "lane": lane,
     }
+
+
+def place_tools(workspace: str) -> None:
+    """Put on the workspace's Sprite the tools a launch puts there, through the orca plugin's own step on the task cc-remote keeps for that Sprite: the released ccx and cc-notes, and each WORKER_TOOLS file, this plugin's `drive` that asks each verb of this Mac; Unstarted naming the step's refusal, since no worker starts without them."""
+    done = subprocess.run(
+        [tool(TOOLS), str(CC_REMOTE_TASKS / f"{workspace}.json")],
+        env={**os.environ, "WORKER_TOOLS": SPRITE_TOOLS},
+        capture_output=True,
+        text=True,
+        timeout=LAUNCH_SECONDS,
+        check=False,
+    )
+    if done.returncode:
+        said = done.stderr.strip().splitlines()
+        raise Unstarted(f"{TOOLS} exited {done.returncode} on {workspace}, so no worker started: {said[-1] if said else 'no output'}")
 
 
 def reply(drive: str, run: str, message_id: str, body: str) -> None:

@@ -99,7 +99,7 @@ def research(name: str, data: dict, order_id: str) -> tuple[str, str] | None:
 
 
 def job_refusal(name: str, data: dict, order_id: str, kind: str, parts: list[str], lands: bool = False, waits: list[str] | None = None) -> str | None:
-    """Why a job of this kind may not start on the order: an order he limited to options gets no builder or codex job until he picks, an answer order is one reader's, and a build order's builder, designer or codex lane waits on its reader's research, added at once waiting on a reader of the order still at work when --waits names it, so no part sits in no job while it reads, and a builder, when that research found a choice for him, on that choice reaching him: the reader's kept question on his card or settled by his recorded words, or a design lane. A job of any kind may wait on his card, a drive PR or a release, which check_waits reads; only a reader is a job another waits on. The immediate fix of a bug hurting someone now, a red default branch's fix-forward among them, and a builder landing PRs he approved start at once past each of those, by his words: "always do the immediate fix (or rollback if prudent) in parallel to giving me options for the proper fix". A follow-up he orders to a PR gets its design job at once, doing its own research and waiting on nothing, beside landing that PR, by his words "start deisgnng the follow p right awya motherfucker dont wait"."""
+    """Why a job of this kind may not start on the order: an order he limited to options gets no builder or codex job until he picks, an answer order is one reader's, and a build order's builder, designer or codex lane waits on its reader's research, added at once waiting on a reader of the order still at work when --waits names it, so no part sits in no job while it reads, and a builder, when that research found a choice for him, on that choice reaching him: the reader's kept question on his card or settled by his recorded words, or a design lane. A job of any kind may wait on his card, a drive PR or a release, which check_waits reads, and on the change a builder or codex job builds, which state.change_wait_refusal reads, until its first PR takes the wait's place; any other job it waits on is the reader whose research it needs. The immediate fix of a bug hurting someone now, a red default branch's fix-forward among them, and a builder landing PRs he approved start at once past each of those, by his words: "always do the immediate fix (or rollback if prudent) in parallel to giving me options for the proper fix". A follow-up he orders to a PR gets its design job at once, doing its own research and waiting on nothing, beside landing that PR, by his words "start deisgnng the follow p right awya motherfucker dont wait"."""
     order = data["orders"][order_id]
     at_once = state.IMMEDIATE_FIX in parts or lands
     listed = " ".join(f'"{part}"' for part in dict.fromkeys([*order["parts"], state.IMMEDIATE_FIX]))
@@ -124,11 +124,11 @@ def job_refusal(name: str, data: dict, order_id: str, kind: str, parts: list[str
             f" lands or a reader returns, by his words {FOLLOW_UP_RULING}: add it with no --waits, and its designer does its own research"
         )
     researched = order["kind"] == "build" and not order["incident"] and kind in RESEARCHED_KINDS and not at_once and not follow_up
-    on_jobs = [wait for wait in waits or [] if wait in data["jobs"]]
+    on_jobs = [wait for wait in waits or [] if wait in data["jobs"] and data["jobs"][wait]["kind"] not in state.CHANGE_KINDS]
     if on_jobs and not researched:
         return (
-            f"--waits {', '.join(on_jobs)}: only a build order's designer, builder or codex lane is added waiting on a job, its reader, so this {kind}"
-            f" waits only on his card, a drive PR or a release: add it with no --waits {', '.join(on_jobs)}"
+            f"--waits {', '.join(on_jobs)}: only a build order's designer, builder or codex lane is added waiting on a reader, so this {kind}"
+            f" waits only on his card, a drive PR, a release or a builder's change: add it with no --waits {', '.join(on_jobs)}"
         )
     if not researched:
         return None

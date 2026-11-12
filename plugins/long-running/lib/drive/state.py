@@ -23,6 +23,7 @@ REPORT_REPLY = "report_"
 JOB_AGENTS = {"builder": ("long-running:builder",), "reader": ("long-running:reader",), "design": ("long-running:designer",), "codex": ("codex:codex-wrapper", "long-running:builder")}
 JOB_STATES = ("running", "waiting", "built", "done", "failed", "stopped")
 FINISHED_JOB_STATES = ("done", "failed", "stopped")
+CHANGE_KINDS = ("builder", "codex")
 INCIDENT_FIX = "fix"
 INCIDENT_STOP = "stop"
 INCIDENT_PARTS = {"release": ["first check"], "rollback": ["rollback", "cause"], "none": [INCIDENT_STOP, "cause"]}
@@ -1489,6 +1490,34 @@ def open_prs(data: dict) -> list[dict]:
 def card_wait(data: dict, wait: str) -> bool:
     """Whether a wait names a card of his, by its Slack link or waits id, rather than a job, a PR or a release of the drive."""
     return wait not in data["jobs"] and wait not in data["prs"] and not RELEASE_WAIT.fullmatch(wait)
+
+
+def change_waits(data: dict, waits: list[str]) -> list[str]:
+    """The waits naming a builder or codex job, a job's wait on the change that job builds."""
+    return [wait for wait in waits if wait in data["jobs"] and data["jobs"][wait]["kind"] in CHANGE_KINDS]
+
+
+def change_wait_refusal(data: dict, waits: list[str]) -> str | None:
+    """Why a job may not wait on the change another job builds: that job is finished, or already opened its PR, which the job waits on instead; a job waits on a change only until its first PR is registered, which then takes the wait's place."""
+    for wait in change_waits(data, waits):
+        building = data["jobs"][wait]
+        if building["prs"]:
+            keys = [pr_key(url) for url in building["prs"]]
+            return f"--waits {wait}: {wait} already opened {', '.join(keys)}, so wait on the PR this job builds on, as --waits {keys[0]}"
+        if building["state"] in FINISHED_JOB_STATES:
+            return f"--waits {wait}: {wait} is {building['state']} with no PR, so no change of it is coming to wait on"
+    return None
+
+
+def wait_on_change(data: dict, job_id: str, key: str) -> None:
+    """Each unfinished job waiting on the change job_id builds waits on its first PR, key, in that wait's place, so it is free once that PR merges or closes, and the waits line an unstarted job was given names the PR."""
+    for waiting in data["jobs"].values():
+        if job_id not in waiting["waits"] or waiting["state"] in FINISHED_JOB_STATES:
+            continue
+        said = f"waits on {', '.join(waiting['waits'])}"
+        waiting["waits"] = list(dict.fromkeys(key if wait == job_id else wait for wait in waiting["waits"]))
+        if waiting["said"] == said:
+            waiting["said"] = f"waits on {', '.join(waiting['waits'])}"
 
 
 def merges_untapped(key: str) -> bool:

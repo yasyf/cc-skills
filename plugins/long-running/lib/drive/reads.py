@@ -50,6 +50,7 @@ CLOUD_KEY = re.compile(r"^[ \t]+(account|namespace):[ \t]*(\S+)", re.MULTILINE)
 AWS_CONFIG = "~/.aws/config"
 JOB_ID = re.compile(r"^j\d+[\s:,]+")
 READ_MARK = re.compile(r"^READ\b[\s:,]*")
+READ_WORD = re.compile(r"""(?:"([^"]*)"|'(.*?)'|(\S+))(?=\s|$)""")
 READ_VERBS = (
     ("cci", "show"),
     ("cci", "grep"),
@@ -210,10 +211,7 @@ def read_log(url: str, checkout: Path, budget: int) -> str:
 
 def read_records(command: str, checkout: Path) -> str:
     """Run one listed record read; a search or grep takes its words up to the first flag as one query, quoted or not."""
-    try:
-        argv = shlex.split(command)
-    except ValueError as error:
-        raise ReadError(str(error)) from None
+    argv = read_words(command)
     verb = next((verb for verb in READ_VERBS if tuple(argv[: len(verb)]) == verb), None)
     if verb is None:
         allowed = ", ".join(" ".join(verb) for verb in READ_VERBS)
@@ -222,6 +220,11 @@ def read_records(command: str, checkout: Path) -> str:
     if verb[-1] in QUERY_VERBS and query:
         argv = [*verb, " ".join(query), *argv[len(verb) + len(query) :]]
     return head(run(argv, checkout).strip())
+
+
+def read_words(command: str) -> list[str]:
+    """A read's words as a lane writes them in free text: a run in double quotes, or in single quotes closed where a word ends, is one word without its quotes, and any other quote, such as the apostrophe of "a chat's pin", is a letter of its word."""
+    return [next(part for part in found.groups() if part is not None) for found in READ_WORD.finditer(command)]
 
 
 def head(output: str) -> str:
