@@ -909,7 +909,7 @@ let reloads = 0;
 window.reloadPage = () => { reloads += 1; };
 location.hash = '#/queue/all';
 await wait(100);
-document.querySelector('#main [data-ask]').click();
+document.querySelector('#main .context-rail textarea').focus();
 await wait(50);
 await push({ ...MODEL, code: '/plugins/long-running/9.9.9/lib/drive', at: '2026-11-11T00:09:00-08:00' });
 const typing = { reloads, chip: document.querySelector('#stale').textContent, shown: !document.querySelector('#stale').hidden, kept: document.querySelector('.qfoot').textContent.includes('12:00') };
