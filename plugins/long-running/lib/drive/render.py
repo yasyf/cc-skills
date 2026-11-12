@@ -208,8 +208,8 @@ COORDINATOR_RULES = (
     ),
     (
         "A monorepo builder starts where drive place says: on a Sprite while this Mac is over its load limit or runs"
-        " its cap of builders, except a handoff whose PROVE runs ci mac-box or ci devbox, which needs this Mac's AWS"
-        " sign-in."
+        " its cap of builders, except a handoff whose PROVE runs ci mac-box or ci devbox, which needs this Mac's machine"
+        " profile."
     ),
     (
         "A time he is promised is recorded with order set due, and done or dropped refuses until a drive post in the"

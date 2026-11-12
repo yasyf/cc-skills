@@ -289,6 +289,27 @@ EXPIRED_SIGN_IN = (
     "- Skip the hand repair: the Env waits for the code fix and its release\n"
     "Findings:\nRoot cause: none: a design pick\nKept on disk.\n"
 )
+PASS_BOX_TAP = (
+    "ASK The hybrid sparse and dense search test needs one Touch ID tap at your Mac: start it when you are back?\n"
+    "The approved searchbench run on a plat-staging pass box stopped before it began. Reading the Anthropic API key needs `cc-sudo`,"
+    " which asks for your Touch ID, and you were away. Recommended: start it when you say you are at the Mac. Meanwhile nothing runs"
+    " and no box is up.\n"
+    "- On your tap here, the job starts the pass box and reads the key; you tap Touch ID once and get a results PR (recommended)\n"
+    "- Drop the run: the job ends, and the hybrid search question keeps only the earlier reads, with no measured comparison\n"
+    "Findings:\n"
+    "Root cause: none: the key read is gated on your Touch ID by design, and the guard stops the prompt while you are away.\n"
+    "First principles: none: nothing to remove; the run needs the one tap.\n"
+    "Next question: none: after the tap the job runs the command you approved and returns the results PR.\n"
+    "- Searchbench never ran; about $0.02 of EC2 was spent, and the box and /pass-box/creds/searchbench/ were torn down.\n"
+    "- Step 2 reads /app/forge/api/anthropic_api_key through cc-sudo.\n"
+)
+FIRST_PASS_BOX_TAP = (
+    "ASK The hybrid sparse + dense search test needs one Touch ID tap at your Mac: run it now?\n"
+    "The approved searchbench run on a plat-staging pass box stopped at step 2: reading /app/forge/api/anthropic_api_key needs cc-sudo,"
+    " and the guard saw you were away. Searchbench never ran; about $0.02 of EC2 was spent and the box was torn down.\n"
+    "- I'm at the Mac: start it now and I'll tap Touch ID once\n"
+    "- Hold it until I say I'm back\n"
+)
 
 
 def said(count: int) -> str:
@@ -1209,15 +1230,26 @@ def test_an_option_asking_someone_to_retry_or_confirm_is_refused_naming_the_fix_
         (options_ask("Break-glass read: you approve the Okta push for the grant, then a lane runs one query (recommended)", "Close on the fix"), 'with "you approve the Okta"'),
         (options_ask("Break-glass read: you run aws sso login, then one read-only query per server (recommended)", "Close on the fix"), 'with "you run aws sso login"'),
         (options_ask("Break-glass read: you renew this Mac's AWS sign-in in the browser, then a lane reads (recommended)", "Close on the fix"), 'with "you renew this Mac\'s AWS sign-in"'),
+        (
+            PASS_BOX_TAP,
+            'option "On your tap here, the job starts the pass box and reads the key; you tap Touch ID once and get a results PR" asks him to'
+            ' sign in with "you tap Touch ID"',
+        ),
+        (PASS_BOX_TAP, 'the summary asks him to sign in with "your Touch ID"'),
+        (FIRST_PASS_BOX_TAP, 'with "I\'ll tap Touch ID"'),
+        (options_ask("Key read: you approve the cc-sudo prompt, then the job reads the SSM parameter (recommended)", "Close on the fix"), 'with "you approve the cc-sudo"'),
+        (options_ask("Tap Touch ID once: the job claims a devbox and proves the change on it (recommended)", "Close on the fix"), 'with "Tap Touch ID"'),
     ],
 )
-def test_a_card_asking_him_to_sign_in_for_break_glass_is_refused_naming_the_machine_profile_route(block: str, found: str) -> None:
+def test_a_card_asking_him_to_sign_in_or_tap_touch_id_for_an_aws_action_is_refused_naming_the_machine_profile_route(block: str, found: str) -> None:
     with pytest.raises(DriveError) as refused:
         limits.question(block)
     assert found in str(refused.value)
     assert (
-        "break-glass runs on this Mac's machine profile with no sign-in, `drive break-glass <job> --stack <domain>/<env> --reason"
-        f' "<why>" -- <command>` here or a `BREAK-GLASS` read from a Sprite, so offer that run itself ({limits.MACHINE_PROFILE_RULING})'
+        "this Mac's machine profile runs it with no sign-in, Touch ID or cc-sudo, every AWS call under a profile ~/.aws/config chains to the"
+        " machine certificate, such as `AWS_PROFILE=plat-prod tools/ci pass-box launch`, and break-glass as `drive break-glass <job> --stack"
+        ' <domain>/<env> --reason "<why>" -- <command>`, or from a Sprite a `BREAK-GLASS` read, so that run takes its place'
+        f" ({limits.MACHINE_PROFILE_RULING})"
     ) in str(refused.value)
 
 
@@ -1230,9 +1262,11 @@ def test_a_card_asking_him_to_sign_in_for_break_glass_is_refused_naming_the_mach
             "The pick below decides it,", 'His words "you dont fucking need okta MFA how many times have I told u to use machine profile" settle the grant;'
         ),
         options_ask("Users sign in with Okta on the dashboard as today (recommended)", "Close on the fix"),
+        options_ask("The job starts the pass box under the machine profile, reads the key and opens a results PR (recommended)", "Close on the fix"),
+        options_ask("You tap Touch ID once so cookiesync seeds the dashboard session for the recording (recommended)", "Close on the fix"),
     ],
 )
-def test_a_card_running_break_glass_on_the_machine_profile_quoting_his_words_or_naming_a_product_sign_in_passes(block: str) -> None:
+def test_a_card_running_an_aws_action_on_the_machine_profile_quoting_his_words_or_naming_a_sign_in_off_aws_passes(block: str) -> None:
     assert limits.question(block).options
 
 

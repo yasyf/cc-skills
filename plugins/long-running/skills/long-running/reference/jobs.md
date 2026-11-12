@@ -33,8 +33,8 @@ Contents:
   order each serves, then the oldest added. When a builder here finishes, start the first of them.
 - Readers, codex jobs, builders on any other repository (a yasyf/* tool installs on this Mac), any
   job that touches this Mac's processes, and a handoff whose `PROVE:` line runs `ci mac-box` or
-  `ci devbox` always run here. A Sprite holds no AWS sign-in, and both verbs sign in with this Mac's
-  `DEVBOX_AWS_PROFILE`.
+  `ci devbox` always run here. A Sprite holds no AWS credentials, and both verbs run on this Mac's
+  machine profile through `DEVBOX_AWS_PROFILE`, with no sign-in.
 
 ## Start one on this Mac
 

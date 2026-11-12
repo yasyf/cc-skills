@@ -264,21 +264,23 @@ RULED_OUT = re.compile(
 )
 MACHINE_PROFILE_RULING = (
     'his Nov 6 5:02 PM words "You can use the fucking machine profile for break glass how many fucking times do I have to tell you"'
-    ' and Nov 12 3:00 AM words "you dont fucking need okta MFA how many times have I told u to use machine profile"'
+    ', Nov 12 3:00 AM words "you dont fucking need okta MFA how many times have I told u to use machine profile"'
+    ' and Nov 12 4:04 AM words "1 but you could have used machine profile for this"'
 )
 SIGN_IN_TERM = (
     r"(?:okta(?:\s+mfa)?|mfa|multi-?factor(?:\s+authentication)?|single[- ]sign[- ]on(?:\s+login)?|aws\s+sso\s+login|sso(?:\s+log-?in)?"
-    r"|sign(?:s|ed|ing)?[- ]?in|log(?:s|ged|ging)?[- ]?in|re-?authenticat\w*|BreakGlassAccess)"
+    r"|sign(?:s|ed|ing)?[- ]?in|log(?:s|ged|ging)?[- ]?in|re-?authenticat\w*|BreakGlassAccess|touch\s*id|cc-sudo)"
 )
 SIGN_IN = re.compile(rf"\b{SIGN_IN_TERM}\b", re.IGNORECASE)
 ASKS_HIM_TO_SIGN_IN = re.compile(
-    rf"\b(?:you|I)\b[^.;:]{{0,60}}?\b{SIGN_IN_TERM}\b"
-    rf"|\byour\s+(?:[\w-]+\s+){{0,2}}?{SIGN_IN_TERM}\b"
-    r"|(?:^|[.;:]\s+)(?:sign\s+in|log\s+in|renew|re-?authenticate|approve\s+the\s+okta)\b",
+    rf"\b(?:you|I|he|him)\b[^.;:]{{0,60}}?\b{SIGN_IN_TERM}\b"
+    rf"|\b(?:your|his)\s+(?:[\w-]+\s+){{0,2}}?{SIGN_IN_TERM}\b"
+    r"|(?:^|[.;:]\s+)(?:sign\s+in|log\s+in|renew|re-?authenticate|tap\s+touch\s*id|approve\s+the\s+(?:okta|cc-sudo))\b",
     re.IGNORECASE,
 )
-CREDENTIAL = re.compile(
-    r"\bbreak[- ]?glass\w*|\bBreakGlassAccess\b|\baws\b|\bidentity center\b|\bcredentials?\b|\bprofile\b|\bgrant\b|\btoken\b",
+AWS_ACTION = re.compile(
+    r"\bbreak[- ]?glass\w*|\bBreakGlassAccess\b|\baws\b|\bidentity center\b|\bcredentials?\b|\bprofile\b|\bgrant\b|\btoken\b"
+    r"|\bpass[- ]?box(?:es)?\b|\bdb-read\b|\bdevbox(?:es)?\b|\bssm\b|\bsecrets\s+manager\b",
     re.IGNORECASE,
 )
 RECORD_CHARS = 120
@@ -556,17 +558,18 @@ def option_problems(options: list[str], unsettled: str | None) -> list[str]:
 
 
 def sign_in_problems(lines: list[tuple[str, str]]) -> list[str]:
-    """Why a line he reads asks him to sign in for break-glass or AWS, by Okta, MFA or an SSO login: break-glass runs on this Mac's machine profile, so the card offers that run itself. His words in double quotes, and a sign-in the line rules out, as "no Okta MFA" does, ask nothing."""
-    problems = []
-    for where, line in lines:
-        said = SAID.sub(lambda quoted: MASK * len(quoted[0]), line)
-        if CREDENTIAL.search(said) and SIGN_IN.search(said) and (found := proposed(ASKS_HIM_TO_SIGN_IN, said)):
-            problems.append(
-                f'{where} asks him to sign in with "{line[found.start() : found.end()].strip(" .;:")}": break-glass runs on this Mac\'s machine'
-                ' profile with no sign-in, `drive break-glass <job> --stack <domain>/<env> --reason "<why>" -- <command>` here or a'
-                f" `BREAK-GLASS` read from a Sprite, so offer that run itself ({MACHINE_PROFILE_RULING})"
-            )
-    return problems
+    """Why lines about an AWS action, such as a pass box start and its key read, break-glass, db-read or a devbox, ask him for Okta, MFA, an SSO login, a Touch ID tap or cc-sudo: this Mac's machine profile runs every one with none of them, so that run takes their place. His words in double quotes, and a sign-in a line rules out, as "no Okta MFA" does, ask nothing."""
+    said = [(where, line, SAID.sub(lambda quoted: MASK * len(quoted[0]), line)) for where, line in lines]
+    if not any(AWS_ACTION.search(masked) for _, _, masked in said):
+        return []
+    return [
+        f'{where} asks him to sign in with "{line[found.start() : found.end()].strip(" .;:")}": this Mac\'s machine profile runs it with no'
+        " sign-in, Touch ID or cc-sudo, every AWS call under a profile ~/.aws/config chains to the machine certificate, such as"
+        ' `AWS_PROFILE=plat-prod tools/ci pass-box launch`, and break-glass as `drive break-glass <job> --stack <domain>/<env> --reason "<why>"'
+        f" -- <command>`, or from a Sprite a `BREAK-GLASS` read, so that run takes its place ({MACHINE_PROFILE_RULING})"
+        for where, line, masked in said
+        if SIGN_IN.search(masked) and (found := proposed(ASKS_HIM_TO_SIGN_IN, masked))
+    ]
 
 
 def proposed(pattern: re.Pattern[str], option: str) -> re.Match[str] | None:
