@@ -295,7 +295,7 @@ passes and reads GitHub's head again before it queues, saying `PR … waits on i
 and waking no one when GitHub holds a head the check has not passed. A `NOT READY` at the PR's head
 sends his Approve back: the tap is cleared, a card of his he has not answered redraws with no Approve
 saying why, and the card that asks his Approve again, which replaces one he answered, says why under
-"Changed since your answer", by his words "Keep Approve showing: keeps Approve on a commit nobody judged; your tap lands after the judge passes, and a failed judge sends it back". Each head gets one try. Its outcome comes back as the PR's line: `PR … queued for merge`
+"Changed since your answer", by his words "Keep Approve showing: keeps Approve on a commit nobody judged; your tap lands after the judge passes, and a failed judge sends it back". Each head gets one try, but a try that could make no fresh worktree of the default branch, such as when GitHub did not send a blob its checkout fetched, says nothing of the PR, so the lander tries again at the watch's next pass with no new tap, and a try that comes to what the one before it on that head did is said once. Its outcome comes back as the PR's line: `PR … queued for merge`
 wakes no one, while `PR … not landed: <why>` and `PR … ejected from the merge queue` wake the job's
 holder for a builder that fixes the cause and pushes, and the lander tries the new head on its own.
 His `TAP Approve` line itself wakes the coordinator only when the PR is red or conflicts. A PR of

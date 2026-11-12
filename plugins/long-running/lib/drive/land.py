@@ -21,6 +21,7 @@ BASE_MOVED = "Base branch was modified"
 NOT_MERGING = "not merging it"
 WAITS_CHECK = "waits on its check against his words"
 NEWER_INSTALL = "not landed: a newer long-running saved the drive while stack-enqueue --check ran, so the landing runs again on it"
+NO_WORKTREE = "not landed: no fresh worktree"
 LANDS_ON = ("approved", "stale")
 REVIEW_ASK = "@forge-pr-reviewer review"
 BLOCKED_LINE = re.compile(r"^#(?P<number>\d+) BLOCKED (?P<head>\w+) (?P<gaps>.+)$", re.MULTILINE)
@@ -162,9 +163,9 @@ def stall(data: dict, key: str, cards: dict) -> str | None:
 
 
 def tried(data: dict, pr: dict) -> bool:
-    """Whether a lander tried the PR's head and nothing it waited on has moved since: one that found PRs below it neither his Approve nor an exempt class clears tries again once each of them is cleared or merges, and one a newer install's save ended before it queued anything tries again on that install."""
+    """Whether a lander tried the PR's head and nothing it waited on has moved since: one that found PRs below it neither his Approve nor an exempt class clears tries again once each of them is cleared or merges, one a newer install's save ended before it queued anything tries again on that install, and one that could make no fresh worktree of the default branch, such as when GitHub did not send a blob its checkout lazily fetched, which says nothing of the PR, tries again at the watch's next pass with no new tap."""
     lander = pr["lander"] or {}
-    if lander.get("head") != pr["head"] or (lander.get("outcome") or "").startswith(NEWER_INSTALL):
+    if lander.get("head") != pr["head"] or (lander.get("outcome") or "").startswith((NEWER_INSTALL, NO_WORKTREE)):
         return False
     return not lander.get("below") or not all(key in data["prs"] and (state.cleared(data["prs"][key]) or data["prs"][key]["state"] == "merged") for key in lander["below"])
 
@@ -263,9 +264,13 @@ def unmergeable(key: str, read: dict) -> str | None:
 
 
 def mark(data: dict, keys: tuple[str, ...], pid: int, head: str | None = None) -> None:
+    """Mark the PRs a lander starts on, each keeping what the try before it on the same head came to, so record() says an outcome the same head already said only once."""
     at = state.stamp()
     for key in keys:
-        data["prs"][key]["lander"] = {"head": head or data["prs"][key]["head"], "pid": pid, "at": at, "outcome": None}
+        pr = data["prs"][key]
+        before = pr["lander"] or {}
+        tries = head or pr["head"]
+        pr["lander"] = {"head": tries, "pid": pid, "at": at, "outcome": None, "was": before.get("outcome") if before.get("head") == tries else None}
 
 
 def spawn(name: str, keys: tuple[str, ...]) -> int:
@@ -307,12 +312,14 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
 
 
 def record(name: str, keys: list[str], outcome: str, below: list[str]) -> str:
-    """Record what came of a landing on each PR and as a landing event, on the newest install, which `drive pr land --outcome` records it on when one landed while this lander waited on the queue or an install."""
+    """Record what came of a landing on each PR, and as a landing event unless the try before it on the same head came to the same, such as a retried landing that again could make no worktree; on the newest install, which `drive pr land --outcome` records it on when one landed while this lander waited on the queue or an install."""
     install.reopen(["pr", "land", *map(state.pr_url, keys), "--drive", name, "--outcome", outcome, *(flag for key in below for flag in ("--below", key))])
     with state.edit(name) as data:
         for key in keys:
             pr = data["prs"][key]
             pr["lander"] = (pr["lander"] or {"head": pr["head"], "pid": os.getpid(), "at": state.stamp()}) | {"outcome": outcome, "below": below}
+            if pr["lander"].get("was") == outcome:
+                continue
             repo, number = key.split("#")
             state.append_event(name, "landing", repo=repo, number=int(number), change=outcome, lane=state.heard_lane(data, pr["order"]))
     return outcome
@@ -350,7 +357,7 @@ def enqueued(name: str, clone: Path, keys: list[str], dry_run: bool = False) -> 
                 return refused
             done = subprocess.run([script, "--watch", *numbers], cwd=checkout, capture_output=True, text=True)
     except github.GithubError as error:
-        return f"not landed: no fresh worktree of {repo}'s default branch to run stack-enqueue from: {cut(str(error), SAID_CHARS)}"
+        return f"{NO_WORKTREE} of {repo}'s default branch to run stack-enqueue from: {cut(str(error), SAID_CHARS)}"
     print(done.stdout + done.stderr, flush=True)
     if done.returncode == 0:
         return QUEUED
