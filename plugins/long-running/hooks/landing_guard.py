@@ -94,6 +94,11 @@ COORDINATOR_WORK = (
 )
 RELEASE_CUTS = frozenset({"start", "approve", "rollback"})
 PLAN_ONLY = frozenset({"--plan", "--dry-run"})
+RELEASE_CANCEL = (
+    "Refused on purpose: a drive job never cancels a release, one it started included, however wide its plan reads, by his"
+    ' words "next time fucking do the right thing and then dont cancel it". Leave it running, or held at approve, and return'
+    " with the release held for the coordinator, naming it and what you would decline"
+)
 
 
 @dataclass(frozen=True)
@@ -102,6 +107,7 @@ class Shell:
     env: dict[str, str]
     session: str
     driving: bool
+    job: bool
     stdin: Stdin | None = None
 
 
@@ -424,14 +430,18 @@ def landing_reason(landing: Landing, refs: list[str], options: dict[str, list[st
     return next(filter(None, (pr_reason(landing, key, shell) for key in keys)), None)
 
 
-def cut_reason(words: list[str], session: str) -> str | None:
-    """Why a drive session, or an agent it started, may not start, approve or roll back a production cut: a sub-coordinator's may not, since one cut carries every project's changes and the top coordinator alone runs them, one at a time; and none starts a release on `--order` naming an answer of his that approves no release."""
-    if Path(words[0]).name != "ci" or words[1:2] != ["release"] or not RELEASE_CUTS & set(words[2:3]) or PLAN_ONLY & set(words):
+def cut_reason(words: list[str], shell: Shell) -> str | None:
+    """Why a drive session, or an agent it started, may not run this release verb: a drive job cancels no release, so it returns with one held for the coordinator; a sub-coordinator's session may not start, approve or roll back a production cut, since one cut carries every project's changes and the top coordinator alone runs them, one at a time; and none starts a release on `--order` naming an answer of his that approves no release."""
+    if Path(words[0]).name != "ci" or words[1:2] != ["release"]:
         return None
-    names = state.session_drives(session)
+    if words[2:3] == ["cancel"] and shell.job:
+        return RELEASE_CANCEL
+    if not RELEASE_CUTS & set(words[2:3]) or PLAN_ONLY & set(words):
+        return None
+    names = state.session_drives(shell.session)
     for name in names:
         data = state.load(name)
-        if project := state.session_project(data, session):
+        if project := state.session_project(data, shell.session):
             top = data["roles"].get("coordinator", {}).get("session") or "not started"
             return (
                 f"ci release {words[2]}: the sub-coordinator for {project} starts, approves and rolls back no production cut; the"
@@ -501,7 +511,7 @@ def loop_end(groups: list[tuple[list[str], Stdin | None]], start: int) -> int:
 
 
 def script_reason(script: str, shell: Shell) -> str | None:
-    reasons = (landing_reason(*found, run_in) if (found := landing_of(words)) else cut_reason(words, run_in.session) for _, words, run_in in commands(script, shell))
+    reasons = (landing_reason(*found, run_in) if (found := landing_of(words)) else cut_reason(words, run_in) for _, words, run_in in commands(script, shell))
     return next(filter(None, reasons), None)
 
 
@@ -666,7 +676,8 @@ def cli_posted(payload: dict) -> str | None:
 def shell_of(payload: dict) -> tuple[list[str], Shell]:
     session = payload.get("session_id") or ""
     names = state.session_drives(session)
-    return names, Shell(payload.get("cwd") or os.getcwd(), dict(os.environ), session, bool(names) or (payload.get("agent_type") or "").startswith(AGENTS))
+    job = (payload.get("agent_type") or "").startswith(AGENTS) or bool(names and payload.get("agent_id"))
+    return names, Shell(payload.get("cwd") or os.getcwd(), dict(os.environ), session, bool(names) or job, job)
 
 
 def judged_reason(payload: dict) -> str | None:
@@ -702,7 +713,7 @@ def unprevented_reports(payload: dict) -> str | None:
 
 
 def guarded_reason(payload: dict) -> str | None:
-    """Why a Bash call must not run, a refusal capt-hook's Jev never weighs again: it lands a Forge-AI drive PR without his tap or merges with --admin there, in a drive session or agent lands a Forge-AI PR someone else opened that no order of his names, starts, approves or rolls back a production cut from a sub-coordinator's session, or starts one in a drive session on `--order` naming an answer of his that is no incident's and that Jev does not read as his pick to release, and in a drive session or agent lands a Forge-AI PR while his card on it is open, around the monorepo's queue or apart from its stack, puts up a drive's public PR body showing what only a private place may, or posts with `cci post` an owner or answer record of his words on an open card of his, which only the drive's `record` tool closes in the same call, or an owner record naming no about, which picks the session it reaches."""
+    """Why a Bash call must not run, a refusal capt-hook's Jev never weighs again: it lands a Forge-AI drive PR without his tap or merges with --admin there, in a drive session or agent lands a Forge-AI PR someone else opened that no order of his names, starts, approves or rolls back a production cut from a sub-coordinator's session, cancels a release from a drive job, or starts one in a drive session on `--order` naming an answer of his that is no incident's and that Jev does not read as his pick to release, and in a drive session or agent lands a Forge-AI PR while his card on it is open, around the monorepo's queue or apart from its stack, puts up a drive's public PR body showing what only a private place may, or posts with `cci post` an owner or answer record of his words on an open card of his, which only the drive's `record` tool closes in the same call, or an owner record naming no about, which picks the session it reaches."""
     names, shell = shell_of(payload)
     command = payload["tool_input"]["command"]
     if shell.driving and (exposed := body_reason(command, shell)):

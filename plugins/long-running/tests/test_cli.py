@@ -862,7 +862,8 @@ def test_an_incident_jobs_brief_carries_the_rule_its_kind_follows_on_a_choice_on
     run("job", "brief", "j4", *where)
     jobs = state.load("demo")["jobs"]
     assert f"\nIncident: record 5f6b2b5; {state.INCIDENT_CHOICE['codex']}\n" in Path(jobs["j1"]["brief"]).read_text()
-    assert f"\nIncident: {state.INCIDENT_CHOICE['builder']}\n" in Path(jobs["j4"]["brief"]).read_text()
+    assert f"\nIncident: {cli.release_rule()}; {state.INCIDENT_CHOICE['builder']}\n" in Path(jobs["j4"]["brief"]).read_text()
+    assert cli.release_rule().startswith("Every release a drive job starts, an incident's included, starts the regular way")
     run("job", "brief", "j1", "--incident", f"record 5f6b2b5; {state.INCIDENT_CHOICE['codex']}")
     assert Path(state.load("demo")["jobs"]["j1"]["brief"]).read_text().count(state.INCIDENT_CHOICE["codex"]) == 1
 

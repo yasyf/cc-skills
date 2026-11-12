@@ -78,6 +78,7 @@ TOLD_LINK = (
 )
 HIDDEN = "not visible in Orca, which hides the worktrees it did not make for this repository"
 PAGES = Path(__file__).resolve().parents[2] / "skills" / "long-running" / "reference"
+RELEASE_RULE = re.compile(r"^- (Every release a drive job starts.*?)\n(?!  )", re.M | re.S)
 MANIFEST = Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json"
 LAUNCHED = ("run", "dispatch", "task", "terminal", "workspace", "environment", "lane")
 MCP_TOOLS = ("say", "heard", "handler", "record", "order", "job", "pr", "incident", "status", "search_plan")
@@ -1846,10 +1847,16 @@ def job_brief(args: argparse.Namespace) -> int:
 
 
 def incident_line(data: dict, job_id: str, given: str | None) -> str | None:
-    """A brief's Incident: line: the call's own, with the rule a lane of its kind follows on a choice after it on an incident order, which a choice never stops, then on a job tracing a live bug's cause the FIX line its report ends with."""
+    """A brief's Incident: line: the call's own, then on an incident order a builder's release rule and the rule a lane of its kind follows on a choice, which a choice never stops, then on a job tracing a live bug's cause the FIX line its report ends with, each once."""
     job = data["jobs"][job_id]
-    rules = [state.INCIDENT_CHOICE.get(job["kind"]) if data["orders"][job["order"]]["incident"] else None, state.FIX_RULE if state.traced(data, job_id, "") else None]
+    incident = data["orders"][job["order"]]["incident"]
+    rules = [release_rule() if incident and job["kind"] == "builder" else None, state.INCIDENT_CHOICE.get(job["kind"]) if incident else None, state.FIX_RULE if state.traced(data, job_id, "") else None]
     return "; ".join(filter(None, [given, *(rule for rule in rules if rule and rule not in (given or ""))])) or None
+
+
+def release_rule() -> str:
+    """The rule incidents.md states for every release a drive job starts, read from the page so the brief and the page share one text."""
+    return " ".join(RELEASE_RULE.search((PAGES / "incidents.md").read_text())[1].split())
 
 
 def ruling_words(answer_id: str, checkout_dir: Path) -> str:

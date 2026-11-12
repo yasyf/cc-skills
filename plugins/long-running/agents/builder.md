@@ -264,8 +264,9 @@ event needs. The first four events then return as step 7 says.
   cancelling the release or asking him, by his pick "Land whole stacks and read the gate: no schema
   change merges without its writer; a stack's bottom waits for its top".
 - Approve only a release he approved. A build or release he started is his: never cancel, retry,
-  reorder or approve it, and start no release while it runs. Cancel one of ours only when the
-  coordinator's message says to.
+  reorder or approve it, and start no release while it runs. Never cancel one of ours either,
+  however wide its plan reads: return with it held for the coordinator, since the `landing_guard`
+  hook refuses a drive job's `tools/ci release cancel`.
 - An incident brief's incident order approves starting the cut that ships its fix, the default
   branch's head included when its first check proved that build works: pass `--order <the incident's
   answer id>`, and read its approve hold as above.
@@ -275,9 +276,9 @@ event needs. The first four events then return as step 7 says.
 - On an incident nothing stops between the merge and the build: no dry run, no read of what the cut
   covers or what caused the break, no comparison of open builds, no question. Lift the service's
   freeze the brief's `Incident:` line names with `tools/ci release unfreeze <id>`, start the build at
-  the fix commit with the cut the incident reference names, report its link, and read while it builds;
-  the approve hold, read as above, is the only check. Cut a hotfix from the live commit only after a
-  first check found the default branch's newest build fails too.
+  the fix commit the regular way the release rule on that line says, report its link, and read while it
+  builds; the approve hold, read as above, is the only check. Cut a hotfix from the live commit only
+  after a first check found the default branch's newest build fails too.
 
 ## On a Sprite
 
