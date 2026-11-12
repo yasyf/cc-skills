@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
 from drive import agents, limits, settled, state, superseded
-from drive.reports import addressed, attrs, kind, listed, report_refusals, unprevented
+from drive.reports import CALL_FIELDS, addressed, attrs, kind, listed, posted, report_refusals, stray_parts, unprevented
 
 SILENT_LANES = {"long-running:reader", "long-running:designer"}
 TO_OWNER = (
@@ -98,6 +98,7 @@ def refusals(payload: dict, names: list[str], records: list[dict]) -> Iterator[s
     prs = {key: pr for data in drives for key, pr in data["prs"].items()}
     for index, record in enumerate(records):
         yield misaddressed(payload, record)
+        yield stray_parts(kind(record), attrs(record))
         yield limits.misnamed(kind(record), attrs(record))
         yield settled.ask_refusal(names, attrs(record), record.get("text") or "") if kind(record) == "ask" else None
         yield superseded.unclosed_refusal(names, kind(record), attrs(record), record.get("topic"), listed(record.get("re")))
@@ -118,12 +119,12 @@ def readdressed(drives: dict[str, dict], session: str | None, record: dict) -> d
 
 
 def decision(payload: dict) -> dict | None:
-    """What a drive session's post becomes: refused with the fix while a record in it, read with the text cci stores for it, breaks a rule its kind keeps, else posted with a warning on each POST line telling him a failure of the drive's with no word on how it is prevented, and every record in it completed from what the drive knows, trimmed of the attrs it never carries and one line, the rest in its body for whoever acts on it, and each record sent where its drive routes it."""
+    """What a drive session's post becomes: refused with the fix while a record in it, read with the text, kind, lanes and attrs cci stores for it, breaks a rule its kind keeps, else posted with a warning on each POST line telling him a failure of the drive's with no word on how it is prevented, and every record in it completed from what the drive knows, trimmed of the attrs it never carries and one line, the rest in its body for whoever acts on it, and each record sent where its drive routes it, a records list rewritten with each record whole, since a field cci filled in beside the list would put back what the record dropped."""
     names = state.session_drives(payload.get("session_id") or "")
     if not names:
         return None
     tool_input = payload["tool_input"]
-    given = tool_input.get("records") or [tool_input]
+    given = posted(tool_input)
     drive = state.load(names[0])
     records = [trimmed(completed(names, drive, record)) for record in given]
     stored = [limits.as_stored(record) for record in records]
@@ -136,7 +137,7 @@ def decision(payload: dict) -> dict | None:
     if made == given:
         return context or None
     if tool_input.get("records"):
-        return {"updatedInput": tool_input | {"records": made}} | context
+        return {"updatedInput": {key: value for key, value in tool_input.items() if key in CALL_FIELDS} | {"records": made}} | context
     return {"updatedInput": made[0]} | context
 
 
