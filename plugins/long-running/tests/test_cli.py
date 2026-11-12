@@ -3743,8 +3743,8 @@ def test_an_order_with_a_reporter_closes_done_only_once_its_one_fix_live_note_is
     assert [state.load("demo")["orders"][order_id]["state"] for order_id in ("o1", "o2")] == ["done", "done"]
 
 
-def test_a_reporter_the_bot_cannot_reach_is_told_through_him_and_only_his_words_take_a_reporter_off(
-    run: Run, demo: str, slack_thread: "Thread", capsys: pytest.CaptureFixture[str]
+def test_a_reporter_the_bot_cannot_reach_is_told_in_their_group_dm_with_him_and_only_his_words_take_a_reporter_off(
+    run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     assert cli.main(["order", "add", "--project", "p", "--workstream", "w", "fix it", "--reporter", "C0REPORTS01/1794400100.000200"]) == 2
     assert "refused, name the bug report by its Slack permalink or as slack:<channel>/<its thread's ts>" in capsys.readouterr().err
@@ -3755,9 +3755,18 @@ def test_a_reporter_the_bot_cannot_reach_is_told_through_him_and_only_his_words_
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
     run("order", "set", "o1", "--proof", "https://buildkite.com/forge/release/builds/14185")
-    instead = slack_thread.post(state.now(), from_claude=True)
-    assert run("order", "told", "o1", instead, "--unreachable") == (0, f"o1: said to him in place of the reporter's thread, {instead}")
-    assert "out of the bot's reach, so he was told in" in run("order", "show", "o1")[1]
+    monkeypatch.setattr(slack, "group_dm", {"U0REPORTER": "C0GROUPDM1"}.get)
+    slack_thread.messages.append({"ts": "1794418000.000100", "from_claude": True})
+    note = "https://acme.slack.com/archives/C0GROUPDM1/p1794418000000100"
+    assert cli.main(["order", "told", "o1", note]) == 2
+    assert "the note goes to the group DM of the reporter, him and the bot: pass the reporter's Slack user id with --group-dm" in capsys.readouterr().err
+    with pytest.raises(SystemExit):
+        cli.main(["order", "told", "o1", note, "--group-dm", "C0GROUPDM1"])
+    assert "name the reporter by their Slack user id, such as U0123ABCDE: a channel id names no person" in capsys.readouterr().err
+    assert cli.main(["order", "told", "o1", note, "--group-dm", "U0OTHER01"]) == 2
+    assert f"{note} is not the drive's post in the group DM of U0OTHER01, him and the bot" in capsys.readouterr().err
+    assert run("order", "told", "o1", note, "--group-dm", "U0REPORTER") == (0, f"o1: told in the group DM of U0REPORTER, him and the bot, {note}")
+    assert f"told it is fixed in {note}" in run("order", "show", "o1")[1]
     ours = slack_thread.post(state.now() - timedelta(minutes=2), from_claude=True)
     his = slack_thread.post(state.now() - timedelta(minutes=1), from_user=True)
     assert run("order", "set", "o2", "--no-reporter", ours)[0] == 2
