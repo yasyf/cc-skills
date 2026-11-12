@@ -46,6 +46,10 @@ WAITS_ON_OTHER = re.compile(r"\bwait(?:s|ing)? on (?!(?:him|his|your|you|he)\b)\
 WAITED = re.compile(r"\b\d+ ?(?:s|secs?|seconds?|m|mins?|minutes?|h|hrs?|hours?|d|days?)\b|\bsince \d", re.IGNORECASE)
 RUNNING = re.compile(r"\b(?:running|queued|idle|stopped|started|starting|in progress|not started)\b", re.IGNORECASE)
 VAGUE_WAIT = "refused: a line that says something waits on X says how long it has waited and whether X is running, such as \"waits on CI, 40 min, run 123 running\"; add both"
+DM_URL = (
+    "refused: a report's --url is the link of what it measured, such as a trace, notebook, log or build, which {{record:<seq>}}"
+    " links in his posts, and {url} is a message in his DM, which --attr thread={thread} names; drop --url, or put that link there"
+)
 
 
 def kind(record: dict) -> str:
@@ -73,6 +77,7 @@ def report_refusals(payload: dict, drive: dict, records: list[dict], index: int)
     thread = attrs(record).get("thread")
     posting = text.startswith("POST")
     yield None if OPENING.match(text) else UNOPENED
+    yield dm_url(drive, record)
     yield misnamed_part(drive, record)
     yield unfinished(drive, record) if posting else None
     yield skipped(drive, record) if posting else None
@@ -84,6 +89,14 @@ def report_refusals(payload: dict, drive: dict, records: list[dict], index: int)
     if thread and state.session_role(drive, payload.get("session_id")) in ("coordinator", "meta") and not payload.get("agent_id"):
         yield second_report(payload, records, index, thread)
     yield agents.unread_job(payload, text)
+
+
+def dm_url(drive: dict, record: dict) -> str | None:
+    """Why a report's url names a message in his DM: a report's url is what it measured, which {record:} links, and the message it answers is its thread attr."""
+    found = state.CARD_LINK.search(record.get("url") or "")
+    if not found or found[1] != drive["slack"]["channel"]:
+        return None
+    return DM_URL.format(url=record["url"], thread=found[4] or f"{found[2]}.{found[3]}")
 
 
 def misnamed_part(drive: dict, record: dict) -> str | None:

@@ -152,7 +152,7 @@ def order(name: str, data: dict, order_id: str) -> dict:
 
 
 def record(name: str, seq: str) -> dict:
-    """A cci record under the opening of its own words, so a cause links the measurement behind it in a few words and the record's whole text never joins the post: a link to what the record links, or those words alone when it links nothing."""
+    """A cci record under the opening of its own words, so a cause links the measurement behind it in a few words and the record's whole text never joins the post: a link to what the record measured, its url, which report_refusals keeps off a report naming his message, or those words alone when it links nothing."""
     try:
         found = json.loads(reads.run(["cci", "show", seq, "--json", "--drive", name], Path.cwd()))
     except reads.ReadError as error:
