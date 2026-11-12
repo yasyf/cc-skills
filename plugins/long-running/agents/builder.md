@@ -66,9 +66,10 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    either shape and return `ASK` with options from your evidence, even mid-build. The exception: when
    `Decisions that bind` names an open card's option to build, build it, push the branch, open no PR
    and return `BUILT`. He ruled the recommended option may be built but no PR for the proper fix
-   goes up until he answers, and `drive pr add` refuses a PR while any open card of his bears on its
-   work: your job's, or one a job sharing your part asked, the design you build included, since work
-   does not land with a question of his on it unanswered.
+   goes up until he answers. While any open card of his bears on your work, your job's or one a job
+   sharing your part asked, the design you build included, the `bash_guard` hook refuses a
+   `ccx vcs ship` that would open your PR and `drive pr add` refuses the PR, since work does not land
+   with a question of his on it unanswered: push the branch with `ccx vcs ship --no-pr`.
    A brief on the order's `immediate fix` part is no design choice: build it and open its PR at once.
    On an open incident a choice never stops you: return `ASK` the moment the fork shows, even
    mid-build, and build its recommended option when the coordinator resumes you in that turn. Its

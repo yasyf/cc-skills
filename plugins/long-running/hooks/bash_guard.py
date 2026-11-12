@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, github, install, orca, state
+from drive import agents, github, install, land, orca, state, view
 from drive.orca import OrcaError
 from drive.shell import runnable, simple_commands
 
@@ -17,7 +17,9 @@ SHELLS = {"sh", "bash", "zsh", "dash", "fish"}
 WRAPPERS = {"command", "exec", "nohup", "env", "time"}
 VALUED = {"-C", "-R", "--repo", "--drive"}
 ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*")
-PUSHES = (("gh", "pr", "create"), ("git", "push"), ("jj", "git", "push"), ("ccx", "vcs", "ship"), ("gt", "submit"))
+SHIP = ("ccx", "vcs", "ship")
+PUSHES = (("gh", "pr", "create"), ("git", "push"), ("jj", "git", "push"), SHIP, ("gt", "submit"))
+PUSH_ONLY = {"--no-pr", "--dry-run"}
 CACHED_PAGE = re.compile(r"plugins/cache/([^/\s'\"]+)/long-running/([^/\s'\"]+)/skills/long-running/reference/")
 RERUNS = (("ci", "bk", "rerun"), ("bk", "job", "retry"), ("bk", "build", "rebuild"), ("gh", "run", "rerun"))
 FLAKE = "--flake"
@@ -88,6 +90,25 @@ def bare_pr(found: list[list[str]]) -> str | None:
         " the branch, stack and PR text the repository expects"
     )
 
+
+def held_pr(found: list[list[str]], agent: str, drives: list[str]) -> str | None:
+    """Why a builder's `ccx vcs ship` may not open its PR: his open cards hold its job, since work does not land with a question of his on it unanswered; a ship with `--no-pr` or `--dry-run`, or one whose job already has an open PR it pushes to, opens none and passes."""
+    if not any(tuple(verb(words)[:3]) == SHIP and not PUSH_ONLY & set(words) for words in found):
+        return None
+    for name in drives:
+        data = state.load(name)
+        if not (job_id := state.agent_job(data, agent)):
+            continue
+        if any(data["prs"].get(state.pr_key(url), {}).get("state") == "open" for url in data["jobs"][job_id]["prs"]):
+            return None
+        if cards := land.open_cards(data, job_id, [], view.live_cards(name)):
+            return (
+                f"refused: {job_id}'s work waits on his answer to {', '.join(cards)}, and this ship would open its PR, which goes"
+                " up only once he answers each, since work does not land with a question of his on it unanswered: push the"
+                " branch with `ccx vcs ship --no-pr` and return `BUILT <branch>, waits on <cards>`; the watch says FREE when"
+                " the last is answered"
+            )
+    return None
 
 def cached_page(text: str) -> str | None:
     if not (cached := CACHED_PAGE.search(text)):
@@ -227,7 +248,7 @@ def mid_incident(found: list[list[str]]) -> str | None:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive session's or drive agent's call must not run: a designer pushes, a read takes a stale version's cached skill page, or a session is resumed while it runs, from a shell-ending command, or ended mid-incident, a call retries past a failing check; why any session's call restarts the hook helper he never approved on a card; and why Claude Code's permission prompt on a drive agent's command gets a refusal rather than an answer nobody gives."""
+    """Why a drive session's or drive agent's call must not run: a designer pushes, a builder opens its PR while his open cards hold its job, a read takes a stale version's cached skill page, or a session is resumed while it runs, from a shell-ending command, or ended mid-incident, a call retries past a failing check; why any session's call restarts the hook helper he never approved on a card; and why Claude Code's permission prompt on a drive agent's command gets a refusal rather than an answer nobody gives."""
     call = payload["tool_input"]
     session = payload.get("session_id") or ""
     drives = state.session_drives(session)
@@ -243,6 +264,7 @@ def deny_reason(payload: dict) -> str | None:
     reasons = (
         lambda: designer_push(found) if kind == DESIGNER else None,
         lambda: bare_pr(found) if kind == BUILDER else None,
+        lambda: held_pr(found, payload.get("agent_id") or "", drives) if kind == BUILDER else None,
         lambda: cached_page(call["command"]) if drives else None,
         lambda: shell_after_claude(scripts),
         lambda: live_resume(found + [words for inner in scripts for words in inner]),

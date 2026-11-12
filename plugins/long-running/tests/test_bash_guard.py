@@ -7,7 +7,7 @@ from pathlib import Path
 import bash_guard
 import pytest
 from conftest import SESSION
-from drive import github, install, orca, settled, state
+from drive import github, install, land, orca, settled, state, view
 from drive.orca import OrcaError
 
 Run = Callable[..., tuple[int, str]]
@@ -46,6 +46,33 @@ def test_a_builder_opens_its_pr_the_repositorys_way(demo: str) -> None:
     assert bash_guard.deny_reason(bash("ccx vcs ship --no-watch --pr-title-file /s/t --pr-body-file /s/b", **builder)) is None
     assert bash_guard.deny_reason(bash("gh pr create --title X", session="ordinary")) is None
 
+
+def test_a_builder_opens_no_pr_while_his_open_cards_hold_its_job(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Landing", "ship the watch")
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "ship it")[1] == "j1"
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["agent"] = "a-1"
+    cards = ["demo:j2-1-a"]
+    monkeypatch.setattr(view, "live_cards", lambda name: {})
+    monkeypatch.setattr(land, "open_cards", lambda data, job_id, waits, live: cards if job_id == "j1" else [])
+    builder = {"agent_id": "a-1", "agent_type": "long-running:builder"}
+    opening = "cd /work && ccx vcs ship --pr-title-file /s/t --pr-body-file /s/b"
+    reason = bash_guard.deny_reason(bash(opening, **builder))
+    assert reason.startswith("refused: j1's work waits on his answer to demo:j2-1-a, and this ship would open its PR")
+    assert "`ccx vcs ship --no-pr`" in reason
+    assert bash_guard.deny_reason(bash("ccx vcs ship --no-pr", **builder)) is None
+    assert bash_guard.deny_reason(bash(f"{opening} --dry-run", **builder)) is None
+    assert bash_guard.deny_reason(bash(opening, **(builder | {"agent_id": "a-2"}))) is None
+    url = "https://github.com/yasyf/cc-skills/pull/9"
+    with state.edit(demo) as data:
+        data["prs"][state.pr_key(url)] = state.new_pr(url, "j1", "o1")
+        data["jobs"]["j1"]["prs"].append(url)
+    assert bash_guard.deny_reason(bash(opening, **builder)) is None
+    with state.edit(demo) as data:
+        data["prs"][state.pr_key(url)]["state"] = "merged"
+    assert bash_guard.deny_reason(bash(opening, **builder)).startswith("refused: j1's work waits on his answer")
+    cards = []
+    assert bash_guard.deny_reason(bash(opening, **builder)) is None
 
 def test_a_designer_opens_no_pr_and_pushes_nothing(demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     designer = {"agent_id": "a-1", "agent_type": "long-running:designer"}
