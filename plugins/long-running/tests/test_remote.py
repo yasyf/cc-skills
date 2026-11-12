@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import Answers, Drawing, Jev
+from conftest import LIVE_WORKER, Answers, Drawing, Jev
 from drive import cli, github, install, orca, place, reads, render, slack, state, watch
 
 Run = Callable[..., tuple[int, str]]
@@ -32,6 +32,20 @@ ROOT_WORKER = {
     "projection": {"liveness": {"verdict": "live"}, "outcome": "in_progress", "attention": {"categories": []}},
     "terminal": {"handle": "term_root", "lastOutputAt": None},
 }
+SPRITE_DISPATCH = "ctx_sprite0001"
+SPRITE_WORKER = {
+    "worker": {"state": "ready", "startOptions": {"worktree": "id:repo-1::/home/sprite/monorepo", "serverName": "pool-sprite-one"}},
+    "dispatch": {"runId": RUN, "taskId": "task_sprite"},
+    "projection": {
+        "host": {"kind": "remote", "id": "env-sprite-one"},
+        "liveness": {"verdict": "live"},
+        "outcome": "in_progress",
+        "attention": {"categories": []},
+    },
+    "server": {"environmentId": "env-sprite-one", "name": "pool-sprite-one"},
+    "terminal": {"handle": "term_sprite", "lastOutputAt": None},
+}
+SPRITE_LANE = {"where": "remote", "route": None, "dispatch": SPRITE_DISPATCH, "workspace": "pool-sprite-one", "environment": "pool-sprite-one"}
 REAL_LOCAL_GAP = watch.local_gap
 REAL_LAST_WRITE = watch.last_write
 UNSENT = (
@@ -177,10 +191,12 @@ def test_place_counts_a_builder_lane_started_on_this_mac_while_it_launches_or_ru
     monkeypatch.setattr(place, "busy", lambda: 0.2)
     monkeypatch.setenv(place.LIMIT_ENV, "0.5")
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "many")
-    for goal in ("lane here", "lane here ended", "launching here", "never started here", "on a Sprite"):
+    monkeypatch.setattr(orca, "worker", lambda dispatch: SPRITE_WORKER if dispatch == SPRITE_DISPATCH else LIVE_WORKER)
+    for goal in ("lane here", "lane here ended", "launching here", "never started here", "on a Sprite", "recorded by hand on a Sprite"):
         run("job", "add", "builder", "--order", "o1", "--goal", goal, "--remote")
     run("job", "set", "j1", "--agent", "ctx_here1")
     run("job", "set", "j2", "--agent", "ctx_here2")
+    run("job", "set", "j6", "--agent", SPRITE_DISPATCH)
     with state.edit(demo) as data:
         state.lane_died(data["jobs"]["j2"], "ctx_here2", "its worker finished", state.now())
         data["jobs"]["j3"].update(route=state.LOCAL_ROUTE, launching=state.stamp())
@@ -1951,6 +1967,33 @@ def test_an_orca_dispatch_set_as_a_jobs_agent_records_a_lane_on_this_mac(run: Ru
         "route": "local",
         "workspace": None,
     }
+
+
+def test_an_orca_dispatch_on_a_sprite_set_as_a_jobs_agent_records_its_sprite_and_counts_no_builder_on_this_mac(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(orca, "worker", lambda dispatch: SPRITE_WORKER)
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "the tooling root")
+    run("job", "add", "builder", "--order", "o1", "--goal", "root tooling")
+    run("job", "set", "j1", "--agent", SPRITE_DISPATCH)
+    data = state.load(demo)
+    assert {field: data["jobs"]["j1"][field] for field in ("agent", *SPRITE_LANE)} == {"agent": None, **SPRITE_LANE}
+    assert place.local_builders(data, state.now()) == {}
+
+
+def test_the_watch_files_a_lane_recorded_on_this_mac_on_the_sprite_its_worker_show_names(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    deliver(monkeypatch)
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "the tooling root")
+    run("job", "add", "builder", "--order", "o1", "--goal", "root tooling")
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state.local_lane(SPRITE_DISPATCH), run=RUN, task="task_sprite", terminal="term_sprite")
+        data["run"] = DRIVE_RUN
+    assert list(place.local_builders(state.load(demo), state.now())) == ["j1"]
+    monkeypatch.setattr(orca, "worker", lambda dispatch: SPRITE_WORKER)
+    watch.run_pass(watch.Watcher(demo, offset=state.events_end(demo), ticked_at=T0), T0)
+    data = state.load(demo)
+    assert {field: data["jobs"]["j1"][field] for field in SPRITE_LANE} == SPRITE_LANE
+    assert place.local_builders(data, state.now()) == {}
 
 
 def test_a_local_launch_runs_the_launcher_on_its_local_route_in_the_checkouts_orca_repo_and_reads_no_prepared_server(

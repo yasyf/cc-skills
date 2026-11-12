@@ -1005,6 +1005,7 @@ def job_set(args: argparse.Namespace) -> int:
         raise DriveError("--rework names the PRs one carried order reworks: name that order with one --carries <o>")
     refuse_unreworkable(known, args.rework, args.id)
     shown = args.card and shown_card(name, args.card)
+    lane = args.agent and args.agent.startswith(state.DISPATCH_PREFIX) and orca.placement(orca.worker(args.agent))
     with state.edit(name) as data:
         job = find(data["jobs"], args.id, "job")
         job.update({field: value for field, value in changes.items() if value is not None})
@@ -1025,8 +1026,8 @@ def job_set(args: argparse.Namespace) -> int:
             refuse_a_shared_at_once_part(job["parts"])
         if args.agent and args.agent == job.get("dispatch"):
             job.update(where="remote", agent=None, handed_to=None)
-        elif args.agent and args.agent.startswith(state.DISPATCH_PREFIX):
-            job.update(state.local_lane(args.agent), agent=None)
+        elif lane:
+            job.update(lane, where="remote", dispatch=args.agent, agent=None)
         elif args.agent:
             job["where"] = "local"
             job["session"] = os.environ.get("CLAUDE_CODE_SESSION_ID")
@@ -3112,7 +3113,7 @@ def parser() -> argparse.ArgumentParser:
     verb.set_defaults(run=job_add)
     verb = job.add_parser("set", parents=[*both, waits_opt])
     verb.add_argument("id", help="the job")
-    verb.add_argument("--agent", help="the agent id the Agent tool returned, or the dispatch the job records, which puts it back on its Orca lane")
+    verb.add_argument("--agent", help="the agent id the Agent tool returned, the dispatch the job records, which puts it back on its Orca lane, or another Orca dispatch, filed on the Sprite or this Mac its worker-show names")
     verb.add_argument(
         "--state", choices=state.JOB_STATES, help="stopped: it ends unfinished; every other state comes from the line the job returns, and one it holds changes nothing"
     )
