@@ -474,7 +474,7 @@ def test_a_report_delivers_only_the_parts_its_posts_words_carry_and_its_dry_run_
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": answer, "thread_ts": thread})
     report(monkeypatch, {"incident": "true", "order": "o1", "thread": thread, "part": "o1:first check;o1:fix;o1:cause"})
     jev.unsaid = {"fix", "cause"}
-    unsaid = '"fix", "cause": not delivered, Jev reads its words as not saying they are done'
+    unsaid = '"cause": not delivered, Jev reads its words as not saying it is done'
     dry = talk.say(demo, {"text": INCIDENT_REPORT, "thread_ts": thread, "order": "o1", "record": "672826", "dry_run": True})
     assert dry.endswith(f'; o1 "first check": would be delivered; {unsaid}')
     assert [part["posted"] for part in state.load(demo)["orders"]["o1"]["parts"].values()] == [None, None, None]
@@ -483,11 +483,11 @@ def test_a_report_delivers_only_the_parts_its_posts_words_carry_and_its_dry_run_
     assert {part: kept["posted"] for part, kept in state.load(demo)["orders"]["o1"]["parts"].items()} == {"first check": answer, "fix": None, "cause": None}
     asked = jev.asked[-1]
     assert asked["state"] == {"order": "Executor Destroy Run Crash Count", "post": INCIDENT_REPORT}
-    assert [question["binary"]["instructions"].split('"')[1] for question in asked["questions"].values()] == ["first check", "fix", "cause"]
+    assert [question["binary"]["instructions"].split('"')[1] for question in asked["questions"].values()] == ["first check", "cause"]
     jev.answer = None
     code, unheard = run("order", "posted", "o1", answer, "--record", "672826")
-    assert code == 0 and unheard.startswith(f'o1 "first check", "fix", "cause": posted {answer}')
-    assert unheard.endswith('; Jev did not say whether its words carry "first check", "fix", "cause" (Command \'spawnllm decide\' timed out after 60 seconds), so each is delivered as named')
+    assert code == 0 and unheard.startswith(f'o1 "first check", "cause": posted {answer}')
+    assert unheard.endswith('; Jev did not say whether its words carry "first check", "cause" (Command \'spawnllm decide\' timed out after 60 seconds), so each is delivered as named')
 
 
 @pytest.mark.parametrize(
