@@ -36,6 +36,11 @@ func TestDefaultDispatchBansMCP(t *testing.T) {
 	if got := flagValue(argv, "--disable"); got != "apps" {
 		t.Fatalf("default argv --disable = %q, want apps:\n%v", got, argv)
 	}
+	for _, arg := range argv {
+		if strings.HasSuffix(arg, ".required=true") {
+			t.Fatalf("default argv requires an unmounted server with %q:\n%v", arg, argv)
+		}
+	}
 	if dev := developerInstructions(t, sdir); strings.Contains(dev, "## MCP") {
 		t.Fatalf("default developer_instructions carries an MCP contract:\n%s", dev)
 	}
@@ -60,6 +65,12 @@ func TestDefaultDispatchMountsEnabledTelemetryServers(t *testing.T) {
 	if contains(argv, "mcp_servers.datadog.enabled=false") {
 		t.Fatalf("default argv unmounted the enabled datadog server:\n%v", argv)
 	}
+	if !contains(argv, "mcp_servers.datadog.required=true") {
+		t.Fatalf("default argv lets the lane start before datadog has:\n%v", argv)
+	}
+	if contains(argv, "mcp_servers.sentry.required=true") || contains(argv, "mcp_servers.slack.required=true") {
+		t.Fatalf("default argv requires an unmounted server:\n%v", argv)
+	}
 	if dev := developerInstructions(t, sdir); !strings.HasSuffix(dev, mcpContract([]string{"datadog"})) {
 		t.Fatalf("default developer_instructions does not end with the datadog contract:\n%s", dev)
 	}
@@ -74,6 +85,11 @@ func TestMCPAddsNamedServersToTelemetry(t *testing.T) {
 	argv := cmdArgv(t, sdir)
 	if contains(argv, "mcp_servers.slack.enabled=false") || contains(argv, "mcp_servers.datadog.enabled=false") {
 		t.Fatalf("--mcp slack argv unmounted slack or datadog:\n%v", argv)
+	}
+	for _, want := range []string{"mcp_servers.slack.required=true", "mcp_servers.datadog.required=true"} {
+		if !contains(argv, want) {
+			t.Fatalf("--mcp slack argv missing %q:\n%v", want, argv)
+		}
 	}
 	if dev := developerInstructions(t, sdir); !strings.HasSuffix(dev, mcpContract([]string{"slack", "datadog"})) {
 		t.Fatalf("--mcp slack developer_instructions does not end with the slack and datadog contract:\n%s", dev)

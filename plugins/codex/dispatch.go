@@ -450,9 +450,11 @@ func mcpMountFlags(requested []string) ([]string, []string) {
 	var flags []string
 	// codex -c merges tables, so mcp_servers={} subtracts nothing; only a per-server enabled=false unmounts one.
 	for _, s := range configured {
-		if !contains(mounted, s.Name) {
-			flags = append(flags, "-c", "mcp_servers."+s.Name+".enabled=false")
+		if contains(mounted, s.Name) {
+			flags = append(flags, "-c", "mcp_servers."+s.Name+".required=true")
+			continue
 		}
+		flags = append(flags, "-c", "mcp_servers."+s.Name+".enabled=false")
 	}
 	return append(flags, "--disable", "apps", "--disable", "plugins"), mounted
 }

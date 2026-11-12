@@ -155,12 +155,9 @@ changed and when, its findings the suspects, and its root cause the verdict.
   PR deletes it. Design cards hold only the root fix, never the stop.
   `drive incident open --no-rollback` starts it at the alert, and `drive incident stop <o>` the turn
   a rollback finds no build, refused while a stop job runs.
-- **A Sentry read:** a codex lane has no Sentry sign-in. A first check or cause job that needs
-  Sentry, such as the affected chats or the full error an alert links, gets a `long-running:reader`
-  beside it in the same message. Add it first with `drive job add reader --order <o> --goal "Sentry
-  read: <what>" --part "<its part>"`, then start it with the Agent tool on `model` `opus` in the
-  background; it reads Sentry with this session's Sentry tools and appends what it read to the
-  record. Send its result to the codex job with `SendMessage`.
+- **A Sentry read:** a codex lane reads Sentry itself with the `mcp__sentry__*` tools `codex-ask`
+  mounts on every run. A first check or cause job that needs Sentry, such as the affected chats or
+  the full error an alert links, reads the issue its brief links, and no reader starts for it.
 
 ## When the first check returns
 
