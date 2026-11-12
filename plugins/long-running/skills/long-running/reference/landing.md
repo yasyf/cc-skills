@@ -129,7 +129,8 @@ No tap and no green gate: by his standing rule a `yasyf/*` PR merges without ask
    one, and the watch starts the lander again on the new head within one GitHub read, 60 seconds.
    The watch does the same for a head its builder pushes after a refusal, once GitHub reads it free
    of conflicts, so nobody registers a rebased PR again. It writes its output to the drive's
-   `landings.log`, and its outcome reaches the job's holder as one line,
+   `landings.log`, ending in one line of the PR's key and its outcome, such as
+   `yasyf/cc-skills#7: merged at <sha>; …`, and its outcome reaches the job's holder as one line,
    `PR … merged at <sha>; <each install's version line>` or `PR … not landed: <why>`, which comes
    only when `gh pr update-branch` cannot bring `main` in either, on a conflict git cannot merge.
    `drive pr add` prints why it started none: a draft, the `hold` label, a lander already running on

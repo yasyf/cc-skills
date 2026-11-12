@@ -2311,7 +2311,7 @@ def pr_land(args: argparse.Namespace) -> int:
     keys = [state.pr_key(url) for url in args.urls]
     name = state.resolve(args.drive)
     outcome = land.record(name, keys, args.outcome, args.below) if args.outcome else land.run(name, keys, args.dry_run)
-    return emit(args, outcome, {"keys": keys, "outcome": outcome})
+    return emit(args, f"{', '.join(keys)}: {outcome}", {"keys": keys, "outcome": outcome})
 
 
 def pr_check(args: argparse.Namespace) -> int:

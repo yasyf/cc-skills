@@ -2490,6 +2490,20 @@ def test_a_lander_queues_a_stack_bottom_first_up_to_the_first_pr_he_has_not_appr
     assert land.start(demo, [KEY, OTHER], cards) == []
 
 
+def test_a_lander_queues_a_stack_its_job_waits_on_yet_holds_a_pr_waiting_on_an_open_pr_until_that_pr_merges(demo: str, landers: list[tuple[str, ...]]) -> None:
+    stacked(demo)
+    approve(demo, KEY, OTHER)
+    with state.edit(demo) as data:
+        data["prs"][THIRD] = state.new_pr(state.pr_url(THIRD), "j1", "o1")
+        data["jobs"]["j1"]["waits"] = [KEY, OTHER, THIRD]
+        data["prs"][OTHER]["waits"] = [THIRD]
+    assert land.start(demo, [KEY, OTHER], NO_CARDS) == []
+    with state.edit(demo) as data:
+        data["prs"][THIRD]["state"] = "merged"
+    assert land.start(demo, [KEY, OTHER], NO_CARDS) == [(KEY, OTHER)]
+    assert landers == [(KEY, OTHER)]
+
+
 def enqueue_exiting(tmp_path: Path, name: str, code: int) -> None:
     script = tmp_path / land.ENQUEUE
     script.parent.mkdir(parents=True)
@@ -2516,7 +2530,9 @@ def test_a_landers_outcome_is_said_on_its_prs_line_and_only_a_failure_wakes_its_
     assert watch.wakes(lines[0], state.load(demo)) == bool(code)
 
 
-def test_a_lander_that_outlived_an_install_hands_its_outcome_to_the_newest_drive_which_records_it(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_lander_that_outlived_an_install_hands_its_outcome_to_the_newest_drive_which_records_it_and_logs_it_under_its_pr(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     waiting_job(demo)
     approve(demo, KEY)
     enqueue_exiting(tmp_path, demo, 0)
@@ -2539,6 +2555,7 @@ def test_a_lander_that_outlived_an_install_hands_its_outcome_to_the_newest_drive
     assert json.loads(path.read_text())["prs"][KEY]["lander"] is None
     path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": state.VERSION}))
     assert cli.main(["pr", "land", state.pr_url(KEY), "--drive", demo, "--outcome", land.QUEUED]) == 0
+    assert capsys.readouterr().out.splitlines()[-1] == f"{KEY}: {land.QUEUED}"
     assert state.load(demo)["prs"][KEY]["lander"]["outcome"] == land.QUEUED
     assert watch.event_lines(watching) == [f"PR {KEY}: {land.QUEUED} [o1 j1]"]
 
