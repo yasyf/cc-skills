@@ -104,7 +104,10 @@ SAY = {
             },
             "asked": {
                 "anyOf": [TEXT, {"type": "array", "items": TEXT}],
-                "description": "Each message of his this post answers, word for word, one per entry, so the answer goes out whole",
+                "description": (
+                    "Each message of his this post answers, word for word or by its permalink in his DM, one per entry, so the answer goes out"
+                    " whole; a post outside the thread his message is in, such as a share he ordered to another person's group DM, passes its permalink"
+                ),
             },
             "card": {"type": "object", "description": "A question card exactly as drive job card printed it"},
             "tap_prs": {

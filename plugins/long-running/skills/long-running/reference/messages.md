@@ -46,12 +46,18 @@ reading of his words "your messages need to be way shorter rewrite this for a hu
 - A post that answers a question or order of his, a ruling he gave, or his tap on Explain more goes
   out whole at any length, because a cut answer loses what he asked. To lift the limit, pass as
   `asked` each message of his the post answers, word for word, one per line or list entry (a list
-  sent as a JSON string counts as its entries), with `…` where you skip words.
-- The hook looks for each quote in his messages in the thread the post goes to, or in the handler's
-  brief and the record its `Record:` line names, with straight and curly quote marks alike; one found
-  quote is enough. A refusal says which
-  limit applied and why: no `asked`, so not an answer; quotes it could not find, named; or an edit's
-  own length.
+  sent as a JSON string counts as its entries), with `…` where you skip words, or the message's
+  permalink in his DM as its entry. A post outside the thread his message is in, such as a share he
+  ordered from his thread to another person's group DM, passes that permalink, since the thread it
+  goes to holds no word of his.
+- The hook looks for each quote in his messages in the thread the post goes to, in the answers of his
+  its cards there show, in his Explain more tap, which a card there shows on cc-slack's "You asked for
+  more" line so a reply passes `asked="Explain more"`, and in each message of his in his DM an `asked`
+  permalink links, read from Slack, with straight and curly quote marks alike; one found quote is
+  enough. The handler's brief
+  and the record it was started with are other agents' words, never his, whatever they quote. A
+  refusal says which limit applied and why: no `asked`, so not an answer; quotes it could not find,
+  named; or an edit's own length.
 - An edit that rewords a posted line may grow it by 10 words, so a correction can add the proper
   terms without the cap cutting what the line says.
 - A question card keeps its 150 words whatever it quotes, and its Show me counts toward none of them,
@@ -708,8 +714,8 @@ GET 2 page ranges
   of them those titles are.
 - A finding refuses nothing on its own. The hook hands the post and every finding, check-post's and
   the drive's own, to Jev with the rule each finding stands for, in this skill's and cc-slack's words,
-  and his words: his messages in the thread it goes to and each answer of his a card there shows,
-  read from Slack, beside the session's recent turns. A handler's brief, the record it reads in and
+  and his words: his messages in the thread it goes to and each answer or Explain more tap of his a
+  card there shows, read from Slack, beside the session's recent turns. A handler's brief, the record it reads in and
   every prompt of a handler's own `claude --bg` session are the communicator's or a writer's words,
   never his, whatever they quote. Jev judges only the line each finding names, by its rule: the post
   goes out when no finding's rule holds against its line, or his words lift it, and comes back with
@@ -725,10 +731,12 @@ GET 2 page ranges
 - What the hook let out is what he reads: `say` adds no words of its own and checks nothing again.
   Check-post reads the words under each link, so a card, PR, order or record title it flags is named
   in the post's own words, `{pr:<number>|<words>}` or `{record:<seq>|<words>}`.
-- A post that answers him passes each message of his in `asked`, and check-post gets them as
-  `--asked`, so a drive word he used there, such as "the drive" in his question about the drive,
-  passes in the answer. When each stands word for word in his messages in that thread or an answer of
-  his a card there shows, the length limit lifts with no judge; otherwise Jev reads the same words.
+- A post that answers him passes each message of his in `asked`, word for word or by its permalink
+  in his DM, and check-post gets each message's words as `--asked`, so a drive word he used there,
+  such as "the drive" in his question about the drive, passes in the answer, and so does an internal
+  id such as a run id when his message asks for ids, as "the session IDs" does. When one stands word
+  for word in his messages in that thread, an answer or Explain more tap of his a card there shows or
+  a message of his an `asked` permalink links, the length limit lifts with no judge; otherwise Jev reads the same words.
 - A post that draws a card, or a PR card through `tap_prs` or a PR its waiting line links, carries
   the card its words say waits on him, so check-post's `waits-without-card` finding is dropped for
   it. A check that fails on a post refuses it rather than let it out unchecked, and so does a

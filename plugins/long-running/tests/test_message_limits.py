@@ -34,12 +34,19 @@ ELEVEN_FIXES = {
     "Batch adds": "Several orders or jobs added in one call all land or none do.",
     "Status tables": "Status posts draw tables as Slack tables, and the bot reads back its canvas.",
 }
-WHOLE = "pass as asked each message of his it answers, word for word, one per line."
+WHOLE = "pass as asked each message of his it answers, word for word or by its permalink, one per line."
 RELAY_BRIEF = (
     "Record: 670054 report from meta (job j1546, closes o598)\nDrive: demo\nContext: read 670054 whole. Post it in o598's thread if it"
     " has one, else at his DM root. He is away, so say may hold it for his catch-up.\nDeliverable: the line from 670054 posted, or held for his catch-up"
 )
-NOT_HIS = "Copy each message of his this post answers word for word, one per line, with … where you skip words."
+NOT_HIS = (
+    "Copy each message of his this post answers word for word, one per line, with … where you skip words, or pass its permalink"
+    " when it is in another thread of his DM, as a share he ordered to another person's DM does."
+)
+TEAMMATE = "U2"
+SHARE_ORDER = f"can you summarize all our findings, the session IDs, the patterns, the fixes we are considering, etc to <@{TEAMMATE}>"
+SHARE_LINK = f"https://acme.slack.com/archives/{DM}/p1794512898040859?thread_ts=1794491173.244549&cid={DM}"
+SHARE = "*What happened*\n" + " ".join(["word"] * 70) + "\n*Fixes being built*\n" + " ".join(["word"] * 70)
 
 BAD_STATE_THREAD = "1794292846.190589"
 LOOK_INTO = "Also look into how it got into this bad state "
@@ -639,7 +646,7 @@ def test_words_he_did_not_write_lift_nothing_and_the_refusal_names_them(
     reason = posted(transcript, text=said(400), thread_ts="1.2", asked=asked)
     assert reason.startswith("refused: this post is 400 words, and a line in his thread is at most 60 words")
     assert "It is not an answer, so it keeps that limit" in reason
-    assert f"in no message of his in the thread this post goes to and no answer of his a card there shows: {named}. {NOT_HIS}" in reason
+    assert f"in no message of his in the thread this post goes to, no answer or Explain more tap of his a card there shows and no message of his in his DM an asked permalink links: {named}. {NOT_HIS}" in reason
 
 
 def test_words_only_the_bot_wrote_in_the_thread_lift_nothing(talker: str, briefed: Path, slack_thread: Thread) -> None:
@@ -658,6 +665,44 @@ def test_his_answer_on_a_card_in_the_thread_is_his_words_for_asked_and_for_jev(t
     assert [(word["id"], word["source"]) for word in words] == [("slack:1794310000.000000", "slack"), ("card:1794418890.901979:0", "card")]
     assert words[1]["quote"] == f"<{HIS_PICK}|{BREAK_GLASS}> · 9:41am"
     assert posted(transcript, text=said(100), thread_ts="1.2", asked="Use break glass every time").startswith("refused: this post is 100 words")
+
+
+def test_his_explain_more_tap_on_a_card_in_the_thread_asks_for_the_whole_reply(talker: str, transcript: Path, slack_thread: Thread) -> None:
+    card = "*A write re-citing an old file pointer passes on the database's own rows.*\n*1. Ask the names route first*"
+    slack_thread.messages.append({"ts": "1794505940.419019", "from_bot": True, "text": card})
+    refusal = posted(transcript, text=said(100), thread_ts="1.2", asked="Explain more")
+    assert refusal.startswith("refused: this post is 100 words")
+    assert '"Explain more"' in refusal
+    for drawn in (":mag_right:", "🔎"):
+        slack_thread.messages[-1]["text"] = f"{card}\n{drawn} *You asked for more at 12:06pm.* An explanation follows in this thread.\ndurable-agents · 9:52am"
+        assert posted(transcript, text=said(100), thread_ts="1.2", asked="Explain more") is None
+    assert posted(transcript, text=said(100), thread_ts="1.2", asked="Explain the names route").startswith("refused: this post is 100 words")
+    words = message_limits.his_words(call("slack_dm_status", transcript, text=said(100), thread_ts="1.2"))
+    assert [(word["id"], word["quote"], word["detail"]) for word in words] == [("card:1794505940.419019:0", "Explain more", message_limits.EXPLAIN_TAPPED)]
+
+
+def test_a_share_he_ordered_to_another_persons_dm_answers_his_order_by_its_permalink(
+    talker: str, transcript: Path, slack_thread: Thread, checked: Checked
+) -> None:
+    slack_thread.messages += [
+        {"ts": "1794491173.244549", "user": "U1", "text": "why did the nightly runs crash?"},
+        {"ts": "1794512898.040859", "thread_ts": "1794491173.244549", "user": "U1", "text": SHARE_ORDER},
+        {"ts": "1794512900.000100", "thread_ts": "1794491173.244549", "from_bot": True, "text": "Sending the summary."},
+    ]
+    share = {"channel_id": TEAMMATE, "text": SHARE}
+    assert "a summary of 2 features is at most 120 words" in say(transcript, **share)
+    assert "in his DM an asked permalink links" in say(transcript, **share, asked=SHARE_ORDER)
+    assert say(transcript, **share, asked=SHARE_LINK) is None
+    assert say(transcript, **share, asked=[f"<{SHARE_LINK}>"]) is None
+    assert checked.asked[-1] == [SHARE_ORDER]
+    bot = f"https://acme.slack.com/archives/{DM}/p1794512900000100?thread_ts=1794491173.244549&cid={DM}"
+    assert "a summary of 2 features is at most 120 words" in say(transcript, **share, asked=bot)
+    reads = len(slack_thread.reads)
+    elsewhere = "https://acme.slack.com/archives/C0REPORTS01/p1794512898040859"
+    assert "a summary of 2 features is at most 120 words" in say(transcript, **share, asked=elsewhere)
+    assert len(slack_thread.reads) == reads
+    words = message_limits.his_words(call("slack_dm_status", transcript, **share, asked=SHARE_LINK) | {"tool_name": message_limits.SAY})
+    assert [(word["id"], word["detail"]) for word in words] == [("slack:1794512898.040859", message_limits.LINKED_ASK)]
 
 
 def test_a_line_saying_how_a_failure_is_prevented_carries_his_ruling_asking_for_it_to_jev(talker: str, transcript: Path, slack_thread: Thread) -> None:

@@ -31,6 +31,10 @@ PROMISE = re.compile(r"\b(?:from now on|next you(?:['’]ll| will)? get|I(?:['�
 CARRIER = re.compile(r"\b[oj]\d+\b|\b\d{1,2}:\d{2}\s*[AP]M\b", re.IGNORECASE)
 SWITCH = re.compile(r"orca terminal switch --terminal[= ]([^\s`'\"<>|]+)")
 CARD_ANSWER = re.compile(r"✓ ([^\n]+)")
+CARD_ANSWERED = "his answer, as the card the bot drew in this thread shows it"
+EXPLAIN_TAP = re.compile(r"\*You asked for more at [^*\n]+\.\*")
+EXPLAIN_MORE = "Explain more"
+EXPLAIN_TAPPED = "his tap on the card's Explain more button, as the card the bot drew in this thread shows it, which asks for the reply that explains the card"
 COORDINATOR = re.compile(r"\bcoordinator\b", re.IGNORECASE)
 DOWN = re.compile(
     r"\b(?:is|was|went|has been|had been|seems?|looks?)\s+(?:down|dead|gone|offline|unresponsive)\b|\b(?:crashed|exited|died|not running|stopped responding)\b",
@@ -98,6 +102,8 @@ OLD_READ = "your last read of his thread {thread} was {minutes} minutes ago, and
 FAILED_READ = "your slack_thread call on his thread {thread} failed"
 UNOPENED_READ = "your read of his thread {thread} was saved to {file}, which you have not opened since"
 ANSWERED = "his message in the thread this post goes to since the bot's last post there, which this post answers"
+LINKED_ASK = "his message in his DM with the app, which this post answers and names as asked by its permalink"
+HIS_PERMALINK = re.compile(r"<?(https://[\w.-]+/archives/([A-Z0-9]+)/p\d{16}[^\s|<>]*)>?")
 PREVENTION_WORDS = {
     "id": "ruling:6a6edbf",
     "source": "his ruling on failures told to him",
@@ -109,7 +115,8 @@ PREVENTION_WORDS = {
 }
 WHOLE = (
     " It names no message of his as asked, so it is not an answer and keeps that limit. An answer to a question or"
-    " order of his goes out whole, at any length: pass as asked each message of his it answers, word for word, one per line."
+    " order of his goes out whole, at any length: pass as asked each message of his it answers, word for word or by its"
+    " permalink, one per line."
 )
 CODE_SPAN = re.compile(r"`([^`\n]+)`")
 LINKED = re.compile(r"<https?://[^>]*>|https?://\S+")
@@ -220,11 +227,11 @@ def unread(payload: dict, dm: str) -> str | None:
     return UNREAD.format(why=why, channel=channel, thread=thread)
 
 
-def unchecked(tool_input: dict, messages: list[dict], drive: dict) -> str | None:
-    """What `cc-slack check-post` finds in the exact words the post sends, judged by cc-slack's plain-words rule as a reply to each message of his it answers: those its asked names and his messages in its thread since the bot's last post there; an order or job id none of them used refuses unjudged, since no reading of his words makes it open anything; a post reporting on an incident keeps its alert's Slack message and Sentry or Datadog issue bare, so Slack unfurls them, as his incident rule asks; a post that draws a card, or a PR's tap card through tap_prs, carries the card its words say waits on him."""
+def unchecked(tool_input: dict, messages: list[dict], linked: dict[str, dict], drive: dict) -> str | None:
+    """What `cc-slack check-post` finds in the exact words the post sends, judged by cc-slack's plain-words rule as a reply to each message of his it answers: those its asked names, word for word or by permalink, and his messages in its thread since the bot's last post there; an order or job id none of them used refuses unjudged, since no reading of his words makes it open anything; a post reporting on an incident keeps its alert's Slack message and Sentry or Datadog issue bare, so Slack unfurls them, as his incident rule asks; a post that draws a card, or a PR's tap card through tap_prs, carries the card its words say waits on him."""
     if not (text := tool_input.get("text") or ""):
         return None
-    asked = [*slack.messages(tool_input.get("asked") or ""), *(message["text"] for message in unanswered(messages))]
+    asked = [*answered_words(tool_input.get("asked"), linked), *(message["text"] for message in unanswered(messages))]
     try:
         findings = refs.answer_ids(slack.post_findings(text, bool(tool_input.get("card") or tool_input.get("tap_prs")), asked), drive)
     except slack.SlackError as error:
@@ -254,13 +261,30 @@ def thread_messages(payload: dict, dm: str) -> list[dict]:
     return []
 
 
+def linked_words(asked: str | list[str] | None, dm: str) -> dict[str, dict]:
+    """His messages asked names by permalink, each under the entry naming it, as `thread_words` keeps his words: a message in his DM with the app the bot did not write, read from Slack, so an answer posted outside the thread his message is in, such as a share he ordered to another person's group DM, quotes his order there; a link to any other message is no word of his."""
+    found = {}
+    for entry in slack.messages(asked or ""):
+        if not (link := HIS_PERMALINK.fullmatch(entry.strip())) or link[2] != dm:
+            continue
+        message = slack.message(link[1])
+        if not message.get("from_bot"):
+            found[entry] = {"id": f"slack:{message['ts']}", "source": "slack", "quote": message["text"], "said_at": slack.sent_at(message).isoformat(), "detail": LINKED_ASK}
+    return found
+
+
+def answered_words(asked: str | list[str] | None, linked: dict[str, dict]) -> list[str]:
+    """Each message of his asked names, word for word: an entry's own words, or the words of his message its permalink links."""
+    return [linked[entry]["quote"] if entry in linked else entry for entry in slack.messages(asked or "")]
+
+
 def unanswered(messages: list[dict]) -> list[dict]:
     """His messages since the bot's last post in the thread, which a post there answers."""
     return list(itertools.takewhile(lambda message: not message.get("from_bot"), reversed(messages)))[::-1]
 
 
 def thread_words(messages: list[dict]) -> list[dict]:
-    """His words in the thread the post goes to, each as the evidence Jev cites, those since the bot's last post marked as the ones it answers: in his DM with the app every message not the bot's is his, and each card the bot drew or shared there shows his answer on its ✓ line; a thread outside his DM, such as an alert's, holds others' words, never his."""
+    """His words in the thread the post goes to, each as the evidence Jev cites, those since the bot's last post marked as the ones it answers: in his DM with the app every message not the bot's is his, and each card the bot drew or shared there shows his answer on its ✓ line and his Explain more tap on the line cc-slack draws for it, which asks for the reply that explains the card; a thread outside his DM, such as an alert's, holds others' words, never his."""
     answers = {message["ts"] for message in unanswered(messages)}
     words = []
     for message in messages:
@@ -270,9 +294,11 @@ def thread_words(messages: list[dict]) -> list[dict]:
             words.append({"id": f"slack:{message['ts']}", "source": "slack", "quote": message["text"], "said_at": said_at, "detail": detail})
             continue
         cards = [message["text"], *(share.get("text") or "" for share in message.get("shares") or [])]
+        taps = {answer: CARD_ANSWERED for card in cards for answer in CARD_ANSWER.findall(card)}
+        taps |= {EXPLAIN_MORE: EXPLAIN_TAPPED for card in cards if EXPLAIN_TAP.search(card)}
         words += [
-            {"id": f"card:{message['ts']}:{index}", "source": "card", "quote": answer, "said_at": said_at, "detail": "his answer, as the card the bot drew in this thread shows it"}
-            for index, answer in enumerate(dict.fromkeys(answer for card in cards for answer in CARD_ANSWER.findall(card)))
+            {"id": f"card:{message['ts']}:{index}", "source": "card", "quote": quote, "said_at": said_at, "detail": detail}
+            for index, (quote, detail) in enumerate(taps.items())
         ]
     return words
 
@@ -329,12 +355,14 @@ def untooled(payload: dict, drive: dict, said: str) -> str | None:
 
 
 def his_words(payload: dict) -> list[dict]:
-    """What Jev judges a refused post by besides the transcripts: his words in the thread it goes to in his DM, read from Slack, his messages and the answers its cards show; a handler's brief and the record it reads in are the communicator's and a writer's words, never his, and a thread outside his DM, such as a bug report's, holds others' words; a post naming a cause or failure with the order or PR preventing it carries his ruling asking for that line."""
-    if (drive := his_drive(payload.get("session_id") or "")) is None or not posts_to(payload, drive["slack"]["channel"]):
+    """What Jev judges a refused post by besides the transcripts: his words in the thread it goes to in his DM, read from Slack, his messages and the answers its cards show, and each message of his in his DM its asked links by permalink; a handler's brief and the record it reads in are the communicator's and a writer's words, never his, and a thread outside his DM, such as a bug report's, holds others' words; a post naming a cause or failure with the order or PR preventing it carries his ruling asking for that line."""
+    if (drive := his_drive(payload.get("session_id") or "")) is None or not posts_to(payload, dm := drive["slack"]["channel"]):
         return []
     ruled = [PREVENTION_WORDS] if refs.prevented(payload["tool_input"].get("text") or "") else []
     try:
-        return [*thread_words(thread_messages(payload, drive["slack"]["channel"])), *ruled]
+        words = thread_words(thread_messages(payload, dm))
+        shown = {word["id"] for word in words}
+        return [*words, *(word for word in linked_words(payload["tool_input"].get("asked"), dm).values() if word["id"] not in shown), *ruled]
     except slack.SlackError:
         return ruled
 
@@ -410,9 +438,10 @@ def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> s
         return refusal
     try:
         messages = thread_messages(payload, dm)
+        linked = linked_words(tool_input.get("asked"), dm)
     except slack.SlackError as error:
         return f"refused: his thread could not be read, so this post cannot be checked as a reply to his messages there: {error}."
-    if (long := over_length(payload, dm, messages)) and found:
+    if (long := over_length(payload, dm, messages, linked)) and found:
         long += TITLED.format(limits.words(refs.slack(" ".join(match[0] for match in refs.REF.finditer(said)), found, talk.shown_in(drive["name"], tool_input))))
     return every(
         [
@@ -424,7 +453,7 @@ def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> s
             unpromised(payload),
             raw_visuals(tool_input),
             unswitched(tool_input, drive),
-            unchecked(tool_input, messages, drive),
+            unchecked(tool_input, messages, linked, drive),
             unbacked(payload, said),
             unprevented(said, found),
             unordered(said),
@@ -663,8 +692,8 @@ def unlinked(payload: dict, drive: dict) -> str | None:
     return refusal and agents.Ruled(refusal, LINK_RULE)
 
 
-def over_length(payload: dict, dm: str, messages: list[dict]) -> str | None:
-    """Why the post is longer than he reads: a routine line, summary or card keeps its limit, an edit may reword its post at that post's length, and an answer quoting any message of his word for word as asked goes out whole."""
+def over_length(payload: dict, dm: str, messages: list[dict], linked: dict[str, dict]) -> str | None:
+    """Why the post is longer than he reads: a routine line, summary or card keeps its limit, an edit may reword its post at that post's length, and an answer naming as asked any message of his, word for word as the thread it goes to shows it or by its permalink in his DM, goes out whole."""
     tool_input = payload["tool_input"]
     if (refusal := limits.post_refusal(tool_input)) is None or tool_input.get("card"):
         return refusal
@@ -674,16 +703,18 @@ def over_length(payload: dict, dm: str, messages: list[dict]) -> str | None:
         refusal += f" The post it edits could not be read to check its length: {error}."
     if refusal is None:
         return None
-    if not (asked := quotes(tool_input.get("asked") or "")):
+    if not (asked := quotes(answered_words(tool_input.get("asked"), linked))):
         return refusal + WHOLE
-    missing = unsaid(asked, " ".join(word["quote"] for word in thread_words(messages)))
+    missing = unsaid(asked, " ".join(word["quote"] for word in [*thread_words(messages), *linked.values()]))
     if len(missing) < len(asked):
         return None
     named = ", ".join(f'"{part}"' for part in missing)
     return (
         refusal + " It is not an answer, so it keeps that limit: asked lifts the limit only with his own words, and these stand"
-        f" in no message of his in the thread this post goes to and no answer of his a card there shows: {named}."
-        " Copy each message of his this post answers word for word, one per line, with … where you skip words."
+        " in no message of his in the thread this post goes to, no answer or Explain more tap of his a card there shows and no message of his"
+        f" in his DM an asked permalink links: {named}. Copy each message of his this post answers word for word, one per"
+        " line, with … where you skip words, or pass its permalink when it is in another thread of his DM, as a share he"
+        " ordered to another person's DM does."
     )
 
 
