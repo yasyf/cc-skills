@@ -185,8 +185,8 @@ def asked(evt: BaseHookEvent, case: str, words: list[Evidence]) -> HookResult | 
         return None
     found = [f"Jev: {verdict.explained}", *([verdict.reason] if verdict.refusal else [])]
     return evt.context(
-        "landing_guard: Jev weighed this question card against his words on root causes and on the view each link opens,"
-        " and finds it breaks them; Jev only advises, so the verb keeps the card as written. If the finding holds, ask again with the block rewritten and drop"
+        "landing_guard: Jev finds this question card breaks his words on root causes or on the view each link opens; Jev only"
+        " advises, so the verb keeps the card as written. If the finding holds, ask again with the block rewritten and drop"
         " this one with `drive job ask <job> --drop <its path>`.\n```\n" + "\n".join([*found, case]) + "\n```"
     )
 
