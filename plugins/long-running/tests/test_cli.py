@@ -3573,7 +3573,7 @@ def test_pr_add_refuses_a_title_his_card_cannot_name_the_kind_of(run: Run, demo:
 
 
 def test_pr_add_refuses_a_body_whose_shown_sections_speak_of_him_as_he_or_his(run: Run, demo: str, on_github: dict, capsys: pytest.CaptureFixture[str]) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Releases", "land it")
+    run("order", "add", "--title", "Land it", "--project", "The drive", "--workstream", "Releases", "land it")
     run("job", "add", "builder", "--order", "o1", "--goal", "land it")
     on_github["body"] = CARD_BODY.replace("once your tap comes in", "once his tap comes in")
     assert cli.main(["pr", "add", PR, "--job", "j1"]) == 2
