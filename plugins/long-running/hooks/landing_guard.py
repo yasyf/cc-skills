@@ -3,6 +3,7 @@ import os
 import re
 import sys
 from collections.abc import Generator, Iterator
+from contextlib import suppress
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -66,6 +67,15 @@ UNCHECKED = (
 UNREAD = (
     "landing_guard let this run unchecked, since a read it needed failed, so a Forge-AI drive PR's tap and open cards"
     " went unread. Once GitHub answers, read them with `drive status <PR url>`. The read said: {error}"
+)
+CCI_SERVER = "plugin:cc-inbox:cci"
+CCI_TOOLS = "mcp__plugin_cc-inbox_cci__"
+CLI_POST = (
+    "Refused on purpose: this session's cci MCP server is connected, so it posts, answers and closes records with the cci"
+    " `post` and `close` tools (ToolSearch `select:mcp__plugin_cc-inbox_cci__post,mcp__plugin_cc-inbox_cci__close` loads"
+    " them when deferred), never `cci post` in Bash, by his Nov 12 ruling: \"metadata session is using the CLI insrqad of"
+    " mcp for `cci post`\". `cci post` in Bash is for a session whose cci server is gone, and while cci is down entirely"
+    " a session reaches another with ListAgents, then SendMessage to `<drive>-<role>`"
 )
 AGENTS = "long-running:"
 COORDINATOR_WORK = (
@@ -539,6 +549,33 @@ def cci_posts(script: str, shell: Shell) -> list[tuple[str, dict[str, str], list
     return posts
 
 
+def cci_connected(payload: dict) -> bool:
+    """Whether the session's cci MCP server is connected, as the newest change its transcript records leaves it: an instructions or deferred-tools delta adding or removing the server or its tools, or naming it failed. The agent's own transcript answers when it records a change, else its session's; one recording none reads as gone, so `cci post` stays open."""
+    paths = [agents.transcript(payload)] if payload.get("agent_id") else []
+    for path in [*paths, Path(payload["transcript_path"])]:
+        connected = None
+        with suppress(FileNotFoundError), path.open("rb") as rows:
+            for row in rows:
+                if b"cc-inbox" in row and b"_delta" in row:
+                    connected = cci_change(json.loads(row).get("attachment") or {}, connected)
+        if connected is not None:
+            return connected
+    return False
+
+
+def cci_change(attachment: dict, connected: bool | None) -> bool | None:
+    """The cci server's state after one transcript attachment: connected when it adds the server or its tools, gone when it removes them or names the server failed, else as it was."""
+    ours = {
+        field
+        for field in ("addedNames", "removedNames", "failedMcpServers")
+        for entry in attachment.get(field) or []
+        if (name := entry if isinstance(entry, str) else entry.get("name", "")) == CCI_SERVER or name.startswith(CCI_TOOLS)
+    }
+    if "addedNames" in ours:
+        return True
+    return False if ours else connected
+
+
 def misrouted(posts: list[tuple[str, dict[str, str], list[str], str, str | None, list[str]]], drives: dict[str, dict], session: str) -> str | None:
     """Why a drive session's `cci post` names lanes other than the drive routes its record to, which the cci `post` tool's hook readdresses: a defect not to the session holding drive tooling, or a communicator's record not to the session hearing the order it serves."""
     for kind, attrs, to, *_ in posts:
@@ -628,12 +665,15 @@ def judged_reason(payload: dict) -> str | None:
 
 
 def guarded_reason(payload: dict) -> str | None:
-    """Why a Bash call must not run, a refusal capt-hook's Jev never weighs again: it lands a Forge-AI drive PR without his tap or merges with --admin there, in a drive session or agent lands a Forge-AI PR someone else opened that no order of his names, starts, approves or rolls back a production cut from a sub-coordinator's session, or starts one in a drive session on `--order` naming an answer of his that is no incident's and that Jev does not read as his pick to release, and in a drive session or agent lands a Forge-AI PR while his card on it is open, around the monorepo's queue or apart from its stack, puts up a drive's public PR body showing what only a private place may, or posts with `cci post` an owner or answer record of his words on an open card of his, which only the drive's `record` tool closes in the same call."""
+    """Why a Bash call must not run, a refusal capt-hook's Jev never weighs again: it lands a Forge-AI drive PR without his tap or merges with --admin there, in a drive session or agent lands a Forge-AI PR someone else opened that no order of his names, starts, approves or rolls back a production cut from a sub-coordinator's session, or starts one in a drive session on `--order` naming an answer of his that is no incident's and that Jev does not read as his pick to release, and in a drive session or agent lands a Forge-AI PR while his card on it is open, around the monorepo's queue or apart from its stack, puts up a drive's public PR body showing what only a private place may, in a drive session or agent whose cci MCP server is connected posts or closes a record with `cci post` in place of the cci `post` and `close` tools, or posts with `cci post` an owner or answer record of his words on an open card of his, which only the drive's `record` tool closes in the same call."""
     names, shell = shell_of(payload)
     command = payload["tool_input"]["command"]
     if shell.driving and (exposed := body_reason(command, shell)):
         return exposed
-    unclosed = (superseded.unclosed_refusal(names, kind, attrs, url, answered) for kind, attrs, _, _, url, answered in cci_posts(command, shell))
+    posts = cci_posts(command, shell)
+    if shell.driving and posts and cci_connected(payload):
+        return CLI_POST
+    unclosed = (superseded.unclosed_refusal(names, kind, attrs, url, answered) for kind, attrs, _, _, url, answered in posts)
     if names and (left_up := next(filter(None, unclosed), None)):
         return left_up
     return script_reason(command, shell)

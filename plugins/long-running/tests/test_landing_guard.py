@@ -34,7 +34,7 @@ def no_calls(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def bash(command: str, cwd: str = "/work", **fields: object) -> dict:
-    return {"tool_name": "Bash", "tool_input": {"command": command}, "cwd": cwd, "session_id": SESSION, **fields}
+    return {"tool_name": "Bash", "tool_input": {"command": command}, "cwd": cwd, "session_id": SESSION, "transcript_path": "/work/session.jsonl", **fields}
 
 
 def approve(key: str) -> None:
@@ -310,6 +310,26 @@ def test_his_words_on_his_open_card_posted_with_cci_post_are_refused_for_the_rec
     owner = f"cci post --kind owner --lane root --to communicator@demo --url '{card}?thread_ts=1794379200.123456' 'why is this card still up'"
     assert "the drive's `record` tool" in landing_guard.deny_reason(bash(owner, agent_id="a1"))
     assert landing_guard.deny_reason(bash("cci post --kind owner --lane root --to communicator@demo 'a new order'", agent_id="a1")) is None
+
+
+def cci_delta(path: Path, field: str, names: list[str]) -> None:
+    with path.open("a") as rows:
+        rows.write(json.dumps({"type": "attachment", "attachment": {"type": "deferred_tools_delta", field: names}}) + "\n")
+
+
+def test_a_drive_sessions_cci_post_in_bash_is_refused_for_the_cci_tools_while_its_cci_server_is_connected(demo: str, no_calls: None, tmp_path: Path) -> None:
+    session = tmp_path / "session.jsonl"
+    report = "cci post --kind report 'merged'"
+    cci_delta(session, "addedNames", ["mcp__plugin_cc-inbox_cci__post", "mcp__plugin_cc-inbox_cci__close"])
+    assert landing_guard.deny_reason(bash(report, transcript_path=str(session))) == landing_guard.CLI_POST
+    assert landing_guard.deny_reason(bash(report, transcript_path=str(session), session_id="another-session")) is None
+    cci_delta(session, "failedMcpServers", ["plugin:cc-inbox:cci"])
+    assert landing_guard.deny_reason(bash(report, transcript_path=str(session))) is None
+    cci_delta(session, "addedNames", ["plugin:cc-inbox:cci"])
+    assert landing_guard.deny_reason(bash(report, transcript_path=str(session))) == landing_guard.CLI_POST
+    cci_delta(session, "removedNames", ["mcp__plugin_cc-inbox_cci__post"])
+    assert landing_guard.deny_reason(bash(report, transcript_path=str(session))) is None
+    assert landing_guard.deny_reason(bash(report)) is None
 
 
 def test_each_command_reads_the_stdin_its_own_text_gives_it() -> None:

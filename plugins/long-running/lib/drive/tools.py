@@ -13,6 +13,12 @@ UNTYPED = {"help", "drive", "json"}
 OPS = {"order": ("add", "set", "posted", "told"), "job": ("add", "set", "brief"), "pr": ("add", "set"), "incident": ("open", "stop", "freeze", "release")}
 ONE_VERB = {"heard": ("heard",), "handler": ("handler",), "status": ("status",), "search_plan": ("plan", "search")}
 POST_SECONDS = 60
+UNSENT = (
+    "no record went out, so while cci is down reach the session it was for with ListAgents, then SendMessage to"
+    " `{drive}-coordinator`, `{drive}-communicator` or `{drive}-meta` carrying it, and post it once cci is back; a"
+    " disconnect is never a reason a message did not go, by his ruling 4535fb1: \"use regualr claude code sesion"
+    " messaging until it sback then there sno excuse\""
+)
 DRY_RUN = {"type": "boolean", "description": "print the drive command or record each op would run, and run nothing"}
 DRIVE = {"type": "string", "description": "the drive this call acts on, as --drive names it; default the drive bound to this session, else the only drive"}
 OPS_HELP = (
@@ -37,7 +43,7 @@ TEXT = {"type": "string"}
 RECORD = {
     "type": "object",
     "properties": {
-        "kind": {"enum": ["owner", "answer", "defect"], "description": "a report, ready or ask goes through cci post instead, whose hook reads it"},
+        "kind": {"enum": ["owner", "answer", "defect"], "description": "a report, ready or ask goes through the cci `post` tool instead, whose hook reads it"},
         "text": {"type": "string", "description": "his words verbatim for owner, the tapped label or his words for answer, the refusal verbatim for defect"},
         "url": {
             "type": "string",
@@ -415,7 +421,8 @@ def closed_by(found: dict, index: int, made: dict) -> list[dict]:
     if made["kind"] == "answer" and "undone" not in attrs and (attrs.get("job") or attrs.get("thread_card")) and not questions:
         raise DriveError(
             f"{index}: refused, nothing posted: the card this answer names no longer waits on him, so his answer on it is"
-            " recorded already; read his words as a message from him: a question, an order or a ruling"
+            " recorded already: a tap or its number typed needs nothing more, and words he wrote are a message from him:"
+            " a question, an order or a ruling"
         )
     return questions
 
@@ -444,9 +451,9 @@ def sent(name: str, lane: str, posts: list[dict]) -> list[str]:
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as error:
-        raise DriveError(f"cci post: {error}") from None
+        raise DriveError(f"cci post: {error}; {UNSENT.format(drive=name)}") from None
     if done.returncode:
-        raise DriveError(f"{done.stdout}{done.stderr}".strip())
+        raise DriveError(f"{done.stdout}{done.stderr}".strip() + f"; {UNSENT.format(drive=name)}")
     return done.stdout.split()
 
 
@@ -454,7 +461,7 @@ def post(item: dict, data: dict, other: str, session: str | None) -> dict:
     """The cci record an item posts as, to the lane it names, else other, a defect's long text cut to one line with the whole at the top of its body, as the post hook cuts a record, and sent where the drive routes it: a defect to the session holding drive tooling, and the communicator's owner or answer record, whatever lane it names, to the session hearing the order of the job it answers, else of the newest order in its thread, its ruling to the meta session as well."""
     drive = data["name"]
     if item["kind"] not in RECORD["properties"]["kind"]["enum"]:
-        raise DriveError(f"record posts owner, answer and defect records; a {item['kind']} goes through cci post, whose hook reads it")
+        raise DriveError(f"record posts owner, answer and defect records; a {item['kind']} goes through the cci `post` tool, whose hook reads it")
     text, attrs = item["text"], dict(item.get("attrs") or {})
     made = {"kind": item["kind"]}
     for key in ("url", "re", "resolves", "topic", "body"):

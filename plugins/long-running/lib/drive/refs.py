@@ -11,6 +11,17 @@ INNER = re.compile(r"<[^<>]*>?")
 CODE = re.compile(r"`[^`\n]+`")
 LINK_WORDS = str.maketrans({"<": "", ">": "", "|": "/", "[": "(", "]": ")"})
 CAUSE = re.compile(r"\b(?:because|caus(?:e|ed|es|ing)|due to|culprit)\b", re.IGNORECASE)
+FAILURE = re.compile(
+    r"\b(?:refused|failed to|missed|disconnected|dropped (?:its|the|their) connection|forgot(?:ten)?|lost track|fell through|went unchecked|slipped"
+    r"|(?:nobody|no one) (?:\w+ed|ran|saw|read|took|got|drew|caught|knew)"
+    r"|never (?:checked|ran|reached|heard|started|drew|posted|landed|got|went out))\b",
+    re.IGNORECASE,
+)
+DRIVE_PART = re.compile(
+    r"\b(?:cards?|checks?|hooks?|builders?|handlers?|designers?|watch|coordinator|communicator|meta|drive|lanes?|skill|cci|say)\b",
+    re.IGNORECASE,
+)
+PREVENTION = re.compile(r"\{(?:order|pr):|github\.com/[^/\s]+/[^/\s]+/pull/\d+|\bo\d+\b")
 QUOTED = re.compile(r'"[^"\n]*"|\u201c[^\u201d\n]*\u201d')
 CLAUSE_END = re.compile(r"[,;:.!?](?=\s|$)")
 ABSENT_RECORD = re.compile(
@@ -67,6 +78,18 @@ def unbacked(text: str) -> list[str]:
         line.strip()
         for line in picture.FENCE.sub("", text).splitlines()
         if not line.lstrip().startswith(">") and CAUSE.search(QUOTED.sub("", line)) and "{record:" not in line
+    ]
+
+
+def unprevented(text: str) -> list[str]:
+    """Each line of the text, outside a fence, a quote and a quoted line, that names a failure, refusal or gap of the drive's own, a card, check, hook, lane or session role of it, with no order or PR on it carrying the tool change that prevents it."""
+    return [
+        line.strip()
+        for line in picture.FENCE.sub("", text).splitlines()
+        if not line.lstrip().startswith(">")
+        and FAILURE.search(plain := QUOTED.sub("", line))
+        and DRIVE_PART.search(plain)
+        and not PREVENTION.search(line)
     ]
 
 

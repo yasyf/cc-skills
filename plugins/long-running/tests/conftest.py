@@ -197,7 +197,7 @@ class Judge:
 @pytest.fixture(autouse=True)
 def judge(monkeypatch: pytest.MonkeyPatch) -> Judge:
     judging = Judge()
-    monkeypatch.setattr(served, "change", lambda key: {"title": f"Fix: {key}", "head": card.drive_prs()[key][1]["head"], "diff": b""})
+    monkeypatch.setattr(served, "change", lambda key: {"title": f"Fix: {key}", "head": card.drive_prs().get(key, ("", {"head": None}))[1]["head"], "diff": b""})
     monkeypatch.setattr(served, "judged", lambda name, said, changes: judging.asked.append((said, changes)) or list(judging.against))
     return judging
 

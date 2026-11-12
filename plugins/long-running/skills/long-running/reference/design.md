@@ -8,8 +8,11 @@ job that runs Fable, besides the coordinator.
 
 Before any builder starts on a part, decide whether it carries a tricky design: two reasonable
 shapes that cost a lot to switch between once built. It counts when the part settles a data layout
-or file format, such as where a journal keeps its index, or a schema or migration shape. So does a
-lock, queue, scheduler or other coordination, a public or Sand-facing API shape, or a new
+or file format, such as where a journal keeps its index, or a schema or migration shape, the data
+behind a port's visuals included: a port carries the old PR's visuals, and its data is modeled the
+fundamentally right way for the target tree, never copied from the old PR's storage, by his words
+"port his visuals but always do it the fundamentally right way when it comes to modelng the data".
+So does a lock, queue, scheduler or other coordination, a public or Sand-facing API shape, or a new
 background process. When you cannot tell, it counts, because a wrong shape costs PRs he never saw.
 
 1. **One design job, first.** The part's first job is a read-only design job, worked out before
@@ -18,7 +21,10 @@ background process. When you cannot tell, it counts, because a wrong shape costs
      order outside an incident it refuses until a reader kept its `Researched:` block, by
      [Jobs](jobs.md), so while the reader is at work add it with `--waits <the reader's job>`,
      recorded waiting, and start it on its `FREE` line; the order's `immediate fix` job never waits
-     on it.
+     on it. A follow-up he orders to a PR, as in "just land this then do a follow up", is its own
+     `follow-up` part, and its design job starts in the turn he orders it, beside the builder landing
+     that PR, with no reader and no `--waits`, which `drive job add` refuses on it: its designer does
+     its own research. His words: "start deisgnng the follow p right awya motherfucker dont wait".
    - Brief it with `drive job brief <j> --serves "<his order>" --done-when "<the DESIGN return>" --where "<repo>" --plan "<what exists>"`,
      plus `--ruling <answer id>` for each answer of his on the area. The `--plan` names the files,
      PRs and findings it starts from, and says to design from what his words need, the code an

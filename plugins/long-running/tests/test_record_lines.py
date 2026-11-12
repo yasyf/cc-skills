@@ -275,6 +275,17 @@ def test_a_report_that_finishes_an_order_names_one_of_its_threads(run: Callable[
     assert record_lines.decision(coordinator(turn, kind="report", text="POST j1 is building", to=TO, attrs={"thread": OTHER, **PROGRESS})) is None
 
 
+def test_a_post_report_telling_him_the_drive_failed_says_how_that_is_prevented(run: Callable[..., tuple[int, str]], demo: str, turn: Path) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["thread"] = THREAD
+    failed = "POST j1 merged; its card was refused because nobody checked that PR against your words"
+    reason = refusal(record_lines.decision(coordinator(turn, kind="report", text=failed, to=TO, attrs={"close": "o1", "thread": THREAD})))
+    assert "6a6edbf" in reason and reason.endswith(f"The lines: {failed}")
+    prevented = f"{failed}; {{order:o2}} makes the card hook read each PR against his words, live tonight"
+    assert record_lines.decision(coordinator(turn, kind="report", text=prevented, to=TO, attrs={"close": "o1", "thread": THREAD})) is None
+
+
 def test_a_post_report_names_what_its_post_finishes_and_the_last_part_of_an_order_closes_it(run: Callable[..., tuple[int, str]], demo: str, turn: Path) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "why does the search worker OOM?", "--parts", "cause", "fix")
     run("job", "add", "builder", "--order", "o1", "--part", "cause", "--goal", "find the cause")
