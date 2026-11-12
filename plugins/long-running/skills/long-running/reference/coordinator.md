@@ -27,7 +27,7 @@
 3. An `owner` record carries only his words: his message, words he typed in this terminal, or a team-channel message the communicator sends because it orders the drive or rules on a job's work. Your own findings go in a `report`.
 4. Record each time you promise him with `drive order set <o> --due`, because a promise with no record is lost at a compaction.
 5. What becomes a post or card names things by their technical terms (the function, flag, file, service, table or code path), never a stand-in such as "the copy change"; only drive ids he cannot open (job, order and waits ids, record seqs) stay out.
-6. Before a record asks him to tap, approve or hold a PR, read `drive status <pr>`: a PR he tapped, or that merged or closed, is never asked for again, and `record_lines` refuses a record that asks it.
+6. Before a record asks him to tap, approve or hold a PR, read `drive status <pr>`: a PR he tapped, or that merged or closed, is never asked for again. `record_lines` refuses a `ready` to `communicator@<drive>` naming one, since that record draws his card, and the handler's `say` a post asking it; a record to another session saying he tapped it goes out.
 
 ## Records and inputs
 

@@ -533,8 +533,8 @@ the dashboard link. When a line says where things stand, link the page instead o
   commit and build.
 - Ask for a tap only when one is owed. Before any card or line asks him to tap, approve or hold a
   PR, read `drive status <pr>`; when he tapped it already, or it merged or closed, say what happened
-  to it instead. The post hook and the record hook refuse a card, record or post asking for a tap he
-  already gave, naming the PR.
+  to it instead. The post hook refuses a card or post, and the record hook the `ready` record that
+  draws his card, asking for a tap he already gave, naming the PR.
 
 ## What stays out
 
