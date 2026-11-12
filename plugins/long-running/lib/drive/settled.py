@@ -59,11 +59,18 @@ APPROVES_QUESTION = (
     " on a card that asked anything else, such as whether to land a pull request, which design to build or whether a check"
     " holds, or when unsure."
 )
-CARRIES_QUESTION = (
-    'Do the post\'s own words deliver the part "{part}" of the order: say it is done, such as what a check found, a fix that'
-    " shipped or the cause that was found, or answer the question the part asks, whatever the answer? Answer no when they say it"
-    " is not done or not known yet, such as no fix shipped or the cause not confirmed, or when they do not speak to it."
-)
+OWED = 0.5
+OWED_QUESTIONS = {
+    "answer": (
+        'The part "{part}" of the order is words he asked to read: the answer to a question of his, a retro, a finding or a status.'
+        " Do the post's own words leave it ungiven: they do not speak to it, put it off to a later post, or say it is not known yet?"
+        " A status that says work is not done yet gives it."
+    ),
+    "build": (
+        'The part "{part}" of the order is work he ordered done. Do the post\'s own words leave it undone: they say it is not done,'
+        " still being built or not known yet, such as no fix shipped or the cause not confirmed, or they do not speak to it?"
+    ),
+}
 APPROVAL = "kind:approval"
 INCIDENT = "incident"
 TAP_HEADER = "header:Tap"
@@ -278,12 +285,12 @@ def picked(instructions: str, unpicked: str, asked: dict, found: list[dict]) -> 
 
 
 def uncarried(text: str, order: dict, parts: list[str]) -> list[str]:
-    """The parts of the order a post's own words do not deliver, as Jev reads them, all asked in one call and each delivered only at the 0.8 bar, since a part marked delivered that its post says is not done never reaches him; Unheard when Jev gave no answer."""
+    """The parts of the order a post's own words leave owed, as Jev reads them, all asked in one call, each by its kind's question: words he reads, such as his question's answer, a retro or a status, owed while the post does not give them, whatever they say, and work he ordered owed while the post does not say it is done; a part is owed once Jev leans that way, at OWED. Unheard when Jev gave no answer."""
     if not parts:
         return []
-    questions = {f"part{index}": {"binary": {"instructions": CARRIES_QUESTION.format(part=part)}} for index, part in enumerate(parts)}
+    questions = {f"part{index}": {"binary": {"instructions": OWED_QUESTIONS[order["parts"][part]["kind"]].format(part=part)}} for index, part in enumerate(parts)}
     answers = jev({"state": {"order": order["text"], "post": text}, "questions": questions})
-    return [part for index, part in enumerate(parts) if answers[f"part{index}"]["p_yes"] < DECIDES]
+    return [part for index, part in enumerate(parts) if answers[f"part{index}"]["p_yes"] >= OWED]
 
 
 class Unheard(Exception):

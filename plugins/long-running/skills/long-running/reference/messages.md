@@ -111,9 +111,10 @@ reading of his words "your messages need to be way shorter rewrite this for a hu
 - The handler records each post in an order's thread through the post itself,
   `say(order=<o>, record=<the report's seq>)`, which delivers each part the report's `part` attr
   names, or each part of an order its `close` attr names. Jev reads the post's own words for each
-  part the `part` attr names, and one they say is not done, such as a fix that has not shipped or a
-  cause not confirmed, stays undelivered, named on `say`'s line and its `dry_run`, until a post
-  whose words carry it. A progress line's report names neither,
+  part the `part` attr names by its kind: a part he reads, such as his question's answer, a retro or
+  a status, is delivered by a post giving it whatever it says, and work they say is not done, such
+  as a fix that has not shipped or a cause not confirmed, stays undelivered, named on `say`'s line
+  and its `dry_run`, until a post whose words carry it. A progress line's report names neither,
   whatever job it names, and carries `progress=true`, since `record_lines` refuses a `POST` naming
   none of the three: it keeps the time and delivers no part, on an order of one part as on one
   of several. An incident and every alert's order joined to it with `--joins` share their threads both
