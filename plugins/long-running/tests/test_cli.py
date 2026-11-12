@@ -3462,7 +3462,7 @@ def test_card_with_no_request_on_stdin_names_card_command_and_what_stdin_held(
 
 def test_install_dispatches_its_arguments(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     calls = []
-    fake_module(monkeypatch, "install", lambda *args: calls.append(args) or 0)
+    monkeypatch.setattr(cli.install, "main", lambda *args: calls.append(args) or 0)
     assert run("install", "long-running@skills", "--sha", "abc", "--repo", "yasyf/cc-skills")[0] == 0
     assert run("install", "long-running@skills", "--timeout", "60")[0] == 0
     assert calls == [("long-running@skills", "abc", "yasyf/cc-skills", 900), ("long-running@skills", None, None, 60)]

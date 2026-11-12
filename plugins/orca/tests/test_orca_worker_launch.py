@@ -102,12 +102,12 @@ sys.stderr.write(reply.get("err", ""))
 sys.exit(reply.get("rc", 0))
 """
 
-BIND = """#!/usr/bin/env python3
+BIND_PREFIX = """#!/usr/bin/env python3
 import json, os, sys
 state = os.environ["FAKE_STATE"]
 with open(os.path.join(state, "calls"), "a") as calls:
-    calls.write(json.dumps({"argv": ["bind", *sys.argv[1:]]}) + "\\n")
-refused = os.path.join(state, "bind_refused")
+    calls.write(json.dumps({"argv": ["bound", *sys.argv[1:]]}) + "\\n")
+refused = os.path.join(state, "bound_refused")
 if not os.path.exists(refused):
     open(refused, "w").close()
     sys.stderr.write("drive: orca orchestration run-use: run_not_found: no such Run\\n")
@@ -752,20 +752,20 @@ class SpriteTest(LaunchTest):
         self.assertEqual(self.launch.kept(), SPRITE_KEPT)
 
     def test_a_bind_that_refuses_before_worker_start_fails_in_one_line_and_a_relaunch_retries_it_on_the_same_sprite(self):
-        bind = self.launch.bin / "bind"
-        bind.write_text(BIND)
-        bind.chmod(0o755)
+        bound = self.launch.bin / "bound"
+        bound.write_text(BIND_PREFIX)
+        bound.chmod(0o755)
         self.launch.sprite()
         line = f"no worker started on Sprite {WORKSPACE}: WORKER_BIND refused before worker-start ran: drive: orca orchestration run-use: run_not_found: no such Run; its terminal {TERMINAL} waits idle, and launching this brief again retries worker-start in it"
-        first = [VERSION, self.launch.prepare(), *self.launch.tools(), ["bind", "--", *self.launch.start()]]
-        self.assert_failed(self.launch, self.launch.run(WORKER_BIND="bind --"), line, first)
+        first = [VERSION, self.launch.prepare(), *self.launch.tools(), ["bound", "--", *self.launch.start()]]
+        self.assert_failed(self.launch, self.launch.run(WORKER_BIND="bound --"), line, first)
         self.assertEqual(self.launch.receipt("worker-start.status"), "75\n")
         self.assertEqual(self.launch.receipt("worker-start.unsent"), "\n")
         self.launch.sprite()
-        relaunched = self.launch.run(WORKER_BIND="bind --")
+        relaunched = self.launch.run(WORKER_BIND="bound --")
         self.assertEqual(relaunched.returncode, 0, relaunched.stderr)
         self.assertEqual(json.loads(relaunched.stdout)["dispatch"], "ctx_a")
-        self.assertEqual(self.launch.calls(), [*first, VERSION, *self.launch.tools(), ["bind", "--", *self.launch.start()], self.launch.start()])
+        self.assertEqual(self.launch.calls(), [*first, VERSION, *self.launch.tools(), ["bound", "--", *self.launch.start()], self.launch.start()])
         self.assertEqual(self.launch.kept(), SPRITE_KEPT)
 
     def test_an_unrecorded_worker_start_never_reruns_another_version_of_its_brief(self):
