@@ -1104,7 +1104,7 @@ RESULT = {"type": "user", "message": {"content": [{"type": "tool_result"}]}}
         (
             [CALLING, PARKED],
             timedelta(minutes=45),
-            'j1\'s agent ended its turn 45 minutes ago on "Codex is still running. I\'ll wait for the notification." with no result line: SendMessage wakes it',
+            'j1\'s agent ended its turn 45 minutes ago on "Codex is still running. I\'ll wait for the notification." with no result line: SendMessage from the session that started it wakes it, and drive job resume j1 <the event> from any other',
         ),
     ],
 )
@@ -1181,7 +1181,7 @@ def test_a_codex_relay_that_asked_codex_nothing_is_parked_like_any_agent(demo: s
     write_transcript(tmp_path / "config", [CALLING, RESULT, PARKED], timedelta(minutes=45))
     job_of = {"session": "session-under-test", "agent": "a1", "kind": "codex"}
     assert REAL_LOCAL_GAP("j1", job_of, state.load(demo), state.now()) == (
-        'j1\'s agent ended its turn 45 minutes ago on "Codex is still running. I\'ll wait for the notification." with no codex-ask run: SendMessage wakes it'
+        'j1\'s agent ended its turn 45 minutes ago on "Codex is still running. I\'ll wait for the notification." with no codex-ask run: SendMessage from the session that started it wakes it, and drive job resume j1 <the event> from any other'
     )
 
 

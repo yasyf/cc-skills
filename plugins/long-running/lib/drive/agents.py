@@ -181,10 +181,12 @@ def record(seq: str) -> str:
     return reads.run(["cci", "show", seq], Path.cwd())
 
 
-def free(data: dict, job_id: str) -> bool:
-    """Whether an agent at work on the job takes it: the job exists, nobody stopped it, and no agent runs it already but one that ended with its session, which no role holds any more."""
+def free(data: dict, job_id: str, session: str) -> bool:
+    """Whether an agent of the session at work on the job takes it: the job exists, nobody stopped it, and no agent runs it already but one that ended with its session, which no role holds any more, or one drive job resume handed over to this session."""
     job = data["jobs"].get(job_id)
-    return bool(job) and job["state"] != "stopped" and not (job["state"] == "running" and job["agent"] and not state.agent_gone(data, job))
+    if not job or job["state"] == "stopped":
+        return False
+    return job.get("handed_to") == session or not (job["state"] == "running" and job["agent"] and not state.agent_gone(data, job))
 
 
 def hold(payload: dict) -> None:
@@ -197,10 +199,10 @@ def hold(payload: dict) -> None:
     known = state.load(names[0])
     match = BRIEF_JOB.search(brief(payload))
     job_id = match[1] if match else state.agent_job(known, payload["agent_id"])
-    if not job_id or not free(known, job_id):
+    if not job_id or not free(known, job_id, payload["session_id"]):
         return
     with state.edit(names[0]) as data:
-        if free(data, job_id):
+        if free(data, job_id, payload["session_id"]):
             data["jobs"][job_id].update(
-                agent=payload["agent_id"], where="local", session=payload["session_id"], undelivered=[], state="running", updated=state.stamp()
+                agent=payload["agent_id"], where="local", session=payload["session_id"], handed_to=None, undelivered=[], state="running", updated=state.stamp()
             )

@@ -281,7 +281,9 @@ release he started himself is his: never cancel, retry, reorder or approve it. A
 approves its own cut and rollback, by [incidents.md](incidents.md).
 
 Answers resume; PR events start fresh. His answer to a job's `ASK` goes back by `SendMessage` to
-its agent, or `drive job resume <j> -` with it on stdin for a remote lane. A PR event after a builder
+its agent, or `drive job resume <j> -` with it on stdin for a remote lane or for an agent another
+session started, which `SendMessage` cannot reach: there it prints a handoff brief's
+`Read your brief first:` line, and the agent you start on it takes the job as yours. A PR event after a builder
 returned gets a fresh builder, since a resumed one re-reads all it ever did on every event: the
 `communicator_calls` hook refuses `SendMessage` to a builder that returned `BUILT` or `DONE` outside
 an incident. Run `drive job add builder` for the same order and parts and `drive pr add <url> --job <new>` for each PR it takes over, write its brief with the

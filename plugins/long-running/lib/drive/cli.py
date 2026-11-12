@@ -1498,6 +1498,12 @@ def remote_job(data: dict, job_id: str) -> dict:
     )
 
 
+def other_sessions_agent(job: dict) -> str | None:
+    """This session, when the job runs as an Agent another session started, which only that session's SendMessage reaches, so this one hands the job to a fresh agent or lane of its own."""
+    session = os.environ.get("CLAUDE_CODE_SESSION_ID")
+    return session if session and job["where"] == "local" and job["agent"] and job["session"] != session else None
+
+
 def checkout(data: dict) -> Path:
     """The checkout lanes are cloned from: the coordinator's recorded cwd, whatever folder drive runs in."""
     root = Path(data["roles"]["coordinator"]["cwd"])
@@ -1602,17 +1608,22 @@ def job_launch(args: argparse.Namespace) -> int:
         raise DriveError(f"{args.id} already started as dispatch {dispatch}")
     if job["waits"]:
         raise DriveError(f"{args.id} waits on {', '.join(job['waits'])}: launch it on the watch's FREE line, which comes once the last wait ends")
-    if job.get("agent"):
+    taker = other_sessions_agent(job)
+    if job.get("agent") and not taker:
         remote_job(data, args.id)
     if not (args.brief or job.get("brief")):
         raise DriveError(f"{args.id} has no brief: write it with drive job brief {args.id}, or name its file")
     root = checkout(data)
     text = named_text(args.brief or job["brief"], "brief file")
+    if taker:
+        text = orca.agent_handoff(text, job, None)
     role = state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
     if refused := state.held_elsewhere(data, job["order"], role) or brief.brief_refusal(name, data, args.id, text) or orca.uncarried(name, text):
         raise DriveError(f"{args.id}: refused, not launched: {refused}")
     with state.edit(name) as data:
         job = data["jobs"][args.id]
+        if taker:
+            job.update(agent=None, session=taker)
         if not job.get("agent"):
             job.update(where="remote", route=state.LOCAL_ROUTE if args.local else None, launching=state.stamp())
     run = job.get("run") or orca.new_run(f"drive {name} {args.id}: {job['goal']}")
@@ -1648,6 +1659,8 @@ def job_resume(args: argparse.Namespace) -> int:
     """Send the lane its next event, or, when its worker takes no messages, start the job's next worker with the event in its handoff; an answer to an open question that names `LOG <url>`s carries those logs ahead of the text, read here as the watch reads them."""
     name = state.resolve(args.drive)
     data = state.load(name)
+    if taker := other_sessions_agent(find(data["jobs"], args.id, "job")):
+        return hand_over(args, name, data, taker)
     job = started_job(data, args.id)
     try:
         end = orca.lane_end(job)
@@ -1672,6 +1685,24 @@ def job_resume(args: argparse.Namespace) -> int:
             fresh.update(ask=None, state="running")
         fresh.update(updated=state.stamp(), undelivered=[])
     return emit(args, f"{args.id}: {how}", {"id": args.id, "how": how})
+
+
+def hand_over(args: argparse.Namespace, name: str, data: dict, session: str) -> int:
+    """Hand a job another session's Agent holds to a fresh agent of this session: a handoff brief carrying the job's brief, what that agent left and the text, whose `Read your brief first:` line is the fresh agent's whole prompt, and the job marked handed to this session, so the drive records that agent on it."""
+    job = data["jobs"][args.id]
+    if refused := state.held_elsewhere(data, job["order"], state.session_role(data, session)):
+        raise DriveError(f"{args.id}: refused, not handed over: {refused}")
+    if not job.get("brief"):
+        raise DriveError(f"{args.id} has no brief to hand over: write it with drive job brief {args.id}, then resume it again")
+    kept = state.drive_dir(name) / "jobs" / f"{args.id}.handoff.md"
+    kept.write_text(orca.agent_handoff(orca.brief_of(Path(job["brief"]).read_text()), job, args.text))
+    with state.edit(name) as data:
+        data["jobs"][args.id].update(handoff=str(kept), handed_to=session, updated=state.stamp())
+    line = (
+        f"Read your brief first: {kept}\n{args.id} runs as agent {job['agent']} of session {job['session']}, which this session cannot"
+        f" SendMessage: start a fresh {job['kind']} agent here on the line above as its whole prompt, and the drive records {args.id} as this session's"
+    )
+    return emit(args, line, {"id": args.id, "handoff": str(kept), "handed_to": session})
 
 
 def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEnd) -> int:
@@ -3060,7 +3091,16 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--incident", help="an incident job's line, by reference/jobs.md")
     verb.add_argument("--scratch", help="its scratch folder; default one in the drive")
     verb.set_defaults(run=job_brief)
-    verb = job.add_parser("launch", parents=both, help="start a remote job's Orca lane on a Sprite, or on this Mac with --local")
+    verb = job.add_parser(
+        "launch",
+        parents=both,
+        help="start a remote job's Orca lane on a Sprite, or on this Mac with --local",
+        description=(
+            "Start a remote job's Orca lane on a Sprite, or on this Mac with --local. A job held by an Agent another session started,"
+            " which this session cannot SendMessage, starts on a handoff brief carrying the job's brief, that agent's branch, last"
+            " line, report and PRs, and the job is recorded as this session's lane."
+        ),
+    )
     verb.add_argument("id", help="the job")
     verb.add_argument(
         "brief", nargs="?", help="the file holding the job's brief, or - to read it from stdin; default the one drive job brief wrote"
@@ -3083,7 +3123,9 @@ def parser() -> argparse.ArgumentParser:
             "the dead lane's Sprite and, while that Sprite holds uncommitted changes or a branch or stash on no remote, or does not answer, "
             "exits 2 naming each and relaunching nothing, unless --leave-unpushed. Either new worker gets a handoff carrying the job's brief, its branch, its last line, "
             "its report, its PRs and this text. When Orca cannot reach the lane's Sprite, or refuses what would deliver "
-            "this text, exit 2 with Orca's refusal."
+            "this text, exit 2 with Orca's refusal. A job held by an Agent another session started, which this session cannot "
+            "SendMessage, gets a handoff brief instead, carrying the same, and prints its `Read your brief first:` line: an agent "
+            "this session starts on it takes the job as this session's."
         ),
     )
     verb.add_argument("id")
