@@ -1,10 +1,11 @@
 import html
+import io
 import json
 import re
 from pathlib import Path
 
 import pytest
-from drive import limits, picture, state
+from drive import github, limits, picture, state
 
 DOC = {
     "arch": 1,
@@ -149,6 +150,40 @@ def test_a_local_image_is_copied_in_under_its_caption_and_a_missing_one_refuses_
     assert Path(copied).read_bytes() == shot.read_bytes()
     with pytest.raises(state.DriveError, match="^app PR 7: its Show me image: /nowhere/gone.png is neither a link nor a file here$"):
         picture.pictures(tmp_path / "pictures", "app PR 7", f"![The card after his tap]({shot})\n![gone](/nowhere/gone.png)\n", set())
+
+
+def test_a_github_hosted_image_downloads_on_the_gh_token_a_repository_file_through_the_contents_api_and_an_attachment_from_its_signed_address(tmp_path, monkeypatch) -> None:
+    signed = "https://private-user-images.githubusercontent.com/1/2-0f8e7a4c.png?jwt=eyJ0&amp;v=1"
+    sent: list[list[str]] = []
+
+    def gh(cmd: list[str], **_: object) -> str | bytes:
+        sent.append(cmd[2:])
+        if cmd[2] == "markdown":
+            return f'<p dir="auto"><a target="_blank" href="{signed}"><img src="{signed}" alt="" style="max-width: 100%;"></a></p>\n'
+        if cmd[-1].endswith("?ref=gone"):
+            raise github.GithubError("gh: Not Found (HTTP 404)")
+        return f"the bytes of {cmd[-1]}".encode()
+
+    monkeypatch.setattr(github, "run", gh)
+    monkeypatch.setattr(picture.urllib.request, "urlopen", lambda url, timeout: io.BytesIO(f"the bytes of {url}".encode()))
+    blob = "https://github.com/acme/app/blob/4b825dc642cb6eb9a060e54bf8d69288fbee4904/before.png?raw=true"
+    raw = "https://raw.githubusercontent.com/acme/app/4b825dc6/shots/after%20light.png"
+    attached = "https://github.com/user-attachments/assets/0f8e7a4c-1b2d-4e3f-9a8b-7c6d5e4f3a2b"
+    show_me = f"![1 · Before, dev]({blob})\n![2 · After, this PR]({raw})\n![Pasted into the PR]({attached})\n"
+    drawn = picture.pictures(tmp_path / "pictures", "app PR 7", show_me, set())
+    assert [(Path(path).name, Path(path).read_bytes()) for path in drawn] == [
+        ("1 · Before, dev", b"the bytes of repos/acme/app/contents/before.png?ref=4b825dc642cb6eb9a060e54bf8d69288fbee4904"),
+        ("2 · After, this PR", b"the bytes of repos/acme/app/contents/shots/after%20light.png?ref=4b825dc6"),
+        ("Pasted into the PR", b"the bytes of https://private-user-images.githubusercontent.com/1/2-0f8e7a4c.png?jwt=eyJ0&v=1"),
+    ]
+    assert sent[0][:3] == ["-H", "Accept: application/vnd.github.raw", "repos/acme/app/contents/before.png?ref=4b825dc642cb6eb9a060e54bf8d69288fbee4904"]
+    assert sent[2] == ["markdown", "-f", f"text=![]({attached})", "-f", "mode=gfm", "-f", f"context={picture.SIGNING_CONTEXT}"]
+    gone = "https://github.com/acme/app/blob/gone/before.png?raw=true"
+    with pytest.raises(
+        state.DriveError,
+        match=re.escape(f"app PR 7: its Show me image does not draw: {gone} did not download: could not read acme/app's before.png at gone from GitHub: gh: Not Found (HTTP 404)"),
+    ):
+        picture.pictures(tmp_path / "pictures", "app PR 7", f"![Before]({gone})\n", set())
 
 
 def test_a_pr_cards_diagram_that_does_not_draw_raises_mermaids_words_naming_the_pr_instead_of_leaving_the_card(tmp_path, monkeypatch) -> None:
