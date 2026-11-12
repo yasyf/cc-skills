@@ -261,6 +261,25 @@ RULED_OUT = re.compile(
     r"|\bget(?:s|ting)?\s+rid\s+of\b|\binstead\s+of\b)\s+(?:[\w'’-]+\s+){0,2}$",
     re.IGNORECASE,
 )
+MACHINE_PROFILE_RULING = (
+    'his Nov 6 5:02 PM words "You can use the fucking machine profile for break glass how many fucking times do I have to tell you"'
+    ' and Nov 12 3:00 AM words "you dont fucking need okta MFA how many times have I told u to use machine profile"'
+)
+SIGN_IN_TERM = (
+    r"(?:okta(?:\s+mfa)?|mfa|multi-?factor(?:\s+authentication)?|single[- ]sign[- ]on(?:\s+login)?|aws\s+sso\s+login|sso(?:\s+log-?in)?"
+    r"|sign(?:s|ed|ing)?[- ]?in|log(?:s|ged|ging)?[- ]?in|re-?authenticat\w*|BreakGlassAccess)"
+)
+SIGN_IN = re.compile(rf"\b{SIGN_IN_TERM}\b", re.IGNORECASE)
+ASKS_HIM_TO_SIGN_IN = re.compile(
+    rf"\b(?:you|I)\b[^.;:]{{0,60}}?\b{SIGN_IN_TERM}\b"
+    rf"|\byour\s+(?:[\w-]+\s+){{0,2}}?{SIGN_IN_TERM}\b"
+    r"|(?:^|[.;:]\s+)(?:sign\s+in|log\s+in|renew|re-?authenticate|approve\s+the\s+okta)\b",
+    re.IGNORECASE,
+)
+CREDENTIAL = re.compile(
+    r"\bbreak[- ]?glass\w*|\bBreakGlassAccess\b|\baws\b|\bidentity center\b|\bcredentials?\b|\bprofile\b|\bgrant\b|\btoken\b",
+    re.IGNORECASE,
+)
 RECORD_CHARS = 120
 WHOLE_KINDS = {"owner", "answer", "incident"}
 REPORT_ATTRS = {"catch_up": "true", "close": "<o,…>", "part": "<o>:<part>", "progress": "true", "job": "<j>", "thread": "<ts>", "waits": "<drive>:<j>-<seq>"}
@@ -466,6 +485,7 @@ def question(text: str, kept: bool = False, unsettled: str | None = None, hurtin
             for found in bare_mechanisms(line)
         ]
         problems += option_problems(options, unsettled)
+        problems += sign_in_problems([("the question", title), *(("the summary", line) for line in summary), *((f'option "{option}"', option) for option in options)])
     if not kept and marked and LANDING.match(title) and LANDING.match(marked[0]) and PR_URL.search("\n".join(summary)):
         problems.append(
             "it asks him to land PRs, which is his tap on their stack card and never a question card: return READY naming"
@@ -511,6 +531,20 @@ def option_problems(options: list[str], unsettled: str | None) -> list[str]:
         for option in options
         if (found := proposed(SWEEPER, option))
     ]
+
+
+def sign_in_problems(lines: list[tuple[str, str]]) -> list[str]:
+    """Why a line he reads asks him to sign in for break-glass or AWS, by Okta, MFA or an SSO login: break-glass runs on this Mac's machine profile, so the card offers that run itself. His words in double quotes, and a sign-in the line rules out, as "no Okta MFA" does, ask nothing."""
+    problems = []
+    for where, line in lines:
+        said = SAID.sub(lambda quoted: MASK * len(quoted[0]), line)
+        if CREDENTIAL.search(said) and SIGN_IN.search(said) and (found := proposed(ASKS_HIM_TO_SIGN_IN, said)):
+            problems.append(
+                f'{where} asks him to sign in with "{line[found.start() : found.end()].strip(" .;:")}": break-glass runs on this Mac\'s machine'
+                ' profile with no sign-in, `drive break-glass <job> --stack <domain>/<env> --reason "<why>" -- <command>` here or a'
+                f" `BREAK-GLASS` read from a Sprite, so offer that run itself ({MACHINE_PROFILE_RULING})"
+            )
+    return problems
 
 
 def proposed(pattern: re.Pattern[str], option: str) -> re.Match[str] | None:

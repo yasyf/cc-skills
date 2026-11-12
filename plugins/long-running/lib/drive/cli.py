@@ -1753,7 +1753,7 @@ def job_resume(args: argparse.Namespace) -> int:
     asked = reads.logs(job["report"] or "") if job.get("ask") else None
     if asked:
         try:
-            said = reads.answer(asked, Path(data["roles"]["coordinator"]["cwd"]))
+            said = reads.answer(asked, Path(data["roles"]["coordinator"]["cwd"]), f"{name} {args.id}")
         except reads.ReadError as error:
             said = f"{asked}: {error}"
         text = f"{said}\n\n{args.text}"
@@ -2645,6 +2645,20 @@ def plan_search(args: argparse.Namespace) -> int:
     return emit(args, said or f'no plan the coordinator keeps in cc-notes has a section on "{words}"', found)
 
 
+def break_glass(args: argparse.Namespace) -> int:
+    """Run one command under this Mac's machine profile for a stack's env once the forge/break-glass grant, started in the job's or order's name with its reason, passes: the command replaces this process, so its output and exit status are the verb's, and nobody signs in."""
+    name = state.resolve(args.drive)
+    data = state.load(name)
+    records, label = (data["jobs"], "job") if JOB_ID.fullmatch(args.id) else (data["orders"], "order")
+    find(records, args.id, label)
+    try:
+        granted, profile = reads.break_glass(args.stack, args.reason, f"{name} {args.id}", Path(data["roles"]["coordinator"]["cwd"]))
+    except reads.ReadError as error:
+        raise DriveError(f"break-glass: {error}") from None
+    print(f"break-glass grant {granted} passed; running {args.command[0]} under the {profile} profile", file=sys.stderr, flush=True)
+    os.execvpe(args.command[0], args.command, {**os.environ, "AWS_PROFILE": profile})
+
+
 def move(args: argparse.Namespace) -> int:
     """Step 1 of moving a role's session into a fresh Orca terminal: his word naming the move, recorded on the role; steps 2 to 4 printed, run by hand."""
     name = state.resolve(args.drive)
@@ -3486,6 +3500,20 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("words", nargs="+", help="what to look for in the plans, such as a part, a step or a file")
     verb.set_defaults(run=plan_search)
+    verb = verbs.add_parser(
+        "break-glass",
+        parents=[drive_opt],
+        help="run one command under this Mac's machine profile once the forge/break-glass grant passes, with no sign-in",
+        description=(
+            "Start the forge/break-glass grant with bk build create, its reason the job or order and --reason, wait for it to"
+            " pass, then run the command after -- with AWS_PROFILE set to the profile in ~/.aws/config that assumes the env's"
+            " account admin role through source_profile from a credential_process, never an SSO sign-in. A read writes nothing;"
+            " a production write runs only on his word or an incident order at 0 deletes and 0 replaces. A remote lane asks the"
+            " same with a BREAK-GLASS read, these flags after it."
+        ),
+    )
+    verb.add_argument("id", metavar="JOB|ORDER", help="the job or order the grant is for, named in its reason")
+    reads.break_glass_options(verb).set_defaults(run=break_glass)
     verb = verbs.add_parser("tool", add_help=False, help="run one MCP tool on the JSON arguments read from stdin and print its lines")
     verb.add_argument("tool", choices=MCP_TOOLS)
     verb.add_argument(

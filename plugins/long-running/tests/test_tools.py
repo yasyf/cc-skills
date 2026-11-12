@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import subprocess
 from collections.abc import Callable
 
@@ -136,6 +137,29 @@ PLAN = {
         " the bucket.\n```sh\n# a comment, not a heading\n```\n### Step 2: the catch-up\nThe catch-up runs on start.\n"
     ),
 }
+
+
+def test_drive_break_glass_grants_in_the_jobs_name_then_becomes_its_command_under_the_machine_profile(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "count the stranded table copies")
+    run("job", "add", "reader", "--order", "o1", "--goal", "count them")
+    granted, ran = [], []
+    grant = "https://buildkite.com/forge/break-glass/builds/1926"
+    monkeypatch.setattr(reads, "break_glass", lambda stack, reason, asker, checkout: granted.append((stack, reason, asker, str(checkout))) or (grant, "plat-prod"))
+    monkeypatch.setattr(os, "execvpe", lambda file, argv, env: ran.append((file, argv, env["AWS_PROFILE"])))
+    run("break-glass", "j1", "--stack", "sandsql/plat-usw2-prod", "--reason", "count rows, read only", "--", "aws", "sts", "get-caller-identity")
+    coordinator = state.load(demo)["roles"]["coordinator"]["cwd"]
+    assert granted == [("sandsql/plat-usw2-prod", "count rows, read only", "demo j1", coordinator)]
+    assert ran == [("aws", ["aws", "sts", "get-caller-identity"], "plat-prod")]
+    assert run("break-glass", "j9", "--stack", "sandsql/plat-usw2-prod", "--reason", "x", "--", "aws", "s3", "ls")[0] == 2
+
+    def failed(*args: object) -> tuple[str, str]:
+        raise reads.ReadError(f"the break-glass grant {grant} failed, so nothing ran")
+
+    monkeypatch.setattr(reads, "break_glass", failed)
+    assert run("break-glass", "o1", "--stack", "sandsql/plat-usw2-prod", "--reason", "x", "--", "aws", "s3", "ls")[0] == 2
+    assert len(granted) == len(ran) == 1
 
 
 def test_search_plan_returns_the_plan_sections_carrying_its_words_under_their_headings(

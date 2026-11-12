@@ -90,8 +90,10 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      `kubectl`, or from another cluster with copied credentials: a `kubectl exec` or
      `kubectl create job` a person types runs as that person. A brief with no `Runs as:` line for such work, or one saying `none`, gets an `ASK`.
      An urgent hand repair of the records a bug left stuck is the immediate fix, not a pass: run it at
-     once through this Mac's machine-profile break-glass, by his words "manually repair his stuck
-     ones with machine profile break glass asap".
+     once through this Mac's machine-profile break-glass,
+     `drive break-glass <job> --stack <domain>/<env> --reason "<why>" -- <command>`, or a
+     `BREAK-GLASS` read on a Sprite, by his words "manually repair his stuck ones with machine
+     profile break glass asap". Nobody signs in for it, so no card asks him to.
    - Before you push, compile the Go or Rust you touched and run nothing else: tests, typechecks
      (TypeScript included), linters and review bots are CI's, and a local run only repeats them. When
      this Mac's load gate refuses a Rust or Go check in Forge-AI/monorepo, run it on the remote
@@ -248,13 +250,15 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   coordinator's Mac with one blocking question that prints the answer within about a minute,
   `orca orchestration ask --question "<read>" --wait --timeout-ms 600000`, and keep working: it is a
   read, not a report. Open the question with its read: a `LOG` question reads every `LOG <url>` it
-  names, splitting the 12,000 characters across them, and a `READ` question runs its first line
-  alone. A question for the coordinator that names a `LOG <url>` gets that log ahead of its answer.
+  names, splitting the 12,000 characters across them, and a `READ` or `BREAK-GLASS` question runs
+  its first line alone. A question for the coordinator that names a `LOG <url>` gets that log ahead
+  of its answer.
 
 | Read | What it returns |
 | --- | --- |
 | `LOG <url>` | For the failing check's Buildkite build or job URL, or its GitHub Actions job URL: the failing jobs' own command output, 12,000 characters split across them, each Buildkite job's opening with its failure lines (Go `--- FAIL:` anywhere in a line and `FAIL` package lines, nextest `FAIL [`, Rust `panicked at`, tsc `error TS`, vitest and jest `✕`, `✖` and `●`), then each failure's own output (a Go test's lines from its `=== RUN`, else the failure line and the two after it), then its last characters; a job URL reads that one job. |
 | `READ <command>` | For one of `cci show\|grep\|find\|digest\|state` with `--drive <the brief's drive>`, `ccn search\|show\|relevant`, `ccn answer\|note\|doc search\|show` or `ccn answer list`: its output's first 12,000 characters, for his recorded words and the records a brief or PR cites. |
+| `BREAK-GLASS --stack <domain>/<env> --reason "<why>" -- <command>` | For a command that needs the admin role of that env's account, such as a production read or the hand repair above: the `forge/break-glass` grant, its reason your drive, job and `<why>`, then the command in the coordinator's checkout under this Mac's machine profile for that env, as `drive break-glass` runs it, with no sign-in; the grant's link, then the output's first 12,000 characters. A read writes nothing; a production write runs only on his word or an incident order at 0 deletes and 0 replaces. |
 
 - No drive's records are here, so skip `drive pr add`, `drive job set --repro` and keeping a block
   with `drive job ask`: your report's `PR:` line carries the PR's link, an `EXEMPT:` line names an
