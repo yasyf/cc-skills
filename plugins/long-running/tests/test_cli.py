@@ -4455,6 +4455,30 @@ def test_a_part_is_delivered_only_by_the_report_record_that_names_it_and_a_post_
     assert state.load("demo")["orders"]["o1"]["parts"]["fix"]["posted"] == line
 
 
+def test_no_post_delivers_an_open_incidents_fix_until_the_watch_records_it_live_but_the_incidents_close(
+    run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "the journal will not open", "--thread", "1794200000.000100", "--parts", "fix", "first check")
+    with state.edit("demo") as data:
+        data["orders"]["o1"]["incident"] = True
+    line = slack_thread.post(state.now(), from_claude=True)
+    assert cli.main(["order", "posted", "o1", line, "--part", "fix"]) == 2
+    assert '--part "fix": refused, o1\'s "fix" is the fix of an open incident, which a post delivers only once the fix runs where the incident hurt' in capsys.readouterr().err
+    run("start", "demo", "--role", "communicator")
+    with state.edit("demo") as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    report_records(monkeypatch, {"674088": {"order": "o1", "incident": "true", "part": "o1:fix"}, "674089": {"part": "fix;first check"}, "674090": {"close": "o1"}})
+    assert run("order", "posted", "o1", line, "--record", "674088") == (0, f"o1 progress line, no part delivered: {line}")
+    assert run("order", "posted", "o1", line, "--record", "674089") == (0, f'o1 "first check": posted {line}')
+    assert state.load("demo")["orders"]["o1"]["parts"]["fix"]["posted"] is None
+    assert run("order", "posted", "o1", line, "--record", "674090") == (0, f'o1 "fix", "first check": posted {line}')
+    with state.edit("demo") as data:
+        data["orders"]["o1"]["parts"]["fix"]["posted"] = None
+        data["orders"]["o1"]["fixed"] = "release 13990 ships #54336 on sand"
+    assert run("order", "posted", "o1", line, "--record", "674088") == (0, f'o1 "fix": posted {line}')
+
+
 def test_the_session_holding_an_order_closes_a_part_by_the_drives_post_that_already_answered_it(
     run: Run, demo: str, slack_thread: "Thread", capsys: pytest.CaptureFixture[str]
 ) -> None:

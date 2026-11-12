@@ -749,9 +749,11 @@ def order_posted(args: argparse.Namespace) -> int:
 
 
 def answered_by(name: str, order_id: str, part: str, link: str) -> tuple[str, dict]:
-    """Deliver a part of the order its holder's session holds by the drive's post that already answered it, wherever it was made, posting nothing."""
+    """Deliver a part of the order its holder's session holds by the drive's post that already answered it, wherever it was made, posting nothing; an open incident's fix the watch has not recorded live is refused, since no post delivers it."""
     data = state.load(name)
     [part] = pick_parts(order_id, data["orders"][order_id], [part])
+    if state.unlive_fix(data, order_id, part):
+        raise DriveError(f'--part "{part}": refused, ' + state.UNLIVE_FIX.format(order=order_id, part=part))
     drive_post_at(link, data, order_id, True)
     with state.edit(name) as data:
         data["orders"][order_id]["parts"][part]["posted"] = link
@@ -846,13 +848,12 @@ def thread_refusal(data: dict, order_id: str, where: tuple[str, str | None], rep
     return f"{listed} post it in one of them{on_held}, or post it with no order and record the part it delivers with {record}"
 
 
-def reported_parts(order_id: str, order: dict, report: dict, items: list[tuple[str | None, str]]) -> list[str]:
-    """The parts of the order a post delivers: each item of its report's part attr names on this order, or each part of an order its report closes. A post whose report names neither part nor close, whatever job it names, or that carries no report is a progress line that delivers none, on an order of one part as on one of several."""
+def reported_parts(data: dict, order_id: str, order: dict, report: dict, items: list[tuple[str | None, str]]) -> list[str]:
+    """The parts of the order a post delivers: each item of its report's part attr names on this order, but an open incident's fix the watch has not recorded live, or each part of an order its report closes. A post whose report names neither part nor close, whatever job it names, or that carries no report is a progress line that delivers none, on an order of one part as on one of several."""
+    closing = order_id in state.closed_orders(report)
     if named := [part for on, part in items if on == order_id]:
-        return pick_parts(order_id, order, named)
-    if order_id in state.closed_orders(report):
-        return list(order["parts"])
-    return []
+        return [part for part in pick_parts(order_id, order, named) if closing or not state.unlive_fix(data, order_id, part)]
+    return list(order["parts"]) if closing else []
 
 
 def record_post(name: str, order_id: str, link: str, report: dict) -> tuple[str, dict]:
@@ -869,7 +870,7 @@ def record_on(name: str, order_id: str, link: str, report: dict, items: list[tup
     order = communicators_order(data, order_id)
     if refused := report_refusal(data, order_id, report):
         raise DriveError(refused)
-    delivered = reported_parts(order_id, order, report, items)
+    delivered = reported_parts(data, order_id, order, report, items)
     asked = report.get("asked") if order_id in state.report_orders(data, report) else None
     posted, ours = drive_post_at(link, data, order_id, any(on == order_id for on, _ in items), asked)
     gained = asked if (state.CARD_LINK.search(link)[1], posted.get("thread_ts")) == asked and asked not in slack.order_threads(data, order_id, order) else None
