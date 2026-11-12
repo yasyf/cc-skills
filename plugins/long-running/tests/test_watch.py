@@ -295,7 +295,7 @@ def test_events_tail_from_the_offset_at_start(demo: str, monkeypatch: pytest.Mon
     assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
 
 
-def tooling_order(name: str, job_state: str, text: str = "Drive tooling: the watch sends tooling lines to the communicator", owner: str = "communicator") -> None:
+def tooling_order(name: str, job_state: str, text: str = "Drive tooling: the watch sends tooling lines to the meta session", owner: str = "meta") -> None:
     with state.edit(name) as data:
         data["orders"]["o1"].update(text=text, owner=owner)
         data["jobs"]["j1"]["state"] = job_state
@@ -337,9 +337,8 @@ def test_the_watch_tells_the_communicator_once_each_time_the_coordinators_proces
     assert [entry for entry in posted(sent) if entry[1] == f"communicator@{demo}"] == [down, down]
 
 
-@pytest.mark.parametrize("text", ["Drive tooling: the watch sends tooling lines to the communicator", "I told him since you never did, fix that"])
-def test_the_lines_of_an_order_the_communicator_holds_go_to_it_and_never_the_coordinator(demo: str, monkeypatch: pytest.MonkeyPatch, text: str) -> None:
-    tooling_order(demo, "waiting", text)
+def test_the_lines_of_an_order_the_communicator_holds_go_to_it_and_never_the_coordinator(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    tooling_order(demo, "waiting", "I told him since you never did, fix that", "communicator")
     serve(monkeypatch, {KEY: read(headRefOid="bbbbbbb222", checks=RED)})
     sent = posts(monkeypatch)
     watching = watcher(demo)
@@ -352,7 +351,7 @@ def test_the_lines_of_an_order_the_communicator_holds_go_to_it_and_never_the_coo
 
 
 def test_the_lines_of_an_order_the_meta_session_holds_go_to_it_and_never_the_coordinator(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    tooling_order(demo, "waiting", owner="meta")
+    tooling_order(demo, "waiting")
     serve(monkeypatch, {KEY: read(headRefOid="bbbbbbb222", checks=RED)})
     sent = posts(monkeypatch)
     assert watch.run_pass(watcher(demo), T0) == []
@@ -367,13 +366,13 @@ def test_a_tooling_prs_moves_while_its_builder_runs_are_the_builders_own(demo: s
     assert sent == []
 
 
-def test_a_handoff_the_communicator_did_not_get_goes_again_and_says_so_from_the_third_failure(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_handoff_the_meta_session_did_not_get_goes_again_and_says_so_from_the_third_failure(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     tooling_order(demo, "waiting")
     serve(monkeypatch, {KEY: read(checks=RED)})
     sent = posts(monkeypatch, [False, False, False, True])
     watching = watcher(demo)
     said = [watch.run_pass(watching, T0 + timedelta(seconds=s)) for s in (0, 5, 10, 15, 20)]
-    failing = "WATCH handoff post to the communicator failed 3 times in a row: cci post exited 1: no drive demo"
+    failing = "WATCH handoff post to the meta session failed 3 times in a row: cci post exited 1: no drive demo"
     assert said == [[], [], [failing], [], []]
     assert [argv[-1] for argv in sent] == [f"PR {KEY}: checks failed [o1 j1]"]
 
@@ -2704,7 +2703,7 @@ def test_a_job_clock_is_said_once_when_it_runs_out_while_its_job_still_runs_and_
     assert [job["due"] for job in state.load(demo)["jobs"].values()] == [None, None]
     assert watch.wakes(line, state.load(demo))
     tooling_order(demo, "running")
-    assert watch.holder_line(line, state.load(demo)) == "communicator"
+    assert watch.holder_line(line, state.load(demo)) == "meta"
 
 
 def test_a_fix_proven_live_whose_bug_report_has_not_heard_it_is_fixed_is_said_once_ten_minutes_on(demo: str) -> None:
@@ -2721,7 +2720,7 @@ def test_a_fix_proven_live_whose_bug_report_has_not_heard_it_is_fixed_is_said_on
     assert watch.tell_lines(watching, T0 + timedelta(minutes=40)) == []
     assert watch.wakes(line, state.load(demo))
     tooling_order(demo, "running")
-    assert watch.holder_line(line, state.load(demo)) == "communicator"
+    assert watch.holder_line(line, state.load(demo)) == "meta"
 
 
 def test_a_job_clock_renewed_after_the_watch_read_it_is_kept_and_not_said(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

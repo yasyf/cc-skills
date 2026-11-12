@@ -48,9 +48,9 @@ def carried(prompt: str) -> str:
     return f"{prompt}\n{Path(named[0]).read_text()}" if named else prompt
 
 
-def gives_tooling(job_id: str, order_id: str, holder: str) -> str:
-    """The verb that gives an order to the session holding drive tooling: a brief whose builder serves drive tooling, which only that session starts."""
-    return f'`drive job brief {job_id} --serves "drive tooling"` gives {order_id} to the {state.title(holder)}'
+def gives_tooling(job_id: str, order_id: str) -> str:
+    """The verb that gives an order to the meta session: a brief whose builder serves drive tooling, which only the meta session starts."""
+    return f'`drive job brief {job_id} --serves "drive tooling"` gives {order_id} to the meta session'
 
 
 def block_lines(text: str) -> list[str]:

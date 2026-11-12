@@ -44,7 +44,7 @@ def test_a_drive_record_arrives_as_one_line_with_the_rest_at_the_top_of_its_body
 
 def test_his_words_and_incidents_stay_whole(demo: str) -> None:
     for kind in ("owner", "Answer", "incident"):
-        assert record_lines.decision(post(kind=kind, text=LONG)) is None
+        assert record_lines.decision(post(kind=kind, text=LONG, attrs={"about": "his work"})) is None
 
 
 def test_a_one_line_record_and_another_sessions_record_are_left_alone(demo: str) -> None:
@@ -371,19 +371,22 @@ def test_the_communicators_record_for_a_coordinator_goes_to_the_session_hearing_
     run("start", demo, "--role", "communicator")
     root = ["root@demo"]
     records = [
-        {"kind": "owner", "text": "also the logs page", "to": root, "attrs": {"thread": THREAD}},
+        {"kind": "owner", "text": "also the logs page", "to": root, "attrs": {"thread": THREAD, "about": "his work"}},
         {"kind": "answer", "text": "Ring", "to": root, "re": ["7"], "attrs": {"job": "j1", "maps": "none"}},
         {"kind": "posted", "text": "card up demo:j1-8", "to": root, "resolves": ["8"], "attrs": {"waits": "demo:j1-8"}},
         {"kind": "refused", "text": "cc-slack refused the card", "to": root, "resolves": ["9"], "attrs": {"job": "j1"}},
-        {"kind": "owner", "text": "and the alert", "to": ["iris@demo"], "attrs": {"thread": OTHER}},
-        {"kind": "owner", "text": "a new order", "to": root},
+        {"kind": "owner", "text": "and the alert", "to": ["iris@demo"], "attrs": {"thread": OTHER, "about": "his work"}},
+        {"kind": "owner", "text": "a new order", "to": root, "attrs": {"about": "his work"}},
         {"kind": "report", "text": "FYI j1 merged", "attrs": {"close": "o1"}},
+        {"kind": "owner", "text": "the dashboard drops my cards", "to": root, "attrs": {"thread": THREAD, "about": "drive"}},
     ]
     made = record_lines.decision(post("talker", records=records))["updatedInput"]["records"]
-    assert [record.get("to") for record in made] == [["iris@demo"]] * 4 + [root, root, None]
+    assert [record.get("to") for record in made] == [["iris@demo"]] * 4 + [root, root, None, ["meta@demo"]]
     assert record_lines.decision(post("talker", **records[0]))["updatedInput"] == records[0] | {"to": ["iris@demo"]}
     assert record_lines.decision(post("talker", **records[5])) is None
     assert record_lines.decision(post("iris-1", **records[0])) is None
+    unsaid = {"kind": "owner", "text": "a new order", "to": root}
+    assert 'an owner record names what his words are about, about "drive" for drive tooling' in refusal(record_lines.decision(post("talker", **unsaid)))
 
 
 def bound_to_iris(run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -414,7 +417,7 @@ def test_his_words_in_the_thread_of_a_card_an_orders_job_drew_go_to_the_session_
     run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     bound_to_iris(run, demo, monkeypatch)
-    feedback = {"kind": "owner", "text": "that card is unclear", "to": ["root@demo"], "attrs": {"thread": CARD_THREAD}}
+    feedback = {"kind": "owner", "text": "and cover the logs page", "to": ["root@demo"], "attrs": {"thread": CARD_THREAD, "about": "his work"}}
     assert record_lines.decision(post("talker", **feedback))["updatedInput"]["to"] == ["iris@demo"]
     assert state.thread_order(state.load(demo), CARD_THREAD) == "o1"
 
@@ -427,5 +430,5 @@ def test_his_words_on_his_open_card_go_only_through_the_record_tool_that_closes_
     under = f"{CARD}?thread_ts={CARD_THREAD}"
     assert "the drive's `record` tool" in refusal(record_lines.decision(post(kind="owner", text="why is this card still up", url=under)))
     assert "the drive's `record` tool" in refusal(record_lines.decision(post(kind="owner", text="drop the sweeper", attrs={"thread_card": "demo:j1-7"})))
-    assert record_lines.decision(post(kind="owner", text="a new order")) is None
+    assert record_lines.decision(post(kind="owner", text="a new order", attrs={"about": "his work"})) is None
     assert record_lines.decision(post(kind="answer", text="undone: Ring", re=["7"], attrs={"job": "j1", "undone": "Ring"})) is None

@@ -1,11 +1,13 @@
+import contextlib
 import json
 import os
 import re
+import shlex
 import subprocess
 from pathlib import Path
 from typing import NamedTuple
 
-from drive import render, state
+from drive import agents, render, state
 from drive.install import config_dir
 from drive.state import DriveError
 
@@ -137,6 +139,34 @@ def holds_session(terminal: dict, session: str) -> bool:
         return False
     tree = parents()
     return any(holds(tree, pty["pid"], pid) for pid in claude_pids(session))
+
+
+def start_meta(drive: str, worktree: str, earlier: str | None) -> str | None:
+    """Start the drive's meta session in an Orca terminal of its own in the drive's worktree, by its command in Start or resume, unless the terminal an earlier drive start opened for it is still there; the new terminal's handle, or None."""
+    if earlier:
+        with contextlib.suppress(OrcaError):
+            terminal(earlier)
+            return None
+    command = shlex.join(
+        [
+            "claude",
+            "-n",
+            f"{drive}-meta",
+            "--model",
+            MODEL,
+            "--effort",
+            EFFORT,
+            "--permission-mode",
+            "bypassPermissions",
+            "--settings",
+            json.dumps(agents.SESSION_SETTINGS, separators=(",", ":")),
+            "--channels",
+            "plugin:cc-inbox@cc-inbox",
+            "--",
+            f"/long-running {drive} as meta: run Start or resume for that role",
+        ]
+    )
+    return request("terminal", "create", "--worktree", f"path:{worktree}", "--title", f"{drive}-meta", "--command", command)["terminal"]["handle"]
 
 
 def main_checkout(worktree: str) -> Path:

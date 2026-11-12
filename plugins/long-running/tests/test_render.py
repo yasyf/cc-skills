@@ -2,7 +2,7 @@ from datetime import timedelta
 
 import re
 
-from drive import render, state, tools
+from drive import cli, render, state, tools
 
 
 def order(
@@ -116,20 +116,25 @@ def test_communicator_context_gives_rules_and_tools_but_no_order_list() -> None:
     assert text.endswith(render.FIRST_CALL["communicator"])
 
 
-def test_the_meta_sessions_context_gives_its_rules_and_drive_tooling_leaves_the_communicators_once_it_binds() -> None:
+def test_the_meta_session_and_communicator_read_one_definition_of_drive_tooling() -> None:
     drive = sample()
     text = render.context(drive, "meta")
-    assert text.startswith("You are the meta session of drive demo: you hold drive tooling: every tool fix, every skill rewrite")
+    assert text.startswith(f"You are the meta session of drive demo: you hold drive tooling, {state.DRIVE_TOOLING}.")
     assert "The communicator: not started. The coordinator: session s1." in text.splitlines()[0]
     assert text.splitlines()[1] == "Hold no Slack channel."
     assert "cci subscribe --reader meta --cursor meta" in text
     for rule in render.META_RULES:
         assert rule in text
     assert text.endswith(render.FIRST_CALL["meta"])
-    assert render.NO_META.format(name="demo") in render.context(drive, "communicator")
+    assert sum(state.DRIVE_TOOLING in rule for rule in render.META_RULES) == 1
+    assert sum(state.DRIVE_TOOLING in rule for rule in render.COMMUNICATOR_RULES) == 1
     drive["roles"]["meta"] = {"session": "s3", "cwd": "/work", "started": "2026-11-11T12:40:00-08:00"}
-    assert render.NO_META.format(name="demo") not in render.context(drive, "communicator")
     assert "The meta session: session s3." in render.context(drive, "coordinator").splitlines()[0]
+
+
+def test_each_page_naming_drive_tooling_carries_its_one_definition() -> None:
+    pages = [cli.PAGES / "communicator.md", cli.PAGES / "meta.md", cli.PAGES / "concepts.md", cli.PAGES.parents[2] / "agents" / "handler.md"]
+    assert [page.name for page in pages if state.DRIVE_TOOLING not in page.read_text()] == []
 
 
 def test_coordinator_context_names_each_order_whose_promised_line_is_owed() -> None:

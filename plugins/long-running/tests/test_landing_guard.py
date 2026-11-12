@@ -307,9 +307,9 @@ def test_his_words_on_his_open_card_posted_with_cci_post_are_refused_for_the_rec
     state.cards_path("demo").write_text(json.dumps({"source": "live", "team_url": "", "questions": [shown], "pr_cards": []}))
     answer = "cci post --kind answer --lane root --to communicator@demo --re 7 --attr job=j1 'the lazy copy'"
     assert f"his open card {card}" in landing_guard.deny_reason(bash(answer, agent_id="a1"))
-    owner = f"cci post --kind owner --lane root --to communicator@demo --url '{card}?thread_ts=1794379200.123456' 'why is this card still up'"
+    owner = f"cci post --kind owner --lane root --to communicator@demo --attr 'about=his work' --url '{card}?thread_ts=1794379200.123456' 'why is this card still up'"
     assert "the drive's `record` tool" in landing_guard.deny_reason(bash(owner, agent_id="a1"))
-    assert landing_guard.deny_reason(bash("cci post --kind owner --lane root --to communicator@demo 'a new order'", agent_id="a1")) is None
+    assert landing_guard.deny_reason(bash("cci post --kind owner --lane root --to communicator@demo --attr 'about=his work' 'a new order'", agent_id="a1")) is None
 
 
 def cci_delta(path: Path, field: str, names: list[str]) -> None:

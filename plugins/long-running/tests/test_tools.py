@@ -261,20 +261,21 @@ def test_a_sub_coordinator_posts_from_its_lane_and_his_answer_to_its_card_or_an_
     monkeypatch.setattr(subprocess, "run", post)
     open_cards(monkeypatch, "demo:j1-7")
     tap = {"kind": "answer", "text": "Ring", "waits": "demo:j1-7"}
-    tools.run("record", demo, {"records": [tap, {"kind": "owner", "text": "also the logs page", "to": "iris"}, {"kind": "owner", "text": "a new order"}]})
+    owners = [{"kind": "owner", "text": "also the logs page", "to": "iris", "about": "his work"}, {"kind": "owner", "text": "a new order", "about": "his work"}]
+    tools.run("record", demo, {"records": [tap, *owners]})
     card.question_answered({"waits": "demo:j1-8", "label": "Ring", "url": "https://acme.slack.com/archives/D123/p1794200000000100"})
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
     tools.run("record", demo, {"records": [{"kind": "defect", "text": "cc-slack delete hides --url"}]})
     assert [(lane, [(record["kind"], record["to"]) for record in records]) for lane, records in posted] == [
         ("communicator", [("answer", ["iris@demo"]), ("owner", ["iris@demo"]), ("owner", ["root@demo"])]),
         ("communicator", [("answer", ["iris@demo"])]),
-        ("iris", [("defect", ["communicator@demo"])]),
+        ("iris", [("defect", ["meta@demo"])]),
     ]
-    with pytest.raises(DriveError, match="to platform: no session of drive demo reads that lane; name one of root, communicator, iris"):
-        tools.run("record", demo, {"records": [{"kind": "owner", "text": "fix the alert", "to": "platform"}]})
+    with pytest.raises(DriveError, match="to platform: no session of drive demo reads that lane; name one of root, communicator, meta, iris"):
+        tools.run("record", demo, {"records": [{"kind": "owner", "text": "fix the alert", "to": "platform", "about": "his work"}]})
 
 
-def test_a_bound_meta_session_hears_each_defect_and_his_ruling_and_keeps_its_own_defect(
+def test_the_communicators_records_about_the_drive_reach_the_meta_session_alone_and_each_owner_record_names_what_it_is_about(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     posted: list[tuple[str, list[dict]]] = []
@@ -284,24 +285,33 @@ def test_a_bound_meta_session_hears_each_defect_and_his_ruling_and_keeps_its_own
         posted.append((argv[argv.index("--lane") + 1], records))
         return subprocess.CompletedProcess(argv, 0, "".join(f"#{n}\n" for n, _ in enumerate(records)), "")
 
+    tooling = "1794200000.000300"
+    run("order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page", "--thread", THREAD)
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: cards say why", "--thread", tooling)
     monkeypatch.setattr(subprocess, "run", post)
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
     run("start", demo, "--role", "communicator")
-    defect, ruling = {"kind": "defect", "text": "cc-slack delete hides --url"}, {"kind": "owner", "text": "cards say why", "ruling": "abc1234"}
-    tools.run("record", demo, {"records": [defect, ruling]})
+    defect = {"kind": "defect", "text": "cc-slack delete hides --url"}
+    ruling = {"kind": "owner", "text": "meta stuff goes to a meta root", "ruling": "abc1234", "about": "drive", "to": "root"}
+    dashboard = {"kind": "owner", "text": "the dashboard drops my cards", "about": "drive", "thread": THREAD}
+    product = {"kind": "owner", "text": "and the logs page", "about": "his work", "thread": THREAD}
+    beside = {"kind": "owner", "text": "also ship the alert fix", "about": "his work", "thread": tooling}
+    tools.run("record", demo, {"records": [defect, ruling, dashboard, product, beside]})
+    with pytest.raises(DriveError, match='refused, nothing posted: an owner record names what his words are about, about "drive" for drive tooling'):
+        tools.run("record", demo, {"records": [{"kind": "owner", "text": "cards say why"}]})
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "tooler")
     run("start", demo, "--role", "meta")
     with pytest.raises(DriveError, match="a defect it hits is its own: one job call adds its order and reader, by drive manual meta defect"):
         tools.run("record", demo, {"records": [defect]})
-    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
-    tools.run("record", demo, {"records": [defect, ruling, {"kind": "owner", "text": "ship the run page"}]})
+    tools.run("record", demo, {"records": [ruling | {"text": "the rewrite is o2; your cards change"}]})
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-under-test")
     tools.run("record", demo, {"records": [defect]})
     assert [(lane, [(record["kind"], record["to"]) for record in records]) for lane, records in posted] == [
-        ("communicator", [("defect", ["root@demo"]), ("owner", ["root@demo"])]),
-        ("communicator", [("defect", ["meta@demo"]), ("owner", ["root@demo", "meta@demo"]), ("owner", ["root@demo"])]),
+        ("communicator", [("defect", ["meta@demo"]), ("owner", ["meta@demo"]), ("owner", ["meta@demo"]), ("owner", ["root@demo"]), ("owner", ["root@demo"])]),
+        ("meta", [("owner", ["root@demo"])]),
         ("root", [("defect", ["meta@demo"])]),
     ]
+    assert [record["attr"]["about"] for record in posted[0][1][1:]] == ["drive", "drive", "his work", "his work"]
 
 
 def test_the_communicators_owner_or_answer_record_goes_to_the_session_hearing_its_jobs_or_threads_order_whatever_lane_it_names(
@@ -318,8 +328,8 @@ def test_the_communicators_owner_or_answer_record_goes_to_the_session_hearing_it
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
     run("start", demo, "--role", "communicator")
     records = [
-        {"kind": "owner", "text": "also the logs page", "thread": THREAD, "to": "root"},
-        {"kind": "owner", "text": "and the alert", "thread": other, "to": "iris"},
+        {"kind": "owner", "text": "also the logs page", "thread": THREAD, "to": "root", "about": "his work"},
+        {"kind": "owner", "text": "and the alert", "thread": other, "to": "iris", "about": "his work"},
         {"kind": "answer", "text": "Ring", "re": ["7"], "attrs": {"job": "j1"}, "thread": other},
         {"kind": "defect", "text": "cc-slack say fails", "thread": THREAD},
     ]
@@ -370,10 +380,10 @@ def test_his_words_on_an_open_card_close_it_in_the_same_call_that_sends_them(dem
     assert answered == [] and posted == []
     assert tools.run("record", demo, {"records": [answer]}) == f"1 answer #51\n1 demo:j1-7: his card {CARD} now shows his words with no buttons, settled by them"
     assert answered == [("card-answer", "--card", CARD, "--label", "the lazy copy, no sweeper", "--settled", "--other", "--via", UNDER_CARD)]
-    rework = {"kind": "owner", "text": "So then why didn't you withdraw this card?", "url": f"{CARD[:-2]}01?thread_ts=1794200000.000701", "thread_card": "demo:j2-8"}
+    rework = {"kind": "owner", "text": "So then why didn't you withdraw this card?", "url": f"{CARD[:-2]}01?thread_ts=1794200000.000701", "thread_card": "demo:j2-8", "about": "his work"}
     tools.run("record", demo, {"records": [rework]})
     assert answered[-1] == ("card-answer", "--card", f"{CARD[:-2]}01", "--label", rework["text"], "--withdrawn", "--via", rework["url"])
-    assert posted[-1][0]["attr"] == {"thread_card": "demo:j2-8"}
+    assert posted[-1][0]["attr"] == {"thread_card": "demo:j2-8", "about": "his work"}
     with pytest.raises(DriveError, match="1: refused, nothing posted: the card this answer names no longer waits on him"):
         tools.run("record", demo, {"records": [{"kind": "answer", "text": "Ring", "waits": "demo:j3-9"}]})
     assert len(posted) == 2
@@ -388,7 +398,7 @@ def test_his_owner_words_under_a_pr_card_leave_it_up_since_only_his_order_on_its
     run("pr", "add", pr, "--job", "j1")
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, "#61\n", ""))
     answered = open_cards(monkeypatch, prs=(pr,))
-    asked = {"kind": "owner", "text": "Why is this card gone when the PR is approved?", "url": f"{PR_CARD}?thread_ts=1794200000.000900"}
+    asked = {"kind": "owner", "text": "Why is this card gone when the PR is approved?", "url": f"{PR_CARD}?thread_ts=1794200000.000900", "about": "his work"}
     assert tools.run("record", demo, {"records": [asked]}) == "1 owner #61"
     assert (withdrawals.asked, answered) == ([], [])
     pr_entry = state.load(demo)["prs"]["Forge-AI/monorepo#54084"]
@@ -404,11 +414,11 @@ def test_a_brief_carries_his_order_and_each_ruling_word_for_word(demo: str, run:
     said = tools.run("job", demo, {"ops": [{"brief": brief}]})
     path = state.drive_dir(demo) / "jobs" / "j2.brief.md"
     assert said == (
-        f"1 job brief: Read your brief first: {path}; his words from o1, rulings: 1, earlier jobs: 0; o1 is the communicator's order now,"
-        " since a builder serving drive tooling is its alone: only the communicator starts j2 and its agents and posts its reports;"
-        " from the coordinator, start no agent on it and send communicator@demo a defect record naming j2 and its `Read your brief first:` line"
+        f"1 job brief: Read your brief first: {path}; his words from o1, rulings: 1, earlier jobs: 0; o1 is the meta session's order now,"
+        " since a builder serving drive tooling is its alone: only the meta session starts j2 and its agents and posts its reports;"
+        " from the coordinator, start no agent on it and send meta@demo a defect record naming j2 and its `Read your brief first:` line"
     )
-    assert state.load(demo)["orders"]["o1"]["owner"] == "communicator"
+    assert state.load(demo)["orders"]["o1"]["owner"] == "meta"
     written = path.read_text()
     assert written.startswith("Order (his words): do a pass on the tools\nServes: drive tooling\nGoal: make the verbs MCP tools\n")
     assert f"Decisions that bind:\n- {ANSWER['title']} (73060f0)\n  {ANSWER['body'].splitlines()[0]}\n  Notes: cci owner 660781\n" in written

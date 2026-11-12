@@ -193,6 +193,7 @@ def refusals(payload: dict, names: list[str], records: list[dict]) -> Iterator[s
         yield limits.misnamed(kind(record), attrs(record))
         yield settled.ask_refusal(names, attrs(record), record.get("text") or "") if kind(record) == "ask" else None
         yield superseded.unclosed_refusal(names, kind(record), attrs(record), record.get("url"), listed(record.get("re")))
+        yield state.unabout(kind(record), attrs(record))
         yield unkinded(record)
         yield untapped(record, prs)
         if kind(record) == "report" and addressed(record, "communicator"):
@@ -200,7 +201,7 @@ def refusals(payload: dict, names: list[str], records: list[dict]) -> Iterator[s
 
 
 def readdressed(drives: dict[str, dict], session: str | None, record: dict) -> dict:
-    """The record addressed where its drive routes it: a defect to the session holding drive tooling, and the communicator's owner, answer, posted or refused record to the session hearing the order it serves, its ruling to the meta session as well."""
+    """The record addressed where its drive routes it: a defect, and the communicator's owner record about the drive, to the meta session, and the communicator's other owner, answer, posted or refused record to the session hearing the order it serves."""
     entries = listed(record.get("to"))
     to = state.routed(drives, session, kind(record), attrs(record), entries)
     return record if to == entries else record | {"to": to}

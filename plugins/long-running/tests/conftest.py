@@ -117,6 +117,14 @@ def communicator(run: Callable[..., tuple[int, str]], demo: str) -> str:
     return demo
 
 
+@pytest.fixture
+def meta(run: Callable[..., tuple[int, str]], demo: str) -> str:
+    run("start", demo, "--role", "meta")
+    with state.edit(demo) as data:
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    return demo
+
+
 @pytest.fixture(autouse=True)
 def closed(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     urls: list[str] = []
@@ -303,6 +311,27 @@ def agents_at_work(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(watch, "last_write", lambda job, data: (state.now(), None))
     monkeypatch.setattr(orca, "worker", lambda dispatch: LIVE_WORKER)
     monkeypatch.setattr(github, "open_on", lambda heads: {})
+
+
+@dataclass
+class MetaLaunches:
+    started: list[tuple[str, str]] = field(default_factory=list)
+    open: set[str] = field(default_factory=set)
+
+
+@pytest.fixture(autouse=True)
+def meta_launches(monkeypatch: pytest.MonkeyPatch) -> MetaLaunches:
+    launches = MetaLaunches()
+
+    def start_meta(drive: str, worktree: str, earlier: str | None) -> str | None:
+        if earlier in launches.open:
+            return None
+        launches.started.append((drive, worktree))
+        launches.open.add(handle := f"term_meta{len(launches.started)}")
+        return handle
+
+    monkeypatch.setattr(orca, "start_meta", start_meta)
+    return launches
 
 
 @dataclass

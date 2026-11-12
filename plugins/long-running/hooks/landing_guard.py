@@ -191,9 +191,9 @@ ASK_UNREAD = (
     " judge it. Write the block to a file in a call of its own, then run `drive job ask {job} <file>` in the next call"
 )
 MISROUTED = (
-    "This {kind} record goes to {lanes}: a defect to the session holding drive tooling, the communicator's owner, answer,"
-    " posted or refused record to the session hearing the order it serves, and its ruling to the meta session as well;"
-    " post it again with `{flags}`, or on the cci `post` tool, whose hook addresses it"
+    "This {kind} record goes to {lanes}: a defect, and the communicator's owner record about the drive, to the meta"
+    " session, and the communicator's other owner, answer, posted or refused record to the session hearing the order it"
+    " serves; post it again with `{flags}`, or on the cci `post` tool, whose hook addresses it"
 )
 
 
@@ -584,7 +584,7 @@ def first_line(cwd: str, named: str | None) -> str:
 
 
 def misrouted(posts: list[tuple[str, dict[str, str], list[str], str, str | None, list[str]]], drives: dict[str, dict], session: str) -> str | None:
-    """Why a drive session's `cci post` names lanes other than the drive routes its record to, which the cci `post` tool's hook readdresses: a defect not to the session holding drive tooling, or a communicator's record not to the session hearing the order it serves."""
+    """Why a drive session's `cci post` names lanes other than the drive routes its record to, which the cci `post` tool's hook readdresses: a defect, or a communicator's owner record about the drive, not to the meta session, or another communicator's record not to the session hearing the order it serves."""
     for kind, attrs, to, *_ in posts:
         if (routed := state.routed(drives, session, kind, attrs, to)) != list(dict.fromkeys(to)):
             return MISROUTED.format(kind=kind, lanes=", ".join(routed), flags=" ".join(f"--to {lane}" for lane in routed))
@@ -672,7 +672,7 @@ def judged_reason(payload: dict) -> str | None:
 
 
 def guarded_reason(payload: dict) -> str | None:
-    """Why a Bash call must not run, a refusal capt-hook's Jev never weighs again: it lands a Forge-AI drive PR without his tap or merges with --admin there, in a drive session or agent lands a Forge-AI PR someone else opened that no order of his names, starts, approves or rolls back a production cut from a sub-coordinator's session, or starts one in a drive session on `--order` naming an answer of his that is no incident's and that Jev does not read as his pick to release, and in a drive session or agent lands a Forge-AI PR while his card on it is open, around the monorepo's queue or apart from its stack, puts up a drive's public PR body showing what only a private place may, in a drive session or agent whose cci MCP server is connected posts or closes a record with `cci post` in place of the cci `post` and `close` tools, or posts with `cci post` an owner or answer record of his words on an open card of his, which only the drive's `record` tool closes in the same call."""
+    """Why a Bash call must not run, a refusal capt-hook's Jev never weighs again: it lands a Forge-AI drive PR without his tap or merges with --admin there, in a drive session or agent lands a Forge-AI PR someone else opened that no order of his names, starts, approves or rolls back a production cut from a sub-coordinator's session, or starts one in a drive session on `--order` naming an answer of his that is no incident's and that Jev does not read as his pick to release, and in a drive session or agent lands a Forge-AI PR while his card on it is open, around the monorepo's queue or apart from its stack, puts up a drive's public PR body showing what only a private place may, in a drive session or agent whose cci MCP server is connected posts or closes a record with `cci post` in place of the cci `post` and `close` tools, or posts with `cci post` an owner or answer record of his words on an open card of his, which only the drive's `record` tool closes in the same call, or an owner record naming no about, which picks the session it reaches."""
     names, shell = shell_of(payload)
     command = payload["tool_input"]["command"]
     if shell.driving and (exposed := body_reason(command, shell)):
@@ -683,6 +683,8 @@ def guarded_reason(payload: dict) -> str | None:
     unclosed = (superseded.unclosed_refusal(names, kind, attrs, url, answered) for kind, attrs, _, _, url, answered in posts)
     if names and (left_up := next(filter(None, unclosed), None)):
         return left_up
+    if names and (unsaid := next(filter(None, (state.unabout(kind, attrs) for kind, attrs, *_ in posts)), None)):
+        return unsaid
     return script_reason(command, shell)
 
 

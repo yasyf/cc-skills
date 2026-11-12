@@ -94,26 +94,32 @@ def start(args: argparse.Namespace) -> int:
             )
         else:
             data["roles"][args.role] = fresh["roles"][args.role]
-        taken = tooling_taken(data) if args.role == "meta" else []
         if args.channel:
             data["slack"]["channel"] = args.channel
         watched_channels = data["slack"].setdefault("watch", [])
         watched_channels.extend(channel for channel in dict.fromkeys(args.watch) if channel not in watched_channels)
     held = fresh["roles"][args.role]
     seen = orca_place(held, run_show)
+    meta = "" if "meta" in data["roles"] else meta_started(args.name, held["cwd"], data["launched"].get("meta"))
     watched = f"{watch.ensure(args.name, args.project)}\n" if args.role == "coordinator" else ""
     seat = f"sub-coordinator for {args.project}" if args.project else args.role
-    moved = f"the meta session holds {', '.join(taken)} now, the drive tooling orders the communicator held\n" if taken else ""
-    text = f"{render.context(data, args.role, args.project)}\n\n{watched}{moved}{seat}: session {held['session']}, {seen}"
+    text = f"{render.context(data, args.role, args.project)}\n\n{meta}{watched}{seat}: session {held['session']}, {seen}"
     return emit(args, text, {**data, "orca": {seat: seen}})
 
 
-def tooling_taken(data: dict) -> list[str]:
-    """Give the meta session each open order the communicator holds but its read-only questions: the drive tooling orders, and those a brief serving drive tooling gave it; their ids."""
-    taken = [order_id for order_id, order in state.open_orders(data).items() if order["owner"] == "communicator" and order["kind"] != "answer"]
-    for order_id in taken:
-        data["orders"][order_id]["owner"] = "meta"
-    return taken
+def meta_started(name: str, worktree: str, earlier: str | None) -> str:
+    """Start the meta session in an Orca terminal of its own while none is bound, by his words "have the skill always start a meta root as a sibling to coordinator and communicator"; the line saying so, or nothing for a drive under LONG_RUNNING_STATE."""
+    if state.scratch():
+        return ""
+    try:
+        handle = orca.start_meta(name, worktree, earlier)
+    except orca.OrcaError as error:
+        return f"the meta session, which holds drive tooling, did not start: {error}; drive manual start prints its command\n"
+    if handle is None:
+        return f"the meta session starts in Orca terminal {earlier}, which an earlier drive start opened\n"
+    with state.edit(name) as data:
+        data["launched"]["meta"] = handle
+    return f"started the meta session, which holds drive tooling, in Orca terminal {handle}\n"
 
 
 def bind_subcoordinator(data: dict, project: str, held: dict) -> None:
@@ -238,12 +244,10 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
             " add it without --incident and --joins when he asked for options only, or without --options-only when it is an incident"
         )
     tooling = args.words.startswith(state.TOOLING)
-    noted = [rootless(args.thread)] if tooling and args.thread else []
     if tooling:
-        args.thread = None
         held = next((order_id for order_id, order in state.open_orders(state.load(name)).items() if order["text"] == args.words), None)
         if held:
-            return held, state.load(name)["orders"][held], [*noted, f"{held} already holds these words, so no order was added"], []
+            return held, state.load(name)["orders"][held], [f"{held} already holds these words, so no order was added"], []
     project, workstream = filing(state.load(name), args.words, args.project, args.workstream)
     if args.thread:
         check_thread(state.load(name), {"from": args.source, "from_thread": from_thread, "thread": args.thread})
@@ -251,10 +255,9 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
         check_tooling_words(args.words)
     with state.edit(name) as data:
         role = state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
-        holder = state.tooling_holder(data)
-        if tooling and args.owner not in (None, holder):
+        if tooling and args.owner not in (None, "meta"):
             raise DriveError(
-                f'--owner {args.owner}: a "{state.TOOLING}" order is the {state.title(holder)}\'s, by his words of Nov 10 10:08 PM:'
+                f'--owner {args.owner}: a "{state.TOOLING}" order is the meta session\'s, by his words of Nov 10 10:08 PM:'
                 ' "and remember toolingh/meta improvements dont go to coorfidnatror", and of Nov 11 12:31 PM: "A third session, a'
                 ' tooling/meta coordinator, owns every tool fix, skill rewrite and install"; leave --owner out'
             )
@@ -263,7 +266,7 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
                 f'refused, no order added: the meta session adds only "{state.TOOLING}" orders and never touches his product orders,'
                 f" which are the coordinator's; send his words to root@{name} as an owner record"
             )
-        owner = args.owner or (holder if tooling else role or "coordinator")
+        owner = args.owner or ("meta" if tooling else role or "coordinator")
         joined = find(data["orders"], args.joins, "order") if args.joins else None
         if joined and not (joined["incident"] and joined["state"] not in state.CLOSED_ORDER_STATES):
             raise DriveError(f"--joins {args.joins}: name an open incident order; {args.joins} is {joined['state']}{'' if joined['incident'] else ', not an incident'}")
@@ -307,11 +310,7 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
         started = [state.incident_job(data, name, order_id, part, created) for part in (order["parts"] if args.incident and not joined else [])]
     if joined:
         started.append(f"joins {args.joins}: {joined['note'] or 'no record'}; its owner job carries this order with --carries {order_id}")
-    return order_id, order, [*noted, *started], incidents
-
-
-def rootless(thread: str) -> str:
-    return f'--thread {thread} left out: a "{state.TOOLING}" order\'s posts go at his DM root, in no thread'
+    return order_id, order, started, incidents
 
 
 def incident_open(args: argparse.Namespace) -> int:
@@ -531,9 +530,6 @@ def order_set(args: argparse.Namespace) -> int:
     reporter = None if unreported else state.reporter(args.reporter) if args.reporter else order["reporter"]
     if args.state == "done" and reporter and not reporter["told"]:
         raise DriveError(untold(args.id, reporter))
-    noted = ""
-    if args.thread and order["text"].startswith(state.TOOLING):
-        noted, args.thread = rootless(args.thread) + "\n", None
     if args.words is not None:
         if not (order["text"].startswith(state.TOOLING) and args.words.startswith(state.TOOLING)):
             raise DriveError(f'--words: refused, only a "{state.TOOLING}" order\'s words change, to words that open "{state.TOOLING}"; an order of his keeps his words verbatim')
@@ -620,7 +616,7 @@ def order_set(args: argparse.Namespace) -> int:
             order["last_line"] = order["updated"]
     cards = thread_cards(name, order) if args.rework or (order["kind"], order["thread"]) != aimed else []
     reworked = rework_named_prs(name, args.id, args.rework, cards, f"drive order set {args.id} --rework <PR>")
-    return emit(args, noted + render.order_line(args.id, order) + promised + "".join(f"\n{line}" for line in reworked), {"id": args.id, **order})
+    return emit(args, render.order_line(args.id, order) + promised + "".join(f"\n{line}" for line in reworked), {"id": args.id, **order})
 
 
 def untold(order_id: str, reporter: dict) -> str:
@@ -1065,10 +1061,9 @@ def refuse_a_crossed_order(name: str, data: dict, own: str, other: str, acting: 
     """Refuse a job carrying, or a PR serving, an order across the line between drive tooling and his feature work: the coordinator acts on no "Drive tooling:" order, and a tooling order's job or PR never carries or serves his feature order, nor the reverse."""
     order = find(data["orders"], other, "order")
     if tooling(order) and state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) == "coordinator":
-        holder = state.tooling_holder(data)
         raise DriveError(
-            f'{acting} {other}: refused, {other} is a "{state.TOOLING}" order, which only the {state.title(holder)} acts on: send a'
-            f" defect record to {holder}@{name} naming what it needs, and the {state.title(holder)}'s builder takes it over"
+            f'{acting} {other}: refused, {other} is a "{state.TOOLING}" order, which only the meta session acts on: send a'
+            f" defect record to meta@{name} naming what it needs, and the meta session's builder takes it over"
         )
     if tooling(order) == tooling(data["orders"][own]) or own == other:
         return
@@ -1634,17 +1629,16 @@ def job_brief(args: argparse.Namespace) -> int:
     written.write_text(text)
     with state.edit(name) as data:
         data["jobs"][args.id].update(brief=str(written), brief_flags=flags)
-        holder = state.tooling_holder(data)
-        if given := bool(brief.SERVES_TOOLING.search(text)) and data["orders"][job["order"]]["owner"] != holder:
-            data["orders"][job["order"]]["owner"] = holder
+        if given := bool(brief.SERVES_TOOLING.search(text)) and data["orders"][job["order"]]["owner"] != "meta":
+            data["orders"][job["order"]]["owner"] = "meta"
     line = f"Read your brief first: {written}\nhis words from {job['order']}, rulings: {len(rulings)}, earlier jobs: {len(earlier)}"
     if kept:
         line += "\nkept from its earlier brief: " + ", ".join(f"--{flag.replace('_', '-')}" for flag in kept)
     if given:
         line += (
-            f"\n{job['order']} is the {state.title(holder)}'s order now, since a builder serving drive tooling is its alone: only the {state.title(holder)}"
+            f"\n{job['order']} is the meta session's order now, since a builder serving drive tooling is its alone: only the meta session"
             f" starts {args.id} and its agents and posts its reports; from the coordinator, start no agent on it and send"
-            f" {holder}@{name} a defect record naming {args.id} and its `Read your brief first:` line"
+            f" meta@{name} a defect record naming {args.id} and its `Read your brief first:` line"
         )
     return emit(args, line, {"id": args.id, "brief": str(written), "rulings": len(rulings), "earlier": earlier, "kept": kept})
 
@@ -2332,7 +2326,7 @@ def answer(args: argparse.Namespace) -> int:
 
 
 def rewrite_refusal(data: dict, args: argparse.Namespace) -> str | None:
-    """Why a ruling of his may not be recorded yet: its skill rewrite is owed the moment it is, so an open "Drive tooling:" order, the communicator's, carries it, and the watch chases that order until its builder is done."""
+    """Why a ruling of his may not be recorded yet: its skill rewrite is owed the moment it is, so an open "Drive tooling:" order, the meta session's, carries it, and the watch chases that order until its builder is done."""
     labels = args.label if args.id is None else settled.shown(args.id, data["roles"]["coordinator"]["cwd"])["tags"]
     if RULING not in labels:
         return None
@@ -2341,7 +2335,7 @@ def rewrite_refusal(data: dict, args: argparse.Namespace) -> str | None:
         return None
     return (
         "refused, nothing recorded: a ruling's skill rewrite is owed the moment the ruling is recorded, so name the"
-        " communicator's open order carrying it with --rewrite <o>, adding it first with"
+        " meta session's open order carrying it with --rewrite <o>, adding it first with"
         f' drive order add "{state.TOOLING} rewrite: <his words, verbatim>" when none holds it, which the watch chases until'
         " its builder is done; his ruling 0c59046 went unbuilt for hours while nothing said its rewrite was owed"
     )
@@ -2812,7 +2806,7 @@ def parser() -> argparse.ArgumentParser:
         choices=state.ROLES,
         help=(
             "the one session that adds its jobs, starts its agents and posts its reports, refusing the others'; default: a"
-            ' "Drive tooling:" order the meta session, or the communicator while none is bound, any other the role of the'
+            ' "Drive tooling:" order the meta session, any other the role of the'
             " session adding it, else the coordinator"
         ),
     )

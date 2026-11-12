@@ -14,7 +14,7 @@ from pathlib import Path
 
 import drive
 import pytest
-from conftest import CARD_BODY, RESEARCH, SHORT_ASK, Answers, Chrome, Drawing, Jev, Judge, Thread, WatchProcess, Withdrawals
+from conftest import CARD_BODY, RESEARCH, SHORT_ASK, Answers, Chrome, Drawing, Jev, Judge, MetaLaunches, Thread, WatchProcess, Withdrawals
 from drive import (
     card,
     cli,
@@ -92,6 +92,24 @@ def test_a_coordinators_start_starts_the_watch_and_says_so(run: Run, watch_proce
     code, out = run("start", "demo", "--role", "coordinator")
     assert (code, watch_process.ensured) == (0, ["demo"])
     assert "\nthe watch runs for demo\ncoordinator: " in out
+
+
+def test_drive_start_starts_the_meta_session_beside_the_others_once_until_it_binds(
+    run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, meta_launches: MetaLaunches
+) -> None:
+    out = run("start", "demo", "--role", "communicator", "--channel", "D123")[1]
+    assert "\n\nstarted the meta session, which holds drive tooling, in Orca terminal term_meta1\ncommunicator: " in out
+    assert (meta_launches.started, state.load("demo")["launched"]) == ([("demo", str(tmp_path))], {"meta": "term_meta1"})
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "coordinator-session")
+    assert "\n\nthe meta session starts in Orca terminal term_meta1, which an earlier drive start opened\n" in run("start", "demo", "--role", "coordinator")[1]
+    meta_launches.open.clear()
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "communicator-2")
+    assert "in Orca terminal term_meta2\ncommunicator: " in run("start", "demo", "--role", "communicator")[1]
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "meta-session")
+    run("start", "demo", "--role", "meta")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "coordinator-session")
+    assert "the meta session starts in" not in run("start", "demo", "--role", "coordinator")[1]
+    assert len(meta_launches.started) == 2
 
 
 def test_a_sub_coordinator_binds_beside_the_top_for_a_project_an_order_is_filed_under_and_a_new_session_replaces_it(
@@ -228,38 +246,42 @@ def test_each_order_has_one_owner_and_the_other_session_adds_no_job_to_it(
     run("order", "add", "--project", "The drive", "--workstream", "Releases", "fix the watch")
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a verb for owners")
     assert cli.main(["order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: another", "--owner", "coordinator"]) == 2
-    assert "a \"Drive tooling:\" order is the communicator's" in capsys.readouterr().err
-    assert [order["owner"] for order in state.load("demo")["orders"].values()] == ["coordinator", "communicator"]
+    assert "a \"Drive tooling:\" order is the meta session's" in capsys.readouterr().err
+    assert [order["owner"] for order in state.load("demo")["orders"].values()] == ["coordinator", "meta"]
     assert cli.main(["job", "add", "builder", "--order", "o2", "--goal", "build it"]) == 2
-    assert "refused, no job added: o2 is the communicator's order, session not started: only the communicator adds its jobs" in capsys.readouterr().err
+    assert "refused, no job added: o2 is the meta session's order, session not started: only the meta session adds its jobs" in capsys.readouterr().err
     assert run("job", "add", "builder", "--order", "o1", "--goal", "fix it")[1] == "j1"
     with state.edit("demo") as data:
         data["orders"]["o3"] = data["orders"]["o1"] | {"text": "an order from before owners", "owner": None, "jobs": []}
+        data["orders"]["o4"] = data["orders"]["o2"] | {"owner": "communicator", "jobs": []}
+    assert state.load("demo")["orders"]["o4"]["owner"] == "meta"
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "communicator-session")
     run("start", "demo", "--role", "communicator")
     assert cli.main(["job", "add", "reader", "--order", "o1", "--goal", "read it"]) == 2
     assert "o1 is the coordinator's order, session session-under-test" in capsys.readouterr().err
     assert run("job", "add", "reader", "--order", "o3", "--goal", "read it")[0] == 0
-    assert run("job", "add", "builder", "--order", "o2", "--goal", "build it")[0] == 0
+    assert cli.main(["job", "add", "builder", "--order", "o2", "--goal", "build it"]) == 2
+    assert "o2 is the meta session's order" in capsys.readouterr().err
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-under-test")
     assert cli.main(["job", "add", "builder", "--order", "o3", "--goal", "build it"]) == 2
     assert "o3 is the communicator's order, session communicator-session" in capsys.readouterr().err
 
 
-def test_the_meta_session_takes_the_communicators_tooling_orders_and_holds_each_new_one_but_no_product_order(
+def test_the_meta_session_holds_every_tooling_order_but_no_product_order(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a verb for owners")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "communicator-session")
     run("start", "demo", "--role", "communicator")
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "--kind", "answer", "what does the watch hold")
+    assert [order["owner"] for order in state.load("demo")["orders"].values()] == ["meta", "communicator"]
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "meta-session")
     assert cli.main(["start", "demo", "--role", "meta", "--project", "The drive"]) == 2
     assert "the meta session holds no project" in capsys.readouterr().err
     code, out = run("start", "demo", "--role", "meta")
     assert code == 0
     assert out.startswith("You are the meta session of drive demo: you hold drive tooling")
-    assert "the meta session holds o1 now, the drive tooling orders the communicator held\nmeta: session meta-session" in out
+    assert out.splitlines()[-1] == "meta: session meta-session, in no Orca terminal"
     assert [order["owner"] for order in state.load("demo")["orders"].values()] == ["meta", "communicator"]
     assert cli.main(["order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page"]) == 2
     assert 'the meta session adds only "Drive tooling:" orders and never touches his product orders' in capsys.readouterr().err
@@ -2201,7 +2223,7 @@ def test_an_answer_order_is_one_readers_and_a_build_orders_builder_waits_on_its_
     assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "fix the copy"]) == 2
     assert "refused, no job added: o1 is an answer order: one reader researches it and answers him" in capsys.readouterr().err
     assert run("job", "add", "reader", "--order", "o1", "--goal", "answer him")[0] == 0
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "copy one store", "--kind", "build")
     assert cli.main(["job", "add", "builder", "--order", "o2", "--goal", "build it"]) == 2
     assert "o2 is a build order, so its builder starts only once an Opus reader has kept a Researched: line" in capsys.readouterr().err
     run("job", "add", "reader", "--order", "o2", "--goal", "research: the copy")
@@ -2218,7 +2240,7 @@ def test_an_answer_order_is_one_readers_and_a_build_orders_builder_waits_on_its_
 
 
 def test_a_build_orders_design_job_waits_on_its_readers_research(
-    run: Run, communicator: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
     assert cli.main(["job", "add", "design", "--order", "o1", "--goal", "cards: where the copy runs"]) == 2
@@ -2229,7 +2251,7 @@ def test_a_build_orders_design_job_waits_on_its_readers_research(
 
 
 def test_a_build_orders_designer_and_builder_are_added_waiting_on_its_reader_still_at_work(
-    run: Run, communicator: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run(
         "order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: topologies", "--kind", "build",
@@ -2256,7 +2278,7 @@ def test_a_build_orders_designer_and_builder_are_added_waiting_on_its_reader_sti
     assert "--waits j1: j1 already kept o1's research, so this builder starts now: add it with no --waits" in capsys.readouterr().err
 
 
-def test_a_jobs_clock_is_a_time_to_come(run: Run, communicator: str, capsys: pytest.CaptureFixture[str]) -> None:
+def test_a_jobs_clock_is_a_time_to_come(run: Run, meta: str, capsys: pytest.CaptureFixture[str]) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store")
     run("job", "add", "codex", "--order", "o1", "--goal", "first check")
     assert cli.main(["job", "set", "j1", "--due", "2026-01-01T00:00:00+00:00"]) == 2
@@ -2267,7 +2289,7 @@ def test_a_jobs_clock_is_a_time_to_come(run: Run, communicator: str, capsys: pyt
 
 
 def test_a_readers_design_return_carries_his_options_and_holds_the_builder_until_a_design_job_starts(
-    run: Run, communicator: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
@@ -2285,7 +2307,7 @@ def test_a_readers_design_return_carries_his_options_and_holds_the_builder_until
 
 
 def test_the_immediate_fix_starts_at_once_past_the_research_the_design_and_options_only(
-    run: Run, communicator: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run(
         "order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build",
@@ -2307,7 +2329,7 @@ def test_the_immediate_fix_starts_at_once_past_the_research_the_design_and_optio
     assert state.load("demo")["jobs"]["j1"]["parts"] == ["immediate fix"]
 
 
-def test_a_follow_up_he_orders_to_a_pr_gets_its_designer_at_once_with_no_reader_or_wait(run: Run, communicator: str, capsys: pytest.CaptureFixture[str]) -> None:
+def test_a_follow_up_he_orders_to_a_pr_gets_its_designer_at_once_with_no_reader_or_wait(run: Run, meta: str, capsys: pytest.CaptureFixture[str]) -> None:
     run(
         "order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: land the card fix, then a follow-up that is not hacky",
         "--kind", "build", "--parts", "the card fix", "follow-up",
@@ -2351,7 +2373,7 @@ def test_a_builder_landing_prs_he_approved_starts_with_no_research(run: Run, wit
 
 
 def test_a_readers_kept_design_return_is_the_ask_its_card_draws(
-    run: Run, communicator: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
@@ -2361,7 +2383,7 @@ def test_a_readers_kept_design_return_is_the_ask_its_card_draws(
 
 
 def test_a_builders_ready_says_how_it_reuses_what_its_research_found(
-    run: Run, communicator: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
@@ -2494,7 +2516,7 @@ def test_order_set_parts_keeps_a_designs_changes_and_refuses_a_list_renaming_one
 
 
 def test_a_research_readers_report_carries_its_filled_researched_block(
-    run: Run, communicator: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
@@ -2509,7 +2531,7 @@ def test_a_research_readers_report_carries_its_filled_researched_block(
 
 
 def test_a_readers_design_starts_from_the_root_cause_and_counts_only_its_options(
-    run: Run, communicator: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
@@ -2809,7 +2831,7 @@ def test_pr_add_and_set_refuse_a_pr_someone_else_opened_unless_the_order_it_serv
 
 
 def test_pr_add_of_a_yasyf_pr_starts_one_lander_that_merges_and_installs_it(
-    run: Run, communicator: str, on_github: dict, landers: list[tuple[str, ...]]
+    run: Run, meta: str, on_github: dict, landers: list[tuple[str, ...]]
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: land it")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
@@ -3066,8 +3088,8 @@ def test_pr_set_tap_draws_a_body_with_no_releasable_section_and_a_step_after_the
     assert run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")[0] == 0
 
 
-def test_pr_set_tap_serving_a_drive_tooling_order_needs_no_words_of_his_and_only_the_communicator_sets_it(
-    run: Run, communicator: str, on_github: dict, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_pr_set_tap_serving_a_drive_tooling_order_needs_no_words_of_his_and_only_the_meta_session_sets_it(
+    run: Run, meta: str, on_github: dict, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a tooling PR lands on his Approve")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
@@ -3076,8 +3098,8 @@ def test_pr_set_tap_serving_a_drive_tooling_order_needs_no_words_of_his_and_only
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "elsewhere")
     assert cli.main(["pr", "set", PR, "--tap", "--serves", "o1", "--design", "none"]) == 2
     assert capsys.readouterr().err.strip() == (
-        'drive: Forge-AI/monorepo#42 --serves o1: refused, o1 is a "Drive tooling:" order, which only the communicator acts on:'
-        " send a defect record to communicator@demo naming what it needs, and the communicator's builder takes it over"
+        'drive: Forge-AI/monorepo#42 --serves o1: refused, o1 is a "Drive tooling:" order, which only the meta session acts on:'
+        " send a defect record to meta@demo naming what it needs, and the meta session's builder takes it over"
     )
     assert state.load("demo")["prs"]["Forge-AI/monorepo#42"].get("serves") is None
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-under-test")
@@ -3089,11 +3111,13 @@ def test_pr_set_tap_serving_a_drive_tooling_order_needs_no_words_of_his_and_only
 
 
 def test_a_tooling_orders_job_or_pr_never_carries_or_serves_his_feature_order_nor_the_reverse(
-    run: Run, communicator: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: the ask card redraws")
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: fix ask")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "elsewhere")
     run("order", "add", "--project", "The drive", "--workstream", "Releases", "show the run page")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-under-test")
     run("job", "add", "builder", "--order", "o1", "--goal", "redraw it")
     run("pr", "add", PR, "--job", "j1")
     crossed = "o1 is a drive tooling order and o3 is an order of his feature work, and one job or PR never carries both: start a job on o3 with drive job add <kind> --order o3"
@@ -3108,7 +3132,7 @@ def test_a_tooling_orders_job_or_pr_never_carries_or_serves_his_feature_order_no
     run("order", "add", "--project", "The drive", "--workstream", "Releases", "land the page")
     run("job", "add", "builder", "--order", "o4", "--goal", "land it")
     assert cli.main(["job", "set", "j2", "--carries", "o2"]) == 2
-    assert "j2 --carries o2: refused, o2 is a \"Drive tooling:\" order, which only the communicator acts on: send a defect record to communicator@demo" in capsys.readouterr().err
+    assert "j2 --carries o2: refused, o2 is a \"Drive tooling:\" order, which only the meta session acts on: send a defect record to meta@demo" in capsys.readouterr().err
 
 
 def test_pr_set_tap_accepts_a_body_with_every_section_his_card_needs(run: Run, with_pr: str) -> None:
@@ -4162,13 +4186,11 @@ def test_start_outside_an_orca_terminal_is_refused_naming_the_command_that_start
     assert run("start", "demo", "--role", "coordinator")[0] == 0
 
 
-def test_a_drive_tooling_order_leaves_out_its_thread_since_its_posts_go_at_his_dm_root(run: Run, demo: str) -> None:
-    tooling = ["order", "add", "--project", "p", "--workstream", "w", "Drive tooling: fix ask"]
-    rootless = '--thread 1794378983.440769 left out: a "Drive tooling:" order\'s posts go at his DM root, in no thread'
-    assert run(*tooling, "--thread", "1794378983.440769") == (0, f"o1\n{rootless}")
-    code, out = run("order", "set", "o1", "--thread", "1794378983.440769")
-    assert (code, out.splitlines()[0]) == (0, rootless)
-    assert state.load("demo")["orders"]["o1"]["thread"] is None
+def test_a_drive_tooling_order_keeps_his_thread_so_his_later_words_there_find_it(run: Run, demo: str) -> None:
+    tooling = ["order", "add", "--project", "p", "--workstream", "w", "Drive tooling: fix ask", "--thread", "1794378983.440769"]
+    assert run(*tooling) == (0, "o1")
+    assert state.load("demo")["orders"]["o1"]["thread"] == "1794378983.440769"
+    assert state.thread_order(state.load("demo"), "1794378983.440769") == "o1"
 
 
 def test_a_drive_tooling_order_his_words_already_hold_adds_none(run: Run, demo: str) -> None:

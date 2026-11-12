@@ -7,7 +7,7 @@ description: Use when work will outlive one context window, spans several PRs or
 
 A drive is three Claude Code sessions, the communicator, coordinator and meta session, and their jobs. Only the coordinator and the designer run Fable 5.2 (`claude-fable-5-2`); the rest run Opus 5.5 (`claude-opus-5-5`), Sonnet only a one-fact lookup, since complex work on a light model gets redone.
 
-The communicator is the only session he talks to: its turn on his message is a one-sentence ack alone inside 5 to 10 seconds, then `drive handler`, which starts `long-running:handler` as its own session, so his next message never waits. The handler does every read, card and post through `say` and ends on one line, sent back as one cci record. Only orders, alerts, rulings, his answers, and a question an `ask` record cannot answer go to the coordinator, a ruling to the meta session too. He reads only Slack, never a terminal (`communicator`).
+The communicator is the only session he talks to: its turn on his message is a one-sentence ack alone inside 5 to 10 seconds, then `drive handler`, which starts `long-running:handler` as its own session, so his next message never waits. The handler does every read, card and post through `say` and ends on one line, sent back as one cci record. Each `owner` record names its `about`: his words on the drive, rulings included, reach the meta session alone; his orders, alerts, answers and questions on his work reach the coordinator. He reads only Slack, never a terminal (`communicator`).
 
 The coordinator turns his messages into orders and gives each to a job owning one deliverable end to end: code, PR, CI, merge, install, check. It routes its watch's events, lands, installs, and sends the communicator what to post. Neither it nor the meta session posts to Slack, since his reply under a post reaches only the session that posted it.
 
@@ -78,4 +78,4 @@ Read a page, or its rows naming `<row>`, with `drive manual <page> [<row>]`, nev
 
 ## Tooling
 
-Drive tooling, every tool fix, skill rewrite and install, is the meta session's (`meta`). A defect anyone hits is a `defect` record to `meta@<drive>` quoting the refusal, whose fix starts that turn, and the blocked work goes ahead another way, with no excuse or question to him. With no meta session bound, the communicator holds drive tooling and its records.
+Drive tooling, every tool fix, skill rewrite and install, is the meta session's (`meta`), opened by `drive start`. A defect anyone hits is a `defect` record to `meta@<drive>` quoting the refusal, whose fix starts that turn, and the blocked work goes ahead another way, with no excuse or question to him.
