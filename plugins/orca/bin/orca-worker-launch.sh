@@ -125,6 +125,16 @@ legacy=$dir/${name%.*}.dispatch.json
   die "$legacy holds an earlier launch of this brief, and a brief gets one attempt; inspect it instead"
 sha=$(shasum -a 256 "$brief" | cut -d' ' -f1)
 bytes=$(wc -c <"$brief" | tr -d ' ')
+discard() {
+  local error
+  if [ "$1" = "$continued" ]; then
+    echo "its Sprite $1 is kept, since this launch continues the lane on it"
+  elif error=$("$cc_remote" destroy "$1" 2>&1 >/dev/null); then
+    echo "its Sprite $1 is destroyed"
+  else
+    echo "destroying its Sprite $1 failed too: ${error##*$'\n'}"
+  fi
+}
 retire() {
   local retired=$attempt.1
   while [ -e "$retired" ] || [ -L "$retired" ]; do retired=$attempt.$((${retired##*.} + 1)); done
@@ -140,7 +150,7 @@ if [ "$route" = sprite ] && [ -d "$attempt" ] && [ ! -L "$attempt" ]; then
   if [ ! -e "$attempt/worker-start.status" ] && ! { read -r failed 2>/dev/null <"$attempt/prepare.status" && [ "$failed" = 0 ]; }; then
     retire "whose prepare ${failed:+exited }${failed:-never finished} before any worker started"
   elif [ -n "$continued" ] && unstarted && held=$(jq -r .workspace "$attempt/prepared.json") && [ "$held" != "$continued" ]; then
-    retire "which prepared Sprite $held, left claimed with an idle terminal, while this launch continues on Sprite $continued"
+    retire "which prepared Sprite $held while this launch continues on Sprite $continued, and $(discard "$held")"
   fi
 fi
 reused= unsent=
@@ -159,7 +169,7 @@ if [ -e "$attempt" ] || [ -L "$attempt" ]; then
       mv "$attempt/allocation.json.new" "$attempt/allocation.json"
       ;;
     255)
-      retire "whose Sprite $workspace answered no ssh connection before any worker started: ${error##*$'\n'}"
+      retire "whose Sprite $workspace answered no ssh connection before any worker started: ${error##*$'\n'}, and $(discard "$workspace")"
       reused= unsent=
       ;;
     *) die "the Sprite $workspace did not take the brief at $path: ${error##*$'\n'}; the prepared worker stays idle and unattached, and launching this brief again copies it again" ;;
@@ -258,11 +268,15 @@ if [ "$route" = sprite ]; then
         else "ok \(.task.baseCommit)"
         end
     end' "$attempt/allocation.json" 2>/dev/null) || verdict="not readable as JSON"
-  [[ $verdict == "ok "* ]] || die "$attempt/allocation.json holds $verdict, so the prepared worker stays idle and unattached"
+  if [[ $verdict != "ok "* ]]; then
+    owned=$(jq -r --arg lane "$lane" 'select(.lane == $lane and (.allocation == "warm" or .allocation == "created") and .task.workspace == .workspace and (.workspace | test("\\A[a-z0-9][a-z0-9-]{0,54}\\z"))) | .workspace' "$attempt/allocation.json" 2>/dev/null) || owned=
+    [ -n "$owned" ] || die "$attempt/allocation.json holds $verdict, so the prepared worker stays idle and unattached"
+    die "$attempt/allocation.json holds $verdict, so nothing was attached, and $(discard "$owned")"
+  fi
   jq '.task' "$attempt/allocation.json" >"$attempt/prepared.json"
   base=${verdict#ok }
   [ -z "$expect" ] || [ "$base" = "$expect" ] ||
-    die "the Sprite checked out $base, not WORKER_EXPECT_BASE $expect, so the prepared worker stays idle and unattached, and nothing is prepared again"
+    die "the Sprite checked out $base, not WORKER_EXPECT_BASE $expect, so nothing was attached, $(discard "$(jq -r .workspace "$attempt/allocation.json")"), and nothing is prepared again"
   "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/orca-sprite-tools.sh" "$attempt/prepared.json" >"$attempt/tools.out" 2>"$attempt/tools.err" ||
     die "the Sprite did not take the released ccx and cc-notes or the wasm toolchain: $(tail -n 1 "$attempt/tools.err"); the prepared worker stays idle and unattached, $attempt keeps tools.err, and launching this brief again reruns the tool check on that Sprite"
 
