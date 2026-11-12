@@ -16,7 +16,7 @@ TICKET_FLAGS = {"ticket_id": "--ticket", "ticket_tree": "--ticket-tree", "ticket
 
 
 def say(name: str, post: dict) -> str:
-    """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or reword one already in his DM, and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title and the open cards it closes with its only additions; a post in an order's thread is recorded on that order too, delivering the parts its report record names, and one on an order in none of its threads posts nothing. What the drive's checks find in its words, the say hook hands Jev to judge against his words before this runs."""
+    """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or with a person's user id as channel_id and no thread in the group DM of that person, him and the bot, or reword one already in his DM, and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title and the open cards it closes with its only additions; a post in an order's thread is recorded on that order too, delivering the parts its report record names, and one on an order in none of its threads posts nothing. What the drive's checks find in its words, the say hook hands Jev to judge against his words before this runs."""
     report = cli.report_attrs(post["record"]) if post.get("record") else {}
     if order := post.get("order"):
         data = state.load(name)
@@ -98,6 +98,8 @@ def dry(name: str, post: dict) -> str:
     stack = [state.pr_key(each) for each in post.get("tap_prs") or []]
     where = f"edit of {post['edit']}" if post.get("edit") else ", ".join(f"thread {thread}" if thread else "his DM root" for thread in threads(name, post, stack))
     where += f" of channel {post['channel_id']}" if post.get("channel_id") else ""
+    if post.get("channel_id") and not post.get("thread_ts"):
+        where = f"the group DM of {post['channel_id']}, him and the bot"
     card = f", card {post['card'].get('title')!r}" if post.get("card") else ""
     prs = f", PR card for {len(post['tap_prs'])} PRs" if post.get("tap_prs") else ""
     pictures = len([visual for visual in visuals if "picture" in visual]) + len(lifted)
@@ -105,12 +107,12 @@ def dry(name: str, post: dict) -> str:
 
 
 def check(name: str, post: dict) -> None:
-    """Refuse an edit carrying anything but new words for its post, or a fence that draws as a picture, which an edit of a Slack message cannot add, a PR card naming a PR the drive holds none of, which it cannot draw, and a post outside his DM with no thread, naming his DM, or carrying what only cc-slack dm-status draws."""
+    """Refuse an edit carrying anything but new words for its post, or a fence that draws as a picture, which an edit of a Slack message cannot add, a PR card naming a PR the drive holds none of, which it cannot draw, and a post outside his DM naming his DM, carrying what only cc-slack dm-status draws, or with no thread in a channel, where only a person's user id opens a conversation, the group DM of that person, him and the bot."""
     if channel := post.get("channel_id"):
         if channel == state.load(name)["slack"]["channel"]:
             raise DriveError(f"nothing posted: channel_id {channel} is his DM; leave channel_id out, and say posts there through cc-slack dm-status")
-        if not post.get("thread_ts"):
-            raise DriveError(f"nothing posted: channel_id {channel} names the channel of a thread outside his DM, so it takes that thread's thread_ts")
+        if not post.get("thread_ts") and not cli.SLACK_USER.fullmatch(channel):
+            raise DriveError(f"nothing posted: channel_id {channel} names the channel of a thread outside his DM, so it takes that thread's thread_ts; a person's user id with no thread posts in the group DM of that person, him and the bot")
         if extra := [key for key in DM_ONLY if post.get(key)]:
             raise DriveError(f"nothing posted: {', '.join(extra)} draws only in his DM, through cc-slack dm-status, so a post with channel_id takes none")
     if post.get("edit") and (extra := sorted(key for key, value in post.items() if value and key not in EDIT_TAKES)):
@@ -224,8 +226,9 @@ def status(name: str, post: dict, stack: list[str], pictures: list[str], sent: s
 
 
 def replied(post: dict, pictures: list[str], sent: str) -> list[str]:
-    """The `cc-slack reply` call making a new post in a thread outside his DM, with the ticket cc-slack's Slack permission hook attached to the say call."""
-    argv = ["reply", "--agent", "claude", "--channel", post["channel_id"], "--thread", post["thread_ts"], "--text", sent]
+    """The cc-slack call making a new post outside his DM, with the ticket cc-slack's Slack permission hook attached to the say call: `cc-slack reply` in a thread, or with no thread `cc-slack send` to a person's user id, which opens the group DM of that person, him and the bot."""
+    thread = ["--thread", post["thread_ts"]] if post.get("thread_ts") else []
+    argv = ["reply" if thread else "send", "--agent", "claude", "--channel", post["channel_id"], *thread, "--text", sent]
     argv += [flag for path in pictures for flag in ("--file", path)]
     return argv + [each for field, flag in TICKET_FLAGS.items() if post.get(field) for each in (flag, post[field])]
 
