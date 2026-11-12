@@ -137,7 +137,8 @@ def test_the_meta_session_and_communicator_read_one_definition_of_drive_tooling(
 
 def test_every_role_reads_a_question_proposing_a_way_as_his_order_and_meta_reads_his_ruling_to_keep_simplifying() -> None:
     contexts = {role: render.context(sample(), role) for role in state.ROLES}
-    assert [role for role, text in contexts.items() if '"why not just X?"' not in text] == []
+    assert '"why not just X?"' in contexts["communicator"]
+    assert [role for role in state.ROLES if '"why not just X?"' not in (cli.PAGES / f"{role}.md").read_text()] == []
     assert [role for role, text in contexts.items() if "in geernal keeps implifying all this tuff" in text] == ["meta"]
 
 
@@ -265,14 +266,10 @@ def test_status_text_names_the_thread_each_orders_lines_go_in() -> None:
     assert next(line for line in lines if line.startswith("- o3 ")).startswith("- o3 open: ")
 
 
-def test_every_order_a_sessions_rules_tell_it_to_add_carries_each_field_order_add_requires() -> None:
+def test_every_order_a_sessions_rules_or_rows_tell_it_to_add_carries_each_field_order_add_requires() -> None:
     required = set(tools.schema(tools.leaf("order", "add"))["required"])
-    templates = [
-        re.findall(r"(\w+):", found)
-        for rules in render.RULES.values()
-        for rule in rules
-        for found in re.findall(r"order: \{([^}]*)\}", rule)
-    ]
+    texts = [*(rule for rules in render.RULES.values() for rule in rules), *((cli.PAGES / f"{role}.md").read_text() for role in state.ROLES)]
+    templates = [re.findall(r"(\w+):", found) for text in texts for found in re.findall(r"order: \{([^}]*)\}", text)]
     assert templates
     for keys in templates:
         assert required <= set(keys), keys

@@ -96,12 +96,9 @@ COMMUNICATOR_RULES = (
     ),
     (
         "His feedback on a post or card the drive made (its words, a picture, a link or card it lacks, \"what is"
-        ' this"), wherever it lands, a card\'s thread included, gets its handler, which fixes that one post and posts'
-        " his words as an owner record about the drive carrying a ruling attr, whose record call adds the order"
-        " `Drive tooling: post feedback: \"<his words>\"` every time, a repeat too, before it reaches the meta session alone, since his words \"When I give"
-        " feedback on posts keep iterating on the library, tooling etc don't get complacent\" name the library that"
-        " draws posts and cards, cc-slack check-post and the drive tools, never only the post. Its ack says that post"
-        " and the code that let it through are being fixed."
+        ' this"), wherever it lands, a card\'s thread included, gets its handler, which fixes that one post and adds'
+        " the order `Drive tooling: post feedback: \"<his words>\"` for the meta session, a repeat too. Its ack says"
+        " that post and the code that let it through are being fixed."
     ),
     (
         f"Drive tooling, {DRIVE_TOOLING}, is the meta session's alone, never yours or the coordinator's, so you start no"
@@ -136,42 +133,19 @@ COORDINATOR_RULES = (
     ),
     REACHING,
     (
-        "When an owner record asks a question of fact, report what you have inside 5 to 10 seconds, the read in a"
-        ' second report, in a job past one call; one proposing work, such as "why not just X?", is his order to build X.'
-    ),
-    (
         "Every order goes to one background job that owns its deliverable end to end, past-due ones too, since work you"
-        " do yourself holds every event behind it. Before the Agent call, one job call adds the job and writes its"
-        " brief, ops `[{add: {kind, order, goal, part}}, {brief: {serves, done_when, where, ruling: [each answer id of"
-        " his on the area]}}]`, and the Agent prompt is the line brief prints, `Read your brief first: <path>`. The"
-        " drive records each job's start, wake and result, so job set takes state stopped only for a job that ends"
-        " unfinished, and a design job ends once a builder takes its part or one of its changes."
+        " do yourself holds every event behind it: read the shape of its brief and handoff in drive manual jobs before"
+        " you start it. Load a tool only for the step that needs it, and leave a log to a job."
     ),
     (
         "Every event line, record and job result has its row in drive manual coordinator, and each verb and flag its"
-        " row in drive manual verbs: before acting on one these rules do not spell out, read that one row with drive"
-        " manual <page> <row>, never a whole page, a cached copy or --help."
+        " row in drive manual verbs: before acting on one, read that one row with drive manual <page> <row>, never a"
+        " whole page, a cached copy or --help, since a rule for one step lives only in its row."
     ),
     (
-        "Start a builder only for a port of #N (pr set `port_of`, no PR card) or an order of his (pr set tap, `serves"
-        " <o>`, design `asked:<his answer>` or none, his words quoted in its ready line). Drive tooling is the meta"
-        " session's, never yours: his words on drive tooling are its order, never one you add, and a tool defect you or"
-        " a job hit, a hook refusing wrongly or a refusal or queue holding back work he waits on, is one record call that"
-        " turn, kind defect, with the refusal verbatim, never read as working as designed, which reaches it. An order of yours whose"
-        ' builder serves drive tooling becomes the meta session\'s with its brief op `serves: "drive tooling"`: start no'
-        " agent on it, and send that defect record naming the job and its `Read your brief first:` line. Build, polish or"
-        " card nothing else: touch someone else's PR only when his order names it, another lane's PR goes back to it, and"
-        " an unordered finding becomes a question card. A port's data is modeled right for the target tree, never copied"
-        " from #N's storage, a design part: pr set refuses `port_of` on a migration or schema change."
-    ),
-    (
-        "A part with a tricky design (a data layout or file format, a schema, a lock or queue, an API shape, a new"
-        " background process, any two shapes costly to switch; when unsure it counts) first gets one"
-        " long-running:designer, and each fork reaches him as one question card. The recommended option's builder starts beside the cards, unless his words on that order ask for"
-        " options only, and returns `BUILT <branch>, waits on <each card>`, which sets its job built; it opens no PR until"
-        " he answers every card: pr add refuses, and FREE says when. A bug hurting someone now is no fork for its"
-        " immediate fix, or a rollback when prudent: its own `immediate fix` part's builder starts at once, options-only"
-        " orders too, its PR waits on none of his cards, and the proper fix replaces it."
+        "Drive tooling is the meta session's, never yours: a tool defect you or a job hit, a hook refusing wrongly or a"
+        " refusal or queue holding back work he waits on, is one record call that turn, kind defect, with the refusal"
+        " verbatim, never read as working as designed, which reaches it."
     ),
     (
         "A ruling travels by its words: a brief, handoff or `SendMessage` carries what he wrote verbatim to each live"
@@ -180,38 +154,12 @@ COORDINATOR_RULES = (
         " another surface is a question card first."
     ),
     (
-        "Every part has an owner: an order add names its kind, answer or build, its project, workstream and short title, and for a"
-        " build its parts, one per deliverable his words name; each job names its part, an ORPHAN line gets a job, a"
-        " card or a close in the same turn, a part a post already answered closes with drive order posted <o> <link>"
-        " --part, --record or not, and a job that waits on a release is added, or set, with --waits release:<service>:<owner>/<repo>#<n>,"
-        " not `--due` alone, and one built on another builder's change with no PR yet with --waits <that builder>, which its first PR"
-        " replaces. A build order's first job is an Opus"
-        " long-running:reader briefed `Research: the Researched: block this build needs`; its builder's or designer's"
-        " brief carries `Researched: <that reader's job>`, which the brief op writes; each other part's builder or designer"
-        " is added beside the reader with `job add --waits <the reader>` and starts on its FREE line; a reader's DESIGN"
-        " return starts the designer. The immediate fix and a red default branch's fix-forward, each on its own `immediate fix`"
-        " part, and a builder landing PRs he approved (`job add builder --lands <PR>`) start at once, before any reader."
-        " So does the designer of a `follow-up` part he orders to a PR, beside its landing."
-    ),
-    (
         "Never block: your own calls are the drive's tools, cci reads, a job's transcript, one gh call and the verbs"
         " the skill names, never a Slack read, which is a job's. Read a job's transcript before you call it silent, stuck or done, since a state you guess"
         " reaches him as fact."
     ),
     (
-        "Load a tool only for the step that needs it, and leave a log to a job. Before you start a job, read the shape of its brief and handoff in drive manual jobs; the job tool's"
-        " brief op writes either, a remote job then starts with drive job launch <j> in the background, and a message"
-        " to a remote lane goes on stdin to drive job resume <j> - from a quoted heredoc."
-    ),
-    (
-        "A monorepo builder starts where drive place says: on a Sprite while this Mac is over its load limit or runs"
-        " its cap of builders, except a handoff whose PROVE runs ci mac-box or ci devbox, which needs this Mac's machine"
-        " profile."
-    ),
-    (
-        "Job results and events feed the next TICK's report; while he is away only cards and incident lines go out, and a"
-        " `refused` record with `held` names a report held for his catch-up, which never reached him. A"
-        " report says only what was observed, with no side fact and no unproven or unconfirmed paragraph under any"
+        "A report says only what was observed, with no side fact and no unproven or unconfirmed paragraph under any"
         " label; each unknown gets a job, and he gets its result or nothing."
     ),
 )
@@ -233,53 +181,10 @@ META_RULES = (
         " add an order the coordinator holds."
     ),
     (
-        "A defect record from any session or job and a defect you hit (a hook refusing wrongly, its rule or Jev's prompt"
-        " the fix, or a refusal or queue holding back work he waits on, never working as designed) each get, in this turn,"
-        ' one job call, ops `[{add: {kind: "reader", order: {words:'
-        ' "Drive tooling: <what>", kind: "build", from: "<its From>", thread: "<its thread attr>", project: "The drive",'
-        ' workstream: "Drive tooling", title: "<a few words naming it>"}, goal: "research: <what>"}}]`, then a background long-running:reader, its prompt'
-        " the lines `Order: Drive tooling: <what>`, `From: cci:<seq>`, his words verbatim for an owner record,"
-        " `Research: the Researched: block this build needs`, `Drive: <name>, order <o>, job <j>`, `Scratch: <folder>`."
-        " The communicator's owner record about the drive, his ruling or feedback included, arrives holding its order, which"
-        " the handler's record call added before it went out and names in its order attr: that reader in this turn, its job"
-        ' call `[{add: {kind: "reader", order: "<its order attr>", goal: "research: <what>"}}]`. One with a part attr carries'
-        " on that open order instead: SendMessage its job's agent his words verbatim and give that job the part with drive job"
-        " set <j> --part, or brief a fresh builder on it when its agent ended, since the watch says ORPHAN for a part no job"
-        ' carries; a question proposing a way, "why not just X?", replaces his pick with X, never answered'
-        " with reasons for the old pick. His feedback on a post or card is the order `Drive tooling: post feedback: \"<his words>\"`"
-        " every time, a repeat too. The order's words reach him verbatim on the line above its PR card, so drive order add"
-        " refuses words cc-slack check-post flags, such as a job, order or record id or a bare PR number. A defect record"
-        " naming a job whose order a brief serving drive tooling gave you gets no order or reader: start its"
-        " long-running:builder, the prompt its `Read your brief first:` line."
-    ),
-    (
-        "His ruling reaches you alone, and the coordinator hears it from you once its order is added: one record call, kind"
-        " owner, to root, about drive, his words verbatim, its ruling attr, its body naming the rewrite order for drive"
-        " answer <id> --rewrite <o> and what changes for the coordinator's live work, or that nothing does."
-    ),
-    (
-        'A reader\'s DONE line gets one job call, ops `[{add: {kind: "builder", order: "<o>", goal: "<one line>"}}]`,'
-        " then a long-running:builder with the reader's lines plus `Serves: drive tooling` and `Researched: <the"
-        " reader's job>` for the Research line; its DESIGN line the same with a design job and a long-running:designer,"
-        " and the recommended option's builder beside its cards, and an `immediate fix` part's builder at once when the"
-        " defect blocks someone now. A follow-up he orders to a tooling PR gets its `follow-up` part's designer in the"
-        " turn he orders it, beside that PR's landing, with no reader."
-        " A handoff record from the watch gets a builder briefed `Handoff: <seq> Drive: <name> Scratch: <folder>`."
-    ),
-    (
-        "A builder's DONE gets a POST report record to communicator@<drive> with `--attr close=<o>`: which tool now"
-        " works, what it unblocks and the proof from the surface he uses; a ruling's rewrite lists each rule as it now"
-        " reads in the installed skill, in his ruling's thread. READY on a Forge-AI PR gets drive pr set <url> --tap"
-        " --serves <o> --design none, or with an EXEMPT line drive pr set <url> --exempt <class> and a builder briefed"
-        " `Handoff: LAND <url> Drive: <name> Scratch: <folder>`. ASK gets an ask record to communicator@<drive> on the cci"
-        " `post` tool with `attrs: {ask: <its path>, job: <j>}`, `path: <its path>` and no text; BUILT, PUSHED and WAITING need nothing; BLOCKED gets drive job set <j> --state"
-        " stopped and a fresh builder on another route; an AFTER line goes in a POST report, and a DEFECT line gets its"
-        " own order and reader."
-    ),
-    (
-        "Every record and result has its row in drive manual meta: before acting on one these rules do not spell out,"
-        " read that row alone with drive manual meta <row>. Never block: your own calls are the drive's tools, cci, a"
-        " job's transcript and the verbs the skill names, since work in your turn holds every record behind it."
+        "Every record and job result has its row in drive manual meta: before acting on one, read that row alone with"
+        " drive manual meta <row>, since a rule for one step lives only in its row. Never block: your own calls are the"
+        " drive's tools, cci, a job's transcript and the verbs the skill names, since work in your turn holds every"
+        " record behind it."
     ),
 )
 RULES = {"communicator": COMMUNICATOR_RULES, "coordinator": COORDINATOR_RULES, "meta": META_RULES}

@@ -121,8 +121,9 @@ minutes is said with the remedy, a `SendMessage` to wake it.
    be live, so a reader checks that attempt before anything starts the job again. A launch whose
    worker started and was never recorded needs no reader: `drive job launch <j>` again records it
    from the ready receipt its attempt keeps.
-4. Send a handoff or message to a lane on stdin, `drive job resume <j> -`, never in a file you
-   write: Claude Code reads the files a session wrote back into its context after every compaction.
+4. Send a handoff or message to a lane on stdin, `drive job resume <j> -` from a quoted heredoc,
+   never in a file you write: Claude Code reads the files a session wrote back into its context
+   after every compaction.
 5. A "You have N orchestration messages" line Orca types into your terminal needs nothing: the watch
    turns that mail into `JOB` events, so leave the `orca orchestration check` it names unrun. Your
    terminal holds a lane's Run only while a call starts a worker or sends an answer.
