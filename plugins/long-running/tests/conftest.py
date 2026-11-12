@@ -454,6 +454,19 @@ class Answers:
     shown: dict[str, dict] = field(default_factory=dict)
 
 
+@dataclass
+class Heard:
+    refusal: str | None = None
+    checked: list[tuple[str, str | None]] = field(default_factory=list)
+
+
+@pytest.fixture(autouse=True)
+def heard(monkeypatch: pytest.MonkeyPatch) -> Heard:
+    hearing = Heard()
+    monkeypatch.setattr(settled, "unsaid", lambda words, link, found: hearing.checked.append((words, link)) or hearing.refusal)
+    return hearing
+
+
 @pytest.fixture(autouse=True)
 def backfilled(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     checkouts: list[str] = []

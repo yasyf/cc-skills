@@ -1522,6 +1522,8 @@ def cards_withdraw(args: argparse.Namespace) -> int:
     )
     if shown is None:
         raise DriveError(f"{args.card}: not one of his open question cards, by its waits id or permalink; drive view --json lists each open card")
+    if unsaid := settled.unsaid(args.words, args.via, found):
+        raise DriveError(f"{args.card}: refused, not withdrawn: {unsaid}")
     superseded.settle(shown["url"], {"words": args.words, "link": args.via})
     view.refresh_cards(name)
     waits = shown["card"].get("waits") or view.message_key(shown["url"])
@@ -1689,7 +1691,7 @@ def checkout(data: dict) -> Path:
 
 
 def job_brief(args: argparse.Namespace) -> int:
-    """Write a job's brief from what the drive holds: his order's words verbatim, each ruling's recorded words whole, the earlier jobs' transcripts, and the lines the call names, each flag it leaves out kept from the job's earlier brief but a handoff's event."""
+    """Write a job's brief from what the drive holds: his order's words verbatim, each ruling's recorded words above the drive's notes, the earlier jobs' transcripts, and the lines the call names, each flag it leaves out kept from the job's earlier brief but a handoff's event."""
     name = state.resolve(args.drive)
     data = state.load(name)
     job = find(data["jobs"], args.id, "job")
@@ -1765,7 +1767,7 @@ def job_brief(args: argparse.Namespace) -> int:
 
 def ruling_words(answer_id: str, checkout_dir: Path) -> str:
     answer = settled.shown(answer_id, str(checkout_dir))
-    return f"{answer['title']} ({answer['id'][:7]})\n{textwrap.indent(answer['body'].strip(), '  ')}"
+    return f"{answer['title']} ({answer['id'][:7]})\n{textwrap.indent(settled.his(answer['body']), '  ')}"
 
 
 def transcript_line(job_id: str, job: dict) -> str | None:
@@ -2056,11 +2058,10 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
         job = find(data["jobs"], job_id, "job")
         if data["orders"][job["order"]]["once"]:
             raise DriveError(f"refused, {job['order']} is a repair he asked to run once: run it, and put up no PR for it")
-        cards = [wait for wait in view.holding(data, job["waits"], view.live_cards(name)) if state.card_wait(data, wait)]
-        if cards and key not in data["prs"] and not state.open_incidents(data, [job["order"], *job["carries"]]) and state.IMMEDIATE_FIX not in job["parts"]:
+        if key not in data["prs"] and (cards := land.open_cards(data, job_id, [], view.live_cards(name))):
             raise DriveError(
-                f"{job_id} waits on his answer to {', '.join(cards)}: it puts up no PR until he answers each;"
-                " the watch says FREE when the last is answered"
+                f"{job_id}'s work waits on his answer to {', '.join(cards)}: it puts up no PR until he answers each, since work"
+                " does not land with a question of his on it unanswered; the watch says FREE when the last is answered"
             )
         wants_tap = state.guarded(key) or not tooling(data["orders"][job["order"]])
         pr = data["prs"].setdefault(key, state.new_pr(url, job_id, job["order"]) | {"wants_tap": wants_tap})
@@ -2249,7 +2250,7 @@ def refuse_an_unwritten_rule(data: dict, key: str) -> None:
             for line in text.splitlines()
             if line.startswith("+") and not line.startswith("+++")
         ]
-        said = ruled["body"].partition("\nNotes:")[0].strip().splitlines()[0]
+        said = settled.his(ruled["body"]).splitlines()[0]
         words = quoted[0][1:-1] if (quoted := limits.QUOTED.findall(said)) else said
         if " ".join(words.split()).casefold() not in " ".join(" ".join(written).split()).casefold():
             raise DriveError(
@@ -2499,9 +2500,12 @@ def answer(args: argparse.Namespace) -> int:
     asked = superseded.asking(data, found)
     if args.id not in data["answers"] and (unowed := rewrite_refusal(data, args)):
         raise DriveError(unowed)
+    cited = args.id
     if args.id is None:
         if not (args.title and args.words and args.link):
             raise DriveError('name his answer\'s cc-notes id, or pass --title "<the question, verbatim>" with --words and --link to record it in cc-notes first')
+        if unsaid := settled.unsaid(args.words, args.link, found):
+            raise DriveError(f"refused, nothing recorded: {unsaid}")
         labels = ["scope:durable", f"drive:{name}", *settled.kind(args.words), *args.label]
         args.id = settled.recorded(args.title, args.words, labels, data["roles"]["coordinator"]["cwd"])
     marking = args.stands or args.superseded or args.reopened or args.others_stand or args.sent or args.untouched
@@ -2513,6 +2517,10 @@ def answer(args: argparse.Namespace) -> int:
             )
         if not (args.words and args.link):
             raise DriveError(f'{args.id} is not recorded yet: pass --words "<his words, verbatim>" and --link <the permalink of his message or the card he tapped>')
+        if cited:
+            body = settled.his(settled.shown(cited, data["roles"]["coordinator"]["cwd"])["body"])
+            if unsaid := settled.unsaid(args.words, args.link, found) or settled.unsaid(body, args.link, found):
+                raise DriveError(f"{cited}: refused, nothing recorded: {unsaid}")
         with state.edit(name) as data:
             data["answers"][args.id] = superseded.record(data, args.words, args.link, asked, state.stamp())
     kept = data["answers"][args.id]
@@ -3408,7 +3416,7 @@ def parser() -> argparse.ArgumentParser:
         description=(
             "Write the brief reference/jobs.md shapes into the drive and print its path: Order from the words the order"
             " holds, verbatim; Goal from the job; Decisions that bind from each --ruling's recorded answer and each one that"
-            " settled a question of the reader its Researched: line names, its title and body whole; Transcripts from each"
+            " settled a question of the reader its Researched: line names, its title and his words above the drive's Notes:; Transcripts from each"
             " earlier job on the order; Scratch, by default a folder of the drive's;"
             " the Drive line; a reader's on a build order, Research: the Researched: block this build needs; and each line"
             " the flags name. A flag left out keeps the job's earlier brief's, all but --handoff, and the output names each kept;"
@@ -3530,7 +3538,7 @@ def parser() -> argparse.ArgumentParser:
         "--design",
         type=design_basis,
         metavar="asked:<answer>|none",
-        help="his answer or card that settled each design decision the PR makes, or none; --serves needs it, and its words check reads each answer whole as his words",
+        help="his answer or card that settled each design decision the PR makes, or none; --serves needs it, its words check reads each answer whole as his words, and a card he has not answered or a message he did not write is refused",
     )
     verb.add_argument(
         "--part",
@@ -3610,8 +3618,14 @@ def parser() -> argparse.ArgumentParser:
         metavar="ORDER",
         help="for a ruling, labelled ruling: the communicator's open \"Drive tooling:\" order that rewrites the skill to it, which the first call needs",
     )
-    verb.add_argument("--words", help="his words, verbatim, which his cc-notes answer keeps and a superseded card shows; the first call needs them")
-    verb.add_argument("--link", help="the permalink of his message or of the card he tapped, which a superseded card links; the first call needs it")
+    verb.add_argument(
+        "--words",
+        help="his words, verbatim, cut with … where words are left out, which his cc-notes answer keeps and a superseded card shows; the first call needs them, refused unless his message or card answer at --link holds them",
+    )
+    verb.add_argument(
+        "--link",
+        help="the permalink of his message or of the card he answered, which a superseded card links; the first call needs it, and checks both --words and a named answer's words above its Notes: against it",
+    )
     verb.add_argument("--stands", action="extend", nargs="+", default=[], metavar="KEY", help="a card or PR his answer leaves as it is")
     verb.add_argument(
         "--superseded",
@@ -3735,7 +3749,7 @@ def parser() -> argparse.ArgumentParser:
         ),
     )
     verb.add_argument("card", help="the card, by its waits id or its permalink")
-    verb.add_argument("--words", required=True, help="his words that withdraw or change it, verbatim, which the card shows")
+    verb.add_argument("--words", required=True, help="his words that withdraw or change it, verbatim, which the card shows; refused unless his message at --via holds them")
     verb.add_argument("--via", required=True, help="the permalink of his message, which the card links")
     verb.set_defaults(run=cards_withdraw)
     card_help = "cc-slack's card_command: reads one request JSON on stdin and prints one JSON reply"

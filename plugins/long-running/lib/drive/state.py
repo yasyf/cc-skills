@@ -664,7 +664,7 @@ def design_builder(data: dict, design_id: str) -> str | None:
     design = data["jobs"][design_id]
     if design["kind"] != "design":
         return None
-    changes = {part for part, held in data["orders"][design["order"]]["parts"].items() if held["design"] == design_id}
+    changes = designed(data, design_id, design["order"])
     builders = [
         (job["state"] != "done", job_id)
         for job_id, job in data["jobs"].items()
@@ -674,6 +674,26 @@ def design_builder(data: dict, design_id: str) -> str | None:
         and (set(design["parts"]) <= set(job["parts"]) or changes & set(job["parts"]))
     ]
     return min(builders)[1] if builders else None
+
+
+def designed(data: dict, job_id: str, order_id: str) -> set[str]:
+    """The parts of an order a job's DESIGN listed as its changes, none for a job that designs nothing."""
+    return {part for part, held in data["orders"][order_id]["parts"].items() if held["design"] == job_id}
+
+
+def sharing(data: dict, job_id: str) -> list[str]:
+    """The job and every other job whose questions to him bear on its work: each on an order it serves whose parts there, with the changes it designed, meet its own, or where either names no part."""
+    job = data["jobs"][job_id]
+    found = [job_id]
+    for order_id in [job["order"], *job["carries"]]:
+        mine = worked(data, job_id, order_id)
+        found += [other for other in data["orders"][order_id]["jobs"] if other not in found and (not mine or not (theirs := worked(data, other, order_id)) or mine & theirs)]
+    return found
+
+
+def worked(data: dict, job_id: str, order_id: str) -> set[str]:
+    """The parts of an order a job works on: those it delivers and the changes of it it designed."""
+    return {*job_parts(data["jobs"][job_id], order_id), *designed(data, job_id, order_id)}
 
 
 def part_jobs(data: dict, order_id: str, part: str) -> list[tuple[str, dict]]:

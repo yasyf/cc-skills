@@ -53,8 +53,12 @@ so a share reads it instead of your transcript.
 A `Research:` line or a `research:` goal asks what a build needs; its builder or designer is
 refused until your kept `DONE` or `DESIGN` report carries a line `Researched:` alone and three
 lines not starting `- `. `rulings:` holds, by id and quote, each answer of his `ccn answer match`
-returns for the order's whole words and each `scope:durable` answer on its area. `exists:` names
-each tool, code path, platform feature or Slack block already doing part of it, by path or link; on
+returns for the order's whole words and each `scope:durable` answer on its area, his words alone: a
+question he asked settles nothing, whatever premise it states. `exists:` names each table, column,
+store, file, process, mechanism, check, tool, code path, platform feature or Slack block that
+already does or holds part of what the order touches, in any language or storage, by `path:line`
+or link, found by searching for what it does as well as its names, since the design or build
+extends, reuses or deletes each rather than adding a second owner of one fact beside it; on
 a `Drive tooling: post feedback:` order, also the `cc-slack check-post` rule, `lib/drive/limits.py`
 check or drawing code in `lib/drive/card.py`, `picture.py` or `site/visuals.js` that passed or drew
 the post he faulted, and the class of posts the same fault reaches, since he ruled the fix goes to

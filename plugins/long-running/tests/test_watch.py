@@ -2074,7 +2074,7 @@ def test_a_job_waiting_on_his_open_card_puts_up_no_pr_until_he_answers(
         state.take_result(data, "j1", "BUILT lane/built, waits on demo:j1-7-a")
     assert render.job_line("j1", state.load(demo)["jobs"]["j1"]) == "j1 builder built on lane/built: watch; waits on demo:j1-7-a"
     assert cli.main(["pr", "add", url, "--job", "j1", "--drive", demo]) == 2
-    assert "j1 waits on his answer to demo:j1-7-a" in capsys.readouterr().err
+    assert "j1's work waits on his answer to demo:j1-7-a" in capsys.readouterr().err
     assert cli.main(["pr", "add", state.pr_url(KEY), "--job", "j1", "--drive", demo]) == 0
     asking(monkeypatch, demo)
     assert cli.main(["pr", "add", url, "--job", "j1", "--drive", demo]) == 0
@@ -2668,6 +2668,27 @@ def test_a_lander_queues_a_stack_bottom_first_up_to_the_first_pr_he_has_not_appr
     assert land.start(demo, [KEY, OTHER], cards) == ([unit] if unit else [])
     assert landers == ([unit] if unit else [])
     assert land.start(demo, [KEY, OTHER], cards) == []
+
+
+@pytest.mark.parametrize(
+    ("asker_parts", "designs_its_part", "held"),
+    [(["ship the watch"], False, True), (["design the watch"], True, True), ([], False, True), (["the dashboard"], False, False)],
+)
+def test_a_question_of_his_open_on_a_job_sharing_its_work_holds_its_stack_from_landing_until_he_answers(
+    demo: str, landers: list[tuple[str, ...]], asker_parts: list[str], designs_its_part: bool, held: bool
+) -> None:
+    stacked(demo)
+    approve(demo, KEY, OTHER)
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["jobs"].append("j2")
+        data["orders"]["o1"]["parts"] |= {part: state.new_part() for part in asker_parts}
+        data["orders"]["o1"]["parts"]["ship the watch"]["design"] = "j2" if designs_its_part else None
+        asked = state.new_question(None, "Which store?", state.stamp(T0)) | {"waits": "demo:j2-1-a"}
+        data["jobs"]["j2"] = job(kind="design", parts=asker_parts, carries={}, state="done", questions=[asked])
+    cards = NO_CARDS | {"questions": [question("demo:j2-1-a")]}
+    assert land.open_cards(state.load(demo), "j1", [], cards) == (["demo:j2-1-a"] if held else [])
+    assert land.start(demo, [KEY, OTHER], cards) == ([] if held else [(KEY, OTHER)])
+    assert land.start(demo, [KEY, OTHER], NO_CARDS) == ([(KEY, OTHER)] if held else [])
 
 
 def test_a_lander_queues_a_stack_its_job_waits_on_yet_holds_a_pr_waiting_on_an_open_pr_until_that_pr_merges(demo: str, landers: list[tuple[str, ...]]) -> None:

@@ -27,6 +27,12 @@ the shape to keep: "don't go based on what's currently there design this cleanly
   evakuate them". A fact about every case cites what decides it, and a mechanism an option proposes
   cites the read showing the system controls that piece where it would run, by his words "we cant
   do that since we dont control the poloices on customer bucket".
+- Before the design adds any table, column, store, file, process, mechanism, check or verb, find what
+  already does or holds that fact or behavior, in any language or storage: `ccx code search` by
+  what it does, `ccx code grep` by its names, the reader's `exists:` line and the plan. One thing
+  owns each fact, so the design extends, reuses or deletes what exists and never adds a second
+  owner beside it. Name each on your `Exists:` line, by his words on a duplicate store nobody
+  checked for: "its a terieble duplicatgion and was clerarly not throught through".
 - Read his recorded answers on the whole area the part touches (`answer_search` or
   `ccn answer search "<words>"`) beside the brief's `Order (his words):` and `Decisions that bind:`,
   since a ruling on a neighboring piece binds this part too.
@@ -36,7 +42,9 @@ the shape to keep: "don't go based on what's currently there design this cleanly
   not decide this, keep it again with
   `--unsettled "<its id or permalink and why it does not decide this>"`.
 - Where the brief adds its own reading of his words, follow his quoted words, since a session's
-  reading is not his ruling, and note the difference on `Settled:`.
+  reading is not his ruling, and note the difference on `Settled:`. A question he asked, such as
+  "… right?", settles nothing, whatever premise it states: only his own answer does, so a fork it
+  raises is a card.
 - For a part he sees or uses (a Slack post or card, the dashboard, a CLI he runs, a product UI),
   read that platform's docs from the brief's `Native:` line on and build on its native pieces over
   anything hand-made. Block Kit's
@@ -186,6 +194,7 @@ Root cause: <the structure that lets the defect happen, by its proper terms, or 
 Design: <the design, fleshed out with its worked examples, in plain words>
 Settled: <each thing his words already decide, one line each, quoting him>
 Native: <what the platform he sees it on already does for this part, with links, and which pieces the design builds on it, or "none: he never sees it">
+Exists: <each thing that already does or holds what this part touches, by path:line or link, ending extended by change N, reused by change N or deleted by change N, separated by ;, or none: <each search that found nothing>>
 Change: <what one PR of the design changes, in at most 80 characters with no backtick, double quote, $ or backslash>
 Change: <the next, the same way, ending (waits on change <N>) when it builds on change N of this list, or (waits on change <N> and change <M>) on several>
 Fork: <the path drive job ask printed for one fork>
@@ -194,8 +203,10 @@ Facts: <the path:line evidence for each load-bearing fact, for the builder>
 ```
 
 `drive job report` refuses a report without the `DESIGN <the part>` first line or any of its
-`Root cause:`, `Settled:`, `Native:`, `Change:`, `Fork:` and `Facts:` lines, naming each one missing, a `Fork:`
-path that keeps no question of your job, and a
+`Root cause:`, `Settled:`, `Native:`, `Exists:`, `Change:`, `Fork:` and `Facts:` lines, naming each one missing, a `Fork:`
+path that keeps no question of your job, an `Exists:` entry citing no `path:line` or link or naming
+no change of its list, an `Exists: none` naming no search or while the order's reader's `exists:`
+line names something, and a
 `Change:` line past 80 characters or holding a backtick, double quote, `$` or backslash. Each
 `Change:` line of a design of several becomes a part of the order under its words before
 `(waits on …)`, which the coordinator types as `--part "<the change>"`, so each gets its own builder. A `HANDOFF <path>`, when

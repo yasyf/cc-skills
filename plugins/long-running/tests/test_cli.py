@@ -14,8 +14,9 @@ from pathlib import Path
 
 import drive
 import pytest
-from conftest import CARD_BODY, RESEARCH, SHORT_ASK, Answers, explained, Chrome, Drawing, Jev, Judge, MetaLaunches, Thread, WatchProcess, Withdrawals
+from conftest import CARD_BODY, RESEARCH, SHORT_ASK, Answers, explained, Chrome, Drawing, Heard, Jev, Judge, MetaLaunches, Thread, WatchProcess, Withdrawals
 from drive import (
+    brief,
     card,
     cli,
     github,
@@ -61,6 +62,7 @@ DESIGNED = f"""DESIGN the store copy
 Design: one copy per store, in the order the stores list
 {ROOT_CAUSE}Settled: "copy one store"
 Native: none: he never sees it
+Exists: none: ccx code search "store copy" and rg store_copy found nothing
 Change: copy each store in list order
 Fork: none: one layout fits
 Facts: lib/drive/state.py:18
@@ -2705,8 +2707,8 @@ def test_a_design_lanes_report_is_the_design_in_its_shape_unless_it_stops_short(
     assert code == 2
     assert (
         "j1: refused, nothing kept: a design lane's report is the design in its shape, which the coordinator reads for its"
-        " forks, and this one lacks a first line DESIGN <the part>, a Root cause: line, a Settled: line, a Native: line, a Change: line,"
-        " a Fork: line, a Facts: line"
+        " forks, and this one lacks a first line DESIGN <the part>, a Root cause: line, a Settled: line, a Native: line, an Exists: line,"
+        " a Change: line, a Fork: line, a Facts: line"
     ) in err
     assert "this one lacks a Fork: line: DESIGN <the part" in keep(monkeypatch, capsys, "j1", DESIGNED.replace("Fork: none: one layout fits\n", ""))[1]
     assert keep(monkeypatch, capsys, "j1", DESIGNED) == (0, "")
@@ -2717,6 +2719,40 @@ def test_a_design_lanes_report_is_the_design_in_its_shape_unless_it_stops_short(
     assert keep(monkeypatch, capsys, "j3", "BLOCKED the store list is unreadable\n") == (0, "")
     jobs = state.load("demo")["jobs"]
     assert (jobs["j2"]["state"], jobs["j3"]["state"]) == ("stopped", "failed")
+
+
+@pytest.mark.parametrize(
+    ("exists", "refusal"),
+    [
+        ("none: nothing like it", 'its Exists: line "none: nothing like it" names no search that found nothing'),
+        ("supervisor/copies.rs:40 store_copy_at copies one store", 'its Exists: entry "supervisor/copies.rs:40 store_copy_at copies one store" does not cite'),
+        ("store_copy_at copies one store, extended by change 1", 'its Exists: entry "store_copy_at copies one store, extended by change 1" does not cite'),
+        ("supervisor/copies.rs:40 store_copy_at, extended by change 2", 'its Exists: entry "supervisor/copies.rs:40 store_copy_at, extended by change 2" does not cite'),
+        ("supervisor/copies.rs:40 store_copy_at, extended by change 1; lib/drive/state.py:18 the store list, reused by change 1", None),
+    ],
+)
+def test_a_design_names_what_already_does_what_it_touches_and_the_change_that_owns_it_before_adding_anything(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], exists: str, refusal: str | None
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store")
+    run("job", "add", "design", "--order", "o1", "--goal", "cards: the store copy")
+    code, err = keep(monkeypatch, capsys, "j1", DESIGNED.replace('none: ccx code search "store copy" and rg store_copy found nothing', exists))
+    assert code == (2 if refusal else 0)
+    assert (refusal in err and brief.DUPLICATION_RULING in err) if refusal else err == ""
+
+
+def test_a_design_saying_nothing_exists_is_refused_while_its_orders_reader_found_something(
+    run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
+    run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
+    keep(monkeypatch, capsys, "j1", RESEARCH)
+    run("job", "add", "design", "--order", "o1", "--goal", "cards: where the copy runs")
+    code, err = keep(monkeypatch, capsys, "j2", DESIGNED)
+    assert code == 2
+    assert "its Exists: line says none, but j1's research found what already does part of this: \"supervisor/copies.rs store_copy_at copies one store\"" in err
+    owned = DESIGNED.replace('none: ccx code search "store copy" and rg store_copy found nothing', "supervisor/copies.rs:40 store_copy_at, extended by change 1")
+    assert keep(monkeypatch, capsys, "j2", owned) == (0, "")
 
 
 def test_a_design_of_several_changes_makes_each_a_part_of_its_order_waiting_on_each_earlier_change_its_line_names(
@@ -5072,7 +5108,7 @@ PICK = "https://acme.slack.com/archives/D123/p1794300000000300?thread_ts=1794300
 WORDS = "Iris proposes with one new tool, guided by each topology's use-when line"
 STACKED = "https://github.com/Forge-AI/monorepo/pull/43"
 ANSWERED = ("card-answer", "--card", DESIGN_CARD, "--label", WORDS, "--settled", "--other", "--via", PICK)
-MATCHED, BACKFILL, ASK_JEV = settled.matched, settled.backfill, settled.jev
+MATCHED, BACKFILL, ASK_JEV, UNSAID = settled.matched, settled.backfill, settled.jev, settled.unsaid
 
 
 def cards_asking(monkeypatch: pytest.MonkeyPatch, *prs: str) -> list[tuple[str, ...]]:
@@ -5138,6 +5174,51 @@ def test_an_answer_with_no_id_records_his_words_in_cc_notes_first_and_goes_on_by
     labels = ["--label=scope:durable", "--label=drive:demo", "--label=header:topology"]
     assert added == [(["ccn", "answer", "add", "--title=Which topology?", "--body-file", "-", *labels, "--json"], WORDS)]
     assert run("answer", "beb09e5", "--others-stand")[0] == 0
+
+
+def test_an_answer_is_recorded_only_as_his_words_at_the_permalink_it_names(
+    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], heard: Heard
+) -> None:
+    cards_asking(monkeypatch, PR)
+    added: list[list[str]] = []
+    monkeypatch.setattr(
+        "drive.settled.subprocess",
+        types.SimpleNamespace(run=lambda argv, **_: added.append(argv) or subprocess.CompletedProcess(argv, 0, json.dumps({"id": "beb09e5f00d"}), ""), TimeoutExpired=subprocess.TimeoutExpired),
+    )
+    heard.refusal = "his words at the link do not say it"
+    assert cli.main(["answer", "--title", "Which topology?", "--words", "a drafted reading of his question", "--link", PICK]) == 2
+    assert "refused, nothing recorded: his words at the link do not say it" in capsys.readouterr().err
+    assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
+    assert "a1: refused, nothing recorded: his words at the link do not say it" in capsys.readouterr().err
+    assert (added, "a1" in state.load("demo")["answers"]) == ([], False)
+    assert heard.checked == [("a drafted reading of his question", PICK), (WORDS, PICK)]
+
+
+@pytest.mark.parametrize(
+    ("words", "link", "said", "refusal"),
+    [
+        (WORDS, PICK, f"{WORDS}.", None),
+        ("Iris proposes … use-when line", PICK, f"<https://example.com|Iris> *proposes* with one new tool, guided by each topology's use-when line", None),
+        ("Iris proposes [one way:] two new tools", PICK, WORDS, f'his words at {PICK} do not say "two new tools"'),
+        ("Iris should propose topologies itself", PICK, WORDS, f'his words at {PICK} do not say "Iris should propose topologies itself"'),
+        (WORDS, PICK, None, f"{PICK} is neither his own message nor a card he answered"),
+        (WORDS, None, WORDS, f'no permalink names where he said "{WORDS}"'),
+        ("Tree", DESIGN_CARD, "Tree", None),
+        ("Tree", DESIGN_CARD, "withdrawn", f"{DESIGN_CARD} is neither his own message nor a card he answered"),
+        ("Tree", DESIGN_CARD, "open", f"{DESIGN_CARD} is neither his own message nor a card he answered"),
+    ],
+)
+def test_words_count_as_his_answer_only_when_his_message_or_card_answer_at_the_link_holds_each_piece(
+    slack_thread: Thread, words: str, link: str | None, said: str | None, refusal: str | None
+) -> None:
+    card = {"waits": "demo:j2-7", "url": DESIGN_CARD, "answer": {"label": "Tree", **({"withdrawn": True} if said == "withdrawn" else {})}}
+    found = view.NO_CARDS | {"closed": [] if said == "open" else [card]}
+    slack_thread.messages += [
+        {"ts": "1794300000.000100", "text": "Which topology?", "from_user": False},
+        {"ts": "1794300000.000300", "thread_ts": "1794300000.000100", "text": said or "a line the drive posted", "from_user": said is not None},
+    ]
+    unsaid = UNSAID(words, link, found)
+    assert (unsaid is None) if refusal is None else (unsaid.startswith(refusal) and unsaid.endswith(f"; {settled.HIS_ANSWER}"))
 
 
 def test_an_answer_tapped_on_a_pr_card_is_recorded_as_an_approval_and_his_words_are_not(
