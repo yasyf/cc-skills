@@ -4570,7 +4570,7 @@ def test_the_settled_check_lists_three_of_his_answers_on_the_subject_however_man
     assert [answer["id"][:2] for answer in settled.answers(MEMORY_ASK, MEMORY_ASK, MEMORY_ASK, ["demo"], "/work")] == ["0a", "1a", "2a"]
 
 
-def test_backfill_labels_as_approvals_only_his_taps_approving_a_pr_recorded_before_drive_answer_labelled_them(
+def test_backfill_labels_as_approvals_every_tap_on_a_pr_card_by_its_question_whatever_his_words(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[list[str]] = []
@@ -4582,6 +4582,8 @@ def test_backfill_labels_as_approvals_only_his_taps_approving_a_pr_recorded_befo
         {"id": "e5" * 20, "title": "Which store holds the blobs?", "body": "Approve the blob store as drawn", "tags": ["scope:durable"]},
         {"id": "f6" * 20, "title": "For #123, which service owns snapshots?", "body": "Approve the design: snapshot-index owns all snapshots; never store them in the gateway.", "tags": ["scope:durable"]},
         {"id": "a7" * 20, "title": "PR approvals tapped 10:12 AM Nov 5: #50861, #50795", "body": "Approve on #50861 and #50795.", "tags": ["scope:durable"]},
+        {"id": "b8" * 20, "title": "The devbox clone token fix", "body": "Owner tapped Approve on the card", "tags": ["header:Tap", "scope:durable"]},
+        {"id": "c9" * 20, "title": "Tap: #51295, the queue store moves", "body": "Tap Approve on the card", "tags": ["scope:durable"]},
     ]
 
     def ccn(argv: list[str], input: str, cwd: str, **_: object) -> subprocess.CompletedProcess[str]:
@@ -4594,7 +4596,10 @@ def test_backfill_labels_as_approvals_only_his_taps_approving_a_pr_recorded_befo
         ["/work", "ccn", "answer", "list", "--label", "scope:durable", "--limit", "0", "--full", "--json"],
         ["/work", "ccn", "answer", "edit", "a1" * 20, "--add-label", "kind:approval"],
         ["/work", "ccn", "answer", "edit", "b2" * 20, "--add-label", "kind:approval"],
+        ["/work", "ccn", "answer", "edit", "d4" * 20, "--add-label", "kind:approval"],
         ["/work", "ccn", "answer", "edit", "a7" * 20, "--add-label", "kind:approval"],
+        ["/work", "ccn", "answer", "edit", "b8" * 20, "--add-label", "kind:approval"],
+        ["/work", "ccn", "answer", "edit", "c9" * 20, "--add-label", "kind:approval"],
     ]
 
 

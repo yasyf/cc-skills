@@ -62,7 +62,7 @@ NOT_LANE = re.compile(r"[^a-z0-9]+")
 WAITS_ID = re.compile(r"([\w.-]+):(j\d+)-(\d+)")
 ORDER_LIST = re.compile(r"[\s,]+")
 ROUTED_KINDS = ("owner", "answer", "posted", "refused")
-APPROVALS_LABELLED = ".approvals-labelled"
+APPROVALS_LABELLED = ".approvals-labelled-by-question"
 VERSION = json.loads((Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json").read_text())["version"]
 
 

@@ -83,7 +83,7 @@ it is closed does a follow-up name them with why they leave it open. `drive job 
 order's own thread and lists each message of his there that shares a rare word with the question,
 refusing until `--unsettled` names each by its permalink and why it does not settle this. A tap
 approving a PR settles only that PR's landing, so the check never counts an answer labelled
-`kind:approval`. A block one of these refusals stops stays kept under `asks/` as the job's pending
+`kind:approval`, which every recorded tap on a PR card carries, whatever his words. A block one of these refusals stops stays kept under `asks/` as the job's pending
 question with its refusal: no card draws from it and no `ask` record may name it, `drive status`
 lists it refused, and the watch says its job waits on a card never posted until the job asks it
 again, in its words or others sharing three rare words, or `drive job ask <j> --drop <file>` drops
