@@ -705,7 +705,7 @@ def review(drive: dict, found: dict) -> list[dict]:
 
 
 def board(drive: dict, found: dict, source: str, events: Iterable[dict], moment: datetime, reports: set[str]) -> dict:
-    """The dashboard's model: `build`'s, with progress, work, history and each shown feature's full order and jobs; reports names the jobs whose whole return the drive keeps."""
+    """The dashboard's model: `build`'s, with progress, work, history and each shown feature's full order and jobs; reports names the jobs whose history the drive keeps, which holds every return each took."""
     model = build(drive, found, moment) | {"cards": source}
     shown_ids = {entry["id"] for group in model["status"] for entry in group["features"]}
     for entry in (entry for group in model["status"] for entry in group["features"]):

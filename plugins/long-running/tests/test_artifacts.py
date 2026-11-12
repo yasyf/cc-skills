@@ -27,7 +27,7 @@ def turn(kind: str, *blocks: dict, message_id: str | None = None, **fields: obje
 
 def test_a_job_lists_the_files_the_drive_keeps_for_it_in_reading_order() -> None:
     remote = {"where": "remote", "brief": "/b.md", "report": "DONE", "questions": [state.new_question("/q.md", "Q?", "now")], "repro": "/r.md", "agent": None, "session": None}
-    assert artifacts.kept("j1", remote, set()) == ["brief", "report", "question", "repro"]
+    assert artifacts.kept("j1", remote, {"j1"}) == ["brief", "report", "question", "repro"]
     assert artifacts.kept("j2", JOB, {"j2"}) == ["brief", "report", "transcript"]
     assert artifacts.kept("j3", JOB | {"session": None}, set()) == []
 
@@ -48,8 +48,10 @@ def test_a_lanes_newest_line_is_its_newest_words_while_it_runs_else_the_line_it_
     lane = JOB | {"state": "running", "said": None, "report": None, "updated": "2026-11-12T02:00:00Z"}
     assert artifacts.newest_line("demo", "j1", lane) == {"line": "Drew the gate.", "from": "transcript", "at": "2026-11-12T01:00:00Z"}
     assert artifacts.newest_line("demo", "j1", lane | {"state": "built", "said": "BUILT the gate"}) == {"line": "BUILT the gate", "from": "said", "at": lane["updated"]}
-    assert artifacts.newest_line("demo", "j1", lane | {"state": "done", "report": "DONE the gate\nSERVES: it"}) == {"line": "DONE the gate", "from": "report", "at": lane["updated"]}
     assert artifacts.newest_line("demo", "j1", lane | {"state": "done"}) is None
+    (drive_home / "drives" / "demo").mkdir(parents=True)
+    state.keep_report("demo", "j1", "DONE the gate", "DONE the gate\nSERVES: it\n")
+    assert artifacts.newest_line("demo", "j1", lane | {"state": "done"}) == {"line": "DONE the gate", "from": "report", "at": lane["updated"]}
 
 
 def test_a_lanes_newest_line_passes_over_lines_that_name_only_records_and_keeps_one_when_every_line_does(drive_home: Path) -> None:
@@ -62,7 +64,9 @@ def test_a_lanes_newest_line_passes_over_lines_that_name_only_records_and_keeps_
     assert artifacts.newest_line("demo", "j1", lane) == {"line": "Drew the gate.", "from": "transcript", "at": "2026-11-12T01:00:00Z"}
     waiting = lane | {"state": "waiting", "said": "waits on j1987"}
     assert artifacts.newest_line("demo", "j1", waiting) == {"line": "waits on j1987", "from": "said", "at": lane["updated"]}
-    assert artifacts.newest_line("demo", "j1", waiting | {"report": "DONE the gate"}) == {"line": "DONE the gate", "from": "report", "at": lane["updated"]}
+    (drive_home / "drives" / "demo").mkdir(parents=True)
+    state.keep_report("demo", "j1", "DONE the gate", "DONE the gate\n")
+    assert artifacts.newest_line("demo", "j1", waiting) == {"line": "DONE the gate", "from": "report", "at": lane["updated"]}
 
 
 def test_the_question_file_holds_every_question_the_job_asked_oldest_first(tmp_path: Path) -> None:
@@ -77,12 +81,16 @@ def test_the_question_file_holds_every_question_the_job_asked_oldest_first(tmp_p
     }
 
 
-def test_a_kept_report_reads_from_its_file_before_the_lane_text(drive_home: Path) -> None:
-    kept = drive_home / "drives" / "demo" / "reports" / "j1.md"
-    kept.parent.mkdir(parents=True)
-    kept.write_text("DONE the whole return\n")
-    assert artifacts.read("demo", "j1", JOB | {"report": "DONE short"}, "report")["docs"] == ["DONE the whole return\n"]
-    assert artifacts.read("demo", "j2", JOB | {"report": "DONE short"}, "report") == {"title": "j2 report: fix the load gate", "facts": "the lane's latest report", "docs": ["DONE short"]}
+def test_a_jobs_report_reads_every_return_its_history_keeps_newest_first(drive_home: Path) -> None:
+    (drive_home / "drives" / "demo").mkdir(parents=True)
+    state.keep_report("demo", "j1", "BLOCKED the diffs", "BLOCKED the diffs\n")
+    state.keep_report("demo", "j1", "DONE the whole return", "DONE the whole return\nCHECK: it\n")
+    assert artifacts.read("demo", "j1", JOB | {"report": "DONE short"}, "report") == {
+        "title": "j1 report: fix the load gate",
+        "facts": f"2 returns, newest first · {state.replies_path('demo', 'j1')}",
+        "docs": ["DONE the whole return\nCHECK: it\n", "BLOCKED the diffs\n"],
+    }
+    assert artifacts.read("demo", "j2", JOB | {"report": "DONE short"}, "report")["docs"] == ["j2 has returned nothing yet; `drive job replies j2` prints each message its lane sent."]
 
 
 def test_a_reproduction_in_code_keeps_every_line_and_its_language(tmp_path: Path) -> None:

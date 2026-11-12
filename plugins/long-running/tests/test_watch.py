@@ -1605,7 +1605,7 @@ def test_the_watch_takes_a_codex_jobs_result_from_its_completed_run_whatever_its
         data["jobs"]["j1"].update(kind="codex", session="session-under-test", agent="a1", updated=state.stamp(state.now() - timedelta(minutes=10)))
     assert watch.run_pass(watcher(demo, state.now()), state.now()) == []
     job = state.load(demo)["jobs"]["j1"]
-    assert (job["state"], job["said"], state.report_text(demo, "j1", job)) == ("done", "UNPROVEN two of three findings hold", "UNPROVEN two of three findings hold\nFinding 1\n")
+    assert (job["state"], job["said"], state.report_text(demo, "j1")) == ("done", "UNPROVEN two of three findings hold", "UNPROVEN two of three findings hold\nFinding 1\n")
 
 
 def test_a_codex_lane_that_built_its_recommended_option_has_the_ask_block_it_named_kept_as_its_run_is_taken_so_his_card_goes_up_as_it_returns(
@@ -1678,8 +1678,7 @@ def returned(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: s
     kept = state.drive_dir(demo) / "asks" / "j1-4d8033be.md"
     write_transcript(tmp_path / "config", [CALLING, RESULT, ended_on(text.format(kept=kept))], timedelta(minutes=4))
     if report:
-        state.report_path(demo, "j1").parent.mkdir(exist_ok=True)
-        state.report_path(demo, "j1").write_text(report)
+        state.keep_report(demo, "j1", state.opening(report), report)
     with state.edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["jobs"]["j1"].update(
@@ -2364,8 +2363,9 @@ def test_a_ports_ready_starts_no_check_against_his_words_and_is_said_every_thirt
     demo: str, monkeypatch: pytest.MonkeyPatch, checkers: list[str], checked: dict
 ) -> None:
     serve(monkeypatch, {})
+    state.keep_report(demo, "j1", f"READY {state.pr_url(KEY)}", f"READY {state.pr_url(KEY)}\nSERVES: port of #50974\n")
     with state.edit(demo) as data:
-        data["jobs"]["j1"].update(state="waiting", said=f"READY {state.pr_url(KEY)}", report=f"READY {state.pr_url(KEY)}\nSERVES: port of #50974\n")
+        data["jobs"]["j1"].update(state="waiting", said=f"READY {state.pr_url(KEY)}")
         data["prs"][KEY] |= {"wants_tap": True, "checked": None}
     watching = watcher(demo)
     assert watch.run_pass(watching, T0 + timedelta(minutes=4)) == []

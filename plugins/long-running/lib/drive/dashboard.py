@@ -278,7 +278,7 @@ class Board:
             if event["kind"] in view.HISTORY_EVENTS:
                 self.events.append(event)
         found, source = view.stored_cards(self.name)
-        reports = {path.stem for path in (state.drive_dir(self.name) / "reports").glob("*.md")}
+        reports = {path.name.removesuffix(".replies.jsonl") for path in (state.drive_dir(self.name) / "jobs").glob("*.replies.jsonl")}
         drive = state.load(self.name)
         repo = home_repo(drive["roles"]["coordinator"]["cwd"])
         model = view.board(drive, found, source, self.events, state.now(), reports) | {"code": CODE, "pid": os.getpid(), "links": self.links, "undo_seconds": UNDO_SECONDS, "repo": repo}

@@ -49,7 +49,6 @@ def agent_stop(message: str, tmp_path: Path, *steps: dict, **fields: object) -> 
 
 
 def keep(run: Run, monkeypatch: pytest.MonkeyPatch, job_id: str, report: str) -> None:
-    monkeypatch.setenv(state.OWN_JOB_ENV, job_id)
     monkeypatch.setattr("sys.stdin", io.StringIO(report))
     run("job", "report", job_id, "-")
 
@@ -176,7 +175,7 @@ def test_a_codex_jobs_state_comes_from_the_codex_ask_run_its_relay_asked_never_t
     one_line_result.main()
     assert json.loads(capsys.readouterr().out)["decision"] == "block"
     job = state.load(demo)["jobs"]["j1"]
-    assert (job["state"], job["said"], state.report_text(demo, "j1", job)) == (taken, said, reply if ran == "completed" else "")
+    assert (job["state"], job["said"], state.report_text(demo, "j1").strip()) == (taken, said, reply.strip() if ran == "completed" else "")
 
 
 def test_a_codex_relay_reading_back_a_reply_that_quotes_another_run_keeps_its_own(demo: str, run: Run, tmp_path: Path, codex_ask: CodexAsk) -> None:

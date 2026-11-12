@@ -35,7 +35,6 @@ START_TIMEOUT_MS = "600000"
 BRIEF_HEADING = "\n# Brief\n\n"
 REPORT_LINE = re.compile(r"^(?:Researched|Plan):.*$", re.MULTILINE)
 REPORT_JOB = re.compile(r"\bj\d+\b")
-REPORT_FILE = re.compile(r"reports/(j\d+)\.md")
 CARRIED = "reports|asks|repro|scratch"
 PATH_CHARS = r"[^\s`'\"<>()\[\]{}*,;|]+"
 PATH_END = re.compile(r"[^\w/]+$")
@@ -268,17 +267,15 @@ def vm_brief(drive: str, job_id: str, brief: str, route: str | None) -> str:
 
 
 def drive_files(drive: str, brief: str) -> dict[str, str | None]:
-    """Each file of the drive's state folder the brief names, by the heading its text goes under, with that text or None when the drive keeps none: the report of each job its Researched: and Plan: lines name, as `drive job report` prints it, and each path under the folder's reports, asks, repro and scratch folders it names anywhere, absolute or from the folder, a reports/<job>.md being that job's report; a folder it names, such as its Scratch: line's, carries nothing."""
+    """Each file of the drive's state folder the brief names, by the heading its text goes under, with that text or None when the drive keeps none: the report of each job its Researched: and Plan: lines name, every return it took as `drive job report` prints it, and each path under the folder's reports, asks, repro and scratch folders it names anywhere, absolute or from the folder; a folder it names, such as its Scratch: line's, carries nothing."""
     folder = state.drive_dir(drive)
     roots = [folder, *([Path("~") / folder.relative_to(Path.home())] if folder.is_relative_to(Path.home()) else [])]
     prefix = "|".join(re.escape(f"{root}/") for root in roots)
     named = [PATH_END.sub("", found) for found in re.findall(rf"(?<![\w./~-])(?:{prefix})?((?:{CARRIED})/{PATH_CHARS})", brief)]
-    reports = [*REPORT_JOB.findall("\n".join(REPORT_LINE.findall(brief))), *(found[1] for name in named if (found := REPORT_FILE.fullmatch(name)))]
-    jobs = state.load(drive)["jobs"]
-    files = {f"Report of {job_id}": state.report_text(drive, job_id, jobs.get(job_id, {})) or None for job_id in reports}
+    files = {f"Report of {job_id}": state.report_text(drive, job_id) or None for job_id in REPORT_JOB.findall("\n".join(REPORT_LINE.findall(brief)))}
     for name in named:
         file = folder / name
-        if not REPORT_FILE.fullmatch(name) and not file.is_dir():
+        if not file.is_dir():
             files[f"Drive file {name}"] = file.read_text() if file.is_file() else None
     return files
 

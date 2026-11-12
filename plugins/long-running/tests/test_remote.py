@@ -389,11 +389,10 @@ def test_a_sprite_brief_carries_every_drive_file_it_names_whole_a_lanes_report_k
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     for goal in ("research it", "design it", "list it"):
         run("job", "add", "reader", "--order", "o1", "--goal", goal)
-    with state.edit(demo) as data:
-        data["jobs"]["j2"]["report"] = "DESIGN the whole design\n"
+    state.keep_reply(demo, "j2", {"created_at": state.stamp(), "id": "msg_design", "type": "worker_done", "subject": "DESIGN the whole design", "body": "DESIGN the whole design\n"})
+    state.keep_report(demo, "j1", "DONE the reader's findings", "DONE the reader's findings\nexists: lib/thing.py\n")
+    state.keep_report(demo, "j3", "DONE a job the brief only lists as a transcript", "DONE a job the brief only lists as a transcript\n")
     files = {
-        state.report_path(demo, "j1"): "DONE the reader's findings\nexists: lib/thing.py\n",
-        state.report_path(demo, "j3"): "DONE a job the brief only lists as a transcript\n",
         folder / "asks" / "j2-0c1d2e3f.md": "ASK Which store?\n",
         state.repro_path(demo, "j1", ".sh"): "exit 1\n",
         folder / "scratch" / "j1" / "notes.md": "the notes\n",
@@ -403,7 +402,7 @@ def test_a_sprite_brief_carries_every_drive_file_it_names_whole_a_lanes_report_k
         path.write_text(text)
     (folder / "scratch" / "j4").mkdir()
     text = (
-        "Order (his words): ship it\nResearched: j1\nPlan: Design j2, whole: reports/j2.md (drive job report j2)\n"
+        "Order (his words): ship it\nResearched: j1\nPlan: Design j2, whole: drive job report j2\n"
         f"Done when: j3 asked for `{folder}/asks/j2-0c1d2e3f.md` and repro/j1.sh, then ~/{folder.relative_to(folder.parents[1])}/scratch/j1/notes.md.\n"
         "Elsewhere: /other/long-running/other/asks/j9-1a2b3c4d.md\n"
         f"Scratch: {folder}/scratch/j4\nTranscripts:\n- j3 reader: x.jsonl"
@@ -1566,7 +1565,7 @@ def test_a_read_still_running_holds_its_answer_starts_no_second_reader_and_its_a
     def report(question: str, root: Path, drive: str, job_id: str) -> str:
         with state.edit(drive) as data:
             state.take_result(data, job_id, "PUSHED x", "PUSHED x")
-        return "drive exited 0\nreports/j1.md"
+        return "drive exited 0\njobs/j1.replies.jsonl"
 
     monkeypatch.setattr(watch, "spawn_reader", lambda name, job_id, message_id: started.append(message_id) or os.getpid())
     monkeypatch.setattr(reads, "answer", report)
@@ -1576,7 +1575,7 @@ def test_a_read_still_running_holds_its_answer_starts_no_second_reader_and_its_a
     assert (started, [args for args in replies if args[0] == "reply"]) == (["relay_drive"], [])
     watch.answer_read(remote, "j1", "relay_drive")
     assert staged(watch.lane_lines, watching, T0 + timedelta(seconds=10)) == []
-    assert [args for args in replies if args[0] == "reply"] == [("reply", "--id", "relay_drive", "--run", RUN, "--body", "drive exited 0\nreports/j1.md")]
+    assert [args for args in replies if args[0] == "reply"] == [("reply", "--id", "relay_drive", "--run", RUN, "--body", "drive exited 0\njobs/j1.replies.jsonl")]
     job = state.load(remote)["jobs"]["j1"]
     assert (started, job["reads"], job["read_answers"], job["readers"]) == (["relay_drive"], {}, {}, {})
 
@@ -1883,7 +1882,7 @@ def test_a_lanes_drive_job_report_wakes_the_coordinator_with_its_line_as_its_ans
     def report(question: str, root: Path, drive: str, job_id: str) -> str:
         with state.edit(drive) as data:
             state.take_result(data, job_id, line, line)
-        return reads.lane_exit(0, str(state.report_path(drive, job_id)))
+        return reads.lane_exit(0, str(state.replies_path(drive, job_id)))
 
     replies = []
     monkeypatch.setattr(reads, "answer", report)
@@ -1897,7 +1896,7 @@ def test_a_report_drive_job_report_took_is_not_taken_again_when_its_lane_sends_i
     url = "https://github.com/Forge-AI/monorepo/pull/8"
     report = f"PUSHED {url}\nPR: {url}\nCHANGE: x\n"
     with state.edit(remote) as data:
-        state.keep_report(remote, "j1", f"PUSHED {url}", report, own=True)
+        state.keep_report(remote, "j1", f"PUSHED {url}", report)
         state.take_result(data, "j1", f"PUSHED {url}", report)
     taken = state.load(remote)["jobs"]["j1"]
     deliver(monkeypatch, [message("worker_done", report, id="msg_report")])

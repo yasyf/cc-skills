@@ -17,11 +17,11 @@ TAIL_BYTES = 256 * 1024
 
 
 def kept(job_id: str, job: dict, reports: set[str]) -> list[str]:
-    """The files the drive keeps for a job, in reading order: its brief, its report, the questions it asked back, its reproduction, and its session's transcript when it ran on this Mac, whose first turn is the brief of a job drive job brief wrote none for."""
+    """The files the drive keeps for a job, in reading order: its brief, its report, every return its history keeps, when `reports` names it as a job with a history, the questions it asked back, its reproduction, and its session's transcript when it ran on this Mac, whose first turn is the brief of a job drive job brief wrote none for."""
     on_mac = job.get("where") != "remote" and job.get("agent") and job.get("session")
     held = {
         "brief": job.get("brief") or on_mac,
-        "report": job.get("report") or job_id in reports,
+        "report": job_id in reports,
         "question": any(question["file"] for question in job["questions"]),
         "repro": job.get("repro"),
         "transcript": on_mac,
@@ -40,7 +40,7 @@ def progress(name: str, job_id: str, job: dict) -> Iterator[dict]:
         yield from said_in(path)
     if job["said"]:
         yield {"line": job["said"], "from": "said", "at": job["updated"]}
-    if report := state.report_text(name, job_id, job).strip():
+    if report := state.report_text(name, job_id).strip():
         yield {"line": report.splitlines()[0], "from": "report", "at": job["updated"]}
 
 
@@ -79,9 +79,13 @@ def read(name: str, job_id: str, job: dict, kind: str) -> dict:
         asked = [Path(question["file"]) for question in job["questions"] if question["file"]]
         held = [path.read_text(errors="replace") if path.is_file() else f"This Mac no longer holds {path}." for path in asked]
         return {"title": title, "facts": f"{len(asked)} {'question' if len(asked) == 1 else 'questions'}, oldest first", "docs": held}
-    path = state.drive_dir(name) / "reports" / f"{job_id}.md" if kind == "report" else Path(job[kind])
-    if kind == "report" and not path.is_file():
-        return {"title": title, "facts": "the lane's latest report", "docs": [job["report"]]}
+    if kind == "report":
+        taken = state.returns(name, job_id)
+        if not taken:
+            return {"title": title, "facts": "", "docs": [f"{job_id} has returned nothing yet; `drive job replies {job_id}` prints each message its lane sent."]}
+        facts = f"{len(taken)} {'return' if len(taken) == 1 else 'returns'}, newest first · {state.replies_path(name, job_id)}"
+        return {"title": title, "facts": facts, "docs": [reply["body"] for reply in taken]}
+    path = Path(job[kind])
     if not path.is_file():
         return {"title": title, "facts": "", "docs": [f"This Mac no longer holds {path}."]}
     text = path.read_text(errors="replace")

@@ -949,7 +949,7 @@ def test_a_proof_installs_a_merge_its_plugin_lacks_runs_the_jobs_proof_file_on_i
 ) -> None:
     git = fake([BUILD], {BUILD})
     script = proving(config, tmp_path, git, 0)
-    kept = state.report_path("demo", "j1").with_suffix(".proof.txt")
+    kept = state.proof_path("demo", "j1")
     checked = f"{install.PROVEN} on long-running@skills 1.0.3: {script} exits 0, its output {kept}"
     proven = f"{checked}; its close report of o1 waits on the order for the watch, which posts it to the communicator on its next read and again each read until cci takes it"
     assert install.prove("demo", "j1", 900) == f"j1: {proven}"
@@ -993,7 +993,7 @@ def test_an_incidents_fix_proven_live_records_it_live_and_leaves_its_close_to_th
     order = state.load("demo")["orders"]["o1"]
     assert (order["close_report"], order["proof"]) == (None, None)
     assert order["fixed"] == f"j1 proved it live: {URL} live: {script} exits 0 on long-running@skills 1.0.3"
-    assert proof_events() == [("yasyf/cc-skills#7", f"{install.PROVEN} on long-running@skills 1.0.3: {script} exits 0, its output {state.report_path('demo', 'j1').with_suffix('.proof.txt')}")]
+    assert proof_events() == [("yasyf/cc-skills#7", f"{install.PROVEN} on long-running@skills 1.0.3: {script} exits 0, its output {state.proof_path('demo', 'j1')}")]
 
 
 def test_a_proof_file_that_fails_takes_blocked_and_closes_nothing(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
@@ -1061,7 +1061,7 @@ def test_a_dashboard_still_on_an_older_install_at_the_deadline_takes_blocked_nam
     install.prove("demo", "j1", 60)
     stale = f"the dashboard on port {dashboard.port_of('demo')} still runs /cache/1.0.2, not the newest long-running installed, /cache/long-running/1.0.3"
     assert state.load("demo")["jobs"]["j1"]["said"] == f"BLOCKED {URL}: {script} exits unrun on long-running@skills 1.0.3: {stale}"
-    assert state.report_path("demo", "j1").with_suffix(".proof.txt").read_text() == stale
+    assert state.proof_path("demo", "j1").read_text() == stale
     assert state.load("demo")["orders"]["o1"]["proof"] is None
 
 
@@ -1079,7 +1079,7 @@ def test_a_merge_no_release_will_carry_takes_blocked_naming_it_and_runs_no_proof
     install.prove("demo", "j1", 900)
     blocked = f"BLOCKED {URL}: not installed, so {script} did not run: {reason}"
     assert state.load("demo")["jobs"]["j1"]["said"] == blocked
-    assert state.report_path("demo", "j1").with_suffix(".proof.txt").read_text() == reason
+    assert state.proof_path("demo", "j1").read_text() == reason
     assert proof_events() == [("yasyf/cc-skills#7", f"{install.PROOF_FAILED}: {blocked.removeprefix('BLOCKED ')}")]
 
 

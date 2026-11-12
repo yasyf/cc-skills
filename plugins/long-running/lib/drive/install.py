@@ -561,7 +561,7 @@ def live_builds(merges: dict[str, str], deadline: float, timeout: int, drive: st
 
 
 def prove(name: str, job_id: str, timeout: int) -> str:
-    """Prove live a builder's READY or PUSHED whose PRs all merged, the step the watch starts: install each plugin a merge changes whose newest install lacks it, wait until the drive's dashboard runs the newest long-running installed, then run the job's proof file with those plugins' bin folders first on PATH, keep its output beside the job's report, take DONE on exit 0 and BLOCKED otherwise, an install that fails, a merge no release will carry or a dashboard still on an older install at the deadline taking BLOCKED naming it, and keep the close report on its order for the watch to post when DONE leaves the order nothing to do, but an open incident's, which the watch closes once DONE records its fix live, each said on its PRs' lines; refused for a job waiting on no such READY or PUSHED, or one proof_gap names; nothing after another proof took the job's result first. It holds its install's lock through none of it, as drive install holds none through its waits, so a drive a newer install saved meanwhile ends it with no result, for that install's watch to prove again."""
+    """Prove live a builder's READY or PUSHED whose PRs all merged, the step the watch starts: install each plugin a merge changes whose newest install lacks it, wait until the drive's dashboard runs the newest long-running installed, then run the job's proof file with those plugins' bin folders first on PATH, keep its output in reports/<j>.proof.txt, take DONE on exit 0 and BLOCKED otherwise, an install that fails, a merge no release will carry or a dashboard still on an older install at the deadline taking BLOCKED naming it, and keep the close report on its order for the watch to post when DONE leaves the order nothing to do, but an open incident's, which the watch closes once DONE records its fix live, each said on its PRs' lines; refused for a job waiting on no such READY or PUSHED, or one proof_gap names; nothing after another proof took the job's result first. It holds its install's lock through none of it, as drive install holds none through its waits, so a drive a newer install saved meanwhile ends it with no result, for that install's watch to prove again."""
     from drive import brief, cli, dashboard
 
     deadline = clock() + timeout
@@ -574,7 +574,7 @@ def prove(name: str, job_id: str, timeout: int) -> str:
     job = data["jobs"][job_id]
     merges = {state.pr_key(url): data["prs"][state.pr_key(url)]["merged_sha"] for url in job["prs"]}
     urls = " ".join(job["prs"])
-    kept = state.report_path(name, job_id).with_suffix(".proof.txt")
+    kept = state.proof_path(name, job_id)
     try:
         builds = live_builds(merges, deadline, timeout, name)
     except (InstallError, NoRelease) as error:
@@ -605,7 +605,7 @@ def prove(name: str, job_id: str, timeout: int) -> str:
         kept.write_text(output)
         seen = [found for found in brief.proofs(output) if brief.SEEN_PROOF.search(found)]
         whole = f"{line}\nPR: {urls}\nCHECK: {' '.join([str(kept), *seen])}\n"
-        state.keep_report(name, job_id, line, whole, own=False)
+        state.keep_report(name, job_id, line, whole)
         state.take_result(data, job_id, line, whole)
         unseen = cli.surface(data, order) if not seen else None
         closes = code == 0 and not unseen and all(state.delivered(data, job["order"], part) for part in order["parts"])

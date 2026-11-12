@@ -199,7 +199,7 @@ def pushed_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 continue
             result, held = verdict
             if result == "pass":
-                state.take_result(data, job_id, "READY" + job["said"].removeprefix("PUSHED"), state.report_text(watcher.name, job_id, job))
+                state.take_result(data, job_id, "READY" + job["said"].removeprefix("PUSHED"), state.report_text(watcher.name, job_id))
                 lines.append(f"JOB {job_id} {job['order']} {job['said']}")
                 continue
             job.update(said="READY refused: " + "; ".join(f"{key}'s {why}" for key, why in held), updated=state.stamp(moment))
@@ -608,7 +608,7 @@ def returned_at(name: str, key: str, pr: dict, data: dict, cards: dict) -> str |
     settled = pr.get("design") and state.checked(data, pr)
     if not returned or pr["state"] != "open" or state.owed_step(pr) != "card" or pr["tap"] or settled or pr["waits"] or view.card_for(cards["pr_cards"], pr["url"]):
         return None
-    return builder["updated"] if served.ported(state.report_text(name, pr["job"], builder)) else None
+    return builder["updated"] if served.ported(state.report_text(name, pr["job"])) else None
 
 
 def checks(watcher: Watcher, moment: datetime) -> None:
@@ -627,7 +627,7 @@ def check_owed(name: str, key: str, pr: dict, data: dict, cards: dict, moment: d
         return False
     if state.checked(data, pr) or view.holding(data, pr["waits"], cards):
         return False
-    return not served.ported(state.report_text(name, pr["job"], job)) and not served.tried(pr, job["returned"], moment)
+    return not served.ported(state.report_text(name, pr["job"])) and not served.tried(pr, job["returned"], moment)
 
 
 def unsaid(pr: dict, since: str, moment: datetime) -> bool:
@@ -1354,7 +1354,7 @@ def codex_asks(name: str, job_id: str) -> list[str]:
     from drive import cli
 
     job = state.load(name)["jobs"][job_id]
-    if not (named := ASK_FIELD.search(state.report_text(name, job_id, job))):
+    if not (newest := state.returns(name, job_id)) or not (named := ASK_FIELD.search(newest[0]["body"])):
         return []
     head = f"JOB {job_id} {job['order']} {job['said']}"
     try:
