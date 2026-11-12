@@ -2772,18 +2772,51 @@ def test_a_question_of_his_open_on_a_job_sharing_its_work_holds_its_stack_from_l
     assert land.start(demo, [KEY, OTHER], NO_CARDS) == ([(KEY, OTHER)] if held else [])
 
 
-def test_a_lander_queues_a_stack_its_job_waits_on_yet_holds_a_pr_waiting_on_an_open_pr_until_that_pr_merges(demo: str, landers: list[tuple[str, ...]]) -> None:
+def test_a_lander_queues_a_stacks_ready_bottom_and_the_pr_above_once_the_open_pr_it_waits_on_merges(demo: str, landers: list[tuple[str, ...]]) -> None:
     stacked(demo)
     approve(demo, KEY, OTHER)
     with state.edit(demo) as data:
         data["prs"][THIRD] = state.new_pr(state.pr_url(THIRD), "j1", "o1")
         data["jobs"]["j1"]["waits"] = [KEY, OTHER, THIRD]
         data["prs"][OTHER]["waits"] = [THIRD]
-    assert land.start(demo, [KEY, OTHER], NO_CARDS) == []
+    assert land.start(demo, [KEY, OTHER], NO_CARDS) == [(KEY,)]
     with state.edit(demo) as data:
         data["prs"][THIRD]["state"] = "merged"
+        data["prs"][KEY]["lander"]["outcome"] = land.QUEUED
     assert land.start(demo, [KEY, OTHER], NO_CARDS) == [(KEY, OTHER)]
-    assert landers == [(KEY, OTHER)]
+    assert landers == [(KEY,), (KEY, OTHER)]
+
+
+def test_a_lander_queues_a_stacks_green_approved_bottom_while_a_pr_above_it_is_red(demo: str, landers: list[tuple[str, ...]]) -> None:
+    stacked(demo)
+    approve(demo, KEY, OTHER)
+    with state.edit(demo) as data:
+        data["prs"][OTHER]["checks"] = "fail"
+    assert land.start(demo, [OTHER], NO_CARDS) == [(KEY,)]
+    assert landers == [(KEY,)]
+
+
+def test_his_approve_no_lander_takes_for_ten_minutes_is_said_whatever_its_jobs_state_naming_why_and_again_only_when_that_changes(
+    demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
+) -> None:
+    reads = three_stacked(demo, monkeypatch)
+    approve(demo, OTHER)
+    with state.edit(demo) as data:
+        data["jobs"]["j2"]["state"] = "running"
+    watching = watcher(demo)
+
+    def taps(after: int) -> list[str]:
+        return [line for line in watch.run_pass(watching, T0 + timedelta(minutes=after)) if line.startswith("TAP ")]
+
+    assert (taps(0), taps(9)) == ([], [])
+    uncleared = f"TAP Approve {OTHER} not landed 10 minutes after his tap: {KEY} below it in its stack: neither his Approve nor an exempt class clears it [o2 j2]"
+    assert taps(10) == [uncleared]
+    assert watch.needs_step(uncleared, state.load(demo))
+    assert taps(11) == []
+    approve(demo, KEY)
+    reads[KEY] = stacked_read("aaaaaaa111", checks=RED)
+    assert taps(12) == [f"TAP Approve {OTHER} not landed 12 minutes after his tap: {KEY} below it in its stack: its checks read fail [o2 j2]"]
+    assert landers == []
 
 
 def test_his_approve_on_a_card_of_one_orders_prs_in_no_native_stack_starts_a_lander_on_each_since_stack_enqueue_refuses_them_named_together(

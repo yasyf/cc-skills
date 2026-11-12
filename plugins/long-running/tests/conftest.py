@@ -367,6 +367,14 @@ def agents_at_work(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(github, "open_on", lambda heads: {})
 
 
+@pytest.fixture(autouse=True)
+def relaunches(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Each job whose dead lane the watch relaunched, as a drive job resume that still runs."""
+    started: list[str] = []
+    monkeypatch.setattr(watch, "relaunch", lambda name, job_id: started.append(job_id) or os.getpid())
+    return started
+
+
 @dataclass
 class MetaLaunches:
     started: list[tuple[str, str]] = field(default_factory=list)

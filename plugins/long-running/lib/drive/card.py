@@ -662,6 +662,7 @@ def refused(asks: list[dict]) -> dict:
 
 
 def answered(ask: dict) -> dict:
+    """Keep his tap on a PR card on each open PR it covers, one tap event each, and start the lander on his Approve; cc-slack applies a tap again when its first card command did not finish, so a member already holding this tap's Slack action keeps it and gets no second event."""
     if "repo" not in ask:
         return question_answered(ask)
     known = drive_prs()
@@ -677,9 +678,9 @@ def answered(ask: dict) -> dict:
     with state.edit(name) as data:
         for member in members:
             entry = data["prs"][member]
-            if entry["state"] != "open":
+            if entry["state"] != "open" or ask["action_ts"] and (entry["tap"] or {}).get("action_ts") == ask["action_ts"]:
                 continue
-            entry["tap"] = {"label": ask["label"], "at": state.stamp(), "head": ask["heads"].get(member, entry["head"]), "source": ask["source"]}
+            entry["tap"] = {"label": ask["label"], "at": state.stamp(), "head": ask["heads"].get(member, entry["head"]), "source": ask["source"], "action_ts": ask["action_ts"]}
             entry["fundamental"] = None
             entry["updated"] = entry["tap"]["at"]
             repo, number = member.split("#")

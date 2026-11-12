@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 from conftest import LIVE_WORKER, Drawing, staged
-from drive import cli, github, orca, place, reads, render, state, watch
+from drive import cli, github, orca, place, reads, render, state, view, watch
 
 Run = Callable[..., tuple[int, str]]
 T0 = state.parse_time("2026-11-09T07:30:00-08:00")
@@ -890,7 +890,7 @@ def test_the_watch_says_a_dead_lane_once_whether_it_ran_or_waited(remote: str, m
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
     assert watch.run_pass(watching, T0) == [
         'LANE j1 o1 died on Sprite sprite-old: its worker exited, while it waited on "ASK which npm name?". A message sent '
-        'to it reaches no one; drive job resume j1 "<its next step, or his answer>" relaunches it on a fresh Sprite with a handoff'
+        'to it reaches no one; drive job resume j1 "<his answer>" relaunches it on a fresh Sprite with a handoff'
     ]
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
     assert shown == [DISPATCH]
@@ -921,6 +921,36 @@ def test_the_watch_says_a_lane_orca_dropped_died_once(remote: str, monkeypatch: 
     assert watch.run_pass(watching, T0)[0].startswith(f"LANE j1 o1 died on Sprite sprite-old: {why}, while it worked on")
     assert not any(line.startswith("LANE") for line in watch.run_pass(watching, T0 + timedelta(minutes=1)))
     assert [(death["dispatch"], death["why"]) for death in state.load(remote)["jobs"]["j1"]["deaths"]] == [(DISPATCH, why)]
+
+
+def test_a_running_job_whose_lane_died_is_relaunched_that_pass_once(remote: str, monkeypatch: pytest.MonkeyPatch, relaunches: list[str]) -> None:
+    deliver(monkeypatch)
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(workspace="sprite-old", said="PUSHED https://github.com/Forge-AI/monorepo/pull/9")
+    monkeypatch.setattr(orca, "worker", lambda dispatch: dead())
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    assert watch.run_pass(watching, T0) == [
+        'LANE j1 o1 died on Sprite sprite-old: its worker exited, while it worked on "PUSHED https://github.com/Forge-AI/monorepo/pull/9". '
+        "The watch ran drive job resume j1, which relaunches it on a fresh Sprite with a handoff, its output in the drive's relaunches.log"
+    ]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
+    assert relaunches == ["j1"]
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["state"], job["deaths"][-1]["relaunch"]) == ("running", {"pid": os.getpid(), "at": state.stamp(T0)})
+    assert view.owned(job, {}) is False
+    assert "lane dead since" in render.job_line("j1", job)
+
+
+def test_a_relaunch_that_ended_without_a_next_lane_is_said_at_once(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    deliver(monkeypatch)
+    monkeypatch.setattr(orca, "worker", lambda dispatch: pytest.fail("a lane already said to have ended is not read again"))
+    with state.edit(remote) as data:
+        relaunch = {"pid": ENDED_READER, "at": state.stamp(T0 - timedelta(minutes=2))}
+        death = {"dispatch": DISPATCH, "workspace": "sprite-old", "why": "its worker exited", "at": state.stamp(T0 - timedelta(minutes=2)), "relaunch": relaunch}
+        data["jobs"]["j1"].update(deaths=[death], updated=state.stamp(T0 - timedelta(minutes=2)))
+    [line] = watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0), T0)
+    assert line.startswith('ORPHAN o1 "ship the remote builder": j1\'s lane ended 2 minutes ago (its worker exited) and the watch\'s drive job resume at ')
+    assert line.endswith("started no next lane, its output in the drive's relaunches.log")
 
 
 def branches(monkeypatch: pytest.MonkeyPatch, prs: dict[str, dict]) -> list[list[tuple[str, str]]]:
@@ -2182,7 +2212,6 @@ def test_the_watch_says_a_dead_local_lane_died_on_this_mac(rooted: str, monkeypa
     monkeypatch.setattr(orca, "worker", lambda dispatch: dead())
     watching = watch.Watcher(rooted, offset=state.events_end(rooted), ticked_at=T0)
     assert watch.run_pass(watching, T0) == [
-        'LANE j1 o1 died on this Mac: its worker exited, while it worked on "root-tooling: dispatch ctx_ab821100f80b". A '
-        'message sent to it reaches no one; drive job resume j1 "<its next step, or his answer>" relaunches it in a fresh '
-        "worktree on this Mac with a handoff"
+        'LANE j1 o1 died on this Mac: its worker exited, while it worked on "root-tooling: dispatch ctx_ab821100f80b". The watch '
+        "ran drive job resume j1, which relaunches it in a fresh worktree on this Mac with a handoff, its output in the drive's relaunches.log"
     ]

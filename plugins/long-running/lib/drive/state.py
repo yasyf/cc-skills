@@ -778,6 +778,11 @@ def lane_died(job: dict, dispatch: str, why: str, moment: datetime) -> bool:
     return True
 
 
+def lane_death(job: dict) -> dict | None:
+    """The recorded death of the job's current remote lane, which takes no message until drive job resume relaunches it; None while it lives or the job has none."""
+    return next((death for death in job.get("deaths", []) if death["dispatch"] == job.get("dispatch")), None)
+
+
 def whole_order(text: str) -> str:
     return " ".join(text.split())[:PART_CHARS]
 
