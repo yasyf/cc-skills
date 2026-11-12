@@ -110,6 +110,12 @@ def landing_stacks(data: dict) -> dict[str, tuple[str, ...]]:
     return {key: tuple(sorted(members, key=depth)) for members in stacks.values() if len(members) > 1 or opened[members[0]]["native"] for key in members}
 
 
+def together(data: dict, stacks: dict[str, tuple[str, ...]], key: str) -> list[str]:
+    """The open PRs a session's stack-enqueue names with key, bottom first, which the landing_guard hook holds it to: those of the card his Approve covered it on that share its landing stack, else key alone, since stack-enqueue refuses PRs named together that no stack links, such as the sibling PRs of one order his card draws together."""
+    landed = stacks.get(key, (key,))
+    return [member for member in data["prs"][key].get("stack") or [key] if data["prs"][member]["state"] == "open" and member in landed]
+
+
 def unready(data: dict, key: str, cards: dict) -> str | None:
     """Why a lander does not queue the PR now, the first condition it fails, or None when it lands: his Approve or an exempt class clears it, it is green and approved, or approved only on an older head, whose review `drive pr land` asks for, nothing holds it, its change at its head is checked against his words unless an exempt class lands it, whatever head his Approve was tapped on, it is no draft, has no conflict with its base and no card of his open on its work, its job's or a job sharing it, and no lander runs on it. A job still running on it does not hold it, since his Approve lands it at once."""
     pr = data["prs"][key]

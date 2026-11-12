@@ -401,7 +401,7 @@ def test_a_quoted_message_on_a_card_shows_as_one_quote_of_its_text_with_its_link
     )
     shown = web(tmp_path, f"model = {{ repo: '', review: [] }}; JSON.stringify(prose({json.dumps(body)}))")
     assert shown == (
-        "<p><b>Show me</b></p><p>The DM as drafted</p>"
+        '<h4 class="hd">Show me</h4><p>The DM as drafted</p>'
         '<blockquote class="quote">Hey Rowan! The grant throws <a href="https://sentry.io/1" target="_blank" rel="noopener">this error</a> at 9:29 PM.<br><br>Can you take it?</blockquote>'
         "<p>After the quote.</p>"
     )
@@ -843,7 +843,7 @@ done({ strip, opened, rows, closed: !list.matches(':popover-open'), hash: locati
 def test_the_top_strip_counts_bug_reports_beside_incidents_until_each_reporter_is_told_and_lists_them_by_stage(tmp_path: Path) -> None:
     pr = {"title": "fix", "url": "https://github.com/a/b/pull/3", "state": "open", "checks": "pending", "review": "none", "tap": None}
     outage = FEATURE | {"id": "o4", "title": "SandSQL journal failing"}
-    fixing = FEATURE | {"id": "o1", "title": "Runs page errors", "jobs": [{"id": "j1", "state": "running"}], "prs": [pr]}
+    fixing = FEATURE | {"id": "o1", "title": "Runs page errors", "jobs": [{"id": "j1", "feature": "o1", "kind": "builder", "goal": "fix the runs page", "state": "running", "where": "local", "said": "", "updated": "2026-11-11T00:00:00-08:00", "prs": 1, "branch": None, "waits": 0, "files": [], "agent": "a1"}], "prs": [pr]}
     merged = FEATURE | {"id": "o2", "title": "GET /api/runs fails", "updated": "2026-11-10T21:00:00-08:00"}
     told = FEATURE | {"id": "o3", "title": "Questions stopped showing"}
     reports = [
@@ -1813,11 +1813,11 @@ const sheet = async (id) => {
   location.hash = `#/work/Platform/SandSQL/${id}`;
   await wait(300);
   const at = document.querySelector('#main .lane-sheet');
-  return { said: at.querySelector('.lane-said')?.textContent ?? null, notes: [...at.querySelectorAll('p.meta')].map((note) => note.textContent), files: [...at.querySelectorAll('[data-file]')].map((file) => file.textContent) };
+  return { said: at.querySelector('.lane-said')?.textContent ?? null, links: [...at.querySelectorAll('.lane-said a')].map((link) => link.href), notes: [...at.querySelectorAll('p.meta')].map((note) => note.textContent), files: [...at.querySelectorAll('[data-file]')].map((file) => file.textContent) };
 };
 done({ sent: await sheet('j1'), silent: await sheet('j2') });
 """, shown)
-    assert seen["sent"]["said"] == "PUSHED https://github.com/a/b/pull/7"
+    assert (seen["sent"]["said"], seen["sent"]["links"]) == ("PUSHED #7", ["https://github.com/a/b/pull/7"])
     assert any(note.startswith("The line it last sent, ") for note in seen["sent"]["notes"])
     assert seen["sent"]["files"] == ["Brief", "Report"]
     assert seen["silent"]["said"] is None

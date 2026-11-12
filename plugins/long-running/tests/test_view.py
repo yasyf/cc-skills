@@ -492,7 +492,7 @@ def test_history_lists_every_day_newest_first_with_his_taps_answers_and_undos_ea
             "o1": order("ship the page", ["j1"], created=at(-30), state="done", updated=at(-10), proof="installed 1.0.21"),
             "o2": order("WTF, fix the damn thing. Hello, shell", [], created=state.stamp(T0 - timedelta(days=2)), state="waiting", **{"from": "slack:D123/1794200000.000100"}, reporter=None),
             "o3": order("Drive tooling: the shit the lanes say", [], created=at(-40)),
-            "o4": order("damn, the build is down", [], created=at(-50), **{"from": "slack:C9/1794200000.000200"}, reporter={"link": "https://acme.slack.com/archives/C9/p1794200000000200"}),
+            "o4": order("damn, the build is down", [], created=at(-50), **{"from": "slack:C9/1794200000.000200"}, reporter=state.reporter("https://acme.slack.com/archives/C9/p1794200000000200")),
         },
         {"j1": job("o1", "failed", "CI red (m12)", updated=-20)},
         [pr(1, "o1", state="merged", updated=at(-15))],

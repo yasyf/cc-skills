@@ -2399,7 +2399,7 @@ def three_stacked(demo: str, monkeypatch: pytest.MonkeyPatch) -> dict[str, dict]
 
 
 def stacked_read(head: str, **overrides: object) -> dict:
-    return read(headRefOid=head, checks=GREEN, reviewDecision="APPROVED", native=[(key, "open") for key in STACKED], **overrides)
+    return read(**{"headRefOid": head, "checks": GREEN, "reviewDecision": "APPROVED", "native": [(key, "open") for key in STACKED]} | overrides)
 
 
 def test_a_pr_mid_stack_gets_no_ready_of_its_own_until_every_pr_of_its_native_stack_is_ready_and_then_the_stack_gets_one(
@@ -2992,8 +2992,8 @@ def test_a_lander_queues_nothing_while_a_pr_below_it_in_its_native_stack_lacks_h
     with state.edit(demo) as data:
         data["prs"]["Forge-AI/monorepo#41"] = state.new_pr(state.pr_url("Forge-AI/monorepo#41"), "j1", "o1") | {"state": "merged"}
     approve(demo, KEY)
-    assert land.start(demo, [OTHER], NO_CARDS) == [(OTHER,)]
-    assert landers == [(OTHER,)]
+    assert land.start(demo, [OTHER], NO_CARDS) == [(KEY, OTHER)]
+    assert landers == [(KEY, OTHER)]
     monkeypatch.setattr(land.github, "below", lambda key: ["Forge-AI/monorepo#41"] if key == OTHER else [])
     with state.edit(demo) as data:
         data["prs"]["Forge-AI/monorepo#41"]["state"] = "open"

@@ -631,7 +631,7 @@ def test_a_build_orders_builder_starts_only_on_a_brief_naming_its_readers_resear
 
 def test_an_incident_lanes_brief_carries_the_rule_its_kind_follows_on_a_choice_and_no_line_stopping_it_on_one(demo: str, run: Run) -> None:
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Alerts", "chat turns fail on sand 0.162.3983", "--incident", "--parts", "fix", "first check")
-    run("job", "add", "builder", "--order", "o1", "--goal", "ship the fix the codex lane built")
+    run("job", "add", "builder", "--order", "o1", "--part", "fix", "--goal", "ship the fix the codex lane built")
     stopping = "Order: chat turns fail on sand 0.162.3983\nIncident: record 674295\n4. If something is lost, stop and return `BLOCKED <what is lost>` with 2 to 4 options, before any PR\nDrive: demo, order o1, job j1"
     reason = scratch_folder.deny_reason(drive_agent("codex:codex-wrapper", stopping))
     assert reason.startswith("refused, no agent started: j1 works on o1, an incident, which a choice never stops, by his words \"fix ur tooling")
