@@ -309,19 +309,19 @@ def message_limits(evt: BaseHookEvent) -> HookResult | None:
         Input(tool=POST, tool_input={"kind": "report", "text": "x"}, session_id=NO_DRIVE): Allow(),
         Input(
             tool=POST,
-            tool_input={"kind": "report", "to": "communicator@fixture", "text": "POST The fix is still building.", "attrs": {"thread": THREAD}},
+            tool_input={"kind": "report", "to": "communicator@fixture", "text": "POST The fix is still building.", "attrs": {"thread": THREAD, "progress": "true"}},
             session_id=COORDINATOR,
             transcript=TURN,
             decide=CONFIRMED,
         ): Block(pattern="one report per thread per turn"),
         Input(
             tool=POST,
-            tool_input={"kind": "report", "to": "communicator@fixture", "text": "POST New: 663230 shows 0 refused writes.", "attrs": {"thread": THREAD}},
+            tool_input={"kind": "report", "to": "communicator@fixture", "text": "POST New: 663230 shows 0 refused writes.", "attrs": {"thread": THREAD, "progress": "true"}},
             session_id=COORDINATOR,
             transcript=TURN,
             decide=UNCONFIRMED,
         ): Allow(),
-        Input(tool=POST, tool_input={"kind": "report", "to": "communicator@fixture", "text": ASKED}, session_id=COORDINATOR): Rewrite(
+        Input(tool=POST, tool_input={"kind": "report", "to": "communicator@fixture", "text": ASKED, "attrs": {"progress": "true"}}, session_id=COORDINATOR): Rewrite(
             body="the counts match"
         ),
     },
