@@ -170,7 +170,7 @@ def handler_reads(*held: str) -> str:
 
 
 def checked(evt: BaseHookEvent, script: str) -> HookResult | None:
-    """Run the drive's own check for this call from the newest installed long-running, since capt-hook keeps this pack loaded from the install it first found while an install leaves the pack's files unchanged, and let Jev judge each refusal it makes by the rule the check names, else by its words, so a check that matched a call its rule never meant lets the call through, and every handler's say post by the reads the check hands with it, whatever it found; a merge, release or public-body guard, or a refusal decided by the call's shape alone, the check marks unjudged and it blocks outright, and a check that exits non-zero raises with its own stderr, so capt-hook's log names why it failed."""
+    """Run the drive's own check for this call from the newest installed long-running, since capt-hook keeps this pack loaded from the install it first found while an install leaves the pack's files unchanged, and let Jev judge each refusal it makes by the rule the check names, else by its words, so a check that matched a call its rule never meant lets the call through, and every handler's say post by the reads the check hands with it, whatever it found, a verdict on those reads alone only advising; a merge, release or public-body guard, or a refusal decided by the call's shape alone, the check marks unjudged and it blocks outright, and a check that exits non-zero raises with its own stderr, so capt-hook's log names why it failed."""
     payload = evt._raw
     ran = subprocess.run(
         ["python3", "-I", str(newest_install() / "hooks" / script)],
@@ -189,8 +189,7 @@ def checked(evt: BaseHookEvent, script: str) -> HookResult | None:
     found = output.get("hookSpecificOutput") or {}
     reason = found.get("permissionDecisionReason") or (output.get("decision") == "block" and output["reason"]) or ""
     if (words := output.get("his_words")) is not None:
-        verdict = judged(evt, reason, output.get("rule") or "", [Evidence.model_validate(item) for item in [*words, *output.get("reads", [])]], output["post"])
-        return verdict or (evt.context(context) if (context := found.get("additionalContext")) else None)
+        return judged(evt, reason, output.get("rule") or "", [Evidence.model_validate(item) for item in [*words, *output.get("reads", [])]], output["post"], found.get("additionalContext") or "")
     if reason:
         return evt.block(reason, confirm=Confirm(rule=output.get("rule") or reason) if output.get("judged", True) else None)
     if made := found.get("updatedInput"):
@@ -200,8 +199,8 @@ def checked(evt: BaseHookEvent, script: str) -> HookResult | None:
     return None
 
 
-def judged(evt: BaseHookEvent, reason: str, rule: str, words: list[Evidence], post: dict) -> HookResult | None:
-    """Jev's verdict on a post the drive's checks found something in, or on any handler's say post: Jev reads the post as Slack gets it, each of say's references linked, each finding beside its rule's words, his messages and card answers in this thread and his answers in the transcripts, and on a handler's post the reads it made itself and the report it carries. It goes out when no finding's rule holds against the line it names, or his words lift it, and each claim of a handler's stands on a read of its own or the record that measured it; it stays back with Jev's reason otherwise, never for saying more than his message asked. A judge that gives no verdict, such as one that timed out, leaves it back and names why, as a check that could not finish does. A handler's own `claude --bg` session reads as a session of his to capt-hook, but every prompt it holds is the communicator's brief or a record, so its judge reads no prompt there as his words."""
+def judged(evt: BaseHookEvent, reason: str, rule: str, words: list[Evidence], post: dict, heard: str = "") -> HookResult | None:
+    """Jev's verdict on a post the drive's checks found something in, or on any handler's say post: Jev reads the post as Slack gets it, each of say's references linked, each finding beside its rule's words, his messages and card answers in this thread and his answers in the transcripts, and on a handler's post the reads it made itself and the report it carries. It goes out when no finding's rule holds against the line it names, or his words lift it, and stays back with Jev's reason otherwise, never for saying more than his message asked; a judge that gives no verdict, such as one that timed out, leaves it back and names why, as a check that could not finish does. On a post the checks found nothing in, Jev's verdict on whether each claim of a handler's stands on a read of its own or the record that measured it only advises: the post goes out as written, with Jev's finding, or why it gave none, and any warning the checks heard beside it. A handler's own `claude --bg` session reads as a session of his to capt-hook, but every prompt it holds is the communicator's brief or a record, so its judge reads no prompt there as his words."""
     place = {"thread": str(post.get("thread_ts") or "")} | ({"channel": post["channel_id"]} if post.get("channel_id") else {})
     where = f"in thread {place['thread']} of channel {post['channel_id']}" if post.get("channel_id") else "to him in his DM"
     if post.get("channel_id") and not place["thread"]:
@@ -215,13 +214,18 @@ def judged(evt: BaseHookEvent, reason: str, rule: str, words: list[Evidence], po
     try:
         verdict = judge.verdict(ctx, items)
     except Undecided as exc:
-        held = "what the drive's checks found stands: fix each finding below" if reason else "whether each claim in it stands on a read of yours is unweighed and it stays back"
-        return evt.block(f"Jev gave no verdict ({exc.cause}), and a judge that does not answer never lets a post through, so {held}, then call say again.{shown}")
+        if not reason:
+            return evt.context("\n\n".join(filter(None, [heard, f"message_limits: Jev gave no verdict ({exc.cause}) on whether each claim of this post stands on a read of yours, and that verdict only advises, so the post goes out as written."])))
+        return evt.block(f"Jev gave no verdict ({exc.cause}), and a judge that does not answer never lets a post through, so what the drive's checks found stands: fix each finding below, then call say again.{shown}")
+    if not reason:
+        advice = None if verdict.allow else (
+            "message_limits: Jev reads a claim of this post as standing on no read of yours. Jev's reads verdict only advises, so"
+            f" the post goes out as written: if Jev is right, read what it names and post the correction.\n```\nJev: {verdict.explained}\n```"
+        )
+        return evt.context("\n\n".join(filter(None, [heard, advice]))) if heard or advice else None
     if verdict.allow and cited(items, verdict.relied_on):
-        return evt.context(f"message_limits: Jev read no finding's rule as holding against this post, so it goes out as written.\n```\nJev: {verdict.reason}\n```") if reason else None
-    fix = "fix what Jev and each finding below name" if reason else "read the code behind what Jev names, or cut the line to what your reads show"
-    listed = f"\n{reason}" if reason else ""
-    return evt.block(f"Jev weighed this post by the drive's rules and held it back: {fix}, then call say again.\n```\nJev: {verdict.explained}{listed}\n```")
+        return evt.context(f"message_limits: Jev read no finding's rule as holding against this post, so it goes out as written.\n```\nJev: {verdict.reason}\n```")
+    return evt.block(f"Jev weighed this post by the drive's rules and held it back: fix what Jev and each finding below name, then call say again.\n```\nJev: {verdict.explained}\n{reason}\n```")
 
 
 def asked(evt: BaseHookEvent, case: str, words: list[Evidence]) -> HookResult | None:
@@ -415,7 +419,7 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             transcript=COMMUNICATOR_TURN,
             commands={"python3 -I": handler_reads()},
             llm={"reason": "Postgres is a name no read returned", "allow": False, "refusal": "The cloud reading straight from Postgres stands on no read; read the cloud's inbox reader."},
-        ): Block(pattern="held it back: read the code behind what Jev names, or cut the line to what your reads show.*Jev: The cloud reading straight from Postgres"),
+        ): Warn(pattern="Jev's reads verdict only advises, so the post goes out as written.*Jev: The cloud reading straight from Postgres"),
         Input(
             tool=SAY,
             tool_input={"text": GUESSED, "thread_ts": THREAD},
@@ -435,7 +439,7 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             transcript=COMMUNICATOR_TURN,
             commands={"python3 -I": handler_reads()},
             llm={"error": TimeoutError("codex timed out after 19s")},
-        ): Block(pattern=r"Jev gave no verdict \(TimeoutError: codex timed out after 19s\).*whether each claim in it stands on a read of yours is unweighed"),
+        ): Warn(pattern=r"Jev gave no verdict \(TimeoutError: codex timed out after 19s\) on whether each claim.*goes out as written"),
         Input(
             tool=SAY,
             tool_input={"text": "I took the refusal as working as designed because it queues the brief, so I sent no defect."},

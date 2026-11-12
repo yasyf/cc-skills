@@ -522,8 +522,8 @@ restating it.
   or "a cc-slack fix" alone. When a record mentions a change without its PR, the handler finds the PR
   first, with `drive status` or `gh pr list --search`.
 - Name a PR as `{pr:<number>}` and say in the line what it does; `say` links it under the PR's title,
-  never by its number alone, or under words of the post's own as `{pr:<number>|<what it does>}`,
-  the one way to link a PR the drive does not hold. Say what each PR serves: the order of his it carries out, in his words,
+  never by its number alone, or under words of the post's own as `{pr:<number>|<what it does>}`. A
+  bare number names only a PR the drive holds: name any other as `{pr:<owner/repo#number>|<what it does>}`. Say what each PR serves: the order of his it carries out, in his words,
   "port of #N" with the old PR linked, or "Drive tooling:" and what it unblocks. The say hook finds
   a summary naming a drive PR that says none of these. Link each other PR the message names the same
   way.
@@ -548,8 +548,9 @@ restating it.
   controls that piece where it would run, by his words "we cant do that since we dont control the
   poloices on customer bucket". The say hook hands Jev each handler post's own reads, every tool call
   of its transcript whose result came back and each name the post uses beside the line of a read
-  holding it, and Jev sends back a line no read backs, naming the read it needs. The fix is that read,
-  or the line cut to what the reads show, never the line posted marked unread.
+  holding it, and Jev names beside the post, which goes out as written, a line no read backs and the
+  read it needs. When Jev is right, the fix is that read and a correction, never a line posted marked
+  unread.
 - A card's title and options draw no links, so link whatever they name in its summary or a Show me
   caption. `drive job ask` and the post hook refuse an `ASK` or a post that names such a thing with no
   link there, naming the words and the clause they sit in, and that a thing not open yet is said so
