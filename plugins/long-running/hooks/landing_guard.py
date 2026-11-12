@@ -537,7 +537,7 @@ def body_reason(script: str, shell: Shell) -> str | None:
 
 
 def cci_posts(script: str, shell: Shell) -> list[dict]:
-    """Each record a script posts with `cci post`, never a call asking for its help with `--help` or `-h`, which cci answers before it reads a record, in the shape the cci `post` tool takes: its kind, attrs, addressed lanes, text, body, url, topic and answered seqs, each read as cci reads it: its text the positionals, else --text, else the first line of the file --path names, its body the file --body-file or --path names, and each `--attr` as cci's flag parser reads it, one `key=value` whole, commas and all, and with several `=` comma-separated `key=value` fields, quotes around one holding a comma."""
+    """Each record a script posts with `cci post`, never a call asking for its help with `--help` or `-h`, which cci answers before it reads a record, in the shape the cci `post` tool takes: its kind, attrs, addressed lanes, text, body, url, topic and answered seqs, each read as cci reads it: its text the positionals, else --text, else the opening line of the file --path names, its body the file --body-file or --path names, and each `--attr` as cci's flag parser reads it, one `key=value` whole, commas and all, and with several `=` comma-separated `key=value` fields, quotes around one holding a comma."""
     posts = []
     for _, words, run_in in commands(script, shell):
         if (found := landing_of(words, (CCI_POST,))) and lands(found[0], found[2]):
@@ -547,7 +547,7 @@ def cci_posts(script: str, shell: Shell) -> list[dict]:
                 "kind": (options.get("kind") or [""])[-1].lower(),
                 "attrs": dict(pair.split("=", 1) for value in options.get("attr", []) for pair in ([value.strip('"')] if value.count("=") == 1 else next(csv.reader([value])))),
                 "to": [lane for value in options.get("to", []) for lane in value.split(",")],
-                "text": " ".join(positionals) or (options.get("text") or [""])[-1] or first_line(run_in.cwd, path),
+                "text": " ".join(positionals) or (options.get("text") or [""])[-1] or limits.opening_line(file_text(run_in.cwd, path)),
                 "body": file_text(run_in.cwd, (options.get("body-file") or [path])[-1]),
                 "url": (options.get("url") or [None])[-1],
                 "topic": (options.get("topic") or [None])[-1],
@@ -581,11 +581,6 @@ def cci_change(attachment: dict, connected: bool | None) -> bool | None:
     if "addedNames" in ours:
         return True
     return False if ours else connected
-
-
-def first_line(cwd: str, named: str | None) -> str:
-    """The first line of the file a `cci post --path` names, from the folder the post runs in; none when it names no file there."""
-    return file_text(cwd, named).partition("\n")[0]
 
 
 def file_text(cwd: str, named: str | None) -> str:
@@ -654,8 +649,14 @@ def kept_report(job_id: str, options: dict[str, list[str]]) -> str | None:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a Bash call must not run: a judged reason, else a guarded one."""
-    return judged_reason(payload) or guarded_reason(payload)
+    """Why a Bash call must not run: a `cci post` the cci `post` tool sends, else a judged reason, else a guarded one."""
+    return cli_posted(payload) or judged_reason(payload) or guarded_reason(payload)
+
+
+def cli_posted(payload: dict) -> str | None:
+    """Why a drive session's or agent's `cci post` in Bash must not run whatever it posts, a refusal capt-hook's Jev never weighs again: its cci MCP server is connected, so the cci `post` and `close` tools send the record and their hook checks its words, and no refusal of its words comes first to be fixed in a command this one then refuses."""
+    _, shell = shell_of(payload)
+    return CLI_POST if shell.driving and cci_posts(payload["tool_input"]["command"], shell) and cci_connected(payload) else None
 
 
 def shell_of(payload: dict) -> tuple[list[str], Shell]:
@@ -697,14 +698,12 @@ def unprevented_reports(payload: dict) -> str | None:
 
 
 def guarded_reason(payload: dict) -> str | None:
-    """Why a Bash call must not run, a refusal capt-hook's Jev never weighs again: it lands a Forge-AI drive PR without his tap or merges with --admin there, in a drive session or agent lands a Forge-AI PR someone else opened that no order of his names, starts, approves or rolls back a production cut from a sub-coordinator's session, or starts one in a drive session on `--order` naming an answer of his that is no incident's and that Jev does not read as his pick to release, and in a drive session or agent lands a Forge-AI PR while his card on it is open, around the monorepo's queue or apart from its stack, puts up a drive's public PR body showing what only a private place may, in a drive session or agent whose cci MCP server is connected posts or closes a record with `cci post` in place of the cci `post` and `close` tools, or posts with `cci post` an owner or answer record of his words on an open card of his, which only the drive's `record` tool closes in the same call, or an owner record naming no about, which picks the session it reaches."""
+    """Why a Bash call must not run, a refusal capt-hook's Jev never weighs again: it lands a Forge-AI drive PR without his tap or merges with --admin there, in a drive session or agent lands a Forge-AI PR someone else opened that no order of his names, starts, approves or rolls back a production cut from a sub-coordinator's session, or starts one in a drive session on `--order` naming an answer of his that is no incident's and that Jev does not read as his pick to release, and in a drive session or agent lands a Forge-AI PR while his card on it is open, around the monorepo's queue or apart from its stack, puts up a drive's public PR body showing what only a private place may, or posts with `cci post` an owner or answer record of his words on an open card of his, which only the drive's `record` tool closes in the same call, or an owner record naming no about, which picks the session it reaches."""
     names, shell = shell_of(payload)
     command = payload["tool_input"]["command"]
     if shell.driving and (exposed := body_reason(command, shell)):
         return exposed
     posts = cci_posts(command, shell)
-    if shell.driving and posts and cci_connected(payload):
-        return CLI_POST
     unclosed = (superseded.unclosed_refusal(names, post["kind"], post["attrs"], post["topic"], post["re"]) for post in posts)
     if names and (left_up := next(filter(None, unclosed), None)):
         return left_up
@@ -726,8 +725,9 @@ def denial(reason: str) -> dict:
 def main() -> None:
     try:
         payload = agents.seen(json.load(sys.stdin))
-        judged = judged_reason(payload)
-        reason = judged or guarded_reason(payload) or root_cause_case(payload)
+        unjudged = cli_posted(payload)
+        judged = None if unjudged else judged_reason(payload)
+        reason = unjudged or judged or guarded_reason(payload) or root_cause_case(payload)
         context = None if reason else unprevented_reports(payload)
     except (ValueError, KeyError):
         return

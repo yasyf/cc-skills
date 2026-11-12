@@ -92,7 +92,7 @@ def misaddressed(payload: dict, record: dict) -> str | None:
 
 
 def refusals(payload: dict, names: list[str], records: list[dict]) -> Iterator[str | None]:
-    """Each check of each record in turn, so a refusal stops the rest from running."""
+    """Each check of each record, as cci stores it, in turn, so a refusal stops the rest from running."""
     drives = [state.load(name) for name in names]
     drive = drives[0]
     prs = {key: pr for data in drives for key, pr in data["prs"].items()}
@@ -117,7 +117,7 @@ def readdressed(drives: dict[str, dict], session: str | None, record: dict) -> d
 
 
 def decision(payload: dict) -> dict | None:
-    """What a drive session's post becomes: refused with the fix while a record in it breaks a rule its kind keeps, else posted with a warning on each POST line telling him a failure of the drive's with no word on how it is prevented, and every record in it completed from what the drive knows, trimmed of the attrs it never carries and one line, the rest in its body for whoever acts on it, and each record sent where its drive routes it."""
+    """What a drive session's post becomes: refused with the fix while a record in it, read with the text cci stores for it, breaks a rule its kind keeps, else posted with a warning on each POST line telling him a failure of the drive's with no word on how it is prevented, and every record in it completed from what the drive knows, trimmed of the attrs it never carries and one line, the rest in its body for whoever acts on it, and each record sent where its drive routes it."""
     names = state.session_drives(payload.get("session_id") or "")
     if not names:
         return None
@@ -125,9 +125,10 @@ def decision(payload: dict) -> dict | None:
     given = tool_input.get("records") or [tool_input]
     drive = state.load(names[0])
     records = [trimmed(completed(names, drive, record)) for record in given]
-    if refused := next(filter(None, refusals(payload, names, records)), None):
+    stored = [limits.as_stored(record) for record in records]
+    if refused := next(filter(None, refusals(payload, names, stored)), None):
         return {"permissionDecision": "deny", "permissionDecisionReason": refused}
-    warned = [warning for record in records if (warning := unprevented(drive, record))]
+    warned = [warning for record in stored if (warning := unprevented(drive, record))]
     context = {"additionalContext": "\n".join(warned)} if warned else {}
     drives = state.bound_drives(names)
     made = [limits.shortened(routed) or routed for routed in (readdressed(drives, payload.get("session_id"), record) for record in records)]
