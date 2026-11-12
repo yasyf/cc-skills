@@ -2286,7 +2286,7 @@ def pr_set(args: argparse.Namespace) -> int:
             withdrawn = slack.withdraw_pr_card(pr["url"], why)
         except slack.SlackError as error:
             raise DriveError(f"{key}: withdrawing its open card failed, so his Approve still shows: {error}; run this again") from None
-    corrected = correct_card(name, key, pr["url"]) if args.waits or args.no_waits else ""
+    corrected = correct_card(name, key, pr["url"], *redrawn) if (redrawn := redraw_words(args, dropped)) else ""
     out = "".join(f"\n{shipping}, so it is not a wait" for shipping in shipped.values())
     view.refresh_cards(name)
     found, source = view.stored_cards(name)
@@ -2355,19 +2355,31 @@ def withdrawal(args: argparse.Namespace) -> str | None:
     return None
 
 
-def correct_card(name: str, key: str, url: str) -> str:
-    """Redraw in place his open card carrying the PR, its Approve and Hold kept, so it says what the PR waits on now; nothing new posts."""
+def redraw_words(args: argparse.Namespace, dropped: dict | None) -> tuple[str, str, str] | None:
+    """What this set stored that his open card for the PR draws, what that card does not show while its redraw fails, and what redrawing it in place shows: his tap recorded or dropped, which takes Approve and Hold off a card on which no PR asks his tap any more, or what the PR waits on, Approve and Hold kept; None when it stored nothing the card draws."""
+    if args.tapped:
+        return f"his {args.tapped} is stored", "does not show it yet", f"to show his {args.tapped}"
+    if args.no_tapped:
+        return f"the {dropped['label']} the drive gave itself is dropped", "still shows it", f"to drop the {dropped['label']} the drive gave itself"
+    if args.waits or args.no_waits:
+        return "its waits are stored", "does not name them yet", "Approve and Hold kept, to say what it waits on"
+    return None
+
+
+def correct_card(name: str, key: str, url: str, stored: str, unshown: str, shows: str) -> str:
+    """Redraw in place each card of his carrying the PR that cc-slack still draws, so it shows what this set stored: an open one, or one whose Approve and Hold it took off once no PR on it asked his tap, neither replaced nor withdrawn; nothing new posts."""
     from drive import view
 
     view.refresh_cards(name)
     found = view.live_cards(name)
-    if found is not None and not view.card_for(found["pr_cards"], url):
+    drawn = [*found["pr_cards"], *(closed for closed in found["closed"] if not closed["replaced_by"] and not (closed["answer"] or {}).get("withdrawn"))] if found else []
+    if found is not None and not view.card_for(drawn, url):
         return ""
     try:
         redrawing = slack.redraw_pr_cards(url)
     except slack.SlackError as error:
-        raise DriveError(f"{key}: its waits are stored, but redrawing his open card in place failed, so it does not name them yet: {error}; run this again") from None
-    return f"\nredrawing in place the {redrawing} open card(s) of his carrying it, Approve and Hold kept, to say what it waits on" if redrawing else ""
+        raise DriveError(f"{key}: {stored}, but redrawing his open card in place failed, so it {unshown}: {error}; run this again") from None
+    return f"\nredrawing in place the {redrawing} open card(s) of his carrying it, {shows}" if redrawing else ""
 
 
 def check_waits(name: str, waits: list[str]) -> None:
@@ -3699,7 +3711,7 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("--fundamental", help="what changed; clears his tap and any exemption")
     tapped = verb.add_mutually_exclusive_group()
-    tapped.add_argument("--tapped", choices=state.TAP_LABELS, help="record a tap he gave elsewhere")
+    tapped.add_argument("--tapped", choices=state.TAP_LABELS, help="record a tap he gave elsewhere, redrawing his open card for it in place to show it")
     tapped.add_argument(
         "--no-tapped",
         action="store_true",

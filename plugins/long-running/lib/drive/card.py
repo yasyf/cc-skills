@@ -263,7 +263,7 @@ def waits_on(pr: dict, entry: dict, held: tuple[str, ...]) -> str:
             return "Lands once " + in_turn([*(["CI passes"] if verdict == "pending" else []), *held])
         case _ if state.queued_by_lander(key) and state.cleared(entry):
             return "CI passed; the drive queues it for merge"
-        case _ if state.guarded(key):
+        case _ if state.guarded(key) and not approved:
             return "CI passed; nothing lands it until you approve it"
         case _:
             return "CI passed; the agent is landing it"
@@ -318,7 +318,6 @@ def render(pr: dict, entry: dict, shown: tuple[str, ...] = (), held: tuple[str, 
     }
     card = {"status": "info", "title": framed(f"{kind}: ", plain), "prs": [row]}
     if tap_refused(pr, entry) is None:
-        row["blocks"] = "Held by you" if tap_label(entry) == "Hold" else ""
         row["lands"] = lands_after_tap(pr, entry, held)
         card |= {
             "status": "needs_you",
@@ -328,7 +327,7 @@ def render(pr: dict, entry: dict, shown: tuple[str, ...] = (), held: tuple[str, 
             "waits": merge_waits(pr["url"]),
         }
     else:
-        row["blocks"] = waits_on(pr, entry, held)
+        row["blocks"] = ("Approved by you. " if tap_label(entry) == "Approve" and pr["state"] == "OPEN" else "") + waits_on(pr, entry, held)
         card["status"] = "done" if pr["state"] == "MERGED" else "info"
     if shown:
         card["pictures"] = list(shown)
@@ -662,7 +661,7 @@ def refused(asks: list[dict]) -> dict:
 
 
 def answered(ask: dict) -> dict:
-    """Keep his tap on a PR card on each open PR it covers, one tap event each, and start the lander on his Approve; cc-slack applies a tap again when its first card command did not finish, so a member already holding this tap's Slack action keeps it and gets no second event."""
+    """Keep his tap on a PR card on each open PR it covers, one tap event each, and start the lander on his Approve; a stack card's tap covers only the PRs on it holding no tap yet, as its Approve and Hold ask only for those, so his words approving or holding one PR keep it through a later tap on the card, and cc-slack applies a tap again when its first card command did not finish, so a member already holding this tap's Slack action keeps it and gets no second event."""
     if "repo" not in ask:
         return question_answered(ask)
     known = drive_prs()
@@ -678,7 +677,7 @@ def answered(ask: dict) -> dict:
     with state.edit(name) as data:
         for member in members:
             entry = data["prs"][member]
-            if entry["state"] != "open" or ask["action_ts"] and (entry["tap"] or {}).get("action_ts") == ask["action_ts"]:
+            if entry["state"] != "open" or len(members) > 1 and entry["tap"] or ask["action_ts"] and (entry["tap"] or {}).get("action_ts") == ask["action_ts"]:
                 continue
             entry["tap"] = {"label": ask["label"], "at": state.stamp(), "head": ask["heads"].get(member, entry["head"]), "source": ask["source"], "action_ts": ask["action_ts"]}
             entry["fundamental"] = None

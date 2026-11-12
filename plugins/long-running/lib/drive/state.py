@@ -1630,7 +1630,7 @@ def send_back(pr: dict) -> None:
 
 
 def tap_refused(pr: dict) -> str | None:
-    """Why his card on the PR offers no Approve, so no fresh card draws for it; None when it does: open, his card owed, its change at its head not judged against his words, and neither his Approve nor the hold label on it."""
+    """Why his card on the PR offers no Approve, so no fresh card draws for it; None when it does: open, his card owed, its change at its head not judged against his words, and neither his tap, Approve or Hold, nor the hold label on it."""
     if pr["state"] != "open":
         return f"it is {pr['state']}"
     match owed_step(pr):
@@ -1642,8 +1642,11 @@ def tap_refused(pr: dict) -> str | None:
             return "its author or its own builder lands it with no tap"
     if named := against(pr):
         return f"its change at its head goes against his words: {named}"
-    if (pr["tap"] or {}).get("label") == "Approve":
-        return "he approved it already"
+    match (pr["tap"] or {}).get("label"):
+        case "Approve":
+            return "he approved it already"
+        case "Hold":
+            return "he held it"
     if pr["hold_label"]:
         return "it carries the hold label"
     return None
