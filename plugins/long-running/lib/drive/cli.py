@@ -1000,7 +1000,12 @@ def job_add(args: argparse.Namespace) -> int:
         parts = pick_parts(args.order, order, args.part)
         refuse_a_shared_at_once_part(parts)
         role = state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
-        if refused := state.held_elsewhere(data, args.order, role) or unlandable(data, lands) or brief.job_refusal(name, data, args.order, args.kind, parts, bool(lands), args.waits):
+        if refused := (
+            state.held_elsewhere(data, args.order, role)
+            or unlandable(data, lands)
+            or state.change_wait_refusal(data, args.waits)
+            or brief.job_refusal(name, data, args.order, args.kind, parts, bool(lands), args.waits)
+        ):
             raise DriveError(f"refused, no job added: {refused}")
         order["owner"] = order["owner"] or role
         beside = [
@@ -1070,7 +1075,9 @@ def job_set(args: argparse.Namespace) -> int:
         fix_kept(state.load(name), args.id)
     changes = {"agent": args.agent, "state": args.state, "said": args.said, "branch": args.branch, "due": job_clock(args.id, args.due)}
     urls = dict.fromkeys(state.pr_url(state.pr_key(url)) for url in args.pr)
-    if jobs := [wait for wait in args.waits if wait in known["jobs"]]:
+    if refused := state.change_wait_refusal(known, args.waits):
+        raise DriveError(refused)
+    if jobs := [wait for wait in args.waits if wait in known["jobs"] and known["jobs"][wait]["kind"] not in state.CHANGE_KINDS]:
         found = view.live_cards(name)
         holds = [
             *(card for job_id in jobs for card in view.open_cards(known["jobs"][job_id], found)),
@@ -1082,8 +1089,9 @@ def job_set(args: argparse.Namespace) -> int:
             else f"nothing is open on {' and '.join(jobs)} to wait on, no card of his and no PR"
         )
         raise DriveError(
-            f"--waits {', '.join(jobs)}: a job waits on his card, a PR the drive tracks or a release, and on another job only as a build order's"
-            f" designer, builder or codex lane added waiting on its reader, drive job add <kind> --order <o> --waits <the reader>; {instead}"
+            f"--waits {', '.join(jobs)}: a job waits on his card, a PR the drive tracks, a release or the change a builder or codex job builds, and on"
+            f" another job only as a build order's designer, builder or codex lane added waiting on its reader, drive job add <kind> --order <o>"
+            f" --waits <the reader>; {instead}"
         )
     check_waits(name, args.waits)
     told_him(name, args)
@@ -2090,7 +2098,7 @@ def pr_add(args: argparse.Namespace) -> int:
 
 
 def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = None, exempt: str | None = None, no_tap: bool = False) -> dict:
-    """Register a PR on its job from its GitHub read, refused as `drive pr add` refuses; the PR as registered. `drive pr add` runs it for a builder on this Mac, and the watch for each PR a remote lane's mail names, so a PR built on a Sprite lands as one built here does."""
+    """Register a PR on its job from its GitHub read, refused as `drive pr add` refuses; the PR as registered, the job's first in place of each wait on its change. `drive pr add` runs it for a builder on this Mac, and the watch for each PR a remote lane's mail names, so a PR built on a Sprite lands as one built here does."""
     from drive import view
 
     url = state.pr_url(key)
@@ -2125,6 +2133,8 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
         if no_tap:
             pr["wants_tap"] = False
         if url not in job["prs"]:
+            if not job["prs"]:
+                state.wait_on_change(data, job_id, key)
             job["prs"].append(url)
     return pr
 

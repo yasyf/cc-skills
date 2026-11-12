@@ -776,14 +776,18 @@ def test_resume_to_a_worker_that_finished_starts_the_next_one_in_its_terminal_wi
     monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a finished worker on a Sprite still up is never relaunched elsewhere"))
     monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing is sent to a finished worker: {args}"))
     started = {}
+    steps = []
+    monkeypatch.setattr(orca, "place_tools", lambda workspace: steps.append(f"tools on {workspace}"))
 
     def worker_start(drive: str, run_id: str, argv: list[str]) -> subprocess.CompletedProcess:
+        steps.append("worker-start")
         started.update(run=run_id, argv=argv, spec=Path(argv[argv.index("--spec-file") + 1]).read_text())
         receipt = {"ok": True, "result": {"state": "ready", "runId": run_id, "taskId": "task_2", "dispatchId": "ctx_lane0002"}}
         return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(receipt), stderr="")
 
     monkeypatch.setattr(orca, "bound_command", worker_start)
     code, out = run("job", "resume", "j1", "The review: one medium finding, fix it")
+    assert steps == ["tools on pool-one", "worker-start"]
     assert (code, out) == (
         0,
         "j1: the message went to the job's next worker, started in its terminal on the same Sprite as dispatch ctx_lane0002 in"
@@ -834,6 +838,7 @@ def test_resume_to_a_finished_worker_whose_terminal_orca_no_longer_finds_relaunc
     monkeypatch.setattr(orca, "worker", lambda dispatch: FINISHED_WORKER)
     monkeypatch.setattr(orca, "bound_command", lambda drive, run_id, argv: subprocess.CompletedProcess(argv, 1, stdout=json.dumps(reply), stderr=""))
     monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing is sent to a finished worker: {args}"))
+    monkeypatch.setattr(orca, "place_tools", lambda workspace: None)
     monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: None)
     monkeypatch.setattr(orca, "new_run", lambda objective: FRESH_RUN)
     launched = {}
@@ -885,6 +890,7 @@ def test_a_resume_orca_refuses_exits_2_with_the_refusal_verbatim(
     done = subprocess.CompletedProcess([], 1, stdout=json.dumps(reply), stderr="")
     monkeypatch.setattr(orca.subprocess, "run", lambda argv, **kwargs: done)
     monkeypatch.setattr(orca, "bound_command", lambda drive, run_id, argv: done)
+    monkeypatch.setattr(orca, "place_tools", lambda workspace: None)
     assert cli.main(["job", "resume", "j1", "the review"]) == 2
     assert capsys.readouterr().err == f"drive: {refusal}\n"
     assert state.load(remote)["jobs"]["j1"]["dispatch"] == DISPATCH
@@ -2171,6 +2177,25 @@ def test_a_sprite_launch_gives_the_sprite_the_drive_that_asks_each_verb_of_this_
     assert "WORKER_LOCAL" not in ran["env"]
 
 
+def test_placing_tools_on_a_sprite_runs_the_orca_step_on_its_cc_remote_task_with_the_drive_a_launch_gives_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(orca, "tool", lambda name: name)
+    monkeypatch.setattr(orca, "CC_REMOTE_TASKS", tmp_path)
+    ran = []
+
+    def step(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        ran.append((argv, kwargs["env"]["WORKER_TOOLS"]))
+        failed = len(ran) > 1
+        return subprocess.CompletedProcess(argv, int(failed), stdout="drive placed\n", stderr="a login shell runs drive from nothing\n" if failed else "")
+
+    monkeypatch.setattr(orca.subprocess, "run", step)
+    orca.place_tools("pool-one")
+    assert ran == [(["orca-sprite-tools.sh", str(tmp_path / "pool-one.json")], f"drive={orca.PLUGIN / 'lib' / 'sprite' / 'drive'}")]
+    with pytest.raises(orca.Unstarted, match="^orca-sprite-tools.sh exited 1 on pool-one, so no worker started: a login shell runs drive from nothing$"):
+        orca.place_tools("pool-one")
+
+
 def test_launch_local_records_a_lane_on_this_mac_that_reads_as_starting_while_it_launches(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2262,6 +2287,7 @@ def test_resume_to_a_local_lane_that_finished_starts_the_next_worker_in_its_work
     monkeypatch.setattr(orca, "worker", lambda dispatch: {**ROOT_WORKER, "worker": {**ROOT_WORKER["worker"], "state": "succeeded"}})
     monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a finished worker whose terminal Orca holds is never relaunched elsewhere"))
     monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing is sent to a finished worker: {args}"))
+    monkeypatch.setattr(orca, "place_tools", lambda workspace: pytest.fail("a lane on this Mac runs this Mac's drive, so no tools are placed"))
     started = {}
 
     def worker_start(drive: str, run_id: str, argv: list[str]) -> subprocess.CompletedProcess:

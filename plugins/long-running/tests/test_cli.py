@@ -2586,6 +2586,29 @@ def test_a_build_orders_designer_and_builder_are_added_waiting_on_its_reader_sti
     assert "--waits j1: j1 already kept o1's research, so this builder starts now: add it with no --waits" in capsys.readouterr().err
 
 
+def test_a_builder_is_added_waiting_on_another_builders_change_until_that_builder_opens_its_pr(
+    run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    built = "Forge-AI/monorepo#7"
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
+    run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
+    keep(monkeypatch, capsys, "j1", RESEARCH)
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "copy the store")[0] == 0
+    code, out = run("job", "add", "builder", "--order", "o1", "--goal", "read the copy", "--waits", "j2")
+    assert (code, out.splitlines()[:2]) == (0, ["j3", "j3 waits on j2: start no agent for it until the watch's FREE line says its last wait ended"])
+    assert run("pr", "add", state.pr_url(built), "--job", "j2")[0] == 0
+    assert state.load("demo")["jobs"]["j3"]["waits"] == [built]
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "dropped")[0] == 0
+    assert run("job", "set", "j4", "--state", "stopped")[0] == 0
+    refusals = {
+        "j2": f"--waits j2: j2 already opened {built}, so wait on the PR this job builds on, as --waits {built}",
+        "j4": "--waits j4: j4 is stopped with no PR, so no change of it is coming to wait on",
+    }
+    for waits, refusal in refusals.items():
+        assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "x", "--waits", waits]) == 2
+        assert capsys.readouterr().err.strip().endswith(f"refused, no job added: {refusal}")
+
+
 def test_a_jobs_clock_is_a_time_to_come(run: Run, meta: str, capsys: pytest.CaptureFixture[str]) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store")
     run("job", "add", "codex", "--order", "o1", "--goal", "first check")
