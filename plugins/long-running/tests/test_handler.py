@@ -62,7 +62,7 @@ def test_drive_handler_starts_its_own_claude_bg_session_and_records_that_he_wrot
     [argv] = started
     assert argv[:4] == ["claude", "--bg", "--agent", agents.HANDLER]
     env = json.loads(argv[argv.index("--settings") + 1])["env"]
-    assert (env[state.HANDLER_ENV], env["CCI_PARENT_SESSION"]) == (f"demo/{handler}", os.environ["CLAUDE_CODE_SESSION_ID"])
+    assert (env[state.HANDLER_ENV], env["CCI_PARENT_SESSION"], env["CLAUDE_LONG_RUNNING_DRIVE"]) == (f"demo/{handler}", os.environ["CLAUDE_CODE_SESSION_ID"], "demo")
     assert argv[-1] == HIS_BRIEF.format(scratch=tmp_path / "scratch" / "h1")
     assert tools.run("handler", "demo", {"brief": f"Record: 663488 Drive: demo Scratch: {tmp_path / 'h2'}"}).startswith("started ")
     assert state.load("demo")["owner"] == data["owner"]
