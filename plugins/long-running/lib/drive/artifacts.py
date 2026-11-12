@@ -1,9 +1,11 @@
 import datetime as dt
 import json
+from collections.abc import Iterator
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from drive import install, state
+from drive.card import without_records
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
 FILES = {"brief": "Brief", "report": "Report", "question": "Question", "repro": "Reproduction", "transcript": "Transcript"}
@@ -28,26 +30,30 @@ def kept(job_id: str, job: dict, reports: set[str]) -> list[str]:
 
 
 def newest_line(name: str, job_id: str, job: dict) -> dict | None:
-    """A lane's newest progress line and where it came from: its transcript's newest words while it runs on this Mac, else the line it last said, else its report's first line."""
-    if job["state"] == "running" and (path := transcript(job)) and (words := newest_words(path)):
-        return words
+    """A lane's newest progress line and where it came from: its transcript's newest words while it runs on this Mac, else the line it last said, else its report's first line. The newest line that still says something with its record ids taken out wins; when none does, the newest line as the lane wrote it."""
+    lines = list(progress(name, job_id, job))
+    return next((line | {"line": words} for line in lines if (words := " ".join(without_records(line["line"]).split()))), lines[0] if lines else None)
+
+
+def progress(name: str, job_id: str, job: dict) -> Iterator[dict]:
+    if job["state"] == "running" and (path := transcript(job)):
+        yield from said_in(path)
     if job["said"]:
-        return {"line": job["said"], "from": "said", "at": job["updated"]}
+        yield {"line": job["said"], "from": "said", "at": job["updated"]}
     if report := state.report_text(name, job_id, job).strip():
-        return {"line": report.splitlines()[0], "from": "report", "at": job["updated"]}
-    return None
+        yield {"line": report.splitlines()[0], "from": "report", "at": job["updated"]}
 
 
-def newest_words(path: Path) -> dict | None:
+def said_in(path: Path) -> Iterator[dict]:
     with path.open("rb") as handle:
         start = max(0, handle.seek(0, 2) - TAIL_BYTES)
         handle.seek(start)
         lines = handle.read().decode(errors="replace").splitlines()[1 if start else 0 :]
     for entry in map(json.loads, reversed(lines)):
         texts = [block["text"].strip() for block in blocks_of(entry) if block.get("type") == "text"] if entry.get("type") == "assistant" else []
-        if words := next((text for text in reversed(texts) if text), None):
-            return {"line": words.splitlines()[0], "from": "transcript", "at": entry.get("timestamp")}
-    return None
+        for text in reversed(texts):
+            if text:
+                yield {"line": text.splitlines()[0], "from": "transcript", "at": entry.get("timestamp")}
 
 
 def transcript(job: dict) -> Path | None:

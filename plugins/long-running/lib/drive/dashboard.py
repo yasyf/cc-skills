@@ -445,8 +445,7 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
             elif not (job := state.load(board.name)["jobs"].get(job_id)):
                 self.answered(404, {"error": f"{job_id} is no longer a job of this drive"})
             else:
-                newest = artifacts.newest_line(board.name, job_id, job)
-                self.answered(200, {"newest": newest and newest | {"line": card.without_records(newest["line"])}})
+                self.answered(200, {"newest": artifacts.newest_line(board.name, job_id, job)})
 
         def file(self, job_id: str, kind: str) -> None:
             if not owner_calling(self.client_address[0], net):
