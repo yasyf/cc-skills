@@ -375,8 +375,9 @@ On an incident with a Datadog monitor recorded, the watch sends step 8 itself. I
 monitor in one search a minute, and once all of an incident's read OK and a release shipped a job
 or PR on its `fix` part, it:
 
-- moves each open PR of its orders, each live job on a part beyond the incident's own, and each
-  such part not delivered, to a plain build order in the same thread;
+- moves each open PR of its orders, each part of any of its orders beyond the incident's own not
+  yet delivered, a joined order's included, and each live job on one, to a plain build order in the
+  same thread;
 - keeps the monitors and the release as each order's proof, and takes the incident off the strip;
 - sends the communicator the step 8 `report`, closing each order of the incident, and tells you
   `RECOVERED o<n>`.
