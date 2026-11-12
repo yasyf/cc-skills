@@ -282,7 +282,7 @@ def test_a_report_that_finishes_an_order_names_one_of_its_threads(run: Callable[
     with state.edit(demo) as data:
         data["orders"]["o1"]["thread"] = THREAD
     reason = refusal(record_lines.decision(coordinator(turn, kind="report", text="POST j1 merged", to=TO, attrs={"close": "o1", "thread": OTHER})))
-    assert f"drive order set <o> --thread {OTHER}" in reason and THREAD in reason
+    assert f"thread {OTHER} is none of its threads: {THREAD}" in reason and "pass re naming the record of his message" in reason and "drive order set" not in reason
     assert record_lines.decision(coordinator(turn, kind="report", text="POST j1 merged", to=TO, attrs={"close": "o1", "thread": THREAD})) is None
     assert record_lines.decision(coordinator(turn, kind="report", text="POST j1 is building", to=TO, attrs={"thread": OTHER, **PROGRESS})) is None
 
@@ -313,6 +313,13 @@ def test_a_report_about_an_order_in_another_orders_thread_is_refused_when_writte
     assert f"this report is about o1, and thread {OTHER} is none of its threads: {THREAD}" in reason and "pass re naming the record of his message" in reason
     assert record_lines.decision(coordinator(turn, kind="report", text="POST The table fix is building now", to=TO, re="672468", attrs=unnamed)) is None
     assert record_lines.decision(coordinator(turn, kind="report", text="POST The table fix is building now", to=TO, attrs={"progress": "true", "order": "o1", "thread": THREAD})) is None
+
+
+def test_a_report_whose_thread_is_no_slack_thread_is_refused_naming_his_dm_root(run: Callable[..., tuple[int, str]], demo: str, turn: Path) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    reason = refusal(record_lines.decision(coordinator(turn, kind="report", text="POST j1 merged", to=TO, attrs={"close": "o1", "thread": "none"})))
+    assert "thread none is no Slack thread" in reason and "leave thread out for a post at his DM root" in reason
+    assert record_lines.decision(coordinator(turn, kind="report", text="POST j1 merged", to=TO, attrs={"close": "o1"})) is None
 
 
 def test_a_post_report_telling_him_the_drive_failed_says_how_that_is_prevented(

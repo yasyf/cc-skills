@@ -339,7 +339,7 @@ def load(name: str) -> dict:
         order.setdefault("once", False)
         order.setdefault("thread", None)
         order.setdefault("from_thread", None)
-        order.setdefault("asked_in", [])
+        order["asked_in"] = [where if len(where) == 3 else [*where, order["last_line"] or order["created"]] for where in order.get("asked_in", [])]
         order.setdefault("releases", {})
         order.setdefault("shipped", {})
         order.setdefault("fixed", None)
@@ -953,17 +953,28 @@ def incident_orders(data: dict, order_id: str) -> list[str]:
 
 
 def thread_order(data: dict, thread: str | None) -> str | None:
-    """The newest order in a thread of his, its own or the thread of a card its jobs drew, or None when no order is in it."""
-    return next(
-        (order_id for order_id, order in reversed(data["orders"].items()) if thread and thread in (order["thread"], *(ts for _, ts in card_threads(data, order)))),
-        None,
-    )
+    """The order that came last into a thread of his: added with it as its own thread or the thread of a card its jobs drew, or joined to it by a post answering his message there, the newer order winning a tie; None when no order is in it."""
+    if not thread:
+        return None
+    came = [
+        (parse_time(at), index, order_id)
+        for index, (order_id, order) in enumerate(data["orders"].items())
+        for at in ([order["created"]] if thread in (order["thread"], *(ts for _, ts in card_threads(data, order))) else []) + [at for _, ts, at in order["asked_in"] if ts == thread]
+    ]
+    return max(came)[2] if came else None
 
 
 def report_order(data: dict, attrs: dict) -> str | None:
     """The order a report is about: the one its order attr names, else the first its close attr names, else its job's, else the newest in its thread."""
     named = [attrs.get("order"), *closed_orders(attrs), (data["jobs"].get(attrs.get("job") or "") or {}).get("order")]
     return next((order_id for order_id in named if order_id in data["orders"]), None) or thread_order(data, attrs.get("thread"))
+
+
+def report_orders(data: dict, attrs: dict) -> list[str]:
+    """Every order a report is about: the one report_order reads, each its close attr names, each an item of its part attr names, and its job's."""
+    job = data["jobs"].get(attrs.get("job") or "")
+    named = [report_order(data, attrs), *closed_orders(attrs), *(on for on, _ in part_items(attrs, None)), job and job["order"]]
+    return list(dict.fromkeys(order_id for order_id in named if order_id in data["orders"]))
 
 
 def serving_lane(data: dict, kind: str, attrs: dict) -> str | None:

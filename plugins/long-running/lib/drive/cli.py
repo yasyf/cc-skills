@@ -466,12 +466,18 @@ def his_words(link: str, deed: str) -> str:
 
 
 def drive_post_at(link: str, data: dict, order_id: str, named_part: bool, asked: tuple[str, str] | None = None) -> tuple[dict, bool]:
-    """The drive's post as Slack holds it, and whether it is in one of the order's threads: its own, on an incident each other order's of it, those he asked about it in, its jobs' cards', a card of a PR it holds, or asked, the thread of the message of his its report answers; a post that delivers a part named with --part counts wherever it was made, as a share in another channel does. A refusal names the order whose thread it is, and only when no order holds it the --joins command for his alert at its root."""
+    """The drive's post as Slack holds it, and whether it is in one of the order's threads: its own, on an incident each other order's of it, those he asked about it in, its jobs' cards', a card of a PR it holds, or asked, the thread of the message of his its report answers, or at his DM root for an order holding no thread but those he asked about it in; a post that delivers a part named with --part counts wherever it was made, as a share in another channel does. A refusal names the order whose thread it is, and only when no order holds it the --joins command for his alert at its root."""
     posted, root = slack.message_and_root(link)
     if not posted.get("from_claude"):
         raise DriveError(f"{link} is not the drive's post")
     threads = slack.order_threads(data, order_id, data["orders"][order_id])
-    ours = not threads or posted.get("thread_ts") in {thread for _, thread in [*threads, *filter(None, [asked])]} or slack.names_order_pr(data, order_id, root)
+    top = posted.get("thread_ts", posted["ts"]) == posted["ts"] and state.CARD_LINK.search(link)[1] == data["slack"]["channel"]
+    ours = (
+        not threads
+        or posted.get("thread_ts") in {thread for _, thread in [*threads, *filter(None, [asked])]}
+        or (top and slack.keeps_dm_root(data, order_id, data["orders"][order_id]))
+        or slack.names_order_pr(data, order_id, root)
+    )
     if not (ours or named_part):
         held = state.thread_order(data, posted.get("thread_ts"))
         joins = (
@@ -803,14 +809,15 @@ def report_refusal(data: dict, order_id: str, report: dict) -> str | None:
 
 
 def thread_refusal(data: dict, order_id: str, where: tuple[str, str | None], report: dict) -> str | None:
-    """Why a post may not go out on an order: its channel and thread are none of the order's, its own, on an incident each other order's of it, those he asked about it in, its cards' or the thread under a card of a PR it holds, nor the thread of the message of his its report answers, naming the channel to pass when the thread is the order's in another channel, else the order whose thread it is, if any; a post carrying a report about the order goes in the order's own threads, since posted with the other order it delivers nothing on this one."""
+    """Why a post may not go out on an order: its channel and thread are none of the order's, its own, on an incident each other order's of it, those he asked about it in, its cards' or the thread under a card of a PR it holds, nor the thread of the message of his its report answers when the report is about the order, nor his DM root for an order holding no thread but those he asked about it in, naming the channel to pass when the thread is the order's in another channel, else the order whose thread it is, if any; a post carrying a report about the order goes in the order's own threads, since posted with the other order it delivers nothing on this one."""
     if order_id not in data["orders"] or not (owned := slack.order_threads(data, order_id, data["orders"][order_id])):
         return None
-    threads = list(dict.fromkeys([*owned, *filter(None, [report.get("asked")])]))
+    asked = [report["asked"]] if report.get("asked") and order_id in state.report_orders(data, report) else []
+    threads = list(dict.fromkeys([*owned, *asked]))
     channel, thread = where
-    if where in threads:
-        return None
     dm = data["slack"]["channel"]
+    if where in threads or (where == (dm, None) and slack.keeps_dm_root(data, order_id, data["orders"][order_id])):
+        return None
     if place := next((place for place, ts in threads if ts == thread), None):
         return f"refused, {order_id}'s thread {thread} is in his DM, so leave channel_id out" if place == dm else f"refused, {order_id}'s thread {thread} is in channel {place}, so pass channel_id {place}"
     if thread and slack.names_order_pr(data, order_id, slack.root(channel, thread)):
@@ -846,13 +853,13 @@ def record_post(name: str, order_id: str, link: str, report: dict) -> tuple[str,
 
 
 def record_on(name: str, order_id: str, link: str, report: dict, items: list[tuple[str | None, str]]) -> tuple[str, dict]:
-    """Record the drive's post on one order: the promised time it keeps, the time its words promise his next line by, the order's last line, the parts its report's items deliver there, and, when it is in the thread of the message of his its report answers, that thread among the order's."""
+    """Record the drive's post on one order: the promised time it keeps, the time its words promise his next line by, the order's last line, the parts its report's items deliver there, and, when it is in the thread of the message of his that its report, about this order, answers, that thread among the order's, with when it joined."""
     data = state.load(name)
     order = communicators_order(data, order_id)
     if refused := report_refusal(data, order_id, report):
         raise DriveError(refused)
     delivered = reported_parts(order_id, order, report, items)
-    asked = report.get("asked")
+    asked = report.get("asked") if order_id in state.report_orders(data, report) else None
     posted, ours = drive_post_at(link, data, order_id, any(on == order_id for on, _ in items), asked)
     gained = asked if (state.CARD_LINK.search(link)[1], posted.get("thread_ts")) == asked and asked not in slack.order_threads(data, order_id, order) else None
     at = slack.sent_at(posted)
@@ -863,7 +870,7 @@ def record_on(name: str, order_id: str, link: str, report: dict, items: list[tup
     with state.edit(name) as data:
         order = data["orders"][order_id]
         if gained:
-            order["asked_in"].append(list(gained))
+            order["asked_in"].append([*gained, line])
         if ours:
             if state.owed(order) and closing:
                 state.keep_closing(order, [at], state.parse_time(report["written"]))
