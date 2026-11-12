@@ -257,8 +257,7 @@ def test_a_drive_saved_while_the_card_store_held_whether_a_question_was_open_clo
         },
     }
     state.create(data)
-    state.report_path("demo", "j1").parent.mkdir(exist_ok=True)
-    state.report_path("demo", "j1").write_text("DESIGN where the copy runs\n")
+    state.keep_report("demo", "j1", "DESIGN where the copy runs", "DESIGN where the copy runs\n")
     store = {"source": "live", "team_url": "", "pr_cards": [], "questions": [{"url": shown, "card": {"title": "Where?"}}]}
     closed = [
         {"waits": None, "url": answered, "answer": {"label": "Team", "at": moment}},
