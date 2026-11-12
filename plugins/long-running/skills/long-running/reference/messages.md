@@ -458,7 +458,7 @@ the dashboard link. When a line says where things stand, link the page instead o
   nothing he can open: "use the proper fucking terms for things". A product or tool he uses keeps its
   name, in backticks. When he corrects a word, the handler for his message runs
   `drive term <the word> "<the proper term>"`, and from then on the say hook finds a post using that
-  word, naming the term, for Jev to judge against his words.
+  word, naming the term, for Jev to judge by that rule and his words.
 - Name only what the message needs, and a mechanism only when he asked about it.
 - Every line stands alone, because he reads it with no other context: "you always have to assume I
   don't have any other context". A number, fraction, size or ratio says what it measures, why it has
@@ -546,7 +546,7 @@ the dashboard link. When a line says where things stand, link the page instead o
   is never the reason, since a session reaches another through SendMessage while cci is down, by
   [records.md](records.md). When he asks why, give the mechanism in one or two sentences and quote
   back the instruction he gave, then the fix and when it is live. The post hook and `record_lines`
-  find a line naming such a failure with no order or PR on it, and Jev judges it against his words.
+  find a line naming such a failure with no order or PR on it, and Jev judges it by this rule.
 - A second ask for a post he ordered. His order to post, in his DM, in a terminal or by a tap on a
   card, is his permission for one post in the place he named. No card asks him to approve it, no line
   says a hook needs his Yes, and a card already up asking that is closed the moment it is seen.
@@ -611,13 +611,17 @@ GET 2 page ranges
   `{card:}`, `{pr:}`, `{order:}` and `{record:}` title it draws, and its length refusal says how many
   of them those titles are.
 - A finding refuses nothing on its own. The hook hands the post and every finding, check-post's and
-  the drive's own, to Jev with his words: his messages in the thread it goes to and each answer of his
-  a card there shows, read from Slack, beside the session's recent turns, as the cc-slack permission
-  hook judges a write without a ticket. A handler's brief, the record it reads in and every prompt of
-  a handler's own `claude --bg` session are the communicator's or a writer's words, never his,
-  whatever they quote. The post goes out when his words show the findings do not hold against it, and
-  comes back with Jev's reason when a rule of his does. His words: "stop hard coding it and just use
-  jev evaluating my message and rules to see if it's ok to send".
+  the drive's own, to Jev with the rule each finding stands for, in this skill's and cc-slack's words,
+  and his words: his messages in the thread it goes to and each answer of his a card there shows,
+  read from Slack, beside the session's recent turns. A handler's brief, the record it reads in and
+  every prompt of a handler's own `claude --bg` session are the communicator's or a writer's words,
+  never his, whatever they quote. Jev judges only the line each finding names, by its rule: the post
+  goes out when no finding's rule holds against its line, or his words lift it, and comes back with
+  Jev's reason when one does, never for saying more than his message asked. A session's account of
+  its own act or mistake names no cause the cause rule asks a record for. An order or job id, such as
+  o643 or j1700, comes back with no judging unless a message of his the post passes as asked used it.
+  His words: "stop hard coding it and just use jev evaluating my message and rules to see if it's ok
+  to send" and, on a refusal Jev got wrong, "you need to fix the hookw henver it wrongly refuses yu".
 - What the hook let out is what he reads: `say` adds no words of its own and checks nothing again.
   Check-post reads the words under each link, so a card, PR, order or record title it flags is named
   in the post's own words, `{pr:<number>|<words>}` or `{record:<seq>|<words>}`.

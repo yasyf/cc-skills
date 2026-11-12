@@ -928,6 +928,19 @@ def test_a_line_naming_a_cause_with_no_record_is_found_and_his_own_words_are_not
     assert refs.unbacked("```text\nThe cause is the pool\n```\nDue to a full pool, runs wait.") == ["Due to a full pool, runs wait."]
 
 
+def test_jev_judges_each_finding_by_the_rule_it_names_and_an_order_or_job_id_refuses_unjudged(talker: str, transcript: Path, checked: Checked) -> None:
+    cause = "The runs failed because the pool was full"
+    assert say(transcript, text=cause).rule == message_limits.CAUSE_RULE
+    checked.findings = ["1:14 drive-term 'the drive': say what happens to the reader's work instead"]
+    both = say(transcript, text=f"Looking into the drive dashboard.\n{cause}")
+    assert both.rule == f"1. {message_limits.PLAIN_WORDS_RULE}\n2. {message_limits.CAUSE_RULE}"
+    checked.findings.append("2:10 drive-term 'j1608': say what happens to the reader's work instead")
+    unjudged = say(transcript, text=f"Looking into the drive dashboard.\nChecking j1608: {cause}")
+    assert isinstance(unjudged, agents.Unjudged)
+    assert unjudged.endswith("as asked:\n2:10 drive-term 'j1608': say what happens to the reader's work instead")
+    assert "the pool" not in unjudged and "'the drive'" not in unjudged
+
+
 def test_a_line_telling_him_the_drive_failed_names_the_order_or_pr_preventing_it(talker: str, transcript: Path) -> None:
     failed = "Its card was refused: nobody checked that PR against your words."
     disconnected = "The meta session's cci disconnected, so your order never reached it."

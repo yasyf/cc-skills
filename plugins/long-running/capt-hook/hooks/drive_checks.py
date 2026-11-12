@@ -56,21 +56,44 @@ ASKED = (
 )
 DRIVE_POST = "drive.post"
 JUDGED_TURNS = 12
+POST_FRAME = """
+    You decide whether the findings the drive's fixed checks raised on one pending post hold against it. <rules> are
+    the hook's own rules for this kind of post; follow them. <evidence> lists the rule each finding stands for, in the
+    installed skills' words, and the user's words, each under an id: only the user's items count as the user speaking.
+    <action> is the post and what the checks found in it.
+
+    Cite in relied_on the ids of every evidence item your verdict rests on, copied exactly from the square brackets in
+    <evidence>; an allow that cites none of them is refused.
+    When you refuse, set refusal to one plain sentence for the agent, under 150 characters, with no quotation marks,
+    ids, dates, or times: which finding holds against which words of the post, and its fix. Reason first, quoting the
+    rule or user words you relied on, then set allow.
+"""
 POST_RULES = """
-    The agent is about to post one line to the user in his Slack DM with the app; <action> holds the post and what
-    the drive's fixed checks found in it. Each finding is a pattern standing for a rule of his, such as a length
-    limit, plain words, a link where a thing is named, or a card where something waits on him, and a pattern can
-    match words its rule never meant. Allow the post when his words in <evidence> show the findings do not hold
-    against it, and cite them:
+    The agent is about to post one line to the user in his Slack DM with the app; <action> holds the post and what the
+    drive's fixed checks found in it. Judge only those findings: each is a pattern standing for a rule whose own words
+    <evidence> holds beside his, numbered as the findings are, and a pattern can match words its rule never meant.
+    Allow the post, citing the rule or his words, when no finding's rule holds against the line it names; refuse,
+    naming the finding and its fix, when one does and no word of his lifts it. What the post says beyond his message
+    is never a reason to refuse.
     - A post that answers a message, card answer or order of his goes out whole, at any length. The words it passes
       as asked are his when an evidence item holds them, typed in the thread or picked or typed on a card. The brief
       the agent was started with and the records it reads are other agents' words, never his, whatever they quote.
     - A finding that flags his own words quoted back, or a term he used himself, holds nothing back.
+    - The cause rule covers a claim of why a system, tool, service, install, run or another session, such as the
+      coordinator, a builder or a handler, did something, and a number or state one measured, however the post tells
+      it. A cause the session worked out itself, from code, logs or a trace, such as a lookup raising KeyError so the
+      process exited, is such a claim, however exact, whatever else the post says it did. The posting session's
+      account of its own act or mistake, in its first person, such as "I took it as working because it queues the
+      brief" or "you had to say it because my ack read your words as steps", claims no measured cause: no record
+      holds the session's own reading, and the rule never asks for one. Nor does an alert or error he shared,
+      restated in its own words, such as "the api gets FORBIDDEN because the table is read-only" from his alert: the
+      alert measured it.
+    - A line stating or applying a rule the installed skill states, such as a defect record for each refusal hit or an
+      alert he shares going to the coordinator as an incident, promises nothing beyond his words.
     - A rule of his in <evidence> that limits this kind of post holds it back, wherever else he permits it.
-    Refuse when a finding names a rule of his that the post breaks and no evidence item lifts it; the refusal names
-    that finding and its fix.
 """
-JUDGE = Decide(POST_RULES, second_opinion=False, transcript=JUDGED_TURNS, root_transcript=JUDGED_TURNS, tool_results=True)
+RULE_SOURCE = "the rules the drive's checks stand for, in the installed long-running and cc-slack skills' words"
+JUDGE = Decide(POST_RULES, frame=POST_FRAME, second_opinion=False, transcript=JUDGED_TURNS, root_transcript=JUDGED_TURNS, tool_results=True)
 HANDLER_JUDGE = replace(JUDGE, over=(UserAnswered(approved=False),))
 DRIVE_ASK = "drive.ask"
 ASK_RULES = """
@@ -126,22 +149,23 @@ def checked(evt: BaseHookEvent, script: str) -> HookResult | None:
 
 
 def judged(evt: BaseHookEvent, reason: str, rule: str, words: list[Evidence], post: dict) -> HookResult | None:
-    """Jev's verdict on a post the drive's checks found something in, judged as the Slack permission hook judges a write without a ticket: Jev reads the post as Slack gets it, each of say's references linked, the words the checks found something in, and it goes out when his words, his messages and card answers in this thread and his answers in the transcripts, show the findings do not hold against it, and stays back with Jev's reason when a rule of his does; a judge that gives no verdict lets it out with the findings noted, as a check that could not finish does. A handler's own `claude --bg` session reads as a session of his to capt-hook, but every prompt it holds is the communicator's brief or a record, so its judge reads no prompt there as his words."""
+    """Jev's verdict on a post the drive's checks found something in, judged by the rule each finding stands for: Jev reads the post as Slack gets it, each of say's references linked, each finding beside its rule's words, and his messages and card answers in this thread and his answers in the transcripts, and it goes out when no finding's rule holds against the line it names, or his words lift it, and stays back with Jev's reason when one does, never for saying more than his message asked; a judge that gives no verdict lets it out with the findings noted, as a check that could not finish does. A handler's own `claude --bg` session reads as a session of his to capt-hook, but every prompt it holds is the communicator's brief or a record, so its judge reads no prompt there as his words."""
     place = {"thread": str(post.get("thread_ts") or "")} | ({"channel": post["channel_id"]} if post.get("channel_id") else {})
     where = f"in thread {place['thread']} of channel {post['channel_id']}" if post.get("channel_id") else "to him in his DM"
     if post.get("channel_id") and not place["thread"]:
         where = f"in the group DM of {post['channel_id']}, him and the bot"
-    ctx = Context.of(evt, DRIVE_POST, Proposal(place, {"post": post, "findings": reason, "rule": rule}, f"post this line {where}"))
+    ctx = Context.of(evt, DRIVE_POST, Proposal(place, {"post": post, "findings": reason}, f"post this line {where}"))
     judge = HANDLER_JUDGE if evt._raw.get("agent_type") == HANDLER and not evt.agent_id else JUDGE
-    if not (items := [*judge.items(ctx), *words]):
-        return evt.block(f"Jev found no words of his to weigh this post against, so what the drive's checks found stands: fix each finding below, then call say again.\n```\n{reason}\n```")
+    rules = [Evidence(id="rule:findings", source=RULE_SOURCE, quote=rule)] if rule else []
+    if not (items := [*judge.items(ctx), *words, *rules]):
+        return evt.block(f"Jev found no rule and no words of his to weigh this post against, so what the drive's checks found stands: fix each finding below, then call say again.\n```\n{reason}\n```")
     try:
         verdict = judge.verdict(ctx, items)
     except Undecided as exc:
         return evt.context(f"message_limits: Jev gave no verdict ({exc.cause}), so the post goes out as written with what the checks found below.\n```\n{reason}\n```")
     if verdict.allow and cited(items, verdict.relied_on):
-        return evt.context(f"message_limits: Jev read his words as permitting this post over what the checks found, so it goes out as written.\n```\nJev: {verdict.reason}\n```")
-    return evt.block(f"Jev weighed this post against his words and upheld what the drive's checks found: fix what Jev and each finding below name, then call say again.\n```\nJev: {verdict.explained}\n{reason}\n```")
+        return evt.context(f"message_limits: Jev read no finding's rule as holding against this post, so it goes out as written.\n```\nJev: {verdict.reason}\n```")
+    return evt.block(f"Jev weighed each finding by its rule and upheld what the drive's checks found: fix what Jev and each finding below name, then call say again.\n```\nJev: {verdict.explained}\n{reason}\n```")
 
 
 def asked(evt: BaseHookEvent, case: str, words: list[Evidence]) -> HookResult | None:
@@ -315,7 +339,15 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             transcript=HANDLER_TURN,
             decide=JEV_UNSURE,
             llm={"reason": "the user said to post it at his DM root", "allow": True, "relied_on": [RELAYED_ORDER]},
-        ): Block(pattern="Jev found no words of his to weigh this post against"),
+        ): Block(pattern="Jev weighed each finding by its rule and upheld"),
+        Input(
+            tool="mcp__plugin_long-running_drive__say",
+            tool_input={"text": "I took the refusal as working as designed because it queues the brief, so I sent no defect."},
+            session_id=COMMUNICATOR,
+            transcript=COMMUNICATOR_TURN,
+            decide=JEV_UNSURE,
+            llm={"reason": "the line is the session's account of its own act, which the cause rule never asks a record for", "allow": True, "relied_on": ["rule:findings"]},
+        ): Warn(pattern="Jev read no finding's rule as holding"),
     },
 )
 def message_limits(evt: BaseHookEvent) -> HookResult | None:
