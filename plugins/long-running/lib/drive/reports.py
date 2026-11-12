@@ -32,8 +32,8 @@ SKIPPED = (
     " order; when a post of the drive already delivered {them}, the session holding the order marks it first with {marks}"
 )
 OFF_THREAD = (
-    "refused: this report is about {orders}, and thread {thread} is none of its threads: {threads}. Name one of those threads,"
-    " or pass re naming the record of his message in this thread that the report answers, and its post adds this thread to them"
+    "refused: this report is about {orders}, and thread {thread} is none of its threads: {threads}, nor one his message started."
+    " Name one of those threads, or pass re naming the record of his message in this thread that the report answers, and its post adds this thread to them"
 )
 THREAD_TS = re.compile(r"\d{10}\.\d{6}")
 NOT_THREAD = "refused: thread {thread} is no Slack thread, which is named by its root message's ts, such as 1794478810.620779; leave thread out for a post at his DM root"
@@ -190,7 +190,7 @@ def skipped(drive: dict, record: dict) -> str | None:
 
 
 def off_thread(drive: dict, record: dict) -> str | None:
-    """Why a report names a thread that is no Slack thread, refused by its shape alone, so every time, or none of the threads of an order it is about, finishes or delivers a part of, nor the thread of the message of his it answers through re, nor one under a card of a PR such an order holds: `say` would refuse its post there, and only its writer can name the message it answers."""
+    """Why a report names a thread that is no Slack thread, refused by its shape alone, so every time, or none of the threads of an order it is about, finishes or delivers a part of, nor the thread of the message of his it answers through re or one his own message started, nor one under a card of a PR such an order holds: `say` would refuse its post there, and only its writer can name the message it answers."""
     named = attrs(record)
     if not (thread := named.get("thread")):
         return None
@@ -203,7 +203,7 @@ def off_thread(drive: dict, record: dict) -> str | None:
     if (asked := agents.asked_thread(listed(record.get("re")))) and asked[1] == thread:
         return None
     root = slack.root(drive["slack"]["channel"], thread)
-    if any(slack.names_order_pr(drive, order, root) for order in held):
+    if any(slack.his_thread(drive, order, named, root) or slack.names_order_pr(drive, order, root) for order in held):
         return None
     return OFF_THREAD.format(orders=", ".join(held), thread=thread, threads=", ".join(threads))
 

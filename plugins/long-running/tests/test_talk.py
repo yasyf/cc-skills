@@ -1035,6 +1035,54 @@ def test_a_report_answering_his_message_joins_his_thread_only_to_the_order_it_is
     assert state.load(demo)["orders"]["o3"]["asked_in"] == []
 
 
+def test_a_report_closing_its_order_in_another_orders_thread_his_message_started_records_there_and_joins_it(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
+) -> None:
+    his, own = "1794200000.000100", "1794100000.000100"
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the incident badge counts only live incidents", "--thread", own)
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "how is the dashboard looking", "--from", f"slack:D123/{his}", "--thread", his)
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the zoomed-out view", "--thread", "1794150000.000100")
+    run("start", "demo", "--role", "communicator")
+    with state.edit(demo) as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    slack_thread.messages.append({"ts": his, "thread_ts": his, "from_user": True, "text": "how is the dashboard looking"})
+    report(monkeypatch, {"close": "o1"})
+    assert cli.thread_refusal(state.load(demo), "o1", ("D123", his), cli.report_attrs("677110")) is None
+    answer = slack_thread.post(state.now() + timedelta(minutes=1), from_claude=True, text="The incident badge counts only live incidents: 3 right now.")
+    assert run("order", "posted", "o1", answer, "--record", "677110") == (
+        0, f'o1 "the incident badge counts only live incidents": posted {answer}, in thread {his}, where he asked about it, now one of its threads'
+    )
+    data = state.load(demo)
+    assert [where[:2] for where in data["orders"]["o1"]["asked_in"]] == [["D123", his]] and state.thread_order(data, his) == "o1"
+    with pytest.raises(DriveError, match=re.escape(f"{answer} is in none of the order's threads")):
+        cli.record_post(demo, "o3", answer, cli.report_attrs("677110"))
+    assert data["orders"]["o3"]["asked_in"] == []
+
+
+def test_a_report_about_its_order_goes_out_through_say_in_a_thread_his_message_started_and_joins_it(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
+) -> None:
+    his, alert = "1794200000.000100", "1794100000.000100"
+    run("order", "add", "--title", "Short title", "--project", "SandSQL", "--workstream", "Alerts", "--from", f"slack:C0822AHFY3G/{alert}", "unknown column case_v2.audit_status", "--thread", alert)
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the run page", "--thread", "1794150000.000100")
+    run("start", "demo", "--role", "communicator")
+    with state.edit(demo) as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+        data["orders"]["o1"]["thread"] = ["C0822AHFY3G", alert]
+    slack_thread.messages.append({"ts": his, "thread_ts": his, "from_user": True, "text": "is the audit_status fix out yet?"})
+    report(monkeypatch, {"progress": "true", "order": "o1", "thread": his})
+    answer = slack_thread.post(state.now() + timedelta(minutes=1), from_claude=True)
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": answer, "thread_ts": his})
+    assert talk.say(demo, {"text": "The fix is building.", "thread_ts": his, "order": "o1", "record": "677158"}) == (
+        f"POSTED {answer}; o1 progress line, no part delivered: {answer}, in thread {his}, where he asked about it, now one of its threads"
+    )
+    assert [where[:2] for where in state.load(demo)["orders"]["o1"]["asked_in"]] == [["D123", his]]
+    with pytest.raises(DriveError, match=re.escape(f"refused, thread {his} is o1's thread and none of o2's threads")):
+        talk.say(demo, {"text": "The fix is building.", "thread_ts": his, "order": "o2", "record": "677158"})
+
+
 def test_his_later_words_in_a_thread_go_to_the_order_that_came_into_it_last(demo: str, run: Callable[..., tuple[int, str]]) -> None:
     thread = "1794200000.000100"
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the 50 dashboard improvements")
