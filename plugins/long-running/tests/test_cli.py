@@ -2404,7 +2404,7 @@ def test_a_change_against_his_words_is_refused_at_its_ready_and_its_serves_and_a
     assert err.startswith(f"drive: {with_pr}: refused, nothing set: {refused}")
     assert err.rstrip().endswith("Send it back by a fresh builder on j1 briefed with this refusal")
     pr = state.load("demo")["prs"][with_pr]
-    assert (pr["serves"], pr["checked"], state.load("demo")["jobs"]["j1"]["state"]) == (None, None, "running")
+    assert (pr.get("serves"), pr["checked"], state.load("demo")["jobs"]["j1"]["state"]) == (None, None, "running")
     assert 'o1, ' in judge.asked[0][0] and '"land it"' in judge.asked[0][0]
     judge.against = []
     assert keep(monkeypatch, capsys, "j1", f"READY {PR}\n") == (0, "")
