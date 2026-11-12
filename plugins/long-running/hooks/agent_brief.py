@@ -8,7 +8,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from drive import agents, brief, place, state
 from drive.render import cut, when
 
-DESIGNER = "long-running:designer"
 BUILDER = "long-running:builder"
 SCOPED = re.compile(r"^(?:Serves|Handoff):", re.MULTILINE)
 SERVES = re.compile(r"^Serves:(.*)$", re.MULTILINE)
@@ -26,19 +25,14 @@ RUNS_AS = re.compile(r"^Runs as:[ \t]*\S", re.MULTILINE)
 DATA_PASS_RULE = "A builder whose Goal itself runs a pass, migration, backfill or bulk repair over a team's data, rather than building a PR or check named for one."
 
 
-def job_refusal(name: str, data: dict, kind: str, text: str) -> str | None:
-    """Why the job a brief's Drive line names may not start this agent: a design job runs only as the designer, and a codex lane on a build order waits on its reader's research like the builder, unless it ships the order's immediate fix."""
+def job_refusal(name: str, data: dict, text: str) -> str | None:
+    """Why the job a brief's Drive line names may not start this agent: a codex lane on a build order waits on its reader's research like the builder, unless it ships the order's immediate fix."""
     match = brief.BRIEF_JOB.search(text)
     job = data["jobs"].get(match[1]) if match else None
     if job is None:
         return None
     order_id = job["order"]
     order = data["orders"][order_id]
-    if job["kind"] == "design" and kind != DESIGNER:
-        return (
-            f"refused: {match[1]} is a design job, which runs only as {DESIGNER}, since only that definition keeps it read"
-            f" only and its forks in his cards' shape; start it again with subagent_type {DESIGNER}"
-        )
     if job["kind"] != "codex" or order["kind"] != "build" or order["incident"] or state.IMMEDIATE_FIX in job["parts"] or brief.HANDOFF.search(text) or brief.research(name, data, order_id):
         return None
     return (
@@ -120,7 +114,7 @@ def in_line(data: dict, job_id: str) -> str:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive session may not start this agent: a named agent joins the agent team and never wakes on events, Fable runs only the coordinator and the design lane, a handler starts with the drive's handler tool, a job's agent fits its kind, a builder's brief says its scope, drive tooling is the meta session's alone, or the communicator's while none is bound, and a builder starts here only under this Mac's cap of builders."""
+    """Why a drive session may not start this agent, in the shape `agents.shaped` gives its call: a handler starts with the drive's handler tool, a build order's codex lane waits on its reader's research, a builder's brief says its scope, drive tooling is the meta session's alone, or the communicator's while none is bound, and a builder starts here only under this Mac's cap of builders."""
     if payload.get("agent_id"):
         return None
     session = payload.get("session_id") or ""
@@ -132,16 +126,6 @@ def deny_reason(payload: dict) -> str | None:
     call = payload["tool_input"]
     kind = call.get("subagent_type") or ""
     prompt = call.get("prompt") or ""
-    if call.get("name"):
-        return agents.Unjudged(
-            f"refused: the {role} starts no named agent, since agent teams are on and a named agent becomes a teammate that"
-            " never wakes on events; start it again without `name`"
-        )
-    if "fable" in (call.get("model") or "").lower() and kind != DESIGNER:
-        return agents.Unjudged(
-            f"refused: Fable runs only the coordinator and {DESIGNER}; start {kind or 'this agent'} on its own default"
-            " model, or `sonnet` for a one-fact lookup"
-        )
     if kind == agents.HANDLER:
         return agents.Unjudged(
             "refused: a handler starts with the drive's handler tool, this prompt its brief, as its own claude --bg session"
@@ -151,15 +135,18 @@ def deny_reason(payload: dict) -> str | None:
     text = brief.carried(prompt)
     if kind == BUILDER and role not in (None, state.tooling_holder(data)) and brief.SERVES_TOOLING.search(text):
         return tooling_refusal(names[0], data, text, role)
-    if refused := job_refusal(names[0], data, kind, text):
+    if refused := job_refusal(names[0], data, text):
         return refused
     return builder_refusal(text) or crowded(data) if kind == BUILDER else None
 
 
 def main() -> None:
     payload = agents.seen(json.load(sys.stdin))
-    if reason := deny_reason(payload):
+    made = agents.shaped(payload)
+    if reason := deny_reason(payload | {"tool_input": made}):
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}} | agents.ruled(reason)))
+    elif made != payload["tool_input"]:
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": made}}))
 
 
 if __name__ == "__main__":

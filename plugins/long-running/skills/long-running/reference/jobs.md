@@ -48,15 +48,17 @@ Contents:
 3. Pass no model, so the agent runs on the Opus its definition sets, or `model: "sonnet"` only for a
    reader whose question is a one-fact lookup. A design job's model is in [Design first](design.md).
 
-The `agent_brief` hook refuses an Agent call that sets `name`, since a named agent joins the agent
-team and never wakes on events; Fable on any agent but `long-running:designer`; a design job on any
-other type; a build order's codex lane before its reader's research is kept; and a builder whose
+The `agent_brief` hook sets each Agent call to the shape the drive runs it: it drops `name`, since a
+named agent joins the agent team and never wakes on events, drops Fable from any agent but
+`long-running:designer`, starts a design job as `long-running:designer` whatever type the call
+names, and drops `sonnet` or `haiku` from any lane of a build order or of an answer order you marked
+`--complex`, so it runs on its definition's model. It refuses a build order's codex lane before its
+reader's research is kept; and a builder whose
 brief lacks `Serves:` or `Handoff:`, whose `Serves:` names none of the three, or whose Goal's own
 action backfills, bulk-repairs, migrates, converts or repairs, or runs such a pass, with no `Runs as:`
 line; a Goal that only names a PR, stack or check for a pass is not one; and a builder while eight run
-on this Mac, naming the builder jobs waiting, oldest due first. The `scratch_folder` hook drops
-`sonnet` or `haiku` from any lane of a build order or of an answer order you marked `--complex`, so it
-runs on its definition's model, and refuses a build order's builder or designer whose brief lacks the
+on this Mac, naming the builder jobs waiting, oldest due first. The `scratch_folder` hook refuses a
+build order's builder or designer whose brief lacks the
 `Researched:` line the `brief` op writes once its reader's research is kept, unless its job ships the
 order's `immediate fix` part. Each refusal names its
 fix: do it, never route around it. These hooks run in the long-running capt-hook pack, which sends
@@ -200,8 +202,8 @@ question.
   Sprite.
 - When Orca cannot reach the lane's Sprite, or refuses the send or the start, nothing is delivered
   and it exits 2 with Orca's refusal; resume again once the watch reads the lane.
-- Run it in the foreground with `timeout: 20000`: a message to a live lane returns in about five
-  seconds, and a relaunch, which takes minutes, moves itself to the background at 20 seconds and
+- The `bash_guard` hook runs it in the foreground with `timeout: 20000` however it is called: a
+  message to a live lane returns in about five seconds, and a relaunch, which takes minutes, moves itself to the background at 20 seconds and
   notifies you when it ends.
 - A remote lane's `EXEMPT:` line still gets `drive pr set <url> --exempt <class>`, and its
   `SERVES: port of #N` line the `READY` row's check against #N.

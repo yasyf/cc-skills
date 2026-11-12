@@ -231,6 +231,9 @@ def landing_guard(evt: BaseHookEvent) -> HookResult | None:
             agent_id="a1",
             agent_type=HANDLER,
         ): Allow(),
+        Input(tool="Bash", tool_input={"command": 'drive job resume j1 "go"', "run_in_background": True}, session_id=COORDINATOR): Rewrite(
+            pattern="drive job resume j1", run_in_background="False", timeout="20000"
+        ),
     },
 )
 def bash_guard(evt: BaseHookEvent) -> HookResult | None:
@@ -260,6 +263,9 @@ def bash_guard(evt: BaseHookEvent) -> HookResult | None:
             session_id=COORDINATOR,
             decide=UNCONFIRMED,
         ): Allow(),
+        Input(tool="Agent", tool_input={"subagent_type": "long-running:reader", "prompt": "Goal: x", "name": "desk"}, session_id=COORDINATOR): Rewrite(
+            subagent_type="long-running:reader"
+        ),
     },
 )
 def agent_brief(evt: BaseHookEvent) -> HookResult | None:

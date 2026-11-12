@@ -6,7 +6,7 @@ from datetime import timedelta
 import agent_brief
 import pytest
 from conftest import RESEARCH
-from drive import state, watch
+from drive import agents, state, watch
 from drive.render import when
 
 Run = Callable[..., tuple[int, str]]
@@ -17,17 +17,15 @@ def started(subagent_type: str, prompt: str, model: str | None = None) -> dict:
     return {"session_id": os.environ["CLAUDE_CODE_SESSION_ID"], "tool_name": "Agent", "tool_input": tool_input}
 
 
-def test_a_design_job_starts_only_as_the_designer(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_design_job_starts_as_the_designer(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Restores", "restores copy one store", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
     monkeypatch.setattr("sys.stdin", io.StringIO(RESEARCH))
     run("job", "report", "j1", "-")
     run("job", "add", "design", "--order", "o1", "--goal", "design the copy")
     prompt = "Researched: j1\nDrive: demo, order o1, job j2"
-    assert agent_brief.deny_reason(started("codex:codex-wrapper", prompt)) == (
-        "refused: j2 is a design job, which runs only as long-running:designer, since only that definition keeps it read"
-        " only and its forks in his cards' shape; start it again with subagent_type long-running:designer"
-    )
+    for call in (started("codex:codex-wrapper", prompt), started("long-running:builder", prompt, "fable")):
+        assert agents.shaped(call) == call["tool_input"] | {"subagent_type": "long-running:designer"}
     assert agent_brief.deny_reason(started("long-running:designer", prompt, "fable")) is None
 
 
