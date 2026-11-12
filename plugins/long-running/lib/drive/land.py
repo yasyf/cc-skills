@@ -21,6 +21,7 @@ UPDATED = "updated its branch onto its base"
 UP_TO_DATE = "already up-to-date"
 NOT_MERGING = "not merging it"
 WAITS_CHECK = "waits on its check against his words"
+NEWER_INSTALL = "not landed: a newer long-running saved the drive while stack-enqueue --check ran, so the landing runs again on it"
 LANDS_ON = ("approved", "stale")
 REVIEW_ASK = "@forge-pr-reviewer review"
 BLOCKED_LINE = re.compile(r"^#(?P<number>\d+) BLOCKED (?P<head>\w+) (?P<gaps>.+)$", re.MULTILINE)
@@ -137,9 +138,9 @@ def ready(data: dict, keys: tuple[str, ...], cards: dict) -> bool:
 
 
 def tried(data: dict, pr: dict) -> bool:
-    """Whether a lander tried the PR's head and nothing it waited on has moved since: one that found PRs below it neither his Approve nor an exempt class clears tries again once each of them is cleared or merges."""
+    """Whether a lander tried the PR's head and nothing it waited on has moved since: one that found PRs below it neither his Approve nor an exempt class clears tries again once each of them is cleared or merges, and one a newer install's save ended before it queued anything tries again on that install."""
     lander = pr["lander"] or {}
-    if lander.get("head") != pr["head"]:
+    if lander.get("head") != pr["head"] or (lander.get("outcome") or "").startswith(NEWER_INSTALL):
         return False
     return not lander.get("below") or not all(key in data["prs"] and (state.cleared(data["prs"][key]) or data["prs"][key]["state"] == "merged") for key in lander["below"])
 
@@ -316,7 +317,7 @@ def enqueued(name: str, clone: Path, keys: list[str], dry_run: bool = False) -> 
             try:
                 refused = ask_review(name, repo, {line["number"]: line["head"] for line in blocked})
             except state.NewerDrive as error:
-                return f"not landed: a newer long-running saved the drive while stack-enqueue --check ran, so the next landing runs on it: {cut(str(error), SAID_CHARS)}"
+                return f"{NEWER_INSTALL}: {cut(str(error), SAID_CHARS)}"
             if refused:
                 return refused
             done = subprocess.run([script, "--watch", *numbers], cwd=checkout, capture_output=True, text=True)
