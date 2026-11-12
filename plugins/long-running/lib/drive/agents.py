@@ -1,6 +1,7 @@
 import json
 import re
 import subprocess
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Self
 
@@ -12,6 +13,7 @@ LINK = re.compile(r"^Link:\s*(\S+)", re.MULTILINE)
 THREAD = re.compile(r"^Thread:\s*\S+\s+(\d+\.\d+)", re.MULTILINE)
 HIS_KINDS = ("owner", "answer")
 RE_HOPS = 8
+CORRECTION_BYTES = 1 << 20
 HANDLER = "long-running:handler"
 HIS_WORDS = "Message (his words)"
 SCRATCH = re.compile(r"Scratch:\s*(\S+)")
@@ -109,6 +111,23 @@ def shown(seq: str) -> dict:
         return json.loads(reads.run(["cci", "show", seq, "--json"], Path.cwd()).splitlines()[0])
     except reads.ReadError as error:
         raise state.DriveError(f"record {seq} could not be read: {error}") from None
+
+
+def corrections(name: str, seqs: Iterable[str]) -> dict[str, list[str]]:
+    """The seqs of the correction records cci holds re each of seqs, oldest first, read in one cci grep from the lowest of them; a record no correction answers is left out."""
+    wanted = set(seqs)
+    if not wanted:
+        return {}
+    argv = ["cci", "grep", ".", "--drive", name, "--kind", "correction", "--since", min(wanted, key=int), "--budget", str(CORRECTION_BYTES), "--json"]
+    try:
+        lines = reads.run(argv, Path.cwd()).splitlines()
+    except reads.ReadError as error:
+        raise state.DriveError(f"the corrections of records {', '.join(sorted(wanted, key=int))} could not be read: {error}") from None
+    found: dict[str, list[str]] = {}
+    for record in map(json.loads, reversed(lines)):
+        if (answered := str(record.get("re"))) in wanted:
+            found.setdefault(answered, []).append(str(record["seq"]))
+    return found
 
 
 def holder(data: dict, held: dict) -> str | None:

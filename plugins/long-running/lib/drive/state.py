@@ -253,6 +253,7 @@ def new_drive(
         "answers": {},
         "stand_ins": {},
         "held": {},
+        "carried": {},
     }
 
 
@@ -356,6 +357,7 @@ def load(name: str) -> dict:
         answer.setdefault("jobs", {})
     data.setdefault("stand_ins", {})
     data.setdefault("held", {})
+    data.setdefault("carried", {})
     if (pictures := drive_dir(name) / "pictures").is_dir() and not (pictures / picture.SOURCED).exists():
         picture.fill(pictures, [*map(Path.read_text, sorted((drive_dir(name) / "asks").glob("*.md"))), *pr_bodies(name)])
     if cards_path(name).exists() and not (drive_dir(name) / "asks" / REBUILT_ASKS).exists():

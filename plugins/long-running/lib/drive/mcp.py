@@ -106,7 +106,9 @@ SAY = {
                     " lane, and on one the meta session holds, a report from the meta lane, since a coordinator's report is refused"
                     " there, by the check drive order posted and drive order set --state done run too. catch_up=true makes it his catch-up, opening *Catch-up"
                     " since <when he was last heard>* in place of any title and closing with every open card waiting on him,"
-                    " five a message, which say draws itself: its text names no card, and no word limit counts them"
+                    " five a message, which say draws itself: its text names no card, and no word limit counts them. A correction record"
+                    " re a report held for his catch-up posts nothing, since the catch-up carries it, and one re a report his catch-up"
+                    " carried names that post to reword"
                 ),
             },
             "edit": {

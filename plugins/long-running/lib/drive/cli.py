@@ -678,12 +678,13 @@ def need_record_close(data: dict, order_id: str, seq: str | None, dropped_with_n
 
 
 def report_attrs(seq: str) -> dict:
-    """The attrs of a record, read from cci: a report's close, part, job and catch_up, with the lane that wrote it as its writer and when as written."""
+    """The attrs of a record, read from cci: a report's close, part, job and catch_up, with the lane that wrote it as its writer, when as written, and for a correction the record it corrects."""
     try:
         record = json.loads(reads.run(["cci", "show", seq, "--json"], Path.cwd()))
     except reads.ReadError as error:
         raise DriveError(f"record {seq} could not be read: {error}") from None
-    return record["fields"].get("attrs", {}) | {"writer": record["lane"], "written": record["at"]}
+    corrects = {"corrects": str(record["re"])} if record["kind"] == "correction" and record.get("re") else {}
+    return record["fields"].get("attrs", {}) | {"writer": record["lane"], "written": record["at"]} | corrects
 
 
 def order_posted(args: argparse.Namespace) -> int:
@@ -2440,6 +2441,9 @@ def status(args: argparse.Namespace) -> int:
     found = view.live_cards(name)
     for job in data["jobs"].values():
         job["questions"] = view.open_questions(job, found)
+    corrected = agents.corrections(name, data["held"])
+    for seq, mark in data["held"].items():
+        mark["corrections"] = corrected.get(seq, [])
     if args.ids:
         only(data, args.ids)
     for project, held in data["subcoordinators"].items():

@@ -381,6 +381,10 @@ def when(iso: str, seconds: bool = False) -> str:
     return f"{moment.strftime('%b %-d')} {clock(moment, seconds)}"
 
 
+def corrected_by(seqs: list[str]) -> str:
+    return f", corrected by record{'s' if len(seqs) > 1 else ''} {', '.join(seqs)}" if seqs else ""
+
+
 def job_prs(drive: dict, job_id: str) -> dict[str, dict]:
     return {key: pr for key, pr in drive["prs"].items() if pr["job"] == job_id}
 
@@ -630,7 +634,10 @@ def status_text(drive: dict, seen: dict[str, str], named: bool = False) -> str:
         lines.extend(["Open incident orders; an alert on the same failing service joins one with drive order add --joins <o>:", *incidents])
     if drive["held"]:
         lines.append("Held for his catch-up, since he is away; the catch-up he gets when he is back carries each:")
-        lines.extend(f"- report {seq} ({mark['order'] or 'no order'}), held {when(mark['at'])}, its writer told in record {mark['told']}" for seq, mark in drive["held"].items())
+        lines.extend(
+            f"- report {seq} ({mark['order'] or 'no order'}), held {when(mark['at'])}, its writer told in record {mark['told']}{corrected_by(mark['corrections'])}"
+            for seq, mark in drive["held"].items()
+        )
     lines.extend(agentless_lines(drive))
     for order_id, order in open_orders(drive).items():
         lines.extend(order_block(drive, order_id, order, False))

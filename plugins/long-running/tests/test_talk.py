@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from conftest import Checked, Thread
 from drive import (
+    agents,
     cli,
     dashboard,
     picture,
@@ -27,6 +28,7 @@ POSTED = "https://acme.slack.com/archives/D123/p1794300000000900"
 QUESTION = "Lock each chat's database, or the whole table?"
 ASKED = "2026-11-10T20:59:00-08:00"
 OPEN_CARDS = f"\n\n*Your open cards: 1 question*\n<{CARD_URL}|{QUESTION}>"
+CORRECTIONS = agents.corrections
 
 
 @pytest.fixture
@@ -360,7 +362,7 @@ def test_a_post_on_an_incident_goes_in_each_joined_alerts_thread_both_ways_and_o
 
 
 def report(monkeypatch: pytest.MonkeyPatch, attrs: dict[str, str], lane: str = "root") -> None:
-    monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "lane": lane, "at": "2026-11-11T09:08:16.896Z", "fields": {"attrs": attrs}}))
+    monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "kind": "report", "lane": lane, "at": "2026-11-11T09:08:16.896Z", "fields": {"attrs": attrs}}))
 
 
 def test_a_post_delivers_the_part_its_report_names_and_a_progress_report_naming_only_a_job_delivers_none(
@@ -448,6 +450,57 @@ def test_his_catch_up_carries_the_reports_held_for_it_and_lets_them_go(demo: str
     state.append_event(demo, "catch-up", dm="D123", since="5:20 PM", orders="o1", held="700 702")
     assert talk.say(demo, {"text": "The run page fix is live.", "record": "660299"}).endswith("; it carries the reports held for it, no longer held: 700, 702")
     assert state.load(demo)["held"] == {}
+
+
+def test_corrections_reads_each_correction_re_the_reports_in_one_cci_grep_oldest_first(monkeypatch: pytest.MonkeyPatch) -> None:
+    newest_first = [{"seq": 669990, "re": 669950}, {"seq": 669970, "re": 669960}, {"seq": 669960}, {"seq": 669952, "re": 669950}]
+    calls: list[list[str]] = []
+    monkeypatch.setattr(reads, "run", lambda argv, checkout: calls.append(argv) or "".join(json.dumps(record | {"kind": "correction"}) + "\n" for record in newest_first))
+    assert CORRECTIONS("demo", ["669950", "669902"]) == {"669950": ["669952", "669990"]}
+    assert CORRECTIONS("demo", []) == {}
+    assert calls == [["cci", "grep", ".", "--drive", "demo", "--kind", "correction", "--since", "669902", "--budget", str(agents.CORRECTION_BYTES), "--json"]]
+
+
+def test_holding_a_report_tells_its_writer_each_correction_cci_already_holds_re_it(
+    demo: str, monkeypatch: pytest.MonkeyPatch, cci_corrections: dict[str, list[str]]
+) -> None:
+    cci_corrections["669950"] = ["669952"]
+    told: list[list[str]] = []
+    monkeypatch.setattr(reads, "run", lambda argv, checkout: told.append(argv) or json.dumps({"seq": 669957}))
+    assert talk.hold(demo, "669950", {"writer": "root"}, "o1") == "669957"
+    assert told[0][-1] == talk.HELD.format(seq="669950") + "; the catch-up carries it, corrected by record 669952"
+
+
+def test_a_report_post_names_each_correction_cci_holds_re_it(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch, cci_corrections: dict[str, list[str]]) -> None:
+    report(monkeypatch, {"orders": "o1"})
+    cci_corrections["669950"] = ["669952"]
+    assert talk.say(demo, {"text": "Each request reads 64 MiB.", "record": "669950"}) == (
+        f"POSTED {POSTED}; cci holds corrections of report 669950, 669952: unless this post carries each, reword it with say(edit={POSTED}, text=…)"
+    )
+
+
+def test_a_correction_of_a_held_report_rides_with_it_and_one_after_his_catch_up_names_the_post_to_reword(
+    demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch, cci_corrections: dict[str, list[str]]
+) -> None:
+    records = {"669952": {"kind": "correction", "re": 669950}, "669980": {"kind": "correction", "re": 669950}, "669999": {"kind": "report", "attrs": {"catch_up": "true"}}}
+
+    def shown(argv: list[str], checkout: Path) -> str:
+        record = records[argv[2]]
+        return json.dumps({"seq": argv[2], "lane": "root", "at": "2026-11-11T09:08:16.896Z", "fields": {"attrs": record.get("attrs", {})}} | record)
+
+    monkeypatch.setattr(cli.reads, "run", shown)
+    with state.edit(demo) as data:
+        data["held"] = {"669950": {"order": "o1", "at": state.stamp(), "told": "669957"}}
+    with pytest.raises(DriveError, match="nothing posted: record 669952 corrects report 669950, held for his catch-up, which carries this correction with it"):
+        talk.say(demo, {"text": "It reads 16 MiB a request, not 64.", "record": "669952"})
+    state.append_event(demo, "catch-up", dm="D123", since="8:27 PM", orders="o1", held="669950", corrected="669950:669952")
+    cci_corrections["669950"] = ["669952", "669980"]
+    assert talk.say(demo, {"text": "Each request reads 16 MiB.", "record": "669999"}).endswith(
+        f"; it carries the reports held for it, no longer held: 669950; its catch-up event named none of corrections 669980, so reword this post with say(edit={POSTED}, text=…) to carry them"
+    )
+    assert (state.load(demo)["held"], state.load(demo)["carried"]) == ({}, {"669950": POSTED})
+    with pytest.raises(DriveError, match=f"nothing posted: record 669980 corrects report 669950, which his catch-up {re.escape(POSTED)} carried: reword that post"):
+        talk.say(demo, {"text": "It reads 12 MiB a request.", "record": "669980"})
 
 
 def test_his_catch_up_closes_with_every_open_card_waiting_on_him_five_a_message_none_drawn_twice(

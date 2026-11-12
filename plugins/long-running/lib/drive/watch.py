@@ -1399,7 +1399,9 @@ def orphan_lines(watcher: Watcher, moment: datetime, due: set[str]) -> list[str]
 
 
 def hear(name: str, moment: datetime, away: bool = False) -> dict:
-    """Record him heard at moment, by his words or his tap on a card, or away with away; when he was away, append the catch-up event naming each order that changed since he was last heard and each report held for it."""
+    """Record him heard at moment, by his words or his tap on a card, or away with away; when he was away, append the catch-up event naming each order that changed since he was last heard, each report held for it, and each correction cci holds re a held report, which the catch-up carries with it, since cci never changes the report."""
+    known = state.load(name)
+    corrected = agents.corrections(name, known["held"]) if state.owner_away(known, moment) else {}
     with state.edit(name) as data:
         back = state.owner_away(data, moment)
         since = (data.get("owner") or {}).get("heard")
@@ -1411,9 +1413,13 @@ def hear(name: str, moment: datetime, away: bool = False) -> dict:
                 last = max(state.parse_time(order["last_line"] or order["created"]), state.parse_time(since))
                 if changed_since(order, data["jobs"], last) or any(mark["order"] == key for mark in data["held"].values()):
                     news.append(key)
+    corrected = {seq: corrected[seq] for seq in held if seq in corrected}
     if news or held:
-        state.append_event(name, "catch-up", dm=data["slack"]["channel"], since=when(since), orders=" ".join(news), **({"held": " ".join(held)} if held else {}))
-    return {"away": away, "back": back, "since": since, "catch_up": news, "held": held}
+        fixes = " ".join(f"{seq}:{','.join(found)}" for seq, found in corrected.items())
+        state.append_event(
+            name, "catch-up", dm=data["slack"]["channel"], since=when(since), orders=" ".join(news), **({"held": " ".join(held)} if held else {}), **({"corrected": fixes} if fixes else {})
+        )
+    return {"away": away, "back": back, "since": since, "catch_up": news, "held": held, "corrected": corrected}
 
 
 def changed_since(order: dict, jobs: dict, last: datetime) -> bool:

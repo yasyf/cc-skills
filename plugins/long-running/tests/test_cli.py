@@ -3697,7 +3697,7 @@ def test_a_post_for_a_report_delivers_the_part_its_record_names_in_any_thread(
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
-    monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "lane": "root", "at": "2026-11-11T09:08:16.896Z", "fields": {"attrs": {"part": "first check", "incident": "true"}}}))
+    monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "kind": "report", "lane": "root", "at": "2026-11-11T09:08:16.896Z", "fields": {"attrs": {"part": "first check", "incident": "true"}}}))
     line = slack_thread.post(state.now(), from_claude=True)
     assert run("order", "posted", "o1", line, "--record", "660611") == (
         0,
@@ -3804,7 +3804,7 @@ def test_the_line_a_closing_report_posts_keeps_the_time_owed_even_when_it_was_th
     monkeypatch.setattr(
         cli.reads,
         "run",
-        lambda argv, checkout: json.dumps({"seq": argv[2], "lane": "root", "at": reports[argv[2]][1].isoformat(), "fields": {"attrs": reports[argv[2]][0]}}),
+        lambda argv, checkout: json.dumps({"seq": argv[2], "kind": "report", "lane": "root", "at": reports[argv[2]][1].isoformat(), "fields": {"attrs": reports[argv[2]][0]}}),
     )
     for text in ("unfreeze and release", fix):
         run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", text, "--thread", "1794200000.000100")
@@ -3844,7 +3844,7 @@ def test_a_handler_closes_only_an_order_its_report_record_closes(
         "12": {"close": "o2 o1"},
         "13": {"close": "o2,o3, o4"},
     }
-    monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "lane": "root", "at": "2026-11-11T09:08:16.896Z", "fields": {"attrs": attrs[argv[2]]}}))
+    monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "kind": "report", "lane": "root", "at": "2026-11-11T09:08:16.896Z", "fields": {"attrs": attrs[argv[2]]}}))
     for text in ("fix the watch", "fix the handler", "fix the say tool", "fix the card"):
         run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", text)
     run("start", "demo", "--role", "communicator")
@@ -3955,7 +3955,7 @@ def test_only_the_communicator_marks_an_answer_posted_and_the_coordinator_is_tol
 
 def report_records(monkeypatch: pytest.MonkeyPatch, attrs: dict[str, dict], lane: str = "root") -> None:
     monkeypatch.setattr(
-        cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "lane": lane, "at": "2026-11-11T09:08:16.896Z", "fields": {"attrs": attrs[argv[2]]}})
+        cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "kind": "report", "lane": lane, "at": "2026-11-11T09:08:16.896Z", "fields": {"attrs": attrs[argv[2]]}})
     )
 
 
