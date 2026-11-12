@@ -421,7 +421,7 @@ def test_a_markdown_table_on_a_card_draws_as_a_table_wherever_it_sits_in_its_par
     )
     shown = web(tmp_path, f"model = {{ repo: '', review: [] }}; JSON.stringify(prose({json.dumps(body)}))")
     assert shown == (
-        "<p><b>Show me</b><br>Where each home keeps the pin</p>"
+        '<h4 class="hd">Show me</h4><p>Where each home keeps the pin</p>'
         '<div class="tablewrap"><table><thead><tr><th></th><th>Local table</th><th>Server table</th></tr></thead><tbody>'
         "<tr><td>Written to</td><td><code>_pinned_chats</code></td><td><code>chat_favorites</code></td></tr>"
         "<tr><td>With no network</td><td>works</td><td>fails</td></tr>"
@@ -900,7 +900,7 @@ window.scrollTo(0, 120);
 await wait(200);
 const canvas = document.querySelector('#main .canvas');
 const world = canvas.querySelector('.world');
-const look = () => ({ hash: location.hash, level: canvas.dataset.level, same: document.querySelector('#main .canvas') === canvas, top: scrollY, shown: getComputedStyle(world).visibility === 'visible' && Number(world.style.getPropertyValue('--k')) === nowCamera.at.k, scale: nowCamera.at.k });
+const look = () => ({ hash: location.hash, level: canvas.dataset.level, same: document.querySelector('#main .canvas') === canvas, top: scrollY, shown: getComputedStyle(world).visibility === 'visible' && Number(world.style.getPropertyValue('--k')) === nowCamera.at.k, scale: canvas.querySelector('.region[data-cam-key="Platform"]').getBoundingClientRect().height });
 const overview = look();
 canvas.querySelector('.region[data-cam-key="Platform"]').click();
 await wait(800);
@@ -926,7 +926,7 @@ done({ overview, project, stream, task, closed: { ...look(), sheet: !!canvas.que
 
 
 @pytest.mark.parametrize("size", ["1440,900", "390,844"])
-def test_now_draws_each_project_with_open_work_as_a_readable_card_with_a_tip_per_segment_and_leaves_one_with_nothing_open_off(tmp_path: Path, size: str) -> None:
+def test_now_draws_each_project_with_open_work_as_a_readable_row_of_one_height_with_a_tip_per_segment_and_leaves_one_with_nothing_open_off(tmp_path: Path, size: str) -> None:
     card = {"title": "Raise the limit?", "url": QUESTION["answer"], "asked": "2026-11-10T23:00:00-08:00"}
     features = [
         FEATURE,
@@ -941,21 +941,22 @@ await wait(800);
 const canvas = document.querySelector('#main .canvas');
 const cards = [...canvas.querySelectorAll('.region')].map((region) => {
   const box = region.getBoundingClientRect();
-  const glance = region.querySelector('.region-glance');
-  const name = glance.querySelector('.glance-name b');
-  const lines = [...glance.children].map((line) => line.getBoundingClientRect());
+  const head = region.querySelector('.region-head');
+  const name = head.querySelector('.region-name b');
+  const open = head.querySelector('.region-open');
+  const lines = [...head.children].map((line) => line.getBoundingClientRect());
   return {
     project: region.dataset.camKey,
-    said: [name.textContent, glance.querySelector('.glance-streams').textContent, glance.querySelector('.glance-open').textContent, [...glance.querySelectorAll('.need')].map((need) => need.textContent)],
-    tips: [...glance.querySelectorAll('.statebar i')].map((segment) => [segment.dataset.tip, segment.getBoundingClientRect().width >= 7.5]),
+    said: [name.textContent, head.querySelector('.region-name small').textContent, `${open.querySelector('b').textContent} ${open.querySelector('small').textContent}`, [...head.querySelectorAll('.need')].map((need) => need.textContent)],
+    tips: [...head.querySelectorAll('.statebar i')].map((segment) => [segment.dataset.tip, segment.getBoundingClientRect().width >= 7.5]),
     size: `${Math.round(box.width)}x${Math.round(box.height)}`,
     readable: parseFloat(getComputedStyle(name).fontSize) * nowCamera.at.k > 15.9
-      && [...glance.querySelectorAll('.glance-streams, .glance-open, .need')].every((small) => parseFloat(getComputedStyle(small).fontSize) * nowCamera.at.k > 10.9)
+      && [...head.querySelectorAll('.region-name small, .region-open small, .need')].every((small) => parseFloat(getComputedStyle(small).fontSize) * nowCamera.at.k > 10.9)
       && lines.every((line) => line.height > 0 && line.top >= box.top && line.bottom <= box.bottom && line.right <= box.right + 0.5),
     inside: box.left >= 0 && box.right <= innerWidth,
   };
 });
-canvas.querySelector('.region[data-cam-key="Platform"] .region-glance .statebar i:last-child').dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+canvas.querySelector('.region[data-cam-key="Platform"] .region-head .statebar i:last-child').dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
 await wait(50);
 const tip = document.querySelector('#srctip');
 const hovered = tip.matches(':popover-open') && tip.textContent;
@@ -1028,7 +1029,7 @@ await wait(300);
 done({
   headline: document.querySelector('#main .lead').textContent.replace(/\\s+/g, ' '),
   strip: [...document.querySelectorAll('#alerts > *')].map((chip) => chip.textContent),
-  needs: [...document.querySelectorAll('#main .region[data-cam-key="Platform"] .region-glance .need')].map((need) => need.textContent),
+  needs: [...document.querySelectorAll('#main .region[data-cam-key="Platform"] .region-head .need')].map((need) => need.textContent),
 });
 """, board(queue=[newer, older, tap], status=[{"state": "running", "features": [owned]}]))
     assert seen["strip"] == ["2 decisions for you", "1 PR to tap"]
@@ -1901,6 +1902,39 @@ done({{ inside: pre.getBoundingClientRect().right <= card.getBoundingClientRect(
     assert seen == {"inside": True, "scrolls": True, "copy": True, "enlarge": True, "floating": "none"}
 
 
+
+def test_a_long_message_he_was_sent_folds_to_four_lines_in_history_until_explain_more_opens_it(tmp_path: Path) -> None:
+    text = " ".join(f"Line {n} of a message the drive sent you." for n in range(60))
+    seen = browse(tmp_path, """
+location.hash = '#/history';
+await wait(200);
+const fold = () => document.querySelector('#main li[data-kind="said"] .fold');
+const em = parseFloat(getComputedStyle(fold()).fontSize);
+const folded = { cut: fold().scrollHeight > fold().clientHeight, lines: fold().clientHeight <= 6.5 * em, more: document.querySelector('#main li[data-kind="said"] .fold-more').checkVisibility() };
+document.querySelector('#main li[data-kind="said"] .fold-more').click();
+await wait(100);
+done({ folded, opened: fold().classList.contains('open') && fold().scrollHeight <= fold().clientHeight + 2 });
+""", board(history=[{"at": "2026-11-10T23:59:30-08:00", "kind": "said", "text": text, "detail": "", "url": None, "feature": "o1", "visuals": [], "prs": []}]))
+    assert seen == {"folded": {"cut": True, "lines": True, "more": True}, "opened": True}
+
+
+def test_a_message_draws_its_bold_lines_as_headings_and_two_or_more_labeled_lines_as_a_labeled_list(tmp_path: Path) -> None:
+    text = "**What shipped**\nFix: the importer skips rows it already wrote\nWhy: a retry wrote each row twice\n\n**What waits on you**\n- Pick the retry limit\n- Tap the docs PR\n\nNote: one labeled line stays a sentence"
+    seen = browse(tmp_path, """
+location.hash = '#/history';
+await wait(200);
+const row = document.querySelector('#main li[data-kind="said"] .said-text');
+const texts = (selector) => [...row.querySelectorAll(selector)].map((el) => el.textContent.trim());
+done({ headings: texts('h4.hd'), keys: texts('dl.keyed dt'), said: texts('dl.keyed dd'), items: texts('li'), lone: texts('p') });
+""", board(history=[{"at": "2026-11-10T23:59:30-08:00", "kind": "said", "text": text, "detail": "", "url": None, "feature": "o1", "visuals": [], "prs": []}]))
+    assert seen == {
+        "headings": ["What shipped", "What waits on you"],
+        "keys": ["Fix", "Why"],
+        "said": ["the importer skips rows it already wrote", "a retry wrote each row twice"],
+        "items": ["Pick the retry limit", "Tap the docs PR"],
+        "lone": ["Note: one labeled line stays a sentence"],
+    }
+
 ARCH = {
     "arch": 1, "name": "drive", "title": "The dashboard reads the drive",
     "nodes": [
@@ -2247,7 +2281,7 @@ await wait(100);
 const box = (el) => el.getBoundingClientRect();
 const bar = box(document.querySelector('.side'));
 const tabs = [...document.querySelectorAll('.side .tab')].map(box);
-const targets = [...document.querySelectorAll('#main .counter button, .subtabs a, #main [data-prtab], #main .btn')];
+const targets = [...document.querySelectorAll('#main .counter button, .subtabs a, #main [data-prtab], #main .btn, #main .pr-picks button, #main .fold-more, #main .map-btn')];
 toast('card', { label: 'Raise it', title: 'Raise the limit?', state: 'sent', undoUntil: new Date(Date.now() + 600000).toISOString() });
 const shown = [...document.querySelectorAll('#toasts .toast :is(.btn, .toast-x)')];
 window.scrollTo(0, document.documentElement.scrollHeight);

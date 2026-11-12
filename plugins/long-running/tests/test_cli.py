@@ -1804,7 +1804,7 @@ def test_a_job_keeps_every_question_it_asks_each_open_until_his_answer_to_its_ow
     closed.append({"waits": "demo:j1-0", "title": titles[0], "prs": [], "asked": answered["asked"], "url": links[0], "answer": {"label": "Yes", "at": answered["asked"]}, "tapped": "", "replaced_by": ""})
     status = run("status")[1]
     assert f'card {links[0]} answered "Yes" at {render.when(answered["asked"])} (demo:j1-0)' in status
-    assert f"asks him: Where should a finished run's files be laid out so its page opens without guess…; card {links[1]} open since {render.when(shown[0]['asked'])} (demo:j1-1)" in status
+    assert f"asks him: Where should a finished run's files be laid out so its page opens without…; card {links[1]} open since {render.when(shown[0]['asked'])} (demo:j1-1)" in status
     assert f"never drawn, kept in {kept[2]}" in status
     assert f"asks him: When should; card {links[2]} open since {render.when(shown[1]['asked'])} (demo:j1-2)" in status
 

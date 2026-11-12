@@ -52,6 +52,19 @@ def test_a_lanes_newest_line_is_its_newest_words_while_it_runs_else_the_line_it_
     assert artifacts.newest_line("demo", "j1", lane | {"state": "done"}) is None
 
 
+def test_a_lanes_newest_line_passes_over_lines_that_name_only_records_and_keeps_one_when_every_line_does(drive_home: Path) -> None:
+    transcript(
+        drive_home,
+        turn("assistant", {"type": "text", "text": "Drew the gate."}, timestamp="2026-11-12T01:00:00Z"),
+        turn("assistant", {"type": "text", "text": "Pushed 4f3a2b1c9d."}, timestamp="2026-11-12T01:05:00Z"),
+    )
+    lane = JOB | {"state": "running", "said": None, "report": None, "updated": "2026-11-12T02:00:00Z"}
+    assert artifacts.newest_line("demo", "j1", lane) == {"line": "Drew the gate.", "from": "transcript", "at": "2026-11-12T01:00:00Z"}
+    waiting = lane | {"state": "waiting", "said": "waits on j1987"}
+    assert artifacts.newest_line("demo", "j1", waiting) == {"line": "waits on j1987", "from": "said", "at": lane["updated"]}
+    assert artifacts.newest_line("demo", "j1", waiting | {"report": "DONE the gate"}) == {"line": "DONE the gate", "from": "report", "at": lane["updated"]}
+
+
 def test_the_question_file_holds_every_question_the_job_asked_oldest_first(tmp_path: Path) -> None:
     first, second = tmp_path / "j1-a.md", tmp_path / "j1-b.md"
     first.write_text("ASK Which store?\n")

@@ -90,7 +90,6 @@ const REPORTS = {
 };
 const REPORT_WORD = new RegExp(`^(${Object.keys(REPORTS).join('|')})\\b[:,.]?\\s*`);
 const PR_LINK = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/(\d+)\S*/g;
-const TILE = { w: 250, h: 170 };
 const FILE_WORDS = { brief: 'Brief', report: 'Report', question: 'Question', repro: 'Reproduction', transcript: 'Transcript' };
 const SOURCE_CITE = /(^|[^\w/.@`-])`?((?:[\w.@-]+\/)+[\w.@-]+\.[A-Za-z][A-Za-z0-9]*):(\d+)(?:-(\d+))?`?(?![\w-]|[./]\w)/g;
 const PR_FIELDS = [
@@ -226,11 +225,15 @@ function up() {
 }
 
 const VISUAL_KINDS = new Set(['arch', 'mermaid', 'chart', 'compare', 'dot']);
+const VISUAL_WORDS = { arch: 'Map of the parts', mermaid: 'Diagram', dot: 'Diagram', chart: 'Chart', compare: 'Side by side' };
 const WORD_FENCES = new Set(['', 'text', 'txt', 'plain']);
 const FRAMED = new Set(['mermaid', 'dot', 'chart', 'compare']);
 const PICTURE_LINE = /^\s*!\[([^\]]*)\]\((\/[^)\s]+)\)\s*$/;
 const QUOTE_LINE = /^\s*>\s?/;
 const TABLE_ROW = /^\s*\|/;
+const LIST_ITEM = /^\s*(?:[-*•]|\d+[.)])\s+/;
+const KEY_LINE = /^([A-Z][A-Za-z0-9 ()'\/-]{0,38}):(?:\s+(.*))?$/;
+const HEADING_LINE = /^\s*(?:#{1,4}\s+(.+?)|\*\*([^*\n]+)\*\*|\*([^*\n]+)\*):?\s*$/;
 
 function inline(text, cite = model.repo) {
   const spans = [];
@@ -270,21 +273,26 @@ function prose(text, cite) {
     for (const para of part.split(/\n\s*\n/)) {
       const lines = para.split('\n').filter((line) => line.trim());
       if (!lines.length) continue;
-      const heading = lines[0].match(/^(#{1,4})\s+(.*)$/);
-      if (heading) {
-        blocks.push(`<h4 class="hd">${inline(heading[2], cite)}</h4>`);
-        lines.shift();
-      }
       while (lines.length) {
+        const heading = lines[0].match(HEADING_LINE);
+        if (heading) {
+          blocks.push(`<h4 class="hd">${inline(heading[1] ?? heading[2] ?? heading[3], cite)}</h4>`);
+          lines.shift();
+          continue;
+        }
         const row = TABLE_ROW.test(lines[0]);
-        const end = lines.findIndex((line) => TABLE_ROW.test(line) !== row);
+        const end = lines.findIndex((line) => TABLE_ROW.test(line) !== row || HEADING_LINE.test(line));
         const run = lines.splice(0, end < 0 ? lines.length : end);
         if (row) {
           blocks.push(table(run, cite));
         } else if (run.some((line) => PICTURE_LINE.test(line) || QUOTE_LINE.test(line))) {
           blocks.push(...lineBlocks(run, cite));
-        } else if (run.every((line) => /^\s*(?:[-*•]|\d+[.)])\s/.test(line))) {
-          blocks.push(`<ul>${run.map((line) => `<li>${inline(line.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, ''), cite)}</li>`).join('')}</ul>`);
+        } else if (run.every((line) => LIST_ITEM.test(line))) {
+          blocks.push(listOf(run, cite));
+        } else if (run.filter((line) => KEY_LINE.test(line)).length > 1) {
+          const at = run.findIndex((line) => KEY_LINE.test(line));
+          if (at) blocks.push(`<p>${run.slice(0, at).map((line) => inline(line, cite)).join('<br>')}</p>`);
+          blocks.push(factList(run.slice(at), cite));
         } else {
           blocks.push(`<p>${run.map((line) => inline(line, cite)).join('<br>')}</p>`);
         }
@@ -292,6 +300,24 @@ function prose(text, cite) {
     }
   });
   return blocks.join('');
+}
+
+function listOf(lines, cite) {
+  return `<ul>${lines.map((line) => `<li>${inline(line.replace(LIST_ITEM, ''), cite)}</li>`).join('')}</ul>`;
+}
+
+function factList(lines, cite) {
+  const facts = [];
+  for (const line of lines) {
+    const key = line.match(KEY_LINE);
+    if (key) facts.push([key[1], key[2] ? [key[2]] : []]);
+    else facts.at(-1)[1].push(line);
+  }
+  const said = (rest) => {
+    const items = rest.filter((line) => LIST_ITEM.test(line));
+    return `${rest.filter((line) => !LIST_ITEM.test(line)).map((line) => inline(line, cite)).join('<br>')}${items.length ? listOf(items, cite) : ''}`;
+  };
+  return `<dl class="keyed">${facts.map(([key, rest]) => `<dt>${esc(key)}</dt><dd>${said(rest)}</dd>`).join('')}</dl>`;
 }
 
 function lineBlocks(lines, cite) {
@@ -669,7 +695,11 @@ function landing(item, rows) {
 
 function spots(html) {
   const drawn = Object.assign(document.createElement('template'), { innerHTML: html }).content;
-  return [...drawn.querySelectorAll(SPOTS)].map((el, i) => el.textContent.trim() || el.dataset.caption || `Picture ${i + 1}`);
+  return [...drawn.querySelectorAll(SPOTS)].map((el, i) => {
+    const lead = el.previousElementSibling?.matches('p') ? el.previousElementSibling.textContent.trim() : '';
+    const kind = el.querySelector('[data-visual]')?.dataset.visual;
+    return el.textContent.trim() || el.dataset.caption || lead || (kind && (VISUAL_WORDS[kind] ?? `${kind.replace(/^code:/, '')} code`)) || `Picture ${i + 1}`;
+  });
 }
 
 function jumps(key, row, pr, read) {
@@ -833,7 +863,7 @@ function nowCanvas(tree, project, stream, task) {
   const level = stream !== undefined ? 'stream' : project !== undefined ? 'project' : 'all';
   const regions = [...tree].map(([key, streams]) => region(key, streams, project, stream)).join('');
   const live = model.counts.live;
-  return `<section class="canvas" data-level="${level}" style="--cols:${Math.min(tree.size, Number($('#main .canvas')?.style.getPropertyValue('--cols')) || tree.size)}" aria-label="Projects, workstreams and tasks">
+  return `<section class="canvas now" data-level="${level}" style="--cols:${tree.size}" aria-label="Projects, workstreams and tasks">
     <div class="canvas-bar"><span class="meta">${level === 'all' ? 'Click a project to zoom in' : level === 'project' ? 'Click a workstream to see its tasks' : 'Esc zooms out'}</span>
       <div class="canvas-tools"><button class="map-btn" data-cam="out" aria-label="Zoom out">−</button><button class="map-btn" data-cam="in" aria-label="Zoom in">+</button><button class="map-btn" data-cam="fit" aria-label="Fit to this level" title="Fit">⤢</button></div></div>
     <div class="viewport" data-at="${esc([project, stream].filter((key) => key !== undefined).join('/'))}" data-view="${esc(task?.id ?? '')}">
@@ -846,18 +876,14 @@ function nowCanvas(tree, project, stream, task) {
 function region(key, streams, project, stream) {
   const list = [...streams.values()].flat();
   const here = key === project;
+  const open = list.filter((entry) => entry.state !== 'live').length;
   return `<div class="region${key === NONE ? ' unfiled' : ''}${project !== undefined && !here ? ' aside' : ''}" data-cam-key="${esc(key)}" data-href="${zoomHref('now', key)}">
     <a class="region-head" href="${zoomHref('now', key)}"${project === undefined || !here ? '' : ' tabindex="-1"'}>
       <span class="zoom-mark" aria-hidden="true">${key === NONE ? '?' : esc([...fileName(key)][0].toUpperCase())}</span>
-      <span class="region-name"><b>${esc(fileName(key))}</b><small>${esc(counted(streams.size, 'workstream'))} · ${openOf(list)}</small></span>
-      ${needs(list)}${stateBar(list)}
+      <span class="region-name"><b>${esc(fileName(key))}</b><small>${esc(`${counted(streams.size, 'workstream')}: ${[...streams.keys()].map(fileName).join(', ')}`)}</small></span>
+      ${needs(list)}
+      <span class="region-open"><b>${open}</b><small>open of ${list.length}</small>${stateBar(list)}</span>
     </a>
-    <div class="region-glance" aria-hidden="true">
-      <span class="glance-name"><span class="zoom-mark">${key === NONE ? '?' : esc([...fileName(key)][0].toUpperCase())}</span><b>${esc(fileName(key))}</b></span>
-      <span class="glance-streams">${esc(`${counted(streams.size, 'workstream')}: ${[...streams.keys()].map(fileName).join(', ')}`)}</span>
-      <span class="glance-open">${esc(openOf(list))}</span>
-      ${needs(list)}${stateBar(list)}
-    </div>
     <div class="streams" style="--n:${Math.min(streams.size, 2)}"${here ? '' : ' inert'}>${[...streams].map(([skey, slist]) => streamBox(key, skey, slist, here && skey === stream)).join('')}</div>
   </div>`;
 }
@@ -962,6 +988,7 @@ function fitOf(view) {
     const k = Math.min(view.clientWidth / w, view.clientHeight / h, 1);
     return { k, x: w / 2 - view.clientWidth / k / 2, y: h / 2 - view.clientHeight / k / 2 };
   }
+  if (view.closest('.canvas.now[data-level="all"]')) return { k: 1, x: 0, y: 0 };
   const { box, unit } = focused(view);
   const sheet = view.querySelector('.task-sheet');
   const room = { clientWidth: view.clientWidth - (sheet && view.clientWidth - sheet.offsetWidth >= 420 ? sheet.offsetWidth : 0), clientHeight: view.clientHeight };
@@ -975,7 +1002,7 @@ function fitOf(view) {
   return { k, x: span(mid.x + mid.w / 2, seen.w, box.x, box.w), y: span(mid.y + mid.h / 2, seen.h, box.y, box.h) };
 }
 
-function settleCamera(arrived) {
+function settleCamera(arrived, held) {
   const viewport = $('#main .viewport');
   if (!viewport) {
     fitter?.disconnect();
@@ -985,28 +1012,36 @@ function settleCamera(arrived) {
   }
   nowCamera.world = viewport.querySelector('.world');
   if (arrived || !nowCamera.at) {
-    fitColumns();
     nowCamera.at = fitOf(viewport);
     aim(nowCamera);
     fitter?.disconnect();
     fitter = new ResizeObserver(() => {
-      fitColumns();
       nowCamera.at = fitOf(viewport);
       aim(nowCamera);
     });
     fitter.observe(viewport);
-  } else if (`${viewport.dataset.at}#${viewport.dataset.view}` !== nowAt) flyTo(nowCamera, fitOf(viewport));
+  } else if (`${viewport.dataset.at}#${viewport.dataset.view}` !== nowAt) {
+    const region = held && regionOf(held.key);
+    if (region) {
+      const box = boxOf(region, nowCamera.world);
+      const k = Math.min(held.rect.width / box.w, held.rect.height / box.h);
+      const origin = viewport.getBoundingClientRect();
+      nowCamera.at = { k, x: box.x + box.w / 2 - (held.rect.left + held.rect.width / 2 - origin.left) / k, y: box.y - (held.rect.top - origin.top) / k };
+      aim(nowCamera);
+    }
+    flyTo(nowCamera, fitOf(viewport));
+  }
   nowAt = `${viewport.dataset.at}#${viewport.dataset.view}`;
 }
 
-function fitColumns() {
-  const canvas = $('#main .canvas');
-  const tile = canvas.querySelector('.region');
-  if (!tile) return;
-  const shown = (cols) => canvas.clientWidth / (cols * tile.offsetWidth + (cols - 1) * 160 + 240);
-  let cols = index().tree.size;
-  while (cols > 1 && (tile.offsetWidth * shown(cols) < TILE.w || tile.offsetHeight * shown(cols) < TILE.h)) cols -= 1;
-  canvas.style.setProperty('--cols', cols);
+function regionOf(key) {
+  return key && $(`#main .canvas.now .region[data-cam-key="${CSS.escape(key)}"]`);
+}
+
+function heldRegion() {
+  const key = route().path[0] ?? $('#main .canvas.now .viewport')?.dataset.at.split('/')[0];
+  const region = regionOf(key);
+  return region && { key, rect: region.getBoundingClientRect() };
 }
 
 function frame(host) {
@@ -1662,7 +1697,7 @@ function laneSheet(job, href) {
     <h2 class="sheet-title">${esc(job.goal)}</h2>
     <p class="lane-state">${pill(word, tone)}<span class="meta">${esc(job.kind)} · ${esc(job.where)} · last word ${clock(job.updated)}, ${ago(job.updated)} ago</span></p>
     <h3 class="sec">Newest progress</h3>
-    ${!read?.ok ? notRead(read) : newest ? `<p class="lane-said">${esc(newest.line)}</p><p class="meta">${LINE_FROM[newest.from]}${newest.at ? `, ${clock(newest.at)}` : ''}</p>` : `<p class="meta">${esc(job.id)} has said nothing yet: it sent no line, kept no report, and this Mac holds no transcript of it.</p>`}
+    ${!read?.ok ? notRead(read) : newest ? `<p class="lane-said">${inline(newest.line)}</p><p class="meta">${LINE_FROM[newest.from]}${newest.at ? `, ${clock(newest.at)}` : ''}</p>` : `<p class="meta">${esc(job.id)} has said nothing yet: it sent no line, kept no report, and this Mac holds no transcript of it.</p>`}
     ${facts.length ? `<p class="meta">${esc(facts.join(' · '))}</p>` : ''}
     ${fileButtons(job)}
     <a class="btn ghost" href="#/feature/${esc(job.feature)}">See the task ›</a>
@@ -1841,7 +1876,7 @@ function saidRow(entry) {
     <span class="dot"></span>
     <div class="body">
       <div><b class="what">${HAPPENED.said}</b></div>
-      <div class="said-text">${prose(entry.text)}</div>
+      <div class="said-text">${fold(`said:${entry.at}`, prose(entry.text), 4)}</div>
       ${entry.visuals.length ? `<div class="thumbs">${entry.visuals.map((each) => (each.kind === 'image' ? shot(each.picture, each.caption) : visual(each.kind, each.source, each.caption))).join('')}</div>` : ''}
       ${entry.prs.length ? `<ul class="prlist card">${entry.prs.map(prItem).join('')}</ul>` : ''}
       ${entry.prs.some((pr) => pr.tap === 'wanted') ? '<a class="more" href="#/queue/tap">Tap it in your queue ›</a>' : ''}
@@ -2081,11 +2116,12 @@ function render() {
   }
   const html = (screens[screen] ?? queueScreen)();
   const arrived = pageKey() !== shownHash;
+  const held = !arrived && screen === 'now' && heldRegion();
   shownHash = pageKey();
   $('#main').classList.toggle('arrived', arrived);
   if (arrived) $('#main').innerHTML = html;
   else morphChildren($('#main'), Object.assign(document.createElement('main'), { innerHTML: html }));
-  settleCamera(arrived);
+  settleCamera(arrived, held);
   if (reviewing) drawDrawer();
   sendPackets();
   if ($('#jump').open) drawJump();

@@ -279,8 +279,7 @@ def plain(text: str, limit: int) -> str:
 
 
 def said(text: str | None) -> str:
-    flat = " ".join(without_records(text or "").split())
-    return flat if len(flat) <= NOW_CHARS else flat[:NOW_CHARS].rsplit(" ", 1)[0].rstrip(",;:") + "…"
+    return cut(without_records(text or ""), NOW_CHARS + 1)
 
 
 def order_title(order: dict) -> str:

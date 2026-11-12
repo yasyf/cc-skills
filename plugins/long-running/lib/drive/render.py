@@ -371,8 +371,12 @@ KEEP_LIMIT = {"communicator": 1500, "coordinator": 3000, "meta": 1500}
 
 
 def cut(text: str, limit: int) -> str:
+    """The text on one line, at most limit characters, ending on a whole word and … when it was longer."""
     flat = " ".join(text.split())
-    return flat if len(flat) <= limit else flat[: limit - 1].rstrip() + "…"
+    if len(flat) <= limit:
+        return flat
+    head = flat[: limit - 1]
+    return (head if flat[limit - 1] == " " else head.rsplit(" ", 1)[0]).rstrip(" ,;:") + "…"
 
 
 def clock(moment: datetime, seconds: bool = False) -> str:
