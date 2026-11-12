@@ -791,8 +791,8 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 lines.append(mail_line(watcher.name, data, job_id, message, moment, asks.get(message["id"]), unkept.get(message["id"])))
                 if message["type"] in ("worker_done", "question"):
                     reported.add(job_id)
-    lines += merge_lane_prs(watcher, reported)
-    return [line for line in lines + read_lines(watcher, data, moment) if line]
+    watcher.made += [line for line in lines if line]
+    return [line for line in merge_lane_prs(watcher, reported) + read_lines(watcher, data, moment) if line]
 
 
 def keep_asks(
@@ -1440,9 +1440,10 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
             for job_id, (call, line) in held.items():
                 data["jobs"][job_id]["stuck_call"] = call
                 lines.append(line)
+    watcher.made += lines
     unlisted, failed = untracked_prs(watcher, data, heads, moment)
     watcher.agent_gaps = {job_id: stranded(job_id, data, gaps.get(job_id), unlisted.get(job_id, {})) for job_id in gaps.keys() | heads.keys()}
-    return lines + failed + death_lines(watcher.name, deaths, moment)
+    return failed + death_lines(watcher.name, deaths, moment)
 
 
 def untracked_prs(watcher: Watcher, data: dict, heads: dict[str, set], moment: datetime) -> tuple[dict[str, dict], list[str]]:
@@ -1753,7 +1754,7 @@ def tick_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """One loop of the watch: his cards, GitHub, a lander on each PR his Approve covers that qualifies, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, the waits his answers or a job's end release, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the communicator's compaction, the status page, a coordinator whose process exited and a dashboard whose server exited every 60 s, GitHub again next poll after a failure, new events, the catch-up owed him, promised times still owed a line, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries, a tick every 30 minutes while he is here. Each stage's lines join the watcher's made lines as it returns, so a pass that ends early, in a crash or on a drive a newer install saved, leaves them to the watch process after it."""
+    """One loop of the watch: his cards, GitHub, a lander on each PR his Approve covers that qualifies, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, the waits his answers or a job's end release, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the communicator's compaction, the status page, a coordinator whose process exited and a dashboard whose server exited every 60 s, GitHub again next poll after a failure, new events, the catch-up owed him, promised times still owed a line, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries, a tick every 30 minutes while he is here. Each stage's lines join the watcher's made lines as it returns, or as it saves when it keeps working after its save, so a pass that ends early, in a crash or on a drive a newer install saved, leaves them to the watch process after it."""
     lines = watcher.made
     if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
         watcher.read_at = moment
@@ -1994,11 +1995,11 @@ def main(drive_name: str | None = None, project: str | None = None) -> int:
 
 
 def watching(watcher: Watcher) -> None:
-    """Hand each pass's lines to whoever acts on them, first any a watch before this one held for it, each pass holding its install's lock as a verb does and letting go of it while the watch sleeps, and let a newer install take over in place before a pass, or the moment a pass finds the drive saved by one, so no pass runs older code on a drive a newer install saved; a crash wakes the coordinator session it posts to first. Every line made and not yet posted is held for the watch after this one, which hands it on before its first pass."""
+    """Hand each pass's lines to whoever acts on them, first any a watch before this one held for it, and let a newer install take over in place before a pass, or the moment a pass finds the drive saved by one, so no pass runs older code on a drive a newer install saved; a crash wakes the coordinator session it posts to first. Every line made and not yet posted is held for the watch after this one, which hands it on before its first pass, so the watch holds no install's lock: a pass that reads GitHub and each Sprite for minutes, or waits on a drive process it started, never holds a newer install's verbs."""
     state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
+    state.let_go_install()
     try:
         while True:
-            state.hold_install()
             if newer := upgraded():
                 handed_over(watcher, newer)
             read_from, moment = watcher.offset, state.now()
@@ -2007,7 +2008,6 @@ def watching(watcher: Watcher) -> None:
                 print(line, flush=True)
             if watcher.offset != read_from:
                 state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
-            state.let_go_install()
             time.sleep(POLL_SECONDS)
     except Exception as error:
         if isinstance(error, state.NewerDrive) and (newer := upgraded()):

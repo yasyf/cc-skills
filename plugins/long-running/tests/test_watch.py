@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import CodexAsk, Judge, Redraws, Thread, WatchProcess, Withdrawals, commit_files, git_in
+from conftest import CodexAsk, Judge, Redraws, Thread, WatchProcess, Withdrawals, commit_files, git_in, staged
 from drive import card, cli, github, install, land, reads, render, served, slack, state, talk, view, watch
 
 KEY = "Forge-AI/monorepo#42"
@@ -1526,13 +1526,13 @@ def test_a_local_agents_tool_call_with_no_result_for_five_minutes_is_said_stuck_
     write_transcript(tmp_path / "config", [{"type": "assistant", "timestamp": state.stamp(asked), "message": {"stop_reason": "tool_use", "content": [call]}}], timedelta(0))
     with state.edit(demo) as data:
         data["jobs"]["j1"].update(session="session-under-test", agent="a1")
-    assert watch.agent_lines(watcher(demo), asked + timedelta(minutes=4)) == []
-    assert watch.agent_lines(watcher(demo), asked + timedelta(minutes=7)) == [
+    assert staged(watch.agent_lines, watcher(demo), asked + timedelta(minutes=4)) == []
+    assert staged(watch.agent_lines, watcher(demo), asked + timedelta(minutes=7)) == [
         'STUCK j1 o1: its agent\'s Bash call "tables="a,b"; echo ${(s:,:)tables}" has had no result for 7 minutes, so a permission prompt nobody'
         " sees holds it: TaskStop a1, then hand the job to a fresh agent whose brief runs that call as a scratch script"
     ]
     assert state.load(demo)["jobs"]["j1"]["stuck_call"] == "toolu_held"
-    assert watch.agent_lines(watcher(demo), asked + timedelta(minutes=9)) == []
+    assert staged(watch.agent_lines, watcher(demo), asked + timedelta(minutes=9)) == []
 
 
 def test_a_local_agent_from_another_session_or_with_no_transcript_is_gone(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

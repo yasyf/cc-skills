@@ -11,7 +11,8 @@ drive an older one saved waits up to 20 seconds for those locks, so no verb meet
 saved by code newer than its own. A verb still running after that no longer holds the save back. The
 save names its pid and command, and that verb refuses the drive at its next load instead of writing
 over it. `drive install` holds its lock only from its update to its proof, never while it waits on a
-release, Homebrew or another install's turn. A `drive` started from an older install than the newest,
+release, Homebrew or another install's turn. The watch holds none, since the watch on a newer
+install posts every line the older one had not. A `drive` started from an older install than the newest,
 such as a launch's bind prefix, hands itself to the newest install's `drive` before any verb acts.
 
 ## Tool or Bash
