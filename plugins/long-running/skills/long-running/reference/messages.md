@@ -597,19 +597,20 @@ GET 2 page ranges
   `{card:}`, `{pr:}`, `{order:}` and `{record:}` title it draws, and its length refusal says how many
   of them those titles are.
 - A finding refuses nothing on its own. The hook hands the post and every finding, check-post's and
-  the drive's own, to Jev with his words: his messages in the thread it goes to, each answer of his a
-  card there shows, the brief that quotes him and the session's recent turns, as the cc-slack
-  permission hook judges a write without a ticket. The post goes out when his words show the findings
-  do not hold against it, and comes back with Jev's reason when a rule of his does. His words: "stop
-  hard coding it and just use jev evaluating my message and rules to see if it's ok to send".
+  the drive's own, to Jev with his words: his messages in the thread it goes to and each answer of his
+  a card there shows, read from Slack, beside the session's recent turns, as the cc-slack permission
+  hook judges a write without a ticket. A handler's brief, the record it reads in and every prompt of
+  a handler's own `claude --bg` session are the communicator's or a writer's words, never his,
+  whatever they quote. The post goes out when his words show the findings do not hold against it, and
+  comes back with Jev's reason when a rule of his does. His words: "stop hard coding it and just use
+  jev evaluating my message and rules to see if it's ok to send".
 - What the hook let out is what he reads: `say` adds no words of its own and checks nothing again.
   Check-post reads the words under each link, so a card, PR, order or record title it flags is named
   in the post's own words, `{pr:<number>|<words>}` or `{record:<seq>|<words>}`.
 - A post that answers him passes each message of his in `asked`, and check-post gets them as
   `--asked`, so a drive word he used there, such as "the drive" in his question about the drive,
-  passes in the answer. When each stands word for word in his messages in that thread, an answer of
-  his a card there shows, or the brief, the length limit lifts with no judge; otherwise Jev reads the
-  same words.
+  passes in the answer. When each stands word for word in his messages in that thread or an answer of
+  his a card there shows, the length limit lifts with no judge; otherwise Jev reads the same words.
 - A post that draws a card, or a PR card through `tap_prs` or a PR its waiting line links, carries
   the card its words say waits on him, so check-post's `waits-without-card` finding is dropped for
   it. A check that fails on a post refuses it rather than let it out unchecked, and so does a

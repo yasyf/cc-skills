@@ -5,6 +5,7 @@
     "communicator": {"session": "communicator-fixture", "terminal": null, "cwd": "/tmp", "started": "2026-11-11T13:18:43+00:00"}
   },
   "subcoordinators": {},
+  "handlers": {"f796ccf3": {"session": "handler-fixture", "started": "2026-11-12T04:44:22+00:00", "holds": null, "held_back": []}},
   "slack": {"channel": "D123", "page": null, "watch": []},
   "owner": {"heard": null, "away": true},
   "orders": {},

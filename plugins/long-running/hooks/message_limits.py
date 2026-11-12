@@ -222,14 +222,13 @@ def untooled(payload: dict, drive: dict, said: str) -> str | None:
 
 
 def his_words(payload: dict) -> list[dict]:
-    """What Jev judges a refused post by besides the transcripts: his words in the thread it goes to in his DM, and the brief the handler posting it was started with, which quotes him; a thread outside his DM, such as a bug report's, holds others' words, never his."""
-    words = [{"id": "brief", "source": "brief", "quote": brief, "detail": "the brief the communicator started this handler with, quoting his words"}] if (brief := agents.brief(payload)) else []
+    """What Jev judges a refused post by besides the transcripts: his words in the thread it goes to in his DM, read from Slack, his messages and the answers its cards show; a handler's brief and the record it reads in are the communicator's and a writer's words, never his, and a thread outside his DM, such as a bug report's, holds others' words."""
     if (drive := his_drive(payload.get("session_id") or "")) is None or not posts_to(payload, drive["slack"]["channel"]):
-        return words
+        return []
     try:
-        return words + thread_words(payload, drive["slack"]["channel"])
+        return thread_words(payload, drive["slack"]["channel"])
     except slack.SlackError:
-        return words
+        return []
 
 
 def edited(payload: dict) -> dict | None:
@@ -545,10 +544,8 @@ def over_length(payload: dict, dm: str) -> str | None:
         return None
     if not (asked := quotes(tool_input.get("asked") or "")):
         return refusal + WHOLE
-    if len(unbriefed := unsaid(asked, agents.brief(payload))) < len(asked):
-        return None
     try:
-        missing = unsaid(unbriefed, " ".join(word["quote"] for word in thread_words(payload, dm)))
+        missing = unsaid(asked, " ".join(word["quote"] for word in thread_words(payload, dm)))
     except slack.SlackError as error:
         return refusal + f" His thread could not be read to check asked, so it is not yet an answer: {error}."
     if len(missing) < len(asked):
@@ -556,7 +553,7 @@ def over_length(payload: dict, dm: str) -> str | None:
     named = ", ".join(f'"{part}"' for part in missing)
     return (
         refusal + " It is not an answer, so it keeps that limit: asked lifts the limit only with his own words, and these stand"
-        f" in no message of his in the thread this post goes to, no answer of his a card there shows, nor your brief: {named}."
+        f" in no message of his in the thread this post goes to and no answer of his a card there shows: {named}."
         " Copy each message of his this post answers word for word, one per line, with … where you skip words."
     )
 
