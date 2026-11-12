@@ -31,6 +31,9 @@ HOOKS_FLOOR = {"name": "captain-hook", "marketplace": "captain-hook", "version":
 SLACK_FLOOR = {"name": "cc-slack", "marketplace": "cc-slack", "version": ">=0.19.143"}
 HELPER_CARD = install.HELPER_ASKED.format(release="12.121.70")
 RESTART = ["capt-hook", "helper", "install"]
+BUILD = "b1u1d0f1x"
+URL = "https://github.com/yasyf/cc-skills/pull/7"
+RUN = subprocess.run
 
 
 def upgrade(binary: str) -> list[str]:
@@ -62,6 +65,7 @@ class FakeGit:
         self.versions: dict[str, str] = {}
         self.app = config / "Captain Hook.app" / "Contents" / "Info.plist"
         self.helper = "12.121.70"
+        self.proofs: set[str] = set()
 
     @property
     def helper(self) -> str:
@@ -101,6 +105,8 @@ class FakeGit:
     def run(self, cmd: list[str], **options: object) -> subprocess.CompletedProcess:
         if cmd[0] == "orca":
             return self.orca(cmd, options["timeout"])
+        if cmd[0] in self.proofs:
+            return RUN(cmd, **options)
         self.calls.append(cmd)
         self.timeouts.append(options["timeout"])
         self.cwds.append(options.get("cwd"))
@@ -148,6 +154,8 @@ class FakeGit:
             return self.next_bare() + "\n"
         if cmd == BREW_TAP:
             return TAP_DIR + "\n"
+        if verb[:1] == ["diff-tree"]:
+            return f"{FOLDER}/lib/drive/install.py\n"
         if verb[:2] == ["rev-list", "--count"]:
             return "0\n" if verb[-1].removeprefix("^") in self.holding else "4\n"
         return ""
@@ -828,3 +836,67 @@ def test_a_plugin_whose_sibling_release_is_not_out_waits_for_it_and_installs_not
     ]
     assert git.sleeps == [20, 20]
     assert ["claude", "plugin", "update", "long-running@skills", "--scope", "user"] not in git.calls
+
+
+def proving(config: Path, tmp_path: Path, git: FakeGit, exits: int) -> Path:
+    (config / "m" / ".claude-plugin").mkdir(parents=True)
+    listed = [{"name": "long-running", "source": FOLDER}, {"name": "cc-context", "source": "plugins/cc-context"}]
+    (config / "m" / ".claude-plugin" / "marketplace.json").write_text(json.dumps({"plugins": listed}))
+    script = tmp_path / "proof.sh"
+    script.write_text(f'#!/bin/sh\necho "ran on ${{PATH%%:*}}"\nexit {exits}\n')
+    script.chmod(0o755)
+    git.proofs.add(str(script))
+    start_drive("demo", coordinator=None)
+    with state.edit("demo") as data:
+        part = "Drive tooling: prove each install"
+        data["orders"]["o1"] = state.new_order(part, "slack", None, None, {part: state.new_part()}, state.stamp()) | {"jobs": ["j1"]}
+        data["jobs"]["j1"] = state.new_job("o1", "builder", "prove", [part], state.stamp()) | {"state": "waiting", "said": f"PUSHED {URL}", "prs": [URL], "repro": str(script)}
+        data["prs"]["yasyf/cc-skills#7"] = state.new_pr(URL, "j1", "o1") | {"state": "merged", "merged_sha": SHA, "title": "Fix: prove each install"}
+    return script
+
+
+def proof_events() -> list[tuple[str, str]]:
+    return [(f"{event['repo']}#{event['number']}", event["change"]) for event, _ in state.read_events("demo") if event["kind"] == "proof"]
+
+
+def test_an_install_holding_a_merge_runs_its_jobs_proof_file_on_it_takes_done_and_sends_the_close_report(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
+) -> None:
+    git = fake([BUILD], {BUILD})
+    script = proving(config, tmp_path, git, 0)
+    assert install.main("long-running@skills", None, None, 900, None) == 0
+    kept = state.report_path("demo", "j1").with_suffix(".proof.txt")
+    proven = f"{install.PROVEN} on long-running@skills 1.0.3: {script} exits 0, its output {kept}; its close report of o1 went to the communicator"
+    assert capsys.readouterr().out.splitlines()[-1] == f"demo j1: {proven}"
+    assert kept.read_text() == "ran on /cache/long-running/1.0.3/bin\n"
+    data = state.load("demo")
+    assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["said"]) == ("done", f"DONE {URL} live: {script} exits 0 on long-running@skills 1.0.3")
+    assert data["orders"]["o1"]["proof"] == str(kept)
+    [post] = [call for call in git.other_calls() if call[:2] == ["cci", "post"]]
+    assert post[post.index("--attr") : post.index("--body-file")] == ["--attr", "close=o1"]
+    assert (post[post.index("--lane") + 1], post[-1]) == ("watch", "POST Fix: prove each install is live in long-running@skills 1.0.3")
+    assert proof_events() == [("yasyf/cc-skills#7", proven)]
+
+
+def test_an_installed_merge_whose_proof_file_fails_takes_blocked_and_closes_nothing(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
+) -> None:
+    git = fake([BUILD], {BUILD})
+    script = proving(config, tmp_path, git, 1)
+    assert install.main("long-running@skills", None, None, 900, None) == 0
+    blocked = f"BLOCKED {URL}: {script} exits 1 on long-running@skills 1.0.3: ran on /cache/long-running/1.0.3/bin"
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["state"], job["said"]) == ("failed", blocked)
+    assert state.load("demo")["orders"]["o1"]["proof"] is None
+    assert not [call for call in git.other_calls() if call[0] == "cci"]
+    assert proof_events() == [("yasyf/cc-skills#7", f"drive install's proof failed: {blocked.removeprefix('BLOCKED ')}")]
+
+
+@pytest.mark.parametrize(("key", "holding"), [("long-running@skills", set()), ("codex@skills", {BUILD})])
+def test_an_install_short_of_a_merge_or_of_a_plugin_it_leaves_alone_proves_nothing(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], key: str, holding: set[str]
+) -> None:
+    git = fake([BUILD], holding)
+    proving(config, tmp_path, git, 0)
+    assert install.main(key, None, None, 900, None) == 0
+    assert (state.load("demo")["jobs"]["j1"]["state"], proof_events()) == ("waiting", [])

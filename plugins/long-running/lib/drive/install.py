@@ -36,6 +36,8 @@ HELPER_ASKED = "Captain-hook update, your Mac: install {release} now? It restart
 INSTALL_NOW = "Install now"
 EVERY_INSTALL = "Installs never need me"
 HELPER_OPTIONS = f"{INSTALL_NOW} (recommended), {EVERY_INSTALL} and Not now"
+PROVEN = "proven live by drive install"
+SAID_CHARS = 300
 
 
 class InstallError(Exception):
@@ -399,6 +401,104 @@ def install(key: str, sha: str | None, repo: str | None, deadline: float, timeou
     return entry["version"]
 
 
+def proved(key: str, repo: str | None, deadline: float) -> list[str]:
+    """Prove each fix the install of key made live, with no session turn: each builder of every drive still waiting on its READY or PUSHED with a kept proof file, whose PRs the drive saw merge into the plugin's repo, once the newest install of every plugin its merges change holds them, key among them; a line for each."""
+    if not (repo := repo or source_repo(known_marketplaces()[key.partition("@")[2]]["source"])):
+        return []
+    if not (due := [(name, job_id) for name in state.names() for job_id in provable(state.load(name), repo)]):
+        return []
+    with tempfile.TemporaryDirectory(prefix="drive-install-") as clone:
+        bare_clone(clone, repo, deadline)
+        return [line for name, job_id in due if (line := prove(name, job_id, key, repo, clone, deadline))]
+
+
+def provable(data: dict, repo: str) -> list[str]:
+    return [
+        job_id
+        for job_id, job in data["jobs"].items()
+        if job["kind"] == "builder"
+        and job["state"] == "waiting"
+        and state.REPORTED_LINE.match(job["said"] or "")
+        and job.get("repro")
+        and os.access(job["repro"], os.X_OK)
+        and job["prs"]
+        and all(state.pr_key(url).partition("#")[0].lower() == repo.lower() and data["prs"][state.pr_key(url)]["merged_sha"] for url in job["prs"])
+    ]
+
+
+def prove(name: str, job_id: str, key: str, repo: str, clone: str, deadline: float) -> str | None:
+    """Run the job's kept proof file with the bin folder of each plugin its merges change first on PATH, keep its output beside the job's report, take DONE on exit 0 and BLOCKED otherwise, and send the close report when DONE leaves its order nothing to do, each said on its PRs' lines; nothing while an install another plugin needs is still to come, or after another install took the job's result first."""
+    data = state.load(name)
+    job = data["jobs"][job_id]
+    merges = {state.pr_key(url): data["prs"][state.pr_key(url)]["merged_sha"] for url in job["prs"]}
+    git(clone, *FETCH, *merges.values(), deadline=deadline)
+    changes = {pr: touched(repo, git(clone, "diff-tree", "-r", "--name-only", f"{sha}^", sha, deadline=deadline).splitlines()) for pr, sha in merges.items()}
+    if key not in {plugin for plugins in changes.values() for plugin in plugins}:
+        return None
+    builds = {plugin: installed(plugin) for plugins in changes.values() for plugin in plugins}
+    git(clone, *FETCH, *{build["gitCommitSha"] for build in builds.values()}, deadline=deadline)
+    if not all(holds(clone, builds[plugin]["gitCommitSha"], merges[pr], deadline) for pr, plugins in changes.items() for plugin in plugins):
+        return None
+    path = os.pathsep.join([*(str(Path(build["installPath"]) / "bin") for build in builds.values()), os.environ.get("PATH", "")])
+    try:
+        done = subprocess.run([job["repro"]], check=False, capture_output=True, text=True, timeout=max(deadline - clock(), 0.001), env=os.environ | {"PATH": path})
+        code, output = done.returncode, done.stdout + done.stderr
+    except subprocess.TimeoutExpired as expired:
+        code, output = "past drive install's deadline", f"{expired.stdout or ''}{expired.stderr or ''}"
+    except OSError as error:
+        code, output = f"unrun ({error})", ""
+    kept = state.report_path(name, job_id).with_suffix(".proof.txt")
+    kept.parent.mkdir(exist_ok=True)
+    kept.write_text(output)
+    versions = ", ".join(f"{plugin} {build['version']}" for plugin, build in builds.items())
+    urls = " ".join(job["prs"])
+    tail = next((line.strip() for line in reversed(output.splitlines()) if line.strip()), "no output")
+    line = f"DONE {urls} live: {job['repro']} exits 0 on {versions}" if code == 0 else f"BLOCKED {urls}: {job['repro']} exits {code} on {versions}: {tail[:SAID_CHARS]}"
+    from drive import brief, cli
+
+    with state.edit(name) as data:
+        job, order = data["jobs"][job_id], data["orders"][data["jobs"][job_id]["order"]]
+        if job["state"] != "waiting" or not state.REPORTED_LINE.match(job["said"] or ""):
+            return None
+        seen = [found for found in brief.proofs(output) if brief.SEEN_PROOF.search(found)]
+        whole = f"{line}\nPR: {urls}\nCHECK: {' '.join([str(kept), *seen])}\n"
+        state.keep_report(name, job_id, job, line, whole)
+        state.take_result(data, job_id, line, whole)
+        unseen = cli.surface(data, order) if not seen else None
+        closes = code == 0 and not unseen and all(state.delivered(data, job["order"], part) for part in order["parts"])
+        closes = closes and all(data["jobs"][other]["state"] in state.FINISHED_JOB_STATES for other in order["jobs"])
+        if closes:
+            order["proof"] = " ".join([str(kept), *seen])
+        cwd, order_id, lane, thread = data["roles"]["coordinator"]["cwd"], job["order"], state.heard_lane(data, job["order"]), order["thread"]
+        title = "; ".join(data["prs"][pr]["title"] for pr in merges)
+    change = f"{PROVEN} on {versions}: {job['repro']} exits 0, its output {kept}"
+    if code:
+        change = f"drive install's proof failed: {line.removeprefix('BLOCKED ')}"
+    elif unseen:
+        change = f"drive install's proof passed on {versions}, but he sees this on {unseen}: prove it there with a recording or the live post, then send the close report"
+    if closes:
+        change = closed(name, order_id, title, urls, versions, change, thread, cwd, deadline)
+    for pr in merges:
+        merged_in, number = pr.split("#")
+        state.append_event(name, "proof", repo=merged_in, number=int(number), change=change, lane=lane)
+    return f"{name} {job_id}: {change}"
+
+
+def closed(name: str, order_id: str, title: str, urls: str, versions: str, change: str, thread: str | None, cwd: str, deadline: float) -> str:
+    """Send the communicator the report whose post closes the order its proven job finishes, as a builder's DONE gets; the proof line, naming a post that failed."""
+    facts = f"Fixed: {title}, {urls}\nLive: {versions}\nProof: {change}\n"
+    with tempfile.NamedTemporaryFile("w", suffix=".md") as body:
+        body.write(facts)
+        body.flush()
+        argv = ["cci", "post", "--drive", name, "--lane", "watch", "--kind", "report", "--to", f"communicator@{name}", "--topic", f"install-proved-{order_id}"]
+        argv += ["--attr", f"close={order_id}", *(["--attr", f"thread={thread}"] if thread else []), "--body-file", body.name, "--text", f"POST {title} is live in {versions}"]
+        try:
+            run(argv, deadline, cwd)
+        except InstallError as error:
+            return f"drive install proved it, but its close report of {order_id} did not post, so send it by the builder DONE row: {error}"
+    return f"{change}; its close report of {order_id} went to the communicator"
+
+
 def reload_session(drive: str, seat: str, version: str, updated: datetime, deadline: float) -> str:
     """Type /reload-plugins into one drive session's Orca terminal once it is idle, or after RELOAD_WAIT_SECONDS into its busy prompt, which loads an install's skills, agents and new hooks with nothing restarted, unless another install sent it one after this install's update, which loaded this one too. A seat is a role, or `sub-coordinator <project>`."""
     from drive import orca
@@ -457,7 +557,7 @@ def reload_main() -> int:
 
 
 def main(plugin_at_marketplace: str, sha: str | None, repo: str | None, timeout: int, drive: str | None) -> int:
-    """Wait for a release holding sha, its commit and each binary it pins, bring each sibling its manifest there needs up to that release first, Captain Hook.app only once he tapped Install now on the drive's card for it, update the plugin and its Homebrew twin until the bare binary holds sha, print the installed version, then reload every drive session on this Mac; each drive's dashboard hands itself to the new install on its own."""
+    """Wait for a release holding sha, its commit and each binary it pins, bring each sibling its manifest there needs up to that release first, Captain Hook.app only once he tapped Install now on the drive's card for it, update the plugin and its Homebrew twin until the bare binary holds sha, print the installed version, reload every drive session on this Mac, and prove each fix the install made live; each drive's dashboard hands itself to the new install on its own."""
     deadline = clock() + timeout
     try:
         version = install(plugin_at_marketplace, sha, repo, deadline, timeout, drive)
@@ -467,5 +567,12 @@ def main(plugin_at_marketplace: str, sha: str | None, repo: str | None, timeout:
     updated = state.now()
     print(f"installed {plugin_at_marketplace} {version}")
     for line in reload_sessions(version, updated, deadline):
+        print(line)
+    try:
+        lines = proved(plugin_at_marketplace, repo, deadline)
+    except InstallError as error:
+        print(f"drive install: installed, but its proof of the fixes it made live failed: {error}", file=sys.stderr)
+        return 1
+    for line in lines:
         print(line)
     return 0

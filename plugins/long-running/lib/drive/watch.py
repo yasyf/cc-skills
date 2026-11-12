@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Self
 
 from drive import agents, codex, dashboard, github, land, limits, orca, page, reads, render, served, slack, state, superseded, view
-from drive.install import config_dir, upgraded
+from drive.install import PROVEN, config_dir, upgraded
 from drive.render import cut, subscribe, when
 
 POLL_SECONDS = 5
@@ -67,7 +67,7 @@ STUCK_WORDS = {
     "landing": "green, approved and exempt, and not landed",
 }
 ABOUT = re.compile(r"\[(?P<order>o\d+) (?P<job>j\d+)\]$|^(?:FREE (?:\S+ )?j\d+|ORPHAN|DUE(?: j\d+)?|LIVE|TELL|JOB j\d+|LANE j\d+|STUCK j\d+) (?P<named>o\d+)\b")
-OWN_MOVES = ("new head", "checks passed", "approved", land.QUEUED, land.UPDATED, served.CHECKED)
+OWN_MOVES = ("new head", "checks passed", "approved", land.QUEUED, land.UPDATED, served.CHECKED, PROVEN)
 
 
 @dataclass
@@ -766,6 +766,7 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
         watcher.failures.pop(source, None)
     refusals, asks, unkept, said = keep_asks(watcher, data, lanes, messages, kept, moment)
     lines += said + add_lane_prs(watcher, data, lanes, messages, kept)
+    reported = set()
     if messages:
         with state.edit(watcher.name) as data:
             heard = lane_handles(watcher, data)
@@ -782,6 +783,9 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     continue
                 track_lane_prs(data, job_id, message["body"] or "")
                 lines.append(mail_line(watcher.name, data, job_id, message, moment, asks.get(message["id"]), unkept.get(message["id"])))
+                if message["type"] in ("worker_done", "question"):
+                    reported.add(job_id)
+    lines += merge_lane_prs(watcher, reported)
     return [line for line in lines + read_lines(watcher, data, moment) if line]
 
 
@@ -856,7 +860,7 @@ def sender(lanes: dict[str, dict[str | None, str]], run: str, message: dict) -> 
 
 
 def add_lane_prs(watcher: Watcher, data: dict, lanes: dict[str, dict[str | None, str]], messages: list[tuple[str, dict]], kept: Callable[[str], set[str]]) -> list[str]:
-    """Register each PR the drive does not track yet that a remote lane's new mail names, through `drive pr add`'s own add_pr, before its line is taken so its result waits on it: a yasyf/* one starts the lander that merges it and installs what it changes, as it does for a PR built on this Mac. A refusal, a failed read or a lander that does not start is the lane's JOB line, naming why."""
+    """Register each PR the drive does not track yet that a remote lane's new mail names, through `drive pr add`'s own add_pr, before its line is taken so its result waits on it. A refusal or a failed read is the lane's JOB line, naming why."""
     from drive import cli
 
     lines, tracked = [], set(data["prs"])
@@ -870,13 +874,23 @@ def add_lane_prs(watcher: Watcher, data: dict, lanes: dict[str, dict[str | None,
             tracked.add(key)
             url, order = state.pr_url(key), data["jobs"][job_id]["order"]
             try:
-                merging = cli.add_pr(watcher.name, key, job_id, cli.github_pr(key))[1]
+                cli.add_pr(watcher.name, key, job_id, cli.github_pr(key))
             except (state.DriveError, github.GithubError) as error:
                 lines.append(f"JOB {job_id} {order} PR {url}: the watch's drive pr add {url} --job {job_id} failed: {error}")
-                continue
-            if merging and merging.startswith(land.NOT_MERGING):
-                lines.append(f"JOB {job_id} {order} PR {url}: {merging}")
     return lines
+
+
+def merge_lane_prs(watcher: Watcher, job_ids: set[str]) -> list[str]:
+    """Start the lander on each yasyf/* PR the reports taken from these lanes name, as `drive job report` does on this Mac, once their proof files are kept; a lander that does not start is the lane's JOB line, naming why."""
+    from drive import cli
+
+    data = state.load(watcher.name)
+    return [
+        f"JOB {job_id} {data['jobs'][job_id]['order']} PR {state.pr_url(key)}: {said}"
+        for job_id in sorted(job_ids)
+        for key, said in cli.merge_reported(watcher.name, job_id)
+        if said.startswith(land.NOT_MERGING)
+    ]
 
 
 def track_lane_prs(data: dict, job_id: str, body: str) -> None:
@@ -967,7 +981,7 @@ def event_line(event: dict, prs: dict) -> str:
     suffix = f" {ids(prs[key])}" if key in prs else ""
     if event["kind"] == "tap":
         return f"TAP {event['label']} {key}{suffix}"
-    if event["kind"] in ("landing", "check"):
+    if event["kind"] in ("landing", "check", "proof"):
         return f"PR {key}: {event['change']}{suffix}"
     details = " ".join(f"{name}={value}" for name, value in event.items() if name not in ("kind", "at", "lane"))
     return f"EVENT {event['kind']} {details}".rstrip() + suffix
@@ -1761,7 +1775,7 @@ def holder_line(line: str, data: dict) -> str | None:
 
 
 def needs_step(line: str, data: dict) -> bool:
-    """Whether a line asks for a step now: any line but a PR's, his Approve of a PR the drive's lander queues only when it is red or conflicts with its base, and a PR's when its job is not running to take it, its new head, checks passed, approval or queueing only when the coordinator owes it its exempt landing, which the drive's lander does for a Forge-AI/monorepo one; never his card itself, which the watch draws, nor its landing after his Approve, which the lander does, nor GitHub's merged line for a PR the lander merges and says so itself, nor when its author or its own builder lands it."""
+    """Whether a line asks for a step now: any line but a PR's, his Approve of a PR the drive's lander queues only when it is red or conflicts with its base, and a PR's when its job is not running to take it, its new head, checks passed, approval or queueing only when the coordinator owes it its exempt landing, which the drive's lander does for a Forge-AI/monorepo one; never his card itself, which the watch draws, nor its landing after his Approve, which the lander does, nor GitHub's merged line for a PR the lander merges and says so itself, nor the lander's merged line on a job its drive install already proved, whose proof line says so, nor when its author or its own builder lands it."""
     if (tapped := TAP_EVENT.match(line)) and tapped["label"] == "Approve" and state.queued_by_lander(tapped["key"]):
         pr = data["prs"].get(tapped["key"])
         return pr is None or pr["checks"] == "fail" or bool(pr["conflict"])
@@ -1770,6 +1784,8 @@ def needs_step(line: str, data: dict) -> bool:
         return not line.startswith("PR ")
     pr = data["prs"][found["key"]]
     if found["change"] == "merged" and land.reported(found["key"], pr):
+        return False
+    if found["change"].startswith("merged at") and data["jobs"][found["job"]]["state"] in state.FINISHED_JOB_STATES:
         return False
     owes = state.owed_step(pr) == "landing" and not state.queued_by_lander(found["key"])
     return data["jobs"][found["job"]]["state"] != "running" and (owes or not found["change"].startswith(OWN_MOVES))

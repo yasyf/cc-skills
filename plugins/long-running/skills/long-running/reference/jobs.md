@@ -196,9 +196,9 @@ question.
 
 - Each PR a lane's `READY`, `PUSHED` or `PR:` line links that the drive does not track is
   registered on that job by `drive pr add`'s own code, before its line is taken: it waits on his
-  tap by the same rule, and a `yasyf/*` one starts the lander that merges it and installs what it
-  changes. A refusal, a failed GitHub read or a lander that does not start is a `JOB … PR <url>:`
-  line naming why: fix what it names, then run `drive pr add <url> --job <j>`.
+  tap by the same rule, and once the line is taken a `yasyf/*` one starts the lander that merges it
+  and installs what it changes. A refusal, a failed GitHub read or a lander that does not start is a
+  `JOB … PR <url>:` line naming why: fix what it names, then run `drive pr add <url> --job <j>`.
 - The lane's Dispatch, from Orca: a lane that sat at its prompt for 30 minutes makes its parts
   `ORPHAN`s, and a lane whose worker died or whose Sprite's Orca environment is gone, running or
   waiting, is one `LANE … died` line.

@@ -169,7 +169,7 @@ def start(name: str, keys: list[str], cards: dict | None) -> list[tuple[str, ...
 
 
 def merge_ready(name: str, key: str, read: dict) -> str:
-    """Start the lander on a yasyf/* PR its builder registers, which merges it with --admin past its checks and installs what it changes, unless a lander already runs on it or it may not merge yet; what was started, or why not."""
+    """Start the lander on a yasyf/* PR a builder's taken READY or PUSHED names, which merges it with --admin past its checks and installs what it changes, unless a lander already runs on it or it may not merge yet; what was started, or why not."""
     why = unmergeable(key, read)
     with state.edit(name) as data:
         pr = data["prs"][key]
@@ -313,7 +313,7 @@ def ask_review(name: str, repo: str, heads: dict[str, str]) -> str | None:
 
 
 def merged(name: str, key: str) -> str:
-    """Merge a yasyf/* PR with --admin past its checks, by his rule for his own repositories, with gh itself since ccx's GitHub gateway refuses a merge, then install from its merge commit each plugin of this Mac it changes; what came of it."""
+    """Merge a yasyf/* PR with --admin past its checks, by his rule for his own repositories, with gh itself since ccx's GitHub gateway refuses a merge, record its merge commit on its row, then install from it each plugin of this Mac it changes, whose drive install proves the PR's job; what came of it."""
     repo, number = key.split("#")
     done = subprocess.run(["gh", "pr", "merge", number, "-R", repo, "--squash", "--admin"], capture_output=True, text=True)
     if done.returncode:
@@ -323,6 +323,8 @@ def merged(name: str, key: str) -> str:
         files = github.run(["gh", "api", "--paginate", f"repos/{repo}/pulls/{number}/files", "--jq", ".[].filename"]).splitlines()
     except github.GithubError as error:
         return f"merged, but its merge commit did not read, so nothing was installed: {cut(str(error), SAID_CHARS)}"
+    with state.edit(name) as data:
+        data["prs"][key]["merged_sha"] = sha
     plugins = install.touched(repo, files)
     if not plugins:
         return f"merged at {sha[:12]}; it changes no plugin installed on this Mac"

@@ -121,22 +121,28 @@ No tap and no green gate: by his standing rule a `yasyf/*` PR merges without ask
 "can merge past CI on personal repos and fix reds after the fact" it merges without waiting on CI.
 
 1. Ship with `ccx vcs ship` (jj in colocated repositories); the `open-pr` skill writes the body.
-2. Register it with `drive pr add <url> --job <j>`, which starts the drive's lander on it: a process
-   of its own, outliving your turn, that merges it with `gh pr merge <n> -R <repo> --squash --admin`,
-   whatever its checks show, then runs `drive install` from the merge sha for each plugin installed on
-   this Mac whose folder the merge changes, or that is its marketplace's only plugin. When GitHub
-   refuses the merge, as when `main` moved under it, the lander merges `main` into its branch with
-   `gh pr update-branch <n> -R <repo>`, its `PR … updated its branch onto its base` line waking no
-   one, and the watch starts the lander again on the new head within one GitHub read, 60 seconds.
-   The watch does the same for a head its builder pushes after a refusal, once GitHub reads it free
-   of conflicts, so nobody registers a rebased PR again. It writes its output to the drive's
-   `landings.log`, ending in one line of the PR's key and its outcome, such as
-   `yasyf/cc-skills#7: merged at <sha>; …`, and its outcome reaches the job's holder as one line,
-   `PR … merged at <sha>; <each install's version line>` or `PR … not landed: <why>`, which comes
-   only when `gh pr update-branch` cannot bring `main` in either, on a conflict git cannot merge.
-   `drive pr add` prints why it started none: a draft, the `hold` label, a lander already running on
-   it, or a base other than the default branch, so a stacked PR is registered again once the PR
-   below it merges. Read the checks once they finish and fix a red one forward in a follow-up PR.
+2. Register it with `drive pr add <url> --job <j>`. Taking the builder's `READY` or `PUSHED`, which
+   needs its proof file kept with `drive job set <j> --repro <file>`, starts the drive's lander on it:
+   a process of its own, outliving your turn, that merges it with `gh pr merge <n> -R <repo> --squash --admin`,
+   whatever its checks show, records the merge sha on the PR, then runs `drive install` from it for
+   each plugin installed on this Mac whose folder the merge changes, or that is its marketplace's only
+   plugin. When GitHub refuses the merge, as when `main` moved under it, the lander merges `main` into
+   its branch with `gh pr update-branch <n> -R <repo>`, its `PR … updated its branch onto its base`
+   line waking no one, and the watch starts the lander again on the new head within one GitHub read,
+   60 seconds. The watch does the same for a head its builder pushes after a refusal, once GitHub
+   reads it free of conflicts, so nobody registers a rebased PR again. Once the newest install of
+   each plugin the merge changes holds it, `drive install` runs the job's proof file with those
+   plugins' `bin/` first on `PATH`, keeps its output beside the job's report, takes `DONE` on exit 0
+   or `BLOCKED` otherwise, and on a `DONE` that finishes the order sends the communicator its close
+   report. The lander writes its output to the drive's `landings.log`, ending in one line of the PR's
+   key and its outcome, such as `yasyf/cc-skills#7: merged at <sha>; …`. Its outcome reaches the
+   job's holder as `PR … merged at <sha>; <each install's version line>` or `PR … not landed: <why>`,
+   which comes only when `gh pr update-branch` cannot bring `main` in either, on a conflict git
+   cannot merge, and the proof's as `PR … proven live by drive install …` or
+   `PR … drive install's proof failed: …`. The report's output, or `drive pr add` again, prints why
+   it started none: a draft, the `hold` label, a lander already running on it, or a base other than
+   the default branch, so a stacked PR is registered again once the PR below it merges.
+   Read the checks once they finish and fix a red one forward in a follow-up PR.
 3. Install by hand only what the lander does not, from the merge sha
    (`gh pr view <n> -R <repo> --json mergeCommit`):
    - A Claude Code plugin: `drive install <plugin>@<marketplace> --sha <merge sha>` (such as
