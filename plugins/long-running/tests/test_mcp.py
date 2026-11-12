@@ -44,6 +44,20 @@ def test_the_list_follows_the_newest_install_and_the_first_call_after_an_install
     assert ran[-1] == [newer, "mcp", "--list"]
 
 
+def as_claude_code_dials(server: dict, root: str) -> dict:
+    return {
+        "command": server["command"].replace("${CLAUDE_PLUGIN_ROOT}", root),
+        "args": [arg.replace("${CLAUDE_PLUGIN_ROOT}", root) for arg in server["args"]],
+        "env": {"CLAUDE_PLUGIN_ROOT": root, **server.get("env", {})},
+    }
+
+
+def test_a_release_leaves_the_server_config_reload_plugins_compares_unchanged() -> None:
+    server = json.loads((mcp.PLUGIN_ROOT / ".claude-plugin" / "plugin.json").read_text())["mcpServers"]["drive"]
+    cache = "/Users/someone/.claude/plugins/cache/skills/long-running"
+    assert as_claude_code_dials(server, f"{cache}/1.0.346") == as_claude_code_dials(server, f"{cache}/1.0.347")
+
+
 def test_an_unknown_method_is_an_error_and_a_notification_gets_no_reply() -> None:
     assert json.loads(answered({"jsonrpc": "2.0", "id": 3, "method": "resources/list"}))["error"]["code"] == -32601
     assert answered({"jsonrpc": "2.0", "method": "notifications/initialized"}) == ""
