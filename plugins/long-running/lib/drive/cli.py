@@ -54,7 +54,7 @@ TOLD_LINK = (
 HIDDEN = "not visible in Orca, which hides the worktrees it did not make for this repository"
 PAGES = Path(__file__).resolve().parents[2] / "skills" / "long-running" / "reference"
 MANIFEST = Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json"
-LAUNCHED = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+LAUNCHED = ("run", "dispatch", "task", "terminal", "workspace", "environment", "lane")
 MCP_TOOLS = ("say", "heard", "handler", "record", "order", "job", "pr", "incident", "status", "search_plan")
 
 
@@ -1667,14 +1667,10 @@ def job_launch(args: argparse.Namespace) -> int:
             job.update(agent=None, session=taker)
         if not job.get("agent"):
             job.update(where="remote", route=state.LOCAL_ROUTE if args.local else None, launching=state.stamp())
-    run = job.get("run") or orca.new_run(f"drive {name} {args.id}: {job['goal']}")
-    with state.edit(name) as data:
-        data["jobs"][args.id]["run"] = run
     kept = state.drive_dir(name) / "jobs" / f"{args.id}.md"
     kept.parent.mkdir(exist_ok=True)
-    kept.write_text(orca.vm_brief(name, args.id, text, job["route"]))
     try:
-        receipt = orca.launch(name, orca.lane_name(name, args.id), kept, root, run, job["route"])
+        receipt = launch_attempt(name, job, args.id, kept, orca.vm_brief(name, args.id, text, job["route"]), root)
     except orca.Unstarted:
         with state.edit(name) as data:
             data["jobs"][args.id]["launching"] = None
@@ -1684,6 +1680,14 @@ def job_launch(args: argparse.Namespace) -> int:
         job = data["jobs"][args.id]
         job.update(started, brief=str(kept), ask=None, report=None, state="running", updated=state.stamp())
     return emit(args, f"{args.id} started {orca.place(job)} as dispatch {started['dispatch']}", started)
+
+
+def launch_attempt(name: str, job: dict, attempt: str, kept: Path, brief: str, root: Path) -> dict:
+    """Launch one attempt of a job's lane on a Run this terminal makes, since Orca binds a Run only to the terminal that made it and the coordinator moves terminals; a try whose worker-start sent nothing keeps the brief it prepared its Sprite with, so this one reuses that Sprite."""
+    if not orca.unsent(kept):
+        kept.write_text(brief)
+    run = orca.new_run(f"drive {name} {attempt}: {job['goal']}")
+    return {**orca.launch(name, orca.lane_name(name, attempt), kept, root, run, job["route"]), "run": run}
 
 
 def bound(args: argparse.Namespace) -> int:
@@ -1756,7 +1760,7 @@ def hand_over(args: argparse.Namespace, name: str, data: dict, session: str) -> 
 
 
 def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEnd) -> int:
-    """Start the job's next worker with a handoff: in the terminal of a worker that finished while Orca holds it, on its Sprite or on this Mac, else on a fresh Sprite, or in a fresh worktree on this Mac, on the same Run; refused, changing nothing, while the dead lane's Sprite holds what a fresh one would not get or cannot be read, unless --leave-unpushed."""
+    """Start the job's next worker with a handoff: in the terminal of a worker that finished while Orca holds it, on its Sprite or on this Mac, on that worker's Run, else on a fresh Sprite, or in a fresh worktree on this Mac, on a Run this terminal makes; a try whose handoff its Sprite was prepared with gets the text as a message. Refused, changing nothing, while the dead lane's Sprite holds what a fresh one would not get or cannot be read, unless --leave-unpushed."""
     data = state.load(name)
     job = data["jobs"][args.id]
     root = None if end.worktree else checkout(data)
@@ -1773,21 +1777,22 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
     ended = job["deaths"][-1]
     attempt = f"{args.id}-{len(job['deaths']) + 1}"
     kept = state.drive_dir(name) / "jobs" / f"{attempt}.md"
-    taking_over = orca.handoff(orca.brief_of(Path(job["brief"]).read_text()), ended, job, args.text, end)
     kept.parent.mkdir(exist_ok=True)
-    kept.write_text(orca.vm_brief(name, args.id, taking_over, job["route"]))
-    lane = orca.lane_name(name, attempt)
+    brief = orca.vm_brief(name, args.id, orca.handoff(orca.brief_of(Path(job["brief"]).read_text()), ended, job, args.text, end), job["route"])
     was = orca.place(job)
     if end.worktree:
-        receipt = orca.start_after(name, lane, kept, job, end.worktree)
+        kept.write_text(brief)
+        receipt = orca.start_after(name, orca.lane_name(name, attempt), kept, job, end)
     else:
-        receipt = orca.launch(name, lane, kept, root, job["run"], job["route"])
+        receipt = launch_attempt(name, job, attempt, kept, brief, root)
     started = {field: receipt[field] for field in LAUNCHED}
     with state.edit(name) as data:
-        data["jobs"][args.id].update(
-            started, handoff=str(kept), ask=None, report=None, reads={}, undelivered=[], state="running", updated=state.stamp()
-        )
+        fresh = data["jobs"][args.id]
+        fresh.update(started, handoff=str(kept), ask=None, report=None, reads={}, undelivered=[], state="running", updated=state.stamp())
     carrying = "in a handoff carrying its brief, its branch, its last line, its report and its PRs"
+    if args.text.strip() not in kept.read_text():
+        orca.answer(name, fresh, args.text)
+        carrying = "after the handoff an earlier try prepared its Sprite with, sent to it as a message"
     local = state.on_mac(job)
     if end.worktree:
         line = (
