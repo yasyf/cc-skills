@@ -203,7 +203,7 @@ def test_an_answer_reaches_cc_slack_only_from_the_page_itself_for_a_card_still_w
     assert [(event["kind"], event["url"], event["label"], event["question"]) for event, _ in state.read_events("demo")] == [("answered", question, "Shard it", "Raise the limit?")]
 
 
-def test_an_answer_undone_while_held_never_reaches_cc_slack_and_history_keeps_the_undo_and_one_already_sent_cannot_be_undone(
+def test_an_answer_undone_while_held_never_reaches_cc_slack_and_history_keeps_the_undo_and_one_already_sent_reopens_its_card_through_cc_slack(
     state_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     state.create(state.new_drive("demo", "coordinator", "s1", "/work", "D1"))
@@ -211,8 +211,10 @@ def test_an_answer_undone_while_held_never_reaches_cc_slack_and_history_keeps_th
     board = dashboard.Board("demo", [])
     board.answers = {card: ["Approve", "Hold"]}
     board.revisions = {card: ("Fix: approve web search?", [])}
-    asked = []
-    monkeypatch.setattr(dashboard, "answer_card", lambda card, label, via: asked.append((card, label)) or {"answered": True, "label": label})
+    board.questions = {card}
+    asked, reopened = [], []
+    monkeypatch.setattr(dashboard, "answer_card", lambda card, label, via: asked.append((card, label)) or {"answered": True, "label": label, "undo_until": "2026-11-11T00:10:00Z"})
+    monkeypatch.setattr(dashboard, "cc_slack", lambda *args: reopened.append(args) or {})
     monkeypatch.setattr(dashboard.view, "refresh_cards", lambda name: None)
     monkeypatch.setattr(dashboard, "UNDO_SECONDS", 2)
     server, port = serving(board)
@@ -232,10 +234,27 @@ def test_an_answer_undone_while_held_never_reaches_cc_slack_and_history_keeps_th
     assert twice == (409, {"error": dashboard.HELD})
     assert undone == (200, {"undone": True})
     assert held["reply"] == (200, {"undone": True})
-    assert sent == (200, {"answered": True, "label": "Hold"})
-    assert late == (409, {"error": dashboard.SENT})
+    assert sent == (200, {"answered": True, "label": "Hold", "undo_until": "2026-11-11T00:10:00Z"})
+    assert late == (200, {"undone": True, "restored": True})
     assert asked == [(card, "Hold")]
-    assert [(event["kind"], event["label"], event["question"]) for event, _ in state.read_events("demo")] == [("undone", "Approve", "Fix: approve web search?")]
+    assert reopened == [("card-reopen", "--card", card)]
+    assert [(event["kind"], event["label"], event.get("undo_until")) for event, _ in state.read_events("demo")] == [
+        ("undone", "Approve", None),
+        ("answered", "Hold", "2026-11-11T00:10:00Z"),
+    ]
+
+
+def test_an_undo_cc_slack_refuses_says_why(monkeypatch: pytest.MonkeyPatch) -> None:
+    card = "https://acme.slack.com/archives/D1/p100"
+
+    def refused(*args: str) -> dict:
+        raise dashboard.DriveError(f"card {card} shows no answer to take back")
+
+    monkeypatch.setattr(dashboard, "cc_slack", refused)
+    server, port = serving(dashboard.Board("demo", []))
+    late = post(port, f"http://box:{port}", "/api/undo", {"card": card})
+    server.shutdown()
+    assert late == (409, {"error": f"card {card} shows no answer to take back"})
 
 
 def test_an_answer_held_while_its_card_is_drawn_again_for_another_pr_head_never_reaches_cc_slack(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -902,8 +921,8 @@ done(document.querySelector('#main .rail-note').innerText);
 """
     mouse = browse(tmp_path / "mouse", steps, board(queue=[QUESTION]), "1200,600", "--blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4")
     touch = browse(tmp_path / "touch", steps, board(queue=[QUESTION]), "390,844", "--blink-settings=primaryHoverType=1,availableHoverTypes=1,primaryPointerType=2,availablePointerTypes=2")
-    assert mouse == "Hover or focus a choice to read it here. An answer waits 10 seconds before it is sent, so Undo or ⌘Z takes it back."
-    assert touch == "Tap a choice to answer it. An answer waits 10 seconds before it is sent, so Undo takes it back."
+    assert mouse == "Hover or focus a choice to read it here. An answer is sent 10 seconds after you pick it. While its Undo shows, Undo or ⌘Z takes it back and asks it again."
+    assert touch == "Tap a choice to answer it. An answer is sent 10 seconds after you pick it. While its Undo shows, Undo takes it back and asks it again."
 
 
 def test_explain_more_is_a_button_that_cuts_the_summary_on_a_whole_line_and_shows_less_once_open(tmp_path: Path) -> None:
@@ -1289,6 +1308,109 @@ done({ tall: row.getBoundingClientRect().height, open: lightbox.open, kind: ligh
 """, board(history=[said]), "1440,900")
     assert seen["tall"] < 200
     assert {key: seen[key] for key in ("open", "kind", "caption")} == {"open": True, "kind": "mermaid", "caption": "the flow"}
+
+
+def test_a_tap_on_a_fact_shows_its_tip_until_a_second_tap_a_tap_elsewhere_or_a_scroll_and_a_mouse_gets_hover_back(tmp_path: Path) -> None:
+    seen = browse(tmp_path, """
+location.hash = '#/queue/all';
+await wait(100);
+const tip = document.querySelector('#srctip');
+const fact = () => document.querySelector('#main .fact[data-tip]');
+const open = () => tip.matches(':popover-open');
+const tap = async (el) => {
+  for (const kind of ['pointerover', 'pointerdown']) el.dispatchEvent(new PointerEvent(kind, { pointerType: 'touch', bubbles: true }));
+  el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+  el.focus();
+  el.click();
+  await wait(50);
+};
+await tap(fact());
+const opened = { open: open(), says: tip.textContent.startsWith('Waiting on you for') };
+await tap(fact());
+const again = open();
+await tap(fact());
+await tap(document.querySelector('#item-title'));
+const elsewhere = open();
+await tap(fact());
+window.dispatchEvent(new Event('scroll'));
+await wait(50);
+const scrolled = open();
+fact().dispatchEvent(new PointerEvent('pointerover', { pointerType: 'mouse', bubbles: true }));
+fact().dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+await wait(50);
+done({ opened, again, elsewhere, scrolled, hovered: open() });
+""", board(queue=[QUESTION | {"since": "2026-11-10T23:00:00-08:00"}]), "390,844")
+    assert seen == {"opened": {"open": True, "says": True}, "again": False, "elsewhere": False, "scrolled": False, "hovered": True}
+
+
+def test_on_a_phone_the_screens_sit_in_a_bottom_bar_every_target_is_a_thumb_wide_and_nothing_hides_under_the_bar(tmp_path: Path) -> None:
+    tap = {"kind": "tap", "url": "https://github.com/a/b/pull/7", "title": "fix the lock", "answer": None, "thread": None, "card": None, "since": None, "holds": 0, "blocks": []}
+    incidents = [{"id": "o1", "title": "ship the fix", "created": "2026-11-10T20:00:00-08:00"}]
+    looked = """
+location.hash = '#/queue/all';
+await wait(100);
+const box = (el) => el.getBoundingClientRect();
+const bar = box(document.querySelector('.side'));
+const tabs = [...document.querySelectorAll('.side .tab')].map(box);
+const targets = [...document.querySelectorAll('#main .counter button, .subtabs a, #main [data-prtab], #main .btn')];
+toast('card', { label: 'Raise it', title: 'Raise the limit?', state: 'sent', undoUntil: new Date(Date.now() + 600000).toISOString() });
+const shown = [...document.querySelectorAll('#toasts .toast :is(.btn, .toast-x)')];
+window.scrollTo(0, document.documentElement.scrollHeight);
+for (const slide of document.querySelector('#toasts .toast').getAnimations()) slide.finish();
+done({
+  bar: { bottom: Math.round(bar.bottom) === innerHeight, across: Math.round(bar.width) === innerWidth, row: new Set(tabs.map((tab) => Math.round(tab.top))).size },
+  small: [...targets, ...shown].filter((el) => box(el).height < 44 || box(el).width < 44).map((el) => el.textContent.trim()),
+  strip: new Set([...document.querySelectorAll('#alerts > *')].map((chip) => Math.round(box(chip).top))).size,
+  gutter: innerWidth - Math.round(box(document.querySelector('#main .focus-card')).width),
+  clear: { page: box(document.querySelector('#main').lastElementChild).bottom <= bar.top, toast: box(document.querySelector('#toasts .toast')).bottom <= bar.top },
+});
+"""
+    model = board(queue=[tap, QUESTION], incidents=incidents)
+    phone = browse(tmp_path / "phone", looked, model, "390,844")
+    desk = browse(tmp_path / "desk", looked, model, "1440,900")
+    assert phone == {"bar": {"bottom": True, "across": True, "row": 1}, "small": [], "strip": 1, "gutter": 32, "clear": {"page": True, "toast": True}}
+    assert desk["bar"] == {"bottom": True, "across": False, "row": 4}
+
+
+def test_an_answer_he_sent_comes_back_from_its_toast_or_its_history_line_while_cc_slack_shows_its_undo(state_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    second = "https://x.slack.com/archives/D1/p1794382453859300"
+    answered = {"at": "2026-11-10T23:59:30-08:00", "kind": "answered", "text": "Shard it?", "detail": "Shard it", "url": second, "feature": None, "undo_until": "2099-01-01T08:00:00Z"}
+    reopened = []
+    state.create(state.new_drive("demo", "coordinator", "s1", "/work", "D1"))
+    monkeypatch.setattr(dashboard, "answer_card", lambda card, label, via: {"answered": True, "label": label, "undo_until": "2099-01-01T08:00:00Z"})
+    monkeypatch.setattr(dashboard, "cc_slack", lambda *args: reopened.append(args[-1]) or {})
+    monkeypatch.setattr(dashboard.view, "refresh_cards", lambda name: None)
+    monkeypatch.setattr(dashboard, "UNDO_SECONDS", 0)
+    seen = browse(tmp_path, """
+location.hash = '#/queue/all';
+await wait(100);
+const last = () => {
+  const shown = [...document.querySelectorAll('#toasts .toast')].at(-1);
+  return { about: shown.querySelector('span').textContent, said: shown.querySelector('.meta').textContent, acts: [...shown.querySelectorAll('a, button')].map((act) => act.textContent) };
+};
+document.querySelector('#main button[data-label="Shard it"]').click();
+await wait(300);
+const sent = { ...last(), choices: document.querySelectorAll('#main button[data-card]').length };
+document.querySelector('#toasts [data-undo]').click();
+await wait(300);
+const restored = { ...last(), banner: document.querySelector('#main .restored')?.textContent, choices: document.querySelectorAll('#main button[data-card]').length, hash: location.hash };
+location.hash = '#/history';
+await wait(100);
+document.querySelector('#main .happened[data-kind="answered"] [data-undo]').click();
+await wait(300);
+done({ sent, restored, history: { ...last(), hash: location.hash } });
+""", board(queue=[QUESTION], history=[answered]))
+    assert seen == {
+        "sent": {"about": "Shard it · Raise the limit?", "said": "Sent. Undo until 12:00 AM", "acts": ["Undo", "×"], "choices": 0},
+        "restored": {
+            "about": "Shard it · Raise the limit?", "said": "Restored. This is being asked again.", "acts": ["Open it", "×"],
+            "banner": "Restored. This is being asked again.", "choices": 2, "hash": "#/queue/all/1794382453.859209",
+        },
+        "history": {"about": "Shard it · Shard it?", "said": "Restored. This is being asked again.", "acts": ["Open it", "×"], "hash": "#/history"},
+    }
+    assert reopened == [QUESTION["answer"], second]
+    assert [(event["kind"], event["undo_until"]) for event, _ in state.read_events("demo")] == [("answered", "2099-01-01T08:00:00Z")]
+
 
 VISITS = ["#/queue/all", "#/now", "#/now/Platform/SandSQL/o1", "#/feature/o1", "#/work", "#/work/Platform/SandSQL", "#/history", "#/history/2026-11-09"]
 VISITED = f"""

@@ -51,7 +51,6 @@ REPO_FILE = re.compile(r"[\w.@-]+(?:/[\w.@-]+)+")
 NOT_OWNER = "only the drive's owner can do this, and this device is not signed in to the tailnet as him"
 GONE = "this card no longer waits on that answer"
 HELD = "an answer to this card is already being sent"
-SENT = "too late: that answer was already sent"
 UNDO_SECONDS = 10
 ELSEWHERE = "that is not a card thread of this drive"
 REDRAWN = "the card was drawn again while your answer was held, so nothing was sent; read it again and answer it as it stands"
@@ -489,18 +488,25 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 self.answered(502, {"error": str(error)})
                 return
             if card in board.questions:
-                state.append_event(board.name, "answered", url=card, label=asked["label"], question=shown[0])
+                state.append_event(board.name, "answered", url=card, label=asked["label"], question=shown[0], undo_until=said.get("undo_until"))
             view.refresh_cards(board.name)
             self.answered(200, said)
 
         def undo(self, card: str) -> None:
+            """Take back his answer: one still held never leaves, and one already sent reopens its card in Slack and the queue while cc-slack still shows its Undo, whose card request History keeps as his undo."""
             with board.holding:
                 undone = board.held.pop(card, None)
-            if not undone:
-                self.answered(409, {"error": SENT})
+            if undone:
+                undone.set()
+                self.answered(200, {"undone": True})
                 return
-            undone.set()
-            self.answered(200, {"undone": True})
+            try:
+                cc_slack("card-reopen", "--card", card)
+            except (DriveError, subprocess.TimeoutExpired) as error:
+                self.answered(409, {"error": str(error)})
+                return
+            view.refresh_cards(board.name)
+            self.answered(200, {"undone": True, "restored": True})
 
         def say(self, typed: dict) -> None:
             text, under = typed["text"].strip(), typed["under"]
