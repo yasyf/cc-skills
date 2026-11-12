@@ -1506,12 +1506,27 @@ def unstarted(job: dict) -> bool:
 
 
 def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: datetime) -> str | None:
-    """Why a part of the order has no one carrying it, None when it is carried, delivered or waits on something named: a change a design lists waits on each earlier change it builds on, and on his pick while the order asks for options only; a job on the order's immediate fix part carries the order's other parts too until it is done."""
+    """Why a part of the order has no one carrying it, None when it is carried, delivered or waits on something named: a change a design lists waits on each earlier change it builds on, and on his pick while the order asks for options only; a job on the order's immediate fix part carries the order's other parts too until it is done; an open incident's fix is carried only by a live job, an open PR of a job on it, a builder that returned DONE or a release that shipped it, never by a post, so once its jobs end otherwise the gap says it has no fix job and names the second one to start at once."""
     order = data["orders"][order_id]
     jobs = state.part_jobs(data, order_id, part)
     gaps = [job_gap(watcher, job_id, job, data, moment) for job_id, job in jobs]
     if stuck := [gap for (_, job), gap in zip(jobs, gaps, strict=True) if gap and (job["state"] == "running" or job["state"] == "waiting" and job.get("ask"))]:
         return stuck[-1]
+    if (
+        jobs
+        and part == state.INCIDENT_FIX
+        and state.open_incidents(data, [order_id])
+        and not order["fixed"]
+        and not any(
+            job["state"] not in state.FINISHED_JOB_STATES or job["state"] == "done" and job["kind"] == "builder" or job_id in {pr["job"] for pr in state.open_prs(data)}
+            for job_id, job in jobs
+        )
+    ):
+        last, job = jobs[-1]
+        return (
+            f"no fix job: {last} ended {job['state']} with no open PR; start the second fix job now, an Opus 5.5 long-running:builder on {last}'s brief:"
+            f" drive job add builder --order {order_id} --part {state.INCIDENT_FIX} --goal {shlex.quote(job['goal'])} (incidents: Clocks)"
+        )
     if state.delivered(data, order_id, part):
         return None
     if part != state.IMMEDIATE_FIX and any(job["state"] in ("running", "waiting", "built") for _, job in state.part_jobs(data, order_id, state.IMMEDIATE_FIX)):
