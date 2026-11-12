@@ -19,8 +19,7 @@ Contents:
   `drive job brief <j> --serves "drive tooling"` writes that brief: from then on only the meta
   session starts its agents and posts its reports, and the watch sends it the order's lines. The
   coordinator starts no agent on it and sends `meta@<drive>` a `defect` record naming the job and its
-  `Read your brief first:` line. A drive with no meta session bound gives all of this to the
-  communicator, as before the meta session existed.
+  `Read your brief first:` line.
 - At most eight builders run on this Mac at once: each agent here still in its turn, and each Orca
   worker started here with `drive job launch --local` while it launches or runs. An agent that ended
   its turn, on a result line or a question, does not count, nor does a launch that started no worker

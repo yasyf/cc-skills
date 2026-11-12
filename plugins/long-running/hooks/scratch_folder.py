@@ -21,15 +21,15 @@ def named_job(payload: dict) -> tuple[str, dict, str, str] | None:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive session may not start this agent: the job its brief names is on an order another session of the drive holds, which for a builder serving drive tooling started by the session holding drive tooling names the brief that gives it the order, or its brief lacks what the job's kind needs."""
+    """Why a drive session may not start this agent: the job its brief names is on an order another session of the drive holds, which for a builder serving drive tooling started by the meta session names the brief that gives it the order, or its brief lacks what the job's kind needs."""
     if (named := named_job(payload)) is None:
         return None
     name, data, job_id, text = named
     order_id = data["jobs"][job_id]["order"]
     role = state.session_role(data, payload["session_id"])
     held = state.held_elsewhere(data, order_id, role)
-    if held and role == (holder := state.tooling_holder(data)) and brief.SERVES_TOOLING.search(text):
-        held = f"{order_id} is the {state.title(data['orders'][order_id]['owner'])}'s order, but a builder serving drive tooling is the {state.title(holder)}'s alone: {brief.gives_tooling(job_id, order_id, holder)}, then start it again"
+    if held and role == "meta" and brief.SERVES_TOOLING.search(text):
+        held = f"{order_id} is the {state.title(data['orders'][order_id]['owner'])}'s order, but a builder serving drive tooling is the meta session's alone: {brief.gives_tooling(job_id, order_id)}, then start it again"
     refused = held or brief.brief_refusal(name, data, job_id, text)
     return f"refused, no agent started: {refused}" if refused else None
 

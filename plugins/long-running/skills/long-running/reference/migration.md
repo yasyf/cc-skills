@@ -49,21 +49,17 @@ communicator.
 
 ## Add a meta session
 
-A drive started before the meta session existed keeps drive tooling with the communicator, and
-reads `meta: not started` in `drive status`, until one binds.
+Every drive runs a meta session beside the communicator and the coordinator. One started before the
+meta session existed reads `meta: not started` in `drive status`, and its `Drive tooling:` orders
+are the meta session's already, whoever held them before.
 
-1. Start the meta session in its own Orca terminal with its command in [Start or resume](start.md),
-   whose prompt runs that page's steps.
-2. Its `drive start <name> --role meta` takes every open drive tooling order the communicator held,
-   his read-only questions aside, and names them. From then on the `record` tool and the post hooks
-   send each `defect` record and each `owner` record carrying a `ruling` attr to `meta@<drive>`,
-   `drive order add` gives it each new `Drive tooling:` order, and the watch hands it those orders'
-   lines.
-3. A tooling agent the communicator started before still returns to the communicator, whose handler
-   hands its result to the meta session as a `handoff` record carrying `--attr job=<j>`; the meta
-   session acts on it as on its own agent's.
-4. Check it: `drive status` reads `meta: session <id>`, and the communicator's block no longer says
-   drive tooling is its own.
+1. Run `drive start <name> --role <its role>` again in the communicator's or the coordinator's
+   session: while no meta session is bound, it opens one in an Orca terminal of its own with the
+   command in [Start or resume](start.md), whose prompt binds it with `drive start <name> --role meta`.
+   Run that command yourself only when the start printed that the meta session did not start.
+2. From the moment it binds, the `record` tool and the post hooks send it each `defect` record and
+   each `owner` record about the drive, and the watch hands it its orders' lines.
+3. Check it: `drive status` reads `meta: session <id>`.
 
 ## Into an Orca terminal
 

@@ -76,6 +76,15 @@ RECORD = {
         },
         "undone": {"type": "boolean", "description": "an Undo tap: attr undone=<text> and the text undone: <text>"},
         "ruling": {"type": "string", "description": "a ruling's cc-notes answer id, as attr ruling"},
+        "about": {
+            "enum": list(state.ABOUTS),
+            "description": (
+                f'required on an owner record, as attr about: "{state.ABOUT_DRIVE}" for drive tooling, {state.DRIVE_TOOLING},'
+                " his ruling or feedback on any of it included, which reaches the meta session alone whatever lane to names;"
+                f' "{state.ABOUT_HIS_WORK}" for everything else, his product orders and the code they change, which reaches'
+                " the coordinator session hearing its order"
+            ),
+        },
         "re": {"type": "array", "items": TEXT, "description": "seqs this answers, when no waits id names one"},
         "resolves": {"type": "array", "items": TEXT, "description": "seqs this closes"},
         "topic": {"type": "string", "description": "a pairing key, such as card:<thread_ts> for a card with no ask record"},
@@ -83,9 +92,9 @@ RECORD = {
             "type": "string",
             "description": (
                 "the lane it goes to in place of the default, the coordinator's from the communicator and the communicator's"
-                " from any other session; a defect goes to the session holding drive tooling, the meta session once one is"
-                " bound, and the communicator's owner or answer record to the session hearing the order of the job it"
-                " answers, else of its thread's newest order, whatever lane this names"
+                " from any other session; a defect goes to the meta session, the communicator's owner record about the drive"
+                " to the meta session alone, and its other owner or answer record to the session hearing the order of the job"
+                " it answers, else of its thread's newest order, whatever lane this names"
             ),
         },
         "attrs": {"type": "object", "additionalProperties": TEXT},
@@ -128,9 +137,10 @@ def verb_tools() -> list[dict]:
             "name": "record",
             "description": (
                 "Send his words (owner), his answer to a card (answer) or a tool's refusal (defect) to another session of"
-                " the drive in one call, as this session's role, a handler's included: a defect reaches the meta session, or"
-                " the communicator while none is bound, and an owner record carrying a ruling reaches the meta session beside"
-                " the coordinator. A question card he answered takes waits, which fills re with the ask's seq and attr job; an"
+                " the drive in one call, as this session's role, a handler's included: a defect reaches the meta session, and"
+                " an owner record names about, refused without it: the drive's owner record about the drive, a ruling on how"
+                " it works included, reaches the meta session alone, and one about his work the coordinator hearing its order."
+                " A question card he answered takes waits, which fills re with the ask's seq and attr job; an"
                 " Undo tap sets undone. Once the records go out, each open card his words close is closed: a question card his"
                 " answer answers settles showing his words, and one his owner words under it change is withdrawn showing them;"
                 " a PR card stays up, since only the coordinator's --rework naming its PR withdraws it; an answer"
@@ -532,7 +542,7 @@ def sent(name: str, lane: str, posts: list[dict]) -> list[str]:
 
 
 def post(item: dict, data: dict, other: str, session: str | None) -> dict:
-    """The cci record an item posts as, to the lane it names, else other, a defect's long text cut to one line with the whole at the top of its body, as the post hook cuts a record, and sent where the drive routes it: a defect to the session holding drive tooling, and the communicator's owner or answer record, whatever lane it names, to the session hearing the order of the job it answers, else of the newest order in its thread, its ruling to the meta session as well."""
+    """The cci record an item posts as, to the lane it names, else other, a defect's long text cut to one line with the whole at the top of its body, as the post hook cuts a record, and sent where the drive routes it: a defect to the meta session, the communicator's owner record about the drive to the meta session alone, and its other owner or answer record, whatever lane it names, to the session hearing the order of the job it answers, else of the newest order in its thread; an owner record naming no about is refused."""
     drive = data["name"]
     if item["kind"] not in RECORD["properties"]["kind"]["enum"]:
         raise DriveError(f"record posts owner, answer and defect records; a {item['kind']} goes through the cci `post` tool, whose hook reads it")
@@ -547,10 +557,12 @@ def post(item: dict, data: dict, other: str, session: str | None) -> dict:
         if named[1] != drive:
             raise DriveError(f"{waits} is a card of drive {named[1]}, not {drive}: record its answer in that drive")
         attrs["job"], made["re"] = named[2], [named[3]]
-    for attr in ("thread", "ruling", "thread_card"):
+    for attr in ("thread", "ruling", "thread_card", "about"):
         if item.get(attr):
             attrs[attr] = item[attr]
-    lanes = ["root", "communicator", *(["meta"] if "meta" in data["roles"] else []), *map(state.project_lane, data["subcoordinators"])]
+    if unsaid := state.unabout(item["kind"], attrs):
+        raise DriveError(unsaid)
+    lanes = ["root", "communicator", "meta", *map(state.project_lane, data["subcoordinators"])]
     made["to"] = state.routed({drive: data}, session, item["kind"], attrs, [f"{item.get('to') or other}@{drive}"])
     if unread := [entry.partition("@")[0] for entry in made["to"] if entry.partition("@")[0] not in lanes]:
         raise DriveError(f"to {', '.join(unread)}: no session of drive {drive} reads that lane; name one of {', '.join(lanes)}")

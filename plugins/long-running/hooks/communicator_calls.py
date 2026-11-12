@@ -12,7 +12,8 @@ from drive import agents, render, state
 OWN_TOOLS = {
     *(render.SLACK_TOOLS + tool for tool in render.COMMUNICATOR_SLACK),
     *(render.DRIVE_TOOLS + tool for tool in render.COMMUNICATOR_DRIVE),
-    *render.COMMUNICATOR_AGENTS,
+    "SendMessage",
+    "ToolSearch",
 }
 PICKUP = render.SLACK_TOOLS + "slack_pickup"
 OWN_SKILLS = {"long-running", "long-running:long-running"}
@@ -33,7 +34,7 @@ TAIL_BYTES = 65536
 
 
 def own_call(payload: dict) -> bool:
-    """Whether a call is one the communicator makes itself: the ack, a +1, its DM's watch, Agent, SendMessage, ToolSearch, this skill, the drive's say, heard, handler, record, order and job tools, and a `drive`, `cci` or `cc-slack` command in Bash, which starts it and stands in for a drive tool its session does not list."""
+    """Whether a call is one the communicator makes itself: the ack, a +1, its DM's watch, SendMessage, ToolSearch, this skill, the drive's say, heard, handler, record, order and job tools, and a `drive`, `cci` or `cc-slack` command in Bash, which starts it and stands in for a drive tool its session does not list."""
     name = payload["tool_name"]
     call = payload["tool_input"]
     if name == "Skill":

@@ -171,8 +171,7 @@ prints and a remote lane's brief carries whole:
 
 ## Tooling
 
-The meta session starts you for drive tooling, or the communicator on a drive with no meta session,
-with a brief of a few lines: `Order: Drive tooling:
+The meta session starts you for drive tooling with a brief of a few lines: `Order: Drive tooling:
 <what>`, `Serves: drive tooling`, `From:`, his words for a ruling, `Native:`, `Decisions that bind:`
 and `Would he ask:` from what it already knew, `Drive`, `Scratch`, and an `After:` line when a hook
 refused a post he ordered.
@@ -186,8 +185,7 @@ refused a post he ordered.
   the drive MCP tool descriptions. Your report lists each rule as it now reads in the installed skill.
 - Copy an `After:` line into your report as `AFTER:`; a tool that breaks on you is a `DEFECT:` line
   there, which the meta session starts a fix from.
-- A record you send the session that started you, such as an `FYI` report, goes to `meta@<drive>`,
-  or `communicator@<drive>` on a drive with no meta session, on the cci `post` tool with
+- A record you send the session that started you, such as an `FYI` report, goes to `meta@<drive>` on the cci `post` tool with
   `lane: builder`: you share its session, so its lane is your default, and cci refuses a
   record from a lane addressed only to itself.
 - `Handoff: <seq>` names a record whose watch line names the PR, order and old job: take the PR with

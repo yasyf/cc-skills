@@ -60,8 +60,9 @@ reading of his words "your messages need to be way shorter rewrite this for a hu
 - Lead with what changed for him, in his words, never with how the machinery got there.
 - Write a bold line and at most two sentences; use a table only for three or more parallel items.
 - Keep every card and line in a feature's thread about that feature. Post drive tooling, such as a
-  fix to the launcher its builders start from, at his DM root under its own words, because a tooling
-  line in a feature's thread makes no sense to him there.
+  fix to the launcher its builders start from, in the thread his words ordering it came in, else at
+  his DM root under its own words, never in a feature's thread it only unblocks, because a tooling
+  line he did not ask for there makes no sense to him.
 - The coordinator sends one `report` per thread per turn, opening `POST` or `FYI`, because four
   posts of 60 words are the same wall as one of 240; `record_lines` refuses a second, or a `POST`
   past 60 words, 120 for a summary. A turn runs from a wake, whether a cci record, a task

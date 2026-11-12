@@ -447,7 +447,7 @@ def test_a_handler_whose_brief_or_record_names_a_job_never_holds_that_job_and_fi
     written = state.load("demo")["jobs"]["j1"]["brief"]
     launch = f"drive job launch j1 {written}"
     monkeypatch.setattr(agents, "record", lambda seq: f"{seq} report root>communicator [job=j1 order=o1] POST j1 kept\n{Path(written).read_text()}")
-    for prompt in (f"Job: j1, a remote builder, brief at {written} Drive: demo Deliverable: `{launch}`", "Record: 7"):
+    for prompt in (f"Context: j1, a remote builder, brief at {written} Drive: demo Deliverable: `{launch}`", "Record: 7"):
         handler = stepped(tmp_path, prompt, agent_type=agents.HANDLER)
         assert hook_output(no_file_tools, monkeypatch, capsys, json.dumps(bash(launch) | handler)) == ""
         assert hook_output(one_line_result, monkeypatch, capsys, json.dumps(agent_stop("RECORDED none; j1 started on a Sprite", **handler))) == ""
@@ -505,8 +505,8 @@ def test_a_drive_roles_agent_runs_unnamed_with_fable_on_its_designer_alone_and_n
     assert agent_brief.deny_reason(started_by_role(coordinator, subagent_type="long-running:builder", prompt="Handoff: 661200 Drive: demo Scratch: /s")) is None
     tooling = "Order: Drive tooling: x\nServes: drive tooling"
     assert agent_brief.deny_reason(started_by_role(coordinator, subagent_type="long-running:builder", prompt=tooling)) == (
-        "refused: a builder serving drive tooling is the communicator's, never the coordinator's: send a defect record to"
-        " communicator@demo naming the tool and its refusal verbatim, and the communicator's builder takes it over"
+        "refused: a builder serving drive tooling is the meta session's, never the coordinator's: send a defect record to"
+        " meta@demo naming the tool and its refusal verbatim, and the meta session's builder takes it over"
     )
     written = tmp_path / "jobs" / "j1.brief.md"
     written.parent.mkdir()
@@ -515,7 +515,9 @@ def test_a_drive_roles_agent_runs_unnamed_with_fable_on_its_designer_alone_and_n
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
     run("start", "demo", "--role", "communicator")
     assert "name" not in agents.shaped(started_by_role("talker", subagent_type="long-running:builder", name="desk"))
-    assert agent_brief.deny_reason(started_by_role("talker", subagent_type="long-running:builder", prompt=tooling)) is None
+    assert agent_brief.deny_reason(started_by_role("talker", subagent_type="long-running:builder", prompt=tooling)).startswith(
+        "refused: a builder serving drive tooling is the meta session's, never the communicator's"
+    )
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "tooler")
     run("start", "demo", "--role", "meta")
     assert agent_brief.deny_reason(started_by_role("talker", subagent_type="long-running:builder", prompt=tooling)) == (
@@ -557,7 +559,7 @@ def drive_agent(subagent_type: str, prompt: str, model: str | None = None, sessi
 
 
 def test_a_build_orders_builder_starts_only_on_a_brief_naming_its_readers_research(
-    communicator: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    meta: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
@@ -590,7 +592,7 @@ def test_a_build_orders_builder_starts_only_on_a_brief_naming_its_readers_resear
 
 
 def test_a_build_orders_codex_lane_is_added_and_started_only_on_its_readers_research_and_its_immediate_fix_at_once(
-    communicator: str, run: Run, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    meta: str, run: Run, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build", "--parts", "the copy", "immediate fix")
     assert cli.main(["job", "add", "codex", "--order", "o1", "--part", "the copy", "--goal", "build it"]) == 2
@@ -609,7 +611,7 @@ def test_a_build_orders_codex_lane_is_added_and_started_only_on_its_readers_rese
 
 
 def test_a_build_orders_designer_on_a_light_model_runs_on_its_own_fable(
-    communicator: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    meta: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
@@ -639,7 +641,7 @@ def test_a_session_starts_no_agent_on_an_order_the_other_session_holds(demo: str
     )
 
 
-def test_a_builder_serving_drive_tooling_on_the_coordinators_order_starts_from_the_communicator_alone(
+def test_a_builder_serving_drive_tooling_on_the_coordinators_order_starts_from_the_meta_session_alone(
     demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     coordinator = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -650,36 +652,39 @@ def test_a_builder_serving_drive_tooling_on_the_coordinators_order_starts_from_t
     run("job", "add", "builder", "--order", "o1", "--goal", "the reporter hears the fix is live")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
     run("start", "demo", "--role", "communicator")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "tooler")
+    run("start", "demo", "--role", "meta")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", coordinator)
     typed = f"Order (his words): I told him since you never did, fix that\nServes: drive tooling\nResearched: j1\nDrive: demo, order o1, job j2\nScratch: {tmp_path / 'j2'}"
     assert agent_brief.deny_reason(drive_agent("long-running:builder", typed)) == (
-        "refused: a builder serving drive tooling is the communicator's, never the coordinator's: `drive job brief j2 --serves"
-        ' "drive tooling"` gives o1 to the communicator, then send communicator@demo a defect record naming j2 and its'
-        " `Read your brief first:` line, and the communicator starts it"
+        "refused: a builder serving drive tooling is the meta session's, never the coordinator's: `drive job brief j2 --serves"
+        ' "drive tooling"` gives o1 to the meta session, then send meta@demo a defect record naming j2 and its'
+        " `Read your brief first:` line, and the meta session starts it"
     )
-    assert scratch_folder.deny_reason(drive_agent("long-running:builder", typed, session="talker")) == (
-        "refused, no agent started: o1 is the coordinator's order, but a builder serving drive tooling is the communicator's alone:"
-        ' `drive job brief j2 --serves "drive tooling"` gives o1 to the communicator, then start it again'
+    assert scratch_folder.deny_reason(drive_agent("long-running:builder", typed, session="tooler")) == (
+        "refused, no agent started: o1 is the coordinator's order, but a builder serving drive tooling is the meta session's alone:"
+        ' `drive job brief j2 --serves "drive tooling"` gives o1 to the meta session, then start it again'
     )
     code, out = run("job", "brief", "j2", "--serves", "drive tooling", "--done-when", "merged and installed", "--where", "yasyf/cc-skills main")
     assert code == 0
     assert out.splitlines()[-1] == (
-        "o1 is the communicator's order now, since a builder serving drive tooling is its alone: only the communicator starts j2"
-        " and its agents and posts its reports; from the coordinator, start no agent on it and send communicator@demo a defect"
+        "o1 is the meta session's order now, since a builder serving drive tooling is its alone: only the meta session starts j2"
+        " and its agents and posts its reports; from the coordinator, start no agent on it and send meta@demo a defect"
         " record naming j2 and its `Read your brief first:` line"
     )
-    assert state.load("demo")["orders"]["o1"]["owner"] == "communicator"
+    assert state.load("demo")["orders"]["o1"]["owner"] == "meta"
     prompt = out.splitlines()[0]
-    coordinators = drive_agent("long-running:builder", prompt)
-    assert agent_brief.deny_reason(coordinators) == (
-        "refused: a builder serving drive tooling is the communicator's, never the coordinator's, and o1 is the communicator's"
-        " order, session talker: send communicator@demo a defect record naming j2 and its `Read your brief first:` line, and the"
-        " communicator starts it"
-    )
-    assert scratch_folder.deny_reason(coordinators).startswith("refused, no agent started: o1 is the communicator's order, session talker")
-    communicators = drive_agent("long-running:builder", prompt, session="talker")
-    assert agent_brief.deny_reason(communicators) is None
-    assert scratch_folder.deny_reason(communicators) is None
+    for session, starter in ((coordinator, "coordinator"), ("talker", "communicator")):
+        refused = drive_agent("long-running:builder", prompt, session=session)
+        assert agent_brief.deny_reason(refused) == (
+            f"refused: a builder serving drive tooling is the meta session's, never the {starter}'s, and o1 is the meta session's"
+            " order, session tooler: send meta@demo a defect record naming j2 and its `Read your brief first:` line, and the"
+            " meta session starts it"
+        )
+        assert scratch_folder.deny_reason(refused).startswith("refused, no agent started: o1 is the meta session's order, session tooler")
+    metas = drive_agent("long-running:builder", prompt, session="tooler")
+    assert agent_brief.deny_reason(metas) is None
+    assert scratch_folder.deny_reason(metas) is None
     assert run("job", "brief", "j2")[1].splitlines()[-1] == "kept from its earlier brief: --serves, --done-when, --where"
 
 
@@ -1152,16 +1157,21 @@ def test_a_communicators_bash_cci_post_naming_a_lane_other_than_the_session_hear
     handler = {"session_id": "talker", "agent_id": "a1", "agent_type": "long-running:handler"}
     posted = "cci post --kind posted --lane communicator --to root@demo --resolves 8 --attr waits=demo:j1-8 'card up demo:j1-8'"
     assert landing_guard.deny_reason(bash(posted) | handler) == (
-        "This posted record goes to iris@demo: a defect to the session holding drive tooling, the communicator's owner, answer,"
-        " posted or refused record to the session hearing the order it serves, and its ruling to the meta session as well;"
-        " post it again with `--to iris@demo`, or on the cci `post` tool, whose hook addresses it"
+        "This posted record goes to iris@demo: a defect, and the communicator's owner record about the drive, to the meta"
+        " session, and the communicator's other owner, answer, posted or refused record to the session hearing the order it"
+        " serves; post it again with `--to iris@demo`, or on the cci `post` tool, whose hook addresses it"
     )
     refused = "zsh -c \"cci post --kind=refused --lane communicator --to=root@demo,owner --attr job=j1 'cc-slack refused the card'\""
     assert "`--to iris@demo --to owner`" in landing_guard.deny_reason(bash(refused) | handler)
     sent = (
         "cci post --kind posted --lane communicator --to iris@demo --attr waits=demo:j1-8 'card up demo:j1-8'",
-        "cci post --kind owner --lane communicator --to root@demo 'a new order'",
+        "cci post --kind owner --lane communicator --to root@demo --attr 'about=his work' 'a new order'",
         "cci post --kind report --lane communicator --attr close=o1 'FYI j1 merged'",
+        "cci post --kind owner --lane communicator --to meta@demo --attr about=drive 'the dashboard drops my cards'",
     )
-    assert [landing_guard.deny_reason(bash(command) | handler) for command in sent] == [None, None, None]
+    assert [landing_guard.deny_reason(bash(command) | handler) for command in sent] == [None, None, None, None]
+    unsaid = landing_guard.deny_reason(bash("cci post --kind owner --lane communicator --to root@demo 'a new order'") | handler)
+    assert unsaid.startswith('refused, nothing posted: an owner record names what his words are about, about "drive" for drive tooling')
+    misrouted = landing_guard.deny_reason(bash("cci post --kind owner --lane communicator --to root@demo --attr about=drive 'the dashboard drops my cards'") | handler)
+    assert misrouted.startswith("This owner record goes to meta@demo:")
     assert landing_guard.deny_reason(bash(posted) | {"session_id": "iris-1"}) is None
