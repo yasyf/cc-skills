@@ -1,5 +1,6 @@
 import json
 import plistlib
+import re
 import subprocess
 import threading
 import time
@@ -942,16 +943,16 @@ def proof_events() -> list[tuple[str, str]]:
     return [(f"{event['repo']}#{event['number']}", event["change"]) for event, _ in state.read_events("demo") if event["kind"] == "proof"]
 
 
-def test_an_install_holding_a_merge_runs_its_jobs_proof_file_on_it_takes_done_and_keeps_the_close_report_for_the_watch(
-    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
+def test_a_proof_installs_a_merge_its_plugin_lacks_runs_the_jobs_proof_file_on_it_takes_done_and_keeps_the_close_report_for_the_watch(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit]
 ) -> None:
     git = fake([BUILD], {BUILD})
     script = proving(config, tmp_path, git, 0)
-    assert install.main("long-running@skills", None, None, 900, None) == 0
     kept = state.report_path("demo", "j1").with_suffix(".proof.txt")
     checked = f"{install.PROVEN} on long-running@skills 1.0.3: {script} exits 0, its output {kept}"
     proven = f"{checked}; its close report of o1 waits on the order for the watch, which posts it to the communicator on its next read and again each read until cci takes it"
-    assert capsys.readouterr().out.splitlines()[:2] == ["installed long-running@skills 1.0.3", f"demo j1: {proven}"]
+    assert install.prove("demo", "j1", 900) == f"j1: {proven}"
+    assert ["claude", "plugin", "update", "long-running@skills", "--scope", "user"] in git.calls
     assert kept.read_text() == "ran on /cache/long-running/1.0.3/bin\n"
     data = state.load("demo")
     assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["said"]) == ("done", f"DONE {URL} live: {script} exits 0 on long-running@skills 1.0.3")
@@ -969,40 +970,85 @@ def test_an_install_holding_a_merge_runs_its_jobs_proof_file_on_it_takes_done_an
     assert proof_events() == [("yasyf/cc-skills#7", proven)]
 
 
-def test_an_install_proving_an_open_incidents_fix_records_it_live_and_leaves_its_close_to_the_watch(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
+def test_a_proof_of_merges_in_two_repositories_whose_installs_hold_them_runs_the_proof_file_with_no_install(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
+    git = fake([BUILD], {OLD_COMMIT})
+    script = proving(config, tmp_path, git, 0)
+    slack = "https://github.com/yasyf/cc-slack/pull/3"
+    with state.edit("demo") as data:
+        data["jobs"]["j1"].update(said=f"READY {URL} {slack}", prs=[URL, slack])
+        data["prs"]["yasyf/cc-slack#3"] = state.new_pr(slack, "j1", "o1") | {"state": "merged", "merged_sha": "def456", "title": "Fix: the card"}
+    assert install.prove("demo", "j1", 900).startswith(f"j1: {install.PROVEN} on long-running@skills 1.0.2: {script} exits 0")
+    assert git.claude_calls() == []
+    assert state.load("demo")["jobs"]["j1"]["said"] == f"DONE {URL} {slack} live: {script} exits 0 on long-running@skills 1.0.2"
+
+
+def test_an_incidents_fix_proven_live_records_it_live_and_leaves_its_close_to_the_watch(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
     git = fake([BUILD], {BUILD})
     script = proving(config, tmp_path, git, 0)
     with state.edit("demo") as data:
         data["orders"]["o1"].update(incident=True, parts={"fix": state.new_part()})
         data["jobs"]["j1"]["parts"] = ["fix"]
-    assert install.main("long-running@skills", None, None, 900, None) == 0
+    install.prove("demo", "j1", 900)
     order = state.load("demo")["orders"]["o1"]
     assert (order["close_report"], order["proof"]) == (None, None)
     assert order["fixed"] == f"j1 proved it live: {URL} live: {script} exits 0 on long-running@skills 1.0.3"
     assert proof_events() == [("yasyf/cc-skills#7", f"{install.PROVEN} on long-running@skills 1.0.3: {script} exits 0, its output {state.report_path('demo', 'j1').with_suffix('.proof.txt')}")]
 
 
-def test_an_installed_merge_whose_proof_file_fails_takes_blocked_and_closes_nothing(
-    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_a_proof_file_that_fails_takes_blocked_and_closes_nothing(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
     git = fake([BUILD], {BUILD})
     script = proving(config, tmp_path, git, 1)
-    assert install.main("long-running@skills", None, None, 900, None) == 0
+    install.prove("demo", "j1", 900)
     blocked = f"BLOCKED {URL}: {script} exits 1 on long-running@skills 1.0.3: ran on /cache/long-running/1.0.3/bin"
     job = state.load("demo")["jobs"]["j1"]
     assert (job["state"], job["said"]) == ("failed", blocked)
     assert state.load("demo")["orders"]["o1"]["proof"] is None
     assert not [call for call in git.other_calls() if call[0] == "cci"]
-    assert proof_events() == [("yasyf/cc-skills#7", f"drive install's proof failed: {blocked.removeprefix('BLOCKED ')}")]
+    assert proof_events() == [("yasyf/cc-skills#7", f"{install.PROOF_FAILED}: {blocked.removeprefix('BLOCKED ')}")]
 
 
-@pytest.mark.parametrize(("key", "holding"), [("long-running@skills", set()), ("codex@skills", {BUILD})])
-def test_an_install_short_of_a_merge_or_of_a_plugin_it_leaves_alone_proves_nothing(
-    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], key: str, holding: set[str]
+def test_a_merge_no_release_will_carry_takes_blocked_naming_it_and_runs_no_proof_file(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    git = fake([BUILD], holding)
-    proving(config, tmp_path, git, 0)
-    assert install.main(key, None, None, 900, None) == 0
+    git = fake([BUILD], set())
+    script = proving(config, tmp_path, git, 0)
+    reason = "no release: no commit from v1.0.2 to abc123def456 changes a path release-tag.yml tags a long-running release from, so the next release that does carries it"
+
+    def unreleased(*args: object) -> str:
+        raise install.NoRelease(reason)
+
+    monkeypatch.setattr(install, "install", unreleased)
+    install.prove("demo", "j1", 900)
+    blocked = f"BLOCKED {URL}: not installed, so {script} did not run: {reason}"
+    assert state.load("demo")["jobs"]["j1"]["said"] == blocked
+    assert state.report_path("demo", "j1").with_suffix(".proof.txt").read_text() == reason
+    assert proof_events() == [("yasyf/cc-skills#7", f"{install.PROOF_FAILED}: {blocked.removeprefix('BLOCKED ')}")]
+
+
+@pytest.mark.parametrize(
+    ("change", "refusal"),
+    [
+        ({"repro": None}, "j1 keeps no proof file to run: keep one with drive job set j1 --repro <file>"),
+        ({"prs": [URL, "https://github.com/Forge-AI/monorepo/pull/9"]}, "Forge-AI/monorepo#9 merged outside yasyf/*, where a merge goes live only in its repository's release"),
+        ({"said": "WAITING on the release"}, "j1 waits on no READY or PUSHED whose PRs all merged, so there is nothing to prove"),
+    ],
+)
+def test_a_proof_is_refused_naming_who_proves_it_for_a_job_with_no_proof_file_a_merge_outside_yasyf_or_no_merged_ready(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], change: dict, refusal: str
+) -> None:
+    proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
+    with state.edit("demo") as data:
+        data["prs"]["Forge-AI/monorepo#9"] = state.new_pr("https://github.com/Forge-AI/monorepo/pull/9", "j1", "o1") | {"state": "merged", "merged_sha": "fedcba"}
+        data["jobs"]["j1"].update(change)
+    with pytest.raises(state.DriveError, match=re.escape(refusal)):
+        install.prove("demo", "j1", 900)
+    assert (state.load("demo")["jobs"]["j1"]["state"], proof_events()) == ("waiting", [])
+
+
+def test_an_install_holding_a_merged_jobs_fix_proves_nothing_since_the_watch_does(config: Path, tmp_path: Path, fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
+    proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
+    assert install.main("long-running@skills", None, None, 900, None) == 0
+    assert capsys.readouterr().out.splitlines() == ["installed long-running@skills 1.0.3", "demo coordinator: no terminal recorded, skipped"]
     assert (state.load("demo")["jobs"]["j1"]["state"], proof_events()) == ("waiting", [])
 
 

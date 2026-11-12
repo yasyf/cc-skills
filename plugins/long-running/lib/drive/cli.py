@@ -2039,6 +2039,13 @@ def release_sprite(job: dict, root: Path) -> str | None:
         return f"{job['workspace']} is kept: {error}"
 
 
+def job_prove(args: argparse.Namespace) -> int:
+    name = state.resolve(args.drive)
+    find(state.load(name)["jobs"], args.id, "job")
+    line = install.prove(name, args.id, args.timeout)
+    return emit(args, line, {"id": args.id, "line": line})
+
+
 def job_end(args: argparse.Namespace) -> int:
     """Free a remote job's lane: its Sprite, destroyed once it holds nothing on no remote, or its terminal and clean worktree on this Mac. The job keeps the state its line set, with its waits, PRs and carried parts, so a waiting job's next event starts its next lane and nothing waiting on it is freed. A job still at work first has what its Sprite holds that its next lane would not get saved to GitHub, which that lane's handoff names; refused, ending nothing, when that Sprite cannot be read or the save fails."""
     name = state.resolve(args.drive)
@@ -2123,7 +2130,7 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
 
 
 def merge_reported(name: str, job_id: str) -> list[tuple[str, str]]:
-    """Start the lander on each open yasyf/* PR the drive tracks that a builder's taken READY or PUSHED names, so it merges the head its builder means to ship once the proof file drive install runs after it is kept; each PR with what its lander does or why it does not. `drive job report` and the watch run it on a report they take, and `drive pr add` on a PR registered after its report."""
+    """Start the lander on each open yasyf/* PR the drive tracks that a builder's taken READY or PUSHED names, so it merges the head its builder means to ship once the proof file the watch runs after it is kept; each PR with what its lander does or why it does not. `drive job report` and the watch run it on a report they take, and `drive pr add` on a PR registered after its report."""
     data = state.load(name)
     job = data["jobs"][job_id]
     if job["kind"] != "builder" or job["state"] != "waiting" or not state.REPORTED_LINE.match(job["said"] or ""):
@@ -3563,6 +3570,20 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("id")
     verb.set_defaults(run=job_end)
+    verb = job.add_parser(
+        "prove",
+        parents=both,
+        help=(
+            "what the watch starts once every PR of a builder's taken READY or PUSHED merged, all of them yasyf/* ones, and it keeps an"
+            " executable proof file: install each plugin a merge changes whose newest install lacks it, run the proof file with those"
+            " plugins' bin folders first on PATH, keep its output beside the job's report, take DONE on exit 0 and BLOCKED otherwise or"
+            " when an install fails or no release will carry a merge, and keep the close report of an order the DONE finishes for the"
+            " watch to post; refused, naming who proves it instead, for a merge outside yasyf/* or a job keeping no proof file"
+        ),
+    )
+    verb.add_argument("id")
+    verb.add_argument("--timeout", type=int, default=900)
+    verb.set_defaults(run=job_prove)
     verb = job.add_parser("show", parents=both, help="drive status for these ids")
     verb.add_argument("ids", nargs="+", metavar="ID", help=f"what to read: {ID_FORMS}")
     verb.set_defaults(run=status)

@@ -2,6 +2,7 @@ import json
 import os
 import re
 import shlex
+import subprocess
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -3094,13 +3095,92 @@ def test_a_yasyf_lander_merges_with_admin_records_its_merge_commit_and_installs_
         ("done", "merged at ccc333ddd444; long-running@skills 1.0.4 installed", False),
         ("done", f"{install.PROVEN} on long-running@skills 1.0.4: /p.sh exits 0", False),
         ("failed", "merged at ccc333ddd444; long-running@skills 1.0.4 installed", False),
-        ("failed", "drive install's proof failed: https://github.com/yasyf/cc-skills/pull/7: /p.sh exits 1", True),
+        ("failed", f"{install.PROOF_FAILED}: https://github.com/yasyf/cc-skills/pull/7: /p.sh exits 1", True),
     ],
 )
-def test_a_merge_drive_install_proved_wakes_no_one_and_a_failed_proof_wakes_the_holder(demo: str, state_after: str, change: str, wakes: bool) -> None:
+def test_a_merge_its_proof_proved_wakes_no_one_and_a_failed_proof_wakes_the_holder(demo: str, state_after: str, change: str, wakes: bool) -> None:
     with state.edit(demo) as data:
         data["jobs"]["j1"]["state"] = state_after
     assert watch.wakes(f"PR {KEY}: {change} [o1 j1]", state.load(demo)) is wakes
+
+
+def merged_ready(name: str, key: str, repro: str | None) -> None:
+    with state.edit(name) as data:
+        data["prs"][KEY]["state"] = "merged"
+        data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"state": "merged", "merged_sha": "ccc333ddd444eee"}
+        data["jobs"]["j1"].update(state="waiting", said=f"READY {state.pr_url(key)}", prs=[state.pr_url(key)], repro=repro, updated=state.stamp(T0 - timedelta(hours=1)))
+
+
+def proof_file(tmp_path: Path) -> str:
+    script = tmp_path / "proof.sh"
+    script.write_text("#!/bin/sh\nexit 0\n")
+    script.chmod(0o755)
+    return str(script)
+
+
+def test_a_merged_ready_job_keeping_a_proof_file_gets_one_proof_from_the_watch_and_no_orphan_or_wake_while_it_runs(
+    demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], tmp_path: Path
+) -> None:
+    serve(monkeypatch, {})
+    merged_ready(demo, YASYF, proof_file(tmp_path))
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == []
+    assert provers == ["j1"]
+    said = f"READY {state.pr_url(YASYF)}"
+    assert state.load(demo)["jobs"]["j1"]["proof"] == {"pid": os.getpid(), "at": state.stamp(T0), "said": said, "version": state.VERSION}
+    assert watch.run_pass(watching, T0 + timedelta(minutes=31)) == []
+    assert provers == ["j1"]
+    assert not watch.wakes(f"PR {YASYF}: merged at ccc333ddd444; long-running@skills 1.0.4 installed [o1 j1]", state.load(demo))
+
+
+def test_a_merged_ready_job_waits_for_its_lander_before_its_proof_starts(demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], tmp_path: Path) -> None:
+    serve(monkeypatch, {})
+    merged_ready(demo, YASYF, proof_file(tmp_path))
+    with state.edit(demo) as data:
+        data["prs"][YASYF]["lander"] = {"head": "aaaaaaa111", "pid": os.getpid(), "at": state.stamp(T0), "outcome": None}
+    assert (watch.run_pass(watcher(demo), T0), provers) == ([], [])
+
+
+@pytest.mark.parametrize(
+    ("key", "kept", "why"),
+    [
+        (
+            YASYF,
+            False,
+            "j1 keeps no proof file to run: keep one with drive job set j1 --repro <file>, which the watch runs on the installed plugins,"
+            " or start a fresh builder with a merge handoff that proves it from its INSTALL: and PROVE: lines",
+        ),
+        (
+            OTHER,
+            True,
+            f"{OTHER} merged outside yasyf/*, where a merge goes live only in its repository's release, which no drive install puts on this Mac:"
+            " a fresh builder with a merge handoff proves it from its INSTALL: and PROVE: lines once that release is out",
+        ),
+    ],
+)
+def test_a_merged_ready_job_the_watch_cannot_prove_is_said_orphaned_naming_who_proves_it(
+    demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], tmp_path: Path, key: str, kept: bool, why: str
+) -> None:
+    serve(monkeypatch, {})
+    merged_ready(demo, key, proof_file(tmp_path) if kept else None)
+    assert watch.run_pass(watcher(demo), T0) == [f'ORPHAN o1 "ship the watch": j1\'s PRs all merged and nothing proves them live: {why}']
+    assert provers == []
+
+
+@pytest.mark.parametrize(("version", "started"), [(state.VERSION, []), ("1.0.1", ["j1"])])
+def test_a_proof_that_ended_with_no_result_is_said_with_its_rerun_and_started_again_by_a_newer_watch(
+    demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], tmp_path: Path, version: str, started: list[str]
+) -> None:
+    serve(monkeypatch, {})
+    merged_ready(demo, YASYF, proof_file(tmp_path))
+    ended = subprocess.Popen(["true"])
+    ended.wait()
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["proof"] = {"pid": ended.pid, "at": state.stamp(T0), "said": f"READY {state.pr_url(YASYF)}", "version": version}
+    lines = watch.run_pass(watcher(demo), T0)
+    assert provers == started
+    rerun = f"j1's proof, drive job prove pid {ended.pid}, ended with no result, its output in the drive's {watch.PROOFS_LOG}: drive job prove j1 runs it again"
+    assert lines == ([] if started else [f'ORPHAN o1 "ship the watch": {rerun}'])
 
 
 def tried(name: str, outcome: str) -> None:

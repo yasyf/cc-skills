@@ -2458,7 +2458,7 @@ def test_a_builders_ready_naming_a_yasyf_pr_is_refused_until_it_keeps_a_proof_fi
     ready = "READY https://github.com/yasyf/cc-skills/pull/7\n"
     code, err = keep(monkeypatch, capsys, "j1", ready)
     assert (code, state.load("demo")["jobs"]["j1"]["state"]) == (2, "running")
-    assert "it names yasyf/cc-skills#7, which merges once this is taken and drive install proves by running j1's proof file, and j1 keeps none it can run" in err
+    assert "it names yasyf/cc-skills#7, which merges once this is taken and the watch proves by running j1's proof file, and j1 keeps none it can run" in err
     steps = tmp_path / "steps.md"
     steps.write_text("1. run it\n")
     run("job", "set", "j1", "--repro", str(steps))

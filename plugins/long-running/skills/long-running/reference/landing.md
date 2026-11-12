@@ -129,16 +129,16 @@ No tap and no green gate: by his standing rule a `yasyf/*` PR merges without ask
    `main` while this one ran causes, the lander merges again on the new base, as GitHub's own refusal
    asks, and never touches the PR's branch. After any other refusal the watch starts the lander again
    on the head its builder pushes, once GitHub reads it free of conflicts, so nobody registers a
-   rebased PR again. Once the newest install of
-   each plugin the merge changes holds it, `drive install` runs the job's proof file with those
-   plugins' `bin/` first on `PATH`, keeps its output beside the job's report, takes `DONE` on exit 0
-   or `BLOCKED` otherwise, and on a `DONE` that finishes the order sends the communicator its close
-   report. The lander writes its output to the drive's `landings.log`, ending in one line of the PR's
+   rebased PR again. Once every PR the job's `READY` or `PUSHED` names merged and no lander still
+   runs on one, the watch starts `drive job prove <j>`, which installs each plugin a merge changes
+   whose newest install lacks it, runs the job's proof file with those plugins' `bin/` first on
+   `PATH`, keeps its output beside the job's report, takes `DONE` on exit 0 or `BLOCKED` otherwise,
+   and on a `DONE` that finishes the order sends the communicator its close report. The lander writes its output to the drive's `landings.log`, ending in one line of the PR's
    key and its outcome, such as `yasyf/cc-skills#7: merged at <sha>; …`. Its outcome reaches the
    job's holder as `PR … merged at <sha>; <each install's version line or no release: line>` or
    `PR … not landed: gh pr merge --squash --admin refused it: <its answer>`, such as a conflict git
-   cannot merge, and the proof's as `PR … proven live by drive install …` or
-   `PR … drive install's proof failed: …`. The report's output, or `drive pr add` again, prints why
+   cannot merge, and the proof's as `PR … proven live by drive job prove …` or
+   `PR … drive job prove failed: …`. The report's output, or `drive pr add` again, prints why
    it started none: a draft, the `hold` label, a lander already running on it, or a base other than
    the default branch, so a stacked PR is registered again once the PR below it merges.
    Read the checks once they finish and fix a red one forward in a follow-up PR.

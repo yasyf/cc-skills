@@ -568,7 +568,7 @@ def kept_return(job: dict, line: str) -> bool:
 
 
 def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | None:
-    """Why a job's returned line may not set its state, naming the fix: a stopped job's work goes on in another job, a line opening with no result sets nothing, a builder's READY or PUSHED naming a yasyf/* PR keeps the proof file drive install runs once it merges, a WAITING names something the watch frees it on, and a design lane's DESIGN names on each Fork: line a question drive job ask kept for it."""
+    """Why a job's returned line may not set its state, naming the fix: a stopped job's work goes on in another job, a line opening with no result sets nothing, a builder's READY or PUSHED naming a yasyf/* PR keeps the proof file the watch runs once it merges, a WAITING names something the watch frees it on, and a design lane's DESIGN names on each Fork: line a question drive job ask kept for it."""
     job = data["jobs"][job_id]
     if job["state"] == "stopped":
         return (
@@ -580,7 +580,7 @@ def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | Non
     if job["kind"] == "builder" and REPORTED_LINE.match(line) and (merging := [pr_key(found[0]) for found in PR_URL.finditer(line) if merges_untapped(pr_key(found[0]))]):
         if not (job.get("repro") and os.access(job["repro"], os.X_OK)):
             return (
-                f"it names {', '.join(merging)}, which merges once this is taken and drive install proves by running {job_id}'s proof file, and {job_id}"
+                f"it names {', '.join(merging)}, which merges once this is taken and the watch proves by running {job_id}'s proof file, and {job_id}"
                 f" keeps none it can run: keep an executable script exiting 0 once the installed plugins hold the fix with drive job set {job_id} --repro <file>,"
                 " then send this report again"
             )
