@@ -5,13 +5,15 @@ import re
 import subprocess
 import threading
 import time
+import types
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Self
 
 import pytest
-from drive import dashboard, picture
+from drive import dashboard, picture, state, view
+from test_view import drive_of, found, job, order, pr
 
 NET = dashboard.Tailnet("box", "box.tail1.ts.net", ["100.64.0.1", "fd7a::1"], "owner@example.com", False)
 
@@ -50,6 +52,18 @@ def test_page_answers_its_own_tailnet_names_and_refuses_any_other_host(https: bo
         "box.tail1.ts.net": 200 if https else 403,
         "evil.example": 403,
     }
+
+
+def test_a_plain_http_link_to_the_tailnet_port_moves_to_https_on_the_full_name() -> None:
+    server = dashboard.Server(dashboard.LOOPBACK, 0, BaseHTTPRequestHandler, types.SimpleNamespace(name="box.tail1.ts.net"))
+    port = server.server_address[1]
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    connection = http.client.HTTPConnection(dashboard.LOOPBACK, port, timeout=5)
+    connection.request("GET", "/api/view", headers={"Host": f"box:{port}"})
+    reply = connection.getresponse()
+    connection.close()
+    server.shutdown()
+    assert (reply.status, reply.getheader("Location")) == (301, f"https://box.tail1.ts.net:{port}/api/view")
 
 
 def post_answer(port: int, origin: str, card: str, label: str) -> tuple[int, dict]:
@@ -161,7 +175,8 @@ const context = vm.createContext({ document: quiet, window: quiet, components: J
 console.log(vm.runInContext(readFileSync(process.argv[2], "utf8") + "\\n" + process.argv[3], context));
 """
 WEB_RENDER = r"""
-model = { repo: "", review: [], visuals: Object.fromEntries(components.map(([kind, source]) => ["/drive/pictures/" + kind + "/show-me.png", { kind, source }])) };
+model = { repo: "", review: [] };
+for (const [kind, source] of components) sources.set("/drive/pictures/" + kind + "/show-me.png", { kind, source });
 JSON.stringify(components.map(([kind, source, fence]) => {
   const picture = "/drive/pictures/" + kind + "/show-me.png";
   return [kind, {
@@ -378,25 +393,44 @@ def board(**changed: object) -> dict:
     counts = {"queue": 0, "blocked": 0, "running": 1, "built": 0, "waiting": 0, "merged": 0, "live": 0, "not started": 0}
     return {
         "drive": "demo", "at": "2026-11-11T00:00:00-08:00", "counts": counts, "queue": [], "status": [{"state": "running", "features": [FEATURE]}], "cards": "live",
-        "review": [], "work": lanes, "history": moments, "incidents": [], "visuals": {}, "repo": "", "undo_seconds": 10, "links": [], "channel": "D1",
+        "review": [], "work": lanes, "history": moments, "incidents": [], "repo": "", "undo_seconds": 10, "links": [], "channel": "D1",
     } | changed
 
 
 def browse(tmp_path: Path, steps: str, model: dict, size: str = "1200,600", *flags: str) -> object:
-    """Load the dashboard page in headless Chrome on a stub stream that sends model, run steps (an async module that may call push(model) and
-    wait(ms)), and return what steps put in done(result)."""
+    """Serve the dashboard of model from the real handler and load it in headless Chrome with only its stream stubbed: the page reads the summary
+    once, and push(model) shows the board model and hands the page its summary. Run steps, an async module that may call push(model) and wait(ms),
+    and return what steps put in done(result)."""
     harness = f"""<script>
 const MODEL = {json.dumps(model)};
-window.EventSource = class {{ constructor() {{ window.STREAM = this; setTimeout(() => this.onmessage({{ data: JSON.stringify(MODEL) }}), 0); }} }};
+window.EventSource = class {{ constructor() {{ window.STREAM = this; fetch('/api/view').then((reply) => reply.text()).then((data) => this.onmessage({{ data }})); }} }};
 const wait = (ms) => new Promise((done) => setTimeout(done, ms));
-const push = async (model) => {{ window.STREAM.onmessage({{ data: JSON.stringify(model) }}); await wait(50); }};
+const push = async (model) => {{ const reply = await fetch('/test/push', {{ method: 'POST', body: JSON.stringify(model) }}); window.STREAM.onmessage({{ data: await reply.text() }}); await wait(50); }};
 const done = (result) => {{ document.documentElement.dataset.result = JSON.stringify(result); }};
 </script>"""
-    page = (SITE / "index.html").read_text()
-    page = page.replace('<link rel="stylesheet" href="/app.css">', f"<style>{(SITE / 'app.css').read_text()}</style>")
-    page = page.replace('<script src="/app.js"></script>', f"{harness}<script>{(SITE / 'app.js').read_text()}</script><script type=\"module\">await wait(100);\n{steps}</script>")
-    (tmp_path / "page.html").write_text(page)
-    dumped = picture.headless(tmp_path / "page.html", f"--window-size={size}", "--no-sandbox", *flags, "--dump-dom")
+    site = tmp_path / "site"
+    site.mkdir(parents=True)
+    page = (SITE / "index.html").read_text().replace('<script src="/app.js"></script>', f'{harness}<script src="/app.js"></script><script type="module">await wait(100);\n{steps}</script>')
+    (site / "index.html").write_text(page)
+    for name in ("app.js", "app.css"):
+        (site / name).symlink_to(SITE / name)
+    (site / "visuals.js").write_text("export function draw() { throw new Error('nothing draws in this test'); }\n")
+    shown = dashboard.Board("demo", [])
+    shown.show(model)
+    server, port = serving(shown)
+
+    class Pushed(server.RequestHandlerClass):
+        def do_POST(self) -> None:
+            if self.path != "/test/push":
+                return super().do_POST()
+            shown.show(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+            self.reply(shown.after(0)[1], "application/json")
+
+    server.RequestHandlerClass = Pushed
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(dashboard, "SITE", site)
+        dumped = picture.headless(f"http://{dashboard.LOOPBACK}:{port}/", tmp_path / "profile", f"--window-size={size}", "--no-sandbox", *flags, "--dump-dom")
+    server.shutdown()
     return json.loads(html.unescape(RESULT.search(dumped)[1]))
 
 
@@ -446,7 +480,7 @@ const drawer = document.querySelector('#drawer .refused')?.textContent;
 toast('card', { label: 'Approve', title: 'ship it', until: Date.now() + 10000, state: 'held' });
 await undo('card');
 done({ drawer, toast: document.querySelector('#toasts .toast .meta').textContent });
-""", board(review=[{"key": "a/b#7", "title": "change 7", "url": "https://github.com/a/b/pull/7", "head": "abc"}]))
+""", board(review=[{"key": "a/b#7", "title": "change 7", "url": "https://github.com/a/b/pull/7", "head": "abc", "card": None}]))
     assert shown == {
         "drawer": "Could not reach the dashboard server (offline).",
         "toast": "Could not reach the dashboard server (offline).",
@@ -780,3 +814,52 @@ await wait(100);
 done({ wide: document.documentElement.scrollWidth, room: innerWidth });
 """, board(history=[live]), "390,844")
     assert seen["wide"] <= seen["room"]
+
+
+VISITS = ["#/queue/all", "#/now", "#/now/Platform/SandSQL/o1", "#/feature/o1", "#/work", "#/work/Platform/SandSQL", "#/history", "#/history/2026-11-09"]
+VISITED = f"""
+const seen = [];
+const fetched = window.fetch;
+let screen = 'summary';
+window.fetch = async (url, options) => {{
+  const asked = [screen, String(url).replace(/\\d+/g, '0')];
+  seen.push(asked);
+  const reply = await fetched(url, options);
+  asked.push((await reply.clone().text()).replace(/\\d+/g, '0').length);
+  return reply;
+}};
+await fetch('/api/view');
+for (screen of {json.dumps(VISITS)}) {{
+  slices.clear();
+  location.hash = screen;
+  await wait(300);
+}}
+done(seen);
+"""
+
+
+def aged(n: int) -> dict:
+    """The board of a drive whose open work stays put, one feature with two lanes, a decision for him and the 100 merges of its day, after n
+    orders were done, merged, told to him and tapped earlier that day."""
+    asked = {
+        "question": "Raise the limit?", "options": ["Raise it", "Shard it"], "recommended": "Raise it", "asked": "2026-11-11T09:00:00-08:00",
+        "url": "https://acme.slack.com/archives/D123/p1794416400000100", "card": {"title": "Raise the limit?", "body": "Why it matters", "options": ["Raise it", "Shard it"], "recommended": "Raise it"},
+    }
+    orders = {"o1": order("ship the fix", ["j1", "j2"], project="Platform", workstream="SandSQL")}
+    jobs = {"j1": job("o1", "running", "drawing it"), "j2": job("o1", "waiting")}
+    prs = [pr(number, "o1", state="merged", updated=f"2026-11-09T{8 + (30 + number) // 60:02d}:{(30 + number) % 60:02d}:00-08:00") for number in range(1, 101)]
+    events = []
+    for number in range(1000, 1000 + n):
+        orders[f"o{number}"] = order(f"old order {number}", [], state="done", created="2026-11-09T01:00:00-08:00", updated="2026-11-09T02:00:00-08:00")
+        prs.append(pr(number, f"o{number}", state="merged", updated="2026-11-09T03:00:00-08:00"))
+        said = f"https://acme.slack.com/archives/D123/p{1794100000000000 + number}"
+        events.append({"kind": "said", "at": "2026-11-09T04:00:00-08:00", "text": f"old order {number} is live", "url": said, "order": f"o{number}", "visuals": []})
+        events.append({"kind": "tap", "at": "2026-11-09T04:30:00-08:00", "repo": "yasyf/cc-skills", "number": number, "label": "Approve"})
+    shown = view.board(drive_of(orders, jobs, prs), found([asked]), "live", events, state.parse_time("2026-11-11T10:00:00-08:00"), set())
+    return shown | {"code": "", "pid": 1, "links": [], "undo_seconds": 10, "repo": ""}
+
+
+def test_each_screen_reads_the_same_requests_of_the_same_size_however_old_the_drive(tmp_path: Path) -> None:
+    seen = {n: browse(tmp_path / str(n), VISITED, aged(n)) for n in (1, 100, 1000)}
+    assert {screen for screen, _, _ in seen[1]} == {"summary", *VISITS}
+    assert seen[1] == seen[100] == seen[1000]

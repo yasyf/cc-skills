@@ -25,14 +25,20 @@ newest first, his orders each with `swears`, the swear words in his words), `rev
 `not ready` or `decided`, with its `head`, its Slack card and that card's `thread` when it has one), `incidents` (his
 open incident orders, each with `id`, `title` and `created`) and each feature's `text`, `note`, `created` and `jobs`.
 Each feature also has the `project` and `workstream` the coordinator filed its order under, each null until filed.
+
+`summary` is the board each open page is sent on every change, sized by what is open now and never by the drive's age;
+each screen reads the rest of what it draws on its own: `history_page` for History, `story` for Now's live story.
 """
 
+import itertools
 import json
+import math
 import os
 import re
 import subprocess
 from collections.abc import Iterable
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from drive import artifacts, github, limits, slack, state
 from drive.card import PARENTHETICAL, RECORD_ID, kind_and_title, without_records
@@ -53,6 +59,11 @@ NO_CARDS = {"questions": [], "pr_cards": [], "team_url": ""}
 UNREAD = "not read yet: the drive's watch reads them every minute"
 SWEARS = re.compile(r"\b(?:fuck\w*|shit\w*|bullshit\w*|damn\w*|goddamn\w*|wtf|crap\w*|hell)\b", re.IGNORECASE)
 HISTORY_EVENTS = ("tap", "refused", "said")
+ZONE = ZoneInfo("America/Los_Angeles")
+HISTORY_PAGE = 80
+HISTORY_SHOWN = {"all": None, "prs": {"merged"}, "you": {"order", "tap"}, "said": {"said"}}
+STORY_KINDS = {"order", "live", "merged", "tap"}
+STORY_LINES = 6
 LINK_LABEL = str.maketrans({"[": "(", "]": ")", "|": "/"})
 TAP_CLAIM = re.compile(
     r"(?<!not )(?<!n't )(?<!never )\b(?:wait\w*|await\w*|needs?|owed?|pending|blocked)\b(?:(?!\b(?:no|not|never|without)\b)[^.!?\n]){0,40}?\b(?:tap|approv(?:e|al))\b",
@@ -612,3 +623,54 @@ def incidents(drive: dict) -> list[dict]:
     """His incident orders still open, oldest first."""
     live = [(order_id, order) for order_id, order in drive["orders"].items() if order["incident"] and order["state"] not in state.CLOSED_ORDER_STATES]
     return [{"id": order_id, "title": plain(order["text"], TITLE_CHARS), "created": order["created"]} for order_id, order in sorted(live, key=lambda item: state.parse_time(item[1]["created"]))]
+
+
+def glance(card: dict) -> dict:
+    """A card as a page lists it before he opens it: its question, its options and the PRs it carries."""
+    return {"title": card["title"], "options": card["options"], "recommended": card.get("recommended"), "prs": [{"url": row["url"], "title": row["title"]} for row in card.get("prs") or []]}
+
+
+def outline(entry: dict) -> dict:
+    return {key: value for key, value in entry.items() if key not in ("text", "jobs")} | {"running": sum(job["state"] == "running" for job in entry["jobs"])}
+
+
+def summary(model: dict) -> dict:
+    """The board without its history and lanes, each card at a glance and each feature without its order's words and jobs."""
+    rest = {key: value for key, value in model.items() if key not in ("history", "work")}
+    return rest | {
+        "queue": [item | {"card": glance(item["card"])} if item.get("card") else item for item in model["queue"]],
+        "review": [entry | {"card": entry["card"] and glance(entry["card"])} for entry in model["review"]],
+        "status": [group | {"features": [outline(entry) for entry in group["features"]]} for group in model["status"]],
+    }
+
+
+def day_of(at: str) -> date:
+    return state.parse_time(at).astimezone(ZONE).date()
+
+
+def day_counts(day: date, moments: list[dict]) -> dict:
+    asked = [entry for entry in moments if entry["kind"] == "order"]
+    return {"day": day.isoformat(), "merged": sum(entry["kind"] == "merged" for entry in moments), "swears": sum(entry["swears"] for entry in asked), "asked": len(asked), "moments": len(moments)}
+
+
+def history_page(model: dict, day: str | None, show: str, page: int) -> dict:
+    """One page of HISTORY_PAGE moments, newest first, of the Pacific day asked or else of every day, kept to the kinds show names, with each day's counts from the drive's first day to today."""
+    by_day: dict[date, list[dict]] = {}
+    for entry in model["history"]:
+        by_day.setdefault(day_of(entry["at"]), []).append(entry)
+    days = []
+    if model["history"]:
+        first, last = day_of(model["history"][-1]["at"]), day_of(model["at"])
+        days = [day_counts(each, by_day.get(each, [])) for each in (first + timedelta(days=n) for n in range((last - first).days + 1))]
+    zoomed = day if any(each["day"] == day for each in days) else None
+    kinds = HISTORY_SHOWN[show]
+    scope = by_day.get(date.fromisoformat(zoomed), []) if zoomed else model["history"]
+    kept = [entry for entry in scope if kinds is None or entry["kind"] in kinds]
+    listed = kept[(page - 1) * HISTORY_PAGE : page * HISTORY_PAGE]
+    return {"days": days, "day": zoomed, "moments": listed, "page": page, "pages": max(1, math.ceil(len(kept) / HISTORY_PAGE))}
+
+
+def story(model: dict, ids: set[str] | None) -> list[dict]:
+    """The newest STORY_LINES orders, launches, merges and taps of the features named, or of the whole drive."""
+    told = (entry for entry in model["history"] if entry["kind"] in STORY_KINDS and (ids is None or entry["feature"] in ids))
+    return list(itertools.islice(told, STORY_LINES))

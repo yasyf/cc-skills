@@ -241,7 +241,7 @@ def test_a_chart_goes_to_slack_as_its_fence_for_slack_to_draw_and_the_dashboard_
     monkeypatch.setattr(dashboard, "home_repo", lambda checkout: None)
     board = dashboard.Board(demo, [])
     board.rebuild()
-    assert [entry["visuals"] for entry in json.loads(board.body)["history"] if entry["kind"] == "said"] == [kept["visuals"]]
+    assert [entry["visuals"] for entry in view.history_page(board.model, None, "said", 1)["moments"]] == [kept["visuals"]]
 
 
 def test_a_code_or_diagram_fence_in_the_text_goes_to_slack_as_its_picture_while_words_raw_data_and_a_chart_stay_text(

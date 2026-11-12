@@ -554,6 +554,38 @@ def test_the_dashboard_model_carries_no_plan() -> None:
     assert "milestone" not in view.board(data, found(), "live", [], T0, set())["status"][-1]["features"][0]
 
 
+def test_the_summary_every_page_is_sent_leaves_out_history_lanes_and_each_features_words_and_jobs_and_shows_each_card_at_a_glance() -> None:
+    data = drive_of({"o1": order("ship the page\nwith its tests", ["j1", "j2"])}, {"j1": job("o1", "running"), "j2": job("o1", "done")}, [])
+    shown = view.summary(view.board(data, found([question("Raise the limit?", -30)]), "live", [], T0, set()))
+    [entry] = [entry for group in shown["status"] for entry in group["features"]]
+    assert not {"history", "work"} & set(shown)
+    assert (entry["title"], "text" in entry, "jobs" in entry, entry["running"]) == ("ship the page", False, False, 1)
+    assert shown["queue"][0]["card"] == {"title": "Raise the limit?", "options": ["Yes", "No"], "recommended": "Yes", "prs": []}
+
+
+def test_history_pages_eighty_moments_newest_first_of_a_pacific_day_or_every_day_kept_to_the_kinds_he_picked() -> None:
+    merged = {"at": "2026-11-10T07:30:00Z", "kind": "merged"}
+    said = [{"at": state.stamp(state.parse_time("2026-11-09T22:00:00-08:00") - timedelta(minutes=n)), "kind": "said"} for n in range(85)]
+    asked = {"at": "2026-11-08T20:00:00-08:00", "kind": "order", "swears": 2}
+    model = {"at": "2026-11-11T10:00:00-08:00", "history": [merged, *said, asked]}
+    every = view.history_page(model, None, "all", 1)
+    assert [(each["day"], each["merged"], each["swears"], each["asked"], each["moments"]) for each in every["days"]] == [
+        ("2026-11-08", 0, 2, 1, 1),
+        ("2026-11-09", 1, 0, 0, 86),
+        ("2026-11-10", 0, 0, 0, 0),
+        ("2026-11-11", 0, 0, 0, 0),
+    ]
+    assert (every["day"], every["moments"], every["pages"]) == (None, [merged, *said[:79]], 2)
+    assert view.history_page(model, "2026-11-09", "said", 2) | {"days": []} == {"days": [], "day": "2026-11-09", "moments": said[80:], "page": 2, "pages": 2}
+    assert view.history_page(model, "2026-11-12", "prs", 1)["moments"] == [merged]
+
+
+def test_the_live_story_is_the_newest_six_orders_launches_merges_and_taps_of_the_features_in_view() -> None:
+    history = [{"kind": kind, "feature": feature} for kind, feature in [("said", "o1"), ("merged", "o2"), ("failed", "o1"), *[("tap", "o1")] * 7]]
+    assert view.story({"history": history}, {"o1"}) == [{"kind": "tap", "feature": "o1"}] * 6
+    assert view.story({"history": history}, None)[0] == {"kind": "merged", "feature": "o2"}
+
+
 def test_an_alert_he_shared_is_titled_by_its_source_and_words_not_its_link() -> None:
     data = drive_of(
         {
