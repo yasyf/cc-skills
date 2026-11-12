@@ -337,7 +337,7 @@ def grantable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: str, ende
     monkeypatch.setattr(state, "now", lambda: now)
     granted = Granted()
 
-    def fake(argv: list[str], checkout: Path, env: dict[str, str] | None = None) -> str:
+    def fake(argv: list[str], checkout: Path, env: dict[str, str] | None = None, bounded: bool = True) -> str:
         granted.calls.append(argv)
         if argv[:3] == ["bk", "build", "create"]:
             return f"Build created: {GRANT}\n"
@@ -398,7 +398,36 @@ def test_a_break_glass_grant_runs_its_command_holding_only_the_stacks_credential
     )
 
 
-@pytest.mark.parametrize("now", [state.parse_time(GRANT_ENDS) - timedelta(minutes=15, seconds=59), state.parse_time(GRANT_ENDS) + timedelta(seconds=1)])
+@pytest.mark.parametrize(
+    ("number", "created", "finished", "ends"),
+    [
+        (1973, "2026-11-12T22:19:53.915Z", "2026-11-12T22:22:08.711Z", "2026-11-12T23:22:00.705Z"),
+        (1965, "2026-11-12T21:45:40.525Z", "2026-11-12T21:51:10.561Z", "2026-11-12T22:48:37.382Z"),
+    ],
+)
+def test_a_grant_build_outlasting_the_read_timer_is_watched_until_it_passes(
+    number: int, created: str, finished: str, ends: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    replay_speedup = 100
+    link = f"https://buildkite.com/forge/break-glass/builds/{number}"
+    took = (state.parse_time(finished) - state.parse_time(created)).total_seconds() / replay_speedup
+    viewed = json.dumps({"state": "passed", "meta_data": {"break-glass-expires-at": ends}})
+    bk = tmp_path / "bin" / "bk"
+    bk.parent.mkdir()
+    bk.write_text(f"""#!/bin/sh
+case "$1 $2" in
+  "build create") echo "Build created: {link}" ;;
+  "build watch") exec sleep {took} ;;
+  "build view") echo '{viewed}' ;;
+esac
+""")
+    bk.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bk.parent}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setattr(reads, "READ_SECONDS", reads.READ_SECONDS / replay_speedup)
+    assert reads.grant("sandsql/plat-usw2-prod", "count rows, read only", tmp_path) == (link, state.parse_time(ends))
+
+
+@pytest.mark.parametrize("now",[state.parse_time(GRANT_ENDS) - timedelta(minutes=15, seconds=59), state.parse_time(GRANT_ENDS) + timedelta(seconds=1)])
 def test_a_grant_ending_before_the_shortest_credentials_sts_mints_runs_nothing(now: datetime, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     granted = grantable(tmp_path, monkeypatch, MACHINE, now=now)
     with pytest.raises(reads.ReadError, match=f"^the break-glass grant {GRANT} ends at .*, too soon for the 15 minutes the shortest AWS credentials last, so nothing ran"):

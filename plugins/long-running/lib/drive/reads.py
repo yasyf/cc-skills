@@ -394,7 +394,7 @@ def grant(stack: str, why: str, checkout: Path) -> tuple[str, datetime]:
     )
     if not (build := BUILD_NUMBER.search(created)):
         raise ReadError(f"bk build create printed no build link: {created.strip()}")
-    run(["bk", "build", "watch", build[1], "-p", BREAK_GLASS_PIPELINE, "--interval", "2"], checkout)
+    run(["bk", "build", "watch", build[1], "-p", BREAK_GLASS_PIPELINE, "--interval", "2"], checkout, bounded=False)
     viewed = json.loads(run(["bk", "build", "view", build[1], "-p", BREAK_GLASS_PIPELINE, "-o", "json"], checkout))
     if viewed["state"] != "passed":
         raise ReadError(f"the break-glass grant {build[0]} {viewed['state']}, so nothing ran")
@@ -544,7 +544,7 @@ def failures(output: str) -> tuple[list[str], list[str]]:
     return found, ["\n".join(lines[first : last + 1]) for first, last in joined]
 
 
-def run(argv: list[str], checkout: Path, env: dict[str, str] | None = None) -> str:
+def run(argv: list[str], checkout: Path, env: dict[str, str] | None = None, bounded: bool = True) -> str:
     named = " ".join([Path(argv[0]).name, *argv[1:3]])
     try:
         done = subprocess.run(
@@ -554,7 +554,7 @@ def run(argv: list[str], checkout: Path, env: dict[str, str] | None = None) -> s
             capture_output=True,
             text=True,
             errors="replace",
-            timeout=READ_SECONDS,
+            timeout=READ_SECONDS if bounded else None,
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as error:
