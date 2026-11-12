@@ -12,6 +12,7 @@ OPEN_LINK = re.compile(r"<((?:https?://|mailto:)[^<>|\s]*)\|[^<>]*\Z")
 INNER = re.compile(r"<[^<>]*>?")
 CODE = re.compile(r"`[^`\n]+`")
 LINK_WORDS = str.maketrans({"<": "", ">": "", "|": "/", "[": "(", "]": ")"})
+THIS_CARD = "this card"
 CAUSE = re.compile(
     r"\b(?:because|caus(?:ed|es|ing)|due to|culprit)\b"
     r"|\bcause(?:\s+(?:is|was)|:)\s+(?!(?:yes|still|being|unknown|unclear|pending|tbd|not yet|under (?:way|investigation|review))\b|an?\s+(?:read|reader|lane|agent)\s+(?:is|has)\b)",
@@ -215,9 +216,16 @@ def opening(text: str) -> str:
     return " ".join(words[:RECORD_WORDS]) + ("…" if len(words) > RECORD_WORDS else "")
 
 
-def slack(text: str, found: dict[str, dict]) -> str:
-    """The text as Slack shows it: each reference a link under the words that name it, which Slack draws a card under, or a record that links nothing as its words."""
-    return REF.sub(lambda match: linked(found[match[0]], found[match[0]]["url"], "<{url}|{words}>"), text)
+def slack(text: str, found: dict[str, dict], thread: str | None) -> str:
+    """The text as Slack shows it in this thread of his DM, None for its root: each reference a link under the words that name it, which Slack draws a card under, or a record that links nothing as its words; a card named in its own thread reads as the words after its | or as "this card", with no link, since a link there draws the card again under the post. His words: "why are you showing me a card in the thread of the same post that this is a thread of"."""
+
+    def shown(match: re.Match[str]) -> str:
+        ref = found[match[0]]
+        if ref["kind"] == "card" and thread and view.message_key(ref["url"]) == thread.replace(".", ""):
+            return (match[3] or THIS_CARD).strip().translate(LINK_WORDS)
+        return linked(ref, ref["url"], "<{url}|{words}>")
+
+    return REF.sub(shown, text)
 
 
 def board(text: str, found: dict[str, dict]) -> str:

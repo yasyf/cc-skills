@@ -63,6 +63,18 @@ def test_one_post_links_each_reference_the_way_slack_and_the_dashboard_each_show
     assert (kept["url"], kept["thread"]) == (POSTED, "1794300000.000900")
 
 
+def test_a_card_named_in_its_own_thread_reads_this_card_with_no_link(demo: str, posts: list[tuple[str, ...]]) -> None:
+    talk.say(demo, {"text": "The design job behind {card:demo:j1-7} has your question", "thread_ts": "1794300000.000100"})
+    talk.say(demo, {"text": "{card:demo:j1-7|The lock question} has your question", "thread_ts": "1794300000.000100"})
+    talk.say(demo, {"text": "Why {card:demo:j1-7} asks: one lock per chat", "about": WAITS})
+    assert posts == [
+        ("dm-status", "--agent", "claude", "--thread", "1794300000.000100", "--", "The design job behind this card has your question"),
+        ("dm-status", "--agent", "claude", "--thread", "1794300000.000100", "--", "The lock question has your question"),
+        ("dm-status", "--agent", "claude", "--about", WAITS, "--", "Why this card asks: one lock per chat"),
+    ]
+    assert said(demo)[0]["text"] == f"The design job behind [{QUESTION}](#/queue/question/1794300000.000100) has your question"
+
+
 def test_an_edit_links_each_reference_as_a_post_does_and_the_dashboard_shows_its_new_words_in_place(demo: str, posts: list[tuple[str, ...]]) -> None:
     talk.say(demo, {"text": "{pr:7} is up", "thread_ts": "1794200000.000100"})
     edit = {"edit": POSTED, "text": "{pr:7} waits on {card:demo:j1-7}"}

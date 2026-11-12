@@ -128,14 +128,14 @@ def answer_card(card: str, words: str, link: str, settled: bool) -> dict:
     return slack.cc_slack("card-answer", "--card", card, "--label", words, *(("--settled", "--other") if settled else ("--withdrawn",)), "--via", link)
 
 
-def closing(found: dict, kind: str, attrs: dict, url: str | None, answered: list[str]) -> list[dict]:
-    """The open question cards an owner or answer record of his words closes: each its `thread_card` attr, the ask seq it answers or his message's place in the card's thread names; an Undo, which reopens its card, closes none. His words never close a PR card: only his order on its thread, or a job carrying one, withdraws it."""
+def closing(found: dict, kind: str, attrs: dict, topic: str | None, answered: list[str]) -> list[dict]:
+    """The open question cards an owner or answer record of his words closes: each its `thread_card` attr, the ask seq it answers or its `card:<thread_ts>` topic names, never his message's place in a card's thread alone, since his words there may answer nothing it asks; an Undo, which reopens its card, closes none. His words never close a PR card: only his order on its thread, or a job carrying one, withdraws it."""
     if kind not in ("owner", "answer") or "undone" in attrs:
         return []
     return [
         card
         for card in found["questions"]
-        if (waits := card["card"].get("waits")) and (waits == attrs.get("thread_card") or waits.rpartition("-")[2] in answered) or (url and under(url, card["url"]))
+        if (waits := card["card"].get("waits")) and (waits == attrs.get("thread_card") or waits.rpartition("-")[2] in answered) or topic == f"card:{view.card_thread(card['url'])}"
     ]
 
 
@@ -149,10 +149,10 @@ def close_card(card: dict, kind: str, words: str, link: str) -> str:
     return f"{waits}: his card {card['url']} now shows his words with no buttons, {'settled by' if answered else 'withdrawn for'} them"
 
 
-def unclosed_refusal(names: list[str], kind: str, attrs: dict, url: str | None, answered: list[str]) -> str | None:
+def unclosed_refusal(names: list[str], kind: str, attrs: dict, topic: str | None, answered: list[str]) -> str | None:
     """Why an owner or answer record goes only through the drive's `record` tool: his words in it close an open question card of his, and only that tool settles or withdraws the card in the same call that sends them."""
     for name in names:
-        if cards := [card["url"] for card in closing(view.live_cards(name) or view.NO_CARDS, kind, attrs, url, answered)]:
+        if cards := [card["url"] for card in closing(view.live_cards(name) or view.NO_CARDS, kind, attrs, topic, answered)]:
             return (
                 f"refused: this {kind} record carries his words on his open card {cards[0]}, which keeps asking him until"
                 " something closes it; send it with the drive's `record` tool, his message's permalink as `url` and the card's"

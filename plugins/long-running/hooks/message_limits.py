@@ -374,7 +374,7 @@ def checked(payload: dict) -> tuple[str | None, dict]:
         found = refs.resolved(drive["name"], said)
     except DriveError as error:
         return agents.Unjudged(str(error)), payload["tool_input"]
-    sent = payload["tool_input"] | {"text": refs.slack(said, found)} if found else payload["tool_input"]
+    sent = payload["tool_input"] | {"text": refs.slack(said, found, talk.shown_in(drive["name"], payload["tool_input"]))} if found else payload["tool_input"]
     return found_in(payload | {"tool_input": sent}, drive, said, found), sent
 
 
@@ -398,7 +398,7 @@ def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> s
     except slack.SlackError as error:
         return f"refused: his thread could not be read, so this post cannot be checked as a reply to his messages there: {error}."
     if (long := over_length(payload, dm, messages)) and found:
-        long += TITLED.format(limits.words(refs.slack(" ".join(match[0] for match in refs.REF.finditer(said)), found)))
+        long += TITLED.format(limits.words(refs.slack(" ".join(match[0] for match in refs.REF.finditer(said)), found, talk.shown_in(drive["name"], tool_input))))
     return every(
         [
             long and agents.Ruled(long, LENGTH_RULE),
