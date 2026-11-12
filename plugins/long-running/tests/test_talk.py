@@ -414,17 +414,24 @@ def test_a_post_delivers_the_part_its_report_names_and_a_progress_report_naming_
         ("Next line by 9:45.", "Nov 11 21:45"),
         ("Next line by 9:45 PM.", "Nov 11 21:45"),
         ("Next update at 10:00", "Nov 11 22:00"),
-        ("You get it before 12:15 a.m.", "Nov 12 00:15"),
+        ("Next post before 12:15 a.m.", "Nov 12 00:15"),
         ("Next line by 21:45", "Nov 11 21:45"),
         ("It was green by 9:22, so next line by 9:45", "Nov 11 21:45"),
+        ("The fix is due by 9:50, and the next line by 9:40.", "Nov 11 21:40"),
         ("The last failure was at 9:22:53 PM, and both jobs started at 9:27.", None),
         ("Its folder was empty by 7:30.", None),
-        ("You get it by 9:45 AM.", None),
+        ("You get it before 12:15 a.m.", None),
+        ("Next line by 9:45 AM.", None),
     ],
 )
-def test_a_post_promises_the_clock_time_after_by_or_next_line_read_as_the_time_of_day_nearest_it_when_that_is_ahead(text: str, due: str | None) -> None:
+def test_a_post_promises_the_clock_time_after_next_line_read_as_the_time_of_day_nearest_it_when_that_is_ahead(text: str, due: str | None) -> None:
     found = cli.promised_due(text, datetime(2026, 11, 11, 21, 29, 43, 954739).astimezone())
     assert (found and f"{found:%b %d %H:%M}") == due
+
+
+def test_a_post_promising_the_next_line_by_2_32_owes_2_32_not_the_2_37_it_says_a_fix_is_due_by() -> None:
+    found = cli.promised_due("The fix is due by 2:37, and you get the next line by 2:32.", datetime(2026, 11, 12, 2, 23, 28, 890659).astimezone())
+    assert (found and f"{found:%b %d %H:%M}") == "Nov 12 02:32"
 
 
 def test_a_time_a_post_promises_becomes_its_orders_due_once_slack_has_the_post_and_the_next_post_keeps_it(

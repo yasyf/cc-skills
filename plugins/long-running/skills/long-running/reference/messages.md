@@ -86,9 +86,10 @@ reading of his words "your messages need to be way shorter rewrite this for a hu
   out, so name a PR he has nothing to tap in a line that waits on nothing.
 - Only cards have buttons, so anything that asks for his action or decision is a card: "Anything that
   says waiting on me you always need to embed the card with the buttons".
-- When a post in an order's thread promises him a clock time, such as "Next line by 9:45", the
-  post's record (`say(order=<o>)` or `drive order posted`) makes that time the order's due from the
-  words Slack holds for the post, a time with no AM or PM read as the one nearest the post, so the
+- When a post in an order's thread promises him his next line by a clock time, such as "Next line
+  by 9:45", the post's record (`say(order=<o>)` or `drive order posted`) makes that time the order's
+  due from the words Slack holds for the post, a time with no AM or PM read as the one nearest the
+  post, and any other time in it, such as "due by 2:37", sets nothing, so the
   watch holds the drive to it from Slack's own record, not a session's memory, and no `--due` follows
   the line. `drive order add --due` counts from when the order is added, and `drive order set --due`
   from the next line in the order's thread. The watch says `DUE` every 10
