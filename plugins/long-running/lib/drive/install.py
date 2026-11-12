@@ -17,6 +17,7 @@ DEFAULT_BRANCH = "refs/heads/default"
 FETCH = ("fetch", "--quiet", "--filter=blob:none", "--no-tags", "origin")
 AFTER_UPDATE = {"cc-inbox": ("bin/cci", "serve")}
 HOMEBREW = {"cc-context": "ccx", "cc-inbox": "cci", "cc-notes": "cc-notes", "cc-present": "cc-present", "cc-review": "cc-review", "cc-slack": "cc-slack"}
+TAP = "yasyf/tap"
 RELEASE_VERSION = re.compile(r"\d+\.\d+\.\d+")
 RELOADS = "reloads.json"
 UPDATE_LOCK = ".update.lock"
@@ -189,12 +190,13 @@ def check_holds(clone: str, repo: str, key: str, entry: dict, sha: str, deadline
 
 
 def await_homebrew(clone: str, binary: str, sha: str | None, deadline: float, timeout: int) -> None:
-    """Upgrade the yasyf/tap formula or cask installing binary, the copy sessions run bare since Claude Code appends plugin bin directories after /opt/homebrew/bin on PATH, until the release bare binary prints with --version holds sha; each pass runs brew update first, since brew upgrade alone refreshes the tap only once a day."""
+    """Upgrade the yasyf/tap formula or cask installing binary, the copy sessions run bare since Claude Code appends plugin bin directories after /opt/homebrew/bin on PATH, until the release bare binary prints with --version holds sha; each pass fast-forwards the tap's own clone first and upgrades with Homebrew's auto-update off, since brew update fetches every tap on the Mac and fails when any one of them cannot be fetched."""
+    tap = run(["brew", "--repository", TAP], deadline).strip()
     last = ""
     while True:
         with state.flocked(config_dir() / "plugins" / UPDATE_LOCK):
-            run(["brew", "update", "--quiet"], deadline)
-            run(["brew", "upgrade", f"yasyf/tap/{binary}"], deadline)
+            git(tap, "pull", "--ff-only", "--quiet", deadline=deadline)
+            run(["env", "HOMEBREW_NO_AUTO_UPDATE=1", "brew", "upgrade", f"{TAP}/{binary}"], deadline)
         if sha is None:
             return
         printed = run([binary, "--version"], deadline).strip()
@@ -206,7 +208,7 @@ def await_homebrew(clone: str, binary: str, sha: str | None, deadline: float, ti
             return
         lacking = f"bare {binary} runs release {tag}, which lacks it"
         if lacking != last:
-            print(f"drive install: waiting for yasyf/tap/{binary} to hold {sha[:12]}: {lacking}", file=sys.stderr, flush=True)
+            print(f"drive install: waiting for {TAP}/{binary} to hold {sha[:12]}: {lacking}", file=sys.stderr, flush=True)
         last = lacking
         if deadline - clock() <= POLL_SECONDS:
             raise InstallError(f"timed out after {timeout}s waiting for bare {binary} to hold {sha[:12]}; {lacking}")
