@@ -65,6 +65,8 @@ def read(**overrides: object) -> dict:
         "state": "OPEN",
         "isDraft": False,
         "headRefOid": "aaaaaaa111",
+        "baseRefName": "main",
+        "headRefName": "the-watch",
         "mergeCommit": None,
         "checks": RUNNING,
         "reviewDecision": None,
@@ -2115,6 +2117,33 @@ def test_a_native_stack_gets_one_ready_for_its_heads_and_another_only_once_a_res
     urls = " ".join(state.pr_url(key) for key in STACKED)
     assert [record.get("body", record["text"]).split("; ")[0] for [record] in ready_records] == [urls, urls]
     assert state.load(demo)["prs"][OTHER]["ready_said"] == "ddddddd444"
+
+
+def test_a_pr_on_another_open_prs_branch_gets_no_ready_of_its_own_and_one_ready_names_both_bottom_first_once_each_is_checked_at_its_head(
+    demo: str, monkeypatch: pytest.MonkeyPatch, ready_records: list[list[dict]]
+) -> None:
+    waiting_job(demo)
+    with state.edit(demo) as data:
+        data["orders"]["o2"] = order(text="a cloud agent signs in as its own principal", jobs=["j2"])
+        data["jobs"]["j2"] = job(order="o2", prs=[state.pr_url(OTHER)], state="waiting")
+        data["prs"][KEY]["wants_tap"] = True
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j2", "o2")
+    serve(
+        monkeypatch,
+        {
+            OTHER: read(headRefOid="bbbbbbb222", baseRefName="dev", headRefName="cloud-agent-identity", checks=GREEN, reviewDecision="APPROVED"),
+            KEY: read(baseRefName="cloud-agent-identity", headRefName="cloud-agent-pod-identity", checks=GREEN, reviewDecision="APPROVED"),
+        },
+    )
+    watching = watcher(demo)
+    assert (DRAWING in watch.run_pass(watching, T0), ready_records) == (False, [])
+    with state.edit(demo) as data:
+        data["prs"][OTHER]["checked"] = CHECKED | {"head": "bbbbbbb222", "orders": ["o2"]}
+    lines = watch.run_pass(watching, T0 + timedelta(minutes=1))
+    assert f"CARD his card for {OTHER}, {KEY} is drawing: green and approved, ready record sent to the communicator" in lines
+    [[record]] = ready_records
+    words = 'his order o2 "a cloud agent signs in as its own principal"; his order o1 "ship the watch"'
+    assert record.get("body", record["text"]) == f"{state.pr_url(OTHER)} {state.pr_url(KEY)}; {words}"
 
 
 def test_a_pr_reworked_to_his_words_gets_no_ready_and_loses_a_card_left_up_until_its_builders_ready_says_how_they_are_met(

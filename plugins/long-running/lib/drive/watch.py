@@ -493,20 +493,21 @@ def rework_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def ready_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Send the communicator one ready record per native GitHub stack, or per order for PRs in none, for the PRs that wait on his card alone, once a head, so `drive card` draws his card within one GitHub read of a PR going green and approved, with no coordinator turn, and says what changed on each PR whose builder's READY met his words reworking it. A stack's record waits until every open PR of it the drive tracks waits on its next step alone with no rework owed, then names each of them that asks his tap and marks it sent on its head, so no PR mid-stack gets a ready of its own and a pass repeats none until a head moves; a record that fails to post goes again next read."""
+    """Send the communicator one ready record per stack his Approve lands, or per order for PRs in none, for the PRs that wait on his card alone, once a head, so `drive card` draws his card within one GitHub read of a PR going green and approved, with no coordinator turn, and says what changed on each PR whose builder's READY met his words reworking it. A stack's record waits until every open PR of it the drive tracks waits on its next step alone with no rework owed, each that asks his tap checked against his words at its head, then names each of them that asks his tap, bottom first, and marks it sent on its head, so no PR mid-stack or on another open PR's branch gets a ready of its own and a pass repeats none until a head moves; a record that fails to post goes again next read."""
     if watcher.cards is None:
         return []
     from drive import tools
 
     data = state.load(watcher.name)
+    stacks = landing_stacks(data)
     owed: dict[tuple[tuple[str, ...], str], list[str]] = {}
     for key, pr in data["prs"].items():
         if hears(watcher, data, pr["order"]) and card_owed(pr, data, watcher.cards):
-            stack = native_stack(data, key)
+            stack = stacks.get(key, ())
             owed.setdefault((stack, "" if stack else pr.get("serves") or pr["order"]), []).append(key)
     lines = []
     for (stack, _), keys in owed.items():
-        if not all(view.next_step(data["prs"][member], data, watcher.cards) and not data["prs"][member]["rework"] for member in stack):
+        if not all(stack_ready(data["prs"][member], data, watcher.cards) for member in stack):
             continue
         heads = {key: data["prs"][key]["head"] for key in [member for member in stack if state.asks_tap(data["prs"][member])] or keys}
         orders = list(dict.fromkeys(data["prs"][key].get("serves") or data["prs"][key]["order"] for key in heads))
@@ -527,9 +528,30 @@ def ready_lines(watcher: Watcher, moment: datetime) -> list[str]:
     return lines
 
 
-def native_stack(data: dict, key: str) -> tuple[str, ...]:
-    """The open PRs of the PR's native GitHub stack that the drive tracks, bottom first, as the watch last read it; none for a PR in no native stack."""
-    return tuple(member for member in data["prs"][key]["native"] if member in data["prs"] and data["prs"][member]["state"] == "open")
+def landing_stacks(data: dict) -> dict[str, tuple[str, ...]]:
+    """Each open PR the drive tracks in a stack, mapped to the stack's open tracked PRs bottom first, as the watch last read them: the PRs his Approve lands together, joined as stack-enqueue lands them, a PR sitting on the one before it in its native GitHub stack or, in none, on the open PR whose head branch is its base."""
+    opened = {key: pr for key, pr in data["prs"].items() if pr["state"] == "open"}
+    by_branch = {(github.repo_of(key), pr["branch"]): key for key, pr in opened.items() if pr["branch"]}
+    under: dict[str, str | None] = {}
+    for key, pr in opened.items():
+        native = [member for member in pr["native"] if member in opened]
+        under[key] = (native[native.index(key) - 1] if native.index(key) else None) if key in native else by_branch.get((github.repo_of(key), pr["base"]))
+
+    def depth(key: str) -> int:
+        return depth(parent) + 1 if (parent := under[key]) else 0
+
+    def bottom(key: str) -> str:
+        return bottom(parent) if (parent := under[key]) else key
+
+    stacks: dict[str, list[str]] = {}
+    for key in opened:
+        stacks.setdefault(bottom(key), []).append(key)
+    return {key: tuple(sorted(members, key=depth)) for members in stacks.values() if len(members) > 1 or opened[members[0]]["native"] for key in members}
+
+
+def stack_ready(pr: dict, data: dict, cards: dict) -> bool:
+    """Whether a PR lets its stack's ready record go: it waits on its next step alone with no rework owed, and if it asks his tap, its change at its head is checked against his words."""
+    return view.next_step(pr, data, cards) and not pr["rework"] and (state.checked(data, pr) or not state.asks_tap(pr))
 
 
 def order_words(data: dict, order_id: str) -> str:

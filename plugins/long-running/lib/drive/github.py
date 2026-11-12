@@ -9,7 +9,7 @@ from pathlib import Path
 NUMBER = "<number>"
 REQUIRED = f"isRequired(pullRequestNumber: {NUMBER})"
 FIELDS = (
-    "state isDraft headRefOid title author { login } reviewDecision latestOpinionatedReviews(first: 20, writersOnly: true) { nodes { state commit { oid } } } "
+    "state isDraft headRefOid baseRefName headRefName title author { login } reviewDecision latestOpinionatedReviews(first: 20, writersOnly: true) { nodes { state commit { oid } } } "
     "mergeable mergeCommit { oid } labels(first: 50) { nodes { name } } "
     "commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { "
     f"... on CheckRun {{ name conclusion detailsUrl {REQUIRED} checkSuite {{ workflowRun {{ workflow {{ name }} }} }} }} ... on StatusContext {{ context state targetUrl {REQUIRED} }} }} }} }} }} }} }}"
@@ -104,6 +104,8 @@ def flatten(node: dict) -> dict:
         "state": node["state"],
         "isDraft": node["isDraft"],
         "headRefOid": node["headRefOid"],
+        "baseRefName": node["baseRefName"],
+        "headRefName": node["headRefName"],
         "mergeCommit": (node["mergeCommit"] or {}).get("oid"),
         "checks": [context(check) for check in rollup["contexts"]["nodes"]] if rollup else [],
         "reviewDecision": node["reviewDecision"],
@@ -178,7 +180,7 @@ def required(read: dict) -> dict:
 
 
 def live(read: dict, stored: dict) -> dict:
-    """The drive's stored fields (state, checks, the checks that failed on its head, the required checks' verdict, review, head, title, author, whether it carries the hold label, the PRs of its native GitHub stack that are not closed, conflict) of one fetched PR against its stored row; conflict only once GitHub has worked it out, since it reads UNKNOWN for a while after its base moves."""
+    """The drive's stored fields (state, checks, the checks that failed on its head, the required checks' verdict, review, head, its base and head branches, title, author, whether it carries the hold label, the PRs of its native GitHub stack that are not closed, conflict) of one fetched PR against its stored row; conflict only once GitHub has worked it out, since it reads UNKNOWN for a while after its base moves."""
     failed = sorted({*failed_before(stored, read["headRefOid"]), *(check_name(check) for check in counted(read["checks"]) if outcome(check) in FAILED)})
     fields = {
         "state": PR_STATES[read["state"]],
@@ -187,6 +189,8 @@ def live(read: dict, stored: dict) -> dict:
         "required": required(read),
         "review": review(read),
         "head": read["headRefOid"],
+        "base": read["baseRefName"],
+        "branch": read["headRefName"],
         "title": read["title"],
         "author": read["author"],
         "hold_label": HOLD_LABEL in read["labels"],
