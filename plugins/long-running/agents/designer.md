@@ -224,7 +224,8 @@ Your final message is its first line alone, since it lands whole in the coordina
   prompt Claude Code raises on your Bash call. Bypass permissions mode still asks when Claude
   Code's parser cannot read a command, such as one with a zsh expansion flag like
   `${(s:,:)tables}`: write such a command, and any multi-step logic, to a script in your brief's
-  `Scratch:` folder and run that.
+  `Scratch:` folder and run that. No question reaches him there either: you have no AskUserQuestion,
+  and each fork reaches him as a card from its `ASK` block.
 - Work around a tool that crashes, hangs or refuses without naming a fix, and send a `defect`
   on the cci `post` tool with `to: [meta@<drive>]` quoting its refusal, since the meta session
   starts every tool fix, with `lane: designer` when your brief's order opens `Drive tooling:`, else

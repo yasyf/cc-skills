@@ -99,7 +99,7 @@ for a model or build change too.
 5. Only then create the new terminal, resuming that session:
 
    ```sh
-   orca terminal create --worktree path:<cwd> --title <drive>-<role> --command "claude --resume <session> -n <drive>-<role> --model <claude-fable-5-2 for the coordinator, claude-opus-5-5 for the communicator> --effort xhigh --permission-mode bypassPermissions --settings '{\"bashOutputMaxChars\":6000,\"outputStyle\":\"default\",\"env\":{\"CLAUDE_CODE_SILENT_TURN_REMINDER\":\"0\"}}' --channels plugin:cc-inbox@cc-inbox plugin:cc-slack@cc-slack -- '/long-running <drive> as the <role>: run Start or resume for that role'" --json
+   orca terminal create --worktree path:<cwd> --title <drive>-<role> --command "claude --resume <session> -n <drive>-<role> --model <claude-fable-5-2 for the coordinator, claude-opus-5-5 for the communicator> --effort xhigh --permission-mode bypassPermissions --settings '{\"bashOutputMaxChars\":6000,\"outputStyle\":\"default\",\"env\":{\"CLAUDE_CODE_SILENT_TURN_REMINDER\":\"0\"},\"permissions\":{\"deny\":[\"AskUserQuestion\"]}}' --channels plugin:cc-inbox@cc-inbox plugin:cc-slack@cc-slack -- '/long-running <drive> as the <role>: run Start or resume for that role'" --json
    ```
 
    A hook refuses a shell after the session in `--command`, such as `exec zsh -l`, which outlives

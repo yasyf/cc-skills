@@ -76,6 +76,11 @@ thread once the fix is live is the one exception, by [messages.md](messages.md).
 
 ## A question for him
 
+A question for him reaches him only as a question card, drawn from an `ask` record by the
+communicator's handler, because he reads no terminal. Every drive session and handler starts with
+the AskUserQuestion tool denied ([Start or resume](start.md)), and a job asks through its `ASK`
+return, so no question waits in a terminal.
+
 A question he has answered is never asked again, in any wording. Before you write an `ASK`, read his
 words in the order's thread and run `ccn answer search "<words>"`, because his answer often rules
 past the question it was given under and names the subject only in his words.
