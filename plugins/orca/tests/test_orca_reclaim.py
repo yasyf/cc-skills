@@ -937,13 +937,18 @@ class SpriteTest(unittest.TestCase):
         self.assertEqual(cc_remote.destroyed, [])
         self.assertIn("keep pool-abc unpushed commits on v3/lane", out)
 
-    def test_held_names_what_only_a_lanes_sprite_holds_and_changes_nothing(self):
-        orca = FakeOrca([sprite_row("ctx_s", status="running")])
-        unpushed = FakeCcRemote(self.hosted, {"pool-abc": checkout(SPRITE.root, off_origin=(("tallies-final", "d" * 40), ("stash", "e" * 40)))})
-        self.assertEqual(orca_gc.held("run_x", "ctx_s", orca, unpushed), "commits on no remote on tallies-final, stash")
-        self.assertIsNone(orca_gc.held("run_x", "ctx_s", orca, FakeCcRemote(self.hosted)))
-        self.assertIsNone(orca_gc.held("run_x", "ctx_other", orca, unpushed))
-        self.assertEqual((orca.calls, unpushed.destroyed), ([], []))
+    def test_held_reads_a_sprite_by_its_workspace_with_no_orca_and_names_everything_only_it_holds(self):
+        changed = (("8", "/home/sprite/repo/.worktrees/conflict-tallies"), ("1", SPRITE.root), ("unreadable", "/home/sprite/repo/.worktrees/gone"))
+        held = checkout(SPRITE.root, dirty=True, changed=changed, head="b" * 40, off_origin=(("tallies-final", "d" * 40), ("stash", "e" * 40)))
+        unpushed = FakeCcRemote(self.hosted, {"pool-abc": held})
+        self.assertEqual(
+            orca_gc.held("pool-abc", unpushed),
+            "uncommitted changes in /home/sprite/repo/.worktrees/conflict-tallies (8 files), /home/sprite/repo (1 file),"
+            " /home/sprite/repo/.worktrees/gone (git cannot read it); commits on no remote on tallies-final, stash; unpushed commits on v3/lane",
+        )
+        self.assertIsNone(orca_gc.held("pool-abc", FakeCcRemote(self.hosted)))
+        self.assertIsNone(orca_gc.held("pool-other", unpushed))
+        self.assertEqual(unpushed.destroyed, [])
 
     def test_an_unreadable_checkout_keeps_the_sprite(self):
         cc_remote = FakeCcRemote(self.hosted, {"pool-abc": "ssh to pool-abc could not read /home/sprite/repo: timeout"})
@@ -1220,7 +1225,7 @@ class OrcaArgvTest(unittest.TestCase):
         def fake(command, **_):
             argv.append(command)
             if command[0] == "ssh":
-                return orca_gc.subprocess.CompletedProcess(command, 0, "https://token@github.com/acme/repo.git\n\n0\n# branch.oid " + "a" * 40 + "\n# branch.head (detached)\n? scratch.txt\n", "")
+                return orca_gc.subprocess.CompletedProcess(command, 0, "https://token@github.com/acme/repo.git\n\n\n# branch.oid " + "a" * 40 + "\n# branch.head (detached)\n? scratch.txt\n", "")
             return orca_gc.subprocess.CompletedProcess(command, 0, '{"default_branch": "dev", "status": "behind"}', "")
 
         orca_gc.github_trunk.cache_clear()
@@ -1235,7 +1240,7 @@ class OrcaArgvTest(unittest.TestCase):
 
     def test_a_sprite_without_a_github_origin_is_kept_by_name(self):
         original = orca_gc.subprocess.run
-        orca_gc.subprocess.run = lambda command, **_: orca_gc.subprocess.CompletedProcess(command, 0, "https://token@gitlab.example/acme/repo\n\n0\n# branch.oid x\n# branch.head dev\n", "")
+        orca_gc.subprocess.run = lambda command, **_: orca_gc.subprocess.CompletedProcess(command, 0, "https://token@gitlab.example/acme/repo\n\n\n# branch.oid x\n# branch.head dev\n", "")
         try:
             found = orca_gc.CcRemote(Path("/nonexistent")).checkout(SPRITE)
         finally:
@@ -1268,7 +1273,7 @@ class OrcaArgvTest(unittest.TestCase):
 
         def fake(command, **_):
             if command[0] == "ssh":
-                return orca_gc.subprocess.CompletedProcess(command, 0, "https://github.com/acme/repo\n\n0\n# branch.oid " + "a" * 40 + "\n# branch.head dev\n", "")
+                return orca_gc.subprocess.CompletedProcess(command, 0, "https://github.com/acme/repo\n\n\n# branch.oid " + "a" * 40 + "\n# branch.head dev\n", "")
             return orca_gc.subprocess.CompletedProcess(command, 1, "", "gh: API rate limit exceeded (HTTP 403)")
 
         orca_gc.subprocess.run = fake
@@ -1288,12 +1293,12 @@ class OrcaArgvTest(unittest.TestCase):
         def fake(command, **_):
             argv.append(command)
             if command[0] == "ssh":
-                return orca_gc.subprocess.CompletedProcess(command, 0, "https://github.com/acme/repo\n\n2\n# branch.oid " + "a" * 40 + "\n# branch.head dev\n", "")
+                return orca_gc.subprocess.CompletedProcess(command, 0, "https://github.com/acme/repo\n\n2 /home/sprite/repo/.worktrees/tallies\tunreadable /home/sprite/repo/.worktrees/gone\t\n# branch.oid " + "a" * 40 + "\n# branch.head dev\n", "")
             return orca_gc.subprocess.CompletedProcess(command, 0, '{"default_branch": "dev", "status": "behind"}', "")
 
         orca_gc.subprocess.run = fake
         found = orca_gc.CcRemote(Path("/nonexistent")).checkout(SPRITE)
-        self.assertTrue(found.dirty)
+        self.assertEqual((found.dirty, found.changed), (True, (("2", "/home/sprite/repo/.worktrees/tallies"), ("unreadable", "/home/sprite/repo/.worktrees/gone"))))
         self.assertIn("worktree list --porcelain", argv[0][-1])
 
     def test_the_sprite_read_names_each_branch_and_stash_with_commits_on_no_remote(self):
@@ -1305,7 +1310,7 @@ class OrcaArgvTest(unittest.TestCase):
         def fake(command, **_):
             argv.append(command)
             if command[0] == "ssh":
-                return orca_gc.subprocess.CompletedProcess(command, 0, "https://github.com/acme/repo\ntallies-final:" + "d" * 40 + " stash:" + "e" * 40 + " \n0\n# branch.oid " + "a" * 40 + "\n# branch.head dev\n", "")
+                return orca_gc.subprocess.CompletedProcess(command, 0, "https://github.com/acme/repo\ntallies-final:" + "d" * 40 + " stash:" + "e" * 40 + " \n\n# branch.oid " + "a" * 40 + "\n# branch.head dev\n", "")
             return orca_gc.subprocess.CompletedProcess(command, 0, '{"default_branch": "dev", "status": "behind"}', "")
 
         orca_gc.subprocess.run = fake

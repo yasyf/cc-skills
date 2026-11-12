@@ -355,6 +355,7 @@ class Checkout:
     repository: str
     environment: str | None = None
     off_origin: tuple[tuple[str, str], ...] = ()
+    changed: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -600,11 +601,12 @@ class CcRemote:
     def checkout(self, sprite: Sprite) -> Checkout | str:
         git_c = f"git -C {shlex.quote(sprite.root)}"
         off_origin = f"{{ {git_c} for-each-ref --format='%(refname) %(refname:short) %(objectname)' refs/heads refs/stash | while read -r ref name tip; do [ -z \"$({git_c} rev-list -1 \"$ref\" --not HEAD --remotes=origin)\" ] || printf '%s:%s ' \"$name\" \"$tip\"; done; echo; }}"
-        argv = ["ssh", "-F", sprite.ssh_config, "-o", "BatchMode=yes", sprite.host, f"{git_c} remote get-url origin && {off_origin} && {git_c} worktree list --porcelain | sed -n 's/^worktree //p' | while read -r tree; do [ ! -e \"$tree\" ] || git -C \"$tree\" status --porcelain || echo unreadable; done | wc -l && {git_c} status --porcelain=v2 --branch"]
+        changed = f"{{ {git_c} worktree list --porcelain | sed -n 's/^worktree //p' | while read -r tree; do [ ! -e \"$tree\" ] || {{ if listed=$(git -C \"$tree\" status --porcelain); then files=$(printf %s \"$listed\" | grep -c '^'); else files=unreadable; fi; [ \"$files\" = 0 ] || printf '%s %s\\t' \"$files\" \"$tree\"; }}; done; echo; }}"
+        argv = ["ssh", "-F", sprite.ssh_config, "-o", "BatchMode=yes", sprite.host, f"{git_c} remote get-url origin && {off_origin} && {changed} && {git_c} status --porcelain=v2 --branch"]
         done = subprocess.run(argv, capture_output=True, text=True)
         if done.returncode != 0:
             return f"ssh to {sprite.host} could not read {sprite.root}: {(done.stderr.strip().splitlines() or [f'exit {done.returncode}'])[-1]}"
-        origin, off_origin, worktree_changes, *lines = done.stdout.splitlines()
+        origin, off_origin, changed, *lines = done.stdout.splitlines()
         hub = GITHUB_ORIGIN.search(origin)
         if hub is None:
             return f"{sprite.root} has no GitHub origin to check its HEAD against"
@@ -616,12 +618,13 @@ class CcRemote:
             return str(refused)
         return Checkout(
             path=sprite.root,
-            dirty=int(worktree_changes) > 0 or any(not line.startswith("# ") for line in lines),
+            dirty=bool(changed) or any(not line.startswith("# ") for line in lines),
             branch=None if branch == "(detached)" else branch,
             head=head,
             on_trunk=on_trunk,
             repository=hub["slug"],
             off_origin=tuple(ref.rpartition(":")[::2] for ref in off_origin.split()),
+            changed=tuple(tree.partition(" ")[::2] for tree in changed.split("\t") if tree),
         )
 
     def remote(self, slug: str) -> Remote:
@@ -675,25 +678,29 @@ def terminal_action(worker: Worker, live: set[str], orca: Orca, ended: dict[str,
 
 
 def unsaved(checkout: Checkout, remote: Remote) -> str | None:
+    return next(holdings(checkout, remote), None)
+
+
+def holdings(checkout: Checkout, remote: Remote) -> Iterator[str]:
     if checkout.dirty:
-        return "uncommitted changes"
+        counts = {"unreadable": "git cannot read it", "1": "1 file"}
+        trees = ", ".join(f"{tree} ({counts.get(files, f'{files} files')})" for files, tree in checkout.changed)
+        yield f"uncommitted changes in {trees}" if trees else "uncommitted changes"
     try:
         if off := [name for name, tip in checkout.off_origin if tip not in remote.heads and tip not in remote.landed]:
-            return f"commits on no remote on {', '.join(off)}"
+            yield f"commits on no remote on {', '.join(off)}"
         if not (checkout.on_trunk or checkout.head in remote.heads or checkout.head in remote.landed):
-            return f"unpushed commits on {checkout.branch or checkout.head[:10]}"
+            yield f"unpushed commits on {checkout.branch or checkout.head[:10]}"
     except GitHubRefusal as refused:
-        return str(refused)
-    return None
+        yield str(refused)
 
 
-def held(run: str, dispatch: str, orca: Orca, cc_remote: CcRemote) -> str | None:
-    worker = next((worker for worker in orca.workers(run) if worker.dispatch == dispatch), None)
-    sprite = worker and cc_remote.sprites().get((worker.workspace, worker.terminal))
+def held(workspace: str, cc_remote: CcRemote) -> str | None:
+    sprite = next((sprite for sprite in cc_remote.sprites().values() if sprite.workspace == workspace), None)
     if sprite is None:
         return None
     checkout = cc_remote.checkout(sprite)
-    return checkout if isinstance(checkout, str) else unsaved(checkout, cc_remote.remote(checkout.repository))
+    return checkout if isinstance(checkout, str) else "; ".join(holdings(checkout, cc_remote.remote(checkout.repository))) or None
 
 
 def sprite_action(worker: Worker, sprite: Sprite, live_workspaces: set[str], ended: dict[str, str], orca: Orca, cc_remote: CcRemote) -> Action:
@@ -1051,8 +1058,10 @@ def main() -> int:
         "exists: a paused pass changes nothing, and a pause set mid-pass is read before each candidate and again right before its stop, release, "
         "terminal close, worktree removal, or Sprite destroy, which it skips and names, while an operation already started runs to completion. "
         "--dry-run reads through a pause. "
-        "--held reads, and changes nothing: it prints what the Sprite of one dispatch holds that a fresh Sprite would not get, by the same "
-        "checkout read that keeps a Sprite, such as uncommitted changes or each branch or stash with commits on no remote, or prints nothing. "
+        "--held reads, and changes nothing: it prints what the Sprite a cc-remote task records under one workspace name holds that a fresh Sprite would not get, "
+        "by the same checkout read that keeps a Sprite, naming each of them: every worktree with uncommitted changes and its count of changed files, every branch "
+        "or stash with commits on no remote, and an unpushed HEAD; or the reason the read failed, or nothing. It needs no Orca, so it reads a Sprite whose dispatch "
+        "or environment Orca has dropped. "
         "--new is the recurring pass. Without --run it takes one Run a pass, those no pass has swept first, then the one swept longest ago, and skips a Run whose "
         f"coordinator terminal is open, a legacy Run, the unbound Run, and each Run git config --global --get-all {SKIP_RUNS} names. "
         f"In that Run it sweeps up to {SWEPT_BATCH} settled dispatches with an open terminal or a worktree still on disk, those no pass has swept first, newest first, "
@@ -1069,7 +1078,7 @@ def main() -> int:
     parser.add_argument("--run", help="the Orca Run id; --new without it takes the next Run in turn")
     parser.add_argument("--dispatch", action="append", default=[], metavar="CTX", help="only this settled dispatch; repeatable")
     parser.add_argument("--done", action="append", default=[], metavar="CTX", help="worker-stop this dispatch, close its terminal, and reclaim its worktree; repeatable")
-    parser.add_argument("--held", metavar="CTX", help="print what this dispatch's Sprite holds on no remote, or nothing, and change nothing")
+    parser.add_argument("--held", metavar="WORKSPACE", help="print what this cc-remote workspace's Sprite holds on no remote, or nothing, and change nothing")
     parser.add_argument("--new", action="store_true", help="the recurring pass: a bounded batch of settled dispatches, capped closes and removals, backing off when Orca is slow")
     parser.add_argument("--shells", action="store_true", help="with --new, also close empty Orca shells quiet for three days")
     parser.add_argument("--dry-run", action="store_true", help="print what gc would do and change nothing")
@@ -1078,13 +1087,13 @@ def main() -> int:
         parser.error("--new picks its own dispatches; drop --dispatch and --done")
     if args.shells and not args.new:
         parser.error("--shells runs only with --new")
-    if not args.new and not args.run:
-        parser.error("--run is required without --new")
-    if args.held and (args.new or args.dispatch or args.done or args.dry_run):
-        parser.error("--held only reads one dispatch; drop --new, --dispatch, --done and --dry-run")
+    if args.held and (args.run or args.new or args.dispatch or args.done or args.dry_run):
+        parser.error("--held only reads one Sprite by its workspace name; drop --run, --new, --dispatch, --done and --dry-run")
     if args.held:
-        print(held(args.run, args.held, Orca(), CcRemote()) or "")
+        print(held(args.held, CcRemote()) or "")
         return 0
+    if not args.new and not args.run:
+        parser.error("--run is required without --new or --held")
     if args.new:
         tally = sweep(args.run, args.shells, args.dry_run, Orca(), Git(), CcRemote(), Pause(RESUMED))
     else:

@@ -444,9 +444,10 @@ def test_resume_to_a_dead_worker_relaunches_the_job_with_the_message_in_its_hand
             said="ASK which npm name?",
             prs=["https://github.com/Forge-AI/monorepo/pull/7"],
         )
-    sent, launched = [], {}
+    sent, launched, read = [], {}, []
     monkeypatch.setattr(orca, "call", lambda *args: sent.append(args) or {})
     monkeypatch.setattr(orca, "worker", lambda dispatch: dead())
+    monkeypatch.setattr(orca, "held", lambda job, root: read.append(job["workspace"]))
 
     def fake_launch(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None) -> dict:
         launched.update(lane=lane, brief=brief.read_text(), run=run_id)
@@ -455,7 +456,7 @@ def test_resume_to_a_dead_worker_relaunches_the_job_with_the_message_in_its_hand
 
     monkeypatch.setattr(orca, "launch", fake_launch)
     code, out = run("job", "resume", "j1", "Use @poeticapps/poetic")
-    assert (code, sent) == (0, [])
+    assert (code, sent, read) == (0, [], ["sprite-old"])
     assert out == (
         "j1: the message went to the job's next worker, relaunched on Sprite workspace-2 as dispatch dispatch-2 in a handoff"
         " carrying its brief, its branch, its last line, its report and its PRs; its lane on Sprite sprite-old was dead (its"
@@ -478,6 +479,63 @@ def test_resume_to_a_dead_worker_relaunches_the_job_with_the_message_in_its_hand
     assert [(death["dispatch"], death["workspace"], death["why"]) for death in job["deaths"]] == [
         (DISPATCH, "sprite-old", "its worker exited")
     ]
+
+
+HELD = "uncommitted changes in /home/sprite/monorepo/.worktrees/conflict-tallies (8 files); commits on no remote on tallies-final, stash"
+
+
+def dead_lane_holding(remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, held: str) -> dict:
+    first = tmp_path / "first.md"
+    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(brief=str(first), workspace="pool-sleeping", state="running", said="building the tallies")
+    monkeypatch.setattr(orca, "worker", refused("invalid_argument", "Unknown environment: f0b7755c-d270-48fa-88c3-8ad678a1c2e4"))
+    monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing is sent to a lane whose Sprite is gone: {args}"))
+    monkeypatch.setattr(orca, "held", lambda job, root: held)
+    launched = {}
+
+    def fake_launch(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None) -> dict:
+        launched.update(lane=lane, brief=brief.read_text())
+        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane")}
+
+    monkeypatch.setattr(orca, "launch", fake_launch)
+    return launched
+
+
+@pytest.mark.parametrize(
+    "held",
+    [HELD, "ssh to pool-sleeping could not read /home/sprite/monorepo: i/o timeout"],
+)
+def test_resume_refuses_to_relaunch_a_dead_lane_while_its_sprite_holds_work_on_no_remote_or_does_not_answer(
+    remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], held: str
+) -> None:
+    (tmp_path / ".orca.json").write_text("{}")
+    launched = dead_lane_holding(remote, tmp_path, monkeypatch, held)
+    assert cli.main(["job", "resume", "j1", "Build #4412 failed: fix the lint"]) == 2
+    assert capsys.readouterr().err == (
+        "drive: j1: refused, nothing relaunched: its lane on Sprite pool-sleeping is dead (Orca no longer holds its Sprite's"
+        f" environment), and a fresh Sprite starts without what pool-sleeping holds: {held}. Wake it with cc-remote resume"
+        " pool-sleeping, which prints its connection, push that from it, then resume again; or pass --leave-unpushed to"
+        " relaunch and leave it there\n"
+    )
+    job = state.load(remote)["jobs"]["j1"]
+    assert (launched, job["dispatch"], job["workspace"], job.get("deaths", [])) == ({}, DISPATCH, "pool-sleeping", [])
+
+
+def test_resume_with_leave_unpushed_relaunches_a_dead_lane_and_names_what_its_old_sprite_keeps(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / ".orca.json").write_text("{}")
+    launched = dead_lane_holding(remote, tmp_path, monkeypatch, HELD)
+    assert run("job", "resume", "j1", "Build #4412 failed: fix the lint", "--leave-unpushed") == (
+        0,
+        "j1: the message went to the job's next worker, relaunched on Sprite workspace-2 as dispatch dispatch-2 in a handoff"
+        " carrying its brief, its branch, its last line, its report and its PRs; its lane on Sprite pool-sleeping was"
+        f" dead (Orca no longer holds its Sprite's environment), and pool-sleeping keeps what --leave-unpushed left there: {HELD}",
+    )
+    assert launched["lane"] == "demo-j1-2"
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["dispatch"], [(death["dispatch"], death["workspace"]) for death in job["deaths"]]) == ("dispatch-2", [(DISPATCH, "pool-sleeping")])
 
 
 def test_resume_to_a_worker_that_finished_starts_the_next_one_in_its_terminal_with_the_handoff(
@@ -775,7 +833,7 @@ def test_end_frees_a_waiting_lane_and_the_job_keeps_waiting_with_its_waits_prs_a
         data["jobs"]["j1"].update(state="waiting", said=f"WAITING CI on {url}", prs=[url], waits=[key], workspace="pool-one")
         data["jobs"]["j2"].update(state="waiting", waits=["j1"])
     reclaimed = []
-    monkeypatch.setattr(orca, "held", lambda run_id, dispatch, root: None)
+    monkeypatch.setattr(orca, "held", lambda job, root: None)
     monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: reclaimed.append((run_id, dispatch)) or "destroyed pool-one dispatch ctx_lane0001")
     assert run("job", "end", "j1") == (0, "destroyed pool-one dispatch ctx_lane0001\nj1's lane ended; j1 stays waiting")
     assert reclaimed == [(RUN, DISPATCH)]
@@ -796,7 +854,7 @@ def test_end_refuses_while_the_sprite_of_a_job_still_at_work_holds_what_its_next
     (tmp_path / ".orca.json").write_text("{}")
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(state="waiting", workspace="pool-ie7ugrhamhjtmnwa")
-    monkeypatch.setattr(orca, "held", lambda run_id, dispatch, root: "commits on no remote on tallies-final")
+    monkeypatch.setattr(orca, "held", lambda job, root: "commits on no remote on tallies-final")
     monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: pytest.fail("a refused end reclaims nothing"))
     assert cli.main(["job", "end", "j1"]) == 2
     assert (
@@ -814,7 +872,7 @@ def test_end_of_a_finished_job_never_reads_its_sprite_and_drops_the_parts_it_car
     carrying(run, remote)
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(state="stopped", workspace="pool-one")
-    monkeypatch.setattr(orca, "held", lambda run_id, dispatch, root: pytest.fail("a finished job's lane ends whatever its Sprite holds"))
+    monkeypatch.setattr(orca, "held", lambda job, root: pytest.fail("a finished job's lane ends whatever its Sprite holds"))
     monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: "")
     assert run("job", "end", "j1") == (0, "j1's lane ended; j1 stays stopped")
     data = state.load(remote)
@@ -830,7 +888,7 @@ def test_resume_after_end_relaunches_the_job_on_a_fresh_sprite_with_the_message_
     url = "https://github.com/Forge-AI/monorepo/pull/53935"
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(brief=str(first), state="waiting", said=f"WAITING CI on {url}", prs=[url], workspace="pool-rxo7catmn6cw4efb")
-    monkeypatch.setattr(orca, "held", lambda run_id, dispatch, root: None)
+    monkeypatch.setattr(orca, "held", lambda job, root: None)
     monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: "")
     assert run("job", "end", "j1") == (0, "j1's lane ended; j1 stays waiting")
     monkeypatch.setattr(orca, "worker", refused("invalid_argument", "Unknown environment: f0b7755c-d270-48fa-88c3-8ad678a1c2e4"))
