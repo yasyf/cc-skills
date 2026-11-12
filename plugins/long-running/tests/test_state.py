@@ -673,6 +673,24 @@ def test_a_drive_saved_with_one_change_a_part_waited_on_loads_it_as_the_list_of_
     assert {part: held["after"] for part, held in loaded.items()} == {"the interface": [], "the reads": ["the interface"], "the order": []}
 
 
+def test_a_part_an_older_install_saved_with_spaces_around_its_name_loads_trimmed_wherever_a_job_or_pr_names_it(state_root: Path) -> None:
+    make("demo")
+    saved = json.loads(state.state_path("demo").read_text())
+    cut = "both PRs he approved this morning and the stack he tapped an hour later sat for "
+    parts = {cut: {"posted": None, "design": None, "after": []}, " fix": {"posted": None, "design": None, "after": [cut]}}
+    saved["orders"] = {"o1": {"text": "the stack sat", "jobs": ["j1", "j2"], "parts": parts, "promised": None}, "o2": {"text": "why", "jobs": [], "parts": {"cause ": {"posted": None}}, "promised": None}}
+    saved["jobs"] = {"j1": state.new_job("o1", "reader", "find why", [cut], state.stamp()), "j2": state.new_job("o2", "builder", "fix it", ["cause "], state.stamp()) | {"carries": {"o1": [" fix"]}}}
+    saved["prs"] = {"yasyf/cc-skills#7": state.new_pr("https://github.com/yasyf/cc-skills/pull/7", "j2", "o1") | {"parts": [" fix"]}}
+    state.state_path("demo").write_text(json.dumps(saved))
+    loaded = state.load("demo")
+    whole = cut.rstrip()
+    assert {part: held["after"] for part, held in loaded["orders"]["o1"]["parts"].items()} == {whole: [], "fix": [whole]}
+    assert list(loaded["orders"]["o2"]["parts"]) == ["cause"]
+    assert (loaded["jobs"]["j1"]["parts"], loaded["jobs"]["j2"]["parts"], loaded["jobs"]["j2"]["carries"]) == ([whole], ["cause"], {"o1": ["fix"]})
+    assert loaded["prs"]["yasyf/cc-skills#7"]["parts"] == ["fix"]
+    assert state.whole_order(f"{cut}two hours") == whole
+
+
 def test_a_detached_verb_names_its_drive_and_no_session_in_its_environment(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     make("demo")
     started = []

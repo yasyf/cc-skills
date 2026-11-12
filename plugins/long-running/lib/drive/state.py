@@ -381,9 +381,10 @@ def load(name: str) -> dict:
         order["owner"] = "meta" if order["text"].startswith(TOOLING) else order.get("owner")
         if "from_thread" in order or isinstance(order.get("thread", ""), str):
             order["thread"] = saved_thread(data, order)
+        order["parts"] = {part.strip(): held for part, held in order["parts"].items()}
         for part in order["parts"].values():
             part.setdefault("design", None)
-            part["after"] = [part["after"]] if isinstance(part.get("after"), str) else part.get("after") or []
+            part["after"] = [each.strip() for each in ([part["after"]] if isinstance(part.get("after"), str) else part.get("after") or [])]
     mail = data.pop("lane_mail", {})
     for job in data["jobs"].values():
         job["mail_seen"] = max(job.get("mail_seen", 0), mail.get(job.get("run"), 0))
@@ -402,6 +403,8 @@ def load(name: str) -> dict:
             job["questions"] = [new_question(asked, job["said"], job["updated"], job.get("unsettled"), card)] if asked or card else []
         for field, blank in (new_job(None, None, None, [], None) | {"session": None}).items():
             job.setdefault(field, blank)
+        job["parts"] = [part.strip() for part in job["parts"]]
+        job["carries"] = {order_id: [part.strip() for part in parts] for order_id, parts in job["carries"].items()}
         if job["kind"] == "reader" and job["state"] in FINISHED_JOB_STATES:
             job["undelivered"] = []
     for order_id, order in data["orders"].items():
@@ -426,7 +429,7 @@ def load(name: str) -> dict:
         pr.setdefault("review_asked", None)
         pr.setdefault("author", None)
         pr.setdefault("checked", None)
-        pr.setdefault("parts", [])
+        pr["parts"] = [part.strip() for part in pr.get("parts", [])]
         pr.setdefault("required", None)
         if (verdict := pr.pop("verdict", None)) and verdict.get("answer") and not verdict["ready"]:
             pr["rework"] = verdict
@@ -783,7 +786,7 @@ def lane_death(job: dict) -> dict | None:
 
 
 def whole_order(text: str) -> str:
-    return " ".join(text.split())[:PART_CHARS]
+    return " ".join(text.split())[:PART_CHARS].rstrip()
 
 
 def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dict[str, dict], created: str) -> dict:

@@ -3065,7 +3065,7 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("--rework", action="append", default=[], metavar="PR", help=REWORK_HELP)
     verb.add_argument("--due", help="the time his ack promised a line by; the watch says DUE from then until a line is in the thread")
-    verb.add_argument("--parts", nargs="+", metavar="PART", help="each deliverable his words name; default: one, the whole order")
+    verb.add_argument("--parts", nargs="+", type=str.strip, metavar="PART", help="each deliverable his words name; default: one, the whole order")
     verb.add_argument(
         "--incident",
         action="store_true",
@@ -3144,7 +3144,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument(
         "--withdrawn", metavar="LINK", help="his Slack message calling off the promised time; the order then owes no line for it"
     )
-    verb.add_argument("--parts", nargs="+", metavar="PART", help="the order's parts, replacing its list")
+    verb.add_argument("--parts", nargs="+", type=str.strip, metavar="PART", help="the order's parts, replacing its list")
     reported = verb.add_mutually_exclusive_group()
     reported.add_argument("--reporter", metavar="LINK", help=REPORTER_HELP)
     reported.add_argument("--no-reporter", metavar="LINK", help="his Slack message saying not to tell the bug's reporter; the order then closes done with no fix-live note")

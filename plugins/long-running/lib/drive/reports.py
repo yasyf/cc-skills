@@ -165,12 +165,12 @@ def skipped(drive: dict, record: dict) -> str | None:
 
 
 def off_thread(drive: dict, record: dict) -> str | None:
-    """Why a report names a thread that is no Slack thread, or none of the threads of an order it is about, finishes or delivers a part of, nor the thread of the message of his it answers through re, nor one under a card of a PR such an order holds: `say` would refuse its post there, and only its writer can name the message it answers."""
+    """Why a report names a thread that is no Slack thread, refused by its shape alone, so every time, or none of the threads of an order it is about, finishes or delivers a part of, nor the thread of the message of his it answers through re, nor one under a card of a PR such an order holds: `say` would refuse its post there, and only its writer can name the message it answers."""
     named = attrs(record)
     if not (thread := named.get("thread")):
         return None
     if not THREAD_TS.fullmatch(thread):
-        return NOT_THREAD.format(thread=thread)
+        return agents.Unjudged(NOT_THREAD.format(thread=thread))
     held = {order: own for order in state.report_orders(drive, named) if (own := [ts for _, ts in slack.order_threads(drive, order, drive["orders"][order])])}
     threads = list(dict.fromkeys(ts for own in held.values() for ts in own))
     if not held or thread in threads:
