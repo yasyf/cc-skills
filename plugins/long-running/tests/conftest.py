@@ -319,6 +319,7 @@ def on_github(monkeypatch: pytest.MonkeyPatch) -> dict:
     pr = {
         "title": "Fix: land it",
         "body": CARD_BODY,
+        "author": {"login": "yasyf", "is_bot": False},
         "comments": [],
         "state": "OPEN",
         "isDraft": False,

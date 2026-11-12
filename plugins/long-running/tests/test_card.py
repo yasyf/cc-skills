@@ -519,6 +519,20 @@ def test_a_card_github_refuses_for_a_pr_no_card_read_draws_from_its_drive_entry_
     assert shown == ("needs_you", "Fix: approve retry flaky uploads?", ["Approve", "Hold"], "")
 
 
+def test_no_card_is_drawn_for_a_pr_someone_else_opened_unless_the_order_it_serves_names_it(
+    drive: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(card, "run", answering(pr_json()))
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "retry flaky uploads")
+    with state.edit(drive) as data:
+        data["prs"]["Forge-AI/monorepo#42"]["author"] = "rowan"
+    reply = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})
+    assert (reply["cards"], [skipped["reason"] for skipped in reply["skipped"]]) == ([], [state.foreign("Forge-AI/monorepo#42", "rowan", [])])
+    with state.edit(drive) as data:
+        data["orders"]["o1"]["text"] = "land #42 once it is green"
+    assert ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
+
+
 def test_prs_matches_the_lowercase_repo_cc_slack_asks_with(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(card, "run", answering(pr_json()))
     reply = ask({"prs": [{"repo": "forge-ai/monorepo", "number": 42}]})

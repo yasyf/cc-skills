@@ -2542,6 +2542,27 @@ def test_pr_add_waits_on_his_tap_unless_it_is_a_port_exempt_drive_tooling_outsid
     assert (prs[key]["wants_tap"], prs["yasyf/cc-skills#7"]["wants_tap"]) == (True, False)
 
 
+def test_pr_add_and_set_refuse_a_pr_someone_else_opened_unless_the_order_it_serves_names_it(
+    run: Run, demo: str, on_github: dict, capsys: pytest.CaptureFixture[str]
+) -> None:
+    key = "Forge-AI/monorepo#42"
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "land it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    on_github["author"] = {"login": "rowan", "is_bot": False}
+    assert cli.main(["pr", "add", PR, "--job", "j1"]) == 2
+    assert f"{key}: refused, nothing added: {state.foreign(key, 'rowan', [])}" in capsys.readouterr().err
+    assert key not in state.load("demo")["prs"]
+    with state.edit("demo") as data:
+        data["orders"]["o1"]["text"] = "land #42 once it is green"
+    assert run("pr", "add", PR, "--job", "j1")[0] == 0
+    assert state.load("demo")["prs"][key]["author"] == "rowan"
+    with state.edit("demo") as data:
+        data["orders"]["o1"]["text"] = "land it"
+    assert cli.main(["pr", "set", PR, "--exempt", "test-only"]) == 2
+    assert f"{key}: refused, nothing set: {state.foreign(key, 'rowan', [])}" in capsys.readouterr().err
+    assert state.load("demo")["prs"][key]["exempt"] is None
+
+
 def test_pr_add_of_a_yasyf_pr_starts_one_lander_that_merges_and_installs_it(
     run: Run, communicator: str, on_github: dict, landers: list[tuple[str, ...]]
 ) -> None:

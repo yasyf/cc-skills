@@ -162,7 +162,8 @@ No tap and no green gate: by his standing rule a `yasyf/*` PR merges without ask
 ## Forge-AI/monorepo
 
 Ship through the repository's own `submit-pr` skill, on a branch off `dev`. Never build on, push to, or
-restack his own in-flight branches. A PR lands only when all of these hold at its current head:
+restack his own in-flight branches, and never land a PR someone else opened unless his order names it,
+by [Neither](scope.md#the-four-kinds-of-pr). A PR lands only when all of these hold at its current head:
 
 - every required check is green;
 - an approving review from the reviewer bot (`forge-pr-reviewer`) is in force, not dismissed;

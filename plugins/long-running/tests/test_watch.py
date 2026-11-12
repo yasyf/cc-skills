@@ -66,6 +66,7 @@ def read(**overrides: object) -> dict:
         "approvals": [],
         "mergeable": "MERGEABLE",
         "title": "Fix: the watch",
+        "author": "yasyf",
         "labels": [],
     }
     return {**base, **overrides}
@@ -2474,3 +2475,51 @@ def test_a_job_clock_renewed_after_the_watch_read_it_is_kept_and_not_said(demo: 
     monkeypatch.setattr(state, "load", renewing)
     assert watch.clock_lines(watching, due) == []
     assert state.load(demo)["jobs"]["j1"]["due"] == renewed
+
+
+def test_the_watch_drops_a_pr_someone_else_opened_that_no_order_of_his_names_once_his_card_on_it_is_withdrawn(
+    demo: str, monkeypatch: pytest.MonkeyPatch, withdrawals: Withdrawals
+) -> None:
+    with state.edit(demo) as data:
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "ddddddd444", "stack": [KEY, OTHER]}
+        data["prs"][KEY]["stack"] = [KEY, OTHER]
+        data["jobs"]["j1"].update(prs=[state.pr_url(KEY), state.pr_url(OTHER)], waits=[f"release:api:{OTHER}"])
+    withdrawals.cards.append(CARD)
+    serve(monkeypatch, {KEY: read(), OTHER: read(headRefOid="ddddddd444", author="rowan")})
+    assert watch.run_pass(watcher(demo), T0) == [f"DROPPED {OTHER}: {state.foreign(OTHER, 'rowan', [])} [o1 j1]", f"CARD {CARD} withdrawn: {OTHER} is dropped"]
+    assert withdrawals.asked == [(state.pr_url(OTHER), "Dropped from the drive: rowan opened it, and the drive tracks no one else's PR unless your order names it")]
+    data = state.load(demo)
+    assert (list(data["prs"]), data["prs"][KEY]["stack"], data["jobs"]["j1"]["prs"], data["jobs"]["j1"]["waits"]) == ([KEY], [KEY], [state.pr_url(KEY)], [])
+
+
+@pytest.mark.parametrize("named", ["#43", state.pr_url(OTHER), OTHER])
+def test_the_watch_keeps_a_pr_someone_else_opened_that_an_order_of_his_it_serves_names(
+    demo: str, monkeypatch: pytest.MonkeyPatch, withdrawals: Withdrawals, named: str
+) -> None:
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["text"] = f"land {named} once it is green"
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"wants_tap": False}
+    serve(monkeypatch, {KEY: read(), OTHER: read(headRefOid="ddddddd444", author="rowan")})
+    assert watch.run_pass(watcher(demo), T0) == []
+    assert (state.load(demo)["prs"][OTHER]["author"], withdrawals.asked) == ("rowan", [])
+
+
+def test_a_pr_someone_else_opened_stays_refused_while_his_card_on_it_cannot_be_withdrawn_and_drops_on_a_later_read(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def down(url: str, why: str) -> list[str]:
+        raise slack.SlackError("cc-slack is down")
+
+    monkeypatch.setattr(watch.slack, "withdraw_pr_card", down)
+    serve(monkeypatch, {KEY: read(author="rowan")})
+    watching = watcher(demo)
+    for minute in range(watch.FAILURES_BEFORE_SAYING):
+        watch.run_pass(watching, T0 + timedelta(minutes=minute))
+    with state.edit(demo) as data:
+        data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack"}
+    assert state.foreign_pr(state.load(demo), KEY) == state.foreign(KEY, "rowan", [])
+    with pytest.raises(state.DriveError, match="opened on GitHub by rowan"):
+        land.run(demo, [KEY])
+    monkeypatch.setattr(watch.slack, "withdraw_pr_card", lambda url, why: [])
+    assert watch.run_pass(watching, T0 + timedelta(minutes=9)) == [f"DROPPED {KEY}: {state.foreign(KEY, 'rowan', [])} [o1 j1]"]
+    assert KEY not in state.load(demo)["prs"]

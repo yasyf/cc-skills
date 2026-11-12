@@ -3,7 +3,7 @@ import hashlib
 import json
 import os
 import re
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import AbstractContextManager, contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -29,7 +29,9 @@ EXEMPT_CLASSES = ("pure port", "test-only", "ci-only", "flake fix", "incident fi
 TAP_LABELS = ("Approve", "Hold")
 TOOLING = "Drive tooling:"
 GUARDED_OWNER = "forge-ai"
-NO_TAP_OWNER = "yasyf"
+HIS_LOGIN = "yasyf"
+NO_TAP_OWNER = HIS_LOGIN
+FOREIGN_RULING = '5815316 on a teammate\'s PRs: "Don\'t touch old tree or his PRs"'
 MONOREPO = "Forge-AI/monorepo"
 ROLES = ("communicator", "coordinator", "meta")
 HOLDERS = ("communicator", "meta")
@@ -318,6 +320,7 @@ def load(name: str) -> dict:
         pr.setdefault("lander", None)
         pr.setdefault("ejected", False)
         pr.setdefault("review_asked", None)
+        pr.setdefault("author", None)
         if (verdict := pr.pop("verdict", None)) and verdict.get("answer") and not verdict["ready"]:
             pr["rework"] = verdict
         if (rework := pr.get("rework")) and "answer" in rework:
@@ -1008,6 +1011,44 @@ def queued_on_tap(key: str) -> bool:
     return key.split("#")[0].lower() == MONOREPO.lower()
 
 
+def names_pr(words: str, key: str) -> bool:
+    """Whether words name the PR by its link, its owner/name#N key or a bare #N."""
+    number = key.rpartition("#")[2]
+    return any(bare == number if (bare := found.groups()[-1]) else pr_key(found[0]).casefold() == key.casefold() for found in PR_REF.finditer(words))
+
+
+def foreign(key: str, author: str | None, orders: Iterable[dict]) -> str | None:
+    """Why the drive may not track, card, tap or land a PR: someone other than him opened it on GitHub, and none of the orders of his it serves names it by link, key or #N; None for his own, one such an order names, or one whose author no GitHub read has given since this install, which the watch's next read does."""
+    if author is None or author.casefold() == HIS_LOGIN or any(names_pr(order["text"], key) for order in orders):
+        return None
+    return (
+        f"{key} was opened on GitHub by {author}, not {HIS_LOGIN}, and no order of his it serves names it by link or #N: the drive"
+        f" tracks, cards, taps, rebases and lands no one else's PR unless his order's words name it, by his ruling {FOREIGN_RULING}"
+    )
+
+
+def served(data: dict, pr: dict) -> Iterator[dict]:
+    """The orders of his a PR serves: its job's, and the one `drive pr set --serves` names."""
+    return (data["orders"][order_id] for order_id in dict.fromkeys((pr["order"], pr.get("serves"))) if order_id)
+
+
+def foreign_pr(data: dict, key: str) -> str | None:
+    """Why the drive may not keep a PR it tracks, from the author its last GitHub read stored."""
+    return foreign(key, data["prs"][key]["author"], served(data, data["prs"][key]))
+
+
+def drop_pr(data: dict, key: str) -> None:
+    """Stop tracking a PR, with nothing done on GitHub: its entry, its link on each job, each release wait on it, and its place in each stack a card drew; a wait on the PR itself ends as one on a PR the drive no longer tracks."""
+    url = data["prs"].pop(key)["url"]
+    for owner in [*data["jobs"].values(), *data["prs"].values()]:
+        owner["waits"] = [wait for wait in owner["waits"] if not ((release := RELEASE_WAIT.fullmatch(wait)) and release["pr"] == key)]
+    for job in data["jobs"].values():
+        job["prs"] = [held for held in job["prs"] if held != url]
+    for pr in data["prs"].values():
+        if pr.get("stack") and key in pr["stack"]:
+            pr["stack"] = [member for member in pr["stack"] if member != key]
+
+
 def owed_step(pr: dict) -> str | None:
     """What the drive owes a PR once it is green and approved: its landing when an exempt class lands it with no tap, its builder's rework to an order of his until the builder's READY says how his words are met, nothing when its author or its own builder lands it, and else his card."""
     if pr.get("exempt"):
@@ -1059,5 +1100,6 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "ejected": False,
         "review_asked": None,
         "rework": None,
+        "author": None,
         "updated": stamp(),
     }

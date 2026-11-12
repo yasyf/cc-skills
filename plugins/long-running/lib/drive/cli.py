@@ -1723,6 +1723,9 @@ def pr_add(args: argparse.Namespace) -> int:
     refuse_an_unkinded_title(key, read, args.port_of)
     known = state.load(name)
     added = find(known["jobs"], args.job, "job")
+    author = read["author"]["login"]
+    if why := state.foreign(key, author, [known["orders"][added["order"]]]):
+        raise DriveError(f"{key}: refused, nothing added: {why}")
     if (args.exempt or args.no_tap) and (incidents := state.open_incidents(known, [added["order"], *added["carries"]])):
         refuse_an_exempt_revert(known, key, incidents[0], read, f"Add it waiting on his tap with drive pr add {url} --job {args.job}. ")
     with state.edit(name) as data:
@@ -1737,7 +1740,7 @@ def pr_add(args: argparse.Namespace) -> int:
             )
         wants_tap = state.guarded(key) or not tooling(data["orders"][job["order"]])
         pr = data["prs"].setdefault(key, state.new_pr(url, args.job, job["order"]) | {"wants_tap": wants_tap})
-        pr.update(job=args.job, order=job["order"])
+        pr.update(job=args.job, order=job["order"], author=author)
         if args.port_of:
             pr.update(port_of=args.port_of, exempt="pure port", wants_tap=False)
         if args.exempt:
@@ -1786,6 +1789,8 @@ def pr_set(args: argparse.Namespace) -> int:
     known = state.load(name)
     if key not in known["prs"]:
         raise DriveError(f"no drive PR {key}: add it first with drive pr add {args.url} --job <j>, then set it")
+    if why := state.foreign_pr(known, key):
+        raise DriveError(f"{key}: refused, nothing set: {why}")
     dropped = known["prs"][key]["tap"]
     if args.no_tapped:
         refuse_a_tap_of_his(name, key, dropped)

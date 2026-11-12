@@ -9,7 +9,7 @@ from drive import github, limits, picture, state
 from drive.github import GithubError, run
 from drive.render import cut
 
-FIELDS = "title,body,state,isDraft,headRefOid,baseRefName,headRefName,reviewDecision,labels,url,additions,deletions,changedFiles"
+FIELDS = "title,body,author,state,isDraft,headRefOid,baseRefName,headRefName,reviewDecision,labels,url,additions,deletions,changedFiles"
 READ_AGE = "60s"
 KEPT_READS = "pr-reads"
 REVIEW_DECISIONS = {"approved": "APPROVED", "stale": "REVIEW_REQUIRED", "changes": "CHANGES_REQUESTED", "none": ""}
@@ -535,6 +535,11 @@ def reworked(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
     )
 
 
+def foreign(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
+    """Why no card is drawn for the members: one of them is someone else's PR that no order of his it serves names, which the drive never cards."""
+    return "; ".join(why for key in members if (why := state.foreign_pr(state.load(known[key][0]), key)))
+
+
 def on_his_card(known: dict[str, tuple[str, dict]], reads: dict[str, dict], members: list[str]) -> bool:
     """Whether an open card of his already carries one of the PRs: a wait redraws that card in place, Approve and Hold kept, and never draws a fresh one."""
     from drive import view
@@ -567,7 +572,7 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
         shown = [(reads[key], known[key][1], pictured(known[key][0], key, reads[key], taken), tuple(holding(known, key).values())) for key in members]
         card = drawn_card(shown)
         held = "" if redraw or on_his_card(known, reads, members) else waiting(known, members)
-        if reason := reworked(known, members) or held or oversized(known, members):
+        if reason := foreign(known, members) or reworked(known, members) or held or oversized(known, members):
             refusals = [skip(key, reason) for key in members]
             refused(refusals)
             skipped += refusals
