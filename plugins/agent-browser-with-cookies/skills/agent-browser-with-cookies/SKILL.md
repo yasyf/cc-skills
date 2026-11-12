@@ -19,6 +19,29 @@ session. The payload never lands on disk. Every browser command — launch, seed
 verify, task, cleanup, recovery — goes through **`ab`**, the plugin's universal entry
 point; never call `agent-browser` raw.
 
+## One site's cookies: one call
+
+When a task needs a site's cookies and no browser, this is the whole job:
+
+```bash
+cookiesync cookies https://app.slack.com --format playwright
+```
+
+It reads the registered Chrome and Arc profiles on this Mac and prints a Playwright
+`storageState`; `--format header`, `netscape` or `json` print the other shapes. It
+reads no other Mac: `--host <host>`, as `cookiesync browser ls` prints it, reads that
+host's registered browsers instead. When a URL gets no cookie, a stderr line says what
+to do next:
+
+- `…; chrome:Profile 1 holds 12: run cookiesync cookies --browser chrome --profile "Profile 1" <url>`:
+  an untracked profile on this Mac holds the site. Run that command.
+- `…: sign in at <url> in Chrome or Arc on <host>, then run this again`: no profile on
+  this Mac holds it. Do **Log in and retry** (below).
+
+When no URL gets a cookie, the command exits 1 with those lines. That is the answer:
+never read, copy or `sqlite3` a browser's `Cookies` file, look in another browser, or
+ask another Mac for its whole profile to find the site some other way.
+
 ## Prerequisites
 
 - **`cookiesync` on `PATH`.** The plugin's `Setup` hook installs it on
@@ -74,14 +97,17 @@ point; never call `agent-browser` raw.
    locally a merged Playwright `storageState` over a short-lived FIFO plus a per-origin
    sessionStorage pass; on Browserbase (which ignores `--state`) per-host cookie
    headers plus per-origin `storage set` calls, ending in a reload. `cookiesync` emits
-   the union across every registered browser/host, newest cookie wins. The helper
-   relays cookiesync's per-peer skip warnings on stderr and exits non-zero when the
-   payload was bad (usually `cookies` wanting `auth` — re-run step 2, then re-run it)
-   or, on Browserbase, when any seeding step failed (a summary line counts them).
-   It exits **3** when the primary URL lands on a login or SSO page: no reachable
-   browser holds a session for that host, and its stderr names the host, the Mac, and
-   the registered profiles to sign in with. Relay that line to the user and go to
-   **Log in and retry**.
+   the union across this Mac's registered browsers, newest cookie wins. Pass
+   `--browser <b> --profile <p>` to read the one profile a next-step line names, or
+   `--host <host>` to read another Mac's browsers, which seeds no web storage. The
+   helper relays cookiesync's skip warnings and next-step lines on stderr and exits
+   non-zero when no host got a cookie, when
+   the payload was bad (usually `cookies` wanting `auth` — re-run step 2, then re-run
+   it) or, on Browserbase, when any seeding step failed (a summary line counts them).
+   It exits **3** when the primary URL lands on a login or SSO page: no browser
+   cookiesync read holds a session for that host, and its stderr names the host, the
+   Mac, and the registered profiles to sign in with. Relay that line to the user and
+   go to **Log in and retry**.
    Single site: just `"$U1"`. Other domains' cookies activate when navigation reaches
    them.
 
@@ -104,10 +130,11 @@ point; never call `agent-browser` raw.
 
 `--bridge` routes every `ab` call through a **local cookiesync CDP bridge** instead
 of Browserbase or the stealth browser. `cookiesync` launches a throwaway Chrome
-already seeded with your cookies (one consent tap on the first open) and hands `ab`
-its token-scoped `ws://` DevTools endpoint; `ab` connects agent-browser to it.
-Because the bridge is seeded on the `cookiesync` side, **skip `abwc-seed`** — launch
-and drive directly:
+seeded with only the cookies and storage of the sites you name (one consent tap on
+the first open, whose Touch ID sheet names those hosts) and hands `ab` its
+token-scoped `ws://` DevTools endpoint; `ab` connects agent-browser to it. Because
+the bridge is seeded on the `cookiesync` side, **skip `abwc-seed`** — launch and
+drive directly:
 
 ```bash
 ab="${CLAUDE_PLUGIN_ROOT}/bin/ab"
@@ -115,6 +142,12 @@ ab="${CLAUDE_PLUGIN_ROOT}/bin/ab"
 "$ab" --bridge snapshot -i    # carry --bridge on every call
 "$ab" --bridge close          # closes the session and stops the bridge
 ```
+
+The first call opens the bridge, so it is `open <url>`: the bridge holds that URL's
+cookies, plus those of each `--bridge-url=<url>` on the same call, such as the API
+host the app calls. Any other first call fails and opens nothing. A later `open` of a
+site the bridge was not seeded with lands logged out: `"$ab" --bridge close`, then
+open again naming every site the task needs.
 
 Carry `--bridge` on **every** call, `close` included — same rule as `--local` and
 `--session`. The bridge defaults to `chrome:Default`; point it at another browser or
@@ -130,12 +163,11 @@ a separate cookiesync-side plugin) is the equivalent one-shot bridge for direct
 - **`cookies` says to run `cookiesync auth` first** (`abwc-seed` relays it and exits
   non-zero) — the cached key's TTL expired and the call couldn't prompt. Run the
   `cookiesync auth --reason "…"` from step 2, then re-run `abwc-seed`.
-- **Few or no cookies returned** — the union already covered every registered browser
-  and host, so the user isn't signed in to the site on any of them. Do **Log in and
-  retry** (below). If it's still thin after a fresh login, they signed in via a
-  browser or profile `cookiesync` doesn't track: `cookiesync browser ls` to check,
-  `browser add` to register it, or redo the login in a registered browser's primary
-  profile.
+- **No cookies for a host** — `cookies` prints a next-step line for it and `abwc-seed`
+  relays it. When the line names a profile, such as `chrome:Profile 1 holds 12`,
+  re-run `abwc-seed` with the `--browser` and `--profile` it names. When it says to
+  sign in, do **Log in and retry** (below). Never go around it by reading another
+  browser's files.
 - **App loads but a cross-host call is unauthorized** (the page renders but its API
   requests 401) — you probably missed a host in step 3. Re-run `abwc-seed` with that
   host added.
@@ -188,10 +220,10 @@ deeper diagnosis.
    open "$U1"
    ```
 
-   The default browser is fine — `cookiesync` unions every registered browser — and so
-   is any browser the user normally uses, in its **primary profile** (what first-run
-   registration tracks). If a separately-gated additional host is the problem, `open`
-   that host too.
+   The user signs in with Chrome or Arc on this Mac, the browsers `cookiesync` reads,
+   in its **primary profile** (what first-run registration tracks); a next-step line
+   names any other Chrome or Arc profile that holds the site. If a separately-gated
+   additional host is the problem, `open` that host too.
 
 2. **Tell them, then block.** Ask the user to sign in until the site shows them logged
    in, and wait on explicit confirmation — `AskUserQuestion` with options like **Done** /
@@ -256,6 +288,7 @@ deeper diagnosis.
 - **Cookie headers:** `"$ab" cookies set --curl <file>` imports a cURL dump, JSON
   array, or bare `Cookie` header in every mode, `/dev/stdin` included, even though
   agent-browser's `cookies --help` leaves it out.
-- **Browsers:** `abwc-seed` unions every registered browser and host. To force a
-  single browser, drop to a direct `cookiesync cookies --browser chrome|arc …` call;
+- **Browsers:** `abwc-seed` unions this Mac's registered browsers. `--browser
+  chrome|arc --profile <p>` reads one profile and `--host <host>` another Mac's
+  registered browsers; it passes either to every `cookiesync cookies` call it makes.
   `--profile` requires `--browser`.
