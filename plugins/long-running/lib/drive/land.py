@@ -278,9 +278,9 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
 
 
 def record(name: str, keys: list[str], outcome: str, below: list[str]) -> str:
-    """Record what came of a landing on each PR and as a landing event; when a newer install saved the drive while this lander waited on the queue or an install, hand the record to that install's `drive pr land --outcome`, since this code may misread the drive."""
-    handed = ["pr", "land", *map(state.pr_url, keys), "--drive", name, "--outcome", outcome, *(flag for key in below for flag in ("--below", key))]
-    with install.handed_to_newest(handed), state.edit(name) as data:
+    """Record what came of a landing on each PR and as a landing event, on the newest install, which `drive pr land --outcome` records it on when one landed while this lander waited on the queue or an install."""
+    install.reopen(["pr", "land", *map(state.pr_url, keys), "--drive", name, "--outcome", outcome, *(flag for key in below for flag in ("--below", key))])
+    with state.edit(name) as data:
         for key in keys:
             pr = data["prs"][key]
             pr["lander"] = (pr["lander"] or {"head": pr["head"], "pid": os.getpid(), "at": state.stamp()}) | {"outcome": outcome, "below": below}
@@ -294,7 +294,7 @@ def said(output: str) -> str:
 
 
 def enqueued(name: str, clone: Path, keys: list[str], dry_run: bool = False) -> str:
-    """Queue the unit through stack-enqueue as the head of its repository's default branch holds it, run from a fresh() worktree of the coordinator checkout's clone and never from that checkout: --check first, whose BLOCKED lines end the landing, unless each gap is an approval on an older head, which stack-enqueue names only once ai-review finished on the head; a dry run stops there, saying what it would queue; then forge-pr-reviewer is asked to review each such head once, and --watch waits until Trunk holds every PR of it or one needs a fix rather than a wait; what came of it."""
+    """Queue the unit through stack-enqueue as the head of its repository's default branch holds it, run from a fresh() worktree of the coordinator checkout's clone and never from that checkout: --check first, whose BLOCKED lines end the landing, unless each gap is an approval on an older head, which stack-enqueue names only once ai-review finished on the head; a dry run stops there, saying what it would queue; then forge-pr-reviewer is asked to review each such head once, and --watch waits until Trunk holds every PR of it or one needs a fix rather than a wait; what came of it. The lander lets go of its install's lock for the watch, since it may wait an hour and a half on Trunk."""
     repo = github.repo_of(keys[0])
     numbers = [key.split("#")[1] for key in keys]
     try:
@@ -314,6 +314,7 @@ def enqueued(name: str, clone: Path, keys: list[str], dry_run: bool = False) -> 
                 return f"would queue {', '.join(keys)} through stack-enqueue --watch from {branch} at {sha[:12]}: every PR below it is merged, approved by him or exempt"
             if refused := ask_review(name, repo, {line["number"]: line["head"] for line in blocked}):
                 return refused
+            state.let_go_install()
             done = subprocess.run([script, "--watch", *numbers], cwd=checkout, capture_output=True, text=True)
     except github.GithubError as error:
         return f"not landed: no fresh worktree of {repo}'s default branch to run stack-enqueue from: {cut(str(error), SAID_CHARS)}"
@@ -353,7 +354,7 @@ def ask_review(name: str, repo: str, heads: dict[str, str]) -> str | None:
 
 
 def merged(name: str, key: str) -> str:
-    """Merge a yasyf/* PR with --admin past its checks, by his rule for his own repositories, with gh itself since ccx's GitHub gateway refuses a merge, record its merge commit on its row, then install from it each plugin of this Mac it changes, whose drive install proves the PR's job; what came of it."""
+    """Merge a yasyf/* PR with --admin past its checks, by his rule for his own repositories, with gh itself since ccx's GitHub gateway refuses a merge, record its merge commit on its row, then install from it each plugin of this Mac it changes, whose drive install proves the PR's job, having let go of its install's lock, which an install of long-running would wait on; what came of it."""
     repo, number = key.split("#")
     done = subprocess.run(["gh", "pr", "merge", number, "-R", repo, "--squash", "--admin"], capture_output=True, text=True)
     if done.returncode:
@@ -365,6 +366,7 @@ def merged(name: str, key: str) -> str:
         return f"merged, but its merge commit did not read, so nothing was installed: {cut(str(error), SAID_CHARS)}"
     with state.edit(name) as data:
         data["prs"][key]["merged_sha"] = sha
+    state.let_go_install()
     plugins = install.touched(repo, files)
     if not plugins:
         return f"merged at {sha[:12]}; it changes no plugin installed on this Mac"

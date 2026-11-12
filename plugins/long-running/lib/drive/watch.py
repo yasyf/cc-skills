@@ -84,6 +84,7 @@ class Watcher:
     agent_gaps: dict[str, str | None] = field(default_factory=dict)
     unsent: dict[str, list[str]] = field(default_factory=dict)
     down: str | None = None
+    dashboard_down: bool = False
 
     @property
     def lane(self) -> str:
@@ -1240,6 +1241,24 @@ def down_lines(watcher: Watcher, moment: datetime) -> list[str]:
     return sent(watcher, "communicator", [line], moment)
 
 
+def dashboard_lines(watcher: Watcher) -> list[str]:
+    """Start the drive's dashboard again on this watch's install when nothing listens on its port, as after a crash, telling the coordinator once each time it went down, since a crash is a defect of the drive's code."""
+    port = dashboard.port_of(watcher.name)
+    if watcher.project or dashboard.listening(port):
+        watcher.dashboard_down = False
+        return []
+    try:
+        dashboard.start(watcher.name, port)
+    except state.DriveError as error:
+        started = f"did not start again: {error}"
+    else:
+        started = f"was started again on long-running {state.VERSION}"
+    if watcher.dashboard_down:
+        return []
+    watcher.dashboard_down = True
+    return [f"WATCH the dashboard on port {port} had exited, so it {started}; its log is {state.drive_dir(watcher.name) / 'dashboard.log'}"]
+
+
 def said_last(entry: dict) -> str:
     texts = [block["text"] for block in entry["message"]["content"] if block.get("type") == "text"]
     return first_line(texts[-1]) if texts else "nothing"
@@ -1710,7 +1729,7 @@ def tick_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """One loop of the watch: his cards, GitHub, a lander on each PR his Approve covers that qualifies, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, the waits his answers or a job's end release, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the communicator's compaction, the status page and a coordinator whose process exited every 60 s, GitHub again next poll after a failure, new events, the catch-up owed him, promised times still owed a line, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries, a tick every 30 minutes while he is here."""
+    """One loop of the watch: his cards, GitHub, a lander on each PR his Approve covers that qualifies, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, the waits his answers or a job's end release, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the communicator's compaction, the status page, a coordinator whose process exited and a dashboard whose server exited every 60 s, GitHub again next poll after a failure, new events, the catch-up owed him, promised times still owed a line, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries, a tick every 30 minutes while he is here."""
     lines = []
     if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
         watcher.read_at = moment
@@ -1735,6 +1754,7 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
         lines += compact_lines(watcher, moment)
         lines += page_lines(watcher, moment)
         lines += down_lines(watcher, moment)
+        lines += dashboard_lines(watcher)
     lines += event_lines(watcher)
     lines += catch_up_lines(watcher, moment)
     due = due_lines(watcher, moment)
@@ -1946,10 +1966,11 @@ def main(drive_name: str | None = None, project: str | None = None) -> int:
 
 
 def watching(watcher: Watcher) -> None:
-    """Hand each pass's lines to whoever acts on them, and let a newer install take over in place before a pass, or the moment a pass finds the drive saved by one, so no pass runs older code on a drive a newer install saved; a crash wakes the coordinator session it posts to first."""
+    """Hand each pass's lines to whoever acts on them, each pass holding its install's lock as a verb does and letting go of it while the watch sleeps, and let a newer install take over in place before a pass, or the moment a pass finds the drive saved by one, so no pass runs older code on a drive a newer install saved; a crash wakes the coordinator session it posts to first."""
     state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
     try:
         while True:
+            state.hold_install()
             if (newer := upgraded()) and not any(watcher.unsent.values()):
                 os.execv(newer, loop_argv(newer, watcher.name, watcher.project))
             read_from, moment = watcher.offset, state.now()
@@ -1957,6 +1978,7 @@ def watching(watcher: Watcher) -> None:
                 print(line, flush=True)
             if watcher.offset != read_from:
                 state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
+            state.let_go_install()
             time.sleep(POLL_SECONDS)
     except Exception as error:
         if isinstance(error, state.NewerDrive) and (newer := upgraded()):

@@ -72,6 +72,22 @@ def test_a_plain_http_link_to_the_tailnet_port_moves_to_https_on_the_full_name()
     assert (reply.status, reply.getheader("Location")) == (301, f"https://box.tail1.ts.net:{port}/api/view")
 
 
+def test_the_page_stays_live_across_one_dropped_stream_and_says_not_live_once_its_reconnect_fails(tmp_path: Path) -> None:
+    seen = browse(tmp_path, """
+const banner = () => !document.querySelector('#stale').hidden && document.querySelector('#stale').textContent.startsWith('Not live');
+EventSource.CONNECTING = 0;
+STREAM.readyState = 0;
+STREAM.onerror();
+const dropped = banner();
+STREAM.onopen();
+STREAM.onerror();
+const droppedAgain = banner();
+STREAM.onerror();
+done({ dropped, droppedAgain, failed: banner() });
+""", board())
+    assert seen == {"dropped": False, "droppedAgain": False, "failed": True}
+
+
 def post_answer(port: int, origin: str, card: str, label: str) -> tuple[int, dict]:
     return post(port, origin, "/api/answer", {"card": card, "label": label})
 
@@ -106,6 +122,7 @@ def test_a_drive_saved_by_a_newer_install_hands_the_port_to_that_install_which_a
 ) -> None:
     newer = tmp_path / "cache" / "9.9.9" / "bin" / "drive"
     path = state.state_path(demo)
+    older = state.install_lock(state.VERSION)
     done = threading.Event()
     answers: list[object] = []
     handed: list[list[str]] = []
@@ -150,8 +167,9 @@ def test_a_drive_saved_by_a_newer_install_hands_the_port_to_that_install_which_a
         threading.Thread(target=ask, daemon=True).start()
         time.sleep(0.3)
         saving = path.with_name("drive.json.newer")
-        saving.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "9.9.9"}))
-        saving.replace(path)
+        with state.flocked(older):
+            saving.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "9.9.9"}))
+            saving.replace(path)
 
     monkeypatch.setattr(dashboard, "changes", changes)
     monkeypatch.setattr(dashboard, "tailnet", lambda: None)

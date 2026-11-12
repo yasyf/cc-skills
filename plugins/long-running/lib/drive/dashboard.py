@@ -1,3 +1,4 @@
+import errno
 import functools
 import http.client
 import json
@@ -299,19 +300,16 @@ class Board:
             self.changed.notify_all()
 
     def follow(self) -> Path:
-        """Rebuild on each change to the drive's stored state until a newer long-running is installed, then return that install's drive, never reading a drive it saved, since this code may misread its shapes."""
+        """Rebuild on each change to the drive's stored state, holding this install's lock while it does so a newer install's first save waits for the rebuild, until a newer long-running is installed; then return that install's drive, still holding the lock, so this code never reads a drive it saved."""
         built = None
         for _ in changes(self.name):
+            state.hold_install()
             if newer := install.upgraded():
                 return newer
             if (stamp := self.stamp()) != built:
                 built = stamp
-                try:
-                    self.rebuild()
-                except state.NewerDrive:
-                    if newer := install.upgraded():
-                        return newer
-                    raise
+                self.rebuild()
+            state.let_go_install()
 
     def after(self, version: int) -> tuple[int, bytes]:
         """The summary once it is newer than version, waiting for the next change when it is not."""
@@ -583,6 +581,12 @@ def serve(name: str, port: int, inherited: list[int]) -> None:
     board.assistant.stop()
     print(f"handing port {port} to {newer}, a newer long-running", file=sys.stderr, flush=True)
     os.execv(sys.executable, [sys.executable, "-I", str(newer), "dashboard", "--drive", name, "--port", str(port), "--serve", *(f"--listening={sock.fileno()}" for sock in listening)])
+
+
+def listening(port: int) -> bool:
+    with socket.socket() as probe:
+        probe.settimeout(START_SECONDS)
+        return probe.connect_ex((LOOPBACK, port)) != errno.ECONNREFUSED
 
 
 def serving(name: str, port: int) -> dict | None:
