@@ -448,6 +448,27 @@ def test_a_stack_card_sent_to_him_shows_each_pr_as_it_stands_now() -> None:
     assert [(each["state"], each["tap"]) for each in stacks[1]] == [("open", "wanted"), ("merged", None)]
 
 
+def test_a_stack_card_whose_prs_the_watch_dropped_since_draws_them_by_their_links_instead_of_ending_the_dashboard() -> None:
+    data = drive_of({"o1": order("ship the page", ["j1"])}, {"j1": job("o1", "waiting", "READY")}, [])
+    sent = {
+        "kind": "said",
+        "at": "2026-11-11T17:19:24-08:00",
+        "text": "Approve is up on the stack card below",
+        "thread": "1794440505.483109",
+        "url": "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794446363517879?thread_ts=1794440505.483109&cid=D0C4HQWPLCC",
+        "card": "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794446363698169",
+        "order": None,
+        "visuals": [],
+        "prs": ["Forge-AI/monorepo#53080", "Forge-AI/monorepo#53096"],
+        "edited": False,
+    }
+    stack = next(entry["prs"] for entry in view.board(data, found(), "live", [sent], T0, set())["history"] if entry["kind"] == "said")
+    assert stack == [
+        {"title": f"https://github.com/Forge-AI/monorepo/pull/{number}", "url": f"https://github.com/Forge-AI/monorepo/pull/{number}", "state": "dropped", "checks": None, "review": "none", "tap": None}
+        for number in (53080, 53096)
+    ]
+
+
 def test_cards_are_read_from_the_file_the_watch_rewrites_only_on_change(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     assert view.stored_cards(demo) == (view.NO_CARDS, view.UNREAD)
     listed = found([question("Release now?", -20)])

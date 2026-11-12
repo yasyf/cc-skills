@@ -230,6 +230,12 @@ def test_a_stack_card_sent_to_him_lists_its_prs_and_links_his_tap_only_while_one
     assert "/pull/1" in landed and 'href="#/queue/tap"' not in landed
 
 
+def test_a_pr_the_drive_dropped_after_his_stack_card_shows_its_link_as_dropped_from_the_drive(tmp_path: Path) -> None:
+    dropped = {"title": "https://github.com/Forge-AI/monorepo/pull/53080", "url": "https://github.com/Forge-AI/monorepo/pull/53080", "state": "dropped", "checks": None, "review": "none", "tap": None}
+    shown = web(tmp_path, f"model = {{ repo: '', review: [] }}; JSON.stringify(prItem({json.dumps(dropped)}))")
+    assert shown == '<li><a href="https://github.com/Forge-AI/monorepo/pull/53080" target="_blank" rel="noopener"><i class="sq dropped"></i>https://github.com/Forge-AI/monorepo/pull/53080</a><em>dropped from the drive</em></li>'
+
+
 def test_the_screens_are_the_four_he_kept(tmp_path: Path) -> None:
     assert web(tmp_path, "JSON.stringify(SCREENS.map(([name]) => name))") == ["queue", "now", "work", "history"]
 
