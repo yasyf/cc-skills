@@ -7,8 +7,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import CodexAsk, Redraws, Thread, WatchProcess, Withdrawals
-from drive import cli, github, install, land, reads, render, slack, state, talk, view, watch
+from conftest import CodexAsk, Judge, Redraws, Thread, WatchProcess, Withdrawals
+from drive import cli, github, install, land, reads, render, served, slack, state, talk, view, watch
 
 KEY = "Forge-AI/monorepo#42"
 OTHER = "Forge-AI/monorepo#43"
@@ -1911,21 +1911,73 @@ def test_a_green_approved_pr_that_wants_a_tap_with_no_card_for_thirty_minutes_is
     assert watch.wakes(line, state.load(demo))
 
 
-@pytest.mark.parametrize("checked", [{"design": "none"}, {"wants_tap": False}])
-def test_a_ready_with_no_check_or_card_five_minutes_on_is_said_every_thirty_minutes_until_the_coordinator_checks_it(
-    demo: str, monkeypatch: pytest.MonkeyPatch, checked: dict
+def test_a_builders_return_starts_one_check_against_his_words_whose_checked_line_wakes_no_one_and_whose_not_ready_line_goes_to_its_builder(
+    demo: str, monkeypatch: pytest.MonkeyPatch, checkers: list[str], judge: Judge
+) -> None:
+    serve(monkeypatch, {})
+    monkeypatch.setattr(state, "now", lambda: T0 + timedelta(minutes=1))
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="waiting", said=f"PUSHED {state.pr_url(KEY)}", returned=state.stamp(T0))
+        data["prs"][KEY] |= {"wants_tap": True, "checked": None}
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == []
+    assert (watch.run_pass(watching, T0 + timedelta(minutes=2)), checkers) == ([], [KEY])
+    judge.against = [{"order": "o1", "words": "ship the watch", "change": "watch.py stops the watch"}]
+    assert cli.main(["pr", "check", state.pr_url(KEY), "--drive", demo]) == 0
+    [refused] = watch.run_pass(watching, T0 + timedelta(minutes=3))
+    assert refused.startswith(f'PR {KEY}: NOT READY: {KEY} go against his words, judged from each PR\'s title and diff: o1 "ship the watch": watch.py stops the watch.')
+    assert refused.endswith(" [o1 j1]") and watch.wakes(refused, state.load(demo))
+    remote = state.load(demo)
+    remote["jobs"]["j1"] |= {"where": "remote", "dispatch": "dispatch-1"}
+    assert watch.lane_move(refused, remote) == "j1"
+    assert (watch.run_pass(watching, T0 + timedelta(minutes=4)), checkers) == ([], [KEY])
+    with state.edit(demo) as data:
+        data["jobs"]["j1"] |= {"said": f"READY {state.pr_url(KEY)}", "returned": state.stamp(T0 + timedelta(minutes=5))}
+    assert (watch.run_pass(watching, T0 + timedelta(minutes=5)), checkers) == ([], [KEY, KEY])
+    judge.against = []
+    assert cli.main(["pr", "check", state.pr_url(KEY), "--drive", demo]) == 0
+    checked = f"PR {KEY}: CHECKED against the words of o1 at aaaaaaa111, so his card draws once it is green and approved [o1 j1]"
+    assert watch.run_pass(watching, T0 + timedelta(minutes=6)) == [checked]
+    assert not watch.wakes(checked, state.load(demo)) and watch.lane_move(checked, state.load(demo)) is None
+    assert (state.load(demo)["prs"][KEY]["checked"]["head"], watch.run_pass(watching, T0 + timedelta(minutes=7)), checkers) == ("aaaaaaa111", [], [KEY, KEY])
+
+
+def test_a_check_whose_judge_failed_is_said_nowhere_and_tried_again_ten_minutes_after_it_started(
+    demo: str, monkeypatch: pytest.MonkeyPatch, checkers: list[str]
+) -> None:
+    serve(monkeypatch, {})
+    monkeypatch.setattr(state, "now", lambda: T0)
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="waiting", said=f"READY {state.pr_url(KEY)}")
+        data["prs"][KEY] |= {"wants_tap": True, "checked": None}
+
+    def failing(name: str, said: str, changes: dict) -> list[dict]:
+        raise state.DriveError("the judge timed out")
+
+    monkeypatch.setattr(served, "judged", failing)
+    watching = watcher(demo)
+    watch.run_pass(watching, T0)
+    assert cli.main(["pr", "check", state.pr_url(KEY), "--drive", demo]) == 0
+    assert state.load(demo)["prs"][KEY]["checker"]["outcome"] == "check failed: the judge timed out"
+    assert (watch.run_pass(watching, T0 + timedelta(minutes=9)), checkers) == ([], [KEY])
+    assert (watch.run_pass(watching, T0 + timedelta(minutes=10)), checkers) == ([], [KEY, KEY])
+
+
+@pytest.mark.parametrize("checked", [{"design": "none", "checked": CHECKED}, {"wants_tap": False}])
+def test_a_ports_ready_starts_no_check_against_his_words_and_is_said_every_thirty_minutes_until_the_coordinator_checks_it_against_its_old_tree_pr(
+    demo: str, monkeypatch: pytest.MonkeyPatch, checkers: list[str], checked: dict
 ) -> None:
     serve(monkeypatch, {})
     with state.edit(demo) as data:
-        data["jobs"]["j1"].update(state="waiting", said=f"READY {state.pr_url(KEY)}")
-        data["prs"][KEY]["wants_tap"] = True
+        data["jobs"]["j1"].update(state="waiting", said=f"READY {state.pr_url(KEY)}", report=f"READY {state.pr_url(KEY)}\nSERVES: port of #50974\n")
+        data["prs"][KEY] |= {"wants_tap": True, "checked": None}
     watching = watcher(demo)
     assert watch.run_pass(watching, T0 + timedelta(minutes=4)) == []
-    line = f"PR {KEY}: READY returned 5 minutes ago, check owed [o1 j1]"
+    line = f"PR {KEY}: READY of a port returned 5 minutes ago, its check against the old-tree PR owed [o1 j1]"
     assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == [line]
-    assert watch.wakes(line, state.load(demo))
+    assert watch.wakes(line, state.load(demo)) and checkers == []
     assert watch.run_pass(watching, T0 + timedelta(minutes=34)) == []
-    assert watch.run_pass(watching, T0 + timedelta(minutes=35)) == [f"PR {KEY}: READY returned 35 minutes ago, check owed [o1 j1]"]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=35)) == [f"PR {KEY}: READY of a port returned 35 minutes ago, its check against the old-tree PR owed [o1 j1]"]
     with state.edit(demo) as data:
         data["prs"][KEY] |= checked
     assert watch.run_pass(watching, T0 + timedelta(minutes=70)) == []

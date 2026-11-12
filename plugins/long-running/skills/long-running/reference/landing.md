@@ -107,7 +107,8 @@ for its repository says, then return `DONE <proof>`.
   waking nobody, until its minute read finds every check the base branch requires green, then takes
   it as the `READY`, or sends a red one back to the builder. The watch then draws his card the
   minute GitHub reports the PR green and approved,
-  once `drive job report` or `drive pr set --serves` checked its change at that head against his words,
+  once `drive job report`, the watch's `drive pr check` on a remote lane's return, or `drive pr set --serves`
+  checked its change at that head against his words,
   whatever its body says. Return no `WAITING` for CI, a review or a queue. A
   port's `READY` gets the coordinator's check against #N instead. Name every PR of a stack bottom first
   (`PUSHED <url> <url> …`) so he gets one card. Add a `SERVES:` line: `port of #N`,

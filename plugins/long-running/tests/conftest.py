@@ -151,6 +151,13 @@ def landers(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, ...]]:
 
 
 @pytest.fixture(autouse=True)
+def checkers(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    started: list[str] = []
+    monkeypatch.setattr(served, "spawn", lambda name, key: started.append(key) or os.getpid())
+    return started
+
+
+@pytest.fixture(autouse=True)
 def native_stacks(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[tuple[str, str]]]:
     stacks: dict[str, list[tuple[str, str]]] = {}
     monkeypatch.setattr(github, "stacks", lambda keys: {key: stacks[key] for key in keys if key in stacks})

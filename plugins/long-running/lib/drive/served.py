@@ -2,7 +2,7 @@ import json
 import os
 import re
 import subprocess
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from drive import github, settled, slack, state
 from drive.render import cut
@@ -18,6 +18,12 @@ FILE_DIFF = re.compile(r"^diff --git a/(\S+) ", re.MULTILINE)
 TESTS = re.compile(r"(?:^|/)(?:tests?|e2e|__tests__|fixtures|testdata)/|[._-](?:test|spec)\.\w+$|_test\.\w+$")
 CITATION_BREAK = re.compile(r"[\s,;()\"']+")
 ANSWER_ID = re.compile(r"(?=[0-9a-f]*\d)[0-9a-f]{7,40}")
+PORT = re.compile(r"^SERVES:[ \t]*port of #\d+", re.MULTILINE | re.IGNORECASE)
+LOG = "checks.log"
+CHECKED = "CHECKED"
+NOT_READY = "NOT READY"
+FAILED = "check failed"
+RETRY = timedelta(minutes=10)
 VERDICT = {
     "type": "object",
     "properties": {
@@ -32,7 +38,7 @@ VERDICT = {
     },
     "required": ["against"],
 }
-RULES = """You check a change before the drive puts it on his card for his Approve. <his_words> holds the words of each order the change serves, his own words verbatim, oldest first, with the parts of each this change delivers and, when its PRs name theirs, the parts other changes deliver; then his answers the PRs cite for the design decisions they make, oldest first, each the question he was asked and his answer, the option he tapped or his own words. <change> holds each pull request's title and diff, source files before tests. PR bodies are left out by his ruling: "Get rid of the fucking PR body check that's insane to delay on who cares about the body".
+RULES = """You check a change before the drive puts it on his card for his Approve. <his_words> holds the words of each order the change serves, his own words verbatim, oldest first, with the parts of each this change delivers and, when its PRs name theirs, the parts other changes deliver, and, when this change is one PR of a job that has others, those PRs, each judged on its own; then his answers the PRs cite for the design decisions they make, oldest first, each the question he was asked and his answer, the option he tapped or his own words. <change> holds each pull request's title and diff, source files before tests. PR bodies are left out by his ruling: "Get rid of the fucking PR body check that's insane to delay on who cares about the body".
 
 An answer of his is his words on this change as much as an order is: where an answer settles how or when an order's words are met, such as a step it leaves to a later change, judge the change against the answer.
 
@@ -40,7 +46,7 @@ List in `against` each place where the change goes against his words: it does or
 
 Leave out:
 - what his newer words on the same point overrule, an answer's included, since his newest words win;
-- what his words leave to a later change or to the parts other changes deliver, or what one PR here leaves and another PR here does;
+- what his words leave to a later change or to the parts other changes deliver, or what one PR here leaves and another PR here, or another PR of its job that <his_words> names, does;
 - style, naming, tests and anything his words do not speak to;
 - any line the diff does not show: judge only what it shows, an unchanged context line included.
 
@@ -51,10 +57,9 @@ class Against(DriveError):
     """A change judged to go against his words, which its builder fixes, as against a read or judge that failed, which runs again."""
 
 
-def check(name: str, job_id: str, also: list[str], tapping: list[str], cited: list[str], setting: dict[str, dict]) -> None:
-    """Judge the change of the job's PRs his card waits on, read whole from GitHub at each head, title and diff and never the body, against the words of every order they serve and each order in also, with each PR in tapping that is about to wait on his tap, and against each answer of his cited names or a PR's design cites, and keep each head checked; each order is judged for the parts its PRs name, else every part its job delivers. A PR's design and parts are those drive pr set kept, or those setting gives for a PR this call sets. Refuse, naming each of his words the change goes against, so his card draws only on a change checked against his words."""
+def check(name: str, keys: list[str], also: list[str], cited: list[str], setting: dict[str, dict]) -> None:
+    """Judge the change of the PRs in keys, read whole from GitHub at each head, title and diff and never the body, against the words of every order they serve and each order in also, and against each answer of his cited names or a PR's design cites, and keep each head checked; each order is judged for the parts its PRs name, else every part its job delivers, and the job's other PRs his card waits on are named as delivering their own share, so a sibling's diff never refuses a PR. A PR's design and parts are those drive pr set kept, or those setting gives for a PR this call sets. Refuse, naming each of his words the change goes against, so his card draws only on a change checked against his words."""
     data = state.load(name)
-    keys = list(dict.fromkeys([*state.carded_prs(data, job_id), *tapping]))
     orders = list(dict.fromkeys([*(order_id for key in keys for order_id in state.served_orders(data, data["prs"][key])), *also]))
     if all(state.checked(data, data["prs"][key]) and set(also) <= set(data["prs"][key]["checked"]["orders"]) for key in keys):
         return
@@ -62,7 +67,8 @@ def check(name: str, job_id: str, also: list[str], tapping: list[str], cited: li
     prs = [data["prs"][key] | setting.get(key, {}) for key in keys]
     parts = [part for pr in prs for part in pr["parts"]]
     answered = answers(data, [*cited, *(pr.get("design") or "" for pr in prs)])
-    if found := judged(name, words(data, data["jobs"][job_id], orders, parts, answered), changes):
+    others = [key for key in state.carded_prs(data, prs[0]["job"]) if key not in keys]
+    if found := judged(name, words(data, data["jobs"][prs[0]["job"]], orders, parts, answered, others), changes):
         named = "; ".join(f'{item["order"]} "{cut(item["words"], 160)}": {cut(item["change"], 240)}' for item in found)
         raise Against(
             f"{', '.join(keys)} go against his words, judged from each PR's title and diff: {named}. Change the PRs to his words,"
@@ -71,6 +77,63 @@ def check(name: str, job_id: str, also: list[str], tapping: list[str], cited: li
     with state.edit(name) as data:
         for key, read in changes.items():
             data["prs"][key]["checked"] = {"head": read["head"], "orders": orders, "patch": patch(read["diff"])}
+
+
+def verdict(name: str, key: str) -> str:
+    """Judge one PR his card waits on at its head against his words, as drive job report judges a READY made on this Mac, with the answers its builder's DESIGN: line cites, and keep the outcome on the PR: CHECKED and NOT READY also as a check event, which the watch says on the PR's line, so his card draws on a pass with no coordinator turn and a refusal goes to its builder; a judge or GitHub read that failed is kept alone, and the watch tries it again RETRY on."""
+    data = state.load(name)
+    pr = data["prs"][key]
+    head, at = pr["head"], state.stamp()
+    cited = [line for line in state.report_text(name, pr["job"], data["jobs"][pr["job"]]).splitlines() if line.startswith("DESIGN:")]
+    try:
+        check(name, [key], [], cited, {})
+    except Against as error:
+        outcome = f"{NOT_READY}: {error}"
+    except DriveError as error:
+        outcome = f"{FAILED}: {error}"
+    else:
+        stamp = state.load(name)["prs"][key]["checked"]
+        outcome = f"{CHECKED} against the words of {', '.join(stamp['orders'])} at {stamp['head'][:10]}, so his card draws once it is green and approved"
+    with state.edit(name) as data:
+        pr = data["prs"][key]
+        pr["checker"] = {"head": head, "pid": os.getpid(), "at": at, "outcome": outcome}
+        if not outcome.startswith(FAILED):
+            repo, number = key.split("#")
+            state.append_event(name, "check", repo=repo, number=int(number), change=outcome, lane=state.heard_lane(data, pr["order"]))
+    return outcome
+
+
+def ported(report: str) -> bool:
+    """Whether a builder's report says its PR is a port of an old-tree PR, which the coordinator checks against that PR rather than his words."""
+    return bool(PORT.search(report))
+
+
+def tried(pr: dict, returned: str | None, moment: datetime) -> bool:
+    """Whether a check of the PR at its head runs, or said NOT READY since its builder's last READY: one that failed, or whose process ended with no outcome, is tried again RETRY after it started, and one that passed before an order joined those the PR serves is tried again at once."""
+    checker = pr["checker"]
+    if not checker or checker["head"] != pr["head"]:
+        return False
+    if checker["outcome"] is None and state.alive(checker["pid"]):
+        return True
+    if checker["outcome"] is None or checker["outcome"].startswith(FAILED):
+        return moment - state.parse_time(checker["at"]) < RETRY
+    if checker["outcome"].startswith(NOT_READY):
+        return not returned or state.parse_time(returned) <= state.parse_time(checker["at"])
+    return False
+
+
+def start(name: str, keys: list[str]) -> None:
+    """Start a check of each PR in keys as its own process, marking it under the drive's lock with that process and its head, so no second check starts on that head while it runs."""
+    with state.edit(name) as data:
+        for key in keys:
+            pr = data["prs"][key]
+            if not (pr["checker"] and pr["checker"]["outcome"] is None and state.alive(pr["checker"]["pid"])):
+                pr["checker"] = {"head": pr["head"], "pid": spawn(name, key), "at": state.stamp(), "outcome": None}
+
+
+def spawn(name: str, key: str) -> int:
+    """Run `drive pr check` on the PR as its own process, outliving the watch pass that started it, its output appended to the drive's check log."""
+    return state.detach(name, ["pr", "check", state.pr_url(key)], LOG)
 
 
 def carry(name: str, keys: list[str]) -> None:
@@ -111,18 +174,21 @@ def files(diff: bytes) -> list[tuple[str, str]]:
     return [(match[1], text[match.start() : end]) for match, end in zip(found, [*(match.start() for match in found[1:]), len(text)][: len(found)], strict=True)]
 
 
-def words(data: dict, job: dict, orders: list[str], named: list[str], answered: list[str]) -> str:
-    """Each order's words, oldest first, with the parts of it the change delivers: those its PRs name, with the order's other parts left to other changes, else every part of it the job delivers; then each answer of his the PRs cite."""
+def words(data: dict, job: dict, orders: list[str], named: list[str], answered: list[str], others: list[str]) -> str:
+    """Each order's words, oldest first, with the parts of it the change delivers: those its PRs name, with the order's other parts left to other changes, else every part of it the job delivers, shared with the job's other PRs when it has any; then the job's other PRs, each judged on its own; then each answer of his the PRs cite."""
     lines = []
+    delivers = "this change and its job's other PRs deliver" if others and not named else "this change delivers"
     for order_id in sorted(orders, key=lambda order_id: data["orders"][order_id]["created"]):
         order = data["orders"][order_id]
         parts = [part for part in state.job_parts(job, order_id) if not named or part in named]
-        others = [part for part in order["parts"] if part not in parts] if named else []
+        rest = [part for part in order["parts"] if part not in parts] if named else []
         lines.append(
             f'{order_id}, {order["created"]}: "{order["text"]}"'
-            + (f"\n  this change delivers: {'; '.join(parts)}" if parts else "")
-            + (f"\n  other changes deliver: {'; '.join(others)}" if others else "")
+            + (f"\n  {delivers}: {'; '.join(parts)}" if parts else "")
+            + (f"\n  other changes deliver: {'; '.join(rest)}" if rest else "")
         )
+    if others:
+        lines.append("its job's other PRs, each judged on its own, deliver their share of these orders: " + "; ".join(f'{key} "{data["prs"][key]["title"]}"' if data["prs"][key]["title"] else key for key in others))
     if answered:
         lines += ["his answers the PRs cite for the design they make:", *answered]
     return "\n".join(lines)

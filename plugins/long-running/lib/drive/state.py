@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import uuid
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import AbstractContextManager, contextmanager
@@ -118,6 +119,21 @@ def alive(pid: int) -> bool:
     except PermissionError:
         pass
     return True
+
+
+def detach(name: str, args: list[str], log: str) -> int:
+    """Run the drive CLI with args on the drive as its own process, outliving the watch pass or tap that started it, its output appended to the drive's log of that name."""
+    env = {variable: value for variable, value in os.environ.items() if variable != "CLAUDE_CODE_SESSION_ID"}
+    with (drive_dir(name) / log).open("a") as out:
+        return subprocess.Popen(
+            [str(Path(__file__).resolve().parents[2] / "bin" / "drive"), *args, "--drive", name],
+            cwd=drive_dir(name),
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=out,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        ).pid
 
 
 def state_path(name: str) -> Path:
@@ -370,6 +386,7 @@ def load(name: str) -> dict:
         pr.setdefault("ready_said", None)
         pr.setdefault("native", [])
         pr.setdefault("lander", None)
+        pr.setdefault("checker", None)
         pr.setdefault("ejected", False)
         pr.setdefault("review_asked", None)
         pr.setdefault("author", None)
@@ -1389,6 +1406,7 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "unchecked": None,
         "waits": [],
         "lander": None,
+        "checker": None,
         "ejected": False,
         "review_asked": None,
         "rework": None,
