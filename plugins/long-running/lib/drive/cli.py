@@ -1431,11 +1431,10 @@ def keep_waits(job: dict, file: Path, waits: str) -> None:
 
 
 def job_report(args: argparse.Namespace) -> int:
-    """Keep a job's whole return from stdin in the drive, its first line setting a running job's state, or print the one kept, or a remote lane's latest report."""
+    """Keep a job's whole return from stdin in the drive and its history, its first line setting a running job's state, or print the newest kept, or a remote lane's latest report."""
     name = state.resolve(args.drive)
     data = state.load(name)
     job = find(data["jobs"], args.id, "job")
-    kept = state.report_path(name, args.id)
     if args.stdin:
         whole = sys.stdin.read()
         if not whole.strip():
@@ -1447,10 +1446,10 @@ def job_report(args: argparse.Namespace) -> int:
                 served.check(name, args.id, [], [])
             except DriveError as error:
                 raise DriveError(f"{args.id}: refused, nothing kept: {error}") from None
-        kept.parent.mkdir(exist_ok=True)
-        kept.write_text(whole)
+        line = whole.strip().splitlines()[0].strip()
+        kept = state.keep_report(name, args.id, line, whole)
         with state.edit(name) as data:
-            state.take_result(data, args.id, whole.strip().splitlines()[0].strip(), whole)
+            state.take_result(data, args.id, line, whole)
             state.add_changes(data, args.id, whole)
         return emit(args, str(kept), {"id": args.id, "report": str(kept)})
     text = state.report_text(name, args.id, job)
@@ -1727,7 +1726,7 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
 
 def job_replies(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
-    remote_job(state.load(name), args.id)
+    find(state.load(name)["jobs"], args.id, "job")
     kept = state.replies(name, args.id)
     text = "\n\n".join(f"{reply['created_at']} {reply['type']}: {reply['body'] or reply['subject']}" for reply in kept)
     return emit(args, text or f"{args.id} has sent nothing yet", kept)
@@ -3099,7 +3098,7 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.set_defaults(run=job_resume)
     verb = job.add_parser(
-        "replies", parents=both, help="every result and question a remote lane sent, oldest first, with when it sent each"
+        "replies", parents=both, help="every result and question a remote lane sent, and every return drive job report kept, oldest first, with when each came"
     )
     verb.add_argument("id")
     verb.set_defaults(run=job_replies)

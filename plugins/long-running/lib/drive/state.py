@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import re
+import uuid
 from collections.abc import Iterable, Iterator
 from contextlib import AbstractContextManager, contextmanager
 from datetime import datetime, timedelta
@@ -153,8 +154,17 @@ def report_text(name: str, job_id: str, job: dict) -> str:
     return path.read_text() if path.exists() else job.get("report") or ""
 
 
+def keep_report(name: str, job_id: str, line: str, whole: str) -> Path:
+    """Keep a return a job on this Mac made: reports/<j>.md holds the newest, which every reader takes as its report, and its history keeps each, as it keeps a remote lane's, so a later return never loses an earlier one."""
+    kept = report_path(name, job_id)
+    kept.parent.mkdir(exist_ok=True)
+    kept.write_text(whole)
+    keep_reply(name, job_id, {"created_at": stamp(), "id": f"report_{uuid.uuid4().hex[:12]}", "type": "worker_done", "subject": line, "body": whole})
+    return kept
+
+
 def keep_reply(name: str, job_id: str, message: dict) -> None:
-    """Append one message a remote lane sent to its job's history, which a later result never replaces."""
+    """Append one message a remote lane sent, or one return a job on this Mac kept, to its job's history, which a later result never replaces."""
     path = replies_path(name, job_id)
     path.parent.mkdir(exist_ok=True)
     fields = ("created_at", "id", "type", "subject", "body")
@@ -163,7 +173,7 @@ def keep_reply(name: str, job_id: str, message: dict) -> None:
 
 
 def replies(name: str, job_id: str) -> list[dict]:
-    """The job's kept messages, oldest first, each once: a watch stopped between keeping a message and saving its cursor keeps it again."""
+    """The job's kept messages and returns, oldest first, each once: a watch stopped between keeping a message and saving its cursor keeps it again."""
     path = replies_path(name, job_id)
     kept = [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
     return list({reply["id"]: reply for reply in kept}.values())

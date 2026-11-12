@@ -2017,6 +2017,22 @@ def test_job_report_keeps_a_jobs_whole_return_from_stdin_and_prints_it_back(
     assert run("job", "report", "j1") == (0, "READY https://github.com/yasyf/cc-skills/pull/1\nSERVES: his order\nDESIGN: none")
 
 
+def test_a_job_on_this_mac_that_reports_twice_keeps_both_returns_in_its_history(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "reader", "--order", "o1", "--goal", "grade", "--agent", "a")
+    assert run("job", "replies", "j1") == (0, "j1 has sent nothing yet")
+    for whole in ("DONE graded two PRs\nVERDICT 54182 port\nVERDICT 54104 drop\n", "DONE graded one more\nVERDICT 54344 port\n"):
+        monkeypatch.setattr("sys.stdin", io.StringIO(whole))
+        assert run("job", "report", "j1", "-")[0] == 0
+    assert run("job", "report", "j1") == (0, "DONE graded one more\nVERDICT 54344 port")
+    kept = json.loads(run("job", "replies", "j1", "--json")[1])
+    assert [(reply["type"], reply["subject"], reply["body"]) for reply in kept] == [
+        ("worker_done", "DONE graded two PRs", "DONE graded two PRs\nVERDICT 54182 port\nVERDICT 54104 drop\n"),
+        ("worker_done", "DONE graded one more", "DONE graded one more\nVERDICT 54344 port\n"),
+    ]
+    assert "VERDICT 54104 drop" in run("job", "replies", "j1")[1]
+
+
 def test_a_builders_done_names_its_proof_and_what_he_sees_is_proven_on_that_surface(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
