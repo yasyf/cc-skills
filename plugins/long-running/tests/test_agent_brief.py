@@ -1,10 +1,13 @@
 import io
 import os
 from collections.abc import Callable
+from datetime import timedelta
 
 import agent_brief
 import pytest
 from conftest import RESEARCH
+from drive import state, watch
+from drive.render import when
 
 Run = Callable[..., tuple[int, str]]
 
@@ -81,7 +84,11 @@ def test_a_builder_passing_over_a_teams_data_names_what_it_runs_as(demo: str) ->
         assert agent_brief.deny_reason(started("long-running:builder", f"{order}Goal: {goal}")) is None
 
 
-def test_a_ninth_builder_here_waits_and_its_refusal_names_the_jobs_waiting_oldest_due_first(demo: str, run: Run) -> None:
+def test_a_ninth_builder_here_waits_and_its_refusal_names_each_builder_counted_and_the_jobs_waiting_oldest_due_first(
+    demo: str, run: Run, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    wrote = state.now() - timedelta(minutes=3)
+    monkeypatch.setattr(watch, "last_write", lambda job, data: (wrote, None))
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "tidy the docs")
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "fix the card", "--due", "+2h", "--thread", "1.2")
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "fix the watch", "--due", "+1h", "--thread", "1.3")
@@ -93,8 +100,9 @@ def test_a_ninth_builder_here_waits_and_its_refusal_names_the_jobs_waiting_oldes
     run("job", "add", "builder", "--order", "o3", "--goal", "fix the watch on a Sprite", "--remote")
     brief = "Order (his words): fix the watch\nServes: his order\nGoal: fix it\nDrive: demo, order o3, job j3"
     refused = agent_brief.deny_reason(started("long-running:builder", brief))
+    counted = "; ".join(f"j{number + 3} on o1, its agent a{number} last wrote at {when(state.stamp(wrote), seconds=True)}" for number in range(1, 9))
     assert refused.startswith(
-        "refused: 8 builders already run on this Mac, its cap of 8, so this one waits: start no builder here until one"
+        f"refused: 8 builders already run on this Mac, its cap of 8 ({counted}), so this one waits: start no builder here until one"
         " finishes, then start the first job waiting, oldest due first: j3 (due "
     )
     assert refused.index('"fix the watch"; j2 (due ') < refused.index('"fix the card"; j1 (no time promised) "tidy the docs".')

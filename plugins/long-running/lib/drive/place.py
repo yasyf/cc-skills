@@ -4,7 +4,8 @@ import sys
 import time
 from datetime import datetime
 
-from drive import state, watch
+from drive import agents, state, watch
+from drive.render import when
 
 LIMIT_ENV = "HOOKS_ADMISSION_LOAD_PER_CORE"
 MONOREPO = "Forge-AI/monorepo"
@@ -42,31 +43,43 @@ def limit() -> float:
     return float(os.environ.get(LIMIT_ENV, "1"))
 
 
-def verdict(share: float, ceiling: float, local_builders: int) -> tuple[str, str]:
+def verdict(share: float, ceiling: float, builders: dict[str, str]) -> tuple[str, str]:
     """Where the next monorepo builder starts, and why."""
     if share >= ceiling:
         return "remote", f"this Mac is {share:.0%} busy, at or over its {ceiling:.0%} limit"
-    if local_builders >= LOCAL_BUILDERS:
-        return "remote", f"{local_builders} builders already run on this Mac, its cap of {LOCAL_BUILDERS}"
+    if len(builders) >= LOCAL_BUILDERS:
+        return "remote", at_cap(builders)
     load = f"this Mac is {share:.0%} busy, under its {ceiling:.0%} limit"
-    return "local", f"{load}, with {local_builders} of {LOCAL_BUILDERS} builders"
+    return "local", f"{load}, with {len(builders)} of {LOCAL_BUILDERS} builders"
 
 
-def local_builders(data: dict, moment: datetime) -> int:
-    """The builders at work on this Mac: running here, as an agent still writing or an Orca lane started with --local that has not ended."""
-    return sum(
-        job["kind"] == "builder" and job["state"] == "running" and at_work_here(job_id, job, data, moment) for job_id, job in data["jobs"].items()
-    )
+def at_cap(builders: dict[str, str]) -> str:
+    """The cap's refusal, naming each builder it counted."""
+    return f"{len(builders)} builders already run on this Mac, its cap of {LOCAL_BUILDERS} ({'; '.join(builders.values())})"
 
 
-def at_work_here(job_id: str, job: dict, data: dict, moment: datetime) -> bool:
+def local_builders(data: dict, moment: datetime) -> dict[str, str]:
+    """The builders at work on this Mac, each job beside its order and its agent's or lane's last write: an agent here still in its turn, or an Orca lane started with --local that launches or has not ended."""
+    return {
+        job_id: f"{job_id} on {job['order']}, {work}"
+        for job_id, job in data["jobs"].items()
+        if job["kind"] == "builder" and job["state"] == "running" and (work := at_work_here(job_id, job, data, moment))
+    }
+
+
+def at_work_here(job_id: str, job: dict, data: dict, moment: datetime) -> str | None:
     if job.get("where") != "remote":
-        return bool(job["agent"]) and watch.local_gap(job_id, job, data, moment) is None
+        if not job["agent"] or watch.local_gap(job_id, job, data, moment) is not None:
+            return None
+        wrote, turn = watch.last_write(job, data)
+        return None if turn and agents.ended(turn) else f"its agent {job['agent']} last wrote at {when(state.stamp(wrote), seconds=True)}"
     if not state.on_mac(job):
-        return False
+        return None
     if not job.get("dispatch"):
-        return watch.launching(job, moment)
-    return all(death["dispatch"] != job["dispatch"] for death in job.get("deaths", []))
+        return f"its Orca lane launching since {when(job['launching'], seconds=True)}" if watch.launching(job, moment) else None
+    if any(death["dispatch"] == job["dispatch"] for death in job.get("deaths", [])):
+        return None
+    return f"its Orca lane {job['dispatch']}, not ended"
 
 
 def waiting_builders(data: dict) -> list[str]:

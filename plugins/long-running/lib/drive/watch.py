@@ -1095,7 +1095,7 @@ def local_gap(job_id: str, job: dict, data: dict, moment: datetime) -> str | Non
         return f"{job_id}'s agent ended with an earlier session"
     if not job.get("agent"):
         return f"{job_id} has no agent recorded"
-    path = Path(own) if (own := state.own_transcript(data, job)) else transcript(holder, job["agent"])
+    path = agent_transcript(holder, job, data)
     if not path.exists():
         return f"{job_id}'s agent {job['agent']} has no transcript"
     quiet = moment - datetime.fromtimestamp(path.stat().st_mtime).astimezone()
@@ -1120,6 +1120,17 @@ def local_gap(job_id: str, job: dict, data: dict, moment: datetime) -> str | Non
     if quiet >= QUIET_FOR:
         return f"{job_id}'s agent has written nothing for {minutes(quiet)} minutes"
     return None
+
+
+def agent_transcript(holder: dict, job: dict, data: dict) -> Path:
+    """A local job's agent's transcript: its handler's own session's, else the one beside the session holding it."""
+    return Path(own) if (own := state.own_transcript(data, job)) else transcript(holder, job["agent"])
+
+
+def last_write(job: dict, data: dict) -> tuple[datetime, dict | None]:
+    """When a local job's agent last wrote its transcript, and the turn it wrote last."""
+    path = agent_transcript(session_of(job, data), job, data)
+    return datetime.fromtimestamp(path.stat().st_mtime).astimezone(), last_turn(path)
 
 
 def remote_gap(job_id: str, worker: dict, moment: datetime) -> str | None:

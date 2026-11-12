@@ -1,5 +1,6 @@
 import itertools
 import json
+import os
 import subprocess
 import threading
 from collections.abc import Callable
@@ -30,6 +31,7 @@ ROOT_WORKER = {
     "terminal": {"handle": "term_root", "lastOutputAt": None},
 }
 REAL_LOCAL_GAP = watch.local_gap
+REAL_LAST_WRITE = watch.last_write
 UNSENT = (
     "no worker started on Sprite pool-one: orca orchestration worker-start failed twice before Orca recorded it, with"
     " runtime_error: Timed out waiting for the remote Orca runtime; its terminal term_lane waits idle, and launching this"
@@ -119,7 +121,7 @@ def deliver(monkeypatch: pytest.MonkeyPatch, *batches: list[dict]) -> list[str]:
 def test_verdict_sends_a_builder_remote_over_the_limit_or_the_cap(
     share: float, local_builders: int, where: str
 ) -> None:
-    assert place.verdict(share, 0.5, local_builders)[0] == where
+    assert place.verdict(share, 0.5, {f"j{number}": f"j{number} on o1" for number in range(local_builders)})[0] == where
 
 
 def test_place_counts_only_running_builders_on_this_mac(
@@ -138,7 +140,33 @@ def test_place_counts_only_running_builders_on_this_mac(
     code, out = run("place", "--json")
     assert (code, json.loads(out)["where"], json.loads(out)["local_builders"]) == (0, "local", 7)
     run("job", "add", "builder", "--order", "o1", "--goal", "eighth", "--agent", "e")
-    assert run("place")[1] == "remote: 8 builders already run on this Mac, its cap of 8"
+    monkeypatch.setattr(watch, "last_write", lambda job, data: (T0, None))
+    wrote = render.when(state.stamp(T0), seconds=True)
+    counted = "; ".join(f"j{number} on o1, its agent {agent} last wrote at {wrote}" for number, agent in [*((n, "a") for n in range(1, 8)), (11, "e")])
+    assert run("place")[1] == f"remote: 8 builders already run on this Mac, its cap of 8 ({counted})"
+
+
+def test_place_counts_a_builder_here_only_while_its_agent_is_in_its_turn(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setattr(watch, "last_write", REAL_LAST_WRITE)
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "three")
+    turns = {
+        "a1": {"type": "assistant", "message": {"stop_reason": "tool_use", "content": [{"type": "tool_use", "name": "Bash"}]}},
+        "a2": {"type": "assistant", "message": {"stop_reason": "end_turn", "content": [{"type": "text", "text": "WAITING on Forge-AI/monorepo#7"}]}},
+        "a3": {"type": "assistant", "message": {"stop_reason": "end_turn", "content": [{"type": "text", "text": "Should the old flag stay?"}]}},
+    }
+    for agent in turns:
+        run("job", "add", "builder", "--order", "o1", "--goal", agent, "--agent", agent)
+    data = state.load(demo)
+    for job in data["jobs"].values():
+        path = watch.transcript(watch.session_of(job, data), job["agent"])
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(turns[job["agent"]]) + "\n")
+        os.utime(path, (T0.timestamp(), T0.timestamp()))
+    wrote = render.when(state.stamp(T0.astimezone()), seconds=True)
+    assert place.local_builders(data, state.now()) == {"j1": f"j1 on o1, its agent a1 last wrote at {wrote}"}
 
 
 def test_place_counts_a_builder_lane_started_on_this_mac_while_it_launches_or_runs(
@@ -157,6 +185,25 @@ def test_place_counts_a_builder_lane_started_on_this_mac_while_it_launches_or_ru
         data["jobs"]["j4"].update(route=state.LOCAL_ROUTE, launching=state.stamp(state.now() - timedelta(hours=1)))
         data["jobs"]["j5"].update(dispatch="ctx_sprite5", workspace="pool-one", environment="env-one")
     assert json.loads(run("place", "--json")[1])["local_builders"] == 2
+
+
+@pytest.mark.parametrize(("refusal", "counted"), [(orca.Unstarted, {}), (orca.OrcaError, {"j1": "j1 on o1, its Orca lane launching since "})])
+def test_a_local_launch_that_started_no_worker_stops_counting_as_a_builder_here(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, refusal: type[orca.OrcaError], counted: dict[str, str]
+) -> None:
+    (tmp_path / ".orca.json").write_text("{}")
+    (tmp_path / "brief.md").write_text("Drive: demo, order o1, job j1\n")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship it")
+    monkeypatch.setattr(orca, "new_run", lambda objective: RUN)
+
+    def refused(*args: object) -> dict:
+        raise refusal("orca-worker-launch.sh exited 1")
+
+    monkeypatch.setattr(orca, "launch", refused)
+    assert cli.main(["job", "launch", "j1", "brief.md", "--local"]) == 2
+    builders = place.local_builders(state.load(demo), state.now())
+    assert {job_id: line[: len(counted[job_id])] for job_id, line in builders.items()} == counted
 
 
 def test_place_skips_a_running_builder_whose_agent_is_gone(

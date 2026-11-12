@@ -52,6 +52,10 @@ class OrcaError(DriveError):
         self.code = code
 
 
+class Unstarted(OrcaError):
+    """A launch that started no worker."""
+
+
 class LaneEnd(NamedTuple):
     why: str
     branch: str | None
@@ -318,13 +322,13 @@ def launch(drive: str, lane: str, brief: Path, checkout: Path, run: str, route: 
         reason = said[-1] if said else "no output"
         attempt = brief.with_suffix(".worker")
         if (attempt / "worker-start.unsent").exists():
-            raise OrcaError(reason)
+            raise Unstarted(reason)
         if (attempt / "worker-start.status").exists():
             raise OrcaError(
                 f"{LAUNCHER} exited {done.returncode} after worker-start ran, so the lane may be live: {reason}; "
                 f"read {attempt}/worker-start.json before starting it anywhere else"
             )
-        raise OrcaError(f"{LAUNCHER} exited {done.returncode} before a worker started: {reason}; attempt in {attempt}")
+        raise Unstarted(f"{LAUNCHER} exited {done.returncode} before a worker started: {reason}; attempt in {attempt}")
     receipt = json.loads(lines[-1])
     if local:
         return {**receipt, "lane": lane, "workspace": None, "environment": None}
