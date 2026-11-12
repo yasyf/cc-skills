@@ -14,6 +14,8 @@ LONG = (
     "POST thread 1794286392.313739: the journal layout is merged and installed; his card for the runner rows is up,"
     " waits durable-agents:j12-6581\nproof: https://github.com/yasyf/cc-skills/pull/4093"
 )
+SSQL = "are we doing the ssql release foe it"
+FOOTERS = "why didnt our release footers whatever catch this and bring ssql along with API"
 
 
 def post(session: str = SESSION, **tool_input: object) -> dict:
@@ -321,6 +323,21 @@ def test_a_report_attr_a_separator_or_one_letter_from_one_the_drive_reads_is_ref
     assert record_lines.decision(coordinator(turn, kind="report", text=catch_up, to=TO, attrs={"catch_up": "true"})) is None
     assert record_lines.decision(post(kind="report", text="POST j702 merged", to=TO, attrs={"order": "o1", "incident": "i3", "close": "o1"})) is None
     assert record_lines.decision(post(kind="ask", text=IDLE, attrs={"catchup": "true", **kept(demo, "j1", IDLE)})) is None
+
+
+def test_a_report_carrying_a_part_in_an_attr_but_part_is_refused_naming_the_one_part_attr_that_carries_both_in_a_batch_too(
+    run: Callable[..., tuple[int, str]], demo: str, turn: Path
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Releases", f"1) {SSQL}, and 2) {FOOTERS}?", "--thread", THREAD, "--parts", SSQL, FOOTERS, "the --only card")
+    both = f"o1:{SSQL};o1:{FOOTERS}"
+    answered = {"text": "POST o1, both questions: the SandSQL release is live.", "attrs": {"order": "o1", "thread": THREAD, "part": f"o1:{SSQL}", "part2": f"o1:{FOOTERS}"}}
+    reason = refusal(record_lines.decision(coordinator(turn, kind="report", to=TO, records=[answered])))
+    assert "the drive reads no `part2` attr on a report" in reason and "`part=<o>:<a>;<o>:<b>`" in reason
+    assert f'`--attr part="{both}"` in place of `part`, `part2`' in reason and agents.ruled(reason) == {"judged": False}
+    for stray in ({"parts": FOOTERS}, {"part_2": FOOTERS}, {"second": f"o1:{FOOTERS}"}):
+        reason = refusal(record_lines.decision(coordinator(turn, kind="report", text=answered["text"], to=TO, attrs={"order": "o1", "thread": THREAD, "part": f"o1:{SSQL}", **stray})))
+        assert f"no `{next(iter(stray))}` attr on a report" in reason and f'`--attr part="{both}"`' in reason
+    assert record_lines.decision(coordinator(turn, kind="report", to=TO, records=[answered | {"attrs": {"order": "o1", "thread": THREAD, "part": both}}])) is None
 
 
 def test_a_report_that_finishes_an_order_names_one_of_its_threads(run: Callable[..., tuple[int, str]], demo: str, turn: Path) -> None:

@@ -370,6 +370,8 @@ def test_a_report_posted_with_cci_post_in_bash_gets_the_checks_the_cci_post_tool
     assert landing_guard.deny_reason(bash(post.format(attr="--attr 'part=o1:cause'"))) is None
     assert landing_guard.deny_reason(bash(post.format(attr="--attr 'progress=true,part=o1:cause'"))) is None
     assert 'delivers "cause", "fix", the last parts of o1' in landing_guard.deny_reason(bash(post.format(attr="--attr 'part=o1:cause;o1:fix'")))
+    stray = landing_guard.deny_reason(bash(post.format(attr="--attr 'part=o1:cause' --attr 'part2=o1:fix'")))
+    assert "no `part2` attr on a report" in stray and '`--attr part="o1:cause;o1:fix"` in place of `part`, `part2`' in stray and agents.ruled(stray) == {"judged": False}
     failed = "cci post --kind report --to communicator@demo --attr 'part=o1:cause' 'POST the search worker OOMs; its card was refused since nobody checked it'"
     assert landing_guard.deny_reason(bash(failed)) is None
     assert landing_guard.unprevented_reports(bash(failed)).startswith("record_lines: this report goes out as written")

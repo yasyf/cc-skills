@@ -2,8 +2,9 @@ import json
 import re
 from collections.abc import Iterator
 
-from drive import agents, refs, slack, state
+from drive import agents, limits, refs, slack, state
 
+CALL_FIELDS = ("records", "lane", "drive", "id")
 OPENING = re.compile(r"(?:POST|FYI)\b")
 UNOPENED = "refused: a report's text opens `POST`, for a handler to post, or `FYI`, kept as context; add the one it is"
 UNFINISHED = (
@@ -14,6 +15,10 @@ UNFINISHED = (
 LAST_PART = (
     "refused: this report delivers {parts}, the last {noun} of {order} not yet delivered, so its post finishes the order; add"
     " `--attr close={order}`, so its handler closes {order} once the line is posted"
+)
+STRAY_PARTS = (
+    "refused: the drive reads no {strays} attr on a report, so the part it carries is never delivered; one `part` attr carries every"
+    " part, each `<o>:<part>` with `;` between, as `part=<o>:<a>;<o>:<b>`, so post it again with `--attr part=\"{parts}\"` in place of {carriers}"
 )
 UNKNOWN_ORDER = "refused: the part attr's item {item} names {order}, no order of drive {drive}; name each part as `<o>:<part>`, items separated by `;`"
 UNKNOWN_PART = 'refused: {order} has no part "{part}", so this post would deliver nothing there; its parts: {parts}'
@@ -64,6 +69,14 @@ def attrs(record: dict) -> dict:
     return record.get("attrs") or {}
 
 
+def posted(tool_input: dict) -> list[dict]:
+    """Each record a cci `post` call stores: the call itself, or each record of its records list filled in as cci's post tool fills it, every field beside the list the record lacks copied in and the attrs beside the list under its own, the call's lane, drive and idempotency key aside, which cci keeps for the whole call."""
+    if not (records := tool_input.get("records")):
+        return [tool_input]
+    beside = {key: value for key, value in tool_input.items() if key not in CALL_FIELDS}
+    return [beside | record | ({"attrs": beside["attrs"] | attrs(record)} if "attrs" in beside else {}) for record in records]
+
+
 def listed(value: object) -> list[str]:
     return [] if value is None else [str(item) for item in (value if isinstance(value, list) else [value])]
 
@@ -109,6 +122,18 @@ def dm_url(drive: dict, record: dict) -> str | None:
     if not found or found[1] != drive["slack"]["channel"]:
         return None
     return DM_URL.format(url=record["url"], thread=found[4] or f"{found[2]}.{found[3]}")
+
+
+def stray_parts(kind: str, named: dict) -> str | None:
+    """Why a report carries a part of an order in an attr other than part, the one every post reads its parts from: one whose name holds part, as part2, parts or part_2, or whose value names a part as `<o>:<part>`, so that part is never delivered; refused by the attrs alone, naming the part value that carries them all."""
+    if kind != "report":
+        return None
+    if not (strays := [key for key, value in named.items() if key != "part" and ("part" in limits.squashed(key) or state.ORDER_PART.fullmatch(str(value).strip()))]):
+        return None
+    carriers = [key for key in ("part", *strays) if key in named]
+    items = [str(named[key]).strip() for key in carriers]
+    parts = ";".join(item if state.ORDER_PART.match(item) else f"{named.get('order') or '<o>'}:{item}" for item in items)
+    return agents.Unjudged(STRAY_PARTS.format(strays=" or ".join(f"`{key}`" for key in strays), parts=parts, carriers=", ".join(f"`{key}`" for key in carriers)))
 
 
 def misnamed_part(drive: dict, record: dict) -> str | None:
@@ -184,7 +209,7 @@ def off_thread(drive: dict, record: dict) -> str | None:
 
 
 def report_threads(tool_input: dict) -> set[str]:
-    return {attrs(record).get("thread") for record in tool_input.get("records") or [tool_input] if kind(record) == "report" and addressed(record, "communicator")} - {None}
+    return {attrs(record).get("thread") for record in posted(tool_input) if kind(record) == "report" and addressed(record, "communicator")} - {None}
 
 
 def second_report(payload: dict, records: list[dict], index: int, thread: str) -> str | None:

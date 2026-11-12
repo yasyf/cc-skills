@@ -32,6 +32,8 @@ QUESTION = "Lock each chat's database, or the whole table?"
 ASKED = "2026-11-10T20:59:00-08:00"
 OPEN_CARDS = f"\n\n*Your open cards: 1 question*\n<{CARD_URL}|{QUESTION}>"
 CORRECTIONS = agents.corrections
+SSQL = "are we doing the ssql release foe it"
+FOOTERS = "why didnt our release footers whatever catch this and bring ssql along with API"
 
 
 @pytest.fixture
@@ -485,6 +487,23 @@ def test_a_post_delivers_the_part_its_report_names_and_a_progress_report_naming_
     later = state.now() + timedelta(minutes=30)
     gaps = watch.part_gaps(watch.Watcher(demo, offset=0, ticked_at=later), state.load(demo), later)
     assert gaps == {("o1", "cause"): None, ("o1", "options as a card"): "no job"}
+
+
+def test_a_report_naming_two_parts_of_its_order_in_its_one_part_attr_delivers_both(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
+) -> None:
+    thread = "1794510094.630259"
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Releases", f"1) {SSQL}, and 2) {FOOTERS}?", "--thread", thread, "--parts", SSQL, FOOTERS)
+    run("start", "demo", "--role", "communicator")
+    with state.edit(demo) as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    answer = slack_thread.post(state.now(), from_claude=True)
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": answer, "thread_ts": thread})
+    report(monkeypatch, {"order": "o1", "thread": thread, "part": f"o1:{SSQL};o1:{FOOTERS}"})
+    said = "Yes, the SandSQL release is live. The footers missed it because that release named only api."
+    assert talk.say(demo, {"text": said, "thread_ts": thread, "order": "o1", "record": "677031"}) == f'POSTED {answer}; o1 "{SSQL}", "{FOOTERS}": posted {answer}'
+    assert {part: kept["posted"] for part, kept in state.load(demo)["orders"]["o1"]["parts"].items()} == {SSQL: answer, FOOTERS: answer}
 
 
 INCIDENT_REPORT = (
