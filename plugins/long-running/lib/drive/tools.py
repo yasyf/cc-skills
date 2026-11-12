@@ -7,7 +7,7 @@ import shlex
 import subprocess
 from pathlib import Path
 
-from drive import cli, limits, reads, render, slack, state, superseded, talk, view
+from drive import brief, cli, limits, orca, reads, render, slack, state, superseded, talk, view
 from drive.state import DriveError
 
 UNTYPED = {"help", "drive", "json"}
@@ -517,7 +517,7 @@ def keep_settled(name: str, posts: list[dict], seqs: list[str], settles: list[tu
 
 
 def keep_undelivered(name: str, posts: list[dict], seqs: list[str], closes: list[list[dict]]) -> None:
-    """Keep each answer of his on each job it answers, the one its attr names and each whose card it closes, until drive job resume carries it there, so the watch says ANSWER undelivered for it meanwhile; an Undo tap takes the answer it undoes off each job it names."""
+    """Keep each answer of his on the job that acts on it for each job it answers, the one its attr names and each whose card it closes, until drive job resume carries it there, so the watch says ANSWER undelivered for it meanwhile; an Undo tap takes the answer it undoes off those jobs."""
     answers = [(made, seq, questions) for made, seq, questions in zip(posts, seqs, closes, strict=True) if made["kind"] == "answer"]
     if not answers:
         return
@@ -525,12 +525,31 @@ def keep_undelivered(name: str, posts: list[dict], seqs: list[str], closes: list
         for made, seq, questions in answers:
             attrs = made.get("attr") or {}
             named = [state.named_job(data, attrs), *(state.named_job(data, {"waits": card["card"].get("waits")}) for card in questions)]
-            for job_id in dict.fromkeys(filter(None, named)):
+            for job_id in dict.fromkeys(filter(None, (hearer(data, job_id) for job_id in filter(None, named)))):
                 kept = data["jobs"][job_id]["undelivered"]
                 if "undone" in attrs:
                     kept[:] = [answer for answer in kept if answer["words"] != attrs["undone"]]
                 else:
                     kept.append({"seq": seq, "words": made["text"], "at": state.stamp(), "said": None})
+
+
+def hearer(data: dict, job_id: str) -> str | None:
+    """The job that acts on his answer to this job's question: the job itself, but a finished reader's builder, which builds its research: the one at work whose brief names it Researched, else none, since a builder briefed later carries the answer in its brief."""
+    job = data["jobs"][job_id]
+    if job["kind"] != "reader" or job["state"] not in state.FINISHED_JOB_STATES:
+        return job_id
+    return next(
+        (
+            builder_id
+            for builder_id in data["orders"][job["order"]]["jobs"]
+            if (builder := data["jobs"][builder_id])["kind"] == "builder"
+            and builder["state"] not in state.FINISHED_JOB_STATES
+            and builder["brief"]
+            and (named := brief.RESEARCHED_BY.search(orca.brief_of(Path(builder["brief"]).read_text())))
+            and named[1] == job_id
+        ),
+        None,
+    )
 
 
 def his_cards(name: str) -> dict:
