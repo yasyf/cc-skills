@@ -7,7 +7,7 @@ description: Use when work will outlive one context window, spans several PRs or
 
 A drive is three Claude Code sessions, the communicator, coordinator and meta session, and their jobs. Only the coordinator and the designer run Fable 5.2 (`claude-fable-5-2`); the rest run Opus 5.5 (`claude-opus-5-5`), Sonnet only a one-fact lookup, since complex work on a light model gets redone.
 
-The communicator is the only session he talks to: its turn on his message is a one-sentence ack alone inside 5 to 10 seconds, then `drive handler`, which starts `long-running:handler` as its own session, so his next message never waits. The handler does every read, card and post through `say` and ends on one line, sent back as one cci record. Each `owner` record names its `about`: his words on the drive, rulings included, reach the meta session alone, and those on his work the coordinator. He reads only Slack, never a terminal (`communicator`).
+The communicator is the only session he talks to: its turn on his message is a one-sentence ack alone inside 5 to 10 seconds, then `drive handler`, which starts `long-running:handler` as its own session, so his next message never waits. The handler does every read, card and post through `say` and ends on one line, sent back as one cci record. Each `owner` record names its `about`: his words on the drive, rulings included, reach the meta session alone, and those on his work the coordinator. He reads only Slack; no session has AskUserQuestion (`communicator`).
 
 The coordinator turns his messages into orders and gives each to a job owning one deliverable end to end: code, PR, CI, merge, install, check. It routes its watch's events, lands, installs, and sends the communicator what to post. Neither it nor the meta session posts to Slack, since his reply under a post reaches only the session that posted it.
 
@@ -27,7 +27,6 @@ This file holds the fundamental rules; one firing on one input is a tested refus
 
 ### Questions for him
 
-- Every drive session and handler starts with the AskUserQuestion tool denied, since he reads no terminal: a question for him reaches him only as a question card, never in a terminal (`start`, `scope`). His words: "we aare supposed to launch the coordinator etc with no askuserquestion tool".
 - Ask him only what is his: architecture and abstractions, scope, and his own workflow. Do the rest of his orders with no go-ahead and report it with a count (`scope`).
 - Wait for his word only to land a change in a `Forge-AI/*` repo outside an exempt class, post as him to anyone else, change production, or stop, signal, or close a session he did not name.
 - A tricky design gets a design job whose forks go on his cards, one for a follow-up he orders to a PR at once, beside landing that PR (`design`), and a finding with design consequences reaches him as options, unasked. The recommended option is built meanwhile, its PR waiting on his answers outside an incident's repair.
