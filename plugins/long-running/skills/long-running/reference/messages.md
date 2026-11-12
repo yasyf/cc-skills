@@ -488,7 +488,7 @@ the dashboard link. When a line says where things stand, link the page instead o
 - Name an order as `{order:<id>}`, which `say` links to the thread its lines go in under the first
   line of his words.
 - State a cause, a number or a state only through the record that measured it, as `{record:<seq>}`
-  on the same line. `say` links what the record links under the first clause of the record's own
+  on the same line. `say` links what the record measured, its `--url`, under the first clause of the record's own
   words, at most ten, or under the words after a |, as `{record:<seq>|the memory graph}`, so the
   measuring lane's evidence is one tap away and its whole text never joins the post or its length:
   on Nov 10 a line at 8:46 PM blamed "the change that started the failures" without naming it, and a

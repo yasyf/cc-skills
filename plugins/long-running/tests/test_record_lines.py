@@ -242,6 +242,16 @@ def test_a_report_opens_post_or_fyi(demo: str) -> None:
     assert record_lines.decision(post(kind="report", text="j702 merged", to=["builder@demo"])) is None
 
 
+def test_a_reports_url_names_what_it_measured_never_his_message_its_thread_names(demo: str, turn: Path) -> None:
+    his = "https://acme.slack.com/archives/D123/p1794480738192769"
+    cause = {"kind": "report", "text": "POST cause of the read-only alert: the agent row is refused", "to": TO, "attrs": PROGRESS | {"thread": "1794480738.192769"}}
+    assert f"{his} is a message in his DM, which --attr thread=1794480738.192769 names" in refusal(record_lines.decision(coordinator(turn, **cause, url=his)))
+    assert "--attr thread=1794200000.000100" in refusal(record_lines.decision(coordinator(turn, **cause, url=f"{his}?thread_ts=1794200000.000100&cid=D123")))
+    for url in ("https://app.datadoghq.com/apm/trace/6af59a19000000005751719c320fc91b", "https://acme.slack.com/archives/C777/p1794413465441409"):
+        assert record_lines.decision(coordinator(turn, **cause, url=url)) is None
+    assert record_lines.decision(post(kind="owner", text="why is it read-only?", url=his, attrs={"about": "his work"})) is None
+
+
 def test_a_catch_up_goes_at_his_dm_root_without_its_thread(demo: str, turn: Path) -> None:
     for attrs in ({"thread": THREAD, "catch_up": "true"}, {"thread": THREAD, "progress": "true"}):
         made = record_lines.decision(coordinator(turn, kind="report", text="POST *Catch-up since 9 PM*", to=TO, attrs=attrs))
