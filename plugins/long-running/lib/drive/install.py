@@ -6,9 +6,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 
@@ -338,14 +336,10 @@ def upgraded() -> Path | None:
     return None if drive.resolve() == DRIVE else drive
 
 
-@contextmanager
-def handed_to_newest(argv: list[str]) -> Iterator[None]:
-    """Run `drive <argv>` from the newest install in place of this process when the block is refused because a newer install saved drive.json while this verb acted, since this code may misread it: argv records what the verb already did, such as a worker it started, and does none of it again."""
-    try:
-        yield
-    except state.NewerDrive:
-        if not (newer := upgraded()):
-            raise
+def reopen(argv: list[str]) -> None:
+    """Hold this install's lock, then run `drive <argv>` from the newest install in place of this process when a newer one is installed, so what this process reads and writes of a drive from here on runs on the newest install, and an install landing later waits for it before its first save: a verb at its start, and a process that outlives its verb before each step, argv saying what it already did."""
+    state.hold_install()
+    if newer := upgraded():
         os.execv(newer, [str(newer), *argv])
 
 
@@ -402,7 +396,7 @@ def install(key: str, sha: str | None, repo: str | None, deadline: float, timeou
 
 
 def proved(key: str, repo: str | None, deadline: float) -> list[str]:
-    """Prove each fix the install of key made live, with no session turn: each builder of every drive still waiting on its READY or PUSHED with a kept proof file, whose PRs the drive saw merge into the plugin's repo, once the newest install of every plugin its merges change holds them, key among them; a line for each. A drive a newer install saved refuses this code, which a newer install on this Mac then takes over; with none here, its fixes wait for one."""
+    """Prove each fix the install of key made live, with no session turn: each builder of every drive still waiting on its READY or PUSHED with a kept proof file, whose PRs the drive saw merge into the plugin's repo, once the newest install of every plugin its merges change holds them, key among them; a line for each. A drive saved by an install newer than any on this Mac refuses this code, and its fixes wait for one."""
     if not (repo := repo or source_repo(known_marketplaces()[key.partition("@")[2]]["source"])):
         return []
     due = []
@@ -410,8 +404,6 @@ def proved(key: str, repo: str | None, deadline: float) -> list[str]:
         try:
             due += [(name, job_id) for job_id in provable(state.load(name), repo)]
         except state.NewerDrive as error:
-            if upgraded():
-                raise
             print(f"drive install: proves nothing on {name}: {error}", file=sys.stderr)
     if not due:
         return []
@@ -565,7 +557,7 @@ def reload_main() -> int:
 
 
 def main(plugin_at_marketplace: str, sha: str | None, repo: str | None, timeout: int, drive: str | None) -> int:
-    """Wait for a release holding sha, its commit and each binary it pins, bring each sibling its manifest there needs up to that release first, Captain Hook.app only once he tapped Install now on the drive's card for it, update the plugin and its Homebrew twin until the bare binary holds sha, print the installed version, prove each fix the install made live, then reload every drive session on this Mac; each drive's dashboard hands itself to the new install on its own. A proof refused because a newer install saved a drive, as an install of long-running itself may meet, is handed whole to the newest install's drive install, which installs nothing new and reloads each session once."""
+    """Wait for a release holding sha, its commit and each binary it pins, bring each sibling its manifest there needs up to that release first, Captain Hook.app only once he tapped Install now on the drive's card for it, update the plugin and its Homebrew twin until the bare binary holds sha, print the installed version, prove each fix the install made live, then reload every drive session on this Mac; each drive's dashboard and watch reopen on a newer long-running themselves, whose first save of a drive waits for this verb's install's lock, so the proof never meets a drive.json the newer install saved."""
     deadline = clock() + timeout
     try:
         version = install(plugin_at_marketplace, sha, repo, deadline, timeout, drive)
@@ -574,11 +566,9 @@ def main(plugin_at_marketplace: str, sha: str | None, repo: str | None, timeout:
         return 1
     updated = state.now()
     print(f"installed {plugin_at_marketplace} {version}")
-    handed = ["install", plugin_at_marketplace, *(["--sha", sha] if sha else []), *(["--repo", repo] if repo else []), "--timeout", str(max(1, int(deadline - clock()))), *(["--drive", drive] if drive else [])]
     failed = None
     try:
-        with handed_to_newest(handed):
-            lines = proved(plugin_at_marketplace, repo, deadline)
+        lines = proved(plugin_at_marketplace, repo, deadline)
     except InstallError as error:
         lines, failed = [], f"drive install: installed, but its proof of the fixes it made live failed: {error}"
     for line in [*lines, *reload_sessions(version, updated, deadline)]:

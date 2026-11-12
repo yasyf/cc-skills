@@ -1903,7 +1903,9 @@ function noticeButton() {
 
 function connect() {
   const stream = new EventSource('/api/stream');
+  let reconnecting = false;
   stream.onopen = () => {
+    reconnecting = false;
     connected = true;
     fresh();
   };
@@ -1917,6 +1919,10 @@ function connect() {
     followTalk();
   };
   stream.onerror = () => {
+    if (connected && !reconnecting && stream.readyState === EventSource.CONNECTING) {
+      reconnecting = true;
+      return;
+    }
     if (connected) lostAt = new Date().toISOString();
     connected = false;
     if (!model) $('#main').innerHTML = '<p class="boot refused" role="status">The dashboard server is not answering. The page keeps trying and fills in as soon as it answers.</p>';

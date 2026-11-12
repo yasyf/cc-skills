@@ -381,6 +381,30 @@ def test_the_watch_tells_the_communicator_once_each_time_the_coordinators_proces
     assert [entry for entry in posted(sent) if entry[1] == f"communicator@{demo}"] == [down, down]
 
 
+def test_the_watch_starts_a_dashboard_that_exited_again_and_tells_the_coordinator_once_each_time_it_went_down(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    listening = iter([False, False, True, False])
+    starts: list[tuple[str, int]] = []
+
+    def start(name: str, port: int) -> list[str]:
+        starts.append((name, port))
+        if len(starts) == 3:
+            raise state.DriveError("the dashboard did not start; see its log")
+        return []
+
+    monkeypatch.setattr(watch.dashboard, "listening", lambda port: next(listening))
+    monkeypatch.setattr(watch.dashboard, "start", start)
+    watching = watcher(demo)
+    said = [watch.dashboard_lines(watching) for _ in range(4)]
+    port, log = watch.dashboard.port_of(demo), state.drive_dir(demo) / "dashboard.log"
+    assert said == [
+        [f"WATCH the dashboard on port {port} had exited, so it was started again on long-running {state.VERSION}; its log is {log}"],
+        [],
+        [],
+        [f"WATCH the dashboard on port {port} had exited, so it did not start again: the dashboard did not start; see its log; its log is {log}"],
+    ]
+    assert starts == [(demo, port)] * 3
+
+
 def test_the_lines_of_an_order_the_communicator_holds_go_to_it_and_never_the_coordinator(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     tooling_order(demo, "waiting", "I told him since you never did, fix that", "communicator")
     serve(monkeypatch, {KEY: read(headRefOid="bbbbbbb222", checks=RED)})
@@ -2652,7 +2676,7 @@ def test_a_lander_runs_stack_enqueue_as_the_default_branchs_head_holds_it_from_a
     assert (len(git_in(clone, "worktree", "list").splitlines()), checkout.exists()) == (1, False)
 
 
-def test_a_lander_that_outlived_an_install_hands_its_outcome_to_the_newest_drive_which_records_it_and_logs_it_under_its_pr(
+def test_a_lander_that_outlived_an_install_reopens_on_the_newest_drive_which_records_its_outcome_and_logs_it_under_its_pr(
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     waiting_job(demo)
@@ -2668,14 +2692,21 @@ def test_a_lander_that_outlived_an_install_hands_its_outcome_to_the_newest_drive
         path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "9.9.9"}))
         return outcome
 
-    execs: list[tuple[Path, list[str]]] = []
+    class Execed(Exception):
+        pass
+
+    def execv(drive: Path, argv: list[str]) -> None:
+        raise Execed(drive, argv)
+
     monkeypatch.setattr(land, "enqueued", queued_then_installed)
     monkeypatch.setattr(install, "upgraded", lambda: newer)
-    monkeypatch.setattr(land.os, "execv", lambda drive, argv: execs.append((drive, argv)))
-    assert land.run(demo, [KEY]) == land.QUEUED
-    assert execs == [(newer, [str(newer), "pr", "land", state.pr_url(KEY), "--drive", demo, "--outcome", land.QUEUED])]
+    monkeypatch.setattr(install.os, "execv", execv)
+    with pytest.raises(Execed) as execed:
+        land.run(demo, [KEY])
+    assert execed.value.args == (newer, [str(newer), "pr", "land", state.pr_url(KEY), "--drive", demo, "--outcome", land.QUEUED])
     assert json.loads(path.read_text())["prs"][KEY]["lander"] is None
     path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": state.VERSION}))
+    monkeypatch.setattr(install, "upgraded", lambda: None)
     assert cli.main(["pr", "land", state.pr_url(KEY), "--drive", demo, "--outcome", land.QUEUED]) == 0
     assert capsys.readouterr().out.splitlines()[-1] == f"{KEY}: {land.QUEUED}"
     assert state.load(demo)["prs"][KEY]["lander"]["outcome"] == land.QUEUED

@@ -1,7 +1,7 @@
 import json
 import os
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -141,6 +141,12 @@ def meta(run: Callable[..., tuple[int, str]], demo: str) -> str:
 
 
 @pytest.fixture(autouse=True)
+def install_lock() -> Iterator[None]:
+    yield
+    state.let_go_install()
+
+
+@pytest.fixture(autouse=True)
 def closed(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     urls: list[str] = []
     monkeypatch.setattr(github, "close", urls.append)
@@ -152,6 +158,7 @@ def drawn(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     pages: list[str] = []
     monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
     monkeypatch.setattr(dashboard, "tailnet", lambda: None)
+    monkeypatch.setattr(dashboard, "listening", lambda port: True)
     monkeypatch.setattr(page, "draw", lambda name, markdown: pages.append(markdown) or page.Drawn("https://slack.example/docs/T1/F1", False))
     return pages
 

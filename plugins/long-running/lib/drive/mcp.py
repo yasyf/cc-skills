@@ -137,7 +137,8 @@ def tool_list() -> list[dict]:
 
 
 def serve(stdin: TextIO, stdout: TextIO) -> int:
-    """Answer MCP requests read from stdin, each in its own thread, so a slow post never holds the next call."""
+    """Answer MCP requests read from stdin, each in its own thread, so a slow post never holds the next call, holding no install's lock for the session's life, since each call runs as its own verb of the newest installed drive."""
+    state.let_go_install()
     writing = threading.Lock()
     for line in stdin:
         if line.strip():

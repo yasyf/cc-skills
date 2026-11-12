@@ -1707,10 +1707,10 @@ def transcript_line(job_id: str, job: dict) -> str | None:
 
 
 def job_launch(args: argparse.Namespace) -> int:
-    """Start a job's Orca lane, on a Sprite or with --local on this Mac, stamped as launching once nothing refuses it so the watch reads it as starting until the launch could have finished; with --started, record the receipt of a worker an older install started, launching nothing."""
+    """Start a job's Orca lane, on a Sprite or with --local on this Mac, stamped as launching once nothing refuses it so the watch reads it as starting until the launch could have finished."""
     name = state.resolve(args.drive)
-    started = json.loads(args.started) if args.started else launched(args, name)
-    job = record_start(args, name, started, args.handoff)
+    started = launched(args, name)
+    job = record_start(name, args.id, started, None)
     return emit(args, f"{args.id} started {orca.place(job)} as dispatch {started['dispatch']}", started)
 
 
@@ -1754,12 +1754,11 @@ def launch_brief(name: str, job_id: str) -> Path:
     return state.drive_dir(name) / "jobs" / f"{job_id}.md"
 
 
-def record_start(args: argparse.Namespace, name: str, started: dict, handoff: str | None) -> dict:
-    """Record a started worker's receipt on its job, with the handoff a relaunch started it on, else the launch's brief; when a newer install saved drive.json while the worker started, the newest install's `drive job launch --started` records it in place of this process, since this code may misread the drive."""
-    handed = ["job", "launch", args.id, "--drive", name, "--started", json.dumps(started), *(["--handoff", handoff] if handoff else []), *(["--json"] if args.json else [])]
-    with install.handed_to_newest(handed), state.edit(name) as data:
-        job = data["jobs"][args.id]
-        kept = {"handoff": handoff, "reads": {}, "undelivered": []} if handoff else {"brief": str(launch_brief(name, args.id))}
+def record_start(name: str, job_id: str, started: dict, handoff: str | None) -> dict:
+    """Record a started worker's receipt on its job, with the handoff a relaunch started it on, else the launch's brief."""
+    with state.edit(name) as data:
+        job = data["jobs"][job_id]
+        kept = {"handoff": handoff, "reads": {}, "undelivered": []} if handoff else {"brief": str(launch_brief(name, job_id))}
         job.update(started, **kept, ask=None, report=None, state="running", updated=state.stamp())
     return job
 
@@ -1874,7 +1873,7 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
     else:
         receipt = launch_attempt(name, job, attempt, kept, brief, root)
     started = {field: receipt[field] for field in LAUNCHED}
-    fresh = record_start(args, name, started, str(kept))
+    fresh = record_start(name, args.id, started, str(kept))
     carrying = "in a handoff carrying its brief, its branch, its last line, its report and its PRs"
     if args.text.strip() not in kept.read_text():
         orca.answer(name, fresh, args.text)
@@ -2373,10 +2372,9 @@ def pr_land(args: argparse.Namespace) -> int:
 
 
 def pr_check(args: argparse.Namespace) -> int:
-    """Judge one PR against his words as the watch's check; when a newer install saved drive.json while the judge ran, the newest install's `drive pr check` judges it again in place of this process, since this code may misread the drive."""
+    """Judge one PR against his words as the watch's check."""
     key, name = state.pr_key(args.url), state.resolve(args.drive)
-    with install.handed_to_newest(["pr", "check", args.url, "--drive", name, *(["--json"] if args.json else [])]):
-        outcome = served.verdict(name, key)
+    outcome = served.verdict(name, key)
     return emit(args, f"{key}: {outcome}", {"key": key, "outcome": outcome})
 
 
@@ -3342,12 +3340,6 @@ def parser() -> argparse.ArgumentParser:
         action="store_true",
         help="start it as an Orca worker on this Mac, in a fresh worktree of this checkout's Orca repository, read like a Sprite's lane",
     )
-    verb.add_argument(
-        "--started",
-        metavar="RECEIPT",
-        help="launch nothing and record this receipt of a worker already started, as a launch older than the drive hands its record to the newest install",
-    )
-    verb.add_argument("--handoff", help="with --started, the handoff brief a relaunch started that worker on")
     verb.set_defaults(run=job_launch)
     verb = job.add_parser(
         "resume",
@@ -3456,7 +3448,7 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("urls", nargs="+", help="one PR, or a stack bottom first")
     verb.add_argument("--dry-run", action="store_true", help="run stack-enqueue --check from a fresh worktree of the default branch, say what it would do, refusing as it would, and queue and record nothing")
-    verb.add_argument("--outcome", help="land nothing and record this outcome, as a lander older than the drive hands its record to the newest install")
+    verb.add_argument("--outcome", help="land nothing and record this outcome, as a lander reopening on a newer install records what came of its landing")
     verb.add_argument("--below", action="append", default=[], metavar="PR", help="with --outcome, a PR below it without his Approve that held it; repeat for each")
     verb.set_defaults(run=pr_land)
     verb = pr.add_parser(
@@ -3693,9 +3685,11 @@ def parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run one verb, in the newest installed drive when this process started from an older install, such as a launch's bind prefix, handing over before any verb acts, since an older install refuses a drive.json a newer one saved."""
-    if argv is None and (newer := install.upgraded()):
-        os.execv(newer, [str(newer), *sys.argv[1:]])
+    """Run one verb holding its install's lock, so a newer install's first save waits for it to end, in the newest installed drive when this process started from an older install, such as a launch's bind prefix, unless the drive process that started it holds its own install's lock and waits on it as part of its verb."""
+    if argv is None and state.held_by_parent():
+        state.hold_install()
+    elif argv is None:
+        install.reopen(sys.argv[1:])
     args = parser().parse_args(argv)
     try:
         return args.run(args)

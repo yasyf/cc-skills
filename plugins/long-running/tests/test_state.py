@@ -1,5 +1,10 @@
+import fcntl
 import json
 import re
+import shutil
+import subprocess
+import sys
+import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -49,6 +54,57 @@ def test_a_drive_a_newer_install_saved_is_refused_before_any_of_it_is_read_while
     with pytest.raises(state.NewerDrive, match=f"saved by long-running {re.escape(newer)}, newer than this {re.escape(state.VERSION)}"):
         state.load("demo")
     assert state.saved("demo")["roles"]["coordinator"]["session"] == "session-1"
+
+
+NEWER_RELEASE_SAVE = """
+import sys
+sys.path.insert(0, sys.argv[1])
+from drive import state
+with state.edit("demo") as data:
+    data["slack"]["page_stale"] = "the newer release's save"
+"""
+
+
+def test_a_newer_release_saving_mid_verb_waits_for_the_older_releases_verb_so_the_verb_and_the_save_both_land(state_root: Path, tmp_path: Path) -> None:
+    make("demo")
+    release = tmp_path / "9.9.9"
+    shutil.copytree(Path(state.__file__).resolve().parent, release / "lib" / "drive")
+    (release / ".claude-plugin").mkdir()
+    (release / ".claude-plugin" / "plugin.json").write_text(json.dumps({"version": "9.9.9"}))
+    state.hold_install()
+    saving = subprocess.Popen([sys.executable, "-c", NEWER_RELEASE_SAVE, str(release / "lib")])
+    with pytest.raises(subprocess.TimeoutExpired):
+        saving.wait(timeout=2)
+    with state.edit("demo") as data:
+        data["run"] = "the older verb's receipt"
+    state.let_go_install()
+    assert saving.wait(timeout=30) == 0
+    saved = json.loads(state.state_path("demo").read_text())
+    assert (saved["saved_by"], saved["run"], saved["slack"]["page_stale"]) == ("9.9.9", "the older verb's receipt", "the newer release's save")
+
+
+def test_a_first_save_waits_only_for_verbs_of_the_installs_from_the_one_that_saved_the_drive_up_to_its_own(state_root: Path) -> None:
+    make("demo")
+    path = state.state_path("demo")
+    path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "0.0.2"}))
+    state.hold_install()
+    verbs = {version: open(state.install_lock(version), "a") for version in ("0.0.1", "0.0.2", "9.9.9")}
+    for handle in verbs.values():
+        fcntl.flock(handle, fcntl.LOCK_SH)
+
+    def save() -> None:
+        with state.edit("demo") as data:
+            data["run"] = "run-1"
+
+    saving = threading.Thread(target=save, daemon=True)
+    saving.start()
+    saving.join(1)
+    assert saving.is_alive()
+    verbs.pop("0.0.2").close()
+    saving.join(10)
+    assert (saving.is_alive(), state.load("demo")["run"]) == (False, "run-1")
+    for handle in verbs.values():
+        handle.close()
 
 
 def test_load_gives_each_picture_drawn_before_pictures_kept_their_source_its_kept_question_or_pr_fence_once(state_root: Path) -> None:

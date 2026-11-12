@@ -9,6 +9,7 @@ from collections.abc import Callable, Iterable, Iterator
 from contextlib import AbstractContextManager, contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import IO
 
 from drive import picture
 
@@ -83,6 +84,9 @@ ORDER_PART = re.compile(r"(o\d+):\s*(.+)", re.DOTALL)
 ROUTED_KINDS = ("owner", "answer", "handoff", "posted", "refused")
 APPROVALS_LABELLED = ".approvals-labelled-by-question"
 BATCHED: dict[str, str] = {}
+HELD_INSTALL: dict[Path, IO] = {}
+INSTALL_HOLDER = "LONG_RUNNING_INSTALL_HOLDER"
+WAITED_OLDER: set[Path] = set()
 AFTER_SAVE: dict[str, list[Callable[[], list[str]]]] = {}
 VERSION = json.loads((Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json").read_text())["version"]
 
@@ -123,8 +127,8 @@ def alive(pid: int) -> bool:
 
 
 def detach(name: str, args: list[str], log: str) -> int:
-    """Run the drive CLI with args on the drive as its own process, outliving the watch pass or tap that started it, its output appended to the drive's log of that name."""
-    env = {variable: value for variable, value in os.environ.items() if variable != "CLAUDE_CODE_SESSION_ID"}
+    """Run the drive CLI with args on the drive as its own process, outliving the watch pass or tap that started it, its output appended to the drive's log of that name; it holds its own install's lock, since nothing waits on it."""
+    env = {variable: value for variable, value in os.environ.items() if variable not in ("CLAUDE_CODE_SESSION_ID", INSTALL_HOLDER)}
     with (drive_dir(name) / log).open("a") as out:
         return subprocess.Popen(
             [str(Path(__file__).resolve().parents[2] / "bin" / "drive"), *args, "--drive", name],
@@ -322,7 +326,7 @@ def load(name: str) -> dict:
     if name in BATCHED:
         return json.loads(BATCHED[name])
     data = saved(name)
-    if (saver := data.get("saved_by")) and tuple(map(int, saver.split("."))) > tuple(map(int, VERSION.split("."))):
+    if (saver := data.get("saved_by")) and version_order(saver) > version_order(VERSION):
         raise NewerDrive(f"drive.json of {name} was saved by long-running {saver}, newer than this {VERSION}, which may misread it: run the newest install's drive")
     for order in data["orders"].values():
         if "parts" not in order:
@@ -825,6 +829,52 @@ def same_question(one: str | None, other: str | None) -> bool:
     return bool(one and other) and " ".join(one.split()).casefold() == " ".join(other.split()).casefold()
 
 
+def version_order(version: str) -> tuple[int, ...]:
+    return tuple(map(int, version.split(".")))
+
+
+def install_lock(version: str) -> Path:
+    return root() / "installs" / f"{version}.lock"
+
+
+def hold_install() -> None:
+    """Hold this install's lock shared until let_go_install or the process ends, naming this process its holder to the drive processes it starts, so a newer install's first save of a drive waits for this process, and a drive it runs and waits on runs this install as part of its verb."""
+    path = install_lock(VERSION)
+    if path in HELD_INSTALL:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = open(path, "a")
+    fcntl.flock(handle, fcntl.LOCK_SH)
+    HELD_INSTALL[path] = handle
+    os.environ[INSTALL_HOLDER] = str(os.getpid())
+
+
+def let_go_install() -> None:
+    """Let go of this install's lock, as a process that outlives its verb does while it waits: the dashboard between rebuilds, the watch between passes, the MCP server between calls and a lander on the merge queue."""
+    for handle in HELD_INSTALL.values():
+        handle.close()
+    HELD_INSTALL.clear()
+    os.environ.pop(INSTALL_HOLDER, None)
+
+
+def held_by_parent() -> bool:
+    """Whether the drive process that started this one holds its install's lock, which makes this one part of that verb."""
+    return os.environ.get(INSTALL_HOLDER) == str(os.getppid())
+
+
+def older_verbs_done(name: str) -> None:
+    """Wait until every verb an older install started has ended, before this process first saves a drive an older install saved last, so no verb meets a drive.json saved by an install newer than its own code; taken outside the drive's lock, which those verbs still take, and once a process, since no older verb starts after it."""
+    path = state_path(name)
+    if path in WAITED_OLDER or not path.exists():
+        return
+    if saver := json.loads(path.read_text()).get("saved_by"):
+        for older in (root() / "installs").glob("*.lock"):
+            if version_order(saver) <= version_order(older.stem) < version_order(VERSION):
+                with flocked(older):
+                    pass
+    WAITED_OLDER.add(path)
+
+
 def save(name: str, data: dict) -> None:
     path = state_path(name)
     tmp = path.with_name("drive.json.tmp")
@@ -860,6 +910,7 @@ def edit(name: str) -> Iterator[dict]:
         yield data
         BATCHED[name] = json.dumps(data)
         return
+    older_verbs_done(name)
     with locked(name):
         data = load(name)
         yield data
@@ -870,6 +921,7 @@ def edit(name: str) -> Iterator[dict]:
 def batch(name: str) -> Iterator[list[str]]:
     """Hold the drive's lock across a call of several writes, each load and edit inside it reading and changing one copy in memory, saved once when the call ends and never when it raises, so a refused write leaves drive.json as it was; what a write does outside the drive runs after that save, its lines added to the list it yields."""
     after: list[str] = []
+    older_verbs_done(name)
     with locked(name):
         BATCHED[name] = json.dumps(load(name))
         AFTER_SAVE[name] = []
@@ -894,6 +946,7 @@ def after_save(name: str, effect: Callable[[], list[str]]) -> list[str]:
 @contextmanager
 def edit_or_create(name: str, fresh: dict) -> Iterator[dict]:
     """Like edit, but start from fresh when the drive does not exist yet; the lock covers the check too."""
+    older_verbs_done(name)
     with locked(name):
         data = load(name) if exists(name) else fresh
         yield data

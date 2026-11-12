@@ -503,11 +503,11 @@ def reply(drive: str, run: str, message_id: str, body: str) -> None:
 
 
 def bound_command(drive: str, run: str, argv: list[str]) -> subprocess.CompletedProcess:
-    """Run a command that needs the Run bound, such as a launch's worker-start, binding it again once if something outside this drive moved the binding first, then bind the drive's own Run, read before the command runs, so a drive.json a newer install saves meanwhile cannot drop what the command printed. Unstarted when it refuses before anything the command starts, a fenced run included, since Orca starts nothing it fenced."""
+    """Run a command that needs the Run bound, such as a launch's worker-start, binding it again once if something outside this drive moved the binding first, then bind the drive's own Run, read before the command runs. Unstarted when it refuses before anything the command starts, a fenced run included, since Orca starts nothing it fenced."""
     with state.binding(drive):
         try:
             home = drive_run(drive)
-        except (DriveError, state.NewerDrive) as error:
+        except DriveError as error:
             raise Unstarted(str(error)) from None
         try:
             for _ in range(2):

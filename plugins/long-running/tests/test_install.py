@@ -879,29 +879,6 @@ def test_an_installed_merge_whose_proof_file_fails_takes_blocked_and_closes_noth
     assert proof_events() == [("yasyf/cc-skills#7", f"drive install's proof failed: {blocked.removeprefix('BLOCKED ')}")]
 
 
-def test_a_proof_on_a_drive_a_newer_install_saved_is_handed_whole_to_that_install_before_any_session_reloads(
-    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    git = fake([BUILD], {BUILD})
-    proving(config, tmp_path, git, 0)
-    path = state.state_path("demo")
-    path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "9.9.9"}))
-    newer = tmp_path / "cache" / "9.9.9" / "bin" / "drive"
-    monkeypatch.setattr(install, "upgraded", lambda: newer)
-
-    class Execed(Exception):
-        pass
-
-    def execv(drive: Path, argv: list[str]) -> None:
-        raise Execed(drive, argv)
-
-    monkeypatch.setattr(install.os, "execv", execv)
-    with pytest.raises(Execed) as execed:
-        install.main("long-running@skills", None, None, 900, "demo")
-    assert execed.value.args == (newer, [str(newer), "install", "long-running@skills", "--timeout", "900", "--drive", "demo"])
-    assert (git.orca_calls, state.saved("demo")["jobs"]["j1"]["state"], proof_events()) == ([], "waiting", [])
-
-
 @pytest.mark.parametrize(("key", "holding"), [("long-running@skills", set()), ("codex@skills", {BUILD})])
 def test_an_install_short_of_a_merge_or_of_a_plugin_it_leaves_alone_proves_nothing(
     config: Path, tmp_path: Path, fake: Callable[..., FakeGit], key: str, holding: set[str]
