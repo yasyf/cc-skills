@@ -61,8 +61,9 @@ names, and drops `sonnet` or `haiku` from any lane of a build order or of an ans
 `--complex`, so it runs on its definition's model. It refuses a builder whose brief lacks `Serves:`
 or `Handoff:`, whose `Serves:` names none of the three, or whose Goal's own action backfills,
 bulk-repairs, migrates, converts or repairs, or runs such a pass, with no `Runs as:` line; a Goal
-that only names a PR, stack or check for a pass is not one; and a builder while eight run on this
-Mac, naming the builder jobs waiting, oldest due first. The `scratch_folder` hook refuses a build
+that only names a PR, stack or check for a pass is not one; and a builder while eight hold this
+Mac's builder slots or one waits its turn ahead of it, holding a refused job no agent runs waiting
+its turn and naming the line, earliest due first. The `scratch_folder` hook refuses a build
 order's builder, designer or codex lane whose brief lacks the `Researched:` line the `brief` op
 writes once its reader's research is kept, unless its job ships the order's `immediate fix` part.
 Each refusal names its fix: do it, never route around it. These hooks run in the long-running
