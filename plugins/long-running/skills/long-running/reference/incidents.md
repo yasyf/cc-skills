@@ -371,16 +371,18 @@ Step 8's `report` carries `--attr close=<o>`, and its handler closes the order o
 the thread and its reporter, if any, has heard, which takes it off the dashboard's top strip, since
 the strip shows live incidents only.
 
-On an incident with a Datadog monitor recorded, the watch sends step 8 itself. It reads every such
-monitor in one search a minute, and once all of an incident's read OK and a release shipped a job
-or PR on its `fix` part, it:
+The watch sends step 8 itself once the incident's fix is live: the release shipping the last release
+wait of a job or PR on its `fix` part is out, or a builder on that part returned `DONE`. Every Datadog
+monitor recorded on the incident must read OK too, all of them read in one search a minute; an
+incident with none, a Sentry issue's or his words', closes on its fix alone. Then it:
 
 - moves each open PR of its orders, each part of any of its orders beyond the incident's own not
   yet delivered, a joined order's included, and each live job on one, to a plain build order in the
   same thread;
-- keeps the monitors and the release as each order's proof, and takes the incident off the strip;
+- keeps the monitors, when it has any, and the fix's release or the builder's proof as each order's
+  proof, and takes the incident off the strip;
 - sends the communicator the step 8 `report`, closing each order of the incident, and tells you
   `RECOVERED o<n>`.
 
-A monitor that recovers alone, a rollback, or a stop's release never closes it. An incident with
-no monitor recorded, a Sentry issue's or his words', keeps the `LIVE` line and your step 8.
+A monitor that recovers alone, a rollback, or a stop's release never closes it. Your step 8 closes
+only an incident that ends with no fix recorded live, such as one a rollback or a hand repair ended.

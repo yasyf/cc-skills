@@ -3103,27 +3103,35 @@ def test_an_answer_leaving_a_card_unmarked_says_so_at_once_every_ten_minutes_unt
     assert said(40) == []
 
 
-def test_an_open_incident_order_is_told_to_close_once_a_release_ships_its_fix_and_another_order_is_not(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_an_incident_with_no_monitor_closes_with_no_datadog_read_once_a_release_ships_its_fix_and_another_order_on_that_release_stays_open(
+    demo: str, monkeypatch: pytest.MonkeyPatch, ready_records: list[list[dict]]
+) -> None:
     serve(monkeypatch, {})
     published = [release(2, "2026-11-09T15:00:00Z", "api")]
     monkeypatch.setattr(watch.github, "run", lambda cmd, **_: json.dumps(published) if cmd[2].endswith("/releases?per_page=100") else "ahead\n")
+    calls = monitors_read(monkeypatch, {})
     wait = f"release:api:{KEY}"
     with state.edit(demo) as data:
         data["orders"]["o2"] = order(text="ship the dashboard", jobs=["j2"])
         data["jobs"]["j2"] = job(order="o2", state="waiting", said="WAITING release of api", waits=[wait], updated=state.stamp(T0 - timedelta(minutes=10)))
-        data["orders"]["o1"]["incident"] = True
+        data["orders"]["o1"].update(incident=True, parts={"fix": state.new_part()})
         data["prs"][KEY].update(state="merged", merged_sha="abc123")
-        data["jobs"]["j1"].update(state="waiting", said="WAITING release of api", waits=[wait], updated=state.stamp(T0 - timedelta(minutes=10)))
+        data["jobs"]["j1"].update(parts=["fix"], state="waiting", said="WAITING release of api", waits=[wait], updated=state.stamp(T0 - timedelta(minutes=10)))
     watching = watcher(demo, T0 + timedelta(hours=1))
     shipped = f"release releases/2026-11-09/2 ships {KEY} on api"
-    live = f"LIVE o1: {shipped}, so its fix is live and the incident order is still open: close it with drive order set o1 --state done so the strip shows live incidents only"
-    assert watch.run_pass(watching, T0) == [f"FREE j1 o1: {shipped}, nothing else holds it", f"FREE j2 o2: {shipped}, nothing else holds it", live]
-    assert watch.wakes(live, state.load(demo))
-    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
+    recovered = f"RECOVERED o1: {shipped}, so the communicator posts its Live line and closes o1"
+    assert watch.run_pass(watching, T0) == [f"FREE j1 o1: {shipped}, nothing else holds it", f"FREE j2 o2: {shipped}, nothing else holds it", recovered]
+    assert not watch.wakes(recovered, state.load(demo))
+    assert [(record["text"], record["body"]) for records in ready_records for record in records] == [
+        ("POST incident o1 is over: its fix is live; post the Live line in its thread", f"Incident: ship the watch\nFix live: {shipped}, {state.pr_url(KEY)}\n")
+    ]
+    data = state.load(demo)
+    assert (view.incidents(data), data["orders"]["o1"]["proof"], data["orders"]["o2"]["recovered"]) == ([], shipped, None)
+    assert (watch.run_pass(watching, T0 + timedelta(minutes=1)), [argv for argv in calls if argv[0] == "pup"]) == ([], [])
 
 
-def test_a_release_out_as_a_sub_coordinator_is_bound_mid_read_says_its_fix_is_live_once_from_the_watch_dropping_its_wait(
-    demo: str, monkeypatch: pytest.MonkeyPatch
+def test_a_release_out_as_a_sub_coordinator_is_bound_mid_read_closes_the_incident_once_from_the_watch_dropping_its_wait(
+    demo: str, monkeypatch: pytest.MonkeyPatch, ready_records: list[list[dict]]
 ) -> None:
     serve(monkeypatch, {})
     published = [release(2, "2026-11-09T15:00:00Z", "api")]
@@ -3139,42 +3147,39 @@ def test_a_release_out_as_a_sub_coordinator_is_bound_mid_read_says_its_fix_is_li
 
     monkeypatch.setattr(watch.github, "run", github_run)
     with state.edit(demo) as data:
-        data["orders"]["o1"].update(incident=True, project="Iris")
+        data["orders"]["o1"].update(incident=True, project="Iris", parts={"fix": state.new_part()})
         data["prs"][KEY].update(state="merged", merged_sha="abc123")
-        data["jobs"]["j1"].update(state="waiting", said="WAITING release of api", waits=[f"release:api:{KEY}"], updated=state.stamp(T0 - timedelta(minutes=10)))
+        data["jobs"]["j1"].update(parts=["fix"], state="waiting", said="WAITING release of api", waits=[f"release:api:{KEY}"], updated=state.stamp(T0 - timedelta(minutes=10)))
     shipped = f"release releases/2026-11-09/2 ships {KEY} on api"
     assert watch.run_pass(watcher(demo), T0) == []
-    assert nested == [
-        [
-            f"FREE j1 o1: {shipped}, nothing else holds it",
-            f"LIVE o1: {shipped}, so its fix is live and the incident order is still open: close it with drive order set o1 --state done so the strip shows live incidents only",
-        ]
-    ]
+    assert nested == [[f"FREE j1 o1: {shipped}, nothing else holds it", f"RECOVERED o1: {shipped}, so the communicator posts its Live line and closes o1"]]
+    assert len(ready_records) == 1
 
 
-def test_an_incident_order_waiting_on_two_releases_is_told_its_fix_is_live_only_once_both_shipped(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_an_incident_whose_fix_waits_on_two_releases_closes_only_once_both_shipped(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     published = [release(2, "2026-11-09T15:00:00Z", "api")]
     monkeypatch.setattr(watch.github, "run", lambda cmd, **_: json.dumps(published) if cmd[2].endswith("/releases?per_page=100") else "ahead\n")
     with state.edit(demo) as data:
-        data["orders"]["o1"]["incident"] = True
+        data["orders"]["o1"].update(incident=True, parts={"fix": state.new_part()})
         data["prs"][KEY].update(state="merged", merged_sha="abc123")
         waits = [f"release:api:{KEY}", f"release:worker:{KEY}"]
-        data["jobs"]["j1"].update(state="waiting", said="WAITING releases of api and worker", waits=waits, updated=state.stamp(T0 - timedelta(minutes=10)))
+        data["jobs"]["j1"].update(parts=["fix"], state="waiting", said="WAITING releases of api and worker", waits=waits, updated=state.stamp(T0 - timedelta(minutes=10)))
     watching = watcher(demo, T0 + timedelta(hours=1))
     assert watch.run_pass(watching, T0) == []
-    assert state.load(demo)["jobs"]["j1"]["waits"] == [f"release:worker:{KEY}"]
+    data = state.load(demo)
+    assert (data["jobs"]["j1"]["waits"], data["orders"]["o1"]["fixed"]) == ([f"release:worker:{KEY}"], None)
     published.append(release(3, "2026-11-09T16:00:00Z", "worker"))
     shipped = f"release releases/2026-11-09/3 ships {KEY} on worker"
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == [
         f"FREE j1 o1: {shipped}, nothing else holds it",
-        f"LIVE o1: release releases/2026-11-09/2 ships {KEY} on api, {shipped}, so its fix is live and the incident order is still open: close it with drive order set o1 --state done so the strip shows live incidents only",
+        f"RECOVERED o1: {shipped}, so the communicator posts its Live line and closes o1",
     ]
     assert watch.run_pass(watching, T0 + timedelta(minutes=2)) == []
 
 
-def test_an_incident_order_whose_last_release_wait_the_drives_watch_drops_is_told_its_fix_is_live_once_by_the_watch_hearing_it(
-    demo: str, monkeypatch: pytest.MonkeyPatch
+def test_an_incident_whose_fix_jobs_last_release_wait_the_drives_watch_drops_is_closed_once_by_the_watch_hearing_it(
+    demo: str, monkeypatch: pytest.MonkeyPatch, ready_records: list[list[dict]]
 ) -> None:
     serve(monkeypatch, {})
     published = [release(2, "2026-11-09T15:00:00Z", "worker")]
@@ -3182,21 +3187,45 @@ def test_an_incident_order_whose_last_release_wait_the_drives_watch_drops_is_tol
     sub_coordinated(demo)
     still = state.stamp(T0 - timedelta(minutes=10))
     with state.edit(demo) as data:
-        data["orders"]["o1"].update(incident=True, jobs=["j1", "j2"])
+        data["orders"]["o1"].update(incident=True, jobs=["j1", "j2"], parts={"fix": state.new_part(), "ship the watch": state.new_part()})
         data["orders"]["o2"] = order(text="ship the dashboard", jobs=[])
         data["prs"][KEY].update(state="merged", merged_sha="abc123")
-        data["jobs"]["j1"].update(state="waiting", carries={"o2": ["ship the dashboard"]}, waits=[f"release:api:{KEY}"], updated=still)
+        data["jobs"]["j1"].update(parts=["fix"], state="waiting", carries={"o2": ["ship the dashboard"]}, waits=[f"release:api:{KEY}"], updated=still)
         data["jobs"]["j2"] = job(state="waiting", parts=["ship the watch"], waits=[f"release:worker:{KEY}", f"release:api:{KEY}"], updated=still)
     top, iris = watcher(demo), watch.Watcher(demo, offset=state.events_end(demo), ticked_at=T0, project="Iris")
     assert (watch.run_pass(top, T0), watch.run_pass(iris, T0)) == ([], [])
     published.append(release(3, "2026-11-09T16:00:00Z", "api"))
-    worker, api = f"release releases/2026-11-09/2 ships {KEY} on worker", f"release releases/2026-11-09/3 ships {KEY} on api"
+    api = f"release releases/2026-11-09/3 ships {KEY} on api"
     assert watch.run_pass(top, T0 + timedelta(minutes=1)) == [f"FREE j1 o1: {api}, nothing else holds it"]
+    assert (state.load(demo)["orders"]["o1"]["fixed"], ready_records) == (api, [])
     assert watch.run_pass(iris, T0 + timedelta(minutes=1)) == [
         f"FREE j2 o1: {api}, nothing else holds it",
-        f"LIVE o1: {worker}, {api}, so its fix is live and the incident order is still open: close it with drive order set o1 --state done so the strip shows live incidents only",
+        f"RECOVERED o1: {api}, so the communicator posts its Live line and closes o1; its live jobs, open PRs and parts left moved to the plain order o3",
     ]
-    assert (watch.run_pass(top, T0 + timedelta(minutes=2)), watch.run_pass(iris, T0 + timedelta(minutes=2))) == ([], [])
+    assert (watch.run_pass(top, T0 + timedelta(minutes=2)), watch.run_pass(iris, T0 + timedelta(minutes=2)), len(ready_records)) == ([], [], 1)
+
+
+def test_a_builders_done_on_an_incidents_fix_records_it_live_so_the_watch_closes_the_incident_and_a_done_on_its_stop_does_not(
+    demo: str, monkeypatch: pytest.MonkeyPatch, ready_records: list[list[dict]]
+) -> None:
+    serve(monkeypatch, {})
+    with state.edit(demo) as data:
+        data["orders"]["o1"].update(incident=True, jobs=["j1", "j2"], parts={"fix": state.new_part(), "stop": state.new_part()})
+        data["prs"][KEY].update(state="merged", merged_sha="abc123")
+        data["jobs"]["j1"]["parts"] = ["stop"]
+        data["jobs"]["j2"] = job(parts=["fix"])
+    with state.edit(demo) as data:
+        state.take_result(data, "j1", "DONE the rollback is live")
+    watching = watcher(demo)
+    assert ([line for line in watch.run_pass(watching, T0) if line.startswith("RECOVERED")], state.load(demo)["orders"]["o1"]["fixed"]) == ([], None)
+    with state.edit(demo) as data:
+        state.take_result(data, "j2", f"DONE {state.pr_url(KEY)} live: runs succeed on release 14903")
+    fixed = f"j2 proved it live: {state.pr_url(KEY)} live: runs succeed on release 14903"
+    assert [line for line in watch.run_pass(watching, T0 + timedelta(minutes=1)) if line.startswith("RECOVERED")] == [
+        f"RECOVERED o1: {fixed}, so the communicator posts its Live line and closes o1"
+    ]
+    assert [record["body"] for records in ready_records for record in records] == [f"Incident: ship the watch\nFix live: {fixed}, {state.pr_url(KEY)}\n"]
+    assert view.incidents(state.load(demo)) == []
 
 
 MONITOR = "https://app.datadoghq.com/monitors/315028134"
@@ -3233,10 +3262,10 @@ def test_an_incident_closes_once_its_monitor_reads_ok_and_a_release_shipped_its_
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j2", "o1") | {"head": "aaaaaaa111"}
         data["orders"]["o2"] = order(text="also the migration check should not stop a sand that can read", jobs=[], incident=True, joins="o1", parts={"the migration check": state.new_part()})
     watching = watcher(demo, T0 + timedelta(hours=1))
-    lines = [line for line in watch.run_pass(watching, T0) if line.startswith(("LIVE", "RECOVERED"))]
+    lines = [line for line in watch.run_pass(watching, T0) if line.startswith("RECOVERED")]
     data = state.load(demo)
     searches = [argv for argv in calls if argv[0] == "pup"]
-    assert [argv[argv.index("--query") + 1] for argv in searches] == ["id:(315028134)"]
+    assert [argv[argv.index("--query") + 1] for argv in searches] == ["id:(315028134)"] * (out and part == "fix")
     if not closes:
         assert (lines, ready_records, data["orders"]["o1"]["recovered"], data["jobs"]["j2"]["order"]) == ([], [], None, "o1")
         assert [entry["id"] for entry in view.incidents(data)] == ["o1", "o2"]
@@ -3303,12 +3332,14 @@ def test_a_close_report_drive_install_kept_posts_from_the_watch_once_cci_takes_i
 
 
 @pytest.mark.parametrize("count", [1, 100])
-def test_the_watch_reads_every_open_incidents_monitors_in_one_search_a_pass(demo: str, monkeypatch: pytest.MonkeyPatch, count: int) -> None:
+def test_the_watch_reads_the_monitors_of_every_open_incident_whose_fix_is_live_in_one_search_a_pass(demo: str, monkeypatch: pytest.MonkeyPatch, count: int) -> None:
     serve(monkeypatch, {})
     calls = monitors_read(monkeypatch, {})
     with state.edit(demo) as data:
         for number in range(count):
-            data["orders"][f"o{number + 2}"] = order(text=f"alert {number}", jobs=[], incident=True, alerts=[f"https://app.datadoghq.com/monitors/{1000 + number}"])
+            data["orders"][f"o{number + 2}"] = order(
+                text=f"alert {number}", jobs=[], incident=True, alerts=[f"https://app.datadoghq.com/monitors/{1000 + number}"], fixed=f"release releases/2026-11-09/{number} ships {KEY} on api"
+            )
     watching = watcher(demo)
     for minute in range(2):
         watch.run_pass(watching, T0 + timedelta(minutes=minute))

@@ -28,7 +28,7 @@ INCIDENT_STOP = "stop"
 INCIDENT_PARTS = {"release": ["first check"], "rollback": ["rollback", "cause"], "none": [INCIDENT_STOP, "cause"]}
 UNLIVE_FIX = (
     '{order}\'s "{part}" is the fix of an open incident, which a post delivers only once the fix runs where the incident hurt:'
-    " after the watch records it live, when the release shipping its fix job's change is out, or by closing the incident"
+    " after the watch records it live, when the release shipping its fix job's change is out or a builder on it returns DONE, or by closing the incident"
 )
 IMMEDIATE_FIX = "immediate fix"
 FOLLOW_UP = "follow-up"
@@ -360,7 +360,7 @@ def load(name: str) -> dict:
         order.setdefault("once", False)
         order["asked_in"] = [where if len(where) == 3 else [*where, order["last_line"] or order["created"]] for where in order.get("asked_in", [])]
         order.setdefault("releases", {})
-        order.setdefault("shipped", {})
+        order.pop("shipped", None)
         order.setdefault("fixed", None)
         order.setdefault("close_report", None)
         order.setdefault("alerts", [])
@@ -590,7 +590,7 @@ def named_waits(data: dict, order_id: str, line: str) -> list[str]:
 
 
 def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
-    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, built on its branch and waiting on each card a BUILT line names, waiting on each PR and release a READY, PUSHED or WAITING line names, which the watch frees once the PR merges or closes or the release is out, each PR a `WAITING … waits on` line names waiting on each card it names, keep each verdict a reader's answer gives on the PR it names, and end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
+    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, a builder's DONE on an open incident's fix recording that fix live as the order's fixed, built on its branch and waiting on each card a BUILT line names, waiting on each PR and release a READY, PUSHED or WAITING line names, which the watch frees once the PR merges or closes or the release is out, each PR a `WAITING … waits on` line names waiting on each card it names, keep each verdict a reader's answer gives on the PR it names, and end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
     job = data["jobs"][job_id]
     taken, moment = result_state(job, line), stamp()
     job.update(state=taken, updated=moment, returned=moment)
@@ -603,6 +603,10 @@ def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
     if waiting := WAITING_LINE.match(line):
         for key in named_prs(data, job["order"], waiting["prs"]):
             data["prs"][key]["waits"] = list(dict.fromkeys([*data["prs"][key]["waits"], *BUILT_CARD.findall(waiting["cards"])]))
+    if taken == "done" and job["kind"] == "builder":
+        for order_id in open_incidents(data, [job["order"], *job["carries"]]):
+            if INCIDENT_FIX in job_parts(job, order_id):
+                data["orders"][order_id]["fixed"] = data["orders"][order_id]["fixed"] or f"{job_id} proved it live: {line.removeprefix('DONE').strip()}"
     if taken == "done":
         drop_carries(data, job_id)
     if job["kind"] == "builder" and re.match(r"READY\b", line):
@@ -707,7 +711,7 @@ def delivered(data: dict, order_id: str, part: str) -> bool:
 
 
 def unlive_fix(data: dict, order_id: str, part: str) -> bool:
-    """Whether the part is the fix of an open incident the watch has not recorded live, which no post delivers, since the incident lasts until its fix runs where it hurt: only the watch's fix-live record, the order's fixed, set once the release shipping its fix job's change is out, or the incident's close delivers it."""
+    """Whether the part is the fix of an open incident not recorded live, which no post delivers, since the incident lasts until its fix runs where it hurt: only the order's fixed, set once the release shipping its fix job's change is out or a builder on its fix returns DONE, or the incident's close delivers it."""
     return part == INCIDENT_FIX and bool(open_incidents(data, [order_id])) and not data["orders"][order_id]["fixed"]
 
 
@@ -781,7 +785,6 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
         "withdrawn": None,
         "jobs": [],
         "releases": {},
-        "shipped": {},
         "fixed": None,
         "alerts": [],
         "recovered": None,

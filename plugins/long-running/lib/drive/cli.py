@@ -58,8 +58,8 @@ REPORTER_HELP = (
     " words: its thread gets one fix-live note once the fix is proven live, and done refuses until drive order told records it"
 )
 ALERT_HELP = (
-    "the Datadog monitor or Sentry issue link of the alert it is, again for each: the watch reads each monitor every minute and"
-    " closes the incident once all read OK and a release shipped its fix"
+    "the Datadog monitor or Sentry issue link of the alert it is, again for each: once its fix is live, the watch reads each"
+    " monitor every minute and closes the incident once all read OK"
 )
 REWORK_HELP = (
     "a PR his words rework, by its url or key, named only once its stack's His words, step by step read against them leave"

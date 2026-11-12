@@ -969,6 +969,19 @@ def test_an_install_holding_a_merge_runs_its_jobs_proof_file_on_it_takes_done_an
     assert proof_events() == [("yasyf/cc-skills#7", proven)]
 
 
+def test_an_install_proving_an_open_incidents_fix_records_it_live_and_leaves_its_close_to_the_watch(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
+    git = fake([BUILD], {BUILD})
+    script = proving(config, tmp_path, git, 0)
+    with state.edit("demo") as data:
+        data["orders"]["o1"].update(incident=True, parts={"fix": state.new_part()})
+        data["jobs"]["j1"]["parts"] = ["fix"]
+    assert install.main("long-running@skills", None, None, 900, None) == 0
+    order = state.load("demo")["orders"]["o1"]
+    assert (order["close_report"], order["proof"]) == (None, None)
+    assert order["fixed"] == f"j1 proved it live: {URL} live: {script} exits 0 on long-running@skills 1.0.3"
+    assert proof_events() == [("yasyf/cc-skills#7", f"{install.PROVEN} on long-running@skills 1.0.3: {script} exits 0, its output {state.report_path('demo', 'j1').with_suffix('.proof.txt')}")]
+
+
 def test_an_installed_merge_whose_proof_file_fails_takes_blocked_and_closes_nothing(
     config: Path, tmp_path: Path, fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
 ) -> None:

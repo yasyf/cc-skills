@@ -546,7 +546,7 @@ def provable(data: dict, repo: str) -> list[str]:
 
 
 def prove(name: str, job_id: str, key: str, repo: str, clone: str, deadline: float) -> str | None:
-    """Run the job's kept proof file with the bin folder of each plugin its merges change first on PATH, keep its output beside the job's report, take DONE on exit 0 and BLOCKED otherwise, and keep the close report on its order for the watch to post when DONE leaves the order nothing to do, each said on its PRs' lines; nothing while an install another plugin needs is still to come, or after another install took the job's result first."""
+    """Run the job's kept proof file with the bin folder of each plugin its merges change first on PATH, keep its output beside the job's report, take DONE on exit 0 and BLOCKED otherwise, and keep the close report on its order for the watch to post when DONE leaves the order nothing to do, but an open incident's, which the watch closes once DONE records its fix live, each said on its PRs' lines; nothing while an install another plugin needs is still to come, or after another install took the job's result first."""
     data = state.load(name)
     job = data["jobs"][job_id]
     merges = {state.pr_key(url): data["prs"][state.pr_key(url)]["merged_sha"] for url in job["prs"]}
@@ -586,7 +586,7 @@ def prove(name: str, job_id: str, key: str, repo: str, clone: str, deadline: flo
         state.take_result(data, job_id, line, whole)
         unseen = cli.surface(data, order) if not seen else None
         closes = code == 0 and not unseen and all(state.delivered(data, job["order"], part) for part in order["parts"])
-        closes = closes and all(data["jobs"][other]["state"] in state.FINISHED_JOB_STATES for other in order["jobs"])
+        closes = closes and all(data["jobs"][other]["state"] in state.FINISHED_JOB_STATES for other in order["jobs"]) and not state.open_incidents(data, [job["order"]])
         order_id, lane = job["order"], state.heard_lane(data, job["order"])
         if closes:
             title = "; ".join(data["prs"][pr]["title"] for pr in merges)
