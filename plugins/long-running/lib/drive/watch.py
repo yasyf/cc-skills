@@ -577,7 +577,7 @@ def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetim
     if asked := reads.logs(body):
         return f"{line}; drive job resume reads {asked} ahead of your answer"
     if unkept:
-        return f"{line}; `drive job ask {job_id}` refused to keep it: {unkept}"
+        return f"{line}; `drive job ask {job_id}` refused it: {unkept}"
     return f"{line}; {UNKEPT_ASK.format(job=job_id)}" if reads.asks(body) else line
 
 
@@ -1254,6 +1254,11 @@ def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, moment: dateti
     if job["state"] == "running":
         return watcher.agent_gaps.get(job_id)
     if job["state"] in ("waiting", "built"):
+        if refused := next((question for question in job["questions"] if question["refused"]), None):
+            return (
+                f'{job_id} waits on a card never posted: drive job ask refused its question "{cut(refused["title"], 80)}" kept in {refused["file"]}:'
+                f" {cut(refused['refused'].removeprefix('refused: '), 160)}"
+            )
         if asked := unanswered(job_id, job, watcher.cards, moment):
             return asked
         if can_wake(job_id, job, data, watcher.cards, moment):

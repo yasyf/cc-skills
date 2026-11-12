@@ -23,6 +23,8 @@ UNMARKED_INCIDENT = (
     " the moment the card is up only when the record says it is an incident's; post it again with {flags}"
 )
 MATCHES = 3
+SUBJECT_WORDS = 2
+CODE_NAME = re.compile(r"\b\w+_\w+\b|\b\w+\(\)|\b[\w.-]+(?:/[\w.-]+){2,}|\b[\w-]+\.(?:py|go|rs|ts|tsx|js|sql|md|json|ya?ml|toml|sh)\b|#\d{3,}\b")
 APPROVAL = "kind:approval"
 APPROVED = re.compile(r"Approve\b")
 TAP_QUESTION = re.compile(r"(?:PR )?(?:Taps?\b|Approv|Land\b).*?(?:#\d+|/pull/\d+)", re.IGNORECASE)
@@ -50,6 +52,8 @@ def ask_refusal(names: list[str], named: dict[str, str], text: str) -> str | Non
         return f"refused: {file} keeps no question of {job_id}, and {keep}"
     if " ".join(question["title"].split()).casefold() not in " ".join(text.split()).casefold():
         return f'refused: {file} keeps {job_id}\'s question "{question["title"]}", which this record does not ask, and {keep}'
+    if question["refused"]:
+        return f'refused: {file} keeps {job_id}\'s question "{question["title"]}" pending, since `drive job ask` refused it, so no card draws from it; act on that refusal and ask again: {question["refused"]}'
     if question["card"] or question["waits"]:
         view.refresh_cards(name)
     if not any(open_question is question for open_question in superseded.unanswered(data, job, view.live_cards(name))):
@@ -77,16 +81,26 @@ def keeper(names: list[str], ask: str | None) -> str | None:
     return next((name for name in names if ask and Path(ask).expanduser().resolve().is_relative_to(state.drive_dir(name).resolve() / "asks")), None)
 
 
-def answers(card: str, whole: str, drives: list[str], cwd: str) -> list[dict]:
-    """His durable answers that may already settle a question: those the part he reads names. TODO: once a ccn release with `answer match --nearest` is installed, add each drive's nearest to `whole` from `drives`."""
-    return matched(card, cwd)
+def answers(title: str, card: str, whole: str, drives: list[str], cwd: str) -> list[dict]:
+    """His durable answers that may already settle a question: those the part he reads names whose own question shares its title's subject. TODO: once a ccn release with `answer match --nearest` is installed, add each drive's nearest to `whole` from `drives`."""
+    return [answer for answer in matched(card, cwd) if subject(title, answer)][:MATCHES]
+
+
+def subject(title: str, answer: dict) -> bool:
+    """Whether his answer's own question, its title and plain labels, names what this title asks about: a table, call, file, path or PR both name, or SUBJECT_WORDS rare words both use. Never its body, since one recording a whole plan, as the step-6 run-writer ruling's 43,552 characters name 309 proper terms, shares words with nearly every question."""
+    asked = " ".join([answer["title"], *(label for label in answer["tags"] if ":" not in label)])
+    return bool(code_names(title) & code_names(asked)) or len(rare(title) & rare(asked)) >= SUBJECT_WORDS
+
+
+def code_names(text: str) -> set[str]:
+    return {name.casefold() for name in CODE_NAME.findall(read(text))}
 
 
 def matched(text: str, cwd: str, *flags: str) -> list[dict]:
     """His answers sharing rare words with the text, best first, but a tap approving a PR, which settles only whether that PR lands."""
     match = ["ccn", "answer", "match", "-", "--label", "scope:durable", *flags, "--limit", "-1", "--json"]
     found = json.loads(ccn(match, text, cwd, "could not check the question against his recorded answers"))
-    return [answer for answer in found if APPROVAL not in answer["tags"]][:MATCHES]
+    return [answer for answer in found if APPROVAL not in answer["tags"]]
 
 
 def recorded(title: str, words: str, labels: list[str], cwd: str) -> str:
@@ -123,9 +137,9 @@ def shown(answer_id: str, cwd: str) -> dict:
     return json.loads(ccn(["ccn", "answer", "show", answer_id, "--json"], "", cwd, f"could not read his answer {answer_id}"))
 
 
-def matching(card: str, whole: str, drives: list[str], cwd: str, under: list[dict]) -> list[dict]:
-    """His recorded answers that may already settle a question: those its words match, and each written under a card its job asked on."""
-    found = answers(read(card), read(whole), drives, cwd)
+def matching(title: str, card: str, whole: str, drives: list[str], cwd: str, under: list[dict]) -> list[dict]:
+    """His recorded answers that may already settle a question: those its words match on its subject, and each written under a card its job asked on."""
+    found = answers(title, read(card), read(whole), drives, cwd)
     return found + [answer for answer in under if answer["id"][:7] not in {other["id"][:7] for other in found}]
 
 

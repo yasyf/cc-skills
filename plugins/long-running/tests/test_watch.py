@@ -975,6 +975,21 @@ def test_a_waiting_job_lives_while_its_card_is_open_and_is_an_orphan_once_the_ca
     ]
 
 
+def test_a_built_job_whose_ask_drive_job_ask_refused_is_said_to_wait_on_a_card_never_posted(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(watch.view, "cards", lambda name: watch.view.NO_CARDS)
+    refused = "refused: these recorded answers of his may already settle this question. Read each with `ccn answer show <id>`"
+    asked = "How many clone processes may a SandSQL server run at once?"
+    with state.edit(demo) as data:
+        data["prs"][KEY]["state"] = "merged"
+        data["jobs"]["j1"].update(
+            state="built", branch="clone-cap", questions=[state.new_question("/drive/asks/j1-ab.md", asked, state.stamp(T0), refused=refused)], updated=state.stamp(T0 - timedelta(minutes=10))
+        )
+    assert watch.run_pass(watcher(demo), T0) == [
+        f'ORPHAN o1 "ship the watch": j1 waits on a card never posted: drive job ask refused its question "{asked}" kept in /drive/asks/j1-ab.md:'
+        " these recorded answers of his may already settle this question. Read each with `ccn answer show <id>`"
+    ]
+
+
 def test_a_waiting_job_lives_while_its_own_clock_is_to_come(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(watch.view, "cards", lambda name: watch.view.NO_CARDS)
     with state.edit(demo) as data:

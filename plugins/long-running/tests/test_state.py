@@ -90,10 +90,11 @@ def test_load_labels_his_old_taps_approving_a_pr_in_the_coordinators_checkout_on
     assert backfilled == ["/work"]
 
 
-def test_load_drops_the_answers_a_refused_ask_kept_before_the_settled_check_skipped_his_taps_approving_a_pr(state_root: Path) -> None:
+def test_load_drops_the_answers_a_refused_ask_kept_before_the_settled_check_read_only_answers_on_its_subject(state_root: Path) -> None:
     data = state.new_drive("demo", "coordinator", None, "/work", None)
-    tapped = {"title": "Which store holds a run's files?", "answers": [{"id": "a1" * 20, "title": "Tap: #50203, a run's files move to the store"}]}
-    data["jobs"]["j1"] = state.new_job("o1", "design", "run files", [], "2026-11-10T21:00:00-08:00") | {"may_settle": tapped}
+    off_subject = {"title": "Which store holds a run's files?", "answers": [{"id": "a1" * 20, "title": "Proxy listener port differs: 10000 on plat, 3128 on SoFi"}]}
+    data["jobs"]["j1"] = state.new_job("o1", "design", "run files", [], "2026-11-10T21:00:00-08:00") | {"may_settle": off_subject}
+    data["may_settle_skips_approvals"] = True
     state.create(data)
     assert state.load("demo")["jobs"]["j1"]["may_settle"] is None
     assert state.load("demo")["jobs"]["j1"]["may_settle"] is None

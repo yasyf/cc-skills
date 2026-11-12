@@ -154,8 +154,8 @@ question.
   block kept in its own file under `asks/`. One out of shape it answers itself, with no event, by a
   reply opening `ASK refused, fix each line and ask again:` and every fix, and the lane asks again;
   one kept is a `JOB <j> <o> ASK <path>` line, as a job's own return is. One `drive job ask` refused
-  to keep goes on as a `JOB` line naming why, and one cc-slack cannot check as a `JOB` line that
-  `drive job ask <j>` keeps.
+  goes on as a `JOB` line naming why, kept pending with no card when his words may settle it, and
+  one cc-slack cannot check as a `JOB` line that `drive job ask <j>` keeps.
 - A report's `REPRO:` line names its reproduction file with the file's whole text in a fence under
   it, and the watch keeps that text in the drive's `repro/` folder as `drive job set --repro` does.
 - A question that opens any other way, such as `READ: please send <file>`, is a `JOB` line for you

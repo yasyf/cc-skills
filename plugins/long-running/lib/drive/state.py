@@ -343,12 +343,14 @@ def load(name: str) -> dict:
         rebuild_asks(name, data)
     if "coordinator" in data["roles"] and not (drive_dir(name) / APPROVALS_LABELLED).exists():
         label_approvals(name, data["roles"]["coordinator"]["cwd"])
-    if not data.get("may_settle_skips_approvals"):
+    if not data.get("may_settle_by_subject"):
         for job in data["jobs"].values():
             job["may_settle"] = None
-        data["may_settle_skips_approvals"] = True
+        data.pop("may_settle_skips_approvals", None)
+        data["may_settle_by_subject"] = True
     for job in data["jobs"].values():
         for question in job["questions"]:
+            question.setdefault("refused", None)
             if question["waits"] and not question["file"] and (kept := rebuilt_ask(name, question["waits"])).exists():
                 question["file"] = str(kept)
     return data
@@ -603,8 +605,8 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
     }
 
 
-def new_question(file: str | None, title: str | None, asked: str, unsettled: str | None = None, card: str | None = None) -> dict:
-    return {"file": file, "title": title, "asked": asked, "unsettled": unsettled, "waits": None, "card": card}
+def new_question(file: str | None, title: str | None, asked: str, unsettled: str | None = None, card: str | None = None, refused: str | None = None) -> dict:
+    return {"file": file, "title": title, "asked": asked, "unsettled": unsettled, "waits": None, "card": card, "refused": refused}
 
 
 def kept_in(job: dict, file: Path) -> dict | None:

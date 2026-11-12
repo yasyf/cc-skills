@@ -1164,7 +1164,7 @@ def asked_report(name: str, job_id: str, job: dict) -> str | None:
 
 
 def keep_ask(name: str, job_id: str, text: str, unsettled: str | None) -> tuple[Path, limits.Question, dict]:
-    """Keep the job's ASK block in its own file once it is in the shape he reads and no answer of his settles it, in place of the job's open question asking the same, and set the job waiting on it."""
+    """Keep the job's ASK block in its own file once it is in the shape he reads, in place of the job's open question asking the same, and set the job waiting on it; one his words may already settle stays kept as the job's pending question with its refusal, which draws no card, so the watch says the job waits on a card never posted until it asks again or drops it."""
     from drive import superseded, view
 
     data = state.load(name)
@@ -1179,34 +1179,42 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None) -> tuple[
     shown = "\n".join([asked.title, *asked.summary, *asked.options])
     matched = job["may_settle"]
     if not matched or matched["title"] != asked.title:
-        found = settled.matching(shown, text, [name], data["roles"]["coordinator"]["cwd"], superseded.said_under(data, job))
+        found = settled.matching(asked.title, shown, text, [name], data["roles"]["coordinator"]["cwd"], superseded.said_under(data, job))
         matched = {"title": asked.title, "answers": [{"id": answer["id"], "title": answer["title"]} for answer in found]}
-    if refused := settled.refusal(matched["answers"], unsettled, "--unsettled"):
-        with state.edit(name) as data:
-            data["jobs"][job_id]["may_settle"] = matched
-        raise DriveError(refused)
     if any(state.same_question(question["title"], asked.title) and (question["card"] or question["waits"]) for other in data["jobs"].values() for question in other["questions"]):
         view.refresh_cards(name)
     cards = view.live_cards(name)
-    if refused := settled.open_card_refusal(superseded.open_under(data, job, cards), unsettled):
-        raise DriveError(refused)
     if found_elsewhere := elsewhere(data, job_id, asked.title, cards, unsettled):
         raise DriveError(asked_elsewhere(job_id, *found_elsewhere))
-    heard = settled.thread_words(data, data["orders"][job["order"]], view.stored_cards(name)[0]["team_url"], shown)
-    if refused := settled.thread_refusal(heard, unsettled) or settled.unoffered_refusal(heard, "\n".join([asked.title, *asked.options])):
-        raise DriveError(refused)
+    refused = settled.refusal(matched["answers"], unsettled, "--unsettled") or settled.open_card_refusal(superseded.open_under(data, job, cards), unsettled)
+    if not refused:
+        heard = settled.thread_words(data, data["orders"][job["order"]], view.stored_cards(name)[0]["team_url"], shown)
+        refused = settled.thread_refusal(heard, unsettled) or settled.unoffered_refusal(heard, "\n".join([asked.title, *asked.options]))
     kept = state.drive_dir(name) / "asks" / f"{job_id}-{state.ask_hash(text)}.md"
     kept.parent.mkdir(exist_ok=True)
     kept.write_text(text)
     with state.edit(name) as data:
         job = data["jobs"][job_id]
         twins = [question for other, question in asking(data, asked.title, cards) if other == job_id]
-        held = next((twin for twin in twins if twin["card"]), None) or next((twin for twin in twins if twin["waits"]), None)
-        question = state.new_question(str(kept), asked.title, held["asked"] if held else state.stamp(), unsettled)
-        if held:
-            question.update(waits=held["waits"], card=held["card"])
-        job["questions"] = [*(other for other in job["questions"] if not any(other is twin for twin in twins)), question]
-        job.update(state="waiting", said=asked.title, updated=state.stamp(), may_settle=None)
+        reworded = [other for other in job["questions"] if other["refused"] and superseded.shared(asked.title, other["title"])]
+        if refused:
+            question = state.new_question(str(kept), asked.title, state.stamp(), unsettled, refused=refused)
+            replaced = [*(twin for twin in twins if twin["refused"]), *reworded]
+            job.update(updated=state.stamp(), may_settle=matched)
+        else:
+            held = next((twin for twin in twins if twin["card"]), None) or next((twin for twin in twins if twin["waits"]), None)
+            question = state.new_question(str(kept), asked.title, held["asked"] if held else state.stamp(), unsettled)
+            if held:
+                question.update(waits=held["waits"], card=held["card"])
+            replaced = [*twins, *reworded]
+            job.update(state="waiting", said=asked.title, updated=state.stamp(), may_settle=None)
+        job["questions"] = [*(other for other in job["questions"] if not any(other is gone for gone in replaced)), question]
+    if refused:
+        raise DriveError(
+            f"{refused}\n{kept} keeps this ASK as {job_id}'s pending question with this refusal: no card draws for it, and the watch says"
+            f" {job_id} waits on a card never posted until {job_id} asks it again, in these words or others sharing three rare words, or"
+            f" `drive job ask {job_id} --drop {kept}` drops it"
+        )
     return kept, asked, question
 
 
@@ -1228,6 +1236,8 @@ def elsewhere(data: dict, job_id: str, title: str, cards: dict | None, unsettled
 
     for other_id, other in data["jobs"].items():
         for question in superseded.unanswered(data, other, cards) if other_id != job_id else []:
+            if question["refused"]:
+                continue
             if state.same_question(question["title"], title):
                 return other_id, question, []
             if (question["waits"] or Path(question["file"]).name) not in (unsettled or "") and (terms := superseded.shared(title, question["title"])):
@@ -1274,7 +1284,7 @@ def card_source(name: str, args: argparse.Namespace) -> tuple[Path, str]:
         return named_file(args.ask, "ASK block file").resolve(), args.waits
     job = find(state.load(name)["jobs"], args.ask, "job")
     named = Path(args.file).expanduser().resolve() if args.file else None
-    kept = [question for question in job["questions"] if question["file"] and named in (None, Path(question["file"]).resolve())]
+    kept = [question for question in job["questions"] if question["file"] and not question["refused"] and named in (None, Path(question["file"]).resolve())]
     if not kept and not args.file and (designed := asked_report(name, args.ask, job)) and not job.get("report"):
         path, _, _ = keep_ask(name, args.ask, designed, None)
         kept = [question for question in find(state.load(name)["jobs"], args.ask, "job")["questions"] if question["file"] == str(path)]

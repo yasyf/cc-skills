@@ -68,8 +68,11 @@ words in the order's thread and run `ccn answer search "<words>"`, because his a
 past the question it was given under and names the subject only in his words.
 
 `drive job ask` and the hook on every `ask` record check the part he reads against his recorded
-answers and his pick or words on each card the job asked. Each refusal lists, by id and first line,
-every answer that may settle it; read each. One that settles it is his answer, and the work goes
+answers and his pick or words on each card the job asked. A recorded answer counts only when its own
+question, its title and plain labels, names the question title's subject: a table, call, file, path
+or PR both name, or two rare words both use, never words only its body shares, since an answer
+recording a whole plan shares words with nearly every question. Each refusal lists, by id and first
+line, every answer that may settle it; read each. One that settles it is his answer, and the work goes
 ahead on it. One that names what you recommend, such as a service he said to build, settles what
 that thing does, so build it and ask nothing. Only when none does, ask with one `--unsettled`
 string, or the record's `unsettled` attr, naming every id and why it does not settle this question,
@@ -80,7 +83,11 @@ it is closed does a follow-up name them with why they leave it open. `drive job 
 order's own thread and lists each message of his there that shares a rare word with the question,
 refusing until `--unsettled` names each by its permalink and why it does not settle this. A tap
 approving a PR settles only that PR's landing, so the check never counts an answer labelled
-`kind:approval`.
+`kind:approval`. A block one of these refusals stops stays kept under `asks/` as the job's pending
+question with its refusal: no card draws from it and no `ask` record may name it, `drive status`
+lists it refused, and the watch says its job waits on a card never posted until the job asks it
+again, in its words or others sharing three rare words, or `drive job ask <j> --drop <file>` drops
+it.
 
 A design question goes to him on a card before any PR carries it, by [Design first](design.md). A
 job builds the recommendation meanwhile on a pushed branch, in state `built` in the drive, unless
