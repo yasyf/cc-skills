@@ -71,6 +71,8 @@ REBUILT_ASKS = ".rebuilt"
 NOT_LANE = re.compile(r"[^a-z0-9]+")
 WAITS_ID = re.compile(r"([\w.-]+):(j\d+)-(\d+)")
 ORDER_LIST = re.compile(r"[\s,]+")
+PART_ITEMS = re.compile(r"\s*;\s*(?=o\d+:)")
+ORDER_PART = re.compile(r"(o\d+):\s*(.+)", re.DOTALL)
 ROUTED_KINDS = ("owner", "answer", "posted", "refused")
 APPROVALS_LABELLED = ".approvals-labelled-by-question"
 BATCHED: dict[str, str] = {}
@@ -585,6 +587,34 @@ def design_builder(data: dict, design_id: str) -> str | None:
         and (set(design["parts"]) <= set(job["parts"]) or changes & set(job["parts"]))
     ]
     return min(builders)[1] if builders else None
+
+
+def part_jobs(data: dict, order_id: str, part: str) -> list[tuple[str, dict]]:
+    return [(job_id, data["jobs"][job_id]) for job_id in data["orders"][order_id]["jobs"] if part in job_parts(data["jobs"][job_id], order_id)]
+
+
+def delivered(data: dict, order_id: str, part: str) -> bool:
+    """Whether a part is posted to him or built by a builder that returned DONE."""
+    done = any(job["state"] == "done" and job["kind"] == "builder" for _, job in part_jobs(data, order_id, part))
+    return bool(data["orders"][order_id]["parts"][part]["posted"]) or done
+
+
+def unposted_answer(data: dict, job_id: str) -> bool:
+    """Whether a finished job's answer reaches him only by a post: it drew no card of his, which carries an answer itself, and no builder carries its design."""
+    job = data["jobs"][job_id]
+    return job["state"] == "done" and not any(question["card"] for question in job["questions"]) and not design_builder(data, job_id)
+
+
+def answered_parts(data: dict, order_id: str) -> dict[str, list[str]]:
+    """Each part of the order a finished job answered that no post delivered and no job still works on, with the jobs holding its answer: the parts the watch says are answered and not posted to him, which the next report on the order carries."""
+    found = {}
+    for part in data["orders"][order_id]["parts"]:
+        jobs = part_jobs(data, order_id, part)
+        if delivered(data, order_id, part) or any(job["state"] not in FINISHED_JOB_STATES for _, job in jobs):
+            continue
+        if answered := [job_id for job_id, _ in jobs if unposted_answer(data, job_id)]:
+            found[part] = answered
+    return found
 
 
 def named_prs(data: dict, order_id: str, words: str) -> list[str]:
@@ -1110,6 +1140,12 @@ def keep(order: dict, posts: list[datetime], announced: bool = True) -> None:
 def closed_orders(report: dict) -> list[str]:
     """The orders a report's close attr names, separated by commas, spaces or both, as `o1,o2` or `o1 o2`."""
     return [order for order in ORDER_LIST.split(report.get("close") or "") if order]
+
+
+def part_items(report: dict, order_id: str | None) -> list[tuple[str | None, str]]:
+    """The order and part each item of a report's part attr names: `<order>:<part>` items separated by `;`, as `o491:fix;o504:increase the search worker's RAM`, so one post in a thread two orders share delivers on both; an item with no order before it is a part of order_id, the order the post is recorded on."""
+    items = [(named[1], named[2].strip()) if (named := ORDER_PART.fullmatch(item.strip())) else (order_id, item.strip()) for item in PART_ITEMS.split(report.get("part") or "")]
+    return [(on, part) for on, part in items if part]
 
 
 def keep_closing(order: dict, posts: list[datetime], written: datetime) -> None:

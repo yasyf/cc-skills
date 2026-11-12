@@ -96,14 +96,16 @@ reading of his words "your messages need to be way shorter rewrite this for a hu
   from the next line in the order's thread. The watch says `DUE` every 10
   minutes until a drive post is in that thread, and the order cannot close before one is.
 - The handler records each post in an order's thread through the post itself,
-  `say(order=<o>, record=<the report's seq>)`, which delivers the part the report's `part` attr
+  `say(order=<o>, record=<the report's seq>)`, which delivers each part the report's `part` attr
   names, or each part of an order its `close` attr names. A progress line's report names neither,
   whatever job it names, and carries `progress=true`, since `record_lines` refuses a `POST` naming
   none of the three: it keeps the time and delivers no part, on an order of one part as on one
   of several. An incident and every alert's order joined to it with `--joins` share their threads both
   ways, so a post on any of them in any of their threads counts, whichever job carries the alert.
   `drive order posted <o> <link> --record <the report's seq>` records a part delivered anywhere
-  else. Only the communicator's side records a post; the coordinator is refused.
+  else. Only the communicator's side records a post, except that the session holding the order marks a part a post
+  of the drive already answered with `drive order posted <o> <that post's link> --part "<part>"`, with or without
+  `--record`, posting nothing.
 
 ## The shapes
 

@@ -509,7 +509,7 @@ def refuse_a_renamed_change(data: dict, order_id: str, parts: list[str]) -> None
     """A --parts list that adds a name refuses to leave out a change a design listed and no builder delivered, since the part under the new name would lose the design and the waits that tie it to its builder; a list that only drops parts, delivered or withdrawn by him, passes."""
     held = data["orders"][order_id]["parts"]
     added = [part for part in parts if part not in held]
-    left = [f'"{part}" of {kept["design"]}\'s design' for part, kept in held.items() if part not in parts and kept["design"] and not watch.delivered(data, order_id, part)]
+    left = [f'"{part}" of {kept["design"]}\'s design' for part, kept in held.items() if part not in parts and kept["design"] and not state.delivered(data, order_id, part)]
     if added and left:
         raise DriveError(
             f"{order_id}: refused, its parts stay as they are: --parts adds {', '.join(json.dumps(part, ensure_ascii=False) for part in added)}"
@@ -709,16 +709,17 @@ def order_posted(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     data = state.load(name)
     role = state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
-    if args.part and not (args.record or args.undo) and role and role == find(data["orders"], args.id, "order")["owner"]:
+    if args.part and not args.undo and role and role == find(data["orders"], args.id, "order")["owner"] and not (args.record and role == "communicator"):
         return emit(args, *answered_by(name, args.id, args.part, args.link))
     order = communicators_order(data, args.id)
     if not args.undo:
         report = report_attrs(args.record) if args.record else {}
-        if args.part and report.get("part") != args.part:
+        if args.part and (args.id, args.part) not in state.part_items(report, args.id):
             named = f"record {args.record}'s part attr names {report.get('part') or 'none'}" if args.record else "no report record names it"
             raise DriveError(
                 f'--part "{args.part}": refused, {named}; a post delivers a part only through the report record whose part attr names it:'
-                " pass --record <that record's seq>"
+                f" pass --record <that record's seq>; a part a post of the drive already answered is marked from the session holding {args.id}"
+                f' with drive order posted {args.id} {args.link} --part "{args.part}", posting nothing'
             )
         return emit(args, *record_post(name, args.id, args.link, report))
     [undone] = pick_parts(args.id, order, [args.part] if args.part else [])
@@ -776,7 +777,9 @@ def communicators_order(data: dict, order_id: str) -> dict:
     if state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) != "communicator":
         raise DriveError(
             "only the communicator records a post in an order's thread or takes back a part's mark: send the post's facts as a report record"
-            f" to communicator@{data['name']}, its part or close attr naming what it delivers, and the communicator's handler posts it and records it"
+            f" to communicator@{data['name']}, its part or close attr naming what it delivers, and the communicator's handler posts it and records it;"
+            f' a part a post of the drive already answered is marked from the session holding {order_id} with drive order posted {order_id} <that post\'s link> --part "<part>",'
+            " with or without --record, posting nothing"
         )
     return find(data["orders"], order_id, "order")
 
@@ -822,22 +825,29 @@ def thread_refusal(data: dict, order_id: str, where: tuple[str, str | None], rep
 
 
 def reported_parts(order_id: str, order: dict, report: dict) -> list[str]:
-    """The parts of the order a post delivers: the part its report names, or each part of an order its report closes. A post whose report names neither part nor close, whatever job it names, or that carries no report is a progress line that delivers none, on an order of one part as on one of several."""
-    if part := report.get("part"):
-        return pick_parts(order_id, order, [part])
+    """The parts of the order a post delivers: each its report's part attr names on this order, or each part of an order its report closes. A post whose report names neither part nor close, whatever job it names, or that carries no report is a progress line that delivers none, on an order of one part as on one of several."""
+    if named := [part for on, part in state.part_items(report, order_id) if on == order_id]:
+        return pick_parts(order_id, order, named)
     if order_id in state.closed_orders(report):
         return list(order["parts"])
     return []
 
 
 def record_post(name: str, order_id: str, link: str, report: dict) -> tuple[str, dict]:
-    """Record the drive's post in an order's thread: the promised time it keeps, the time its words promise his next line by, the order's last line, and the parts its report delivers."""
+    """Record the drive's post on the order it went out on and on each other order an item of its report's part attr names, so one post in a thread two orders share delivers on both."""
+    others = dict.fromkeys(on for on, _ in state.part_items(report, order_id) if on != order_id)
+    first, *rest = [record_on(name, each, link, report) for each in [order_id, *others]]
+    return "; ".join(line for line, _ in [first, *rest]), first[1] | ({"also": [fields for _, fields in rest]} if rest else {})
+
+
+def record_on(name: str, order_id: str, link: str, report: dict) -> tuple[str, dict]:
+    """Record the drive's post on one order: the promised time it keeps, the time its words promise his next line by, the order's last line, and the parts its report delivers there."""
     data = state.load(name)
     order = communicators_order(data, order_id)
     if refused := report_refusal(data, order_id, report):
         raise DriveError(refused)
     delivered = reported_parts(order_id, order, report)
-    posted, ours = drive_post_at(link, data, order_id, bool(report.get("part")))
+    posted, ours = drive_post_at(link, data, order_id, any(on == order_id for on, _ in state.part_items(report, order_id)))
     at = slack.sent_at(posted)
     line = state.stamp(at)
     closing = order_id in state.closed_orders(report)
@@ -2877,16 +2887,17 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument(
         "--part",
         help=(
-            "with --undo, the part whose mark it takes back; with --record, only the part its part attr names; from the session"
-            " holding the order with no --record, the part the drive's post at the link already answered, posting nothing"
+            "with --undo, the part whose mark it takes back; from the communicator with --record, only a part its part attr names;"
+            " from the coordinator or meta session holding the order, with or without --record, or the communicator holding it with none, the part the drive's post at the link already answered, posting nothing"
         ),
     )
     verb.add_argument(
         "--record",
         metavar="SEQ",
         help=(
-            "the report record the post carries: it delivers the part its part attr names, counted in any channel, or each part of"
-            " an order its close attr names; a record naming neither is a progress line and delivers no part"
+            "the report record the post carries: it delivers each part its part attr names, `<o>:<part>` items separated by `;`, on"
+            " this order and every other order an item names, counted in any channel, or each part of an order its close attr"
+            " names; a record naming neither is a progress line and delivers no part"
         ),
     )
     verb.set_defaults(run=order_posted)

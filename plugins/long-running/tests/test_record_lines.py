@@ -290,7 +290,7 @@ def test_a_post_report_names_what_its_post_finishes_and_the_last_part_of_an_orde
     reason = refusal(record_lines.decision(coordinator(turn, **merged, attrs={"job": "j1"})))
     assert "here o1, the open order it is about" in reason and 'one of "cause", "fix"' in reason and "`--attr progress=true`" in reason
     reason = refusal(record_lines.decision(coordinator(turn, **merged)))
-    assert "`--attr close=<o,…>` naming each order it finishes, `--attr part=<name>` naming the part it delivers, or" in reason
+    assert "`--attr close=<o,…>` naming each order it finishes, `--attr part=<o>:<part>` naming the part it delivers, or" in reason
     for named in ({"job": "j1", "close": "o1"}, {"job": "j1", "part": "cause"}, {"job": "j1", "progress": "true"}, {"catch_up": "true"}, {"close": "o1"}):
         assert record_lines.decision(coordinator(turn, **merged, attrs=named)) is None
     assert record_lines.decision(coordinator(turn, kind="report", text="FYI the search worker's fix merged", to=TO, attrs={"job": "j1"})) is None
@@ -304,6 +304,42 @@ def test_a_post_report_names_what_its_post_finishes_and_the_last_part_of_an_orde
     with state.edit(demo) as data:
         data["orders"]["o1"]["state"] = "done"
     assert "the open order it is about" not in refusal(record_lines.decision(coordinator(turn, **merged, attrs={"job": "j1"})))
+
+
+def test_a_post_report_on_an_order_carries_each_part_a_finished_job_answered_and_no_post_delivered(
+    run: Callable[..., tuple[int, str]], demo: str, turn: Path
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "why does the search worker OOM?", "--parts", "cause", "fix")
+    run("job", "add", "reader", "--order", "o1", "--part", "cause", "--goal", "find the cause")
+    progress = {"kind": "report", "text": "POST the search worker's fix is building", "to": TO}
+    assert record_lines.decision(coordinator(turn, **progress, attrs={"job": "j1", **PROGRESS})) is None
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["state"] = "done"
+    reason = refusal(record_lines.decision(coordinator(turn, **progress, attrs={"job": "j1", **PROGRESS})))
+    assert 'o1\'s "cause" was answered by j1, which finished' in reason and '`--attr part="o1:cause"`' in reason
+    assert 'drive order posted o1 <that post\'s link> --part "cause"' in reason
+    assert '`--attr part="o1:fix;o1:cause"`' in refusal(record_lines.decision(coordinator(turn, **progress, attrs={"job": "j1", "part": "fix"})))
+    for carried in ({"job": "j1", "part": "cause"}, {"job": "j1", "part": "o1:cause"}, {"job": "j1", "close": "o1"}):
+        assert record_lines.decision(coordinator(turn, **progress, attrs=carried)) is None
+    assert record_lines.decision(coordinator(turn, kind="report", text="FYI j1 found the cause", to=TO, attrs={"job": "j1"})) is None
+    run("job", "add", "reader", "--order", "o1", "--part", "cause", "--goal", "check the cause again")
+    assert record_lines.decision(coordinator(turn, **progress, attrs={"job": "j1", **PROGRESS})) is None
+    with state.edit(demo) as data:
+        data["jobs"]["j2"]["state"] = "stopped"
+        data["orders"]["o1"]["parts"]["cause"]["posted"] = CARD
+    assert record_lines.decision(coordinator(turn, **progress, attrs={"job": "j1", **PROGRESS})) is None
+
+
+def test_a_part_attr_names_parts_of_several_orders_and_each_must_be_one_the_drive_holds(run: Callable[..., tuple[int, str]], demo: str, turn: Path) -> None:
+    run("order", "add", "--project", "Platform", "--workstream", "Search", "fix the search worker", "--parts", "fix", "first check")
+    run("order", "add", "--project", "Platform", "--workstream", "Search", "raise its RAM", "--parts", "increase the RAM")
+    shared = {"kind": "report", "text": "POST the search worker's fix and its RAM increase are live", "to": TO}
+    assert record_lines.decision(coordinator(turn, **shared, attrs={"order": "o1", "part": "fix;o2:increase the RAM", "close": "o2"})) is None
+    assert 'delivers "increase the RAM", the last part of o2' in refusal(record_lines.decision(coordinator(turn, **shared, attrs={"order": "o1", "part": "fix;o2:increase the RAM"})))
+    reason = refusal(record_lines.decision(coordinator(turn, **shared, attrs={"order": "o1", "part": "o1:the fix", **PROGRESS})))
+    assert 'o1 has no part "the fix"' in reason and reason.endswith('its parts: "fix", "first check"')
+    assert "names o9, no order of drive demo" in refusal(record_lines.decision(coordinator(turn, **shared, attrs={"order": "o1", "part": "fix;o9:fix"})))
+    assert state.part_items({"part": "first check; o2:increase the RAM"}, "o1") == [("o1", "first check"), ("o2", "increase the RAM")]
 
 
 def test_the_coordinator_sends_one_report_per_thread_per_turn(demo: str, turn: Path) -> None:

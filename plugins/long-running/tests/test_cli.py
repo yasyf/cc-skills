@@ -4082,7 +4082,8 @@ def test_only_the_communicator_marks_an_answer_posted_and_the_coordinator_is_tol
     assert cli.main(["order", "posted", "o1", "https://acme.slack.com/archives/D1/p2"]) == 2
     assert (
         "only the communicator records a post in an order's thread or takes back a part's mark: send the post's facts as a report record"
-        " to communicator@demo, its part or close attr naming what it delivers, and the communicator's handler posts it and records it"
+        " to communicator@demo, its part or close attr naming what it delivers, and the communicator's handler posts it and records it;"
+        ' a part a post of the drive already answered is marked from the session holding o1 with drive order posted o1 <that post\'s link> --part "<part>"'
     ) in capsys.readouterr().err
     assert state.load("demo")["orders"]["o1"]["parts"]["why?"]["posted"] is None
 
@@ -4109,7 +4110,9 @@ def test_a_part_is_delivered_only_by_the_report_record_that_names_it_and_a_post_
         " pass --record <that record's seq>"
     ) in capsys.readouterr().err
     assert cli.main(["order", "posted", "o1", line, "--part", "fix", "--record", "661301"]) == 2
-    assert "record 661301's part attr names none" in capsys.readouterr().err
+    refused = capsys.readouterr().err
+    assert "record 661301's part attr names none" in refused
+    assert f'marked from the session holding o1 with drive order posted o1 {line} --part "fix", posting nothing' in refused
     assert run("order", "posted", "o1", line) == (0, f"o1 progress line, no part delivered: {line}")
     assert state.load("demo")["orders"]["o1"]["parts"]["fix"]["posted"] is None
     assert run("order", "posted", "o1", line, "--record", "661300") == (0, f'o1 "fix": posted {line}')
@@ -4127,6 +4130,24 @@ def test_the_session_holding_an_order_closes_a_part_by_the_drives_post_that_alre
     assert run("order", "posted", "o1", answered, "--part", "cause") == (0, f'o1 "cause": posted {answered}, the post that answered it')
     parts = state.load("demo")["orders"]["o1"]["parts"]
     assert (parts["cause"]["posted"], parts["fix"]["posted"]) == (answered, None)
+    assert run("order", "posted", "o1", answered, "--part", "fix", "--record", "670354") == (0, f'o1 "fix": posted {answered}, the post that answered it')
+    assert state.load("demo")["orders"]["o1"]["parts"]["fix"]["posted"] == answered
+
+
+def test_one_post_delivers_each_part_its_report_names_on_every_order_an_item_names(
+    run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--project", "p", "--workstream", "w", "fix the search worker", "--thread", "1794200000.000100", "--parts", "fix", "first check")
+    run("order", "add", "--project", "p", "--workstream", "w", "raise its RAM", "--thread", "1794200000.000100", "--parts", "increase the RAM")
+    run("start", "demo", "--role", "communicator")
+    with state.edit("demo") as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    report_records(monkeypatch, {"671700": {"part": "fix;o2:increase the RAM"}})
+    line = slack_thread.post(state.now(), from_claude=True)
+    assert run("order", "posted", "o1", line, "--part", "fix", "--record", "671700") == (0, f'o1 "fix": posted {line}; o2 "increase the RAM": posted {line}')
+    orders = state.load("demo")["orders"]
+    assert (orders["o1"]["parts"]["fix"]["posted"], orders["o1"]["parts"]["first check"]["posted"], orders["o2"]["parts"]["increase the RAM"]["posted"]) == (line, None, line)
 
 
 def test_order_posted_on_the_communicators_own_order_takes_the_report_its_handler_wrote_from_the_communicators_lane(

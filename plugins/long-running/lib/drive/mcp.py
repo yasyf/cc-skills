@@ -103,8 +103,9 @@ SAY = {
             "record": {
                 "type": "string",
                 "description": (
-                    "The seq of the report record this post carries. With order, the post delivers the part its part attr names,"
-                    " or every part when its close attr names the order; a record naming neither, as one with progress=true, is a progress line"
+                    "The seq of the report record this post carries. With order, the post delivers each part its part attr names,"
+                    " `<o>:<part>` items separated by `;`, on this order and every other order an item names, or every part when its"
+                    " close attr names the order; a record naming neither, as one with progress=true, is a progress line"
                     " delivering no part, whatever job it names, and so is a post with no record. The record is the order's holder's: on an"
                     " order the communicator holds, such as his read-only question, a report the handler posts from the communicator's"
                     " lane, and on one the meta session holds, a report from the meta lane, since a coordinator's report is refused"
