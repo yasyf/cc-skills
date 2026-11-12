@@ -199,6 +199,13 @@ def landers(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, ...]]:
 
 
 @pytest.fixture(autouse=True)
+def provers(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    started: list[str] = []
+    monkeypatch.setattr(watch, "prove", lambda name, job_id: started.append(job_id) or os.getpid())
+    return started
+
+
+@pytest.fixture(autouse=True)
 def checkers(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     started: list[str] = []
     monkeypatch.setattr(served, "spawn", lambda name, key: started.append(key) or os.getpid())
