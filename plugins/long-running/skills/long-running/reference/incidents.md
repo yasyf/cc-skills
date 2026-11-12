@@ -65,8 +65,8 @@ changed and when, its findings the suspects, and its root cause the verdict.
   cause. Read `ccn investigation show <id>` before any line about the cause.
 - **A later alert or question** about a service whose incident is open joins it, with no job of
   its own: `drive order add "<his words, or the alert text>" --from slack:<channel>/<ts> --joins
-  <o> --project "<o's project>" --workstream "<o's workstream>"`. It takes the parts
-  his words ask for with `drive order set <new> --parts "<part>"`, and the owner carries it with
+  <o> --alert <its link> --project "<o's project>" --workstream "<o's workstream>"`. It takes the
+  parts his words ask for with `drive order set <new> --parts "<part>"`, and the owner carries it with
   `drive job set <owner> --carries <new> --part "<part>"`. `--joins` refuses an order that is
   closed or no incident. The order keeps what it joins, and the incident and each alert joined to it
   share their threads both ways, so `say` and `drive order posted` take a line on any of them in any
@@ -82,7 +82,10 @@ changed and when, its findings the suspects, and its root cause the verdict.
    makes this a join, by [One incident, one record](#one-incident-one-record), and nothing below
    starts. Otherwise, open it in one call, filed under the area it hit: `drive incident open "<his
    words, or the alert text>" --from slack:<channel>/<ts> --record "<service> on <cluster>:
-   <symptom>, since <time>" --release --due +5m --project "<p>" --workstream "<w>"`.
+   <symptom>, since <time>" --alert <link> --release --due +5m --project "<p>" --workstream "<w>"`.
+   - `--alert`, once for each alert, is its Datadog monitor or Sentry issue link, from the alert's
+     post; `drive order set <o> --alert <link>` adds one later. An incident from his words alone
+     has none.
    - `--release`, when a release or new build came before the break, gives it the parts `fix` and
      `first check`. With neither flag they are `fix`, `rollback` and `cause`, and with
      `--no-rollback`, when no build lacks the failing path, `fix`, `stop` and `cause`.
@@ -363,3 +366,16 @@ The steps, in order:
 Step 8's `report` carries `--attr close=<o>`, and its handler closes the order once the line is in
 the thread and its reporter, if any, has heard, which takes it off the dashboard's top strip, since
 the strip shows live incidents only.
+
+On an incident with a Datadog monitor recorded, the watch sends step 8 itself. It reads every such
+monitor in one search a minute, and once all of an incident's read OK and a release shipped a job
+or PR on its `fix` part, it:
+
+- moves each open PR of its orders, each live job on a part beyond the incident's own, and each
+  such part not delivered, to a plain build order in the same thread;
+- keeps the monitors and the release as each order's proof, and takes the incident off the strip;
+- sends the communicator the step 8 `report`, closing each order of the incident, and tells you
+  `RECOVERED o<n>`.
+
+A monitor that recovers alone, a rollback, or a stop's release never closes it. An incident with
+no monitor recorded, a Sentry issue's or his words', keeps the `LIVE` line and your step 8.

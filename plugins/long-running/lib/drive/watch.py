@@ -8,6 +8,7 @@ import os
 import re
 import shlex
 import subprocess
+import tempfile
 import time
 import traceback
 from collections.abc import Callable
@@ -275,7 +276,7 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
         for job_id, job in data["jobs"].items():
             if not heard_job(watcher, data, job) or view.open_cards(job, watcher.cards):
                 continue
-            fixing(data, [job["order"], *job["carries"]], job, out)
+            fixing(data, [job["order"], *job["carries"]], job, job, out)
             if (ended := released(data, job, watcher.cards, out)) and job["state"] not in state.FINISHED_JOB_STATES:
                 job["updated"] = state.stamp(moment)
                 for order_id in [job["order"], *job["carries"]]:
@@ -289,7 +290,7 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
         for key, pr in data["prs"].items():
             if not hears(watcher, data, pr["order"]):
                 continue
-            fixing(data, [pr["order"]], pr, out)
+            fixing(data, [pr["order"]], pr, data["jobs"][pr["job"]], out)
             waited = pr["waits"]
             if (ended := released(data, pr, watcher.cards, out)) and pr["state"] == "open":
                 lines.append(f"FREE {key} {pr['job']} {pr['order']}: {ended}, nothing else holds it")
@@ -308,24 +309,128 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
     return lines
 
 
-def fixing(data: dict, order_ids: list[str], owner: dict, out: dict[str, str]) -> None:
-    """Keep on each open incident order a job or PR serves each release out that ships it, read under the lock that drops its wait, so the watch hearing the order says it whichever watch dropped it."""
+def fixing(data: dict, order_ids: list[str], owner: dict, job: dict, out: dict[str, str]) -> None:
+    """Keep on each open incident order a job or PR serves each release out that ships it, read under the lock that drops its wait, so the watch hearing the order says it whichever watch dropped it, and as the release of its fix when the job, the PR's own, carries the order's fix part."""
     for order_id in state.open_incidents(data, order_ids):
         for wait in owner["waits"]:
             if wait in out:
                 data["orders"][order_id]["shipped"].setdefault(out[wait], None)
+                if state.INCIDENT_FIX in state.job_parts(job, order_id):
+                    data["orders"][order_id]["fixed"] = out[wait]
 
 
 def unsaid_fixes(watcher: Watcher, data: dict) -> dict[str, list[str]]:
-    """Each open incident order the watch hears with releases kept that LIVE has not said, once no live job or open PR serving it, whichever watch hears them, still waits on a release."""
+    """Each open incident order the watch hears with releases kept that LIVE has not said, once no live job or open PR serving it, whichever watch hears them, still waits on a release; an incident with a monitor recorded is the watch's own to close."""
     pending = {order_id for order_ids, owner in release_owners(data) if any(map(state.RELEASE_WAIT.fullmatch, owner["waits"])) for order_id in order_ids}
     return {
         order_id: unsaid
         for order_id in state.open_incidents(data, list(data["orders"]))
         if order_id not in pending
         and hears(watcher, data, order_id)
+        and not monitors(data, order_id)
         and (unsaid := [shipping for shipping, said in data["orders"][order_id]["shipped"].items() if said is None])
     }
+
+
+def monitors(data: dict, order_id: str) -> dict[str, str]:
+    """The link of each Datadog monitor recorded on the orders of an order's incident, by its id."""
+    links = (link for other in state.incident_orders(data, order_id) for link in data["orders"][other]["alerts"])
+    return {found[1]: link for link in links if (found := state.DATADOG_MONITOR.fullmatch(link))}
+
+
+def recovered_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Read every monitor recorded on the open incidents the watch hears in one Datadog search, and close each incident once all its monitors read OK and a release shipped its fix: what is left of it moves to a plain order, and a POST report hands the communicator the Live line for its thread, whose handler closes each order of it."""
+    data = state.load(watcher.name)
+    watched = {
+        head: found
+        for head in state.open_incidents(data, list(data["orders"]))
+        if not data["orders"][head]["joins"] and not data["orders"][head]["recovered"] and hears(watcher, data, head) and (found := monitors(data, head))
+    }
+    if not watched:
+        return []
+    ids = sorted({monitor for found in watched.values() for monitor in found})
+    argv = ["pup", "--no-agent", "monitors", "search", "--query", f"id:({' OR '.join(ids)})", "--per-page", str(len(ids)), "--jq", ".monitors | map({id, status})"]
+    try:
+        read = json.loads(reads.run(argv, Path(data["roles"]["coordinator"]["cwd"])))
+    except reads.ReadError as error:
+        return read_failed(watcher, "datadog monitors", error, moment)
+    watcher.failures.pop("datadog monitors", None)
+    ok = {str(monitor["id"]) for monitor in read if monitor["status"] == "OK"}
+    lines = []
+    for head, found in watched.items():
+        if data["orders"][head]["fixed"] and found.keys() <= ok:
+            lines += closed(watcher, head, list(found.values()), moment)
+    return lines
+
+
+def closed(watcher: Watcher, head: str, links: list[str], moment: datetime) -> list[str]:
+    """Close an incident that is over: its live work moves to a plain order and each of its orders keeps the recovery and the fix's release as its proof, then a POST report names each order for the communicator's handler to post in its thread and close; a post that fails goes again next read."""
+    with state.edit(watcher.name) as data:
+        group = state.open_incidents(data, state.incident_orders(data, head))
+        incident = data["orders"][head]
+        follow = follow_up(data, head, group, state.stamp(moment))
+        for order_id in group:
+            data["orders"][order_id]["proof"] = data["orders"][order_id]["proof"] or f"{', '.join(links)} read OK at {when(state.stamp(moment))}; {incident['fixed']}"
+    pr = state.PR_KEY.search(incident["fixed"])
+    facts = [
+        f"Incident: {incident['text']}",
+        f"Recovered: {', '.join(links)} read OK",
+        f"Fix live: {incident['fixed']}" + (f", {state.pr_url(pr[0])}" if pr else ""),
+        f"Note: {incident['note']}",
+    ]
+    text = f"POST incident {head} is over: its monitors read OK and its fix is live; post the Live line in its thread"
+    with tempfile.NamedTemporaryFile("w", suffix=".md") as body:
+        body.write("\n".join(facts) + "\n")
+        body.flush()
+        argv = ["cci", "post", "--drive", watcher.name, "--lane", LANE, "--kind", "report", "--to", f"communicator@{watcher.name}", "--topic", f"watch-recovered-{head}"]
+        argv += ["--attr", f"close={','.join(group)}", *(["--attr", f"thread={incident['thread']}"] if incident["thread"] else []), "--body-file", body.name, "--text", text]
+        try:
+            reads.run(argv, Path(data["roles"]["coordinator"]["cwd"]))
+        except reads.ReadError as error:
+            return failed(watcher, f"close of {head}", f"close report post of {head} to the communicator", error, moment)
+    watcher.failures.pop(f"close of {head}", None)
+    with state.edit(watcher.name) as data:
+        for order_id in group:
+            data["orders"][order_id]["recovered"] = state.stamp(moment)
+    moved = f"; its live jobs, open PRs and parts left moved to the plain order {follow}" if follow else ""
+    return [f"RECOVERED {head}: {', '.join(links)} read OK and {incident['fixed']}, so the communicator posts its Live line and closes {', '.join(group)}{moved}"]
+
+
+def follow_up(data: dict, head: str, group: list[str], created: str) -> str | None:
+    """Move what is left of an incident that is over to a plain build order in its thread, so closing it leaves no work on it: each open PR of its orders and that PR's job, each part of the head beyond the incident's own not yet delivered, and each live job carrying one; that order's id, also on the head's note, or None when nothing is left."""
+    own = {state.INCIDENT_FIX, *(part for parts in state.INCIDENT_PARTS.values() for part in parts)}
+    incident = data["orders"][head]
+    left = [part for part in incident["parts"] if part not in own and not state.delivered(data, head, part)]
+    prs = [pr for pr in state.open_prs(data) if pr["order"] in group]
+    live = [job_id for job_id, job in data["jobs"].items() if job["state"] not in state.FINISHED_JOB_STATES and set(state.job_parts(job, head)) & set(left)]
+    jobs = list(dict.fromkeys([*(pr["job"] for pr in prs), *live]))
+    if not (left or jobs):
+        return None
+    order_id = state.next_id(data["orders"], "o")
+    parts = {part: incident["parts"].pop(part) for part in left}
+    follow = data["orders"][order_id] = state.new_order(incident["text"], incident["from"], incident["from_thread"], incident["thread"], parts, created) | {
+        "owner": incident["owner"],
+        "project": incident["project"],
+        "workstream": incident["workstream"],
+        "note": f"follow-up of incident {head}",
+    }
+    for job_id in jobs:
+        job = data["jobs"][job_id]
+        served = list(dict.fromkeys(part for other in group for part in state.job_parts(job, other)))
+        for other in group:
+            job["carries"].pop(other, None)
+            if job_id in data["orders"][other]["jobs"]:
+                data["orders"][other]["jobs"].remove(job_id)
+        if job["order"] in group:
+            job["order"], job["parts"] = order_id, served
+        else:
+            job["carries"][order_id] = served
+        follow["jobs"].append(job_id)
+        follow["parts"] |= {part: state.new_part() for part in served if part not in follow["parts"]}
+    for pr in prs:
+        pr["order"] = order_id
+    incident["note"] = "; ".join(filter(None, [incident["note"], f"follow-up {order_id}"]))
+    return order_id
 
 
 def settle_lines(watcher: Watcher, moment: datetime) -> list[str]:
@@ -1493,6 +1598,7 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
         lines += settle_lines(watcher, moment)
         lines += rework_lines(watcher, moment)
         lines += waits_lines(watcher, moment)
+        lines += recovered_lines(watcher, moment)
         lines += ready_lines(watcher, moment)
         lines += unchecked_lines(watcher, moment)
         lines += waiting_lines(watcher, moment)

@@ -17,8 +17,6 @@ from drive.state import DriveError
 
 DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 ROLE_NAMES = {"coordinator": "top coordinator", "communicator": "communicator", "meta": "meta session"}
-INCIDENT_FIX = "fix"
-INCIDENT_PARTS = {"release": ["first check"], "rollback": ["rollback", "cause"], "none": [state.INCIDENT_STOP, "cause"]}
 FREEZE_FOR = timedelta(hours=12)
 RELEASE_NAME = re.compile(r"[a-z]+-[a-z]+")
 INCIDENT_EXEMPTION = "incident fix"
@@ -47,6 +45,10 @@ PROMISED_TIME = re.compile(
 REPORTER_HELP = (
     "the bug report the order fixes, by its Slack permalink or slack:<channel>/<its thread's ts>, from the share or link in his"
     " words: its thread gets one fix-live note once the fix is proven live, and done refuses until drive order told records it"
+)
+ALERT_HELP = (
+    "the Datadog monitor or Sentry issue link of the alert it is, again for each: the watch reads each monitor every minute and"
+    " closes the incident once all read OK and a release shipped its fix"
 )
 REWORK_HELP = (
     "a PR his words rework, by its url or key, named only once its stack's His words, step by step read against them leave"
@@ -234,10 +236,10 @@ def withdrawn_cards(name: str, prs: dict[str, dict]) -> list[str]:
 def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[str]]:
     name = state.resolve(args.drive)
     created = state.stamp()
-    if args.incident and not args.joins and INCIDENT_FIX not in (args.parts or []):
+    if args.incident and not args.joins and state.INCIDENT_FIX not in (args.parts or []):
         raise DriveError(
-            f'an incident order starts its fix job at the alert, beside diagnosis: name "{INCIDENT_FIX}" among --parts, such as'
-            f' --parts {INCIDENT_FIX} "first check", or pass --joins <o> when an open incident order covers the same failing service'
+            f'an incident order starts its fix job at the alert, beside diagnosis: name "{state.INCIDENT_FIX}" among --parts, such as'
+            f' --parts {state.INCIDENT_FIX} "first check", or pass --joins <o> when an open incident order covers the same failing service'
         )
     from_thread = source_thread(args.source)
     reported = state.reporter(args.reporter) if args.reporter else None
@@ -246,6 +248,7 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
             "--options-only: refused, an incident order is never limited to options, since its codex jobs start at the alert, before he picks;"
             " add it without --incident and --joins when he asked for options only, or without --options-only when it is an incident"
         )
+    alerts = alert_links(args.alerts)
     tooling = args.words.startswith(state.TOOLING)
     if tooling:
         held = next((order_id for order_id, order in state.open_orders(state.load(name)).items() if order["text"] == args.words), None)
@@ -275,24 +278,12 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
             raise DriveError(f"--joins {args.joins}: name an open incident order; {args.joins} is {joined['state']}{'' if joined['incident'] else ', not an incident'}")
         incidents = [render.incident_line(other_id, other) for other_id, other in state.open_orders(data).items() if args.incident and not joined and other["incident"]]
         order_id = state.next_id(data["orders"], "o")
-        order = data["orders"][order_id] = {
-            "text": args.words,
-            "from": args.source,
-            "from_thread": from_thread,
-            "thread": args.thread or from_thread,
-            "state": "open",
+        parts = {part: state.new_part() for part in args.parts or [state.whole_order(args.words)]}
+        order = data["orders"][order_id] = state.new_order(args.words, args.source, from_thread, args.thread or from_thread, parts, created) | {
             "due": due_stamp(args.due) if args.due else None,
-            "due_said": None,
             "promised": created if args.due else None,
-            "next_due": None,
-            "next_set": None,
-            "kept": None,
-            "withdrawn": None,
-            "jobs": [],
-            "releases": {},
-            "shipped": {},
+            "alerts": alerts,
             "reporter": reported,
-            "parts": {part: state.new_part() for part in args.parts or [state.whole_order(args.words)]},
             "incident": args.incident or joined is not None,
             "kind": "build" if args.incident or joined is not None else args.kind,
             "complex": args.complex,
@@ -301,12 +292,8 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
             "owner": owner,
             "project": project,
             "workstream": workstream,
-            "proof": None,
             "note": joined and joined["note"],
             "joins": joined and (joined["joins"] or args.joins),
-            "created": created,
-            "updated": created,
-            "last_line": None,
         }
         if args.due:
             need_thread(data, order_id, order)
@@ -316,10 +303,19 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
     return order_id, order, started, incidents
 
 
+def alert_links(links: list[str]) -> list[str]:
+    if wrong := [link for link in links if not (state.DATADOG_MONITOR.fullmatch(link) or state.SENTRY_ISSUE.fullmatch(link))]:
+        raise DriveError(
+            f"--alert {wrong[0]}: refused, name the alert by its Datadog monitor link, https://app.datadoghq.com/monitors/<id>,"
+            " or its Sentry issue link, https://<org>.sentry.io/issues/<id>"
+        )
+    return links
+
+
 def incident_open(args: argparse.Namespace) -> int:
     """Open an incident in one call: his order, a job on its fix beside a job on each diagnosis part, and the evidence record its note names."""
     name = state.resolve(args.drive)
-    args.parts = [INCIDENT_FIX, *INCIDENT_PARTS["release" if args.release else "none" if args.no_rollback else "rollback"]]
+    args.parts = [state.INCIDENT_FIX, *state.INCIDENT_PARTS["release" if args.release else "none" if args.no_rollback else "rollback"]]
     order_id, order, started, incidents = added_order(args)
     data = state.load(name)
     argv = ["ccn", "investigation", "open", args.record, "--body", f"{args.words}\n\nFrom {args.source}", "--label", f"drive:{name}", "--label", "incident", "--json"]
@@ -539,6 +535,7 @@ def order_set(args: argparse.Namespace) -> int:
         check_tooling_words(args.words)
     if args.proof is not None:
         check_proof(args.proof)
+    alerts = alert_links(args.alerts)
     if (order["incident"] if args.incident is None else args.incident) and (order["options_only"] if args.options_only is None else args.options_only):
         raise DriveError(
             f"{args.id}: refused, an incident order is never limited to options, since its codex jobs start at the alert, before he picks:"
@@ -594,13 +591,14 @@ def order_set(args: argparse.Namespace) -> int:
                 )
         if args.state:
             order["state"] = args.state
+        order["alerts"] = list(dict.fromkeys([*order["alerts"], *alerts]))
         if args.parts:
             refuse_a_renamed_change(data, args.id, args.parts)
             order["parts"] = {part: order["parts"].get(part, state.new_part()) for part in args.parts}
-        if args.incident and not order["incident"] and not any(INCIDENT_FIX in state.job_parts(data["jobs"][job_id], args.id) for job_id in order["jobs"]):
+        if args.incident and not order["incident"] and not any(state.INCIDENT_FIX in state.job_parts(data["jobs"][job_id], args.id) for job_id in order["jobs"]):
             raise DriveError(
-                f'{args.id}: refused, an incident order starts its fix job at the alert, beside diagnosis: give it a "{INCIDENT_FIX}"'
-                f" part with --parts and record its job with drive job add codex --order {args.id} --part {INCIDENT_FIX} --agent <id> first"
+                f'{args.id}: refused, an incident order starts its fix job at the alert, beside diagnosis: give it a "{state.INCIDENT_FIX}"'
+                f" part with --parts and record its job with drive job add codex --order {args.id} --part {state.INCIDENT_FIX} --agent <id> first"
             )
         if args.incident is not None:
             order["incident"] = args.incident
@@ -1041,18 +1039,18 @@ def fix_kept(data: dict, job_id: str) -> None:
     """His stop carries the scope his words give it, so nothing stops the last running job on an open incident's fix."""
     job = data["jobs"][job_id]
     for order_id in state.open_incidents(data, [job["order"], *job["carries"]]):
-        if INCIDENT_FIX not in state.job_parts(job, order_id) or any(
+        if state.INCIDENT_FIX not in state.job_parts(job, order_id) or any(
             other_id != job_id
             and other["state"] not in state.FINISHED_JOB_STATES
             and order_id in (other["order"], *other["carries"])
-            and INCIDENT_FIX in state.job_parts(other, order_id)
+            and state.INCIDENT_FIX in state.job_parts(other, order_id)
             for other_id, other in data["jobs"].items()
         ):
             continue
         raise DriveError(
             f"{job_id} is the last running job on incident {order_id}'s fix, and nothing stops an open incident's fix: his stop in one"
             ' thread stops that thread\'s work, as his "leave it alone here" of Nov 10 9:19 PM meant his own thread. Add the job that takes'
-            f" the fix over first, with drive job add <kind> --order {order_id} --part {INCIDENT_FIX}, or close {order_id} once its fix is live"
+            f" the fix over first, with drive job add <kind> --order {order_id} --part {state.INCIDENT_FIX}, or close {order_id} once its fix is live"
         )
 
 
@@ -2875,6 +2873,7 @@ def parser() -> argparse.ArgumentParser:
         ),
     )
     verb.add_argument("--reporter", metavar="LINK", help=REPORTER_HELP)
+    verb.add_argument("--alert", dest="alerts", action="append", default=[], metavar="LINK", help=ALERT_HELP)
     verb.add_argument(
         "--project",
         metavar="NAME",
@@ -2913,6 +2912,7 @@ def parser() -> argparse.ArgumentParser:
     reported.add_argument("--reporter", metavar="LINK", help=REPORTER_HELP)
     reported.add_argument("--no-reporter", metavar="LINK", help="his Slack message saying not to tell the bug's reporter; the order then closes done with no fix-live note")
     verb.add_argument("--incident", action=argparse.BooleanOptionalAction, help="mark or unmark it as an incident order")
+    verb.add_argument("--alert", dest="alerts", action="append", default=[], metavar="LINK", help=f"added to its alerts: {ALERT_HELP}")
     verb.add_argument(
         "--kind",
         choices=state.ORDER_KINDS,
@@ -2991,6 +2991,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--due", help="the time his ack promised a line by; the watch says DUE from then until a line is in the thread")
     verb.add_argument("--record", required=True, metavar="TITLE", help="the evidence record's title: <service> on <cluster>: <symptom>, since <time>")
     verb.add_argument("--reporter", metavar="LINK", help=REPORTER_HELP)
+    verb.add_argument("--alert", dest="alerts", action="append", default=[], metavar="LINK", help=ALERT_HELP)
     before = verb.add_mutually_exclusive_group()
     before.add_argument(
         "--release",
