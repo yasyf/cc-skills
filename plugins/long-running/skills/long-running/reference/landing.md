@@ -131,7 +131,7 @@ No tap and no green gate: by his standing rule a `yasyf/*` PR merges without ask
    on the head its builder pushes, once GitHub reads it free of conflicts, so nobody registers a
    rebased PR again. Once every PR the job's `READY` or `PUSHED` names merged and no lander still
    runs on one, the watch starts `drive job prove <j>`, which installs each plugin a `yasyf/*` merge
-   changes whose newest install lacks it, its other merges taken at once, runs the job's proof file with those plugins' `bin/` first on
+   changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, its other merges taken at once, runs the job's proof file with those plugins' `bin/` first on
    `PATH`, keeps its output beside the job's report, takes `DONE` on exit 0 or `BLOCKED` otherwise,
    and on a `DONE` that finishes the order sends the communicator its close report. The lander writes its output to the drive's `landings.log`, ending in one line of the PR's
    key and its outcome, such as `yasyf/cc-skills#7: merged at <sha>; …`. Its outcome reaches the

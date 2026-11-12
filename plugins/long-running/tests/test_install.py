@@ -72,6 +72,7 @@ HELPER_CARD = install.HELPER_ASKED.format(release="12.121.70")
 RESTART = ["capt-hook", "helper", "install"]
 BUILD = "b1u1d0f1x"
 URL = "https://github.com/yasyf/cc-skills/pull/7"
+HOOKS_URL = "https://github.com/yasyf/captain-hook/pull/709"
 RUN = subprocess.run
 
 
@@ -105,6 +106,7 @@ class FakeGit:
         self.app = config / "Captain Hook.app" / "Contents" / "Info.plist"
         self.helper = "12.121.70"
         self.proofs: set[str] = set()
+        self.changed = f"{FOLDER}/lib/drive/install.py"
 
     @property
     def helper(self) -> str:
@@ -194,7 +196,7 @@ class FakeGit:
         if cmd == BREW_TAP:
             return TAP_DIR + "\n"
         if verb[:1] == ["diff-tree"]:
-            return f"{FOLDER}/lib/drive/install.py\n"
+            return self.changed + "\n"
         if verb[:2] == ["rev-list", "--count"]:
             return "0\n" if verb[-1].removeprefix("^") in self.holding else "4\n"
         return ""
@@ -981,6 +983,59 @@ def test_a_proof_of_merges_in_two_repositories_whose_installs_hold_them_runs_the
     assert install.prove("demo", "j1", 900).startswith(f"j1: {install.PROVEN} on long-running@skills 1.0.2: {script} exits 0")
     assert git.claude_calls() == []
     assert state.load("demo")["jobs"]["j1"]["said"] == f"DONE {URL} {slack} live: {script} exits 0 on long-running@skills 1.0.2"
+
+
+def proving_hooks(config: Path, tmp_path: Path, fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch, app: str) -> tuple[FakeGit, Path]:
+    git = fake([BUILD], {BUILD, OLD_COMMIT, "v12.121.71"})
+    script = proving(config, tmp_path, git, 0)
+    marketplace = config / "hooks-m" / ".claude-plugin"
+    marketplace.mkdir(parents=True)
+    (marketplace / "marketplace.json").write_text(json.dumps({"plugins": [{"name": "captain-hook", "source": "./plugin"}]}))
+    known = json.loads((config / "plugins" / "known_marketplaces.json").read_text())
+    known["captain-hook"]["installLocation"] = str(config / "hooks-m")
+    (config / "plugins" / "known_marketplaces.json").write_text(json.dumps(known))
+    hooks = {"scope": "user", "version": "12.121.71", "lastUpdated": "2026-11-12T17:43:53.491Z", "installPath": "/cache/captain-hook/12.121.71", "gitCommitSha": OLD_COMMIT, "auto": True}
+    installed = json.loads((config / "plugins" / "installed_plugins.json").read_text())["plugins"]
+    git.write_installed(installed | {"captain-hook@captain-hook": [hooks]})
+    git.versions = {"captain-hook": "12.121.71"}
+    git.helper = app
+    monkeypatch.setattr(github, "read", lambda what, cmd, max_age="0s", text=True: "v12.121.71\n")
+    monkeypatch.setattr(settled, "ccn", lambda argv, text, cwd, failure: "[]")
+    with state.edit("demo") as data:
+        data["jobs"]["j1"].update(said=f"PUSHED {HOOKS_URL}", prs=[HOOKS_URL])
+        data["prs"]["yasyf/captain-hook#709"] = state.new_pr(HOOKS_URL, "j1", "o1") | {"state": "merged", "merged_sha": SHA, "title": "Fix: the process guard"}
+    return git, script
+
+
+def test_a_proof_of_a_captain_hook_merge_claude_code_updated_the_plugin_to_installs_it_while_captain_hook_app_lacks_it(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    git, script = proving_hooks(config, tmp_path, fake, monkeypatch, "12.121.70")
+    install.prove("demo", "j1", 900)
+    card = install.HELPER_ASKED.format(release="12.121.71")
+    assert state.load("demo")["jobs"]["j1"]["said"].startswith(f'BLOCKED {HOOKS_URL}: not installed, so {script} did not run: holds captain-hook@captain-hook for his card "{card}"')
+    assert [*install.FETCH, "+refs/tags/v12.121.70:refs/tags/v12.121.70"] in git.git_calls()
+    assert (git.claude_calls(), RESTART in git.calls, git.helper) == ([], False, "12.121.70")
+
+
+def test_a_proof_of_a_captain_hook_merge_captain_hook_app_holds_runs_the_proof_file_with_no_install(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    git, script = proving_hooks(config, tmp_path, fake, monkeypatch, "12.121.71")
+    install.prove("demo", "j1", 900)
+    assert state.load("demo")["jobs"]["j1"]["said"] == f"DONE {HOOKS_URL} live: {script} exits 0 on captain-hook@captain-hook 12.121.71"
+    assert (git.claude_calls(), RESTART in git.calls) == ([], False)
+
+
+def test_a_proof_of_a_merge_whose_plugin_holds_it_but_whose_bare_homebrew_binary_lacks_it_installs_it(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
+    git = fake([BUILD], {BUILD, OLD_COMMIT, "v0.95.72"})
+    git.changed = "plugins/cc-context/bin/ccx.binrun"
+    git.bare = ["v0.95.71", "v0.95.72"]
+    script = proving(config, tmp_path, git, 0)
+    install.prove("demo", "j1", 900)
+    assert ["claude", "plugin", "update", "cc-context@skills", "--scope", "user"] in git.calls
+    assert upgrade("ccx") in git.calls
+    assert state.load("demo")["jobs"]["j1"]["said"] == f"DONE {URL} live: {script} exits 0 on cc-context@skills 1.0.3"
 
 
 def test_a_proof_of_a_yasyf_merge_beside_a_product_merge_installs_the_yasyf_one_alone_and_runs_the_proof_file(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
