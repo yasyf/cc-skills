@@ -780,7 +780,7 @@ class SpriteTest(LaunchTest):
         self.assert_failed(self.launch, result, f"{self.launch.attempt} prepared a Sprite for another version of this brief, and its worker-start started no worker; launch the brief it prepared", [*calls, VERSION, CURRENT])
         self.assertEqual(self.launch.receipt("worker-start.unsent"), f"{REQUEST}\n")
 
-    def test_a_sprite_that_cannot_take_the_released_tools_stays_idle_and_unattached(self):
+    def test_a_sprite_that_cannot_take_the_released_tools_stays_idle_and_a_relaunch_reruns_them_on_it(self):
         unreleased = {"out": "v0.95.43\n"}
         refused = {"rc": 1, "err": "a login shell runs ccx from /usr/local/bin/ccx, printing 'v0.89.18', not v0.95.43 from /home/sprite/.local/bin/ccx\n"}
         cases = (
@@ -792,9 +792,16 @@ class SpriteTest(LaunchTest):
                 launch = self.fresh()
                 launch.sprite()
                 launch.reply(command, *replies)
-                line = f"the Sprite did not take the released ccx and cc-notes or the wasm toolchain: {reason}; the prepared worker stays idle and unattached, and {launch.attempt} keeps tools.err"
-                self.assert_failed(launch, launch.run(), line, [VERSION, CURRENT, launch.prepare(), *launch.tools()[:reached]])
+                line = f"the Sprite did not take the released ccx and cc-notes or the wasm toolchain: {reason}; the prepared worker stays idle and unattached, {launch.attempt} keeps tools.err, and launching this brief again reruns the tool check on that Sprite"
+                first = [VERSION, CURRENT, launch.prepare(), *launch.tools()[:reached]]
+                self.assert_failed(launch, launch.run(), line, first)
                 self.assertEqual(launch.kept(), TOOLS_KEPT)
+                launch.sprite()
+                relaunched = launch.run()
+                self.assertEqual(relaunched.returncode, 0, relaunched.stderr)
+                self.assertEqual(json.loads(relaunched.stdout)["dispatch"], "ctx_a")
+                self.assertEqual(launch.calls(), [*first, VERSION, CURRENT, *launch.tools(), launch.start()])
+                self.assertEqual(launch.kept(), SPRITE_KEPT)
 
     def test_an_unproven_ready_never_prints_success_or_retries(self):
         result = RECEIPT["result"]

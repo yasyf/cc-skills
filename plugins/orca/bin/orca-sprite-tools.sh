@@ -52,7 +52,7 @@ while [ $# -gt 0 ]; do
     echo "$name $tag"
   done
 done
-/.sprite/bin/rustup toolchain install stable --profile minimal --target wasm32-unknown-unknown --no-self-update >&2
+sudo -n /.sprite/bin/rustup toolchain install stable --profile minimal --target wasm32-unknown-unknown --no-self-update >&2
 echo "rust stable wasm32-unknown-unknown"
 zig=$HOME/.local/share/zig/0.14.0
 if [ "$("$dest/zig" version 2>/dev/null)" != 0.14.0 ]; then

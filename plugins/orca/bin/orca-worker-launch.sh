@@ -131,7 +131,8 @@ fi
 reused= unsent=
 if [ -e "$attempt" ] || [ -L "$attempt" ]; then
   [ "$route" = sprite ] && { [ -f "$attempt/worker-start.unsent" ] ||
-    [ "$(jq -r '.error.code // empty' "$attempt/worker-start.json" 2>/dev/null)" = consumer_fenced ]; } ||
+    [ "$(jq -r '.error.code // empty' "$attempt/worker-start.json" 2>/dev/null)" = consumer_fenced ] ||
+    { [ -f "$attempt/tools.err" ] && [ ! -e "$attempt/worker-start.status" ]; }; } ||
     die "$attempt holds an earlier attempt of this brief, and a brief gets one attempt; inspect it instead"
   [ "$(jq -r .brief.sha256 "$attempt/prepared.json")" = "$sha" ] ||
     die "$attempt prepared a Sprite for another version of this brief, and its worker-start started no worker; launch the brief it prepared"
@@ -232,7 +233,7 @@ if [ "$route" = sprite ]; then
   [ -z "$expect" ] || [ "$base" = "$expect" ] ||
     die "the Sprite checked out $base, not WORKER_EXPECT_BASE $expect, so the prepared worker stays idle and unattached, and nothing is prepared again"
   "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/orca-sprite-tools.sh" "$attempt/prepared.json" >"$attempt/tools.out" 2>"$attempt/tools.err" ||
-    die "the Sprite did not take the released ccx and cc-notes or the wasm toolchain: $(tail -n 1 "$attempt/tools.err"); the prepared worker stays idle and unattached, and $attempt keeps tools.err"
+    die "the Sprite did not take the released ccx and cc-notes or the wasm toolchain: $(tail -n 1 "$attempt/tools.err"); the prepared worker stays idle and unattached, $attempt keeps tools.err, and launching this brief again reruns the tool check on that Sprite"
 
   terminal=$(jq -r .terminal "$attempt/prepared.json")
   wt=$(jq -r .projectRoot "$attempt/prepared.json")
