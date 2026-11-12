@@ -13,7 +13,7 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from drive import agents, artifacts, brief, github, install, land, limits, orca, picture, place, reads, render, served, settled, slack, state, watch
+from drive import agents, artifacts, brief, github, install, land, limits, orca, picture, place, reads, refs, render, served, settled, slack, state, watch
 from drive.state import DriveError
 
 DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
@@ -259,7 +259,7 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
     if args.thread:
         check_thread(state.load(name), {"from": args.source, "from_thread": from_thread, "thread": args.thread})
     if tooling:
-        check_tooling_words(args.words)
+        check_tooling_words(name, args.words)
     with state.edit(name) as data:
         role = state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
         if tooling and args.owner not in (None, "meta"):
@@ -417,9 +417,9 @@ def check_thread(data: dict, order: dict) -> None:
         raise DriveError(f"--thread {thread}: refused, it is a reply in thread {root}; pass --thread {root}")
 
 
-def check_tooling_words(words: str) -> None:
-    """Refuse a drive tooling order's words that `cc-slack check-post` finds anything in, since they reach him verbatim: quoted on the line above its PR card, and as the title an {order:} link shows. One line, each finding with its fix first, so a shell keeping only a refusal's last line keeps all of it."""
-    if findings := slack.post_findings(words, True):
+def check_tooling_words(name: str, words: str) -> None:
+    """Refuse a drive tooling order's words that `cc-slack check-post` finds anything in but the id of a recorded answer of his, since they reach him verbatim: quoted on the line above its PR card, and as the title an {order:} link shows. One line, each finding with its fix first, so a shell keeping only a refusal's last line keeps all of it."""
+    if findings := refs.answer_ids(slack.post_findings(words, True), state.load(name)):
         raise DriveError(
             f"refused, `cc-slack check-post` finds {'; '.join(findings)}; a \"{state.TOOLING}\" order's words reach him verbatim, quoted on"
             " the line above its PR card and as the title an {order:} link shows, so fix each in words of your own and pass the fixed words"
@@ -533,7 +533,7 @@ def order_set(args: argparse.Namespace) -> int:
     if args.words is not None:
         if not (order["text"].startswith(state.TOOLING) and args.words.startswith(state.TOOLING)):
             raise DriveError(f'--words: refused, only a "{state.TOOLING}" order\'s words change, to words that open "{state.TOOLING}"; an order of his keeps his words verbatim')
-        check_tooling_words(args.words)
+        check_tooling_words(name, args.words)
     if args.proof is not None:
         check_proof(args.proof)
     alerts = alert_links(args.alerts)

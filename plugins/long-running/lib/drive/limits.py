@@ -315,13 +315,29 @@ def block_text(node: object) -> str:
 
 
 def post_words(post: dict) -> int:
-    return max(words(post.get("text") or ""), words(block_text(post.get("blocks") or [])))
+    return max(words(untabled(post.get("text") or "")), words(block_text(post.get("blocks") or [])))
+
+
+def untabled(text: str) -> str:
+    """The text without the rows of its markdown tables outside code fences, which cc-slack draws as Slack's own table, one line a row."""
+    fenced = False
+    kept = []
+    for line in text.splitlines():
+        fenced ^= bool(FENCE.match(line))
+        if fenced or not line.strip().startswith("|"):
+            kept.append(line)
+    return "\n".join(kept)
 
 
 def post_refusal(post: dict, edited: int = 0) -> str | None:
-    """Why a post to his DM is over the length a routine line, summary or card gets, or None when it fits; an edit may reword the post it edits, edited words long, at its own length and a few words more."""
+    """Why a post to his DM is over the length a routine line, summary or card gets, or None when it fits: each row of a table is a line of its own, and the words around the tables keep the post's limit; an edit may reword the post it edits, edited words long, at its own length and a few words more."""
     if card := post.get("card"):
         return card_refusal(card, post.get("text") or "")
+    if long := next((row for table in tables((post.get("text") or "").splitlines()) for row in table if words(" ".join(row)) > LINE_WORDS), None):
+        return (
+            f'refused: the table row "{" | ".join(long)}" is {words(" ".join(long))} words, and each row of a table is a line'
+            f" in his thread, at most {LINE_WORDS} words ({READING}). {LINE_REST}"
+        )
     count = post_words(post)
     features = len(FEATURE.findall(post.get("text") or ""))
     limit, shape = (SUMMARY_WORDS, f"a summary of {features} features") if features >= 2 else (LINE_WORDS, "a line in his thread")
@@ -1016,10 +1032,10 @@ def json_problem(kind: str, source: str) -> str | None:
     return None
 
 
-def tables(show_me: list[str]) -> list[list[list[str]]]:
-    """Each markdown table of a Show me outside its code fences, as rows of cells, its header row first."""
+def tables(lines: list[str]) -> list[list[list[str]]]:
+    """Each markdown table of the lines outside their code fences, as rows of cells, its header row first."""
     found, rows, fenced = [], [], False
-    for line in [*show_me, ""]:
+    for line in [*lines, ""]:
         fenced ^= bool(FENCE.match(line))
         if not fenced and line.strip().startswith("|"):
             rows.append([cell.strip() for cell in line.strip().strip("|").split("|")])

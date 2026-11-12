@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import record_lines
 from conftest import SHORT_ASK
-from drive import limits, settled, state, view
+from drive import limits, reads, settled, state, view
 
 SESSION = "session-under-test"
 ALERT = "1794413465.441409"
@@ -315,7 +315,9 @@ def test_a_report_about_an_order_in_another_orders_thread_is_refused_when_writte
     assert record_lines.decision(coordinator(turn, kind="report", text="POST The table fix is building now", to=TO, attrs={"progress": "true", "order": "o1", "thread": THREAD})) is None
 
 
-def test_a_post_report_telling_him_the_drive_failed_says_how_that_is_prevented(run: Callable[..., tuple[int, str]], demo: str, turn: Path) -> None:
+def test_a_post_report_telling_him_the_drive_failed_says_how_that_is_prevented(
+    run: Callable[..., tuple[int, str]], demo: str, turn: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     with state.edit(demo) as data:
         data["orders"]["o1"]["thread"] = THREAD
@@ -324,6 +326,10 @@ def test_a_post_report_telling_him_the_drive_failed_says_how_that_is_prevented(r
     assert "6a6edbf" in reason and reason.endswith(f"The lines: {failed}")
     prevented = f"{failed}; {{order:o2}} fixes the card hook"
     assert record_lines.decision(coordinator(turn, kind="report", text=prevented, to=TO, attrs={"close": "o1", "thread": THREAD})) is None
+    monkeypatch.setattr(reads, "run", lambda argv, checkout: json.dumps({"kind": "defect", "text": "check-post refused a status table", "refs": {}}))
+    cited = "POST j1 merged; tables post as Slack tables again, {record:671981}"
+    reason = refusal(record_lines.decision(coordinator(turn, kind="report", text=cited, to=TO, attrs={"close": "o1", "thread": THREAD})))
+    assert reason.endswith(f"The lines: {cited}")
 
 
 def test_a_post_report_names_what_its_post_finishes_and_the_last_part_of_an_order_closes_it(run: Callable[..., tuple[int, str]], demo: str, turn: Path) -> None:

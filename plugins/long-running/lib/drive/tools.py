@@ -401,7 +401,7 @@ def refuse(data: dict, name: str, group: str, op: dict, after_add: bool) -> None
     if words == ("order", "add"):
         ordered(data, name, given)
     if words == ("order", "set") and (args.words or "").startswith(state.TOOLING):
-        cli.check_tooling_words(args.words)
+        cli.check_tooling_words(name, args.words)
     if words == ("job", "add"):
         cli.pick_parts(args.order, cli.find(data["orders"], args.order, "order"), args.part)
         data["jobs"][state.next_id(data["jobs"], "j")] = {"order": args.order}
@@ -415,7 +415,7 @@ def ordered(data: dict, name: str, given: dict) -> str:
         return held
     project, workstream = cli.filing(data, args.words, args.project, args.workstream)
     if tooling:
-        cli.check_tooling_words(args.words)
+        cli.check_tooling_words(name, args.words)
     order_id = state.next_id(data["orders"], "o")
     data["orders"][order_id] = {"text": args.words, "state": "open", "parts": dict.fromkeys(args.parts or [state.whole_order(args.words)]), "project": project, "workstream": workstream}
     return order_id

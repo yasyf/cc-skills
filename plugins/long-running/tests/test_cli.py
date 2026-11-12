@@ -4487,6 +4487,26 @@ def test_a_drive_tooling_orders_words_pass_check_post_since_his_pr_card_quotes_t
     assert [order["text"] for order in state.load("demo")["orders"].values()] == [reworded, "send j844's numbers to o341's thread"]
 
 
+def commit_shas(text: str, asked: list[str]) -> list[str]:
+    return [f"1:{found.start() + 1} commit-sha {found[0]!r}: link the commit" for found in re.finditer(r"\b[0-9a-f]{7}\b", text)]
+
+
+def test_a_drive_tooling_orders_words_may_cite_his_ruling_by_its_answer_id_but_never_an_unlinked_commit(
+    demo: str, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def shown(answer_id: str, cwd: str) -> dict:
+        if answer_id != "f03a0aa":
+            raise state.DriveError(f"could not read his answer {answer_id}")
+        return {"body": "you need to fix the hookw henver it wrongly refuses yu"}
+
+    monkeypatch.setattr(slack, "check_post", commit_shas)
+    monkeypatch.setattr(settled, "shown", shown)
+    filed = ["order", "add", "--project", "p", "--workstream", "w"]
+    assert cli.main([*filed, 'Drive tooling: check-post wrongly refuses handler posts; his ruling f03a0aa: "you need to fix the hookw henver it wrongly refuses yu"']) == 0
+    assert cli.main([*filed, "Drive tooling: revert 1a2b3c4, which broke the card hook"]) == 2
+    assert "finds 1:23 commit-sha '1a2b3c4': link the commit;" in capsys.readouterr().err
+
+
 def test_a_drive_tooling_order_with_no_project_or_workstream_is_filed_under_the_drive_and_his_order_is_refused_naming_the_pairs_in_use(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:

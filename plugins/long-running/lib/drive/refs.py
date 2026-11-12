@@ -2,15 +2,21 @@ import json
 import re
 from pathlib import Path
 
-from drive import dashboard, picture, reads, state, view
+from drive import dashboard, picture, reads, render, settled, state, view
 from drive.state import DriveError
 
-REF = re.compile(r"\{(card|pr|order|record):([^{}\s|]+)(?:\|([^{}]+))?\}")
+REF = re.compile(r"\{(card|pr|order|record|answer):([^{}\s|]+)(?:\|([^{}]+))?\}")
+ACK = re.compile(r"\bAck: (https://\S+)")
+RAW_ANSWER = re.compile(r"^\d+:\d+ commit-sha '([0-9a-f]{7,40})'")
 OPEN_LINK = re.compile(r"<((?:https?://|mailto:)[^<>|\s]*)\|[^<>]*\Z")
 INNER = re.compile(r"<[^<>]*>?")
 CODE = re.compile(r"`[^`\n]+`")
 LINK_WORDS = str.maketrans({"<": "", ">": "", "|": "/", "[": "(", "]": ")"})
-CAUSE = re.compile(r"\b(?:because|caus(?:e|ed|es|ing)|due to|culprit)\b", re.IGNORECASE)
+CAUSE = re.compile(
+    r"\b(?:because|caus(?:ed|es|ing)|due to|culprit)\b"
+    r"|\bcause(?:\s+(?:is|was)|:)\s+(?!(?:yes|still|being|unknown|unclear|pending|tbd|not yet|under (?:way|investigation|review))\b|an?\s+(?:read|reader|lane|agent)\s+(?:is|has)\b)",
+    re.IGNORECASE,
+)
 FAILURE = re.compile(
     r"\b(?:refused|failed to|missed|disconnected|dropped (?:its|the|their) connection|forgot(?:ten)?|lost track|fell through|went unchecked|slipped"
     r"|(?:nobody|no one) (?:\w+ed|ran|saw|read|took|got|drew|caught|knew)"
@@ -34,7 +40,7 @@ RECORD_WORDS = 10
 
 
 def resolved(name: str, text: str) -> dict[str, dict]:
-    """Each reference the text holds, read from the drive: {card:<waits id>}, {pr:<number, owner/repo#number or URL>}, {order:<id>} and {record:<seq>}, with the words that name it, the words after a | when it has them, and where it opens; one that names nothing, or a reference or link inside a raw link's words, refuses the post."""
+    """Each reference the text holds, read from the drive: {card:<waits id>}, {pr:<number, owner/repo#number or URL>}, {order:<id>}, {record:<seq>} and {answer:<id>}, with the words that name it, the words after a | when it has them, and where it opens; one that names nothing, or a reference or link inside a raw link's words, refuses the post."""
     if refusal := nested(text):
         raise DriveError(refusal)
     found = {}
@@ -55,6 +61,8 @@ def resolved(name: str, text: str) -> dict[str, dict]:
                 found[match[0]] = order(name, data, match[2])
             case "record":
                 found[match[0]] = record(name, match[2])
+            case "answer":
+                found[match[0]] = answer(data, match[2])
         if label:
             found[match[0]]["title"] = label
     return found
@@ -73,7 +81,7 @@ def nested(text: str) -> str | None:
 
 
 def unbacked(text: str) -> list[str]:
-    """Each line of the text, outside a fence, a quote and a quoted line, that names a cause with no {record:…} on it."""
+    """Each line of the text, outside a fence, a quote and a quoted line, that states a cause with no {record:…} on it: a because, due to, caused by, culprit or the cause is, never a line naming the cause as the question or as what a read is on."""
     return [
         line.strip()
         for line in picture.FENCE.sub("", text).splitlines()
@@ -81,15 +89,29 @@ def unbacked(text: str) -> list[str]:
     ]
 
 
-def unprevented(text: str) -> list[str]:
-    """Each line of the text, outside a fence, a quote and a quoted line, that names a failure, refusal or gap of the drive's own, a card, check, hook, lane or session role of it, with no order or PR on it carrying the tool change that prevents it."""
+def unprevented(text: str, found: dict[str, dict]) -> list[str]:
+    """Each line of the text, outside a fence, a quote and a quoted line, that names a failure, refusal or gap of the drive's own, a card, check, hook, lane or session role of it, or cites the defect record the drive filed for one, with no order or PR on it carrying the tool change that prevents it; found holds each reference the text makes, as resolved reads it."""
     return [
         line.strip()
         for line in picture.FENCE.sub("", text).splitlines()
         if not line.lstrip().startswith(">")
-        and FAILURE.search(plain := QUOTED.sub("", line))
-        and DRIVE_PART.search(plain)
+        and (
+            FAILURE.search(plain := QUOTED.sub("", line))
+            and DRIVE_PART.search(plain)
+            or any(found[match[0]].get("defect") for match in REF.finditer(line) if match[1] == "record")
+        )
         and not PREVENTION.search(line)
+    ]
+
+
+def prevented(text: str) -> list[str]:
+    """Each line of the text, outside a fence, a quote and a quoted line, that names a cause or a failure of the drive's own and carries the order or PR preventing it, the line his ruling on failures asks for."""
+    return [
+        line.strip()
+        for line in picture.FENCE.sub("", text).splitlines()
+        if not line.lstrip().startswith(">")
+        and PREVENTION.search(line)
+        and (CAUSE.search(plain := QUOTED.sub("", line)) or FAILURE.search(plain) and DRIVE_PART.search(plain))
     ]
 
 
@@ -158,7 +180,33 @@ def record(name: str, seq: str) -> dict:
     except reads.ReadError as error:
         raise DriveError(f"{{record:{seq}}} could not be read: {error}") from None
     url = found["refs"].get("url")
-    return {"kind": "record", "title": opening(found["text"]), "url": url, "board": url}
+    return {"kind": "record", "title": opening(found["text"]), "url": url, "board": url, "defect": found["kind"] == "defect"}
+
+
+def records(name: str, text: str) -> dict[str, dict]:
+    """Each {record:<seq>} reference the text holds, read from cci as resolved reads it."""
+    return {match[0]: record(name, match[2]) for match in REF.finditer(text) if match[1] == "record"}
+
+
+def answer(data: dict, answer_id: str) -> dict:
+    """A ruling of his by the id cc-notes keeps it under, which means nothing to him: his words under the time he said them, linked to the ack of them in his DM."""
+    found = settled.shown(answer_id, data["roles"]["coordinator"]["cwd"])
+    said = render.when(state.parse_time(found["created_at"]).astimezone().isoformat())
+    url = ack[1] if (ack := ACK.search(found["body"])) else None
+    return {"kind": "answer", "title": f'his {said} ruling "{opening(found["body"].splitlines()[0])}"', "url": url, "board": url}
+
+
+def answer_ids(findings: list[str], data: dict) -> list[str]:
+    """The findings but each commit-sha one on the id of a recorded answer of his, which `ccn answer show` reads and is no commit."""
+    return [finding for finding in findings if not ((raw := RAW_ANSWER.match(finding)) and answered(raw[1], data))]
+
+
+def answered(answer_id: str, data: dict) -> bool:
+    try:
+        settled.shown(answer_id, data["roles"]["coordinator"]["cwd"])
+    except DriveError:
+        return False
+    return True
 
 
 def opening(text: str) -> str:

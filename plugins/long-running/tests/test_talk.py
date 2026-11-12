@@ -13,7 +13,9 @@ from drive import (
     dashboard,
     picture,
     reads,
+    refs,
     render,
+    settled,
     slack,
     state,
     talk,
@@ -156,9 +158,9 @@ def test_a_record_links_what_it_links_under_its_first_clause_or_the_words_after_
         " the replica logs. Retries drained them by 4:16 AM."
     )
     shown = {
-        "661194": {"text": "sandsql-server ran out of memory at its 32 GiB limit, 3 times since 9:40 PM", "refs": {"url": notebook}},
-        "661195": {"text": "the write lock is held across the whole call", "refs": {}},
-        "661196": {"text": timeouts, "refs": {"url": notebook}},
+        "661194": {"kind": "report", "text": "sandsql-server ran out of memory at its 32 GiB limit, 3 times since 9:40 PM", "refs": {"url": notebook}},
+        "661195": {"kind": "report", "text": "the write lock is held across the whole call", "refs": {}},
+        "661196": {"kind": "report", "text": timeouts, "refs": {"url": notebook}},
     }
     asked: list[list[str]] = []
     monkeypatch.setattr(reads, "run", lambda argv, checkout: asked.append(argv) or json.dumps(shown[argv[2]]))
@@ -170,6 +172,25 @@ def test_a_record_links_what_it_links_under_its_first_clause_or_the_words_after_
         f" <{notebook}|the timeouts>."
     )
     assert said(demo)[0]["text"].startswith(f"The pod restarts because [sandsql-server ran out of memory at its 32 GiB limit]({notebook}).")
+
+
+def test_his_ruling_draws_as_his_words_and_when_he_said_them_linked_to_their_ack_and_its_id_is_no_commit(
+    demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ack = "https://acme.slack.com/archives/D123/p1794478560975959"
+    ruling = {"body": f"you need to fix the hookw henver it wrongly refuses yu\nNotes: typed at 2:15 AM. Ack: {ack}", "created_at": "2026-11-12T10:16:31Z"}
+
+    def shown(answer_id: str, cwd: str) -> dict:
+        if answer_id != "f03a0aa":
+            raise DriveError(f"could not read his answer {answer_id}")
+        return ruling
+
+    monkeypatch.setattr(settled, "shown", shown)
+    talk.say(demo, {"text": "Fixed under {answer:f03a0aa}."})
+    when = render.when(state.parse_time(ruling["created_at"]).astimezone().isoformat())
+    assert posts[0][-1] == f'Fixed under <{ack}|his {when} ruling "you need to fix the hookw henver it wrongly refuses…">.'
+    commit = "1:30 commit-sha '1a2b3c4': link the commit"
+    assert refs.answer_ids(["1:12 commit-sha 'f03a0aa': link the commit", commit], state.load(demo)) == [commit]
 
 
 def test_a_card_asked_again_with_new_words_moves_its_question_and_each_wait_on_it_to_the_new_card(demo: str, posts: list[tuple[str, ...]]) -> None:
