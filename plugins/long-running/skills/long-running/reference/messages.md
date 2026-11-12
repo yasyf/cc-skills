@@ -318,10 +318,9 @@ When it is answered, replaced or redone:
   and posts nothing.
 - The same PRs show under the line on the dashboard's history, each with where it stands now. A post
   naming a PR the drive does not hold is refused: `drive pr add` records it first.
-- His Approve lands exactly those PRs still asking his tap, bottom first; one reworked to his answer
-  is skipped and asks his tap again once its rework is pushed. His Hold holds them all. A card posts
-  while one of its PRs asks his tap with nothing holding it, and never while each waits on a card of
-  his or its rework. A PR added later gets its own card when posted
+- His Approve lands exactly those PRs still asking his tap, bottom first. His Hold holds them all. A
+  card posts while one of its PRs asks his tap with nothing holding it, and never while each waits on
+  a card of his or while one is being reworked to his words. A PR added later gets its own card when posted
   alone. Posted with the rest of its stack, it joins one new card for them all, and cc-slack marks
   each older card of those PRs replaced, with a link to the new one.
 - Each PR gets its own section: its title, link and Open button, then its Summary of what it
@@ -329,13 +328,16 @@ When it is answered, replaced or redone:
   not green and his tap, and how it differs from the plan only when it does. A section its body lacks
   is left off and holds nothing, since a body is fixed beside the landing, never before it. A card
   already posted redraws in place on every change with what holds it now. A stack card whose other
-  PRs still ask his tap keeps Approve and Hold for them, and a reworked PR's section says why, such as
-  `Being reworked to your 10:08 AM answer "…". Approve skips it; it asks again once its rework is
-  pushed`. Its Show me comes last,
+  PRs still ask his tap keeps Approve and Hold for them, and a held PR's section says why. Its Show me comes last,
   its pictures inline. The card's title and opening summary come from `## The stack` in its bottom PR.
 - Once he answers, the card folds to its title, his pick and one line per PR. When an answer or ruling
-  of his replaces the work it carries, `drive answer` settles it as it does a question card; one
-  that reworks a PR on it redraws it in place.
+  of his replaces the work it carries, `drive answer` settles it as it does a question card.
+- His words that rework a PR on it take the card down in the same call: his order filed on the
+  card's thread with `drive order add`, the job owning the PR carrying his order with `drive job set
+  --carries`, or `drive answer --reopened`, each withdrawing it with his words as the reason. No
+  watch ready, redraw or new head brings it back; a fresh card goes up on its own, with a row saying
+  what changed, only once the builder's `READY` says in its `CHANGE:` line how his words are met. A
+  question or any other words of his under it leave it up. His words: "So why isn't this card withdrawn then? And why do I have to keep asking that?"
 - Its words come from each PR's title and body, with record ids and the HTML tags GitHub draws
   dropped, so text such as `agent::of("<id>")` reaches the card whole; fix a bad card in the PR
   body, never in the message.

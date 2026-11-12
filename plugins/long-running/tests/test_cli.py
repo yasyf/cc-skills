@@ -14,7 +14,7 @@ from pathlib import Path
 
 import drive
 import pytest
-from conftest import CARD_BODY, RESEARCH, SHORT_ASK, Answers, Drawing, Redraws, Thread, WatchProcess, Withdrawals
+from conftest import CARD_BODY, RESEARCH, SHORT_ASK, Answers, Drawing, Thread, WatchProcess, Withdrawals
 from drive import (
     card,
     cli,
@@ -909,6 +909,54 @@ def test_job_set_stores_each_pr_as_its_canonical_url(run: Run, demo: str) -> Non
     run("job", "set", "j1", "--pr", PR + "/files", "--pr", PR)
     assert state.load("demo")["jobs"]["j1"]["prs"] == [PR]
     assert run("job", "set", "j1", "--pr", "https://example.com/not-a-pr")[0] == 2
+
+
+CARDED = "https://acme.slack.com/archives/D123/p1794300000000400"
+TOPOLOGY = "Topology should be local metadata in the sessions ssql server"
+REWORKING = f'Being reworked to your words "{TOPOLOGY}". A fresh card asks your tap once its builder says how they are met'
+
+
+def carded(monkeypatch: pytest.MonkeyPatch, withdrawals: Withdrawals) -> None:
+    tap = {"asked": state.stamp(), "url": CARDED, "prs": [PR], "card": {"title": "New: land it?", "waits": "merge:Forge-AI:monorepo:42"}}
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [tap]})
+    withdrawals.cards = [CARDED]
+
+
+def test_his_order_in_his_pr_cards_thread_withdraws_that_card_in_the_same_call_with_his_words_as_the_why(
+    run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch, slack_thread: Thread, withdrawals: Withdrawals
+) -> None:
+    carded(monkeypatch, withdrawals)
+    slack_thread.messages = [{"ts": "1794300000.000500", "thread_ts": "1794300000.000400"}]
+    code, out = run("order", "add", "--project", "Iris", "--workstream", "Topology", TOPOLOGY, "--kind", "build", "--from", "slack:D123/1794300000.000500")
+    assert (code, out.splitlines()) == (
+        0,
+        ["o2", f"{with_pr} reworked to o2: its card stays down until its builder's READY says how his words are met", f"withdrew his card {CARDED}: {REWORKING}"],
+    )
+    assert withdrawals.asked == [(PR, REWORKING)]
+    pr = state.load("demo")["prs"][with_pr]
+    assert (state.owed_step(pr), pr["rework"]["by"]) == ("reworking", "o2")
+
+
+def test_his_question_in_his_pr_cards_thread_leaves_that_card_up_until_it_turns_out_to_need_a_build(
+    run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch, slack_thread: Thread, withdrawals: Withdrawals
+) -> None:
+    carded(monkeypatch, withdrawals)
+    slack_thread.messages = [{"ts": "1794300000.000500", "thread_ts": "1794300000.000400"}]
+    asked = "Why is topology going to the api?"
+    assert run("order", "add", "--project", "Iris", "--workstream", "Topology", asked, "--kind", "answer", "--from", "slack:D123/1794300000.000500") == (0, "o2")
+    assert (withdrawals.asked, state.owed_step(state.load("demo")["prs"][with_pr])) == ([], "card")
+    code, out = run("order", "set", "o2", "--kind", "build")
+    assert (code, out.splitlines()[-1]) == (0, f'withdrew his card {CARDED}: Being reworked to your words "{asked}". A fresh card asks your tap once its builder says how they are met')
+
+
+def test_a_job_carrying_his_order_withdraws_his_open_card_on_its_pr_in_the_same_call(
+    run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch, withdrawals: Withdrawals
+) -> None:
+    carded(monkeypatch, withdrawals)
+    run("order", "add", "--project", "Iris", "--workstream", "Topology", TOPOLOGY, "--kind", "build")
+    code, out = run("job", "set", "j1", "--carries", "o2")
+    assert (code, out.splitlines()[-2:]) == (0, [f"{with_pr} reworked to o2: its card stays down until its builder's READY says how his words are met", f"withdrew his card {CARDED}: {REWORKING}"])
+    assert withdrawals.asked == [(PR, REWORKING)]
 
 
 def test_job_set_waits_on_his_pr_card_by_its_slack_link_or_merge_waits_id_until_he_taps_it(
@@ -4297,10 +4345,11 @@ def test_an_answer_with_no_id_records_his_words_in_the_coordinators_checkout_wha
     assert cwds == [checkout]
 
 
-def test_an_answer_lists_every_pr_of_its_order_not_yet_live_and_a_reopened_one_goes_to_the_live_job_that_reworks_it(
-    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], redraws: Redraws
+def test_an_answer_lists_every_pr_of_its_order_not_yet_live_and_a_reopened_one_goes_to_the_live_job_that_reworks_it_its_card_withdrawn(
+    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], withdrawals: Withdrawals
 ) -> None:
     settled = cards_asking(monkeypatch, PR)
+    withdrawals.cards = [TAP_CARD]
     run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/44", "--job", "j1")
     run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/45", "--job", "j2")
     run("job", "add", "builder", "--order", "o1", "--goal", "shipped")
@@ -4317,18 +4366,19 @@ def test_an_answer_lists_every_pr_of_its_order_not_yet_live_and_a_reopened_one_g
     assert run("answer", "a1", "--reopened", "demo:j2-7=j1")[0] == 2
     assert run("answer", "a1", "--reopened", "Forge-AI/monorepo#45=j3")[0] == 2
     code, out = run("answer", "a1", "--reopened", f"{designing}=j1", "Forge-AI/monorepo#45=j1", "--others-stand")
+    reason = f'Being reworked to your words "{WORDS}". A fresh card asks your tap once its builder says how they are met'
     assert out.splitlines() == [
         "his answer a1 recorded: 1 standing, 0 superseded, 2 reopened by it",
-        f"{designing} reopened by his answer a1: j1 reworks it to his words, so brief j1 with them; it asks his tap again once j1 pushes the rework",
-        f"{designing}: 1 open card of his carrying it redrawn in place, its row saying his answer reworks it",
-        "Forge-AI/monorepo#45 reopened by his answer a1: j1 reworks it to his words, so brief j1 with them; it asks his tap again once j1 pushes the rework",
-        "Forge-AI/monorepo#45: 1 open card of his carrying it redrawn in place, its row saying his answer reworks it",
+        f"{designing} reworked to a1: its card stays down until its builder's READY says how his words are met",
+        f"withdrew his card {TAP_CARD}: {reason}",
+        f"{designing} reopened by his answer a1: j1 reworks it to his words, so brief j1 with them",
+        "Forge-AI/monorepo#45 reopened by his answer a1: j1 reworks it to his words, so brief j1 with them",
     ]
-    assert (code, settled, redraws.asked) == (0, [ANSWERED], [PR, "https://github.com/Forge-AI/monorepo/pull/45"])
+    assert (code, settled, withdrawals.asked) == (0, [ANSWERED], [(PR, reason)])
     data = state.load("demo")
     reworked = data["prs"][designing]
-    assert (reworked["wants_tap"], reworked["tap"], state.owed_step(reworked), data["jobs"]["j1"]["state"]) == (True, None, "rework", "running")
-    assert reworked["rework"] | {"at": None} == {"answer": "a1", "job": "j1", "head": reworked["head"], "why": WORDS, "at": None}
+    assert (reworked["wants_tap"], reworked["tap"], state.owed_step(reworked), data["jobs"]["j1"]["state"]) == (True, None, "reworking", "running")
+    assert reworked["rework"] | {"at": None} == {"by": "a1", "words": WORDS, "at": None}
     assert data["answers"]["a1"]["cards"]["Forge-AI/monorepo#45"] == {"mark": "reopened", "job": "j1", "card": None}
 
 

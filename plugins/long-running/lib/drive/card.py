@@ -7,7 +7,7 @@ from typing import TextIO
 
 from drive import github, limits, picture, state
 from drive.github import GithubError, run
-from drive.render import REWORK_CHARS, cut, reworking, when
+from drive.render import cut
 
 FIELDS = "title,body,state,isDraft,headRefOid,baseRefName,headRefName,reviewDecision,labels,url,additions,deletions,changedFiles"
 READ_AGE = "60s"
@@ -242,8 +242,6 @@ def waits_on(pr: dict, entry: dict, held: tuple[str, ...]) -> str:
             return "Held by you"
         case _ if hold_labeled(pr):
             return "Held by the drive with the hold label on GitHub"
-        case _ if state.owed_step(entry) == "rework":
-            return f'Being reworked to your {when(entry["rework"]["at"])} answer "{cut(entry["rework"]["why"], REWORK_CHARS)}". Approve skips it; it asks again once its rework is pushed'
         case _ if pr["isDraft"]:
             return "Still a draft; the agent is finishing it"
         case _, "fail":
@@ -497,20 +495,20 @@ def holding(known: dict[str, tuple[str, dict]], key: str) -> dict[str, str]:
 
 
 def waiting(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
-    """Why no fresh card is drawn for the members yet, while none of them asks his tap with nothing holding it: each design card of his still open, job not finished, PR open or release not out, that one of them waits on, and each answer of his reworking one of them until its rework is pushed; a check still running holds none. One member asking his tap draws the card, each other's section saying what holds it."""
+    """Why no fresh card is drawn for the members yet, while none of them asks his tap with nothing holding it: each design card of his still open, job not finished, PR open or release not out, that one of them waits on; a check still running holds none. One member asking his tap draws the card, each other's section saying what holds it."""
     if any(state.asks_tap(known[key][1]) and not holding(known, key) for key in members):
         return ""
     held = [wait for key in members for wait in holding(known, key)]
-    reworked = [
-        reworking(entry, key if len(members) > 1 else "it")
+    return f"it waits on {', '.join(dict.fromkeys(held))}, so it draws no Approve until each is answered or done" if held else ""
+
+
+def reworked(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
+    """Why no card is drawn for the members, a redraw of one cc-slack posted included: one of them is being reworked to his words, so its card stays down until its builder's READY says how they are met."""
+    return "; ".join(
+        f"{key if len(members) > 1 else 'it'} is being reworked to his words \"{entry['rework']['words']}\", so no card asks his tap until its builder's READY says how they are met"
         for key in members
-        if (entry := known[key][1])["state"] == "open" and state.owed_step(entry) == "rework"
-    ]
-    reasons = [
-        *([f"it waits on {', '.join(dict.fromkeys(held))}, so it draws no Approve until each is answered or done"] if held else []),
-        *([f"{'; '.join(reworked)}, so it draws no Approve until its rework is pushed"] if reworked else []),
-    ]
-    return "; ".join(reasons)
+        if (entry := known[key][1])["state"] == "open" and entry["rework"]
+    )
 
 
 def on_his_card(known: dict[str, tuple[str, dict]], reads: dict[str, dict], members: list[str]) -> bool:
@@ -548,7 +546,7 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
         shown = [(reads[key], known[key][1], pictured(known[key][0], key, reads[key], taken), tuple(holding(known, key).values())) for key in members]
         card = drawn_card(shown)
         held = "" if redraw or on_his_card(known, reads, members) else waiting(known, members)
-        if reason := held or oversized(known, members):
+        if reason := reworked(known, members) or held or oversized(known, members):
             refusals = [skip(key, reason) for key in members]
             refused(refusals)
             skipped += refusals
@@ -610,7 +608,7 @@ def answered(ask: dict) -> dict:
     with state.edit(name) as data:
         for member in members:
             entry = data["prs"][member]
-            if entry["state"] != "open" or ask["label"] == "Approve" and state.in_rework(entry):
+            if entry["state"] != "open":
                 continue
             entry["tap"] = {"label": ask["label"], "at": state.stamp(), "head": entry["head"], "source": ask["source"]}
             entry["fundamental"] = None

@@ -42,9 +42,9 @@ RECORD = {
         "url": {
             "type": "string",
             "description": (
-                "his message's or the card's permalink; an owner or answer record whose message is in an open card's thread"
-                " settles or withdraws that card in the same call, and an owner record under a PR card withdraws it unless"
-                " attr tap is his typed Approve or Hold"
+                "his message's or the card's permalink; an owner or answer record whose message is in an open question card's"
+                " thread settles or withdraws that card in the same call, and one under a PR card leaves it up: only his order"
+                " filed on its thread, or a job carrying one, withdraws a PR card"
             ),
         },
         "thread": {"type": "string", "description": "the thread it is about, kept as attr thread"},
@@ -118,9 +118,9 @@ def verb_tools() -> list[dict]:
                 " the communicator while none is bound, and an owner record carrying a ruling reaches the meta session beside"
                 " the coordinator. A question card he answered takes waits, which fills re with the ask's seq and attr job; an"
                 " Undo tap sets undone. Once the records go out, each open card his words close is closed: a question card his"
-                " answer answers settles showing his words, one his owner words under it change is withdrawn showing them, and"
-                " a PR card his owner words rework is withdrawn with drive pr set --no-tap, unless attr tap is his typed Approve"
-                " or Hold; an answer whose waits names a card no longer waiting on him is refused, since his answer there is"
+                " answer answers settles showing his words, and one his owner words under it change is withdrawn showing them;"
+                " a PR card stays up, since only his order filed on its thread, or a job carrying one, withdraws it; an answer"
+                " whose waits names a card no longer waiting on him is refused, since his answer there is"
                 " recorded already. A defect's text past one 120-character line goes as that line cut at a word, the whole"
                 " text atop its body. Returns each record's seq, then each card closed."
             ),
@@ -381,14 +381,14 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
         seqs = sent(name, lane, posts)
         said = [f"{index} {item['kind']} {seq}" for index, (item, seq) in enumerate(zip(posts, seqs, strict=True), start=1)]
         keep_undelivered(name, posts, seqs, closes)
-    for index, (made, (questions, pr_cards)) in enumerate(zip(posts, closes, strict=True), start=1):
-        close(name, said, index, len(posts), made, questions, pr_cards, dry_run)
+    for index, (made, questions) in enumerate(zip(posts, closes, strict=True), start=1):
+        close(said, index, made, questions, dry_run)
     return "\n".join(said)
 
 
-def keep_undelivered(name: str, posts: list[dict], seqs: list[str], closes: list[tuple[list[dict], list[dict]]]) -> None:
+def keep_undelivered(name: str, posts: list[dict], seqs: list[str], closes: list[list[dict]]) -> None:
     """Keep each answer of his on each job it answers, the one its attr names and each whose card it closes, until drive job resume carries it there, so the watch says ANSWER undelivered for it meanwhile."""
-    answers = [(made, seq, questions) for made, seq, (questions, _) in zip(posts, seqs, closes, strict=True) if made["kind"] == "answer" and "undone" not in (made.get("attr") or {})]
+    answers = [(made, seq, questions) for made, seq, questions in zip(posts, seqs, closes, strict=True) if made["kind"] == "answer" and "undone" not in (made.get("attr") or {})]
     if not answers:
         return
     with state.edit(name) as data:
@@ -406,20 +406,20 @@ def his_cards(name: str) -> dict:
     return found
 
 
-def closed_by(found: dict, index: int, made: dict) -> tuple[list[dict], list[dict]]:
-    """The question cards and PR cards of his this record's words close; an answer naming a card that no longer waits on him is refused, posting nothing."""
+def closed_by(found: dict, index: int, made: dict) -> list[dict]:
+    """The question cards of his this record's words close; an answer naming a card that no longer waits on him is refused, posting nothing."""
     attrs = made.get("attr") or {}
-    questions, pr_cards = superseded.closing(found, made["kind"], attrs, made.get("url"), made.get("re") or [])
+    questions = superseded.closing(found, made["kind"], attrs, made.get("url"), made.get("re") or [])
     if made["kind"] == "answer" and "undone" not in attrs and (attrs.get("job") or attrs.get("thread_card")) and not questions:
         raise DriveError(
             f"{index}: refused, nothing posted: the card this answer names no longer waits on him, so his answer on it is"
             " recorded already; read his words as a message from him: a question, an order or a ruling"
         )
-    return questions, pr_cards
+    return questions
 
 
-def close(name: str, said: list[str], index: int, count: int, made: dict, questions: list[dict], pr_cards: list[dict], dry_run: bool) -> None:
-    """Once the record is sent, close each card of his its words close: a question card settled showing his answer or withdrawn showing his other words, and a PR card his words rework withdrawn with drive pr set --no-tap, which drops its tap ask until its rework asks again; what was done, or would be on a dry run, appended to said a line each."""
+def close(said: list[str], index: int, made: dict, questions: list[dict], dry_run: bool) -> None:
+    """Once the record is sent, close each question card of his its words close, settled showing his answer or withdrawn showing his other words; what was done, or would be on a dry run, appended to said a line each."""
     for card in questions:
         if dry_run:
             said.append(f"{index} would {'settle' if made['kind'] == 'answer' else 'withdraw'} his card {card['url']} ({card['card'].get('waits')}), showing his words")
@@ -428,8 +428,6 @@ def close(name: str, said: list[str], index: int, count: int, made: dict, questi
             said.append(f"{index} {superseded.close_card(card, made['kind'], made['text'], made.get('url') or card['url'])}")
         except slack.SlackError as error:
             raise DriveError("\n".join([*said, f"{index} cc-slack card-answer on his card {card['url']} refused: {error}; the record went out, so close the card with slack_card_answer"])) from None
-    for url in [url for card in pr_cards for url in card["prs"]]:
-        ran(name, said, index, count, ("pr", "set"), {"url": url, "tap": False, "why": f"being reworked to his words: {made['text']}"}, dry_run)
 
 
 def sent(name: str, lane: str, posts: list[dict]) -> list[str]:

@@ -177,8 +177,8 @@ COORDINATOR_RULES = (
         ' --words "<his words>" --link <permalink>, which records it in cc-notes, prints its id and lists every card'
         " still asking him and every PR not yet live, then refuses until each is marked: `--stands`; `--superseded"
         " <key>=stop|<job>`, which settles that card in place with his words and stops or folds its job, closing an open"
-        " PR on GitHub on =stop; or `--reopened <PR>=<job>`, which that live job reworks to them while his card asks no"
-        " tap on it and a stack card's Approve skips it, until its rework is pushed and asks his tap again. It also lists each job"
+        " PR on GitHub on =stop; or `--reopened <PR>=<job>`, which withdraws each card of his carrying that PR in the same"
+        " call while that live job reworks it to them, until the job's READY says how they are met. It also lists each job"
         " waiting on an order his answer touches and refuses until each is marked: SendMessage it his words verbatim, then"
         " `--sent <job>`, or `--untouched <job>` for one they leave as it is. ANSWER repeats every 10 minutes until then."
         " Pass `--others-stand` only once you have read every card and PR left and his words change none; it refuses while"
@@ -297,7 +297,6 @@ JOB = {
     "meta": "you hold drive tooling: every tool fix, every skill rewrite a ruling of his asks for and every install of a released tool",
 }
 REPROS_SHOWN = 5
-REWORK_CHARS = 240
 WHOLE = sys.maxsize
 UNLISTED_TOOL_LINE = (
     "A drive tool these rules name that your session does not list, such as handler or job, is one its drive MCP server"
@@ -415,14 +414,8 @@ def agentless_lines(drive: dict) -> list[str]:
     ]
 
 
-def reworking(pr: dict, name: str = "it") -> str:
-    """His answer reopening the PR for its builder to rework, as the drive's verbs and refusals name it."""
-    found = pr["rework"]
-    return f"his answer {found['answer']} at {when(found['at'])} reopened {name} for {found['job']} to rework: {cut(found['why'], REWORK_CHARS)}"
-
-
 def pr_line(key: str, pr: dict) -> str:
-    owed = {"card": "wants tap", "rework": f"no tap until its rework is pushed, since {reworking(pr)}" if pr["rework"] else ""}
+    owed = {"card": "wants tap", "reworking": "no card while its builder reworks it to his words, until its READY says how they are met"}
     tap = pr["tap"]["label"] if pr.get("tap") else owed.get(owed_step(pr)) or "no tap needed"
     exempt = f", exempt: {pr['exempt']}" if pr.get("exempt") else ""
     port = f" of #{pr['port_of']}" if pr.get("exempt") == "pure port" and pr.get("port_of") else ""

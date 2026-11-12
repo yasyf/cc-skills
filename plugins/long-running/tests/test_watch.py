@@ -1718,6 +1718,30 @@ def test_a_pr_green_and_approved_draws_his_card_from_the_watch_once_a_head_with_
     assert len(sent) == 1
 
 
+def test_a_pr_reworked_to_his_words_gets_no_ready_and_loses_a_card_left_up_until_its_builders_ready_says_how_they_are_met(
+    demo: str, monkeypatch: pytest.MonkeyPatch, ready_records: list[list[dict]], withdrawals: Withdrawals
+) -> None:
+    waiting_job(demo)
+    with state.edit(demo) as data:
+        data["prs"][KEY]["wants_tap"] = True
+        state.rework(data["prs"][KEY], "o2", "Topology goes in the meta table")
+    serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
+    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [], "pr_cards": [pr_card(KEY)]})
+    withdrawals.cards = [CARD]
+    assert f"CARD {CARD} withdrawn: {KEY} is being reworked to his words" in watch.run_pass(watcher(demo), T0)
+    reason = 'Being reworked to your words "Topology goes in the meta table". A fresh card asks your tap once its builder says how they are met'
+    assert (withdrawals.asked, ready_records) == ([(state.pr_url(KEY), reason)], [])
+    monkeypatch.setattr(watch.view, "cards", lambda drive: watch.view.NO_CARDS)
+    assert DRAWING not in watch.run_pass(watcher(demo), T0 + timedelta(minutes=5))
+    assert ready_records == []
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["state"] = "running"
+        state.take_result(data, "j1", f"READY {state.pr_url(KEY)}", f"READY {state.pr_url(KEY)}\nCHANGE: it reads the meta table")
+    assert DRAWING in watch.run_pass(watcher(demo), T0 + timedelta(minutes=10))
+    [[sent]] = ready_records
+    assert sent["text"] == f'{state.pr_url(KEY)}; his order o1 "ship the watch"; {KEY}: Reworked to your words "Topology goes in the meta table": it reads the meta table'
+
+
 @pytest.mark.parametrize("wants_tap", [False, True])
 def test_a_green_approved_exempt_pr_not_landed_for_thirty_minutes_is_said_and_wakes_the_coordinator(
     demo: str, monkeypatch: pytest.MonkeyPatch, wants_tap: bool
@@ -2270,18 +2294,20 @@ def test_a_merged_pr_settles_its_own_card_only_once_every_other_card_carrying_it
     assert (asked, shown) == ([(state.pr_url(other), f"{KEY} merged, {other} merged"), (state.pr_url(KEY), f"{KEY} merged")], [])
 
 
-def test_a_pushed_rework_redraws_his_open_card_on_it_once_so_it_asks_his_tap_again(demo: str, monkeypatch: pytest.MonkeyPatch, redraws: Redraws) -> None:
+def test_a_new_head_on_a_pr_reworked_to_his_words_redraws_nothing_until_its_builders_ready(
+    demo: str, monkeypatch: pytest.MonkeyPatch, redraws: Redraws, ready_records: list[list[dict]]
+) -> None:
     with state.edit(demo) as data:
-        data["prs"][KEY] |= {"wants_tap": True, "rework": {"answer": "a1", "job": "j1", "head": "aaaaaaa111", "why": "bind it as @parent", "at": state.stamp(T0)}}
-    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [], "pr_cards": [pr_card(KEY)]})
-    serve(monkeypatch, {KEY: read()})
+        data["prs"][KEY]["wants_tap"] = True
+        state.rework(data["prs"][KEY], "o2", "bind it as @parent")
+    monkeypatch.setattr(watch.view, "cards", lambda drive: watch.view.NO_CARDS)
+    serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
     watching = watcher(demo)
     watch.run_pass(watching, T0)
-    assert (redraws.asked, state.owed_step(state.load(demo)["prs"][KEY])) == ([], "rework")
-    serve(monkeypatch, {KEY: read(headRefOid="bbbbbbb222")})
+    serve(monkeypatch, {KEY: read(headRefOid="bbbbbbb222", checks=GREEN, reviewDecision="APPROVED")})
     watch.run_pass(watching, T0 + timedelta(minutes=1))
     watch.run_pass(watching, T0 + timedelta(minutes=2))
-    assert (redraws.asked, state.owed_step(state.load(demo)["prs"][KEY])) == ([state.pr_url(KEY)], "card")
+    assert (redraws.asked, ready_records, state.owed_step(state.load(demo)["prs"][KEY])) == ([], [], "reworking")
 
 
 def test_a_job_clock_is_said_once_when_it_runs_out_while_its_job_still_runs_and_ends_unsaid_for_one_that_returned(demo: str) -> None:

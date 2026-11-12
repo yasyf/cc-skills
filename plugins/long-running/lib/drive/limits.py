@@ -1049,13 +1049,14 @@ def bare_mechanisms(line: str) -> list[str]:
 
 
 def tap_owed_not(pr: dict) -> str:
-    """Why no tap of his is owed on a drive PR, or "" when one is: he tapped it, it merged or closed, it lands with no tap, or the drive holds it with the hold label."""
+    """Why no tap of his is owed on a drive PR, or "" when one is: he tapped it, it merged or closed, it lands with no tap, it is being reworked to his words, or the drive holds it with the hold label."""
     tap = pr.get("tap")
     reasons = [
         f"he tapped {tap['label']} at {when(tap['at'])}" if tap else "",
         pr["state"] if pr["state"] in ("merged", "closed") else "",
         f"it lands with no tap as {pr['exempt']}" if pr.get("exempt") else "",
         "the drive holds it with the hold label" if pr["hold_label"] else "",
+        f'it is being reworked to his words "{pr["rework"]["words"]}" until its builder\'s READY says how they are met' if pr["rework"] else "",
     ]
     return ", ".join(reason for reason in reasons if reason)
 

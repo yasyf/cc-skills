@@ -111,7 +111,9 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    first. The watch draws his card the minute GitHub reports the PR green and approved, whatever its
    body says; a port gets the coordinator's check against the old PR instead. A body is fixed beside
    the landing, never before it: a gap anyone finds in it is an edit you push while the PR waits, and
-   it holds no card, tap, enqueue or merge.
+   it holds no card, tap, enqueue or merge. His order reworking the PR took its card down; your
+   `READY` brings a fresh one up, its `CHANGE:` line saying how his words are met, and
+   `drive job report` refuses one without it.
    - A PR that is not a port and whose brief names no order of his is not his order. Drive tooling
      is such a PR: its his-words section says none rather than borrow his words for the order it
      unblocks. A `yasyf/*` one lands from `drive pr add` on, whose lander merges it with `--admin` and
@@ -303,7 +305,7 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 | --- | --- |
 | `PR:` | the PR's link |
 | `SERVES:` | `port of #N`, or the order of his it carries out, quoted from your brief |
-| `CHANGE:` | what changed for him |
+| `CHANGE:` | what changed for him; on a PR reworked to his words, how they are met, which its fresh card shows him |
 | `CHECK:` | the proof: a link, or the absolute path of a file that exists |
 | `DESIGN:` | on a `READY`, each design decision the PR makes beside the answer id or card permalink of his that settled it, or `none` |
 | `NATIVE:` | what the platform he sees it on already does for this and what the change builds on, with links, or `none: he never sees it` |
