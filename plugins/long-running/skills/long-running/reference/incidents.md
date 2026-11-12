@@ -302,7 +302,8 @@ check's verdict, or from the order when none ran.
 - Nothing stands between the merged fix and its build: no dry run, no read of what the cut covers
   or what caused the break, no comparison of open builds, no question. The job shipping the fix
   lifts the service's freeze, starts the build at the fix commit, and reports its link. The
-  release's own approve gate is the only check, and every read runs while it builds.
+  release's own approve hold, which the job reads as [landing.md](landing.md#after-merge) says, is the
+  only check, and every other read runs while it builds.
 - Every release a job of an open incident starts, its fix's, rollback's, stop's or the default
   branch's, is named to the drive in that turn with `drive incident release <o> <name>`, the
   name `tools/ci release start` prints. The turn its post in the releases channel says a step
@@ -328,10 +329,10 @@ check's verdict, or from the order when none ran.
     since Platy refuses a commit off `dev`.
 
   Every other form is in the monorepo `release` skill.
-- The incident order's words approve its own release's gate and its rollback. The job that starts
-  the release answers the gate with `--order <the answer id>`, or
-  `tools/ci release approve <id> --via <agent>` where it holds at approve. His own order approves
-  any other release he ordered, as [landing.md](landing.md) says.
+- The incident order's words approve starting its own release and its rollback, never the migrations,
+  deletes and replaces its approve hold holds. The job that starts the release passes `--order <the
+  answer id>` and reads that hold as [landing.md](landing.md#after-merge) says. His own order approves
+  starting any other release he ordered, the same way.
 - A revert is never a rollback, because his standing rule is fix forward. A rollback to an older
   build, when prudent, is an immediate fix the incident order approves, with no tap. A PR or build
   that takes a change out, whole or in part, is his to approve, by the monorepo `release` skill's reserved
