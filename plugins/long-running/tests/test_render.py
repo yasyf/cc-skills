@@ -4,6 +4,8 @@ import re
 
 from drive import cli, render, state, tools
 
+HOOK_CHARS = 10_000
+
 
 def order(
     text: str,
@@ -144,21 +146,27 @@ def test_each_page_naming_drive_tooling_carries_its_one_definition() -> None:
     assert [page.name for page in pages if state.DRIVE_TOOLING not in page.read_text()] == []
 
 
-def test_coordinator_context_names_each_order_whose_promised_line_is_owed() -> None:
+def live_sized() -> dict:
     drive = sample()
-    passed = state.now() - timedelta(minutes=30)
-    drive["orders"]["o3"]["due"] = state.stamp(passed)
-    lines = render.context(drive, "coordinator").splitlines()
-    assert f"- o3 line owed since {render.clock(passed)}" in lines
-    assert not any(line.startswith("- o1") for line in lines)
-    assert "- o3" not in render.context(drive, "communicator")
+    passed = state.stamp(state.now() - timedelta(minutes=30))
+    for n in range(785):
+        order_id, job_id, still_open = f"o{n + 10}", f"j{n + 10}", n < 388
+        filing = {"project": f"Project {n % 74 % 15}", "workstream": f"Workstream {n % 74}"}
+        drive["orders"][order_id] = order(f"order {n} " + "x" * 200, "open" if still_open else "done", passed if still_open else None, [job_id]) | filing
+        drive["jobs"][job_id] = drive["jobs"]["j1"] | {"order": order_id, "goal": f"goal {n} " + "y" * 200, "prs": []}
+    drive["name"] = "durable-agents"
+    drive["slack"] |= {"channel": "D0C4HQWPLCC", "watch": [f"C0B75AL{n:04d}" for n in range(8)]}
+    drive["roles"] = {role: drive["roles"]["coordinator"] | {"session": f"{n:08x}-ce81-4ce1-b1dc-8bbdf3e90a5e"} for n, role in enumerate(state.ROLES)}
+    return drive
 
 
-def test_context_size_does_not_grow_with_open_orders() -> None:
-    few, many = sample(), sample()
-    many["orders"] |= {f"o{n}": order(f"order {n} " + "x" * 200, order_state="open") for n in range(10, 110)}
+def test_every_session_start_block_fits_claude_codes_hook_limit_on_a_drive_as_large_as_the_live_one() -> None:
+    small, large = sample(), live_sized()
+    blocks = {role: render.context(large, role) for role in state.ROLES} | {"sub-coordinator": render.context(large, "coordinator", "Project 1")}
+    assert {seat: len(block) for seat, block in blocks.items() if len(block) >= HOOK_CHARS} == {}
     for role in state.ROLES:
-        assert len(render.context(many, role)) == len(render.context(few, role)) < 10_000
+        assert render.context(large, role).splitlines()[3:] == render.context(small, role).splitlines()[3:]
+    assert not any(line.startswith("- o") for block in blocks.values() for line in block.splitlines())
 
 
 def test_compact_instructions_keep_only_what_the_disk_does_not_hold() -> None:
@@ -270,13 +278,10 @@ def test_every_order_a_sessions_rules_tell_it_to_add_carries_each_field_order_ad
         assert required <= set(keys), keys
 
 
-def test_the_context_names_the_projects_and_workstreams_in_use_for_a_new_order_to_reuse() -> None:
+def test_every_block_sends_a_new_order_to_drive_order_unfiled_for_the_projects_and_workstreams_in_use() -> None:
     drive = sample()
     drive["orders"]["o1"] |= {"project": "Platform", "workstream": "SandSQL"}
-    drive["orders"]["o2"] |= {"project": "The drive", "workstream": "Drive tooling"}
-    drive["orders"]["o3"] |= {"project": "Platform", "workstream": "Releases and CI"}
-    for role in ("communicator", "coordinator"):
-        assert (
-            "Projects in use, each with its workstreams: Platform: SandSQL, Releases and CI; The drive: Drive tooling"
-            in render.context(drive, role)
-        )
+    for role in state.ROLES:
+        text = render.context(drive, role)
+        assert render.FILED in text
+        assert "SandSQL" not in text

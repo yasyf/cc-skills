@@ -2,7 +2,7 @@ import shlex
 import sys
 from datetime import datetime
 
-from drive.state import DRIVE_TOOLING, ROLES, VERSION, agent_gone, hears, lane_death, now, open_orders, owed, owed_at, owed_step, parse_time, pr_key, pr_url, project_lane, promise_thread, title
+from drive.state import DRIVE_TOOLING, ROLES, VERSION, agent_gone, lane_death, now, open_orders, owed_step, parse_time, pr_key, pr_url, project_lane, promise_thread, title
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 DRIVE_TOOLS = "mcp__plugin_long-running_drive__"
@@ -180,15 +180,6 @@ COORDINATOR_RULES = (
         " another surface is a question card first."
     ),
     (
-        'Record each answer to a card, and each ruling of his, in one call, drive answer --title "<the question>"'
-        ' --words "<his words>" --link <permalink>, which records it in cc-notes and lists every card'
-        " still asking him and every PR not yet live, refusing until each is marked: `--stands`, `--superseded"
-        " <key>=stop|<job>`, or `--reopened <PR>=<job>` naming the live job reworking it to his words. It also lists each job"
-        " waiting on an order his answer touches and refuses until each is marked: SendMessage it his words verbatim, then"
-        " `--sent <job>`, or `--untouched <job>` for one they leave."
-        " `--others-stand` only once you have read every card and PR left."
-    ),
-    (
         "Every part has an owner: an order add names its kind, answer or build, its project, workstream and short title, and for a"
         " build its parts, one per deliverable his words name; each job names its part, an ORPHAN line gets a job, a"
         " card or a close in the same turn, a part a post already answered closes with drive order posted <o> <link>"
@@ -216,10 +207,6 @@ COORDINATOR_RULES = (
         "A monorepo builder starts where drive place says: on a Sprite while this Mac is over its load limit or runs"
         " its cap of builders, except a handoff whose PROVE runs ci mac-box or ci devbox, which needs this Mac's machine"
         " profile."
-    ),
-    (
-        "A time he is promised is recorded with order set due, and done or dropped refuses until a drive post in the"
-        " order's thread keeps it."
     ),
     (
         "Job results and events feed the next TICK's report; while he is away only cards and incident lines go out, and a"
@@ -312,6 +299,7 @@ JOB = {
     "meta": f"you hold drive tooling, {DRIVE_TOOLING}",
 }
 REPROS_SHOWN = 5
+FILED = "The projects and workstreams in use, which a new order reuses where it fits: drive order unfiled lists each pair."
 WHOLE = sys.maxsize
 UNLISTED_TOOL_LINE = (
     "A drive tool these rules name that your session does not list, such as handler or job, is one an install added"
@@ -521,27 +509,6 @@ def order_block(drive: dict, order_id: str, order: dict, whole: bool) -> list[st
     return lines
 
 
-def owed_lines(drive: dict, project: str | None = None) -> list[str]:
-    moment = now()
-    owed_now = [
-        (parse_time(owed_at(order)), order_id)
-        for order_id, order in open_orders(drive).items()
-        if hears(drive, order, project) and owed(order) and parse_time(owed_at(order)) <= moment
-    ]
-    return [f"- {order_id} line owed since {clock(due)}" for due, order_id in sorted(owed_now)]
-
-
-def filed_line(drive: dict) -> str:
-    """The projects and workstreams the drive's orders are filed under, which a new order reuses where it fits."""
-    filed: dict[str, list[str]] = {}
-    for order in drive["orders"].values():
-        if order["project"] and order["workstream"] and order["workstream"] not in filed.setdefault(order["project"], []):
-            filed[order["project"]].append(order["workstream"])
-    return "Projects in use, each with its workstreams: " + (
-        "; ".join(f"{project}: {', '.join(workstreams)}" for project, workstreams in filed.items()) or "none yet"
-    )
-
-
 def subscribe(role: str, project: str | None = None) -> str:
     """The cci subscribe command of a role's session; a project's sub-coordinator's reads its own lane at its own cursor."""
     if project is None:
@@ -584,10 +551,8 @@ def context(drive: dict, role: str, project: str | None = None) -> str:
         f"Subscribe: cci drive use {drive['name']}, then {subscribe(role, project)}",
         f"{title(role).capitalize()} rules:",
         *(f"{number}. {rule}" for number, rule in enumerate(RULES[role], 1)),
-        filed_line(drive),
+        FILED,
     ]
-    if role == "coordinator":
-        lines.extend(owed_lines(drive, project))
     lines += [
         (
             f"This block comes from long-running {VERSION}, installed now. The"
