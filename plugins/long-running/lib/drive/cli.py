@@ -2554,7 +2554,7 @@ def pr_check(args: argparse.Namespace) -> int:
 
 
 def answer(args: argparse.Namespace) -> int:
-    """Record an answer or ruling of his against the cards asking him and PRs not yet live that it could replace, those of the job and order of the card it answers and those its words name, and the jobs waiting on their orders: refuse until each card and PR is marked standing, superseded or reopened by it and each job sent his words or untouched, settle each superseded card in place, withdraw each card carrying a reopened PR until its builder's READY says how his words are met, and close on GitHub an open PR superseded outright; any other card or PR still asking him may be marked too."""
+    """Record an answer or ruling of his against the cards asking him and PRs not yet live that it could change, those of the job and order of the card it answers, those its words name and each other question card Jev reads it as changing, and the jobs waiting on their orders: refuse until each card and PR is marked standing, settled, superseded or reopened by it and each job sent his words or untouched, show his answer on each card it settles, redraw each it settles in part to the ASK its job keeps for what is left, settle each superseded card in place, withdraw each card carrying a reopened PR until its builder's READY says how his words are met, and close on GitHub an open PR superseded outright; any other card or PR still asking him may be marked too."""
     from drive import superseded, view
 
     name = state.resolve(args.drive)
@@ -2571,9 +2571,10 @@ def answer(args: argparse.Namespace) -> int:
             raise DriveError('name his answer\'s cc-notes id, or pass --title "<the question, verbatim>" with --words and --link to record it in cc-notes first')
         if unsaid := settled.unsaid(args.words, args.link, found):
             raise DriveError(f"refused, nothing recorded: {unsaid}")
+        changes = settled.changed(args.title, args.words, asked)
         labels = ["scope:durable", f"drive:{name}", *settled.kind(args.words), *args.label]
         args.id = settled.recorded(args.title, args.words, labels, data["roles"]["coordinator"]["cwd"])
-    marking = args.stands or args.superseded or args.reopened or args.others_stand or args.sent or args.untouched
+    marking = args.stands or args.settled or args.superseded or args.reopened or args.others_stand or args.sent or args.untouched
     if args.id not in data["answers"]:
         if marking:
             raise DriveError(
@@ -2583,27 +2584,30 @@ def answer(args: argparse.Namespace) -> int:
         if not (args.words and args.link):
             raise DriveError(f'{args.id} is not recorded yet: pass --words "<his words, verbatim>" and --link <the permalink of his message or the card he tapped>')
         if cited:
-            body = settled.his(settled.shown(cited, data["roles"]["coordinator"]["cwd"])["body"])
-            if unsaid := settled.unsaid(args.words, args.link, found) or settled.unsaid(body, args.link, found):
+            shown = settled.shown(cited, data["roles"]["coordinator"]["cwd"])
+            if unsaid := settled.unsaid(args.words, args.link, found) or settled.unsaid(settled.his(shown["body"]), args.link, found):
                 raise DriveError(f"{cited}: refused, nothing recorded: {unsaid}")
+            changes = settled.changed(shown["title"], args.words, asked)
         with state.edit(name) as data:
-            data["answers"][args.id] = superseded.record(data, args.words, args.link, asked, state.stamp())
+            data["answers"][args.id] = superseded.record(data, args.words, args.link, asked, changes, state.stamp())
     kept = data["answers"][args.id]
     done = [] if marking else superseded.answer_cards(kept, asked)
     if done:
         view.refresh_cards(name)
     open_keys = superseded.unmarked(kept, asked)
-    named = [*args.stands, *(key for key, _ in [*args.superseded, *args.reopened])]
+    named = [*args.stands, *(key for key, _ in [*args.settled, *args.superseded, *args.reopened])]
     told = [*args.sent, *args.untouched]
     if twice := sorted({key for key in [*named, *told] if [*named, *told].count(key) > 1}):
-        raise DriveError(f"{', '.join(twice)}: marked twice; mark each card or PR once, standing, superseded or reopened, and each job once, sent or untouched")
+        raise DriveError(f"{', '.join(twice)}: marked twice; mark each card or PR once, standing, settled, superseded or reopened, and each job once, sent or untouched")
     if stray := [key for key in named if key not in superseded.markable(kept, asked)]:
         raise DriveError(f"{', '.join(stray)}: not a card or PR that {args.id} has not marked\n{superseded.listing(args.id, kept, open_keys, asked, data)}")
-    if stray := [job_id for job_id in told if job_id not in superseded.unheard(data, kept)]:
+    hearing = [job_id for key, _ in args.settled if (job_id := asked[key]["job"]) and data["jobs"][job_id]["state"] not in state.FINISHED_JOB_STATES]
+    if stray := [job_id for job_id in told if job_id not in [*superseded.unheard(data, kept), *hearing]]:
         raise DriveError(
             f"{', '.join(stray)}: not a job waiting on an order {args.id} touches that is unmarked\n{superseded.listing(args.id, kept, open_keys, asked, data)}"
         )
     refusals = [
+        *(superseded.settled_refusal(data, kept, key, asked[key], file) for key, file in args.settled),
         superseded.stack_refusal(asked, [key for key, _ in args.superseded]),
         *(superseded.fold_refusal(data, key, asked[key], into) for key, into in args.superseded if into),
         *(superseded.reopen_refusal(data, key, asked[key], by) for key, by in args.reopened),
@@ -2616,6 +2620,7 @@ def answer(args: argparse.Namespace) -> int:
         data["answers"][args.id]["jobs"].update({job_id: {"mark": "sent"} for job_id in args.sent} | {job_id: {"mark": "untouched"} for job_id in args.untouched})
     cleared: set[str] = set()
     try:
+        done += [settle_card(name, args.id, kept, key, asked[key], file) for key, file in args.settled]
         for mark, key, job_id in [*(("superseded", *pair) for pair in args.superseded), *(("reopened", *pair) for pair in args.reopened)]:
             card = asked[key]["card"]
             if mark == "reopened":
@@ -2634,7 +2639,7 @@ def answer(args: argparse.Namespace) -> int:
                 data["answers"][args.id]["cards"][key] = {"mark": mark, "job": asked[key]["job"], "into": job_id, "card": card}
                 done += [*([] if card else [f"{key}: no card was drawn for it"]), *superseded.supersede(data, args.id, key, asked[key], job_id)]
     finally:
-        if args.superseded or args.reopened:
+        if args.settled or args.superseded or args.reopened:
             view.refresh_cards(name)
     with state.edit(name) as data:
         kept = data["answers"][args.id]
@@ -2644,10 +2649,37 @@ def answer(args: argparse.Namespace) -> int:
         raise DriveError("\n".join([*done, superseded.listing(args.id, kept, left, asked, data)]))
     marked = [mark["mark"] for mark in kept["cards"].values() if mark]
     heard = [mark["mark"] for mark in kept["jobs"].values() if mark]
-    line = f"his answer {args.id} recorded: {marked.count('stands')} standing, {marked.count('superseded')} superseded, {marked.count('reopened')} reopened by it"
+    settles = "".join(f", {marked.count(mark)} {mark}" for mark in ("settled", "redrawn") if mark in marked)
+    line = f"his answer {args.id} recorded: {marked.count('stands')} standing{settles}, {marked.count('superseded')} superseded, {marked.count('reopened')} reopened by it"
     if heard:
         line += f"; {heard.count('sent')} waiting {'job' if heard.count('sent') == 1 else 'jobs'} sent his words, {heard.count('untouched')} untouched"
     return emit(args, "\n".join([line, *done]), {"id": args.id, **kept})
+
+
+def settle_card(name: str, answer_id: str, kept: dict, key: str, entry: dict, file: Path | None) -> str:
+    """Show his answer in place on the question card it decides, settling its job's question, or redraw the card it decides in part to the ASK its job keeps asking what is left, through the ask record that redraws a card under its waits id; either way the card's job, while live, waits to hear his words. What was done, one line."""
+    from drive import superseded, tools, view
+
+    job_id, card = entry["job"], entry["card"]
+    if file:
+        attrs = {"job": job_id, "ask": str(file), "waits": key} | settled.incident_marks([name], {"job": job_id, "ask": str(file)})
+        tools.sent(name, "builder", [{"kind": "ask", "to": [f"communicator@{name}"], "attr": attrs, "path": str(file)}])
+    else:
+        superseded.settle(card, kept, settled=True)
+    with state.edit(name) as data:
+        job = data["jobs"][job_id]
+        if file:
+            keep_waits(job, file, key)
+        else:
+            for question in job["questions"]:
+                if question["waits"] == key or question["card"] and view.message_key(question["card"]) == view.message_key(card):
+                    question["settled"] = {"answer": answer_id, "ruling": None, "at": state.stamp()}
+        data["answers"][answer_id]["cards"][key] = {"mark": "redrawn" if file else "settled", "job": job_id, "card": card, **({"ask": str(file)} if file else {})}
+        if job["state"] not in state.FINISHED_JOB_STATES:
+            data["answers"][answer_id]["jobs"].setdefault(job_id, None)
+    if file:
+        return f"{key}: its card {card} is redrawn in place to {file}, asking only what his answer {answer_id} leaves open, by the ask record sent to communicator@{name}"
+    return f"{key}: its card {card} now shows his answer {answer_id} with no buttons, settling {job_id}'s question, so {job_id} builds on his words"
 
 
 def rewrite_refusal(data: dict, args: argparse.Namespace) -> str | None:
@@ -2671,6 +2703,13 @@ def superseded_mark(text: str) -> tuple[str, str | None]:
     if not key or not how:
         raise argparse.ArgumentTypeError("say <key>=stop, or <key>=<the live job that carries its work on>")
     return key, None if how == "stop" else how
+
+
+def settled_mark(text: str) -> tuple[str, Path | None]:
+    key, _, file = text.partition("=")
+    if not key:
+        raise argparse.ArgumentTypeError("say <card key>, or <card key>=<the ASK its job keeps asking only what his answer leaves open>")
+    return key, Path(file).expanduser().resolve() if file else None
 
 
 def reopened_mark(text: str) -> tuple[str, str]:
@@ -3676,16 +3715,19 @@ def parser() -> argparse.ArgumentParser:
     verb = verbs.add_parser(
         "answer",
         parents=both,
-        help="record an answer or ruling of his against every card still asking him and every PR not yet live, each marked standing, superseded or reopened by it",
+        help="record an answer or ruling of his against the cards still asking him and PRs not yet live that it could change, each marked standing, settled, superseded or reopened by it",
         description=(
             "Run for every answer and ruling of his. The first call, with --title, --words and --link and no id, records"
             " it in cc-notes and here, or with an id, --words and --link records one already in cc-notes; a ruling, labelled"
             " ruling, records only with --rewrite naming the communicator's open \"Drive tooling:\" order that rewrites the"
-            " skill to it, so the watch chases that rewrite until it is done. It lists every"
-            " question card of his still open, every PR waiting on his tap, every"
-            " other open PR and every merged PR whose job is still at work (key, kind, job, order, title, link), and each"
-            " job waiting on one of their orders, and exits 2. Each later call marks them: --stands for one this answer"
-            " leaves as it is, --superseded for one it replaces, which settles its card in place showing his words and a"
+            " skill to it, so the watch chases that rewrite until it is done. It lists the cards of his still open and the"
+            " PRs not yet live that it could change: those of the job and order of the card it answers, those its words"
+            " name, and every other open question card Jev, reading his answer against all of them in one call, reads it as"
+            " deciding, ruling options out of or making moot (key, kind, job, order, title, link), and each job waiting on"
+            " one of their orders, and exits 2. Each later call marks them: --stands for one this answer leaves as it is,"
+            " --settled for a question card it decides, which shows his answer on the card in place with no buttons, or for"
+            " one it decides in part with the ASK its job keeps asking only what his answer leaves open, which takes that"
+            " card's place and redraws it; --superseded for one it replaces, which settles its card in place showing his words and a"
             " link to them with no buttons, drops its PR's tap ask, and stops its job, closing an open PR on GitHub, or"
             " folds what the job carries into the live job named, and --reopened for a PR his words change, which drops his"
             " tap on it, withdraws each open card of his carrying it in the same call, and names the live job that reworks"
@@ -3712,6 +3754,20 @@ def parser() -> argparse.ArgumentParser:
         help="the permalink of his message or of the card he answered, which a superseded card links; the first call needs it, and checks both --words and a named answer's words above its Notes: against it",
     )
     verb.add_argument("--stands", action="extend", nargs="+", default=[], metavar="KEY", help="a card or PR his answer leaves as it is")
+    verb.add_argument(
+        "--settled",
+        action="extend",
+        nargs="+",
+        default=[],
+        type=settled_mark,
+        metavar="KEY|KEY=FILE",
+        help=(
+            "a question card his answer decides: it shows his answer in place with no buttons, its job's question is settled by it, and the job"
+            " builds on his words; or, with FILE, one it decides in part: FILE is the ASK its job keeps with drive job ask asking only what his"
+            " answer leaves open, linking his answer in its summary, which takes the card's waits id and redraws that card in place. Either"
+            " way the card's job hears his words, marked --sent or --untouched"
+        ),
+    )
     verb.add_argument(
         "--superseded",
         action="extend",

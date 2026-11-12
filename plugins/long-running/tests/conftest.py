@@ -507,6 +507,7 @@ class Jev:
     answer: dict | None = field(default_factory=lambda: {"type": "label", "choice": "none", "probabilities": {"none": 0.9}, "confidence": 0.9})
     reads: dict[str, dict[str, float]] = field(default_factory=dict)
     unsaid: set[str] = field(default_factory=set)
+    changes: dict[str, float] = field(default_factory=dict)
 
     def picks(self, choice: str, probability: float = 0.9) -> None:
         self.answer = label(choice, {"none": round(1 - probability, 2), choice: probability})
@@ -531,6 +532,9 @@ def jev(monkeypatch: pytest.MonkeyPatch) -> Jev:
         judged.asked.append(request)
         if judged.answer is None:
             raise settled.Unheard("Command 'spawnllm decide' timed out after 60 seconds")
+        if "changes" in request["questions"]:
+            read = {"none": 0.9} | judged.changes
+            return {"changes": label(max(read, key=read.__getitem__), read)}
         answers = request["state"].get("answers")
         if answers and (read := judged.reads.get(answers[0]["id"])):
             return {"decides": label(max(read, key=read.__getitem__), read)}

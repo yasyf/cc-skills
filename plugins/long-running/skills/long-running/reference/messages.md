@@ -316,9 +316,12 @@ When it is answered, replaced or redone:
   included, which X answers: the card closes showing them, and the work goes ahead on them. Only a
   question asking for facts or options is answered in its thread while the card waits. `drive job card` refuses to redraw that card with another question, so put a question his
   words leave open on a new card.
-- When an answer or ruling he gave elsewhere replaces a card, the coordinator's `drive answer`
-  settles it in place, showing his words and a link to them where its buttons were, so a late tap
-  records nothing.
+- When an answer or ruling he gave elsewhere decides a card, `drive answer` lists it, Jev reading
+  his answer against every open card in one call, and `--settled` shows his words and a link to them
+  in place where its buttons were, so a late tap records nothing. A card it decides only in part is
+  redrawn under its `waits` id to the ASK its job keeps asking only what is left, linking his answer,
+  with `--settled <key>=<file>`. His words, on a card a later decision of his had settled: "didnt we
+  alrady say to move all those to lazy? we need to update tehse old cards based on future desicions".
 - To change the words of a card he has not answered, draw it again under its `waits` id. That one
   call posts the new version as the live card at the DM root, its link in the thread `thread_ts`
   names, and edits the old card to the new words with one line linking the new card where its
@@ -337,8 +340,9 @@ When it is answered, replaced or redone:
   link to them with no buttons, so a late tap records nothing, and its question, asked again on any
   job once the work is back, keeps that card's waits id and redraws it. One subject has one card: `drive job ask` refuses a question another job's
   open card asks in other words, sharing three proper terms, until that card is withdrawn or
-  `--unsettled` names it and why this asks something else, and `drive answer` lists every card on
-  that subject beside the one his answer settles. His words, on three cards about one search
+  `--unsettled` names it and why this asks something else, and `drive answer` lists every open card
+  his answer decides, rules options out of or makes moot, whatever job, order or words it shares with
+  the one he answered. His words, on three cards about one search
   worker's cache disk: "We're already addressing this with the lazy + restate object + increase disk size right? So why is this card still here?"
 - No option asks a reporter or anyone else to retry, confirm or check, because the drive proves a fix
   itself, and `drive job ask` refuses an option asking someone to retry or confirm.
