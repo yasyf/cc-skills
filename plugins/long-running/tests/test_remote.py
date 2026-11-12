@@ -1580,6 +1580,39 @@ def test_a_read_still_running_holds_its_answer_starts_no_second_reader_and_its_a
     assert (started, job["reads"], job["read_answers"], job["readers"]) == (["relay_drive"], {}, {}, {})
 
 
+@pytest.mark.parametrize("cut_off_kept", [True, False])
+def test_a_reader_that_finishes_as_the_watch_checks_it_starts_no_second_reader_and_its_final_answer_goes(
+    cut_off_kept: bool, remote: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    question = "READ ccn answer search repro cut"
+    deliver(monkeypatch, [message("question", question, id="relay_read")])
+    reader, started, replies = 4242, [], []
+
+    def start(name: str, job_id: str, message_id: str) -> int:
+        started.append(message_id)
+        if cut_off_kept:
+            watch.keep_answer(name, job_id, message_id, [f"{question}: {watch.CUT_OFF}", watch.CUT_OFF])
+        return reader
+
+    def finishes_as_checked(pid: int) -> bool:
+        if pid == reader:
+            watch.keep_answer(remote, "j1", "relay_read", [f"{question}: empty, the read printed nothing", None])
+        return False
+
+    monkeypatch.setattr(watch, "spawn_reader", start)
+    monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
+    monkeypatch.setattr(state, "alive", lambda pid: pid == reader)
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    assert staged(watch.lane_lines, watching, T0) == []
+    monkeypatch.setattr(state, "alive", finishes_as_checked)
+    assert staged(watch.lane_lines, watching, T0 + timedelta(seconds=5)) == []
+    assert [args for args in replies if args[0] == "reply"] == [
+        ("reply", "--id", "relay_read", "--run", RUN, "--body", f"{question}: empty, the read printed nothing")
+    ]
+    job = state.load(remote)["jobs"]["j1"]
+    assert (started, job["reads"], job["read_answers"], job["readers"]) == (["relay_read"], {}, {}, {})
+
+
 def test_a_break_glass_answer_orca_refuses_is_sent_again_and_its_command_never_runs_twice(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
     deliver(monkeypatch, [message("question", BREAK_GLASS_READ, id="msg_glass")])
     ran = []

@@ -890,18 +890,19 @@ def merge_lane_prs(watcher: Watcher, job_ids: set[str]) -> list[str]:
 
 
 def read_lines(watcher: Watcher, data: dict, moment: datetime) -> list[str]:
-    """Send each `LOG`, `READ` or `DRIVE` question a lane queued the answer `drive job read` keeps for it here, since a Sprite holds no CI credentials or drive records, starting that read as its own process for a live lane's question with neither an answer nor a reader still running, so a drive command that runs for minutes holds up no pass; one the read cannot answer gets why as its answer and a `JOB` line saying so. A lane's `drive job report` that took its return wakes the coordinator with its `JOB` line as its answer goes, as a job's own return does on this Mac, a `PUSHED` aside, which waits on its checks; its job may have left the live states by then, so a kept answer goes whatever its job's state. An answer goes only once its reader ended, so the cut-off answer a reader keeps before it runs never goes ahead of the one it finishes with, and a refused reply sends the kept answer again and never reruns the read. A question leaves its job's queue only once its answer goes through; with no line since nothing is owed on it, once Orca says it already holds another answer, since a lane whose wait ends waits again on the same question; or with one `JOB` line once Orca says the question's dispatch closed, since no lane waits on it then: any other refused reply only delays it."""
+    """Send each `LOG`, `READ` or `DRIVE` question a lane queued the answer `drive job read` keeps for it here, since a Sprite holds no CI credentials or drive records, starting that read as its own process for a live lane's question with neither an answer nor a reader still running, so a drive command that runs for minutes holds up no pass; one the read cannot answer gets why as its answer and a `JOB` line saying so. A lane's `drive job report` that took its return wakes the coordinator with its `JOB` line as its answer goes, as a job's own return does on this Mac, a `PUSHED` aside, which waits on its checks; its job may have left the live states by then, so a kept answer goes whatever its job's state. An answer goes, and a reader starts, only on what drive.json held once its reader was seen ended, so the cut-off answer a reader keeps before it runs never goes ahead of the one it finishes with, no reader that finished since the watch last read drive.json starts again, and a refused reply sends the kept answer again and never reruns the read. A question leaves its job's queue only once its answer goes through; with no line since nothing is owed on it, once Orca says it already holds another answer, since a lane whose wait ends waits again on the same question; or with one `JOB` line once Orca says the question's dispatch closed, since no lane waits on it then: any other refused reply only delays it."""
+    running, data = ended_reads(watcher.name, data)
     for job_id, job in live_lanes(watcher, data).items():
         for message_id in job.get("reads", {}):
-            if message_id not in job.get("read_answers", {}) and not reading(job, message_id):
-                reader = spawn_reader(watcher.name, job_id, message_id)
+            if message_id not in job.get("read_answers", {}) and (job_id, message_id) not in running:
+                reader = job.setdefault("readers", {})[message_id] = spawn_reader(watcher.name, job_id, message_id)
                 with state.edit(watcher.name) as fresh:
                     fresh["jobs"][job_id].setdefault("readers", {})[message_id] = reader
     lines = []
-    data = state.load(watcher.name)
+    running, data = ended_reads(watcher.name, data)
     for job_id, job in data["jobs"].items():
         for message_id, question in job.get("reads", {}).items() if heard_job(watcher, data, job) else ():
-            if reading(job, message_id) or not (kept := job.get("read_answers", {}).get(message_id)):
+            if (job_id, message_id) in running or not (kept := job.get("read_answers", {}).get(message_id)):
                 continue
             said, why = kept
             source = f"the answer to {job_id}'s"
@@ -922,6 +923,12 @@ def read_lines(watcher: Watcher, data: dict, moment: datetime) -> list[str]:
                 for held in ("reads", "read_answers", "readers"):
                     fresh["jobs"][job_id].get(held, {}).pop(message_id, None)
     return lines
+
+
+def ended_reads(name: str, data: dict) -> tuple[set[tuple[str, str]], dict]:
+    """The reads in data a reader still runs on, by job and message id, then the drive read again after that check, so each other read's answer there is the one its reader finished with, since a reader keeps its final answer before it exits; data names every reader started so far."""
+    running = {(job_id, message_id) for job_id, job in data["jobs"].items() for message_id in job.get("reads", {}) if reading(job, message_id)}
+    return running, state.load(name)
 
 
 def reading(job: dict, message_id: str) -> bool:
