@@ -2022,6 +2022,80 @@ def test_an_orca_dispatch_on_a_sprite_set_as_a_jobs_agent_records_its_sprite_and
     assert place.local_builders(data, state.now()) == {}
 
 
+def test_job_set_agent_records_the_run_task_and_terminal_of_the_dispatch_it_names_never_the_jobs_old_run(
+    run: Run, remote: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(task="task_old", terminal="term_old", workspace="pool-old", environment="pool-old")
+    monkeypatch.setattr(orca, "worker", lambda dispatch: SPRITE_WORKER | {"dispatch": {"runId": FRESH_RUN, "taskId": "task_sprite"}})
+    run("job", "set", "j1", "--agent", SPRITE_DISPATCH)
+    job = state.load(remote)["jobs"]["j1"]
+    assert {field: job[field] for field in ("agent", "run", "task", "terminal", *SPRITE_LANE)} == {
+        "agent": None,
+        "run": FRESH_RUN,
+        "task": "task_sprite",
+        "terminal": "term_sprite",
+        **SPRITE_LANE,
+    }
+
+
+def kept_attempt(drive: str, attempt: str, dispatch: str) -> None:
+    """The attempt the launcher keeps for a brief whose worker started: worker-start exited 0 with a ready receipt."""
+    kept = state.drive_dir(drive) / "jobs" / f"{attempt}.worker"
+    kept.mkdir(parents=True)
+    (kept / "worker-start.status").write_text("0\n")
+    (kept / "worker-start.json").write_text(json.dumps({"ok": True, "error": None, "result": {"state": "ready", "runId": RUN, "taskId": "task_sprite", "dispatchId": dispatch}}))
+
+
+def test_a_launch_whose_worker_started_unrecorded_is_recorded_from_its_kept_receipt_by_the_next_launch_which_starts_nothing(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship it", "--remote")
+    kept_attempt(demo, "j1", SPRITE_DISPATCH)
+    monkeypatch.setattr(orca, "worker", lambda dispatch: SPRITE_WORKER)
+    monkeypatch.setattr(orca, "new_run", lambda objective: pytest.fail("a worker already started gets no second Run"))
+    monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a worker already started is not launched again"))
+    assert run("job", "launch", "j1") == (0, f"j1 started on Sprite pool-sprite-one as dispatch {SPRITE_DISPATCH}")
+    job = state.load(demo)["jobs"]["j1"]
+    assert {field: job[field] for field in ("state", "run", "task", "terminal", "lane", *SPRITE_LANE)} == {
+        "state": "running",
+        "run": RUN,
+        "task": "task_sprite",
+        "terminal": "term_sprite",
+        "lane": "demo-j1",
+        **SPRITE_LANE,
+    }
+
+
+def test_a_relaunch_whose_worker_started_unrecorded_is_recorded_from_its_kept_receipt_by_the_next_resume_which_starts_nothing(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / ".orca.json").write_text("{}")
+    first = state.drive_dir(remote) / "jobs" / "j1.md"
+    first.parent.mkdir(exist_ok=True)
+    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(brief=str(first), workspace="sprite-old", environment="sprite-old")
+        state.lane_died(data["jobs"]["j1"], DISPATCH, "its worker exited", T0)
+    kept_attempt(remote, "j1-2", SPRITE_DISPATCH)
+    monkeypatch.setattr(orca, "worker", lambda dispatch: SPRITE_WORKER if dispatch == SPRITE_DISPATCH else dead())
+    monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: None)
+    monkeypatch.setattr(orca, "new_run", lambda objective: pytest.fail("a worker already started gets no second Run"))
+    monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a worker already started is not launched again"))
+    code, out = run("job", "resume", "j1", "go")
+    assert (code, f"relaunched on Sprite pool-sprite-one as dispatch {SPRITE_DISPATCH}" in out) == (0, True)
+    job = state.load(remote)["jobs"]["j1"]
+    assert {field: job[field] for field in ("state", "run", "dispatch", "lane", "workspace")} == {
+        "state": "running",
+        "run": RUN,
+        "dispatch": SPRITE_DISPATCH,
+        "lane": "demo-j1-2",
+        "workspace": "pool-sprite-one",
+    }
+    assert [death["dispatch"] for death in job["deaths"]] == [DISPATCH]
+
+
 def test_the_watch_files_a_lane_recorded_on_this_mac_on_the_sprite_its_worker_show_names(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     deliver(monkeypatch)
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the tooling root")

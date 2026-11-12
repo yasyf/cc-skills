@@ -1,10 +1,10 @@
 import fcntl
 import hashlib
 import json
+import math
 import os
 import re
 import subprocess
-import sys
 import time
 import uuid
 from collections.abc import Callable, Iterable, Iterator
@@ -106,7 +106,6 @@ BATCHED: dict[str, str] = {}
 HELD_INSTALL: dict[Path, IO] = {}
 INSTALL_HOLDER = "LONG_RUNNING_INSTALL_HOLDER"
 WAITED_OLDER: set[Path] = set()
-OLDER_VERBS_SECONDS = 20
 LOCK_POLL_SECONDS = 0.1
 HOLDER_CHARS = 200
 HOLDERS_SECONDS = 5
@@ -920,17 +919,15 @@ def held_by_parent() -> bool:
 
 
 def older_verbs_done(name: str) -> None:
-    """Wait up to OLDER_VERBS_SECONDS for every verb an older install started to end, before this process first saves a drive an older install saved last, so no verb meets a drive.json saved by an install newer than its own code; taken outside the drive's lock, which those verbs still take, and once a process, since no older verb starts after it. A verb still running after that, stuck or waiting on something of its own, does not hold every newer verb behind it: the save goes ahead, naming it, and that verb refuses the drive at its next load, which runs under the drive's lock and refuses a newer save, so it never writes over one."""
+    """Wait until every verb an older install started has ended, before this process first saves a drive an older install saved last, so no verb meets a drive.json saved by an install newer than its own code, however long it runs; taken outside the drive's lock, which those verbs still take, and once a process, since no older verb starts after it. A process that outlives its verb lets go of its lock whenever it waits on something of its own, so only verbs running hold this wait."""
     path = state_path(name)
     if path in WAITED_OLDER or not path.exists():
         return
     if saver := json.loads(path.read_text()).get("saved_by"):
-        ends = time.monotonic() + OLDER_VERBS_SECONDS
         for older in (root() / "installs").glob("*.lock"):
             if version_order(saver) <= version_order(older.stem) < version_order(VERSION):
                 with open(older, "a") as handle:
-                    if not taken(handle, ends - time.monotonic()):
-                        print(f"drive: {name} saved past long-running {older.stem}'s verbs still running after {OLDER_VERBS_SECONDS}s, which refuse it from now on: {holders(older)}", file=sys.stderr)
+                    taken(handle, math.inf)
     WAITED_OLDER.add(path)
 
 

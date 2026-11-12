@@ -448,6 +448,29 @@ def placement(worker: dict) -> dict:
     return {"route": None, "workspace": worker["server"]["name"], "environment": worker["server"]["name"]}
 
 
+def run_of(worker: dict) -> dict:
+    """The Run and task a worker-show's dispatch belongs to and its terminal, which a job records beside that dispatch, so it never keeps a Run its dispatch is not on."""
+    return {"run": worker["dispatch"]["runId"], "task": worker["dispatch"]["taskId"], "terminal": worker["terminal"]["handle"]}
+
+
+def receipt(dispatch: str) -> dict:
+    """What a job records of the worker on a dispatch, as Orca shows it: the dispatch, its Run, task and terminal, and where it runs."""
+    shown = worker(dispatch)
+    return {"dispatch": dispatch, **run_of(shown), **placement(shown)}
+
+
+def adopted(drive: str, brief: Path) -> dict | None:
+    """The worker an earlier launch of this brief started and the drive never recorded, as a job records it with its lane, when the attempt the launcher keeps for the brief holds a ready worker-start receipt, which the launcher refuses to launch the brief again past; else None."""
+    attempt = brief.with_suffix(".worker")
+    status = attempt / "worker-start.status"
+    if not status.is_file() or status.read_text().strip() != "0":
+        return None
+    started = json.loads((attempt / "worker-start.json").read_text()).get("result") or {}
+    if started.get("state") != "ready":
+        return None
+    return {**receipt(started["dispatchId"]), "lane": lane_name(drive, brief.stem)}
+
+
 def death(worker: dict) -> str | None:
     """Why a lane's worker is gone for good, from its worker-show, or None while Orca still holds it."""
     return "its worker exited" if worker["projection"]["liveness"]["verdict"] == "exited" else None

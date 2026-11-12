@@ -1094,7 +1094,7 @@ def job_set(args: argparse.Namespace) -> int:
         raise DriveError("--rework names the PRs one carried order reworks: name that order with one --carries <o>")
     refuse_unreworkable(known, args.rework, args.id)
     shown = args.card and shown_card(name, args.card)
-    lane = args.agent and args.agent.startswith(state.DISPATCH_PREFIX) and orca.placement(orca.worker(args.agent))
+    lane = args.agent and args.agent.startswith(state.DISPATCH_PREFIX) and orca.receipt(args.agent)
     with state.edit(name) as data:
         job = find(data["jobs"], args.id, "job")
         job.update({field: value for field, value in changes.items() if value is not None})
@@ -1116,7 +1116,7 @@ def job_set(args: argparse.Namespace) -> int:
         if args.agent and args.agent == job.get("dispatch"):
             job.update(where="remote", agent=None, handed_to=None)
         elif lane:
-            job.update(lane, where="remote", dispatch=args.agent, agent=None)
+            job.update(lane, where="remote", agent=None)
         elif args.agent:
             job["where"] = "local"
             job["session"] = os.environ.get("CLAUDE_CODE_SESSION_ID")
@@ -1821,7 +1821,7 @@ def transcript_line(job_id: str, job: dict) -> str | None:
 
 
 def job_launch(args: argparse.Namespace) -> int:
-    """Start a job's Orca lane, on a Sprite or with --local on this Mac, stamped as launching once nothing refuses it so the watch reads it as starting until the launch could have finished."""
+    """Start a job's Orca lane, on a Sprite or with --local on this Mac, stamped as launching once nothing refuses it so the watch reads it as starting until the launch could have finished; or record the worker an earlier launch of its brief started and never recorded, whose ready receipt the launcher keeps."""
     name = state.resolve(args.drive)
     started = launched(args, name)
     job = record_start(name, args.id, started, None)
@@ -1833,6 +1833,8 @@ def launched(args: argparse.Namespace, name: str) -> dict:
     job = find(data["jobs"], args.id, "job")
     if dispatch := job.get("dispatch"):
         raise DriveError(f"{args.id} already started as dispatch {dispatch}")
+    if adopted := orca.adopted(name, launch_brief(name, args.id)):
+        return {field: adopted[field] for field in LAUNCHED}
     if job["waits"]:
         raise DriveError(f"{args.id} waits on {', '.join(job['waits'])}: launch it on the watch's FREE line, which comes once the last wait ends")
     taker = other_sessions_agent(job)
@@ -1954,7 +1956,7 @@ def hand_over(args: argparse.Namespace, name: str, data: dict, session: str) -> 
 
 
 def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEnd) -> int:
-    """Start the job's next worker with a handoff: in the terminal of a worker that finished while Orca holds it, on its Sprite or on this Mac, on that worker's Run; else, on a Run this terminal makes, on a fresh Sprite, or in a fresh worktree on this Mac. Before a relaunch it saves to GitHub what the dead lane's Sprite holds that a fresh one would not get, and its handoff names the saved branches; when that Sprite cannot be read or the save fails, the relaunch runs on that Sprite instead, in the checkout the dead lane left. A relaunch on a fresh Sprite then destroys the dead lane's Sprite once it holds nothing on no remote. A finished worker whose terminal or worktree Orca no longer finds starts its next worker as a dead one's would."""
+    """Start the job's next worker with a handoff: in the terminal of a worker that finished while Orca holds it, on its Sprite or on this Mac, on that worker's Run; else, on a Run this terminal makes, on a fresh Sprite, or in a fresh worktree on this Mac. Before a relaunch it saves to GitHub what the dead lane's Sprite holds that a fresh one would not get, and its handoff names the saved branches; when that Sprite cannot be read or the save fails, the relaunch runs on that Sprite instead, in the checkout the dead lane left. A relaunch on a fresh Sprite then destroys the dead lane's Sprite once it holds nothing on no remote. A finished worker whose terminal or worktree Orca no longer finds starts its next worker as a dead one's would. A relaunch an earlier restart of the same death started and never recorded is recorded from the ready receipt its attempt keeps, never launched twice."""
     data = state.load(name)
     job = data["jobs"][args.id]
     root = None if end.worktree else checkout(data)
@@ -1983,7 +1985,7 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
                 return restart(args, name, dispatch, orca.LaneEnd(why, end.branch, None))
             raise
     else:
-        receipt = launch_attempt(name, job, attempt, kept, brief, root, job["workspace"] if left else None)
+        receipt = orca.adopted(name, kept) or launch_attempt(name, job, attempt, kept, brief, root, job["workspace"] if left else None)
     started = {field: receipt[field] for field in LAUNCHED}
     record_start(name, args.id, started, str(kept))
     carrying = "in a handoff carrying its brief, its branch, its last line, its report and its PRs"
