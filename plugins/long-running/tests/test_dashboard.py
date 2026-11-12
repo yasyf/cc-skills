@@ -223,6 +223,29 @@ def test_a_quoted_message_on_a_card_shows_as_one_quote_of_its_text_with_its_link
     )
 
 
+def test_a_markdown_table_on_a_card_draws_as_a_table_wherever_it_sits_in_its_paragraph(tmp_path: Path) -> None:
+    body = "\n".join(
+        [
+            "*Show me*",
+            "Where each home keeps the pin",
+            "| | Local table | Server table |",
+            "| --- | --- | --- |",
+            "| Written to | `_pinned_chats` | `chat_favorites` |",
+            "| With no network | works | fails",
+            "The server table needs the network.",
+        ]
+    )
+    shown = web(tmp_path, f"model = {{ repo: '', review: [] }}; JSON.stringify(prose({json.dumps(body)}))")
+    assert shown == (
+        "<p><b>Show me</b><br>Where each home keeps the pin</p>"
+        '<div class="tablewrap"><table><thead><tr><th></th><th>Local table</th><th>Server table</th></tr></thead><tbody>'
+        "<tr><td>Written to</td><td><code>_pinned_chats</code></td><td><code>chat_favorites</code></td></tr>"
+        "<tr><td>With no network</td><td>works</td><td>fails</td></tr>"
+        "</tbody></table></div>"
+        "<p>The server table needs the network.</p>"
+    )
+
+
 def test_the_web_draws_every_component_kind_natively_and_never_as_a_picture(tmp_path: Path) -> None:
     for kind, surfaces in web(tmp_path, WEB_RENDER, COMPONENTS):
         for surface, shown in surfaces.items():

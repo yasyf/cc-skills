@@ -176,6 +176,7 @@ const VISUAL_KINDS = new Set(['arch', 'mermaid', 'chart', 'compare', 'dot']);
 const WORD_FENCES = new Set(['', 'text', 'txt', 'plain']);
 const PICTURE_LINE = /^\s*!\[([^\]]*)\]\((\/[^)\s]+)\)\s*$/;
 const QUOTE_LINE = /^\s*>\s?/;
+const TABLE_ROW = /^\s*\|/;
 
 function inline(text, cite = model.repo) {
   const spans = [];
@@ -219,16 +220,20 @@ function prose(text, cite) {
       if (heading) {
         blocks.push(`<h4 class="hd">${inline(heading[2], cite)}</h4>`);
         lines.shift();
-        if (!lines.length) continue;
       }
-      if (lines.some((line) => PICTURE_LINE.test(line) || QUOTE_LINE.test(line))) {
-        blocks.push(...lineBlocks(lines, cite));
-      } else if (lines.every((line) => /^\s*\|.*\|\s*$/.test(line))) {
-        blocks.push(table(lines, cite));
-      } else if (lines.every((line) => /^\s*(?:[-*•]|\d+[.)])\s/.test(line))) {
-        blocks.push(`<ul>${lines.map((line) => `<li>${inline(line.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, ''), cite)}</li>`).join('')}</ul>`);
-      } else {
-        blocks.push(`<p>${lines.map((line) => inline(line, cite)).join('<br>')}</p>`);
+      while (lines.length) {
+        const row = TABLE_ROW.test(lines[0]);
+        const end = lines.findIndex((line) => TABLE_ROW.test(line) !== row);
+        const run = lines.splice(0, end < 0 ? lines.length : end);
+        if (row) {
+          blocks.push(table(run, cite));
+        } else if (run.some((line) => PICTURE_LINE.test(line) || QUOTE_LINE.test(line))) {
+          blocks.push(...lineBlocks(run, cite));
+        } else if (run.every((line) => /^\s*(?:[-*•]|\d+[.)])\s/.test(line))) {
+          blocks.push(`<ul>${run.map((line) => `<li>${inline(line.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, ''), cite)}</li>`).join('')}</ul>`);
+        } else {
+          blocks.push(`<p>${run.map((line) => inline(line, cite)).join('<br>')}</p>`);
+        }
       }
     }
   });
@@ -356,7 +361,7 @@ function notRead(read) {
 
 function table(lines, cite) {
   const cells = (line) => line.trim().replace(/^\||\|$/g, '').split('|').map((cell) => cell.trim());
-  const rows = lines.filter((line) => !/^\s*\|[\s:|-]+\|\s*$/.test(line)).map(cells);
+  const rows = lines.filter((line) => !/^\s*\|[\s:|-]+$/.test(line)).map(cells);
   const [head, ...body] = rows;
   return `<div class="tablewrap"><table><thead><tr>${head.map((cell) => `<th>${inline(cell, cite)}</th>`).join('')}</tr></thead><tbody>${body
     .map((row) => `<tr>${row.map((cell) => `<td>${inline(cell, cite)}</td>`).join('')}</tr>`)
