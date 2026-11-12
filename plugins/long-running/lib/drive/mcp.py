@@ -62,9 +62,11 @@ SAY = {
         " question asked under its waits id, and with order"
         " the line recording the post on it. A refusal posts nothing and names its fix: a reference that names nothing,"
         " or a finding Jev upheld against his words, such as a line naming a cause (because, caused) with no {record:}"
-        " or a word `cc-slack check-post` flags: make the fix and call again. edit=<the permalink of a post of yours in his DM>"
+        " or a word `cc-slack check-post` flags: make the fix and call again. A reference, link or mention written inside the"
+        " words of a raw <url|words> link is refused outright, since Slack draws it as a broken link: close that link first and"
+        " put the inner one after it. edit=<the permalink of a post of yours, in his DM or in a thread outside it>"
         " rewords that post in place with text, its references linked as a new post's are, and the dashboard shows the new"
-        " words for it; it returns EDITED <permalink>. The communicator's ack to his message is one sentence: what he asked and what"
+        " words for it; cc-slack's Slack permission hook judges it as it judges slack_edit; it returns EDITED <permalink>. The communicator's ack to his message is one sentence: what he asked and what"
         " happens next."
     ),
     "inputSchema": {
@@ -74,7 +76,7 @@ SAY = {
             "thread_ts": {"type": "string", "description": "The thread the post goes in, in his DM unless channel_id names another channel; none for his DM root"},
             "channel_id": {
                 "type": "string",
-                "description": "The channel of a thread outside his DM the post goes in, such as an alert's, with its thread_ts, or a person's user id with no thread_ts for the group DM of that person, him and the bot; none for his DM. It takes no card, tap_prs, about or edit",
+                "description": "The channel of a thread outside his DM the post goes in, such as an alert's, with its thread_ts, or a person's user id with no thread_ts for the group DM of that person, him and the bot; none for his DM. It takes no card, tap_prs or about, and an edit names its post by its permalink alone",
             },
             "asked": {
                 "anyOf": [TEXT, {"type": "array", "items": TEXT}],
@@ -114,8 +116,8 @@ SAY = {
             "edit": {
                 "type": "string",
                 "description": (
-                    "The permalink of a post of yours in his DM to reword in place with text, in place of a new post; it takes"
-                    " text and asked alone, since a card is redrawn with drive job card"
+                    "The permalink of a post of yours, in his DM or in a thread outside it such as an alert's, to reword in place"
+                    " with text, in place of a new post; it takes text and asked alone, since a card is redrawn with drive job card"
                 ),
             },
             "drive": tools.DRIVE,

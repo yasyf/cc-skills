@@ -9,13 +9,13 @@ CATCH_UP_TITLE = re.compile(r"\A\s*\**\s*catch-up since\b[^\n]*\n*", re.IGNORECA
 CARDS_A_MESSAGE = 5
 CARD_KINDS = (("question", "question"), ("tap", "PR card"))
 HELD = "report {seq} held for his catch-up, since he is away; drive status lists it until the catch-up posts"
-EDIT_TAKES = {"edit", "text", "asked", "dry_run"}
-DM_ONLY = ("card", "tap_prs", "about", "edit")
 TICKET_FLAGS = {"ticket_id": "--ticket", "ticket_tree": "--ticket-tree", "ticket_agent": "--ticket-agent", "ticket_call": "--ticket-call", "ticket_fingerprint": "--ticket-fingerprint"}
+EDIT_TAKES = {"edit", "text", "asked", "dry_run", *TICKET_FLAGS}
+DM_ONLY = ("card", "tap_prs", "about")
 
 
 def say(name: str, post: dict) -> str:
-    """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or with a person's user id as channel_id and no thread in the group DM of that person, him and the bot, or reword one already in his DM, and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title and the open cards it closes with its only additions; a post in an order's thread is recorded on that order too, delivering the parts its report record names, and one on an order in none of its threads posts nothing. A report's post names each correction cci holds re it, which the post may lack, and a correction of a report held for his catch-up or carried by it posts nothing, naming where that report's copy is. What the drive's checks find in its words, the say hook hands Jev to judge against his words before this runs."""
+    """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or with a person's user id as channel_id and no thread in the group DM of that person, him and the bot, or reword one it made in any of those, and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title and the open cards it closes with its only additions; a post in an order's thread is recorded on that order too, delivering the parts its report record names, and one on an order in none of its threads posts nothing. A report's post names each correction cci holds re it, which the post may lack, and a correction of a report held for his catch-up or carried by it posts nothing, naming where that report's copy is. What the drive's checks find in its words, the say hook hands Jev to judge against his words before this runs."""
     report = cli.report_attrs(post["record"]) if post.get("record") else {}
     if order := post.get("order"):
         data = state.load(name)
@@ -191,7 +191,7 @@ def posted(name: str, post: dict) -> dict:
     first, *others = threads(name, post, stack)
     reply = slack.cc_slack(
         *(
-            ["edit", "--url", post["edit"], "--text", sent]
+            ["edit", "--url", post["edit"], "--text", sent, *ticketed(post)]
             if post.get("edit")
             else replied(post, pictures, sent)
             if post.get("channel_id")
@@ -257,7 +257,12 @@ def replied(post: dict, pictures: list[str], sent: str) -> list[str]:
     thread = ["--thread", post["thread_ts"]] if post.get("thread_ts") else []
     argv = ["reply" if thread else "send", "--agent", "claude", "--channel", post["channel_id"], *thread, "--text", sent]
     argv += [flag for path in pictures for flag in ("--file", path)]
-    return argv + [each for field, flag in TICKET_FLAGS.items() if post.get(field) for each in (flag, post[field])]
+    return argv + ticketed(post)
+
+
+def ticketed(post: dict) -> list[str]:
+    """The flags handing cc-slack the ticket its Slack permission hook attached to the say call, which the daemon spends on a write outside his DM and on an edit."""
+    return [each for field, flag in TICKET_FLAGS.items() if post.get(field) for each in (flag, post[field])]
 
 
 def unquoted_tooling(data: dict, stack: list[str], text: str) -> str | None:

@@ -411,6 +411,25 @@ def test_a_say_post_is_checked_as_slack_shows_it_each_reference_linked_and_one_n
     assert "{card:demo:j9-1} names no card" in message_limits.deny_reason(unknown)
 
 
+def test_jev_reads_a_refused_say_post_as_slack_gets_it_and_a_reference_nested_in_a_links_words_is_refused_unjudged(
+    talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with state.edit("demo") as data:
+        data["prs"]["yasyf/cc-skills#7"] = state.new_pr("https://github.com/yasyf/cc-skills/pull/7", "j1", "o1") | {"title": "New: \U0001f680 the run page shows its history"}
+    release = "https://buildkite.com/acme/release/builds/14765"
+    long = call("slack_dm_status", transcript, text=said(60) + " {pr:7}", thread_ts="1.2") | {"tool_name": message_limits.SAY}
+    nested = call("slack_dm_status", transcript, text=f"<{release}|The release carrying {{pr:7|the fix}}> is failing.", thread_ts="1.2") | {"tool_name": message_limits.SAY}
+    printed = []
+    for payload in (long, nested):
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))
+        message_limits.main()
+        printed.append(json.loads(capsys.readouterr().out))
+    assert printed[0]["post"] == {"text": said(60) + " <https://github.com/yasyf/cc-skills/pull/7|the run page shows its history>", "thread_ts": "1.2"}
+    assert printed[1]["judged"] is False
+    assert "his_words" not in printed[1]
+    assert printed[1]["hookSpecificOutput"]["permissionDecisionReason"].startswith(f"{{pr:7|the fix}} sits inside the words of the link to {release}")
+
+
 def test_a_question_card_holds_150_words_and_options_of_25_whatever_it_quotes(talker: str, transcript: Path) -> None:
     card = {"title": said(10), "body": said(40), "options": [said(25), said(25), said(25)], "waits": "demo:j1-7"}
     assert posted(transcript, card=card) is None
@@ -1298,10 +1317,10 @@ def test_main_prints_a_pretooluse_denial(
 def test_a_check_that_fails_refuses_the_post_rather_than_let_it_out_unchecked(
     talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    def broken(payload: dict) -> str | None:
+    def broken(payload: dict) -> tuple[str | None, dict]:
         raise KeyError("timestamp")
 
-    monkeypatch.setattr(message_limits, "deny_reason", broken)
+    monkeypatch.setattr(message_limits, "checked", broken)
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(call("slack_dm_status", transcript, text="Fixed."))))
     message_limits.main()
     decision = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
@@ -1448,7 +1467,11 @@ def test_a_write_to_his_dm_goes_through_say_so_each_reference_is_linked_and_the_
     reason = message_limits.deny_reason(call("slack_reply", transcript, channel_id=DM, thread_ts=BAD_STATE_THREAD, text="See {pr:7}."))
     assert reason.startswith("Refused on purpose: {pr:7} would reach him as raw text, since only say links a drive reference.")
     assert message_limits.deny_reason(call("slack_reply", transcript, channel_id="C0B75AL4XEW", thread_ts="1.2", text="See {pr:7}.")) is None
-    assert message_limits.deny_reason(call("slack_edit", transcript, url="https://acme.slack.com/archives/C0B75AL4XEW/p1794288799000003", text="Reworded.")) is None
+    alert = call("slack_edit", transcript, url="https://acme.slack.com/archives/C0B75AL4XEW/p1794288799000003?thread_ts=1794288700.000100", text="Reworded.")
+    assert message_limits.deny_reason(alert) is None
+    state.append_event("demo", "said", text="The release failed.", channel="C0B75AL4XEW", thread="1794288700.000100", url=alert["tool_input"]["url"], card=None, order=None, visuals=[], prs=[], edited=False)
+    assert message_limits.deny_reason(alert).startswith("Refused on purpose: slack_edit sends each {card:…}")
+    assert message_limits.deny_reason(call("slack_edit", transcript, channel_id="C0B75AL4XEW", ts="1794288799.000003", text="Reworded.")).startswith("Refused on purpose: slack_edit")
 
 
 def test_a_switch_command_names_the_terminal_drive_status_prints(talker: str, transcript: Path) -> None:

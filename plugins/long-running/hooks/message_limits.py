@@ -163,11 +163,12 @@ def unchecked(tool_input: dict) -> str | None:
 def thread_words(payload: dict, dm: str) -> list[dict]:
     """His words in the thread the post goes to, read from Slack, each as the evidence Jev cites: in his DM with the app every message not the bot's is his, and each card the bot drew or shared there shows his answer on its ✓ line; a thread outside his DM, such as an alert's, holds others' words, never his."""
     tool_input = payload["tool_input"]
-    if (tool_input.get("channel_id") or dm) != dm:
+    url = tool_input.get("url") or tool_input.get("edit") or ""
+    if (tool_input.get("channel_id") or next(iter(PERMALINK_CHANNEL.findall(url)), dm)) != dm:
         return []
     if tool_input.get("thread_ts"):
         where = ("--channel", dm, "--thread", tool_input["thread_ts"])
-    elif url := tool_input.get("url") or tool_input.get("edit"):
+    elif url:
         where = ("--url", url)
     else:
         return []
@@ -264,32 +265,41 @@ def unsaid(parts: list[str], said: str) -> list[str]:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """What the drive's checks find in a post to his DM, which the say hook hands Jev to judge against his words: the coordinator posts nothing, a bug report's thread gets one fix-live note once the fix is proven live, a post or edit in his DM goes through say, a handler's line in his thread waits for its read of that thread, and then, every finding at once, the post keeps its length, links what it names, asks no tap that is not owed, backs each cause with its record, answers his order by no plan, record or answer of his that is missing, calls nothing by a word he corrected, and `cc-slack check-post` passes its exact words."""
+    return checked(payload)[0]
+
+
+def checked(payload: dict) -> tuple[str | None, dict]:
+    """What the drive's checks find in a post to his DM, and the call's input as Slack gets it, each of say's references linked, which Jev weighs the findings against: the coordinator posts nothing, and say refuses a reference that names nothing or a link inside a link's words outright, whatever Jev reads."""
     if posted := coordinator_post(payload):
-        return posted
+        return posted, payload["tool_input"]
     if (drive := his_drive(payload.get("session_id") or "")) is None:
-        return None
-    dm = drive["slack"]["channel"]
-    titled = 0
+        return None, payload["tool_input"]
     said = payload["tool_input"].get("text") or ""
-    if payload["tool_name"] == SAY and refs.REF.search(said):
-        try:
-            found = refs.resolved(drive["name"], said)
-        except DriveError as error:
-            return str(error)
-        titled = limits.words(refs.slack(" ".join(match[0] for match in refs.REF.finditer(said)), found))
-        payload = {**payload, "tool_input": {**payload["tool_input"], "text": refs.slack(said, found)}}
+    if payload["tool_name"] != SAY:
+        return found_in(payload, drive, said, 0), payload["tool_input"]
+    try:
+        found = refs.resolved(drive["name"], said)
+    except DriveError as error:
+        return agents.Unjudged(str(error)), payload["tool_input"]
+    titled = limits.words(refs.slack(" ".join(match[0] for match in refs.REF.finditer(said)), found))
+    sent = payload["tool_input"] | {"text": refs.slack(said, found)} if found else payload["tool_input"]
+    return found_in(payload | {"tool_input": sent}, drive, said, titled), sent
+
+
+def found_in(payload: dict, drive: dict, said: str, titled: int) -> str | None:
+    """What the drive's checks find in a post, which the say hook hands Jev to judge against his words: a bug report's thread gets one fix-live note once the fix is proven live, an edit of his question card redraws it, an edit of a post say made goes through say, a post in his DM goes through say, a handler's line in his thread waits for its read of that thread, and then, every finding at once, the post keeps its length, links what it names, asks no tap that is not owed, backs each cause with its record, answers his order by no plan, record or answer of his that is missing, calls nothing by a word he corrected, and `cc-slack check-post` passes its exact words."""
+    dm = drive["slack"]["channel"]
     tool_input = payload["tool_input"]
     if PLACEHOLDER.fullmatch(text := (tool_input.get("text") or "").strip()):
         return (
             f"The text {text} is a placeholder, and Slack would send it as written. Pass the post's own words as text,"
             " the exact words `cc-slack check-post -` passed."
         )
-    if refusal := reporter_post(payload, drive):
+    if refusal := reporter_post(payload, drive) or card_edit(payload, drive) or unsaid_post(payload, drive):
         return refusal
     if not posts_to(payload, dm):
         return None
-    if refusal := card_edit(payload, drive) or unsaid_post(payload) or held_while_away(payload, drive) or unread(payload, dm):
+    if refusal := held_while_away(payload, drive) or unread(payload, dm):
         return refusal
     if (long := over_length(payload, dm)) and titled:
         long += TITLED.format(titled)
@@ -336,16 +346,17 @@ def reporter_post(payload: dict, drive: dict) -> str | None:
     )
 
 
-def unsaid_post(payload: dict) -> str | None:
-    """Why a write to his DM goes through say: slack_edit rewords a post with each {card:…}, {pr:…}, {order:…} and {record:…} reference left as raw text and the dashboard still showing its old words, and another tool posting a reference sends it raw too."""
-    if payload["tool_name"] == EDIT:
+def unsaid_post(payload: dict, drive: dict) -> str | None:
+    """Why a write goes through say: slack_edit rewords a post in his DM, or one say made outside it, with each {card:…}, {pr:…}, {order:…} and {record:…} reference left as raw text and the dashboard still showing its old words, and another tool posting a reference in his DM sends it raw too."""
+    dm = drive["slack"]["channel"]
+    if payload["tool_name"] == EDIT and (posts_to(payload, dm) or said_post(drive["name"], edited(payload))):
         return agents.Ruled(
             "Refused on purpose: slack_edit sends each {card:…}, {pr:…}, {order:…} or {record:…} reference to him as raw text and"
             " leaves the dashboard showing the post's old words. Reword it with say(edit=<its permalink>, text=<the new words>),"
             " which links each reference as a new post's are and rewords the post on the dashboard too.",
             SAY_RULE,
         )
-    if payload["tool_name"] == SAY or not (raw := refs.REF.search(payload["tool_input"].get("text") or "")):
+    if payload["tool_name"] in (SAY, EDIT) or not posts_to(payload, dm) or not (raw := refs.REF.search(payload["tool_input"].get("text") or "")):
         return None
     return agents.Ruled(
         f"Refused on purpose: {raw[0]} would reach him as raw text, since only say links a drive reference. Post it with"
@@ -354,11 +365,21 @@ def unsaid_post(payload: dict) -> str | None:
     )
 
 
+def said_post(name: str, where: dict) -> bool:
+    """Whether say made the post an edit rewords, as a said event of the drive's names it."""
+    key = message_key(where)
+    return any(event["kind"] == "said" and view.message_key(event["url"]) == key for event, _ in state.read_events(name))
+
+
+def message_key(where: dict) -> str:
+    return view.message_key(where["url"]) if where.get("url") else (where.get("ts") or "").replace(".", "")
+
+
 def card_edit(payload: dict, drive: dict) -> str | None:
     """Why an edit may not touch his question card: an edit with text alone replaces its layout and buttons with plain text, and drawing it again under its waits id edits it where it sits."""
     if (where := edited(payload)) is None:
         return None
-    key = view.message_key(where["url"]) if where.get("url") else (where.get("ts") or "").replace(".", "")
+    key = message_key(where)
     for job_id, job in drive["jobs"].items():
         for question in job["questions"]:
             if question["card"] and view.message_key(question["card"]) == key:
@@ -553,14 +574,16 @@ def denial(reason: str) -> dict:
 def main() -> None:
     payload = agents.seen(json.load(sys.stdin))
     try:
-        reason = deny_reason(payload)
+        reason, sent = checked(payload)
     except Exception as error:
-        reason = (
+        reason, sent = (
             f"refused: the drive's message check failed on this post with {type(error).__name__}: {error}, so it does not go"
             " out unchecked. Name it on a DEFECT line, and the post goes out once the check's fix is installed."
-        )
-    if reason:
-        print(json.dumps(denial(reason) | agents.ruled(reason) | {"his_words": his_words(payload)}))
+        ), payload["tool_input"]
+    if not reason:
+        return
+    judged = {} if isinstance(reason, agents.Unjudged) else {"his_words": his_words(payload), "post": sent}
+    print(json.dumps(denial(reason) | agents.ruled(reason) | judged))
 
 
 if __name__ == "__main__":

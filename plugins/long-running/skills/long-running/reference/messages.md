@@ -496,7 +496,10 @@ the dashboard link. When a line says where things stand, link the page instead o
   "every engineer's PR", and one in a clause saying it does not exist yet, such as "its PR goes up
   first" or "no PR is open yet", name nothing to link. One that exists keeps its link whatever its
   state, "has not merged" or "waits on your tap" included. Slack draws no `[label](url)` link, so the
-  check refuses one and shows the `<url|label>` to write.
+  check refuses one and shows the `<url|label>` to write. A link's words hold no other link, mention or
+  `{pr:}`, `{card:}` or `{record:}` reference, which Slack draws as a literal `<`, a link reading its own
+  URL and a literal `>`: `say` refuses one, naming the nesting, so close the outer link's words and put
+  the inner one after it.
 - Numbers over adjectives: "129 of 476 passed, up from 100" beats "much better".
 - Answer his next question in the same message: why, did he already decide this, is it a port, what
   comes after, why it is held.
