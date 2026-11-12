@@ -49,9 +49,10 @@ LEADS = {
 TEXT = {"type": "string"}
 RECORD_ORDER = (
     f'the order the communicator\'s owner record about the drive goes to, written before it goes out so his words reach the meta session'
-    f' holding an order: the fields of drive order add for a new "{state.TOOLING} <what his words ask for>" order with its title, added'
-    f' from his message at url in his thread, or the id of the open "{state.TOOLING}" order his words carry on, which takes them as a new'
-    " part; left out, they carry on the open one the record's attr order, job or thread names, and with none the record is refused."
+    f' holding an order: the fields of drive order add for a new order the meta session holds, such as "{state.TOOLING} <what his words'
+    ' ask for>" with its title, or his question in his own words with its title, project and workstream, added from his message at url in'
+    " his thread, or the id of the open order the meta session holds that his words carry on, whatever its words open with, which takes"
+    " them as a new part; left out, they carry on the open one the record's attr order, job or thread names, and with none the record is refused."
     " The record goes out naming it as attr order, and the part it added as attr part, <o>:<part>"
 )
 RECORD = {
@@ -169,7 +170,7 @@ def verb_tools() -> list[dict]:
                 " a handler's included: a defect reaches the meta session, the communicator's handoff the session holding the"
                 " order its attrs.order names, and an owner record names about, refused without it: the drive's owner record"
                 " about the drive, a ruling on how it works included, reaches the meta session alone holding its order, which"
-                f' the call adds first, a new "{state.TOOLING}" order or his words as a part of the open one they carry on, as its'
+                " the call adds first, a new order the meta session holds or his words as a part of the open one they carry on, as its"
                 " order field says, and one about his work the coordinator hearing its order."
                 " A question card he answered takes waits, which fills re with the ask's seq and attr job; an"
                 " Undo tap sets undone. Once the records go out, each open card his words close is closed: a question card his"
@@ -436,14 +437,22 @@ def ordered(data: dict, name: str, given: dict) -> str:
     """The id of the order an order add makes or returns, refused as added_order refuses before it writes: a flag it refuses, his order filed under no project or workstream, one with no short title, and a "Drive tooling:" order's words check-post finds anything in, which an open order already holding them returns unchecked. The order it makes stands in the drive the check reads, so a later op may name it."""
     args = parsed_args(name, ("order", "add"), given)
     tooling = args.words.startswith(state.TOOLING)
-    if tooling and (held := next((order_id for order_id, order in state.open_orders(data).items() if order["text"] == args.words), None)):
+    if held := cli.held_order(data, args.words, args.owner):
         return held
     project, workstream = cli.filing(data, args.words, args.project, args.workstream)
     title = cli.titled(args.title)
     if tooling:
         cli.check_tooling_words(name, args.words)
     order_id = state.next_id(data["orders"], "o")
-    data["orders"][order_id] = {"text": args.words, "state": "open", "parts": dict.fromkeys(args.parts or [state.whole_order(args.words)]), "project": project, "workstream": workstream, "title": title}
+    data["orders"][order_id] = {
+        "text": args.words,
+        "state": "open",
+        "owner": "meta" if tooling else args.owner,
+        "parts": dict.fromkeys(args.parts or [state.whole_order(args.words)]),
+        "project": project,
+        "workstream": workstream,
+        "title": title,
+    }
     return order_id
 
 
@@ -542,22 +551,23 @@ def ordered_first(name: str, records: list[dict], posts: list[dict], ordering: l
 
 
 def carried(name: str, said: list[str], index: int, item: dict, attrs: dict, dry_run: bool) -> None:
-    """Write the order the communicator's owner record about the drive goes to before it goes out, so no word of his about the drive reaches the meta session without one: the new "Drive tooling:" order its order field's fields make, else his words as a new part of the open "Drive tooling:" order its order field names or its attrs or thread serve, refused when it serves none. The record names the order as attr order, and a part it added as attr part."""
+    """Write the order the communicator's owner record about the drive goes to before it goes out, so no word of his about the drive reaches the meta session without one: the new order the meta session holds that its order field's fields make, else his words as a new part of the open order the meta session holds that its order field names or its attrs or thread serve, whatever its words open with, refused when it serves none. The record names the order as attr order, and a part it added as attr part."""
     named = item.get("order")
     if isinstance(named, dict):
-        if not str(named.get("words") or "").startswith(state.TOOLING):
-            raise DriveError(f'{index}: refused, his words about the drive go to a "{state.TOOLING} <what they ask for>" order, so name order.words opening "{state.TOOLING}"')
-        attrs["order"] = first(order_op(name, said, index, "add", new_order_fields(item) | named, dry_run))
+        fields = new_order_fields(item) | named
+        if fields["owner"] != "meta":
+            raise DriveError(f"{index}: refused, his words about the drive go to an order the meta session holds, so leave order.owner out or name it meta")
+        attrs["order"] = first(order_op(name, said, index, "add", fields, dry_run))
         return
     data = state.load(name)
     order_id = named or state.served_order(data, attrs)
     order = data["orders"].get(order_id or "")
-    if not order or order["state"] in state.CLOSED_ORDER_STATES or not order["text"].startswith(state.TOOLING):
+    if not order or order["state"] in state.CLOSED_ORDER_STATES or order["owner"] != "meta":
         raise DriveError(
             f"{index}: refused, his words about the drive reach the meta session holding an order, and"
-            f' {f"{order_id} is no open {state.TOOLING!r} order" if order_id else "no order holds this record or its thread"}:'
-            f' name order, the fields of drive order add for a new "{state.TOOLING} <what his words ask for>" order with its title,'
-            f' or the id of the open "{state.TOOLING}" order his words carry on'
+            f' {f"{order_id} is no open order the meta session holds" if order_id else "no order holds this record or its thread"}:'
+            f' name order, the fields of drive order add for a new order the meta session holds, such as "{state.TOOLING} <what his words'
+            ' ask for>" with its title, or the id of the open order the meta session holds that his words carry on'
         )
     part = state.whole_order(item["text"])
     attrs |= {"order": order_id, "part": f"{order_id}:{part}"}
@@ -566,10 +576,10 @@ def carried(name: str, said: list[str], index: int, item: dict, attrs: dict, dry
 
 
 def new_order_fields(item: dict) -> dict:
-    """What a new "Drive tooling:" order a record of his words adds takes from the record: kind build, from his message at its url, else in the thread it names."""
+    """What a new order a record of his words about the drive adds takes from the record: kind build, owner the meta session, from his message at its url, else in the thread it names."""
     if state.slack_message(item.get("url") or ""):
-        return {"kind": "build", "from": item["url"]}
-    return {"kind": "build"} | ({"thread": item["thread"]} if item.get("thread") else {})
+        return {"kind": "build", "owner": "meta", "from": item["url"]}
+    return {"kind": "build", "owner": "meta"} | ({"thread": item["thread"]} if item.get("thread") else {})
 
 
 def order_op(name: str, said: list[str], index: int, verb: str, given: dict, dry_run: bool) -> list[str]:

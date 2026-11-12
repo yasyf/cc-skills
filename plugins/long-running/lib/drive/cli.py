@@ -266,10 +266,8 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
         )
     alerts = alert_links(args.alerts)
     tooling = args.words.startswith(state.TOOLING)
-    if tooling:
-        held = next((order_id for order_id, order in state.open_orders(state.load(name)).items() if order["text"] == args.words), None)
-        if held:
-            return held, state.load(name)["orders"][held], [f"{held} already holds these words, so no order was added"], []
+    if held := held_order(state.load(name), args.words, args.owner):
+        return held, state.load(name)["orders"][held], [f"{held} already holds these words, so no order was added"], []
     project, workstream = filing(state.load(name), args.words, args.project, args.workstream)
     title = titled(args.title)
     if tooling:
@@ -318,6 +316,13 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
     if joined:
         started.append(f"joins {args.joins}: {joined['note'] or 'no record'}; its owner job carries this order with --carries {order_id}")
     return order_id, order, started, incidents
+
+
+def held_order(data: dict, words: str, owner: str | None) -> str | None:
+    """The open order the meta session holds with these words, which an add of a "Drive tooling:" order, or of one naming the meta session its owner, returns instead of adding the words twice; None for any other add."""
+    if not (words.startswith(state.TOOLING) or owner == "meta"):
+        return None
+    return next((order_id for order_id, order in state.open_orders(data).items() if order["text"] == words and order["owner"] == "meta"), None)
 
 
 def alert_links(links: list[str]) -> list[str]:

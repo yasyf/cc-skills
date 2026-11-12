@@ -462,8 +462,8 @@ def test_his_badge_ask_of_record_672014_reaches_the_meta_session_holding_the_dri
     with pytest.raises(DriveError, match="1: refused, his words about the drive reach the meta session holding an order, and no order holds this record or its thread"):
         tools.run("record", demo, {"records": [asked]})
     badge = {"words": "Drive tooling: bug reports get a badge tracking each one until its reporter hears the fix is live", "title": "Bug report badge"}
-    with pytest.raises(DriveError, match='1: refused, his words about the drive go to a "Drive tooling: <what they ask for>" order'):
-        tools.run("record", demo, {"records": [asked | {"order": badge | {"words": "a bug report badge"}}]})
+    with pytest.raises(DriveError, match="1: refused, his words about the drive go to an order the meta session holds, so leave order.owner out or name it meta"):
+        tools.run("record", demo, {"records": [asked | {"order": badge | {"owner": "coordinator"}}]})
     dry = tools.run("record", demo, {"records": [asked | {"order": badge}], "dry_run": True}).splitlines()
     assert dry[0].startswith("1 drive order add 'Drive tooling: bug reports get a badge")
     assert (posted, state.load(demo)["orders"]) == ([], {})
@@ -490,6 +490,48 @@ def test_his_badge_ask_of_record_672014_reaches_the_meta_session_holding_the_dri
     ]
     with pytest.raises(DriveError, match="1: refused, nothing posted: order is the order the communicator's owner record about the drive goes to"):
         tools.run("record", demo, {"records": [{"kind": "owner", "text": "ship the run page", "about": "his work", "order": badge}]})
+
+
+def test_his_hierarchical_coordinators_question_in_his_own_words_reaches_the_meta_session_holding_order_o792(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    posted: list[dict] = []
+
+    def post(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if argv[:2] != ["cci", "post"]:
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        posted.extend(json.loads(str(kwargs["input"])))
+        return subprocess.CompletedProcess(argv, 0, f"{677100 + len(posted)}\n", "")
+
+    monkeypatch.setattr(subprocess, "run", post)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", demo, "--role", "communicator")
+    thread = "1794513118.807399"
+    words = "did we move to heirachical coordinators? feels like it should fix tehse delays?"
+    url = f"https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794514438699909?thread_ts={thread}&cid=D0C4HQWPLCC"
+    asked = {"kind": "owner", "about": "drive", "text": words, "url": url, "thread": thread}
+    run("order", "add", "--owner", "coordinator", "--title", "Subagents persist", "--project", "Iris", "--workstream", "Agents", "--thread", thread, "why is his subagents not persisting across restart?")
+    with pytest.raises(DriveError, match="1: refused, his words about the drive reach the meta session holding an order, and o1 is no open order the meta session holds"):
+        tools.run("record", demo, {"records": [asked]})
+    filed = ["--kind", "answer", "--project", "The drive", "--workstream", "Skill and process", "--title", "Drive tooling: hierarchical coordinators"]
+    assert run("order", "add", "--from", url, "--thread", thread, "--owner", "meta", *filed, words) == (0, "o2")
+    assert tools.run("record", demo, {"records": [asked | {"attrs": {"order": "o2"}}]}).splitlines() == ["1 owner 677101"]
+    assert tools.run("record", demo, {"records": [asked]}).splitlines() == ["1 owner 677102"]
+    later = {"kind": "owner", "about": "drive", "text": "or one coordinator per project?", "thread": "1794520000.000100"}
+    question = {"words": later["text"], "title": "Coordinator per project", "kind": "answer", "project": "The drive", "workstream": "Skill and process"}
+    assert tools.run("record", demo, {"records": [later | {"order": question}]}).splitlines() == ["1 order add: o3", "1 owner 677103"]
+    assert tools.run("record", demo, {"records": [later | {"order": question}]}).splitlines() == ["1 order add: o3; o3 already holds these words, so no order was added", "1 owner 677104"]
+    orders = state.load(demo)["orders"]
+    assert [(order_id, orders[order_id]["owner"], orders[order_id]["kind"], list(orders[order_id]["parts"])) for order_id in ("o2", "o3")] == [
+        ("o2", "meta", "answer", [state.whole_order(words)]),
+        ("o3", "meta", "answer", [later["text"]]),
+    ]
+    assert [(record["to"], record["attr"]["order"], record["attr"].get("part")) for record in posted] == [
+        (["meta@demo"], "o2", f"o2:{state.whole_order(words)}"),
+        (["meta@demo"], "o2", f"o2:{state.whole_order(words)}"),
+        (["meta@demo"], "o3", None),
+        (["meta@demo"], "o3", None),
+    ]
 
 
 def test_the_communicators_owner_or_answer_record_goes_to_the_session_hearing_its_jobs_or_threads_order_whatever_lane_it_names(
