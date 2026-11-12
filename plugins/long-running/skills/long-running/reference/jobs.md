@@ -126,10 +126,11 @@ minutes is said with the remedy, a `SendMessage` to wake it.
 6. When a remote lane returns its line, run `drive job end <j>` in the background to free its
    Sprite, as the coordinator page's event rows say. The job keeps the state its line set, with its
    waits, PRs and carried parts: a `WAITING` job stays waiting, so nothing waiting on it is freed,
-   and its next event starts its next lane. While the job is not finished, end refuses, ending
-   nothing, when its Sprite holds uncommitted changes or a branch or stash on no remote, naming
-   each, since the next lane starts on a fresh Sprite: send the lane the `drive job resume` the
-   refusal names, and end it once it returns.
+   and its next event starts its next lane. While the job is not finished, end first saves what its
+   Sprite holds on no remote to GitHub as `saved/<lane>/<branch>`, uncommitted changes included,
+   since the next lane starts on a fresh Sprite, and that lane's handoff names each saved branch.
+   When the Sprite does not answer or the save fails, end refuses, ending nothing and naming why:
+   end it again once the Sprite answers.
 
 ## Remote lanes
 
@@ -217,12 +218,14 @@ question.
   handoff holds another.
 - Either new worker gets a handoff carrying the job's brief, branch, last line, report, PRs and the
   message, and the output says which ran.
-- Before a relaunch on a fresh Sprite it reads the dead lane's Sprite, found by the job's workspace
-  even when Orca dropped its dispatch or environment. While that Sprite holds uncommitted changes or
-  a branch or stash on no remote, or does not answer, it exits 2 naming each worktree, branch and
-  stash, and relaunches nothing: wake the Sprite with the `cc-remote resume` it names, push the work
-  and resume again. `--leave-unpushed` relaunches anyway, and its output names what stays on the old
-  Sprite.
+- Before a relaunch on a fresh Sprite it saves the dead lane's Sprite, found by the job's workspace
+  even when Orca dropped its dispatch or environment. Over ssh it commits each worktree's uncommitted
+  changes there and pushes each commit, branch or stash GitHub holds nowhere as
+  `saved/<the dead lane>/<its branch>`, on the token `gh auth token` prints, lent to that one push
+  through the ssh session's stdin, so it never reaches the Sprite's disk. The output and the new
+  worker's handoff name each saved branch. When that Sprite does not answer or the save fails, it
+  exits 2 naming why and relaunches nothing; resume again once the Sprite answers.
+  `--leave-unpushed` relaunches anyway, and its output names why the work stays on the old Sprite.
 - When Orca cannot reach the lane's Sprite, or refuses the send or the start, nothing is delivered
   and it exits 2 with Orca's refusal; resume again once the watch reads the lane.
 - The `bash_guard` hook runs it in the foreground with `timeout: 20000` however it is called: a

@@ -1825,20 +1825,26 @@ def hand_over(args: argparse.Namespace, name: str, data: dict, session: str) -> 
 
 
 def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEnd) -> int:
-    """Start the job's next worker with a handoff: in the terminal of a worker that finished while Orca holds it, on its Sprite or on this Mac, on that worker's Run, else on a fresh Sprite, or in a fresh worktree on this Mac, on a Run this terminal makes; a try whose handoff its Sprite was prepared with gets the text as a message. Refused, changing nothing, while the dead lane's Sprite holds what a fresh one would not get or cannot be read, unless --leave-unpushed."""
+    """Start the job's next worker with a handoff: in the terminal of a worker that finished while Orca holds it, on its Sprite or on this Mac, on that worker's Run, else on a fresh Sprite, or in a fresh worktree on this Mac, on a Run this terminal makes; a try whose handoff its Sprite was prepared with gets the text as a message. Before a relaunch it saves to GitHub what the dead lane's Sprite holds that a fresh one would not get, and its handoff names the saved branches; refused, changing nothing, when that Sprite cannot be read or the save fails, unless --leave-unpushed."""
     data = state.load(name)
     job = data["jobs"][args.id]
     root = None if end.worktree else checkout(data)
-    left = None if end.worktree else orca.held(job, root)
-    if left and not args.leave_unpushed:
-        raise DriveError(
-            f"{args.id}: refused, nothing relaunched: its lane {orca.place(job)} is dead ({end.why}), and a fresh Sprite starts without what"
-            f" {job['workspace']} holds: {left}. Wake it with cc-remote resume {job['workspace']}, which prints its connection, push that"
-            " from it, then resume again; or pass --leave-unpushed to relaunch and leave it there"
-        )
+    left = None
+    try:
+        saved = None if end.worktree else orca.save(name, args.id, job, root)
+    except orca.OrcaError as error:
+        if not args.leave_unpushed:
+            raise DriveError(
+                f"{args.id}: refused, nothing relaunched: its lane {orca.place(job)} is dead ({end.why}), and what {job['workspace']} holds"
+                f" on no remote could not be saved to GitHub: {error}. Resume again once that Sprite answers, or pass --leave-unpushed to"
+                " relaunch and leave it there"
+            ) from None
+        saved, left = None, str(error)
     with state.edit(name) as data:
         job = data["jobs"][args.id]
         state.lane_died(job, dispatch, end.why, state.now())
+        if saved:
+            job["deaths"][-1]["saved"] = saved
     ended = job["deaths"][-1]
     attempt = f"{args.id}-{len(job['deaths']) + 1}"
     kept = state.drive_dir(name) / "jobs" / f"{attempt}.md"
@@ -1867,7 +1873,13 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
         line = (
             f"{args.id}: the message went to the job's next worker, relaunched {'in a fresh worktree ' + orca.ON_MAC if local else orca.place({**job, **started})}"
             f" as dispatch {started['dispatch']} {carrying}; its lane {was} was dead ({end.why}), and "
-            + (f"{source} keeps what --leave-unpushed left there: {left}" if left else f"work not pushed from {source} is not carried over")
+            + (
+                f"what {source} held on no remote is saved: {ended['saved']}"
+                if ended.get("saved")
+                else f"{source} keeps what --leave-unpushed left there, since the save failed: {left}"
+                if left
+                else f"work not pushed from {source} is not carried over"
+            )
         )
     how = f"started {orca.ON_MAC if local else 'on its Sprite'}" if end.worktree else "relaunched"
     return emit(args, line, {"id": args.id, "how": how, "ended": ended, "handoff": str(kept), **started})
@@ -1882,26 +1894,31 @@ def job_replies(args: argparse.Namespace) -> int:
 
 
 def job_end(args: argparse.Namespace) -> int:
-    """Free a remote job's lane: its Sprite, or its terminal and clean worktree on this Mac. The job keeps the state its line set, with its waits, PRs and carried parts, so a waiting job's next event starts its next lane and nothing waiting on it is freed; refused, ending nothing, while the Sprite of a job still at work holds what its next lane would not get."""
+    """Free a remote job's lane: its Sprite, or its terminal and clean worktree on this Mac. The job keeps the state its line set, with its waits, PRs and carried parts, so a waiting job's next event starts its next lane and nothing waiting on it is freed. A job still at work first has what its Sprite holds that its next lane would not get saved to GitHub, which that lane's handoff names; refused, ending nothing, when that Sprite cannot be read or the save fails."""
     name = state.resolve(args.drive)
     data = state.load(name)
     job = started_job(data, args.id)
     root = checkout(data)
-    if job["state"] not in state.FINISHED_JOB_STATES and (holds := orca.held(job, root)):
-        raise DriveError(
-            f"{args.id}: refused, nothing ended: it is {job['state']}, and its next lane starts on a fresh Sprite without what"
-            f" {job['workspace']} holds: {holds}. Have this lane push it first with drive job resume {args.id}"
-            ' "push what is on no remote, then return your line", then end it'
-        )
+    saved = None
+    if job["state"] not in state.FINISHED_JOB_STATES:
+        try:
+            saved = orca.save(name, args.id, job, root)
+        except orca.OrcaError as error:
+            raise DriveError(
+                f"{args.id}: refused, nothing ended: it is {job['state']}, and what {job['workspace']} holds on no remote could not be saved"
+                f" to GitHub for its next lane: {error}. End it again once that Sprite answers"
+            ) from None
     reclaimed = orca.reclaim(job["run"], job["dispatch"], root)
     with state.edit(name) as data:
         ended = data["jobs"][args.id]
         state.lane_died(ended, job["dispatch"], "ended by drive job end", state.now())
+        if saved:
+            ended["deaths"][-1]["saved"] = saved
         ended.update(ask=None, updated=state.stamp())
         if ended["state"] in state.FINISHED_JOB_STATES:
             state.drop_carries(data, args.id)
-    line = f"{args.id}'s lane ended; {args.id} stays {ended['state']}"
-    return emit(args, "\n".join(filter(None, [reclaimed, line])), {"id": args.id, "reclaim": reclaimed, "state": ended["state"]})
+    line = f"{args.id}'s lane ended; {args.id} stays {ended['state']}" + (f", and what its Sprite held on no remote is saved: {saved}" if saved else "")
+    return emit(args, "\n".join(filter(None, [reclaimed, line])), {"id": args.id, "reclaim": reclaimed, "state": ended["state"], "saved": saved})
 
 
 def pr_add(args: argparse.Namespace) -> int:
@@ -3300,9 +3317,11 @@ def parser() -> argparse.ArgumentParser:
             "Answer a remote lane's question, or send it the next event, once Orca shows its worker alive. When its "
             "worker finished and Orca still holds its terminal, on its Sprite or on this Mac, start the job's next worker "
             "in that terminal; when its worker is dead, relaunch the job on a fresh Sprite, or in a fresh worktree on this "
-            "Mac, on the same Run, where work the dead lane had not pushed is not carried over. Before a relaunch on a fresh Sprite it reads "
-            "the dead lane's Sprite and, while that Sprite holds uncommitted changes or a branch or stash on no remote, or does not answer, "
-            "exits 2 naming each and relaunching nothing, unless --leave-unpushed. Either new worker gets a handoff carrying the job's brief, its branch, its last line, "
+            "Mac, on the same Run. Before a relaunch on a fresh Sprite it saves what the dead lane's Sprite holds that GitHub does not: over ssh "
+            "it commits each worktree's uncommitted changes there and pushes each commit, branch or stash on no remote as saved/<the dead lane>/<its "
+            "branch>, on the token gh auth token prints, lent to that one push through the ssh session's stdin, so it never reaches the Sprite's disk; "
+            "the new worker's handoff names each saved branch. When that Sprite does not answer or the save fails, it exits 2 naming why and "
+            "relaunches nothing, unless --leave-unpushed. Either new worker gets a handoff carrying the job's brief, its branch, its last line, "
             "its report, its PRs and this text. When Orca cannot reach the lane's Sprite, or refuses what would deliver "
             "this text, exit 2 with Orca's refusal. A job held by an Agent another session started, which this session cannot "
             "SendMessage, gets a handoff brief instead, carrying the same, and prints its `Read your brief first:` line: an agent "
@@ -3318,7 +3337,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument(
         "--leave-unpushed",
         action="store_true",
-        help="relaunch a dead lane on a fresh Sprite even though its old Sprite holds work on no remote, or cannot be read, which stays there",
+        help="relaunch a dead lane on a fresh Sprite even when its old Sprite cannot be read or its work there cannot be saved to GitHub, which then stays there",
     )
     verb.set_defaults(run=job_resume)
     verb = job.add_parser(
@@ -3331,8 +3350,9 @@ def parser() -> argparse.ArgumentParser:
         parents=both,
         help=(
             "free a remote job's lane once it returned its line: its Sprite, or its terminal and clean worktree on this Mac. The job"
-            " stays in the state its line set, with its waits, PRs and carried parts; refused while the Sprite of a job not yet done"
-            " holds a branch or stash with commits on no remote, or uncommitted changes, naming each"
+            " stays in the state its line set, with its waits, PRs and carried parts. A job not yet done first has what its Sprite holds"
+            " on no remote, uncommitted changes included, saved to GitHub as saved/<its lane>/<branch>, which its next lane's handoff"
+            " names; refused, naming why, when that Sprite cannot be read or the save fails"
         ),
     )
     verb.add_argument("id")
