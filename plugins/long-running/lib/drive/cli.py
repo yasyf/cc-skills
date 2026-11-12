@@ -824,9 +824,9 @@ def thread_refusal(data: dict, order_id: str, where: tuple[str, str | None], rep
     return f"{listed} post it in one of them{on_held}, or post it with no order and record the part it delivers with {record}"
 
 
-def reported_parts(order_id: str, order: dict, report: dict) -> list[str]:
-    """The parts of the order a post delivers: each its report's part attr names on this order, or each part of an order its report closes. A post whose report names neither part nor close, whatever job it names, or that carries no report is a progress line that delivers none, on an order of one part as on one of several."""
-    if named := [part for on, part in state.part_items(report, order_id) if on == order_id]:
+def reported_parts(order_id: str, order: dict, report: dict, items: list[tuple[str | None, str]]) -> list[str]:
+    """The parts of the order a post delivers: each item of its report's part attr names on this order, or each part of an order its report closes. A post whose report names neither part nor close, whatever job it names, or that carries no report is a progress line that delivers none, on an order of one part as on one of several."""
+    if named := [part for on, part in items if on == order_id]:
         return pick_parts(order_id, order, named)
     if order_id in state.closed_orders(report):
         return list(order["parts"])
@@ -834,20 +834,21 @@ def reported_parts(order_id: str, order: dict, report: dict) -> list[str]:
 
 
 def record_post(name: str, order_id: str, link: str, report: dict) -> tuple[str, dict]:
-    """Record the drive's post on the order it went out on and on each other order an item of its report's part attr names, so one post in a thread two orders share delivers on both."""
-    others = dict.fromkeys(on for on, _ in state.part_items(report, order_id) if on != order_id)
-    first, *rest = [record_on(name, each, link, report) for each in [order_id, *others]]
+    """Record the drive's post on the order it went out on and on each other order an item of its report's part attr names, so one post in a thread two orders share delivers on both; an item naming no order is a part of the order the post went out on, on every order it is recorded on."""
+    items = state.part_items(report, order_id)
+    others = dict.fromkeys(on for on, _ in items if on != order_id)
+    first, *rest = [record_on(name, each, link, report, items) for each in [order_id, *others]]
     return "; ".join(line for line, _ in [first, *rest]), first[1] | ({"also": [fields for _, fields in rest]} if rest else {})
 
 
-def record_on(name: str, order_id: str, link: str, report: dict) -> tuple[str, dict]:
-    """Record the drive's post on one order: the promised time it keeps, the time its words promise his next line by, the order's last line, and the parts its report delivers there."""
+def record_on(name: str, order_id: str, link: str, report: dict, items: list[tuple[str | None, str]]) -> tuple[str, dict]:
+    """Record the drive's post on one order: the promised time it keeps, the time its words promise his next line by, the order's last line, and the parts its report's items deliver there."""
     data = state.load(name)
     order = communicators_order(data, order_id)
     if refused := report_refusal(data, order_id, report):
         raise DriveError(refused)
-    delivered = reported_parts(order_id, order, report)
-    posted, ours = drive_post_at(link, data, order_id, any(on == order_id for on, _ in state.part_items(report, order_id)))
+    delivered = reported_parts(order_id, order, report, items)
+    posted, ours = drive_post_at(link, data, order_id, any(on == order_id for on, _ in items))
     at = slack.sent_at(posted)
     line = state.stamp(at)
     closing = order_id in state.closed_orders(report)

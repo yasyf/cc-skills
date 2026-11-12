@@ -123,8 +123,8 @@ COORDINATOR_RULES = (
         " reaches only the session that posted it. Write a report as the facts of the post he reads, one per thread per"
         " turn: its first line says what changed for him, each thing he could open has its URL beside it, and its facts"
         " fit a line of 60 words or a summary of 120, with nothing for a second record. A POST names what it"
-        " finishes, --attr close=<o>, part=<o>:<part> or progress=true, and carries every part a finished job answered"
-        " on its order that no post delivered yet, which the report hooks refuse to skip. What he reads names things by their proper"
+        " finishes, --attr close=<o>, part=<o>:<part> or progress=true, and carries every part of its order a finished job"
+        " answered and no post delivered. What he reads names things by their proper"
         " technical terms, never a stand-in, and no drive id he cannot open. "
         + PREVENTED
     ),
@@ -190,7 +190,7 @@ COORDINATOR_RULES = (
         "Every part has an owner: an order add names its kind, answer or build, its project and workstream, and for a"
         " build its parts, one per deliverable his words name; each job names its part, an ORPHAN line gets a job, a"
         " card or a close in the same turn, a part a post already answered closes with drive order posted <o> <link>"
-        " --part from the session holding the order, with or without --record, and a job that waits on a release is added, or set, with --waits release:<service>:<owner>/<repo>#<n>,"
+        " --part, --record or not, and a job that waits on a release is added, or set, with --waits release:<service>:<owner>/<repo>#<n>,"
         " not `--due` alone. A build order's first job is an Opus"
         " long-running:reader briefed `Research: the Researched: block this build needs`; its builder's or designer's"
         " brief carries `Researched: <that reader's job>`, which the brief op writes; each other part's builder or designer"
@@ -336,8 +336,7 @@ FIRST_CALL = {
 READS = {
     "communicator": "Everything else is on disk, read by a handler on demand, never by you: drive status <id>, drive view.",
     "coordinator": (
-        "Everything else is on disk, read on demand by id: drive status <order, job or PR>..., which prints each"
-        " named order whole with its parts and each job's goal and said line, never a script over drive.json;"
+        "Everything else is on disk, read on demand by id: drive status <order, job or PR>..., never a script over drive.json;"
         " drive job report <j>, drive view, cci digest, and the skill's pages, drive manual <page>. A Bash result over"
         " 6,000 characters arrives as its first 2 KB and the path of the whole, so cap no output with cut, head or tail:"
         " grep that path for the part you need."

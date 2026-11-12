@@ -240,7 +240,7 @@ def test_a_record_goes_to_the_other_session_and_a_tap_takes_its_ask_and_job_from
             ["cci", "post", "--drive", "demo", "--lane", "root", "--batch", "-"],
             [
                 {"kind": "answer", "to": ["communicator@demo"], "re": ["7"], "text": "undone: Ring", "attr": {"job": "j2", "undone": "Ring"}},
-                {"kind": "defect", "to": ["communicator@demo"], "text": "cc-slack delete hides --url"},
+                {"kind": "defect", "to": ["meta@demo"], "text": "cc-slack delete hides --url"},
             ],
         )
     ]
@@ -374,7 +374,7 @@ def test_the_communicators_owner_or_answer_record_goes_to_the_session_hearing_it
         ("owner", ["iris@demo"]),
         ("owner", ["root@demo"]),
         ("answer", ["iris@demo"]),
-        ("defect", ["root@demo"]),
+        ("defect", ["meta@demo"]),
     ]
     assert said[4:] == [f"3 would settle his card {CARD} (demo:j1-7), showing his words"]
 
