@@ -1106,6 +1106,30 @@ def test_end_saves_what_the_sprite_of_a_job_still_at_work_holds_and_its_next_lan
     assert [(death["why"], death["saved"]) for death in state.load(remote)["jobs"]["j1"]["deaths"]] == [("ended by drive job end", SAVED)]
 
 
+def test_end_destroys_the_sprite_cc_remote_still_records_or_names_what_keeps_it(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / ".orca.json").write_text("{}")
+    carrying(run, remote)
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(state="done", workspace="pool-one")
+    workspaces = tmp_path / "cc-remote-workspaces"
+    workspaces.mkdir()
+    (workspaces / "pool-one.json").write_text("{}")
+    monkeypatch.setattr(orca, "CC_REMOTE_WORKSPACES", workspaces)
+    monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: "nothing to reclaim")
+    released = []
+    monkeypatch.setattr(orca, "release", lambda workspace, root: released.append(workspace) or "destroyed pool-one")
+    assert run("job", "end", "j1") == (0, "nothing to reclaim\ndestroyed pool-one\nj1's lane ended; j1 stays done")
+    assert released == ["pool-one"]
+
+    def kept(workspace: str, root: Path) -> str:
+        raise orca.OrcaError("orca-reclaim.py exited 1: uncommitted changes")
+
+    monkeypatch.setattr(orca, "release", kept)
+    assert run("job", "end", "j1") == (0, "nothing to reclaim\npool-one is kept: orca-reclaim.py exited 1: uncommitted changes\nj1's lane ended; j1 stays done")
+
+
 def test_end_of_a_finished_job_never_reads_its_sprite_and_drops_the_parts_it_carried(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
