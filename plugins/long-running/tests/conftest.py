@@ -72,14 +72,40 @@ GET journal/0001.ltx  one page range
 ... 180 files, two requests each
 ```
 - One snapshot file per finished run, written when it ends, old runs backfilled: opens in 3 requests (recommended)
+  Does: when a run finishes, its uploader writes one snapshot file with the page map at a fixed place, and the run page reads that map, then 2 page ranges.
+  Data: one snapshot.ltx per finished run in the team's bucket, written once when the run ends and read by range requests.
+  Touches: the uploader in `journal/snapshot.go`, the run page's reader in `site/journal.js`, and a backfill over old runs.
 - A map file beside each journal file: no guessing, but one request per file and twice the objects
+  Does: each journal upload also writes a map file beside it, and the run page reads each map, then its page range.
+  Data: one map object per journal file in the team's bucket, written with each upload and read before each range.
+  Touches: `journal/upload.go` and `site/journal.js`; every journal upload pays one more object write.
 - Map at the start of each file: changes the shared file format and still needs a length read first
+  Does: the writer puts each file's page map at its start, and the run page reads its length, then the map, then the range.
+  Data: the journal files in the team's bucket, their shared format changed so the map comes first.
+  Touches: the shared LTX format in `journal/ltx.go` and every reader and writer of it.
 
 Findings:
 Root cause: none: a design choice, with no defect behind it
 (1) What a journal file is: a run's journal is a SQLite database, copied to the team's bucket as LTX files.
 (2) Each LTX file ends with a page map; its length sits in the last 24 bytes.
 """
+EXPLANATION = (
+    "  Does: the drive runs it once he picks it, and the job's report says what reached whom.\n"
+    "  Data: none: it keeps nothing past the run.\n"
+    "  Touches: `lib/drive/cli.py` only.\n"
+)
+
+
+def explained(block: str) -> str:
+    """The block with the `Does:`, `Data:` and `Touches:` lines `drive job ask` asks of every option under each option above its findings."""
+    lines, fenced, findings = [], False, False
+    for line in block.splitlines(keepends=True):
+        lines.append(line)
+        fenced ^= line.lstrip().startswith("```")
+        findings = findings or line.startswith("Findings:")
+        if line.startswith("- ") and not (fenced or findings):
+            lines.append(("" if line.endswith("\n") else "\n") + EXPLANATION)
+    return "".join(lines)
 
 
 def git_in(repo: Path, *args: str) -> str:

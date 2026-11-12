@@ -500,7 +500,8 @@ function meaning(item, index) {
   const option = card.options[index];
   const [title, detail] = optionParts(option);
   const label = option === card.recommended ? 'Recommended' : `Choice ${index + 1} of ${card.options.length}`;
-  return `<div class="rail-block" data-means><div class="eyebrow">${label}</div><div class="consequence-title">${esc(title)}</div>${detail ? `<p>${esc(detail)}</p>` : ''}</div>`;
+  const explained = (card.hints?.[option] ?? '').split('\n').filter(Boolean).map((line) => `<p>${inline(line)}</p>`).join('');
+  return `<div class="rail-block" data-means><div class="eyebrow">${label}</div><div class="consequence-title">${esc(title)}</div>${detail ? `<p>${esc(detail)}</p>` : ''}${explained}</div>`;
 }
 
 function heldRow(item, entry, held) {

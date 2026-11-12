@@ -45,13 +45,19 @@ background process. When you cannot tell, it counts, because a wrong shape costs
      a bad state unrepresentable; ... not add another sweeper".
    - When his words tell the system to choose by a rule, such as by usage or size, the fork asks
      him to approve the strategies and the rule that picks one, never one outcome.
-   - Every option says what runs, on what trigger, what it reads and what reaches the agent or him.
-     `drive job ask` refuses a mechanism such as polling left a bare word, a block out of shape, a
+   - Every option carries three lines his card draws under it: `Does:` what runs, on what trigger,
+     what it reads and what reaches the agent or him; `Data:` where its data lives and how it is
+     written and read; `Touches:` each system and code path it changes or builds, by path, and any
+     cost every user pays, such as SandSQL's write path for every table. His words: "you need to
+     always fucking explain each optopn properly as prose in additon tot he table or whatever and
+     what it requires touching/building".
+     `drive job ask` refuses an option missing any of them, a mechanism such as polling left a bare word, a block out of shape, a
      `Root cause:` line missing, or its `First principles:` option missing or not recommended, and a question a recorded answer of his may
      settle; each refusal names its fix.
 2. **He is asked before any PR.** Each fork goes to him as its own question card, by the
    `DESIGN <part>` row in [The coordinator](coordinator.md). The card holds the design fleshed out
-   above its options and names each function, file, table, flag or service by its proper term. A wall
+   above its options, each option explained in prose under it, and names each function, file, table,
+   flag or service by its proper term. A wall
    of findings, a high-level line or a vague stand-in leaves him asking what it is.
    - A Show me goes on only when it shows what the words cannot, such as each option's real calls
      in code: "show a sinippet when it makews sense". It counts toward no word limit, so it is never

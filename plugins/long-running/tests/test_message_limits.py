@@ -8,7 +8,7 @@ from pathlib import Path
 
 import message_limits
 import pytest
-from conftest import Checked, Thread
+from conftest import Checked, Thread, explained
 from drive import agents, limits, picture, refs, slack, state, talk, view
 from drive.state import DriveError
 
@@ -180,7 +180,7 @@ JOSHS_PR = (
 SHOW_ME = "*Show me*\nToday, the card after a download:\n```\n" + "\n".join(f"line {index} of the card" for index in range(60)) + "\n```"
 BREAK_GLASS = "Use break glass with machine profile then you don't need sso, I tell you this once a day"
 SENTRY_EVENT = "https://forge-rf.sentry.io/issues/SAND-3Z/events/bc99372dd60d40dcb36c07511693ce06/"
-STRAY_CHATS_ASK = f"""ASK Rowan's stray chats likely come from the old build writing into the new app's chat folder on his Mac; how do we stop it?
+STRAY_CHATS_ASK = explained(f"""ASK Rowan's stray chats likely come from the old build writing into the new app's chat folder on his Mac; how do we stop it?
 Both builds share one chat folder on his Mac. <{SENTRY_EVENT}|The old build> runs its own server there and saves each new chat before setup, which the new app lists Untitled and read-only. A check inside the new app cannot stop that server, so I recommend a separate folder. Unproven until Rowan's files are read.
 Show me:
 <https://github.com/Forge-AI/monorepo/blob/dev/go/sand/internal/durable/agent.go#L120-L125|The old build> makes a chat file holding only a writer stamp; the chat's setup waits for a first turn that never comes.
@@ -199,7 +199,7 @@ Findings:
 Root cause: both builds share one chat folder on his Mac, so the old build's own server writes chats there
 First principles: New app moves its chats once into a folder of its own and lists unloaded chats as loading; the old build cannot reach them.
 Rowan sees Untitled, unstarted chats marked state_missing that must be forked.
-"""
+""")
 HIS_PICK = "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794239768768559?thread_ts=1794220171.175389&cid=D0C4HQWPLCC"
 WATCHDOG_QUESTION = 'Which "1+2 hybrid" did you pick on Nov 9: an always-on listener that never acts, or a service that also lands and installs?'
 WATCHDOG_SUMMARY = (
@@ -221,11 +221,11 @@ WATCHDOG_OPTIONS = [
     "An always-on listener that feeds pushes and runs the watchdog but never lands or installs: one new process; landing still needs a session.",
     "An always-on service that also lands PRs you tapped Approve and installs after merge: nothing waits for a session; it holds merge rights.",
 ]
-WATCHDOG_ASK = (
+WATCHDOG_ASK = explained(
     f"ASK {WATCHDOG_QUESTION}\n{WATCHDOG_SUMMARY}\nShow me:\n{WATCHDOG_SHOW_ME}\n- {WATCHDOG_OPTIONS[0]} (recommended)\n"
     f"- {WATCHDOG_OPTIONS[1]}\nFindings:\nRoot cause: none: a question about his own pick\nOnly the watcher that saves its place is built today.\n"
 )
-FROZEN_COPIES_ASK = """ASK Before the 30 frozen copies from the Oct 13 fleet move are deleted, what must prove each moved copy is whole?
+FROZEN_COPIES_ASK = explained("""ASK Before the 30 frozen copies from the Oct 13 fleet move are deleted, what must prove each moved copy is whole?
 Removing a frozen copy deletes its database files and its folder in the team's bucket, at once and for good. These moved on Oct 13 under older code, and one team's moved databases later lost bucket history, so "ready on Oct 13" proves nothing today. Nothing is deleted meanwhile.
 Show me:
 The 30 frozen copies, counted by the move's metric. Names and sizes need an in-cluster credential, so most are unread.
@@ -261,7 +261,7 @@ Root cause: none: a proof before a delete, with no defect behind it
 - Removal unlinks the local files, then deletes the bucket folder in the same request, with no waiting period.
 - A bucket that denies deletes keeps its folder; the team's blobs are not removed with the database.
 - Whether the Oct 13 build had the snapshot upload step is unread, which is why the 30 are re-proved.
-"""
+""")
 
 
 WATCH_OPTIONS = [
@@ -270,7 +270,7 @@ WATCH_OPTIONS = [
     "self::alarm gains a check and rings only on a change. Smallest surface; no period under a minute, and alarms move to the central inbox",
 ]
 WATCH_QUESTION = "Should a watch be its own watch:: package, or the first source of an event:: subscription API?"
-WATCH_ASK = f"""ASK {WATCH_QUESTION}
+WATCH_ASK = explained(f"""ASK {WATCH_QUESTION}
 A watch is Sand source with a check function and a period in seconds; its session's host reruns it, and a changed result arrives as one message in that session's inbox.
 I recommend watch::; a builder may start on it meanwhile.
 - {WATCH_OPTIONS[0]} (recommended)
@@ -279,7 +279,7 @@ I recommend watch::; a builder may start on it meanwhile.
 Findings:
 Root cause: none: this names a new feature's API; no defect is being diagnosed.
 His order settles that a watch reruns code on a period and a change reaches the central inbox.
-"""
+""")
 MACHINE_PROFILE_READ = "Break-glass read: this Mac's machine profile requests the grant and runs one read-only query per SandSQL server (recommended)"
 EXPIRED_SIGN_IN = (
     "ASK The hand repair needs break-glass, and this Mac's AWS sign-in expired. Renew it, or skip the hand repair?\n"
@@ -1261,7 +1261,7 @@ def test_jev_weighs_a_page_line_by_his_words_on_a_link_that_opened_another_view_
 
 def options_ask(*options: str) -> str:
     listed = "".join(f"- {option}\n" for option in options)
-    return f"ASK Which way should this go?\nThe pick below decides it, so the work waits on it.\n{listed}Findings:\nRoot cause: none: a design pick\nKept on disk.\n"
+    return explained(f"ASK Which way should this go?\nThe pick below decides it, so the work waits on it.\n{listed}Findings:\nRoot cause: none: a design pick\nKept on disk.\n")
 
 
 def test_the_recommended_option_comes_first_in_a_new_block_and_a_kept_one_still_redraws() -> None:
@@ -1417,6 +1417,76 @@ def test_a_question_or_option_naming_a_mechanism_by_a_bare_word_is_refused_until
     for bare, said_plainly in concrete.items():
         rewritten = rewritten.replace(bare, said_plainly)
     assert limits.question(rewritten).recommended == concrete[WATCH_OPTIONS[0]]
+
+
+EXPLAINED_ASK = """ASK Where does the one manager for SandSQL's helper processes run?
+Every option gives each helper one start spec and one restart rule; held until you pick, so nothing ships meanwhile.
+Sockets only touches clone.rs, clone/child.rs and `local/process.go`, as <https://github.com/acme/app/blob/main/clone.rs|clone.rs> reads today.
+- Inside each parent: each parent starts and restarts its children from one shared spec (recommended)
+  Does: each parent process starts its helpers from one spec and restarts one that exits, so a crash never waits on a person.
+  Data: none: each spec lives in code, and a helper keeps its state in its own files.
+  Touches: a new crate in rust/crates/sandsql-proc, called from clone.rs and local/process.go.
+- Sockets only: helpers move to Unix sockets, and every parent keeps its own restart code
+  Does: each helper listens on a Unix socket its parent hands it, and each parent keeps its own start and restart code.
+  Data: none: only the transport changes.
+  Touches: clone.rs, clone/child.rs and local/process.go.
+Findings:
+Root cause: none: a design pick, with no defect behind it
+Five parents hand-write their own start and restart code today.
+"""
+
+
+def test_each_option_of_a_new_block_carries_does_data_and_touches_lines_which_its_card_draws_under_it(tmp_path: Path) -> None:
+    card = limits.question(EXPLAINED_ASK).card("demo", "demo:j1-7")
+    assert card["hints"] == {
+        "Inside each parent: each parent starts and restarts its children from one shared spec": (
+            "*Does:* each parent process starts its helpers from one spec and restarts one that exits, so a crash never waits on a person.\n"
+            "*Data:* none: each spec lives in code, and a helper keeps its state in its own files.\n"
+            "*Touches:* a new crate in `rust/crates/sandsql-proc`, called from `clone.rs` and `local/process.go`."
+        ),
+        "Sockets only: helpers move to Unix sockets, and every parent keeps its own restart code": (
+            "*Does:* each helper listens on a Unix socket its parent hands it, and each parent keeps its own start and restart code.\n"
+            "*Data:* none: only the transport changes.\n"
+            "*Touches:* `clone.rs`, `clone/child.rs` and `local/process.go`."
+        ),
+    }
+    assert limits.redrawn(limits.rebuilt(card, tmp_path)).card("demo", "demo:j1-7") == card
+    unexplained = "".join(line for line in EXPLAINED_ASK.splitlines(keepends=True) if not line.startswith("  "))
+    with pytest.raises(DriveError) as refused:
+        limits.question(unexplained)
+    assert '"Inside each parent" lacks `Does:`, `Data:` and `Touches:`; "Sockets only" lacks `Does:`, `Data:` and `Touches:`' in str(refused.value)
+    assert limits.EXPLAINED_RULING in str(refused.value)
+    assert limits.question(unexplained, kept=True).hints == {}
+    unpathed = EXPLAINED_ASK.replace("  Touches: clone.rs, clone/child.rs and local/process.go.", "  Touches: the helpers and their parents.")
+    with pytest.raises(DriveError, match=re.escape('option "Sockets only" says `Touches: the helpers and their parents.`, naming no code path')):
+        limits.question(unpathed)
+    wordy = EXPLAINED_ASK.replace("  Data: none: only the transport changes.", f"  Data: {said(61)}")
+    with pytest.raises(DriveError, match=re.escape('option "Sockets only" has a `Data:` line of 61 words; each is at most 60')):
+        limits.question(wordy)
+
+
+@pytest.mark.parametrize(
+    ("line", "drawn"),
+    [
+        ("It touches clone.rs.", "It touches `clone.rs`."),
+        ("primary.go's cleanup in ~/repos/x and rust/crates/sandsql-proc/", "`primary.go`'s cleanup in `~/repos/x` and `rust/crates/sandsql-proc/`"),
+        ("`clone.rs` and <https://github.com/acme/app/blob/main/clone.rs|clone.rs>", "`clone.rs` and <https://github.com/acme/app/blob/main/clone.rs|clone.rs>"),
+        ("![1 · Before, dev](/Users/me/pictures/demo-before.png)", "![1 · Before, dev](/Users/me/pictures/demo-before.png)"),
+        ("```rust\n// called from clone.rs\n```", "```rust\n// called from clone.rs\n```"),
+        ("stdin/stdout lines, 3/5 of them, and/or", "stdin/stdout lines, 3/5 of them, and/or"),
+        ("| clone | sandsql-storage/src/clone.rs |", "| clone | `sandsql-storage/src/clone.rs` |"),
+    ],
+)
+def test_a_card_draws_each_file_name_and_path_as_code_so_slack_links_none_of_them(line: str, drawn: str) -> None:
+    assert limits.coded(line) == drawn
+    assert limits.coded(drawn) == drawn
+
+
+def test_a_cards_body_draws_clone_rs_as_code_beside_the_link_that_names_it() -> None:
+    card = limits.question(EXPLAINED_ASK).card("demo", "demo:j1-7")
+    assert card["body"].splitlines()[1] == (
+        "Sockets only touches `clone.rs`, `clone/child.rs` and `local/process.go`, as <https://github.com/acme/app/blob/main/clone.rs|clone.rs> reads today."
+    )
 
 
 @pytest.mark.parametrize(

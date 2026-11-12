@@ -32,7 +32,8 @@ reading of his words "your messages need to be way shorter rewrite this for a hu
 | The open cards `say` draws under his catch-up | none: drawn whole, outside the 120 |
 | A question card: question, summary and options together | 150 words |
 | A question card's Show me, the worked example between its summary and options | none: drawn whole as its visuals, outside the 150 |
-| Each option on a card | one line of 25 words, saying what runs, on what trigger, what it reads and what reaches whom, then what he gets and what it costs |
+| Each option on a card | one line of 25 words, saying what he gets and what it costs |
+| Each option's `Does:`, `Data:` and `Touches:` lines, drawn under it on the card | 60 words each, drawn whole outside the 150 |
 | A findings post | none, ever: findings stay on disk |
 | An answer to a question or order of his in that thread, his words quoted as `asked` | no limit: the whole answer goes out |
 | An edit that rewords a line already posted | that line's own length and 10 words more, or the line's limit when that is longer |
@@ -159,10 +160,22 @@ summary of one feature is a line of at most 60 words.
   hold for him (his ruling "Update your skill to not just brush over the root cause ever"), and, on a bug hurting someone now, an incident's
   or one a reporter shared, one whose findings carry no `Interim fix:` line linking the immediate fix
   shipping while he picks, or `Interim fix: none: <why nobody is hurt now>`.
-- Give two to four options, each one line of at most 25 words saying what runs, on what trigger,
-  what it reads and what reaches whom, then what he gets and what it costs; `drive job ask` refuses
-  any other count or length. cc-slack adds Other, which takes his own words,
-  and Explain more to every card that waits on him, and refuses an option that repeats either.
+- Give two to four options, each one line of at most 25 words saying what he gets and what it
+  costs; `drive job ask` refuses any other count or length. cc-slack adds Other, which takes his own
+  words, and Explain more to every card that waits on him, and refuses an option that repeats either.
+- Explain each option in prose on the card, in three lines under it, indented two spaces in the
+  block, which `drive job card` passes as the card's `hints` and cc-slack draws under that option.
+  `Does:` says what runs, on what trigger, what it reads and what reaches whom, then what he gets.
+  `Data:` says where its data lives, by system, database, table or file, and how it is written and
+  read, or `none: <why>`. `Touches:` names each system and code path it changes or builds, by path,
+  and any cost every user pays, such as SandSQL's write path for every table, or `none: <why>`. A
+  table or Show me never stands in for them. His words, on a card whose options never said one
+  changed SandSQL: "you need to always fucking explain each optopn properly as prose in additon tot
+  he table or whatever and what it requires touching/building", and on the next card: "where is
+  that data stored then and how". `drive job ask` refuses an option missing any of the three, a
+  `Touches:` line naming no code path and not `none: <why>`, and a line over 60 words. The card
+  draws each file name and path in its body and these lines as code, so Slack links no `clone.rs`
+  as a website; the title and options take no markup, so a file name goes in `Touches:`.
 - Name each mechanism by what it does, such as "the Mac reruns the check function every 30 seconds
   and compares its output; a change sends one inbox message that wakes the agent". The summary's
   first line says this of what every option shares, and the title asks only what the options differ
@@ -177,7 +190,8 @@ summary of one feature is a line of at most 60 words.
   `cc-slack check-post` and `drive job ask` refuse "as 1", "same as 2" or "the first option", and the
   coordinator writes an `ask` record's options the same way.
 - The findings stay in the job's file. Explain more on the card posts the one section its question
-  rests on, in plain words, and that is the only way findings reach him.
+  rests on, in plain words, and that is the only way findings reach him. What each option does, where
+  its data lives and what it touches are on the card, never only in the findings.
 
 Its Show me:
 

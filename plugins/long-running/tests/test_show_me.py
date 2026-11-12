@@ -2,6 +2,7 @@ import json
 import re
 
 import pytest
+from conftest import explained
 from drive import limits, state
 from drive.state import DriveError
 
@@ -243,7 +244,9 @@ UPGRADING_CHAT_SHOTS = r'''![1 · Before, dev at de31bf9]({root}/durable-agents/
 
 def ask(show_me: str, options: str) -> str:
     shown = show_me.replace("{root}", str(state.root()))
-    return f"ASK Which way should this go?\nThe pick below decides it, so the work waits on it; the recommended option is marked.\nShow me:\n{shown}\n{options}\nFindings:\nRoot cause: none: a design pick\nKept on disk.\n"
+    return explained(
+        f"ASK Which way should this go?\nThe pick below decides it, so the work waits on it; the recommended option is marked.\nShow me:\n{shown}\n{options}\nFindings:\nRoot cause: none: a design pick\nKept on disk.\n"
+    )
 
 
 @pytest.mark.parametrize(
@@ -451,7 +454,7 @@ TIE_TABLE = """When usage picks no strategy:
 
 
 def partitioned(show_me: str, summary: str = "The rule picks one at the 1.7 GB line, so the split waits on your pick.") -> str:
-    return (
+    return explained(
         "ASK Which of the four partition strategies should split a full table when usage picks none?\n"
         f"{summary}\nShow me:\n{show_me}\n"
         "- Insertion order: no copying at the line; old parts go quiet for restores (recommended)\n"
