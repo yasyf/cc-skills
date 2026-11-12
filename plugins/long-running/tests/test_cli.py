@@ -4520,7 +4520,7 @@ def test_no_post_delivers_an_open_incidents_fix_until_the_watch_records_it_live_
         data["roles"]["coordinator"]["session"] = "elsewhere"
     report_records(monkeypatch, {"674088": {"order": "o1", "incident": "true", "part": "o1:fix"}, "674089": {"part": "fix;o1:first check"}, "674090": {"close": "o1"}})
     assert run("order", "posted", "o1", line, "--record", "674088") == (0, f"o1 progress line, no part delivered: {line}")
-    assert run("order", "posted", "o1", line, "--record", "674089") == (0, f'o1 "first check": posted {line}')
+    assert run("order", "posted", "o1", line, "--record", "674089") == (0, f'o1 "first check": posted {line}'), capsys.readouterr().err
     assert state.load("demo")["orders"]["o1"]["parts"]["fix"]["posted"] is None
     assert run("order", "posted", "o1", line, "--record", "674090") == (0, f'o1 "fix", "first check": posted {line}')
     with state.edit("demo") as data:
