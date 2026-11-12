@@ -97,7 +97,10 @@ def positions(data: dict) -> dict[str, str]:
 
 
 def crowded(data: dict, job_id: str | None, moment: datetime) -> str | None:
-    """Why the builder job takes no slot on this Mac now, None when it may: the cap's builders hold every slot but its own, or builders wait their turn ahead of a job that holds none, since the watch's FREE line gives each open slot to the earliest due."""
+    """Why the builder job takes no slot on this Mac now, None when it may: the cap's builders hold every slot but its own, or builders wait their turn ahead of a job that holds none, since the watch's FREE line gives each open slot to the earliest due. A builder on an open incident's order or on an immediate fix part starts at once past both, counting against the cap for later builders once it runs, by his pick "Start at once past the cap"."""
+    job = data["jobs"].get(job_id)
+    if job and (state.open_incidents(data, orders := [job["order"], *job["carries"]]) or any(state.IMMEDIATE_FIX in state.job_parts(job, order_id) for order_id in orders)):
+        return None
     builders = local_builders(data, moment)
     others = {other: line for other, line in builders.items() if other != job_id}
     if len(others) >= LOCAL_BUILDERS:

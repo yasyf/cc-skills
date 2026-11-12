@@ -1048,7 +1048,6 @@ def job_add(args: argparse.Namespace) -> int:
             if (other := data["jobs"][other_id])["state"] in ("running", "waiting")
             and (shared := [part for part in parts if part in (other["parts"] if other["order"] == args.order else other["carries"][args.order])])
         ]
-        crowd = args.kind == "builder" and not args.remote and not args.agent and not args.waits and place.crowded(data, None, state.now())
         job_id = state.next_id(data["jobs"], "j")
         job = data["jobs"][job_id] = state.new_job(args.order, args.kind, args.goal, parts, created) | {
             "agent": args.agent,
@@ -1059,7 +1058,7 @@ def job_add(args: argparse.Namespace) -> int:
             "waits": list(dict.fromkeys(args.waits)),
         }
         state.hold_unstarted(job)
-        if crowd:
+        if crowd := args.kind == "builder" and not args.remote and not args.agent and not args.waits and place.crowded(data, job_id, state.now()):
             place.queue(job, state.parse_time(created))
         order["jobs"].append(job_id)
         order["updated"] = created

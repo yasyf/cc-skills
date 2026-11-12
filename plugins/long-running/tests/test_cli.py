@@ -4051,6 +4051,21 @@ def test_job_add_records_a_local_builder_past_the_macs_cap_waiting_its_turn_with
     assert run("job", "add", "reader", "--order", "o1", "--goal", "read")[0] == 0
 
 
+def test_job_add_starts_an_open_incidents_fix_builder_31st_in_line_and_an_immediate_fix_at_once_past_the_macs_cap(run: Run, demo: str) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "tidy the docs")
+    for _ in range(place.LOCAL_BUILDERS):
+        assert run("job", "add", "builder", "--order", "o1", "--goal", "build", "--agent", "a")[0] == 0
+    for _ in range(30):
+        assert "waits its turn for a builder slot" in run("job", "add", "builder", "--order", "o1", "--goal", "wait")[1]
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "you broke something again fix this asap", "--incident", "--parts", "fix", "first check")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the card is broken", "--parts", "the card", "immediate fix")
+    for order_id, part in (("o2", "fix"), ("o3", "immediate fix")):
+        code, added = run("job", "add", "builder", "--order", order_id, "--part", part, "--goal", "fix it")
+        job = state.load(demo)["jobs"][added.splitlines()[0]]
+        assert (code, job["state"], job["waits"], "waits its turn" in added) == (0, "running", [], False)
+    assert len(place.waiting_builders(state.load(demo))) == 30
+
+
 def test_job_add_records_an_agent_already_running_past_the_macs_cap_and_its_limit(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(place, "busy", lambda: 0.95)
     monkeypatch.setattr(place, "limit", lambda: 0.8)
