@@ -52,4 +52,18 @@ while [ $# -gt 0 ]; do
     echo "$name $tag"
   done
 done
+/.sprite/bin/rustup toolchain install stable --profile minimal --target wasm32-unknown-unknown --no-self-update >&2
+echo "rust stable wasm32-unknown-unknown"
+zig=$HOME/.local/share/zig/0.14.0
+if [ "$("$dest/zig" version 2>/dev/null)" != 0.14.0 ]; then
+  url=https://ziglang.org/download/0.14.0/zig-linux-x86_64-0.14.0.tar.xz
+  sha=473ec26806133cf4d1918caf1a410f8403a13d979726a9045b421b685031a982
+  curl -fsSL --retry 3 -o "$staged/zig.tar.xz" "$url"
+  echo "$sha  $staged/zig.tar.xz" | sha256sum -c --status || { echo "$url does not hash to $sha" >&2; exit 1; }
+  rm -rf "$zig"
+  mkdir -p "$zig"
+  tar -xJf "$staged/zig.tar.xz" -C "$zig" --strip-components=1
+  ln -sfn "$zig/zig" "$dest/zig"
+fi
+echo "zig $("$dest/zig" version)"
 SPRITE

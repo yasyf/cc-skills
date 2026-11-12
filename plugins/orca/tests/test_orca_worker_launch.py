@@ -792,7 +792,7 @@ class SpriteTest(LaunchTest):
                 launch = self.fresh()
                 launch.sprite()
                 launch.reply(command, *replies)
-                line = f"the Sprite did not take the released ccx and cc-notes: {reason}; the prepared worker stays idle and unattached, and {launch.attempt} keeps tools.err"
+                line = f"the Sprite did not take the released ccx and cc-notes or the wasm toolchain: {reason}; the prepared worker stays idle and unattached, and {launch.attempt} keeps tools.err"
                 self.assert_failed(launch, launch.run(), line, [VERSION, CURRENT, launch.prepare(), *launch.tools()[:reached]])
                 self.assertEqual(launch.kept(), TOOLS_KEPT)
 
