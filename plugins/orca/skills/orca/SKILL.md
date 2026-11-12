@@ -107,8 +107,8 @@ reads over the Sprite's copy at `prepared.json`'s `brief.path`, through the ssh
 forward the tool step uses, and records its new SHA-256 and size in
 `allocation.json` and `prepared.json`, so a brief rewritten between launches
 reaches the worker. When that ssh exits 255, it reached no Sprite: the launcher
-moves the attempt to `<brief-stem>.worker.<n>` and prepares a fresh Sprite. Any
-other failure keeps the attempt and names the Sprite's error.
+moves the attempt to `<brief-stem>.worker.<n>`, destroys that Sprite with
+`cc-remote destroy`, and prepares a fresh Sprite. Any other failure keeps the attempt and names the Sprite's error.
 
 A Sprite `worker-start` can fail before Orca records it, as when this Mac's
 Orca gives up after 15 seconds waiting for a freshly paired Sprite's runtime:
@@ -193,8 +193,8 @@ worker starts in that Sprite's checkout as it was left, and it takes no
 
 Ordinary branch movement is valid. Set `WORKER_EXPECT_BASE` only when the task
 requires an exact base. Supply a full 40- or 64-character lowercase commit ID. The
-launcher compares it after prepare; a mismatch retains the idle prepared worker
-and stops before `worker-start`. This comparison does not select the checkout.
+launcher compares it after prepare; a mismatch destroys the prepared Sprite
+with `cc-remote destroy` and stops before `worker-start`. This comparison does not select the checkout.
 Prepare has no separate exact-commit checkout option, and a branch or tag name
 is still a ref when its spelling looks hexadecimal.
 
@@ -274,7 +274,9 @@ The remote route retains `allocation.json`, raw but for the brief a relaunch
 copied, `prepare.err`, and `prepare.status`. It validates the requested lane, actual workspace, requested
 ref (none when it continues a workspace), allocation kind, task HEAD, agent, brief, environment, terminal, and
 `<repoId>::<projectRoot>` worktree before extracting the task into
-`prepared.json`. It then runs `worker-start` with `--on` the prepared
+`prepared.json`. An allocation that fails this check but names a workspace
+prepared for this lane, the same in its task, has that Sprite destroyed with
+`cc-remote destroy`; any other is left as it is. It then runs `worker-start` with `--on` the prepared
 environment, `--worktree id:<worktreeId>`, and `--terminal` the prepared
 terminal. Both routes retain `worker-start.json`, `worker-start.err`, and
 `worker-start.status`. Keep these files on every outcome.

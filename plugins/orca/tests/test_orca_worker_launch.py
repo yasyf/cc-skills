@@ -34,6 +34,7 @@ PIN = "9.8.7"
 
 VERSION = ["cc-remote", "version"]
 CURRENT = ["orca", "orchestration", "run-current", "--full", "--json"]
+DESTROY = ["cc-remote", "destroy", WORKSPACE]
 BOUND = {"out": {"ok": True, "result": {"run": {"id": RUN, "coordinator_handle": "term_coordinator"}}}}
 AGENT = {"kind": "claude", "model": "claude-opus-5-5", "effort": "xhigh"}
 PREPARED = {
@@ -185,6 +186,7 @@ class Launch:
         self.reply("orca orchestration run-current", BOUND)
         response = allocated if allocated is not None else prepared if isinstance(prepared, str) else allocation(prepared)
         self.reply("cc-remote orca prepare", {"out": response if isinstance(response, str) else json.dumps(response), "err": "prepared on sprites\n"})
+        self.reply(f"cc-remote destroy {WORKSPACE}", {})
         self.reply("gh api", *({"out": f"{tag}\t{download(repo, tag, bin)}\tsha256:{sha}\n"} for bin, repo, tag, sha, _ in RELEASES))
         self.reply("ssh", *(() if copied is None else (copied,)), INSTALLED)
         self.reply("orca orchestration worker-start", started or {"out": RECEIPT})
@@ -633,11 +635,11 @@ class SpriteTest(LaunchTest):
         self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), *self.launch.tools(), self.launch.start()])
         self.assertEqual(json.loads(self.launch.receipt("request.json"))["expectBase"], BASE)
 
-    def test_an_expected_base_mismatch_leaves_the_prepared_worker_idle(self):
+    def test_an_expected_base_mismatch_destroys_the_prepared_sprite(self):
         expected = "3" * 64
         self.launch.sprite()
         result = self.launch.run(WORKER_EXPECT_BASE=expected)
-        self.assert_failed(self.launch, result, f"the Sprite checked out {BASE}, not WORKER_EXPECT_BASE {expected}, so the prepared worker stays idle and unattached, and nothing is prepared again", [VERSION, CURRENT, self.launch.prepare()])
+        self.assert_failed(self.launch, result, f"the Sprite checked out {BASE}, not WORKER_EXPECT_BASE {expected}, so nothing was attached, its Sprite {WORKSPACE} is destroyed, and nothing is prepared again", [VERSION, CURRENT, self.launch.prepare(), DESTROY])
         self.assertEqual(self.launch.kept(), PREPARE_KEPT)
 
     def test_a_failed_prepare_keeps_its_raw_output_and_attaches_nothing(self):
@@ -683,7 +685,10 @@ class SpriteTest(LaunchTest):
             with self.subTest(case=index, reason=reason):
                 launch = self.fresh()
                 launch.sprite(prepared=prepared)
-                self.assert_failed(launch, launch.run(), f"{launch.attempt}/allocation.json holds {reason}, so the prepared worker stays idle and unattached", [VERSION, CURRENT, launch.prepare()])
+                if isinstance(prepared, dict) and prepared["workspace"] == WORKSPACE:
+                    self.assert_failed(launch, launch.run(), f"{launch.attempt}/allocation.json holds {reason}, so nothing was attached, and its Sprite {WORKSPACE} is destroyed", [VERSION, CURRENT, launch.prepare(), DESTROY])
+                else:
+                    self.assert_failed(launch, launch.run(), f"{launch.attempt}/allocation.json holds {reason}, so the prepared worker stays idle and unattached", [VERSION, CURRENT, launch.prepare()])
                 self.assertEqual(launch.kept(), ALLOCATION_KEPT)
 
     def test_an_empty_pool_creates_the_requested_lane_once(self):
@@ -714,7 +719,11 @@ class SpriteTest(LaunchTest):
                 launch = self.fresh()
                 launch.sprite(allocated=response)
                 result = launch.run(WORKER_REF="dev")
-                self.assert_failed(launch, result, f"{launch.attempt}/allocation.json holds {reason}, so the prepared worker stays idle and unattached", [VERSION, CURRENT, launch.prepare("--ref", "dev")])
+                owned = isinstance(response, dict) and response.get("lane") == LANE and response["workspace"] == WORKSPACE and (response["task"] or {}).get("workspace") == WORKSPACE
+                if owned:
+                    self.assert_failed(launch, result, f"{launch.attempt}/allocation.json holds {reason}, so nothing was attached, and its Sprite {WORKSPACE} is destroyed", [VERSION, CURRENT, launch.prepare("--ref", "dev"), DESTROY])
+                else:
+                    self.assert_failed(launch, result, f"{launch.attempt}/allocation.json holds {reason}, so the prepared worker stays idle and unattached", [VERSION, CURRENT, launch.prepare("--ref", "dev")])
                 self.assertEqual(launch.kept(), ALLOCATION_KEPT)
 
     def test_replenishment_failure_does_not_replay_an_attached_worker(self):
@@ -824,8 +833,8 @@ class SpriteTest(LaunchTest):
         relaunched = self.launch.run()
         self.assertEqual(relaunched.returncode, 0, relaunched.stderr)
         retired = self.launch.attempt.with_name(f"{self.launch.attempt.name}.1")
-        self.assertEqual(relaunched.stderr, f"{retired} keeps the earlier attempt, whose Sprite {WORKSPACE} answered no ssh connection before any worker started: {gone}; preparing again\n")
-        self.assertEqual(self.launch.calls(), [*first, VERSION, CURRENT, self.launch.copy(), self.launch.prepare(), *self.launch.tools(), self.launch.start(brief=REWRITTEN)])
+        self.assertEqual(relaunched.stderr, f"{retired} keeps the earlier attempt, whose Sprite {WORKSPACE} answered no ssh connection before any worker started: {gone}, and its Sprite {WORKSPACE} is destroyed; preparing again\n")
+        self.assertEqual(self.launch.calls(), [*first, VERSION, CURRENT, self.launch.copy(), DESTROY, self.launch.prepare(), *self.launch.tools(), self.launch.start(brief=REWRITTEN)])
         self.assertEqual(sorted(path.name for path in retired.iterdir()), TOOLS_KEPT)
         self.assertEqual(self.launch.kept(), SPRITE_KEPT)
 
