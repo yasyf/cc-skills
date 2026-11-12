@@ -16,7 +16,9 @@ TO_OWNER = (
 )
 AGENT_DEFECT = (
     "refused: a handler posts no defect record, so only one fix starts; return a `DEFECT <tool>: <what"
-    " happened, any refusal verbatim>` line, and the session holding drive tooling starts the fix"
+    " happened, any refusal verbatim>` line, and the session holding drive tooling starts the fix. A step the session"
+    " holding an order owes on it, such as redrawing its card, is a `handoff` record on the drive's `record` tool, its"
+    " order as `attrs: {order: <o>}`, which reaches that session"
 )
 CATCH_UP = re.compile(r"Catch-up since\b", re.IGNORECASE)
 UNKINDED = "refused: a ready record says which kind its PRs are: `his order o<n>` before his quoted words, `Drive tooling: …`, or `port of #<n>`; add the one it is"
@@ -83,7 +85,7 @@ def refusals(payload: dict, names: list[str], records: list[dict]) -> Iterator[s
 
 
 def readdressed(drives: dict[str, dict], session: str | None, record: dict) -> dict:
-    """The record addressed where its drive routes it: a defect, and the communicator's owner record about the drive, to the meta session, and the communicator's other owner, answer, posted or refused record to the session hearing the order it serves."""
+    """The record addressed where its drive routes it: a defect, and the communicator's owner record about the drive, to the meta session, and the communicator's other owner, answer, handoff, posted or refused record to the session holding the order it serves."""
     entries = listed(record.get("to"))
     to = state.routed(drives, session, kind(record), attrs(record), entries)
     return record if to == entries else record | {"to": to}

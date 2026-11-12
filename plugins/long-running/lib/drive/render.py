@@ -109,7 +109,8 @@ COMMUNICATOR_RULES = (
         " refusal or queue holding back work he waits on included, each get one record call that turn, kind defect, with"
         " the refusal verbatim, never read as working as designed, and every owner record names about, drive for drive"
         " tooling, his ruling or feedback on it included, and his work for the rest; the record tool sends a defect and an"
-        " owner record about the drive to the meta session alone, which tells the coordinator what changes for its work."
+        " owner record about the drive to the meta session alone, which tells the coordinator what changes for its work,"
+        " and a handoff, a step only the session holding an order takes on it, to that session by its order attr."
     ),
     REACHING,
     (

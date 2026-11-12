@@ -50,8 +50,18 @@ TEXT = {"type": "string"}
 RECORD = {
     "type": "object",
     "properties": {
-        "kind": {"enum": ["owner", "answer", "defect"], "description": "a report, ready or ask goes through the cci `post` tool instead, whose hook reads it"},
-        "text": {"type": "string", "description": "his words verbatim for owner, the tapped label or his words for answer, the refusal verbatim for defect"},
+        "kind": {
+            "enum": ["owner", "answer", "handoff", "defect"],
+            "description": (
+                "handoff asks the session holding the order its attrs.order names for a step only it takes on that order, such as"
+                " redrawing its card, with no re, since cci also delivers a record to the writer of the record its re names; a"
+                " report, ready or ask goes through the cci `post` tool instead, whose hook reads it"
+            ),
+        },
+        "text": {
+            "type": "string",
+            "description": "his words verbatim for owner, the tapped label or his words for answer, the step asked for handoff, the refusal verbatim for defect",
+        },
         "url": {
             "type": "string",
             "description": (
@@ -99,8 +109,8 @@ RECORD = {
             "description": (
                 "the lane it goes to in place of the default, the coordinator's from the communicator and the communicator's"
                 " from any other session; a defect goes to the meta session, the communicator's owner record about the drive"
-                " to the meta session alone, and its other owner or answer record to the session hearing the order of the job"
-                " it answers, else of its thread's newest order, whatever lane this names"
+                " to the meta session alone, and its other owner, answer or handoff record to the session holding the order its"
+                " attrs.order names, else the order of the job it answers, else its thread's newest order, whatever lane this names"
             ),
         },
         "attrs": {"type": "object", "additionalProperties": TEXT},
@@ -142,17 +152,19 @@ def verb_tools() -> list[dict]:
         {
             "name": "record",
             "description": (
-                "Send his words (owner), his answer to a card (answer) or a tool's refusal (defect) to another session of"
-                " the drive in one call, as this session's role, a handler's included: a defect reaches the meta session, and"
-                " an owner record names about, refused without it: the drive's owner record about the drive, a ruling on how"
-                " it works included, reaches the meta session alone, and one about his work the coordinator hearing its order."
+                "Send his words (owner), his answer to a card (answer), a step the session holding an order owes on it"
+                " (handoff) or a tool's refusal (defect) to another session of the drive in one call, as this session's role,"
+                " a handler's included: a defect reaches the meta session, the communicator's handoff the session holding the"
+                " order its attrs.order names, and an owner record names about, refused without it: the drive's owner record"
+                " about the drive, a ruling on how it works included, reaches the meta session alone, and one about his work"
+                " the coordinator hearing its order."
                 " A question card he answered takes waits, which fills re with the ask's seq and attr job; an"
                 " Undo tap sets undone. Once the records go out, each open card his words close is closed: a question card his"
                 " answer answers settles showing his words, and one his owner words under it change is withdrawn showing them;"
                 " a PR card stays up, since only the coordinator's --rework naming its PR withdraws it; an answer"
                 " whose waits names a card no longer waiting on him is refused, since his answer there is"
-                " recorded already. A defect's text past one 120-character line goes as that line cut at a word, the whole"
-                " text atop its body. Returns each record's seq, then each card closed."
+                " recorded already. A defect's or handoff's text past one 120-character line goes as that line cut at a word,"
+                " the whole text atop its body. Returns each record's seq, then each card closed."
             ),
             "inputSchema": {
                 "type": "object",
@@ -222,7 +234,7 @@ def run(tool: str, name: str, arguments: dict) -> str:
     dry_run = arguments.pop("dry_run", False)
     match tool:
         case "record":
-            return record(name, listing(arguments, "records", "owner, answer or defect records"), dry_run)
+            return record(name, listing(arguments, "records", "owner, answer, handoff or defect records"), dry_run)
         case "heard" | "handler" | "status" | "search_plan":
             said: list[str] = []
             return "\n".join(ran(name, said, 1, ONE_VERB[tool], arguments, dry_run) or said)
@@ -590,10 +602,10 @@ def sent(name: str, lane: str, posts: list[dict]) -> list[str]:
 
 
 def post(item: dict, data: dict, other: str, session: str | None) -> dict:
-    """The cci record an item posts as, to the lane it names, else other, a defect's long text cut to one line with the whole at the top of its body, as the post hook cuts a record, and sent where the drive routes it: a defect to the meta session, the communicator's owner record about the drive to the meta session alone, and its other owner or answer record, whatever lane it names, to the session hearing the order of the job it answers, else of the newest order in its thread; an owner record naming no about, or an item whose re names several seqs, is refused."""
+    """The cci record an item posts as, to the lane it names, else other, a defect's or handoff's long text cut to one line with the whole at the top of its body, as the post hook cuts a record, and sent where the drive routes it: a defect to the meta session, the communicator's owner record about the drive to the meta session alone, and its other owner, answer or handoff record, whatever lane it names, to the session holding the order its attr order names, else the order of the job it answers, else the newest order in its thread; an owner record naming no about, or an item whose re names several seqs, is refused."""
     drive = data["name"]
     if item["kind"] not in RECORD["properties"]["kind"]["enum"]:
-        raise DriveError(f"record posts owner, answer and defect records; a {item['kind']} goes through the cci `post` tool, whose hook reads it")
+        raise DriveError(f"record posts owner, answer, handoff and defect records; a {item['kind']} goes through the cci `post` tool, whose hook reads it")
     text, attrs = item["text"], dict(item.get("attrs") or {})
     made = {"kind": item["kind"]}
     for key in ("url", "resolves", "topic", "body"):
