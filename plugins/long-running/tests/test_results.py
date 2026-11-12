@@ -178,6 +178,27 @@ def test_a_codex_jobs_state_comes_from_the_codex_ask_run_its_relay_asked_never_t
     assert (job["state"], job["said"], state.report_text(demo, "j1").strip()) == (taken, said, reply.strip() if ran == "completed" else "")
 
 
+@pytest.mark.parametrize(
+    ("reply", "taken", "joins"),
+    [
+        ("UNPROVEN the handover delays the mint\n", "failed", None),
+        ("UNPROVEN the handover delays the mint\n**FIX:** o2\n", "done", "o1"),
+    ],
+)
+def test_a_codex_cause_reply_naming_no_fix_is_taken_blocked_and_one_naming_it_reads_that_order_live(
+    demo: str, run: Run, tmp_path: Path, codex_ask: CodexAsk, reply: str, taken: str, joins: str | None
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "SandSQL mint endpoint failing", "--incident", "--parts", "fix", "cause")
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "fix the handover", "--kind", "build")
+    run("job", "set", "j2", "--agent", "a-7")
+    one_line_result.take_codex(agent_stop(reply.splitlines()[0], tmp_path, *relay_ran(codex_ask.run("completed", reply))))
+    data = state.load(demo)
+    job = data["jobs"]["j2"]
+    assert (job["state"], data["orders"]["o2"]["joins"], state.report_text(demo, "j2").strip()) == (taken, joins, reply.strip())
+    if taken == "failed":
+        assert job["said"].startswith(f"BLOCKED codex-ask completed, its reply refused: j2 traces the cause of o1's live bug, so {state.FIX_RULE}"[:200])
+
+
 def test_a_codex_relay_reading_back_a_reply_that_quotes_another_run_keeps_its_own(demo: str, run: Run, tmp_path: Path, codex_ask: CodexAsk) -> None:
     codex_job(run)
     own = codex_ask.run("completed", "DONE reviewed: no findings\n")

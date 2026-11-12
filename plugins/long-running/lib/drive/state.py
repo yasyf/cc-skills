@@ -28,7 +28,16 @@ FINISHED_JOB_STATES = ("done", "failed", "stopped")
 CHANGE_KINDS = ("builder", "codex")
 INCIDENT_FIX = "fix"
 INCIDENT_STOP = "stop"
-INCIDENT_PARTS = {"release": ["first check"], "rollback": ["rollback", "cause"], "none": [INCIDENT_STOP, "cause"]}
+INCIDENT_CHECK = "first check"
+INCIDENT_CAUSE = "cause"
+INCIDENT_PARTS = {"release": [INCIDENT_CHECK], "rollback": ["rollback", INCIDENT_CAUSE], "none": [INCIDENT_STOP, INCIDENT_CAUSE]}
+FIX_LINE = re.compile(r"^[*_`]*FIX[*_`]*:?[*_`]*[ \t]+(?P<fix>\S.*?)[ \t]*$", re.MULTILINE)
+NO_FIX = "none"
+UNTRACED = ("ASK", "BLOCKED", "HANDOFF")
+FIX_RULE = (
+    "your report ends with one line FIX <the order or PR that fixes the cause, by order id or PR link, comma-separated>,"
+    " or FIX none when no fix of ours is owed: drive job report refuses it without one, and the order it names reads as a live bug's fix from then on"
+)
 UNLIVE_FIX = (
     '{order}\'s "{part}" is the fix of an open incident, which a post delivers only once the fix runs where the incident hurt:'
     " after the watch records it live, when the release shipping its fix job's change is out or a builder on it returns DONE, or by closing the incident"
@@ -670,6 +679,48 @@ def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | Non
         )
     if job["kind"] == "design" and line.startswith("DESIGN") and (unkept := [path for path in FORK.findall(report) if not kept_question(job, Path(path).expanduser())]):
         return f"its Fork: line names {unkept[0]}, which keeps no question of {job_id} his card can draw: keep it with drive job ask {job_id} <file> and name the path it prints"
+    return fix_refusal(data, job_id, line, report)
+
+
+def traced(data: dict, job_id: str, line: str) -> str | None:
+    """The order whose live bug a job's result traces the cause of: an incident or reported bug one of its first check or cause parts diagnoses, or a reported bug it reads as its reader; None for any other job and for a result opening ASK, BLOCKED or HANDOFF, which traces nothing yet."""
+    job = data["jobs"][job_id]
+    if re.match(r"[A-Z]*", line)[0] in UNTRACED:
+        return None
+    return next(
+        (
+            order_id
+            for order_id in [job["order"], *job["carries"]]
+            if (order := data["orders"][order_id])["incident"] or order["reporter"]
+            if {INCIDENT_CHECK, INCIDENT_CAUSE} & set(job_parts(job, order_id)) or (job["kind"] == "reader" and order["reporter"])
+        ),
+        None,
+    )
+
+
+def fix_named(data: dict, order_id: str, fix: str) -> tuple[list[str], list[str]]:
+    """The orders a FIX line's words name, each by its id or as the order a drive PR it names serves, and each word naming neither; none for FIX none."""
+    if re.match(rf"{NO_FIX}\b", fix):
+        return [], []
+    orders, unknown = [], []
+    for word in filter(None, (word.strip(".;`*") for word in re.split(r"[\s,]+", fix))):
+        if word in data["orders"]:
+            orders.append(word)
+        elif prs := named_prs(data, order_id, word):
+            orders += [order_served(data["prs"][key]) for key in prs]
+        else:
+            unknown.append(word)
+    return list(dict.fromkeys(orders)), unknown
+
+
+def fix_refusal(data: dict, job_id: str, line: str, report: str) -> str | None:
+    """Why a result tracing a live bug's cause may not be taken: it ends with no FIX line naming the order or PR that fixes the cause, or none, which take_result marks live from, by his pick "Incident cause names the fix: live from the report that names it until it merges; costs one required line on every cause report", or a word on its last one names no order or PR the drive tracks."""
+    if not (bug := traced(data, job_id, line)):
+        return None
+    if not (fixes := FIX_LINE.findall(report)):
+        return f"{job_id} traces the cause of {bug}'s live bug, so {FIX_RULE}"
+    if unknown := fix_named(data, data["jobs"][job_id]["order"], fixes[-1])[1]:
+        return f"its FIX line names {', '.join(unknown)}, no order or PR the drive tracks: name each fix by its order id or PR link, comma-separated, or say FIX none"
     return None
 
 
@@ -684,7 +735,7 @@ def named_waits(data: dict, order_id: str, line: str) -> list[str]:
 
 
 def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
-    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, a builder's DONE on an open incident's fix recording that fix live as the order's fixed, built on its branch and waiting on each card a BUILT line names, waiting on each PR and release a READY, PUSHED or WAITING line names, which the watch frees once the PR merges or closes or the release is out, each PR a `WAITING … waits on` line names waiting on each card it names, keep each verdict a reader's answer gives on the PR it names, and end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
+    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, a builder's DONE on an open incident's fix recording that fix live as the order's fixed, built on its branch and waiting on each card a BUILT line names, waiting on each PR and release a READY, PUSHED or WAITING line names, which the watch frees once the PR merges or closes or the release is out, each PR a `WAITING … waits on` line names waiting on each card it names, keep each verdict a reader's answer gives on the PR it names, join each open order the FIX line of a result tracing a live bug's cause names to that bug's incident, so hurts_now reads it live, and end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
     job = data["jobs"][job_id]
     taken, moment = result_state(job, line), stamp()
     job.update(state=taken, updated=moment, returned=moment)
@@ -701,6 +752,11 @@ def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
         for order_id in open_incidents(data, [job["order"], *job["carries"]]):
             if INCIDENT_FIX in job_parts(job, order_id):
                 data["orders"][order_id]["fixed"] = data["orders"][order_id]["fixed"] or f"{job_id} proved it live: {line.removeprefix('DONE').strip()}"
+    if (bug := traced(data, job_id, line)) and (fixes := FIX_LINE.findall(report)):
+        head = data["orders"][bug]["joins"] or bug
+        for order_id in fix_named(data, job["order"], fixes[-1])[0]:
+            if not (hurts_now(order := data["orders"][order_id]) or order["state"] in CLOSED_ORDER_STATES):
+                order["joins"] = head
     if taken == "done":
         drop_carries(data, job_id)
     if job["kind"] == "builder" and re.match(r"READY\b", line):
@@ -1481,8 +1537,8 @@ def open_incidents(data: dict, order_ids: list[str]) -> list[str]:
 
 
 def hurts_now(order: dict) -> bool:
-    """Whether the bug an order fixes hurts someone now, as an incident or a bug someone reported does, so its immediate fix ships at once while he picks the proper fix."""
-    return bool(order["incident"] or order["reporter"])
+    """Whether the bug an order fixes hurts someone now, as an incident or a bug someone reported does, or as the fix their cause report's FIX line named does, which joins them, so its immediate fix ships at once while he picks the proper fix."""
+    return bool(order["incident"] or order["reporter"] or order["joins"])
 
 
 def running_stops(data: dict, order_id: str) -> list[str]:

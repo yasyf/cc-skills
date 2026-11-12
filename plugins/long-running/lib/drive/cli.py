@@ -1816,7 +1816,7 @@ def job_brief(args: argparse.Namespace) -> int:
         "Interactions": flags["interactions"],
         "Would he ask": flags["would_he_ask"],
         "Plan": flags["plan"],
-        "Incident": incident_line(order, job["kind"], flags["incident"]),
+        "Incident": incident_line(data, args.id, flags["incident"]),
         "Scratch": str(scratch),
         "Transcripts": earlier,
         "Drive": f"{name}, order {job['order']}, job {args.id}",
@@ -1846,10 +1846,11 @@ def job_brief(args: argparse.Namespace) -> int:
     return emit(args, line, {"id": args.id, "brief": str(written), "rulings": len(rulings), "earlier": earlier, "kept": kept})
 
 
-def incident_line(order: dict, kind: str, given: str | None) -> str | None:
-    """A brief's Incident: line: the call's own, with the rule a lane of its kind follows on a choice after it on an incident order, which a choice never stops."""
-    rule = state.INCIDENT_CHOICE.get(kind) if order["incident"] else None
-    return "; ".join(filter(None, [given, rule if rule and rule not in (given or "") else None])) or None
+def incident_line(data: dict, job_id: str, given: str | None) -> str | None:
+    """A brief's Incident: line: the call's own, with the rule a lane of its kind follows on a choice after it on an incident order, which a choice never stops, then on a job tracing a live bug's cause the FIX line its report ends with."""
+    job = data["jobs"][job_id]
+    rules = [state.INCIDENT_CHOICE.get(job["kind"]) if data["orders"][job["order"]]["incident"] else None, state.FIX_RULE if state.traced(data, job_id, "") else None]
+    return "; ".join(filter(None, [given, *(rule for rule in rules if rule and rule not in (given or ""))])) or None
 
 
 def ruling_words(answer_id: str, checkout_dir: Path) -> str:
