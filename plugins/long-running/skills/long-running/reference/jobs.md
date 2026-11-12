@@ -210,11 +210,12 @@ question.
 
 - A live worker gets the message: the answer to its open question, or a new message to its Dispatch
   when it asked none or Orca already holds another answer to it. On a finished worker whose Sprite is still up, it starts the job's
-  next worker in its terminal, on the Run and terminal Orca shows for that worker. A dead worker, or
-  one whose Sprite's Orca environment is gone, as `drive job end` leaves it, is relaunched on a
-  fresh Sprite on a Run this terminal makes, since Orca binds a Run only to the terminal that made
-  it. A relaunch whose earlier try prepared a Sprite and started no worker on it reuses that Sprite
-  with the handoff it was prepared with, and sends the new text to the worker as a message when that
+  next worker in its terminal, on the Run and terminal Orca shows for that worker; when Orca no
+  longer finds that terminal or worktree, the worker counts as dead. A dead worker, or one whose
+  Sprite's Orca environment is gone, as `drive job end` leaves it, is relaunched on a fresh Sprite
+  on a Run this terminal makes, since Orca binds a Run only to the terminal that made it. A
+  relaunch whose earlier try prepared a Sprite and started no worker on it reuses that Sprite with
+  the handoff it was prepared with, and sends the new text to the worker as a message when that
   handoff holds another.
 - Either new worker gets a handoff carrying the job's brief, branch, last line, report, PRs and the
   message, and the output says which ran.
@@ -223,9 +224,9 @@ question.
   changes there and pushes each commit, branch or stash GitHub holds nowhere as
   `saved/<the dead lane>/<its branch>`, on the token `gh auth token` prints, lent to that one push
   through the ssh session's stdin, so it never reaches the Sprite's disk. The output and the new
-  worker's handoff name each saved branch. When that Sprite does not answer or the save fails, it
-  exits 2 naming why and relaunches nothing; resume again once the Sprite answers.
-  `--leave-unpushed` relaunches anyway, and its output names why the work stays on the old Sprite.
+  worker's handoff name each saved branch. When that Sprite does not answer or the save fails, the
+  relaunch runs on that Sprite instead, through `cc-remote orca prepare --existing`, in the checkout
+  the dead lane left, and the handoff and the output name why the save failed.
 - When Orca cannot reach the lane's Sprite, or refuses the send or the start, nothing is delivered
   and it exits 2 with Orca's refusal; resume again once the watch reads the lane.
 - The `bash_guard` hook runs it in the foreground with `timeout: 20000` however it is called: a
