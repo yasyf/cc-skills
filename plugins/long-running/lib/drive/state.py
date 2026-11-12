@@ -277,7 +277,7 @@ def saved(name: str) -> dict:
 
 
 def load(name: str) -> dict:
-    """Read a drive, bringing a drive saved by an older install up to the fields this one reads, from what is on this Mac alone; one a newer install saved is refused before any of it is read, since this code may misread its shapes."""
+    """Read a drive, bringing a drive saved by an older install up to the fields this one reads, in memory and from what is on this Mac alone; one a newer install saved is refused before any of it is read, since this code may misread its shapes. It writes nothing: a one-time change to the drive's files is `migrate`'s, since every drive command, hook and watch pass reads through here at once."""
     data = saved(name)
     if (saver := data.get("saved_by")) and tuple(map(int, saver.split("."))) > tuple(map(int, VERSION.split("."))):
         raise NewerDrive(f"drive.json of {name} was saved by long-running {saver}, newer than this {VERSION}, which may misread it: run the newest install's drive")
@@ -359,12 +359,6 @@ def load(name: str) -> dict:
     data.setdefault("stand_ins", {})
     data.setdefault("held", {})
     data.setdefault("carried", {})
-    if (pictures := drive_dir(name) / "pictures").is_dir() and not (pictures / picture.SOURCED).exists():
-        picture.fill(pictures, [*map(Path.read_text, sorted((drive_dir(name) / "asks").glob("*.md"))), *pr_bodies(name)])
-    if cards_path(name).exists() and not (drive_dir(name) / "asks" / REBUILT_ASKS).exists():
-        rebuild_asks(name, data)
-    if "coordinator" in data["roles"] and not (drive_dir(name) / APPROVALS_LABELLED).exists():
-        label_approvals(name, data["roles"]["coordinator"]["cwd"])
     if not data.get("may_settle_by_jev"):
         for job in data["jobs"].values():
             job["may_settle"] = None
@@ -386,6 +380,18 @@ def rebuilt_ask(name: str, waits: str) -> Path:
 def ask_hash(text: str) -> str:
     """What `drive job ask` names a kept ASK file by, after its job: the hash of its words, so a file whose words no longer hash to its name changed since."""
     return hashlib.sha256(text.encode()).hexdigest()[:8]
+
+
+def migrate(name: str) -> None:
+    """Make each one-time change to the drive's files that an older install's drive still owes, each skipped once its marker exists; `drive install` runs it from the new install before any session reloads onto it, and two at once take turns, the second finding each marker written."""
+    with flocked(drive_dir(name) / ".migrate.lock"):
+        data = load(name)
+        if (pictures := drive_dir(name) / "pictures").is_dir() and not (pictures / picture.SOURCED).exists():
+            picture.fill(pictures, [*map(Path.read_text, sorted((drive_dir(name) / "asks").glob("*.md"))), *pr_bodies(name)])
+        if cards_path(name).exists() and not (drive_dir(name) / "asks" / REBUILT_ASKS).exists():
+            rebuild_asks(name, data)
+        if "coordinator" in data["roles"] and not (drive_dir(name) / APPROVALS_LABELLED).exists():
+            label_approvals(name, data["roles"]["coordinator"]["cwd"])
 
 
 def label_approvals(name: str, cwd: str) -> None:

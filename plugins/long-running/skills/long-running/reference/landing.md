@@ -130,7 +130,8 @@ No tap and no green gate: by his standing rule a `yasyf/*` PR merges without ask
    (`gh pr view <n> -R <repo> --json mergeCommit`):
    - A Claude Code plugin: `drive install <plugin>@<marketplace> --sha <merge sha>` (such as
      `long-running@skills`), which the lander runs itself, waits for the release that holds the merge, updates the plugin, and
-     prints the installed version. It updates each scope's install with its own `claude plugin update --scope`, the user
+     prints the installed version. For long-running it also runs the new install's `drive migrate` before any session reloads
+     onto it, which makes each one-time change the new code owes a drive's files, once; no other drive verb makes one. It updates each scope's install with its own `claude plugin update --scope`, the user
      scope's and each project or local scope's from its folder, skipping one whose folder is gone, and checks each holds the
      merge, since a session loads the install its folder's scope names and an update moves one scope. A release holds it when the merge is in the release's commit and
      in the tag of each binary the plugin pins from that repo through a `*.binrun` file, since a

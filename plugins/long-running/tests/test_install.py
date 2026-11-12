@@ -338,7 +338,7 @@ def test_a_hung_read_is_cut_at_the_deadline(fake: Callable[..., FakeGit], capsys
 def test_each_update_gets_only_the_time_left(fake: Callable[..., FakeGit]) -> None:
     git = fake(["unused"], set(), call_seconds=5)
     assert install.main("long-running@skills", None, None, 900) == 0
-    assert git.timeouts == [900, 895]
+    assert git.timeouts == [900, 895, 890]
 
 
 def test_without_a_sha_it_installs_what_the_marketplace_names_now(
@@ -346,7 +346,7 @@ def test_without_a_sha_it_installs_what_the_marketplace_names_now(
 ) -> None:
     git = fake(["unused"], set())
     assert install.main("long-running@skills", None, None, 900) == 0
-    assert [call[0] for call in git.calls] == ["claude", "claude"]
+    assert [call[0] for call in git.calls] == ["claude", "claude", "/cache/long-running/1.0.3/bin/drive"]
     assert capsys.readouterr().out.strip() == "installed long-running@skills 1.0.3"
 
 
@@ -519,8 +519,27 @@ def test_a_homebrew_pass_fetches_only_the_yasyf_tap_so_another_taps_fetch_cannot
 
 def test_other_plugins_run_nothing_after_the_update(fake: Callable[..., FakeGit]) -> None:
     git = fake(["unused"], set())
-    assert install.main("long-running@skills", None, None, 900) == 0
+    assert install.main("codex@skills", None, None, 900) == 0
     assert git.other_calls() == []
+
+
+def test_a_failed_drive_migrate_fails_the_install_before_any_session_reloads_onto_the_new_code(
+    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    start_drive("demo", communicator="term_comm")
+    git = fake(["unused"], set())
+
+    def migrate_fails(cmd: list[str], **options: object) -> subprocess.CompletedProcess:
+        if cmd[1:] == ["migrate"]:
+            return subprocess.CompletedProcess(cmd, 2, "", "drive: could not read his recorded answers: ccn timed out")
+        return git.run(cmd, **options)
+
+    monkeypatch.setattr(install.subprocess, "run", migrate_fails)
+    assert install.main("long-running@skills", None, None, 900) == 1
+    assert capsys.readouterr().err.strip() == (
+        "drive install: /cache/long-running/1.0.3/bin/drive migrate exited 2: drive: could not read his recorded answers: ccn timed out"
+    )
+    assert git.orca_calls == []
 
 
 def test_installs_run_at_once_take_turns_on_the_plugin_updates(fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch) -> None:
@@ -616,7 +635,7 @@ def test_an_install_near_its_deadline_waits_only_the_time_left(fake: Callable[..
     start_drive("demo", communicator="term_comm")
     git = fake(["unused"], set(), call_seconds=5)
     git.waits["term_comm"] = BUSY
-    assert install.main("long-running@skills", None, None, 30) == 0
+    assert install.main("long-running@skills", None, None, 35) == 0
     assert git.typed_into("term_comm") == [waited("term_comm", "10000"), sent("term_comm")]
     assert sorted(git.orca_timeouts) == [60, 70]
     assert "demo communicator: busy for 10s" in capsys.readouterr().out
@@ -673,7 +692,7 @@ def test_an_install_restarts_each_dashboard_serving_other_code_on_the_new_build(
     git = fake(["unused"], set())
     git.dashboards = {"demo": {"code": "/cache/long-running/1.0.2/lib/drive"}, "current": {"code": str(Path("/cache/long-running/1.0.3/lib/drive").resolve())}}
     assert install.main("long-running@skills", None, None, 900) == 0
-    assert git.other_calls() == [["/cache/long-running/1.0.3/bin/drive", "dashboard", "--drive", "demo"]]
+    assert git.other_calls() == [["/cache/long-running/1.0.3/bin/drive", "migrate"], ["/cache/long-running/1.0.3/bin/drive", "dashboard", "--drive", "demo"]]
     assert "demo dashboard: restarted onto 1.0.3" in capsys.readouterr().out.splitlines()
 
 

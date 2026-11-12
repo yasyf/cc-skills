@@ -2654,6 +2654,12 @@ def reload_plugins(args: argparse.Namespace) -> int:
     return install.reload_main()
 
 
+def migrate_drives(args: argparse.Namespace) -> int:
+    for name in state.names():
+        state.migrate(name)
+    return 0
+
+
 def default_bin_dir() -> Path:
     if xdg := os.environ.get("XDG_BIN_HOME"):
         return Path(xdg)
@@ -3457,6 +3463,8 @@ def parser() -> argparse.ArgumentParser:
     verb.set_defaults(run=install_plugin)
     verb = verbs.add_parser("reload", help="type /reload-plugins into each session of every drive on this Mac, queued behind a turn still running after 30 seconds")
     verb.set_defaults(run=reload_plugins)
+    verb = verbs.add_parser("migrate", help="make each one-time change an older install still owes to every drive on this Mac, as `drive install` does before it reloads sessions")
+    verb.set_defaults(run=migrate_drives)
 
     verb = verbs.add_parser("setup")
     verb.add_argument("--bin-dir")

@@ -15,7 +15,7 @@ POLL_SECONDS = 20
 GITHUB_REPO = re.compile(r"github\.com[/:]([^/]+/[^/]+?)(?:\.git)?/?$")
 DEFAULT_BRANCH = "refs/heads/default"
 FETCH = ("fetch", "--quiet", "--filter=blob:none", "--no-tags", "origin")
-AFTER_UPDATE = {"cc-inbox": ("bin/cci", "serve")}
+AFTER_UPDATE = {"cc-inbox": ("bin/cci", "serve"), "long-running": ("bin/drive", "migrate")}
 HOMEBREW = {"cc-context": "ccx", "cc-inbox": "cci", "cc-notes": "cc-notes", "cc-present": "cc-present", "cc-review": "cc-review", "cc-slack": "cc-slack"}
 TAP = "yasyf/tap"
 RELEASE_VERSION = re.compile(r"\d+\.\d+\.\d+")
@@ -344,7 +344,7 @@ def restart_dashboards(key: str, deadline: float) -> list[str]:
 
 
 def main(plugin_at_marketplace: str, sha: str | None, repo: str | None, timeout: int) -> int:
-    """Wait for a release holding sha, its commit and each binary it pins, update the plugin and its Homebrew twin until the bare binary holds sha, print the installed version, then restart each drive dashboard serving other code and reload every drive session on this Mac."""
+    """Wait for a release holding sha, its commit and each binary it pins, update the plugin, run its step after an update from the new install, such as long-running's `drive migrate`, and its Homebrew twin until the bare binary holds sha, print the installed version, then restart each drive dashboard serving other code and reload every drive session on this Mac."""
     deadline = clock() + timeout
     try:
         version = install(plugin_at_marketplace, sha, repo, deadline, timeout)
