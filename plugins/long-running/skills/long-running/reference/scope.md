@@ -77,11 +77,14 @@ past the question it was given under and names the subject only in his words.
 `drive job ask` and the hook on every `ask` record check the part he reads against his recorded
 answers, the whole block, findings included, against his drive's rulings `ccn answer match --nearest`
 ranks nearest to it, his pick or words on each card the job asked, and each message of his in the
-order's own thread that shares a rare word with the question. Jev reads them beside the question and its options
-and picks the one answer that already decides which option to build, or none. A pick it is at least
-0.8 sure of refuses the question, quoting that answer; none, a less sure pick, or no word from Jev
-sends it to him, since an unsure check asks him. The answer it quotes is his answer, and the work
-goes ahead on it. One that names what you recommend, such as a service he said to build, settles
+order's own thread that shares a rare word with the question. Jev reads each of them alone, in its own call,
+beside the question and its options, and says whether it picks one of the options, orders the outcome the
+question asks about or who does it, or settles nothing; a bare option number answers the card it was typed
+on and settles nothing here. The answer Jev is surest picks or orders, once at least 0.8 sure, refuses the
+question, quoting that answer; every answer below that, or no word from Jev, sends it to him, since an
+unsure check asks him. The answer it quotes is his answer, and the work goes ahead on it: on a pick,
+build that option; on an order, build the option his words leave that removes the root cause, the
+recommended one, and say in one line that his answer settled it. One that names what you recommend, such as a service he said to build, settles
 what that thing does, so build it and ask nothing. Only when it does not decide this question, ask
 with one `--unsettled` string, or the record's `unsettled` attr, naming that answer's id, or that
 message's permalink, and why, such as `--unsettled "1396ce1: <why>"`. His pick or words on this

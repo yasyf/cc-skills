@@ -1907,13 +1907,16 @@ def test_his_words_under_a_card_answer_it_so_its_job_never_redraws_it_with_a_new
     assert cli.main(["answer", "a2", "--words", "One snapshot file", "--link", link]) == 2
     assert "  j1 waits on o1 and has not heard a2: SendMessage it his words verbatim, or mark it untouched" in capsys.readouterr().err
     assert run("answer", "a2", "--sent", "j1")[0] == 0
-    jev.picks("a2")
+    jev.settles("a2")
     monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace("ASK How should", "ASK When should")))
     assert cli.main(["job", "ask", asking, "-"]) == 2
     refusal = capsys.readouterr().err
     assert refusal.startswith('drive: refused: his recorded answer a2 already decides this question. Asked "')
     assert 'he said "One snapshot file". Go ahead on it. If his words decide something else, ask again with --unsettled "a2: <why>".' in refusal
-    assert [(answer["id"], answer["said"]) for answer in jev.asked[-1]["state"]["answers"]] == [("a1", "its one snapshot file, just wait for the copy"), ("a2", "One snapshot file")]
+    assert sorted((answer["id"], answer["said"]) for request in jev.asked[-2:] for answer in request["state"]["answers"]) == [
+        ("a1", "its one snapshot file, just wait for the copy"),
+        ("a2", "One snapshot file"),
+    ]
     monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
     view.refresh_cards("demo")
     monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace("ASK How should", "ASK When should")))
@@ -1975,7 +1978,7 @@ def test_job_ask_hands_jev_his_messages_in_its_orders_thread_and_refuses_the_one
     slack_thread.post(moment + timedelta(seconds=1), from_user=True, text="ok go ahead")
     slack_thread.post(moment + timedelta(seconds=2), from_claude=True, text="building one snapshot file per finished run")
     key = re.search(r"/(p\d+)\?", settles)[1]
-    jev.picks(key)
+    jev.settles(key)
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
     assert cli.main(["job", "ask", "j1", str(block)]) == 2
@@ -2037,7 +2040,7 @@ def test_job_ask_prints_the_answer_jev_reads_as_deciding_and_an_amount_he_named_
     run("job", "add", "builder", "--order", "o1", "--goal", "design it")
     recorded.found = [FLAT_RULING]
     his = slack_thread.post(state.now(), from_user=True, text="keep one snapshot file per finished run for 30 days")
-    jev.picks("ac61348")
+    jev.settles("ac61348")
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
     assert cli.main(["job", "ask", "j1", str(block)]) == 2
@@ -2049,7 +2052,7 @@ def test_job_ask_prints_the_answer_jev_reads_as_deciding_and_an_amount_he_named_
     assert f"- 30 day: {his}" in refusal
     block.write_text(SHORT_ASK.replace("written when it ends, old runs", "written when it ends, kept 30 days, old runs"))
     assert cli.main(["job", "ask", "j1", str(block), "--unsettled", "ac61348: it lays out the files, not how long they stay"]) == 0
-    assert len(jev.asked) == 1
+    assert len(jev.asked) == 2
 
 
 def test_an_amount_names_a_unit_never_a_word_the_count_check_skips() -> None:
@@ -2076,7 +2079,7 @@ def test_job_ask_keeps_a_question_jev_reads_his_recorded_answer_as_deciding_pend
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
     recorded.found = [FLAT_RULING]
-    jev.picks("ac61348")
+    jev.settles("ac61348")
     assert cli.main(["job", "ask", asking, str(block)]) == 2
     refusal = capsys.readouterr().err
     assert refusal.startswith(
@@ -2118,11 +2121,11 @@ def test_job_ask_hands_jev_the_rulings_of_its_drive_nearest_to_its_whole_block_a
     block.write_text(SHORT_ASK)
     recorded.found = [FLAT_RULING]
     recorded.nearest = [BLOB_STORE_RULING, FLAT_RULING]
-    jev.picks("f061aac")
+    jev.settles("f061aac")
     assert cli.main(["job", "ask", asking, str(block)]) == 2
     assert recorded.near == [(settled.read(SHORT_ASK), ("--nearest", "--label", "drive:demo"))]
     assert "LTX files" in recorded.near[0][0]
-    assert [answer["id"] for answer in jev.asked[0]["state"]["answers"]] == ["ac61348", "f061aac"]
+    assert sorted(answer["id"] for request in jev.asked for answer in request["state"]["answers"]) == ["ac61348", "f061aac"]
     assert capsys.readouterr().err.startswith("drive: refused: his recorded answer f061aac already decides this question.")
     why = "f061aac: it says where a run's files go, not how they are laid out"
     assert run("job", "ask", asking, str(block), "--unsettled", why)[0] == 0
@@ -2133,9 +2136,8 @@ def test_job_ask_sends_the_question_to_him_when_jev_picks_none_is_less_sure_than
 ) -> None:
     block = tmp_path / "ask.md"
     recorded.found = [FLAT_RULING]
-    jev.picks("ac61348", 0.79)
-    for title, answer in (("How should", Jev().answer), ("Where should", jev.answer), ("When should", None)):
-        jev.answer = answer
+    for title, reads, answer in (("How should", {}, Jev().answer), ("Where should", {"ac61348": {"none": 0.21, "picks": 0.4, "orders": 0.39}}, Jev().answer), ("When should", {}, None)):
+        jev.reads, jev.answer = reads, answer
         block.write_text(SHORT_ASK.replace("ASK How should", f"ASK {title}"))
         assert run("job", "ask", asking, str(block))[0] == 0
     assert [question["refused"] for question in state.load("demo")["jobs"]["j1"]["questions"]] == [None, None, None]
@@ -2148,16 +2150,16 @@ def test_job_ask_asks_jev_again_only_when_a_reworded_asks_title_changes(
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
     recorded.found = [FLAT_RULING]
-    jev.picks("ac61348")
+    jev.settles("ac61348")
     assert cli.main(["job", "ask", asking, str(block)]) == 2
     assert "his recorded answer ac61348 already decides this question" in capsys.readouterr().err
     recorded.found = [PAGE_RULING]
-    jev.picks("33eaad9")
+    jev.settles("33eaad9")
     where = SHORT_ASK.replace("ASK How should", "ASK Where should")
     block.write_text(where)
     assert cli.main(["job", "ask", asking, str(block), "--unsettled", "ac61348: it lays out the files; this asks where they go"]) == 2
     assert "his recorded answer 33eaad9 already decides this question" in capsys.readouterr().err
-    jev.picks("none")
+    jev.reads = {}
     block.write_text(where.replace("about 180 small files", "180 files"))
     why = "33eaad9: where the files go once the page opens, not where they are laid out"
     assert run("job", "ask", asking, str(block), "--unsettled", why)[0] == 0
@@ -4979,19 +4981,61 @@ def test_the_settled_check_finds_his_answer_ranked_past_twenty_of_his_taps_appro
 
 
 UPLOAD_MINT = {"id": "61d71da", "asked": "Where is an upload's ID reserved before the write lands?", "said": "Clients journal mint time with each write reservation, no server change"}
+ORDERED_FIX = {
+    "id": "6a6edbf",
+    "asked": "A line told him a PR's tap card was refused because nobody checked that PR against his words; what must such a line say, and who fixes the gap?",
+    "said": (
+        "> Its card was refused because nobody checked that PR against your words\n"
+        "thats not acceptable to dsay without telling me how you will prevent it, and fix that meta issue, im not saying this agin\n"
+        "Notes: his words Nov 12 2026 12:44 AM, quoting the handler's 11:53 PM answer. Two rulings: (1) any line to him reporting a failure,"
+        " refusal or gap also says how it is prevented, naming the tool change and what carries it; (2) the meta issue is fixed in the drive's"
+        " tooling: the journal format PR was green and approved from 7:14 PM Nov 11 with no words check, the watch refused its card at 7:40 PM"
+        " and posted that refusal to the coordinator as evidence at 7:40, 10:22, 11:37 PM and 12:14 AM, and no session ran the check for five"
+        " hours. Handler's reading, not his words: a PR at READY never sits without the check against his words; the tool that finds it"
+        " unchecked runs the check, or starts the job that does, instead of only reporting it."
+    ),
+}
+OTHER_CARDS_PICK = {
+    "id": "b666347",
+    "asked": "Should the say hook's judge rule on a check's finding by that finding's own rule, or by whether your words cover the post?",
+    "said": (
+        "1 and then if we kepe getting false rejects move to 3\n"
+        'Notes: his own words, typed as Other on the say hook\'s card at 2:54 AM Nov 12. "1" and "3" are the card\'s first and third options,'
+        " in the card's order; its ask file holds their words."
+    ),
+}
+BUILDER_COST = {
+    "id": "ea5f9f6",
+    "asked": (
+        "Builders spend 64% of their cost after the PR opens (CI fixes, review edits, landing, install), at 288k average context on Opus."
+        " Your global routing says Opus for every code-diff deliverable. How should that phase run?"
+    ),
+    "said": "Fresh Opus fixer\nOptions: Fresh Sonnet fixer (Recommended) | Fresh Opus fixer | Keep one builder",
+}
+UNCHECKED = (
+    "Who checks a green, approved PR against your words when no session runs the check?",
+    [
+        "Per-PR check the watch starts: a green, approved PR's own diff judged against its order; pass draws your card; one Opus run each",
+        "Reader agent the watch starts: reads your answers, picks its order and design, runs today's whole-builder check; one agent session each; enabling PRs still refused",
+        "Louder reminders only: the watch's unchecked and refused-card lines always reach the coordinator as work; free, but a session must still act",
+    ],
+)
+ORDERS_THE_FIX = {"none": 0.14, "picks": 0.05, "orders": 0.81}
+NUMBERS_ANOTHER_CARD = {"none": 0.26, "picks": 0.39, "orders": 0.35}
+COSTS = {"none": 0.67, "picks": 0.15, "orders": 0.18}
 JEV_CASES = {
-    "tap": ("Which token should the CI review step sign in to GitHub with?", ["A reviewer GitHub App's installation token", "A personal access token"], [], None),
+    "tap": ("Which token should the CI review step sign in to GitHub with?", ["A reviewer GitHub App's installation token", "A personal access token"], [], {}),
     "mint": (
         "How does the upload worker keep each upload ID's mint time?",
         ["Each upload records its mint time in a new UploadReserved journal event", "Each upload keeps its mint time in memory until the write lands"],
         [{"id": "b26dd47", "asked": "Who mints upload IDs: the server or each client?", "said": "So do 1 but no server issuing IDs"}, UPLOAD_MINT],
-        {"none": 0.1, "b26dd47": 0.02, "61d71da": 0.88},
+        {"b26dd47": {"none": 0.73, "picks": 0.05, "orders": 0.22}, "61d71da": {"none": 0.17, "picks": 0.78, "orders": 0.05}},
     ),
     "poller": (
         "Who starts each queue poller the first time a queue is created?",
         ["The worker, at boot, for every queue it finds", "The first enqueue on a new queue"],
         [{"id": "e86f7ae", "asked": "Which queue store does every worker register on?", "said": "the shared queue store everywhere (Recommended)"}],
-        {"none": 0.94, "e86f7ae": 0.06},
+        {"e86f7ae": {"none": 0.97, "picks": 0.02, "orders": 0.01}},
     ),
     "autoscaler": (
         "Should each browser pool get its own autoscaler, or should one autoscaler serve each tier?",
@@ -5000,7 +5044,7 @@ JEV_CASES = {
             {"id": "8653f0f", "asked": "Which browser does each tier run?", "said": "The light tier runs the small headless browser, the heavy tier the full one"},
             {"id": "1439f73", "asked": "Which tiers keep warm browsers ready?", "said": "Warm browsers for the normal tier only"},
         ],
-        {"none": 0.86, "8653f0f": 0.08, "1439f73": 0.06},
+        {"8653f0f": {"none": 0.84, "picks": 0.06, "orders": 0.1}, "1439f73": {"none": 0.89, "picks": 0.06, "orders": 0.05}},
     ),
     "journal": (
         "Where should the upload worker journal the write reservation that keeps an upload ID's mint time?",
@@ -5013,24 +5057,36 @@ JEV_CASES = {
             },
             UPLOAD_MINT,
         ],
-        {"none": 0.15, "ad564f4": 0.01, "61d71da": 0.84},
+        {"ad564f4": {"none": 0.9, "picks": 0.05, "orders": 0.05}, "61d71da": {"none": 0.25, "picks": 0.55, "orders": 0.2}},
     ),
+    "ordered": (*UNCHECKED, [ORDERED_FIX, OTHER_CARDS_PICK, BUILDER_COST], {"6a6edbf": ORDERS_THE_FIX, "b666347": NUMBERS_ANOTHER_CARD, "ea5f9f6": COSTS}),
+    "unordered": (*UNCHECKED, [OTHER_CARDS_PICK, BUILDER_COST], {"b666347": NUMBERS_ANOTHER_CARD, "ea5f9f6": COSTS}),
 }
+SETTLED = {"mint": ("61d71da", "picks"), "ordered": ("6a6edbf", "orders")}
+
+
 
 
 @pytest.mark.parametrize("case", JEV_CASES)
-def test_jev_decides_a_question_only_by_the_one_answer_it_picks_at_eight_in_ten_or_more(case: str, jev: Jev) -> None:
+def test_jev_reads_each_answer_alone_and_one_settles_a_question_once_its_picks_and_orders_reach_eight_in_ten(case: str, jev: Jev) -> None:
     question, options, found, recorded = JEV_CASES[case]
-    choice = recorded and max(recorded, key=recorded.__getitem__)
-    jev.answer = recorded and {"type": "label", "choice": choice, "probabilities": recorded, "confidence": recorded[choice]}
+    jev.reads = recorded
     picked = settled.decided(question, options, found)
-    assert (picked and picked["id"]) == {"mint": "61d71da", "journal": "61d71da"}.get(case)
-    if not found:
-        assert jev.asked == []
-        return
-    [asked] = jev.asked
-    assert asked["state"] == {"question": question, "options": options, "answers": found}
-    assert list(asked["questions"]["decides"]["label"]["options"]) == ["none", *(answer["id"] for answer in found)]
+    assert (picked and (picked["id"], picked["settles"])) == SETTLED.get(case)
+    assert sorted(answer["id"] for request in jev.asked for answer in request["state"]["answers"]) == sorted(answer["id"] for answer in found)
+    assert [len(request["state"]["answers"]) for request in jev.asked] == [1] * len(found)
+    if picked:
+        assert ("He ordered what this question asks about, so build the option his words leave that removes the root cause" in settled.decided_refusal(picked, None)) == (picked["settles"] == "orders")
+
+
+@pytest.mark.skipif(os.environ.get("DRIVE_REAL_JEV") != "1", reason="replays these cases on Jev itself, which DRIVE_REAL_JEV=1 asks for")
+@pytest.mark.parametrize("case", ["ordered", "unordered"])
+def test_jev_itself_settles_the_unchecked_pr_question_by_his_order_in_three_runs_of_three_and_sends_it_to_him_without_that_order(
+    case: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settled, "jev", ASK_JEV)
+    question, options, found, _ = JEV_CASES[case]
+    assert [(picked := settled.decided(question, options, found)) and picked["id"] for _ in range(3)] == [SETTLED.get(case, (None,))[0]] * 3
 
 
 def test_jev_is_asked_through_spawnllm_decide_and_a_failed_call_or_a_declined_question_is_unheard_with_its_reason(
@@ -5072,7 +5128,7 @@ def test_job_ask_says_on_stderr_that_jev_gave_no_answer_and_sends_the_question_t
     jev.answer = None
     assert cli.main(["job", "ask", asking, str(block)]) == 0
     assert (
-        "drive job ask: Jev did not say whether his answers decide this question, so it goes to him: Command 'spawnllm decide' timed out after 60 seconds"
+        "drive job ask: Jev did not say whether his answer ac61348 decides this question, so it goes to him: Command 'spawnllm decide' timed out after 60 seconds"
         in capsys.readouterr().err
     )
     assert state.load("demo")["jobs"]["j1"]["questions"][0]["refused"] is None

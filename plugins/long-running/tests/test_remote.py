@@ -1440,7 +1440,7 @@ def test_an_ask_jev_reads_his_recorded_answer_as_deciding_stays_pending_with_its
     recorded.found = [
         {"id": "ac6134849ff8a392c9f26294d4303635d1c27a58", "title": "Owner Nov 9: where does the nightly store copy run?", "body": "On the primary", "tags": ["scope:durable"]}
     ]
-    jev.picks("ac61348")
+    jev.settles("ac61348")
     deliver(monkeypatch, [message("question", ASK_IN_SHAPE, id="msg_ask")])
     monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"the watch replied {args}"))
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
