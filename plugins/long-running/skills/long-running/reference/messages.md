@@ -479,8 +479,9 @@ the dashboard link. When a line says where things stand, link the page instead o
 - Name a PR as `{pr:<number>}` and say in the line what it does; `say` links it under the PR's title,
   never by its number alone, or under words of the post's own as `{pr:<number>|<what it does>}`,
   the one way to link a PR the drive does not hold. Say what each PR serves: the order of his it carries out, in his words,
-  "port of #N" with the old PR linked, or "Drive tooling:" and what it unblocks. Link each other PR
-  the message names the same way.
+  "port of #N" with the old PR linked, or "Drive tooling:" and what it unblocks. The say hook finds
+  a summary naming a drive PR that says none of these. Link each other PR the message names the same
+  way.
 - Name an order as `{order:<id>}`, which `say` links to the thread its lines go in under the first
   line of his words.
 - State a cause, a number or a state only through the record that measured it, as `{record:<seq>}`
@@ -518,8 +519,9 @@ the dashboard link. When a line says where things stand, link the page instead o
   result or nothing. `cc-slack check-post` refuses a line listing what is not proven, and a job's
   `UNPROVEN:` list is the coordinator's input, never copy for him.
 - An incident line follows [incidents.md](incidents.md) and carries no side facts about a release.
-- State comes from live reads, `drive status`, GitHub or a transcript, never from memory. A job's
-  last line is history: what is live is read from the default branch and the release, since a later
+- State comes from live reads, `drive status`, GitHub or a transcript, never from memory. The say
+  hook finds a post calling a job stuck or silent with no read of its transcript by you in the last
+  10 minutes, `drive job replies <j>` or `cc-transcript`. A job's last line is history: what is live is read from the default branch and the release, since a later
   PR may have reverted the change or put it back. A 12:57 AM status on Nov 11 told him the 512
   memory indexes were backed out, from a job's line written before the 8:41 PM PR that restored
   them. What a

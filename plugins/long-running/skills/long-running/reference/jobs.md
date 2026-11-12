@@ -52,18 +52,16 @@ The `agent_brief` hook sets each Agent call to the shape the drive runs it: it d
 named agent joins the agent team and never wakes on events, drops Fable from any agent but
 `long-running:designer`, starts a design job as `long-running:designer` whatever type the call
 names, and drops `sonnet` or `haiku` from any lane of a build order or of an answer order you marked
-`--complex`, so it runs on its definition's model. It refuses a build order's codex lane before its
-reader's research is kept; and a builder whose
-brief lacks `Serves:` or `Handoff:`, whose `Serves:` names none of the three, or whose Goal's own
-action backfills, bulk-repairs, migrates, converts or repairs, or runs such a pass, with no `Runs as:`
-line; a Goal that only names a PR, stack or check for a pass is not one; and a builder while eight run
-on this Mac, naming the builder jobs waiting, oldest due first. The `scratch_folder` hook refuses a
-build order's builder or designer whose brief lacks the
-`Researched:` line the `brief` op writes once its reader's research is kept, unless its job ships the
-order's `immediate fix` part. Each refusal names its
-fix: do it, never route around it. These hooks run in the long-running capt-hook pack, which sends
-each refusal to Jev first: one Jev finds the rule never meant lets the call through, and a merge,
-release or public-body refusal of `landing_guard` blocks outright.
+`--complex`, so it runs on its definition's model. It refuses a builder whose brief lacks `Serves:`
+or `Handoff:`, whose `Serves:` names none of the three, or whose Goal's own action backfills,
+bulk-repairs, migrates, converts or repairs, or runs such a pass, with no `Runs as:` line; a Goal
+that only names a PR, stack or check for a pass is not one; and a builder while eight run on this
+Mac, naming the builder jobs waiting, oldest due first. The `scratch_folder` hook refuses a build
+order's builder, designer or codex lane whose brief lacks the `Researched:` line the `brief` op
+writes once its reader's research is kept, unless its job ships the order's `immediate fix` part.
+Each refusal names its fix: do it, never route around it. These hooks run in the long-running
+capt-hook pack, which sends each refusal to Jev first: one Jev finds the rule never meant lets the
+call through, and a merge, release or public-body refusal of `landing_guard` blocks outright.
 
 The brief's `Drive:` line names the job, or, when it names none, the job `--agent` already recorded
 the agent on. The agent's first Bash, Read, Write or Edit call, or its stop, records the agent on that
@@ -234,7 +232,7 @@ Runs as: <only for a pass, migration, backfill, conversion or bulk repair over a
 Handoff: <a PR event or a built branch freed only: the PR URLs or the built branch, its head, the event line verbatim, and the INSTALL: and PROVE: lines the first builder returned>
 Decisions that bind: <each ruling the call's ruling field names, its answer's title and body word for word, and every other ruling of his on the whole area this touches, found with answer_search; "none named; search his answers on the area" when the call names none>
 Research: <a build order's reader only: the Researched: block this build needs>
-Researched: <a build order's builder or designer only: the reader job whose kept report holds the order's rulings, what exists and its open questions>
+Researched: <a build order's builder, designer or codex lane only: the reader job whose kept report holds the order's rulings, what exists and its open questions>
 Native: <where he sees or uses the result, such as a Slack post or card, the dashboard, a CLI he runs or a product UI, and what that platform already does for it, with links, such as Block Kit's chart and table blocks; "none" for work he never sees>
 Interactions: <when Native names his surface: each click or step he takes on the result, which the builder walks through and records; its order is proven done by that recording or the live post>
 Would he ask: <what he would still have to ask for if only his words were built, such as the next piece, a link, or a native piece passed over>

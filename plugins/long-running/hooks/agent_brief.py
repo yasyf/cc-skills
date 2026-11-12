@@ -25,23 +25,6 @@ RUNS_AS = re.compile(r"^Runs as:[ \t]*\S", re.MULTILINE)
 DATA_PASS_RULE = "A builder whose Goal itself runs a pass, migration, backfill or bulk repair over a team's data, rather than building a PR or check named for one."
 
 
-def job_refusal(name: str, data: dict, text: str) -> str | None:
-    """Why the job a brief's Drive line names may not start this agent: a codex lane on a build order waits on its reader's research like the builder, unless it ships the order's immediate fix."""
-    match = brief.BRIEF_JOB.search(text)
-    job = data["jobs"].get(match[1]) if match else None
-    if job is None:
-        return None
-    order_id = job["order"]
-    order = data["orders"][order_id]
-    if job["kind"] != "codex" or order["kind"] != "build" or order["incident"] or state.IMMEDIATE_FIX in job["parts"] or brief.HANDOFF.search(text) or brief.research(name, data, order_id):
-        return None
-    return (
-        f"refused: {match[1]} is a codex lane on {order_id}, a build order, which starts only once an Opus reader has kept"
-        f" {brief.BLOCK} in its report: drive job add reader --order {order_id} --goal \"research: <what>\", then this"
-        " lane on that research"
-    )
-
-
 def builder_refusal(text: str) -> str | None:
     """Why a builder's brief may not start it: it names no scope, its Serves line names none of the three, or its Goal's own action is a pass over a team's data, not a PR or check named for one, with no Runs as line."""
     if not SCOPED.search(text):
@@ -135,8 +118,6 @@ def deny_reason(payload: dict) -> str | None:
     text = brief.carried(prompt)
     if kind == BUILDER and role not in (None, state.tooling_holder(data)) and brief.SERVES_TOOLING.search(text):
         return tooling_refusal(names[0], data, text, role)
-    if refused := job_refusal(names[0], data, text):
-        return refused
     return builder_refusal(text) or crowded(data) if kind == BUILDER else None
 
 

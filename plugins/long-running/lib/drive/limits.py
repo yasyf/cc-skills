@@ -6,7 +6,7 @@ from pathlib import Path
 
 from drive import picture, slack
 from drive.render import cut, when
-from drive.state import KEPT_ASK, PR_KEY, PR_URL, DriveError, ask_hash, root, same_question
+from drive.state import KEPT_ASK, PR_KEY, PR_URL, TOOLING, DriveError, ask_hash, named_prs, root, same_question
 
 LINE_WORDS = 60
 SUMMARY_WORDS = 120
@@ -208,6 +208,7 @@ TERM = re.compile(
 )
 RETURN_WORDS = {"ASK", "DONE", "READY", "PUSHED", "BUILT", "WAITING", "BLOCKED", "DESIGN", "CHECK", "NATIVE", "URL"}
 PR_NUMBER = re.compile(r"#\d+\b")
+KIND_NAMED = re.compile(r"\bport of #\d+|\bhis order o\d+\b|\{order:o\d+[|}]|\bdrive tooling\b", re.IGNORECASE)
 OPTION_POINTER = re.compile(
     r"\b(?:(?:same\s+as|as\s+in|like|unlike|than|plus)\s+[#(]?[1-9]\b|options?\s+[#(]?[1-9]\b"
     r"|the\s+(?:first|second|third|fourth|last|other|previous)\s+(?:option|one|pick)\b)",
@@ -1098,6 +1099,24 @@ def tap_refusal(text: str, prs: dict[str, dict]) -> str | None:
         f"refused: this asks him to tap, approve or hold a PR the drive owes no tap on: {'; '.join(found)}. A tap is asked"
         " for only when owed: read drive status <pr> before a card or line names a tap, and say what happened to it instead."
     )
+
+
+def kind_refusal(text: str, said: str, data: dict) -> str | None:
+    """Why a summary, a post of two or more `*feature*` lines, names a PR the drive holds and never says what it serves, the first thing he asks of a PR: a port of #N, an order of his, as `{order:o<n>}` in a `say` post, or Drive tooling. `text` is the post as Slack gets it, each reference linked, and `said` the words written."""
+    if len(FEATURE.findall(text)) < 2 or KIND_NAMED.search(said) or not (named := named_prs(data, "", text)):
+        return None
+    kinds = "; ".join(f"{key} is {kind_words(data, data['prs'][key])}" for key in named)
+    return f"refused: this summary names a PR and never says what it serves, the first thing he asks of a PR; say it where each is named: {kinds}"
+
+
+def kind_words(data: dict, pr: dict) -> str:
+    """The words that say what a drive PR serves: port of #N, Drive tooling, or the order of his it carries out as `{order:o<n>}`, which `say` links under his words."""
+    if pr.get("port_of"):
+        return f"port of #{pr['port_of']}"
+    order = data["orders"].get(pr["order"])
+    if order and order["text"].startswith(TOOLING):
+        return f'"{TOOLING}" and what it unblocks'
+    return f"his order {{order:{pr['order']}}}"
 
 
 def link_refusal(post: dict, kinds: tuple[str, ...]) -> str | None:

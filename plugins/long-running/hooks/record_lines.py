@@ -2,7 +2,6 @@ import json
 import re
 import sys
 from collections.abc import Iterator
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
@@ -55,17 +54,8 @@ WAITS_ON_OTHER = re.compile(r"\bwait(?:s|ing)? on (?!(?:him|his|your|you|he)\b)\
 WAITED = re.compile(r"\b\d+ ?(?:s|secs?|seconds?|m|mins?|minutes?|h|hrs?|hours?|d|days?)\b|\bsince \d", re.IGNORECASE)
 RUNNING = re.compile(r"\b(?:running|queued|idle|stopped|started|starting|in progress|not started)\b", re.IGNORECASE)
 VAGUE_WAIT = "refused: a line that says something waits on X says how long it has waited and whether X is running, such as \"waits on CI, 40 min, run 123 running\"; add both"
-STUCK = re.compile(r"\b(j\d+)\b[^.;\n]*?\b(?:stuck|silent|stalled|hung)\b", re.IGNORECASE)
-READ_WINDOW = timedelta(minutes=10)
-TRANSCRIPT_READ = ("cc-transcript", ".jsonl")
-UNREAD_JOB = (
-    "refused: this report calls {jobs} stuck or silent, and your transcript shows no read of {its} transcript in the last 10"
-    " minutes; read it with `drive job replies <j>` or `cc-transcript`, then quote what it shows"
-)
-KIND_NAMED = re.compile(r"\bport of #\d+|\bhis order o\d+\b|\bdrive tooling\b", re.IGNORECASE)
 UNKINDED = "refused: a ready record says which kind its PRs are: `his order o<n>` before his quoted words, `Drive tooling: …`, or `port of #<n>`; add the one it is"
 LIMIT_ATTR = "max_words"
-TAIL_BYTES = 4 << 20
 
 
 def kind(record: dict) -> str:
@@ -94,7 +84,7 @@ def untapped(record: dict, prs: dict[str, dict]) -> str | None:
 
 def unkinded(record: dict) -> str | None:
     """Why a ready record does not say which kind of work its PRs are, the first thing he asks of a PR card."""
-    return UNKINDED if kind(record) == "ready" and not KIND_NAMED.search(record.get("text") or "") else None
+    return UNKINDED if kind(record) == "ready" and not limits.KIND_NAMED.search(record.get("text") or "") else None
 
 
 def completed(names: list[str], drive: dict, record: dict) -> dict:
@@ -105,7 +95,7 @@ def completed(names: list[str], drive: dict, record: dict) -> dict:
         filled |= settled.incident_marks(names, filled)
         return record if filled == named else record | {"attrs": filled}
     order = drive["orders"].get(named.get("order") or "")
-    if kind(record) != "ready" or order is None or KIND_NAMED.search(record.get("text") or ""):
+    if kind(record) != "ready" or order is None or limits.KIND_NAMED.search(record.get("text") or ""):
         return record
     words = order["text"] if order["text"].startswith(state.TOOLING) else f'his order {named["order"]} "{order["text"]}"'
     return record | {"text": f"{record['text']}; {words}"}
@@ -142,8 +132,7 @@ def report_refusals(payload: dict, drive: dict, role: str | None, records: list[
         yield agents.Ruled(UNPREVENTED.format(lines=" | ".join(lines)), UNPREVENTED_RULE)
     if thread and role in ("coordinator", "meta") and not payload.get("agent_id"):
         yield second_report(payload, records, index, thread)
-    if STUCK.search(text):
-        yield unread_job(payload, text)
+    yield agents.unread_job(payload, text)
 
 
 def unfinished(drive: dict, record: dict) -> str | None:
@@ -173,24 +162,6 @@ def off_thread(drive: dict, record: dict) -> str | None:
     return OFF_THREAD.format(orders=", ".join(orders), thread=thread, threads=", ".join(threads) or "none yet")
 
 
-def transcript_of(payload: dict) -> Path:
-    return agents.transcript(payload) if payload.get("agent_id") else Path(payload["transcript_path"])
-
-
-def tail(path: Path) -> list[dict]:
-    """The transcript's newest rows, as many as its last few megabytes hold."""
-    with path.open("rb") as handle:
-        start = max(0, handle.seek(0, 2) - TAIL_BYTES)
-        handle.seek(start)
-        lines = handle.read().split(b"\n")
-    return [json.loads(line) for line in lines[1 if start else 0 :] if line.strip()]
-
-
-def parts(row: dict) -> list[dict]:
-    content = (row.get("message") or {}).get("content")
-    return content if isinstance(content, list) else []
-
-
 def report_threads(tool_input: dict) -> set[str]:
     return {attrs(record).get("thread") for record in tool_input.get("records") or [tool_input] if kind(record) == "report" and addressed(record, "communicator")} - {None}
 
@@ -201,31 +172,15 @@ def second_report(payload: dict, records: list[dict], index: int, thread: str) -
         return agents.Ruled(SECOND_REPORT.format(thread=thread), SECOND_REPORT_RULE)
     sent: dict[str, set[str]] = {}
     posted: set[str] = set()
-    for row in tail(transcript_of(payload)):
+    for row in agents.tail(agents.transcript_of(payload)):
         if agents.ended(row):
             sent, posted = {}, set()
-        for part in parts(row):
+        for part in agents.parts(row):
             if part.get("type") == "tool_use" and part.get("name") == payload["tool_name"] and part.get("id") != payload.get("tool_use_id"):
                 sent[part["id"]] = report_threads(part.get("input") or {})
             elif part.get("type") == "tool_result" and part.get("tool_use_id") in sent and not part.get("is_error"):
                 posted.add(part["tool_use_id"])
     return agents.Ruled(SECOND_REPORT.format(thread=thread), SECOND_REPORT_RULE) if any(thread in sent[call] for call in posted) else None
-
-
-def unread_job(payload: dict, text: str) -> str | None:
-    """Why a report calling a job stuck or silent waits for a read of its transcript: the poster's own calls in the last 10 minutes show none."""
-    since = datetime.now(UTC) - READ_WINDOW
-    calls = " ".join(
-        json.dumps(part.get("input"))
-        for row in tail(transcript_of(payload))
-        if row.get("timestamp") and datetime.fromisoformat(row["timestamp"]) > since
-        for part in parts(row)
-        if part.get("type") == "tool_use"
-    )
-    jobs = [job for job in dict.fromkeys(STUCK.findall(text)) if f"replies {job}" not in calls and not any(read in calls for read in TRANSCRIPT_READ)]
-    if not jobs:
-        return None
-    return UNREAD_JOB.format(jobs=", ".join(jobs), its="their" if len(jobs) > 1 else "its")
 
 
 def refusals(payload: dict, names: list[str], records: list[dict]) -> Iterator[str | None]:

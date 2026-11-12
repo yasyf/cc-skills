@@ -2246,7 +2246,7 @@ def test_a_build_orders_designer_and_builder_are_added_waiting_on_its_reader_sti
     assert [(jobs[job_id]["state"], jobs[job_id]["waits"], jobs[job_id]["agent"]) for job_id in ("j2", "j3")] == [("waiting", ["j1"], None)] * 2
     refusals = {
         "--waits j2: names no reader of o1 still at work; wait on j1": ["builder", "--part", "control freak", "--waits", "j2"],
-        "only a build order's designer or builder is added waiting": ["reader", "--part", "answer", "--waits", "j1"],
+        "only a build order's designer, builder or codex lane is added waiting": ["reader", "--part", "answer", "--waits", "j1"],
         "--waits records a job whose agent starts on the watch's FREE line": ["builder", "--part", "control freak", "--waits", "j1", "--agent", "a"],
     }
     for refusal, words in refusals.items():
