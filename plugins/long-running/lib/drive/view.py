@@ -8,8 +8,10 @@
   known), `due`, `url` (where he acts), `links`, and for a question or a tap with a Slack card, `card` (the whole card
   cc-slack draws), `answer` (the card's permalink, which takes his answer from any surface) and `thread` (the Slack
   thread the card sits in, or starts). A question also has `holds`: how many green approved open PRs and built jobs
-  wait on it, alone or beside other cards of his, `blocks`: the title of each feature it holds up, and `built`: each
-  job built on its recommended option that waits on it, with its `job` and `branch`; those questions come first.
+  wait on it, alone or beside other cards of his, `blocks`: each feature it holds up, with its `id` and `title`,
+  `recommended`: the option its card recommends, or null, and `built`: each job built on its recommended option that
+  waits on it, with its `job` and `branch`; those questions come first. A tap also has `pr`, its PR's link, and that
+  PR's `checks`.
 - `status`: the drive's features (its open orders, and orders done in the last day) in groups by state:
   `blocked`, `running`, `built`, `waiting`, `merged`, `live`, `not started`. Each feature has `title`, `state`,
   `now` (its latest job line), `due`, `late`, `proof`, `updated`, `url`, `prs`, each PR with `title`, `url`,
@@ -374,6 +376,7 @@ def question_item(drive: dict, card: dict, features: list[dict], waiting: list[d
         "built": [{"job": entry["job"], "branch": entry["branch"]} for entry in waiting if entry["card"]["url"] == card["url"]],
         "title": card["question"],
         "detail": pick,
+        "recommended": card.get("recommended") or None,
         "since": card["asked"],
         "due": None,
         "url": card["url"],
@@ -417,11 +420,13 @@ def rail(drive: dict, item: dict, reports: set[str]) -> dict:
 
 def tap_item(pr: dict, card: dict | None) -> dict:
     if not card:
-        return {"kind": "tap", "title": pr_title(pr), "detail": f"{tap_detail(pr)}; no Slack card yet", "since": None, "due": None, "url": pr["url"], "links": []}
+        return {"kind": "tap", "title": pr_title(pr), "detail": f"{tap_detail(pr)}; no Slack card yet", "since": None, "due": None, "url": pr["url"], "links": [], "pr": pr["url"], "checks": pr["checks"]}
     return {
         "kind": "tap",
         "title": pr_title(pr),
         "detail": tap_detail(pr),
+        "pr": pr["url"],
+        "checks": pr["checks"],
         "since": card["asked"],
         "due": None,
         "url": card["url"],

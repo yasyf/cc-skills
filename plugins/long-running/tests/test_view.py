@@ -1,5 +1,6 @@
 import json
 import subprocess
+from collections import Counter
 from datetime import timedelta
 
 import pytest
@@ -172,8 +173,9 @@ def test_a_built_job_shows_its_branch_and_the_cards_it_waits_on_in_status_and_on
     [entry] = next(group["features"] for group in model["status"] if group["state"] == "built")
     assert entry["built"] == [{"job": "j1", "branch": "lane/built", "waits": [{"title": "Which layout?", "url": asked["url"]}]}]
     markdown = page.render(model, DASHBOARD)
-    assert "## Built, waiting on your design answers (1)" in markdown
-    assert f"built on `lane/built`, no PR yet · waits on your answer to [Which layout?]({asked['url']}), asked {when(asked['asked'])}" in markdown
+    assert "## 🟣 Built, waiting on your pick (1)" in markdown
+    assert f"| 🟣 [Which layout?]({asked['url']}) | 1 finished; rank the cards |" in markdown
+    assert f"BUILT lane/built<br>🟣 built on `lane/built`, no PR yet<br>❓ waits on [Which layout?]({asked['url']})" in markdown
 
 
 def test_each_feature_names_the_open_cards_of_his_that_block_it_and_each_card_the_features_it_blocks() -> None:
@@ -202,8 +204,8 @@ def test_each_feature_names_the_open_cards_of_his_that_block_it_and_each_card_th
         "Release now?": [],
     }
     markdown = page.render(model, DASHBOARD)
-    assert f"waits on your answer to [Which layout?]({layout['url']}), asked {when(layout['asked'])}; [Rename it?]({rename['url']})" in markdown
-    assert "· blocks rank the cards; ship the page ·" in markdown
+    assert f"❓ waits on [Which layout?]({layout['url']})<br>❓ waits on [Rename it?]({rename['url']})" in markdown
+    assert "finished; rank the cards; ship the page |" in markdown
 
 
 def test_a_question_cards_rail_names_the_job_that_asked_it_what_it_holds_up_and_his_answers_matched_to_it_newest_first() -> None:
@@ -251,11 +253,9 @@ def test_his_question_cards_come_most_finished_work_held_up_first_and_a_pr_waiti
     model = view.build(data, found(questions), T0)
     assert [(item["title"], item["holds"]) for item in model["queue"]] == [("Busy one?", 3), ("Old one?", 1), ("Idle one?", 0)]
     markdown = page.render(model, DASHBOARD)
-    assert (
-        "1. **Built, paused on your pick:** [Busy one?](https://acme.slack.com/archives/D123/p-10)"
-        " · holds up 3 finished · blocks rank the cards · since"
-    ) in markdown
-    assert "3. **Question:** [Idle one?](https://acme.slack.com/archives/D123/p-20) · since" in markdown
+    assert "| 🟣 [Busy one?](https://acme.slack.com/archives/D123/p-10) | 3 finished; rank the cards |" in markdown
+    assert "| [Idle one?](https://acme.slack.com/archives/D123/p-20) | — |" in markdown
+    assert markdown.index("[Busy one?]") < markdown.index("[Old one?]") < markdown.index("[Idle one?]")
 
 
 def test_a_card_holding_a_built_job_leads_the_queue_however_much_else_another_card_holds() -> None:
@@ -272,11 +272,12 @@ def test_a_card_holding_a_built_job_leads_the_queue_however_much_else_another_ca
     ]
     assert [(entry["wait"], entry["job"], entry["order"]) for entry in view.waiting_on_him(data, found(questions))] == [("demo:j1-7-a", "j1", "o1")]
     markdown = page.render(model, DASHBOARD)
-    assert "1. **Built, paused on your pick:** [Built one?](https://acme.slack.com/archives/D123/p-30) · holds up 1 finished" in markdown
-    assert "2. **Question:** [Busy one?](https://acme.slack.com/archives/D123/p-10) · holds up 2 finished" in markdown
+    assert "| 🟣 [Built one?](https://acme.slack.com/archives/D123/p-30) | 1 finished; rank the cards |" in markdown
+    assert "| [Busy one?](https://acme.slack.com/archives/D123/p-10) | 2 finished; rank the cards |" in markdown
+    assert markdown.index("[Built one?]") < markdown.index("[Busy one?]")
 
 
-def test_a_small_drive_draws_whole_queue_first_then_one_line_per_feature_and_the_dashboard_last() -> None:
+def test_a_small_drive_draws_its_counts_then_a_table_for_each_part_that_has_rows() -> None:
     data = drive_of(
         {
             "o1": order("ship the page", ["j1"]),
@@ -286,23 +287,64 @@ def test_a_small_drive_draws_whole_queue_first_then_one_line_per_feature_and_the
         {"j1": job("o1", "running", "drawing it"), "j2": job("o2", "waiting", "CI runs")},
         [pr(1, "o1", wants_tap=True), pr(2, "o2", state="merged"), pr(3, "o2", checks="fail", wants_tap=False)],
     )
-    markdown = page.render(view.build(data, found([question("Release now?", -20)]), T0), DASHBOARD)
-    head, _, rest = markdown.partition("## Running (1)")
-    assert "## Waiting on you" in head
-    assert "1. **Question:** [Release now?]" in head
-    assert "2. **Your tap:** [change 1](https://github.com/yasyf/cc-skills/pull/1)" in head
-    assert "- [ship the page](https://acme.slack.com/archives/D123/p1794200000000100) · drawing it · :large_green_circle: [#1](https://github.com/yasyf/cc-skills/pull/1)" in rest
-    assert "## Blocked (1)" in head
-    assert "· CI runs · :red_circle: [#3](https://github.com/yasyf/cc-skills/pull/3) 1 merged" in head
-    assert "## Finished (1 live in the last day)" in rest
-    assert "- [shipped](https://acme.slack.com/archives/D123/p1794200000000100) · live · installed 1.0.12" in rest
-    assert "Left out" not in markdown
-    assert markdown.endswith(f"The [dashboard]({DASHBOARD}) has everything else.\n")
+    model = view.build(data, found([question("Release now?", -20)]), T0)
+    markdown = page.render(model, DASHBOARD)
+    thread = "https://acme.slack.com/archives/D123/p1794200000000100"
+    first = "[#1](https://github.com/yasyf/cc-skills/pull/1)"
+    assert markdown.startswith(f"Updated {when(model['at'])} · [open the dashboard]({DASHBOARD})\n\n| 🙋 Needs you | 🔴 Blocked | 🔵 Running |")
+    assert "| **2** | **1** | **1** | **0** | **0** | **0** | **0** | **1** |" in markdown
+    assert [line for line in markdown.splitlines() if line.startswith("## ")] == [
+        "## ❓ Your questions (1)",
+        "## 👆 PRs waiting on your tap (1)",
+        "## 📊 Every project at a glance",
+        "## 🔴 Blocked (1)",
+        "## 🔵 Running (1)",
+        "## ✅ Finished (1)",
+    ]
+    assert f"| [Release now?](https://acme.slack.com/archives/D123/p-20) | — | {when(at(-20))} | Yes |" in markdown
+    assert f"| [change 1](https://github.com/yasyf/cc-skills/pull/1) · {first} | 🟢 green, approved; no Slack card yet | — |" in markdown
+    assert "| **No project** | 1 | 1 | · | · | · | · | 1 |" in markdown
+    assert f"| [wait for CI]({thread}) | — | CI runs | 🔴 [#3](https://github.com/yasyf/cc-skills/pull/3) 1 merged |" in markdown
+    assert f"| [ship the page]({thread}) | — | drawing it | 🟢 {first} |" in markdown
+    assert f"| [shipped]({thread}) | ✅ live | installed 1.0.12 | {when(at(-5))} |" in markdown
+    assert "more on the" not in markdown
 
 
-def test_page_says_when_nothing_waits_on_him() -> None:
-    data = drive_of({}, {}, [])
-    assert "Nothing waits on you." in page.render(view.build(data, found(), T0), DASHBOARD)
+def test_an_empty_drive_draws_only_its_counts() -> None:
+    model = view.build(drive_of({}, {}, []), found(), T0)
+    assert page.render(model, DASHBOARD).splitlines()[1:] == [
+        "",
+        "| 🙋 Needs you | 🔴 Blocked | 🔵 Running | 🟣 Built, waiting on your pick | ⏳ Waiting | ⚪ Not started | 🟢 Merged, not live yet | ✅ Live in the last day |",
+        "|---|---|---|---|---|---|---|---|",
+        "| **0** | **0** | **0** | **0** | **0** | **0** | **0** | **0** |",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("said", "drawn"),
+    [
+        (
+            "READY https://github.com/yasyf/cc-skills/pull/12 https://github.com/yasyf/cc-skills/pull/13",
+            "READY [#12](https://github.com/yasyf/cc-skills/pull/12) [#13](https://github.com/yasyf/cc-skills/pull/13)",
+        ),
+        ("its build https://buildkite.com/forge/release/builds/9.", "its build [buildkite](https://buildkite.com/forge/release/builds/9)."),
+        ("cut at https://buildkite.com/fo…", "cut at …"),
+        ("kept [#5](https://github.com/yasyf/cc-skills/pull/5) as is", "kept [#5](https://github.com/yasyf/cc-skills/pull/5) as is"),
+        ("one | two\nthree", "one / two three"),
+    ],
+)
+def test_a_cell_links_each_bare_url_by_a_short_name_and_keeps_to_one_line(said: str, drawn: str) -> None:
+    assert page.cell(said) == drawn
+
+
+def test_a_feature_names_its_first_four_open_prs_and_counts_the_rest() -> None:
+    prs = [{"url": f"https://github.com/yasyf/cc-skills/pull/{n}", "state": "open", "checks": "pass", "tap": None} for n in range(1, 7)]
+    prs[1] |= {"checks": "fail", "tap": "Hold"}
+    prs.append({"url": "https://github.com/yasyf/cc-skills/pull/7", "state": "merged", "checks": "pass", "tap": None})
+    assert page.pr_marks(prs) == (
+        "🟢 [#1](https://github.com/yasyf/cc-skills/pull/1) 🔴 [#2](https://github.com/yasyf/cc-skills/pull/2) held by you"
+        " 🟢 [#3](https://github.com/yasyf/cc-skills/pull/3) 🟢 [#4](https://github.com/yasyf/cc-skills/pull/4) 2 more open 1 merged"
+    )
 
 
 def big_drive(orders: int, jobs: int, questions: int, taps: int, late: int) -> tuple[dict, dict]:
@@ -332,41 +374,28 @@ def big_drive(orders: int, jobs: int, questions: int, taps: int, late: int) -> t
     return drive_of(drive_orders, drive_jobs, prs), found(asked)
 
 
-def test_a_drive_of_500_orders_and_1000_jobs_fits_and_still_shows_everything_that_waits_on_him() -> None:
-    data, cards = big_drive(orders=500, jobs=1000, questions=60, taps=30, late=15)
-    model = view.build(data, cards, T0)
-    markdown = page.render(model, DASHBOARD)
-    assert page.size(markdown) <= page.PAGE_BYTES
-    assert len(model["queue"]) == 100
-    assert all(page.queue_line(number, item) in markdown for number, item in enumerate(model["queue"], 1))
-    assert "more waiting on you" not in markdown
-    assert "Left out to fit Slack's canvas limit: " in markdown
-    assert markdown.endswith(f"The [dashboard]({DASHBOARD}) has everything else.\n")
-
-
-def test_a_queue_too_long_for_the_page_names_how_many_more_wait_on_him() -> None:
+def test_a_big_drive_draws_every_section_at_most_eight_rows_and_counts_the_rest_on_the_dashboard() -> None:
     data, cards = big_drive(orders=500, jobs=1000, questions=400, taps=30, late=15)
     model = view.build(data, cards, T0)
+    tables = page.layout(model, DASHBOARD)
     markdown = page.render(model, DASHBOARD)
-    lines = [page.queue_line(number, item) for number, item in enumerate(model["queue"], 1)]
-    shown = sum(line in markdown for line in lines)
-    assert page.size(markdown) <= page.PAGE_BYTES
-    assert f"Left out to fit Slack's canvas limit: {len(lines) - shown} more waiting on you, " in markdown
-    assert all(line in markdown for line in lines[:shown])
-    assert "## Blocked" not in markdown
-
-
-def test_a_page_over_the_limit_leaves_out_its_lowest_priority_section_first(monkeypatch: pytest.MonkeyPatch) -> None:
-    data, cards = big_drive(orders=20, jobs=40, questions=2, taps=1, late=1)
-    model = view.build(data, cards, T0)
-    whole = page.render(model, DASHBOARD)
-    assert "## Finished (" in whole
-    monkeypatch.setattr(page, "PAGE_BYTES", page.size(whole) - 1)
-    markdown = page.render(model, DASHBOARD)
-    finished = model["counts"]["merged"] + model["counts"]["live"]
-    assert "## Finished (" not in markdown
-    assert all(f"## {page.GROUP_TITLES[name]} (" in markdown for name in page.OPEN_STATES if model["counts"][name])
-    assert f"Left out to fit Slack's canvas limit: {finished} finished." in markdown
+    counts, kinds = model["counts"], Counter(item["kind"] for item in model["queue"])
+    assert kinds == Counter(question=400, tap=30, late=11)
+    assert [table.heading for table in tables] == [
+        "",
+        "❓ Your questions (400)",
+        "👆 PRs waiting on your tap (30)",
+        "⏰ Promised times that passed (11)",
+        "📊 Every project at a glance",
+        *(f"{page.STATE_MARKS[name]} {page.STATE_TITLES[name]} ({counts[name]})" for name in page.OPEN_STATES if counts[name]),
+        f"✅ Finished ({counts['merged'] + counts['live']})",
+    ]
+    assert all(len(table.rows) == min(page.ROWS, table.total) for table in tables)
+    assert all((len(table.rows) + 1) * len(table.columns) <= 300 for table in tables)
+    assert all(f"*{table.total - page.ROWS} more on the [dashboard]({table.rest})*" in markdown for table in tables if table.total > page.ROWS)
+    questions = [item for item in model["queue"] if item["kind"] == "question"]
+    assert all(page.link(item["title"], item["url"]) in markdown for item in questions[: page.ROWS])
+    assert page.link(questions[page.ROWS]["title"], questions[page.ROWS]["url"]) not in markdown
 
 
 def test_watch_redraws_the_page_only_when_the_model_changes(demo: str, drawn: list[str], monkeypatch: pytest.MonkeyPatch) -> None:

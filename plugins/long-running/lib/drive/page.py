@@ -1,31 +1,35 @@
 import json
 import re
 import subprocess
-from itertools import accumulate, takewhile
+from collections import Counter
+from collections.abc import Callable
 from typing import NamedTuple
+from urllib.parse import urlparse
 
 from drive import slack, state
 from drive.render import cut, when
 
-PAGE_BYTES = 40_000
-GROUP_TITLES = {
+ROWS = 8
+STATE_MARKS = {"blocked": "🔴", "running": "🔵", "built": "🟣", "waiting": "⏳", "not started": "⚪", "merged": "🟢", "live": "✅"}
+STATE_TITLES = {
     "blocked": "Blocked",
     "running": "Running",
-    "built": "Built, waiting on your design answers",
+    "built": "Built, waiting on your pick",
     "waiting": "Waiting",
+    "not started": "Not started",
     "merged": "Merged, not live yet",
     "live": "Live in the last day",
-    "not started": "Not started",
 }
 OPEN_STATES = ("blocked", "running", "built", "waiting", "not started")
 FINISHED_STATES = ("merged", "live")
-FINISHED_NAMED = 5
-KIND_WORDS = {"question": "Question", "tap": "Your tap", "late": "Late"}
-BUILT_WORDS = "Built, paused on your pick"
-CHECK_MARKS = {"pass": ":large_green_circle:", "fail": ":red_circle:", "pending": ":large_yellow_circle:"}
-TITLE_CHARS = 100
-DETAIL_CHARS = 100
-NOW_CHARS = 100
+CHECK_MARKS = {"pass": "🟢", "fail": "🔴", "pending": "🟡"}
+HELD = {"Hold": " held by you", "labeled": " held by its hold label"}
+PRS_SHOWN = 4
+TITLE_CHARS = 80
+CELL_CHARS = 90
+NAME_CHARS = 40
+PULL = re.compile(r"https://github\.com/[\w.-]+/[\w.-]+/pull/(\d+)")
+BARE_URL = re.compile(r"(?<!\]\()https?://[^\s)>|]*[^\s)>|.,;:!?]")
 REFUSAL = re.compile(r"can't post here \((\w+)\)")
 
 
@@ -38,115 +42,134 @@ class Drawn(NamedTuple):
     new_tab: bool
 
 
-class Section(NamedTuple):
-    named: str
-    lines: list[str]
+class Table(NamedTuple):
+    heading: str
+    columns: tuple[str, ...]
+    rows: list[tuple[str, ...]]
+    total: int
+    rest: str
 
 
-def size(text: str) -> int:
-    return len(text.encode())
+def url_label(url: str) -> str:
+    pull = PULL.fullmatch(url)
+    return f"#{pull[1]}" if pull else urlparse(url).hostname.split(".")[-2:][0]
 
 
-def link(title: str, url: str | None) -> str:
-    text = cut(title, TITLE_CHARS).replace("[", "(").replace("]", ")")
+def short_link(found: re.Match) -> str:
+    return "…" if found[0].endswith("…") else f"[{url_label(found[0])}]({found[0]})"
+
+
+def cell(text: str, limit: int = CELL_CHARS) -> str:
+    flat = " ".join(text.split()).replace("|", "/")
+    shown = BARE_URL.sub(lambda found: url_label(found[0]), flat)
+    return BARE_URL.sub(short_link, flat if len(shown) <= limit else cut(flat, limit))
+
+
+def link(title: str, url: str | None, limit: int = TITLE_CHARS) -> str:
+    text = cut(title, limit).replace("|", "/").replace("[", "(").replace("]", ")")
     return f"[{text}]({url})" if url else text
 
 
-def queue_line(number: int, item: dict) -> str:
-    kind = BUILT_WORDS if item.get("built") else KIND_WORDS[item["kind"]]
-    parts = [f"**{kind}:** {link(item['title'], item['url'])}"]
-    if item.get("holds"):
-        parts.append(f"holds up {item['holds']} finished")
-    if item.get("blocks"):
-        parts.append(f"blocks {'; '.join(cut(entry['title'], TITLE_CHARS) for entry in item['blocks'])}")
-    if item["kind"] == "late":
-        parts.append(f"promised {when(item['due'])}")
-    elif item["since"]:
-        parts.append(f"since {when(item['since'])}")
-    if item["detail"]:
-        parts.append(cut(item["detail"], DETAIL_CHARS))
-    parts.extend(link(extra["label"], extra["url"]) for extra in item["links"])
-    return f"{number}. " + " · ".join(parts)
-
-
-def pr_mark(pr: dict) -> str:
-    mark = CHECK_MARKS.get(pr["checks"], ":white_circle:")
-    held = {"Hold": " held by you", "labeled": " held by its hold label"}.get(pr["tap"], "")
-    return f"{mark} [#{pr['url'].rsplit('/', 1)[-1]}]({pr['url']}){held}"
+def pr_number(url: str) -> str:
+    return f"[#{url.rsplit('/', 1)[-1]}]({url})"
 
 
 def pr_marks(prs: list[dict]) -> str:
-    settled = [f"{count} {word}" for word in ("merged", "closed") if (count := sum(pr["state"] == word for pr in prs))]
-    return " ".join([*(pr_mark(pr) for pr in prs if pr["state"] == "open"), *settled])
+    marks = [f"{CHECK_MARKS.get(pr['checks'], '⚪')} {pr_number(pr['url'])}{HELD.get(pr['tap'], '')}" for pr in prs if pr["state"] == "open"]
+    counted = [("more open", len(marks) - PRS_SHOWN), *((word, sum(pr["state"] == word for pr in prs)) for word in ("merged", "closed"))]
+    return " ".join([*marks[:PRS_SHOWN], *(f"{count} {word}" for word, count in counted if count > 0)]) or "—"
 
 
-def feature_line(entry: dict) -> str:
-    parts = [link(entry["title"], entry["url"])]
-    if entry["due"]:
-        parts.append(f"{'late, was due' if entry['late'] else 'due'} {when(entry['due'])}")
-    if entry["now"]:
-        parts.append(cut(entry["now"], NOW_CHARS))
-    if marks := pr_marks(entry["prs"]):
-        parts.append(marks)
-    parts.extend(map(built_line, entry["built"]))
-    if entry["cards"]:
-        parts.append("waits on your answer to " + "; ".join(f"{link(card['title'], card['url'])}, asked {when(card['asked'])}" for card in entry["cards"]))
-    return "- " + " · ".join(parts)
+def question_row(item: dict) -> tuple[str, ...]:
+    holds = [f"{item['holds']} finished" if item["holds"] else "", *(cut(entry["title"], NAME_CHARS) for entry in item["blocks"])]
+    return (
+        ("🟣 " if item["built"] else "") + link(item["title"], item["url"]),
+        cell("; ".join(filter(None, holds))) or "—",
+        when(item["since"]),
+        cell(item["recommended"] or f"Options: {item['detail']}"),
+    )
 
 
-def built_line(built: dict) -> str:
-    return f"built on `{built['branch']}`, {'no PR yet' if built['waits'] else 'its PR opens next'}"
+def tap_row(item: dict) -> tuple[str, ...]:
+    return (
+        f"{link(item['title'], item['url'])} · {pr_number(item['pr'])}",
+        f"{CHECK_MARKS.get(item['checks'], '⚪')} {cell(item['detail'])}",
+        when(item["since"]) if item["since"] else "—",
+    )
 
 
-def finished_line(entry: dict) -> str:
-    parts = [link(entry["title"], entry["url"]), entry["state"]]
-    if entry["now"]:
-        parts.append(cut(entry["now"], NOW_CHARS))
-    return "- " + " · ".join(parts)
+def late_row(item: dict) -> tuple[str, ...]:
+    return (link(item["title"], item["url"]), when(item["due"]), cell(item["detail"]) or "—")
 
 
-def feature_section(group: dict) -> Section:
-    title = GROUP_TITLES[group["state"]]
-    count = len(group["features"])
-    return Section(f"{count} {title.lower()}", ["", f"## {title} ({count})", "", *map(feature_line, group["features"])])
+def built_words(built: dict) -> str:
+    return f"🟣 built on `{built['branch']}`, {'no PR yet' if built['waits'] else 'its PR opens next'}"
 
 
-def finished_section(groups: list[dict]) -> Section:
-    features = sorted((entry for group in groups for entry in group["features"]), key=lambda entry: state.parse_time(entry["updated"]), reverse=True)
-    counts = " · ".join(f"{len(group['features'])} {GROUP_TITLES[group['state']].lower()}" for group in groups)
-    return Section(f"{len(features)} finished", ["", f"## Finished ({counts})", "", *map(finished_line, features[:FINISHED_NAMED])])
+def feature_row(entry: dict) -> tuple[str, ...]:
+    due = f"<br>⏰ {'late, was due' if entry['late'] else 'due'} {when(entry['due'])}" if entry["due"] else ""
+    cards = (f"❓ waits on {link(card['title'], card['url'], NAME_CHARS)}" for card in entry["cards"])
+    now = [cell(entry["now"]), *map(built_words, entry["built"]), *cards]
+    return (link(entry["title"], entry["url"]) + due, cell(entry["project"] or "—", NAME_CHARS), "<br>".join(filter(None, now)) or "—", pr_marks(entry["prs"]))
 
 
-def compose(top: list[str], sections: list[Section], left: list[str], dashboard: str) -> str:
-    lines = [*top, *(line for section in sections for line in section.lines), ""]
-    if left:
-        lines.append(f"Left out to fit Slack's canvas limit: {', '.join(left)}.")
-    lines.append(f"The [dashboard]({dashboard}) has everything else.")
-    return "\n".join(lines) + "\n"
+def finished_row(entry: dict) -> tuple[str, ...]:
+    return (link(entry["title"], entry["url"]), f"{STATE_MARKS[entry['state']]} {entry['state']}", cell(entry["now"]) or "—", when(entry["updated"]))
+
+
+def counts_table(counts: dict) -> Table:
+    names = (*OPEN_STATES, *FINISHED_STATES)
+    columns = ("🙋 Needs you", *(f"{STATE_MARKS[name]} {STATE_TITLES[name]}" for name in names))
+    return Table("", columns, [(f"**{counts['queue']}**", *(f"**{counts[name]}**" for name in names))], 1, "")
+
+
+def projects_table(groups: dict, dashboard: str) -> Table:
+    names = (*OPEN_STATES, *FINISHED_STATES)
+    counts = Counter((entry["project"] or "No project", name) for name in names for entry in groups[name])
+    projects = sorted(
+        {project for project, _ in counts},
+        key=lambda project: (-sum(counts[project, name] for name in OPEN_STATES), -sum(counts[project, name] for name in names), project),
+    )
+    rows = [(f"**{cell(project, NAME_CHARS)}**", *(str(counts[project, name] or "·") for name in names)) for project in projects]
+    return Table("📊 Every project at a glance", ("Project", *(STATE_MARKS[name] for name in names)), rows[:ROWS], len(rows), f"{dashboard}#/now")
+
+
+def table_of(heading: str, columns: tuple[str, ...], row: Callable[[dict], tuple[str, ...]], items: list[dict], rest: str) -> Table:
+    return Table(f"{heading} ({len(items)})", columns, [row(item) for item in items[:ROWS]], len(items), rest)
+
+
+def layout(model: dict, dashboard: str) -> list[Table]:
+    """The status page as typed rows: a strip counting what waits on him and each state, then a table for each part of his queue, every project's count by state, each open state's features and finished work, each at most `ROWS` rows with its total, so `rest` on the dashboard holds the others. A table with no rows is left out."""
+    groups = {group["state"]: group["features"] for group in model["status"]}
+    queue = {kind: [item for item in model["queue"] if item["kind"] == kind] for kind in ("question", "tap", "late")}
+    finished = sorted((entry for name in FINISHED_STATES for entry in groups[name]), key=lambda entry: state.parse_time(entry["updated"]), reverse=True)
+    tables = [
+        counts_table(model["counts"]),
+        table_of("❓ Your questions", ("Question", "Holds up", "Asked", "Recommended"), question_row, queue["question"], f"{dashboard}#/queue/question"),
+        table_of("👆 PRs waiting on your tap", ("Pull request", "Checks", "Card since"), tap_row, queue["tap"], f"{dashboard}#/queue/tap"),
+        table_of("⏰ Promised times that passed", ("Order", "Promised", "Now"), late_row, queue["late"], f"{dashboard}#/queue/all"),
+        projects_table(groups, dashboard),
+        *(table_of(f"{STATE_MARKS[name]} {STATE_TITLES[name]}", ("Feature", "Project", "Now", "PRs"), feature_row, groups[name], f"{dashboard}#/now") for name in OPEN_STATES),
+        table_of("✅ Finished", ("Feature", "State", "Now", "When"), finished_row, finished, f"{dashboard}#/history"),
+    ]
+    return [table for table in tables if table.rows]
+
+
+def table_lines(table: Table) -> list[str]:
+    head = [f"## {table.heading}", ""] if table.heading else []
+    rows = ["| " + " | ".join(row) + " |" for row in [table.columns, *table.rows]]
+    more = ["", f"*{table.total - len(table.rows)} more on the [dashboard]({table.rest})*"] if table.total > len(table.rows) else []
+    return ["", *head, rows[0], "|" + "---|" * len(table.columns), *rows[1:], *more]
 
 
 def render(model: dict, dashboard: str) -> str:
-    """The Slack status page of a drive's model, never over `PAGE_BYTES`: what waits on him in full and first, each open feature as one line by state, finished work as counts with the newest named, then the dashboard link. A page that would not fit leaves out its lowest-priority section first, finished work then each open state from the bottom, and only then the last items of his queue, naming what it left out in one line."""
-    counts = model["counts"]
-    summary = " · ".join(
-        [f"{counts['queue']} waiting on you"] + [f"{counts[name]} {GROUP_TITLES[name].lower()}" for name in GROUP_TITLES if counts[name]]
-    )
-    head = [f"Updated {when(model['at'])} · {summary}", "", "## Waiting on you", ""]
-    queue = [queue_line(number, item) for number, item in enumerate(model["queue"], 1)] or ["Nothing waits on you."]
-    note = ["", f"Your Slack questions are not listed here: cc-slack {cut(model['cards'], DETAIL_CHARS)}"] if model.get("cards", "live") != "live" else []
-    groups = {group["state"]: group for group in model["status"]}
-    sections = [feature_section(groups[name]) for name in OPEN_STATES if groups[name]["features"]]
-    if finished := [groups[name] for name in FINISHED_STATES if groups[name]["features"]]:
-        sections.append(finished_section(finished))
-    left: list[str] = []
-    while sections and size(compose([*head, *queue, *note], sections, left, dashboard)) > PAGE_BYTES:
-        left.insert(0, sections.pop().named)
-    drawn = compose([*head, *queue, *note], sections, left, dashboard)
-    if size(drawn) <= PAGE_BYTES:
-        return drawn
-    room = PAGE_BYTES - size(compose([*head, *note], [], [f"{len(queue)} more waiting on you", *left], dashboard))
-    shown = len(list(takewhile(lambda total: total <= room, accumulate(size(line) + 1 for line in queue))))
-    return compose([*head, *queue[:shown], *note], [], [f"{len(queue) - shown} more waiting on you", *left], dashboard)
+    """The Slack status page of a drive's model, which `drive view` prints too: its `layout` drawn as native markdown tables under an Updated line linking the dashboard."""
+    lines = [f"Updated {when(model['at'])} · [open the dashboard]({dashboard})"]
+    if model.get("cards", "live") != "live":
+        lines += ["", f"Your Slack questions are not listed here: cc-slack {cut(model['cards'], CELL_CHARS)}"]
+    for table in layout(model, dashboard):
+        lines += table_lines(table)
+    return "\n".join(lines) + "\n"
 
 
 def draw(name: str, markdown: str) -> Drawn:
