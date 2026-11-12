@@ -125,7 +125,7 @@ def pr_changes(pr: dict, read: dict) -> list[str]:
         changes.append(f"new head {fresh['head'][:7]}")
     if fresh["checks"] != pr["checks"] and fresh["checks"] in ("pass", "fail"):
         changes.append("checks passed" if fresh["checks"] == "pass" else "checks failed")
-    if fresh["review"] != pr["review"] and fresh["review"] != "none":
+    if fresh["review"] != pr["review"] and fresh["review"] in ("approved", "changes"):
         changes.append("approved" if fresh["review"] == "approved" else "changes requested")
     if fresh.get("conflict") and not pr["conflict"]:
         changes.append("conflicts with its base")

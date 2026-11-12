@@ -317,6 +317,7 @@ def load(name: str) -> dict:
         pr.setdefault("ready_said", None)
         pr.setdefault("lander", None)
         pr.setdefault("ejected", False)
+        pr.setdefault("review_asked", None)
         if (verdict := pr.pop("verdict", None)) and verdict.get("answer") and not verdict["ready"]:
             pr["rework"] = verdict
         if (rework := pr.get("rework")) and "answer" in rework:
@@ -1056,6 +1057,7 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "waits": [],
         "lander": None,
         "ejected": False,
+        "review_asked": None,
         "rework": None,
         "updated": stamp(),
     }

@@ -144,9 +144,9 @@ def owned(job: dict, cards: dict | None) -> bool:
     return job["state"] == "running" or bool(open_cards(job, cards))
 
 
-def unblocked(pr: dict, data: dict, cards: dict | None) -> bool:
-    """Whether a PR is open, green and approved, not held, with nothing it waits on holding it."""
-    green = pr["state"] == "open" and pr["checks"] == "pass" and pr["review"] == "approved" and not held(pr)
+def unblocked(pr: dict, data: dict, cards: dict | None, reviews: tuple[str, ...] = ("approved",)) -> bool:
+    """Whether a PR is open, green and approved, or in another of reviews, not held, with nothing it waits on holding it."""
+    green = pr["state"] == "open" and pr["checks"] == "pass" and pr["review"] in reviews and not held(pr)
     return green and not holding(data, pr["waits"], cards)
 
 
@@ -297,7 +297,7 @@ def card_heads(card: dict, url: str) -> list[str]:
 
 def tap_detail(pr: dict) -> str:
     checks = {"pass": "green", "fail": "red", "pending": "CI running"}.get(pr["checks"], "no CI")
-    review = {"approved": "approved", "changes": "changes requested"}.get(pr["review"], "no review yet")
+    review = {"approved": "approved", "stale": "approved on an older head", "changes": "changes requested"}.get(pr["review"], "no review yet")
     changed = f"; changed since your tap: {pr['fundamental']}" if pr.get("fundamental") else ""
     reworking = "; being reworked to his words, card down until its builder's READY" if state.owed_step(pr) == "reworking" else ""
     return f"{checks}, {review}{changed}{reworking}"

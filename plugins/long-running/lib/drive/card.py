@@ -12,7 +12,7 @@ from drive.render import cut
 FIELDS = "title,body,state,isDraft,headRefOid,baseRefName,headRefName,reviewDecision,labels,url,additions,deletions,changedFiles"
 READ_AGE = "60s"
 KEPT_READS = "pr-reads"
-REVIEW_DECISIONS = {"approved": "APPROVED", "changes": "CHANGES_REQUESTED", "none": ""}
+REVIEW_DECISIONS = {"approved": "APPROVED", "stale": "REVIEW_REQUIRED", "changes": "CHANGES_REQUESTED", "none": ""}
 TAP_LABELS = ("Approve", "Hold")
 RELEASE_FAILED = (" failed", " went red", " partly released", " stopped")
 TITLE_CHARS = 140
