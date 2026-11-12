@@ -289,6 +289,7 @@ def new_drive(
         "stand_ins": {},
         "held": {},
         "carried": {},
+        "catch_up": None,
         "launched": {},
     }
 
@@ -402,6 +403,8 @@ def load(name: str) -> dict:
     data.setdefault("stand_ins", {})
     data.setdefault("held", {})
     data.setdefault("carried", {})
+    if "catch_up" not in data:
+        data["catch_up"] = new_catch_up(min(mark["at"] for mark in data["held"].values()), [mark["order"] for mark in data["held"].values() if mark["order"]]) if data["held"] else None
     if (pictures := drive_dir(name) / "pictures").is_dir() and not (pictures / picture.SOURCED).exists():
         picture.fill(pictures, [*map(Path.read_text, sorted((drive_dir(name) / "asks").glob("*.md"))), *pr_bodies(name)])
     if cards_path(name).exists() and not (drive_dir(name) / "asks" / REBUILT_ASKS).exists():
@@ -1146,6 +1149,11 @@ def read_events(name: str, offset: int = 0) -> Iterator[tuple[dict, int]]:
             offset += len(line)
             if line.strip():
                 yield json.loads(line), offset
+
+
+def new_catch_up(since: str, orders: list[str]) -> dict:
+    """The catch-up the drive owes him until it posts: from since, when he was last heard before he went away, over the orders with news since then, with the report of it the watch wrote, the handler last started to post it and the time he was heard that start answered."""
+    return {"since": since, "orders": list(dict.fromkeys(orders)), "record": None, "handler": None, "tried": None}
 
 
 def owner_away(data: dict, moment: datetime) -> bool:

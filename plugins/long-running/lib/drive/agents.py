@@ -1,6 +1,8 @@
 import json
+import os
 import re
 import subprocess
+import uuid
 from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -221,12 +223,44 @@ def gone(session: str | None) -> bool:
     return bool(session) and session not in {row.get("sessionId") for row in json.loads(reads.run(["claude", "agents", "--json"], Path.cwd()))}
 
 
+def handle(name: str, brief: str) -> str:
+    """Start a handler on its brief, unless a live one already holds what the brief holds, since one message of his has one handler at a time: a refused brief for another record is kept for that handler's done record to name; the started handler's id."""
+    held_now = holds(brief)
+    data = state.load(name)
+    if (held := holder(data, held_now)) and gone(data["handlers"][held]["session"]):
+        with state.edit(name) as data:
+            data["handlers"].pop(held, None)
+    handler_id = uuid.uuid4().hex[:8]
+    with state.edit(name) as data:
+        if held := holder(data, held_now):
+            entry = data["handlers"][held]
+            his = entry["holds"]["link"] or f"record {entry['holds']['record']}"
+            kept = held_now["record"] and held_now["record"] != entry["holds"]["record"]
+            if kept and brief.strip() not in entry["held_back"]:
+                entry["held_back"].append(brief.strip())
+        else:
+            data["handlers"][handler_id] = {"session": None, "started": state.stamp(), "holds": held_now, "held_back": [], "posted": []}
+    if held:
+        then = f"its done record names this brief, to start then and post only what {held} left out" if kept else "this copy needs no handler of its own"
+        raise state.DriveError(f"refused, no handler started: handler {held} is at work on {his}, and one message of his has one handler at a time; {then}")
+    if folder := scratch(brief):
+        folder.mkdir(parents=True, exist_ok=True)
+    try:
+        start_handler(name, handler_id, brief)
+    except reads.ReadError as error:
+        with state.edit(name) as data:
+            del data["handlers"][handler_id]
+        raise state.DriveError(f"claude --bg started no handler: {error}") from None
+    return handler_id
+
+
 def start_handler(name: str, handler: str, prompt: str) -> None:
-    """Start a handler as its own `claude --bg` session on its agent definition, which sets its model, in this session's checkout, its SessionStart hook binding it to the drive by the id in its environment, `CCI_PARENT_SESSION` naming the communicator's session, so cci binds the handler's session to no lane and it posts as the communicator's lanes, and `CLAUDE_LONG_RUNNING_DRIVE` naming the drive, so each cci call that names no drive resolves this one."""
-    env = {state.HANDLER_ENV: f"{name}/{handler}", "CCI_PARENT_SESSION": state.saved(name)["roles"]["communicator"]["session"], "CLAUDE_LONG_RUNNING_DRIVE": name}
+    """Start a handler as its own `claude --bg` session on its agent definition, which sets its model, in the communicator's checkout, whether the communicator or the drive's watch starts it, its SessionStart hook binding it to the drive by the id in its environment, `CCI_PARENT_SESSION` naming the communicator's session, so cci binds the handler's session to no lane and it posts as the communicator's lanes, and `CLAUDE_LONG_RUNNING_DRIVE` naming the drive, so each cci call that names no drive resolves this one; the watch's own lane stays out of its environment."""
+    communicator = state.saved(name)["roles"]["communicator"]
+    env = {state.HANDLER_ENV: f"{name}/{handler}", "CCI_PARENT_SESSION": communicator["session"], "CLAUDE_LONG_RUNNING_DRIVE": name}
     settings = SESSION_SETTINGS | {"env": SESSION_SETTINGS["env"] | env}
     argv = ["claude", "--bg", "--agent", HANDLER, "--permission-mode", "bypassPermissions", "--settings", json.dumps(settings), "-n", f"{name} handler {handler}", prompt]
-    reads.run(argv, Path.cwd())
+    reads.run(argv, Path(communicator["cwd"]), {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"})
 
 
 def bind_handler(payload: dict, handler: str) -> None:

@@ -8,7 +8,6 @@ import subprocess
 import sys
 import tempfile
 import textwrap
-import uuid
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -2459,32 +2458,7 @@ def handler(args: argparse.Namespace) -> int:
         )
     if re.search(rf"^{re.escape(agents.HIS_WORDS)}:", args.brief, re.MULTILINE):
         watch.hear(name, state.now(), args.away)
-    holds = agents.holds(args.brief)
-    data = state.load(name)
-    if (held := agents.holder(data, holds)) and agents.gone(data["handlers"][held]["session"]):
-        with state.edit(name) as data:
-            data["handlers"].pop(held, None)
-    handler_id = uuid.uuid4().hex[:8]
-    with state.edit(name) as data:
-        if held := agents.holder(data, holds):
-            entry = data["handlers"][held]
-            his = entry["holds"]["link"] or f"record {entry['holds']['record']}"
-            kept = holds["record"] and holds["record"] != entry["holds"]["record"]
-            if kept and args.brief.strip() not in entry["held_back"]:
-                entry["held_back"].append(args.brief.strip())
-        else:
-            data["handlers"][handler_id] = {"session": None, "started": state.stamp(), "holds": holds, "held_back": [], "posted": []}
-    if held:
-        then = f"its done record names this brief, to start then and post only what {held} left out" if kept else "this copy needs no handler of its own"
-        raise DriveError(f"refused, no handler started: handler {held} is at work on {his}, and one message of his has one handler at a time; {then}")
-    if folder := agents.scratch(args.brief):
-        folder.mkdir(parents=True, exist_ok=True)
-    try:
-        agents.start_handler(name, handler_id, args.brief)
-    except reads.ReadError as error:
-        with state.edit(name) as data:
-            del data["handlers"][handler_id]
-        raise DriveError(f"claude --bg started no handler: {error}") from None
+    handler_id = agents.handle(name, args.brief)
     return emit(args, f"started {handler_id}", {"handler": handler_id})
 
 
@@ -3496,7 +3470,7 @@ def parser() -> argparse.ArgumentParser:
     verb = verbs.add_parser(
         "heard",
         parents=both,
-        help="he wrote: record it, and tell the coordinator the orders his catch-up at his DM root covers; prints heard, or away, and nothing to act on",
+        help="he wrote: record it, adding the orders that changed while he was away to the catch-up the drive owes him, which the watch posts at his DM root; prints heard, or away, and nothing to act on",
     )
     verb.add_argument("--away", action="store_true", help="he said he is going to sleep or away")
     verb.add_argument(

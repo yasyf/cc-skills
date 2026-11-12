@@ -567,7 +567,30 @@ def test_no_tick_while_he_is_away(demo: str, monkeypatch: pytest.MonkeyPatch, ow
     assert watch.run_pass(watcher(demo), T0 + timedelta(minutes=30)) == []
 
 
-def test_his_next_message_after_away_prints_heard_and_the_coordinator_hears_the_orders_his_catch_up_covers(
+BACK = T0 + timedelta(minutes=95)
+
+
+def catching_up(monkeypatch: pytest.MonkeyPatch, demo: str) -> list[tuple[list[str], str | None]]:
+    """Each command the drive runs, with the body file a cci post names read at the call, a cci post answering its seq."""
+    with state.edit(demo) as data:
+        data["roles"]["communicator"] = {"session": "communicator-session", "terminal": None, "cwd": "/work", "started": state.stamp(T0)}
+    calls: list[tuple[list[str], str | None]] = []
+
+    def run(argv: list[str], checkout: Path, env: dict | None = None) -> str:
+        calls.append((argv, Path(argv[argv.index("--body-file") + 1]).read_text() if "--body-file" in argv else None))
+        return json.dumps({"seq": 900 + len(calls)}) if argv[:2] == ["cci", "post"] else ""
+
+    monkeypatch.setattr(reads, "run", run)
+    monkeypatch.setattr(state, "now", lambda: BACK)
+    return calls
+
+
+def heard_now(demo: str, capsys: pytest.CaptureFixture[str], *flags: str) -> str:
+    assert cli.main(["heard", "--drive", demo, *flags]) == 0
+    return capsys.readouterr().out.strip()
+
+
+def test_his_next_message_after_away_owes_his_catch_up_which_the_watch_posts_through_a_handler_once_each_time_he_is_heard(
     demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     with state.edit(demo) as data:
@@ -575,63 +598,94 @@ def test_his_next_message_after_away_prints_heard_and_the_coordinator_hears_the_
         data["jobs"]["j1"]["updated"] = state.stamp(T0 + timedelta(minutes=5))
         data["orders"]["o2"] = order(jobs=["j2"], updated=state.stamp(T0 - timedelta(minutes=5)))
         data["jobs"]["j2"] = job(order="o2", updated=state.stamp(T0 - timedelta(minutes=5)))
-    serve(monkeypatch, {})
-    watching = watcher(demo)
-    monkeypatch.setattr(state, "now", lambda: T0 + timedelta(minutes=95))
-    assert cli.main(["heard", "--drive", demo]) == 0
-    assert capsys.readouterr().out.strip() == "heard"
-    assert state.load(demo)["owner"] == {"heard": state.stamp(T0 + timedelta(minutes=95)), "away": False}
-    assert watch.run_pass(watching, T0) == [f"EVENT catch-up dm=D123 since={render.when(state.stamp(T0))} orders=o1"]
-    assert cli.main(["heard", "--drive", demo]) == 0
-    assert capsys.readouterr().out.strip() == "heard"
-    assert watch.run_pass(watching, T0) == []
+    calls = catching_up(monkeypatch, demo)
+    watching = watcher(demo, BACK)
+    assert heard_now(demo, capsys) == "heard"
+    assert state.load(demo)["catch_up"] == state.new_catch_up(state.stamp(T0), ["o1"])
+    assert watch.catch_up_lines(watching, BACK) == []
+    [(report, body), (start, _)] = calls
+    assert report[report.index("--text") + 1] == f"POST his catch-up since {render.when(state.stamp(T0))}: 1 orders with news, 0 reports held for it"
+    assert ("--to" not in report, report[report.index("--attr") + 1]) == (True, "catch_up=true")
+    assert f"- {render.order_line('o1', state.load(demo)['orders']['o1'])}" in body.splitlines()
+    assert start[:4] == ["claude", "--bg", "--agent", "long-running:handler"]
+    assert start[-1] == f"Record: 901 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'catch-up-901'}"
+    owed = state.load(demo)["catch_up"]
+    assert (owed["tried"], state.load(demo)["handlers"][owed["handler"]]["holds"]["record"]) == (state.stamp(BACK), "901")
+    assert watch.catch_up_lines(watching, BACK) == []
+    monkeypatch.setattr(state, "now", lambda: BACK + timedelta(minutes=1))
+    assert heard_now(demo, capsys) == "heard"
+    assert watch.catch_up_lines(watching, BACK) == []
+    assert (len(calls), state.load(demo)["catch_up"]["tried"]) == (2, state.stamp(BACK + timedelta(minutes=1)))
+    with state.edit(demo) as data:
+        del data["handlers"][owed["handler"]]
+    monkeypatch.setattr(state, "now", lambda: BACK + timedelta(minutes=2))
+    assert heard_now(demo, capsys) == "heard"
+    assert watch.catch_up_lines(watching, BACK) == []
+    assert (len(calls), calls[2][0][-1]) == (3, start[-1])
+    with state.edit(demo) as data:
+        data["handlers"].clear()
+    monkeypatch.setattr(state, "now", lambda: BACK + timedelta(minutes=3))
+    assert heard_now(demo, capsys, "--away") == "away"
+    assert watch.catch_up_lines(watching, BACK) == []
+    assert len(calls) == 3
 
 
-def test_a_report_held_while_he_was_away_puts_its_order_and_itself_on_his_catch_up(
+def test_a_catch_up_whose_handler_failed_to_start_starts_one_next_pass_on_the_report_already_written(
     demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     with state.edit(demo) as data:
         data["owner"] = {"heard": state.stamp(T0), "away": True}
         data["jobs"]["j1"]["updated"] = state.stamp(T0 + timedelta(minutes=5))
-        data["orders"]["o2"] = order(jobs=["j2"], updated=state.stamp(T0 - timedelta(minutes=5)))
-        data["jobs"]["j2"] = job(order="o2", updated=state.stamp(T0 - timedelta(minutes=5)))
-        data["held"]["700"] = {"order": "o2", "at": state.stamp(T0 + timedelta(minutes=10)), "told": "701"}
-    serve(monkeypatch, {})
-    watching = watcher(demo)
-    monkeypatch.setattr(state, "now", lambda: T0 + timedelta(minutes=95))
-    assert cli.main(["heard", "--drive", demo]) == 0
-    assert capsys.readouterr().out.strip() == "heard"
-    assert watch.run_pass(watching, T0) == [f"EVENT catch-up dm=D123 since={render.when(state.stamp(T0))} orders=o1 o2 held=700"]
+    calls = catching_up(monkeypatch, demo)
+    answered = reads.run
+
+    def run(argv: list[str], checkout: Path, env: dict | None = None) -> str:
+        if argv[0] == "claude" and len(calls) == 1:
+            calls.append((argv, None))
+            raise reads.ReadError("claude exited 1")
+        return answered(argv, checkout, env)
+
+    monkeypatch.setattr(reads, "run", run)
+    watching = watcher(demo, BACK)
+    assert heard_now(demo, capsys) == "heard"
+    assert watch.catch_up_lines(watching, BACK) == []
+    assert (state.load(demo)["catch_up"]["record"], state.load(demo)["handlers"]) == ("901", {})
+    assert watch.catch_up_lines(watching, BACK) == []
+    assert [argv[0] for argv, _ in calls] == ["cci", "claude", "claude"]
+    assert calls[2][0][-1].startswith("Record: 901 ")
 
 
-def test_a_correction_of_a_held_report_reaches_drive_status_and_his_catch_up_with_it(
+def test_a_report_held_while_he_was_away_and_its_correction_go_on_his_catch_up(
     demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], cci_corrections: dict[str, list[str]]
 ) -> None:
     held_at = state.stamp(T0 + timedelta(minutes=10))
     with state.edit(demo) as data:
         data["owner"] = {"heard": state.stamp(T0), "away": True}
-        data["held"]["669950"] = {"order": "o1", "at": held_at, "told": "669957"}
+        data["orders"]["o2"] = order(jobs=["j2"], updated=state.stamp(T0 - timedelta(minutes=5)))
+        data["jobs"]["j2"] = job(order="o2", updated=state.stamp(T0 - timedelta(minutes=5)))
+        data["held"]["669950"] = {"order": "o2", "at": held_at, "told": "669957"}
     cci_corrections["669950"] = ["669952"]
-    serve(monkeypatch, {})
-    watching = watcher(demo)
-    monkeypatch.setattr(state, "now", lambda: T0 + timedelta(minutes=95))
+    calls = catching_up(monkeypatch, demo)
     assert cli.main(["status", "--drive", demo]) == 0
-    assert f"- report 669950 (o1), held {render.when(held_at)}, its writer told in record 669957, corrected by record 669952" in capsys.readouterr().out.splitlines()
-    assert cli.main(["heard", "--drive", demo]) == 0
-    assert capsys.readouterr().out.strip() == "heard"
-    assert watch.run_pass(watching, T0) == [f"EVENT catch-up dm=D123 since={render.when(state.stamp(T0))} orders=o1 held=669950 corrected=669950:669952"]
+    assert f"- report 669950 (o2), held {render.when(held_at)}, its writer told in record 669957, corrected by record 669952" in capsys.readouterr().out.splitlines()
+    assert heard_now(demo, capsys) == "heard"
+    assert state.load(demo)["catch_up"]["orders"] == ["o2"]
+    assert watch.catch_up_lines(watcher(demo, BACK), BACK) == []
+    [(report, body), _] = calls
+    assert report[report.index("--text") + 1].endswith(": 1 orders with news, 1 reports held for it")
+    assert "- report 669950 on o2, corrected by record 669952" in body.splitlines()
 
 
-def test_a_catch_up_naming_eighty_orders_reaches_the_coordinator_whole(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    serve(monkeypatch, {})
-    sent = posts(monkeypatch)
-    watching = watcher(demo)
-    orders = " ".join(f"o{n}" for n in range(283, 363))
-    state.append_event(demo, "catch-up", dm="D123", since="1:46 AM", orders=orders)
-    line = f"EVENT catch-up dm=D123 since=1:46 AM orders={orders}"
-    assert len(line) > 400
-    assert watch.sent(watching, "root", watch.run_pass(watching, T0), T0) == []
-    assert posted(sent) == [("handoff", f"root@{demo}", line)]
+def test_a_drive_an_older_install_saved_with_reports_held_owes_his_catch_up_since_the_first(demo: str) -> None:
+    with state.edit(demo) as data:
+        data["held"] = {
+            "700": {"order": "o2", "at": state.stamp(T0 + timedelta(minutes=20)), "told": "701"},
+            "702": {"order": None, "at": state.stamp(T0 + timedelta(minutes=10)), "told": "703"},
+        }
+    saved = json.loads(state.state_path(demo).read_text())
+    del saved["catch_up"]
+    state.state_path(demo).write_text(json.dumps(saved))
+    assert state.load(demo)["catch_up"] == state.new_catch_up(state.stamp(T0 + timedelta(minutes=10)), ["o2"])
 
 
 def test_an_event_with_line_breaks_stays_one_line(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2334,7 +2388,6 @@ def test_a_line_the_coordinator_acts_on_now_wakes_it_and_the_rest_wait_for_its_b
         'ANSWER a1 "one new tool": 1 card with no mark',
         "JOB j1 o1 READY https://github.com/Forge-AI/monorepo/pull/42",
         'LANE j1 o1 died on Sprite s1: gone, while it worked on "watch".',
-        "EVENT catch-up dm=D123 since=9:00 AM orders=o1",
         "EVENT unheard question=Which? pick=Yes",
         "FREE j1 o1: demo:j1-7-a answered or done, nothing else holds it, built on lane/built",
     ]

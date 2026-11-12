@@ -27,7 +27,9 @@ def say(name: str, post: dict) -> str:
     if refused := correction_refusal(known, post.get("record"), report):
         raise DriveError(f"nothing posted: {refused}")
     if report.get("catch_up"):
-        post = post | {"text": titled(name, post.get("text") or "") + waiting(name, post.get("text") or "")}
+        if known["catch_up"] is None:
+            raise DriveError(f"nothing posted: report {post['record']} is a catch-up, and the drive owes him none, since its last catch-up already posted")
+        post = post | {"text": titled(known, post.get("text") or "") + waiting(name, post.get("text") or "")}
     if post.get("dry_run"):
         return dry(name, post)
     held = list(known["held"]) if report.get("catch_up") else []
@@ -74,17 +76,18 @@ def hold(name: str, seq: str, report: dict, order_id: str | None) -> str:
 
 
 def released(name: str, post: str, corrected: dict[str, list[str]]) -> str:
-    """Let go of every report held for his catch-up, which the catch-up just posted at post covers, keeping post as the copy each went out in, and name them, with each correction cci held re one that the catch-up event never named, which the post lacks."""
+    """Settle the catch-up the drive owed him, which just posted at post, as the last line each order it covers got, and let go of every report held for it, keeping post as the copy each went out in, and name them, with each correction cci holds re one, which the post must carry."""
     with state.edit(name) as data:
         held, data["held"] = data["held"], {}
         data["carried"] |= dict.fromkeys(held, post)
+        for order_id in data["catch_up"]["orders"]:
+            data["orders"][order_id]["last_line"] = state.stamp()
+        data["catch_up"] = None
     if not held:
         return ""
-    [*_, back] = [event for event, _ in state.read_events(name) if event["kind"] == "catch-up"]
-    named = {fix for pair in back.get("corrected", "").split() for fix in pair.partition(":")[2].split(",")}
-    late = [fix for seq in held for fix in corrected.get(seq, []) if fix not in named]
+    fixes = [fix for seq in held for fix in corrected.get(seq, [])]
     line = f"; it carries the reports held for it, no longer held: {', '.join(held)}"
-    return line + (f"; its catch-up event named none of corrections {', '.join(late)}, so reword this post with say(edit={post}, text=…) to carry them" if late else "")
+    return line + (f"; cci holds corrections {', '.join(fixes)} of them: unless this post carries each, reword it with say(edit={post}, text=…)" if fixes else "")
 
 
 def correction_refusal(data: dict, seq: str | None, report: dict) -> str | None:
@@ -97,10 +100,9 @@ def correction_refusal(data: dict, seq: str | None, report: dict) -> str | None:
     return None
 
 
-def titled(name: str, text: str) -> str:
-    """His catch-up, opening with the title the tool writes from the time he was last heard before he came back, in place of any title the text came with."""
-    [*_, back] = [event for event, _ in state.read_events(name) if event["kind"] == "catch-up"]
-    return f"*Catch-up since {back['since']}*\n{CATCH_UP_TITLE.sub('', text, count=1)}"
+def titled(data: dict, text: str) -> str:
+    """His catch-up, opening with the title the tool writes from the time he was last heard before the absence it covers, in place of any title the text came with."""
+    return f"*Catch-up since {render.when(data['catch_up']['since'])}*\n{CATCH_UP_TITLE.sub('', text, count=1)}"
 
 
 def waiting(name: str, text: str) -> str:

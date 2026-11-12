@@ -1636,7 +1636,7 @@ def test_while_he_is_away_only_cards_incident_lines_and_answers_go_out(run: Run,
         data["orders"]["o1"].update(thread="1.2", incident=True)
     reason = posted(transcript, text="The fix merged.")
     assert reason.startswith("Refused on purpose: he is away")
-    assert "joins the catch-up the coordinator sends when he is back" in reason
+    assert "joins the catch-up the drive posts when he is back" in reason
     card = {"title": said(10), "body": said(40), "options": ["Land it", "Hold it"], "waits": "demo:j1-7"}
     assert posted(transcript, card=card) is None
     assert posted(transcript, text="Users are unblocked.", thread_ts="1.2") is None

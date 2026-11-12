@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Self
 
-from drive import agents, codex, dashboard, github, land, limits, orca, page, reads, served, slack, state, superseded, view
+from drive import agents, codex, dashboard, github, land, limits, orca, page, reads, render, served, slack, state, superseded, view
 from drive.install import config_dir, upgraded
 from drive.render import cut, subscribe, when
 
@@ -28,7 +28,7 @@ FAILURE_EVERY = timedelta(minutes=10)
 TICK_EVERY = timedelta(minutes=30)
 DUE_EVERY = timedelta(minutes=10)
 TELL_AFTER = timedelta(minutes=10)
-WAKES = ("TAP ", "DUE ", "LIVE ", "TELL ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "STUCK ", "FREE ", "EVENT catch-up ", "EVENT unheard ", "EVENT stop ", "WATCH stopped")
+WAKES = ("TAP ", "DUE ", "LIVE ", "TELL ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "STUCK ", "FREE ", "EVENT unheard ", "EVENT stop ", "WATCH stopped")
 OWNER_MOVES = ("merged", "checks failed", "READY refused", served.NOT_READY, "conflicts with its base", "changes requested", "still red", "ejected from the merge queue", "not landed")
 PR_EVENT = re.compile(r"PR (?P<key>\S+): (?P<change>.+) \[(?P<order>o\d+) (?P<job>j\d+)\]$")
 TAP_EVENT = re.compile(r"TAP (?P<label>\S+) (?P<key>\S+)")
@@ -1607,9 +1607,7 @@ def orphan_lines(watcher: Watcher, moment: datetime, due: set[str]) -> list[str]
 
 
 def hear(name: str, moment: datetime, away: bool = False) -> dict:
-    """Record him heard at moment, by his words or his tap on a card, or away with away; when he was away, append the catch-up event naming each order that changed since he was last heard, each report held for it, and each correction cci holds re a held report, which the catch-up carries with it, since cci never changes the report."""
-    known = state.load(name)
-    corrected = agents.corrections(name, known["held"]) if state.owner_away(known, moment) else {}
+    """Record him heard at moment, by his words or his tap on a card, or away with away; when he was away, add each order that changed since he was last heard, and each a report held for his catch-up is on, to the catch-up the drive owes him, which keeps the time of the first such absence it covers, and which the watch's next pass posts."""
     with state.edit(name) as data:
         back = state.owner_away(data, moment)
         since = (data.get("owner") or {}).get("heard")
@@ -1621,13 +1619,55 @@ def hear(name: str, moment: datetime, away: bool = False) -> dict:
                 last = max(state.parse_time(order["last_line"] or order["created"]), state.parse_time(since))
                 if changed_since(order, data["jobs"], last) or any(mark["order"] == key for mark in data["held"].values()):
                     news.append(key)
-    corrected = {seq: corrected[seq] for seq in held if seq in corrected}
-    if news or held:
-        fixes = " ".join(f"{seq}:{','.join(found)}" for seq, found in corrected.items())
-        state.append_event(
-            name, "catch-up", dm=data["slack"]["channel"], since=when(since), orders=" ".join(news), **({"held": " ".join(held)} if held else {}), **({"corrected": fixes} if fixes else {})
-        )
-    return {"away": away, "back": back, "since": since, "catch_up": news, "held": held, "corrected": corrected}
+        if news or held:
+            owed = data["catch_up"] or state.new_catch_up(since, [])
+            data["catch_up"] = owed | {"orders": list(dict.fromkeys([*owed["orders"], *news])), "record": None}
+        owed = data["catch_up"]
+    return {"away": away, "back": back, "since": since, "catch_up": owed and owed["orders"], "held": held}
+
+
+def catch_up_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Post the catch-up the drive owes him while he is here, once for each time he is heard: a report of it the watch writes once, its body naming each report held for it with each correction cci holds re one and each order with news, for a handler the watch starts to post at his DM root, unless the handler started last is still at work on it; a failed write or start is said as a failed read is and tried again next pass."""
+    data = state.load(watcher.name)
+    owed, heard = data["catch_up"], data["owner"]["heard"]
+    if watcher.project or owed is None or owed["tried"] == heard or state.owner_away(data, moment):
+        return []
+    if (entry := data["handlers"].get(owed["handler"] or "")) and not agents.gone(entry["session"]):
+        with state.edit(watcher.name) as data:
+            data["catch_up"]["tried"] = heard
+        return []
+    try:
+        seq = owed["record"] or catch_up_report(watcher, data)
+        with state.edit(watcher.name) as data:
+            data["catch_up"]["record"] = seq
+        handler = agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'catch-up-{seq}'}")
+    except (reads.ReadError, state.DriveError) as error:
+        return failed(watcher, "catch-up", "post of his catch-up", error, moment)
+    watcher.failures.pop("catch-up", None)
+    with state.edit(watcher.name) as data:
+        data["catch_up"] |= {"handler": handler, "tried": heard}
+    return []
+
+
+def catch_up_report(watcher: Watcher, data: dict) -> str:
+    """Write the report of his catch-up for the handler that posts it; its seq."""
+    owed = data["catch_up"]
+    corrected = agents.corrections(watcher.name, data["held"])
+    held = [f"- report {seq} on {mark['order'] or 'no order'}{render.corrected_by(corrected.get(seq, []))}" for seq, mark in data["held"].items()]
+    orders = [f"- {render.order_line(order_id, data['orders'][order_id])}" for order_id in owed["orders"]]
+    facts = [
+        f"His catch-up, owed since he was last heard at {when(owed['since'])}. Read each held report and each correction with cci read: no held report reached him, and a correction's facts replace those it corrects.",
+        f"Held for it: {len(held)}",
+        *held,
+        f"Orders with news since then: {len(orders)}",
+        *orders,
+    ]
+    text = f"POST his catch-up since {when(owed['since'])}: {len(orders)} orders with news, {len(held)} reports held for it"
+    with tempfile.NamedTemporaryFile("w", suffix=".md") as body:
+        body.write("\n".join(facts) + "\n")
+        body.flush()
+        argv = ["cci", "post", "--drive", watcher.name, "--lane", LANE, "--kind", "report", "--attr", "catch_up=true", "--body-file", body.name, "--json", "--text", text]
+        return str(json.loads(reads.run(argv, Path(data["roles"]["coordinator"]["cwd"])))["seq"])
 
 
 def changed_since(order: dict, jobs: dict, last: datetime) -> bool:
@@ -1663,7 +1703,7 @@ def tick_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """One loop of the watch: his cards, GitHub, a lander on each PR his Approve covers that qualifies, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, the waits his answers or a job's end release, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the communicator's compaction, the status page and a coordinator whose process exited every 60 s, GitHub again next poll after a failure, new events, promised times still owed a line, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries, a tick every 30 minutes while he is here."""
+    """One loop of the watch: his cards, GitHub, a lander on each PR his Approve covers that qualifies, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, the waits his answers or a job's end release, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the communicator's compaction, the status page and a coordinator whose process exited every 60 s, GitHub again next poll after a failure, new events, the catch-up owed him, promised times still owed a line, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries, a tick every 30 minutes while he is here."""
     lines = []
     if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
         watcher.read_at = moment
@@ -1689,6 +1729,7 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
         lines += page_lines(watcher, moment)
         lines += down_lines(watcher, moment)
     lines += event_lines(watcher)
+    lines += catch_up_lines(watcher, moment)
     due = due_lines(watcher, moment)
     lines += [line for _, line in due]
     lines += clock_lines(watcher, moment)

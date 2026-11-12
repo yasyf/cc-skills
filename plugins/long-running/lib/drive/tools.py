@@ -123,7 +123,7 @@ def verb_tools() -> list[dict]:
             "name": "heard",
             "description": (
                 "Record that he wrote, each time he does. Returns heard, or away when away is set, and nothing to act on:"
-                " the coordinator hears his catch-up itself."
+                " the drive's watch posts his catch-up through a handler it starts."
             ),
             "inputSchema": {"type": "object", "properties": {**schema(leaf("heard"))["properties"], "drive": DRIVE, "dry_run": DRY_RUN}},
         },
