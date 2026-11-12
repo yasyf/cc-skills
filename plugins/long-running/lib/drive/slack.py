@@ -110,13 +110,19 @@ def order_threads(data: dict, order_id: str, order: dict) -> list[tuple[str, str
     """The threads a line for an order goes in: its own, then on an incident the own thread of each other order of it, the incident an alert's order joined and every alert joined to it, both ways, then each thread of his where a report on one of them answered his message, then each of their cards'."""
     others = [data["orders"][other] for other in state.incident_orders(data, order_id) if other != order_id]
     own = filter(None, (state.promise_thread(data, each) for each in [order, *others]))
-    asked = (tuple(where) for each in [order, *others] for where in each["asked_in"])
+    asked = ((channel, ts) for each in [order, *others] for channel, ts, _ in each["asked_in"])
     return list(dict.fromkeys([*own, *asked, *incident_cards(data, order_id)]))
 
 
 def incident_cards(data: dict, order_id: str) -> list[tuple[str, str]]:
     """The thread of each card the jobs of every order of the order's incident drew, the order alone when it is in none."""
     return list(dict.fromkeys(where for other in state.incident_orders(data, order_id) for where in state.card_threads(data, data["orders"][other])))
+
+
+def keeps_dm_root(data: dict, order_id: str, order: dict) -> bool:
+    """Whether a line for an order still goes at his DM root: it holds no thread but those he asked about it in, as a drive tooling order the drive added with no words of his, whose lines went there before."""
+    asked = {(channel, ts) for channel, ts, _ in order["asked_in"]}
+    return set(order_threads(data, order_id, order)) <= asked
 
 
 def order_posts(data: dict, order_id: str, order: dict) -> tuple[list[datetime], str | None]:
