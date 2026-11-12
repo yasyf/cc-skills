@@ -31,10 +31,16 @@
   ],
   "mcpServers": {
     "drive": {
-      "command": "${CLAUDE_PLUGIN_ROOT}/bin/drive",
+      "command": "python3",
       "args": [
+        "-I",
+        "-c",
+        "import json, os, pathlib, sys\nconfig = pathlib.Path(os.environ.get(\"CLAUDE_CONFIG_DIR\") or pathlib.Path.home() / \".claude\")\nplugins = json.loads((config / \"plugins\" / \"installed_plugins.json\").read_text())[\"plugins\"]\nentries = [entry for key, installs in plugins.items() if key.startswith(\"long-running@\") for entry in installs]\nif not entries:\n    raise SystemExit(\"drive: the long-running plugin is not installed\")\nnewest = max(entries, key=lambda entry: entry.get(\"lastUpdated\") or entry.get(\"installedAt\") or \"\")\ndrive = str(pathlib.Path(newest[\"installPath\"]) / \"bin\" / \"drive\")\nos.execv(drive, [drive, *sys.argv[1:]])\n",
         "mcp"
-      ]
+      ],
+      "env": {
+        "CLAUDE_PLUGIN_ROOT": ""
+      }
     }
   }
 }

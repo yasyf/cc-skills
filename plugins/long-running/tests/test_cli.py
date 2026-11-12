@@ -3253,6 +3253,21 @@ def test_setup_shim_execs_the_newest_installed_plugin(run: Run, tmp_path: Path) 
     assert result.stdout.strip() == "new card x"
 
 
+def test_the_drive_servers_launch_line_runs_the_newest_installed_drive_mcp(tmp_path: Path) -> None:
+    config = tmp_path / "claude"
+    installed(
+        config,
+        {
+            "long-running@skills": [{"installPath": fake_plugin(tmp_path / "old", "old"), "lastUpdated": "2026-11-01T00:00:00Z"}],
+            "long-running@other": [{"installPath": fake_plugin(tmp_path / "new", "new"), "lastUpdated": "2026-11-09T00:00:00Z"}],
+        },
+    )
+    server = json.loads(cli.MANIFEST.read_text())["mcpServers"]["drive"]
+    env = {**os.environ, "CLAUDE_CONFIG_DIR": str(config), **server["env"]}
+    result = subprocess.run([server["command"], *server["args"]], capture_output=True, text=True, check=True, env=env)
+    assert result.stdout.strip() == "new mcp"
+
+
 def test_setup_shim_fails_when_not_installed(run: Run, tmp_path: Path) -> None:
     config = tmp_path / "claude"
     installed(config, {})

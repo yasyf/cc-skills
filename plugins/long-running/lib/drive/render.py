@@ -299,9 +299,9 @@ JOB = {
 REPROS_SHOWN = 5
 WHOLE = sys.maxsize
 UNLISTED_TOOL_LINE = (
-    "A drive tool these rules name that your session does not list, such as handler or job, is one its drive MCP server"
-    " started before: pipe the tool's fields as JSON to drive tool <name> in Bash until /reload-plugins or a restart"
-    " lists it."
+    "A drive tool these rules name that your session does not list, such as handler or job, is one an install added"
+    " since its drive MCP server last listed its tools: pipe the tool's fields as JSON to drive tool <name> in Bash"
+    " until a call of any drive tool relists them."
 )
 FIRST_CALL = {
     "communicator": (

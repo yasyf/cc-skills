@@ -43,21 +43,9 @@ TOLD_LINK = (
 )
 HIDDEN = "not visible in Orca, which hides the worktrees it did not make for this repository"
 PAGES = Path(__file__).resolve().parents[2] / "skills" / "long-running" / "reference"
+MANIFEST = Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json"
 LAUNCHED = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
 MCP_TOOLS = ("say", "heard", "handler", "record", "order", "job", "pr", "incident", "status", "search_plan")
-SHIM = """#!/bin/sh
-drive_bin=$(python3 -I -c '
-import json, os, pathlib
-config = pathlib.Path(os.environ.get("CLAUDE_CONFIG_DIR") or pathlib.Path.home() / ".claude")
-plugins = json.loads((config / "plugins" / "installed_plugins.json").read_text())["plugins"]
-entries = [entry for key, installs in plugins.items() if key.startswith("long-running@") for entry in installs]
-if not entries:
-    raise SystemExit("drive: the long-running plugin is not installed")
-newest = max(entries, key=lambda entry: entry.get("lastUpdated") or entry.get("installedAt") or "")
-print(pathlib.Path(newest["installPath"]) / "bin" / "drive")
-') || exit 1
-exec "$drive_bin" "$@"
-"""
 
 
 def emit(args: argparse.Namespace, line: str, payload: object) -> int:
@@ -2476,7 +2464,8 @@ def setup(args: argparse.Namespace) -> int:
     bin_dir = Path(args.bin_dir) if args.bin_dir else default_bin_dir()
     bin_dir.mkdir(parents=True, exist_ok=True)
     shim = bin_dir / "drive"
-    shim.write_text(SHIM)
+    _, _, newest_drive, _ = json.loads(MANIFEST.read_text())["mcpServers"]["drive"]["args"]
+    shim.write_text(f"#!/usr/bin/env -S python3 -I\n{newest_drive}")
     shim.chmod(0o755)
     print(f"wrote {shim}")
     return 0
