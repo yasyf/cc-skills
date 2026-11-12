@@ -1516,7 +1516,7 @@ def test_a_reply_in_his_thread_is_checked_as_the_answer_to_his_messages_since_th
         {"ts": "1794479100.000100", "from_bot": True, "text": "Option 1 builds it on the new tree only."},
         {"ts": "1794479200.000100", "user": "U1", "text": "sot hat was asnwet 1 right"},
     ]
-    reads(transcript, "1794479000.000100")
+    reads(lane_of(transcript), "1794479000.000100")
     ack = "Checking whether option 1 on that card is the new-tree-only one, and the answer comes in this thread."
     assert posted(transcript, text=ack, thread_ts="1794479000.000100") is None
     assert posted(transcript, text=ack, thread_ts="1794479000.000100", asked="the release?") is None
@@ -1623,7 +1623,6 @@ def test_an_incident_report_keeps_its_alert_links_bare_by_the_incident_its_order
         "run",
         lambda argv, checkout: json.dumps({"seq": argv[2], "kind": "report", "lane": "root", "at": state.stamp(), "fields": {"attrs": {"order": "o1"}}}),
     )
-    reads(transcript, "1.2")
     alert, issue, pr = "https://acme.slack.com/archives/C0ALERTS/p1794485000000100", "https://app.datadoghq.com/error-tracking/issue/abc", "https://github.com/acme/app/pull/7"
     line = f"The sandsql alert {alert} fired on {issue}."
     checked.findings = [f"1:{line.index(url) + 1} bare-url {url!r}: wrap it as <url|short label>" for url in (alert, issue)]
