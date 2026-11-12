@@ -1989,7 +1989,7 @@ def test_a_job_whose_wait_ends_is_freed_before_any_orphan_and_said_to_be_strande
     ]
 
 
-def test_a_builder_waiting_its_turn_for_a_slot_is_no_orphan_and_the_watch_frees_the_earliest_due_once_as_each_slot_opens(
+def test_a_builder_waiting_its_turn_for_a_slot_is_no_orphan_and_the_watch_frees_the_earliest_due_once_as_each_slot_opens_while_old_held_work_holds_none(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     serve(monkeypatch, {})
@@ -1999,7 +1999,9 @@ def test_a_builder_waiting_its_turn_for_a_slot_is_no_orphan_and_the_watch_frees_
         data["jobs"]["j1"].update(prs=[], agent="a1", session="session-under-test")
         for number in range(2, place.LOCAL_BUILDERS + 1):
             data["jobs"][f"j{number}"] = job(agent=f"a{number}", session="session-under-test")
-        data["orders"]["o1"]["jobs"] = [f"j{number}" for number in range(1, place.LOCAL_BUILDERS + 2)]
+        data["orders"]["o1"]["jobs"] = [f"j{number}" for number in range(1, place.LOCAL_BUILDERS + 2)] + ["j12"]
+        months_ago = state.stamp(T0 - timedelta(days=90))
+        data["jobs"]["j12"] = job(state="waiting", questions=[state.new_question(None, "Which store?", months_ago, card=CARD)], created=months_ago, updated=months_ago)
         data["orders"]["o2"] = order(text="fix the card", jobs=["j10"])
         data["orders"]["o3"] = order(text="fix the watch", jobs=["j11"])
         for job_id, order_id, added in (("j9", "o1", 10), ("j10", "o2", 20), ("j11", "o3", 30)):
@@ -2014,8 +2016,9 @@ def test_a_builder_waiting_its_turn_for_a_slot_is_no_orphan_and_the_watch_frees_
     freed = T0 + timedelta(minutes=33)
     assert watch.run_pass(watching, freed) == ["FREE j11 o3: its turn came as a builder slot opened on this Mac, 7 of its 8 held, nothing else holds it"]
     data = state.load(demo)
-    assert {field: data["jobs"]["j11"][field] for field in ("state", "waits", "agent")} == {"state": "waiting", "waits": [], "agent": None}
+    assert {field: data["jobs"]["j11"][field] for field in ("state", "waits", "agent", "slot")} == {"state": "waiting", "waits": [], "agent": None, "slot": state.stamp(freed)}
     assert place.turns(data, freed) == ([], place.LOCAL_BUILDERS)
+    assert "j12" not in place.local_builders(data, freed)
     assert watch.run_pass(watching, T0 + timedelta(minutes=35)) == []
     with state.edit(demo) as data:
         data["jobs"]["j11"].update(state="running", agent="a11")

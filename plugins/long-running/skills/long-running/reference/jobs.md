@@ -21,9 +21,9 @@ Contents:
   coordinator starts no agent on it and sends `meta@<drive>` a `defect` record naming the job and its
   `Read your brief first:` line.
 - At most eight builders hold this Mac's builder slots at once: each builder job here the watch's
-  `FREE` line freed whose agent has not started yet, each agent here still in its turn, and each Orca
+  `FREE` line gave its turn for a slot whose agent has not started yet, each agent here still in its turn, and each Orca
   worker started here with `drive job launch --local` while it launches or runs. An agent that ended its turn, on a result line or a question, does not count, nor
-  does a launch that started no worker or a lane on a Sprite. `drive job add builder` past eight, or
+  does a launch that started no worker or a lane on a Sprite, nor a job freed from a card, PR or other wait whose agent has not started. `drive job add builder` past eight, or
   while builders wait their turn, records the job waiting on `builder-slot`, its turn for a slot, and
   prints its place in line and why, naming each builder it counted with its order and when its agent
   last wrote; `drive status` shows the place, and the watch reads the job waiting, never abandoned.
@@ -34,7 +34,7 @@ Contents:
   its turn that is due first: the earliest time promised him on an order it serves, then the oldest
   added. Its `FREE` line goes once to the session holding its order, which starts its agent then. The
   `agent_brief` hook refuses any other builder here while one waits its turn, naming each builder it
-  counted and the line, and holds a refused job no agent runs waiting its turn the same way. Before
+  counted and the line, and holds a refused job no agent runs waiting its turn the same way, unless a wait, a card of his or an open PR of its still holds it. Before
   you start a Forge-AI/monorepo builder, run `drive place` and start it where it says. It answers
   `remote` when this Mac's CPU is at or over its load gate's limit or eight builders hold its slots,
   and `local` otherwise; a remote builder runs its builds and checks on its own Sprite, and
@@ -66,8 +66,8 @@ or `Handoff:`, whose `Serves:` names none of the three, or whose Goal's own acti
 bulk-repairs, migrates, converts or repairs, or runs such a pass, with no `Runs as:` line; a Goal
 that only names a PR, stack or check for a pass is not one; and a builder, other than one on an
 open incident's order or an `immediate fix` part, while eight hold this Mac's builder slots or one
-waits its turn ahead of it, holding a refused job no agent runs waiting
-its turn and naming the line, earliest due first. The `scratch_folder` hook refuses a build
+waits its turn ahead of it, holding a refused job no agent runs and nothing else
+holds waiting its turn and naming the line, earliest due first. The `scratch_folder` hook refuses a build
 order's builder, designer or codex lane whose brief lacks the `Researched:` line the `brief` op
 writes once its reader's research is kept, unless its job ships the order's `immediate fix` part.
 Each refusal names its fix: do it, never route around it. These hooks run in the long-running
