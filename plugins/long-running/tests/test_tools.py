@@ -1,8 +1,8 @@
+import contextlib
 import io
 import json
-import os
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 
 import pytest
 from drive import card, cli, limits, mcp, reads, slack, state, tools, view
@@ -139,27 +139,41 @@ PLAN = {
 }
 
 
-def test_drive_break_glass_grants_in_the_jobs_name_then_becomes_its_command_under_the_machine_profile(
+def test_drive_break_glass_grants_in_the_jobs_name_then_runs_its_command_in_the_grants_environment_and_exits_as_it_does(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "count the stranded table copies")
     run("job", "add", "reader", "--order", "o1", "--goal", "count them")
     granted, ran = [], []
-    grant = "https://buildkite.com/forge/break-glass/builds/1926"
-    monkeypatch.setattr(reads, "break_glass", lambda stack, reason, asker, checkout: granted.append((stack, reason, asker, str(checkout))) or (grant, "plat-prod"))
-    monkeypatch.setattr(os, "execvpe", lambda file, argv, env: ran.append((file, argv, env["AWS_PROFILE"])))
-    run("break-glass", "j1", "--stack", "sandsql/plat-usw2-prod", "--reason", "count rows, read only", "--", "aws", "sts", "get-caller-identity")
+    grant = reads.Grant("https://buildkite.com/forge/break-glass/builds/1926", "plat-prod", state.parse_time("2026-11-12T12:22:25Z"), {"AWS_PROFILE": "plat-prod"})
+
+    @contextlib.contextmanager
+    def held(stack: str, reason: str, asker: str, checkout: object) -> Iterator[reads.Grant]:
+        granted.append((stack, reason, asker, str(checkout)))
+        yield grant
+
+    monkeypatch.setattr(reads, "break_glass", held)
+    monkeypatch.setattr(subprocess, "run", lambda argv, env, check: ran.append((argv, env)) or subprocess.CompletedProcess(argv, 3))
+    assert run("break-glass", "j1", "--stack", "sandsql/plat-usw2-prod", "--reason", "count rows, read only", "--", "aws", "sts", "get-caller-identity")[0] == 3
     coordinator = state.load(demo)["roles"]["coordinator"]["cwd"]
     assert granted == [("sandsql/plat-usw2-prod", "count rows, read only", "demo j1", coordinator)]
-    assert ran == [("aws", ["aws", "sts", "get-caller-identity"], "plat-prod")]
+    assert ran == [(["aws", "sts", "get-caller-identity"], grant.env)]
     assert run("break-glass", "j9", "--stack", "sandsql/plat-usw2-prod", "--reason", "x", "--", "aws", "s3", "ls")[0] == 2
 
-    def failed(*args: object) -> tuple[str, str]:
-        raise reads.ReadError(f"the break-glass grant {grant} failed, so nothing ran")
+    def failed(*args: object) -> Iterator[reads.Grant]:
+        raise reads.ReadError(f"the break-glass grant {grant.link} failed, so nothing ran")
 
     monkeypatch.setattr(reads, "break_glass", failed)
     assert run("break-glass", "o1", "--stack", "sandsql/plat-usw2-prod", "--reason", "x", "--", "aws", "s3", "ls")[0] == 2
     assert len(granted) == len(ran) == 1
+
+
+def test_drive_break_glass_refuses_a_blank_reason_before_any_grant(demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "count the stranded table copies")
+    monkeypatch.setattr(reads, "break_glass", lambda *args: pytest.fail("a blank reason started a grant"))
+    with pytest.raises(SystemExit) as refused:
+        run("break-glass", "o1", "--stack", "sandsql/plat-usw2-prod", "--reason", " ", "--", "aws", "s3", "ls")
+    assert refused.value.code == 2
 
 
 def test_search_plan_returns_the_plan_sections_carrying_its_words_under_their_headings(

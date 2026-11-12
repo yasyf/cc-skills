@@ -1,18 +1,31 @@
 import argparse
 import configparser
+import contextlib
 import itertools
 import json
 import os
 import re
 import shlex
 import subprocess
+import tempfile
+from collections.abc import Iterator
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
+
+from drive import state
+from drive.render import clock
 
 LOG = re.compile(r"LOG\s+(https?://\S+)")
 READ = re.compile(r"READ\s+(.+)")
 BREAK_GLASS = re.compile(r"BREAK-GLASS\s+(.+)")
 BREAK_GLASS_PIPELINE = "forge/break-glass"
 BREAK_GLASS_BRANCH = "dev"
+GRANT_ENDS = "break-glass-expires-at"
+STS_SHORTEST = timedelta(minutes=15)
+STS_CLOCK_MARGIN = timedelta(minutes=1)
+ASSUMED_KEYS = ("role_arn", "source_profile", "role_session_name")
+SESSION_NAME = re.compile(r"[^\w+=,.@-]+")
 STACK = re.compile(r"[a-z0-9-]+/([a-z0-9_-]+)")
 BUILD_NUMBER = re.compile(r"https://buildkite\.com/\S+/builds/(\d+)")
 ENVS = Path("infra") / "envs"
@@ -62,6 +75,14 @@ READ_SECONDS = 120
 
 class ReadError(Exception):
     pass
+
+
+@dataclass(frozen=True)
+class Grant:
+    link: str
+    profile: str
+    ends: datetime
+    env: dict[str, str]
 
 
 def request(body: str) -> str | None:
@@ -143,29 +164,69 @@ def break_glass_options(options: argparse.ArgumentParser) -> argparse.ArgumentPa
         help="the stack the grant names, such as sandsql/plat-usw2-prod; its env picks the account whose admin role the command runs as",
     )
     options.add_argument(
-        "--reason", required=True, help="why, as #releases shows it beside the grant, such as: count the table copies a restore stranded, read only"
+        "--reason",
+        required=True,
+        type=grant_reason,
+        help="why, as #releases shows it beside the grant, such as: count the table copies a restore stranded, read only",
     )
-    options.add_argument("command", nargs="+", help="after --, the command to run with this Mac's machine-chained profile for the env as AWS_PROFILE")
+    options.add_argument(
+        "command",
+        nargs="+",
+        help="after --, the command to run holding only the env's admin credentials, minted on this Mac's machine profile to end with the grant",
+    )
     return options
 
 
+def grant_reason(words: str) -> str:
+    """The reason a grant posts beside its link in #releases, refused when blank, since a grant nobody can account for is the one break-glass forbids."""
+    if not words.strip():
+        raise argparse.ArgumentTypeError("is blank: say why, as #releases shows it beside the grant, such as: count rows, read only")
+    return words.strip()
+
+
 def read_break_glass(words: str, checkout: Path, asker: str) -> str:
-    """Run a remote lane's command in the checkout under this Mac's machine profile once its break-glass grant passes, its output cut as a record read's is."""
+    """Run a remote lane's command in the checkout under its break-glass grant, as `drive break-glass` does, its output cut as a record read's is."""
     try:
         asked = break_glass_options(argparse.ArgumentParser(prog="BREAK-GLASS", add_help=False, exit_on_error=False)).parse_args(shlex.split(words))
     except (ValueError, argparse.ArgumentError) as error:
         raise ReadError(f'BREAK-GLASS --stack <domain>/<env> --reason "<why>" -- <command>: {error}') from None
-    granted, profile = break_glass(asked.stack, asked.reason, asker, checkout)
-    output = run(asked.command, checkout, {**os.environ, "AWS_PROFILE": profile}).strip()
-    return f"break-glass grant {granted} passed; {Path(asked.command[0]).name} ran under the {profile} profile\n{head(output)}"
+    with break_glass(asked.stack, asked.reason, asker, checkout) as granted:
+        output = run(asked.command, checkout, granted.env).strip()
+    return f"break-glass grant {granted.link} passed; {Path(asked.command[0]).name} ran {held(granted)}\n{head(output)}"
 
 
-def break_glass(stack: str, reason: str, asker: str, checkout: Path) -> tuple[str, str]:
-    """The forge/break-glass grant's build, started in the asker's name and passed, and the profile a command for the stack's env runs under on this Mac: the machine-chained one, so nobody signs in. A stack with no such profile is refused before any grant posts."""
+def held(granted: Grant) -> str:
+    """What a command under the grant held, as its run says it."""
+    return f"holding only the {granted.profile} profile's credentials, which end at {clock(granted.ends.astimezone())}"
+
+
+@contextlib.contextmanager
+def break_glass(stack: str, reason: str, asker: str, checkout: Path) -> Iterator[Grant]:
+    """The forge/break-glass grant for the stack, started in the asker's name and passed, with the environment a command under it runs in: the env's admin credentials, minted on this Mac's machine profile so nobody signs in and ending no later than the grant, as the one profile its AWS config names, every other AWS setting of this Mac left out, so a command naming another stack's profile finds none. A stack with no machine profile is refused before any grant posts; the credentials go when the block ends."""
     if not (named := STACK.fullmatch(stack)):
         raise ReadError(f'"{stack}" is no stack: name it as <domain>/<env>, such as sandsql/plat-usw2-prod')
     profile = machine_profile(named[1], checkout)
-    why = f"{asker}: {reason}"
+    link, ends = grant(stack, f"{asker}: {reason}", checkout)
+    minted = mint(profile, SESSION_NAME.sub("-", asker)[:64], link, ends, checkout)
+    name = profile.name.removeprefix("profile ")
+    settings = {key: value for key, value in profile.items() if key not in ASSUMED_KEYS}
+    with tempfile.TemporaryDirectory(prefix="drive-break-glass-") as kept:
+        config = configparser.RawConfigParser()
+        config[f"profile {name}"] = {
+            **settings,
+            "aws_access_key_id": minted["AccessKeyId"],
+            "aws_secret_access_key": minted["SecretAccessKey"],
+            "aws_session_token": minted["SessionToken"],
+        }
+        path = Path(kept) / "config"
+        with path.open("w") as written:
+            config.write(written)
+        isolated = {key: value for key, value in os.environ.items() if not key.startswith("AWS_")}
+        yield Grant(link, name, ends, {**isolated, "AWS_CONFIG_FILE": str(path), "AWS_SHARED_CREDENTIALS_FILE": os.devnull, "AWS_PROFILE": name})
+
+
+def grant(stack: str, why: str, checkout: Path) -> tuple[str, datetime]:
+    """The link of the forge/break-glass grant started with the reason once it passed, and the end its build records, an hour after it granted."""
     created = run(
         ["bk", "build", "create", "-p", BREAK_GLASS_PIPELINE, "-b", BREAK_GLASS_BRANCH, "-m", why]
         + ["-e", f"BREAK_GLASS_REASON={why}", "-e", f"BREAK_GLASS_STACK={stack}", "--no-input", "-y"],
@@ -174,13 +235,32 @@ def break_glass(stack: str, reason: str, asker: str, checkout: Path) -> tuple[st
     if not (build := BUILD_NUMBER.search(created)):
         raise ReadError(f"bk build create printed no build link: {created.strip()}")
     run(["bk", "build", "watch", build[1], "-p", BREAK_GLASS_PIPELINE, "--interval", "2"], checkout)
-    ended = json.loads(run(["bk", "build", "view", build[1], "-p", BREAK_GLASS_PIPELINE, "-o", "json"], checkout))["state"]
-    if ended != "passed":
-        raise ReadError(f"the break-glass grant {build[0]} {ended}, so nothing ran")
-    return build[0], profile
+    viewed = json.loads(run(["bk", "build", "view", build[1], "-p", BREAK_GLASS_PIPELINE, "-o", "json"], checkout))
+    if viewed["state"] != "passed":
+        raise ReadError(f"the break-glass grant {build[0]} {viewed['state']}, so nothing ran")
+    return build[0], state.parse_time(viewed["meta_data"][GRANT_ENDS])
 
 
-def machine_profile(env: str, checkout: Path) -> str:
+def mint(profile: configparser.SectionProxy, session: str, link: str, ends: datetime, checkout: Path) -> dict[str, str]:
+    """Credentials for the profile's role, assumed from its source profile, lasting until STS_CLOCK_MARGIN before the grant ends, since STS stamps their end by its own clock; refused when that leaves less than the STS_SHORTEST STS mints, as it does once the grant ended, and when STS still stamps an end past the grant's."""
+    lasting = ends - STS_CLOCK_MARGIN - state.now()
+    if lasting < STS_SHORTEST:
+        raise ReadError(
+            f"the break-glass grant {link} ends at {clock(ends.astimezone(), seconds=True)}, too soon for the {STS_SHORTEST.seconds // 60} minutes"
+            " the shortest AWS credentials last, so nothing ran: start a fresh grant"
+        )
+    assumed = run(
+        ["aws", "sts", "assume-role", "--profile", profile["source_profile"], "--role-arn", profile["role_arn"]]
+        + ["--role-session-name", session, "--duration-seconds", str(int(lasting.total_seconds())), "--output", "json"],
+        checkout,
+    )
+    minted = json.loads(assumed)["Credentials"]
+    if state.parse_time(minted["Expiration"]) > ends:
+        raise ReadError(f"STS minted credentials ending at {minted['Expiration']}, past the end of the break-glass grant {link} at {ends.isoformat()}, so nothing ran")
+    return minted
+
+
+def machine_profile(env: str, checkout: Path) -> configparser.SectionProxy:
     """The profile in this Mac's AWS config that assumes the admin role of the env's account, its role the account's name under its namespace, and reaches it through each source_profile from a credential_process, the machine certificate, never an SSO sign-in."""
     declared = checkout / ENVS / f"{env}.yaml"
     if not declared.is_file():
@@ -193,7 +273,7 @@ def machine_profile(env: str, checkout: Path) -> str:
     config = configparser.RawConfigParser()
     config.read(path)
     chained = (
-        section.removeprefix("profile ")
+        config[section]
         for section in config.sections()
         if config[section].get("role_arn", "").endswith(f":role/{role}") and machine_chained(config, section)
     )
