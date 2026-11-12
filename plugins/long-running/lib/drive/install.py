@@ -6,7 +6,9 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 
@@ -58,6 +60,8 @@ def clock() -> float:
 
 
 def sleep(seconds: float) -> None:
+    """Wait between reads holding no install's lock, so a newer install's first save never waits on an install waiting for a release."""
+    state.let_go_install()
     time.sleep(seconds)
 
 
@@ -76,6 +80,17 @@ def run(cmd: list[str], deadline: float, cwd: str | None = None) -> str:
 
 def config_dir() -> Path:
     return Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+
+
+@contextmanager
+def update_lock(deadline: float) -> Iterator[None]:
+    """Take turns on Claude Code's plugin store and on Homebrew with every other install on this Mac, holding no install's lock while waiting, and failing at the deadline with who holds the turn."""
+    state.let_go_install()
+    path = config_dir() / "plugins" / UPDATE_LOCK
+    with open(path, "a") as handle:
+        if not state.taken(handle, max(deadline - clock(), 0)):
+            raise InstallError(f"another install held {path} past the deadline: {state.holders(path)}")
+        yield
 
 
 def known_marketplaces() -> dict:
@@ -309,7 +324,7 @@ def await_homebrew(clone: str, binary: str, sha: str | None, deadline: float, ti
     tap = run(["brew", "--repository", TAP], deadline).strip()
     last = ""
     while True:
-        with state.flocked(config_dir() / "plugins" / UPDATE_LOCK):
+        with update_lock(deadline):
             git(tap, "pull", "--ff-only", "--quiet", deadline=deadline)
             run(["env", "HOMEBREW_NO_AUTO_UPDATE=1", "brew", "upgrade", f"{TAP}/{binary}"], deadline)
         if sha is None:
@@ -374,7 +389,7 @@ def helper_card(drives: list[str], release: str) -> str:
 
 def meet_helper(key: str, floor: str, deadline: float, drive: str | None) -> None:
     """Move Captain Hook.app onto captain-hook's newest release with `capt-hook helper install` when its Info.plist names a release below the floor the plugin needs, once he tapped Install now on the card asking it, since the restart reaches every session on this Mac; held with that card named until then."""
-    with state.flocked(config_dir() / "plugins" / UPDATE_LOCK):
+    with update_lock(deadline):
         if (runs := app_release()) and at_least(runs, floor):
             return
         try:
@@ -382,7 +397,7 @@ def meet_helper(key: str, floor: str, deadline: float, drive: str | None) -> Non
             drives = [state.resolve(drive)]
             approved = helper_approved(drives, release)
             card = helper_card(drives, release)
-        except (github.GithubError, state.DriveError) as error:
+        except (github.GithubError, state.DriveError, state.NewerDrive) as error:
             raise InstallError(f"{key} needs captain-hook {floor}, above the release Captain Hook.app runs, and whether he approved its restart did not read: {error}") from None
         if not at_least(release, floor):
             raise InstallError(f"{key} needs captain-hook {floor}, and its newest release is {release}")
@@ -474,7 +489,8 @@ def install(key: str, sha: str | None, repo: str | None, deadline: float, timeou
             if each["name"] == HOOKS:
                 meet_helper(key, floor[1], deadline, drive)
             meet_sibling(f"{each['name']}@{each['marketplace']}", floor[1], deadline, timeout, drive)
-        with state.flocked(config_dir() / "plugins" / UPDATE_LOCK):
+        with update_lock(deadline):
+            state.hold_install()
             run(["claude", "plugin", "marketplace", "update", marketplace], deadline)
             for each in installs(key):
                 run(["claude", "plugin", "update", key, "--scope", each["scope"]], deadline, each.get("projectPath"))
@@ -504,7 +520,14 @@ def proved(key: str, repo: str | None, deadline: float) -> list[str]:
         return []
     with tempfile.TemporaryDirectory(prefix="drive-install-") as clone:
         bare_clone(clone, repo, deadline)
-        return [line for name, job_id in due if (line := prove(name, job_id, key, repo, clone, deadline))]
+        lines = []
+        for name, job_id in due:
+            try:
+                if line := prove(name, job_id, key, repo, clone, deadline):
+                    lines.append(line)
+            except state.NewerDrive as error:
+                print(f"drive install: proves {job_id} on {name} nowhere: {error}", file=sys.stderr)
+        return lines
 
 
 def provable(data: dict, repo: str) -> list[str]:
@@ -543,8 +566,6 @@ def prove(name: str, job_id: str, key: str, repo: str, clone: str, deadline: flo
     except OSError as error:
         code, output = f"unrun ({error})", ""
     kept = state.report_path(name, job_id).with_suffix(".proof.txt")
-    kept.parent.mkdir(exist_ok=True)
-    kept.write_text(output)
     versions = ", ".join(f"{plugin} {build['version']}" for plugin, build in builds.items())
     urls = " ".join(job["prs"])
     tail = next((line.strip() for line in reversed(output.splitlines()) if line.strip()), "no output")
@@ -555,6 +576,8 @@ def prove(name: str, job_id: str, key: str, repo: str, clone: str, deadline: flo
         job, order = data["jobs"][job_id], data["orders"][data["jobs"][job_id]["order"]]
         if job["state"] != "waiting" or not state.REPORTED_LINE.match(job["said"] or ""):
             return None
+        kept.parent.mkdir(exist_ok=True)
+        kept.write_text(output)
         seen = [found for found in brief.proofs(output) if brief.SEEN_PROOF.search(found)]
         whole = f"{line}\nPR: {urls}\nCHECK: {' '.join([str(kept), *seen])}\n"
         state.keep_report(name, job_id, job, line, whole)
@@ -652,7 +675,8 @@ def reload_main() -> int:
 
 
 def main(plugin_at_marketplace: str, sha: str | None, repo: str | None, timeout: int, drive: str | None) -> int:
-    """Wait for a release holding sha, its commit and each binary it pins, bring each sibling its manifest there needs up to that release first, Captain Hook.app only once he tapped Install now on the drive's card for it, update the plugin and its Homebrew twin until the bare binary holds sha, print the installed version, prove each fix the install made live, then reload every drive session on this Mac; each drive's dashboard and watch reopen on a newer long-running themselves, whose first save of a drive waits for this verb's install's lock, so the proof never meets a drive.json the newer install saved. A sha no release will hold prints why and installs nothing."""
+    """Wait for a release holding sha, its commit and each binary it pins, bring each sibling its manifest there needs up to that release first, Captain Hook.app only once he tapped Install now on the drive's card for it, update the plugin and its Homebrew twin until the bare binary holds sha, print the installed version, prove each fix the install made live, then reload every drive session on this Mac. It holds its install's lock only from an update to the proof that follows it, never while it waits on a release, Homebrew or another install's turn, so a newer install's first save of a drive waits on no wait of this one; each drive's dashboard and watch reopen on a newer long-running themselves, whose first save waits for that lock, so the proof after an install of long-running meets no drive.json the newer install saved, and a drive one saved while this verb waited proves nothing here. A sha no release will hold prints why and installs nothing."""
+    state.let_go_install()
     deadline = clock() + timeout
     try:
         version = install(plugin_at_marketplace, sha, repo, deadline, timeout, drive)
@@ -669,6 +693,7 @@ def main(plugin_at_marketplace: str, sha: str | None, repo: str | None, timeout:
         lines = proved(plugin_at_marketplace, repo, deadline)
     except InstallError as error:
         lines, failed = [], f"drive install: installed, but its proof of the fixes it made live failed: {error}"
+    state.let_go_install()
     for line in [*lines, *reload_sessions(version, updated, deadline)]:
         print(line)
     if failed:

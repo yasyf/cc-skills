@@ -107,6 +107,25 @@ def test_a_first_save_waits_only_for_verbs_of_the_installs_from_the_one_that_sav
         handle.close()
 
 
+def test_a_first_save_goes_ahead_past_an_older_installs_verb_running_longer_than_the_wait_which_then_refuses_the_drive(
+    state_root: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    make("demo")
+    path = state.state_path("demo")
+    path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "0.0.1"}))
+    monkeypatch.setattr(state, "OLDER_VERBS_SECONDS", 0.3)
+    state.install_lock("0.0.1").parent.mkdir(parents=True)
+    with open(state.install_lock("0.0.1"), "a") as stuck:
+        fcntl.flock(stuck, fcntl.LOCK_SH)
+        with state.edit("demo") as data:
+            data["run"] = "run-1"
+    assert (state.load("demo")["run"], json.loads(path.read_text())["saved_by"]) == ("run-1", state.VERSION)
+    assert "demo saved past long-running 0.0.1's verbs still running after 0.3s" in capsys.readouterr().err
+    monkeypatch.setattr(state, "VERSION", "0.0.1")
+    with pytest.raises(state.NewerDrive):
+        state.load("demo")
+
+
 def test_load_gives_each_picture_drawn_before_pictures_kept_their_source_its_kept_question_or_pr_fence_once(state_root: Path) -> None:
     make("demo")
     drive = state_root / "demo"

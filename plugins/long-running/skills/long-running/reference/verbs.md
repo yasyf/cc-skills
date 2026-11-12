@@ -4,11 +4,15 @@ Every verb `drive` takes and every flag of each, one row per verb; a test keeps 
 the parser. Read a row with `drive manual verbs "<verb>"`, because it prints the installed row
 whole, refusals included. Rows leave out `--drive <name>`, by default this session's drive, and
 `--json`; `[ ]` marks what may be left out, `...` what repeats. Read an order, job or PR with
-`drive status <id>`, which `drive order show` and `drive job show` print too. Each verb holds a
-shared lock on its install until it returns, and a newer install's first save of a drive an older one
-saved waits for those locks, so no verb meets a `drive.json` saved by code newer than its own. A
-`drive` started from an older install than the newest, such as a launch's bind prefix, hands itself
-to the newest install's `drive` before any verb acts.
+`drive status <id>`, which `drive order show` and `drive job show` print too.
+
+Each verb holds a shared lock on its install until it returns. A newer install's first save of a
+drive an older one saved waits up to 20 seconds for those locks, so no verb meets a `drive.json`
+saved by code newer than its own. A verb still running after that no longer holds the save back. The
+save names its pid and command, and that verb refuses the drive at its next load instead of writing
+over it. `drive install` holds its lock only from its update to its proof, never while it waits on a
+release, Homebrew or another install's turn. A `drive` started from an older install than the newest,
+such as a launch's bind prefix, hands itself to the newest install's `drive` before any verb acts.
 
 ## Tool or Bash
 
