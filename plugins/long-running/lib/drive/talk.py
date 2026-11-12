@@ -1,6 +1,8 @@
+import html
 import json
 import os
 import re
+import time
 from pathlib import Path
 
 from drive import agents, cli, picture, reads, refs, render, slack, state, view
@@ -13,6 +15,9 @@ HELD = "report {seq} held for his catch-up, since he is away; drive status lists
 TICKET_FLAGS = {"ticket_id": "--ticket", "ticket_tree": "--ticket-tree", "ticket_agent": "--ticket-agent", "ticket_call": "--ticket-call", "ticket_fingerprint": "--ticket-fingerprint"}
 EDIT_TAKES = {"edit", "text", "asked", "dry_run", *TICKET_FLAGS}
 DM_ONLY = ("card", "tap_prs", "about")
+OPENING_WORDS = 12
+RECENT_POSTS = 50
+WORD = re.compile(r"\w+")
 
 
 def say(name: str, post: dict) -> str:
@@ -184,7 +189,7 @@ def shown(name: str, post: dict) -> tuple[list[dict], str, list[str]]:
 
 
 def posted(name: str, post: dict) -> dict:
-    """cc-slack's reply to the post, or to the edit rewording a post of its own, which went out with its references linked, each visual drawn as a picture but a chart, which Slack draws itself, and each code or diagram fence of its text drawn as a picture too, and is kept as a said event for the dashboard, which draws each visual and fence live from its source and each PR of a stack card with its state now, an edit's words in place of its post's; a post that draws a card stores his cards as cc-slack lists them now, so the next post's hook sees that card; a post check refuses goes nowhere. A PR card's line goes in each thread its PRs' orders have, so whichever he reads carries the card's link."""
+    """cc-slack's reply to the post, or to the edit rewording a post of its own, which went out with its references linked, each visual drawn as a picture but a chart, which Slack draws itself, and each code or diagram fence of its text drawn as a picture too, and is kept as a said event for the dashboard, which draws each visual and fence live from its source and each PR of a stack card with its state now, an edit's words in place of its post's; a post that draws a card stores his cards as cc-slack lists them now, so the next post's hook sees that card; a post check refuses goes nowhere, and a new post of words alone that cc-slack reports failing is read back from Slack, kept and recorded when it went out anyway, cc-slack's error its warning. A PR card's line goes in each thread its PRs' orders have, so whichever he reads carries the card's link."""
     text = post.get("text") or ""
     found = refs.resolved(name, text)
     check(name, post)
@@ -195,15 +200,21 @@ def posted(name: str, post: dict) -> dict:
     pictures = [*(visual["picture"] for visual in visuals if "picture" in visual), *lifted]
     asked = cli.asked_on(name, card["waits"]) if card and card.get("waits") else set()
     first, *others = threads(name, post, stack)
-    reply = slack.cc_slack(
-        *(
-            ["edit", "--url", post["edit"], "--text", sent, *ticketed(post)]
-            if post.get("edit")
-            else replied(post, pictures, sent)
-            if post.get("channel_id")
-            else status(name, post | {"thread_ts": first}, stack, pictures, sent)
+    began = time.time()
+    try:
+        reply = slack.cc_slack(
+            *(
+                ["edit", "--url", post["edit"], "--text", sent, *ticketed(post)]
+                if post.get("edit")
+                else replied(post, pictures, sent)
+                if post.get("channel_id")
+                else status(name, post | {"thread_ts": first}, stack, pictures, sent)
+            )
         )
-    )
+    except slack.SlackError as error:
+        if post.get("edit") or card or stack or not sent:
+            raise
+        reply = landed(name, post, began, sent, error)
     if card:
         reply |= {"card_permalink": " ".join([reply["permalink"], *filter(None, [reply.get("card_permalink")])])}
     if card and card.get("waits"):
@@ -227,6 +238,25 @@ def posted(name: str, post: dict) -> dict:
     for thread in others:
         linked(name, reply["permalink"], thread, stack, refs.slack(words, found, thread), kept)
     return reply
+
+
+def landed(name: str, post: dict, began: float, sent: str, error: slack.SlackError) -> dict:
+    """cc-slack's reply, read back from Slack, for a new post of words alone it reported failing: the bot's message sent since the call began, in the post's thread or at its channel's root, opening with the post's words, since cc-slack can post and then fail, as dm-status does when its deadline passes after the post went out; the error again when Slack holds no such message."""
+    channel = post.get("channel_id") or state.load(name)["slack"]["channel"]
+    if thread := post.get("thread_ts"):
+        read = slack.cc_slack("thread", "--channel", channel, "--thread", thread, "--since-ts", str(int(began)), "--limit", str(RECENT_POSTS))
+        team_url = view.stored_cards(name)[0]["team_url"]
+        messages = [
+            message | {"permalink": f"{team_url}archives/{read['channel_id']}/p{message['ts'].replace('.', '')}?thread_ts={thread}&cid={read['channel_id']}"}
+            for message in read["messages"]
+        ]
+    else:
+        messages = [message | {"thread_ts": message["ts"]} for message in slack.cc_slack("history", "--channel", channel, "--limit", str(RECENT_POSTS), "--json")["messages"]]
+    opening = WORD.findall(sent)[:OPENING_WORDS]
+    for message in messages:
+        if message.get("from_claude") and float(message["ts"]) >= int(began) and WORD.findall(html.unescape(message["text"]))[: len(opening)] == opening:
+            return {"permalink": message["permalink"], "thread_ts": message.get("thread_ts"), "warning": f"cc-slack said {error}, but the post is in Slack"}
+    raise error
 
 
 def threads(name: str, post: dict, stack: list[str]) -> list[str | None]:

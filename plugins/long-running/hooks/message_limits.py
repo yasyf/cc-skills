@@ -111,6 +111,21 @@ WHOLE = (
     " It names no message of his as asked, so it is not an answer and keeps that limit. An answer to a question or"
     " order of his goes out whole, at any length: pass as asked each message of his it answers, word for word, one per line."
 )
+CODE_SPAN = re.compile(r"`([^`\n]+)`")
+LINKED = re.compile(r"<https?://[^>]*>|https?://\S+")
+INNER = re.compile(r"\w(?:_|\.|/|::)\w")
+PLACE = re.compile(r"<[^<>]*>")
+WORD = re.compile(r"[a-z_]\w*")
+EDGES = ".,;:!?()[]\"'“”‘’*"
+CALL_SHOWN = 240
+LINE_SHOWN = 200
+READS_SOURCE = (
+    "the reads the posting handler made itself, from its own transcript: each tool call whose result came back, its posts"
+    " aside, numbered, then each name the post uses beside the first line of each read, its call or its result, holding it;"
+    " another agent's or"
+    " session's read, a doc, the project's loaded instructions and the handler's brief are none of these"
+)
+CARRIED_SOURCE = "the report this post carries as say's record, another agent's words, which back a line only as the record that measured it"
 
 
 class Warned(str):
@@ -681,22 +696,72 @@ def denial(reason: str) -> dict:
     }
 
 
+def read_evidence(payload: dict) -> list[dict]:
+    """What Jev weighs every handler's say post by beside his words, whatever the checks found: the reads the handler made itself and the report the post carries, since a line on where code lives, what it does, or a number or state stands only on a read or the record that measured it; none for any other post, such as the communicator's ack, or a card or PR card, which a record draws."""
+    tool_input = payload["tool_input"]
+    if payload["tool_name"] != SAY or not payload.get("agent_id") or tool_input.get("card") or tool_input.get("tap_prs") or his_drive(payload.get("session_id") or "") is None:
+        return []
+    report = [{"id": f"record:{seq}", "source": CARRIED_SOURCE, "quote": agents.record(seq)}] if (seq := tool_input.get("record")) else []
+    return [own_reads(payload, tool_input.get("text") or ""), *report]
+
+
+def own_reads(payload: dict, said: str) -> dict:
+    """The handler's own reads as one evidence item: each tool call of its transcript whose result came back, its posts aside, and for each name the post uses the line of each read's result holding it, so Jev sees a name no read returned, and one only a comment, a panic message or a doc holds."""
+    calls: dict[str, str] = {}
+    results: list[tuple[list[str], str]] = []
+    for row in agents.tail(agents.transcript(payload)):
+        for part in agents.parts(row):
+            if part.get("type") == "tool_use" and part.get("name") not in DM_POSTS | CHANNEL_POSTS:
+                calls[part["id"]] = f"{part['name'].rpartition('__')[2]} {render.cut(json.dumps(part.get('input'), ensure_ascii=False), CALL_SHOWN)}"
+            elif part.get("type") == "tool_result" and not part.get("is_error") and part.get("tool_use_id") in calls:
+                lines = [calls[part["tool_use_id"]], *result_text(part).splitlines()]
+                results.append((lines, "\n".join(lines).casefold()))
+    listed = [f"[{index}] {lines[0]}" for index, (lines, _) in enumerate(results, 1)] or ["none: no call of the handler's returned a result"]
+    held = []
+    for name in names(said):
+        found = [f"[{index}] {render.cut(line, LINE_SHOWN)}" for index, (lines, folded) in enumerate(results, 1) if (line := holding(pieces(name), lines, folded))]
+        held.append(f"{name}: {' | '.join(found) or 'no read returned it'}")
+    return {"id": "reads:own", "source": READS_SOURCE, "quote": "\n".join(["Reads:", *listed, "Names the post uses:", *(held or ["none"])])}
+
+
+def names(said: str) -> list[str]:
+    """Each name a post uses: a code span, a word with `_`, `.`, `/` or `::` inside it, such as a path, a function or a number, and a capitalized word not opening a sentence, such as a product."""
+    found = CODE_SPAN.findall(said)
+    for sentence in SENTENCE_BREAK.split(LINKED.sub(" ", refs.REF.sub(" ", CODE_SPAN.sub(" ", said)))):
+        for index, word in enumerate(word.strip(EDGES) for word in sentence.split()):
+            if INNER.search(word) or (index and len(word) > 1 and word[0].isupper()):
+                found.append(word)
+    return list(dict.fromkeys(found))
+
+
+def pieces(name: str) -> list[str]:
+    """The words a read must hold, on one line, to return a name, case aside: each identifier in it, so `journalValues.PutAt` is returned by `func (v *journalValues) PutAt` and a path by the call reading it, a `<placeholder>` standing for any words; the whole name when it holds none, such as a number."""
+    return [word for word in WORD.findall(PLACE.sub(" ", name.casefold())) if len(word) > 2] or [name.casefold()]
+
+
+def holding(words: list[str], lines: list[str], folded: str) -> str | None:
+    """The first line of a read, its call then its result, holding every word."""
+    if not all(word in folded for word in words):
+        return None
+    return next((line for line in lines if all(word in line.casefold() for word in words)), None)
+
+
 def main() -> None:
     payload = agents.seen(json.load(sys.stdin))
     try:
         reason, sent = checked(payload)
+        reads = [] if isinstance(reason, agents.Unjudged) else read_evidence(payload)
+        heard = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": reason}} if isinstance(reason, Warned) else {}
+        reason = "" if heard else reason
+        judged = {"his_words": his_words(payload), "reads": reads, "post": sent} if (reason or reads) and not isinstance(reason, agents.Unjudged) else {}
     except Exception as error:
-        reason, sent = (
+        reason, heard, judged = (
             f"refused: the drive's message check failed on this post with {type(error).__name__}: {error}, so it does not go"
             " out unchecked. Name it on a DEFECT line, and the post goes out once the check's fix is installed."
-        ), payload["tool_input"]
-    if not reason:
-        return
-    if isinstance(reason, Warned):
-        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": reason}}))
-        return
-    judged = {} if isinstance(reason, agents.Unjudged) else {"his_words": his_words(payload), "post": sent}
-    print(json.dumps(denial(reason) | agents.ruled(reason) | judged))
+        ), {}, {}
+    refused = denial(reason) | agents.ruled(reason) if reason else {}
+    if output := heard | refused | judged:
+        print(json.dumps(output))
 
 
 if __name__ == "__main__":

@@ -15,6 +15,14 @@ scripts. Your brief's `Drive:` line names `<your job>` and `Scratch:` your one f
   `cc-transcript` for a session, cc-notes answers for his decisions, `drive status` for orders and
   jobs, the plan for its steps (`drive plan search <words>`, or the `search_plan` tool), and a
   release's commit and build for its contents. A missing message proves nothing.
+- A fact about code, where it lives, what it does or why, cites your own read of the code that
+  does it, by his words "stop saying wrong shit bc you jsut guess and its probably misleading all
+  your work" and "dont just take things for granted critically evakuate them". A code comment, a
+  panic, error or log message, a doc, a PR body, the brief, a record or an earlier answer is a
+  claim to test against that code, never a fact: your report says whether each claim it relies on
+  holds and names the read that decides it. A fact about every case cites what decides it, never
+  one case, and a mechanism you name cites the read showing the system controls that piece where it
+  would run, by his words "we cant do that since we dont control the poloices on customer bucket".
 - Whether something he uses works is read where he uses it, never from API data.
 - Make every read the order names, whoever owns the data; his order authorizes it and a read
   writes nothing. A refusal sends you that turn down the staff route that opens it: an admin view,
@@ -32,8 +40,8 @@ scripts. Your brief's `Drive:` line names `<your job>` and `Scratch:` your one f
   Code raises on your Bash call. Bypass permissions mode still asks when Claude Code's parser
   cannot read a command, such as one with a zsh expansion flag like `${(s:,:)tables}`: write such
   a command, and any multi-step logic, to a scratch script by quoted heredoc and run the file.
-- Stop once the answer is proven, each fact citing a read you made; note any further question as
-  one report line.
+- Stop once the answer is proven, each fact citing a read you made at its `path:line` or command;
+  note any further question as one report line.
 - Give each number as itself, marked measured or worked out from code, in rows a chart can draw
   with real contents in every cell, since a question card's Show me is drawn from your facts.
 

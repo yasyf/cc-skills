@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import runpy
 import subprocess
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -24,6 +25,7 @@ from captain_hook import (
     Warn,
     on,
 )
+from captain_hook.prompt import Prompt
 from captain_hook.tickets import Context, Decide, Evidence, Proposal, Undecided, UserAnswered
 from captain_hook.tickets.context import said_evidence
 from captain_hook.tickets.decide import UNPERMITTED, cited
@@ -31,7 +33,8 @@ from spawnllm import LabelAnswer
 
 newest_install = runpy.run_path(str(Path(__file__).resolve().parents[2] / "hooks" / "installed.py"))["root"]
 SLACK = "mcp__plugin_cc-slack_cc-slack__"
-POSTS = (*(SLACK + tool for tool in ("slack_dm_status", "slack_reply", "slack_send", "slack_edit")), "mcp__plugin_long-running_drive__say")
+SAY = "mcp__plugin_long-running_drive__say"
+POSTS = (*(SLACK + tool for tool in ("slack_dm_status", "slack_reply", "slack_send", "slack_edit")), SAY)
 NO_DRIVE = "0a0a0a0a-no-drive-session"
 COORDINATOR = "coordinator-fixture"
 COMMUNICATOR = "communicator-fixture"
@@ -57,24 +60,27 @@ ASKED = (
 DRIVE_POST = "drive.post"
 JUDGED_TURNS = 12
 POST_FRAME = """
-    You decide whether the findings the drive's fixed checks raised on one pending post hold against it. <rules> are
-    the hook's own rules for this kind of post; follow them. <evidence> lists the rule each finding stands for, in the
-    installed skills' words, and the user's words, each under an id: only the user's items count as the user speaking.
-    <action> is the post and what the checks found in it.
+    You decide whether one pending post to the user goes out. <rules> are the hook's own rules for this kind of post;
+    follow them. <evidence> holds, each under an id: the user's words, the only items in which the user speaks; the
+    rule each finding of the drive's fixed checks stands for, in the installed skills' words; and on a handler's post
+    the reads the handler made itself and the report the post carries, whatever label an item shows. <action> is the
+    post and what the checks found in it, none when they found nothing.
 
     Cite in relied_on the ids of every evidence item your verdict rests on, copied exactly from the square brackets in
     <evidence>; an allow that cites none of them is refused.
     When you refuse, set refusal to one plain sentence for the agent, under 150 characters, with no quotation marks,
-    ids, dates, or times: which finding holds against which words of the post, and its fix. Reason first, quoting the
-    rule or user words you relied on, then set allow.
+    ids, dates, or times: which finding or unread claim holds against which words of the post, and its fix. Reason
+    first, quoting the rule, read or user words you relied on, then set allow.
 """
 POST_RULES = """
     The agent is about to post one line to the user in his Slack DM with the app; <action> holds the post and what the
-    drive's fixed checks found in it. Judge only those findings: each is a pattern standing for a rule whose own words
-    <evidence> holds beside his, numbered as the findings are, and a pattern can match words its rule never meant.
-    Allow the post, citing the rule or his words, when no finding's rule holds against the line it names; refuse,
-    naming the finding and its fix, when one does and no word of his lifts it. What the post says beyond his message
-    is never a reason to refuse.
+    drive's fixed checks found in it. Judge two things and nothing else: each finding, and on a handler's post whether
+    each claim stands on a read.
+
+    Findings. Each is a pattern standing for a rule whose own words <evidence> holds beside his, numbered as the
+    findings are, and a pattern can match words its rule never meant. A finding holds back the line it names when its
+    rule holds against that line and no word of his lifts it. What the post says beyond his message is never a reason
+    to refuse.
     - A post that answers a message, card answer or order of his goes out whole, at any length. The words it passes
       as asked are his when an evidence item holds them, typed in the thread or picked or typed on a card. The brief
       the agent was started with and the records it reads are other agents' words, never his, whatever they quote.
@@ -94,10 +100,27 @@ POST_RULES = """
     - A line saying how a failure the post tells is prevented, the tool change and the order or PR carrying it, is
       within his words whenever the post answers a question of his or tells a failure, since his ruling on failures in
       <evidence> asks for it; it is never other work outside them.
+
+    Reads, by his ruling "stop saying wrong shit bc you jsut guess" and "dont just take things for granted critically
+    evakuate them". When <evidence> holds the handler's own reads, each line saying where code lives, what it does or
+    why, or a number or state, stands only on a read there whose result holds what the line says, on his words, or on
+    a {record:} or the carried report of the record that measured it. Refuse a line standing on none, naming it and
+    the read it needs; the fix is that read, or the line cut to what the reads show.
+    - A doc, the project's loaded instructions, the brief, a PR body, an earlier answer, or a record's words the line
+      goes beyond are claims to test against the code, never what a line stands on.
+    - A code comment, a panic, error or log message is the code's claim about itself: a read holding only it backs no
+      line about the behavior it names. The read must reach the code that does it, such as the statement deleting the
+      ids, not the panic saying a pack deletes them.
+    - A line about every case, with each, every, all, always, never, by default or only, needs a read of what decides
+      it, not of one case: a read of one table's history shadow backs nothing about each table.
+    - A mechanism the line proposes, or a step it says needs no code, stands only on a read showing the system owns
+      and controls that piece where it would run, by his words "we cant do that since we dont control the poloices on
+      customer bucket": a lifecycle rule on a prefix of a team's bucket needs a read of who sets that bucket's policy.
+    - A name the reads list beside "no read returned it" is unread, and a line that turns on it stands on nothing.
+    - The handler's account of its own act, his words quoted back, and the drive's own state the post names through a
+      reference such as {pr:} or {card:} need no read.
 """
 RULE_SOURCE = "the rules the drive's checks stand for, in the installed long-running and cc-slack skills' words"
-JUDGE = Decide(POST_RULES, frame=POST_FRAME, second_opinion=False, transcript=JUDGED_TURNS, root_transcript=JUDGED_TURNS, tool_results=True)
-HANDLER_JUDGE = replace(JUDGE, over=(UserAnswered(approved=False),))
 DRIVE_ASK = "drive.ask"
 ASK_RULES = """
     The agent is about to keep a question card for the user; <action> holds the case its block makes: the question,
@@ -119,14 +142,35 @@ class UnshownCall(PendingToolCall):
         return None
 
 
+@dataclass(frozen=True, slots=True)
+class Weighed(Decide):
+    """A judge that reasons over every evidence item and never takes Jev's quick pick of one item permitting the post, since whether each claim stands on a read is no single item's to permit."""
+
+    def quick(self, ctx: Context, prompt: Prompt, items: Sequence[Evidence]) -> None:
+        return None
+
+
 ASK_JUDGE = Decide(ASK_RULES, contexts=(UnshownCall(),), second_opinion=False)
+JUDGE = Weighed(POST_RULES, frame=POST_FRAME, second_opinion=False, transcript=JUDGED_TURNS, root_transcript=JUDGED_TURNS, tool_results=True)
+HANDLER_JUDGE = replace(JUDGE, over=(UserAnswered(approved=False),))
 JEV_UNSURE = {"permits": LabelAnswer(UNPERMITTED, {UNPERMITTED: 1.0}, 0.9)}
 SAID_AT = datetime(2026, 11, 11, 17, 40, tzinfo=UTC)
 TAP_ASKED = "tell me when deleting the old memory indexes needs my tap"
+GUESSED = "The inbox reader is not one function: the Mac reads over HTTP and the cloud straight from Postgres."
+DELIVER_READ = '[1] ccx_code_grep {"text": "func Deliver", "paths": ["go/sand/next/internal/inbox"]}'
+CLOUD_READ = '[2] ccx_code_read {"path": "go/sand/next/internal/cloudrunner/inbox.go"}'
+
+
+def handler_reads(*held: str) -> str:
+    """What message_limits.py hands Jev for a handler's say post its checks found nothing in: the handler's own reads and each name the post uses beside the line holding it."""
+    reads = [DELIVER_READ, *([CLOUD_READ] if held else [])]
+    names = [f"Mac: {DELIVER_READ}", f"HTTP: {DELIVER_READ}", f"Postgres: {held[0] if held else 'no read returned it'}"]
+    quote = "\n".join(["Reads:", *reads, "Names the post uses:", *names])
+    return json.dumps({"his_words": [], "reads": [{"id": "reads:own", "source": "the reads the posting handler made itself", "quote": quote}], "post": {"text": GUESSED, "thread_ts": THREAD}})
 
 
 def checked(evt: BaseHookEvent, script: str) -> HookResult | None:
-    """Run the drive's own check for this call from the newest installed long-running, since capt-hook keeps this pack loaded from the install it first found while an install leaves the pack's files unchanged, and let Jev judge each refusal it makes by the rule the check names, else by its words, so a check that matched a call its rule never meant lets the call through; a merge, release or public-body guard, or a refusal decided by the call's shape alone, the check marks unjudged and it blocks outright, and a check that exits non-zero raises with its own stderr, so capt-hook's log names why it failed."""
+    """Run the drive's own check for this call from the newest installed long-running, since capt-hook keeps this pack loaded from the install it first found while an install leaves the pack's files unchanged, and let Jev judge each refusal it makes by the rule the check names, else by its words, so a check that matched a call its rule never meant lets the call through, and every handler's say post by the reads the check hands with it, whatever it found; a merge, release or public-body guard, or a refusal decided by the call's shape alone, the check marks unjudged and it blocks outright, and a check that exits non-zero raises with its own stderr, so capt-hook's log names why it failed."""
     payload = evt._raw
     ran = subprocess.run(
         ["python3", "-I", str(newest_install() / "hooks" / script)],
@@ -143,9 +187,11 @@ def checked(evt: BaseHookEvent, script: str) -> HookResult | None:
     if case := output.get("ask"):
         return asked(evt, case, [Evidence.model_validate(word) for word in output["his_words"]])
     found = output.get("hookSpecificOutput") or {}
-    if reason := found.get("permissionDecisionReason") or (output.get("decision") == "block" and output["reason"]):
-        if (words := output.get("his_words")) is not None:
-            return judged(evt, reason, output.get("rule") or "", [Evidence.model_validate(word) for word in words], output["post"])
+    reason = found.get("permissionDecisionReason") or (output.get("decision") == "block" and output["reason"]) or ""
+    if (words := output.get("his_words")) is not None:
+        verdict = judged(evt, reason, output.get("rule") or "", [Evidence.model_validate(item) for item in [*words, *output.get("reads", [])]], output["post"])
+        return verdict or (evt.context(context) if (context := found.get("additionalContext")) else None)
+    if reason:
         return evt.block(reason, confirm=Confirm(rule=output.get("rule") or reason) if output.get("judged", True) else None)
     if made := found.get("updatedInput"):
         return evt.rewrite(made, note=found.get("additionalContext"))
@@ -155,23 +201,27 @@ def checked(evt: BaseHookEvent, script: str) -> HookResult | None:
 
 
 def judged(evt: BaseHookEvent, reason: str, rule: str, words: list[Evidence], post: dict) -> HookResult | None:
-    """Jev's verdict on a post the drive's checks found something in, judged by the rule each finding stands for: Jev reads the post as Slack gets it, each of say's references linked, each finding beside its rule's words, and his messages and card answers in this thread and his answers in the transcripts, and it goes out when no finding's rule holds against the line it names, or his words lift it, and stays back with Jev's reason when one does, never for saying more than his message asked; a judge that gives no verdict, such as one that timed out, leaves it back with the findings and names why, as a check that could not finish does. A handler's own `claude --bg` session reads as a session of his to capt-hook, but every prompt it holds is the communicator's brief or a record, so its judge reads no prompt there as his words."""
+    """Jev's verdict on a post the drive's checks found something in, or on any handler's say post: Jev reads the post as Slack gets it, each of say's references linked, each finding beside its rule's words, his messages and card answers in this thread and his answers in the transcripts, and on a handler's post the reads it made itself and the report it carries. It goes out when no finding's rule holds against the line it names, or his words lift it, and each claim of a handler's stands on a read of its own or the record that measured it; it stays back with Jev's reason otherwise, never for saying more than his message asked. A judge that gives no verdict, such as one that timed out, leaves it back and names why, as a check that could not finish does. A handler's own `claude --bg` session reads as a session of his to capt-hook, but every prompt it holds is the communicator's brief or a record, so its judge reads no prompt there as his words."""
     place = {"thread": str(post.get("thread_ts") or "")} | ({"channel": post["channel_id"]} if post.get("channel_id") else {})
     where = f"in thread {place['thread']} of channel {post['channel_id']}" if post.get("channel_id") else "to him in his DM"
     if post.get("channel_id") and not place["thread"]:
         where = f"in the group DM of {post['channel_id']}, him and the bot"
-    ctx = Context.of(evt, DRIVE_POST, Proposal(place, {"post": post, "findings": reason}, f"post this line {where}"))
+    ctx = Context.of(evt, DRIVE_POST, Proposal(place, {"post": post, "findings": reason or "none"}, f"post this line {where}"))
     judge = HANDLER_JUDGE if evt._raw.get("agent_type") == HANDLER and not evt.agent_id else JUDGE
     rules = [Evidence(id="rule:findings", source=RULE_SOURCE, quote=rule)] if rule else []
+    shown = f"\n```\n{reason}\n```" if reason else ""
     if not (items := [*judge.items(ctx), *words, *rules]):
-        return evt.block(f"Jev found no rule and no words of his to weigh this post against, so what the drive's checks found stands: fix each finding below, then call say again.\n```\n{reason}\n```")
+        return evt.block(f"Jev found no rule and no words of his to weigh this post against, so what the drive's checks found stands: fix each finding below, then call say again.{shown}")
     try:
         verdict = judge.verdict(ctx, items)
     except Undecided as exc:
-        return evt.block(f"Jev gave no verdict ({exc.cause}), and a judge that does not answer never overrides a refusal, so what the drive's checks found stands: fix each finding below, then call say again.\n```\n{reason}\n```")
+        held = "what the drive's checks found stands: fix each finding below" if reason else "whether each claim in it stands on a read of yours is unweighed and it stays back"
+        return evt.block(f"Jev gave no verdict ({exc.cause}), and a judge that does not answer never lets a post through, so {held}, then call say again.{shown}")
     if verdict.allow and cited(items, verdict.relied_on):
-        return evt.context(f"message_limits: Jev read no finding's rule as holding against this post, so it goes out as written.\n```\nJev: {verdict.reason}\n```")
-    return evt.block(f"Jev weighed each finding by its rule and upheld what the drive's checks found: fix what Jev and each finding below name, then call say again.\n```\nJev: {verdict.explained}\n{reason}\n```")
+        return evt.context(f"message_limits: Jev read no finding's rule as holding against this post, so it goes out as written.\n```\nJev: {verdict.reason}\n```") if reason else None
+    fix = "fix what Jev and each finding below name" if reason else "read the code behind what Jev names, or cut the line to what your reads show"
+    listed = f"\n{reason}" if reason else ""
+    return evt.block(f"Jev weighed this post by the drive's rules and held it back: {fix}, then call say again.\n```\nJev: {verdict.explained}{listed}\n```")
 
 
 def asked(evt: BaseHookEvent, case: str, words: list[Evidence]) -> HookResult | None:
@@ -348,16 +398,46 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             llm={"reason": "he asked to hear when it waits on his tap", "allow": True, "relied_on": [said_evidence(TAP_ASKED, SAID_AT, "prompt").id]},
         ): Warn(pattern="Jev: he asked to hear when it waits on his tap"),
         Input(
-            tool="mcp__plugin_long-running_drive__say",
+            tool=SAY,
             tool_input={"text": "drive job resume now works from a session that did not start the job's agent."},
             session_id=HANDLER_SESSION,
             agent_type=HANDLER,
             transcript=HANDLER_TURN,
             decide=JEV_UNSURE,
             llm={"reason": "the user said to post it at his DM root", "allow": True, "relied_on": [RELAYED_ORDER]},
-        ): Block(pattern="Jev weighed each finding by its rule and upheld"),
+        ): Block(pattern="Jev weighed this post by the drive's rules and held it back"),
         Input(
-            tool="mcp__plugin_long-running_drive__say",
+            tool=SAY,
+            tool_input={"text": GUESSED, "thread_ts": THREAD},
+            session_id=COMMUNICATOR,
+            agent_id="a1",
+            agent_type=HANDLER,
+            transcript=COMMUNICATOR_TURN,
+            commands={"python3 -I": handler_reads()},
+            llm={"reason": "Postgres is a name no read returned", "allow": False, "refusal": "The cloud reading straight from Postgres stands on no read; read the cloud's inbox reader."},
+        ): Block(pattern="held it back: read the code behind what Jev names, or cut the line to what your reads show.*Jev: The cloud reading straight from Postgres"),
+        Input(
+            tool=SAY,
+            tool_input={"text": GUESSED, "thread_ts": THREAD},
+            session_id=COMMUNICATOR,
+            agent_id="a1",
+            agent_type=HANDLER,
+            transcript=COMMUNICATOR_TURN,
+            commands={"python3 -I": handler_reads("[2] 57  rows, err := r.postgres.Query(ctx, selectInbox, agentID)")},
+            llm={"reason": "read 2 holds the cloud's reader querying Postgres", "allow": True, "relied_on": ["reads:own"]},
+        ): Allow(),
+        Input(
+            tool=SAY,
+            tool_input={"text": GUESSED, "thread_ts": THREAD},
+            session_id=COMMUNICATOR,
+            agent_id="a1",
+            agent_type=HANDLER,
+            transcript=COMMUNICATOR_TURN,
+            commands={"python3 -I": handler_reads()},
+            llm={"error": TimeoutError("codex timed out after 19s")},
+        ): Block(pattern=r"Jev gave no verdict \(TimeoutError: codex timed out after 19s\).*whether each claim in it stands on a read of yours is unweighed"),
+        Input(
+            tool=SAY,
             tool_input={"text": "I took the refusal as working as designed because it queues the brief, so I sent no defect."},
             session_id=COMMUNICATOR,
             transcript=COMMUNICATOR_TURN,

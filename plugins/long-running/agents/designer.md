@@ -21,7 +21,12 @@ the shape to keep: "don't go based on what's currently there design this cleanly
   beside that PR's landing, by his words "start deisgnng the follow p right awya motherfucker dont
   wait": read the PR's diff and the code it touches yourself, as a reader would.
 - Verify every load-bearing fact in the code yourself, the reader's included, and cite each as
-  `path:line` on your `Facts:` line, since the builder builds from them.
+  `path:line` on your `Facts:` line, since the builder builds from them. A code comment, a panic,
+  error or log message, a doc, a PR body, the brief or an earlier answer is a claim to test against
+  the code that does it, never a fact, by his words "dont just take things for granted critically
+  evakuate them". A fact about every case cites what decides it, and a mechanism an option proposes
+  cites the read showing the system controls that piece where it would run, by his words "we cant
+  do that since we dont control the poloices on customer bucket".
 - Read his recorded answers on the whole area the part touches (`answer_search` or
   `ccn answer search "<words>"`) beside the brief's `Order (his words):` and `Decisions that bind:`,
   since a ruling on a neighboring piece binds this part too.

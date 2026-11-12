@@ -682,6 +682,119 @@ def test_a_refused_post_carries_his_words_for_jev_and_one_the_checks_pass_carrie
         assert (json.loads(printed)["his_words"][0]["quote"] if printed else None) == ("is the release out?" if judged else None)
 
 
+CODE_READ = "mcp__plugin_cc-context_cc-context__ccx_code_read"
+CODE_GREP = "mcp__plugin_cc-context_cc-context__ccx_code_grep"
+READER_POST = (
+    "Delivery already is one shared function for both hosts. The inbox reader is not: the Mac reads over HTTP and the cloud"
+    " straight from Postgres, built as separate changes."
+)
+HISTORY_POST = "Each table has a `<table>__history` shadow table, its columns plus the run (`rust/crates/sandsql-wire/src/lower.rs:360`)."
+PACK_POST = (
+    'Its journal refuses one: `journalValues.PutAt` panics with "a run\'s values are never staged: a pack deletes the ids in'
+    ' its range" (`vm_run/values.go:278`).'
+)
+LIFECYCLE_POST = (
+    "Shipping means the redo truncator uploads each finished segment to the bucket before it deletes it; an S3 lifecycle"
+    " rule on that prefix deletes it after 30 days, with no SandSQL code."
+)
+DELIVER = (CODE_GREP, {"text": "func Deliver", "paths": ["go/sand/next/internal/inbox"]}, "go/sand/next/internal/inbox/deliver.go:30  func Deliver(ctx context.Context, msg Message) error {")
+SHADOW = (CODE_READ, {"path": "rust/crates/sandsql-wire/src/lower.rs", "section": "355-365"}, '360      let shadow = format!("{}__history", spec.name);')
+PANIC = (
+    CODE_GREP,
+    {"text": "never staged", "paths": ["go/sand/next/internal/vm_run"]},
+    "go/sand/next/internal/vm_run/values.go:262  panic(\"a run's values are never staged: a pack deletes the ids in its range\")",
+)
+TRUNCATE = (CODE_READ, {"path": "rust/crates/sandsql-storage/src/redo/truncate.rs", "section": "240-260"}, "249  fn remove_segment_under(dir: &Path, segment: &Segment) -> io::Result<()> {")
+
+
+def tool(lane: Path, name: str, asked: dict, result: str) -> None:
+    call_id = f"{name}-{len(lane.read_text())}"
+    use = {"type": "tool_use", "id": call_id, "name": name, "input": asked}
+    answer = {"type": "tool_result", "tool_use_id": call_id, "content": [{"type": "text", "text": result}]}
+    with lane.open("a") as transcript:
+        transcript.write(json.dumps({"type": "assistant", "message": {"role": "assistant", "content": [use]}}) + "\n")
+        transcript.write(json.dumps({"type": "user", "message": {"role": "user", "content": [answer]}}) + "\n")
+
+
+def own_reads(transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], **tool_input: object) -> list[dict]:
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(call("slack_dm_status", transcript, **tool_input) | {"tool_name": message_limits.SAY})))
+    message_limits.main()
+    return json.loads(capsys.readouterr().out)["reads"]
+
+
+@pytest.mark.parametrize(
+    ("post", "guessed", "read", "unread"),
+    [
+        (
+            READER_POST,
+            [DELIVER],
+            [
+                (CODE_READ, {"path": "go/sand/next/cmd/sand/mac_inbox.go"}, '41  resp, err := c.http.Get(c.base + "/v1/inbox")'),
+                (CODE_READ, {"path": "go/sand/next/internal/cloudrunner/inbox.go"}, "57  rows, err := r.postgres.Query(ctx, selectInbox, agentID)"),
+            ],
+            ["Mac", "HTTP", "Postgres"],
+        ),
+        (
+            HISTORY_POST,
+            [SHADOW],
+            [(CODE_READ, {"path": "rust/crates/sandsql-wire/src/lower.rs", "section": "295-305"}, "300  fn shadowed_specs(tables: &[TableSpec]) -> impl Iterator<Item = &TableSpec> {")],
+            [],
+        ),
+        (
+            PACK_POST,
+            [PANIC],
+            [(CODE_READ, {"path": "go/sand/next/internal/vm_run/values.go", "section": "250-280"}, "258  func (v *journalValues) PutAt(id ValueID, value Value) {")],
+            ["journalValues.PutAt"],
+        ),
+        (
+            LIFECYCLE_POST,
+            [TRUNCATE],
+            [(CODE_GREP, {"text": "replicationBucket", "paths": ["infra/rows/sandsql"]}, "infra/rows/sandsql/tenants.ts:88  replicationBucket: tenant.customerBucket ?? new aws.s3.BucketV2(name)")],
+            ["S3"],
+        ),
+    ],
+)
+def test_jev_gets_a_handlers_own_reads_beside_each_name_its_say_post_uses_and_a_name_no_read_returned_says_so(
+    talker: str,
+    transcript: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    post: str,
+    guessed: list[tuple[str, dict, str]],
+    read: list[tuple[str, dict, str]],
+    unread: list[str],
+) -> None:
+    lane = lane_of(transcript)
+    for each in guessed:
+        tool(lane, *each)
+    [before] = own_reads(transcript, monkeypatch, capsys, text=post, thread_ts="1.2")
+    assert before["id"] == "reads:own"
+    assert f"[{len(THREADS) + 1}] {guessed[0][0].rpartition('__')[2]} {json.dumps(guessed[0][1])}" in before["quote"]
+    for name in unread:
+        assert f"\n{name}: no read returned it" in before["quote"]
+    for each in read:
+        tool(lane, *each)
+    [after] = own_reads(transcript, monkeypatch, capsys, text=post, thread_ts="1.2")
+    assert "no read returned it" not in after["quote"].partition("Names the post uses:")[2]
+
+
+def test_the_reads_name_the_line_holding_each_name_and_the_report_a_post_carries_while_the_communicators_own_post_and_a_card_carry_none(
+    talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], records: dict[str, str]
+) -> None:
+    tool(lane_of(transcript), *PANIC)
+    records["673870"] = "DONE a pack deletes the run's values in its range"
+    reads, carried = own_reads(transcript, monkeypatch, capsys, text=PACK_POST, thread_ts="1.2", record="673870")
+    assert f"\nvm_run/values.go:278: [{len(THREADS) + 1}] {PANIC[2]}" in reads["quote"]
+    assert (carried["id"], carried["quote"]) == ("record:673870", records["673870"])
+    own = {key: value for key, value in call("slack_dm_status", transcript, text=PACK_POST, thread_ts="1.2").items() if key != "agent_id"}
+    card = call("slack_dm_status", transcript, text="Which way?", card={"title": "Which way?", "body": said(5), "options": ["One", "Two"], "waits": "demo:j1-7"})
+    for payload in (own, card):
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload | {"tool_name": message_limits.SAY})))
+        message_limits.main()
+        printed = capsys.readouterr().out
+        assert not printed or json.loads(printed)["reads"] == []
+
+
 def test_an_unreadable_thread_refuses_with_why(talker: str, briefed: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     def unreadable(*where: str) -> list[dict]:
         raise slack.SlackError("daemon not running")

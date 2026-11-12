@@ -501,6 +501,40 @@ def test_a_time_a_post_promises_becomes_its_orders_due_once_slack_has_the_post_a
     assert (kept["kept"], state.owed(kept)) == (slack.sent_at(slack_thread.messages[-1]).isoformat(), False)
 
 
+def test_a_post_cc_slack_reports_failing_after_it_went_out_is_kept_and_recorded_on_its_order_and_one_that_never_went_out_raises(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
+) -> None:
+    thread = "1794200000.000100"
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "why the copy stalls", "--thread", thread)
+    run("start", "demo", "--role", "communicator")
+    with state.edit(demo) as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "https://acme.slack.com/", "questions": [], "pr_cards": [], "closed": []})
+    reaches = {"post": True}
+
+    def cc_slack(*argv: str) -> dict:
+        if argv[0] == "thread":
+            since = float(argv[argv.index("--since-ts") + 1])
+            return {"channel_id": "D123", "thread_ts": thread, "messages": [message for message in slack_thread.messages if float(message["ts"]) >= since]}
+        if reaches["post"]:
+            slack_thread.post(state.now(), from_claude=True, text=argv[-1].replace("&", "&amp;"))
+        raise slack.SlackError("context deadline exceeded")
+
+    monkeypatch.setattr(slack, "cc_slack", cc_slack)
+    line = talk.say(demo, {"text": "The copy stalls on the lock & its waiter.", "thread_ts": thread, "order": "o1"})
+    [kept] = said(demo)
+    ts = slack_thread.messages[-1]["ts"]
+    assert kept["url"] == f"https://acme.slack.com/archives/D123/p{ts.replace('.', '')}?thread_ts={thread}&cid=D123"
+    assert (kept["thread"], kept["order"]) == (thread, "o1")
+    assert line == f"POSTED {kept['url']} WARNING cc-slack said context deadline exceeded, but the post is in Slack; o1 progress line, no part delivered: {kept['url']}"
+    assert state.load(demo)["orders"]["o1"]["last_line"] == state.stamp(slack.sent_at(slack_thread.messages[-1]))
+    reaches["post"] = False
+    with pytest.raises(slack.SlackError, match="context deadline exceeded"):
+        talk.say(demo, {"text": "The lock is released.", "thread_ts": thread, "order": "o1"})
+    assert len(said(demo)) == 1
+
+
 def test_a_report_delivers_on_an_order_only_from_the_lane_of_its_holder_and_a_refusal_names_the_report_the_handler_passes(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
 ) -> None:
