@@ -232,7 +232,7 @@ def test_tool_help_prints_each_field_of_its_input_with_its_type_whether_it_is_re
     lines = capsys.readouterr().out.splitlines()
     assert lines[0] == f"record: {record['description']}"
     assert "records (list of object, required)" in lines
-    assert f"records[].kind (owner | answer | defect, required): {tools.RECORD['properties']['kind']['description']}" in lines
+    assert f"records[].kind (owner | answer | handoff | defect, required): {tools.RECORD['properties']['kind']['description']}" in lines
     assert f"records[].waits (string): {tools.RECORD['properties']['waits']['description']}" in lines
     assert f"dry_run (boolean): {tools.DRY_RUN['description']}" in lines
     assert cli.main(["tool", "job", "-h"]) == 0
@@ -391,6 +391,28 @@ def test_the_communicators_owner_or_answer_record_goes_to_the_session_hearing_it
         ("defect", ["meta@demo"]),
     ]
     assert said[4:] == [f"3 would settle his card {CARD} (demo:j1-7), showing his words"]
+
+
+def test_a_handlers_handoff_goes_to_the_session_holding_the_order_its_order_attr_names(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("order", "add", "--project", "Platform", "--workstream", "Alerts", "fix the alert")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: cards say why")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
+    run("start", demo, "--role", "coordinator", "--project", "Iris")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", demo, "--role", "communicator")
+    with state.edit(demo) as data:
+        data["handlers"]["h1"] = {"session": "handler-1", "transcript": None, "started": state.stamp(), "holds": [], "held_back": [], "posted": []}
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "handler-1")
+    records = [{"kind": "handoff", "text": "redraw the run page card with both PRs", "attrs": {"order": order}} for order in ("o1", "o2", "o3")]
+    said = tools.run("record", demo, {"records": records, "dry_run": True}).splitlines()
+    assert [(line.split(": ", 1)[0], json.loads(line.split(": ", 1)[1])["to"]) for line in said] == [
+        ("1 communicator", ["iris@demo"]),
+        ("2 communicator", ["root@demo"]),
+        ("3 communicator", ["meta@demo"]),
+    ]
 
 
 def open_cards(monkeypatch: pytest.MonkeyPatch, *waits: str, prs: tuple[str, ...] = ()) -> list[tuple[str, ...]]:
