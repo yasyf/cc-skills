@@ -127,7 +127,9 @@ sha=$(shasum -a 256 "$brief" | cut -d' ' -f1)
 bytes=$(wc -c <"$brief" | tr -d ' ')
 discard() {
   local error
-  if error=$("$cc_remote" destroy "$1" 2>&1 >/dev/null); then
+  if [ "$1" = "$continued" ]; then
+    echo "its Sprite $1 is kept, since this launch continues the lane on it"
+  elif error=$("$cc_remote" destroy "$1" 2>&1 >/dev/null); then
     echo "its Sprite $1 is destroyed"
   else
     echo "destroying its Sprite $1 failed too: ${error##*$'\n'}"
@@ -148,7 +150,7 @@ if [ "$route" = sprite ] && [ -d "$attempt" ] && [ ! -L "$attempt" ]; then
   if [ ! -e "$attempt/worker-start.status" ] && ! { read -r failed 2>/dev/null <"$attempt/prepare.status" && [ "$failed" = 0 ]; }; then
     retire "whose prepare ${failed:+exited }${failed:-never finished} before any worker started"
   elif [ -n "$continued" ] && unstarted && held=$(jq -r .workspace "$attempt/prepared.json") && [ "$held" != "$continued" ]; then
-    retire "which prepared Sprite $held, left claimed with an idle terminal, while this launch continues on Sprite $continued"
+    retire "which prepared Sprite $held while this launch continues on Sprite $continued, and $(discard "$held")"
   fi
 fi
 reused= unsent=
@@ -267,7 +269,7 @@ if [ "$route" = sprite ]; then
         end
     end' "$attempt/allocation.json" 2>/dev/null) || verdict="not readable as JSON"
   if [[ $verdict != "ok "* ]]; then
-    owned=$(jq -r --arg lane "$lane" 'select(.lane == $lane and .task.workspace == .workspace and (.workspace | test("\\A[a-z0-9][a-z0-9-]{0,54}\\z"))) | .workspace' "$attempt/allocation.json" 2>/dev/null) || owned=
+    owned=$(jq -r --arg lane "$lane" 'select(.lane == $lane and (.allocation == "warm" or .allocation == "created") and .task.workspace == .workspace and (.workspace | test("\\A[a-z0-9][a-z0-9-]{0,54}\\z"))) | .workspace' "$attempt/allocation.json" 2>/dev/null) || owned=
     [ -n "$owned" ] || die "$attempt/allocation.json holds $verdict, so the prepared worker stays idle and unattached"
     die "$attempt/allocation.json holds $verdict, so nothing was attached, and $(discard "$owned")"
   fi

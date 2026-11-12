@@ -719,7 +719,7 @@ class SpriteTest(LaunchTest):
                 launch = self.fresh()
                 launch.sprite(allocated=response)
                 result = launch.run(WORKER_REF="dev")
-                owned = isinstance(response, dict) and response.get("lane") == LANE and response["workspace"] == WORKSPACE and (response["task"] or {}).get("workspace") == WORKSPACE
+                owned = isinstance(response, dict) and response.get("lane") == LANE and response.get("allocation") in ("warm", "created") and response["workspace"] == WORKSPACE and (response["task"] or {}).get("workspace") == WORKSPACE
                 if owned:
                     self.assert_failed(launch, result, f"{launch.attempt}/allocation.json holds {reason}, so nothing was attached, and its Sprite {WORKSPACE} is destroyed", [VERSION, CURRENT, launch.prepare("--ref", "dev"), DESTROY])
                 else:
@@ -877,8 +877,8 @@ class SpriteTest(LaunchTest):
         result = self.launch.run(WORKER_WORKSPACE="pool-held")
         self.assertEqual(result.returncode, 0, result.stderr)
         retired = self.launch.attempt.with_name(f"{self.launch.attempt.name}.1")
-        self.assertEqual(result.stderr, f"{retired} keeps the earlier attempt, which prepared Sprite {WORKSPACE}, left claimed with an idle terminal, while this launch continues on Sprite pool-held; preparing again\n")
-        self.assertEqual(self.launch.calls(), [*calls, VERSION, CURRENT, self.launch.prepare(continued="pool-held"), *self.launch.tools(), self.launch.start()])
+        self.assertEqual(result.stderr, f"{retired} keeps the earlier attempt, which prepared Sprite {WORKSPACE} while this launch continues on Sprite pool-held, and its Sprite {WORKSPACE} is destroyed; preparing again\n")
+        self.assertEqual(self.launch.calls(), [*calls, VERSION, CURRENT, DESTROY, self.launch.prepare(continued="pool-held"), *self.launch.tools(), self.launch.start()])
         self.assertEqual(json.loads(result.stdout)["workspace"], "pool-held")
         self.assertTrue((retired / "worker-start.unsent").is_file())
 
