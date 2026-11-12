@@ -60,7 +60,6 @@ COMPACT_WHEN_QUIET = timedelta(minutes=10)
 NOT_SLUG = re.compile(r"[^A-Za-z0-9]")
 PR_LINE = re.compile(r"\s*(?:READY|PUSHED|PR:)")
 READY_LINE = re.compile(r"READY\b")
-RETURNED_LINE = re.compile(r"(?:READY(?! refused)|PUSHED)\b")
 STUCK_WORDS = {
     "red": "still red",
     "card": "green and approved with no card drawn",
@@ -582,7 +581,7 @@ def returned_at(name: str, key: str, pr: dict, data: dict, cards: dict) -> str |
 
 
 def checks(watcher: Watcher, moment: datetime) -> None:
-    """Start the check against his words of each PR the watch hears that owes one, within one GitHub read of its builder's READY and with no coordinator turn: its CHECKED line draws his card once the PR is green and approved, and its NOT READY line goes to its builder."""
+    """Start the check against his words of each PR the watch hears that owes one, within one GitHub read of finding it unchecked and with no coordinator turn: its CHECKED line draws his card once the PR is green and approved, and its NOT READY line goes to its builder."""
     if watcher.cards is None:
         return
     data = state.load(watcher.name)
@@ -591,10 +590,9 @@ def checks(watcher: Watcher, moment: datetime) -> None:
 
 
 def check_owed(name: str, key: str, pr: dict, data: dict, cards: dict, moment: datetime) -> bool:
-    """Whether a PR owes the check of its change against his words: its builder waits on a READY or PUSHED naming it, the PR open with his card owed and untapped, its change at its head not checked, nothing it waits on holding it and no card of his drawn, its builder's report no port of an old-tree PR, which the coordinator checks against that PR, and no check of it running or done at this head since that return; a PUSHED is checked while its CI runs, so his card draws the minute it is green and approved."""
+    """Whether a PR owes the check of its change against his words: open with his card owed and untapped, its change at its head not checked, its builder not running, since a running builder owns its pushes and its own READY's check, nothing it waits on holding it and no card of his drawn, its builder's report no port of an old-tree PR, which the coordinator checks against that PR, and no check of it running or done at this head since its builder last returned. A remote lane's READY or PUSHED is checked the minute it returns, while its CI runs, so his card draws the minute it is green and approved, and so is a PR whose builder waits on something else or ended."""
     job = data["jobs"][pr["job"]]
-    returned = job["state"] == "waiting" and RETURNED_LINE.match(job["said"] or "") and key in state.named_prs(data, job["order"], job["said"])
-    if not returned or pr["state"] != "open" or state.owed_step(pr) != "card" or pr["tap"]:
+    if job["state"] == "running" or pr["state"] != "open" or state.owed_step(pr) != "card" or pr["tap"]:
         return False
     if state.checked(data, pr) or view.holding(data, pr["waits"], cards) or view.card_for(cards["pr_cards"], pr["url"]):
         return False

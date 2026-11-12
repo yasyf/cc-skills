@@ -1911,16 +1911,20 @@ def test_a_green_approved_pr_that_wants_a_tap_with_no_card_for_thirty_minutes_is
     assert watch.wakes(line, state.load(demo))
 
 
-def test_a_builders_return_starts_one_check_against_his_words_whose_checked_line_wakes_no_one_and_whose_not_ready_line_goes_to_its_builder(
-    demo: str, monkeypatch: pytest.MonkeyPatch, checkers: list[str], judge: Judge
+@pytest.mark.parametrize("said", [f"PUSHED {state.pr_url(KEY)}", f"WAITING {state.pr_url(KEY)} to land and release"])
+def test_an_unchecked_pr_whose_builder_returned_starts_one_check_against_his_words_whose_checked_line_wakes_no_one_and_whose_not_ready_line_goes_to_its_builder(
+    demo: str, monkeypatch: pytest.MonkeyPatch, checkers: list[str], judge: Judge, said: str
 ) -> None:
     serve(monkeypatch, {})
     monkeypatch.setattr(state, "now", lambda: T0 + timedelta(minutes=1))
     with state.edit(demo) as data:
-        data["jobs"]["j1"].update(state="waiting", said=f"PUSHED {state.pr_url(KEY)}", returned=state.stamp(T0))
+        data["jobs"]["j1"].update(state="waiting", said=said, returned=state.stamp(T0))
         data["prs"][KEY] |= {"wants_tap": True, "checked": None}
+    running = state.load(demo)
+    running["jobs"]["j1"]["state"] = "running"
+    assert not watch.check_owed(demo, KEY, running["prs"][KEY], running, watch.view.NO_CARDS, T0)
     watching = watcher(demo)
-    assert watch.run_pass(watching, T0) == []
+    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
     assert (watch.run_pass(watching, T0 + timedelta(minutes=2)), checkers) == ([], [KEY])
     judge.against = [{"order": "o1", "words": "ship the watch", "change": "watch.py stops the watch"}]
     assert cli.main(["pr", "check", state.pr_url(KEY), "--drive", demo]) == 0
