@@ -417,6 +417,13 @@ def worker(dispatch: str) -> dict:
     return call("worker-show", "--dispatch", dispatch)
 
 
+def placement(worker: dict) -> dict:
+    """Where a worker-show's worker runs, as a job records it: on the Sprite of its paired server when Orca names its host remote, else on this Mac."""
+    if (worker["projection"].get("host") or {}).get("kind") != "remote":
+        return {"route": state.LOCAL_ROUTE, "workspace": None, "environment": None}
+    return {"route": None, "workspace": worker["server"]["name"], "environment": worker["server"]["name"]}
+
+
 def death(worker: dict) -> str | None:
     """Why a lane's worker is gone for good, from its worker-show, or None while Orca still holds it."""
     return "its worker exited" if worker["projection"]["liveness"]["verdict"] == "exited" else None

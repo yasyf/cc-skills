@@ -1339,7 +1339,7 @@ def launching(job: dict, moment: datetime) -> bool:
 
 
 def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each running job's gap from its agent or lane, with each PR it has open, and a remote lane, running or waiting, whose worker died; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness. A local agent that ended its turn on a result line its job never took is a gap, since only `drive job report` sets a job's state from its return; a codex job's relay that ended its turn has its codex-ask run taken once that run ended, so a relay that ended before codex answered needs no wake."""
+    """Each running job's gap from its agent or lane, with each PR it has open, and a remote lane, running or waiting, whose worker died; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness, and a lane filed on this Mac whose worker-show names a Sprite is filed on that Sprite. A local agent that ended its turn on a result line its job never took is a gap, since only `drive job report` sets a job's state from its return; a codex job's relay that ended its turn has its codex-ask run taken once that run ended, so a relay that ended before codex answered needs no wake."""
     data = state.load(watcher.name)
     gaps, deaths, heads, found, taken, held, lines = {}, {}, {}, {}, {}, {}, []
     for order in heard_orders(watcher, data).values():
@@ -1379,8 +1379,11 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 lines += read_failed(watcher, source, error, moment)
                 continue
             watcher.failures.pop(source, None)
+            lane = orca.placement(worker) if state.on_mac(job) else {}
             if not job.get("run"):
-                found[job_id] = {"run": worker["dispatch"]["runId"], "task": worker["dispatch"]["taskId"], "terminal": worker["terminal"]["handle"]}
+                lane |= {"run": worker["dispatch"]["runId"], "task": worker["dispatch"]["taskId"], "terminal": worker["terminal"]["handle"]}
+            if any(job.get(field) != value for field, value in lane.items()):
+                found[job_id] = lane
             if why := orca.death(worker):
                 deaths[job_id] = (job["dispatch"], why)
             elif running:
