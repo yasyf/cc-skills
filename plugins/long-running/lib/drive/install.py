@@ -16,6 +16,8 @@ GITHUB_REPO = re.compile(r"github\.com[/:]([^/]+/[^/]+?)(?:\.git)?/?$")
 DEFAULT_BRANCH = "refs/heads/default"
 FETCH = ("fetch", "--quiet", "--filter=blob:none", "--no-tags", "origin")
 AFTER_UPDATE = {"cc-inbox": ("bin/cci", "serve")}
+HOMEBREW = {"cc-context": "ccx", "cc-inbox": "cci", "cc-notes": "cc-notes", "cc-present": "cc-present", "cc-review": "cc-review", "cc-slack": "cc-slack"}
+RELEASE_VERSION = re.compile(r"\d+\.\d+\.\d+")
 RELOADS = "reloads.json"
 UPDATE_LOCK = ".update.lock"
 RELOAD_WAIT_SECONDS = 30
@@ -186,6 +188,31 @@ def check_holds(clone: str, repo: str, key: str, entry: dict, sha: str, deadline
         raise InstallError(f"{key} {entry['version']} runs {binary} after the update, which does not hold {sha[:12]}, the sha awaited")
 
 
+def await_homebrew(clone: str, binary: str, sha: str | None, deadline: float, timeout: int) -> None:
+    """Upgrade the yasyf/tap formula or cask installing binary, the copy sessions run bare since Claude Code appends plugin bin directories after /opt/homebrew/bin on PATH, until the release bare binary prints with --version holds sha; each pass runs brew update first, since brew upgrade alone refreshes the tap only once a day."""
+    last = ""
+    while True:
+        with state.flocked(config_dir() / "plugins" / UPDATE_LOCK):
+            run(["brew", "update", "--quiet"], deadline)
+            run(["brew", "upgrade", f"yasyf/tap/{binary}"], deadline)
+        if sha is None:
+            return
+        printed = run([binary, "--version"], deadline).strip()
+        if not (version := RELEASE_VERSION.search(printed)):
+            raise InstallError(f"bare {binary} --version printed {printed!r}, which names no release")
+        tag = f"v{version.group()}"
+        fetch_tag(clone, tag, deadline)
+        if holds(clone, tag, sha, deadline):
+            return
+        lacking = f"bare {binary} runs release {tag}, which lacks it"
+        if lacking != last:
+            print(f"drive install: waiting for yasyf/tap/{binary} to hold {sha[:12]}: {lacking}", file=sys.stderr, flush=True)
+        last = lacking
+        if deadline - clock() <= POLL_SECONDS:
+            raise InstallError(f"timed out after {timeout}s waiting for bare {binary} to hold {sha[:12]}; {lacking}")
+        sleep(POLL_SECONDS)
+
+
 def installed(key: str) -> dict:
     plugins = json.loads((config_dir() / "plugins" / "installed_plugins.json").read_text())["plugins"]
     if not plugins.get(key):
@@ -205,8 +232,10 @@ def install(key: str, sha: str | None, repo: str | None, deadline: float, timeou
             entry = installed(key)
         if sha:
             check_holds(clone, repo, key, entry, sha, deadline)
-    if after := AFTER_UPDATE.get(plugin):
-        run([str(Path(entry["installPath"]) / after[0]), *after[1:]], deadline)
+        if after := AFTER_UPDATE.get(plugin):
+            run([str(Path(entry["installPath"]) / after[0]), *after[1:]], deadline)
+        if binary := HOMEBREW.get(plugin):
+            await_homebrew(clone, binary, sha, deadline, timeout)
     return entry["version"]
 
 
@@ -291,7 +320,7 @@ def restart_dashboards(key: str, deadline: float) -> list[str]:
 
 
 def main(plugin_at_marketplace: str, sha: str | None, repo: str | None, timeout: int) -> int:
-    """Wait for a release holding sha, its commit and each binary it pins, update the plugin, print the installed version, then restart each drive dashboard serving other code and reload every drive session on this Mac."""
+    """Wait for a release holding sha, its commit and each binary it pins, update the plugin and its Homebrew twin until the bare binary holds sha, print the installed version, then restart each drive dashboard serving other code and reload every drive session on this Mac."""
     deadline = clock() + timeout
     try:
         version = install(plugin_at_marketplace, sha, repo, deadline, timeout)
