@@ -1,18 +1,24 @@
+import contextlib
 import html
 import http.client
 import json
+import os
 import re
+import socket
 import subprocess
+import sys
 import threading
 import time
 import types
 import urllib.parse
+import urllib.request
+from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Self
 
 import pytest
-from drive import dashboard, picture, state, view
+from drive import cli, dashboard, picture, state, view
 from test_view import drive_of, found, job, order, pr
 
 NET = dashboard.Tailnet("box", "box.tail1.ts.net", ["100.64.0.1", "fd7a::1"], "owner@example.com", False)
@@ -55,7 +61,7 @@ def test_page_answers_its_own_tailnet_names_and_refuses_any_other_host(https: bo
 
 
 def test_a_plain_http_link_to_the_tailnet_port_moves_to_https_on_the_full_name() -> None:
-    server = dashboard.Server(dashboard.LOOPBACK, 0, BaseHTTPRequestHandler, types.SimpleNamespace(name="box.tail1.ts.net"))
+    server = dashboard.Server(socket.create_server((dashboard.LOOPBACK, 0)), BaseHTTPRequestHandler, types.SimpleNamespace(name="box.tail1.ts.net"))
     port = server.server_address[1]
     threading.Thread(target=server.serve_forever, daemon=True).start()
     connection = http.client.HTTPConnection(dashboard.LOOPBACK, port, timeout=5)
@@ -93,6 +99,82 @@ def test_a_dashboard_answer_cut_off_as_it_stops_reads_as_nothing_serving_so_a_re
 
     monkeypatch.setattr(dashboard.urllib.request, "urlopen", lambda url, timeout: Stopping())
     assert dashboard.serving("demo", 41330) is None
+
+
+def test_a_drive_saved_by_a_newer_install_hands_the_port_to_that_install_which_answers_throughout(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    newer = tmp_path / "cache" / "9.9.9" / "bin" / "drive"
+    path = state.state_path(demo)
+    done = threading.Event()
+    answers: list[object] = []
+    handed: list[list[str]] = []
+    reopened: list[threading.Thread] = []
+
+    class Handed(Exception):
+        pass
+
+    class Stopped(Exception):
+        pass
+
+    def changes(name: str) -> Iterator[None]:
+        while not done.is_set():
+            yield
+            time.sleep(0.05)
+        raise Stopped
+
+    def reopen(argv: list[str]) -> None:
+        with contextlib.suppress(Stopped):
+            cli.main(argv)
+
+    def execv(executable: str, argv: list[str]) -> None:
+        handed.append(argv)
+        monkeypatch.setattr(dashboard.install, "upgraded", lambda: None)
+        monkeypatch.setattr(state, "VERSION", "9.9.9")
+        inherited = [f"--listening={os.dup(int(arg.removeprefix('--listening=')))}" if arg.startswith("--listening=") else arg for arg in argv]
+        reopened.append(threading.Thread(target=reopen, args=(inherited[3:],), daemon=True))
+        reopened[0].start()
+        raise Handed
+
+    def ask() -> None:
+        while not done.is_set():
+            try:
+                with urllib.request.urlopen(dashboard.url_of(port) + "api/view", timeout=10) as answer:
+                    answers.append(json.load(answer)["drive"])
+            except OSError as error:
+                answers.append(error)
+
+    def newer_install_saves() -> None:
+        while dashboard.serving(demo, port) is None:
+            time.sleep(0.05)
+        threading.Thread(target=ask, daemon=True).start()
+        time.sleep(0.3)
+        saving = path.with_name("drive.json.newer")
+        saving.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "9.9.9"}))
+        saving.replace(path)
+
+    monkeypatch.setattr(dashboard, "changes", changes)
+    monkeypatch.setattr(dashboard, "tailnet", lambda: None)
+    monkeypatch.setattr(dashboard, "home_repo", lambda checkout: None)
+    monkeypatch.setattr(dashboard.signal, "signal", lambda signum, handler: None)
+    monkeypatch.setattr(dashboard.install, "upgraded", lambda: newer if json.loads(path.read_text())["saved_by"] == "9.9.9" else None)
+    monkeypatch.setattr(dashboard.os, "execv", execv)
+    with socket.create_server((dashboard.LOOPBACK, 0)) as probe:
+        port = probe.getsockname()[1]
+    threading.Thread(target=newer_install_saves, daemon=True).start()
+    with pytest.raises(Handed):
+        dashboard.serve(demo, port, [])
+    handed_at = len(answers)
+    deadline = time.monotonic() + 10
+    while len(answers) < handed_at + 3 and time.monotonic() < deadline:
+        time.sleep(0.05)
+    done.set()
+    reopened[0].join(5)
+    [argv] = handed
+    assert argv[:-1] == [sys.executable, "-I", str(newer), "dashboard", "--drive", demo, "--port", str(port), "--serve"]
+    assert re.fullmatch(r"--listening=\d+", argv[-1])
+    assert len(answers) >= handed_at + 3
+    assert set(answers) == {demo}
 
 def test_an_answer_reaches_cc_slack_only_from_the_page_itself_for_a_card_still_waiting_on_that_option(monkeypatch: pytest.MonkeyPatch) -> None:
     card = "https://acme.slack.com/archives/D1/p100"

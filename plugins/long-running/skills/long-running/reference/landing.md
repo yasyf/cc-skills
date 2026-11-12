@@ -155,9 +155,9 @@ No tap and no green gate: by his standing rule a `yasyf/*` PR merges without ask
      when the update left any scope's install at a commit without the merge, as a marketplace clone holding
      moved tags does, or running a binary whose release tag lacks it, naming that scope and its folder, the installed version,
      that commit or release, and the merge sha. It also refuses when the bare binary still runs a
-     release without the merge at the timeout, naming that release. Installing long-running also restarts each drive's dashboard still serving other code, a
-     line each, so no page keeps serving old code until someone restarts it; one it cannot restart names
-     the `drive dashboard --drive <name>` command to run. A live session runs the installed version's
+     release without the merge at the timeout, naming that release. Each drive's dashboard hands itself to a newer
+     long-running the moment the drive next changes after its install, by `drive install` or Claude Code's own update: that install's
+     drive takes the server's process on the same listening sockets, so its page answers throughout. A live session runs the installed version's
      script for each hook it registered at start, but loads a hook added since, and its skills, agents,
      and any plugin's tools, only on `/reload-plugins`. So the install then types that through Orca into
      every drive session's terminal on this Mac, the communicator's, the top coordinator's and each
