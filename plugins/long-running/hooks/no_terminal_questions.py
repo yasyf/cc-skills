@@ -7,12 +7,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from drive import agents, state
 
 REFUSAL = (
-    "refused: no drive session asks in its terminal, by his words \"we aare supposed to launch the coordinator etc with no"
-    " askuserquestion tool\": he reads no terminal of {drive}'s, so AskUserQuestion would wait unanswered while every record"
-    " for this session queues behind it, as the coordinator's did for 33 and then 88 minutes on Nov 12. A question for him"
-    " reaches him only as a question card: keep the block with `drive job ask <job> <file>` and send it to"
-    " communicator@{drive} as an `ask` record naming that file, or, as a job's agent, return it as your `ASK` or `DESIGN`."
-    " Anything that is not his to choose, decide yourself."
+    "refused: no drive session asks in its terminal, since nobody reads it and every record for {drive} queues behind"
+    " the question. Keep the block with `drive job ask <job> <file>` and send it to communicator@{drive} as an `ask`"
+    " record, or return it as your `ASK` or `DESIGN`."
 )
 
 
