@@ -44,18 +44,16 @@ ROOT_CAUSE = "Root cause: none: where a copy runs is a pick between two designs,
 DESIGN_TITLE = "Where should store_copy_at in supervisor/copies.rs run each store copy?"
 SECOND_OPTION = (
     "- store_copy_at runs on a separate worker that reads each store from the bucket and copies it there\n"
-    "  Does: a separate worker reads each store from the bucket and calls store_copy_at there, so the primary serves only queries.\n"
-    "  Data: each store and its copy in the team's bucket, read and written by that worker.\n"
-    "  Touches: `supervisor/copies.rs` and a new worker in `supervisor/worker.rs`, one more process per cluster.\n"
+    "  A new worker in `supervisor/worker.rs` reads each store from the team's bucket and calls store_copy_at there, so the primary"
+    " serves only queries; each cluster runs one more process.\n"
 )
 DESIGN_RESEARCH = (
     f"DESIGN {DESIGN_TITLE}\n"
     "store_copy_at copies one store, and it can run on the primary or on a separate worker that reads the bucket.\n"
     "Recommended: on the primary; held until you pick, so nothing ships meanwhile.\n"
     "- store_copy_at runs on the primary, beside the queries it serves, copying each store in list order (recommended)\n"
-    "  Does: the primary calls store_copy_at for each store in list order between the queries it serves.\n"
-    "  Data: each store's copy in the team's bucket, written by the primary and read back by a restore.\n"
-    "  Touches: `supervisor/copies.rs` on the primary; each query waits behind a running copy.\n"
+    "  The primary calls store_copy_at in `supervisor/copies.rs` for each store in list order between the queries it serves, writing"
+    " each copy to the team's bucket for a restore to read; each query waits behind a running copy.\n"
     f"{SECOND_OPTION}Findings:\n{ROOT_CAUSE}{RESEARCH.removeprefix('DONE researched the store copy\n')}"
 )
 DESIGNED = f"""DESIGN the store copy

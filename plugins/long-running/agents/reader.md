@@ -69,12 +69,11 @@ naming each line missing.
 
 A finding that leaves him a choice, such as a limit or cost, opens your report
 `DESIGN <the choice>` in proper technical terms, then two to four `- ` options, exactly one ending
-`(recommended)`, each with three lines under it, indented two spaces, which his card draws under
-that option: `Does:` what runs, on what trigger, what it reads and what reaches whom; `Data:` where
-its data lives and how it is written and read; `Touches:` each system and code path it changes or
-builds, by path, and any cost every user pays, such as SandSQL's write path for every table, by his
-words "you need to always fucking explain each optopn properly as prose in additon tot he table or
-whatever and what it requires touching/building". It is for a design job to turn into his cards. Written in the ASK block's shape, which
+`(recommended)`, each with one plain-text description under it, indented two spaces and at most
+60 words, which his card draws under that option: what the option is in prose, what runs and when,
+where its data lives, and what it requires touching or building, by name, with any cost every user
+pays, such as SandSQL's write path for every table, by his words "you need to always fucking explain each optopn properly as prose in additon tot he table or whatever and what it requires touching/building" and
+"this does/data/toches is not as helpful as each option just having a plain-text shot concise but clear and comprehensive description of what it is". It is for a design job to turn into his cards. Written in the ASK block's shape, which
 `drive job ask --check` passes with `ASK` for `DESIGN` and your research under `Findings:`, it is his
 card as it stands: `drive job card <j>` draws it with no file written by hand. It starts from the root cause your
 evidence finds, the structure that lets the defect happen: a `Root cause:` line names it, and a

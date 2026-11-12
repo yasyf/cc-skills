@@ -247,23 +247,22 @@ STACK_RULING = 'his Nov 10 10:34 PM words "we should be using the "Stack card" w
 NEGATION = re.compile(r"\b(?:no|not|never|without|nothing|none|neither|nor)\b|n't\b", re.IGNORECASE)
 CLAUSE_END = re.compile(r"[.;:,!?\n]")
 MECHANISM_SHAPE = "what runs, on what trigger, what it reads and what reaches whom"
-OPTION_SHAPE = "what he gets and what it costs, its `Does:`, `Data:` and `Touches:` lines under it saying the rest"
-EXPLAINED = ("Does", "Data", "Touches")
-EXPLANATION = re.compile(rf"({'|'.join(EXPLAINED)}):[ \t]*(.*)")
-HINT_LINE = re.compile(rf"^\*({'|'.join(EXPLAINED)}):\*[ \t]*(.*)$", re.MULTILINE)
+OPTION_SHAPE = "what he gets and what it costs, the description under it saying what it is"
+FIELD = re.compile(r"(?:^|[.;]\s+)\*?(?P<label>[A-Z][a-z]+):\*?\s")
 CODE_LINE = r"(?::\d+(?:-\d+)?)?"
 CODE_PATH = re.compile(
     rf"(?<![\w./~-])(?![A-Za-z]+/[A-Za-z]+(?![\w/-]|\.\w))(?=[\w.~/-]*[A-Za-z])~?[\w.-]*/(?:[\w./-]|(?<=/)\*)*(?<=[\w/*]){CODE_LINE}|\b{SOURCE_FILE}{CODE_LINE}\b"
 )
 UNCODED = re.compile(rf"(?P<kept>`[^`\n]*`|<[^<>\n]*>|!?\[[^\]\n]*\]\([^)\s]*\)|https?://\S+)|{CODE_PATH.pattern}")
-EXPLAINED_SHAPE = (
-    f"`Does: <{MECHANISM_SHAPE}, then what he gets>`, `Data: <where its data lives, by system, database, table or file, and how"
-    " it is written and read, or none: <why>>` and `Touches: <each system and code path it changes or builds, by path, naming a cost"
-    " every user pays, such as SandSQL's write path for every table, or none: <why>>`"
+DESCRIPTION_SHAPE = (
+    f"one plain-text line under it, indented two spaces and at most {LINE_WORDS} words, which his card draws under that option and"
+    " which says in prose what the option is: what runs and when, where its data lives, and what it requires touching or building,"
+    " by name, with any cost every user pays, such as SandSQL's write path for every table"
 )
-EXPLAINED_RULING = (
-    'his Nov 12 5:56 AM words "you need to always fucking explain each optopn properly as prose in additon tot he table or whatever and'
-    ' what it requires touching/building" and 6:03 AM words "where is that data stored then and how"'
+DESCRIBED_RULING = (
+    'his Nov 12 7:43 AM words "each option just having a plain-text shot concise but clear and comprehensive description of what it'
+    ' is" and 5:56 AM words "explain each optopn properly as prose in additon tot he table or whatever and what it requires'
+    ' touching/building"'
 )
 MECHANISM_RULING = (
     'his Nov 11 1:14 AM words "That wasn\'t clear from the card, polling is fine for seeing when the function output changed.'
@@ -345,7 +344,7 @@ class Question:
     hints: dict[str, str]
 
     def card(self, drive: str, waits: str) -> dict:
-        """The question card a handler draws from this block, each option's `Does:`, `Data:` and `Touches:` lines as the hint cc-slack draws under it, and each file name and path in its body and hints in code formatting."""
+        """The question card a handler draws from this block, each option's description as the hint cc-slack draws under it, and each file name and path in its body and hints in code formatting."""
         body = coded(card_body(self.summary, self.show_me))
         hinted = {"hints": {option: coded(hint) for option, hint in self.hints.items()}} if self.hints else {}
         return {"title": self.title, "body": body, "options": self.options, "recommended": self.recommended, **hinted, "waits": waits, "drive": drive}
@@ -412,7 +411,7 @@ def coded(text: str) -> str:
 
 
 def rebuilt(card: dict, asks: Path) -> str:
-    """The ASK block a posted question card draws again, rebuilt from the card as the drive stored it for a question whose job kept no file: its question, summary and options in the words he read, the recommended one marked, each with the `Does:`, `Data:` and `Touches:` lines its hint drew under it, each Show me picture as the fence its source.json keeps, under its caption, or as the picture's line where none is kept, and the Findings `kept_findings` finds in asks."""
+    """The ASK block a posted question card draws again, rebuilt from the card as the drive stored it for a question whose job kept no file: its question, summary and options in the words he read, the recommended one marked, each with the description its hint drew under it, each Show me picture as the fence its source.json keeps, under its caption, or as the picture's line where none is kept, and the Findings `kept_findings` finds in asks."""
     lines = card["body"].split("\n")
     shown = lines.index("*Show me*") if "*Show me*" in lines else len(lines)
     show_me = unpictured(lines[shown + 1 :])
@@ -427,7 +426,7 @@ def rebuilt(card: dict, asks: Path) -> str:
                 for option in card["options"]
                 for line in [
                     f"- {option}{' (recommended)' if option == card['recommended'] else ''}",
-                    *(f"  {part[1]}: {part[2]}" for part in HINT_LINE.finditer(hints.get(option, ""))),
+                    *(f"  {line}" for line in hints.get(option, "").splitlines()),
                 ]
             ),
             "Findings:",
@@ -519,18 +518,16 @@ def question(text: str, kept: bool = False, unsettled: str | None = None, hurtin
     summary, above = rest[:first_option], rest[first_option:]
     show_me, after = shown_and_options(example[0] if example else "")
     headings = [line for line in above + after if OPTIONS_HEADING.fullmatch(line)]
-    options, explanations, strays = [], [], []
+    options, described = [], []
     for line in above + after:
         if line.startswith("- "):
             options.append(line.removeprefix("- ").strip())
-            explanations.append({})
-        elif explanations and (part := EXPLANATION.fullmatch(line)) and part[1] not in explanations[-1]:
-            explanations[-1][part[1]] = part[2].strip()
+            described.append([])
         elif not OPTIONS_HEADING.fullmatch(line):
-            strays.append(line)
+            described[-1].append(line)
     marked = [option for option in options if RECOMMENDED.search(option)]
     options = [RECOMMENDED.sub("", option) for option in options]
-    prose = [(f'option "{option}"', text) for option, parts in zip(options, explanations, strict=True) for text in parts.values()]
+    prose = [(f'option "{option}"', line) for option, lines in zip(options, described, strict=True) for line in lines]
     problems = []
     if not 1 <= len(summary) <= SUMMARY_LINES:
         problems.append(
@@ -540,11 +537,6 @@ def question(text: str, kept: bool = False, unsettled: str | None = None, hurtin
     problems += show_me_problems(show_me, bool(example and above), kept, len(options))
     if headings and not kept:
         problems.append(f'"{headings[0]}" is not a line of an ASK block: the `- ` options follow the Show me directly, with no heading')
-    if strays:
-        problems.append(
-            "only `- ` option lines, each with its `Does:`, `Data:` and `Touches:` lines under it, follow the Show me, then"
-            f" `Findings:`; these are neither: {strays}"
-        )
     if len(options) not in OPTION_COUNT:
         problems.append(f"{len(options)} options; an ASK has {OPTION_COUNT.start} to {OPTION_COUNT.stop - 1}, one line each")
     if len(marked) != 1:
@@ -556,7 +548,7 @@ def question(text: str, kept: bool = False, unsettled: str | None = None, hurtin
         for option in options
         if words(option) > OPTION_WORDS
     ]
-    shown = [title, *summary, *options, *(text for _, text in prose)]
+    shown = [title, *summary, *options, *(line for _, line in prose)]
     if (count := card_words({"title": title, "body": card_body(summary, show_me), "options": options})) > QUESTION_WORDS:
         problems.append(f"the question, summary and options are {count} words; at most {QUESTION_WORDS} in all, the Show me not counted")
     plain = URL.sub(" ", TOKEN.sub(" ", "\n".join(shown)))
@@ -586,7 +578,7 @@ def question(text: str, kept: bool = False, unsettled: str | None = None, hurtin
             for found in bare_mechanisms(line)
         ]
         problems += option_problems(options, unsettled)
-        problems += explanation_problems(options, explanations)
+        problems += description_problems(options, described)
         problems += sign_in_problems([("the question", title), *(("the summary", line) for line in summary), *((f'option "{option}"', option) for option in options), *prose])
     if not kept and marked and LANDING.match(title) and LANDING.match(marked[0]) and PR_URL.search("\n".join(summary)):
         problems.append(
@@ -604,7 +596,7 @@ def question(text: str, kept: bool = False, unsettled: str | None = None, hurtin
         problems += interim_fix_problems("".join(findings[:1]))
     if problems:
         raise DriveError("the ASK is out of shape, " + READING + ":\n- " + "\n- ".join(problems))
-    hints = {option: "\n".join(f"*{label}:* {parts[label]}" for label in EXPLAINED if label in parts) for option, parts in zip(options, explanations, strict=True) if parts}
+    hints = {option: "\n".join(lines) for option, lines in zip(options, described, strict=True) if lines}
     return Question(title, summary, show_me, options, RECOMMENDED.sub("", marked[0]), hints)
 
 
@@ -636,34 +628,20 @@ def option_problems(options: list[str], unsettled: str | None) -> list[str]:
     ]
 
 
-def explanation_problems(options: list[str], explanations: list[dict[str, str]]) -> list[str]:
-    """Why an option's prose, the `Does:`, `Data:` and `Touches:` lines his card draws under it, leaves him asking what it does, where its data lives or what it touches: a line missing or empty, a `Touches:` line naming no code path and not `none: <why>`, or a line longer than a line in his thread."""
-    explained = list(zip(options, explanations, strict=True))
-    unexplained = [
-        f'"{option_head(option)}" lacks {", ".join(missing[:-1])}{" and " if len(missing) > 1 else ""}{missing[-1]}'
-        for option, parts in explained
-        if (missing := [f"`{label}:`" for label in EXPLAINED if not parts.get(label)])
-    ]
-    problems = (
-        [
-            "each option has three lines under it, indented two spaces, which his card draws under that option:"
-            f" {EXPLAINED_SHAPE} ({EXPLAINED_RULING}); {'; '.join(unexplained)}"
-        ]
-        if unexplained
-        else []
-    )
-    problems += [
-        f'option "{option_head(option)}" says `Touches: {parts["Touches"]}`, naming no code path: name each file or directory it changes or builds, such as'
-        " `rust/crates/sandsql-core/src/engine` or `card.go`, or write `Touches: none: <why>`"
-        for option, parts in explained
-        if parts.get("Touches") and not (CODE_PATH.search(parts["Touches"]) or NONE_WHY.match(parts["Touches"]))
-    ]
-    return problems + [
-        f'option "{option_head(option)}" has a `{label}:` line of {words(text)} words; each is at most {LINE_WORDS}, a line in his thread ({READING})'
-        for option, parts in explained
-        for label, text in parts.items()
-        if words(text) > LINE_WORDS
-    ]
+def description_problems(options: list[str], described: list[list[str]]) -> list[str]:
+    """Why an option's description, the one plain-text line his card draws under it, leaves him asking what the option is: no line, more than one, a field label such as `Does:` where prose goes, or more words than a line in his thread."""
+    problems = []
+    for option, lines in zip(options, described, strict=True):
+        named = f'option "{option_head(option)}"'
+        if not lines:
+            problems.append(f"{named} has no description under it")
+        elif len(lines) > 1:
+            problems.append(f"{named} has {len(lines)} lines under it; write them as one description")
+        elif label := FIELD.search(lines[0]):
+            problems.append(f'{named} opens a field with "{label["label"]}:" where its description says what the option is in prose')
+        elif words(lines[0]) > LINE_WORDS:
+            problems.append(f"{named} has a description of {words(lines[0])} words; it is at most {LINE_WORDS}, a line in his thread")
+    return [*problems, f"each option has {DESCRIPTION_SHAPE} ({DESCRIBED_RULING})"] if problems else []
 
 
 def sign_in_problems(lines: list[tuple[str, str]]) -> list[str]:

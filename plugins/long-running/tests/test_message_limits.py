@@ -1543,50 +1543,61 @@ def test_a_question_or_option_naming_a_mechanism_by_a_bare_word_is_refused_until
     assert limits.question(rewritten).recommended == concrete[WATCH_OPTIONS[0]]
 
 
-EXPLAINED_ASK = """ASK Where does the one manager for SandSQL's helper processes run?
+DESCRIBED_ASK = """ASK Where does the one manager for SandSQL's helper processes run?
 Every option gives each helper one start spec and one restart rule; held until you pick, so nothing ships meanwhile.
 Sockets only touches clone.rs, clone/child.rs and `local/process.go`, as <https://github.com/acme/app/blob/main/clone.rs|clone.rs> reads today.
 - Inside each parent: each parent starts and restarts its children from one shared spec (recommended)
-  Does: each parent process starts its helpers from one spec and restarts one that exits, so a crash never waits on a person.
-  Data: none: each spec lives in code, and a helper keeps its state in its own files.
-  Touches: a new crate in rust/crates/sandsql-proc, called from clone.rs and local/process.go.
+  A new crate in rust/crates/sandsql-proc gives each parent process one spec to start its helpers from and restarts one that exits, called from clone.rs and local/process.go; each spec lives in code.
 - Sockets only: helpers move to Unix sockets, and every parent keeps its own restart code
-  Does: each helper listens on a Unix socket its parent hands it, and each parent keeps its own start and restart code.
-  Data: none: only the transport changes.
-  Touches: clone.rs, clone/child.rs and local/process.go.
+  Each helper listens on a Unix socket its parent hands it, changing clone.rs, clone/child.rs and local/process.go, while each parent keeps its own start and restart code.
 Findings:
 Root cause: none: a design pick, with no defect behind it
 Five parents hand-write their own start and restart code today.
 """
+SOCKETS = "  Each helper listens on a Unix socket its parent hands it, changing clone.rs, clone/child.rs and local/process.go, while each parent keeps its own start and restart code."
+FIELDS = "  Does: each helper listens on a Unix socket its parent hands it.\n  Data: none: only the transport changes.\n  Touches: clone.rs, clone/child.rs and local/process.go."
 
 
-def test_each_option_of_a_new_block_carries_does_data_and_touches_lines_which_its_card_draws_under_it(tmp_path: Path) -> None:
-    card = limits.question(EXPLAINED_ASK).card("demo", "demo:j1-7")
+def test_each_option_of_a_new_block_carries_one_plain_text_description_which_its_card_draws_under_it(tmp_path: Path) -> None:
+    card = limits.question(DESCRIBED_ASK).card("demo", "demo:j1-7")
     assert card["hints"] == {
         "Inside each parent: each parent starts and restarts its children from one shared spec": (
-            "*Does:* each parent process starts its helpers from one spec and restarts one that exits, so a crash never waits on a person.\n"
-            "*Data:* none: each spec lives in code, and a helper keeps its state in its own files.\n"
-            "*Touches:* a new crate in `rust/crates/sandsql-proc`, called from `clone.rs` and `local/process.go`."
+            "A new crate in `rust/crates/sandsql-proc` gives each parent process one spec to start its helpers from and restarts one that"
+            " exits, called from `clone.rs` and `local/process.go`; each spec lives in code."
         ),
         "Sockets only: helpers move to Unix sockets, and every parent keeps its own restart code": (
-            "*Does:* each helper listens on a Unix socket its parent hands it, and each parent keeps its own start and restart code.\n"
-            "*Data:* none: only the transport changes.\n"
-            "*Touches:* `clone.rs`, `clone/child.rs` and `local/process.go`."
+            "Each helper listens on a Unix socket its parent hands it, changing `clone.rs`, `clone/child.rs` and `local/process.go`, while"
+            " each parent keeps its own start and restart code."
         ),
     }
     assert limits.redrawn(limits.rebuilt(card, tmp_path)).card("demo", "demo:j1-7") == card
-    unexplained = "".join(line for line in EXPLAINED_ASK.splitlines(keepends=True) if not line.startswith("  "))
+
+
+@pytest.mark.parametrize(
+    ("description", "refusal"),
+    [
+        ("", 'option "Sockets only" has no description under it'),
+        (FIELDS, 'option "Sockets only" has 3 lines under it; write them as one description'),
+        ("  Does: each helper listens on a Unix socket. Touches: clone.rs.", 'option "Sockets only" opens a field with "Does:"'),
+        ("  Each helper listens on a Unix socket its parent hands it. Cost: every parent keeps its own restart code.", 'opens a field with "Cost:"'),
+        (f"  {said(61)}", 'option "Sockets only" has a description of 61 words; it is at most 60'),
+    ],
+)
+def test_an_option_whose_description_is_missing_split_into_fields_or_too_long_is_refused(description: str, refusal: str) -> None:
+    block = DESCRIBED_ASK.replace(f"{SOCKETS}\n", f"{description}\n" if description else "")
     with pytest.raises(DriveError) as refused:
-        limits.question(unexplained)
-    assert '"Inside each parent" lacks `Does:`, `Data:` and `Touches:`; "Sockets only" lacks `Does:`, `Data:` and `Touches:`' in str(refused.value)
-    assert limits.EXPLAINED_RULING in str(refused.value)
-    assert limits.question(unexplained, kept=True).hints == {}
-    unpathed = EXPLAINED_ASK.replace("  Touches: clone.rs, clone/child.rs and local/process.go.", "  Touches: the helpers and their parents.")
-    with pytest.raises(DriveError, match=re.escape('option "Sockets only" says `Touches: the helpers and their parents.`, naming no code path')):
-        limits.question(unpathed)
-    wordy = EXPLAINED_ASK.replace("  Data: none: only the transport changes.", f"  Data: {said(61)}")
-    with pytest.raises(DriveError, match=re.escape('option "Sockets only" has a `Data:` line of 61 words; each is at most 60')):
-        limits.question(wordy)
+        limits.question(block)
+    assert refusal in str(refused.value)
+    assert limits.DESCRIBED_RULING in str(refused.value)
+
+
+def test_a_block_kept_with_fields_under_its_options_redraws_them_as_its_description() -> None:
+    kept = limits.question(DESCRIBED_ASK.replace(SOCKETS, FIELDS), kept=True)
+    assert kept.hints["Sockets only: helpers move to Unix sockets, and every parent keeps its own restart code"] == (
+        "Does: each helper listens on a Unix socket its parent hands it.\nData: none: only the transport changes.\nTouches: clone.rs, clone/child.rs and local/process.go."
+    )
+    undescribed = "".join(line for line in DESCRIBED_ASK.splitlines(keepends=True) if not line.startswith("  "))
+    assert limits.question(undescribed, kept=True).hints == {}
 
 
 @pytest.mark.parametrize(
@@ -1611,7 +1622,7 @@ def test_a_card_draws_each_file_name_and_path_as_code_so_slack_links_none_of_the
 
 
 def test_a_cards_body_draws_clone_rs_as_code_beside_the_link_that_names_it() -> None:
-    card = limits.question(EXPLAINED_ASK).card("demo", "demo:j1-7")
+    card = limits.question(DESCRIBED_ASK).card("demo", "demo:j1-7")
     assert card["body"].splitlines()[1] == (
         "Sockets only touches `clone.rs`, `clone/child.rs` and `local/process.go`, as <https://github.com/acme/app/blob/main/clone.rs|clone.rs> reads today."
     )
