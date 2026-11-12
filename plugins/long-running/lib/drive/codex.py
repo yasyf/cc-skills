@@ -78,7 +78,7 @@ def take(name: str, data: dict, job_id: str, run: Run) -> None:
     if run.state == "completed":
         reply = run.reply.read_text()
         line = next((line.strip() for line in reply.splitlines() if line.strip()), "")
-        state.keep_report(name, job_id, data["jobs"][job_id], line, reply)
+        state.keep_report(name, job_id, line, reply, own=True)
     else:
         line = f"BLOCKED codex-ask {run.state}: {last_line(run.log)}"
     state.take_result(data, job_id, line[:SAID_CHARS])

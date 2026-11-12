@@ -49,6 +49,7 @@ def agent_stop(message: str, tmp_path: Path, *steps: dict, **fields: object) -> 
 
 
 def keep(run: Run, monkeypatch: pytest.MonkeyPatch, job_id: str, report: str) -> None:
+    monkeypatch.setenv(state.OWN_JOB_ENV, job_id)
     monkeypatch.setattr("sys.stdin", io.StringIO(report))
     run("job", "report", job_id, "-")
 

@@ -597,7 +597,7 @@ def test_his_answer_settling_a_finished_readers_question_reaches_the_builder_at_
     recorded.shown["73060f0"] = ANSWER
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Durable agents", "one card per subject", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the card")
-    state.keep_report(demo, "j1", state.load(demo)["jobs"]["j1"], "DONE researched the store copy", RESEARCH)
+    state.keep_report(demo, "j1", "DONE researched the store copy", RESEARCH, own=True)
     first, second = (str(state.drive_dir(demo) / "asks" / f"j1-{key}.md") for key in ("5c1d", "9e2f"))
     with state.edit(demo) as data:
         data["jobs"]["j1"].update(state="done", questions=[state.new_question(first, "Which card keeps the subject?", state.stamp())])

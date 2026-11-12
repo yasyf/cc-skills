@@ -75,6 +75,7 @@ ROLES = ("communicator", "coordinator", "meta")
 HOLDERS = ("communicator", "meta")
 HANDLER_ENV = "LONG_RUNNING_HANDLER"
 DRIVE_ENV = "CLAUDE_LONG_RUNNING_DRIVE"
+OWN_JOB_ENV = "LONG_RUNNING_OWN_JOB"
 LANE_ROLES = {"communicator": "communicator", "root": "coordinator", "meta": "meta"}
 DRIVE_LANES = ("root", "communicator", "coordinator", "meta", "handler", "builder", "reader", "designer", "root-tooling", "root-skill", "root-dashboard", "watch")
 NUMBERED_LANE = re.compile(r"(?P<stem>.+)-\d+")
@@ -224,10 +225,10 @@ def report_text(name: str, job_id: str, job: dict) -> str:
     return path.read_text() if path.exists() else job.get("report") or ""
 
 
-def keep_report(name: str, job_id: str, job: dict, line: str, whole: str) -> bool:
-    """Keep a return a job on this Mac made in its history, which keeps each, as it keeps a remote lane's, so a later return never loses an earlier one, and, while the job runs, as reports/<j>.md, which every reader takes as its report: only the job's own turn writes that file, so a return on a job that already returned, such as a coordinator restating its result, leaves its agent's report as it was. Whether it wrote the file."""
+def keep_report(name: str, job_id: str, line: str, whole: str, own: bool) -> bool:
+    """Keep a return in the job's history, which keeps each, as it keeps a remote lane's, so a later return never loses an earlier one, and, when the job's own agent, lane or codex run made it, as reports/<j>.md, which every reader takes as its report: a resumed agent's second return or its report after its own `drive job ask` replaces that file, and a return anyone else makes, such as a coordinator restating its result, leaves it as it was. Whether it wrote the file."""
     keep_reply(name, job_id, {"created_at": stamp(), "id": f"{REPORT_REPLY}{uuid.uuid4().hex[:12]}", "type": "worker_done", "subject": line, "body": whole})
-    if job["state"] != "running":
+    if not own:
         return False
     kept = report_path(name, job_id)
     kept.parent.mkdir(exist_ok=True)
@@ -561,11 +562,11 @@ def reported(line: str) -> bool:
     return bool(BUILT_LINE.match(line)) or opening in RESULT_STATES and opening != "ASK"
 
 
-def kept_return(job: dict, line: str) -> bool:
-    """Whether the line a job's agent returned is the result the drive keeps for it, word for word: an `ASK <path>` naming the block `drive job ask` kept for one of its questions, else its said line, which its newest return set, since a return made after the job returned keeps its report file as it was."""
+def kept_return(name: str, job_id: str, job: dict, line: str) -> bool:
+    """Whether the line a job's agent returned is the result the drive keeps for it, word for word: an `ASK <path>` naming the block `drive job ask` kept for one of its questions, else the first line of its report, which only its own agent's or lane's return writes, never its said line, which the watch rewrites as it settles a PUSHED and anyone else's return sets."""
     if (asked := ASK_LINE.fullmatch(line)) and kept_in(job, Path(asked["file"])):
         return True
-    return job["said"] == line
+    return (report_text(name, job_id, job).strip().splitlines() or [""])[0].strip() == line
 
 
 def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | None:

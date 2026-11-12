@@ -221,6 +221,7 @@ def test_a_drive_job_with_a_long_final_message_is_sent_back_to_keep_it_in_its_re
     waiting = "WAITING CI on https://github.com/yasyf/cc-skills/pull/1"
     assert one_line_result.block_reason(agent_stop(waiting)).startswith("Refused on purpose: j1's return is not kept in the drive")
     assert one_line_result.block_reason(agent_stop("ASK /scratch/ask.md")) is None
+    monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
     monkeypatch.setattr("sys.stdin", io.StringIO(f"{waiting}\nPR: https://github.com/yasyf/cc-skills/pull/1\n"))
     run("job", "report", "j1", "-")
     assert one_line_result.block_reason(agent_stop(waiting)) is None
@@ -235,6 +236,24 @@ def test_a_handler_is_held_to_one_line_and_other_sessions_are_left_alone(demo: s
     assert "drive job report" not in reason
     assert one_line_result.block_reason(agent_stop("a\nb", "someone-else")) is None
     assert one_line_result.block_reason(agent_stop("a\nb", "talker", stop_hook_active=True)) is None
+
+
+def test_a_job_agent_stops_once_its_own_report_opens_with_its_line_whatever_its_said_line_reads(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    url = "https://github.com/Forge-AI/monorepo/pull/8"
+    pushed = f"PUSHED {url}"
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--agent", "a-7")
+    run("pr", "add", url, "--job", "j1")
+    run("job", "set", "j1", "--said", "pushing the fix")
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"{pushed}\nCHANGE: restated\n"))
+    run("job", "report", "j1", "-")
+    assert one_line_result.block_reason(agent_stop(pushed)).startswith("Refused on purpose: j1's return is not kept in the drive")
+    monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"{pushed}\nCHANGE: x\n"))
+    run("job", "report", "j1", "-")
+    run("job", "set", "j1", "--said", "READY refused: Forge-AI/monorepo#8's required test failed")
+    assert state.report_path("demo", "j1").read_text() == f"{pushed}\nCHANGE: x\n"
+    assert one_line_result.block_reason(agent_stop(pushed)) is None
 
 
 def test_a_drive_jobs_stop_sets_no_state_whatever_line_it_lets_through(
@@ -307,6 +326,7 @@ def test_a_reader_that_kept_its_done_stays_done_through_its_later_calls_and_stop
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "--kind", "answer", "why is it slow")
     run("job", "add", "reader", "--order", "o1", "--goal", "answer why it is slow", "--agent", "a-9")
     findings = "The store lock is held for each copy\nsupervisor/copies.rs:42 takes it\n"
+    monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
     monkeypatch.setattr("sys.stdin", io.StringIO(f"DONE it waits on the store lock\n{findings}"))
     assert run("job", "report", "j1", "-")[0] == 0
     steps = stepped(tmp_path, "Drive: demo, order o1, job j1", prompted=EARLIER, agent_type="long-running:reader")
@@ -601,6 +621,7 @@ def test_a_build_orders_builder_starts_only_on_a_brief_naming_its_readers_resear
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
+    monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
     monkeypatch.setattr("sys.stdin", io.StringIO(RESEARCH))
     run("job", "report", "j1", "-")
     run("job", "add", "builder", "--order", "o1", "--goal", "build it")
@@ -679,6 +700,7 @@ def test_a_build_orders_codex_lane_is_added_and_started_only_on_its_readers_rese
     assert scratch_folder.deny_reason(drive_agent("codex:codex-wrapper", bare.format("j3"))).startswith(
         "refused, no agent started: j3 builds on o1, a build order: its brief carries the line Researched: <its reader's job>"
     )
+    monkeypatch.setenv(state.OWN_JOB_ENV, "j2")
     monkeypatch.setattr("sys.stdin", io.StringIO(RESEARCH))
     run("job", "report", "j2", "-")
     assert scratch_folder.deny_reason(drive_agent("codex:codex-wrapper", f"Researched: j2\n{bare.format('j3')}")) is None
@@ -689,6 +711,7 @@ def test_a_build_orders_designer_on_a_light_model_runs_on_its_own_fable(
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
+    monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
     monkeypatch.setattr("sys.stdin", io.StringIO(RESEARCH))
     run("job", "report", "j1", "-")
     run("job", "add", "design", "--order", "o1", "--goal", "cards: the copy")
@@ -722,6 +745,7 @@ def test_a_builder_serving_drive_tooling_on_the_coordinators_order_starts_from_t
     coordinator = os.environ["CLAUDE_CODE_SESSION_ID"]
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Messages", "I told him since you never did, fix that", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the reporter's thread")
+    monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
     monkeypatch.setattr("sys.stdin", io.StringIO(RESEARCH))
     run("job", "report", "j1", "-")
     run("job", "add", "builder", "--order", "o1", "--goal", "the reporter hears the fix is live")

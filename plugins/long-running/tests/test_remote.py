@@ -1855,7 +1855,7 @@ def test_a_report_drive_job_report_took_is_not_taken_again_when_its_lane_sends_i
     url = "https://github.com/Forge-AI/monorepo/pull/8"
     report = f"PUSHED {url}\nPR: {url}\nCHANGE: x\n"
     with state.edit(remote) as data:
-        state.keep_report(remote, "j1", data["jobs"]["j1"], f"PUSHED {url}", report)
+        state.keep_report(remote, "j1", f"PUSHED {url}", report, own=True)
         state.take_result(data, "j1", f"PUSHED {url}", report)
     taken = state.load(remote)["jobs"]["j1"]
     deliver(monkeypatch, [message("worker_done", report, id="msg_report")])
