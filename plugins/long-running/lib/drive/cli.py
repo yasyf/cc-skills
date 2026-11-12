@@ -1114,7 +1114,7 @@ def job_set(args: argparse.Namespace) -> int:
             job["parts"] = list(dict.fromkeys([*job["parts"], *added]))
             refuse_a_shared_at_once_part(job["parts"])
         if args.agent and args.agent == job.get("dispatch"):
-            job.update(where="remote", agent=None, handed_to=None)
+            job.update(lane, where="remote", agent=None, handed_to=None)
         elif lane:
             job.update(lane, where="remote", agent=None)
         elif args.agent:
@@ -1833,7 +1833,7 @@ def launched(args: argparse.Namespace, name: str) -> dict:
     job = find(data["jobs"], args.id, "job")
     if dispatch := job.get("dispatch"):
         raise DriveError(f"{args.id} already started as dispatch {dispatch}")
-    if adopted := orca.adopted(name, launch_brief(name, args.id)):
+    if adopted := orca.adopted(launch_brief(name, args.id)):
         return {field: adopted[field] for field in LAUNCHED}
     if job["waits"]:
         raise DriveError(f"{args.id} waits on {', '.join(job['waits'])}: launch it on the watch's FREE line, which comes once the last wait ends")
@@ -1985,7 +1985,7 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
                 return restart(args, name, dispatch, orca.LaneEnd(why, end.branch, None))
             raise
     else:
-        receipt = orca.adopted(name, kept) or launch_attempt(name, job, attempt, kept, brief, root, job["workspace"] if left else None)
+        receipt = orca.adopted(kept) or launch_attempt(name, job, attempt, kept, brief, root, job["workspace"] if left else None)
     started = {field: receipt[field] for field in LAUNCHED}
     record_start(name, args.id, started, str(kept))
     carrying = "in a handoff carrying its brief, its branch, its last line, its report and its PRs"
@@ -3315,7 +3315,11 @@ def parser() -> argparse.ArgumentParser:
     verb.set_defaults(run=job_add)
     verb = job.add_parser("set", parents=[*both, waits_opt])
     verb.add_argument("id", help="the job")
-    verb.add_argument("--agent", help="the agent id the Agent tool returned, the dispatch the job records, which puts it back on its Orca lane, or another Orca dispatch, filed on the Sprite or this Mac its worker-show names")
+    verb.add_argument(
+        "--agent",
+        help="the agent id the Agent tool returned, the dispatch the job records, which puts it back on its Orca lane, or another Orca dispatch;"
+        " either dispatch records the Run, Task, terminal, lane and Sprite or Mac Orca shows for it",
+    )
     verb.add_argument(
         "--state", choices=state.JOB_STATES, help="stopped: it ends unfinished; every other state comes from the line the job returns, and one it holds changes nothing"
     )
