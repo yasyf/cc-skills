@@ -9,6 +9,7 @@ import sys
 import tempfile
 import textwrap
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -1443,7 +1444,7 @@ def card_source(name: str, args: argparse.Namespace) -> tuple[Path, str]:
 
 
 def question_card(name: str, path: Path, waits: str) -> dict:
-    """The card a job's question draws: its newest kept ASK block, under the waits id the question already holds, so every ask of one question redraws its one card; the waits id given names the card of a question holding none yet, or one of the job's cards drawn again on purpose. A waits id naming no job of the drive, a card asked outside any job, only draws the block."""
+    """The card a job's question draws: its newest kept ASK block, under the waits id the question already holds, so every ask of one question redraws its one card; the waits id given names the card of a question holding none yet, or one of the job's cards drawn again on purpose. A waits id naming no job of the drive, a card asked outside any job, only draws the block. Each reference in its summary, Show me and option descriptions, such as {at:<seq>} in a Show me table, is filled as say fills a post's, through `refs.resolved` and `refs.slack`, before its file names are drawn as code."""
     from drive import superseded, view
 
     asked = kept_ask(path)
@@ -1464,7 +1465,13 @@ def question_card(name: str, path: Path, waits: str) -> dict:
     if refused := view.tap_claim_refusal(data, job["order"] if job else "", "\n".join([asked.title, *asked.summary, *asked.options]), pr_cards):
         raise DriveError(f"{path}: {refused}.{limits.FROM_ASK.format(waits=waits)}")
     show_me = picture.drawn(state.drive_dir(name) / "pictures", asked.show_me)
-    card = asked.card(name, waits) | {"body": limits.card_body(asked.summary, show_me)}
+    found = refs.resolved(name, "\n".join([*asked.summary, *show_me, *asked.hints.values()]))
+    card = replace(
+        asked,
+        summary=[refs.slack(line, found, None) for line in asked.summary],
+        show_me=[refs.slack(line, found, None) for line in show_me],
+        hints={option: refs.slack(hint, found, None) for option, hint in asked.hints.items()},
+    ).card(name, waits)
     if job_id in data["jobs"]:
         with state.edit(name) as data:
             keep_waits(data["jobs"][job_id], path, waits)
@@ -3318,10 +3325,9 @@ def parser() -> argparse.ArgumentParser:
             " picture on a line of its own as ![caption](/absolute/path.png); never words, JSON, YAML, logs, a terminal"
             " session, an HTTP exchange, command output or a stack trace in a fence), captions of at most 25 words,"
             " two to four `- ` options of at most 25 words, each saying what he gets and what it costs, with exactly one ending"
-            " (recommended), each followed by three lines indented two spaces that his card draws under it, of at most 60 words"
-            " each: `Does:` what runs, on what trigger, what it reads and what reaches whom, `Data:` where its data lives and how"
-            " it is written and read, and `Touches:` each system and code path it changes or builds, by path, or `none: <why>`;"
-            " no mechanism such as"
+            " (recommended), each followed by one plain-text line indented two spaces, at most 60 words, that his card draws"
+            " under it, saying in prose what the option is: what runs and when, where its data lives, and what it requires"
+            " touching or building, by name, with any cost every user pays, never fields such as `Does:`; no mechanism such as"
             " polling, a push or an event named by a bare word on the question or an option, the question, summary and"
             " options at most 150 words in all, in plain words, each thing he"
             " could open linked where it is named, then `Findings:` with the evidence, its `Root cause:` line naming the"
@@ -3371,8 +3377,10 @@ def parser() -> argparse.ArgumentParser:
             " titled with the caption line above it; a fence of words, with no language or `text`, which only a block"
             " kept before `drive job ask` refused one holds, stays as written for Slack to draw as a code block; a fence"
             " of raw data or tool output, or one that does not draw, is left off, and a"
-            " Show me left empty is dropped; its options, the recommended one, each option's `Does:`, `Data:` and `Touches:`"
-            " lines as the hints cc-slack draws under it, the drive, and its waits id. A question the"
+            " Show me left empty is dropped; its options, the recommended one, each option's description as the hint"
+            " cc-slack draws under it, the drive, and its waits id. Each reference in its summary, Show me and descriptions,"
+            " such as {at:<seq>} or {pr:<number>}, is filled as `say` fills a post's: a time as its words, a PR, card or record"
+            " as a link. A question the"
             " job asked before draws its newest kept block under the waits id it already holds, whatever --waits names, so"
             " every ask of one question redraws its one card, unless --waits names a card another of the job's questions"
             " holds, which it then redraws. A question holding none takes --waits, and one of the job's that held it"

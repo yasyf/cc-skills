@@ -92,15 +92,13 @@ Show me:
 ```
 ![<what the screenshot shows, for a UI>](<its absolute path>)
 - <recommended option: what he gets and what it costs, one line of at most 25 words> (recommended)
-  Does: <what runs, on what trigger, what it reads and what reaches whom, then what he gets>
-  Data: <where its data lives, by system, database, table or file, and how it is written and read, or none: <why>>
-  Touches: <each system and code path it changes or builds, by path, naming a cost every user pays, such as SandSQL's write path for every table, or none: <why>>
-- <another option, the same way with its three lines; two to four in all>
+  <one plain-text description of what the option is, at most 60 words: what runs and when, where its data lives, and what it requires touching or building, by name, with any cost every user pays, such as SandSQL's write path for every table>
+- <another option, the same way with its description; two to four in all>
 Findings:
 Root cause: <the structure that lets the defect happen, by its proper terms; or fixed: <that structure>, removed by <the merged PR's link>; or not found: <the job finding it>; or none: <why no defect is behind this question>>
 First principles: <the option that removes that structure so the defect cannot occur, by its words>
 Interim fix: <on a bug hurting someone now: the link of the PR, release, rollback or repair shipping the immediate fix, or the job building it; or none: <why nobody is hurt now>>
-<the design in plain words, what his words already settle, and the evidence behind each option's three lines>
+<the design in plain words, what his words already settle, and the evidence behind each option's description>
 ````
 
 - Put the option you recommend first, since a builder may build it on a pushed branch while he
@@ -125,23 +123,22 @@ Interim fix: <on a bug hurting someone now: the link of the PR, release, rollbac
 - The summary answers his next question: why, did he already decide this, is it a port, what comes
   after, or why it is held. `drive job ask` refuses one that answers none of them unless `Findings:`
   carries `Next question: none: <why>`.
-- Each option is one line of what he gets and what it costs, then three lines under it, indented
-  two spaces, which his card draws under that option. `Does:` says what runs, on what trigger, what
-  it reads or watches and what reaches the agent or him, such as "the Mac reruns the check function
-  every 30 seconds and compares its output; a change sends one inbox message that wakes the agent".
-  `Data:` says where its data lives, by system, database, table or file, and how it is written and
-  read. `Touches:` names each system and code path it changes or builds, by path, and any cost every
-  user pays, such as SandSQL's write path for every table. A table or Show me never stands in for
-  them. His words, on a card whose options never said one changed SandSQL: "you need to always
-  fucking explain each optopn properly as prose in additon tot he table or whatever and what it
-  requires touching/building", and on the next: "where is that data stored then and how".
-  `drive job ask` refuses an option missing any of the three, a `Touches:` line naming no code path
-  and not `none: <why>`, and a line over 60 words.
+- Each option is one line of what he gets and what it costs, then one plain-text description
+  under it, indented two spaces, which his card draws under that option. The description says in
+  prose, short but clear and whole, what the option is: what runs and on what trigger, such as "the
+  Mac reruns the check function every 30 seconds and compares its output; a change sends one inbox
+  message that wakes the agent", where its data lives and how it is written and read, and what it
+  requires touching or building, by name, with any cost every user pays, such as SandSQL's write
+  path for every table. A table or Show me never stands in for it. His words, on a card whose
+  options never said one changed SandSQL: "you need to always fucking explain each optopn properly as prose in additon tot he table or whatever and what it requires touching/building"; on the next: "where is that data stored then
+  and how"; and on the `Does:`, `Data:` and `Touches:` lines that first carried it: "this does/data/toches is not as helpful as each option just having a plain-text shot concise but clear and comprehensive description of what it is".
+  `drive job ask` refuses an option with no description, more than one line under it, a field label
+  such as `Does:` in it, or one over 60 words.
 - The summary's first line says what every option shares, and the question asks only what the
   options differ on. His words, on a card whose buttons said "Polls only": "That wasn't clear from
   the card, polling is fine for seeing when the function output changed".
-- The question, summary and options hold at most 150 words; each option's three lines, like the Show
-  me, are drawn whole outside that count. Slack draws a card's title and buttons as plain text, so
+- The question, summary and options hold at most 150 words; each option's description, like the
+  Show me, is drawn whole outside that count. Slack draws a card's title and buttons as plain text, so
   the question and options name terms bare, with no markdown or link; links go in the summary.
 - Add a Show me only when it shows what the words cannot, never for a name or value they already
   say: "show a sinippet when it makews sense". It is drawn whole on his card, outside the 150
