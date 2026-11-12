@@ -1229,6 +1229,7 @@ def test_the_pages_a_card_links_are_the_web_pages_its_summary_and_captions_link_
         show_me=[f"1 · The queue at {queue}, beside <{REPORTED}|his thread>:", "```sh", "curl https://fenced.example.com/never-read", "```"],
         options=["The Slack preview first", "The queue first"],
         recommended="The Slack preview first",
+        hints={},
     )
     assert limits.linked_pages(asked) == [preview, queue]
 
