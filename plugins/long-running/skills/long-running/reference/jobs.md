@@ -168,7 +168,7 @@ one. A report sent as an Orca question, one whose first line opens with a result
 since the lane no longer waits on that answer. Any other `ASK` question is a `JOB` line saying that
 `drive job ask <j>`, which you run, keeps it. The watch takes each message once: one the job's kept
 history already holds is never an event again, so a watch that restarts after an install says
-nothing it said before. `drive status --json` holds the whole latest report, and
+nothing it said before. `drive job report <j>` prints every result the lane sent, newest first, and
 `drive job replies <j>` prints every result and question the lane sent and every return
 `drive job report <j> -` kept, oldest first with its time, for a line that points at an earlier
 reply.
@@ -288,19 +288,18 @@ write-up; only the handler that writes to him writes prose.
   a delegation hook names a file, because Claude Code refuses a subagent's Write of a report file.
 - It returns the first line alone, opening with a result word the state table lists. The
   `one_line_result` hook sends back a final message past one line of 500 characters, and a
-  builder's, designer's or build order reader's line until its own `drive job report <j> -` keeps a
-  report opening with it, whatever its said line reads since, such as the watch's `READY refused`, and
-  `drive job report` refuses a builder's or designer's report that opens with any other word.
+  builder's, designer's or build order reader's line until the job's newest return opens with it,
+  whatever its said line reads since, such as the watch's `READY refused`, and `drive job report`
+  refuses a builder's or designer's report that opens with any other word.
 - The rest of the kept report is one fact a line: links, numbers, paths, exact quotes, and what it
   could not prove.
-- Whoever acts on it reads it with `drive job report <j>`, which prints the report its own agent
-  kept, and a remote lane's Orca report the same way; an `ASK` keeps its block through `drive job ask`
-  instead. Only the job's own agent or lane writes that report, its second return after a resume
-  and its report after its own `drive job ask` included: a return anyone else pipes, such as a
-  coordinator restating its result, sets its said line and history and leaves the agent's report as
-  it was. The drive knows the caller from `LONG_RUNNING_OWN_JOB`, which the `bash_guard` hook
-  exports on a job agent's `drive job report` call and the Mac sets on a Sprite lane's. `drive job replies <j>` prints each return it kept, oldest first,
-  beside each message a remote lane sent.
+- The job's history, `jobs/<j>.replies.jsonl`, is its report: each `drive job report <j> -` adds
+  its return there beside every earlier one, so no return, its own agent's, its lane's or anyone
+  else's such as a coordinator restating its result, takes the place of another. Whoever acts on it
+  reads it with `drive job report <j>`, which prints every return the job took, newest first, each
+  earlier one under a line naming when the drive kept it, and an identical return once; an `ASK`
+  keeps its block through `drive job ask` instead. `drive job replies <j>` prints each return
+  oldest first, beside each message a remote lane sent.
 
 ## Rules for every job
 

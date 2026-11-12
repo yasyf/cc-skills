@@ -1663,7 +1663,7 @@ def keep_waits(job: dict, file: Path, waits: str) -> None:
 
 
 def job_report(args: argparse.Namespace) -> int:
-    """Keep a job's whole return from stdin in its history and, when its own agent or lane sent it, as its report, its first line setting the job's state, or refuse it with nothing kept, naming the fix, when that line would set none or it types a clock time for work already done; a reader's DESIGN is kept as its ASK in the same call, whose path it prints. With no stdin, print the kept report, or a remote lane's latest one."""
+    """Keep a job's whole return from stdin in its history, which is its report, its first line setting the job's state, or refuse it with nothing kept, naming the fix, when that line would set none or it types a clock time for work already done; a reader's DESIGN is kept as its ASK in the same call, whose path it prints. With no stdin, print every return the job took, newest first."""
     name = state.resolve(args.drive)
     data = state.load(name)
     job = find(data["jobs"], args.id, "job")
@@ -1687,20 +1687,16 @@ def job_report(args: argparse.Namespace) -> int:
                 asked, _, _, decided = keep_ask(name, args.id, whole.strip(), None)
             except DriveError as error:
                 raise DriveError(f"{args.id}: refused, its report not kept: a reader's DESIGN is his card as it stands, kept as its ASK, and drive job ask refused it: {error}") from None
-        wrote = state.keep_report(name, args.id, line, whole, os.environ.get(state.OWN_JOB_ENV) == args.id)
+        state.keep_report(name, args.id, line, whole)
         with state.edit(name) as data:
             state.take_result(data, args.id, line, whole)
             state.add_changes(data, args.id, whole)
-        kept = state.report_path(name, args.id)
-        where = str(kept) if wrote else (
-            f"{args.id}'s own agent did not send this return, so it set only its said line and its history, `drive job replies {args.id}`:"
-            f" {kept} is written only by its own agent's or lane's return"
-        )
+        kept = str(state.replies_path(name, args.id))
         merging = merge_reported(name, args.id)
-        shown = f"{where}\n{decided}" if decided else f"{where}\nits ASK is kept in {asked}, the path its ask record names" if asked else where
+        shown = f"{kept}\n{decided}" if decided else f"{kept}\nits ASK is kept in {asked}, the path its ask record names" if asked else kept
         shown = "\n".join([shown, *(f"{key}: {said}" for key, said in merging)])
-        return emit(args, shown, {"id": args.id, "report": str(kept) if wrote else None, "ask": asked and str(asked), "merging": dict(merging)})
-    text = state.report_text(name, args.id, job)
+        return emit(args, shown, {"id": args.id, "report": kept, "ask": asked and str(asked), "merging": dict(merging)})
+    text = state.report_text(name, args.id)
     if not text and not job["said"]:
         raise DriveError(f"{args.id} kept no report and has returned nothing yet")
     if not text:
@@ -3581,16 +3577,16 @@ def parser() -> argparse.ArgumentParser:
     verb = job.add_parser(
         "report",
         parents=both,
-        help="keep a job's whole return in the drive, or print it",
+        help="keep a job's whole return in the drive, or print every return it took",
         description=(
             "A job returns one line; the rest of its return, the inputs to what he would be told, one fact a line,"
-            " is kept here before it returns, piped in on stdin. With -, keep stdin in the job's history, set its state and said line"
-            " from its first line, write it as the job's report only when its own agent or lane sent it, and print where; with nothing, print the"
-            " kept report, or a remote lane's latest one."
+            " is kept here before it returns, piped in on stdin. With -, keep stdin in the job's history, which is its report,"
+            " set its state and said line from its first line, and print where; with nothing, print every return the job took,"
+            " its own agent's, its lane's and anyone else's, newest first."
         ),
     )
     verb.add_argument("id")
-    verb.add_argument("stdin", nargs="?", choices=["-"], help="- to keep the job's whole return from stdin; default: print the kept one")
+    verb.add_argument("stdin", nargs="?", choices=["-"], help="- to keep the job's whole return from stdin; default: print every return it took, newest first")
     verb.set_defaults(run=job_report)
     verb = job.add_parser(
         "brief",

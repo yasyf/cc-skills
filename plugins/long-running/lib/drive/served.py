@@ -99,7 +99,7 @@ def verdict(name: str, key: str) -> str:
     data = state.load(name)
     pr = data["prs"][key]
     head, at, named = pr["head"], state.stamp(), ""
-    cited = [line for line in state.report_text(name, pr["job"], data["jobs"][pr["job"]]).splitlines() if line.startswith("DESIGN:")]
+    cited = [line for line in state.report_text(name, pr["job"]).splitlines() if line.startswith("DESIGN:")]
     try:
         check(name, [key], [], cited, {})
     except Against as error:

@@ -9,7 +9,7 @@ import subprocess
 import sys
 import types
 from collections.abc import Callable, Iterator
-from datetime import UTC, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import drive
@@ -2466,61 +2466,67 @@ def test_job_report_keeps_a_jobs_whole_return_from_stdin_and_prints_it_back(
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
     kept_proof(tmp_path, "j1")
     assert run("job", "report", "j1")[0] == 2
-    monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
     monkeypatch.setattr("sys.stdin", io.StringIO("READY https://github.com/yasyf/cc-skills/pull/1\nSERVES: his order\nDESIGN: none\n"))
-    assert run("job", "report", "j1", "-") == (0, str(state_root / "demo" / "reports" / "j1.md"))
+    assert run("job", "report", "j1", "-") == (0, str(state_root / "demo" / "jobs" / "j1.replies.jsonl"))
     assert run("job", "report", "j1") == (0, "READY https://github.com/yasyf/cc-skills/pull/1\nSERVES: his order\nDESIGN: none")
 
 
-def test_a_return_its_own_agent_did_not_send_sets_its_line_and_history_and_leaves_its_agents_report_byte_identical(
-    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
+def test_job_report_prints_every_return_a_job_took_newest_first_whoever_sent_it_and_writes_no_report_file(
+    run: Run, demo: str, state_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "reader", "--order", "o1", "--goal", "grade", "--agent", "a")
     assert run("job", "replies", "j1") == (0, "j1 has sent nothing yet")
-    agents = "DONE graded three PRs\nVERDICT 54182 port\nVERDICT 54104 drop\nVERDICT 54344 port\nCHECK: the three diffs\n"
-    restated = "DONE graded three PRs: two ports\nCHECK: reports/j1.md\nUNPROVEN: none\n"
-    monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
-    monkeypatch.setattr("sys.stdin", io.StringIO(agents))
-    assert run("job", "report", "j1", "-") == (0, str(state.report_path("demo", "j1")))
-    before = hashlib.sha256(state.report_path("demo", "j1").read_bytes()).hexdigest()
-    monkeypatch.delenv(state.OWN_JOB_ENV)
-    monkeypatch.setattr("sys.stdin", io.StringIO(restated))
-    assert run("job", "report", "j1", "-") == (
-        0,
-        (
-            f"j1's own agent did not send this return, so it set only its said line and its history, `drive job replies j1`: {state.report_path('demo', 'j1')}"
-            " is written only by its own agent's or lane's return"
-        ),
-    )
-    assert hashlib.sha256(state.report_path("demo", "j1").read_bytes()).hexdigest() == before
-    assert (state.load("demo")["jobs"]["j1"]["said"], run("job", "report", "j1")) == ("DONE graded three PRs: two ports", (0, agents.rstrip("\n")))
+    blocked = "BLOCKED the diffs are not fetched\n"
+    agents = "DONE graded three PRs\nCHECK: the three diffs\n"
+    restated = "DONE graded three PRs: two ports\nUNPROVEN: none\n"
+    for whole in (blocked, agents, restated):
+        monkeypatch.setattr("sys.stdin", io.StringIO(whole))
+        assert run("job", "report", "j1", "-") == (0, str(state_root / "demo" / "jobs" / "j1.replies.jsonl"))
     kept = json.loads(run("job", "replies", "j1", "--json")[1])
-    assert [(reply["type"], reply["subject"], reply["body"]) for reply in kept] == [
-        ("worker_done", "DONE graded three PRs", agents),
-        ("worker_done", "DONE graded three PRs: two ports", restated),
-    ]
+    assert [(reply["type"], reply["body"]) for reply in kept] == [("worker_done", blocked), ("worker_done", agents), ("worker_done", restated)]
+    earlier = [state.EARLIER_RETURN.format(at=state.stamp(state.parse_time(reply["created_at"]).astimezone())) for reply in kept]
+    assert run("job", "report", "j1") == (0, f"{restated}\n{earlier[1]}\n{agents}\n{earlier[0]}\n{blocked}".rstrip("\n"))
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["state"], job["said"], list(state_root.rglob("j1.md"))) == ("done", "DONE graded three PRs: two ports", [])
 
 
-def test_a_resumed_agents_second_return_replaces_its_report_whatever_state_its_first_left(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
-    run("job", "add", "reader", "--order", "o1", "--goal", "grade", "--agent", "a")
-    monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
-    monkeypatch.setattr("sys.stdin", io.StringIO("BLOCKED the diffs are not fetched\n"))
-    assert run("job", "report", "j1", "-")[0] == 0
-    assert state.load("demo")["jobs"]["j1"]["state"] == "failed"
-    monkeypatch.setattr("sys.stdin", io.StringIO("DONE graded three PRs\nCHECK: the three diffs\n"))
-    assert run("job", "report", "j1", "-") == (0, str(state.report_path("demo", "j1")))
-    assert (state.load("demo")["jobs"]["j1"]["state"], state.report_path("demo", "j1").read_text()) == ("done", "DONE graded three PRs\nCHECK: the three diffs\n")
-
-
-def test_another_jobs_agent_never_writes_a_jobs_report(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_return_kept_twice_prints_once_where_it_was_kept_last(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "reader", "--order", "o1", "--goal", "grade")
-    monkeypatch.setenv(state.OWN_JOB_ENV, "j2")
+    graded, listed = "DONE graded three PRs\n", "DONE listed three PRs\n"
+    for whole in (graded, listed, graded):
+        monkeypatch.setattr("sys.stdin", io.StringIO(whole))
+        run("job", "report", "j1", "-")
+    assert [reply["body"] for reply in state.returns("demo", "j1")] == [graded, listed]
+    assert run("job", "report", "j1")[1].count("DONE graded three PRs") == 1
+
+
+def test_a_report_an_older_install_kept_beside_a_job_moves_into_its_history_once_and_its_file_goes(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "reader", "--order", "o1", "--goal", "grade")
+    run("job", "add", "reader", "--order", "o1", "--goal", "grade again", "--remote")
     monkeypatch.setattr("sys.stdin", io.StringIO("DONE graded three PRs\n"))
-    assert run("job", "report", "j1", "-")[0] == 0
-    assert (state.load("demo")["jobs"]["j1"]["said"], state.report_path("demo", "j1").exists()) == ("DONE graded three PRs", False)
+    run("job", "report", "j1", "-")
+    with state.edit("demo") as data:
+        data["jobs"]["j2"]["report"] = "DONE the lane's latest\n"
+    folder = state.drive_dir("demo") / "reports"
+    folder.mkdir(exist_ok=True)
+    older = datetime(2026, 11, 1, 9, tzinfo=UTC)
+    for job_id, text in (("j1", "DONE graded three PRs\n"), ("j2", "DONE graded two PRs\nCHECK: the diffs\n"), ("j9", "DONE a job the drive no longer has\n")):
+        (folder / f"{job_id}.md").write_text(text)
+        os.utime(folder / f"{job_id}.md", (older.timestamp(), older.timestamp()))
+    (folder / "j2.proof.txt").write_text("proof output\n")
+    for _ in range(2):
+        monkeypatch.setattr(state, "MOVED_REPORTS", set())
+        with state.edit("demo"):
+            pass
+    assert (sorted(path.name for path in folder.iterdir()), [reply["body"] for reply in state.returns("demo", "j1")]) == (["j2.proof.txt"], ["DONE graded three PRs\n"])
+    assert [reply["body"] for reply in state.returns("demo", "j2")] == ["DONE the lane's latest\n", "DONE graded two PRs\nCHECK: the diffs\n"]
+    earlier = state.EARLIER_RETURN.format(at=state.stamp(older.astimezone()))
+    assert run("job", "report", "j2") == (0, f"DONE the lane's latest\n\n{earlier}\nDONE graded two PRs\nCHECK: the diffs")
 
 
 def test_a_builders_done_names_its_proof_and_what_he_sees_is_proven_on_that_surface(
@@ -2553,7 +2559,6 @@ def test_a_builders_done_names_its_proof_and_what_he_sees_is_proven_on_that_surf
 def test_job_report_refuses_an_empty_stdin(run: Run, demo: str, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
-    monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
     monkeypatch.setattr("sys.stdin", io.StringIO("\n"))
     assert cli.main(["job", "report", "j1", "-"]) == 2
     assert "stdin held no report for j1" in capsys.readouterr().err
@@ -2573,7 +2578,6 @@ def test_job_report_prints_the_one_line_result_of_a_job_that_kept_no_report_and_
 
 
 def keep(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], job_id: str, text: str) -> tuple[int, str]:
-    monkeypatch.setenv(state.OWN_JOB_ENV, job_id)
     monkeypatch.setattr("sys.stdin", io.StringIO(text))
     code = cli.main(["job", "report", job_id, "-"])
     return code, capsys.readouterr().err
@@ -2854,14 +2858,13 @@ def test_a_readers_design_report_keeps_its_ask_in_the_same_call_or_keeps_nothing
     code, err = keep(monkeypatch, capsys, "j1", unshaped)
     assert (code, "j1: refused, its report not kept: a reader's DESIGN is his card as it stands, kept as its ASK, and drive job ask refused it:" in err) == (2, True)
     job = state.load("demo")["jobs"]["j1"]
-    assert (job["state"], job["questions"], state.report_path("demo", "j1").exists()) == ("running", [], False)
-    monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
+    assert (job["state"], job["questions"], state.replies_path("demo", "j1").exists()) == ("running", [], False)
     monkeypatch.setattr("sys.stdin", io.StringIO(DESIGN_RESEARCH))
     code, out = run("job", "report", "j1", "-")
     job = state.load("demo")["jobs"]["j1"]
     [question] = job["questions"]
     assert (code, job["state"], question["title"], question["refused"]) == (0, "done", DESIGN_TITLE, None)
-    assert out == f"{state.report_path('demo', 'j1')}\nits ASK is kept in {question['file']}, the path its ask record names"
+    assert out == f"{state.replies_path('demo', 'j1')}\nits ASK is kept in {question['file']}, the path its ask record names"
     assert Path(question["file"]).read_text().startswith(f"ASK {DESIGN_TITLE}\n")
 
 
@@ -2875,11 +2878,10 @@ def test_a_readers_design_report_after_its_own_ask_keeps_that_asks_unsettled_and
     monkeypatch.setattr("sys.stdin", io.StringIO(swept))
     assert run("job", "ask", "j1", "-", "--unsettled", why)[0] == 0
     assert state.load("demo")["jobs"]["j1"]["state"] == "waiting"
-    monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
     monkeypatch.setattr("sys.stdin", io.StringIO(swept))
     assert run("job", "report", "j1", "-")[0] == 0
     job = state.load("demo")["jobs"]["j1"]
-    assert (job["state"], [question["unsettled"] for question in job["questions"]], state.report_path("demo", "j1").read_text()) == ("done", [why], swept)
+    assert (job["state"], [question["unsettled"] for question in job["questions"]], state.report_text("demo", "j1").strip()) == ("done", [why], swept.strip())
 
 
 def test_a_design_lanes_design_names_on_each_fork_line_a_question_it_kept(
@@ -3305,7 +3307,6 @@ def test_a_built_return_sets_its_job_built_on_its_branches_waiting_on_each_card_
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
     card = "https://acme.slack.com/archives/D123/p1794200000000100"
-    monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
     monkeypatch.setattr("sys.stdin", io.StringIO(f"BUILT {branch}, waits on demo:j1-3, {card}\nCHECK: build 12\n"))
     run("job", "report", "j1", "-")
     job = state.load("demo")["jobs"]["j1"]
@@ -3329,7 +3330,7 @@ def test_a_report_takes_a_waiting_or_built_job_and_is_refused_on_a_stopped_one_k
     run("job", "set", "j1", "--state", "stopped", "--said", "handed to j2")
     code, err = keep(monkeypatch, capsys, "j1", "DONE The lane comes from bookkeeping\nCHECK: https://github.com/yasyf/cc-skills/actions/runs/13\n")
     assert (code, "j1: refused, nothing kept: j1 is stopped, so its work goes on in another job" in err) == (2, True)
-    assert state.report_path("demo", "j1").read_text() == done
+    assert [reply["body"] for reply in state.returns("demo", "j1")] == [done, f"WAITING on his card demo:j1-3\n{check}", built]
     assert state.load("demo")["jobs"]["j1"]["state"] == "stopped"
 
 
@@ -3396,7 +3397,6 @@ def test_job_set_naming_the_state_a_job_already_holds_changes_nothing_and_says_s
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "reader", "--order", "o1", "--goal", "read where it ships")
-    monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
     monkeypatch.setattr("sys.stdin", io.StringIO("DONE it ships from the release branch\n"))
     assert run("job", "report", "j1", "-")[0] == 0
     code, out = run("job", "set", "j1", "--state", "done", "--said", "read")
@@ -3407,12 +3407,19 @@ def test_job_set_naming_the_state_a_job_already_holds_changes_nothing_and_says_s
     assert run("job", "set", "j2", "--state", "running")[1].splitlines()[0] == "j2 is already running"
 
 
-def test_job_report_prints_a_remote_lanes_latest_report(run: Run, demo: str) -> None:
+def test_job_report_prints_each_result_a_remote_lane_sent_newest_first_and_none_of_its_other_messages(run: Run, demo: str) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship", "--remote")
-    with state.edit("demo") as data:
-        data["jobs"]["j1"]["report"] = "DONE installed 1.0.76\nCHECK: drive --version"
-    assert run("job", "report", "j1") == (0, "DONE installed 1.0.76\nCHECK: drive --version")
+    sent = [
+        ("worker_done", "DONE installed 1.0.75", "DONE installed 1.0.75\nCHECK: drive --version"),
+        ("status", "building 1.0.76", "building 1.0.76"),
+        ("question", "LOG https://buildkite.com/forge/test/builds/1", "LOG https://buildkite.com/forge/test/builds/1"),
+        ("question", "DONE installed 1.0.76", "DONE installed 1.0.76\nCHECK: drive --version"),
+    ]
+    for hour, (kind, subject, body) in enumerate(sent):
+        state.keep_reply("demo", "j1", {"created_at": f"2026-11-12T0{hour}:00:00+00:00", "id": f"msg_{hour}", "type": kind, "subject": subject, "body": body})
+    earlier = state.EARLIER_RETURN.format(at=state.stamp(state.parse_time("2026-11-12T00:00:00+00:00").astimezone()))
+    assert run("job", "report", "j1") == (0, f"DONE installed 1.0.76\nCHECK: drive --version\n\n{earlier}\nDONE installed 1.0.75\nCHECK: drive --version")
 
 
 @pytest.fixture
@@ -3490,7 +3497,6 @@ def test_a_yasyf_pr_starts_one_lander_once_its_builders_ready_is_taken_with_its_
     assert run("pr", "add", url, "--job", "j1") == (0, "yasyf/cc-skills#7")
     assert landers == []
     kept_proof(tmp_path, "j1")
-    monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
     monkeypatch.setattr("sys.stdin", io.StringIO(f"READY {url}\n"))
     code, out = run("job", "report", "j1", "-")
     assert (code, out.splitlines()[1].startswith("yasyf/cc-skills#7: merging it with gh pr merge --squash --admin, then installing")) == (0, True)
@@ -4090,7 +4096,6 @@ def test_job_brief_refuses_an_adopted_prs_waiting_job_until_an_event_hands_it_of
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "land the strip")
     run("job", "add", "builder", "--order", "o1", "--goal", "Fix: land it", "--repo", "Forge-AI/monorepo", "--remote")
     run("pr", "add", PR, "--job", "j1")
-    monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
     monkeypatch.setattr("sys.stdin", io.StringIO(f"WAITING {PR}\n"))
     assert run("job", "report", "j1", "-")[0] == 0
     brief = ["job", "brief", "j1", "--serves", "his order", "--done-when", "merged", "--where", "Forge-AI/monorepo main"]

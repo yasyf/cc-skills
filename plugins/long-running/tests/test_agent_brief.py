@@ -20,7 +20,6 @@ def started(subagent_type: str, prompt: str, model: str | None = None) -> dict:
 def test_a_design_job_starts_as_the_designer(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Restores", "restores copy one store", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
-    monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
     monkeypatch.setattr("sys.stdin", io.StringIO(RESEARCH))
     run("job", "report", "j1", "-")
     run("job", "add", "design", "--order", "o1", "--goal", "design the copy")

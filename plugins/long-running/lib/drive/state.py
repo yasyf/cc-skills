@@ -20,6 +20,8 @@ ORDER_KINDS = ("answer", "build")
 CLOSED_ORDER_STATES = ("done", "dropped")
 JOB_KINDS = ("builder", "reader", "design", "codex")
 REPORT_REPLY = "report_"
+EARLIER_RETURN = "--- an earlier return, kept {at} ---"
+JOB_ID = re.compile(r"j\d+")
 JOB_AGENTS = {"builder": ("long-running:builder",), "reader": ("long-running:reader",), "design": ("long-running:designer",), "codex": ("codex:codex-wrapper", "long-running:builder")}
 JOB_STATES = ("running", "waiting", "built", "done", "failed", "stopped")
 FINISHED_JOB_STATES = ("done", "failed", "stopped")
@@ -108,6 +110,7 @@ BATCHED: dict[str, str] = {}
 HELD_INSTALL: dict[Path, IO] = {}
 INSTALL_HOLDER = "LONG_RUNNING_INSTALL_HOLDER"
 WAITED_OLDER: set[Path] = set()
+MOVED_REPORTS: set[Path] = set()
 LOCK_POLL_SECONDS = 0.1
 HOLDER_CHARS = 200
 HOLDERS_SECONDS = 5
@@ -211,29 +214,70 @@ def replies_path(name: str, job_id: str) -> Path:
     return drive_dir(name) / "jobs" / f"{job_id}.replies.jsonl"
 
 
-def report_path(name: str, job_id: str) -> Path:
-    return drive_dir(name) / "reports" / f"{job_id}.md"
+def proof_path(name: str, job_id: str) -> Path:
+    return drive_dir(name) / "reports" / f"{job_id}.proof.txt"
 
 
 def repro_path(name: str, job_id: str, suffix: str) -> Path:
     return drive_dir(name) / "repro" / f"{job_id}{suffix}"
 
 
-def report_text(name: str, job_id: str, job: dict) -> str:
-    """A job's whole return as kept in the drive, or a remote lane's latest report, or nothing."""
-    path = report_path(name, job_id)
-    return path.read_text() if path.exists() else job.get("report") or ""
+def returns(name: str, job_id: str) -> list[dict]:
+    """Every return the job's history keeps, newest first, an identical body once, each its row with its body, or its subject when a lane sent none: each `drive job report` took, each codex reply and proof, and each result a remote lane sent, as its worker_done or as a question opening with a result."""
+    taken = [
+        reply | {"body": reply["body"] or reply["subject"]}
+        for reply in replies(name, job_id)
+        if reply["type"] == "worker_done" or reply["type"] == "question" and reported(opening(reply["body"] or ""))
+    ]
+    once: dict[str, dict] = {}
+    for reply in sorted(reversed(taken), key=lambda reply: parse_time(reply["created_at"]), reverse=True):
+        once.setdefault(reply["body"].strip(), reply)
+    return list(once.values())
 
 
-def keep_report(name: str, job_id: str, line: str, whole: str, own: bool) -> bool:
-    """Keep a return in the job's history, which keeps each, as it keeps a remote lane's, so a later return never loses an earlier one, and, when the job's own agent, lane or codex run made it, as reports/<j>.md, which every reader takes as its report: a resumed agent's second return or its report after its own `drive job ask` replaces that file, and a return anyone else makes, such as a coordinator restating its result, leaves it as it was. Whether it wrote the file."""
-    keep_reply(name, job_id, {"created_at": stamp(), "id": f"{REPORT_REPLY}{uuid.uuid4().hex[:12]}", "type": "worker_done", "subject": line, "body": whole})
-    if not own:
-        return False
-    kept = report_path(name, job_id)
-    kept.parent.mkdir(exist_ok=True)
-    kept.write_text(whole)
-    return True
+def opening(text: str) -> str:
+    """The text's first line that is not blank, trimmed."""
+    return next((line.strip() for line in text.splitlines() if line.strip()), "")
+
+
+def report_text(name: str, job_id: str) -> str:
+    """A job's report, which is every return it took, newest first: the newest whole, so its first line is the newest return's, then each earlier one under a line naming when the drive kept it; nothing for a job that returned nothing."""
+    taken = returns(name, job_id)
+    if not taken:
+        return ""
+    earlier = (f"\n{EARLIER_RETURN.format(at=stamp(parse_time(reply['created_at']).astimezone()))}\n{reply['body'].strip()}\n" for reply in taken[1:])
+    return "".join([taken[0]["body"].strip() + "\n", *earlier])
+
+
+def keep_report(name: str, job_id: str, line: str, whole: str, at: datetime | None = None) -> None:
+    """Keep a return in the job's history, beside each earlier one and each message a remote lane sent, which every reader takes as the job's report, so a later return, its own agent's or anyone else's such as a coordinator restating its result, never takes the place of an earlier one."""
+    keep_reply(name, job_id, {"created_at": stamp(at), "id": f"{REPORT_REPLY}{uuid.uuid4().hex[:12]}", "type": "worker_done", "subject": line, "body": whole})
+
+
+def moved_reports(name: str) -> None:
+    """Move into each job's history, as the return it was, what an older install kept beside it as reports/<j>.md, its report until the history became it, and what a remote lane's job holds as its latest report when that is a result the history lacks, then delete the file, so the history is every reader's one record of a job's returns: once a process, under the drive's lock, and only while such a file is left."""
+    folder = drive_dir(name) / "reports"
+    if folder in MOVED_REPORTS:
+        return
+    MOVED_REPORTS.add(folder)
+    files = [path for path in folder.glob("j*.md") if JOB_ID.fullmatch(path.stem)]
+    if not files:
+        return
+    jobs = load(name)["jobs"]
+    for path in files:
+        if path.stem in jobs:
+            keep_return(name, path.stem, path.read_text(), datetime.fromtimestamp(path.stat().st_mtime).astimezone())
+        path.unlink()
+    for job_id, job in jobs.items():
+        if reported(opening(job.get("report") or "")):
+            keep_return(name, job_id, job["report"], parse_time(job["returned"] or job["updated"]))
+
+
+def keep_return(name: str, job_id: str, whole: str, at: datetime) -> None:
+    """Keep a return an older install held outside the job's history in it, unless it is blank or a row of the history already holds it."""
+    if not whole.strip() or whole.strip() in {(reply["body"] or "").strip() for reply in replies(name, job_id)}:
+        return
+    keep_report(name, job_id, opening(whole), whole, at)
 
 
 def keep_reply(name: str, job_id: str, message: dict) -> None:
@@ -564,10 +608,10 @@ def reported(line: str) -> bool:
 
 
 def kept_return(name: str, job_id: str, job: dict, line: str) -> bool:
-    """Whether the line a job's agent returned is the result the drive keeps for it, word for word: an `ASK <path>` naming the block `drive job ask` kept for one of its questions, else the first line of its report, which only its own agent's or lane's return writes, never its said line, which the watch rewrites as it settles a PUSHED and anyone else's return sets."""
+    """Whether the line a job's agent returned is the result the drive keeps for it, word for word: an `ASK <path>` naming the block `drive job ask` kept for one of its questions, else the first line of its newest return, never its said line, which the watch rewrites as it settles a PUSHED."""
     if (asked := ASK_LINE.fullmatch(line)) and kept_in(job, Path(asked["file"])):
         return True
-    return (report_text(name, job_id, job).strip().splitlines() or [""])[0].strip() == line
+    return opening(report_text(name, job_id)) == line
 
 
 def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | None:
@@ -983,12 +1027,13 @@ def flocked(path: Path) -> Iterator[None]:
 
 @contextmanager
 def locked(name: str) -> Iterator[None]:
-    """Hold the drive's lock for one load and save, waiting up to DRIVE_LOCK_SECONDS for the process holding it, then refusing with who that is, so a process stuck under it fails this verb instead of holding every writer of the drive behind it."""
+    """Hold the drive's lock for one load and save, waiting up to DRIVE_LOCK_SECONDS for the process holding it, then refusing with who that is, so a process stuck under it fails this verb instead of holding every writer of the drive behind it; a process's first hold moves the reports an older install kept into their jobs' histories."""
     path = drive_dir(name) / ".lock"
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "a") as handle:
         if not taken(handle, DRIVE_LOCK_SECONDS):
             raise DriveError(f"{name}'s drive lock is still held after {DRIVE_LOCK_SECONDS}s, so this changed nothing: {holders(path)}")
+        moved_reports(name)
         yield
 
 
