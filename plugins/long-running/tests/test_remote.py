@@ -804,7 +804,7 @@ def test_resume_to_a_finished_worker_whose_terminal_orca_no_longer_finds_relaunc
     monkeypatch.setattr(orca, "worker", lambda dispatch: FINISHED_WORKER)
     monkeypatch.setattr(orca, "bound_command", lambda drive, run_id, argv: subprocess.CompletedProcess(argv, 1, stdout=json.dumps(reply), stderr=""))
     monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing is sent to a finished worker: {args}"))
-    monkeypatch.setattr(orca, "held", lambda job, root: None)
+    monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: None)
     monkeypatch.setattr(orca, "new_run", lambda objective: FRESH_RUN)
     launched = {}
 
@@ -1121,7 +1121,7 @@ def test_end_saves_what_the_sprite_of_a_job_still_at_work_holds_and_its_next_lan
     monkeypatch.setattr(orca, "new_run", lambda objective: FRESH_RUN)
     launched = {}
 
-    def fake_launch(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None) -> dict:
+    def fake_launch(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None, workspace: str | None) -> dict:
         launched.update(brief=brief.read_text())
         return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane")}
 

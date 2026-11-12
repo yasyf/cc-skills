@@ -880,7 +880,7 @@ def delivering(name: str, order_id: str, report: dict, text: str) -> str:
     lines = []
     for each in dict.fromkeys([order_id, *(on for on, _ in items)]):
         order = find(data["orders"], each, "order")
-        parts, unsaid = carried(each, order, reported_parts(each, order, report, items), items, text)
+        parts, unsaid = carried(each, order, reported_parts(data, each, order, report, items), items, text)
         quoted = ", ".join(f'"{part}"' for part in parts)
         lines.append(f"{each} {quoted}: would be delivered{unsaid}" if parts else f"{each} progress line, no part delivered{unsaid}")
     return "; ".join(lines)
