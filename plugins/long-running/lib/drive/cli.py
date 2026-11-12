@@ -1998,6 +1998,7 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
     url = state.pr_url(key)
     refuse_an_unkinded_title(key, read, port_of)
     refuse_third_person(key, read)
+    refuse_an_undrawn_show_me(name, key, read)
     if port_of:
         refuse_a_port_storing_data(key, port_of)
     known = state.load(name)
@@ -2337,6 +2338,15 @@ def github_pr(key: str) -> dict:
     if not (read := card.read(key)):
         raise DriveError(f"{key}: could not read it from GitHub to check its title and body")
     return read
+
+
+def refuse_an_undrawn_show_me(name: str, key: str, read: dict) -> None:
+    """Each fence of a PR's Show me draws as his card will draw it, through the same cache, since a card whose picture does not draw shows him a Show me with nothing in it."""
+    from drive import card
+
+    for kind, source, _ in picture.sources(card.sections(card.body_of(read)).get("show me", "")):
+        if kind != "image":
+            picture.shot(state.drive_dir(name) / "pictures", "show-me", kind, source, f"{key}: refused, nothing added: its Show me {kind}")
 
 
 def refuse_an_unkinded_title(key: str, read: dict, port_of: int | None) -> None:

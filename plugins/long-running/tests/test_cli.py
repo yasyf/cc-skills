@@ -3602,6 +3602,19 @@ def test_pr_add_refuses_a_body_whose_shown_sections_speak_of_him_as_he_or_his(ru
     assert run("pr", "add", PR, "--job", "j1")[0] == 0
 
 
+def test_pr_add_refuses_a_show_me_fence_that_does_not_draw_and_adds_it_once_it_draws(run: Run, demo: str, on_github: dict, chrome: Chrome, capsys: pytest.CaptureFixture[str]) -> None:
+    run("order", "add", "--title", "Move the strip", "--project", "The drive", "--workstream", "Releases", "move the strip")
+    run("job", "add", "builder", "--order", "o1", "--goal", "move it")
+    on_github["body"] = CARD_BODY + '\n## Show me\nThe map\n```arch\n{"arch": 1}\n```\n\n![before](https://example.com/before.png)\n'
+    chrome.refusal = '"name" is required'
+    assert cli.main(["pr", "add", PR, "--job", "j1"]) == 2
+    assert capsys.readouterr().err.strip() == 'drive: Forge-AI/monorepo#42: refused, nothing added: its Show me arch does not draw: "name" is required'
+    assert state.load("demo")["prs"] == {}
+    chrome.refusal = None
+    assert run("pr", "add", PR, "--job", "j1")[0] == 0
+    assert [kind for kind, _ in chrome.drawn] == ["arch"]
+
+
 def test_pr_set_tap_refuses_a_title_retitled_since_drive_pr_add_read_it(
     run: Run, with_pr: str, on_github: dict, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -46,7 +46,10 @@ VISUAL = {
             "description": (
                 "What it draws, as in a Show me fence: the code; Mermaid or dot source; a Vega-Lite JSON spec, data inline, for"
                 ' a chart; {"options": [{"name", "recommended", "language", "code", "points": ["+ a gain", "- a cost"]}]} for a'
-                " compare; an arch/v1 JSON document; an image's absolute path or URL"
+                ' compare; for arch, {"arch": 1, "name", "title", "nodes": [{"id", "kind", "name", "role"}], "edges": [{"from", "to",'
+                ' "label"}]}, each id lowercase letters, digits and dashes, kind actor, app, service, worker, store, log, external,'
+                ' artifact or doc, a store or log node adding "medium": memory, disk, bucket, keys or pages;'
+                " an image's absolute path or URL"
             ),
         },
         "language": {"type": "string", "description": "The code's language, for its highlighting"},

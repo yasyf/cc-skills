@@ -1,13 +1,12 @@
-import hljs from "https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.12.0/es/highlight.min.js";
+import hljs from "./vendor/highlight.js@11.12.0/highlight.min.js";
 
-const HLJS = "https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.12.0";
-const ARCH_MAP = "https://cdn.jsdelivr.net/gh/yasyf/cc-present@v0.60.2/plugin/.claude/components/display/src/arch-map.min.js";
-const MERMAID = "https://cdn.jsdelivr.net/npm/mermaid@12.3.0/dist/mermaid.esm.min.mjs";
-const VEGA_EMBED = "https://cdn.jsdelivr.net/npm/vega-embed@7.3.0/+esm";
-const VIZ = "https://cdn.jsdelivr.net/npm/@viz-js/viz@3.31.0/dist/viz.js";
-const GUESSED = new Set(["", "text", "txt", "plain", "plaintext"]);
+const HLJS = new URL("./vendor/highlight.js@11.12.0/", import.meta.url);
+const ARCH_MAP = new URL("./vendor/cc-present@v0.60.2/arch-map.js", import.meta.url);
+const MERMAID = new URL("./vendor/mermaid@12.3.0/mermaid.esm.min.mjs", import.meta.url);
+const VEGA_EMBED = new URL("./vendor/vega-embed@7.3.0/vega-embed.min.mjs", import.meta.url);
+const VIZ = new URL("./vendor/viz@3.31.0/viz.js", import.meta.url);
 const RAW = new Set(["json", "jsonc", "json5", "jsonl", "ndjson", "yaml", "yml", "csv", "tsv", "log", "logs", "console", "terminal", "shell-session", "sh-session", "pwsh-session", "output", "stdout", "stderr", "traceback", "pytb", "stacktrace"]);
-const GRAMMAR_FILES = { proto: "protobuf" };
+const GRAMMAR_FILES = { proto: "protobuf", plain: "plaintext" };
 const SANS = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif";
 const MONO = "Menlo, ui-monospace, SFMono-Regular, monospace";
 const CATEGORICAL = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"];
@@ -93,7 +92,7 @@ let mermaidCount = 0;
 
 function style(document) {
   if (!styled.has(document)) {
-    const sheet = Object.assign(document.createElement("link"), { rel: "stylesheet", href: `${HLJS}/styles/github.min.css` });
+    const sheet = Object.assign(document.createElement("link"), { rel: "stylesheet", href: new URL("github.min.css", HLJS).href });
     const loaded = new Promise((resolve) => sheet.addEventListener("load", resolve, { once: true }));
     document.head.append(sheet, Object.assign(document.createElement("style"), { textContent: CSS }));
     styled.set(document, loaded);
@@ -102,10 +101,10 @@ function style(document) {
 }
 
 async function grammar(name) {
-  if (GUESSED.has(name)) return null;
+  if (!name) return null;
   if (hljs.getLanguage(name)) return name;
   try {
-    hljs.registerLanguage(name, (await import(`${HLJS}/es/languages/${GRAMMAR_FILES[name] ?? name}.min.js`)).default);
+    hljs.registerLanguage(name, (await import(new URL(`languages/${GRAMMAR_FILES[name] ?? name}.min.js`, HLJS))).default);
     return name;
   } catch {
     return null;
@@ -119,6 +118,17 @@ async function code(document, name, source) {
   const lit = language ? hljs.highlight(text, { language }) : hljs.highlightAuto(text);
   pre.innerHTML = `<code class="hljs">${lit.value}</code>`;
   return pre;
+}
+
+export async function lines(path, texts) {
+  await style(document);
+  const language = (await grammar(path.split("/").pop().split(".").pop().toLowerCase())) ?? "plaintext";
+  const open = [];
+  return hljs.highlight(texts.join("\n"), { language, ignoreIllegals: true }).value.split("\n").map((line) => {
+    const opened = open.join("");
+    for (const [tag] of line.matchAll(/<span[^>]*>|<\/span>/g)) tag === "</span>" ? open.pop() : open.push(tag);
+    return opened + line + "</span>".repeat(open.length);
+  });
 }
 
 async function compare(document, source) {

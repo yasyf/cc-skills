@@ -35,6 +35,8 @@ FILES = {
     "/app.css": ("app.css", "text/css; charset=utf-8"),
     "/visuals.js": ("visuals.js", "text/javascript; charset=utf-8"),
 }
+VENDOR = SITE / "vendor"
+VENDOR_KINDS = {".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8"}
 LOOPBACK = "127.0.0.1"
 LOCAL_CALLERS = {LOOPBACK, "::1", "::ffff:127.0.0.1"}
 PORT_BASE = 41000
@@ -357,6 +359,8 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
             elif self.path in FILES:
                 file, kind = FILES[self.path]
                 self.reply((SITE / file).read_bytes(), kind)
+            elif self.path.startswith("/vendor/") and (file := (SITE / self.path.lstrip("/")).resolve()).is_relative_to(VENDOR) and file.suffix in VENDOR_KINDS and file.is_file():
+                self.reply(file.read_bytes(), VENDOR_KINDS[file.suffix], "public, max-age=31536000, immutable")
             else:
                 self.send_error(404)
 
@@ -553,10 +557,10 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 except (BrokenPipeError, ConnectionResetError):
                     return
 
-        def reply(self, body: bytes, kind: str) -> None:
+        def reply(self, body: bytes, kind: str, cache: str = "no-store") -> None:
             self.send_response(200)
             self.send_header("Content-Type", kind)
-            self.send_header("Cache-Control", "no-store")
+            self.send_header("Cache-Control", cache)
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)

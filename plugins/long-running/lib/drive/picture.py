@@ -1,5 +1,8 @@
+import contextlib
+import functools
 import hashlib
 import html
+import http.server
 import itertools
 import json
 import os
@@ -8,7 +11,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import urllib.request
+from collections.abc import Iterator
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -77,7 +82,7 @@ VISUAL_TRIES = 3
 VISUAL_PAGE = """<!doctype html>
 <html data-print><head><meta charset="utf-8"><style>html,body{margin:0;background:#fff}#visual{display:inline-block}#visual:not([data-kind=code]){padding:8px}#visual[data-kind=arch]{display:block;width:960px}.smap.printing>.smap-canvas{max-height:none!important}.smap-readout:not(:has(> :not(.smap-hint))){display:none}</style></head>
 <body><div id="visual"></div><script type="application/json" id="source">SOURCE</script>
-<script type="module">VISUALS
+<script type="module">import { draw } from "./visuals.js";
 const host = document.getElementById("visual");
 const shown = JSON.parse(document.getElementById("source").textContent);
 try {
@@ -168,19 +173,38 @@ def page_text(url: str) -> str:
 
 
 def visual_png(kind: str, source: str, out: Path) -> None:
-    """Draw one visual with site/visuals.js, the module the dashboard draws it with live: once to measure it, again while Chrome's time ran out before it finished drawing, as a dot's renderer loading from the network can, then a screenshot of exactly that box."""
-    with tempfile.TemporaryDirectory(prefix="drive-visual-") as scratch:
-        page = Path(scratch) / "visual.html"
-        shown = json.dumps({"kind": kind, "source": source}).replace("</", "<\\/")
-        page.write_text(VISUAL_PAGE.replace("VISUALS", VISUALS.read_text(), 1).replace("SOURCE", shown, 1))
-        measured = (DRAWN.search(headless(page.as_uri(), page.parent / "profile", f"--window-size={VISUAL_WINDOW},{VISUAL_WINDOW}", "--dump-dom")) for _ in range(VISUAL_TRIES))
+    """Draw one visual with site/visuals.js, the module the dashboard draws it with live, and the renderers it keeps beside it, served on a loopback port so nothing loads from the network and Chrome's virtual time, which waits on a page's network loads but never on its file loads, waits for them: once to measure it, again while Chrome's time ran out before it finished drawing, then a screenshot of exactly that box."""
+    shown = json.dumps({"kind": kind, "source": source}).replace("</", "<\\/")
+    with tempfile.TemporaryDirectory(prefix="drive-visual-") as scratch, visual_site(Path(scratch), VISUAL_PAGE.replace("SOURCE", shown, 1)) as page:
+        profile = Path(scratch) / "profile"
+        measured = (DRAWN.search(headless(page, profile, f"--window-size={VISUAL_WINDOW},{VISUAL_WINDOW}", "--dump-dom")) for _ in range(VISUAL_TRIES))
         if not (drawn := next(filter(None, measured), None)):
             raise PictureError(f"the {kind} did not finish drawing in {VISUAL_TRIES} tries")
         if not (size := SIZE.fullmatch(said := html.unescape(drawn[1]))):
             raise PictureError(said)
-        headless(page.as_uri(), page.parent / "profile", f"--window-size={size[1]},{size[2]}", f"--force-device-scale-factor={VISUAL_SCALE}", f"--screenshot={out}")
+        headless(page, profile, f"--window-size={size[1]},{size[2]}", f"--force-device-scale-factor={VISUAL_SCALE}", f"--screenshot={out}")
     if not out.is_file():
         raise PictureError("Chrome wrote no screenshot")
+
+
+@contextlib.contextmanager
+def visual_site(folder: Path, page: str) -> Iterator[str]:
+    (folder / "visual.html").write_text(page)
+    for name in ("visuals.js", "vendor"):
+        (folder / name).symlink_to(VISUALS.parent / name)
+    with http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(QuietFiles, directory=folder)) as server:
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            yield f"http://127.0.0.1:{server.server_port}/visual.html"
+        finally:
+            server.shutdown()
+
+
+class QuietFiles(http.server.SimpleHTTPRequestHandler):
+    extensions_map = http.server.SimpleHTTPRequestHandler.extensions_map | {".mjs": "text/javascript"}
+
+    def log_message(self, *args: object) -> None:
+        pass
 
 
 def downloaded(url: str, out: Path) -> None:

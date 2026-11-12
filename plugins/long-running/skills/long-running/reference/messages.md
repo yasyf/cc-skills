@@ -217,7 +217,7 @@ Its Show me:
 | The question turns on | Kind | Fence holds |
 |---|---|---|
 | the shape of an API, call, query or schema the options change | code | the real calls, in a fence naming its language: ```sand, ```sql, ```go |
-| components, data layout or flow between them | arch | an arch/v1 JSON document, the diagram the dashboard and cc-present draw |
+| components, data layout or flow between them | arch | `{"arch": 1, "name", "title", "nodes": [{"id", "kind", "name", "role"}], "edges": [{"from", "to", "label"}]}`: each id lowercase letters, digits and dashes; kind actor, app, service, worker, store, log, external, artifact or doc; a store or log node adds "medium", one of memory, disk, bucket, keys or pages; an edge may add "kind", one of sync, async, copy or control. `drive pr add` draws it and refuses one that does not draw |
 | routing, ownership, steps over time, a state machine, a small graph | mermaid | Mermaid source |
 | a graph whose layout carries the point, such as clusters of what runs where | dot | Graphviz source |
 | numbers: sizes, counts, timings, before and after | chart | a Vega-Lite JSON spec with its data inline: a bar, line or area mark, or an arc for a pie, which Slack draws as its own chart |
