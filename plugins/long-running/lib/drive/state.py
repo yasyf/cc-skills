@@ -4,7 +4,7 @@ import json
 import os
 import re
 import uuid
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import AbstractContextManager, contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -65,6 +65,8 @@ WAITS_ID = re.compile(r"([\w.-]+):(j\d+)-(\d+)")
 ORDER_LIST = re.compile(r"[\s,]+")
 ROUTED_KINDS = ("owner", "answer", "posted", "refused")
 APPROVALS_LABELLED = ".approvals-labelled-by-question"
+BATCHED: dict[str, str] = {}
+AFTER_SAVE: dict[str, list[Callable[[], list[str]]]] = {}
 VERSION = json.loads((Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json").read_text())["version"]
 
 
@@ -278,7 +280,9 @@ def saved(name: str) -> dict:
 
 
 def load(name: str) -> dict:
-    """Read a drive, bringing a drive saved by an older install up to the fields this one reads, from what is on this Mac alone; one a newer install saved is refused before any of it is read, since this code may misread its shapes."""
+    """Read a drive, bringing a drive saved by an older install up to the fields this one reads, from what is on this Mac alone; one a newer install saved is refused before any of it is read, since this code may misread its shapes. Inside a batch, the batch's copy as its writes so far left it."""
+    if name in BATCHED:
+        return json.loads(BATCHED[name])
     data = saved(name)
     if (saver := data.get("saved_by")) and tuple(map(int, saver.split("."))) > tuple(map(int, VERSION.split("."))):
         raise NewerDrive(f"drive.json of {name} was saved by long-running {saver}, newer than this {VERSION}, which may misread it: run the newest install's drive")
@@ -697,11 +701,41 @@ def binding(name: str) -> AbstractContextManager[None]:
 
 @contextmanager
 def edit(name: str) -> Iterator[dict]:
-    """Load the drive under its lock, yield it for changes, and save it atomically on exit."""
+    """Load the drive under its lock, yield it for changes, and save it atomically on exit; inside a batch, which holds the lock already, keep the changes for the batch's one save."""
+    if name in BATCHED:
+        data = load(name)
+        yield data
+        BATCHED[name] = json.dumps(data)
+        return
     with locked(name):
         data = load(name)
         yield data
         save(name, data)
+
+
+@contextmanager
+def batch(name: str) -> Iterator[list[str]]:
+    """Hold the drive's lock across a call of several writes, each load and edit inside it reading and changing one copy in memory, saved once when the call ends and never when it raises, so a refused write leaves drive.json as it was; what a write does outside the drive runs after that save, its lines added to the list it yields."""
+    after: list[str] = []
+    with locked(name):
+        BATCHED[name] = json.dumps(load(name))
+        AFTER_SAVE[name] = []
+        try:
+            yield after
+            save(name, json.loads(BATCHED[name]))
+            effects = AFTER_SAVE[name]
+        finally:
+            del BATCHED[name], AFTER_SAVE[name]
+    for effect in effects:
+        after += effect()
+
+
+def after_save(name: str, effect: Callable[[], list[str]]) -> list[str]:
+    """Run what a write does outside the drive, such as withdrawing a card of his: now, or inside a batch once its save lands; the lines it prints now."""
+    if name in AFTER_SAVE:
+        AFTER_SAVE[name].append(effect)
+        return []
+    return effect()
 
 
 @contextmanager
