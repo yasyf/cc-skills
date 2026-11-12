@@ -135,13 +135,15 @@ No tap and no green gate: by his standing rule a `yasyf/*` PR merges without ask
      copy from `yasyf/tap` (cc-context's `ccx`, cc-inbox's `cci`, `cc-notes`, `cc-present`,
      `cc-review` and `cc-slack`) then gets that copy upgraded. Claude Code appends plugin bin
      directories after `/opt/homebrew/bin` on PATH, so a session's bare `ccx` runs Homebrew's copy.
-     The install runs `brew update`, then `brew upgrade yasyf/tap/<binary>`, about 12 seconds. With
-     `--sha` it reads the bare binary's `--version` and repeats both every 20 seconds until that
+     The install fast-forwards the `yasyf/tap` clone alone with `git pull --ff-only`, then runs
+     `brew upgrade yasyf/tap/<binary>` with `HOMEBREW_NO_AUTO_UPDATE=1`, a few seconds, never
+     `brew update`, which fetches every tap on the Mac and fails when any one of them cannot be
+     fetched. With `--sha` it reads the bare binary's `--version` and repeats both every 20 seconds until that
      release's tag holds the merge, since the tap's formula commit can land after the plugin's
      release. Installs run at once take turns on the update and on each Homebrew pass under one flock
      on `plugins/.update.lock` in the Claude config directory, a few seconds each. Claude Code
      re-clones a stale marketplace into one fixed `<marketplace>..clone` directory, where two clones
-     at once delete each other's files, and a second `brew update` refuses while one runs. It refuses
+     at once delete each other's files, and two pulls of one tap clone at once collide on its index lock. It refuses
      when the update left the plugin at a commit without the merge, as a marketplace clone holding
      moved tags does, or running a binary whose release tag lacks it, naming the installed version,
      that commit or release, and the merge sha. It also refuses when the bare binary still runs a

@@ -20,7 +20,13 @@ CCI_BINRUN = "plugin/bin/cci.binrun"
 IDLE = {"ok": True, "result": {"wait": {"condition": "tui-idle", "satisfied": True, "status": "running", "exitCode": None}}}
 BUSY = {"ok": False, "error": {"code": "timeout", "message": "timeout"}}
 SENT = {"ok": True, "result": {"send": {"accepted": True}}}
-BREW_UPDATE = ["brew", "update", "--quiet"]
+TAP_DIR = "/opt/homebrew/Library/Taps/yasyf/homebrew-tap"
+BREW_TAP = ["brew", "--repository", "yasyf/tap"]
+TAP_PULL = ["git", "-C", TAP_DIR, "pull", "--ff-only", "--quiet"]
+
+
+def upgrade(binary: str) -> list[str]:
+    return ["env", "HOMEBREW_NO_AUTO_UPDATE=1", "brew", "upgrade", f"yasyf/tap/{binary}"]
 
 
 class FakeGit:
@@ -89,6 +95,8 @@ class FakeGit:
             return self.next_ref() + "\n"
         if cmd[1:] == ["--version"]:
             return self.next_bare() + "\n"
+        if cmd == BREW_TAP:
+            return TAP_DIR + "\n"
         if verb[:2] == ["rev-list", "--count"]:
             return "0\n" if verb[-1].removeprefix("^") in self.holding else "4\n"
         if cmd[:3] == ["claude", "plugin", "update"]:
@@ -106,7 +114,10 @@ class FakeGit:
         return ""
 
     def git_calls(self) -> list[list[str]]:
-        return [call[3:] for call in self.calls if call[:2] == ["git", "-C"]]
+        return [call[3:] for call in self.calls if call[:2] == ["git", "-C"] and call[2] != TAP_DIR]
+
+    def homebrew_calls(self) -> list[list[str]]:
+        return [call for call in self.calls if call[0] in ("brew", "env") or call[:3] == ["git", "-C", TAP_DIR] or call[1:] == ["--version"]]
 
     def claude_calls(self) -> list[list[str]]:
         return [call for call in self.calls if call[0] == "claude"]
@@ -422,7 +433,8 @@ def test_a_release_sync_merged_straight_back_holds_its_own_merge_commit(
 def test_installing_cc_inbox_moves_the_cci_daemon_onto_the_new_build(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
     git = fake(["unused"], set())
     assert install.main("cc-inbox@skills", None, None, 900) == 0
-    assert git.other_calls() == [["/cache/cc-inbox/1.0.3/bin/cci", "serve"], BREW_UPDATE, ["brew", "upgrade", "yasyf/tap/cci"]]
+    assert git.other_calls() == [["/cache/cc-inbox/1.0.3/bin/cci", "serve"], BREW_TAP, upgrade("cci")]
+    assert git.homebrew_calls() == [BREW_TAP, TAP_PULL, upgrade("cci")]
     assert capsys.readouterr().out.strip() == "installed cc-inbox@skills 1.0.3"
 
 
@@ -432,8 +444,8 @@ def test_a_homebrew_twin_is_upgraded_until_the_bare_binary_runs_a_release_holdin
     git = fake(["cc-context--v1.0.3"], {"cc-context--v1.0.3", "v0.95.70"})
     git.bare = ["v0.95.69", "v0.95.70"]
     assert install.main("cc-context@skills", SHA, None, 900) == 0
-    upgrade = [BREW_UPDATE, ["brew", "upgrade", "yasyf/tap/ccx"], ["ccx", "--version"]]
-    assert git.other_calls() == upgrade + upgrade
+    each_pass = [TAP_PULL, upgrade("ccx"), ["ccx", "--version"]]
+    assert git.homebrew_calls() == [BREW_TAP, *each_pass, *each_pass]
     assert holds(SHA, "v0.95.69") in git.git_calls()
     assert git.sleeps == [20]
     out, err = capsys.readouterr()
@@ -451,6 +463,17 @@ def test_a_bare_binary_still_lacking_the_sha_at_the_deadline_refuses_the_install
     out, err = capsys.readouterr()
     assert out == ""
     assert err.splitlines()[-1] == f"drive install: timed out after 60s waiting for bare ccx to hold {SHA[:12]}; bare ccx runs release v0.95.69, which lacks it"
+
+
+def test_a_homebrew_pass_fetches_only_the_yasyf_tap_so_another_taps_fetch_cannot_fail_the_install(
+    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
+) -> None:
+    git = fake(["cc-context--v1.0.3"], {"cc-context--v1.0.3", "v0.95.70"})
+    git.bare = ["v0.95.70"]
+    assert install.main("cc-context@skills", SHA, None, 900) == 0
+    assert git.homebrew_calls() == [BREW_TAP, TAP_PULL, upgrade("ccx"), ["ccx", "--version"]]
+    assert not [call for call in git.calls if call[:2] == ["brew", "update"]]
+    assert capsys.readouterr().out.strip() == "installed cc-context@skills 1.0.3"
 
 
 def test_other_plugins_run_nothing_after_the_update(fake: Callable[..., FakeGit]) -> None:
