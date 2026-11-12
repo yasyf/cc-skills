@@ -38,9 +38,9 @@ OFF_THREAD = (
 THREAD_TS = re.compile(r"\d{10}\.\d{6}")
 NOT_THREAD = "refused: thread {thread} is no Slack thread, which is named by its root message's ts, such as 1794478810.620779; leave thread out for a post at his DM root"
 SECOND_REPORT = (
-    "refused: the coordinator and the meta session send one report per thread per turn, a turn running from a wake to the end of its response,"
-    " and this turn already sent one for thread {thread}; put everything for that thread in that one report, and what"
-    " does not fit waits for the next wake. A report on an open incident is never held so"
+    "refused: the coordinator and the meta session send one report per thread per turn, and this turn, which runs from a wake"
+    " to the end of its response, already sent one for thread {thread}; what did not fit in it waits for the next wake."
+    " A report on an open incident always goes"
 )
 SECOND_REPORT_RULE = "A second report for a thread in one turn of the coordinator's or the meta session's that repeats what its first report there already sent, rather than news that came in since; a report on an open incident order always goes."
 UNPREVENTED = (
