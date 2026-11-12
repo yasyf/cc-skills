@@ -23,7 +23,12 @@ DESIGNER = "long-running:designer"
 HIS_WORDS = "Message (his words)"
 SCRATCH = re.compile(r"Scratch:\s*(\S+)")
 LABEL = re.compile(rf"^({'|'.join(re.escape(label) for label in render.HANDLER_LABELS)}):")
-SESSION_SETTINGS = {"bashOutputMaxChars": 6000, "outputStyle": "default", "env": {"CLAUDE_CODE_SILENT_TURN_REMINDER": "0"}}
+SESSION_SETTINGS = {
+    "bashOutputMaxChars": 6000,
+    "outputStyle": "default",
+    "env": {"CLAUDE_CODE_SILENT_TURN_REMINDER": "0"},
+    "permissions": {"deny": ["AskUserQuestion"]},
+}
 STUCK = re.compile(r"\b(j\d+)\b[^.;\n]*?\b(?:stuck|silent|stalled|hung)\b", re.IGNORECASE)
 READ_WINDOW = timedelta(minutes=10)
 TRANSCRIPT_READ = ("cc-transcript", ".jsonl")

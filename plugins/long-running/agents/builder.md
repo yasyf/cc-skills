@@ -323,7 +323,8 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   prompt Claude Code raises on your Bash call. Bypass permissions mode still asks when Claude Code's
   parser cannot read a command, such as one with a zsh expansion flag like `${(s:,:)tables}`: write
   such a command, and any multi-step logic, to a script file under your scratch directory and run
-  the file.
+  the file. No question reaches him there either: you have no AskUserQuestion, and a question for him
+  is your `ASK`, which reaches him as a card.
 - Read a file whole, once, with Read, or one section of a large file with `ccx code read --section`,
   and work from your context: page through no file in `sed -n` windows and read no lines twice.
 

@@ -1,6 +1,7 @@
 import argparse
 import functools
 import io
+import json
 import re
 import shlex
 import sys
@@ -9,7 +10,7 @@ from itertools import takewhile
 from pathlib import Path
 
 import pytest
-from drive import cli
+from drive import agents, cli
 
 SKILL = cli.PAGES.parent
 PLUGIN = SKILL.parents[1]
@@ -131,6 +132,12 @@ def every_quote() -> dict[tuple[str, str, tuple[str, ...]], list[str]]:
 
 def test_the_pages_quote_drive_commands() -> None:
     assert len(every_quote()) > 150
+
+
+def test_each_session_start_the_pages_quote_carries_the_drives_session_settings() -> None:
+    quoted = [json.loads(found.replace('\\"', '"')) for page in PAGES for found in re.findall(r"--settings '([^']*)'", page.read_text())]
+    assert quoted
+    assert [settings for settings in quoted if settings != agents.SESSION_SETTINGS] == []
 
 
 @pytest.mark.parametrize("words", [pytest.param(words, id=f"{page}: {line}") for (page, line, _), words in every_quote().items()])

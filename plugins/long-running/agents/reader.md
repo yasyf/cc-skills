@@ -39,7 +39,9 @@ scripts. Your brief's `Drive:` line names `<your job>` and `Scratch:` your one f
 - Nobody watches your terminal, so the `bash_guard` hook refuses each permission prompt Claude
   Code raises on your Bash call. Bypass permissions mode still asks when Claude Code's parser
   cannot read a command, such as one with a zsh expansion flag like `${(s:,:)tables}`: write such
-  a command, and any multi-step logic, to a scratch script by quoted heredoc and run the file.
+  a command, and any multi-step logic, to a scratch script by quoted heredoc and run the file. No
+  question reaches him there either: you have no AskUserQuestion, and a fork for him is your `DESIGN`
+  return, which a design job turns into his cards.
 - Stop once the answer is proven, each fact citing a read you made at its `path:line` or command;
   note any further question as one report line.
 - Give each number as itself, marked measured or worked out from code, in rows a chart can draw

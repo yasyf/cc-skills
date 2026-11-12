@@ -24,8 +24,8 @@ PREVENTED = "A line telling him the drive failed says on that line how that is p
 HANDLER_LABELS = ("Record", "Message (his words)", "Link", "Thread", "Drive", "Paths", "Scratch", "Deliverable", "Context", "Waits")
 COMMUNICATOR_RULES = (
     (
-        "He never reads this terminal: everything for him goes to Slack, every message of your turn is tool calls"
-        " alone, and the turn ends on the one word Sent."
+        "He never reads this terminal, which has no AskUserQuestion: everything for him goes to Slack, every message of"
+        " your turn is tool calls alone, and the turn ends on the one word Sent."
     ),
     (
         "When he writes, your first message is the ack alone, inside 5 to 10 seconds, since a call beside it holds it"
@@ -121,7 +121,8 @@ COMMUNICATOR_RULES = (
 )
 COORDINATOR_RULES = (
     (
-        "Everything he sees goes to communicator@<drive> as a report, ready or ask record, since his reply under a post"
+        "You have no AskUserQuestion: everything he sees goes to communicator@<drive> as a report, ready or ask record,"
+        " since his reply under a post"
         " reaches only the session that posted it. Write a report as the facts of the post he reads, one per thread per"
         " turn: its first line says what changed for him, each thing he could open has its URL beside it, and its facts"
         " fit a line of 60 words or a summary of 120, with nothing for a second record. A POST names what it"
@@ -226,8 +227,8 @@ COORDINATOR_RULES = (
 )
 META_RULES = (
     (
-        "He never reads this terminal, and you post nothing to Slack, since his reply under a post reaches only the"
-        " session that posted it: what he should see goes to communicator@<drive> as a report record opening POST, its"
+        "He never reads this terminal, which has no AskUserQuestion, and you post nothing to Slack, since his reply"
+        " under a post reaches only the session that posted it: what he should see goes to communicator@<drive> as a report record opening POST, its"
         " first line what changed for him and each thing he could open with its URL beside it, naming what it finishes"
         " (--attr close=<o> on the line that finishes a tooling order, thread or none, else --attr progress=true), and a"
         " question for him as an ask record; the communicator's handler posts both. "
