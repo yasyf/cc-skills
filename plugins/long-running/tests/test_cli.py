@@ -19,6 +19,7 @@ from drive import (
     card,
     cli,
     github,
+    install,
     limits,
     orca,
     picture,
@@ -4911,3 +4912,28 @@ def test_a_pr_carrying_a_code_ruling_is_refused_until_it_writes_his_words_into_t
     diff = diff.replace(b"go/sand/AGENTS.md", b"go/sand/other/AGENTS.md")
     with pytest.raises(state.DriveError, match='his ruling 23ff059 on how go/sand/cache must work, "Key the cache on the run id", is not written'):
         cli.refuse_an_unwritten_rule(data, "Forge-AI/monorepo#7")
+
+
+def test_a_drive_started_from_an_older_install_hands_its_verb_to_the_newest_install_before_a_drive_json_it_saved_refuses_it(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = state.state_path(demo)
+    path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "9.9.9"}))
+    newer = tmp_path / "cache" / "9.9.9" / "bin" / "drive"
+    argv = ["drive", "status", "--drive", demo]
+
+    class Execed(Exception):
+        pass
+
+    def execv(drive: Path, args: list[str]) -> None:
+        raise Execed(drive, args)
+
+    monkeypatch.setattr(cli.os, "execv", execv)
+    monkeypatch.setattr(cli.sys, "argv", argv)
+    monkeypatch.setattr(install, "upgraded", lambda: newer)
+    with pytest.raises(Execed) as execed:
+        cli.main()
+    assert execed.value.args == (newer, [str(newer), *argv[1:]])
+    monkeypatch.setattr(install, "upgraded", lambda: None)
+    assert cli.main() == 2
+    assert capsys.readouterr().err.startswith(f"drive: drive.json of {demo} was saved by long-running 9.9.9")

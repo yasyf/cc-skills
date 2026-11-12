@@ -44,6 +44,7 @@ SUBMIT_SECONDS = 10
 TIMEOUT = "timeout"
 ANSWERED_ELSEWHERE = "answer_conflict"
 DISPATCH_CLOSED = "dispatch_inactive"
+UNSTARTED = 75
 
 
 class OrcaError(DriveError):
@@ -53,7 +54,7 @@ class OrcaError(DriveError):
 
 
 class Unstarted(OrcaError):
-    """A launch that started no worker."""
+    """A launch or a bound command that refused before anything started a worker, so running it again starts it once."""
 
 
 class LaneEnd(NamedTuple):
@@ -177,13 +178,14 @@ def new_run(objective: str) -> str:
     return call("run-create", "--objective", objective)["run"]["id"]
 
 
-def bind_drive_run(drive: str) -> None:
-    run = state.load(drive).get("run")
-    if not run:
-        run = new_run(f"drive {drive}: the coordinator's own Run, which no lane mails")
-        with state.edit(drive) as data:
-            data["run"] = run
-    call("run-use", "--id", run)
+def drive_run(drive: str) -> str:
+    """The drive's own Run, which no lane mails, made the first time a lane call needs it."""
+    if run := state.load(drive).get("run"):
+        return run
+    run = new_run(f"drive {drive}: the coordinator's own Run, which no lane mails")
+    with state.edit(drive) as data:
+        data["run"] = run
+    return run
 
 
 def lane_name(drive: str, job_id: str) -> str:
@@ -433,24 +435,32 @@ def start_after(drive: str, lane: str, brief: Path, job: dict, worktree: str) ->
 def reply(drive: str, run: str, message_id: str, body: str) -> None:
     """Answer a lane's question on its Run: Orca takes a coordinator's reply only on the one Run its terminal is bound to, which a launch or another reply moves."""
     with state.binding(drive):
+        home = drive_run(drive)
         try:
             call("run-use", "--id", run)
             call("reply", "--id", message_id, "--run", run, "--body", body)
         finally:
-            bind_drive_run(drive)
+            call("run-use", "--id", home)
 
 
 def bound_command(drive: str, run: str, argv: list[str]) -> subprocess.CompletedProcess:
-    """Run a command that needs the Run bound, such as a launch's worker-start, binding it again once if something outside this drive moved the binding first."""
+    """Run a command that needs the Run bound, such as a launch's worker-start, binding it again once if something outside this drive moved the binding first, then bind the drive's own Run, read before the command runs, so a drive.json a newer install saves meanwhile cannot drop what the command printed. Unstarted when it refuses before anything the command starts, a fenced run included, since Orca starts nothing it fenced."""
     with state.binding(drive):
         try:
+            home = drive_run(drive)
+        except (DriveError, state.NewerDrive) as error:
+            raise Unstarted(str(error)) from None
+        try:
             for _ in range(2):
-                call("run-use", "--id", run)
+                try:
+                    call("run-use", "--id", run)
+                except OrcaError as error:
+                    raise Unstarted(str(error), error.code) from None
                 done = subprocess.run(argv, capture_output=True, text=True, check=False)
                 if FENCED not in done.stdout:
                     break
         finally:
-            bind_drive_run(drive)
+            call("run-use", "--id", home)
     return done
 
 

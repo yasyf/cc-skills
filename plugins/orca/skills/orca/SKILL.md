@@ -83,9 +83,12 @@ the reason from the attempt's `tools.err`.
 A coordinator whose terminal answers other Runs between launches sets
 `WORKER_BIND` to a command prefix that binds the Run and runs the command it is
 given, such as `drive bound --drive <drive> <run> --`. The script then skips
-the binding check and runs `worker-start` through that prefix. A Sprite attempt
-whose `worker-start` came back `consumer_fenced` starts again from the same
-attempt with the same brief: it reuses the prepared Sprite and runs only
+the binding check and runs `worker-start` through that prefix. A prefix that
+refuses before it runs `worker-start` exits 75: the launcher writes an empty
+`worker-start.unsent` and says in one line that no worker started and its
+prepared terminal waits idle. A Sprite attempt whose `worker-start` came back
+`consumer_fenced`, or holds that `worker-start.unsent`, starts again from the
+same attempt with the same brief: it reuses the prepared Sprite and runs only
 `worker-start`.
 
 A Sprite `worker-start` can fail before Orca records it, as when this Mac's
