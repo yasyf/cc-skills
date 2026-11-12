@@ -8,7 +8,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from drive import agents, codex, state
 
 RESULT_CHARS = 500
-REPORTED_KINDS = ("builder", "design")
 HANDLER_FACTS = 3
 HANDLER_RESULT = re.compile(r"(POSTED|RECORDED|NOTHING|MISSING)\b")
 HANDLER_OPENING = re.compile(r"(?:POSTED|RECORDED|NOTHING|MISSING|DEFECT)\b")
@@ -37,9 +36,9 @@ def block_reason(payload: dict) -> str | None:
     if len(lines) <= 1 and len(message) <= RESULT_CHARS:
         handler = payload.get("agent_type") == agents.HANDLER
         return (
-            unkept(names[0], data, job_id, message)
+            unread(payload, data, handler, job_id, message)
+            or unkept(names[0], data, job_id, message)
             or overfull(handler, message)
-            or unread(payload, data, handler, job_id, message)
             or unopened(handler, message)
         )
     keep = (
@@ -48,7 +47,7 @@ def block_reason(payload: dict) -> str | None:
         if role == "coordinator" or job_id
         else "end"
     )
-    return (
+    return agents.Unjudged(
         f"Your final message is {len(lines)} {'line' if len(lines) == 1 else 'lines'} and {len(message)} characters,"
         f" and it lands whole in the {role}'s"
         f" context, which every compaction has to clear. A final message is one line of at most {RESULT_CHARS}"
@@ -57,19 +56,20 @@ def block_reason(payload: dict) -> str | None:
 
 
 def unkept(name: str, data: dict, job_id: str | None, line: str) -> str | None:
-    """Why a builder, designer or build order's reader may not end on its one line yet: its whole return, a line per fact, is not kept in the drive, so whoever acts on the job reads only that line; a reader's one line on an answer or incident order can be its whole answer."""
+    """Why a job's agent but a codex relay may not end on its one line yet: its whole return, a line per fact, is not kept in the drive, and only `drive job report` sets a job's state from it, so whoever acts on the job reads only that line and the job stays running; a reader's one line on an answer or incident order can be its whole return."""
     if not job_id or line.startswith("ASK "):
         return None
     job = data["jobs"][job_id]
+    if job["kind"] == "codex" or job["state"] != "running" and state.kept_return(name, job_id, job, line):
+        return None
     order = data["orders"][job["order"]]
     researched = job["kind"] == "reader" and order["kind"] == "build" and not order["incident"]
-    if job["kind"] not in REPORTED_KINDS and not researched or state.kept_return(name, job_id, job, line):
-        return None
     block = " with its `Researched:` block, which the order's builder is briefed from," if researched else ""
-    return (
-        f"Refused on purpose: {job_id}'s return is not kept in the drive, so whoever acts on it would read only this"
-        f" line. Pipe your whole return{block} into `drive job report {job_id} -` from a quoted heredoc, its first line"
-        " exactly this one, then end again with this one line."
+    return agents.Unjudged(
+        f"Refused on purpose: {job_id}'s return is not kept in the drive, so its state is unset and whoever acts on it"
+        f" would read only this line. Pipe your whole return{block} into `drive job report {job_id} -` from a quoted"
+        " heredoc, its first line exactly this one, then end again with this one line; when it refuses, fix what its"
+        " refusal names and pipe it again."
     )
 
 
@@ -80,7 +80,7 @@ def overfull(handler: bool, line: str) -> str | None:
     facts = [part for part in line.split(";") if part.strip() and not HANDLER_RESULT.match(part.strip())]
     if len(facts) <= HANDLER_FACTS:
         return None
-    return (
+    return agents.Unjudged(
         f"Refused on purpose: your line carries {len(facts)} facts past its results, and a handler's carries at most"
         f" {HANDLER_FACTS}, since it lands whole in the communicator's context. Cut it to the {HANDLER_FACTS} his next"
         " message needs that Slack and the drive do not already hold, each after `; `, then end again with that line."
@@ -91,7 +91,7 @@ def unopened(handler: bool, line: str) -> str | None:
     """Why a handler may not end on a line that opens with words: only the communicator reads it, so it opens with what the handler did, never a message to him."""
     if not handler or HANDLER_OPENING.match(line):
         return None
-    return (
+    return agents.Unjudged(
         "Refused on purpose: a handler's line opens with what it did, `POSTED <permalink>` for each post, `RECORDED <seq>`"
         " for each record, `NOTHING <why>` when it posted and recorded nothing, `MISSING <path>` or `DEFECT <tool>: <its refusal>`,"
         " since only the communicator reads it and his answer is already in Slack or a record. Open the line with those, then"
@@ -115,39 +115,30 @@ def unread(payload: dict, data: dict, handler: bool, job_id: str | None, line: s
     )
 
 
-def take_result(payload: dict, refused: bool) -> None:
-    """Set the job a drive session's background agent holds from what it returned, so nobody types its state: a codex job from the codex-ask run its relay asked once that run ended, whatever the relay ended on, leaving a run codex-ask cannot read to the watch, which names its error, and any other job from the line it ended on once that line is let through."""
+def take_codex(payload: dict) -> None:
+    """Set a running codex job its relay holds from the codex-ask run the relay asked once that run ended, whatever the relay ended on, leaving a run codex-ask cannot read to the watch, which names its error; every other job's state comes from `drive job report`, never from the line its agent ends on."""
     names = state.session_drives(payload.get("session_id") or "")
     if not names:
         return
     data = state.load(names[0])
-    if not (job_id := state.agent_job(data, payload.get("agent_id"))):
+    if not (job_id := state.agent_job(data, payload.get("agent_id"))) or data["jobs"][job_id]["kind"] != "codex" or data["jobs"][job_id]["state"] != "running":
         return
-    lines = (payload.get("last_assistant_message") or "").strip().splitlines()
-    job = data["jobs"][job_id]
-    if job["kind"] == "codex":
-        if job["state"] != "running":
-            return
-        try:
-            run = codex.newest_run(agents.transcript(payload))
-        except codex.CodexError:
-            return
-        if run and run.ended:
-            with state.edit(names[0]) as data:
-                codex.take(names[0], data, job_id, run)
+    try:
+        run = codex.newest_run(agents.transcript(payload))
+    except codex.CodexError:
         return
-    if lines and not refused:
+    if run and run.ended:
         with state.edit(names[0]) as data:
-            state.take_result(data, job_id, lines[0].strip())
+            codex.take(names[0], data, job_id, run)
 
 
 def main() -> None:
     payload = agents.seen(json.load(sys.stdin))
     agents.hold(payload)
     reason = block_reason(payload)
-    take_result(payload, bool(reason))
+    take_codex(payload)
     if reason:
-        print(json.dumps({"decision": "block", "reason": reason}))
+        print(json.dumps({"decision": "block", "reason": reason} | agents.ruled(reason)))
     elif "handler_session" in payload:
         agents.end_handler(payload)
 

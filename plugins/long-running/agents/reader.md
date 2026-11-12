@@ -75,7 +75,8 @@ a line, no polish. The first line answers the question; then each fact with its 
 or exact quote, `REPRO:` your reproduction file's path, which `drive job report` refuses until
 `drive job set <your job> --repro` kept it, and `UNPROVEN:` what you could not show,
 never a guess. Pipe it from a quoted heredoc into `drive job report <your job> -`, as you
-have no Write tool and a build order's line is sent back until it is kept. Then end with its first
+have no Write tool and only it sets your job's state, so your line is sent back until it is kept. It keeps a
+`DESIGN` as his card's ASK in the same call, refusing one `drive job ask` would refuse. Then end with its first
 line alone, at most 500 characters, since it lands whole in the starting session. Post
 nothing to him, which the `post` tool refuses; the handler relays it.
 

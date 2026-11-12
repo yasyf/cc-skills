@@ -25,6 +25,7 @@ RESULT_STATES = {"DONE": "done", "READY": "waiting", "PUSHED": "waiting", "WAITI
 BUILT_LINE = re.compile(r"BUILT (?P<branch>[^\s,]+(?:, [^\s,]+)*?),? waits on (?P<cards>.+)")
 WAITING_LINE = re.compile(r"WAITING (?P<prs>.+?) waits on (?P<cards>.+)")
 ASK_LINE = re.compile(r"ASK (?P<file>\S+)")
+FORK = re.compile(r"^Fork:[ \t]*([/~]\S*)", re.MULTILINE)
 PUSHED_LINE = re.compile(r"PUSHED\b")
 REPORT_CHANGE = re.compile(r"^CHANGE:[ \t]*(?P<change>.+?)[ \t]*$", re.MULTILINE)
 CHANGE_LINE = re.compile(r"^Change:[ \t]*(?P<change>.+?)(?:[ \t]*\(waits on (?P<after>[^()]*)\))?[ \t]*$", re.MULTILINE)
@@ -336,6 +337,7 @@ def load(name: str) -> dict:
         job.setdefault("may_settle", None)
         job.setdefault("due", None)
         job.setdefault("undelivered", [])
+        job.setdefault("returned", job["updated"])
         if job.pop("checks", None):
             job["parts"] = []
         if job.get("ask") and any(reported(text.lstrip()) for text in (job["said"] or "", job["report"] or "")):
@@ -489,30 +491,55 @@ def reported(line: str) -> bool:
     return bool(BUILT_LINE.match(line)) or opening in RESULT_STATES and opening != "ASK"
 
 
-def kept_result(name: str, job_id: str, job: dict, line: str) -> str | None:
-    """The result the drive keeps for a job whose agent returned the line: that line when it is an `ASK <path>` naming the block `drive job ask` kept for one of its questions, else its kept report's first line, which is its result whatever line the agent ended on, or None when it keeps neither."""
-    if (asked := ASK_LINE.fullmatch(line)) and kept_in(job, Path(asked["file"])):
-        return line
-    kept = report_text(name, job_id, job).strip().splitlines()
-    return kept[0].strip() if kept else None
-
-
 def kept_return(name: str, job_id: str, job: dict, line: str) -> bool:
-    """Whether the line a job's agent returned is the result the drive keeps for it, word for word."""
-    return kept_result(name, job_id, job, line) == line
+    """Whether the line a job's agent returned is the result the drive keeps for it, word for word: an `ASK <path>` naming the block `drive job ask` kept for one of its questions, else its kept report's first line."""
+    if (asked := ASK_LINE.fullmatch(line)) and kept_in(job, Path(asked["file"])):
+        return True
+    kept = report_text(name, job_id, job).strip().splitlines()
+    return bool(kept) and kept[0].strip() == line
+
+
+def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | None:
+    """Why a job's returned line may not set its state, naming the fix: a stopped job's work goes on in another job, a line opening with no result sets nothing, a WAITING names something the watch frees it on, and a design lane's DESIGN names on each Fork: line a question drive job ask kept for it."""
+    job = data["jobs"][job_id]
+    if job["state"] == "stopped":
+        return (
+            f"{job_id} is stopped, so its work goes on in another job: hand this return to the job its said line names,"
+            f" or start one with drive job add {job['kind']} --order {job['order']} briefed with a Handoff: line"
+        )
+    if not result_state(job, line):
+        return "its first line sets no state: it opens DONE, READY, PUSHED, `BUILT <branch>, waits on <cards>`, WAITING, ASK, BLOCKED, DESIGN or HANDOFF"
+    if re.match(r"WAITING\b", line) and not (job["waits"] or job["due"] or named_waits(data, job["order"], line)):
+        return (
+            "its WAITING names nothing the watch frees it on: name the release as release:<service>:<owner>/<repo>#<n> or a PR the drive"
+            f" tracks, or first give it what it waits on with drive job set {job_id} --waits <card or job> or a clock with --due <time>"
+        )
+    if job["kind"] == "design" and line.startswith("DESIGN") and (unkept := [path for path in FORK.findall(report) if not kept_question(job, Path(path).expanduser())]):
+        return f"its Fork: line names {unkept[0]}, which keeps no question of {job_id} his card can draw: keep it with drive job ask {job_id} <file> and name the path it prints"
+    return None
+
+
+def kept_question(job: dict, file: Path) -> bool:
+    return bool((question := kept_in(job, file)) and not question["refused"])
+
+
+def named_waits(data: dict, order_id: str, line: str) -> list[str]:
+    """The waits a result line names: each release:<service>:<owner>/<repo>#<n> of a PR the drive tracks, and each other drive PR it names."""
+    releases = [found[0] for found in RELEASE_WAIT.finditer(line) if found["pr"] in data["prs"]]
+    return [*releases, *named_prs(data, order_id, RELEASE_WAIT.sub("", line))]
 
 
 def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
-    """Move a running job to the state its result line opens with, with that line as its said line, built on its branch and waiting on each card a BUILT line names, each PR a WAITING line names waiting on each card it names, keep each verdict a reader's answer gives on the PR it names, and end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
+    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, built on its branch and waiting on each card a BUILT line names, waiting on each PR and release a READY, PUSHED or WAITING line names, which the watch frees once the PR merges or closes or the release is out, each PR a `WAITING … waits on` line names waiting on each card it names, keep each verdict a reader's answer gives on the PR it names, and end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
     job = data["jobs"][job_id]
-    taken = result_state(job, line)
-    if job["state"] != "running" or not taken:
-        return
-    job.update(state=taken, updated=stamp())
+    taken, moment = result_state(job, line), stamp()
+    job.update(state=taken, updated=moment, returned=moment)
     if taken != "waiting" or not re.match(r"ASK\b", line):
         job["said"] = line
     if built := BUILT_LINE.match(line):
         job.update(branch=built["branch"], waits=list(dict.fromkeys([*job["waits"], *BUILT_CARD.findall(built["cards"])])))
+    if re.match(r"(?:READY|PUSHED|WAITING)\b", line):
+        job["waits"] = list(dict.fromkeys([*job["waits"], *named_waits(data, job["order"], line)]))
     if waiting := WAITING_LINE.match(line):
         for key in named_prs(data, job["order"], waiting["prs"]):
             data["prs"][key]["waits"] = list(dict.fromkeys([*data["prs"][key]["waits"], *BUILT_CARD.findall(waiting["cards"])]))
@@ -695,6 +722,7 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
         "due": None,
         "created": created,
         "updated": created,
+        "returned": None,
     }
 
 

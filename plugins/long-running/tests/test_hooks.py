@@ -2,6 +2,7 @@ import io
 import json
 import os
 from collections.abc import Callable
+from datetime import timedelta
 from pathlib import Path
 
 import agent_brief
@@ -14,11 +15,12 @@ import pytest
 import quiet_turn
 import scratch_folder
 import session_start
-from conftest import RESEARCH, Answers, Jev, WatchProcess
+from conftest import RESEARCH, SHORT_ASK, Answers, Jev, WatchProcess
 from drive import agents, cli, settled, state
 
 Run = Callable[..., tuple[int, str]]
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
+EARLIER = "2026-01-01T00:00:00+00:00"
 ORIGIN = "git@github.com:Forge-AI/monorepo.git"
 
 
@@ -211,8 +213,9 @@ def test_a_drive_job_with_a_long_final_message_is_sent_back_to_keep_it_in_its_re
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
     run("job", "set", "j1", "--agent", "a-7")
     long = "WAITING CI on the PR\nPR: https://github.com/yasyf/cc-skills/pull/1\nCHECK: build 12"
+    run("pr", "add", "https://github.com/yasyf/cc-skills/pull/1", "--job", "j1")
     output = json.loads(hook_output(one_line_result, monkeypatch, capsys, json.dumps(agent_stop(long))))
-    assert output["decision"] == "block"
+    assert (output["decision"], output["judged"]) == ("block", False)
     assert output["reason"].startswith("Your final message is 3 lines and 82 characters")
     assert "`drive job report j1 -`" in output["reason"]
     waiting = "WAITING CI on https://github.com/yasyf/cc-skills/pull/1"
@@ -234,7 +237,7 @@ def test_a_handler_is_held_to_one_line_and_other_sessions_are_left_alone(demo: s
     assert one_line_result.block_reason(agent_stop("a\nb", "talker", stop_hook_active=True)) is None
 
 
-def test_a_drive_jobs_returned_line_sets_its_state_once_the_line_is_let_through(
+def test_a_drive_jobs_stop_sets_no_state_whatever_line_it_lets_through(
     demo: str, run: Run, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
@@ -242,29 +245,30 @@ def test_a_drive_jobs_returned_line_sets_its_state_once_the_line_is_let_through(
     run("job", "set", "j1", "--agent", "a-7")
     returned = "WAITING: CI on #1\nPR: https://github.com/yasyf/cc-skills/pull/1"
     hook_output(one_line_result, monkeypatch, capsys, json.dumps(agent_stop(returned)))
-    assert state.load("demo")["jobs"]["j1"]["state"] == "running"
     assert hook_output(one_line_result, monkeypatch, capsys, json.dumps(agent_stop(returned, stop_hook_active=True))) == ""
     job = state.load("demo")["jobs"]["j1"]
-    assert (job["state"], job["said"]) == ("waiting", "WAITING: CI on #1")
+    assert (job["state"], job["said"]) == ("running", None)
 
 
-def test_an_ask_its_agent_returns_leaves_its_job_waiting_on_the_question_drive_job_ask_set(
+def test_a_stop_on_an_ask_leaves_its_job_waiting_on_the_question_drive_job_ask_set(
     demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
-    run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
-    with state.edit("demo") as data:
-        data["jobs"]["j1"].update(state="waiting", said="Which store?", questions=[state.new_question("/x.md", "Which store?", state.stamp())])
-    stop = agent_stop("ASK /x.md", **stepped(tmp_path, "Drive: demo, order o1, job j1"))
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--agent", "a-9")
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    asked = run("job", "ask", "j1", str(block))[1]
+    stop = agent_stop(f"ASK {asked}", **stepped(tmp_path, "Drive: demo, order o1, job j1", prompted=EARLIER))
     assert hook_output(one_line_result, monkeypatch, capsys, json.dumps(stop)) == ""
     job = state.load("demo")["jobs"]["j1"]
-    assert (job["agent"], job["state"], job["said"]) == ("a-9", "waiting", "Which store?")
+    assert (job["agent"], job["state"], job["said"]) == ("a-9", "waiting", "How should a finished run's files be laid out so its page opens without guessing?")
 
 
-def stepped(tmp_path: Path, brief: str, session: str | None = None, **fields: object) -> dict:
+def stepped(tmp_path: Path, brief: str, session: str | None = None, prompted: str | None = None, **fields: object) -> dict:
     lane = tmp_path / "session" / "subagents" / "agent-a-9.jsonl"
     lane.parent.mkdir(parents=True, exist_ok=True)
-    lane.write_text(json.dumps({"type": "user", "message": {"role": "user", "content": brief}}) + "\n")
+    at = prompted or (state.now() + timedelta(minutes=1)).isoformat()
+    lane.write_text(json.dumps({"type": "user", "timestamp": at, "message": {"role": "user", "content": brief}}) + "\n")
     return {
         "session_id": session or os.environ["CLAUDE_CODE_SESSION_ID"],
         "transcript_path": str(tmp_path / "session.jsonl"),
@@ -289,26 +293,41 @@ def test_an_agent_is_recorded_on_its_briefs_job_by_its_own_steps_and_a_step_afte
     job = state.load("demo")["jobs"]["j1"]
     assert (job["agent"], job["where"], job["session"], job["state"]) == ("a-9", "local", os.environ["CLAUDE_CODE_SESSION_ID"], "running")
     with state.edit("demo") as data:
-        data["jobs"]["j1"]["state"] = "waiting"
+        data["jobs"]["j1"].update(state="waiting", returned=state.stamp())
+    assert hook_output(no_file_tools, monkeypatch, capsys, json.dumps(file_call("Read") | stepped(tmp_path, brief, prompted=EARLIER))) == ""
+    assert state.load("demo")["jobs"]["j1"]["state"] == "waiting"
     assert hook_output(no_file_tools, monkeypatch, capsys, json.dumps(file_call("Read") | stepped(tmp_path, brief))) == ""
     assert state.load("demo")["jobs"]["j1"]["state"] == "running"
     assert no_calls == []
 
 
-def test_an_agent_whose_brief_names_no_job_runs_the_job_recorded_with_it_after_a_wake_and_its_result_sets_that_job(
+def test_a_reader_that_kept_its_done_stays_done_through_its_later_calls_and_stop_until_a_wake(
+    demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "--kind", "answer", "why is it slow")
+    run("job", "add", "reader", "--order", "o1", "--goal", "answer why it is slow", "--agent", "a-9")
+    findings = "The store lock is held for each copy\nsupervisor/copies.rs:42 takes it\n"
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"DONE it waits on the store lock\n{findings}"))
+    assert run("job", "report", "j1", "-")[0] == 0
+    steps = stepped(tmp_path, "Drive: demo, order o1, job j1", prompted=EARLIER, agent_type="long-running:reader")
+    assert hook_output(no_file_tools, monkeypatch, capsys, json.dumps(file_call("Read") | steps)) == ""
+    assert hook_output(one_line_result, monkeypatch, capsys, json.dumps(agent_stop("DONE it waits on the store lock", **steps))) == ""
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["state"], job["said"]) == ("done", "DONE it waits on the store lock")
+    assert hook_output(no_file_tools, monkeypatch, capsys, json.dumps(file_call("Read") | stepped(tmp_path, "Drive: demo, order o1, job j1", agent_type="long-running:reader"))) == ""
+    assert state.load("demo")["jobs"]["j1"]["state"] == "running"
+
+
+def test_an_agent_whose_brief_names_no_job_runs_the_job_recorded_with_it_after_a_wake(
     demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--agent", "a-9")
     with state.edit("demo") as data:
-        data["jobs"]["j1"].update(state="waiting", said="Which store?")
+        data["jobs"]["j1"].update(state="waiting", said="Which store?", returned=state.stamp())
     unnamed = stepped(tmp_path, "Goal: fix it\nDrive: demo, order o1.\nScratch: /x")
     assert hook_output(landing_guard, monkeypatch, capsys, json.dumps(bash("git status") | unnamed)) == ""
     assert state.load("demo")["jobs"]["j1"]["state"] == "running"
-    ready = "READY https://github.com/yasyf/cc-skills/pull/1"
-    hook_output(one_line_result, monkeypatch, capsys, json.dumps(agent_stop(ready, stop_hook_active=True, **unnamed)))
-    job = state.load("demo")["jobs"]["j1"]
-    assert (job["state"], job["said"]) == ("waiting", ready)
 
 
 def test_a_handlers_steps_never_bind_it_to_the_job_its_brief_names(
@@ -415,15 +434,16 @@ def test_resume_from_a_session_that_did_not_start_the_jobs_agent_hands_the_job_t
     assert (job["agent"], job["session"], job["handed_to"], job["state"]) == ("a-9", "meta-session", None, "running")
 
 
-def test_an_agent_that_stops_before_any_step_is_recorded_and_its_line_sets_its_job(
+def test_an_agent_that_stops_before_any_step_is_recorded_and_sent_back_to_keep_its_line(
     demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "reader", "--order", "o1", "--goal", "read it")
     stop = agent_stop("j1 is answered: the hook never ran", **stepped(tmp_path, "Drive: demo, order o1, job j1", agent_type="long-running:reader"))
-    assert hook_output(one_line_result, monkeypatch, capsys, json.dumps(stop)) == ""
+    output = json.loads(hook_output(one_line_result, monkeypatch, capsys, json.dumps(stop)))
+    assert output["reason"].startswith("Refused on purpose: j1's return is not kept in the drive")
     job = state.load("demo")["jobs"]["j1"]
-    assert (job["agent"], job["state"], job["said"]) == ("a-9", "done", "j1 is answered: the hook never ran")
+    assert (job["agent"], job["state"], job["said"]) == ("a-9", "running", None)
 
 
 def test_an_agent_started_on_a_brief_drive_wrote_is_recorded_on_that_briefs_job(
@@ -599,7 +619,11 @@ def test_a_build_orders_codex_lane_is_added_and_started_only_on_its_readers_rese
     assert "o1 is a build order, so its codex starts only once an Opus reader has kept" in capsys.readouterr().err
     assert run("job", "add", "codex", "--order", "o1", "--part", "immediate fix", "--goal", "stop it") == (0, "j1")
     run("job", "add", "reader", "--order", "o1", "--part", "the copy", "--goal", "research: the copy")
-    assert run("job", "add", "codex", "--order", "o1", "--part", "the copy", "--goal", "build it", "--waits", "j2") == (0, "j3")
+    assert run("job", "add", "codex", "--order", "o1", "--part", "the copy", "--goal", "build it", "--waits", "j2") == (
+        0,
+        "j3\nj3 waits on j2: start no agent for it until the watch's FREE line says its last wait ended\n"
+        'j2 reader running on "the copy": research: the copy',
+    )
     bare = "Order: Drive tooling: copy one store\nDrive: demo, order o1, job {}"
     assert scratch_folder.deny_reason(drive_agent("codex:codex-wrapper", bare.format("j1"))) is None
     assert scratch_folder.deny_reason(drive_agent("codex:codex-wrapper", bare.format("j3"))).startswith(

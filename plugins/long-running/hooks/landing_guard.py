@@ -11,7 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
 from drive import agents, card, github, land, limits, public_check, reports, settled, slack, state, superseded, view
-from drive.cli import asked_report, tap_verdict
+from drive.cli import tap_verdict
 from drive.github import repo_name
 from drive.render import cut
 from drive.shell import Stdin, expanded, runnable, stdins, templates
@@ -643,13 +643,12 @@ def asked_block(positionals: list[str], options: dict[str, list[str]], script: s
 
 
 def kept_report(job_id: str, options: dict[str, list[str]]) -> str | None:
-    """The ASK the verb keeps when no file names one, a remote lane's latest report or kept DESIGN return; None when the verb finds no such job."""
+    """The ASK the verb keeps when no file names one, a remote lane's latest report; None when the verb finds no such job."""
     try:
         name = state.resolve((options.get("drive") or [None])[-1])
-        job = state.load(name)["jobs"][job_id]
+        return state.load(name)["jobs"][job_id].get("report")
     except (state.DriveError, KeyError):
         return None
-    return asked_report(name, job_id, job)
 
 
 def deny_reason(payload: dict) -> str | None:
