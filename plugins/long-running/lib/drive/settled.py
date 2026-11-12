@@ -1,6 +1,7 @@
 import json
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 from drive import limits, slack, state, superseded, view
@@ -22,9 +23,16 @@ UNMARKED_INCIDENT = (
     "refused: {job} works on open incident {orders}, so this card blocks it, and the handler says so in the incident's thread"
     " the moment the card is up only when the record says it is an incident's; post it again with {flags}"
 )
-MATCHES = 3
-SUBJECT_WORDS = 2
-CODE_NAME = re.compile(r"\b\w+_\w+\b|\b\w+\(\)|\b[\w.-]+(?:/[\w.-]+){2,}|\b[\w-]+\.(?:py|go|rs|ts|tsx|js|sql|md|json|ya?ml|toml|sh)\b|#\d{3,}\b")
+CANDIDATES = 8
+BODY_CHARS = 1500
+QUOTED_CHARS = 400
+UNDECIDED = "none"
+DECIDES = 0.8
+DECIDE = ["uvx", "--from", "spawnllm>=0.17.7", "spawnllm", "decide", "--provider", "jev", "--timeout", "20"]
+DECIDES_QUESTION = (
+    "Which one answer, in his own words, already decides which of these options to build? Pick none when no single answer"
+    " does, when an answer is about the same subject but another choice, when it only approves a pull request, or when unsure."
+)
 APPROVAL = "kind:approval"
 TAP_HEADER = "header:Tap"
 TAP_QUESTION = re.compile(r"(?:PR )?(?:Taps?\b|Approv|Land\b).*?(?:#\d+|/pull/\d+)", re.IGNORECASE)
@@ -81,24 +89,9 @@ def keeper(names: list[str], ask: str | None) -> str | None:
     return next((name for name in names if ask and Path(ask).expanduser().resolve().is_relative_to(state.drive_dir(name).resolve() / "asks")), None)
 
 
-def answers(title: str, card: str, whole: str, drives: list[str], cwd: str) -> list[dict]:
-    """His durable answers that may already settle a question: those the part he reads names whose own question shares its title's subject. TODO: once a ccn release with `answer match --nearest` is installed, add each drive's nearest to `whole` from `drives`."""
-    return [answer for answer in matched(card, cwd) if subject(title, answer)][:MATCHES]
-
-
-def subject(title: str, answer: dict) -> bool:
-    """Whether his answer's own question, its title and plain labels, names what this title asks about: a table, call, file, path or PR both name, or SUBJECT_WORDS rare words both use. Never its body, since one recording a whole plan, as the step-6 run-writer ruling's 43,552 characters name 309 proper terms, shares words with nearly every question."""
-    asked = " ".join([answer["title"], *(label for label in answer["tags"] if ":" not in label)])
-    return bool(code_names(title) & code_names(asked)) or len(rare(title) & rare(asked)) >= SUBJECT_WORDS
-
-
-def code_names(text: str) -> set[str]:
-    return {name.casefold() for name in CODE_NAME.findall(read(text))}
-
-
-def matched(text: str, cwd: str, *flags: str) -> list[dict]:
+def matched(text: str, cwd: str) -> list[dict]:
     """His answers sharing rare words with the text, best first, but a tap approving a PR, which settles only whether that PR lands."""
-    match = ["ccn", "answer", "match", "-", "--label", "scope:durable", *flags, "--limit", "-1", "--json"]
+    match = ["ccn", "answer", "match", "-", "--label", "scope:durable", "--limit", "-1", "--json"]
     found = json.loads(ccn(match, text, cwd, "could not check the question against his recorded answers"))
     return [answer for answer in found if APPROVAL not in answer["tags"]]
 
@@ -137,32 +130,57 @@ def shown(answer_id: str, cwd: str) -> dict:
     return json.loads(ccn(["ccn", "answer", "show", answer_id, "--json"], "", cwd, f"could not read his answer {answer_id}"))
 
 
-def matching(title: str, card: str, whole: str, drives: list[str], cwd: str, under: list[dict]) -> list[dict]:
-    """His recorded answers that may already settle a question: those its words match on its subject, and each written under a card its job asked on."""
-    found = answers(title, read(card), read(whole), drives, cwd)
-    return found + [answer for answer in under if answer["id"][:7] not in {other["id"][:7] for other in found}]
+def candidates(shown: str, cwd: str, under: list[dict], heard: list[dict], order: str) -> list[dict]:
+    """What may already decide a question, each the question he answered and his words, judged by no rule here: the first CANDIDATES of his recorded answers ccn matches on its words, his words under a card its job asked on, and his messages in the order's thread, under the order. TODO: once a ccn release with `answer match --nearest` is installed, add each drive's nearest answers to the ASK's whole block."""
+    found = [{"id": answer["id"][:7], "asked": answer["title"], "said": answer["body"][:BODY_CHARS]} for answer in matched(read(shown), cwd)[:CANDIDATES]]
+    return [
+        *found,
+        *(answer for answer in under if answer["id"] not in {other["id"] for other in found}),
+        *({"id": f"p{message['key']}", "asked": order, "said": message["text"], "link": message["link"]} for message in heard),
+    ]
 
 
-def refusals(found: list[dict], under: list[dict], heard: list[dict], offered: str, why: str | None) -> str | None:
-    """Every reason a question may not go to him, in one refusal, so one ask again meets them all: his recorded answers, his words under its job's open card, his words in the order's thread, and the amounts those words name. One --unsettled example names every answer id and permalink, since the one string replaces the last."""
-    example = "; ".join(f"{name}: <why it does not settle this>" for name in [*(answer["id"][:7] for answer in found), *(message["link"] for message in heard)])
-    layers = [refusal(found, why, example), open_card_refusal(under, why), thread_refusal(heard, why, example), unoffered_refusal(heard, offered)]
+def refusals(answer: dict | None, under: list[dict], heard: list[dict], offered: str, why: str | None) -> str | None:
+    """Every reason a question may not go to him, in one refusal, so one ask again meets them all: the one answer of his Jev reads as already deciding it, his words under its job's open card that --unsettled names, and an amount his words in the order's thread name that it offers no tap for."""
+    layers = [decided_refusal(answer, why), open_card_refusal(under, why), unoffered_refusal(heard, offered)]
     return "\n".join(layer for layer in layers if layer) or None
 
 
-def refusal(found: list[dict], why: str | None, example: str) -> str | None:
-    """Why a question may not go to him: one of these recorded answers of his may settle it, and no reason names that answer and says why it does not."""
-    ids = [answer["id"][:7] for answer in found]
-    if not (unnamed := [short for short in ids if short not in (why or "")]):
+def decided(question: str, options: list[str], found: list[dict]) -> dict | None:
+    """The one of these answers Jev reads as already deciding which option to build, asked as captain_hook's permits_question asks with none first and picked at its 0.8 bar; none, a lower probability or no answer from Jev sends the question to him."""
+    if not found:
         return None
-    listed = "\n".join(f"- {answer['id'][:7]} {answer['title'].splitlines()[0]}" for answer in found)
-    left_out = f" The reason given leaves out {', '.join(unnamed)}." if why else ""
+    answers = [{key: answer[key] for key in ("id", "asked", "said")} for answer in found]
+    label = {"instructions": DECIDES_QUESTION, "options": {UNDECIDED: "No single answer decides it.", **dict.fromkeys(answer["id"] for answer in found)}}
+    pick = jev({"state": {"question": question, "options": options, "answers": answers}, "questions": {"decides": {"label": label}}})
+    if not pick or pick["choice"] == UNDECIDED or pick["probabilities"][pick["choice"]] < DECIDES:
+        return None
+    return next(answer for answer in found if answer["id"] == pick["choice"])
+
+
+def jev(request: dict) -> dict | None:
+    """Jev's answer to the label question `spawnllm decide` asks it, or None, said on stderr, when none came: no key, a timeout, a spawnllm without the verb."""
+    try:
+        done = subprocess.run(DECIDE, input=json.dumps(request), capture_output=True, text=True, timeout=60, check=False)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return unheard(str(error))
+    if done.returncode:
+        return unheard(done.stderr.strip().rpartition("\n")[2])
+    return json.loads(done.stdout)["answers"]["decides"]
+
+
+def unheard(failure: str) -> None:
+    print(f"drive job ask: Jev did not say whether his answers decide this question, so it goes to him: {failure}", file=sys.stderr)
+
+
+def decided_refusal(answer: dict | None, why: str | None) -> str | None:
+    """Why a question may not go to him: Jev reads this answer of his as already deciding it, and no reason names it and says why it does not."""
+    if not answer or answer["id"] in (why or ""):
+        return None
+    where = f"his message in this order's thread {answer['link']}" if "link" in answer else f"his recorded answer {answer['id']}"
     return (
-        "refused: these recorded answers of his may already settle this question. Read each with `ccn answer show <id>`:"
-        " a question one settles is never asked again, in any wording, and the work goes ahead on that answer. One that"
-        " already names what you recommend, such as a service he said to build, settles what that thing does: build it."
-        f' Only when none does, ask again with --unsettled one string that names every id below, such as --unsettled "{example}".'
-        f"{left_out}\n{listed}"
+        f'refused: {where} already decides this question. Asked "{cut(answer["asked"], 200)}", he said "{cut(answer["said"], QUOTED_CHARS)}".'
+        f' Go ahead on it. If his words decide something else, ask again with --unsettled "{answer["id"]}: <why>".'
     )
 
 
@@ -194,18 +212,6 @@ def thread_words(data: dict, order: dict, team_url: str, question: str) -> list[
         for key in [message["ts"].replace(".", "")]
         if message.get("from_user") and message["ts"] != where[1] and (shared := sorted(asked & rare(message["text"])))
     ]
-
-
-def thread_refusal(said: list[dict], why: str | None, example: str) -> str | None:
-    """Why a question may not go to him: his words in the order's thread may settle it, and no reason names each of those messages by its permalink."""
-    if not any(f"p{message['key']}" not in (why or "") for message in said):
-        return None
-    listed = "\n".join(f'- {message["link"]} "{cut(message["text"], 200)}" (shares {", ".join(message["shared"])})' for message in said)
-    return (
-        "refused: his words in this order's thread may already settle this question. Read each: a question his words settle is"
-        " never asked, and the work goes ahead on them. Only when none does, ask again with --unsettled naming each permalink"
-        f' below and why it does not settle this, such as --unsettled "{example}".\n{listed}'
-    )
 
 
 def unoffered_refusal(said: list[dict], offered: str) -> str | None:

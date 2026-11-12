@@ -1171,7 +1171,7 @@ def asked_report(name: str, job_id: str, job: dict) -> str | None:
 
 
 def keep_ask(name: str, job_id: str, text: str, unsettled: str | None) -> tuple[Path, limits.Question, dict]:
-    """Keep the job's ASK block in its own file once it is in the shape he reads, in place of the job's open question asking the same, and set the job waiting on it; one his words may already settle stays kept as the job's pending question with its refusal, which draws no card, so the watch says the job waits on a card never posted until it asks again or drops it."""
+    """Keep the job's ASK block in its own file once it is in the shape he reads, in place of the job's open question asking the same, and set the job waiting on it; one Jev reads an answer of his as already deciding stays kept as the job's pending question with its refusal, which draws no card, so the watch says the job waits on a card never posted until it asks again or drops it."""
     from drive import superseded, view
 
     data = state.load(name)
@@ -1183,18 +1183,19 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None) -> tuple[
             f'{job_id}\'s PR is a port of #{unnamed[0]}: its ASK\'s summary says "port of #{unnamed[0]}", as the text of that PR\'s link,'
             f" and what in the target tree forces a choice #{unnamed[0]} did not make, such as what that tree lacks"
         )
-    shown = "\n".join([asked.title, *asked.summary, *asked.options])
-    matched = job["may_settle"]
-    if not matched or matched["title"] != asked.title:
-        found = settled.matching(asked.title, shown, text, [name], data["roles"]["coordinator"]["cwd"], superseded.said_under(data, job))
-        matched = {"title": asked.title, "answers": [{"id": answer["id"], "title": answer["title"]} for answer in found]}
     if any(state.same_question(question["title"], asked.title) and (question["card"] or question["waits"]) for other in data["jobs"].values() for question in other["questions"]):
         view.refresh_cards(name)
     cards = view.live_cards(name)
     if found_elsewhere := elsewhere(data, job_id, asked.title, cards, unsettled):
         raise DriveError(asked_elsewhere(job_id, *found_elsewhere))
-    heard = settled.thread_words(data, data["orders"][job["order"]], view.stored_cards(name)[0]["team_url"], shown)
-    refused = settled.refusals(matched["answers"], superseded.open_under(data, job, cards), heard, "\n".join([asked.title, *asked.options]), unsettled)
+    shown = "\n".join([asked.title, *asked.summary, *asked.options])
+    order = data["orders"][job["order"]]
+    heard = settled.thread_words(data, order, view.stored_cards(name)[0]["team_url"], shown)
+    decided = job["may_settle"]
+    if not decided or decided["title"] != asked.title:
+        found = settled.candidates(shown, data["roles"]["coordinator"]["cwd"], superseded.said_under(data, job), heard, order["text"])
+        decided = {"title": asked.title, "answer": settled.decided(asked.title, asked.options, found)}
+    refused = settled.refusals(decided["answer"], superseded.open_under(data, job, cards), heard, "\n".join([asked.title, *asked.options]), unsettled)
     kept = state.drive_dir(name) / "asks" / f"{job_id}-{state.ask_hash(text)}.md"
     kept.parent.mkdir(exist_ok=True)
     kept.write_text(text)
@@ -1205,7 +1206,7 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None) -> tuple[
         if refused:
             question = state.new_question(str(kept), asked.title, state.stamp(), unsettled, refused=refused)
             replaced = [*(twin for twin in twins if twin["refused"]), *reworded]
-            job.update(updated=state.stamp(), may_settle=matched)
+            job.update(updated=state.stamp(), may_settle=decided)
         else:
             held = next((twin for twin in twins if twin["card"]), None) or next((twin for twin in twins if twin["waits"]), None)
             question = state.new_question(str(kept), asked.title, held["asked"] if held else state.stamp(), unsettled)
@@ -3007,8 +3008,8 @@ def parser() -> argparse.ArgumentParser:
             " open until his answer to its own card. A block asking again, in the same words, what one of the job's"
             " questions asks that his answer has not closed takes that question's place, its card and waits id kept, so"
             " its ask record redraws that one card; one asking what another job's open question asks is refused, naming"
-            " the wait that frees this job at his answer. Refuse it with every way it is out of shape, and while a recorded"
-            " answer of his may already settle it."
+            " the wait that frees this job at his answer. Refuse it with every way it is out of shape, and while Jev reads"
+            " one recorded answer or thread message of his as already deciding it."
         ),
     )
     verb.add_argument("id", nargs="?", help="the job whose ASK this keeps; none with --check")
