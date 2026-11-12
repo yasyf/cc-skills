@@ -369,7 +369,7 @@ The steps, in order:
 
 Step 8's `report` carries `--attr close=<o>`, and its handler closes the order once the line is in
 the thread and its reporter, if any, has heard, which takes it off the dashboard's top strip, since
-the strip shows live incidents only.
+the strip counts only open incidents and bug reports whose reporter has not heard.
 
 The watch sends step 8 itself once the incident's fix is live: the release shipping the last release
 wait of a job or PR on its `fix` part is out, or a builder on that part returned `DONE`. Every Datadog

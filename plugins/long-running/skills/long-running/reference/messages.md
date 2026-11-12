@@ -417,6 +417,10 @@ merged and installed, listing each rule now in the skill.
 - The drive holds it to once and to after the fix: `drive order set --state done` refuses an order
   with a reporter until the note is recorded, the watch says `TELL` once when the proof sat 10 minutes
   with no note, and the post hook refuses a second note in that thread and one before the proof.
+  The dashboard's top strip counts each bug report until its note is recorded, and its list says
+  the stage each reached: reported, being fixed, merged, live and not told, or told. His words: "we
+  should have an equivalent bade gfor bug reports that tracks all teh way trhough to letting the
+  user know its live and fixed".
 - It needs no card and no approval, because he granted it standing: "we have authorization to message
   once in bug fix threads after we ship the fix … it needs to be in plain simple English no jargon, no
   crazy shit, and no asks".

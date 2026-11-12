@@ -53,6 +53,13 @@ const REVIEW_FACTS = { approved: ['Review approved', 'good'], stale: ['Approved 
 const TALK_FOLLOW_MS = 15 * 60 * 1000;
 const FRAMES_KEPT = 4;
 const GONE_ROWS = { merged: 'Landed', live: 'Landed', closed: 'Closed without merging', dropped: 'Dropped from the drive' };
+const BUG_STAGES = [
+  ['reported', 'No work on it yet', 'reported'],
+  ['fixing', 'Being fixed', 'being fixed'],
+  ['merged', 'Fix merged, waits on proof it is live', 'merged'],
+  ['live', 'Fix live, its reporter not told yet', 'live, reporter not told'],
+  ['told', 'Its reporter was told it is fixed', 'told'],
+];
 const SPOTS = 'h4.hd, .shot, figure.visual';
 const SLICES_KEPT = 40;
 const JUMP_ROWS = 40;
@@ -1780,30 +1787,52 @@ function goJump(row) {
 function strip() {
   const { picks, taps } = waiting();
   const open = model.incidents.length;
+  const reports = model.bug_reports.filter((report) => report.stage !== 'told').length;
   return [
     open ? `<button type="button" class="al bad" popovertarget="incidents">${open} ${open === 1 ? 'incident' : 'incidents'} open</button>` : '',
+    reports ? `<button type="button" class="al warn" popovertarget="bug-reports">${reports} ${reports === 1 ? 'bug report' : 'bug reports'} open</button>` : '',
     picks ? `<a class="al" href="#/queue/question">${picks} ${picks === 1 ? 'decision' : 'decisions'} for you</a>` : '',
     taps ? `<a class="al" href="#/queue/tap">${taps} ${taps === 1 ? 'PR' : 'PRs'} to tap</a>` : '',
   ].filter(Boolean).join('');
 }
 
+function motion(entry) {
+  const running = entry.running;
+  const prs = entry.prs.filter((pr) => pr.state === 'open').length;
+  const asks = entry.cards.length;
+  const facts = [
+    asks ? `<b>waits on your answer</b>` : '',
+    running ? `${running} ${running === 1 ? 'job' : 'jobs'} working` : '',
+    prs ? `${prs} open ${prs === 1 ? 'PR' : 'PRs'}` : '',
+    asks || running || prs ? '' : `nothing moving since ${clock(entry.updated)}`,
+  ];
+  return { asks, moving: running || prs, facts };
+}
+
+function popRow(id, title, facts) {
+  return `<li><a href="#/feature/${esc(id)}"><span class="inc-title">${esc(title)}</span><span class="meta">${facts.filter(Boolean).join(' · ')}</span></a></li>`;
+}
+
 function incidentList() {
   const rows = model.incidents.map((incident) => {
     const entry = featureOf(incident.id);
-    const running = entry.running;
-    const prs = entry.prs.filter((pr) => pr.state === 'open').length;
-    const asks = entry.cards.length;
-    const facts = [
-      `Since ${clock(incident.created)}`,
-      asks ? `<b>waits on your answer</b>` : '',
-      running ? `${running} ${running === 1 ? 'job' : 'jobs'} working` : '',
-      prs ? `${prs} open ${prs === 1 ? 'PR' : 'PRs'}` : '',
-      asks || running || prs ? '' : `nothing moving since ${clock(entry.updated)}`,
-    ].filter(Boolean).join(' · ');
-    return { rank: [asks ? 0 : 1, running || prs ? 0 : 1, -Date.parse(entry.updated)], html: `<li><a href="#/feature/${esc(incident.id)}"><span class="inc-title">${esc(entry.title)}</span><span class="meta">${facts}</span></a></li>` };
+    const { asks, moving, facts } = motion(entry);
+    return { rank: [asks ? 0 : 1, moving ? 0 : 1, -Date.parse(entry.updated)], html: popRow(incident.id, entry.title, [`Since ${clock(incident.created)}`, ...facts]) };
   });
   rows.sort((a, b) => a.rank.map((value, i) => value - b.rank[i]).find(Boolean) ?? 0);
   return `<div class="inc-head"><b>${rows.length} ${rows.length === 1 ? 'incident' : 'incidents'} open</b><span>Waiting on you first, then the ones moving</span></div><ul>${rows.map((row) => row.html).join('')}</ul>`;
+}
+
+function bugReportList() {
+  const reports = BUG_STAGES.flatMap(([stage]) => model.bug_reports.filter((report) => report.stage === stage));
+  const open = reports.filter((report) => report.stage !== 'told').length;
+  const stages = BUG_STAGES.map(([stage, , short]) => [short, reports.filter((report) => report.stage === stage).length]).filter(([, n]) => n).map(([short, n]) => `${n} ${short}`);
+  const rows = reports.map((report) => {
+    const said = BUG_STAGES.find(([stage]) => stage === report.stage)[1];
+    const facts = report.stage === 'told' ? [] : motion(featureOf(report.id)).facts;
+    return popRow(report.id, report.title, [said, `reported ${clock(report.created)}`, ...facts]);
+  });
+  return `<div class="inc-head"><b>${open} ${open === 1 ? 'bug report' : 'bug reports'} open</b><span>${stages.join(' · ')}, each open until its reporter is told the fix is live</span></div><ul>${rows.join('')}</ul>`;
 }
 
 function saidRow(entry) {
@@ -2041,6 +2070,7 @@ function render() {
   morphChildren($('#alerts'), Object.assign(document.createElement('div'), { innerHTML: raised }));
   $('#alerts').hidden = !raised;
   morphChildren($('#incidents'), Object.assign(document.createElement('div'), { innerHTML: incidentList() }));
+  morphChildren($('#bug-reports'), Object.assign(document.createElement('div'), { innerHTML: bugReportList() }));
   const screens = { queue: () => queueScreen(id), now: nowScreen, work: workScreen, history: historyScreen, feature: () => featureScreen(id), file: () => fileScreen(route().path) };
   const open = new Set(model.review.map((entry) => entry.key));
   for (const [key, frame] of slotted) {
@@ -2319,7 +2349,7 @@ document.addEventListener('click', (event) => {
   const jumped = event.target.closest('#jumplist [data-jump]');
   if (jumped) return goJump(jumped);
   if (event.target.id === 'jump') return $('#jump').close();
-  if (event.target.closest('#incidents a')) $('#incidents').hidePopover();
+  event.target.closest('.incidents a')?.closest('[popover]').hidePopover();
   if (event.target.closest('[data-reload]')) return reloadPage();
   const tool = event.target.closest('[data-cam]');
   if (tool) {

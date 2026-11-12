@@ -25,7 +25,9 @@
 the drive keeps for it, of `brief`, `report`, `question`, `repro` and `transcript`), `history` (every day of the drive,
 newest first, his orders each with `swears`, the swear words in his words), `review` (every open PR, in `you`,
 `not ready` or `decided`, with its `head`, its Slack card and that card's `thread` when it has one), `incidents` (his
-open incident orders, each with `id`, `title` and `created`) and each feature's `text`, `note`, `created` and `jobs`.
+open incident orders, each with `id`, `title` and `created`), `bug_reports` (each shown order fixing a bug someone
+reported, each with `id`, `title`, `created` and `stage`, one of BUG_STAGES) and each feature's `text`, `note`,
+`created` and `jobs`.
 Each feature also has the `project` and `workstream` the coordinator filed its order under, each null until filed.
 
 `summary` is the board each open page is sent on every change, sized by what is open now and never by the drive's age;
@@ -47,6 +49,7 @@ from drive.card import PARENTHETICAL, RECORD_ID, kind_and_title, without_records
 from drive.render import cut, when
 
 STATES = ("blocked", "running", "built", "waiting", "merged", "live", "not started")
+BUG_STAGES = ("reported", "fixing", "merged", "live", "told")
 LIVE_FOR = timedelta(days=1)
 SLACK_LINK = re.compile(r"<(?:[^|>]*\|)?([^>]*)>")
 SLACK_TS = re.compile(r"/p(\d+)")
@@ -486,11 +489,15 @@ def feature_state(order: dict, jobs: list[dict], prs: list[dict]) -> str:
         return "running"
     if any(job["state"] == "built" for job in jobs):
         return "built"
-    if any(pr["state"] == "merged" for pr in prs) and all(pr["state"] != "open" for pr in prs):
+    if all_merged(prs):
         return "merged"
     if order["state"] == "waiting" or any(job["state"] == "waiting" for job in jobs):
         return "waiting"
     return "not started"
+
+
+def all_merged(prs: list[dict]) -> bool:
+    return any(pr["state"] == "merged" for pr in prs) and all(pr["state"] != "open" for pr in prs)
 
 
 def latest_line(order: dict, jobs: list[dict]) -> str:
@@ -724,6 +731,7 @@ def board(drive: dict, found: dict, source: str, events: Iterable[dict], moment:
         "history": history(drive, events, found["team_url"]),
         "review": review(drive, found),
         "incidents": incidents(drive),
+        "bug_reports": bug_reports(drive, moment),
         "channel": drive["slack"]["channel"],
     }
 
@@ -802,6 +810,26 @@ def incidents(drive: dict) -> list[dict]:
     """His incident orders still open, oldest first, but one the watch found over, its fix live and any monitor of it OK, while its close is posted."""
     live = [(order_id, order) for order_id, order in drive["orders"].items() if order["incident"] and order["state"] not in state.CLOSED_ORDER_STATES and not order["recovered"]]
     return [{"id": order_id, "title": order_title(order), "created": order["created"]} for order_id, order in sorted(live, key=lambda item: state.parse_time(item[1]["created"]))]
+
+
+def bug_reports(drive: dict, moment: datetime) -> list[dict]:
+    """Each shown order fixing a bug someone reported, oldest report first, at the stage it reached on the way to its reporter hearing the fix is live."""
+    prs: dict[str, list[dict]] = {}
+    for pr in drive["prs"].values():
+        prs.setdefault(pr["order"], []).append(pr)
+    reported = sorted(((order_id, order) for order_id, order in drive["orders"].items() if order["reporter"] and shown(order, moment)), key=lambda item: state.parse_time(item[1]["created"]))
+    return [{"id": order_id, "title": order_title(order), "created": order["created"], "stage": bug_stage(order, prs.get(order_id, []))} for order_id, order in reported]
+
+
+def bug_stage(order: dict, prs: list[dict]) -> str:
+    """Told once drive order told records the fix-live note, live once the order keeps its proof, merged once a PR on it merged and none is open, fixing while a job or PR is on it, else reported."""
+    if order["reporter"]["told"]:
+        return "told"
+    if order["proof"]:
+        return "live"
+    if all_merged(prs):
+        return "merged"
+    return "fixing" if order["jobs"] or prs else "reported"
 
 
 def glance(card: dict) -> dict:
