@@ -230,6 +230,17 @@ def test_a_record_goes_to_the_other_session_and_a_tap_takes_its_ask_and_job_from
         tools.run("record", demo, {"records": [{"kind": "answer", "text": "Approve", "waits": "merge:Forge-AI:monorepo:42"}]})
 
 
+def test_a_record_names_the_one_seq_it_answers_and_one_naming_several_is_refused_before_any_record_posts(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    posted: list[list[dict]] = []
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append(json.loads(kwargs["input"])) or subprocess.CompletedProcess([], 0, "#44\n", ""))
+    defect = {"kind": "defect", "text": "drive record crashes after posting"}
+    with pytest.raises(DriveError, match="re names one seq, not 2: cci stores one record per seq"):
+        tools.run("record", demo, {"records": [defect, defect | {"re": ["672196", "672234"]}]})
+    assert posted == []
+    assert tools.run("record", demo, {"records": [defect | {"re": "672234"}]}) == "1 defect #44"
+    assert [[record["re"] for record in records] for records in posted] == [[["672234"]]]
+
+
 def test_a_long_defect_goes_to_the_other_session_as_one_line_with_its_whole_text_atop_its_body(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     posted: list[list[dict]] = []
     ok = subprocess.CompletedProcess([], 0, "#43\n", "")
@@ -330,7 +341,7 @@ def test_the_communicators_owner_or_answer_record_goes_to_the_session_hearing_it
     records = [
         {"kind": "owner", "text": "also the logs page", "thread": THREAD, "to": "root", "about": "his work"},
         {"kind": "owner", "text": "and the alert", "thread": other, "to": "iris", "about": "his work"},
-        {"kind": "answer", "text": "Ring", "re": ["7"], "attrs": {"job": "j1"}, "thread": other},
+        {"kind": "answer", "text": "Ring", "re": "7", "attrs": {"job": "j1"}, "thread": other},
         {"kind": "defect", "text": "cc-slack say fails", "thread": THREAD},
     ]
     open_cards(monkeypatch, "demo:j1-7")
