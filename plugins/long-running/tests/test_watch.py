@@ -22,6 +22,8 @@ REPORTED = "https://acme.slack.com/archives/C0REPORTS01/p1794400100000200"
 UNRECORDED = 'ORPHAN o1 "ship the watch": j1\'s agent finished and its result is not recorded: "'
 DRAWING = f"CARD his card for {KEY} is drawing: green and approved, ready record sent to the communicator"
 CHECKED = {"head": "aaaaaaa111", "orders": ["o1"], "patch": ""}
+BUILD = "https://buildkite.com/forge/monorepo/builds/7"
+REQUIRED = {"context": "buildkite/test", "isRequired": True, "targetUrl": BUILD}
 
 
 def order(**overrides: object) -> dict:
@@ -146,6 +148,41 @@ def test_a_failed_check_being_rerun_never_reads_as_passed(demo: str, monkeypatch
     failed = [f"PR {KEY}: checks failed [o1 j1]"]
     assert said == [failed, [], [], failed]
     assert state.load(demo)["prs"][KEY]["failed_checks"] == [GATE]
+
+
+def test_a_builders_pushed_wakes_no_one_until_the_first_read_after_it_finds_the_required_checks_green(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="waiting", said=f"PUSHED {state.pr_url(KEY)}")
+    reads = {KEY: read(checks=[*RUNNING, {**REQUIRED, "state": "SUCCESS"}])}
+    serve(monkeypatch, reads)
+    watching = watcher(demo)
+    said = [watch.run_pass(watching, T0)]
+    reads[KEY] = read(checks=[*RUNNING, {**REQUIRED, "state": "PENDING"}])
+    said.append(watch.run_pass(watching, T0 + timedelta(minutes=1)))
+    reads[KEY] = read(checks=[*RUNNING, {**REQUIRED, "state": "SUCCESS"}])
+    said.append(watch.run_pass(watching, T0 + timedelta(minutes=2)))
+    ready = f"JOB j1 o1 READY {state.pr_url(KEY)}"
+    assert said == [[], [], [ready]]
+    data = state.load(demo)
+    assert (watch.wakes(ready, data), data["jobs"]["j1"]["state"], data["jobs"]["j1"]["said"]) == (True, "waiting", f"READY {state.pr_url(KEY)}")
+
+
+def test_a_red_required_check_ends_a_pushed_with_its_build_and_goes_back_to_a_lane_waiting_on_it(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="waiting", said=f"PUSHED {state.pr_url(KEY)}")
+    serve(monkeypatch, {KEY: read(checks=[{**REQUIRED, "state": "FAILURE"}])})
+    watching = watcher(demo)
+    refused = f"PR {KEY}: READY refused, its required buildkite/test failed at aaaaaaa ({BUILD}) [o1 j1]"
+    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == [f"PR {KEY}: checks failed [o1 j1]", refused]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=2)) == []
+    data = state.load(demo)
+    assert (watch.wakes(refused, data), data["jobs"]["j1"]["said"]) == (True, f"READY refused: {KEY}'s required buildkite/test failed at aaaaaaa ({BUILD})")
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(where="remote", dispatch="d-1")
+    resumed = []
+    monkeypatch.setattr(watch.reads, "run", lambda argv, checkout: resumed.append(argv) or "")
+    assert watch.handed(watching, [refused], T0) == []
+    assert resumed == [[str(watch.DRIVE), "job", "resume", "j1", refused, "--drive", demo]]
 
 
 def test_unchanged_pr_emits_nothing(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

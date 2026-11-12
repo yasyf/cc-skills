@@ -71,7 +71,7 @@ state and said line of every job but a codex job:
 | First line | The job's state |
 |---|---|
 | `DONE`, or a reader's answer | done |
-| `READY` or `DESIGN` from any job but a reader, `WAITING`, `ASK` | waiting; an `ASK` keeps as its said line the question's title `drive job ask` set |
+| `READY`, `PUSHED` or `DESIGN` from any job but a reader, `WAITING`, `ASK` | waiting; an `ASK` keeps as its said line the question's title `drive job ask` set |
 | `BLOCKED` | failed |
 | `HANDOFF <path>`, a job its session stopped before done | stopped |
 | `BUILT <branch>, waits on <cards>` | built on that branch, waiting on each card it names |

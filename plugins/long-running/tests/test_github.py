@@ -7,6 +7,7 @@ from drive import github
 GATE = "LTX Behavioral Gate (short)"
 OPEN_ON = github.open_on
 VISIBILITY = github.visibility
+FETCH = github.fetch
 GREEN = [{"name": "Lint", "conclusion": "SUCCESS"}, {"context": "buildkite/test", "state": "SUCCESS"}]
 
 
@@ -46,6 +47,13 @@ def test_query_aliases_one_repository_per_repo_and_one_pull_per_number() -> None
     assert text.count("repository(") == 2
 
 
+def test_query_asks_each_pull_which_of_its_checks_its_base_branch_requires_and_a_heads_read_asks_none() -> None:
+    text = github.query(["a/one#1", "a/one#2"])
+    assert (text.count("isRequired(pullRequestNumber: 1)"), text.count("isRequired(pullRequestNumber: 2)")) == (2, 2)
+    assert github.NUMBER not in text
+    assert "isRequired" not in github.heads_query([("a/one", "lane")], ["a/one"])
+
+
 def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = []
 
@@ -65,7 +73,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
         return json.dumps({"data": {"r0": {"p1": node(), "p2": merged}, "r1": {"p7": None}}})
 
     monkeypatch.setattr(github, "run", fake)
-    reads, refused = github.fetch(["a/one#1", "a/one#2", "b/two#7"])
+    reads, refused = FETCH(["a/one#1", "a/one#2", "b/two#7"])
     assert refused is None
     assert calls[0][:4] == ["gh", "api", "graphql", "-f"]
     assert calls[0][4].startswith("query=query {")
@@ -112,7 +120,7 @@ def test_fetch_reads_twenty_five_prs_a_graphql_query_and_open_on_every_branch_in
         return json.dumps({"data": {}})
 
     monkeypatch.setattr(github, "run", fake)
-    github.fetch([f"a/one#{number}" for number in range(1, count + 1)])
+    FETCH([f"a/one#{number}" for number in range(1, count + 1)])
     OPEN_ON([("a/one", f"branch-{number}") for number in range(count)])
     assert sizes == [*((size, 0) for size in queries), (0, count)]
 
@@ -134,7 +142,7 @@ def test_a_refused_query_loses_only_its_own_prs_and_names_them(monkeypatch: pyte
         return json.dumps({"data": {"r0": {f"p{number}": node() for number in range(1, 61)}}})
 
     monkeypatch.setattr(github, "run", second_refused)
-    reads, refused = github.fetch([f"a/one#{number}" for number in range(1, 61)])
+    reads, refused = FETCH([f"a/one#{number}" for number in range(1, 61)])
     assert sorted(reads, key=lambda key: github.split(key)[2]) == [f"a/one#{number}" for number in [*range(1, 26), *range(51, 61)]]
     assert str(refused) == "could not read 25 PRs of a/one from GitHub: gh: HTTP 502 ccx: gh failed after 4 tries"
 
@@ -144,7 +152,7 @@ def test_a_failed_graphql_read_names_what_it_could_not_read(monkeypatch: pytest.
         raise github.GithubError("gh: API rate limit already exceeded for installation ID 1.")
 
     monkeypatch.setattr(github, "run", limited)
-    reads, refused = github.fetch(["a/one#1", "b/two#7"])
+    reads, refused = FETCH(["a/one#1", "b/two#7"])
     with pytest.raises(github.GithubError) as opened:
         OPEN_ON([("a/one", "fix-it")])
     assert (reads, str(refused), str(opened.value)) == (
@@ -192,7 +200,7 @@ def test_run_raises_when_gh_is_missing(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_fetch_names_an_unreadable_reply(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(github, "run", lambda cmd, **_: "<html>bad gateway</html>")
-    reads, refused = github.fetch(["a/one#1"])
+    reads, refused = FETCH(["a/one#1"])
     assert reads == {}
     assert str(refused).startswith("unreadable GraphQL reply for 1 PRs of a/one")
 
@@ -211,7 +219,18 @@ def test_live_maps_a_read_onto_the_stored_vocabulary() -> None:
         "hold_label": False,
         "native": ["a/one#1", "a/one#3"],
         "conflict": True,
+        "required": {"checks": "none", "failed": {}},
     }
+
+
+def test_the_required_verdict_reads_only_the_checks_the_base_branch_requires_with_the_build_of_each_that_failed() -> None:
+    build = "https://buildkite.com/forge/monorepo/builds/7"
+    lint = {"name": "Lint", "conclusion": "FAILURE", "isRequired": False, "detailsUrl": "https://github.com/a/one/actions/runs/1"}
+    test = {"context": "buildkite/test", "isRequired": True, "targetUrl": build}
+    assert github.required(pr_read([lint, {**test, "state": "PENDING"}])) == {"checks": "pending", "failed": {}}
+    assert github.required(pr_read([lint, {**test, "state": "SUCCESS"}])) == {"checks": "pass", "failed": {}}
+    assert github.required(pr_read([lint, {**test, "state": "FAILURE"}])) == {"checks": "fail", "failed": {"buildkite/test": build}}
+    assert github.required(pr_read([lint])) == {"checks": "none", "failed": {}}
 
 
 def test_live_reads_the_hold_label_the_drive_holds_its_own_pr_with() -> None:
@@ -282,7 +301,7 @@ def test_fetch_names_each_check_runs_workflow_as_gh_pr_view_does(monkeypatch: py
     ]
     pr = node(commits={"nodes": [{"commit": {"statusCheckRollup": {"contexts": {"nodes": contexts}}}}]})
     monkeypatch.setattr(github, "run", lambda cmd, **_: json.dumps({"data": {"r0": {"p1": pr}}}))
-    assert github.fetch(["a/one#1"])[0]["a/one#1"]["checks"] == [
+    assert FETCH(["a/one#1"])[0]["a/one#1"]["checks"] == [
         {"name": "build", "conclusion": "CANCELLED", "detailsUrl": "https://github.com/a/one/actions/runs/1/job/10", "workflowName": "FDE Docs"},
         {"name": "Socket", "conclusion": "SUCCESS", "detailsUrl": "https://socket.dev/x", "workflowName": ""},
         {"context": "buildkite/test", "state": "SUCCESS"},

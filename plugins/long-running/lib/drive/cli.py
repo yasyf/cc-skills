@@ -1441,12 +1441,14 @@ def job_report(args: argparse.Namespace) -> int:
             raise DriveError(f"stdin held no report for {args.id}; pipe its whole return in: printf '%s\\n' '<line>' ... | drive job report {args.id} -")
         if refused := brief.report_refusal(name, data, args.id, whole):
             raise DriveError(f"{args.id}: refused, nothing kept: {refused}")
-        if job["kind"] == "builder" and re.match(r"READY\b", whole.strip()):
+        if job["kind"] == "builder" and re.match(r"(?:READY|PUSHED)\b", whole.strip()):
             try:
                 served.check(name, args.id, [], [])
             except DriveError as error:
                 raise DriveError(f"{args.id}: refused, nothing kept: {error}") from None
         line = whole.strip().splitlines()[0].strip()
+        if job["kind"] == "builder" and re.match(r"READY\b", line) and (held := unready(data, job, line)):
+            raise DriveError(f"{args.id}: refused, nothing kept: {held}")
         kept = state.keep_report(name, args.id, line, whole)
         with state.edit(name) as data:
             state.take_result(data, args.id, line, whole)
@@ -1458,6 +1460,21 @@ def job_report(args: argparse.Namespace) -> int:
     if not text:
         return emit(args, f"{job['said']}\n({args.id} kept no report; this one-line result is all it returned)", {"id": args.id, "report": None, "said": job["said"]})
     return emit(args, text.rstrip("\n"), {"id": args.id, "report": text})
+
+
+def unready(data: dict, job: dict, line: str) -> str | None:
+    """Why a builder's READY is not ready yet, from a GitHub read made now, since READY counts only on a green required check: a required check that failed on a PR it names, one still running, or a read that failed, each sending the builder to return PUSHED, which the watch takes as this READY once every required check passes."""
+    reads, refused = github.fetch(state.named_prs(data, job["order"], line))
+    verdict, held = ("pending", [("GitHub", f"GitHub's read failed: {refused}")]) if refused else state.required_verdict({key: github.live(read, data["prs"][key]) for key, read in reads.items()})
+    if verdict == "pass":
+        return None
+    fix = "fix it and push, then return" if verdict == "fail" else "return"
+    pushed = re.sub(r"^READY\b", "PUSHED", line)
+    holding = "; ".join(why if refused else f"{key}'s {why}" for key, why in held)
+    return (
+        f"READY counts only on a green required check, and {holding}: {fix} this report with"
+        f" `{pushed}` as its first line, which the watch takes as this READY once every required check passes, waking no one meanwhile"
+    )
 
 
 def keep_repro(name: str, job_id: str, source: str) -> str:

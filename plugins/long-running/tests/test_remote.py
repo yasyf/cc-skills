@@ -939,7 +939,6 @@ def test_lane_mail_becomes_job_events_and_records_the_question(remote: str, monk
 @pytest.mark.parametrize(
     ("sent", "asked", "taken"),
     [
-        ("READY https://github.com/Forge-AI/monorepo/pull/7\nPR: Fix: x\nLOG https://buildkite.com/forge/test/builds/1 was red", None, "waiting"),
         ("WAITING CI and the reviewer bot on the reworked chat-open tags PR", None, "waiting"),
         ("BUILT lane/built, waits on demo:j1-7-a", None, "built"),
         ("DONE port of #53187 merged", None, "done"),
@@ -957,6 +956,24 @@ def test_a_lane_question_opening_with_a_result_other_than_ask_is_that_result_and
     job = state.load(remote)["jobs"]["j1"]
     assert (job["ask"], job["state"]) == (asked, taken)
     assert (watch.unanswered("j1", job, None, T0 + timedelta(minutes=31)) is None) == (asked is None)
+
+
+@pytest.mark.parametrize("kind", ["question", "worker_done"])
+def test_a_lanes_ready_is_kept_as_pushed_waking_no_one_until_a_read_after_it_finds_its_required_checks_green(
+    kind: str, remote: str, monkeypatch: pytest.MonkeyPatch, pr_reads: dict[str, dict]
+) -> None:
+    url = "https://github.com/Forge-AI/monorepo/pull/7"
+    deliver(monkeypatch, [message(kind, f"READY {url}\nPR: Fix: x")])
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    assert watch.run_pass(watching, T0) == []
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["ask"], job["state"], job["said"], job["prs"]) == (None, "waiting", f"PUSHED {url}", [url])
+    required = {"context": "buildkite/test", "state": "SUCCESS", "isRequired": True, "targetUrl": "https://buildkite.com/forge/monorepo/builds/7"}
+    pr_reads["Forge-AI/monorepo#7"] = {
+        "state": "OPEN", "isDraft": False, "headRefOid": "abc1234", "mergeCommit": None, "checks": [required], "reviewDecision": None,
+        "approvals": [], "mergeable": "MERGEABLE", "title": "Fix: x", "author": "yasyf", "labels": [], "native": [],
+    }
+    assert f"JOB j1 o1 READY {url}" in watch.run_pass(watching, T0 + timedelta(minutes=1))
 
 
 def test_a_lane_that_finishes_after_asking_ends_its_question_and_its_result_sets_the_job(

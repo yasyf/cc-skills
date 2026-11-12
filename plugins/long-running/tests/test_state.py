@@ -485,6 +485,25 @@ def test_a_readers_ready_on_a_pr_reworked_to_his_words_leaves_it_reworking() -> 
     assert state.owed_step(data["prs"][f"{MONOREPO}#4289"]) == "reworking"
 
 
+def test_a_pushed_line_settles_only_on_a_read_after_it_was_taken_and_holds_on_a_required_check_still_running_or_red() -> None:
+    data = kept_prs()
+    data["jobs"]["j9"] = state.new_job("o226", "builder", "fix", [], state.stamp(REFERENCE)) | {"said": "PUSHED #4289 #4279"}
+    one, two = data["prs"][f"{MONOREPO}#4289"], data["prs"][f"{MONOREPO}#4279"]
+    after = state.stamp(REFERENCE + timedelta(minutes=1))
+    build = "https://buildkite.com/forge/monorepo/builds/7"
+    one["required"] = {"checks": "pass", "failed": {}, "read": after}
+    two["required"] = {"checks": "pass", "failed": {}, "read": state.stamp(REFERENCE)}
+    assert state.pushed_verdict(data, "j9") == ("pending", [])
+    two["required"] = {"checks": "pending", "failed": {}, "read": after}
+    assert state.pushed_verdict(data, "j9") == ("pending", [(f"{MONOREPO}#4279", "required checks still run at abc")])
+    two["required"] = {"checks": "fail", "failed": {"buildkite/test": build}, "read": after}
+    assert state.pushed_verdict(data, "j9") == ("fail", [(f"{MONOREPO}#4279", f"required buildkite/test failed at abc ({build})")])
+    two["state"] = "merged"
+    assert state.pushed_verdict(data, "j9") == ("pass", [])
+    data["jobs"]["j9"]["said"] = "PUSHED the fix"
+    assert state.pushed_verdict(data, "j9") == ("pass", [])
+
+
 def test_a_bare_number_two_repositories_share_names_the_pr_on_the_jobs_order() -> None:
     assert state.named_prs(kept_prs(), "o226", "#4289") == [f"{MONOREPO}#4289"]
     assert state.named_prs(kept_prs(), "o359", "#4289 and Forge-AI/monorepo#4302") == ["yasyf/cc-skills#4289", f"{MONOREPO}#4302"]

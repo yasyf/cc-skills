@@ -28,12 +28,13 @@ LIMIT = re.compile(r"\b(?:caps?|capped|quotas?|capacity|ceilings?|throttl\w*|rat
 LEFT_STANDING = re.compile(r"\b(?:left\s+as[\s-]is|unchanged|hit(?:s|ting)?|exceed(?:s|ed|ing)?)\b", re.IGNORECASE)
 STATEMENT = re.compile(r"(?:(?![.;:!?]+(?=\s|$)).)+")
 CHOICE_OPENINGS = ("ASK", "DESIGN")
+READY_OPENINGS = ("READY", "PUSHED")
 DESIGN_PART = re.compile(r"DESIGN\s+\S")
 KEYS = ("rulings", "exists", "open")
 RESEARCHED_KINDS = ("builder", "design")
 LANE_KINDS = ("reader", "builder", "design")
 LIGHT_MODELS = ("sonnet", "haiku")
-OPENINGS = ("DONE", "READY", "BUILT", "WAITING", "ASK", "BLOCKED", "DESIGN", "HANDOFF")
+OPENINGS = ("DONE", "READY", "PUSHED", "BUILT", "WAITING", "ASK", "BLOCKED", "DESIGN", "HANDOFF")
 WORDED_KINDS = ("builder", "design")
 DESIGN_LINES = ("Root cause:", "Settled:", "Native:", "Change:", "Fork:", "Facts:")
 UNDESIGNED = ("HANDOFF", "BLOCKED")
@@ -189,7 +190,7 @@ def heavier(data: dict, job_id: str, brief: str, model: str | None) -> bool:
 
 
 def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
-    """Why a job's return may not be kept: a builder's or designer's opens with a result word, a REPRO: file is kept on the job first, a report naming a limit in its own words as a finding left standing is an ASK or DESIGN, a design lane's is the design in its shape, a research reader's carries its Researched: block, a reader's DESIGN is a choice for him with its options, starting from the root cause and recommending the option that removes it, a DONE or READY leaves no step for someone else, a builder's DONE names its proof, and a builder's READY names PRs whose tap card draws, saying how his words are met on each reworked to them, with a before and an after screenshot when its NATIVE: line names what he sees, and says how it builds on what its research found."""
+    """Why a job's return may not be kept: a builder's or designer's opens with a result word, a REPRO: file is kept on the job first, a report naming a limit in its own words as a finding left standing is an ASK or DESIGN, a design lane's is the design in its shape, a research reader's carries its Researched: block, a reader's DESIGN is a choice for him with its options, starting from the root cause and recommending the option that removes it, a DONE, READY or PUSHED leaves no step for someone else, a builder's DONE names its proof, and a builder's READY or PUSHED names PRs whose tap card draws, saying how his words are met on each reworked to them, with a before and an after screenshot when its NATIVE: line names what he sees, and says how it builds on what its research found."""
     job = data["jobs"][job_id]
     order = data["orders"][job["order"]]
     lines = [line.strip() for line in text.strip().splitlines()]
@@ -229,24 +230,24 @@ def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
         )
     if job["kind"] == "reader" and (refused := reader_refusal(job_id, job, order, text, lines)):
         return refused
-    if opening in ("DONE", "READY") and (left := left_steps(text)):
+    if opening in ("DONE", *READY_OPENINGS) and (left := left_steps(text)):
         return (
             f'a {opening} leaves a step for someone else: "{cut(left, 120)}". Do that step yourself before you return,'
             " or return ASK when it needs his choice"
         )
     if job["kind"] == "builder" and opening == "DONE":
         return unproven(text)
-    if job["kind"] == "builder" and opening == "READY" and not state.REPORT_CHANGE.search(text):
+    if job["kind"] == "builder" and opening in READY_OPENINGS and not state.REPORT_CHANGE.search(text):
         if reworked := [key for key in state.named_prs(data, job["order"], lines[0]) if data["prs"][key]["rework"]]:
-            return f"{', '.join(reworked)}: being reworked to his words, so its READY says in a CHANGE: line how they are met, which its fresh card shows him"
-    if not (job["kind"] == "builder" and opening == "READY" and order["kind"] == "build") or order["incident"]:
+            return f"{', '.join(reworked)}: being reworked to his words, so its {opening} says in a CHANGE: line how they are met, which its fresh card shows him"
+    if not (job["kind"] == "builder" and opening in READY_OPENINGS and order["kind"] == "build") or order["incident"]:
         return None
     found = research(name, data, job["order"])
     exists = researched(found[1])["exists"] if found else "none"
     if exists.casefold().rstrip(".") == "none" or REUSES.search(text):
         return None
     return (
-        f"{found[0]}'s research found what already does part of this: {exists}. A READY says, in a REUSES: line, how the"
+        f"{found[0]}'s research found what already does part of this: {exists}. A {opening} says, in a REUSES: line, how the"
         " PR calls or extends it rather than adding a second copy beside it"
     )
 

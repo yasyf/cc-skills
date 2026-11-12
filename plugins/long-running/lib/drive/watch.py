@@ -28,7 +28,7 @@ TICK_EVERY = timedelta(minutes=30)
 DUE_EVERY = timedelta(minutes=10)
 TELL_AFTER = timedelta(minutes=10)
 WAKES = ("TAP ", "DUE ", "LIVE ", "TELL ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "STUCK ", "FREE ", "EVENT catch-up ", "EVENT unheard ", "EVENT stop ", "WATCH stopped")
-OWNER_MOVES = ("merged", "checks failed", "conflicts with its base", "changes requested", "still red", "ejected from the merge queue", "not landed")
+OWNER_MOVES = ("merged", "checks failed", "READY refused", "conflicts with its base", "changes requested", "still red", "ejected from the merge queue", "not landed")
 PR_EVENT = re.compile(r"PR (?P<key>\S+): (?P<change>.+) \[(?P<order>o\d+) (?P<job>j\d+)\]$")
 TAP_EVENT = re.compile(r"TAP (?P<label>\S+) (?P<key>\S+)")
 LANE = "watch"
@@ -53,7 +53,7 @@ TAIL_BYTES = 65536
 COMPACT_PAST_TOKENS = 120_000
 COMPACT_WHEN_QUIET = timedelta(minutes=10)
 NOT_SLUG = re.compile(r"[^A-Za-z0-9]")
-PR_LINE = re.compile(r"\s*(?:READY|PR:)")
+PR_LINE = re.compile(r"\s*(?:READY|PUSHED|PR:)")
 READY_LINE = re.compile(r"READY\b")
 STUCK_WORDS = {
     "red": "still red",
@@ -156,6 +156,7 @@ def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
         for key, read in reads.items():
             pr = data["prs"][key]
             changes = pr_changes(pr, read)
+            pr["required"]["read"] = state.stamp(moment)
             if why := state.foreign_pr(data, key):
                 foreign[key] = (pr["url"], pr["author"], f"{why} {ids(pr)}")
                 continue
@@ -166,6 +167,35 @@ def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
             pr["updated"] = state.stamp(moment)
             lines.extend(f"PR {key}: {change} {ids(pr)}" for change in changes)
     return lines + dropped_lines(watcher, foreign, moment)
+
+
+def pushed_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Settle each builder's PUSHED the watch hears once its GitHub read after the take finds the required checks of every PR it names: all green takes the READY it holds, its JOB line waking whoever acts on a READY; a red one ends the hold with a `READY refused` line per failed check, which goes back to a remote lane waiting for its next event and wakes the coordinator otherwise."""
+    data = state.load(watcher.name)
+    if not any(settles(watcher, data, job_id) for job_id in data["jobs"]):
+        return []
+    lines = []
+    with state.edit(watcher.name) as data:
+        for job_id, job in data["jobs"].items():
+            if not (verdict := settles(watcher, data, job_id)):
+                continue
+            result, held = verdict
+            if result == "pass":
+                job["state"] = "running"
+                state.take_result(data, job_id, "READY" + job["said"].removeprefix("PUSHED"), state.report_text(watcher.name, job_id, job))
+                lines.append(f"JOB {job_id} {job['order']} {job['said']}")
+                continue
+            job.update(said="READY refused: " + "; ".join(f"{key}'s {why}" for key, why in held), updated=state.stamp(moment))
+            lines += [f"PR {key}: READY refused, its {why} [{job['order']} {job_id}]" for key, why in held]
+    return lines
+
+
+def settles(watcher: Watcher, data: dict, job_id: str) -> tuple[str, list[tuple[str, str]]] | None:
+    job = data["jobs"][job_id]
+    if job["kind"] != "builder" or job["state"] != "waiting" or not state.PUSHED_LINE.match(job["said"] or "") or not heard_job(watcher, data, job):
+        return None
+    verdict = state.pushed_verdict(data, job_id)
+    return verdict if verdict[0] != "pending" else None
 
 
 def dropped_lines(watcher: Watcher, foreign: dict[str, tuple[str, str, str]], moment: datetime) -> list[str]:
@@ -569,8 +599,12 @@ def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetim
     elif kind in ("question", "worker_done"):
         if job.get("ask"):
             job.update(ask=None, state="running")
+        if job["kind"] == "builder":
+            job["said"] = re.sub(r"^READY\b", "PUSHED", job["said"])
         state.take_result(data, job_id, job["said"], body)
         state.add_changes(data, job_id, body)
+        if state.PUSHED_LINE.match(job["said"]):
+            return None
     if kept:
         return f"JOB {job_id} {job['order']} ASK {kept}"
     line = f"JOB {job_id} {job['order']} {job['said']}"
@@ -1404,7 +1438,7 @@ def tick_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """One loop of the watch: his cards, GitHub, a lander on each PR his Approve covers that qualifies, his PR cards whose PRs all ended, the waits his answers or a job's end release, a READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, agents, the communicator's compaction and the status page every 60 s, GitHub again next poll after a failure, new events, promised times still owed a line, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries, a tick every 30 minutes while he is here."""
+    """One loop of the watch: his cards, GitHub, a lander on each PR his Approve covers that qualifies, his PR cards whose PRs all ended, the waits his answers or a job's end release, a READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the communicator's compaction and the status page every 60 s, GitHub again next poll after a failure, new events, promised times still owed a line, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries, a tick every 30 minutes while he is here."""
     lines = []
     if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
         watcher.read_at = moment
@@ -1422,6 +1456,7 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
         lines += waiting_lines(watcher, moment)
         lines += answer_lines(watcher, moment)
         lines += lane_lines(watcher, moment)
+        lines += pushed_lines(watcher, moment)
         lines += agent_lines(watcher, moment)
         lines += compact_lines(watcher, moment)
         lines += page_lines(watcher, moment)

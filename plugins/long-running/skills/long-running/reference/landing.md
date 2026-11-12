@@ -100,12 +100,15 @@ for its repository says, then return `DONE <proof>`.
   tap. Only a port (`--port-of <N>`), an exempt class (`--exempt <class>`), a PR of a `Drive tooling:`
   order outside `Forge-AI`, or one added with `--no-tap --why "<reason>"` waits on none; a `Forge-AI`
   PR waits on his tap whoever opened it and whatever order it serves.
-- Return `READY <url>` once, the moment the head you mean to ship is pushed and registered, with CI and
-  review still running: the watch draws his card the minute GitHub reports the PR green and approved,
+- Return `PUSHED <url>` once, the moment the head you mean to ship is pushed and registered, with CI and
+  review still running. `READY` counts only on a green required check: the watch holds a `PUSHED`,
+  waking nobody, until its minute read finds every check the base branch requires green, then takes
+  it as the `READY`, or sends a red one back to the builder. The watch then draws his card the
+  minute GitHub reports the PR green and approved,
   once `drive job report` or `drive pr set --serves` checked its change at that head against his words,
   whatever its body says. Return no `WAITING` for CI, a review or a queue. A
   port's `READY` gets the coordinator's check against #N instead. Name every PR of a stack bottom first
-  (`READY <url> <url> …`) so he gets one card. Add a `SERVES:` line: `port of #N`,
+  (`PUSHED <url> <url> …`) so he gets one card. Add a `SERVES:` line: `port of #N`,
   `Drive tooling: <what it unblocks>`, or the order of his it carries out, quoted.
 
 ## yasyf/* repositories

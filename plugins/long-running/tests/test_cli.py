@@ -2267,7 +2267,7 @@ def test_a_builders_report_opens_with_a_result_word_and_a_handoff_stops_its_job(
     assert code == 2
     assert (
         'j1: refused, nothing kept: its first line opens "Summary: built the strip", and a builder\'s report opens with DONE,'
-        " READY, BUILT, WAITING, ASK, BLOCKED, DESIGN or HANDOFF"
+        " READY, PUSHED, BUILT, WAITING, ASK, BLOCKED, DESIGN or HANDOFF"
     ) in err
     assert state.load("demo")["jobs"]["j1"]["state"] == "running"
     assert keep(monkeypatch, capsys, "j1", "READY https://github.com/yasyf/cc-skills/pull/4244\n") == (0, "")
@@ -2457,6 +2457,26 @@ def test_a_builders_ready_is_kept_whatever_its_pr_body_says(
     on_github["body"] = CARD_BODY.replace("## What you'll hate most", "## Biggest surprise")
     assert keep(monkeypatch, capsys, "j1", f"READY {PR}\n") == (0, "")
     assert state.load("demo")["jobs"]["j1"]["state"] == "waiting"
+
+
+def test_a_builders_ready_counts_only_on_a_green_required_check_and_one_still_running_or_red_returns_pushed(
+    run: Run, with_pr: str, on_github: dict, pr_reads: dict[str, dict], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    build = "https://buildkite.com/forge/monorepo/builds/7"
+    read = {"state": "OPEN", "isDraft": False, "headRefOid": "abc", "mergeCommit": None, "reviewDecision": None, "approvals": [], "mergeable": "MERGEABLE"}
+    read |= {"title": "Fix: land it", "author": "yasyf", "labels": [], "native": []}
+    for outcome, held in (
+        ("PENDING", f"{with_pr}'s required checks still run at abc: return"),
+        ("FAILURE", f"{with_pr}'s required buildkite/test failed at abc ({build}): fix it and push, then return"),
+    ):
+        pr_reads[with_pr] = read | {"checks": [{"context": "buildkite/test", "state": outcome, "isRequired": True, "targetUrl": build}]}
+        code, err = keep(monkeypatch, capsys, "j1", f"READY {PR}\n")
+        assert code == 2
+        assert f"j1: refused, nothing kept: READY counts only on a green required check, and {held} this report with `PUSHED {PR}` as its first line" in err
+    assert state.load("demo")["jobs"]["j1"]["state"] == "running"
+    assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\n") == (0, "")
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["state"], job["said"]) == ("waiting", f"PUSHED {PR}")
 
 
 def test_a_change_against_his_words_is_refused_at_its_ready_and_its_serves_and_a_head_checked_once_is_not_judged_again(

@@ -106,12 +106,16 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    title and body below, and register it: `drive pr add <url> --job <your job id>`, which records it
    waiting on his tap. Add `--port-of <N>` for a port, `--exempt <class>` for an exempt class, or
    `--no-tap --why "<reason>"` for a PR its author lands.
-7. Return `READY` once, as soon as the head you mean to ship is pushed and registered, with CI and
+7. Return `PUSHED` once, as soon as the head you mean to ship is pushed and registered, with CI and
    review still running, and with `INSTALL:` and `PROVE:` lines; never a `WAITING` for CI or review
-   first. `drive job report` judges the change of each PR his card waits on, its title and diff at its
-   head and never its body, against the words of your order and every order your job carries, and
-   refuses a `READY` naming each of his words the change goes against: change the PRs to his words,
-   push and return `READY` again, or `ASK` for a reading his words leave open. The watch draws his
+   first. `READY` counts only on a green required check, so `PUSHED` waits, waking nobody, until the
+   watch's minute read of GitHub finds every check the base branch requires: green takes it as your
+   `READY`, and a red one comes back as `PR … READY refused, its required <check> failed at <head>
+   (<build>)`, and `drive job report` refuses a `READY` while one is pending or red. It also judges
+   the change of each PR his card waits on, its title and diff at its head and never its body,
+   against the words of your order and every order your job carries, and refuses a `PUSHED` naming
+   each of his words the change goes against: change the PRs to his words, push and return `PUSHED`
+   again, or `ASK` for a reading his words leave open. The watch draws his
    card the minute GitHub reports a checked PR green and approved, whatever its body says; a port
    gets the coordinator's check against the old PR instead. A body is fixed beside
    the landing, never before it: a gap anyone finds in it is an edit you push while the PR waits, and
@@ -267,7 +271,7 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 - Report through Orca, never in a final message: `ASK` with
   `orca orchestration ask --question "<your report>"`, then end your turn until his answer or the
   watch's refusal wakes you;
-  `DONE`, `READY`, `BUILT`, `WAITING` and `HANDOFF` with
+  `DONE`, `PUSHED`, `BUILT`, `WAITING` and `HANDOFF` with
   `orca orchestration send --type worker_done --outcome succeeded --subject "<first line>" --body "<your report>"`,
   and `BLOCKED` the same way with `--outcome failed`. The next PR event starts a fresh lane.
 - Orca brings the coordinator's mail, his answer to your `ASK` included, by typing "You have N
@@ -278,7 +282,7 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 
 ## Waits and reads
 
-- Once the PR is registered, return `READY` rather than watch it: no `gh pr checks`, `gh run watch`
+- Once the PR is registered, return `PUSHED` rather than watch it: no `gh pr checks`, `gh run watch`
   or repeated `gh pr view`, no sleep. The watch sees each change, which a fresh builder handles; you
   are resumed with `SendMessage` only to bring his answer to your `ASK`. A wait past 5 minutes also expires your prompt cache, so it costs a full re-read of your
   context on top of the polling.
@@ -326,9 +330,10 @@ listing decisions that block nothing is not a result.
 | Result | When |
 | --- | --- |
 | `DONE <proof link or one-line proof>` | Live and checked where he uses it, which a merge alone is not. When he sees what you built (`NATIVE:` is not `none: he never sees it`), the proof comes from that surface: the live post's link, a picture of it, or a recording of the click through each view his words name (agent-browser's recording, or `screencapture -v` of the window), since data fetched from an API does not show what he sees. `drive job report` refuses a `DONE` without that proof on `CHECK:`. |
-| `READY <pr url> [<pr url>…]` | Pushed and registered, its CI and review still running, and its change checked against his words by `drive job report`; the watch draws his card once it is green and approved. A stack names every PR, bottom first, so it gets one card. When he sees what you built (`NATIVE:` is not `none: he never sees it`), a Show me on its card carries a before and an after screenshot of it, pushed beside the landing when it is missing. A question whose answer only lands PRs, such as an open PR below yours, is this `READY` naming each, never an `ASK`: their stack card is his tap and needs no Show me, and `drive job ask` refuses an ask to land PRs. |
+| `PUSHED <pr url> [<pr url>…]` | Pushed and registered, its CI and review still running, and its change checked against his words by `drive job report`. It is the `READY` below held until the watch reads every check the base branch requires green, waking nobody meanwhile; a red one comes back to you. |
+| `READY <pr url> [<pr url>…]` | The same, with every check the base branch requires green; the watch draws his card once it is green and approved. A stack names every PR, bottom first, so it gets one card. When he sees what you built (`NATIVE:` is not `none: he never sees it`), a Show me on its card carries a before and an after screenshot of it, pushed beside the landing when it is missing. A question whose answer only lands PRs, such as an open PR below yours, is this `READY` naming each, never an `ASK`: their stack card is his tap and needs no Show me, and `drive job ask` refuses an ask to land PRs. |
 | `BUILT <branch>, waits on <cards>` | The recommended options built and pushed on `<branch>`, no PR open, waiting on his answer to each design card the brief names, by its waits id or Slack link. Its lines name the option built for each card and what his other picks would change. |
-| `WAITING <what, in plain words>` | Another PR or a release; never CI, a review or a queue on your own PR, which `READY` covers. `WAITING <your PR> waits on <cards>`, each card by its waits id or Slack link, holds that PR's card until he answers each. |
+| `WAITING <what, in plain words>` | Another PR or a release; never CI, a review or a queue on your own PR, which `PUSHED` covers. `WAITING <your PR> waits on <cards>`, each card by its waits id or Slack link, holds that PR's card until he answers each. |
 | `ASK <path>` | Only for a change of scope, a design choice his words do not settle, or a line he holds; decide everything else. |
 | `BLOCKED <what>`, then what you tried | Only when no route works. A broken tool is not a block: route around it and name it, with a `defect` on the cci `post` tool, `lane: root` and `to: [meta@<drive>]`, quoting its refusal, or for drive tooling a `DEFECT:` line. |
 | `HANDOFF <path>` | The session that started you told you to stop before you were done; the file, under your scratch directory, names the branch, what was decided and what is left. It sets the job stopped. |
