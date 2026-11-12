@@ -238,8 +238,9 @@ check's verdict, or from the order when none ran.
 | Every later step, until live | at most 10 minutes out | A second job on that step |
 | His next line, until users are unblocked | 5 minutes after his last | A line of what is running and when the next lands |
 
-- His next line's clock is the order's due: after each line, `drive order set <o> --due +5m`, and
-  the watch says `DUE` when no drive post is in the order's thread by then.
+- His next line's clock is the order's due: each line ends with the time of the next, such as "Next
+  line by 9:45 PM", which the line's record makes the order's due, and the watch says `DUE` when no
+  drive post is in the order's thread by then.
 - A job's clock is its own, set with `drive job set <j> --due <time>`: the watch says `DUE j<n>` once
   if the job still runs then. Read its transcript, never wait for its message, since a stuck job
   sends none.

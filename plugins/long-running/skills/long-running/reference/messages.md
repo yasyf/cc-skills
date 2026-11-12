@@ -86,10 +86,12 @@ reading of his words "your messages need to be way shorter rewrite this for a hu
   out, so name a PR he has nothing to tap in a line that waits on nothing.
 - Only cards have buttons, so anything that asks for his action or decision is a card: "Anything that
   says waiting on me you always need to embed the card with the buttons".
-- When a message promises him a time, its order gets `--due`, and a hook sets it from a clock time a
-  handler's post promises on an order with none, so the watch holds the drive to it from Slack's own
-  record, not a session's memory. `drive order add --due` counts from when the order is added, and
-  `drive order set --due` from the next line in the order's thread. The watch says `DUE` every 10
+- When a post in an order's thread promises him a clock time, such as "Next line by 9:45", the
+  post's record (`say(order=<o>)` or `drive order posted`) makes that time the order's due from the
+  words Slack holds for the post, a time with no AM or PM read as the one nearest the post, so the
+  watch holds the drive to it from Slack's own record, not a session's memory, and no `--due` follows
+  the line. `drive order add --due` counts from when the order is added, and `drive order set --due`
+  from the next line in the order's thread. The watch says `DUE` every 10
   minutes until a drive post is in that thread, and the order cannot close before one is.
 - The handler records each post in an order's thread through the post itself,
   `say(order=<o>, record=<the report's seq>)`, which delivers the part the report's `part` attr

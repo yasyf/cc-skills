@@ -1377,19 +1377,6 @@ def test_a_promise_names_the_order_job_or_time_that_carries_it(talker: str, tran
     assert posted(transcript, text='He wrote "I will tap it after lunch".') is None
 
 
-def test_a_time_promised_in_an_orders_thread_becomes_its_due_time(run: Run, talker: str, transcript: Path) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
-    with state.edit("demo") as data:
-        data["orders"]["o1"]["thread"] = "1.2"
-    soon, past = state.now() + timedelta(hours=1), state.now() - timedelta(hours=2)
-    promised = f"You get it by {soon:%-I:%M %p}."
-    assert posted(transcript, text=f"Its folder was empty by {past:%-I:%M %p}.", thread_ts="1.2") is None
-    assert posted(transcript, text=promised, thread_ts=BAD_STATE_THREAD) is None
-    assert state.load("demo")["orders"]["o1"]["due"] is None
-    assert posted(transcript, text=promised, thread_ts="1.2") is None
-    assert f"{state.parse_time(state.load('demo')['orders']['o1']['due']):%H:%M}" == f"{soon:%H:%M}"
-
-
 def test_while_he_is_away_only_cards_incident_lines_and_answers_go_out(run: Run, talker: str, transcript: Path) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     with state.edit("demo") as data:

@@ -35,6 +35,9 @@ BRIEF_FLAGS = ("serves", "done_when", "where", "runs_as", "ruling", "native", "i
 BRIEF_NEEDS = ("serves", "done_when", "where")
 READER_RESEARCH = "the Researched: block this build needs"
 NO_SURFACE = re.compile(r"\s*none\b", re.IGNORECASE)
+PROMISED_TIME = re.compile(
+    r"\b(?:by|before|next (?:line|update|post|summary)(?:\s+(?:by|at))?)\s+(?:about\s+|around\s+)?([01]?\d|2[0-3]):([0-5]\d)(?![:\d])(?:\s*([AP])\.?M\b)?", re.IGNORECASE
+)
 REPORTER_HELP = (
     "the bug report the order fixes, by its Slack permalink or slack:<channel>/<its thread's ts>, from the share or link in his"
     " words: its thread gets one fix-live note once the fix is proven live, and done refuses until drive order told records it"
@@ -444,8 +447,8 @@ def his_words(link: str, deed: str) -> str:
     return link
 
 
-def drive_post_at(link: str, data: dict, order_id: str, named_part: bool) -> tuple[datetime, bool]:
-    """When the drive made the post, and whether it is in one of the order's threads: its own, on an incident each other order's of it, its jobs' cards', or a card of a PR it holds; a post that delivers a part named with --part counts wherever it was made, as a share in another channel does. A refusal names the order whose thread it is, and only when no order holds it the --joins command for his alert at its root."""
+def drive_post_at(link: str, data: dict, order_id: str, named_part: bool) -> tuple[dict, bool]:
+    """The drive's post as Slack holds it, and whether it is in one of the order's threads: its own, on an incident each other order's of it, its jobs' cards', or a card of a PR it holds; a post that delivers a part named with --part counts wherever it was made, as a share in another channel does. A refusal names the order whose thread it is, and only when no order holds it the --joins command for his alert at its root."""
     posted, root = slack.message_and_root(link)
     if not posted.get("from_claude"):
         raise DriveError(f"{link} is not the drive's post")
@@ -465,7 +468,7 @@ def drive_post_at(link: str, data: dict, order_id: str, named_part: bool) -> tup
             f"{link} is in none of the order's threads, its own, its cards' or its PRs' cards': {', '.join(thread for _, thread in threads)};"
             f" a post that delivers a part somewhere else is recorded with --record <the report's seq> whose part attr names it{holder}{joins}"
         )
-    return slack.sent_at(posted), ours
+    return posted, ours
 
 
 def pick_parts(order_id: str, order: dict, named: list[str]) -> list[str]:
@@ -813,15 +816,17 @@ def reported_parts(order_id: str, order: dict, report: dict) -> list[str]:
 
 
 def record_post(name: str, order_id: str, link: str, report: dict) -> tuple[str, dict]:
-    """Record the drive's post in an order's thread: the promised time it keeps, the order's last line, and the parts its report delivers."""
+    """Record the drive's post in an order's thread: the promised time it keeps, the time its words promise his next line by, the order's last line, and the parts its report delivers."""
     data = state.load(name)
     order = communicators_order(data, order_id)
     if refused := report_refusal(data, order_id, report):
         raise DriveError(refused)
     delivered = reported_parts(order_id, order, report)
-    at, ours = drive_post_at(link, data, order_id, bool(report.get("part")))
+    posted, ours = drive_post_at(link, data, order_id, bool(report.get("part")))
+    at = slack.sent_at(posted)
     line = state.stamp(at)
     closing = order_id in state.closed_orders(report)
+    promised = promised_due(posted.get("text") or "", at) if ours else None
     kept = ""
     with state.edit(name) as data:
         order = data["orders"][order_id]
@@ -831,6 +836,9 @@ def record_post(name: str, order_id: str, link: str, report: dict) -> tuple[str,
                 kept = "" if state.owed(order) else f", its close keeps the line promised for {render.when(order['due'])}"
             elif state.owed(order):
                 state.keep(order, [at])
+            if promised:
+                state.remind(order, state.stamp(promised), at)
+                kept += f", its words promise him the next line by {render.when(order['due'])}, now owed"
             order["last_line"] = max(order["last_line"] or line, line, key=state.parse_time)
         for part in delivered:
             order["parts"][part]["posted"] = link
@@ -838,6 +846,18 @@ def record_post(name: str, order_id: str, link: str, report: dict) -> tuple[str,
     said = f"{quoted}: posted" if delivered else "progress line, no part delivered:"
     away = "" if ours else ", outside his threads, so it is no line to him and keeps no promised time"
     return f"{order_id} {said} {link}{away}{kept}", {"id": order_id, "parts": delivered, "posted": link, "due": order["due"]}
+
+
+def promised_due(text: str, at: datetime) -> datetime | None:
+    """The time a post made at `at` promises his next line by: the first clock time its words put after by, before or next line whose time of day nearest the post is after it, read with AM or PM as written, else on either half of a 12-hour clock, so at 9:29 PM "by 9:45" is 9:45 PM and "by 7:30" is past."""
+    moment = at.replace(second=0, microsecond=0)
+    for said in PROMISED_TIME.finditer(limits.masked(text)):
+        hour = int(said[1])
+        hours = [hour % 12 + (12 if said[3].upper() == "P" else 0)] if said[3] else [hour % 12, hour % 12 + 12] if 1 <= hour <= 12 else [hour]
+        times = [day.replace(hour=each, minute=int(said[2])) for each in hours for day in (moment - timedelta(days=1), moment, moment + timedelta(days=1))]
+        if (nearest := min(times, key=lambda time: abs(time - at))) > at:
+            return nearest
+    return None
 
 
 def job_add(args: argparse.Namespace) -> int:

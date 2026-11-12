@@ -27,10 +27,6 @@ SAVED = re.compile(r"Output has been saved to (/\S+?)\.?(?=\s|$)")
 SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+|\n+")
 PROMISE = re.compile(r"\b(?:from now on|next you(?:['’]ll| will)? get|I(?:['’]ll| will))\b", re.IGNORECASE)
 CARRIER = re.compile(r"\b[oj]\d+\b|\b\d{1,2}:\d{2}\s*[AP]M\b", re.IGNORECASE)
-PROMISED_TIME = re.compile(
-    r"\b(?:by|before|next (?:line|update|post|summary)(?:\s+(?:by|at))?)\s+(?:about\s+|around\s+)?(\d{1,2}):(\d{2})\s*([AP]M)\b", re.IGNORECASE
-)
-AHEAD = timedelta(hours=12)
 SWITCH = re.compile(r"orca terminal switch --terminal[= ]([^\s`'\"<>|]+)")
 CARD_ANSWER = re.compile(r"✓ ([^\n]+)")
 WAITING = "WAITING-ON-HIM"
@@ -302,7 +298,7 @@ def found_in(payload: dict, drive: dict, said: str, titled: int) -> str | None:
         return refusal
     if (long := over_length(payload, dm)) and titled:
         long += TITLED.format(titled)
-    refusal = every(
+    return every(
         [
             long,
             long_ack(payload),
@@ -319,9 +315,6 @@ def found_in(payload: dict, drive: dict, said: str, titled: int) -> str | None:
             untooled(payload, drive, said),
         ]
     )
-    if refusal is None:
-        hold_to_promise(payload, drive)
-    return refusal
 
 
 def reporter_post(payload: dict, drive: dict) -> str | None:
@@ -450,23 +443,6 @@ def unpromised(payload: dict) -> str | None:
         f'refused: "{promise[0]}" promises him something, and this post names no order, job or due time that does it, so nothing'
         " holds the drive to it. Pass say's order=<the order that does it>, or name the time it lands, or drop the promise."
     )
-
-
-def hold_to_promise(payload: dict, drive: dict) -> None:
-    """Make the clock time a handler's post promises him on an order the order's due time, as `drive order set --due` does, so the watch holds the drive to it."""
-    tool_input = payload["tool_input"]
-    if not payload.get("agent_id") or tool_input.get("card") or tool_input.get("tap_prs") or not (found := posted_order(drive, tool_input)):
-        return
-    order_id, order = found
-    if state.owed(order) or order["next_due"]:
-        return
-    moment = state.now()
-    for said in PROMISED_TIME.finditer(limits.masked(tool_input.get("text") or "")):
-        at = moment.replace(hour=int(said[1]) % 12 + (12 if said[3].upper() == "PM" else 0), minute=int(said[2]), second=0, microsecond=0)
-        if (at - moment) % timedelta(days=1) <= AHEAD:
-            with state.edit(drive["name"]) as data:
-                state.promise(data["orders"][order_id], state.stamp(state.parse_due(f"{at:%H:%M}", moment)), moment)
-            return
 
 
 def raw_visuals(tool_input: dict) -> str | None:
