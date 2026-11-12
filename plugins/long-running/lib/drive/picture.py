@@ -17,7 +17,9 @@ from collections.abc import Iterator
 from html.parser import HTMLParser
 from pathlib import Path
 
-FENCE = re.compile(r"^[ \t]*```[ \t]*([A-Za-z0-9_+-]*)[^\n]*\n(.*?)^[ \t]*```[ \t]*$", re.MULTILINE | re.DOTALL)
+from drive import github
+
+FENCE =re.compile(r"^[ \t]*```[ \t]*([A-Za-z0-9_+-]*)[^\n]*\n(.*?)^[ \t]*```[ \t]*$", re.MULTILINE | re.DOTALL)
 UNNAMEABLE = re.compile(r'[\x00-\x1f/\\:*?"<>|\[\]]+')
 ALT = re.compile(r"!\[([^\]]*)\]")
 IMAGE = re.compile(r"!\[[^\]]*\]\(\s*<?([^)\s>]+)>?[^)]*\)|<img\b[^>]*\bsrc=[\"']([^\"']+)[\"'][^>]*>", re.IGNORECASE)
@@ -108,6 +110,12 @@ CHROME_SECONDS = 60
 LOAD_FAILED = re.compile(r"Page load failed: (\S+)")
 UNSHOWN_TAGS = frozenset({"head", "script", "style", "noscript", "template"})
 DOWNLOAD_SECONDS = 20
+REPO_FILE = re.compile(
+    r"https://(?:github\.com/(?P<repo>[\w.-]+/[\w.-]+)/(?:blob|raw)|raw\.githubusercontent\.com/(?P<raw_repo>[\w.-]+/[\w.-]+))/(?P<ref>[^/?#]+)/(?P<path>[^?#]+)"
+)
+ATTACHMENT = re.compile(r"https://github\.com/user-attachments/assets/")
+SIGNED = re.compile(r'<img src="([^"]+)"')
+SIGNING_CONTEXT = "cli/cli"
 SOURCED = ".sourced"
 SOURCE = "source.json"
 
@@ -209,10 +217,23 @@ class QuietFiles(http.server.SimpleHTTPRequestHandler):
 
 def downloaded(url: str, out: Path) -> None:
     try:
-        with urllib.request.urlopen(url, timeout=DOWNLOAD_SECONDS) as reply:
-            out.write_bytes(reply.read())
-    except OSError as error:
+        out.write_bytes(fetched(url))
+    except (OSError, github.GithubError) as error:
         raise PictureError(f"{url} did not download: {error}") from None
+
+
+def fetched(url: str) -> bytes:
+    """An image link's bytes, on the gh token when GitHub hosts it, since a private repository answers a bare download with HTTP 404: a repository file's blob, raw or raw.githubusercontent.com link through the contents API, and a user-attachments image from the address GitHub's markdown renderer signs for the token's account, which it does when rendering for any repository, here gh's own public one; any other link, or a local file's, as it is."""
+    if file := REPO_FILE.match(url):
+        repo = file["repo"] or file["raw_repo"]
+        return github.read(
+            f"{repo}'s {file['path']} at {file['ref']}", ["gh", "api", "-H", "Accept: application/vnd.github.raw", f"repos/{repo}/contents/{file['path']}?ref={file['ref']}"], text=False
+        )
+    if ATTACHMENT.match(url):
+        rendered = github.read(f"a signed address for {url}", ["gh", "api", "markdown", "-f", f"text=![]({url})", "-f", "mode=gfm", "-f", f"context={SIGNING_CONTEXT}"])
+        url = html.unescape(SIGNED.search(rendered)[1])
+    with urllib.request.urlopen(url, timeout=DOWNLOAD_SECONDS) as reply:
+        return reply.read()
 
 
 def sources(show_me: str) -> list[tuple[str, str, str]]:
