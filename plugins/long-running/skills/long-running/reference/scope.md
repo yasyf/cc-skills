@@ -104,8 +104,11 @@ A question card starts from the root cause, the structure that lets the defect h
 recommends the option that removes it so the defect cannot occur, through one abstraction every
 caller goes through; an option keeping it behind a cap, timer, retry, exit, flag, pin or sweeper is
 never the recommended one. The findings' `Root cause:` line names that structure and `First
-principles:` that option, or `Root cause:` reads `not found: <the job finding it>` or `none: <why
-no defect is behind it>`; `drive job ask` refuses a block without them. His ruling: "Update your skill to not just brush over the root cause ever". On a bug hurting
+principles:` that option, or `Root cause:` reads `fixed: <that structure>, removed by <the merged
+PR's link>` on a card asking only whether to release that PR, `not found: <the job finding it>`, or
+`none: <why no defect is behind it>`, as on a pick between his designs or his approval of an action
+his rules hold for him, such as a benchmark run; `drive job ask` refuses a block without them, and
+Jev weighs each card by the part of the rule its `Root cause:` form names. His ruling: "Update your skill to not just brush over the root cause ever". On a bug hurting
 someone now, an incident's or one a reporter shared, the findings' `Interim fix:` line links the
 immediate fix shipping while he picks (its PR, release, rollback, repair, or the job building it),
 or reads `Interim fix: none: <why nobody is hurt now>`; `drive job ask` and a reader's `DESIGN` are

@@ -74,7 +74,7 @@ Show me:
 - <recommended option: what runs, on what trigger, what it reads and what reaches whom, then what he gets and what it costs, one line of at most 25 words> (recommended)
 - <another option, the same way; two to four in all>
 Findings:
-Root cause: <the structure that lets the defect happen, by its proper terms; or not found: <the job finding it>; or none: <why no defect is behind this question>>
+Root cause: <the structure that lets the defect happen, by its proper terms; or fixed: <that structure>, removed by <the merged PR's link>; or not found: <the job finding it>; or none: <why no defect is behind this question>>
 First principles: <the option that removes that structure so the defect cannot occur, by its words>
 Interim fix: <on a bug hurting someone now: the link of the PR, release, rollback or repair shipping the immediate fix, or the job building it; or none: <why nobody is hurt now>>
 <the design in plain words, what his words already settle, and what each option changes and costs>
@@ -91,9 +91,12 @@ Interim fix: <on a bug hurting someone now: the link of the PR, release, rollbac
   and always recommended, and each other option says it keeps the structure and what that costs; one
   that keeps it behind a cap, timer, retry, exit, flag, pin or sweeper is never recommended. A cause
   not found yet reads `Root cause: not found: <the job finding it>`, and the card offers no cap, timer
-  or exit around the step it has not explained; a pick between designs with no defect behind it reads
-  `Root cause: none: <why>`. When the card quotes words of his as settled, the recommended option is
-  the one they choose. His ruling: "Update your skill to not just brush over the root cause ever". `drive job ask` refuses a block out of this shape, and
+  or exit around the step it has not explained. A card asking only whether to release a merged fix reads
+  `Root cause: fixed: <the structure>, removed by <the merged PR's link>` with no `First principles:`
+  line, and a PR adding a cap, timer, retry, exit, flag, pin or sweeper removed nothing. A card with no
+  defect behind it, a pick between designs that are his or his approval of an action his rules hold for
+  him such as a benchmark run, reads `Root cause: none: <why>`. When the card quotes words of his as
+  settled, the recommended option is the one they choose. His ruling: "Update your skill to not just brush over the root cause ever". `drive job ask` refuses a block out of this shape, and
   Jev reads its recommended option against its root cause and his quoted words before it is kept. His words before it: "so why was that
   not the suggested optin to me, or even any of the options?"
 - The summary answers his next question: why, did he already decide this, is it a port, what comes

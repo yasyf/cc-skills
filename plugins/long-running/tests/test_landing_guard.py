@@ -370,14 +370,15 @@ def test_a_block_only_running_the_call_shows_is_refused_unjudged_for_a_file_of_i
     assert reason.endswith("Write the block to a file in a call of its own, then run `drive job ask j1 <file>` in the next call")
 
 
-def test_the_hook_hands_jev_the_case_and_his_ruling_in_place_of_a_refusal(
+def test_the_hook_hands_jev_the_case_and_his_ruling_with_the_rule_for_its_root_cause_form_in_place_of_a_refusal(
     demo: str, no_calls: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(bash(f"drive job ask j1 - < {block}", session_id=SESSION))))
     landing_guard.main()
-    assert json.loads(capsys.readouterr().out) == {"ask": limits.root_cause_review(SHORT_ASK, None), "his_words": [limits.ROOT_CAUSE_WORDS]}
+    case = limits.root_cause_review(SHORT_ASK, None)
+    assert json.loads(capsys.readouterr().out) == {"ask": case, "his_words": [limits.ROOT_CAUSE_WORDS | {"detail": limits.ROOT_CAUSE_RULES["none"] + limits.ROOT_CAUSE_SETTLED}]}
 
 
 @pytest.mark.parametrize("command", [".agents/skills/submit-pr/scripts/stack-enqueue 42", "gh pr merge 42 -R Forge-AI/monorepo --squash"])

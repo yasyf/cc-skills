@@ -141,8 +141,10 @@ summary of one feature is a line of at most 60 words.
 - The card starts from the root cause, the structure that lets the defect happen, and one option is
   always the one that removes it so the defect cannot occur, recommended, every other option saying
   it keeps that structure and what that costs. The recommended option is the block's first, which `drive job ask` refuses otherwise. `drive job ask` refuses a block whose findings carry no `Root cause:` line
-  with a `First principles:` line naming that option by its words, `Root cause: not found: <the job
-  finding it>` or `Root cause: none: <why>` (his ruling "Update your skill to not just brush over the root cause ever"), and, on a bug hurting someone now, an incident's
+  with a `First principles:` line naming that option by its words, `Root cause: fixed: <the structure>,
+  removed by <the merged PR's link>` on a card asking only whether to release that PR, `Root cause: not
+  found: <the job finding it>` or `Root cause: none: <why>`, as on his approval of an action his rules
+  hold for him (his ruling "Update your skill to not just brush over the root cause ever"), and, on a bug hurting someone now, an incident's
   or one a reporter shared, one whose findings carry no `Interim fix:` line linking the immediate fix
   shipping while he picks, or `Interim fix: none: <why nobody is hurt now>`.
 - Give two to four options, each one line of at most 25 words saying what runs, on what trigger,

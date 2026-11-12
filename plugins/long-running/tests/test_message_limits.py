@@ -936,6 +936,40 @@ def test_a_block_starts_from_the_root_cause_and_recommends_the_option_that_remov
     assert limits.question(STRAY_CHATS_ASK.replace(f"First principles: {shown}", "First principles: Wait for the copy"), kept=True).recommended
 
 
+def test_a_card_asking_only_when_a_merged_fix_ships_names_the_structure_it_removed_and_links_that_pr() -> None:
+    cause = "Root cause: both builds share one chat folder on his Mac, so the old build's own server writes chats there\n"
+    unprincipled = "\n".join(line for line in STRAY_CHATS_ASK.splitlines() if not line.startswith("First principles:")) + "\n"
+    removed = "Root cause: fixed: both builds shared one chat folder on his Mac; removed by https://github.com/acme/app/pull/12\n"
+    assert limits.question(unprincipled.replace(cause, removed)).recommended
+    with pytest.raises(DriveError, match=re.escape("links no merged PR: write `Root cause: fixed: <the structure>, removed by <the merged PR's link>`")):
+        limits.question(unprincipled.replace(cause, "Root cause: fixed: both builds shared one chat folder on his Mac\n"))
+
+
+@pytest.mark.parametrize(
+    ("cause", "form"),
+    [
+        ("Root cause: none: his approval of the exact benchmark command his rules hold for him\n", "none"),
+        ("Root cause: fixed: both builds shared one chat folder on his Mac; removed by https://github.com/acme/app/pull/12\n", "fixed"),
+        ("Root cause: not found: j12 reads his chat files\n", "found"),
+        ("Root cause: both builds share one chat folder on his Mac, so the old build's own server writes chats there\n", "found"),
+    ],
+)
+def test_jev_weighs_the_rule_for_the_form_of_the_root_cause_line_whole_within_the_600_characters_capt_hook_shows_of_it(cause: str, form: str) -> None:
+    stray = "Root cause: both builds share one chat folder on his Mac, so the old build's own server writes chats there\n"
+    case = limits.root_cause_review(STRAY_CHATS_ASK.replace(stray, cause), None)
+    assert case is not None
+    words = limits.root_cause_words(case)
+    assert words == limits.ROOT_CAUSE_WORDS | {"detail": limits.ROOT_CAUSE_RULES[form] + limits.ROOT_CAUSE_SETTLED}
+    assert len(words["detail"]) <= 600
+
+
+def test_the_case_jev_reads_carries_the_show_me_and_only_words_said_in_quotes() -> None:
+    case = limits.root_cause_review(STRAY_CHATS_ASK + 'His words "move the chats once" settle it, and `server.json` is a file name.\n', None)
+    assert case is not None
+    assert "func Create(ctx context.Context, s Session, writer int64) (*DurableAgent, error) {" in case
+    assert case.endswith('Words it quotes: "move the chats once"')
+
+
 def options_ask(*options: str) -> str:
     listed = "".join(f"- {option}\n" for option in options)
     return f"ASK Which way should this go?\nThe pick below decides it, so the work waits on it.\n{listed}Findings:\nRoot cause: none: a design pick\nKept on disk.\n"

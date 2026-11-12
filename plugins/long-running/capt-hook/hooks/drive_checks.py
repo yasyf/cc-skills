@@ -41,6 +41,8 @@ POST = "mcp__plugin_cc-inbox_cci__post"
 TURN = Path(__file__).resolve().parent / "tests" / "fixtures" / "turn.jsonl"
 REMOVES_CAUSE = TURN.with_name("ask-removes-cause.md")
 KEEPS_CAUSE = TURN.with_name("ask-keeps-cause.md")
+MERGED_FIX = TURN.with_name("ask-merged-fix.md")
+GATED_APPROVAL = TURN.with_name("ask-gated-approval.md")
 COMMUNICATOR_TURN = TURN.with_name("communicator.jsonl")
 THREAD = "1794378983.440769"
 ASKED = (
@@ -194,6 +196,18 @@ def no_slack_reads(evt: BaseHookEvent) -> HookResult | None:
                 "refusal": "The recommended retry keeps the guessed range the root cause names.",
             },
         ): Block(pattern="Jev: The recommended retry keeps the guessed range"),
+        Input(
+            command=f"drive job ask j1 {MERGED_FIX}",
+            session_id=COORDINATOR,
+            decide=JEV_UNSURE,
+            llm={"reason": "its root cause line names the guessed range and links the merged PR that removed it", "allow": True, "relied_on": ["ruling:0c59046"]},
+        ): Allow(),
+        Input(
+            command=f"drive job ask j1 {GATED_APPROVAL}",
+            session_id=COORDINATOR,
+            decide=JEV_UNSURE,
+            llm={"reason": "no defect is behind it: it asks his approval of the exact command his rules hold for him", "allow": True, "relied_on": ["ruling:0c59046"]},
+        ): Allow(),
     },
 )
 def landing_guard(evt: BaseHookEvent) -> HookResult | None:

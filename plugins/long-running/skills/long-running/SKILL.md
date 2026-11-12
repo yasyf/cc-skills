@@ -31,7 +31,7 @@ This file holds the fundamental rules; one that fires on one input is a tested r
 - Wait for his word only to land a change in a `Forge-AI/*` repo outside an exempt class, post as him to anyone else, change production, or stop, signal, or close a session he did not name.
 - A tricky design gets a design job whose forks go on his cards (`design`), and a finding with design consequences reaches him as options, unasked. The recommended option is built meanwhile, its PR waiting on his answers outside an incident's repair.
 - His words that answer or supersede a card, wherever he writes them, close it and every card on its subject, and the work follows them (`messages`). A question he asks under it is answered in its thread while the card waits. Only what his answer leaves open goes on a new card; one his recorded answers settle is never asked.
-- A question card starts from the root cause and recommends the option that removes it, never one keeping it behind a cap, timer, retry, exit, flag, pin or sweeper (`scope`).
+- A question card starts from the root cause and recommends the option that removes it, or links the merged PR that did, never one keeping it behind a cap, timer, retry, exit, flag, pin or sweeper (`scope`).
 
 ### His words
 
