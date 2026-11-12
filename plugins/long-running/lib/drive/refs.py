@@ -23,18 +23,20 @@ def resolved(name: str, text: str) -> dict[str, dict]:
     """Each reference the text holds, read from the drive: {card:<waits id>}, {pr:<number, owner/repo#number or URL>}, {order:<id>} and {record:<seq>}, with the words that name it, the words after a | when it has them, and where it opens; one that names nothing refuses the post."""
     found = {}
     cards = None
+    data = None
     for match in REF.finditer(text):
         if match[0] in found:
             continue
         label = (match[3] or "").strip()
+        data = data or state.load(name)
         match match[1]:
             case "card":
                 cards = cards or open_cards(name)
-                found[match[0]] = card(cards, state.load(name), match[2])
+                found[match[0]] = card(cards, data, match[2])
             case "pr":
-                found[match[0]] = pr(state.load(name)["prs"], match[2], label)
+                found[match[0]] = pr(data["prs"], match[2], label)
             case "order":
-                found[match[0]] = order(name, state.load(name), match[2])
+                found[match[0]] = order(name, data, match[2])
             case "record":
                 found[match[0]] = record(name, match[2])
         if label:

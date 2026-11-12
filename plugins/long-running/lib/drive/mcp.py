@@ -105,7 +105,8 @@ SAY = {
                     " order the communicator holds, such as his read-only question, a report the handler posts from the communicator's"
                     " lane, and on one the meta session holds, a report from the meta lane, since a coordinator's report is refused"
                     " there. catch_up=true makes it his catch-up, opening *Catch-up"
-                    " since <when he was last heard>* in place of any title"
+                    " since <when he was last heard>* in place of any title and closing with every open card waiting on him,"
+                    " five a message, which say draws itself: its text names no card, and no word limit counts them"
                 ),
             },
             "edit": {

@@ -25,17 +25,22 @@ CARD_URL = "https://acme.slack.com/archives/D123/p1794300000000100"
 PR_URL = "https://github.com/yasyf/cc-skills/pull/7"
 POSTED = "https://acme.slack.com/archives/D123/p1794300000000900"
 QUESTION = "Lock each chat's database, or the whole table?"
+ASKED = "2026-11-10T20:59:00-08:00"
+OPEN_CARDS = f"\n\n*Your open cards: 1 question*\n<{CARD_URL}|{QUESTION}>"
 
 
 @pytest.fixture
 def posts(demo: str, monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, ...]]:
     sent: list[tuple[str, ...]] = []
-    question = {"url": CARD_URL, "card": {"title": QUESTION, "waits": WAITS}}
-    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "https://acme.slack.com/", "questions": [question], "pr_cards": []})
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "https://acme.slack.com/", "questions": [question_card(CARD_URL, QUESTION, WAITS)], "pr_cards": []})
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: sent.append(argv) or {"permalink": POSTED, "thread_ts": "1794300000.000900"})
     with state.edit(demo) as data:
         data["prs"]["yasyf/cc-skills#7"] = state.new_pr(PR_URL, "j1", "o1") | {"title": "New: \U0001f680 the run page shows its history"}
     return sent
+
+
+def question_card(url: str, question: str, waits: str) -> dict:
+    return {"question": question, "options": ["Each chat"], "recommended": "Each chat", "asked": ASKED, "url": url, "card": {"title": question, "waits": waits}}
 
 
 def said(name: str) -> list[dict]:
@@ -425,8 +430,8 @@ def test_a_catch_up_opens_with_its_title_from_the_time_he_was_last_heard_whateve
     talk.say(demo, {"text": "The run page fix is live.", "record": "660299"})
     talk.say(demo, {"text": "*Catch-up since 4:00 PM*\nThe run page fix is live.", "record": "660299"})
     titled = "*Catch-up since 5:20 PM*\nThe run page fix is live."
-    assert [argv[-1] for argv in posts] == [titled, titled]
-    assert [kept["text"] for kept in said(demo)] == [titled, titled]
+    assert [argv[-1] for argv in posts] == [titled + OPEN_CARDS] * 2
+    assert [kept["text"] for kept in said(demo)] == [f"{titled}\n\n*Your open cards: 1 question*\n[{QUESTION}](#/queue/question/1794300000.000100)"] * 2
     report(monkeypatch, {"orders": "o1"})
     talk.say(demo, {"text": "The run page fix is live.", "record": "660300"})
     assert posts[-1][-1] == "The run page fix is live."
@@ -442,6 +447,38 @@ def test_his_catch_up_carries_the_reports_held_for_it_and_lets_them_go(demo: str
     state.append_event(demo, "catch-up", dm="D123", since="5:20 PM", orders="o1", held="700 702")
     assert talk.say(demo, {"text": "The run page fix is live.", "record": "660299"}).endswith("; it carries the reports held for it, no longer held: 700, 702")
     assert state.load(demo)["held"] == {}
+
+
+def test_his_catch_up_closes_with_every_open_card_waiting_on_him_five_a_message_none_drawn_twice(
+    demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    questions = [question_card(f"https://acme.slack.com/archives/D123/p179430000000020{n}", f"Question {n}?", f"demo:j{n}-1") for n in range(1, 8)]
+    tap = {"prs": [PR_URL], "asked": ASKED, "url": "https://acme.slack.com/archives/D123/p1794300000000300", "card": {"title": "New: approve the run page history?", "waits": "merge:yasyf:cc-skills:7"}}
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "https://acme.slack.com/", "questions": questions, "pr_cards": [tap]})
+    report(monkeypatch, {"catch_up": "true"})
+    state.append_event(demo, "catch-up", dm="D123", since="5:20 PM", orders="o1")
+    text = "*The run page*\nIts fix is live, and {card:demo:j3-1} picks its lock."
+    drawn = [f"<{card['url']}|{card['question']}>" for card in [*questions[:2], *questions[3:]]] + [f"<{tap['url']}|{tap['card']['title']}>"]
+    sent = (
+        f"*Catch-up since 5:20 PM*\n*The run page*\nIts fix is live, and <{questions[2]['url']}|Question 3?> picks its lock."
+        "\n\n*Your open cards: 6 questions, 1 PR card*\n" + "\n".join(drawn[:5]) + "\n\n" + "\n".join(drawn[5:])
+    )
+    assert talk.say(demo, {"text": text, "record": "660299", "dry_run": True}) == f"DRY his DM root, 0 pictures: {sent}"
+    talk.say(demo, {"text": text, "record": "660299"})
+    assert posts[-1][-1] == sent
+    assert said(demo)[-1]["text"].endswith("\n[New: approve the run page history?](#/queue/tap/1794300000.000300)")
+
+
+def test_his_catch_up_posts_nothing_while_cc_slack_cannot_list_the_cards_it_closes_with(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
+    def unlisted(name: str) -> dict:
+        raise view.CardsError("cc-slack exited 1")
+
+    monkeypatch.setattr(view, "cards", unlisted)
+    report(monkeypatch, {"catch_up": "true"})
+    state.append_event(demo, "catch-up", dm="D123", since="5:20 PM", orders="o1")
+    with pytest.raises(DriveError, match="nothing posted: his catch-up draws every open card of his, which cc-slack could not list: cc-slack exited 1"):
+        talk.say(demo, {"text": "The run page fix is live.", "record": "660299"})
+    assert (posts, said(demo)) == ([], [])
 
 
 def test_a_held_report_is_told_to_the_coordinator_session_that_wrote_it_else_the_one_hearing_its_order(
@@ -468,9 +505,6 @@ def test_a_held_report_is_told_to_the_coordinator_session_that_wrote_it_else_the
 def test_a_post_goes_out_in_exactly_the_words_it_was_given_while_built_work_waits_on_his_card(
     demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    asked = "2026-11-10T20:59:00-08:00"
-    question = {"question": QUESTION, "options": ["Each chat"], "recommended": "Each chat", "asked": asked, "url": CARD_URL, "card": {"title": QUESTION, "waits": WAITS}}
-    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "https://acme.slack.com/", "questions": [question], "pr_cards": []})
     view.refresh_cards(demo)
     thread = "1794200000.000100"
     with state.edit(demo) as data:
@@ -481,17 +515,17 @@ def test_a_post_goes_out_in_exactly_the_words_it_was_given_while_built_work_wait
             "state": "working",
             "due": None,
             "jobs": ["j1"],
-            "created": asked,
-            "updated": asked,
+            "created": ASKED,
+            "updated": ASKED,
             "parts": {"lock it": state.new_part()},
         }
-        data["jobs"]["j1"] = state.new_job("o1", "builder", "lock it", ["lock it"], asked) | {"state": "built", "branch": "lane/lock", "waits": [WAITS]}
+        data["jobs"]["j1"] = state.new_job("o1", "builder", "lock it", ["lock it"], ASKED) | {"state": "built", "branch": "lane/lock", "waits": [WAITS]}
     talk.say(demo, {"text": "Shipped.", "thread_ts": thread})
     talk.say(demo, {"text": "Catch-up"})
     report(monkeypatch, {"catch_up": "true"})
     state.append_event(demo, "catch-up", dm="D123", since="5:20 PM", orders="o1")
     talk.say(demo, {"text": "The fix is live.", "record": "660299"})
-    assert [argv[-1] for argv in posts] == ["Shipped.", "Catch-up", "*Catch-up since 5:20 PM*\nThe fix is live."]
+    assert [argv[-1] for argv in posts] == ["Shipped.", "Catch-up", "*Catch-up since 5:20 PM*\nThe fix is live." + OPEN_CARDS]
 
 
 def test_a_pr_is_linked_under_the_words_the_post_gives_it_whether_the_drive_holds_it_or_not(demo: str, posts: list[tuple[str, ...]]) -> None:
