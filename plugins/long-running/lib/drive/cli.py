@@ -758,11 +758,13 @@ def thread_refusal(data: dict, order_id: str, where: tuple[str, str | None], rep
     if order_id not in data["orders"] or not (threads := slack.order_threads(data, order_id, data["orders"][order_id])):
         return None
     channel, thread = where
-    if where in threads or (thread and slack.names_order_pr(data, order_id, slack.root(channel, thread))):
+    if where in threads:
         return None
     dm = data["slack"]["channel"]
     if place := next((place for place, ts in threads if ts == thread), None):
         return f"refused, {order_id}'s thread {thread} is in his DM, so leave channel_id out" if place == dm else f"refused, {order_id}'s thread {thread} is in channel {place}, so pass channel_id {place}"
+    if thread and slack.names_order_pr(data, order_id, slack.root(channel, thread)):
+        return None
     named = ", ".join(ts if place == dm else f"{ts} with channel_id {place}" for place, ts in threads)
     at = "his DM root" if not thread else f"thread {thread}" if channel == dm else f"thread {thread} of channel {channel}"
     held = state.thread_order(data, thread)
