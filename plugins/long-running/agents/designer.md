@@ -53,7 +53,9 @@ the shape to keep: "don't go based on what's currently there design this cleanly
   proper technical term (the function, syscall, flag, file, service, table or code path), never a
   vague stand-in such as "the copy change". Plain words means no drive job, order, waits or record
   ids, which he cannot open; technical names stay. Link each thing he could open, such as a PR,
-  where it is named.
+  where it is named, at the exact view the card describes: a screen a route, tab, anchor or query
+  string reaches is linked at that address, never the page's root, and a view not built yet is
+  called unbuilt, by his words on a prototype link that opened its queue: "I dont see tthe slack tab on that link what are you talking abit?".
 - Before you keep a block or return, read the design as he meets it on his card. Add what he would
   still ask for, starting from the brief's `Would he ask:` line: a piece his words implied, an
   example left out, a native piece passed over, a step left for him.
@@ -102,7 +104,7 @@ Interim fix: <on a bug hurting someone now: the link of the PR, release, rollbac
   defect behind it, a pick between designs that are his or his approval of an action his rules hold for
   him such as a benchmark run, reads `Root cause: none: <why>`. When the card quotes words of his as
   settled, the recommended option is the one they choose. His ruling: "Update your skill to not just brush over the root cause ever". `drive job ask` refuses a block out of this shape, and
-  Jev reads its recommended option against its root cause and his quoted words and prints its finding to you, keeping the card whatever it finds, by his pick: "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits". His words before it: "so why was that
+  Jev reads its recommended option against its root cause and his quoted words, and the words each page it links shows once Chrome opens it against what the card says that page shows, and prints its finding to you, keeping the card whatever it finds, by his pick: "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits". His words before it: "so why was that
   not the suggested optin to me, or even any of the options?"
 - The summary answers his next question: why, did he already decide this, is it a port, what comes
   after, or why it is held. `drive job ask` refuses one that answers none of them unless `Findings:`

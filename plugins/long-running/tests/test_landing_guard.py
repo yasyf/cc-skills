@@ -439,6 +439,20 @@ def test_the_hook_hands_jev_the_case_and_his_ruling_with_the_rule_for_its_root_c
     assert json.loads(capsys.readouterr().out) == {"ask": case, "his_words": [limits.ROOT_CAUSE_WORDS | {"detail": limits.ROOT_CAUSE_RULES["none"] + limits.ROOT_CAUSE_SETTLED}]}
 
 
+def test_the_hook_hands_jev_the_words_each_page_the_card_links_shows_beside_his_words_on_a_link_that_opened_another_view(
+    demo: str, no_calls: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    preview = "https://prototype.example.com/index.html?slack=pr"
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK.replace("Meanwhile nothing is built on either layout.", f"Meanwhile nothing is built on either layout; <{preview}|the prototype's Slack preview> draws both cards."))
+    monkeypatch.setattr(limits.picture, "page_text", {preview: "Priority queue Decision 1 of 72"}.__getitem__)
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(bash(f"drive job ask j1 - < {block}", session_id=SESSION))))
+    landing_guard.main()
+    told = json.loads(capsys.readouterr().out)
+    assert told["ask"].endswith(f"Root cause: none: a design choice, with no defect behind it\nPage {preview} shows: Priority queue Decision 1 of 72")
+    assert told["his_words"] == [limits.ROOT_CAUSE_WORDS | {"detail": limits.ROOT_CAUSE_RULES["none"] + limits.ROOT_CAUSE_SETTLED}, limits.LINK_VIEW_WORDS]
+
+
 @pytest.mark.parametrize("command", [".agents/skills/submit-pr/scripts/stack-enqueue 42", "gh pr merge 42 -R Forge-AI/monorepo --squash"])
 def test_a_drive_session_lands_no_pr_someone_else_opened_that_no_order_of_his_names(drive_pr: str, on_github: dict, no_calls: None, command: str) -> None:
     approve(drive_pr)

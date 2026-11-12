@@ -1,5 +1,6 @@
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from itertools import groupby, pairwise, permutations
 from pathlib import Path
@@ -120,6 +121,23 @@ ROOT_CAUSE_RULES = {
 }
 ROOT_CAUSE_SETTLED = " Words of his it quotes as settled choose its recommended option; a card quoting none needs none."
 ROOT_CAUSE_WORDS = {"id": "ruling:0c59046", "source": "his ruling on root causes", "quote": ROOT_CAUSE_QUOTE}
+PAGE_LINK = re.compile(r"https?://[^\s<>|]+")
+LINK_END = ".,;:!?)"
+SIGNED_IN = re.compile(r"https://(?:[\w-]+\.)*(?:slack|github)\.com/")
+PAGE_CHARS = 1500
+PAGE_LINE = re.compile(r"^Page \S+ (?:shows|did not open):", re.MULTILINE)
+LINK_VIEW_WORDS = {
+    "id": "words:card-link-view",
+    "source": "his words Nov 12 2026 4:05 AM on a card whose link opened a prototype's queue screen, not the Slack preview the card described",
+    "quote": "I dont see tthe slack tab on that link what are you talking abit?",
+    "detail": (
+        "Each page a card links opens the exact view the card's words say it shows. A page with several views, a screen"
+        " reached by a route, tab, anchor or query string, is linked at the address of the one described, never its root,"
+        " and a view still to build is called unbuilt, never linked as if it exists. A Page line whose words lack what the"
+        " card says that link shows breaks this: the finding names the link, what its page shows instead, and the fix. A"
+        " page showing only a sign-in screen was not read and breaks nothing."
+    ),
+}
 ROOT_CAUSE_SHAPE = (
     "`Root cause: <the structure that lets the defect happen, by its proper terms>` with `First principles: <the option"
     " that removes it>`, `Root cause: fixed: <that structure>, removed by <the merged PR's link>` on a card asking only"
@@ -717,6 +735,30 @@ def root_cause_words(case: str) -> dict[str, str]:
     cause = ROOT_CAUSE.findall(case)[-1]
     form = "none" if NONE_WHY.match(cause) else "fixed" if FIXED.match(cause) else "found"
     return ROOT_CAUSE_WORDS | {"detail": ROOT_CAUSE_RULES[form] + ROOT_CAUSE_SETTLED}
+
+
+def ask_words(case: str) -> list[dict[str, str]]:
+    """His words Jev weighs a card's case by: his ruling on root causes, with the rule for its `Root cause:` form, and, when the case reads a page the card links, his words on a link that opened another view than the card described."""
+    return [root_cause_words(case), *([LINK_VIEW_WORDS] if PAGE_LINE.search(case) else [])]
+
+
+def linked_pages(asked: Question) -> list[str]:
+    """Each web page a card links in its summary or a Show me caption, once, in order: the views he opens from it. A Slack or GitHub link opens its one message, PR or file only signed in, which Chrome is not, so it is none."""
+    found = (url.rstrip(LINK_END) for url in PAGE_LINK.findall("\n".join([*asked.summary, *captions(asked.show_me)])))
+    return list(dict.fromkeys(url for url in found if not SIGNED_IN.match(url)))
+
+
+def page_review(text: str, unsettled: str | None) -> list[str]:
+    """What Jev reads, beside a well-shaped card's case, of each page it links: the first words that page shows once Chrome opens it and runs its scripts, or why Chrome could not open it, every page read at once."""
+    with ThreadPoolExecutor() as pool:
+        return list(pool.map(page_line, linked_pages(question(text, unsettled=unsettled))))
+
+
+def page_line(url: str) -> str:
+    try:
+        return f"Page {url} shows: {cut(picture.page_text(url), PAGE_CHARS)}"
+    except picture.PictureError as error:
+        return f"Page {url} did not open: {error}"
 
 
 def interim_fix_problems(findings: str) -> list[str]:

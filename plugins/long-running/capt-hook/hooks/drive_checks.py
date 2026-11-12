@@ -102,9 +102,12 @@ DRIVE_ASK = "drive.ask"
 ASK_RULES = """
     The agent is about to keep a question card for the user; <action> holds the case its block makes: the question,
     its summary, the recommended option, the other options, the root cause its findings name, the option they say
-    removes it, and any words of his it quotes as settled. <evidence> holds his ruling on root causes, the rule it
-    sets in its detail. Allow the card, citing that ruling, when the card keeps the rule. Refuse when it breaks it;
-    the refusal names what the recommended option keeps or skips that the rule forbids, and the fix.
+    removes it, any words of his it quotes as settled, and a Page line for each web page the card links, holding the
+    words that page shows once open. <evidence> holds his ruling on root causes and, beside a Page line, his words on
+    a link that opened another view than its card described, each with the rule it sets in its detail. Allow the
+    card, citing them, when it keeps every rule. Refuse when it breaks one; the refusal names what the recommended
+    option keeps or skips that the root-cause rule forbids, or the link whose page lacks what the card's words say
+    it shows, and the fix.
 """
 
 
@@ -172,7 +175,7 @@ def judged(evt: BaseHookEvent, reason: str, rule: str, words: list[Evidence], po
 
 
 def asked(evt: BaseHookEvent, case: str, words: list[Evidence]) -> HookResult | None:
-    """Jev's finding on a question card `drive job ask` keeps, judged by his ruling on root causes from the case its block makes and nothing else, which only advises, by his pick "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits": the card is kept whatever Jev finds, with Jev's finding printed to the agent when Jev reads it as breaking the ruling, and a note when Jev gives no verdict."""
+    """Jev's finding on a question card `drive job ask` keeps, judged by his ruling on root causes and his words on the view a link opens from the case its block makes, the words of each page it links included, and nothing else, which only advises, by his pick "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits": the card is kept whatever Jev finds, with Jev's finding printed to the agent when Jev reads it as breaking the ruling, and a note when Jev gives no verdict."""
     ctx = Context.of(evt, DRIVE_ASK, Proposal({}, {"case": case}, "keep this question card for him"))
     try:
         verdict = ASK_JUDGE.verdict(ctx, words)
@@ -182,8 +185,8 @@ def asked(evt: BaseHookEvent, case: str, words: list[Evidence]) -> HookResult | 
         return None
     found = [f"Jev: {verdict.explained}", *([verdict.reason] if verdict.refusal else [])]
     return evt.context(
-        "landing_guard: Jev weighed this question card against his words on root causes and finds it breaks them; Jev only"
-        " advises, so the verb keeps the card as written. If the finding holds, ask again with the block rewritten and drop"
+        "landing_guard: Jev weighed this question card against his words on root causes and on the view each link opens,"
+        " and finds it breaks them; Jev only advises, so the verb keeps the card as written. If the finding holds, ask again with the block rewritten and drop"
         " this one with `drive job ask <job> --drop <its path>`.\n```\n" + "\n".join([*found, case]) + "\n```"
     )
 

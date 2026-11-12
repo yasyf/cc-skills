@@ -106,7 +106,7 @@ class Shell:
 
 
 class Asked(str):
-    """The case a question card's block makes against his ruling on root causes, which Jev judges before `drive job ask` keeps it."""
+    """The case a question card's block makes against his ruling on root causes, with what each page it links shows, which Jev judges before `drive job ask` keeps it."""
 
 
 class Unread(Exception):
@@ -603,7 +603,7 @@ def misrouted(posts: list[dict], drives: dict[str, dict], session: str) -> str |
 
 
 def root_cause_case(payload: dict) -> Asked | agents.Unjudged | None:
-    """What Jev judges a question card by before a drive session's `drive job ask` keeps it: the case its block makes against his ruling on root causes, read the same way whichever form hands the verb the block, or why the block cannot be read."""
+    """What Jev judges a question card by before a drive session's `drive job ask` keeps it: the case its block makes against his ruling on root causes and the words each page it links shows, read the same way whichever form hands the verb the block, or why the block cannot be read."""
     names, shell = shell_of(payload)
     if not names:
         return None
@@ -618,8 +618,9 @@ def root_cause_case(payload: dict) -> Asked | agents.Unjudged | None:
             text = asked_block(positionals, options, script, run_in)
         except Unread as unread:
             return agents.Unjudged(ASK_UNREAD.format(why=unread, job=positionals[0]))
-        if text and (case := limits.root_cause_review(text, (options.get("unsettled") or [None])[-1])):
-            return Asked(case)
+        unsettled = (options.get("unsettled") or [None])[-1]
+        if text and (case := limits.root_cause_review(text, unsettled)):
+            return Asked("\n".join([case, *limits.page_review(text, unsettled)]))
     return None
 
 
@@ -735,7 +736,7 @@ def main() -> None:
         return
     agents.hold(payload)
     if reason:
-        print(json.dumps({"ask": reason, "his_words": [limits.root_cause_words(reason)]}))
+        print(json.dumps({"ask": reason, "his_words": limits.ask_words(reason)}))
     elif context:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": context}}))
 

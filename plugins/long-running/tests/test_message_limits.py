@@ -9,7 +9,7 @@ from pathlib import Path
 import message_limits
 import pytest
 from conftest import Checked, Thread
-from drive import agents, limits, refs, slack, state, talk, view
+from drive import agents, limits, picture, refs, slack, state, talk, view
 from drive.state import DriveError
 
 Run = Callable[..., tuple[int, str]]
@@ -1218,6 +1218,45 @@ def test_the_case_jev_reads_carries_the_show_me_and_only_words_said_in_quotes() 
     assert case is not None
     assert "func Create(ctx context.Context, s Session, writer int64) (*DurableAgent, error) {" in case
     assert case.endswith('Words it quotes: "move the chats once"')
+
+
+def test_the_pages_a_card_links_are_the_web_pages_its_summary_and_captions_link_once_each_never_a_signed_in_or_fenced_one() -> None:
+    preview = "https://prototype.example.com/index.html?slack=pr"
+    queue = "https://prototype.example.com/index.html#/queue"
+    asked = limits.Question(
+        title="Which view should the prototype open on?",
+        summary=[f"<{preview}|The Slack preview> draws both cards, as {preview}. does; <https://github.com/acme/app/pull/12|the fix that adds it> is open."],
+        show_me=[f"1 · The queue at {queue}, beside <{REPORTED}|his thread>:", "```sh", "curl https://fenced.example.com/never-read", "```"],
+        options=["The Slack preview first", "The queue first"],
+        recommended="The Slack preview first",
+    )
+    assert limits.linked_pages(asked) == [preview, queue]
+
+
+def test_jev_reads_the_words_each_page_a_card_links_shows_or_why_chrome_could_not_open_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    shown = "Sign in to Sentry " * 200
+
+    def page_text(url: str) -> str:
+        if url == SENTRY_EVENT:
+            return shown
+        raise picture.PictureError(f"Chrome could not load {url}: net::ERR_NAME_NOT_RESOLVED")
+
+    monkeypatch.setattr(picture, "page_text", page_text)
+    [line] = limits.page_review(STRAY_CHATS_ASK, None)
+    assert line.startswith(f"Page {SENTRY_EVENT} shows: Sign in to Sentry")
+    assert len(line) <= len(f"Page {SENTRY_EVENT} shows: ") + limits.PAGE_CHARS
+    missing = "https://prototype.example.com/index.html?slack=pr"
+    linked = STRAY_CHATS_ASK.replace(f"<{SENTRY_EVENT}|The old build>", f"<{missing}|The old build>")
+    assert limits.page_review(linked, None) == [f"Page {missing} did not open: Chrome could not load {missing}: net::ERR_NAME_NOT_RESOLVED"]
+
+
+def test_jev_weighs_a_page_line_by_his_words_on_a_link_that_opened_another_view_within_the_600_characters_capt_hook_shows() -> None:
+    case = limits.root_cause_review(STRAY_CHATS_ASK, None)
+    assert case is not None
+    assert limits.ask_words(case) == [limits.root_cause_words(case)]
+    paged = f"{case}\nPage https://prototype.example.com/index.html shows: Priority queue Decision 1 of 72"
+    assert limits.ask_words(paged) == [limits.root_cause_words(case), limits.LINK_VIEW_WORDS]
+    assert len(limits.LINK_VIEW_WORDS["detail"]) <= 600
 
 
 def options_ask(*options: str) -> str:
