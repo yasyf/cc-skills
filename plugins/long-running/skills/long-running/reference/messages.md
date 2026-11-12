@@ -535,6 +535,18 @@ restating it.
   on Nov 10 a line at 8:46 PM blamed "the change that started the failures" without naming it, and a
   card he tapped at 9:49 PM carried a false "disk full". `say` posts nothing while a line outside a
   fence or quote names a cause, such as "because" or "caused", with no `{record:}` on it.
+- A line about code, where it lives, what it does or why, stands on the posting session's own read
+  of the code that does it, or the `{record:}` of the read that did, by his words "stop saying wrong
+  shit bc you jsut guess and its probably misleading all your work" and "dont just take things for
+  granted critically evakuate them". A code comment, a panic, error or log message, a doc, a PR body,
+  the brief, a record's words or an earlier answer is a claim to test against that code, never a
+  line to repeat, and the post says whether each claim it relies on holds. A line about every case
+  stands on a read of what decides it, and a mechanism it proposes on a read showing the system
+  controls that piece where it would run, by his words "we cant do that since we dont control the
+  poloices on customer bucket". The say hook hands Jev each handler post's own reads, every tool call
+  of its transcript whose result came back and each name the post uses beside the line of a read
+  holding it, and Jev sends back a line no read backs, naming the read it needs. The fix is that read,
+  or the line cut to what the reads show, never the line posted marked unread.
 - A card's title and options draw no links, so link whatever they name in its summary or a Show me
   caption. `drive job ask` and the post hook refuse an `ASK` or a post that names such a thing with no
   link there, naming the words and the clause they sit in, and that a thing not open yet is said so

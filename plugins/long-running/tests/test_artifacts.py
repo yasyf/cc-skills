@@ -28,8 +28,28 @@ def turn(kind: str, *blocks: dict, message_id: str | None = None, **fields: obje
 def test_a_job_lists_the_files_the_drive_keeps_for_it_in_reading_order() -> None:
     remote = {"where": "remote", "brief": "/b.md", "report": "DONE", "questions": [state.new_question("/q.md", "Q?", "now")], "repro": "/r.md", "agent": None, "session": None}
     assert artifacts.kept("j1", remote, set()) == ["brief", "report", "question", "repro"]
-    assert artifacts.kept("j2", JOB, {"j2"}) == ["report", "transcript"]
+    assert artifacts.kept("j2", JOB, {"j2"}) == ["brief", "report", "transcript"]
     assert artifacts.kept("j3", JOB | {"session": None}, set()) == []
+
+
+def test_a_lane_on_this_mac_without_a_written_brief_shows_its_transcripts_first_turn_as_its_brief(drive_home: Path) -> None:
+    transcript(drive_home, turn("user", {"type": "text", "text": "Build the load gate"}), turn("assistant", {"type": "text", "text": "On it"}))
+    shown = artifacts.read("demo", "j1", JOB, "brief")
+    assert [block["text"] for turn in shown["turns"] for block in turn["blocks"]] == ["Build the load gate"]
+
+
+def test_a_lanes_newest_line_is_its_newest_words_while_it_runs_else_the_line_it_sent_else_its_report(drive_home: Path) -> None:
+    transcript(
+        drive_home,
+        turn("user", {"type": "text", "text": "Build the load gate"}),
+        turn("assistant", {"type": "text", "text": "Drew the gate.\nNext the test."}, timestamp="2026-11-12T01:00:00Z"),
+        turn("assistant", {"type": "tool_use", "id": "t1", "name": "Bash", "input": {}}, timestamp="2026-11-12T01:01:00Z"),
+    )
+    lane = JOB | {"state": "running", "said": None, "report": None, "updated": "2026-11-12T02:00:00Z"}
+    assert artifacts.newest_line("demo", "j1", lane) == {"line": "Drew the gate.", "from": "transcript", "at": "2026-11-12T01:00:00Z"}
+    assert artifacts.newest_line("demo", "j1", lane | {"state": "built", "said": "BUILT the gate"}) == {"line": "BUILT the gate", "from": "said", "at": lane["updated"]}
+    assert artifacts.newest_line("demo", "j1", lane | {"state": "done", "report": "DONE the gate\nSERVES: it"}) == {"line": "DONE the gate", "from": "report", "at": lane["updated"]}
+    assert artifacts.newest_line("demo", "j1", lane | {"state": "done"}) is None
 
 
 def test_the_question_file_holds_every_question_the_job_asked_oldest_first(tmp_path: Path) -> None:
