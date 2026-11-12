@@ -420,13 +420,17 @@ the dashboard link. When a line says where things stand, link the page instead o
   report travels with it, since cci never changes the report: `drive status` names it on the
   report's line, the `refused` record names one already written, and a `say` of the correction
   posts nothing while its report is held.
-- His next message, right after its ack, or his next card tap gets one catch-up at his DM root.
-  `drive heard`, or the tap, tells the coordinator every order that changed while he was away or
-  has a report held, and each held report with the corrections cci holds re it; it sends one
-  `report` for his DM root covering them, grouped by feature and each held report's facts as its
-  corrections give them, then `--lined` each. Posting the catch-up lets go of every held report,
-  and `say` names any correction its catch-up event missed. A correction that comes after rewords
-  the catch-up post: `say` of it posts nothing and names that post.
+- His next message, right after its ack, or his next card tap gets one catch-up at his DM root,
+  posted by the drive with no session in between. `drive heard`, or the tap, adds every order that
+  changed while he was away or has a report held to the catch-up the drive owes him, which it keeps
+  until the catch-up posts. Within one pass of the watch, 5 seconds, the watch writes one `report`
+  of it, naming each held report with the corrections cci holds re it and each order with news, and
+  starts the handler that posts it, grouped by feature and each held report's facts as its
+  corrections give them. A handler that ends without posting gets a fresh one the next time he is
+  heard. Posting the catch-up lets go of every held report, marks a line given on each order it
+  covers, and `say` names each correction of a held report the post must carry. A correction that
+  comes after rewords the catch-up post: `say` of it posts nothing and names that post, and a
+  second catch-up while none is owed posts nothing.
 - That report carries `catch_up=true`, so `say` opens the post with the bold title
   `*Catch-up since <the time he was last heard>*` whatever the text says, and closes it with every
   open card waiting on him, the list his status page queues, each on its own line under a count of

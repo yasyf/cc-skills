@@ -621,6 +621,7 @@ def status_data(drive: dict, seen: dict[str, str], named: bool = False) -> dict:
         "jobs": {job_id: drive["jobs"][job_id] for job_id in job_ids},
         "prs": {key: pr for key, pr in drive["prs"].items() if pr["order"] in orders},
         "held": drive["held"],
+        "catch_up": drive["catch_up"],
     }
 
 
@@ -641,6 +642,9 @@ def status_text(drive: dict, seen: dict[str, str], named: bool = False) -> str:
             f"- report {seq} ({mark['order'] or 'no order'}), held {when(mark['at'])}, its writer told in record {mark['told']}{corrected_by(mark['corrections'])}"
             for seq, mark in drive["held"].items()
         )
+    if owed := drive["catch_up"]:
+        started = f", its handler {owed['handler']} last started when he was heard at {when(owed['tried'])}" if owed["handler"] else ""
+        lines.append(f"His catch-up is owed since {when(owed['since'])}, over {len(owed['orders'])} orders: the watch posts it through a handler once he is heard while here{started}")
     lines.extend(agentless_lines(drive))
     for order_id, order in open_orders(drive).items():
         lines.extend(order_block(drive, order_id, order, False))

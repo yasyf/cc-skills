@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from conftest import Chrome
-from drive import card, cli, github, picture, render, state, view
+from drive import card, cli, github, picture, state, view
 from drive.github import GithubError
 
 URL = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -799,8 +799,7 @@ def test_his_tap_on_any_card_records_him_heard_and_brings_the_catch_up_he_was_he
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0, "661500\n", ""))
     ask(tap)
     assert state.load(drive)["owner"] == {"heard": state.stamp(tapped), "away": False}
-    [catch_up] = [event for event in events(drive) if event["kind"] == "catch-up"]
-    assert (catch_up["since"], catch_up["held"]) == (render.when(heard), "665753")
+    assert state.load(drive)["catch_up"] == state.new_catch_up(heard, [])
 
 
 STACK_BODY = "## The stack\nthe orders table moves to a new one without a pause\n\nReaders read both tables, every row is copied across, then the old table goes.\n\n"

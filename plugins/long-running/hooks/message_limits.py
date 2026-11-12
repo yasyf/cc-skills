@@ -539,7 +539,7 @@ def held_while_away(payload: dict, drive: dict) -> str | None:
     )
     return agents.Ruled(
         "Refused on purpose: he is away, since he said so or has written nothing for an hour, and while he is away only cards,"
-        " incident lines and answers to his messages go out. Post nothing: this news joins the catch-up the coordinator sends"
+        " incident lines and answers to his messages go out. Post nothing: this news joins the catch-up the drive posts"
         f" when he is back.{held}",
         AWAY_RULE,
     )
