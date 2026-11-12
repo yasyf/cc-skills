@@ -120,8 +120,10 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
 7. Return `PUSHED` once, as soon as the head you mean to ship is pushed and registered, with CI and
    review still running, and with `INSTALL:` and `PROVE:` lines; never a `WAITING` for CI or review
    first. `READY` counts only on a green required check, so `PUSHED` waits, waking nobody, until the
-   watch's minute read of GitHub finds every check the base branch requires: green takes it as your
-   `READY`, and a red one comes back as `PR … READY refused, its required <check> failed at <head>
+   watch's minute read of GitHub finds green every check the rules of its repository's default
+   branch name and any GitHub marks required on the head, one not yet posted holding it too, or
+   settles it at that read when they name none: green takes it as your `READY`, and a red one comes
+   back as `PR … READY refused, its required <check> failed at <head>
    (<build>)`, and `drive job report` refuses a `READY` while one is pending or red. It also judges
    the change of each PR his card waits on, its title and diff at its head and never its body,
    against the words of your order and every order your job carries and each answer of his your
@@ -344,8 +346,8 @@ listing decisions that block nothing is not a result.
 | Result | When |
 | --- | --- |
 | `DONE <proof link or one-line proof>` | Live and checked where he uses it, which a merge alone is not. When he sees what you built (`NATIVE:` is not `none: he never sees it`), the proof comes from that surface: the live post's link, a picture of it, or a recording of the click through each view his words name (agent-browser's recording, or `screencapture -v` of the window), since data fetched from an API does not show what he sees. `drive job report` refuses a `DONE` without that proof on `CHECK:`. |
-| `PUSHED <pr url> [<pr url>…]` | Pushed and registered, its CI and review still running, and its change checked against his words by `drive job report`, or on a Sprite by the watch. It is the `READY` below held until the watch reads every check the base branch requires green, waking nobody meanwhile; a red one comes back to you. |
-| `READY <pr url> [<pr url>…]` | The same, with every check the base branch requires green; the watch draws his card once it is green and approved. A stack names every PR, bottom first, so it gets one card. When he sees what you built (`NATIVE:` is not `none: he never sees it`), a Show me on its card carries a before and an after screenshot of it, pushed beside the landing when it is missing. A question whose answer only lands PRs, such as an open PR below yours, is this `READY` naming each, never an `ASK`: their stack card is his tap and needs no Show me, and `drive job ask` refuses an ask to land PRs. |
+| `PUSHED <pr url> [<pr url>…]` | Pushed and registered, its CI and review still running, and its change checked against his words by `drive job report`, or on a Sprite by the watch. It is the `READY` below held until the watch reads green every check its repository's default branch rules name, one not yet posted holding it too, or at its first read when they name none, waking nobody meanwhile; a red one comes back to you. |
+| `READY <pr url> [<pr url>…]` | The same, with every check its repository's rules require green; the watch draws his card once it is green and approved. A stack names every PR, bottom first, so it gets one card. When he sees what you built (`NATIVE:` is not `none: he never sees it`), a Show me on its card carries a before and an after screenshot of it, pushed beside the landing when it is missing. A question whose answer only lands PRs, such as an open PR below yours, is this `READY` naming each, never an `ASK`: their stack card is his tap and needs no Show me, and `drive job ask` refuses an ask to land PRs. |
 | `BUILT <branch>, waits on <cards>` | The recommended options built and pushed on `<branch>`, no PR open, waiting on his answer to each design card the brief names, by its waits id or Slack link. Its lines name the option built for each card and what his other picks would change. |
 | `WAITING <what, in plain words>` | Another PR or a release; never CI, a review or a queue on your own PR, which `PUSHED` covers, nor his sign-in, Touch ID or cc-sudo for an AWS action, which this Mac's machine profile runs. `WAITING <your PR> waits on <cards>`, each card by its waits id or Slack link, holds that PR's card until he answers each. |
 | `ASK <path>` | Only for a change of scope, a design choice his words do not settle, or a line he holds; decide everything else. |

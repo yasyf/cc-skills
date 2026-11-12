@@ -14,6 +14,7 @@ FIELDS = (
     "commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { "
     f"... on CheckRun {{ name conclusion detailsUrl {REQUIRED} checkSuite {{ workflowRun {{ workflow {{ name }} }} }} }} ... on StatusContext {{ context state targetUrl {REQUIRED} }} }} }} }} }} }} }}"
 )
+RULES = "defaultBranchRef { rules(first: 50) { nodes { type parameters { ... on RequiredStatusChecksParameters { requiredStatusChecks { context } } } } } }"
 PR_STATES = {"OPEN": "open", "MERGED": "merged", "CLOSED": "closed"}
 FAILED = {"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"}
 PASSED = {"SUCCESS", "NEUTRAL", "SKIPPED"}
@@ -87,13 +88,13 @@ def repo_of(key: str) -> str:
     return key.split("#")[0]
 
 
-def query(keys: list[str], fields: str = FIELDS) -> str:
-    """One GraphQL query reading the fields of every PR in keys, aliased r<i> per repo and p<number> per PR, each check's isRequired asked for that PR, the only way GitHub answers it."""
+def query(keys: list[str], fields: str = FIELDS, repository: str = "") -> str:
+    """One GraphQL query reading the fields of every PR in keys, aliased r<i> per repo and p<number> per PR, each check's isRequired asked for that PR, the only way GitHub answers it, and the repository fields of each repo."""
     blocks = []
     for index, (repo, members) in enumerate(groupby(sorted(keys, key=repo_of), key=repo_of)):
         owner, name = repo.split("/")
         pulls = " ".join(f"p{split(key)[2]}: pullRequest(number: {split(key)[2]}) {{ {fields.replace(NUMBER, str(split(key)[2]))} }}" for key in members)
-        blocks.append(f"r{index}: repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{ {pulls} }}")
+        blocks.append(f"r{index}: repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{ {repository} {pulls} }}")
     return "query { " + " ".join(blocks) + " }"
 
 
@@ -161,12 +162,12 @@ def superseded(run: tuple[str, str] | None, going: set[tuple[str, str]]) -> bool
     return run is not None and any(workflow == run[0] and number != run[1] for workflow, number in going)
 
 
-def checks(rollup: list[dict], failed: list[str]) -> str:
-    """pass, fail, pending or none for the checks that speak for one head, given the checks that failed on that head before: one queued or running reads pending, and so does one that failed before and is missing now, as a rerun drops it until its new run starts."""
+def checks(rollup: list[dict], expected: list[str]) -> str:
+    """pass, fail, pending or none for the checks that speak for one head, given the checks expected on it: one queued or running reads pending, and so does an expected one missing now, such as one that failed there before, as a rerun drops it until its new run starts."""
     outcomes = {outcome(check) for check in counted(rollup)}
     if outcomes & FAILED:
         return "fail"
-    if set(failed) - {check_name(check) for check in rollup}:
+    if set(expected) - {check_name(check) for check in rollup}:
         return "pending"
     if not outcomes:
         return "none"
@@ -174,9 +175,16 @@ def checks(rollup: list[dict], failed: list[str]) -> str:
 
 
 def required(read: dict) -> dict:
-    """The verdict on the checks its base branch requires before merging, those GitHub marks isRequired on the PR's head: pass, fail, pending or none over them as checks() reads, and the build or run link of each that failed."""
-    held = [check for check in counted(read["checks"]) if check.get("isRequired")]
-    return {"checks": checks(held, []), "failed": {check_name(check): check.get("targetUrl") or check.get("detailsUrl") or "" for check in held if outcome(check) in FAILED}}
+    """The verdict on the checks the PR must pass before merging, those the rules of its repository's default branch name and any GitHub marks isRequired on its head: pass, fail, pending or none over them as checks() reads, a named one not yet posted on the head reading pending and none when the rules name none and GitHub marks none, and the build or run link of each that failed."""
+    names = read["required_checks"]
+    held = [check for check in counted(read["checks"]) if check.get("isRequired") or check_name(check) in names]
+    return {"checks": checks(held, names), "failed": {check_name(check): check.get("targetUrl") or check.get("detailsUrl") or "" for check in held if outcome(check) in FAILED}}
+
+
+def rule_checks(repository: dict) -> list[str]:
+    """The checks the rules of a repository's default branch require before merging, as GitHub's GraphQL answers RULES."""
+    rules = repository["defaultBranchRef"]["rules"]["nodes"]
+    return sorted({check["context"] for rule in rules if rule["type"] == "REQUIRED_STATUS_CHECKS" for check in rule["parameters"]["requiredStatusChecks"]})
 
 
 def live(read: dict, stored: dict) -> dict:
@@ -201,15 +209,24 @@ def live(read: dict, stored: dict) -> dict:
     return fields
 
 
+def repositories(payload: dict, keys: list[str]) -> dict[str, dict]:
+    """Each repository's node in the reply to query(keys), leaving out one GitHub answered none for."""
+    data = payload.get("data") or {}
+    return {repo: node for index, repo in enumerate(sorted({repo_of(key) for key in keys})) if (node := data.get(f"r{index}"))}
+
+
 def nodes(payload: dict, keys: list[str]) -> dict[str, dict]:
     """Each PR's node in the reply to query(keys), leaving out a PR GitHub answered none for."""
-    alias = {repo: f"r{index}" for index, repo in enumerate(sorted({repo_of(key) for key in keys}))}
-    data = payload.get("data") or {}
-    return {key: node for key in keys if (node := (data.get(alias[repo_of(key)]) or {}).get(f"p{split(key)[2]}"))}
+    found = repositories(payload, keys)
+    return {key: node for key in keys if (node := (found.get(repo_of(key)) or {}).get(f"p{split(key)[2]}"))}
 
 
 def parse(payload: dict, keys: list[str]) -> dict[str, dict]:
-    return {key: flatten(node) | {"native": entries(repo_of(key), node["stack"]) if node["stack"] else []} for key, node in nodes(payload, keys).items()}
+    found = repositories(payload, keys)
+    return {
+        key: flatten(node) | {"native": entries(repo_of(key), node["stack"]) if node["stack"] else [], "required_checks": rule_checks(found[repo_of(key)])}
+        for key, node in nodes(payload, keys).items()
+    }
 
 
 def graphql(text: str, what: str) -> dict:
@@ -274,12 +291,12 @@ def ships(release: dict, service: str) -> bool:
 
 
 def fetch(keys: list[str]) -> tuple[dict[str, dict], GithubError | None]:
-    """Read every PR key ("owner/name#123"), its native GitHub stack included, PRS_PER_QUERY to a `gh api graphql` call, since GitHub refuses a query past its resource limits: the reads of every call that answered, and an error joining what the others could not read, so one refused call loses only its own PRs."""
+    """Read every PR key ("owner/name#123"), its native GitHub stack and the checks the rules of its repository's default branch require included, PRS_PER_QUERY to a `gh api graphql` call, since GitHub refuses a query past its resource limits: the reads of every call that answered, and an error joining what the others could not read, so one refused call loses only its own PRs."""
     found, refused = {}, []
     for start in range(0, len(keys), PRS_PER_QUERY):
         chunk = keys[start : start + PRS_PER_QUERY]
         try:
-            found |= parse(graphql(query(chunk, f"{FIELDS} {STACK}"), f"{len(chunk)} PRs of {', '.join(sorted({repo_of(key) for key in chunk}))}"), chunk)
+            found |= parse(graphql(query(chunk, f"{FIELDS} {STACK}", RULES), f"{len(chunk)} PRs of {', '.join(sorted({repo_of(key) for key in chunk}))}"), chunk)
         except GithubError as error:
             refused.append(str(error))
     return found, GithubError("; ".join(refused)) if refused else None

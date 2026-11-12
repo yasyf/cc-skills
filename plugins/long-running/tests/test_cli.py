@@ -2769,12 +2769,14 @@ def test_a_builders_ready_counts_only_on_a_green_required_check_and_one_still_ru
 ) -> None:
     build = "https://buildkite.com/forge/monorepo/builds/7"
     read = {"state": "OPEN", "isDraft": False, "headRefOid": "abc", "baseRefName": "main", "headRefName": "land-it", "mergeCommit": None, "reviewDecision": None, "approvals": [], "mergeable": "MERGEABLE"}
-    read |= {"title": "Fix: land it", "author": "yasyf", "labels": [], "native": []}
-    for outcome, held in (
-        ("PENDING", f"{with_pr}'s required checks still run at abc: return"),
-        ("FAILURE", f"{with_pr}'s required buildkite/test failed at abc ({build}): fix it and push, then return"),
+    read |= {"title": "Fix: land it", "author": "yasyf", "labels": [], "native": [], "required_checks": ["buildkite/test"]}
+    test = {"context": "buildkite/test", "targetUrl": build}
+    for posted, held in (
+        ([], f"{with_pr}'s required checks still run at abc: return"),
+        ([{**test, "state": "PENDING"}], f"{with_pr}'s required checks still run at abc: return"),
+        ([{**test, "state": "FAILURE"}], f"{with_pr}'s required buildkite/test failed at abc ({build}): fix it and push, then return"),
     ):
-        pr_reads[with_pr] = read | {"checks": [{"context": "buildkite/test", "state": outcome, "isRequired": True, "targetUrl": build}]}
+        pr_reads[with_pr] = read | {"checks": posted}
         code, err = keep(monkeypatch, capsys, "j1", f"READY {PR}\n")
         assert code == 2
         assert f"j1: refused, nothing kept: READY counts only on a green required check, and {held} this report with `PUSHED {PR}` as its first line" in err
