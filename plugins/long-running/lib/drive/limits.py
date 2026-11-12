@@ -594,7 +594,7 @@ def captions(show_me: list[str]) -> list[str]:
 
 
 def root_cause_problems(findings: str, options: list[str], recommended: str) -> list[str]:
-    """Whether the findings start from the root cause, the structure that lets the defect happen, and recommend the option that removes it so the defect cannot occur; or name that structure as fixed, linking the merged PR that removed it, on a card asking only when that PR ships; or say the cause is not found yet, naming the job finding it; or say no defect is behind the question. Whether that option or PR truly removes the structure, and whether words of his the card quotes choose another, Jev judges when `drive job ask` keeps it."""
+    """Whether the findings start from the root cause, the structure that lets the defect happen, and recommend the option that removes it so the defect cannot occur; or name that structure as fixed, linking the merged PR that removed it, on a card asking only when that PR ships; or say the cause is not found yet, naming the job finding it; or say no defect is behind the question. Whether that option or PR truly removes the structure, and whether words of his the card quotes choose another, Jev weighs when `drive job ask` keeps it, printing its finding to the agent and refusing no card on it."""
     cause = ROOT_CAUSE.search(findings)
     if not cause:
         return [f"no `Root cause:` line under `Findings:`: write {ROOT_CAUSE_SHAPE} ({ROOT_CAUSE_RULING})"]

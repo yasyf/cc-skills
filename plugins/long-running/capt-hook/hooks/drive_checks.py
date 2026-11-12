@@ -145,7 +145,7 @@ def judged(evt: BaseHookEvent, reason: str, rule: str, words: list[Evidence], po
 
 
 def asked(evt: BaseHookEvent, case: str, words: list[Evidence]) -> HookResult | None:
-    """Jev's verdict on a question card `drive job ask` keeps, judged by his ruling on root causes from the case its block makes and nothing else, so every form handing the verb one block gets one verdict: the card is kept when Jev finds it keeps the ruling, refused with Jev's own finding when it does not, and kept with a note when Jev gives no verdict."""
+    """Jev's finding on a question card `drive job ask` keeps, judged by his ruling on root causes from the case its block makes and nothing else, which only advises, by his pick "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits": the card is kept whatever Jev finds, with Jev's finding printed to the agent when Jev reads it as breaking the ruling, and a note when Jev gives no verdict."""
     ctx = Context.of(evt, DRIVE_ASK, Proposal({}, {"case": case}, "keep this question card for him"))
     try:
         verdict = ASK_JUDGE.verdict(ctx, words)
@@ -154,9 +154,10 @@ def asked(evt: BaseHookEvent, case: str, words: list[Evidence]) -> HookResult | 
     if verdict.allow and cited(words, verdict.relied_on):
         return None
     found = [f"Jev: {verdict.explained}", *([verdict.reason] if verdict.refusal else [])]
-    return evt.block(
-        "Jev weighed this question card against his words on root causes and refused it: fix what Jev names, then run"
-        " `drive job ask` again.\n```\n" + "\n".join([*found, case]) + "\n```"
+    return evt.context(
+        "landing_guard: Jev weighed this question card against his words on root causes and finds it breaks them; Jev only"
+        " advises, so the verb keeps the card as written. If the finding holds, ask again with the block rewritten and drop"
+        " this one with `drive job ask <job> --drop <its path>`.\n```\n" + "\n".join([*found, case]) + "\n```"
     )
 
 
@@ -201,7 +202,7 @@ def no_slack_reads(evt: BaseHookEvent) -> HookResult | None:
                 "allow": False,
                 "refusal": "The recommended retry keeps the guessed range the root cause names.",
             },
-        ): Block(pattern="Jev: The recommended retry keeps the guessed range"),
+        ): Warn(pattern="Jev: The recommended retry keeps the guessed range"),
         Input(
             command=f"drive job ask j1 {MERGED_FIX}",
             session_id=COORDINATOR,
