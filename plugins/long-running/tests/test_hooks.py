@@ -15,7 +15,7 @@ import quiet_turn
 import scratch_folder
 import session_start
 from conftest import RESEARCH, WatchProcess
-from drive import agents, settled, state
+from drive import agents, cli, settled, state
 
 Run = Callable[..., tuple[int, str]]
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -345,6 +345,30 @@ def test_a_fresh_agent_on_a_running_jobs_brief_takes_it_over_once_its_old_sessio
     job = data["jobs"]["j1"]
     assert (job["agent"], job["session"], job["state"]) == ("a-9", "after-restart", "running")
     assert state.agent_job(data, "a-9") == "j1"
+
+
+def test_resume_from_a_session_that_did_not_start_the_jobs_agent_hands_the_job_to_that_sessions_fresh_agent(
+    demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "communicator-session")
+    run("start", "demo", "--role", "communicator")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a verb for owners")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--agent", "a-1")
+    run("job", "brief", "j1", "--serves", "drive tooling", "--done-when", "merged", "--where", "yasyf/cc-skills main")
+    assert cli.main(["job", "resume", "j1", "go"]) == 2
+    assert capsys.readouterr().err == "drive: j1 runs on this Mac as agent a-1; resume it with SendMessage\n"
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "meta-session")
+    run("start", "demo", "--role", "meta")
+    monkeypatch.setattr("sys.stdin", io.StringIO("TAP Approve"))
+    code, out = run("job", "resume", "j1", "-")
+    handoff = state.drive_dir("demo") / "jobs" / "j1.handoff.md"
+    assert (code, out.splitlines()[0]) == (0, f"Read your brief first: {handoff}")
+    assert "## Taking over from an agent of another session\n\nThe agent that held this job, a-1 of session communicator-session," in handoff.read_text()
+    assert handoff.read_text().endswith("The message it never read, which you act on now:\n\nTAP Approve\n")
+    assert state.load("demo")["jobs"]["j1"]["agent"] == "a-1"
+    hook_output(no_file_tools, monkeypatch, capsys, json.dumps(file_call("Edit") | stepped(tmp_path, out.splitlines()[0], session="meta-session")))
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["agent"], job["session"], job["handed_to"], job["state"]) == ("a-9", "meta-session", None, "running")
 
 
 def test_an_agent_that_stops_before_any_step_is_recorded_and_its_line_sets_its_job(

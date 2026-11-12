@@ -38,6 +38,7 @@ PATH_END = re.compile(r"[^\w/]+$")
 DRIVE = PLUGIN / "bin" / "drive"
 CALL_SECONDS = 60
 ON_MAC = "on this Mac"
+UNPUSHED = "work it had not committed and pushed is not carried over. Commit and push before any long build."
 RELOAD = "/reload-plugins"
 SUBMIT_SECONDS = 10
 TIMEOUT = "timeout"
@@ -245,31 +246,40 @@ def uncarried(drive: str, brief: str) -> str | None:
 
 
 def brief_of(vm_brief: str) -> str:
-    """The job's own brief inside the text a launch wrote to its Sprite."""
-    return vm_brief.rsplit(BRIEF_HEADING, 1)[1].strip()
+    """The job's own brief inside the text a launch wrote to its Sprite, or the whole text of one drive job brief wrote."""
+    return vm_brief.rsplit(BRIEF_HEADING, 1)[-1].strip()
 
 
 def handoff(brief: str, ended: dict, job: dict, text: str, end: LaneEnd) -> str:
     """The brief of a lane taking over from one that died or finished: the job's brief, then what that lane left and the message it never read."""
-    prs = ", ".join(job["prs"]) or "none yet"
     local = state.on_mac(job)
     if end.worktree:
         how, where = "finished", f"You continue the job in its terminal and checkout {ON_MAC if local else 'on the same Sprite'}, as it left them."
     else:
         how, where = "died", (
-            f"You take the job over {'in a fresh worktree ' + ON_MAC if local else 'on a fresh Sprite'} from its pushed branches; "
-            "work it had not committed and pushed is not carried over. Commit and push before any long build."
+            f"You take the job over {'in a fresh worktree ' + ON_MAC if local else 'on a fresh Sprite'} from its pushed branches; {UNPUSHED}"
         )
+    held = f"The lane that held this job {how} {place(job)} at {render.when(ended['at'])}: {ended['why']}. {where}"
+    return taking_over(brief, f"a lane that {how}", held, end.branch, job, f"The coordinator's message it never read, which you act on now:\n\n{text.strip()}\n")
+
+
+def agent_handoff(brief: str, job: dict, text: str | None) -> str:
+    """The brief of an agent or lane taking over a job from an Agent of another session, which only that session's SendMessage reaches: the job's brief, then what that agent left and the message, when one came, that it never read."""
+    held = f"The agent that held this job, {job['agent']} of session {job['session']}, runs where this session cannot message it. You take the job over from its pushed branches; {UNPUSHED}"
+    return taking_over(brief, "an agent of another session", held, None, job, text and f"The message it never read, which you act on now:\n\n{text.strip()}\n")
+
+
+def taking_over(brief: str, holder: str, held: str, branch: str | None, job: dict, message: str | None) -> str:
+    prs = ", ".join(job["prs"]) or "none yet"
     return (
-        f"{brief}\n\n"
-        f"## Taking over from a lane that {how}\n\n"
-        f"The lane that held this job {how} {place(job)} at {render.when(ended['at'])}: {ended['why']}. "
-        f"{where}\n\n"
-        f"Its branch: {end.branch or job['branch'] or 'none recorded'}\n"
+        f"{brief.strip()}\n\n"
+        f"## Taking over from {holder}\n\n"
+        f"{held}\n\n"
+        f"Its branch: {branch or job['branch'] or 'none recorded'}\n"
         f"Its last line: {job['said'] or 'nothing yet'}\n"
         f"Its PRs: {prs}\n\n"
-        f"Its last report:\n\n{(job['report'] or 'none').strip()}\n\n"
-        f"The coordinator's message it never read, which you act on now:\n\n{text.strip()}\n"
+        f"Its last report:\n\n{(job.get('report') or 'none').strip()}\n"
+        + (f"\n{message}" if message else "")
     )
 
 

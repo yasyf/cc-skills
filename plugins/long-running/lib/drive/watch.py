@@ -1115,7 +1115,7 @@ def local_gap(job_id: str, job: dict, data: dict, moment: datetime) -> str | Non
             return Unrecorded(job_id, line)
         if quiet >= QUIET_FOR:
             missing = "codex-ask run" if job["kind"] == "codex" else "result line"
-            return f'{job_id}\'s agent ended its turn {minutes(quiet)} minutes ago on "{cut(line, 100)}" with no {missing}: SendMessage wakes it'
+            return f'{job_id}\'s agent ended its turn {minutes(quiet)} minutes ago on "{cut(line, 100)}" with no {missing}: SendMessage from the session that started it wakes it, and drive job resume {job_id} <the event> from any other'
         return None
     if quiet >= QUIET_FOR:
         return f"{job_id}'s agent has written nothing for {minutes(quiet)} minutes"

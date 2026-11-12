@@ -333,6 +333,27 @@ def test_launch_starts_a_job_added_with_no_agent_as_a_remote_lane(
     assert (job["where"], job["dispatch"]) == ("remote", DISPATCH)
 
 
+def test_launch_local_from_a_session_that_did_not_start_the_jobs_agent_starts_its_lane_on_a_handoff_as_that_sessions(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / ".orca.json").write_text("{}")
+    (tmp_path / "brief.md").write_text("Drive: demo, order o1, job j1\n")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "communicator-session")
+    run("start", "demo", "--role", "communicator")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a verb for owners")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--agent", "a-1")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "meta-session")
+    run("start", "demo", "--role", "meta")
+    monkeypatch.setattr(orca, "new_run", lambda objective: RUN)
+    launched: list[str] = []
+    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+    monkeypatch.setattr(orca, "launch", lambda drive, lane, brief, *rest: launched.append(brief.read_text()) or {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH})
+    assert run("job", "launch", "j1", "brief.md", "--local") == (0, f"j1 started on this Mac as dispatch {DISPATCH}")
+    assert "Drive: demo, order o1, job j1\n\n## Taking over from an agent of another session\n\nThe agent that held this job, a-1 of session communicator-session," in launched[0]
+    job = state.load(demo)["jobs"]["j1"]
+    assert (job["agent"], job["session"], job["where"], job["route"], job["dispatch"]) == (None, "meta-session", "remote", state.LOCAL_ROUTE, DISPATCH)
+
+
 @pytest.mark.parametrize(
     ("receipts", "said"),
     [

@@ -5,7 +5,7 @@ from drive import limits, state
 from drive.render import cut
 
 BRIEF_JOB = re.compile(r"^Drive:[^\n]*?\bjob (j\d+)\b", re.MULTILINE)
-BRIEF_FILE = re.compile(r"/\S+/jobs/j\d+\.brief\.md\b")
+BRIEF_FILE = re.compile(r"/\S+/jobs/j\d+\.(?:brief|handoff)\.md\b")
 HANDOFF = re.compile(r"^Handoff:", re.MULTILINE)
 SERVES_TOOLING = re.compile(r"^Serves:[ \t]*drive tooling\b", re.MULTILINE | re.IGNORECASE)
 RESEARCHED = re.compile(r"^Researched:[ \t]*$", re.MULTILINE)
