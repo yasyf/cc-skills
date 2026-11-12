@@ -710,7 +710,7 @@ def first_line(text: str) -> str:
 
 
 def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetime, kept: Path | None, unkept: str | None) -> str | None:
-    """Record one message from a remote lane on its job, a final report ending any question the lane asked before it and setting its state unless state.result_refusal refuses it, which the event line names, a question opening with a result other than ASK being that result, and the file a `REPRO:` line carries in the fence under it kept as `drive job set --repro` keeps one, executable when it opens with a shebang; the event line it wakes the coordinator with, if any, which for a question naming `LOG <url>`s says drive job resume reads them ahead of the answer, for an `ASK` the watch kept is `ASK <its file>`, as a job's own return is, and for one it could not keep says why, or that `drive job ask` keeps it."""
+    """Record one message from a remote lane on its job, a final report ending any question the lane asked before it and setting its state unless state.result_refusal refuses it or it types a clock time for work already done, which the event line names, a question opening with a result other than ASK being that result, and the file a `REPRO:` line carries in the fence under it kept as `drive job set --repro` keeps one, executable when it opens with a shebang; the event line it wakes the coordinator with, if any, which for a question naming `LOG <url>`s says drive job resume reads them ahead of the answer, for an `ASK` the watch kept is `ASK <its file>`, as a job's own return is, and for one it could not keep says why, or that `drive job ask` keeps it."""
     job = data["jobs"][job_id]
     kind = message["type"]
     body = message["body"] or ""
@@ -736,7 +736,7 @@ def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetim
             job.update(ask=None, state="running")
         if job["kind"] == "builder":
             job["said"] = re.sub(r"^READY\b", "PUSHED", job["said"])
-        if refused := state.result_refusal(data, job_id, job["said"], body):
+        if refused := state.result_refusal(data, job_id, job["said"], body) or limits.typed_time(body, data):
             return f'JOB {job_id} {job["order"]} {job["said"]}; refused, its state unset: {refused}; drive job resume {job_id} "<the refusal>" sends it back'
         state.take_result(data, job_id, job["said"], body)
         state.add_changes(data, job_id, body)

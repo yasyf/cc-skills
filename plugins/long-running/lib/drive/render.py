@@ -127,7 +127,8 @@ COORDINATOR_RULES = (
         " fit a line of 60 words or a summary of 120, with nothing for a second record. A POST names what it"
         " finishes, --attr close=<o>, part=<o>:<part> or progress=true, and carries every part of its order a finished job"
         " answered and no post delivered. What he reads names things by their proper"
-        " technical terms, never a stand-in, and no drive id he cannot open. "
+        " technical terms, never a stand-in, and no drive id he cannot open. A job's start is {started:<job>} and a"
+        " record's time {at:<seq>}, never a clock time you type. "
         + PREVENTED
     ),
     REACHING,

@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Self
 
-from drive import reads, render, state
+from drive import limits, reads, render, state
 from drive.brief import BRIEF_JOB, carried, heavier
 
 RECORD = re.compile(r"^Record: (\d+)\b", re.MULTILINE)
@@ -32,6 +32,10 @@ UNREAD_JOB = (
     " minutes; read it with `drive job replies <j>` or `cc-transcript`, then quote what it shows"
 )
 TAIL_BYTES = 4 << 20
+TYPED_TIME_RULE = (
+    "A clock time a session typed for work already done, such as when a job started or a post went out, which the drive's"
+    " stamps give; a promise of a time to come, a time quoted as a tool printed it and a linked time pass."
+)
 
 
 class Ruled(str):
@@ -98,6 +102,12 @@ def unread_job(payload: dict, text: str) -> str | None:
     if not jobs:
         return None
     return UNREAD_JOB.format(jobs=", ".join(jobs), its="their" if len(jobs) > 1 else "its")
+
+
+def typed_time(text: str, data: dict) -> Ruled | None:
+    """Why a session's record or message types a clock time for work already done, which Jev judges by the rule, so a promise its words put in another form than "by 5:40 AM" still passes."""
+    refusal = limits.typed_time(text, data)
+    return refusal and Ruled(f"refused: {refusal}", TYPED_TIME_RULE)
 
 
 def seen(payload: dict) -> dict:

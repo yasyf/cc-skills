@@ -6,8 +6,8 @@ from itertools import groupby, pairwise, permutations
 from pathlib import Path
 
 from drive import picture, slack
-from drive.render import cut, when
-from drive.state import KEPT_ASK, PR_KEY, PR_URL, TOOLING, DriveError, ask_hash, named_prs, root, same_question
+from drive.render import clock, cut, when
+from drive.state import KEPT_ASK, PR_KEY, PR_URL, TOOLING, DriveError, ask_hash, named_prs, now, root, same_question
 
 LINE_WORDS = 60
 SUMMARY_WORDS = 120
@@ -217,6 +217,13 @@ MARKED = re.compile(
 PLAIN_TEXT_RULING = 'his Nov 10 11:21 PM words "look at the formatting you have a link in teh titkle that is just raw markfowen"'
 PROPER_TERMS_RULING = 'his Nov 11 12:36 AM words "use the proper fucking terms for things"'
 DRIVE_ID = re.compile(r"\b[jo]\d+\b")
+JOB_ID = re.compile(r"\bj\d+\b")
+CLOCK_TIME = re.compile(r"\b(?:1[0-2]|0?[1-9])(?::[0-5]\d){0,2}\s?[AP]\.?M\b", re.IGNORECASE)
+PROMISED_BEFORE = re.compile(
+    r"\b(?:by|before|due(?:\s+(?:at|by))?|ETA|next (?:line|update|post|summary)(?:\s+(?:by|before|at))?)\s+(?:about\s+|around\s+)?\Z", re.IGNORECASE
+)
+CATCH_UP_SINCE = re.compile(r"\bcatch-up since\b[^\n*]*", re.IGNORECASE)
+STAMP_RULING = 'his Nov 3 ruling 20c4c24, "the agent should never be passing in a time"'
 VAGUE = re.compile(
     r"\b(?:the|this|that|these|those|your|our)\s+(?:\w+\s+)?(?:change|fix|pick|copy|thing|work|issue|problem|bug|approach|code|path)s?\b"
     r"|\bthis\b(?=\s*[?:,]|$)",
@@ -1239,6 +1246,27 @@ def masked(line: str) -> str:
     for pattern in (FENCED, MARKDOWN_LINK, TOKEN, URL, QUOTED, CODE_NAME):
         line = pattern.sub(lambda found: MASK * len(found[0]), line)
     return line
+
+
+def typed_time(text: str, data: dict) -> str | None:
+    """Why a write types a clock time for work already done, which the drive's stamps give, naming the stamp of the write and of each job it names: a time in code, a quote, a link or a catch-up's title, which the drive writes from its stamp, stays as written, and one its words promise, as "next line by 5:40 AM" and "due 6 AM" do, is a time to come."""
+    plain = CATCH_UP_SINCE.sub(lambda found: MASK * len(found[0]), QUOTED_LINE.sub(lambda found: MASK * len(found[0]), masked(text)))
+    typed = list(dict.fromkeys(found[0] for found in CLOCK_TIME.finditer(plain) if not PROMISED_BEFORE.search(plain, 0, found.start())))
+    if not typed:
+        return None
+    jobs = [
+        f", {job_id} was created at {when(data['jobs'][job_id]['created'], seconds=True)}, which {{started:{job_id}}} says"
+        for job_id in dict.fromkeys(JOB_ID.findall(plain))
+        if job_id in data["jobs"]
+    ]
+    times = ", ".join(f'"{time}"' for time in typed)
+    return (
+        f"{times} {'is a time' if len(typed) == 1 else 'are times'} typed for work already done, and the drive's stamps say when"
+        f" it happened: this write is stamped {clock(now(), seconds=True)}{''.join(jobs)}. Name the job or"
+        " record and let its stamp give the time, {started:<job>} for when a job started and {at:<seq>} for when a record went out,"
+        " which say fills; quote a time a tool printed in backticks, as it printed it; a promise of a time to come, such as"
+        f' "next line by 5:40 AM", passes ({STAMP_RULING})'
+    )
 
 
 def clause(line: str, bare: str, start: int, end: int) -> tuple[str, str]:

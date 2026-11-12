@@ -629,10 +629,12 @@ def sent(name: str, lane: str, posts: list[dict]) -> list[str]:
 
 
 def post(item: dict, data: dict, other: str, session: str | None) -> dict:
-    """The cci record an item posts as, to the lane it names, else other, a defect's or handoff's long text cut to one line with the whole at the top of its body, as the post hook cuts a record, and sent where the drive routes it: a defect to the meta session, the communicator's owner record about the drive to the meta session alone, and its other owner, answer or handoff record, whatever lane it names, to the session holding the order its attr order names, else the order of the job it answers, else the newest order in its thread; an owner record naming no about, or an item whose re names several seqs, is refused."""
+    """The cci record an item posts as, to the lane it names, else other, a defect's or handoff's long text cut to one line with the whole at the top of its body, as the post hook cuts a record, and sent where the drive routes it: a defect to the meta session, the communicator's owner record about the drive to the meta session alone, and its other owner, answer or handoff record, whatever lane it names, to the session holding the order its attr order names, else the order of the job it answers, else the newest order in its thread; an owner record naming no about, a defect typing a clock time for work already done, or an item whose re names several seqs, is refused."""
     drive = data["name"]
     if item["kind"] not in RECORD["properties"]["kind"]["enum"]:
         raise DriveError(f"record posts owner, answer, handoff and defect records; a {item['kind']} goes through the cci `post` tool, whose hook reads it")
+    if item["kind"] == "defect" and (typed := limits.typed_time(f"{item['text']}\n{item.get('body') or ''}", data)):
+        raise DriveError(f"{typed}; nothing posted")
     text, attrs = item["text"], dict(item.get("attrs") or {})
     made = {"kind": item["kind"]}
     for key in ("url", "resolves", "topic", "body"):

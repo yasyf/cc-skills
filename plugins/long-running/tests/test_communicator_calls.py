@@ -144,3 +144,13 @@ def test_an_order_to_a_running_job_goes_unread_and_only_a_claim_or_ask_about_its
     output = json.loads(hook_output(monkeypatch, capsys, call("Bash", transcript(tmp_path), command='drive job resume j1 "you have been silent"')))
     assert "(`you have been silent`)" in output["hookSpecificOutput"]["permissionDecisionReason"]
     assert output["rule"] == communicator_calls.STATE_RULE
+
+
+
+def test_the_coordinators_message_typing_when_past_work_happened_is_refused_and_a_promise_passes(
+    demo: str, builder: Callable[..., None], tmp_path: Path
+) -> None:
+    builder(where="local", dispatch=None, agent="a-7", state="running")
+    reason = communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message="Your fix job started at 10:55 PM; rebase it on dev"))
+    assert reason.startswith('refused: "10:55 PM" is a time typed for work already done')
+    assert communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message="Rebase it on dev; return by 11:30 PM")) is None
