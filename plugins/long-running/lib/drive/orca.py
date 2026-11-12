@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 from typing import IO, NamedTuple
 
-from drive import agents, render, state
+from drive import agents, github, render, state
 from drive.install import config_dir
 from drive.state import DriveError
 
@@ -55,6 +55,8 @@ UNSTARTED = 75
 CC_REMOTE = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "cc-remote"
 CC_REMOTE_WORKSPACES = CC_REMOTE / "workspaces"
 CC_REMOTE_TASKS = CC_REMOTE / "orca"
+CHECKOUT_LOCK = ".checkout.lock"
+CHECKOUT_SECONDS = 600
 
 
 class OrcaError(DriveError):
@@ -346,6 +348,31 @@ def tool(name: str) -> str:
         raise OrcaError(f"{name} comes with the orca plugin, which is not installed; install orca@skills")
     newest = max(installs, key=lambda entry: entry.get("lastUpdated") or entry.get("installedAt") or "")
     return str(Path(newest["installPath"]) / "bin" / name)
+
+
+def checkout(drive: str, data: dict) -> Path:
+    """The checkout each lane's launch, save and release runs the orca plugin's scripts in, so every Sprite claim, refill and cleanup runs the cc-remote, config and tool payload its repository's default branch pins now: the worktree of the coordinator checkout's repository holding the branch drive-<drive>, which only the drive uses, moved with one fetch to that branch's head before each, never a session's working tree at whatever commit and edits it carries. git's worktree list finds it; the first launch makes it with ccx vcs worktree add, so it sits under ccx's worktree root, where its owner's mise trusts a worktree's mise.toml as the cc-remote shim needs. It is moved with no hook, since the monorepo's post-checkout hook warms node_modules that no launch reads, under the drive's checkout lock, since lanes launch at once; DriveError naming why it was not moved, or that the head holds no .orca.json."""
+    clone = data["roles"]["coordinator"]["cwd"]
+    lane = f"drive-{drive}"
+    try:
+        branch = github.default_branch(github.checkout_repo(clone))
+        with state.flocked(state.drive_dir(drive) / CHECKOUT_LOCK):
+            sha = github.fetched(clone, branch)
+            if not (kept := holder(clone, lane)):
+                github.run(["ccx", "vcs", "worktree", "add", lane, "--jj", "none"], cwd=clone, timeout=CHECKOUT_SECONDS)
+                kept = holder(clone, lane)
+            github.run(["git", "-C", str(kept), "-c", "core.hooksPath=/dev/null", "-c", "checkout.workers=0", "checkout", "-q", "--force", "-B", lane, sha], timeout=CHECKOUT_SECONDS)
+    except github.GithubError as error:
+        raise DriveError(f"the drive's checkout, the worktree of {clone}'s repository on {lane}, was not moved to the head of its default branch, so nothing launched, saved or released from it: {error}") from None
+    if not (kept / ".orca.json").is_file():
+        raise DriveError(f"{kept}, the drive's checkout at {branch} {sha[:12]}, has no .orca.json, so no lane can be cloned from it")
+    return kept
+
+
+def holder(clone: str, branch: str) -> Path | None:
+    """The worktree of clone's repository that has branch checked out, as git's worktree list names it."""
+    entries = [entry.split("\n") for entry in github.run(["git", "-C", clone, "worktree", "list", "--porcelain"]).split("\n\n")]
+    return next((Path(lines[0].removeprefix("worktree ")) for lines in entries if f"branch refs/heads/{branch}" in lines), None)
 
 
 def launch(drive: str, lane: str, brief: Path, checkout: Path, run: str, route: str | None, workspace: str | None) -> dict:

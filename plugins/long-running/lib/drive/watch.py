@@ -1567,7 +1567,7 @@ def stranded(job_id: str, data: dict, gap: str | None, unlisted: dict[str, dict]
 
 
 def release_sprites(watcher: Watcher) -> None:
-    """Destroy the Sprite of each done, failed or stopped job it hears that cc-remote still records, with the reclaimer's --destroy in a process of its own, at most two at once and each Sprite once a watch, so it and its Orca environment go once it holds nothing on no remote; what each run printed goes to the watch log."""
+    """Destroy the Sprite of each done, failed or stopped job it hears that cc-remote still records, with the reclaimer's --destroy in a process of its own run from the drive's checkout, moved to its default branch's head first, at most two at once and each Sprite once a watch, so it and its Orca environment go once it holds nothing on no remote; what each run printed goes to the watch log, and a pass whose move fails releases nothing, saying why there."""
     if state.scratch():
         return
     watcher.releasing = {workspace: run for workspace, run in watcher.releasing.items() if run.poll() is None}
@@ -1580,9 +1580,14 @@ def release_sprites(watcher: Watcher) -> None:
             continue
         if not heard_job(watcher, data, job) or not orca.holds_sprite(job):
             continue
-        watcher.released.add(job["workspace"])
         with state.watch_log_path(watcher.name, watcher.project).open("a") as log:
-            watcher.releasing[job["workspace"]] = orca.release_detached(job["workspace"], Path(data["roles"]["coordinator"]["cwd"]), log)
+            try:
+                checkout = orca.checkout(watcher.name, data)
+            except state.DriveError as error:
+                log.write(f"{job['workspace']} is kept until a later pass: {error}\n")
+                return
+            watcher.released.add(job["workspace"])
+            watcher.releasing[job["workspace"]] = orca.release_detached(job["workspace"], checkout, log)
 
 
 def death_lines(name: str, deaths: dict[str, tuple[str, str]], moment: datetime) -> list[str]:

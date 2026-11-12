@@ -1738,14 +1738,6 @@ def other_sessions_agent(job: dict) -> str | None:
     return session if session and job["where"] == "local" and job["agent"] and job["session"] != session else None
 
 
-def checkout(data: dict) -> Path:
-    """The checkout lanes are cloned from: the coordinator's recorded cwd, whatever folder drive runs in."""
-    root = Path(data["roles"]["coordinator"]["cwd"])
-    if not (root / ".orca.json").is_file():
-        raise DriveError(f"{root}, the drive's recorded checkout, has no .orca.json, so no lane can be cloned from it")
-    return root
-
-
 def answer_first(name: str, order: dict, order_id: str, job_id: str) -> str:
     """Where an answer order's reader sends his answer the moment it is proven, by his pick "answer-only jobs also post their answer once found": a progress report the communicator's handler posts in the order's thread, ahead of the full report the coordinator closes the order with."""
     attrs = {"thread": order["thread"][1]} if order["thread"] else {}
@@ -1869,7 +1861,7 @@ def launched(args: argparse.Namespace, name: str) -> dict:
         remote_job(data, args.id)
     if not (args.brief or job.get("brief")):
         raise DriveError(f"{args.id} has no brief: write it with drive job brief {args.id}, or name its file")
-    root = checkout(data)
+    root = orca.checkout(name, data)
     text = named_text(args.brief or job["brief"], "brief file")
     if taker:
         text = orca.agent_handoff(text, job, None)
@@ -1991,7 +1983,7 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
     """Start the job's next worker with a handoff: in the terminal of a worker that finished while Orca holds it, on its Sprite or on this Mac, on that worker's Run; else, on a Run this terminal makes, on a fresh Sprite, or in a fresh worktree on this Mac. Before a relaunch it saves to GitHub what the dead lane's Sprite holds that a fresh one would not get, and its handoff names the saved branches; when that Sprite cannot be read or the save fails, the relaunch runs on that Sprite instead, in the checkout the dead lane left. A relaunch on a fresh Sprite then destroys the dead lane's Sprite once it holds nothing on no remote. A finished worker whose terminal or worktree Orca no longer finds starts its next worker as a dead one's would. A relaunch an earlier restart of the same death started and never recorded is recorded from the ready receipt its attempt keeps, never launched twice."""
     data = state.load(name)
     job = data["jobs"][args.id]
-    root = None if end.worktree else checkout(data)
+    root = None if end.worktree else orca.checkout(name, data)
     left = None
     try:
         saved = None if end.worktree else orca.save(name, args.id, job, root)
@@ -2083,7 +2075,7 @@ def job_end(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     data = state.load(name)
     job = started_job(data, args.id)
-    root = checkout(data)
+    root = orca.checkout(name, data)
     saved = None
     if job["state"] not in state.FINISHED_JOB_STATES:
         try:
@@ -3577,7 +3569,9 @@ def parser() -> argparse.ArgumentParser:
         parents=both,
         help="start a remote job's Orca lane on a Sprite, or on this Mac with --local",
         description=(
-            "Start a remote job's Orca lane on a Sprite, or on this Mac with --local. A job held by an Agent another session started,"
+            "Start a remote job's Orca lane on a Sprite, or on this Mac with --local, from the drive's own checkout, moved first with one"
+            " fetch to the head of the coordinator checkout's default branch, so the lane gets the cc-remote and tools that head pins."
+            " A job held by an Agent another session started,"
             " which this session cannot SendMessage, starts on a handoff brief carrying the job's brief, that agent's branch, last"
             " line, report and PRs, and the job is recorded as this session's lane."
         ),

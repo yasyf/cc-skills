@@ -8,8 +8,10 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import LIVE_WORKER, Drawing, staged
+from conftest import LIVE_WORKER, Drawing, cloned, git_in, staged
 from drive import cli, github, orca, place, reads, render, state, view, watch
+
+pytestmark = pytest.mark.usefixtures("ccx_worktrees")
 
 Run = Callable[..., tuple[int, str]]
 T0 = state.parse_time("2026-11-09T07:30:00-08:00")
@@ -218,7 +220,7 @@ def test_place_counts_a_builder_lane_started_on_this_mac_while_it_launches_or_ru
 def test_a_local_launch_that_started_no_worker_stops_counting_as_a_builder_here(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, refusal: type[orca.OrcaError], counted: dict[str, str]
 ) -> None:
-    (tmp_path / ".orca.json").write_text("{}")
+    cloned(tmp_path, demo)
     (tmp_path / "brief.md").write_text("Drive: demo, order o1, job j1\n")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship it")
@@ -313,7 +315,7 @@ def test_job_set_agent_records_the_run_task_terminal_and_lane_orca_shows_for_the
 def test_launch_composes_the_vm_brief_and_records_the_lane(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    (tmp_path / ".orca.json").write_text("{}")
+    cloned(tmp_path, demo)
     (tmp_path / "brief.md").write_text("Order (his words): ship it\nDrive: demo, order o1, job j1\n")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship it", "--remote")
@@ -329,7 +331,7 @@ def test_launch_composes_the_vm_brief_and_records_the_lane(
     monkeypatch.setattr(orca, "launch", fake_launch)
     code, out = run("job", "launch", "j1", "brief.md")
     assert (code, out) == (0, f"j1 started on Sprite workspace-1 as dispatch {DISPATCH}")
-    assert (launched["lane"], launched["checkout"].resolve(), launched["run"]) == ("demo-j1", tmp_path.resolve(), RUN)
+    assert (launched["lane"], launched["checkout"], launched["run"]) == ("demo-j1", tmp_path / "worktrees" / "drive-demo", RUN)
     assert launched["brief"].startswith("Remote lane: drive demo, job j1.")
     assert "## On a Sprite" in launched["brief"]
     assert "# Land a change" in launched["brief"]
@@ -342,23 +344,42 @@ def test_launch_composes_the_vm_brief_and_records_the_lane(
     assert run("job", "launch", "j1", "brief.md")[0] == 2
 
 
-def test_launch_clones_from_the_drives_recorded_checkout_whatever_folder_it_runs_in(
-    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_launch_runs_from_the_drives_own_worktree_made_once_with_ccx_and_moved_with_one_fetch_to_the_default_branchs_head_never_the_coordinators_working_tree(
+    run: Run, demo: str, tmp_path: Path, ccx_worktrees: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
-    run("job", "add", "builder", "--order", "o1", "--goal", "ship it", "--remote")
+    for goal in ("ship it", "ship it again"):
+        run("job", "add", "builder", "--order", "o1", "--goal", goal, "--remote")
     state_folder = state.drive_dir(demo)
-    (state_folder / "brief.md").write_text("Drive: demo, order o1, job j1\n")
+    for job_id in ("j1", "j2"):
+        (state_folder / f"{job_id}-brief.md").write_text(f"Drive: demo, order o1, job {job_id}\n")
     monkeypatch.setattr(orca, "new_run", lambda objective: RUN)
-    checkouts = []
+    fetches, pins = [], []
+    fetched = github.fetched
+    monkeypatch.setattr(github, "fetched", lambda clone, branch: fetches.append(branch) or fetched(clone, branch))
     fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
-    monkeypatch.setattr(orca, "launch", lambda drive, lane, brief, checkout, *rest: checkouts.append(checkout.resolve()) or dict.fromkeys(fields, DISPATCH))
+
+    def launch(drive: str, lane: str, brief: Path, checkout: Path, *rest: object) -> dict:
+        pins.append((checkout, git_in(checkout, "rev-parse", "HEAD"), (checkout / "versions.toml").read_text()))
+        return dict.fromkeys(fields, DISPATCH)
+
+    monkeypatch.setattr(orca, "launch", launch)
     monkeypatch.chdir(state_folder)
-    assert cli.main(["job", "launch", "j1", "brief.md"]) == 2
-    assert capsys.readouterr().err == f"drive: {tmp_path}, the drive's recorded checkout, has no .orca.json, so no lane can be cloned from it\n"
-    (tmp_path / ".orca.json").write_text("{}")
-    assert run("job", "launch", "j1", "brief.md")[0] == 0
-    assert checkouts == [tmp_path.resolve()]
+    kept = ccx_worktrees / "drive-demo"
+    unlaunchable = cloned(tmp_path, demo, {"versions.toml": "cc-remote 0.27.32\n"})
+    assert cli.main(["job", "launch", "j1", "j1-brief.md"]) == 2
+    assert capsys.readouterr().err == f"drive: {kept}, the drive's checkout at main {unlaunchable[:12]}, has no .orca.json, so no lane can be cloned from it\n"
+    clone = tmp_path / "clone"
+    (clone / "versions.toml").write_text("cc-remote 0.27.30\n")
+    untouched = (git_in(clone, "rev-parse", "HEAD"), git_in(clone, "status", "--porcelain"))
+    pinned = cloned(tmp_path, demo, {".orca.json": "{}", "versions.toml": "cc-remote 0.27.37\n"})
+    assert run("job", "launch", "j1", "j1-brief.md")[0] == 0
+    repinned = cloned(tmp_path, demo, {"versions.toml": "cc-remote 0.27.38\n"})
+    assert run("job", "launch", "j2", "j2-brief.md")[0] == 0
+    assert pins == [(kept, pinned, "cc-remote 0.27.37\n"), (kept, repinned, "cc-remote 0.27.38\n")]
+    assert fetches == ["main", "main", "main"]
+    assert (ccx_worktrees / "made").read_text() == "drive-demo\n"
+    assert (git_in(clone, "rev-parse", "HEAD"), git_in(clone, "status", "--porcelain")) == untouched
 
 
 def test_a_sprite_brief_carries_every_drive_file_it_names_whole_a_lanes_report_kept_only_in_the_drive_included(
@@ -403,7 +424,7 @@ def test_a_sprite_brief_carries_every_drive_file_it_names_whole_a_lanes_report_k
 def test_launch_refuses_a_brief_naming_a_drive_file_the_drive_keeps_no_text_of_and_stamps_nothing(
     run: Run, demo: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    (tmp_path / ".orca.json").write_text("{}")
+    cloned(tmp_path, demo)
     asked = state.drive_dir(demo) / "asks" / "j1290-702505b0.md"
     (tmp_path / "brief.md").write_text(f"Order (his words): ship it\nPlan: j404 kept the plan\nDone when: his card in {asked} draws\nDrive: demo, order o1, job j1\n")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
@@ -430,7 +451,7 @@ def test_launch_refuses_a_job_on_this_mac_and_a_checkout_without_orca_values(
 def test_launch_refuses_a_brief_file_that_is_not_there_and_stamps_nothing(
     run: Run, demo: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    (tmp_path / ".orca.json").write_text("{}")
+    cloned(tmp_path, demo)
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship it")
     before = state.load(demo)["jobs"]["j1"]
@@ -442,7 +463,7 @@ def test_launch_refuses_a_brief_file_that_is_not_there_and_stamps_nothing(
 def test_launch_starts_a_job_added_with_no_agent_as_a_remote_lane(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    (tmp_path / ".orca.json").write_text("{}")
+    cloned(tmp_path, demo)
     (tmp_path / "brief.md").write_text("Drive: demo, order o1, job j1\n")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship it")
@@ -462,7 +483,7 @@ def test_launch_starts_a_job_added_with_no_agent_as_a_remote_lane(
 def test_launch_starts_a_brief_that_runs_break_glass_only_on_this_mac(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    (tmp_path / ".orca.json").write_text("{}")
+    cloned(tmp_path, demo)
     (tmp_path / "brief.md").write_text(
         "Drive: demo, order o1, job j1\nRepair: drive break-glass j1 --stack sandsql/plat-usw2-prod --reason stuck -- aws s3 ls\n"
     )
@@ -483,7 +504,7 @@ def test_launch_starts_a_brief_that_runs_break_glass_only_on_this_mac(
 def test_launch_local_from_a_session_that_did_not_start_the_jobs_agent_starts_its_lane_on_a_handoff_as_that_sessions(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    (tmp_path / ".orca.json").write_text("{}")
+    cloned(tmp_path, demo)
     (tmp_path / "brief.md").write_text("Drive: demo, order o1, job j1\n")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "a verb for owners")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--agent", "a-1")
@@ -599,7 +620,7 @@ def dead(verdict: str = "exited") -> dict:
 def test_resume_to_a_dead_worker_relaunches_the_job_with_the_message_in_its_handoff(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    (tmp_path / ".orca.json").write_text("{}")
+    cloned(tmp_path, remote)
     first = tmp_path / "first.md"
     first.write_text(orca.vm_brief(remote, "j1", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
     with state.edit(remote) as data:
@@ -653,7 +674,7 @@ def test_resume_to_a_dead_worker_relaunches_the_job_with_the_message_in_its_hand
 def test_a_resume_retried_after_its_bind_refused_relaunches_the_same_attempt_with_the_new_handoff(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    (tmp_path / ".orca.json").write_text("{}")
+    cloned(tmp_path, remote)
     first = tmp_path / "first.md"
     first.write_text(orca.vm_brief(remote, "j1", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
     with state.edit(remote) as data:
@@ -729,7 +750,7 @@ def dead_lane_holding(remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPat
 def test_resume_saves_what_a_dead_lanes_sprite_holds_to_github_and_hands_the_saved_branches_to_the_next_lane(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    (tmp_path / ".orca.json").write_text("{}")
+    cloned(tmp_path, remote)
     saves = []
     launched = dead_lane_holding(remote, tmp_path, monkeypatch, lambda drive, job_id, job, root: saves.append((drive, job_id, job["workspace"])) or SAVED)
     assert run("job", "resume", "j1", "Build #4412 failed: fix the lint") == (
@@ -754,7 +775,7 @@ def test_resume_saves_what_a_dead_lanes_sprite_holds_to_github_and_hands_the_sav
 def test_resume_continues_a_dead_lane_on_its_own_sprite_when_what_that_sprite_holds_cannot_be_read_or_saved(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, why: str
 ) -> None:
-    (tmp_path / ".orca.json").write_text("{}")
+    cloned(tmp_path, remote)
     launched = dead_lane_holding(remote, tmp_path, monkeypatch, unsaveable(why))
     assert run("job", "resume", "j1", "Build #4412 failed: fix the lint") == (
         0,
@@ -850,7 +871,7 @@ def test_resume_to_a_worker_that_finished_starts_the_next_one_in_its_terminal_wi
 def test_resume_to_a_finished_worker_whose_terminal_orca_no_longer_finds_relaunches_the_job_as_a_dead_lanes(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    (tmp_path / ".orca.json").write_text("{}")
+    cloned(tmp_path, remote)
     first = tmp_path / "first.md"
     first.write_text(orca.vm_brief(remote, "j1", "Order (his words): prove it\nDrive: demo, order o1, job j1", None))
     with state.edit(remote) as data:
@@ -1130,7 +1151,7 @@ def test_resume_keeps_a_question_the_lane_asked_while_it_was_answered(
 
 
 def test_resume_and_end_refuse_a_lane_that_never_started(run: Run, demo: str, tmp_path: Path) -> None:
-    (tmp_path / ".orca.json").write_text("{}")
+    cloned(tmp_path, demo)
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "there", "--remote")
     assert run("job", "resume", "j1", "go")[0] == 2
@@ -1148,7 +1169,7 @@ def carrying(run: Run, remote: str) -> list[str]:
 def test_end_frees_a_waiting_lane_and_the_job_keeps_waiting_with_its_waits_prs_and_carried_parts(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    (tmp_path / ".orca.json").write_text("{}")
+    cloned(tmp_path, remote)
     parts = carrying(run, remote)
     run("job", "add", "builder", "--order", "o1", "--goal", "restack onto the fix", "--remote")
     url = "https://github.com/Forge-AI/monorepo/pull/53430"
@@ -1176,7 +1197,7 @@ def test_end_frees_a_waiting_lane_and_the_job_keeps_waiting_with_its_waits_prs_a
 def test_end_refuses_while_the_sprite_of_a_job_still_at_work_cannot_be_saved(
     remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    (tmp_path / ".orca.json").write_text("{}")
+    cloned(tmp_path, remote)
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(state="waiting", workspace="pool-ie7ugrhamhjtmnwa")
     why = "orca-reclaim.py exited 1: ssh to pool-ie7ugrhamhjtmnwa could not read /home/sprite/monorepo: i/o timeout"
@@ -1193,7 +1214,7 @@ def test_end_refuses_while_the_sprite_of_a_job_still_at_work_cannot_be_saved(
 def test_end_saves_what_the_sprite_of_a_job_still_at_work_holds_and_its_next_lane_gets_the_saved_branches(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    (tmp_path / ".orca.json").write_text("{}")
+    cloned(tmp_path, remote)
     first = tmp_path / "first.md"
     first.write_text(orca.vm_brief(remote, "j1", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
     with state.edit(remote) as data:
@@ -1223,7 +1244,7 @@ def test_end_saves_what_the_sprite_of_a_job_still_at_work_holds_and_its_next_lan
 def test_end_destroys_the_sprite_cc_remote_still_records_or_names_what_keeps_it(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    (tmp_path / ".orca.json").write_text("{}")
+    cloned(tmp_path, remote)
     carrying(run, remote)
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(state="done", workspace="pool-one")
@@ -1247,7 +1268,7 @@ def test_end_destroys_the_sprite_cc_remote_still_records_or_names_what_keeps_it(
 def test_end_of_a_finished_job_never_reads_its_sprite_and_drops_the_parts_it_carried(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    (tmp_path / ".orca.json").write_text("{}")
+    cloned(tmp_path, remote)
     carrying(run, remote)
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(state="stopped", workspace="pool-one")
@@ -1261,7 +1282,7 @@ def test_end_of_a_finished_job_never_reads_its_sprite_and_drops_the_parts_it_car
 def test_resume_after_end_relaunches_the_job_on_a_fresh_sprite_with_the_message_in_its_handoff(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    (tmp_path / ".orca.json").write_text("{}")
+    cloned(tmp_path, remote)
     first = tmp_path / "first.md"
     first.write_text(orca.vm_brief(remote, "j1", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
     url = "https://github.com/Forge-AI/monorepo/pull/53935"
@@ -2109,7 +2130,7 @@ def test_a_launch_whose_worker_started_unrecorded_is_recorded_from_its_kept_rece
 def test_a_relaunch_whose_worker_started_unrecorded_is_recorded_from_its_kept_receipt_by_the_next_resume_which_starts_nothing(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    (tmp_path / ".orca.json").write_text("{}")
+    cloned(tmp_path, remote)
     first = state.drive_dir(remote) / "jobs" / "j1.md"
     first.parent.mkdir(exist_ok=True)
     first.write_text(orca.vm_brief(remote, "j1", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
@@ -2220,7 +2241,7 @@ def test_placing_tools_on_a_sprite_runs_the_orca_step_on_its_cc_remote_task_with
 def test_launch_local_records_a_lane_on_this_mac_that_reads_as_starting_while_it_launches(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    (tmp_path / ".orca.json").write_text("{}")
+    cloned(tmp_path, demo)
     (tmp_path / "brief.md").write_text("Drive: demo, order o1, job j1\n")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship it")
