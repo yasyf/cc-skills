@@ -128,8 +128,9 @@ opens with a result word other than `ASK`, is that result and asks nothing, and 
 question the lane asked before it, since the lane no longer waits on that answer. The watch takes
 each message once: one the job's kept history already holds is never an event again, so a watch
 that restarts after an install says nothing it said before. `drive status --json` holds the whole latest report, and
-`drive job replies <j>` prints every result and question the lane sent, oldest first with its time,
-for a line that points at an earlier reply.
+`drive job replies <j>` prints every result and question the lane sent, and every return a job on
+this Mac kept with `drive job report <j> -`, oldest first with its time, for a line that points at an
+earlier reply.
 
 **Reads.** A Sprite holds no Buildkite or AWS credentials, by his least-privilege ruling, and no
 copy of the drive's cci or cc-notes records, so a lane reads through this Mac with a blocking
@@ -247,8 +248,10 @@ write-up; only the handler that writes to him writes prose.
   `drive job report` refuses a builder's or designer's report that opens with any other word.
 - The rest of the kept report is one fact a line: links, numbers, paths, exact quotes, and what it
   could not prove.
-- Whoever acts on it reads it with `drive job report <j>`, which prints a remote lane's Orca report
-  the same way; an `ASK` keeps its block through `drive job ask` instead.
+- Whoever acts on it reads it with `drive job report <j>`, which prints the newest kept, and a remote
+  lane's Orca report the same way; an `ASK` keeps its block through `drive job ask` instead. A job
+  that reports again replaces what `drive job report <j>` prints, never what it kept: `drive job
+  replies <j>` prints each return it kept, oldest first, beside each message a remote lane sent.
 
 ## Rules for every job
 
