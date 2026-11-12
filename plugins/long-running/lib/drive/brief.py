@@ -212,7 +212,7 @@ def job_refusal(name: str, data: dict, order_id: str, kind: str, parts: list[str
 
 
 def unasked_design(reader: str, questions: list[dict]) -> str | None:
-    """Why a reader's DESIGN holds its order's builder: the reader's kept question is the one record of its choice, so the builder starts once that question is on his card, building the recommended option beside it until his answer closes it, or once his recorded words settle it with no card drawn."""
+    """Why a reader's DESIGN holds its order's builder: the reader's kept question is the one record of its choice, so the builder starts once that question's ask record is out, building the recommended option beside his card until his answer closes it, or once his recorded words settle it with no card drawn."""
     if any(question["closed"] or question["card"] or question["waits"] for question in questions):
         return None
     if not questions:
@@ -229,9 +229,8 @@ def unasked_design(reader: str, questions: list[dict]) -> str | None:
             f" drive job ask {reader} {asked['file']}"
         )
     return (
-        f'{reader} returned DESIGN, and its question "{cut(asked["title"] or "", 80)}" kept in {asked["file"]} is on no card of his yet:'
-        " its ask record draws the card, or, when his recorded words settle it, the record tool's answer naming that ask's waits id"
-        " settles it with no card; this builder starts once either is done"
+        f'{reader} returned DESIGN, and its question "{cut(asked["title"] or "", 80)}" kept in {asked["file"]} has no waits id, so its ask record'
+        f" never went out and no card draws: drive job ask {reader} {asked['file']} sends it, and this builder starts once it is out"
     )
 
 

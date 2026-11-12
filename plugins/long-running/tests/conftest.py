@@ -26,6 +26,7 @@ from drive import (
     stage,
     state,
     talk,
+    tools,
     view,
     watch,
 )
@@ -221,6 +222,21 @@ def lane_spec(monkeypatch: pytest.MonkeyPatch) -> None:
 def install_lock() -> Iterator[None]:
     yield
     state.let_go_install()
+
+
+@pytest.fixture(autouse=True)
+def asks_sent(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
+    sent: list[dict] = []
+    real = tools.sent
+
+    def post(name: str, lane: str, posts: list[dict]) -> list[str]:
+        if [made["kind"] for made in posts] != ["ask"]:
+            return real(name, lane, posts)
+        sent.append({"lane": lane} | posts[0])
+        return [str(6 + len(sent))]
+
+    monkeypatch.setattr(tools, "sent", post)
+    return sent
 
 
 @pytest.fixture(autouse=True)

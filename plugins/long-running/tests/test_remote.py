@@ -2150,15 +2150,16 @@ def test_an_open_question_kept_before_the_watch_read_it_as_a_read_is_answered_an
     assert (job["ask"], job["state"], job["reads"]) == (None, "running", {})
 
 
-def test_an_ask_naming_the_block_drive_job_ask_kept_wakes_the_coordinator_with_its_file(
-    remote: str, monkeypatch: pytest.MonkeyPatch, drawing: Drawing
+def test_an_ask_naming_the_block_drive_job_ask_kept_and_posted_wakes_the_coordinator_with_its_file(
+    remote: str, monkeypatch: pytest.MonkeyPatch, drawing: Drawing, asks_sent: list[dict]
 ) -> None:
     kept = cli.keep_ask(remote, "j1", ASK_IN_SHAPE, None)[0]
     deliver(monkeypatch, [message("question", f"ASK {kept}", id="msg_ask")])
     monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"the watch replied {args}"))
     assert watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0), T0) == [f"JOB j1 o1 ASK {kept}"]
     job = state.load(remote)["jobs"]["j1"]
-    assert (job["ask"], job["state"], [question["file"] for question in job["questions"]]) == ("msg_ask", "waiting", [str(kept)])
+    assert (job["ask"], job["state"], [(question["file"], question["waits"]) for question in job["questions"]]) == ("msg_ask", "waiting", [(str(kept), f"{remote}:j1-7")])
+    assert [(sent["kind"], sent["to"], sent["attr"]["ask"]) for sent in asks_sent] == [("ask", [f"communicator@{remote}"], str(kept))]
 
 
 @pytest.mark.parametrize("sent", [ASK_IN_SHAPE, "ASK /home/sprite/scratch/j1/ask.md"])

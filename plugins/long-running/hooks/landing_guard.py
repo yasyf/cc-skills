@@ -188,7 +188,7 @@ CCI_POST = Landing(
     {"h": "help"},
     reads=("help",),
 )
-ASK_KEPT = Landing(("drive", "job", "ask"), frozenset({"drive", "unsettled", "check", "drop"}))
+ASK_KEPT = Landing(("drive", "job", "ask"), frozenset({"drive", "unsettled", "check", "drop", "redraws"}))
 RELEASE_STARTERS = (Landing(("ci", "release", "start"), frozenset({"order"})), Landing(("ci", "release", "hotfix"), frozenset({"order"})))
 RELEASE_CARD = (
     "A release starts only on his order to release it, his pick on a card that asked whether to release it, or an incident's"
@@ -715,13 +715,13 @@ def shell_of(payload: dict) -> tuple[list[str], Shell]:
 
 
 def judged_reason(payload: dict) -> str | None:
-    """Why a drive session's Bash call looks wrong in a way Jev judges before it stands: it posts a drive's ask record past the check against his answers or naming an ASK file that keeps another question than its own or one his answer closed, a report carrying a part in an attr other than part, which no post reads, or naming an attr a separator, a capital or one letter from one the drive reads, a record to lanes other than the drive routes it to, a report to the communicator that the checks the cci `post` tool's hook runs refuse, such as one leaving out a part a finished job answered, or a record a handler posts to him typing a clock time for work already done, or is the coordinator's or the meta session's own order work."""
+    """Why a drive session's Bash call looks wrong in a way Jev judges before it stands: it posts a drive's ask record, which only `drive job ask` posts, a report carrying a part in an attr other than part, which no post reads, or naming an attr a separator, a capital or one letter from one the drive reads, a record to lanes other than the drive routes it to, a report to the communicator that the checks the cci `post` tool's hook runs refuse, such as one leaving out a part a finished job answered, or a record a handler posts to him typing a clock time for work already done, or is the coordinator's or the meta session's own order work."""
     names, shell = shell_of(payload)
     session = shell.session
     command = payload["tool_input"]["command"]
     posts = cci_posts(command, shell)
-    if names and (unkept := next(filter(None, (settled.ask_refusal(names, post["attrs"], post["text"]) for post in posts if post["kind"] == "ask")), None)):
-        return unkept
+    if names and any(post["kind"] == "ask" for post in posts):
+        return settled.HAND_ASK
     if names and (misnamed := next(filter(None, (reports.stray_parts(post["kind"], post["attrs"]) or limits.misnamed(post["kind"], post["attrs"]) for post in posts)), None)):
         return misnamed
     if posts and (wrong := misrouted(posts, state.bound_drives(names), session)):

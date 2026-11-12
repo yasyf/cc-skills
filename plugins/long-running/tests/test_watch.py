@@ -1764,8 +1764,8 @@ def test_a_codex_lane_that_built_its_recommended_option_has_the_ask_block_it_nam
         data["jobs"]["j1"].update(kind="codex", session="session-under-test", agent="a1", updated=state.stamp(state.now() - timedelta(minutes=10)))
     kept = state.drive_dir(demo) / "asks" / f"j1-{state.ask_hash(SHORT_ASK)}.md"
     assert watch.run_pass(watcher(demo, state.now()), state.now()) == [
-        f"JOB j1 o1 DONE built one snapshot file per finished run on branch snapshot-file; its ASK is kept: send its ask record, path {kept},"
-        " and the recommended option it built ships meanwhile"
+        f"JOB j1 o1 DONE built one snapshot file per finished run on branch snapshot-file; its ASK is kept in {kept} and its ask record posted,"
+        " so his card draws, and the recommended option it built ships meanwhile"
     ]
     job = state.load(demo)["jobs"]["j1"]
     assert (job["state"], [question["file"] for question in job["questions"]], kept.read_text()) == ("waiting", [str(kept)], SHORT_ASK)

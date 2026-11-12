@@ -14,21 +14,11 @@ from drive.install import config_dir
 from drive.render import cut
 from drive.state import DriveError
 
-UNKEPT_ASK = (
-    "refused: an ask record names the ASK `drive job ask` kept, as the attr `ask` set to the path it printed, and the"
-    " communicator draws the card from that file; keep the question with `drive job ask <j> <file>`, then post this"
-    " record again with that path"
-)
-UNJOBBED = "refused: an ask record names the job that kept its ASK, which his answer resumes; post it again with `job` in its attrs, the j in the ASK's file name"
-KEEP_ASKED = (
-    "the communicator draws the card from that file alone. Keep this record's question with `drive job ask {job} <file>`, or"
-    " `drive job ask {job}` with no file for a remote lane's ASK the watch did not keep, which reads its report;"
-    " then post this record again on the cci `post` tool with the path it prints, as `kind: ask`, `attrs: {{job: {job}, ask: <path>}}`,"
-    " `path: <path>` and no text, which takes the kept question's first line as its text"
-)
-UNMARKED_INCIDENT = (
-    "refused: {job} works on open incident {orders}, so this card blocks it, and the handler says so in the incident's thread"
-    " the moment the card is up only when the record says it is an incident's; post it again with {flags}"
+HAND_ASK = (
+    "refused: `drive job ask <j> <file>` keeps a job's question and posts its ask record in the same call, storing the"
+    " waits id its card draws under, so no session posts an ask record: keep the question with it, a remote lane's ASK"
+    " the watch did not keep with `drive job ask <j>`, and ask an open card of the job's again in new words with"
+    " `--redraws <that card's waits id>`"
 )
 BODY_CHARS = 1500
 QUOTED_CHARS = 400
@@ -81,28 +71,6 @@ COMMON = {
 }
 
 
-def ask_refusal(names: list[str], named: dict[str, str], text: str) -> str | None:
-    """Why an ask record may not go out: the communicator draws its card from the ASK file its `ask` attr names, so that file is one `drive job ask` kept in one of these drives, checked against his answers, for the question of the job its `job` attr names that this record asks and his answer has not closed; another job's file, another question's or an answered one's draws no card for it. An ask of a job on an open incident order carries the marks that make its handler tell the incident's thread."""
-    if (name := keeper(names, named.get("ask"))) is None:
-        return UNKEPT_ASK
-    file = Path(named["ask"]).expanduser()
-    if not (job_id := named.get("job")):
-        return UNJOBBED
-    data = state.load(name)
-    job = data["jobs"].get(job_id)
-    keep = KEEP_ASKED.format(job=job_id)
-    if not (question := job and state.kept_in(job, file)):
-        return f"refused: {file} keeps no question of {job_id}, and {keep}"
-    if " ".join(question["title"].split()).casefold() not in " ".join(text.split()).casefold():
-        return f'refused: {file} keeps {job_id}\'s question "{question["title"]}", which this record does not ask, and {keep}'
-    if refused := card_refusal(job_id, question, file):
-        return f"{refused}, and {keep}" if question["closed"] else refused
-    if marks := incident_marks(names, named):
-        orders = ", ".join(state.open_incidents(data, [job["order"], *job["carries"]]))
-        return UNMARKED_INCIDENT.format(job=job_id, orders=orders, flags=" ".join(f"--attr {key}={value}" for key, value in marks.items()))
-    return None
-
-
 def card_refusal(job_id: str, question: dict, file: Path) -> str | None:
     """Why the job's question kept in this file draws no card, whatever waits id it is drawn under: `drive job ask` refused it, so it waits on that refusal, or it ended, answered by his tap or words, withdrawn or superseded, so its card never draws again, naming the words it ended on."""
     if question["refused"]:
@@ -112,23 +80,6 @@ def card_refusal(job_id: str, question: dict, file: Path) -> str | None:
     words = f': "{cut(closed["words"], QUOTED_CHARS)}"' if closed["words"] else ""
     link = f' ({closed["link"]})' if closed["link"] else ""
     return f'refused: {job_id}\'s question "{question["title"]}" kept in {file} ended {closed["how"]}, so its card never draws again{words}{link}'
-
-
-def incident_marks(names: list[str], named: dict[str, str]) -> dict[str, str]:
-    """The attrs an ask record for a job on an open incident order lacks: incident=true, so its handler says in the incident's thread the moment the card is up that the card blocks it, and as its thread the incident's, where that line goes and `drive job set --told` looks for it."""
-    if not (name := keeper(names, named.get("ask"))):
-        return {}
-    data = state.load(name)
-    if not (job := data["jobs"].get(named.get("job") or "")) or not (incidents := state.open_incidents(data, [job["order"], *job["carries"]])):
-        return {}
-    threads = state.incident_threads(data, incidents)
-    marks = {"incident": "true"} | ({"thread": threads[0]} if threads and named.get("thread") not in threads else {})
-    return {key: value for key, value in marks.items() if named.get(key) != value}
-
-
-def keeper(names: list[str], ask: str | None) -> str | None:
-    """The drive among these whose asks folder holds this file, the one place `drive job ask` keeps an ASK."""
-    return next((name for name in names if ask and Path(ask).expanduser().resolve().is_relative_to(state.drive_dir(name).resolve() / "asks")), None)
 
 
 def recorded(title: str, words: str, labels: list[str], cwd: str) -> str:

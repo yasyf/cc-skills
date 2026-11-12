@@ -33,16 +33,6 @@ def unready(record: dict) -> str | None:
     return READY_GONE if kind(record) == "ready" else None
 
 
-def completed(names: list[str], record: dict) -> dict:
-    """The record with what the drive already knows filled in: an ask's kept file as its ask attr when it attaches that file as its path, and, for a job on an open incident order, incident=true and the incident's thread."""
-    named = attrs(record)
-    if kind(record) != "ask":
-        return record
-    filled = named | ({"ask": record["path"]} if not named.get("ask") and settled.keeper(names, record.get("path")) else {})
-    filled |= settled.incident_marks(names, filled)
-    return record if filled == named else record | {"attrs": filled}
-
-
 def trimmed(record: dict) -> dict:
     """The record without the attrs it never carries: a `max_words`, since nothing reads it and his word limits for a post never yield to it, a catch-up report's `thread`, since a catch-up covers many orders and goes at his DM root, and a `thread` of none, which names no thread, so its post goes where one with no thread attr goes, as the meta session's rule "thread or none" has it."""
     named = attrs(record)
@@ -67,7 +57,7 @@ def refusals(payload: dict, names: list[str], records: list[dict]) -> Iterator[s
         yield misaddressed(payload, record)
         yield stray_parts(kind(record), attrs(record))
         yield limits.misnamed(kind(record), attrs(record))
-        yield settled.ask_refusal(names, attrs(record), record.get("text") or "") if kind(record) == "ask" else None
+        yield settled.HAND_ASK if kind(record) == "ask" else None
         yield superseded.unclosed_refusal(names, kind(record), attrs(record), record.get("topic"), listed(record.get("re")), record.get("url"))
         yield state.unabout(kind(record), attrs(record))
         yield agents.Unjudged(unordered) if (unordered := state.unrecorded(state.session_role(drive, payload.get("session_id")), kind(record), attrs(record))) else None
@@ -84,14 +74,14 @@ def readdressed(drives: dict[str, dict], session: str | None, record: dict) -> d
 
 
 def decision(payload: dict) -> dict | None:
-    """What a drive session's post becomes: refused with the fix while a record in it, read with the text, kind, lanes and attrs cci stores for it, breaks a rule its kind keeps, else posted with a warning on each POST line telling him a failure of the drive's with no word on how it is prevented, and every record in it completed from what the drive knows, trimmed of the attrs it never carries and one line, the rest in its body for whoever acts on it, and each record sent where its drive routes it, a records list rewritten with each record whole, since a field cci filled in beside the list would put back what the record dropped."""
+    """What a drive session's post becomes: refused with the fix while a record in it, read with the text, kind, lanes and attrs cci stores for it, breaks a rule its kind keeps, an ask record, which only `drive job ask` posts, included, else posted with a warning on each POST line telling him a failure of the drive's with no word on how it is prevented, and every record in it trimmed of the attrs it never carries and one line, the rest in its body for whoever acts on it, and each record sent where its drive routes it, a records list rewritten with each record whole, since a field cci filled in beside the list would put back what the record dropped."""
     names = state.session_drives(payload.get("session_id") or "")
     if not names:
         return None
     tool_input = payload["tool_input"]
     given = posted(tool_input)
     drive = state.load(names[0])
-    records = [trimmed(completed(names, record)) for record in given]
+    records = [trimmed(record) for record in given]
     stored = [limits.as_stored(record) for record in records]
     if refused := next(filter(None, refusals(payload, names, stored)), None):
         return {"permissionDecision": "deny", "permissionDecisionReason": refused}

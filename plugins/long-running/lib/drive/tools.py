@@ -543,7 +543,7 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
     try:
         seqs = sent(name, lane, posts)
     except DriveError as error:
-        raise DriveError("\n".join([*said, str(error)])) from None
+        raise DriveError("\n".join([*said, f"{error}; {UNSENT.format(drive=name)}"])) from None
     said += [f"{index} {item['kind']} {seq}" for index, (item, seq) in enumerate(zip(posts, seqs, strict=True), start=1)]
     keep_undelivered(name, posts, seqs, closes)
     ended = keep_closed(name, posts, seqs, closes, [superseded_by_answer(data, made, questions, found) for made, questions in zip(posts, closes, strict=True)])
@@ -742,9 +742,9 @@ def sent(name: str, lane: str, posts: list[dict]) -> list[str]:
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as error:
-        raise DriveError(f"cci post: {error}; {UNSENT.format(drive=name)}") from None
+        raise DriveError(f"cci post: {error}") from None
     if done.returncode:
-        raise DriveError(f"{done.stdout}{done.stderr}".strip() + f"; {UNSENT.format(drive=name)}")
+        raise DriveError(f"{done.stdout}{done.stderr}".strip())
     return [line.split()[0] for line in done.stdout.splitlines() if line.strip()]
 
 

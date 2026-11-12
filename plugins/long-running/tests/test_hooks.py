@@ -1288,10 +1288,12 @@ def asked_from_bash(command: str, session: str) -> dict:
     return bash(command) | {"session_id": session}
 
 
-def test_bash_posts_a_drive_ask_only_when_it_carries_the_ask_kept_for_its_question(run: Run, demo: str, no_calls: list[list[str]]) -> None:
+def test_bash_posts_no_drive_ask_since_drive_job_ask_posts_it(run: Run, demo: str, no_calls: list[list[str]]) -> None:
     session = os.environ["CLAUDE_CODE_SESSION_ID"]
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "close the idle sessions")
     kept = state.drive_dir(demo) / "asks" / "j1-0.md"
+    kept.parent.mkdir(parents=True, exist_ok=True)
+    kept.write_text("ASK Close these sessions?\nThe idle ones hold a slot each.\n")
     with state.edit(demo) as data:
         data["jobs"]["j1"] = state.new_job("o1", "builder", "close them", [], state.stamp())
         data["jobs"]["j1"]["questions"] = [state.new_question(str(kept), "Close these sessions?", state.stamp())]
@@ -1299,38 +1301,12 @@ def test_bash_posts_a_drive_ask_only_when_it_carries_the_ask_kept_for_its_questi
         "cci post --kind ask --lane root --to communicator@demo 'Close these sessions?'",
         "cd /work && cci post --lane root --kind=ASK --attr job=j1 'Close these sessions?'",
         "zsh -c \"cci post --kind ask 'Close these sessions?'\"",
+        f"cci post --kind ask --attr ask={kept} --attr job=j1 --path {kept}",
+        f"cci post --kind ask --attr ask={kept} --attr job=j1 --attr incident=true 'Close these sessions?'",
     ):
-        assert landing_guard.deny_reason(asked_from_bash(command, session)) == settled.UNKEPT_ASK
-    other = f"cci post --kind ask --attr ask={kept} --attr job=j1 'Which sessions stay?'"
-    assert "which this record does not ask" in landing_guard.deny_reason(asked_from_bash(other, session))
-    carried = f"cci post --kind ask --attr ask={kept} --attr job=j1 'Close these sessions?'"
-    assert landing_guard.deny_reason(asked_from_bash(carried, session)) is None
-    kept.parent.mkdir(parents=True, exist_ok=True)
-    kept.write_text("ASK Close these sessions?\nThe idle ones hold a slot each.\n")
-    from_path = f"cci post --kind ask --attr ask={kept} --attr job=j1 --path {kept}"
-    assert landing_guard.deny_reason(asked_from_bash(from_path, session)) is None
-    unexpanded = landing_guard.deny_reason(asked_from_bash(f'cci post --kind ask --attr ask={kept} --attr job=j1 --text "$(head -1 {kept})"', session))
-    assert "which this record does not ask" in unexpanded and "on the cci `post` tool" in unexpanded and "`path: <path>` and no text" in unexpanded
-    kept.write_text("\n  ASK Close these sessions?\nThe idle ones hold a slot each.\n")
-    assert landing_guard.deny_reason(asked_from_bash(from_path, session)) is None
+        assert landing_guard.deny_reason(asked_from_bash(command, session)) == settled.HAND_ASK
     assert landing_guard.deny_reason(asked_from_bash("cci post --kind report 'merged'", session)) is None
     assert landing_guard.deny_reason(asked_from_bash("cci post --kind ask 'Close these sessions?'", "another-session")) is None
-
-
-def test_a_bash_ask_for_a_job_on_an_open_incident_order_is_refused_until_it_says_so_and_names_the_incidents_thread(
-    run: Run, demo: str, no_calls: list[list[str]]
-) -> None:
-    session = os.environ["CLAUDE_CODE_SESSION_ID"]
-    alert = "1794413465.441409"
-    run("order", "add", "--title", "Short title", "--project", "SandSQL", "--workstream", "Alerts", "--from", f"slack:C0822AHFY3G/{alert}", "unknown column case_v2.audit_status", "--incident", "--parts", "fix", "first check")
-    kept = state.drive_dir(demo) / "asks" / "j1-0.md"
-    with state.edit(demo) as data:
-        data["jobs"]["j1"]["questions"] = [state.new_question(str(kept), "What runs first?", state.stamp())]
-    asked = f"cci post --kind ask --lane root --to communicator@demo --attr ask={kept} --attr job=j1"
-    flags = f"--attr incident=true --attr thread={alert}"
-    reason = landing_guard.deny_reason(asked_from_bash(f"{asked} 'What runs first?'", session))
-    assert reason == settled.UNMARKED_INCIDENT.format(job="j1", orders="o1", flags=flags)
-    assert landing_guard.deny_reason(asked_from_bash(f"{asked} {flags} 'What runs first?'", session)) is None
 
 
 def test_a_bash_report_naming_an_attr_a_separator_or_one_letter_from_one_the_drive_reads_is_refused_naming_it(demo: str, no_calls: list[list[str]]) -> None:

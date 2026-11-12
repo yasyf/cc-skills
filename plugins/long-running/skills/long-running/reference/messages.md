@@ -338,7 +338,7 @@ When it is answered, replaced or redone:
   his answer against every open card in one call, and `--settled` shows his words and a link to them
   in place where its buttons were, so a late tap records nothing. A card it decides only in part is
   redrawn under its `waits` id to the ASK its job keeps asking only what is left, linking his answer,
-  with `--settled <key>=<file>`. His words, on a card a later decision of his had settled: "didnt we
+  by `drive job ask <j> <file> --redraws <key>`, then marked with `--settled <key>=<file>`. His words, on a card a later decision of his had settled: "didnt we
   alrady say to move all those to lazy? we need to update tehse old cards based on future desicions".
 - To change the words of a card he has not answered, draw it again under its `waits` id. That one
   call posts the new version as the live card at the DM root, its link in the thread `thread_ts`
