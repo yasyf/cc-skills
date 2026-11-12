@@ -1340,6 +1340,11 @@ def agent_gone(data: dict, job: dict) -> bool:
     return session_role(data, job.get("session")) is None
 
 
+def runs(data: dict, order: dict, project: str | None) -> bool:
+    """Whether the coordinator session for project runs an order: one it hears that neither the meta session nor the communicator holds."""
+    return hears(data, order, project) and holder_lane(order) is None
+
+
 def holder_lane(order: dict) -> str | None:
     """The lane of the session holding an order whose watch lines, jobs, agents and reports are its own rather than a coordinator's: the meta session's for a drive tooling order or one a brief serving drive tooling gave it, the communicator's for its read-only question; None for a coordinator's."""
     return order["owner"] if order["owner"] in HOLDERS else None

@@ -423,6 +423,42 @@ def test_status_lists_each_sub_coordinator_with_its_lane_session_place_and_wheth
     }
 
 
+def test_status_with_no_ids_prints_a_coordinator_one_line_per_open_order_it_runs_and_nothing_of_the_others(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    top = os.environ["CLAUDE_CODE_SESSION_ID"]
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("order", "add", "--title", "Short title", "--project", "Billing", "--workstream", "Invoices", "fix the invoice")
+    run("order", "add", "--title", "Short title", "--project", "Billing", "--workstream", "Invoices", "fix the watch")
+    run("order", "add", "--title", "Short title", "--project", "Billing", "--workstream", "Invoices", "close the books")
+    for order in ("o1", "o2", "o4"):
+        run("job", "add", "builder", "--order", order, "--goal", f"build {order}")
+    run("order", "set", "o4", "--state", "done")
+    with state.edit("demo") as data:
+        data["orders"]["o3"]["owner"] = "meta"
+        for job in data["jobs"].values():
+            job.update(state="running", session="gone")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
+    run("start", "demo", "--role", "coordinator", "--project", "Iris")
+
+    def shown() -> tuple[list[str], list[str], str]:
+        lines = run("status")[1].splitlines()
+        return [line.split()[1] for line in lines if line.startswith("- o")], [line.split()[0] for line in lines if "no live agent" in line], "\n".join(lines)
+
+    orders, agentless, text = shown()
+    assert (orders, agentless) == (["o1"], ["j1"])
+    assert "Open orders you run: 1, a line each; drive status <id> prints one whole, with its jobs, PRs and questions:" in text
+    assert "build o1" not in text and "fix the invoice" not in text
+    assert "fix the invoice" in run("status", "o2")[1]
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", top)
+    orders, agentless, text = shown()
+    assert (orders, agentless) == (["o2"], [])
+    assert "ship the run page" not in text and "fix the watch" not in text
+    assert set(json.loads(run("status", "--json")[1])["orders"]) == {"o1", "o2", "o3"}
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "bound-to-none")
+    assert shown()[:2] == (["o1", "o2", "o3"], ["j1", "j2", "j3"])
+
+
 def test_an_orphaned_terminal_gets_the_repository_setting_and_a_shown_one_the_switch_command(
     run: Run, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1914,7 +1950,7 @@ def test_a_job_keeps_every_question_it_asks_each_open_until_his_answer_to_its_ow
     ]
     answered = shown.pop(0)
     closed.append({"waits": "demo:j1-0", "title": titles[0], "prs": [], "asked": answered["asked"], "url": links[0], "answer": {"label": "Yes", "at": answered["asked"]}, "tapped": "", "replaced_by": ""})
-    status = run("status")[1]
+    status = run("status", asking)[1]
     assert f'card {links[0]} answered "Yes" at {render.when(answered["asked"])} (demo:j1-0)' in status
     assert f"asks him: Where should a finished run's files be laid out so its page opens without…; card {links[1]} open since {render.when(shown[0]['asked'])} (demo:j1-1)" in status
     assert f"never drawn, kept in {kept[2]}" in status
@@ -1938,7 +1974,7 @@ def test_a_redrawn_card_moves_to_the_question_that_redoes_it_and_a_card_never_po
     run("job", "card", kept[2], "--waits", "demo:j1-8")
     questions = state.load("demo")["jobs"]["j1"]["questions"]
     assert [(question["file"], question["waits"], question["card"]) for question in questions] == [(kept[1], "demo:j1-7", link), (kept[2], "demo:j1-8", None)]
-    status = run("status")[1]
+    status = run("status", asking)[1]
     assert f"card {link} open since {render.when(shown['asked'])} (demo:j1-7)" in status
     assert f"card demo:j1-8 never drawn, kept in {kept[2]}" in status
 
@@ -2032,7 +2068,7 @@ def test_a_question_asked_again_after_its_card_was_withdrawn_redraws_that_card_u
     assert again["waits"] == "demo:j1-7"
     assert json.loads(run("job", "card", again["question"], "--waits", "demo:j1-9")[1])["waits"] == "demo:j1-7"
     assert [(question["file"], question["waits"], question["card"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [(again["question"], "demo:j1-7", link)]
-    assert f"card {link} withdrawn at {render.when(withdrawn['at'])}: his order replaced it (demo:j1-7)" in run("status")[1]
+    assert f"card {link} withdrawn at {render.when(withdrawn['at'])}: his order replaced it (demo:j1-7)" in run("status", asking)[1]
     with state.edit("demo") as data:
         data["jobs"]["j1"]["questions"][0]["closed"] = state.new_close("withdrawn", withdrawn["label"], None)
     run("job", "add", "builder", "--order", "o1", "--goal", "design it again")
@@ -2055,7 +2091,7 @@ def test_job_ask_drop_throws_away_a_near_copy_kept_with_no_card_so_nothing_count
     near_copy = "ASK How should a finished run's files be laid out so its page opens with no guessing?"
     monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace(SHORT_ASK.split("\n")[0], near_copy)))
     copy = run("job", "ask", asking, "-")[1]
-    assert f"never drawn, kept in {copy}" in run("status")[1]
+    assert f"never drawn, kept in {copy}" in run("status", asking)[1]
     assert cli.main(["job", "ask", asking, "--drop", first]) == 2
     assert f"kept in {first} is on his card {link}, which only his answer closes" in capsys.readouterr().err
     code, out = run("job", "ask", asking, "--drop", copy)
@@ -2064,7 +2100,7 @@ def test_job_ask_drop_throws_away_a_near_copy_kept_with_no_card_so_nothing_count
     assert [(question["file"], question["waits"], question["card"]) for question in job["questions"]] == [(first, "demo:j1-7", link)]
     assert job["said"] == SHORT_ASK.split("\n")[0].removeprefix("ASK ")
     assert not Path(copy).exists()
-    status = run("status")[1]
+    status = run("status", asking)[1]
     assert copy not in status and f"card {link} open since " in status and "(demo:j1-7)" in status
     assert settled.ask_refusal(["demo"], {"ask": copy, "job": "j1"}, near_copy).startswith(f"refused: {copy} keeps no question of j1")
     assert json.loads(run("job", "card", asking)[1])["title"] == job["said"]
@@ -2344,7 +2380,7 @@ def test_job_ask_settles_a_question_jev_reads_his_recorded_answer_as_deciding_so
         [(str(kept), None, "ac61348")],
     )
     assert settled_notes == [("j1", "ac61348")]
-    assert "refused, so no card draws" not in run("status")[1]
+    assert "refused, so no card draws" not in run("status", asking)[1]
     assert cli.main(["job", "ask", asking, str(block), "--unsettled", "it lays out files, not how its page opens them"]) == 2
     assert 'ask again with --unsettled "ac61348: <why>"' in capsys.readouterr().err
     why = "ac61348: it lays out the files; this asks how the page opens them"
@@ -4152,7 +4188,7 @@ def test_status_reads_the_prs_from_the_drive_and_never_from_github(run: Run, wit
     monkeypatch.setattr(github, "run", refused)
     with state.edit("demo") as data:
         data["prs"][with_pr].update(title="Fix: the watched title", checks="pass", review="approved")
-    code, out = run("status")
+    code, out = run("status", "o1")
     assert code == 0
     assert out.splitlines()[0] == "demo: 1 open of 1 orders"
     assert 'Forge-AI/monorepo#42 "Fix: the watched title" open, checks pass, review approved' in out

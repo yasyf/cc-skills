@@ -1925,7 +1925,7 @@ def tick_lines(watcher: Watcher, moment: datetime) -> list[str]:
     owing = [
         key
         for key, order in data["orders"].items()
-        if hears(watcher, data, key) and not state.holder_lane(order) and owes_line(order, data["jobs"], moment)
+        if state.runs(data, order, watcher.project) and owes_line(order, data["jobs"], moment)
     ]
     if not owing:
         return []

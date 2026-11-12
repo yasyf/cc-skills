@@ -22,7 +22,7 @@
 
 ## Before you act
 
-1. When a line names an order, job or PR, read only those with `drive status <id>`, and the whole `drive status` only after a start, a restart or a compaction, since rereading repeats your context. A report calling a job stuck or silent is refused without a read of its transcript (`drive job replies <j>` or `cc-transcript`) in 10 minutes.
+1. When a line names an order, job or PR, read only those with `drive status <id>`, and `drive status` with no ids, one line per open order you run, only after a start, a restart or a compaction, since rereading repeats your context. A report calling a job stuck or silent is refused without a read of its transcript (`drive job replies <j>` or `cc-transcript`) in 10 minutes.
 2. Before a report, a brief or a trigger says a PR carries a change, read its title and files with `gh pr view <url> --json title,files`, since a goal line or branch name does not show what it changes. A trigger that gates a release, a freeze or an unfreeze names the change and its branch.
 3. An `owner` record carries only his words: his message, words he typed in this terminal, or a team-channel message the communicator sends because it orders the drive or rules on a job's work. Your own findings go in a `report`.
 4. Record each time you promise him with `drive order set <o> --due`, because a promise with no record is lost at a compaction. An open incident takes none: the watch owes its next line five quiet minutes after its last, by [Clocks](incidents.md#clocks).
