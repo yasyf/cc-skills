@@ -1175,25 +1175,32 @@ def owed_answers(watcher: Watcher, data: dict, moment: datetime) -> list[tuple[s
 
 
 def answer_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each answer of his that leaves a card still asking him or a PR not yet live with no mark, standing, superseded or reopened by it, again every ten minutes until each has one."""
+    """Each answer of his that leaves a card still asking him or a PR not yet live with no mark, standing, settled, superseded or reopened by it, or a live job it touches not yet sent his words, again every ten minutes until each has one."""
     if watcher.cards is None or watcher.project:
         return []
     data = state.load(watcher.name)
     asked = superseded.asking(data, watcher.cards)
     owed = {
-        answer_id: keys
+        answer_id: (superseded.unmarked(kept, asked), superseded.unheard(data, kept))
         for answer_id, kept in data["answers"].items()
-        if moment - state.parse_time(kept["said"]) >= DUE_EVERY and (keys := superseded.unmarked(kept, asked))
+        if moment - state.parse_time(kept["said"]) >= DUE_EVERY
     }
+    owed = {answer_id: left for answer_id, left in owed.items() if any(left)}
     if not owed:
         return []
     with state.edit(watcher.name) as data:
         for answer_id in owed:
             data["answers"][answer_id]["said"] = state.stamp(moment)
     return [
-        f'ANSWER {answer_id} "{cut(data["answers"][answer_id]["words"], 80)}": {superseded.counted(keys, asked)} with no mark,'
-        f" standing, superseded or reopened by it; drive answer {answer_id} lists them"
-        for answer_id, keys in owed.items()
+        f'ANSWER {answer_id} "{cut(data["answers"][answer_id]["words"], 80)}": '
+        + "; ".join(
+            [
+                *([f"{superseded.counted(keys, asked)} with no mark, standing, settled, superseded or reopened by it"] if keys else []),
+                *([f"{', '.join(jobs)} not sent his words"] if jobs else []),
+            ]
+        )
+        + f"; drive answer {answer_id} lists them"
+        for answer_id, (keys, jobs) in owed.items()
     ]
 
 

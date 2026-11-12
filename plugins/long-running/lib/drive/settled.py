@@ -41,6 +41,14 @@ DECIDES_QUESTION = (
     " whatever premise it states, but one proposing a way, such as \"why not just X?\", orders X."
 )
 SETTLES = {UNDECIDED: "It settles nothing this question asks.", "picks": "Its own words pick one option.", "orders": "Its own words order the outcome or who does it."}
+CHANGES = 0.15
+CHANGES_QUESTION = (
+    "His answer below was given to another question. Which of these open questions he has not answered does it decide, rule out"
+    " options of, or make moot, so that card must change or stop asking him? His answer may be a standing rule for a kind of work,"
+    " worded with always, every or never, such as how every bug, landing or release is handled: it changes each open question about"
+    " work of that kind whatever its subject, when the rule rules out an option or decides part of what it asks. Pick none when it"
+    " changes none of them."
+)
 ORDERED = (
     " He ordered what this question asks about, so build the option his words leave that removes the root cause, the recommended"
     " one, and say in one line that his answer {id} settled it."
@@ -233,6 +241,23 @@ def decided(question: str, options: list[str], found: list[dict]) -> dict | None
         if isinstance(read, Unheard):
             print(f"drive job ask: Jev did not say whether his answer {answer['id']} decides this question, so it goes to him: {read}", file=sys.stderr)
     return None
+
+
+def changed(title: str, words: str, asked: dict[str, dict]) -> set[str]:
+    """The question cards still asking him that a new answer of his decides, rules options out of or makes moot, as Jev reads it against all of them in one call, so each card is weighed beside the others: each Jev gives at least CHANGES, since a card held wrongly costs one --stands mark and one missed keeps asking him what he already decided."""
+    cards = {key.rpartition(":")[2]: key for key, entry in asked.items() if entry["kind"] == "question"}
+    if not cards:
+        return set()
+    options = {short: f'{asked[key]["title"]} Options: {" | ".join(asked[key]["options"])}' for short, key in cards.items()}
+    label = {"instructions": CHANGES_QUESTION, "options": {UNDECIDED: "It changes none of them.", **options}}
+    try:
+        read = jev({"state": {"answer": {"asked": title, "said": words[:BODY_CHARS]}}, "questions": {"changes": {"label": label}}})["changes"]
+    except Unheard as failure:
+        raise DriveError(
+            f"nothing recorded in the drive: Jev did not read his answer against his {len(cards)} open {'card' if len(cards) == 1 else 'cards'} ({failure}), so each"
+            " card it settles would keep asking him; run this drive answer again"
+        ) from None
+    return {cards[short] for short, probability in read["probabilities"].items() if short in cards and probability >= CHANGES}
 
 
 def approving(action: str, answer: dict) -> bool:

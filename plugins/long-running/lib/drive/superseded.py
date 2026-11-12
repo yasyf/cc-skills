@@ -1,8 +1,9 @@
-"""What each answer or ruling of his leaves standing: the cards open and PRs not yet live when it was recorded that it could replace, until each is marked standing, superseded or reopened by it, and the jobs waiting on the orders it touches, until each has heard it or is marked untouched."""
+"""What each answer or ruling of his leaves standing: the cards open and PRs not yet live when it was recorded that it could change, until each is marked standing, settled, superseded or reopened by it, and the jobs waiting on the orders it touches, until each has heard it or is marked untouched."""
 
 import re
+from pathlib import Path
 
-from drive import github, slack, state, view
+from drive import github, limits, slack, state, view
 from drive.render import cut, when
 from drive.state import DriveError
 
@@ -19,6 +20,7 @@ def asking(data: dict, found: dict) -> dict[str, dict]:
         asked[card["card"].get("waits") or view.message_key(card["url"])] = {
             "kind": "question",
             "title": card["question"],
+            "options": card["options"],
             "job": job_id,
             "order": job_id and data["jobs"][job_id]["order"],
             "url": card["url"],
@@ -42,18 +44,16 @@ def asking(data: dict, found: dict) -> dict[str, dict]:
     return asked
 
 
-def record(data: dict, words: str, link: str, asked: dict[str, dict], moment: str) -> dict:
-    """A new answer of his beside the cards asking him and PRs not yet live that it could replace, none marked yet: those of the job and order of the card it answers, the one he tapped or wrote under, still open or not, those its words name, and every other question card asking about the same subject in other words; and beside each job waiting on an order any of those belongs to, none marked heard yet."""
+def record(data: dict, words: str, link: str, asked: dict[str, dict], changes: set[str], moment: str) -> dict:
+    """A new answer of his beside the cards asking him and PRs not yet live that it could change, none marked yet: those of the job and order of the card it answers, the one he tapped or wrote under, still open or not, those its words name, and each other question card in changes, which Jev read it as deciding, ruling options out of or making moot, whatever job, order or words it shares with the card he answered; and beside each job waiting on an order any of those belongs to, none marked heard yet."""
     answered = [entry for entry in asked.values() if entry["card"] and under(link, entry["card"])]
     drawn = {job_id: job["order"] for job_id, job in data["jobs"].items() for question in job["questions"] if question["card"] and under(link, question["card"])}
     jobs = {entry["job"] for entry in answered if entry["job"]} | drawn.keys()
     orders = {entry["order"] for entry in answered if entry["order"]} | set(drawn.values())
-    titles = [entry["title"] for entry in answered if entry["kind"] == "question"]
     cards = {
         key: None
         for key, entry in asked.items()
-        if not (entry["card"] and under(link, entry["card"]))
-        and (entry["job"] in jobs or entry["order"] in orders or named(words, key, entry) or any(shared(entry["title"], title) for title in titles if entry["kind"] == "question"))
+        if not (entry["card"] and under(link, entry["card"])) and (entry["job"] in jobs or entry["order"] in orders or named(words, key, entry) or key in changes)
     }
     touched = orders | {asked[key]["order"] for key in cards if asked[key]["order"]}
     return {
@@ -224,14 +224,15 @@ def listing(answer_id: str, kept: dict, keys: list[str], asked: dict[str, dict],
     cards = [
         (
             f'his answer {answer_id} "{cut(kept["words"], 80)}" stays unfinished until each card asking him and each PR not yet'
-            f" live when it came is marked standing, superseded or reopened by it; {counted(keys, asked)}"
+            f" live when it came is marked standing, settled, superseded or reopened by it; {counted(keys, asked)}"
             f" {'has' if len(keys) == 1 else 'have'} no mark:"
         ),
         *rows,
         (
-            f"mark each: drive answer {answer_id} --stands <key>... --superseded <key>=stop|<key>=<live job to fold it into>..."
-            " --reopened <PR key>=<live job that reworks it to his words>..., or --others-stand once each it supersedes or"
-            f" reopens is marked and at most {OTHERS_STAND} are left"
+            f"mark each: drive answer {answer_id} --stands <key>... --settled <card key>... for a card it decides, or <card key>=<the"
+            " ASK its job keeps with drive job ask asking only what it leaves open>... for one it decides in part, --superseded"
+            " <key>=stop|<key>=<live job to fold it into>... --reopened <PR key>=<live job that reworks it to his words>..., or"
+            f" --others-stand once each it settles, supersedes or reopens is marked and at most {OTHERS_STAND} are left"
         ),
     ]
     jobs = [
@@ -262,10 +263,31 @@ def others_refusal(answer_id: str, kept: dict, asked: dict[str, dict], named: li
     )
 
 
-def settle(card: str, kept: dict) -> None:
-    """Settle a superseded card in place, showing his words and a link to them with no buttons, so a late tap records nothing."""
-    if (result := answer_card(card, kept["words"], kept["link"], settled=False)).get("already_answered"):
+def settle(card: str, kept: dict, settled: bool = False) -> None:
+    """Close a card in place, showing his words and a link to them with no buttons, so a late tap records nothing: withdrawn for a superseded card, settled for one his answer decides."""
+    if (result := answer_card(card, kept["words"], kept["link"], settled=settled)).get("already_answered"):
         raise DriveError(f"{card} already shows his answer {result['label']!r}, so it no longer asks him and needs no mark; the drive's cards are reread now, run this again")
+
+
+def settled_refusal(data: dict, kept: dict, key: str, entry: dict, file: Path | None) -> str | None:
+    """Why his answer may not settle this card: it is no question card a job asked, or the ASK it is redrawn to is not one its job keeps drawn on no card, unrefused and unsettled, linking his answer where the card shows it."""
+    if entry["kind"] != "question" or not entry["job"]:
+        return f"{key} is no question card a job of this drive asked, so --settled cannot mark it; --superseded {key}=stop withdraws it"
+    if file is None:
+        return None
+    job_id = entry["job"]
+    question = state.kept_in(data["jobs"][job_id], file)
+    if not question or question["refused"] or question["settled"] or question["card"] or question["waits"]:
+        return (
+            f"{file} keeps no question of {job_id} drawn on no card yet: keep what his answer leaves {key} asking with"
+            f" drive job ask {job_id} <file>, then mark {key}=<the path it prints>"
+        )
+    if f"/p{view.message_key(kept['link'])}" not in limits.FINDINGS.split(file.read_text())[0]:
+        return (
+            f"{file} does not link his answer {kept['link']} above its Findings:, so the redrawn card would not say which words"
+            f" of his narrowed it: link them in its summary, keep it again with drive job ask {job_id} <file>, and mark {key}=<the path it prints>"
+        )
+    return None
 
 
 def stack_refusal(asked: dict[str, dict], keys: list[str]) -> str | None:

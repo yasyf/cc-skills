@@ -3283,22 +3283,28 @@ def test_a_prs_move_resumes_the_remote_lane_waiting_on_it_and_reaches_the_coordi
     assert len(calls) == 2
 
 
-def test_an_answer_leaving_a_card_unmarked_says_so_at_once_every_ten_minutes_until_it_is_marked(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_an_answer_leaving_a_card_unmarked_or_a_job_unsent_his_words_says_so_every_ten_minutes_until_each_is_marked(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     asking(monkeypatch, demo, "demo:j1-7-a")
     with state.edit(demo) as data:
-        data["answers"]["a1"] = {"words": "one new tool", "link": f"{CARD}9", "at": state.stamp(T0), "said": state.stamp(T0), "cards": {"demo:j1-7-a": None}}
+        data["answers"]["a1"] = {"words": "one new tool", "link": f"{CARD}9", "at": state.stamp(T0), "said": state.stamp(T0), "cards": {"demo:j1-7-a": None}, "jobs": {}}
     watching = watcher(demo)
 
     def said(minutes: int) -> list[str]:
         return [line for line in watch.run_pass(watching, T0 + timedelta(minutes=minutes)) if line.startswith("ANSWER")]
 
-    line = 'ANSWER a1 "one new tool": 1 card with no mark, standing, superseded or reopened by it; drive answer a1 lists them'
+    line = 'ANSWER a1 "one new tool": 1 card with no mark, standing, settled, superseded or reopened by it; drive answer a1 lists them'
     assert (said(5), said(10), said(15), said(20)) == ([], [line], [], [line])
     assert watch.wakes(line, state.load(demo))
     with state.edit(demo) as data:
         data["answers"]["a1"]["cards"]["demo:j1-7-a"] = {"mark": "stands"}
     assert said(40) == []
+    with state.edit(demo) as data:
+        data["answers"]["a1"]["jobs"]["j1"] = None
+    assert said(50) == ['ANSWER a1 "one new tool": j1 not sent his words; drive answer a1 lists them']
+    with state.edit(demo) as data:
+        data["answers"]["a1"]["jobs"]["j1"] = {"mark": "sent"}
+    assert said(70) == []
 
 
 def test_an_incident_with_no_monitor_closes_with_no_datadog_read_once_a_release_ships_its_fix_and_another_order_on_that_release_stays_open(
