@@ -110,30 +110,49 @@ def landing_stacks(data: dict) -> dict[str, tuple[str, ...]]:
     return {key: tuple(sorted(members, key=depth)) for members in stacks.values() if len(members) > 1 or opened[members[0]]["native"] for key in members}
 
 
-def together(data: dict, stacks: dict[str, tuple[str, ...]], key: str) -> list[str]:
-    """The open PRs his Approve lands with key, bottom first: those of the card his Approve covered it on that share its landing stack, else key alone, since stack-enqueue refuses PRs named together that no stack links, such as the sibling PRs of one order his card draws together."""
-    landed = stacks.get(key, (key,))
-    return [member for member in data["prs"][key].get("stack") or [key] if data["prs"][member]["state"] == "open" and member in landed]
+def unready(data: dict, key: str, cards: dict) -> str | None:
+    """Why a lander does not queue the PR now, the first condition it fails, or None when it lands: his Approve or an exempt class clears it, it is green and approved, or approved only on an older head, whose review `drive pr land` asks for, nothing holds it, its change at its head is checked against his words unless an exempt class lands it, whatever head his Approve was tapped on, it is no draft, has no conflict with its base and no card of his open on its work, its job's or a job sharing it, and no lander runs on it. A job still running on it does not hold it, since his Approve lands it at once."""
+    pr = data["prs"][key]
+    if not state.cleared(pr):
+        return "neither his Approve nor an exempt class clears it"
+    if pr["checks"] != "pass":
+        return f"its checks read {pr['checks']}"
+    if pr["review"] not in LANDS_ON:
+        return f"its review reads {pr['review']}"
+    if view.held(pr):
+        return "his Hold or its hold label holds it"
+    if waiting := view.holding(data, pr["waits"], cards):
+        return f"it waits on {', '.join(waiting)}"
+    if not (pr.get("exempt") or state.checked(data, pr)):
+        return "its change at its head is not checked against his words"
+    if pr["draft"]:
+        return "it is a draft"
+    if pr["conflict"]:
+        return "it conflicts with its base"
+    if asking := open_cards(data, pr["job"], pr["waits"], cards):
+        return f"his cards {', '.join(asking)} on its work are open"
+    if running(pr):
+        return f"lander pid {pr['lander']['pid']} runs on it"
+    return None
 
 
-def unit(data: dict, stacks: dict[str, tuple[str, ...]], key: str) -> tuple[str, ...]:
-    """The PRs one lander queues with key, bottom first, up to the first neither his Approve nor an exempt class clears."""
-    return tuple(takewhile(lambda member: state.cleared(data["prs"][member]), together(data, stacks, key)))
+def unit(data: dict, stacks: dict[str, tuple[str, ...]], key: str, cards: dict) -> tuple[str, ...]:
+    """The PRs one lander queues for key: its landing stack bottom first, up to the first PR that does not land now, so a PR above that is red, untapped or held never holds an approved, ready one below it, as stack-enqueue lands the largest such bottom of a stack."""
+    return tuple(takewhile(lambda member: unready(data, member, cards) is None, stacks.get(key, (key,))))
 
 
-def ready(data: dict, keys: tuple[str, ...], cards: dict) -> bool:
-    """Whether a unit is queued now: each PR of it green and approved, or approved only on an older head, whose review `drive pr land` asks for, its change at its head checked against his words unless an exempt class lands it, whatever head his Approve was tapped on, with nothing holding it, no draft, no conflict with its base, no card of his open on its work, its job's or a job sharing it, and no lander running on it, and one of them on a head no lander has tried. A job still running on it does not hold it, since his Approve lands it at once."""
-    prs = [data["prs"][key] for key in keys]
-    fit = all(
-        view.unblocked(pr, data, cards, LANDS_ON)
-        and (bool(pr.get("exempt")) or state.checked(data, pr))
-        and not pr["draft"]
-        and not pr["conflict"]
-        and not open_cards(data, pr["job"], pr["waits"], cards)
-        and not running(pr)
-        for pr in prs
-    )
-    return fit and any(not tried(data, pr) for pr in prs)
+def stall(data: dict, key: str, cards: dict) -> str | None:
+    """Why his Approve has not landed the PR, or None while a lander holds it or one below it in its landing stack: the first PR of that stack up to it that does not land now and why, else what the last lander's try on its head came to."""
+    stack = landing_stacks(data).get(key, (key,))
+    if landing(data["prs"][key]) or any(running(data["prs"][member]) for member in stack[: stack.index(key)]):
+        return None
+    for member in stack[: stack.index(key) + 1]:
+        if why := unready(data, member, cards):
+            return why if member == key else f"{member} below it in its stack: {why}"
+    lander = data["prs"][key]["lander"] or {}
+    if lander.get("head") == data["prs"][key]["head"] and lander.get("outcome"):
+        return f"its lander's try at {lander['head'][:12]} ended {lander['outcome']}"
+    return "no lander has started on it"
 
 
 def tried(data: dict, pr: dict) -> bool:
@@ -166,9 +185,10 @@ def held_below(keys: list[str], below: list[str]) -> str:
 
 
 def units(data: dict, keys: list[str], cards: dict) -> list[tuple[str, ...]]:
+    """The units a lander queues now among keys' landing stacks: each one with a PR on a head no lander has tried."""
     stacks = landing_stacks(data)
-    found = dict.fromkeys(unit(data, stacks, key) for key in keys if state.queued_by_lander(key) and data["prs"][key]["state"] == "open")
-    return [members for members in found if members and ready(data, members, cards)]
+    found = dict.fromkeys(unit(data, stacks, key, cards) for key in keys if state.queued_by_lander(key) and data["prs"][key]["state"] == "open")
+    return [members for members in found if any(not tried(data, data["prs"][member]) for member in members)]
 
 
 def start(name: str, keys: list[str], cards: dict | None) -> list[tuple[str, ...]]:

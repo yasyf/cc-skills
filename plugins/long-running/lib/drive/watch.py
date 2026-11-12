@@ -31,9 +31,12 @@ TELL_AFTER = timedelta(minutes=10)
 WAKES = ("TAP ", "DUE ", "TELL ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "STUCK ", "FREE ", "EVENT unheard ", "EVENT stop ", "WATCH stopped")
 OWNER_MOVES = ("merged", "checks failed", "READY refused", served.NOT_READY, "conflicts with its base", "changes requested", "still red", "ejected from the merge queue", "not landed")
 PR_EVENT = re.compile(r"PR (?P<key>\S+): (?P<change>.+) \[(?P<order>o\d+) (?P<job>j\d+)\]$")
-TAP_EVENT = re.compile(r"TAP (?P<label>\S+) (?P<key>\S+)")
+NOT_LANDED = "not landed"
+TAP_EVENT = re.compile(rf"TAP (?P<label>\S+) (?P<key>\S+)(?P<stalled> {NOT_LANDED})?")
 LANE = "watch"
 READS_LOG = "reads.log"
+RELAUNCHES_LOG = "relaunches.log"
+CARRY_ON = "The lane that held this job died while it worked, and the watch started you in its place: carry the job on from where that lane left it."
 UNTHREADED = "the order has no thread, so its time was the drive's own and is said this once"
 CUT_OFF = (
     f"its read stopped before it finished, so what it did and printed are unknown, its output in the drive's {READS_LOG}, and no read"
@@ -53,6 +56,7 @@ ASK_FIELD = re.compile(r"^ASK:?[ \t]+([/~]\S*)[ \t]*$", re.MULTILINE)
 PAUSED = "The recommended answer to this question is built and paused on your pick: tap it and the work ships; another pick rebuilds it first."
 QUIET_FOR = timedelta(minutes=30)
 STUCK_FOR = timedelta(minutes=30)
+TAPPED_FOR = timedelta(minutes=10)
 CALL_STUCK_FOR = timedelta(minutes=5)
 UNSTAFFED_FOR = timedelta(minutes=5)
 UNCHECKED_FOR = timedelta(minutes=5)
@@ -175,10 +179,10 @@ def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 continue
             if watcher.cards is not None and not moves_owed(pr, data, watcher.cards):
                 changes = [change for change in changes if not change.startswith(OWN_MOVES)]
-            if stuck := stuck_for(pr, data, watcher.cards, moment):
-                changes.append(stuck)
+            stuck = stuck_line(key, pr, data, watcher.cards, moment)
             pr["updated"] = state.stamp(moment)
             lines.extend(f"PR {key}: {change} {ids(pr)}" for change in changes)
+            lines.extend([stuck] if stuck else [])
     return lines + dropped_lines(watcher, foreign, moment)
 
 
@@ -234,8 +238,12 @@ def moves_owed(pr: dict, data: dict, cards: dict) -> bool:
     return view.next_step(pr, data, cards) and not (state.owed_step(pr) == "card" and view.card_for(cards["pr_cards"], pr["url"]))
 
 
-def stuck_as(pr: dict, data: dict, cards: dict | None) -> str | None:
-    if pr["state"] != "open" or view.owned(data["jobs"][pr["job"]], cards):
+def stuck_as(key: str, pr: dict, data: dict, cards: dict | None) -> str | None:
+    if pr["state"] != "open":
+        return None
+    if land.approved(pr) and state.queued_by_lander(key):
+        return "tapped" if cards is not None and land.stall(data, key, cards) else None
+    if view.owned(data["jobs"][pr["job"]], cards):
         return None
     if pr["checks"] == "fail":
         return "red"
@@ -246,27 +254,32 @@ def stuck_as(pr: dict, data: dict, cards: dict | None) -> str | None:
     return step if step in STUCK_WORDS else None
 
 
-def stuck_for(pr: dict, data: dict, cards: dict | None, moment: datetime) -> str | None:
-    """Say a PR stuck red, or green and approved with his card or its exempt landing owed while nothing it waits on holds, once it has held 30 minutes with its job neither running nor asking him, then again only when what it is changes: its head, checks, review, tap, job's state, or what it waits on."""
+def stuck_line(key: str, pr: dict, data: dict, cards: dict | None, moment: datetime) -> str | None:
+    """Say a Forge-AI/monorepo PR he approved that no lander holds once it has sat 10 minutes so, whatever its job's state, naming why it has not landed, then again each time that reason changes; and a PR stuck red, or green and approved with his card or its exempt landing owed while nothing it waits on holds, once it has held 30 minutes with its job neither running nor asking him, then again only when what it is changes: its head, checks, review, tap, job's state, or what it waits on."""
     holds = view.holding(data, pr["waits"], cards)
-    what, stuck = stuck_as(pr, data, cards), pr.get("stuck")
+    what, stuck = stuck_as(key, pr, data, cards), pr.get("stuck")
     if what is None or not stuck or stuck["as"] != what:
         pr["stuck"] = what and {"as": what, "since": state.stamp(moment), "said": None}
         return None
     since = state.parse_time(stuck["since"])
-    seen = {
-        "head": pr["head"],
-        "checks": pr["checks"],
-        "review": pr["review"],
-        "tap": (pr.get("tap") or {}).get("label"),
-        "job": data["jobs"][pr["job"]]["state"],
-        "waits": holds or None,
-    }
-    if moment - since < STUCK_FOR or stuck["said"] and stuck.get("seen") == seen:
+    if what == "tapped":
+        seen = {"why": land.stall(data, key, cards)}
+    else:
+        seen = {
+            "head": pr["head"],
+            "checks": pr["checks"],
+            "review": pr["review"],
+            "tap": (pr.get("tap") or {}).get("label"),
+            "job": data["jobs"][pr["job"]]["state"],
+            "waits": holds or None,
+        }
+    if moment - since < (TAPPED_FOR if what == "tapped" else STUCK_FOR) or stuck["said"] and stuck.get("seen") == seen:
         return None
     pr["stuck"] = {"as": what, "since": stuck["since"], "said": state.stamp(moment), "seen": seen}
+    if what == "tapped":
+        return f"TAP Approve {key} {NOT_LANDED} {minutes(moment - state.parse_time(pr['tap']['at']))} minutes after his tap: {seen['why']} {ids(pr)}"
     waiting = f", waiting on {', '.join(map(bare, holds))}" if holds else ""
-    return f"{STUCK_WORDS[what]} for {minutes(moment - since)} minutes{waiting}"
+    return f"PR {key}: {STUCK_WORDS[what]} for {minutes(moment - since)} minutes{waiting} {ids(pr)}"
 
 
 def bare(wait: str) -> str:
@@ -1429,11 +1442,17 @@ def remote_gap(job_id: str, worker: dict, moment: datetime) -> str | None:
 
 
 def ended_gap(job_id: str, ended: dict, moment: datetime) -> str | None:
-    """A running job whose lane died or finished and was not resumed in the time a relaunch takes."""
+    """A running job whose lane died or finished and no next lane replaced in the time a relaunch takes: none while the watch's relaunch of it runs, and once that relaunch ended or overran, the line names it and its log."""
     gone = moment - state.parse_time(ended["at"])
-    if gone < RELAUNCH:
+    relaunch = ended.get("relaunch")
+    if relaunch and state.alive(relaunch["pid"]) and moment - state.parse_time(relaunch["at"]) < RELAUNCH:
         return None
-    return f"{job_id}'s lane ended {minutes(gone)} minutes ago ({cut(ended['why'], 60)}), was not resumed and its result is not recorded"
+    if not relaunch:
+        return None if gone < RELAUNCH else f"{job_id}'s lane ended {minutes(gone)} minutes ago ({cut(ended['why'], 60)}), was not resumed and its result is not recorded"
+    return (
+        f"{job_id}'s lane ended {minutes(gone)} minutes ago ({cut(ended['why'], 60)}) and the watch's drive job resume at"
+        f" {when(relaunch['at'])} started no next lane, its output in the drive's {RELAUNCHES_LOG}"
+    )
 
 
 def launching(job: dict, moment: datetime) -> bool:
@@ -1468,7 +1487,7 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 continue
             if job["state"] not in LIVE_JOB_STATES:
                 continue
-            if ended := next((death for death in job.get("deaths", []) if death["dispatch"] == job["dispatch"]), None):
+            if ended := state.lane_death(job):
                 if running:
                     gaps[job_id] = ended_gap(job_id, ended, moment)
                 continue
@@ -1559,7 +1578,7 @@ def release_sprites(watcher: Watcher) -> None:
 
 
 def death_lines(name: str, deaths: dict[str, tuple[str, str]], moment: datetime) -> list[str]:
-    """Record each remote lane's death on its job and say it once, with what the coordinator's next resume does."""
+    """Record each remote lane's death on its job and say it once. A running job's lane is relaunched that pass by `drive job resume` as a process of its own, its pid kept on the death so no later pass starts a second; a waiting job's waits for the coordinator's resume with his answer."""
     if not deaths:
         return []
     lines = []
@@ -1568,14 +1587,20 @@ def death_lines(name: str, deaths: dict[str, tuple[str, str]], moment: datetime)
             job = data["jobs"][job_id]
             if not state.lane_died(job, dispatch, why, moment):
                 continue
-            doing = "waited on" if job["state"] == "waiting" else "worked on"
-            lines.append(
-                f'LANE {job_id} {job["order"]} died {orca.place(job)}: {why}, while it {doing} '
-                f'"{cut(job["said"] or job["goal"], 60)}". A message sent to it reaches no one; drive job resume '
-                f'{job_id} "<its next step, or his answer>" relaunches it '
-                f'{"in a fresh worktree " + orca.ON_MAC if state.on_mac(job) else "on a fresh Sprite"} with a handoff'
-            )
+            waiting = job["state"] == "waiting"
+            died = f'LANE {job_id} {job["order"]} died {orca.place(job)}: {why}, while it {"waited on" if waiting else "worked on"} "{cut(job["said"] or job["goal"], 60)}". '
+            fresh = f'{"in a fresh worktree " + orca.ON_MAC if state.on_mac(job) else "on a fresh Sprite"} with a handoff'
+            if waiting:
+                lines.append(f'{died}A message sent to it reaches no one; drive job resume {job_id} "<his answer>" relaunches it {fresh}')
+                continue
+            job["deaths"][-1]["relaunch"] = {"pid": relaunch(name, job_id), "at": state.stamp(moment)}
+            lines.append(f"{died}The watch ran drive job resume {job_id}, which relaunches it {fresh}, its output in the drive's {RELAUNCHES_LOG}")
     return lines
+
+
+def relaunch(name: str, job_id: str) -> int:
+    """Run `drive job resume` on a running job whose lane died as its own process, outliving the pass that started it, its output appended to the drive's relaunches log."""
+    return state.detach(name, ["job", "resume", job_id, CARRY_ON], RELAUNCHES_LOG)
 
 
 def can_wake(job_id: str, job: dict, data: dict, cards: dict | None, moment: datetime) -> bool:
@@ -1891,10 +1916,10 @@ def holder_line(line: str, data: dict) -> str | None:
 
 
 def needs_step(line: str, data: dict) -> bool:
-    """Whether a line asks for a step now: any line but a PR's, his Approve of a PR the drive's lander queues only when it is red or conflicts with its base, and a PR's when its job is not running to take it, its new head, checks passed, approval or queueing only when the coordinator owes it its exempt landing, which the drive's lander does for a Forge-AI/monorepo one; never his card itself, which the watch draws, nor its landing after his Approve, which the lander does, nor GitHub's merged line for a PR the lander merges and says so itself, nor the lander's merged line on a job its drive install already proved, whose proof line says so, nor when its author or its own builder lands it."""
+    """Whether a line asks for a step now: any line but a PR's, his Approve of a PR the drive's lander queues only when it is red or conflicts with its base or has sat unlanded with no lander holding it, and a PR's when its job is not running to take it, its new head, checks passed, approval or queueing only when the coordinator owes it its exempt landing, which the drive's lander does for a Forge-AI/monorepo one; never his card itself, which the watch draws, nor its landing after his Approve, which the lander does, nor GitHub's merged line for a PR the lander merges and says so itself, nor the lander's merged line on a job its drive install already proved, whose proof line says so, nor when its author or its own builder lands it."""
     if (tapped := TAP_EVENT.match(line)) and tapped["label"] == "Approve" and state.queued_by_lander(tapped["key"]):
         pr = data["prs"].get(tapped["key"])
-        return pr is None or pr["checks"] == "fail" or bool(pr["conflict"])
+        return bool(tapped["stalled"]) or pr is None or pr["checks"] == "fail" or bool(pr["conflict"])
     found = PR_EVENT.match(line)
     if not found:
         return not line.startswith("PR ")

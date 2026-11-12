@@ -281,12 +281,14 @@ lander posts `@forge-pr-reviewer review` on that PR, once a head, and `--watch` 
 approvals and queues it. His card tap starts it when the PR is already green, approved by the
 reviewer bot, on its head or an older one, and free of conflicts, and the watch starts it within
 one GitHub read, 60 seconds, of the PR getting there. It
-names each stack on his card that his Approve lands together bottom first, a native GitHub stack or PRs
-each on the one below's head branch, up to the first neither his Approve nor an exempt class clears,
-and each other PR of his card in a call of its own, since `stack-enqueue` refuses PRs named together
-that no stack links, such as one order's sibling PRs on `dev`. It starts on
-none while a card of his that the PR or its job waits on is open, or the PR is a draft, held or in
-conflict. His Approve lands only a change checked against his words at its head, whatever head he
+walks each stack his Approve touches bottom first, a native GitHub stack or PRs each on the one
+below's head branch, and lands its ready bottom. That bottom ends below the first PR that cannot
+land now, such as one red, held, unchecked, in conflict or still waiting on his Approve. The PRs
+above it wait. Each other PR of his card lands in a call of its own, since `stack-enqueue`
+refuses PRs named together that no stack links, such as one order's sibling PRs on `dev`. A PR he
+approved that no lander holds for 10 minutes is a `TAP Approve <pr> not landed …` line naming the
+first condition that holds it, said again only when that condition changes.
+His Approve lands only a change checked against his words at its head, whatever head he
 tapped it on: a head that moved under his card keeps Approve showing, the card saying it lands once
 that commit passes the check, the watch's `drive pr check` judges it, and the lander starts once it
 passes and reads GitHub's head again before it queues, saying `PR … waits on its check against his words`

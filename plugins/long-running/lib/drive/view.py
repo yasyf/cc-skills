@@ -200,8 +200,8 @@ def open_cards(job: dict, found: dict | None) -> list[str]:
 
 
 def owned(job: dict, cards: dict | None) -> bool:
-    """Whether a PR's job holds it: a running builder owns its pushes and CI, and a job asking him holds its PR."""
-    return job["state"] == "running" or bool(open_cards(job, cards))
+    """Whether a PR's job holds it: a running builder whose lane lives owns its pushes and CI, and a job asking him holds its PR."""
+    return job["state"] == "running" and not state.lane_death(job) or bool(open_cards(job, cards))
 
 
 def unblocked(pr: dict, data: dict, cards: dict | None, reviews: tuple[str, ...] = ("approved",)) -> bool:

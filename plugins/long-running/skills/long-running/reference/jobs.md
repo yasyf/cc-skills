@@ -205,9 +205,12 @@ question.
 - The lane's Dispatch, from Orca: a lane that sat at its prompt for 30 minutes makes its parts
   `ORPHAN`s, and a lane whose worker died or whose Sprite's Orca environment is gone, running or
   waiting, is one `LANE … died` line.
-- While its job stays `running`, a lane that finished, or ended and was not resumed within 30
-  minutes, makes its parts `ORPHAN`s even when another job or a posted answer carries them. So does
-  an open PR from GitHub on the job's branch or its lane's that the drive does not track.
+- A running job's dead lane is relaunched in the pass that finds it: the watch runs
+  `drive job resume <j>` as a process of its own, its output in the drive's `relaunches.log`, and
+  its `LANE … died` line says so. While its job stays `running`, a lane that finished, or ended with
+  no next lane started within 30 minutes, or whose relaunch ended without one, makes its parts
+  `ORPHAN`s even when another job or a posted answer carries them. So does an open PR from GitHub on
+  the job's branch or its lane's that the drive does not track.
 
 **Resume.** `drive job resume` checks the worker before it sends.
 

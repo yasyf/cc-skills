@@ -77,7 +77,7 @@ def at_work_here(job_id: str, job: dict, data: dict, moment: datetime) -> str | 
         return None
     if not job.get("dispatch"):
         return f"its Orca lane launching since {when(job['launching'], seconds=True)}" if watch.launching(job, moment) else None
-    if any(death["dispatch"] == job["dispatch"] for death in job.get("deaths", [])):
+    if state.lane_death(job):
         return None
     return f"its Orca lane {job['dispatch']}, not ended"
 

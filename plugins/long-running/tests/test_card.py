@@ -725,6 +725,16 @@ def test_answer_stores_his_tap_and_appends_a_tap_event(drive: str) -> None:
     }
 
 
+def test_a_tap_cc_slack_applies_again_keeps_its_first_time_and_appends_no_second_event(drive: str) -> None:
+    answer = {"repo": "Forge-AI/monorepo", "number": 42, "waits": "merge:Forge-AI:monorepo:42", "label": "Approve", "heads": {}, "action_ts": "1762700000.000100", "source": "slack"}
+    assert ask({"answer": answer}) == {"ok": True}
+    first = state.load(drive)["prs"]["Forge-AI/monorepo#42"]["tap"]
+    assert ask({"answer": answer}) == {"ok": True}
+    assert (state.load(drive)["prs"]["Forge-AI/monorepo#42"]["tap"], len(events(drive))) == (first, 1)
+    assert ask({"answer": answer | {"label": "Hold", "action_ts": "1762700100.000100"}}) == {"ok": True}
+    assert (state.load(drive)["prs"]["Forge-AI/monorepo#42"]["tap"]["label"], len(events(drive))) == ("Hold", 2)
+
+
 def test_his_approve_starts_the_lander_on_a_green_monorepo_pr_at_once_and_leaves_a_red_one_to_the_watch(
     drive: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
 ) -> None:
