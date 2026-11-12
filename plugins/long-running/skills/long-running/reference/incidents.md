@@ -61,6 +61,12 @@ changed and when, its findings the suspects, and its root cause the verdict.
   settled by `finding confirm` or `finding clear` with `--why "<what was observed, its link>"`.
   The verdict, `ccn investigation root-cause <id> "<change, PR, what in it fails>"`, waits until a
   test machine reproduces the failure and that change explains it.
+- The first check's and the cause job's report ends with `FIX <the order or PR that fixes the
+  cause>`, several comma-separated, or `FIX none`, and `drive job report` refuses one without it.
+  That line joins each open order it names to the incident, so `state.hurts_now` reads it as a bug
+  hurting someone now from that report on, even once the incident recovers, by his pick "Incident
+  cause names the fix: live from the report that names it until it merges; costs one required line
+  on every cause report".
 - **Every other job**, a reader, the rollback or the fix, appends what it observed and names no
   cause. Read `ccn investigation show <id>` before any line about the cause.
 - **A later alert or question** about a service whose incident is open joins it, with no job of

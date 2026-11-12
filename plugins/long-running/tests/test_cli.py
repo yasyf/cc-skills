@@ -2877,7 +2877,32 @@ def test_a_readers_design_on_a_reported_bug_names_the_immediate_fix_shipping_whi
     run("job", "add", "reader", "--order", "o1", "--part", "the copy", "--goal", "research: the copy")
     code, err = keep(monkeypatch, capsys, "j2", DESIGN_RESEARCH)
     assert (code, "a reader's DESIGN on a bug hurting someone now names its immediate fix" in err) == (2, True)
-    assert keep(monkeypatch, capsys, "j2", DESIGN_RESEARCH + "Interim fix: j1 repairs the stuck restores\n") == (0, "")
+    code, err = keep(monkeypatch, capsys, "j2", DESIGN_RESEARCH + "Interim fix: j1 repairs the stuck restores\n")
+    assert (code, f"j2 traces the cause of o1's live bug, so {state.FIX_RULE}" in err) == (2, True)
+    assert keep(monkeypatch, capsys, "j2", DESIGN_RESEARCH + "Interim fix: j1 repairs the stuck restores\nFIX o1\n") == (0, "")
+
+
+def test_a_cause_report_names_its_fix_whose_order_reads_live_from_it(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(cli.reads, "run", recorded([]))
+    run("incident", "open", "SandSQL mint endpoint failing", "--record", RECORD, *FILED)
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "fix the handover", "--kind", "build")
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "fix the restores", "--kind", "build")
+    where = ("--serves", "his order", "--done-when", "fixed", "--where", "Forge-AI/monorepo dev")
+    run("job", "brief", "j1", *where)
+    run("job", "brief", "j3", *where)
+    jobs = state.load("demo")["jobs"]
+    assert (state.FIX_RULE in Path(jobs["j1"]["brief"]).read_text(), state.FIX_RULE in Path(jobs["j3"]["brief"]).read_text()) == (False, True)
+    traced = "DONE the predecessor's handover delays each mint\n"
+    code, err = keep(monkeypatch, capsys, "j3", traced)
+    assert (code, f"j3: refused, nothing kept: j3 traces the cause of o1's live bug, so {state.FIX_RULE}" in err) == (2, True)
+    code, err = keep(monkeypatch, capsys, "j3", traced + "FIX o2, o9\n")
+    assert (code, "its FIX line names o9, no order or PR the drive tracks" in err) == (2, True)
+    assert keep(monkeypatch, capsys, "j3", traced + "FIX o2\n") == (0, "")
+    orders = state.load("demo")["orders"]
+    assert [(orders[order_id]["joins"], state.hurts_now(orders[order_id])) for order_id in ("o2", "o3")] == [("o1", True), (None, False)]
+    assert state.incident_orders(state.load("demo"), "o1") == ["o1", "o2"]
 
 
 def test_a_builder_landing_prs_he_approved_starts_with_no_research(run: Run, with_pr: str, capsys: pytest.CaptureFixture[str]) -> None:
