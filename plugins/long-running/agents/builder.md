@@ -395,7 +395,7 @@ Interim fix: <on a bug hurting someone now: the link of the PR, release, rollbac
   defect behind it, a pick between designs that are his or his approval of an action his rules hold for
   him such as a benchmark run, reads `Root cause: none: <why>`. When the card quotes words of his as
   settled, the recommended option is the one they choose. His ruling: "Update your skill to not just brush over the root cause ever". `drive job ask` refuses a block out of this shape, and
-  Jev reads its recommended option against its root cause and his quoted words before it is kept. On an incident or a bug a reporter shared,
+  Jev reads its recommended option against its root cause and his quoted words and prints its finding to you, keeping the card whatever it finds, by his pick: "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits". On an incident or a bug a reporter shared,
   `Interim fix:` links the immediate fix shipping while he picks, which his pick replaces, and the
   summary names it; `drive job ask` refuses the block without it.
 - The summary answers his next question: why, did he already decide this, is it a port, what comes
