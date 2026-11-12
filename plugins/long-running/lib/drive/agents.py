@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Self
 
 from drive import reads, render, state
-from drive.brief import BRIEF_JOB, carried
+from drive.brief import BRIEF_JOB, carried, heavier
 
 RECORD = re.compile(r"^Record: (\d+)\b", re.MULTILINE)
 LINK = re.compile(r"^Link:\s*(\S+)", re.MULTILINE)
@@ -15,6 +15,7 @@ HIS_KINDS = ("owner", "answer")
 RE_HOPS = 8
 CORRECTION_BYTES = 1 << 20
 HANDLER = "long-running:handler"
+DESIGNER = "long-running:designer"
 HIS_WORDS = "Message (his words)"
 SCRATCH = re.compile(r"Scratch:\s*(\S+)")
 LABEL = re.compile(rf"^({'|'.join(re.escape(label) for label in render.HANDLER_LABELS)}):")
@@ -72,6 +73,26 @@ def beyond_brief(prompt: str) -> str | None:
         elif line.strip() and not (label == HIS_WORDS or (label == "Context" and (context := context + 1) <= 3)):
             return line.strip()
     return None
+
+
+def shaped(payload: dict) -> dict:
+    """The Agent call a drive session makes, in the one shape the drive runs it: a role's call without `name`, since a named agent joins the agent team and never wakes on events, a design job as the designer, the only definition that keeps it read only and its forks in his cards' shape, and Fable on the designer alone; and a lane whose order needs its definition's Opus or Fable without the Sonnet or Haiku passed for it."""
+    call = payload["tool_input"]
+    if not (names := state.session_drives(payload.get("session_id") or "")):
+        return call
+    data = state.load(names[0])
+    text = carried(call.get("prompt") or "")
+    job_id = named[1] if (named := BRIEF_JOB.search(text)) and named[1] in data["jobs"] else None
+    made = dict(call)
+    if not payload.get("agent_id"):
+        made.pop("name", None)
+        if job_id and data["jobs"][job_id]["kind"] == "design":
+            made["subagent_type"] = DESIGNER
+        if "fable" in (made.get("model") or "").lower() and made.get("subagent_type") != DESIGNER:
+            del made["model"]
+    if job_id and heavier(data, job_id, text, made.get("model")):
+        del made["model"]
+    return made
 
 
 def scratch(prompt: str) -> Path | None:

@@ -78,6 +78,7 @@ def test_a_session_outside_any_drive_and_its_agents_are_not_checked(demo: str) -
     command = 'orca terminal create --worktree path:/work --command "claude; exec zsh -l"'
     assert bash_guard.deny_reason(bash(command, session="ordinary")) is None
     assert bash_guard.deny_reason(bash('drive job resume j3 "go"', session="ordinary", call={"run_in_background": True})) is None
+    assert bash_guard.foreground(bash('drive job resume j3 "go"', session="ordinary", call={"run_in_background": True})) is None
     builder = {"agent_id": "a-1", "agent_type": "long-running:builder"}
     assert bash_guard.deny_reason(bash(command, session="ordinary", **builder)).startswith("refused: the terminal's --command runs `zsh` after claude")
 
@@ -99,10 +100,19 @@ def test_claude_codes_permission_prompt_on_a_drive_agents_command_is_refused(
     assert bash_guard.deny_reason(bash(unreadable, session="ordinary", hook_event_name="PermissionRequest", **elsewhere)) is None
 
 
-def test_drive_job_resume_runs_in_the_foreground(demo: str) -> None:
-    reason = bash_guard.deny_reason(bash('drive job resume j3 "go"', call={"run_in_background": True}))
-    assert reason.startswith("refused: `drive job resume` runs in the foreground with `timeout: 20000`")
-    assert bash_guard.deny_reason(bash('drive job resume j3 "go"', call={"timeout": 20000})) is None
+def test_drive_job_resume_runs_in_the_foreground_however_it_is_called(demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    resume = 'drive job resume j3 "go"'
+    foreground = {"command": resume, "run_in_background": False, "timeout": 20000}
+    for call in ({"run_in_background": True}, {}, {"timeout": 600000}):
+        assert bash_guard.deny_reason(bash(resume, call=call)) is None
+        assert bash_guard.foreground(bash(resume, call=call)) == foreground
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(bash(f"cd /work && {resume}", call={"run_in_background": True}))))
+    bash_guard.main()
+    assert json.loads(capsys.readouterr().out)["hookSpecificOutput"] == {"hookEventName": "PreToolUse", "updatedInput": foreground | {"command": f"cd /work && {resume}"}}
+    assert bash_guard.foreground(bash(resume, call={"timeout": 20000})) is None
+    assert bash_guard.foreground(bash("drive job report j3", call={"run_in_background": True})) is None
+    builder = {"agent_id": "a-1", "agent_type": "long-running:builder"}
+    assert bash_guard.foreground(bash(resume, session="ordinary", call={"run_in_background": True}, **builder)) == foreground
 
 
 def test_a_session_is_resumed_only_once_its_process_exits(demo: str, config: Path, monkeypatch: pytest.MonkeyPatch) -> None:

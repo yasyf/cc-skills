@@ -34,17 +34,9 @@ def deny_reason(payload: dict) -> str | None:
     return f"refused, no agent started: {refused}" if refused else None
 
 
-def heavier(payload: dict) -> dict | None:
-    """The Agent call with a Sonnet or Haiku model dropped where the job's order needs its agent definition's own Opus or Fable."""
-    tool_input = payload["tool_input"]
-    if (named := named_job(payload)) is None or not brief.heavier(named[1], named[2], named[3], tool_input.get("model")):
-        return None
-    return {key: value for key, value in tool_input.items() if key != "model"}
-
-
 def scratch_folder(payload: dict) -> Path | None:
     """The folder a drive agent's prompt names as its Scratch, which must exist before the agent's first write."""
-    tool_input = payload["tool_input"]
+    tool_input = agents.shaped(payload)
     if not str(tool_input.get("subagent_type") or "").startswith(AGENTS):
         return None
     return agents.scratch(tool_input.get("prompt") or "")
@@ -57,8 +49,6 @@ def main() -> None:
         return
     if folder := scratch_folder(payload):
         folder.mkdir(parents=True, exist_ok=True)
-    if made := heavier(payload):
-        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": made}}))
 
 
 if __name__ == "__main__":

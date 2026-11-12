@@ -30,10 +30,10 @@ background process. When you cannot tell, it counts, because a wrong shape costs
      PRs and findings it starts from, and says to design from what his words need, the code an
      input, not a shape to keep.
    - Start it with the Agent tool: `subagent_type: "long-running:designer"`, `model: "fable"`,
-     `run_in_background: true`, a short `description`, no `name` (the `agent_brief` hook refuses
+     `run_in_background: true`, a short `description`, no `name` (the `agent_brief` hook drops
      one), and the `Read your brief first: <path>` line as the whole `prompt`. The `agent_brief`
-     hook refuses a design job's brief on any other type, since only that definition keeps it read
-     only, settled questions off his cards and each fork in shape.
+     hook starts a design job's brief given any other type as `long-running:designer`, since only
+     that definition keeps it read only, settled questions off his cards and each fork in shape.
    - Its return opens `DESIGN <part>`. Read the rest with `drive job report <j>`: the design, a
      `Settled:` line quoting his words, a `Change:` line for each PR its builders open, in at most 80
      characters with no backtick, double quote, `$` or backslash, which becomes a part of the order

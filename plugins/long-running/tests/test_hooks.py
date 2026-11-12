@@ -488,17 +488,18 @@ def started_by_role(session: str, **call: object) -> dict:
     return {"session_id": session, "tool_name": "Agent", "tool_input": {"description": "d", "prompt": "Record: 1 Drive: demo", **call}}
 
 
-def test_a_drive_role_starts_no_named_agent_no_fable_but_its_designer_and_no_builder_without_scope(
+def test_a_drive_roles_agent_runs_unnamed_with_fable_on_its_designer_alone_and_no_builder_without_scope(
     demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     coordinator = os.environ["CLAUDE_CODE_SESSION_ID"]
-    named = started_by_role(coordinator, subagent_type="long-running:handler", name="desk")
+    named = started_by_role(coordinator, subagent_type="long-running:builder", name="desk", prompt="Handoff: 661200 Drive: demo Scratch: /s")
+    unnamed = {key: value for key, value in named["tool_input"].items() if key != "name"}
     output = json.loads(hook_output(agent_brief, monkeypatch, capsys, json.dumps(named)))
-    assert output["hookSpecificOutput"]["permissionDecision"] == "deny"
-    assert output["hookSpecificOutput"]["permissionDecisionReason"].startswith("refused: the coordinator starts no named agent")
+    assert output == {"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": unnamed}}
     fable = started_by_role(coordinator, subagent_type="long-running:builder", model="fable", prompt="Serves: his order")
-    assert agent_brief.deny_reason(fable).startswith("refused: Fable runs only the coordinator and long-running:designer")
-    assert agent_brief.deny_reason(started_by_role(coordinator, subagent_type="long-running:designer", model="fable")) is None
+    assert agents.shaped(fable) == {key: value for key, value in fable["tool_input"].items() if key != "model"}
+    designer = started_by_role(coordinator, subagent_type="long-running:designer", model="fable")
+    assert agents.shaped(designer) == designer["tool_input"]
     unscoped = started_by_role(coordinator, subagent_type="long-running:builder", prompt="Order (his words): fix it\nGoal: fix it")
     assert agent_brief.deny_reason(unscoped).startswith("refused: a builder's brief, in its prompt or the brief file the prompt names")
     assert agent_brief.deny_reason(started_by_role(coordinator, subagent_type="long-running:builder", prompt="Handoff: 661200 Drive: demo Scratch: /s")) is None
@@ -513,9 +514,7 @@ def test_a_drive_role_starts_no_named_agent_no_fable_but_its_designer_and_no_bui
     assert agent_brief.deny_reason(started_by_role(coordinator, subagent_type="long-running:builder", prompt=f"Read your brief first: {written}")) is None
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
     run("start", "demo", "--role", "communicator")
-    assert agent_brief.deny_reason(started_by_role("talker", subagent_type="long-running:handler", name="desk")).startswith(
-        "refused: the communicator starts no named agent"
-    )
+    assert "name" not in agents.shaped(started_by_role("talker", subagent_type="long-running:builder", name="desk"))
     assert agent_brief.deny_reason(started_by_role("talker", subagent_type="long-running:builder", prompt=tooling)) is None
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "tooler")
     run("start", "demo", "--role", "meta")
@@ -524,7 +523,7 @@ def test_a_drive_role_starts_no_named_agent_no_fable_but_its_designer_and_no_bui
         " meta@demo naming the tool and its refusal verbatim, and the meta session's builder takes it over"
     )
     assert agent_brief.deny_reason(started_by_role("tooler", subagent_type="long-running:builder", prompt=tooling)) is None
-    assert agent_brief.deny_reason({**named, "agent_id": "a-1"}) is None
+    assert agents.shaped({**named, "agent_id": "a-1"}) == named["tool_input"]
     assert hook_output(agent_brief, monkeypatch, capsys, json.dumps(started_by_role("someone-else", name="desk"))) == ""
 
 
@@ -577,7 +576,7 @@ def test_a_build_orders_builder_starts_only_on_a_brief_naming_its_readers_resear
         "refused, no agent started: Researched: j2 names no reader of o1 that kept a Researched: line and under it rulings:, exists: and open: lines in its report"
     )
     assert scratch_folder.deny_reason(drive_agent("long-running:builder", f"Researched: j1\n{bare}", "sonnet")) is None
-    assert "model" not in scratch_folder.heavier(drive_agent("long-running:builder", f"Researched: j1\n{bare}", "sonnet"))
+    assert "model" not in agents.shaped(drive_agent("long-running:builder", f"Researched: j1\n{bare}", "sonnet"))
     assert hook_output(scratch_folder, monkeypatch, capsys, json.dumps(drive_agent("long-running:builder", f"Researched: j1\n{bare}"))) == ""
     assert folder.is_dir()
     assert scratch_folder.deny_reason(drive_agent("long-running:builder", f"Handoff: 812\nDrive: demo, order o1, job j2\nScratch: {folder}")) is None
@@ -587,10 +586,12 @@ def test_a_build_orders_builder_starts_only_on_a_brief_naming_its_readers_resear
     assert code == 0
     assert "\nResearched: j1\n" in Path(prompt.removeprefix("Read your brief first: ")).read_text()
     assert scratch_folder.deny_reason(drive_agent("long-running:builder", prompt)) is None
-    assert scratch_folder.heavier(drive_agent("long-running:builder", prompt, "sonnet")) == {"subagent_type": "long-running:builder", "prompt": prompt, "description": "d"}
+    assert agents.shaped(drive_agent("long-running:builder", prompt, "sonnet")) == {"subagent_type": "long-running:builder", "prompt": prompt, "description": "d"}
 
 
-def test_a_build_orders_designer_on_a_light_model_runs_on_its_own_fable(communicator: str, run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_build_orders_designer_on_a_light_model_runs_on_its_own_fable(
+    communicator: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
     monkeypatch.setattr("sys.stdin", io.StringIO(RESEARCH))
@@ -598,8 +599,12 @@ def test_a_build_orders_designer_on_a_light_model_runs_on_its_own_fable(communic
     run("job", "add", "design", "--order", "o1", "--goal", "cards: the copy")
     light = drive_agent("long-running:designer", "Researched: j1\nDrive: demo, order o1, job j2", "sonnet")
     assert scratch_folder.deny_reason(light) is None
-    assert scratch_folder.heavier(light) == {key: value for key, value in light["tool_input"].items() if key != "model"}
-    assert scratch_folder.heavier(drive_agent("long-running:designer", "Researched: j1\nDrive: demo, order o1, job j2", "fable")) is None
+    assert agents.shaped(light) == {key: value for key, value in light["tool_input"].items() if key != "model"}
+    own = drive_agent("long-running:designer", "Researched: j1\nDrive: demo, order o1, job j2", "fable")
+    assert agents.shaped(own) == own["tool_input"]
+    folder = tmp_path / "j2"
+    hook_output(scratch_folder, monkeypatch, capsys, json.dumps(drive_agent("general-purpose", f"Researched: j1\nDrive: demo, order o1, job j2\nScratch: {folder}")))
+    assert folder.is_dir()
 
 
 def test_a_session_starts_no_agent_on_an_order_the_other_session_holds(demo: str, run: Run, tmp_path: Path) -> None:
@@ -668,9 +673,9 @@ def test_an_answer_orders_lane_does_its_own_research_on_opus_when_the_order_is_c
         "refused, no agent started: j1 answers o1, an answer order: its one lane does its own research, reading code,"
         " transcripts, records and his answers itself, so its brief carries no Researched: line"
     )
-    assert "model" not in scratch_folder.heavier(drive_agent("long-running:reader", "Drive: demo, order o1, job j1", "sonnet"))
-    assert scratch_folder.heavier(drive_agent("long-running:reader", "Drive: demo, order o1, job j1", "opus")) is None
-    assert scratch_folder.heavier(drive_agent("long-running:reader", "Drive: demo, order o2, job j2", "sonnet")) is None
+    assert "model" not in agents.shaped(drive_agent("long-running:reader", "Drive: demo, order o1, job j1", "sonnet"))
+    for kept in (drive_agent("long-running:reader", "Drive: demo, order o1, job j1", "opus"), drive_agent("long-running:reader", "Drive: demo, order o2, job j2", "sonnet")):
+        assert agents.shaped(kept) == kept["tool_input"]
 
 
 def test_a_light_reader_keeps_its_model_on_an_answer_order_the_communicator_left_unmarked(demo: str, run: Run) -> None:
@@ -679,9 +684,9 @@ def test_a_light_reader_keeps_its_model_on_an_answer_order_the_communicator_left
     assert state.load("demo")["orders"]["o1"]["complex"] is None
     light = drive_agent("long-running:reader", "Drive: demo, order o1, job j1", "sonnet")
     assert scratch_folder.deny_reason(light) is None
-    assert scratch_folder.heavier(light) is None
+    assert agents.shaped(light) == light["tool_input"]
     run("order", "set", "o1", "--complex")
-    assert "model" not in scratch_folder.heavier(light)
+    assert "model" not in agents.shaped(light)
 
 
 def test_guard_denies_an_untapped_drive_pr(

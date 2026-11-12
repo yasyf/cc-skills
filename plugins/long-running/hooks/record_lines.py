@@ -21,7 +21,6 @@ AGENT_DEFECT = (
 OPENING = re.compile(r"(?:POST|FYI)\b")
 UNOPENED = "refused: a report's text opens `POST`, for a handler to post, or `FYI`, kept as context; add the one it is"
 CATCH_UP = re.compile(r"Catch-up since\b", re.IGNORECASE)
-THREADED_CATCH_UP = "refused: a catch-up goes at his DM root, never in a thread, since it covers many orders; post it again without `--attr thread`"
 UNFINISHED = (
     "refused: this POST report names nothing its post finishes, so its handler cannot tell which order to close; add"
     " `--attr close=<o,…>` naming each order it finishes{about}, `--attr part=<name>` naming the part it delivers{parts},"
@@ -66,10 +65,6 @@ UNREAD_JOB = (
 KIND_NAMED = re.compile(r"\bport of #\d+|\bhis order o\d+\b|\bdrive tooling\b", re.IGNORECASE)
 UNKINDED = "refused: a ready record says which kind its PRs are: `his order o<n>` before his quoted words, `Drive tooling: …`, or `port of #<n>`; add the one it is"
 LIMIT_ATTR = "max_words"
-LIFTED_LIMIT = (
-    "refused: a record carries no `max_words` attr, since nothing reads it and no record lifts his limits: a line in his"
-    " thread is at most {line} words and a summary of two or more features at most {summary}; post it again without it"
-)
 TAIL_BYTES = 4 << 20
 
 
@@ -116,11 +111,12 @@ def completed(names: list[str], drive: dict, record: dict) -> dict:
     return record | {"text": f"{record['text']}; {words}"}
 
 
-def lifted(record: dict) -> str | None:
-    """Why a record names its own word limit, which nothing reads and his limits for a post never yield to."""
-    if LIMIT_ATTR not in attrs(record):
-        return None
-    return LIFTED_LIMIT.format(line=limits.LINE_WORDS, summary=limits.SUMMARY_WORDS)
+def trimmed(record: dict) -> dict:
+    """The record without the attrs it never carries: a `max_words`, since nothing reads it and his word limits for a post never yield to it, and a catch-up report's `thread`, since a catch-up covers many orders and goes at his DM root."""
+    named = attrs(record)
+    catch_up = kind(record) == "report" and addressed(record, "communicator") and (named.get("catch_up") or CATCH_UP.search(record.get("text") or ""))
+    kept = {key: value for key, value in named.items() if key != LIMIT_ATTR and not (catch_up and key == "thread")}
+    return record if kept == named else record | {"attrs": kept}
 
 
 def misaddressed(payload: dict, record: dict) -> str | None:
@@ -138,7 +134,6 @@ def report_refusals(payload: dict, drive: dict, role: str | None, records: list[
     text = (record.get("text") or "").strip()
     thread = attrs(record).get("thread")
     yield None if OPENING.match(text) else UNOPENED
-    yield THREADED_CATCH_UP if thread and (attrs(record).get("catch_up") or CATCH_UP.search(text)) else None
     yield unfinished(drive, record) if text.startswith("POST") else None
     yield off_thread(drive, record)
     yield UNCARDED if WAITS_ON_HIM.search(text) and not attrs(record).get("waits") and not CARD_NAMED.search(f"{text}\n{record.get('body') or ''}") else None
@@ -240,7 +235,6 @@ def refusals(payload: dict, names: list[str], records: list[dict]) -> Iterator[s
     prs = {key: pr for name in names for key, pr in state.load(name)["prs"].items()}
     for index, record in enumerate(records):
         yield misaddressed(payload, record)
-        yield lifted(record)
         yield limits.misnamed(kind(record), attrs(record))
         yield settled.ask_refusal(names, attrs(record), record.get("text") or "") if kind(record) == "ask" else None
         yield superseded.unclosed_refusal(names, kind(record), attrs(record), record.get("url"), listed(record.get("re")))
@@ -258,14 +252,14 @@ def readdressed(drives: dict[str, dict], session: str | None, record: dict) -> d
 
 
 def decision(payload: dict) -> dict | None:
-    """What a drive session's post becomes: refused with the fix while a record in it breaks a rule its kind keeps, else every record in it completed from what the drive knows and one line, the rest in its body for whoever acts on it, and each record sent where its drive routes it."""
+    """What a drive session's post becomes: refused with the fix while a record in it breaks a rule its kind keeps, else every record in it completed from what the drive knows, trimmed of the attrs it never carries and one line, the rest in its body for whoever acts on it, and each record sent where its drive routes it."""
     names = state.session_drives(payload.get("session_id") or "")
     if not names:
         return None
     tool_input = payload["tool_input"]
     given = tool_input.get("records") or [tool_input]
     drive = state.load(names[0])
-    records = [completed(names, drive, record) for record in given]
+    records = [trimmed(completed(names, drive, record)) for record in given]
     if refused := next(filter(None, refusals(payload, names, records)), None):
         return {"permissionDecision": "deny", "permissionDecisionReason": refused}
     drives = state.bound_drives(names)

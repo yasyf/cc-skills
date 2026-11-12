@@ -230,12 +230,9 @@ def test_an_ask_for_a_job_on_an_open_incident_order_says_so_and_names_the_incide
     assert record_lines.decision(post(kind="ask", text=IDLE, attrs=asked)) is None
 
 
-def test_a_record_carrying_a_max_words_attr_is_refused_on_any_kind(demo: str) -> None:
+def test_a_record_goes_out_without_a_max_words_attr_on_any_kind(demo: str) -> None:
     for record in ({"kind": "report", "text": "FYI j702 merged", "to": TO}, {"kind": "note", "text": "the watch reads taps"}):
-        reason = refusal(record_lines.decision(post(**record, attrs={"max_words": "200"})))
-        assert "`max_words`" in reason
-        assert f"at most {limits.LINE_WORDS} words" in reason
-        assert f"at most {limits.SUMMARY_WORDS}" in reason
+        assert record_lines.decision(post(**record, attrs={"max_words": "200"})) == {"updatedInput": record | {"attrs": {}}}
         assert record_lines.decision(post(**record)) is None
 
 
@@ -245,10 +242,10 @@ def test_a_report_opens_post_or_fyi(demo: str) -> None:
     assert record_lines.decision(post(kind="report", text="j702 merged", to=["builder@demo"])) is None
 
 
-def test_a_catch_up_names_no_thread(demo: str, turn: Path) -> None:
-    for attrs in ({"thread": THREAD, "catch_up": "true"}, {"thread": THREAD}):
-        reason = refusal(record_lines.decision(coordinator(turn, kind="report", text="POST *Catch-up since 9 PM*", to=TO, attrs=attrs)))
-        assert "without `--attr thread`" in reason
+def test_a_catch_up_goes_at_his_dm_root_without_its_thread(demo: str, turn: Path) -> None:
+    for attrs in ({"thread": THREAD, "catch_up": "true"}, {"thread": THREAD, "progress": "true"}):
+        made = record_lines.decision(coordinator(turn, kind="report", text="POST *Catch-up since 9 PM*", to=TO, attrs=attrs))
+        assert made["updatedInput"]["attrs"] == {key: value for key, value in attrs.items() if key != "thread"}
     assert record_lines.decision(coordinator(turn, kind="report", text="POST *Catch-up since 9 PM*", to=TO, attrs={"catch_up": "true"})) is None
 
 

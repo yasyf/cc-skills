@@ -28,6 +28,7 @@ HELPER_RUNS = re.compile(r"helper v(\S+)")
 HELPER_ASKED = "Captain-hook update, your Mac: install {release} now? It restarts the hook helper once"
 INSTALL_NOW = "Install now"
 EVERY_INSTALL = "Installs never need me"
+RESUME_TIMEOUT = 20000
 UNSEEN_PROMPT = (
     "refused: Claude Code asked for permission to run this command, and nobody watches a drive agent's terminal, so the"
     " prompt would hold your job unseen for hours. Bypass permissions mode still asks when Claude Code's parser cannot"
@@ -103,15 +104,6 @@ def cached_page(text: str) -> str | None:
         f"refused: this reads the skill's pages from long-running {cached[2]}'s copy in Claude Code's plugin cache, and"
         f" {current} is installed now; a cached copy goes stale with each install. Read a page's rows with"
         " `drive manual <page> <row>`, which prints the installed rows"
-    )
-
-
-def background_resume(found: list[list[str]]) -> str | None:
-    if not any(verb(words)[:3] == ["drive", "job", "resume"] for words in found):
-        return None
-    return (
-        "refused: `drive job resume` runs in the foreground with `timeout: 20000`, because a send returns in about 5"
-        " seconds and a relaunch backgrounds itself at 20; run it again without run_in_background"
     )
 
 
@@ -234,7 +226,7 @@ def mid_incident(found: list[list[str]]) -> str | None:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive session's or drive agent's call must not run: a designer pushes, a read takes a stale version's cached skill page, `drive job resume` runs in the background, or a session is resumed while it runs, from a shell-ending command, or ended mid-incident, a call retries past a failing check, or installs the hook helper he never approved on a card; and why Claude Code's permission prompt on a drive agent's command gets a refusal rather than an answer nobody gives."""
+    """Why a drive session's or drive agent's call must not run: a designer pushes, a read takes a stale version's cached skill page, or a session is resumed while it runs, from a shell-ending command, or ended mid-incident, a call retries past a failing check, or installs the hook helper he never approved on a card; and why Claude Code's permission prompt on a drive agent's command gets a refusal rather than an answer nobody gives."""
     call = payload["tool_input"]
     session = payload.get("session_id") or ""
     drives = state.session_drives(session)
@@ -252,7 +244,6 @@ def deny_reason(payload: dict) -> str | None:
         lambda: designer_push(found) if kind == DESIGNER else None,
         lambda: bare_pr(found) if kind == BUILDER else None,
         lambda: cached_page(call["command"]) if drives else None,
-        lambda: background_resume(found) if call.get("run_in_background") else None,
         lambda: shell_after_claude(scripts),
         lambda: live_resume(found + [words for inner in scripts for words in inner]),
         lambda: mid_incident(found),
@@ -262,18 +253,35 @@ def deny_reason(payload: dict) -> str | None:
     return next(filter(None, (reason() for reason in reasons)), None)
 
 
+def foreground(payload: dict) -> dict | None:
+    """A drive session's or drive agent's Bash call running `drive job resume`, set to the one shape it runs in: the foreground with `timeout: 20000`, since a send returns in about 5 seconds and a relaunch moves itself to the background at 20; None when it already runs so."""
+    call = payload["tool_input"]
+    if payload.get("hook_event_name") == "PermissionRequest" or payload["tool_name"] != "Bash":
+        return None
+    if not call.get("run_in_background") and call.get("timeout") == RESUME_TIMEOUT:
+        return None
+    if not state.session_drives(payload.get("session_id") or "") and not (payload.get("agent_type") or "").startswith(AGENTS):
+        return None
+    if not any(verb(words)[:3] == ["drive", "job", "resume"] for words in commands(runnable(call["command"]))):
+        return None
+    return call | {"run_in_background": False, "timeout": RESUME_TIMEOUT}
+
+
 def main() -> None:
     try:
         payload = agents.seen(json.load(sys.stdin))
         reason = deny_reason(payload)
+        made = foreground(payload)
     except ValueError:
         return
-    if not reason:
-        return
-    if payload.get("hook_event_name") == "PermissionRequest":
+    if reason and payload.get("hook_event_name") == "PermissionRequest":
         decided = {"hookEventName": "PermissionRequest", "decision": {"behavior": "deny", "message": reason}}
-    else:
+    elif reason:
         decided = {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}
+    elif made:
+        decided = {"hookEventName": "PreToolUse", "updatedInput": made}
+    else:
+        return
     print(json.dumps({"hookSpecificOutput": decided}))
 
 
