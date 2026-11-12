@@ -85,7 +85,10 @@ RECORD = {
                 " the coordinator session hearing its order"
             ),
         },
-        "re": {"type": "array", "items": TEXT, "description": "seqs this answers, when no waits id names one"},
+        "re": {
+            "type": "string",
+            "description": "the seq this answers, when no waits id names one; a reply to several records names the newest, whose own re reaches the rest",
+        },
         "resolves": {"type": "array", "items": TEXT, "description": "seqs this closes"},
         "topic": {"type": "string", "description": "a pairing key, such as card:<thread_ts> for a card with no ask record"},
         "to": {
@@ -542,15 +545,22 @@ def sent(name: str, lane: str, posts: list[dict]) -> list[str]:
 
 
 def post(item: dict, data: dict, other: str, session: str | None) -> dict:
-    """The cci record an item posts as, to the lane it names, else other, a defect's long text cut to one line with the whole at the top of its body, as the post hook cuts a record, and sent where the drive routes it: a defect to the meta session, the communicator's owner record about the drive to the meta session alone, and its other owner or answer record, whatever lane it names, to the session hearing the order of the job it answers, else of the newest order in its thread; an owner record naming no about is refused."""
+    """The cci record an item posts as, to the lane it names, else other, a defect's long text cut to one line with the whole at the top of its body, as the post hook cuts a record, and sent where the drive routes it: a defect to the meta session, the communicator's owner record about the drive to the meta session alone, and its other owner or answer record, whatever lane it names, to the session hearing the order of the job it answers, else of the newest order in its thread; an owner record naming no about, or an item whose re names several seqs, is refused."""
     drive = data["name"]
     if item["kind"] not in RECORD["properties"]["kind"]["enum"]:
         raise DriveError(f"record posts owner, answer and defect records; a {item['kind']} goes through the cci `post` tool, whose hook reads it")
     text, attrs = item["text"], dict(item.get("attrs") or {})
     made = {"kind": item["kind"]}
-    for key in ("url", "re", "resolves", "topic", "body"):
+    for key in ("url", "resolves", "topic", "body"):
         if item.get(key):
             made[key] = item[key]
+    if re := item.get("re"):
+        if isinstance(re, list):
+            raise DriveError(
+                f"re names one seq, not {len(re)}: cci stores one record per seq it answers, so name the newest record this"
+                " answers, whose own re reaches the rest; nothing posted"
+            )
+        made["re"] = [re]
     if waits := item.get("waits"):
         if not (named := state.WAITS_ID.fullmatch(waits)):
             raise DriveError(f"{waits} is no question card's waits id, <drive>:<j>-<seq>; a PR card's tap needs no record")
