@@ -183,9 +183,9 @@ prints and a remote lane's brief carries whole:
   plain sentence before it is used. Nothing points at a list, finding, thread or PR the card does not
   show, and each PR, fix, build or release it names is linked where it is named.
 - His card draws each section as it stands, and nothing in a body holds a card, a tap, an enqueue
-  or a merge: a body is fixed beside the landing, never before it. `drive pr set` refuses `--tap`,
-  `--serves` or `--design` only on a stack over four PRs: split it, or fold PRs that carry one
-  decision into one.
+  or a merge: a body is fixed beside the landing, never before it. A stack of any size draws one
+  card: it names every PR, and the PR sections past the 50 blocks one Slack message holds open
+  under its Explain more.
 
 ## Tooling
 

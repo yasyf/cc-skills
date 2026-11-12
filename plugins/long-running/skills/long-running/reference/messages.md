@@ -339,8 +339,9 @@ When it is answered, replaced or redone:
   green, approved and checked against his words at their heads. The watch and `drive card` group PRs
   by one rule, `state.card_unit`: one card per stack his Approve lands, a native GitHub stack or PRs
   each on the one below's head branch, and for PRs in none, one per repository and order they serve,
-  so sibling PRs of one order ready together draw one card whose Approve covers each, cut into cards
-  of at most four. It is only for a PR that
+  so sibling PRs of one order ready together draw one card whose Approve covers each, however many it
+  holds, the PR sections past the 50 blocks one Slack message holds under its Explain more. It is only
+  for a PR that
   carries out an order of his whose words ask for it, or a `Forge-AI/*` drive tooling fix no exempt
   class covers, which serves its own order by [Scope](scope.md).
 - The line above it quotes that order: his words, or the tooling order's

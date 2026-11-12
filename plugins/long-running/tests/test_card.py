@@ -969,23 +969,19 @@ def test_a_stack_whose_show_me_diagram_does_not_draw_is_refused_with_mermaids_wo
     assert [[Path(path).name for path in row["pictures"]] for row in carded["card"]["prs"]] == [["Diagram"], ["Diagram (2)"]]
 
 
-def test_a_stack_longer_than_a_card_holds_is_refused_whole(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(card, "STACK_MOST", 2)
-    drawn = ask(asks(41, 42, 43))
-    assert drawn["cards"] == []
-    assert len(drawn["skipped"]) == 3
-    assert all(skipped["reason"].startswith("its stack holds 3 PRs and a stack is at most 2,") for skipped in drawn["skipped"])
-
-
-def test_exempt_and_yasyf_prs_are_not_counted_toward_a_stacks_cap(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(card, "STACK_MOST", 2)
+def test_a_native_stack_of_six_prs_draws_one_card_whose_approve_taps_each(stacked: list[list[str]], native_stacks: dict[str, list[tuple[str, str]]]) -> None:
+    numbers = (41, 42, 43, 44, 45, 46)
+    keys = [f"Forge-AI/monorepo#{n}" for n in numbers]
     with state.edit("demo") as data:
-        for number in (41, 43):
-            data["prs"][f"Forge-AI/monorepo#{number}"]["exempt"] = "test-only"
-    [drawn] = ask(asks(41, 42, 43))["cards"]
-    assert [row["url"] for row in drawn["card"]["prs"]] == [stack_url(41), stack_url(42), stack_url(43)]
-    own = [f"yasyf/cc-skills#{number}" for number in (1, 2, 3)]
-    assert card.oversized({key: ("demo", entry(wants_tap=False)) for key in own}, own) == ""
+        for key in keys[4:]:
+            data["prs"][key] = {**entry(), "url": state.pr_url(key)}
+    for key in keys:
+        native_stacks[key] = [(member, "open") for member in keys]
+    [drawn] = ask(asks(*numbers))["cards"]
+    assert [row["url"] for row in drawn["card"]["prs"]] == [stack_url(n) for n in numbers]
+    assert (drawn["card"]["waits"], drawn["card"]["options"]) == ("merge:Forge-AI:monorepo:41-46", ["Approve", "Hold"])
+    ask({"answer": {"repo": "Forge-AI/monorepo", "number": 41, "waits": drawn["card"]["waits"], "label": "Approve", "heads": {}, "action_ts": "", "source": "slack"}})
+    assert [state.load("demo")["prs"][key]["tap"]["label"] for key in keys] == ["Approve"] * 6
 
 
 def test_a_stack_with_one_pr_reworked_to_his_words_draws_no_card_a_redraw_included_until_its_builders_ready_meets_them(stacked: list[list[str]]) -> None:
@@ -1095,11 +1091,10 @@ def test_prs_in_no_native_stack_draw_one_card_per_order_they_serve(stacked: list
     assert [[row["url"] for row in each["card"]["prs"]] for each in drawn] == [[stack_url(51), stack_url(53)], [stack_url(52)]]
 
 
-def test_prs_of_one_order_past_what_a_card_holds_draw_on_cards_of_at_most_that_many(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(card, "STACK_MOST", 2)
+def test_five_prs_of_one_order_in_no_native_stack_draw_one_card(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
     siblings(monkeypatch, dict.fromkeys((51, 52, 53, 54, 55), "o601"))
     drawn = ask(asks(51, 52, 53, 54, 55))
-    assert [[row["url"] for row in each["card"]["prs"]] for each in drawn["cards"]] == [[stack_url(51), stack_url(52)], [stack_url(53), stack_url(54)], [stack_url(55)]]
+    assert [[row["url"] for row in each["card"]["prs"]] for each in drawn["cards"]] == [[stack_url(n) for n in (51, 52, 53, 54, 55)]]
     assert drawn["skipped"] == []
 
 
@@ -1124,9 +1119,10 @@ def test_a_chain_that_cuts_through_a_stored_stack_keeps_every_pr_on_one_card(sta
     assert state.load("demo")["prs"]["Forge-AI/monorepo#41"]["stack"] == ["Forge-AI/monorepo#41", "Forge-AI/monorepo#42"]
 
 
-def test_a_grown_stack_refused_keeps_the_stack_it_had(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_grown_stack_refused_keeps_the_stack_it_had(stacked: list[list[str]]) -> None:
     ask(asks(41, 42, 43))
-    monkeypatch.setattr(card, "STACK_MOST", 3)
+    with state.edit("demo") as data:
+        state.rework(data["prs"]["Forge-AI/monorepo#44"], "o2", "Topology goes in the meta table")
     assert ask(asks(41, 42, 43, 44))["cards"] == []
     keys = [f"Forge-AI/monorepo#{n}" for n in (41, 42, 43)]
     assert state.load("demo")["prs"]["Forge-AI/monorepo#41"]["stack"] == keys
@@ -1184,7 +1180,6 @@ def test_a_pr_in_a_native_stack_draws_its_native_stack_and_the_rest_of_the_chain
         return json.dumps(pr_json(title=title, url=stack_url(int(cmd[3])), base=base, branch=branch))
 
     monkeypatch.setattr(card, "run", gh)
-    monkeypatch.setattr(card, "STACK_MOST", 3)
     drawn = ask(asks(41, 42, 44, 45, 46))["cards"]
     assert [[row["url"] for row in each["card"]["prs"]] for each in drawn] == [[stack_url(n) for n in (41, 42, 44)], [stack_url(45), stack_url(46)]]
     assert [each["card"]["waits"] for each in drawn] == ["merge:Forge-AI:monorepo:41-44", "merge:Forge-AI:monorepo:45-46"]
