@@ -1664,6 +1664,33 @@ def test_the_watch_registers_each_pr_a_lane_names_on_a_ready_or_pr_line(remote: 
     assert data["jobs"]["j1"]["prs"] == ["https://github.com/Forge-AI/monorepo/pull/8"]
 
 
+def test_a_lanes_yasyf_pr_is_registered_as_drive_pr_add_does_starting_the_lander_that_merges_and_installs_it(
+    remote: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
+) -> None:
+    with state.edit(remote) as data:
+        data["orders"]["o1"]["text"] = "Drive tooling: ship the remote builder"
+    url = "https://github.com/yasyf/cc-skills/pull/7"
+    deliver(monkeypatch, [message("worker_done", f"READY {url}\nPR: {url}")])
+    assert watch.lane_lines(watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0), T0) == []
+    data = state.load(remote)
+    pr, job = data["prs"]["yasyf/cc-skills#7"], data["jobs"]["j1"]
+    assert (landers, pr["job"], pr["wants_tap"], pr["author"], pr["lander"]["head"]) == ([("yasyf/cc-skills#7",)], "j1", False, "yasyf", "abc")
+    assert (job["said"], job["prs"], job["waits"]) == (f"PUSHED {url}", [url], ["yasyf/cc-skills#7"])
+
+
+def test_a_lanes_pr_drive_pr_add_refuses_stays_untracked_and_its_refusal_wakes_the_coordinator(
+    remote: str, monkeypatch: pytest.MonkeyPatch, on_github: dict, landers: list[tuple[str, ...]]
+) -> None:
+    on_github["author"] = {"login": "rowan", "is_bot": False}
+    url = "https://github.com/yasyf/cc-skills/pull/7"
+    deliver(monkeypatch, [message("status", f"PR: {url}")])
+    refusal = f"yasyf/cc-skills#7: refused, nothing added: {state.foreign('yasyf/cc-skills#7', 'rowan', [])}"
+    assert watch.lane_lines(watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0), T0) == [
+        f"JOB j1 o1 PR {url}: the watch's drive pr add {url} --job j1 failed: {refusal}"
+    ]
+    assert ("yasyf/cc-skills#7" in state.load(remote)["prs"], landers) == (False, [])
+
+
 def test_the_inbox_turns_each_message_into_one_event_even_one_a_consuming_check_took_first(
     remote: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

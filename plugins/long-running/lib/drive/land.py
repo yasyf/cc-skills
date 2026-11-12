@@ -13,6 +13,7 @@ LOG = "landings.log"
 SAID_CHARS = 400
 SAID_LINES = 4
 QUEUED = "queued for merge"
+NOT_MERGING = "not merging it"
 LANDS_ON = ("approved", "stale")
 REVIEW_ASK = "@forge-pr-reviewer review"
 BLOCKED_LINE = re.compile(r"^#(?P<number>\d+) BLOCKED (?P<head>\w+) (?P<gaps>.+)$", re.MULTILINE)
@@ -116,7 +117,7 @@ def merge_ready(name: str, key: str, read: dict) -> str:
         if why is None:
             mark(data, (key,), spawn(name, (key,)), read["headRefOid"])
     if why:
-        return f"not merging it: {why}"
+        return f"{NOT_MERGING}: {why}"
     return f"merging it with gh pr merge --squash --admin, then installing each plugin it changes; the outcome reaches its job as a PR line, its log {state.drive_dir(name) / LOG}"
 
 
