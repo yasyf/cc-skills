@@ -24,6 +24,7 @@ HOLD_LABEL = "hold"
 EJECTED_LABEL = "trunk-failed"
 RUN_URL = re.compile(r"/actions/runs/(?P<run>\d+)/")
 PRS_PER_QUERY = 25
+STACK = "stack { entries(first: 100) { nodes { position pullRequest { number state } } } }"
 CALLER = " ".join([Path(sys.argv[0]).name, *takewhile(re.compile(r"[a-z][a-z_-]*").fullmatch, sys.argv[1:3])])
 
 
@@ -82,12 +83,12 @@ def repo_of(key: str) -> str:
     return key.split("#")[0]
 
 
-def query(keys: list[str]) -> str:
-    """One GraphQL query reading every PR in keys, aliased r<i> per repo and p<number> per PR."""
+def query(keys: list[str], fields: str = FIELDS) -> str:
+    """One GraphQL query reading the fields of every PR in keys, aliased r<i> per repo and p<number> per PR."""
     blocks = []
     for index, (repo, members) in enumerate(groupby(sorted(keys, key=repo_of), key=repo_of)):
         owner, name = repo.split("/")
-        pulls = " ".join(f"p{split(key)[2]}: pullRequest(number: {split(key)[2]}) {{ {FIELDS} }}" for key in members)
+        pulls = " ".join(f"p{split(key)[2]}: pullRequest(number: {split(key)[2]}) {{ {fields} }}" for key in members)
         blocks.append(f"r{index}: repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{ {pulls} }}")
     return "query { " + " ".join(blocks) + " }"
 
@@ -182,16 +183,15 @@ def live(read: dict, stored: dict) -> dict:
     return fields
 
 
-def parse(payload: dict, keys: list[str]) -> dict[str, dict]:
-    repos = sorted({repo_of(key) for key in keys})
-    alias = {repo: f"r{index}" for index, repo in enumerate(repos)}
+def nodes(payload: dict, keys: list[str]) -> dict[str, dict]:
+    """Each PR's node in the reply to query(keys), leaving out a PR GitHub answered none for."""
+    alias = {repo: f"r{index}" for index, repo in enumerate(sorted({repo_of(key) for key in keys}))}
     data = payload.get("data") or {}
-    found = {}
-    for key in keys:
-        node = (data.get(alias[repo_of(key)]) or {}).get(f"p{split(key)[2]}")
-        if node:
-            found[key] = flatten(node)
-    return found
+    return {key: node for key in keys if (node := (data.get(alias[repo_of(key)]) or {}).get(f"p{split(key)[2]}"))}
+
+
+def parse(payload: dict, keys: list[str]) -> dict[str, dict]:
+    return {key: flatten(node) for key, node in nodes(payload, keys).items()}
 
 
 def graphql(text: str, what: str) -> dict:
@@ -207,19 +207,34 @@ def below(key: str) -> list[str]:
     owner, name, number = split(key)
     text = (
         f"query {{ repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{ pullRequest(number: {number}) {{ baseRefName "
-        "baseRef { associatedPullRequests(states: OPEN, first: 2) { nodes { number } } } "
-        "stack { entries(first: 100) { nodes { position pullRequest { number state } } } } } } }"
+        f"baseRef {{ associatedPullRequests(states: OPEN, first: 2) {{ nodes {{ number }} }} }} {STACK} }} }} }}"
     )
     pull = graphql(text, f"the native stack under {key}")["data"]["repository"]["pullRequest"]
     if pull["stack"]:
-        entries = sorted(pull["stack"]["entries"]["nodes"], key=lambda entry: entry["position"])
-        under = takewhile(lambda entry: entry["pullRequest"]["number"] != number, entries)
-        return [f"{owner}/{name}#{entry['pullRequest']['number']}" for entry in under if entry["pullRequest"]["state"] == "OPEN"]
+        under = takewhile(lambda entry: entry[0] != key, entries(f"{owner}/{name}", pull["stack"]))
+        return [member for member, status in under if status == "open"]
     opened = (pull["baseRef"] or {"associatedPullRequests": {"nodes": []}})["associatedPullRequests"]["nodes"]
     if pull["baseRefName"] == default_branch(f"{owner}/{name}") or len(opened) != 1:
         return []
     parent = f"{owner}/{name}#{opened[0]['number']}"
     return [*below(parent), parent]
+
+
+def entries(repo: str, stack: dict) -> list[tuple[str, str]]:
+    """Each PR of a native GitHub stack, bottom first, with its state as the drive stores it."""
+    ordered = sorted(stack["entries"]["nodes"], key=lambda entry: entry["position"])
+    return [(f"{repo}#{entry['pullRequest']['number']}", PR_STATES[entry["pullRequest"]["state"]]) for entry in ordered]
+
+
+def stacks(keys: list[str]) -> dict[str, list[tuple[str, str]]]:
+    """Each PR's native GitHub stack, the one stack-enqueue lands, as entries() gives it, PRS_PER_QUERY PRs to a `gh api graphql` call; a PR in no native stack is left out."""
+    found = {}
+    for start in range(0, len(keys), PRS_PER_QUERY):
+        chunk = keys[start : start + PRS_PER_QUERY]
+        for key, node in nodes(graphql(query(chunk, STACK), f"the native stacks of {', '.join(chunk)}"), chunk).items():
+            if node["stack"]:
+                found[key] = entries(repo_of(key), node["stack"])
+    return found
 
 
 def release_of(key: str, service: str, commit: str) -> str | None:

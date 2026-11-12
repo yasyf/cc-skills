@@ -2744,6 +2744,23 @@ def test_pr_set_toggles_wants_tap(run: Run, with_pr: str) -> None:
     assert state.load("demo")["prs"][with_pr]["wants_tap"] is True
 
 
+def test_pr_set_tap_sizes_his_card_by_the_prs_native_github_stack_not_a_longer_chain_it_was_drawn_on(
+    run: Run, with_pr: str, native_stacks: dict[str, list[tuple[str, str]]], capsys: pytest.CaptureFixture[str]
+) -> None:
+    chain = [f"Forge-AI/monorepo#{n}" for n in (42, 43, 44, 45, 46, 47, 48)]
+    with state.edit("demo") as data:
+        for key in chain[1:]:
+            data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1")
+        data["prs"]["Forge-AI/monorepo#43"]["state"] = "closed"
+        for key in chain:
+            data["prs"][key]["stack"] = chain
+    run("pr", "set", PR, "--no-tap", "--why", "not his order")
+    assert cli.main(["pr", "set", PR, "--tap", "--serves", "o1", "--design", "none"]) == 2
+    assert capsys.readouterr().err.startswith(f"drive: {with_pr}: its stack holds 6 PRs and a stack is at most 4,")
+    native_stacks[with_pr] = [("Forge-AI/monorepo#41", "open"), (with_pr, "open"), (chain[2], "open"), (chain[3], "open")]
+    assert run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")[0] == 0
+
+
 def test_pr_set_serves_names_the_order_it_serves_and_prints_his_words(run: Run, with_pr: str) -> None:
     run("pr", "set", PR, "--no-tap", "--why", "not his order")
     assert run("pr", "set", PR, "--tap", "--serves", "o9", "--design", "none")[0] == 2

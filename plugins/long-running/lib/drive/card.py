@@ -427,6 +427,30 @@ def pictured(name: str, key: str, pr: dict, taken: set[str]) -> tuple[str, ...]:
     return tuple(picture.pictures(state.drive_dir(name) / "pictures", label, show_me, taken))
 
 
+def groups(known: dict[str, tuple[str, dict]], keys: list[str], reads: dict[str, dict]) -> list[list[str]]:
+    """The cards the asked PRs draw on, bottom PR first. A PR in a native GitHub stack, the one stack-enqueue and his Approve land, draws with every PR of it the drives track that is not closed, split by the card each was last drawn on, so a PR added to the stack later gets its own card. Any other read PR draws with the PRs its base branch chains it to among them, keeping the stack card it was drawn on, closed and natively stacked PRs left out, until they chain into a longer stack around it."""
+    native = github.stacks(list(dict.fromkeys([*keys, *(mate for key in keys for mate in known[key][1].get("stack") or [] if mate in known)])))
+    stacked = {member for stack in native.values() for member, _ in stack}
+    units = dict.fromkeys(tuple(member for member, status in native[key] if status != "closed" and member in known) for key in keys if key in native)
+    by_card: dict[tuple, list[str]] = {}
+    for unit in units:
+        for member in unit:
+            by_card.setdefault((unit, tuple(mate for mate in known[member][1].get("stack") or [] if mate in unit)), []).append(member)
+    loose = [key for key in reads if key not in stacked]
+    stored = list({tuple(stack): stack for key in loose if (stack := [mate for mate in known[key][1].get("stack") or [] if mate in known and mate not in stacked and known[mate][1]["state"] != "closed"])}.values())
+    grown = [chain for chain in chains(loose, reads) if grows(chain, stored)]
+    kept = [stack for stack in stored if not any(set(stack) <= set(chain) for chain in grown)]
+    covered = {key for group in grown + kept for key in group}
+    fresh = chains([key for key in loose if key not in covered], reads)
+    return [group for group in by_card.values() if not set(group).isdisjoint(keys)] + kept + grown + fresh
+
+
+def group_of(known: dict[str, tuple[str, dict]], key: str) -> list[str]:
+    """The PRs his card on the PR draws it with, bottom first."""
+    reads = {key: pr} if (pr := read(key, known[key][1]) or watched(known[key][1])) else {}
+    return next((group for group in groups(known, [key], reads) if key in group), [key])
+
+
 def chains(keys: list[str], reads: dict[str, dict]) -> list[list[str]]:
     """The asked PRs grouped into stacks, bottom first: a PR sits on another when its base branch is the other's head."""
     by_head = {(state.pr_key(reads[key]["url"]).split("#")[0], reads[key]["headRefName"]): key for key in keys}
@@ -474,8 +498,8 @@ def drawn_card(shown: list[Member]) -> dict:
 
 
 def oversized(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
-    """Why a stack is too long for his card, which shows each PR in its own section with its pictures: more than STACK_MOST PRs that land on his tap."""
-    tapped = [key for key in members if not (known[key][1].get("exempt") or state.merges_untapped(key))]
+    """Why a stack is too long for his card, which shows each PR in its own section with its pictures: more than STACK_MOST open PRs that land on his tap."""
+    tapped = [key for key in members if known[key][1]["state"] == "open" and not (known[key][1].get("exempt") or state.merges_untapped(key))]
     if len(tapped) <= STACK_MOST:
         return ""
     return (
@@ -520,7 +544,7 @@ def on_his_card(known: dict[str, tuple[str, dict]], reads: dict[str, dict], memb
 
 
 def cards(asked: list[dict], redraw: bool = False) -> dict:
-    """One card per stack the asked PRs form, bottom PR first; a PR drawn on a stack card keeps that stack on every redraw, until the asked PRs chain into a longer stack around it. A redraw of a card cc-slack already posted draws it as the PRs stand now, a wait that holds back a fresh Approve shown on it rather than refusing it. A PR body's sections are drawn as they stand and never hold a card."""
+    """One card per stack the asked PRs form, by groups(), bottom PR first, each card drawn kept on its PRs so Approve lands exactly those. A redraw of a card cc-slack already posted draws it as the PRs stand now, a wait that holds back a fresh Approve shown on it rather than refusing it. A PR body's sections are drawn as they stand and never hold a card."""
     known = drive_prs()
     asked_keys = keys_of(asked, known)
     for key in asked_keys:
@@ -529,19 +553,16 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
     keys = [key for key in asked_keys if key in known]
     reads = {key: pr for key in keys if (pr := read(key, known[key][1]) or watched(known[key][1]))}
     skipped = [skip(key, "drive card could not read it from GitHub") for key in keys if key not in reads]
-    stored = list({tuple(stack): stack for key in reads if (stack := known[key][1].get("stack"))}.values())
-    grown = [chain for chain in chains(list(reads), reads) if grows(chain, stored)]
-    kept = [stack for stack in stored if not any(set(stack) <= set(chain) for chain in grown)]
-    covered = {key for group in grown + kept for key in group}
-    fresh = chains([key for key in reads if key not in covered], reads)
+    try:
+        stacks = groups(known, list(reads), reads)
+    except GithubError as error:
+        return {"cards": [], "skipped": skipped + [skip(key, str(error)) for key in reads]}
     found = []
-    for group in kept + grown + fresh:
-        reads |= {key: pr for key in group if key not in reads and key in known and (pr := read(key, known[key][1]) or watched(known[key][1]))}
-        members = [key for key in group if key in reads and key in known]
+    for group in stacks:
+        reads |= {key: pr for key in group if key not in reads and (pr := read(key, known[key][1]) or watched(known[key][1]))}
+        members = [key for key in group if key in reads]
         if not members:
             continue
-        if len(group) > 1 and group in fresh:
-            remember(known, group)
         taken: set[str] = set()
         shown = [(reads[key], known[key][1], pictured(known[key][0], key, reads[key], taken), tuple(holding(known, key).values())) for key in members]
         card = drawn_card(shown)
@@ -551,8 +572,7 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
             refused(refusals)
             skipped += refusals
             continue
-        if group in grown:
-            remember(known, group)
+        remember(known, members)
         drawn(known, members)
         repo, number = members[0].split("#")
         found.append({"repo": repo, "number": int(number), "card": card})
