@@ -589,6 +589,25 @@ def test_a_build_orders_builder_starts_only_on_a_brief_naming_its_readers_resear
     assert agents.shaped(drive_agent("long-running:builder", prompt, "sonnet")) == {"subagent_type": "long-running:builder", "prompt": prompt, "description": "d"}
 
 
+def test_a_build_orders_codex_lane_is_added_and_started_only_on_its_readers_research_and_its_immediate_fix_at_once(
+    communicator: str, run: Run, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build", "--parts", "the copy", "immediate fix")
+    assert cli.main(["job", "add", "codex", "--order", "o1", "--part", "the copy", "--goal", "build it"]) == 2
+    assert "o1 is a build order, so its codex starts only once an Opus reader has kept" in capsys.readouterr().err
+    assert run("job", "add", "codex", "--order", "o1", "--part", "immediate fix", "--goal", "stop it") == (0, "j1")
+    run("job", "add", "reader", "--order", "o1", "--part", "the copy", "--goal", "research: the copy")
+    assert run("job", "add", "codex", "--order", "o1", "--part", "the copy", "--goal", "build it", "--waits", "j2") == (0, "j3")
+    bare = "Order: Drive tooling: copy one store\nDrive: demo, order o1, job {}"
+    assert scratch_folder.deny_reason(drive_agent("codex:codex-wrapper", bare.format("j1"))) is None
+    assert scratch_folder.deny_reason(drive_agent("codex:codex-wrapper", bare.format("j3"))).startswith(
+        "refused, no agent started: j3 builds on o1, a build order: its brief carries the line Researched: <its reader's job>"
+    )
+    monkeypatch.setattr("sys.stdin", io.StringIO(RESEARCH))
+    run("job", "report", "j2", "-")
+    assert scratch_folder.deny_reason(drive_agent("codex:codex-wrapper", f"Researched: j2\n{bare.format('j3')}")) is None
+
+
 def test_a_build_orders_designer_on_a_light_model_runs_on_its_own_fable(
     communicator: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

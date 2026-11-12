@@ -959,6 +959,41 @@ def test_a_post_saying_a_coordinator_is_down_is_found_and_one_saying_it_was_rest
         assert say(transcript, text=text) is None, text
 
 
+def test_a_post_calling_a_job_stuck_is_found_until_its_poster_read_that_jobs_transcript(talker: str, transcript: Path) -> None:
+    text = "The copy fix's builder, j702, is stuck since 5 PM."
+    assert say(transcript, text=text) == (
+        "refused: this line calls j702 stuck or silent, and your transcript shows no read of its transcript in the last 10"
+        " minutes; read it with `drive job replies <j>` or `cc-transcript`, then quote what it shows"
+    )
+    for age, command in ((timedelta(minutes=30), "drive job replies j702"), (timedelta(), "drive job replies j702")):
+        use = {"type": "tool_use", "id": f"replies-{age}", "name": "Bash", "input": {"command": command}}
+        with lane_of(transcript).open("a") as lane:
+            lane.write(json.dumps({"type": "assistant", "timestamp": (datetime.now(UTC) - age).isoformat(), "message": {"role": "assistant", "content": [use]}}) + "\n")
+        assert (say(transcript, text=text) is None) == (age == timedelta()), age
+    assert say(transcript, text="The copy fix's builder is at work since 5 PM.") is None
+
+
+def test_a_summary_naming_a_drive_pr_is_found_until_it_says_what_the_pr_serves(talker: str, transcript: Path, run: Run) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: the watch reads taps")
+    run("order", "add", "--project", "The drive", "--workstream", "Cards", "cards show under the line")
+    holds_pr("o1")
+    with state.edit("demo") as data:
+        data["prs"]["Forge-AI/monorepo#53619"] = state.new_pr("https://github.com/Forge-AI/monorepo/pull/53619", "j1", "o2")
+        data["prs"]["Forge-AI/monorepo#53620"] = state.new_pr("https://github.com/Forge-AI/monorepo/pull/53620", "j1", "o2") | {"port_of": 49001}
+    taps, cards, port = (
+        f"<https://github.com/Forge-AI/monorepo/pull/{number}|{words}>"
+        for number, words in ((53618, "The tap reader"), (53619, "The card line"), (53620, "The old card fix"))
+    )
+    summary = f"*Taps*\n{taps} landed at 2 PM.\n*Cards*\n{cards} is green, and {port} landed at 3 PM."
+    assert say(transcript, text=summary) == (
+        "refused: this summary names a PR and never says what it serves, the first thing he asks of a PR; say it where each is"
+        ' named: Forge-AI/monorepo#53618 is "Drive tooling:" and what it unblocks; Forge-AI/monorepo#53619 is his order'
+        " {order:o2}; Forge-AI/monorepo#53620 is port of #49001"
+    )
+    assert say(transcript, text=summary.replace("landed at 2 PM", "landed at 2 PM, Drive tooling: the watch reads taps")) is None
+    assert say(transcript, text=f"{taps} landed at 2 PM.") is None
+
+
 def test_a_word_he_corrected_is_found_in_the_text_a_links_words_a_caption_or_a_card_and_not_in_a_quote_of_him(talker: str, transcript: Path) -> None:
     with state.edit("demo") as data:
         data["stand_ins"]["backup"] = "S3 replica"

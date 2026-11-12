@@ -2,6 +2,7 @@ import json
 import re
 import subprocess
 from collections.abc import Iterable
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Self
 
@@ -20,6 +21,14 @@ HIS_WORDS = "Message (his words)"
 SCRATCH = re.compile(r"Scratch:\s*(\S+)")
 LABEL = re.compile(rf"^({'|'.join(re.escape(label) for label in render.HANDLER_LABELS)}):")
 HANDLER_SETTINGS = {"bashOutputMaxChars": 6000, "outputStyle": "default", "env": {"CLAUDE_CODE_SILENT_TURN_REMINDER": "0"}}
+STUCK = re.compile(r"\b(j\d+)\b[^.;\n]*?\b(?:stuck|silent|stalled|hung)\b", re.IGNORECASE)
+READ_WINDOW = timedelta(minutes=10)
+TRANSCRIPT_READ = ("cc-transcript", ".jsonl")
+UNREAD_JOB = (
+    "refused: this line calls {jobs} stuck or silent, and your transcript shows no read of {its} transcript in the last 10"
+    " minutes; read it with `drive job replies <j>` or `cc-transcript`, then quote what it shows"
+)
+TAIL_BYTES = 4 << 20
 
 
 class Ruled(str):
@@ -49,6 +58,43 @@ def transcript(payload: dict) -> Path:
     if path := payload.get("agent_transcript_path"):
         return Path(path)
     return Path(payload["transcript_path"]).with_suffix("") / "subagents" / f"agent-{payload['agent_id']}.jsonl"
+
+
+def transcript_of(payload: dict) -> Path:
+    """The transcript of whoever made the call that fired a hook: its agent's, or its session's own."""
+    return transcript(payload) if payload.get("agent_id") else Path(payload["transcript_path"])
+
+
+def tail(path: Path) -> list[dict]:
+    """The transcript's newest rows, as many as its last few megabytes hold."""
+    with path.open("rb") as handle:
+        start = max(0, handle.seek(0, 2) - TAIL_BYTES)
+        handle.seek(start)
+        lines = handle.read().split(b"\n")
+    return [json.loads(line) for line in lines[1 if start else 0 :] if line.strip()]
+
+
+def parts(row: dict) -> list[dict]:
+    content = (row.get("message") or {}).get("content")
+    return content if isinstance(content, list) else []
+
+
+def unread_job(payload: dict, text: str) -> str | None:
+    """Why a line calling a job stuck or silent, a report to the communicator or a post to him, waits for a read of that job's transcript: the poster's own calls in the last 10 minutes show none."""
+    if not (named := dict.fromkeys(STUCK.findall(text))):
+        return None
+    since = datetime.now(UTC) - READ_WINDOW
+    calls = " ".join(
+        json.dumps(part.get("input"))
+        for row in tail(transcript_of(payload))
+        if row.get("timestamp") and datetime.fromisoformat(row["timestamp"]) > since
+        for part in parts(row)
+        if part.get("type") == "tool_use"
+    )
+    jobs = [job for job in named if f"replies {job}" not in calls and not any(read in calls for read in TRANSCRIPT_READ)]
+    if not jobs:
+        return None
+    return UNREAD_JOB.format(jobs=", ".join(jobs), its="their" if len(jobs) > 1 else "its")
 
 
 def seen(payload: dict) -> dict:

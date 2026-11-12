@@ -244,9 +244,10 @@ check's verdict, or from the order when none ran.
 - A job's clock is its own, set with `drive job set <j> --due <time>`: the watch says `DUE j<n>` once
   if the job still runs then. Read its transcript, never wait for its message, since a stuck job
   sends none.
-- A second job is an Opus 5.5 fast-mode `long-running:builder` on the same brief, started beside
-  the first in the turn the clock is missed. The first to deliver wins, and both write to the one
-  record. The `agent_brief` hook refuses a Fable model for it.
+- A second job is an Opus 5.5 `long-running:builder` on the same brief, started beside the first
+  in the turn the clock is missed; fast mode is a session's setting, which no agent definition or
+  Agent call sets. The first to deliver wins, and both write to the one record. The `agent_brief`
+  hook refuses a Fable model for it.
 - A missed clock also sends him a line in that turn, before he asks: what is late, and the new
   time.
 

@@ -29,26 +29,6 @@ def test_a_design_job_starts_as_the_designer(demo: str, run: Run, monkeypatch: p
     assert agent_brief.deny_reason(started("long-running:designer", prompt, "fable")) is None
 
 
-def test_a_codex_lane_on_the_immediate_fix_starts_with_no_research(demo: str, run: Run) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Restores", "restores copy one store", "--kind", "build", "--parts", "the copy", "immediate fix")
-    run("job", "add", "codex", "--order", "o1", "--part", "immediate fix", "--goal", "stop the stuck restores")
-    prompt = "Order (his words): restores copy one store\nDrive: demo, order o1, job j1"
-    assert agent_brief.deny_reason(started("codex:codex-wrapper", prompt)) is None
-
-
-def test_a_codex_lane_on_a_build_order_waits_on_its_readers_research(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Restores", "restores copy one store", "--kind", "build")
-    run("job", "add", "codex", "--order", "o1", "--goal", "build the copy")
-    prompt = "Order (his words): restores copy one store\nDrive: demo, order o1, job j1"
-    refused = agent_brief.deny_reason(started("codex:codex-wrapper", prompt))
-    assert refused.startswith("refused: j1 is a codex lane on o1, a build order, which starts only once an Opus reader has kept")
-    assert 'drive job add reader --order o1 --goal "research: <what>"' in refused
-    run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
-    monkeypatch.setattr("sys.stdin", io.StringIO(RESEARCH))
-    run("job", "report", "j2", "-")
-    assert agent_brief.deny_reason(started("codex:codex-wrapper", prompt)) is None
-
-
 def test_a_builders_serves_line_names_one_of_the_three(demo: str) -> None:
     order = "Order (his words): fix the watch\n"
     refused = agent_brief.deny_reason(started("long-running:builder", f"{order}Serves: cleanup I noticed\nGoal: tidy the watch"))

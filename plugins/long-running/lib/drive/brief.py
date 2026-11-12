@@ -31,7 +31,7 @@ CHOICE_OPENINGS = ("ASK", "DESIGN")
 READY_OPENINGS = ("READY", "PUSHED")
 DESIGN_PART = re.compile(r"DESIGN\s+\S")
 KEYS = ("rulings", "exists", "open")
-RESEARCHED_KINDS = ("builder", "design")
+RESEARCHED_KINDS = ("builder", "design", "codex")
 FOLLOW_UP_RULING = '"start deisgnng the follow p right awya motherfucker dont wait"'
 LANE_KINDS = ("reader", "builder", "design")
 LIGHT_MODELS = ("sonnet", "haiku")
@@ -90,7 +90,7 @@ def research(name: str, data: dict, order_id: str) -> tuple[str, str] | None:
 
 
 def job_refusal(name: str, data: dict, order_id: str, kind: str, parts: list[str], lands: bool = False, waits: list[str] | None = None) -> str | None:
-    """Why a job of this kind may not start on the order: an order he limited to options gets no builder or codex job until he picks, an answer order is one reader's, and a build order's builder or designer waits on its reader's research, added at once waiting on a reader of the order still at work when --waits names it, so no part sits in no job while it reads, and on a design lane when that research found a choice for him. A job of any kind may wait on his card, a drive PR or a release, which check_waits reads; only a reader is a job another waits on. The immediate fix of a bug hurting someone now, a red default branch's fix-forward among them, and a builder landing PRs he approved start at once past each of those, by his words: "always do the immediate fix (or rollback if prudent) in parallel to giving me options for the proper fix". A follow-up he orders to a PR gets its design job at once, doing its own research and waiting on nothing, beside landing that PR, by his words "start deisgnng the follow p right awya motherfucker dont wait"."""
+    """Why a job of this kind may not start on the order: an order he limited to options gets no builder or codex job until he picks, an answer order is one reader's, and a build order's builder, designer or codex lane waits on its reader's research, added at once waiting on a reader of the order still at work when --waits names it, so no part sits in no job while it reads, and on a design lane when that research found a choice for him. A job of any kind may wait on his card, a drive PR or a release, which check_waits reads; only a reader is a job another waits on. The immediate fix of a bug hurting someone now, a red default branch's fix-forward among them, and a builder landing PRs he approved start at once past each of those, by his words: "always do the immediate fix (or rollback if prudent) in parallel to giving me options for the proper fix". A follow-up he orders to a PR gets its design job at once, doing its own research and waiting on nothing, beside landing that PR, by his words "start deisgnng the follow p right awya motherfucker dont wait"."""
     order = data["orders"][order_id]
     at_once = state.IMMEDIATE_FIX in parts or lands
     listed = " ".join(f'"{part}"' for part in dict.fromkeys([*order["parts"], state.IMMEDIATE_FIX]))
@@ -118,7 +118,7 @@ def job_refusal(name: str, data: dict, order_id: str, kind: str, parts: list[str
     on_jobs = [wait for wait in waits or [] if wait in data["jobs"]]
     if on_jobs and not researched:
         return (
-            f"--waits {', '.join(on_jobs)}: only a build order's designer or builder is added waiting on a job, its reader, so this {kind}"
+            f"--waits {', '.join(on_jobs)}: only a build order's designer, builder or codex lane is added waiting on a job, its reader, so this {kind}"
             f" waits only on his card, a drive PR or a release: add it with no --waits {', '.join(on_jobs)}"
         )
     if not researched:
@@ -158,7 +158,7 @@ def job_refusal(name: str, data: dict, order_id: str, kind: str, parts: list[str
 
 
 def brief_refusal(name: str, data: dict, job_id: str, brief: str) -> str | None:
-    """Why this brief may not start its job's agent: a build order's builder or designer needs the Researched: line naming its reader, unless it ships the immediate fix or designs a follow-up he ordered, which starts at once doing its own research, and an answer order's one lane does its own research."""
+    """Why this brief may not start its job's agent: a build order's builder, designer or codex lane needs the Researched: line naming its reader, unless it ships the immediate fix or designs a follow-up he ordered, which starts at once doing its own research, and an answer order's one lane does its own research."""
     job = data["jobs"][job_id]
     order_id = job["order"]
     order = data["orders"][order_id]

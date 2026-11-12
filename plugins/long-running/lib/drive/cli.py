@@ -978,7 +978,7 @@ def job_set(args: argparse.Namespace) -> int:
         )
         raise DriveError(
             f"--waits {', '.join(jobs)}: a job waits on his card, a PR the drive tracks or a release, and on another job only as a build order's"
-            f" designer or builder added waiting on its reader, drive job add <kind> --order <o> --waits <the reader>; {instead}"
+            f" designer, builder or codex lane added waiting on its reader, drive job add <kind> --order <o> --waits <the reader>; {instead}"
         )
     check_waits(name, args.waits)
     told_him(name, args)
@@ -2793,8 +2793,8 @@ def parser() -> argparse.ArgumentParser:
         choices=state.ORDER_KINDS,
         help=(
             "answer: one reader lane researches it and answers him, with no other job; build: an Opus reader keeps its"
-            " Researched: block before any builder or designer starts, except the immediate fix's and a follow-up part's designer,"
-            " which start at once, and their briefs name it."
+            " Researched: block before any builder, designer or codex lane starts, except the immediate fix's and a follow-up part's"
+            " designer, which start at once, and their briefs name it."
             " An incident order is a build"
         ),
     )
@@ -3009,7 +3009,7 @@ def parser() -> argparse.ArgumentParser:
         metavar="CARD|PR|RELEASE|JOB",
         help=(
             "a card of his still open, a PR the drive tracks as <owner>/<repo>#<n> or release:<service>:<owner>/<repo>#<n>, as job set"
-            " takes them, or for a build order's designer or builder its reader still at work, that this job waits on: it is recorded"
+            " takes them, or for a build order's designer, builder or codex lane its reader still at work, that this job waits on: it is recorded"
             " waiting with no agent, so its part is never in no job, and the watch says FREE once the last wait ends, when its agent starts"
         ),
     )
