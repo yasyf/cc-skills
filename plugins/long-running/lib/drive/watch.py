@@ -45,12 +45,15 @@ QUIET_FOR = timedelta(minutes=30)
 STUCK_FOR = timedelta(minutes=30)
 CALL_STUCK_FOR = timedelta(minutes=5)
 UNSTAFFED_FOR = timedelta(minutes=5)
+UNCHECKED_FOR = timedelta(minutes=5)
+UNSTARTED_FOR = timedelta(minutes=1)
 RELAUNCH = timedelta(seconds=orca.LAUNCH_SECONDS)
 TAIL_BYTES = 65536
 COMPACT_PAST_TOKENS = 120_000
 COMPACT_WHEN_QUIET = timedelta(minutes=10)
 NOT_SLUG = re.compile(r"[^A-Za-z0-9]")
 PR_LINE = re.compile(r"\s*(?:READY|PR:)")
+READY_LINE = re.compile(r"READY\b")
 STUCK_WORDS = {
     "red": "still red",
     "card": "green and approved with no card drawn",
@@ -365,6 +368,41 @@ def card_owed(pr: dict, data: dict, cards: dict) -> bool:
         and pr["ready_said"] != pr["head"]
         and view.card_for(cards["pr_cards"], pr["url"]) is None
     )
+
+
+def unchecked_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Say each open PR his card waits on five minutes after its builder returned READY naming it, while the coordinator has neither checked it against his words with drive pr set nor had his card drawn, since nothing else wakes anyone once that READY is missed; again every 30 minutes while it stays unchecked, kept across watch restarts."""
+    if watcher.cards is None:
+        return []
+    data = state.load(watcher.name)
+    owed = {}
+    for key, pr in data["prs"].items():
+        since = hears(watcher, data, pr["order"]) and returned_at(key, pr, data, watcher.cards)
+        if since and moment - state.parse_time(since) >= UNCHECKED_FOR and unsaid(pr, since, moment):
+            owed[key] = since
+    if not owed:
+        return []
+    lines = []
+    with state.edit(watcher.name) as data:
+        for key, since in owed.items():
+            pr = data["prs"][key]
+            pr["unchecked"] = {"since": since, "said": state.stamp(moment)}
+            lines.append(f"PR {key}: READY returned {minutes(moment - state.parse_time(since))} minutes ago, check owed {ids(pr)}")
+    return lines
+
+
+def returned_at(key: str, pr: dict, data: dict, cards: dict) -> str | None:
+    """When the PR's builder returned READY naming it, while the PR waits on the coordinator's check alone: open, his card owed and untapped, no design recorded, no wait and no card of his drawn."""
+    builder = data["jobs"][pr["job"]]
+    returned = builder["state"] == "waiting" and READY_LINE.match(builder["said"] or "") and key in state.named_prs(data, builder["order"], builder["said"])
+    if not returned or pr["state"] != "open" or state.owed_step(pr) != "card" or pr["tap"] or pr.get("design") or pr["waits"] or view.card_for(cards["pr_cards"], pr["url"]):
+        return None
+    return builder["updated"]
+
+
+def unsaid(pr: dict, since: str, moment: datetime) -> bool:
+    said = pr.get("unchecked")
+    return not said or said["since"] != since or moment - state.parse_time(said["said"]) >= TICK_EVERY
 
 
 def waiting_lines(watcher: Watcher, moment: datetime) -> list[str]:
@@ -1171,8 +1209,8 @@ def unanswered(job_id: str, job: dict, cards: dict | None, moment: datetime) -> 
 
 
 def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, moment: datetime) -> str | None:
-    """Why the job leaves its parts with no one, None when it carries them, or SETTLING while a change in the last two minutes is still being handed over."""
-    if moment - state.parse_time(job["updated"]) < HANDOFF:
+    """Why the job leaves its parts with no one, None when it carries them, or SETTLING while a change in the last two minutes is still being handed over; a local job no agent has taken settles one minute only, since its agent's first step records it within seconds of starting."""
+    if moment - state.parse_time(job["updated"]) < (UNSTARTED_FOR if unstarted(job) else HANDOFF):
         return SETTLING
     if job["state"] == "running":
         return watcher.agent_gaps.get(job_id)
@@ -1192,14 +1230,20 @@ def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, moment: dateti
     return f"{job_id} {job['state']}"
 
 
+def unstarted(job: dict) -> bool:
+    return job["state"] == "running" and job.get("where") != "remote" and not job.get("agent")
+
+
 def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: datetime) -> str | None:
-    """Why a part of the order has no one carrying it, None when it is carried, delivered or waits on something named: a change a design lists waits on the earlier change it builds on, and on his pick while the order asks for options only."""
+    """Why a part of the order has no one carrying it, None when it is carried, delivered or waits on something named: a change a design lists waits on the earlier change it builds on, and on his pick while the order asks for options only; a job on the order's immediate fix part carries the order's other parts too until it is done."""
     order = data["orders"][order_id]
     jobs = part_jobs(data, order_id, part)
     gaps = [job_gap(watcher, job_id, job, data, moment) for job_id, job in jobs]
     if stuck := [gap for (_, job), gap in zip(jobs, gaps, strict=True) if gap and (job["state"] == "running" or job["state"] == "waiting" and job.get("ask"))]:
         return stuck[-1]
     if delivered(data, order_id, part):
+        return None
+    if part != state.IMMEDIATE_FIX and any(job["state"] in ("running", "waiting", "built") for _, job in part_jobs(data, order_id, state.IMMEDIATE_FIX)):
         return None
     if jobs:
         return None if None in gaps else SETTLING if SETTLING in gaps else gaps[-1]
@@ -1236,9 +1280,14 @@ def orphan_change(data: dict, key: tuple[str, str], gap: str | None, due: set[st
         return "heal" if said else None
     if gap == SETTLING:
         return None
-    if key[0] in due or not said or moment - state.parse_time(said) >= TICK_EVERY:
+    if key[0] in due or not said or moment - state.parse_time(said) >= TICK_EVERY or added_since(data, key, state.parse_time(said)):
         return "say"
     return None
+
+
+def added_since(data: dict, key: tuple[str, str], said: datetime) -> bool:
+    """Whether a local job no agent has taken was added or resumed on the part since the part was last said, news its 30-minute repeat would hold back."""
+    return any(unstarted(job) and state.parse_time(job["updated"]) > said for _, job in part_jobs(data, *key))
 
 
 def orphan_lines(watcher: Watcher, moment: datetime, due: set[str]) -> list[str]:
@@ -1307,7 +1356,7 @@ def tick_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """One loop of the watch: his cards, GitHub, a lander on each PR his Approve covers that qualifies, his PR cards whose PRs all ended, the waits his answers or a job's end release, his answers that leave cards unmarked, lane mail, agents, the communicator's compaction and the status page every 60 s, GitHub again next poll after a failure, new events, promised times still owed a line, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries, a tick every 30 minutes while he is here."""
+    """One loop of the watch: his cards, GitHub, a lander on each PR his Approve covers that qualifies, his PR cards whose PRs all ended, the waits his answers or a job's end release, a READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, agents, the communicator's compaction and the status page every 60 s, GitHub again next poll after a failure, new events, promised times still owed a line, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries, a tick every 30 minutes while he is here."""
     lines = []
     if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
         watcher.read_at = moment
@@ -1320,6 +1369,7 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
         lines += rework_lines(watcher, moment)
         lines += waits_lines(watcher, moment)
         lines += ready_lines(watcher, moment)
+        lines += unchecked_lines(watcher, moment)
         lines += waiting_lines(watcher, moment)
         lines += answer_lines(watcher, moment)
         lines += lane_lines(watcher, moment)

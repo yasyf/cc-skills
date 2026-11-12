@@ -293,6 +293,8 @@ def load(name: str) -> dict:
         job.setdefault("may_settle", None)
         job.setdefault("due", None)
         job.setdefault("undelivered", [])
+        if job.pop("checks", None):
+            job["parts"] = []
         if job.get("ask") and any(reported(text.lstrip()) for text in (job["said"] or "", job["report"] or "")):
             job["ask"] = None
         if job.get("ask"):
@@ -1050,6 +1052,7 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "draft": False,
         "merged_sha": None,
         "stuck": None,
+        "unchecked": None,
         "waits": [],
         "lander": None,
         "ejected": False,

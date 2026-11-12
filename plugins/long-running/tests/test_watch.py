@@ -862,6 +862,46 @@ def test_a_job_on_the_part_heals_the_orphan_once_its_handover_is_done(demo: str,
     assert state.load(demo)["orders"]["o2"]["parts"]["stack 2"]["orphan_said"] is None
 
 
+def test_a_local_job_added_with_no_agent_is_an_orphan_a_minute_on_though_its_part_was_said_since_its_last_tick(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    serve(monkeypatch, {})
+    monkeypatch.setattr(watch, "local_gap", REAL_LOCAL_GAP)
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="failed", updated=state.stamp(T0 - timedelta(minutes=20)))
+        data["orders"]["o1"]["parts"]["ship the watch"]["orphan_said"] = state.stamp(T0 - timedelta(minutes=10))
+        data["orders"]["o1"]["jobs"].append("j2")
+        data["jobs"]["j2"] = job(kind="reader", session="session-under-test", parts=["ship the watch"])
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == []
+    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == ['ORPHAN o1 "ship the watch": j2 has no agent recorded']
+    assert watch.run_pass(watching, T0 + timedelta(minutes=2)) == []
+
+
+def test_a_reader_an_older_install_started_on_a_prs_head_holds_no_part_and_is_never_an_answer_owed_him(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    earlier = state.stamp(T0 - timedelta(minutes=10))
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="failed", updated=earlier)
+        data["orders"]["o1"]["jobs"].append("j2")
+        data["jobs"]["j2"] = job(kind="reader", state="done", parts=["ship the watch"], checks={KEY: "aaaaaaa111"}, updated=earlier)
+    assert watch.run_pass(watcher(demo), T0) == ['ORPHAN o1 "ship the watch": j1 failed']
+
+
+def test_a_job_on_the_immediate_fix_carries_the_orders_other_parts_until_it_is_done(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    earlier = state.stamp(T0 - timedelta(minutes=10))
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["parts"][state.IMMEDIATE_FIX] = state.new_part()
+        data["orders"]["o1"]["updated"] = earlier
+        data["jobs"]["j1"].update(parts=[state.IMMEDIATE_FIX], state="waiting", updated=earlier)
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == []
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["state"] = "done"
+    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == ['ORPHAN o1 "ship the watch": no job']
+
+
 @pytest.mark.parametrize("kind", ["reader", "codex", "design"])
 def test_a_done_builder_delivers_its_part_and_a_done_reader_codex_or_design_job_waits_for_the_posted_answer(
     demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], slack_thread: "Thread", kind: str
@@ -1695,6 +1735,26 @@ def test_a_green_approved_pr_that_wants_a_tap_with_no_card_for_thirty_minutes_is
     line = f"PR {KEY}: green and approved with no card drawn for 30 minutes [o1 j1]"
     assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [line]
     assert watch.wakes(line, state.load(demo))
+
+
+@pytest.mark.parametrize("checked", [{"design": "none"}, {"wants_tap": False}])
+def test_a_ready_with_no_check_or_card_five_minutes_on_is_said_every_thirty_minutes_until_the_coordinator_checks_it(
+    demo: str, monkeypatch: pytest.MonkeyPatch, checked: dict
+) -> None:
+    serve(monkeypatch, {})
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="waiting", said=f"READY {state.pr_url(KEY)}")
+        data["prs"][KEY]["wants_tap"] = True
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0 + timedelta(minutes=4)) == []
+    line = f"PR {KEY}: READY returned 5 minutes ago, check owed [o1 j1]"
+    assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == [line]
+    assert watch.wakes(line, state.load(demo))
+    assert watch.run_pass(watching, T0 + timedelta(minutes=34)) == []
+    assert watch.run_pass(watching, T0 + timedelta(minutes=35)) == [f"PR {KEY}: READY returned 35 minutes ago, check owed [o1 j1]"]
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= checked
+    assert watch.run_pass(watching, T0 + timedelta(minutes=70)) == []
 
 
 def test_a_pr_green_and_approved_draws_his_card_from_the_watch_once_a_head_with_no_coordinator_turn_and_no_order_or_design_set(
