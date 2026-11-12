@@ -83,6 +83,7 @@ class Watcher:
     page_shape: str | None = None
     cards: dict | None = None
     agent_gaps: dict[str, str | None] = field(default_factory=dict)
+    made: list[str] = field(default_factory=list)
     unsent: dict[str, list[str]] = field(default_factory=dict)
     down: str | None = None
     dashboard_down: bool = False
@@ -714,7 +715,7 @@ def first_line(text: str) -> str:
 
 
 def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetime, kept: Path | None, unkept: str | None) -> str | None:
-    """Record one message from a remote lane on its job, a final report ending any question the lane asked before it and setting its state unless state.result_refusal refuses it, which the event line names, a question opening with a result other than ASK being that result, and the file a `REPRO:` line carries in the fence under it kept as `drive job set --repro` keeps one, executable when it opens with a shebang; the event line it wakes the coordinator with, if any, which for a question naming `LOG <url>`s says drive job resume reads them ahead of the answer, for an `ASK` the watch kept is `ASK <its file>`, as a job's own return is, and for one it could not keep says why, or that `drive job ask` keeps it."""
+    """Record one message from a remote lane on its job, a final report ending any question the lane asked before it and setting its state unless state.result_refusal refuses it or it types a clock time for work already done, which the event line names, a question opening with a result other than ASK being that result, and the file a `REPRO:` line carries in the fence under it kept as `drive job set --repro` keeps one, executable when it opens with a shebang; the event line it wakes the coordinator with, if any, which for a question naming `LOG <url>`s says drive job resume reads them ahead of the answer, for an `ASK` the watch kept is `ASK <its file>`, as a job's own return is, and for one it could not keep says why, or that `drive job ask` keeps it."""
     job = data["jobs"][job_id]
     kind = message["type"]
     body = message["body"] or ""
@@ -740,7 +741,7 @@ def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetim
             job.update(ask=None, state="running")
         if job["kind"] == "builder":
             job["said"] = re.sub(r"^READY\b", "PUSHED", job["said"])
-        if refused := state.result_refusal(data, job_id, job["said"], body):
+        if refused := state.result_refusal(data, job_id, job["said"], body) or limits.typed_time(body, data):
             return f'JOB {job_id} {job["order"]} {job["said"]}; refused, its state unset: {refused}; drive job resume {job_id} "<the refusal>" sends it back'
         state.take_result(data, job_id, job["said"], body)
         state.add_changes(data, job_id, body)
@@ -794,8 +795,8 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 lines.append(mail_line(watcher.name, data, job_id, message, moment, asks.get(message["id"]), unkept.get(message["id"])))
                 if message["type"] in ("worker_done", "question"):
                     reported.add(job_id)
-    lines += merge_lane_prs(watcher, reported)
-    return [line for line in lines + read_lines(watcher, data, moment) if line]
+    watcher.made += [line for line in lines if line]
+    return [line for line in merge_lane_prs(watcher, reported) + read_lines(watcher, data, moment) if line]
 
 
 def keep_asks(
@@ -1001,9 +1002,10 @@ def event_lines(watcher: Watcher) -> list[str]:
     events = list(state.read_events(watcher.name, watcher.offset))
     if not events:
         return []
-    watcher.offset = events[-1][1]
     prs = state.load(watcher.name)["prs"]
-    return [event_line(event, prs) for event, _ in events if event["kind"] not in view.HISTORY_ONLY and event.get("lane", "root") == watcher.lane]
+    said = [event_line(event, prs) for event, _ in events if event["kind"] not in view.HISTORY_ONLY and event.get("lane", "root") == watcher.lane]
+    watcher.offset = events[-1][1]
+    return said
 
 
 def overdue(order: dict, moment: datetime, away: bool) -> bool:
@@ -1442,9 +1444,10 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
             for job_id, (call, line) in held.items():
                 data["jobs"][job_id]["stuck_call"] = call
                 lines.append(line)
+    watcher.made += lines
     unlisted, failed = untracked_prs(watcher, data, heads, moment)
     watcher.agent_gaps = {job_id: stranded(job_id, data, gaps.get(job_id), unlisted.get(job_id, {})) for job_id in gaps.keys() | heads.keys()}
-    return lines + failed + death_lines(watcher.name, deaths, moment)
+    return failed + death_lines(watcher.name, deaths, moment)
 
 
 def untracked_prs(watcher: Watcher, data: dict, heads: dict[str, set], moment: datetime) -> tuple[dict[str, dict], list[str]]:
@@ -1755,8 +1758,8 @@ def tick_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """One loop of the watch: his cards, GitHub, a lander on each PR his Approve covers that qualifies, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, the waits his answers or a job's end release, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the communicator's compaction, the status page, a coordinator whose process exited and a dashboard whose server exited every 60 s, GitHub again next poll after a failure, new events, the catch-up owed him, promised times still owed a line, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries, a tick every 30 minutes while he is here."""
-    lines = []
+    """One loop of the watch: his cards, GitHub, a lander on each PR his Approve covers that qualifies, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, the waits his answers or a job's end release, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the communicator's compaction, the status page, a coordinator whose process exited and a dashboard whose server exited every 60 s, GitHub again next poll after a failure, new events, the catch-up owed him, promised times still owed a line, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries, a tick every 30 minutes while he is here. Each stage's lines join the watcher's made lines as it returns, or as it saves when it keeps working after its save, so a pass that ends early, in a crash or on a drive a newer install saved, leaves them to the watch process after it."""
+    lines = watcher.made
     if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
         watcher.read_at = moment
         view.refresh_cards(watcher.name)
@@ -1793,7 +1796,7 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
     if moment - watcher.ticked_at >= TICK_EVERY:
         watcher.ticked_at = moment
         lines += tick_lines(watcher, moment)
-    return handed(watcher, [LINE_BREAKS.sub(" ", line) for line in lines], moment)
+    return handed(watcher, lines, moment)
 
 
 def carried_lines(watcher: Watcher, moment: datetime) -> list[str]:
@@ -1862,33 +1865,36 @@ def wakes(line: str, data: dict) -> bool:
 
 
 def handed(watcher: Watcher, lines: list[str], moment: datetime) -> list[str]:
-    """Hand each line to the one who acts on it: an order's the communicator or the meta session holds to that session, a PR's move to its job's remote lane waiting for it, and the rest, returned, to the coordinator, with a lane's lines when its resume fails."""
+    """Hand each line to the one who acts on it: an order's the communicator or the meta session holds to that session, a PR's move to its job's remote lane waiting for it, and the rest, returned, to the coordinator, with a lane's lines when its resume fails. Until it is handed, each line stays on the watcher, the coordinator's among its made lines and a holder's among its unsent, so a newer install that takes the watch over meanwhile gets it."""
+    lines = [LINE_BREAKS.sub(" ", line) for line in lines]
     if not lines and not any(watcher.unsent.get(lane) for lane in state.HOLDERS):
         return []
     data = state.load(watcher.name)
-    held: dict[str, list[str]] = {lane: [] for lane in state.HOLDERS}
     moves: dict[str, list[str]] = {}
     kept = []
     for line in lines:
         if holder := holder_line(line, data):
             if needs_step(line, data):
-                held[holder].append(line)
+                watcher.unsent.setdefault(holder, []).append(line)
             continue
         if job_id := lane_move(line, data):
             moves.setdefault(job_id, []).append(line)
         else:
             kept.append(line)
+    watcher.made = kept
     for job_id, said in moves.items():
         try:
             reads.run([str(DRIVE), "job", "resume", job_id, "\n".join(said), "--drive", watcher.name], Path(data["roles"]["coordinator"]["cwd"]))
         except reads.ReadError as error:
             kept += [f"{line}; drive job resume {job_id} failed: {error}" for line in said]
-    return kept + [failure for lane, said in held.items() for failure in sent(watcher, lane, said, moment)]
+    failures = [failure for lane in state.HOLDERS for failure in sent(watcher, lane, [], moment)]
+    watcher.made = []
+    return kept + failures
 
 
 def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> list[str]:
-    """Post each line, after any that failed to post before, to the lane over cci: a coordinator's line it acts on now wakes it, its others reach it together at most every five minutes, and a line that fails goes again next pass, said from its third failure in a row."""
-    owed = watcher.unsent.pop(lane, []) + lines
+    """Post each line, after any that failed to post before, to the lane over cci: a coordinator's line it acts on now wakes it, its others reach it together at most every five minutes, and a line that fails goes again next pass, said from its third failure in a row. The lines stay among the watcher's unsent until each posts, so a newer install that takes the watch over meanwhile gets them."""
+    owed = watcher.unsent[lane] = watcher.unsent.get(lane, []) + lines
     if not owed:
         return []
     data = state.load(watcher.name)
@@ -1902,11 +1908,11 @@ def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> lis
         except reads.ReadError as error:
             unsent.append(line)
             refusal = error
+    watcher.unsent[lane] = unsent
     what = {"communicator": "handoff post to the communicator", "meta": "handoff post to the meta session", "root": "post to the coordinator"}.get(lane, f"post to the sub-coordinator for {watcher.project}")
     if refusal is None:
         watcher.failures.pop(what, None)
         return []
-    watcher.unsent[lane] = unsent
     return failed(watcher, what, what, refusal, moment)
 
 
@@ -1984,31 +1990,44 @@ def main(drive_name: str | None = None, project: str | None = None) -> int:
         return 0
     try:
         while holder(state.monitor_pid_path(name)):
+            state.let_go_install()
             time.sleep(POLL_SECONDS)
-        held = {} if project else {"root": state.take_held_lines(name)}
-        watching(Watcher(name, offset=state.watch_cursor(name, project), ticked_at=state.now(), project=project, unsent=held))
+        watching(Watcher(name, offset=state.watch_cursor(name, project), ticked_at=state.now(), project=project, made=state.take_held_lines(name, project)))
     finally:
         release(name, project)
     return 0
 
 
 def watching(watcher: Watcher) -> None:
-    """Hand each pass's lines to whoever acts on them, each pass holding its install's lock as a verb does and letting go of it while the watch sleeps, and let a newer install take over in place before a pass, or the moment a pass finds the drive saved by one, so no pass runs older code on a drive a newer install saved; a crash wakes the coordinator session it posts to first."""
+    """Hand each pass's lines to whoever acts on them, first any a watch before this one held for it, and let a newer install take over in place before a pass, or the moment a pass finds the drive saved by one, so no pass runs older code on a drive a newer install saved; a crash wakes the coordinator session it posts to first. Every line made and not yet posted is held for the watch after this one, which hands it on before its first pass, so the watch holds no install's lock: a pass that reads GitHub and each Sprite for minutes, or waits on a drive process it started, never holds a newer install's verbs."""
     state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
+    state.let_go_install()
     try:
         while True:
-            state.hold_install()
-            if (newer := upgraded()) and not any(watcher.unsent.values()):
-                os.execv(newer, loop_argv(newer, watcher.name, watcher.project))
+            if newer := upgraded():
+                handed_over(watcher, newer)
             read_from, moment = watcher.offset, state.now()
-            for line in sent(watcher, watcher.lane, run_pass(watcher, moment), moment):
+            said = handed(watcher, watcher.made, moment) if watcher.made else run_pass(watcher, moment)
+            for line in sent(watcher, watcher.lane, said, moment):
                 print(line, flush=True)
             if watcher.offset != read_from:
                 state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
-            state.let_go_install()
             time.sleep(POLL_SECONDS)
     except Exception as error:
         if isinstance(error, state.NewerDrive) and (newer := upgraded()):
-            os.execv(newer, loop_argv(newer, watcher.name, watcher.project))
+            handed_over(watcher, newer)
+        keep_unposted(watcher)
         stopped(watcher, error)
         raise
+
+
+def handed_over(watcher: Watcher, newer: Path) -> None:
+    keep_unposted(watcher)
+    os.execv(newer, loop_argv(newer, watcher.name, watcher.project))
+
+
+def keep_unposted(watcher: Watcher) -> None:
+    """Move each line the watch made and has not posted, routed or not, to the watch process after it, which hands them on before its first pass and reads events from past the last one they were made from."""
+    state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
+    state.hold_lines(watcher.name, watcher.project, [LINE_BREAKS.sub(" ", line) for line in [*watcher.made, *(line for lines in watcher.unsent.values() for line in lines)]])
+    watcher.made, watcher.unsent = [], {}

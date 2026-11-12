@@ -10,6 +10,7 @@ lane=$1 model=$2 effort=$3 brief=$4
 run=${WORKER_RUN:?set WORKER_RUN to the Orca Run id}
 ref=${WORKER_REF:-}
 expect=${WORKER_EXPECT_BASE:-}
+continued=${WORKER_WORKSPACE:-}
 tier=${WORKER_SERVICE_TIER:-}
 lane_env='DISABLE_AUTOUPDATER=1 CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING=1 CHOKIDAR_USEPOLLING=1 CHOKIDAR_INTERVAL=300000 CLAUDE_CODE_DISABLE_MOUSE=1 CLAUDE_CODE_SYNTAX_HIGHLIGHT=false CLAUDE_CODE_DISABLE_AGENT_PROGRESS_SUMMARIES=1 CLAUDE_CODE_ENABLE_AWAY_SUMMARY=false CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1 DISABLE_COST_WARNINGS=1 DISABLE_INSTALLATION_CHECKS=1 CLAUDE_CODE_AUTO_CONNECT_IDE=false CLAUDE_CODE_IDE_SKIP_AUTO_INSTALL=1 ENABLE_CLAUDEAI_MCP_SERVERS=false DISABLE_TELEMETRY=1 DISABLE_ERROR_REPORTING=1 CLAUDE_CODE_GB_DISK_CACHE_WHEN_TELEMETRY_OFF=1 CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1 CLAUDE_CODE_DISABLE_BUNDLED_SKILLS=1 CLAUDE_CODE_PLUGIN_DIR_WATCH=false'
 lane_settings='{"spinnerTipsEnabled":false,"prefersReducedMotion":true,"verbose":false,"showThinkingSummaries":false,"feedbackDrafts":"off","awaySummaryEnabled":false,"promptSuggestionEnabled":false,"tui":"fullscreen","disableDeepLinkRegistration":"disable","statusLine":{"type":"command","command":"exit 0"}}'
@@ -78,6 +79,8 @@ if [ "$route" = sprite ]; then
     die "WORKER_REPO picks a local Orca repository; a Sprite checks out the repository its cc-remote config names, chosen with CC_REMOTE_CONFIG; nothing was prepared"
   [ -z "${WORKER_BASE_BRANCH:-}" ] ||
     die "WORKER_BASE_BRANCH picks a local worktree's base; a Sprite checks out WORKER_REF, a branch or tag, or the cc-remote config's ref; nothing was prepared"
+  [ -z "$continued" ] || [ -z "$ref" ] ||
+    die "WORKER_WORKSPACE continues that Sprite's checkout as it is, so it takes no WORKER_REF; nothing was prepared"
   [ -z "$expect" ] || matches "$expect" '\A[0-9a-f]{40}([0-9a-f]{24})?\z' ||
     die "WORKER_EXPECT_BASE is a full 40- or 64-character lowercase commit; nothing was prepared"
   cc_remote=${WORKER_CC_REMOTE:-$(repo_value ccRemote)}
@@ -100,7 +103,7 @@ if [ "$route" = sprite ]; then
   fi
 else
   [ "$kind" = claude ] || die "the local route starts only claude, and codex runs $model_id; nothing launched"
-  [ -z "$ref$expect" ] || die "WORKER_REF and WORKER_EXPECT_BASE pick a Sprite's checkout; the local route takes WORKER_BASE_BRANCH; nothing launched"
+  [ -z "$ref$expect$continued" ] || die "WORKER_REF, WORKER_EXPECT_BASE and WORKER_WORKSPACE pick a Sprite's checkout; the local route takes WORKER_BASE_BRANCH; nothing launched"
   repo=${WORKER_REPO:-$(repo_value repo)} base=${WORKER_BASE_BRANCH:-$(repo_value baseBranch)}
   [ -n "$repo" ] || die "set WORKER_REPO, or repo in .orca.json, to the Orca repository the local route adds its worktree to; nothing launched"
   [ -n "$base" ] || die "set WORKER_BASE_BRANCH, or baseBranch in .orca.json, to the branch a local worktree starts from; nothing launched"
@@ -122,21 +125,37 @@ legacy=$dir/${name%.*}.dispatch.json
   die "$legacy holds an earlier launch of this brief, and a brief gets one attempt; inspect it instead"
 sha=$(shasum -a 256 "$brief" | cut -d' ' -f1)
 bytes=$(wc -c <"$brief" | tr -d ' ')
+discard() {
+  local error
+  if [ "$1" = "$continued" ]; then
+    echo "its Sprite $1 is kept, since this launch continues the lane on it"
+  elif error=$("$cc_remote" destroy "$1" 2>&1 >/dev/null); then
+    echo "its Sprite $1 is destroyed"
+  else
+    echo "destroying its Sprite $1 failed too: ${error##*$'\n'}"
+  fi
+}
 retire() {
   local retired=$attempt.1
   while [ -e "$retired" ] || [ -L "$retired" ]; do retired=$attempt.$((${retired##*.} + 1)); done
   mv "$attempt" "$retired"
   echo "$retired keeps the earlier attempt, $1; preparing again" >&2
 }
-if [ "$route" = sprite ] && [ -d "$attempt" ] && [ ! -L "$attempt" ] && [ ! -e "$attempt/worker-start.status" ] &&
-  read -r failed 2>/dev/null <"$attempt/prepare.status" && [[ $failed =~ ^[1-9][0-9]*$ ]]; then
-  retire "whose prepare exited $failed before any worker started"
+unstarted() {
+  [ -f "$attempt/worker-start.unsent" ] ||
+    [ "$(jq -r '.error.code // empty' "$attempt/worker-start.json" 2>/dev/null)" = consumer_fenced ] ||
+    { [ -f "$attempt/tools.err" ] && [ ! -e "$attempt/worker-start.status" ]; }
+}
+if [ "$route" = sprite ] && [ -d "$attempt" ] && [ ! -L "$attempt" ]; then
+  if [ ! -e "$attempt/worker-start.status" ] && ! { read -r failed 2>/dev/null <"$attempt/prepare.status" && [ "$failed" = 0 ]; }; then
+    retire "whose prepare ${failed:+exited }${failed:-never finished} before any worker started"
+  elif [ -n "$continued" ] && unstarted && held=$(jq -r .workspace "$attempt/prepared.json") && [ "$held" != "$continued" ]; then
+    retire "which prepared Sprite $held while this launch continues on Sprite $continued, and $(discard "$held")"
+  fi
 fi
 reused= unsent=
 if [ -e "$attempt" ] || [ -L "$attempt" ]; then
-  [ "$route" = sprite ] && { [ -f "$attempt/worker-start.unsent" ] ||
-    [ "$(jq -r '.error.code // empty' "$attempt/worker-start.json" 2>/dev/null)" = consumer_fenced ] ||
-    { [ -f "$attempt/tools.err" ] && [ ! -e "$attempt/worker-start.status" ]; }; } ||
+  [ "$route" = sprite ] && unstarted ||
     die "$attempt holds an earlier attempt of this brief, and a brief gets one attempt; inspect it instead"
   reused=1
   [ ! -f "$attempt/worker-start.unsent" ] || read -r unsent <"$attempt/worker-start.unsent"
@@ -150,7 +169,7 @@ if [ -e "$attempt" ] || [ -L "$attempt" ]; then
       mv "$attempt/allocation.json.new" "$attempt/allocation.json"
       ;;
     255)
-      retire "whose Sprite $workspace answered no ssh connection before any worker started: ${error##*$'\n'}"
+      retire "whose Sprite $workspace answered no ssh connection before any worker started: ${error##*$'\n'}, and $(discard "$workspace")"
       reused= unsent=
       ;;
     *) die "the Sprite $workspace did not take the brief at $path: ${error##*$'\n'}; the prepared worker stays idle and unattached, and launching this brief again copies it again" ;;
@@ -214,24 +233,31 @@ start_worker() {
 }
 
 if [ "$route" = sprite ]; then
-  prepare=(orca prepare "$lane" --warm --provider sprites --profile agents --agent "$kind" --model "$model_id" --effort "$effort" --brief-file "$brief")
+  opening=("$lane" --warm)
+  [ -z "$continued" ] || opening=("$continued" --existing)
+  prepare=(orca prepare "${opening[@]}" --provider sprites --profile agents --agent "$kind" --model "$model_id" --effort "$effort" --brief-file "$brief")
   [ -z "$ref" ] || prepare+=(--ref "$ref")
   [ -z "$tier" ] || prepare+=(--service-tier "$tier")
   [ -z "${WORKER_MCP_CONFIG:-}" ] || prepare+=(--mcp-config "$WORKER_MCP_CONFIG")
   [ ${#worker_env[@]} -eq 0 ] || for pair in "${worker_env[@]}"; do prepare+=(--env "$pair"); done
   status=0
-  [ -n "$reused" ] || "$cc_remote" "${prepare[@]}" >"$attempt/allocation.json" 2>"$attempt/prepare.err" || status=$?
+  if [ -z "$reused" ] && [ -n "$continued" ]; then
+    "$cc_remote" "${prepare[@]}" 2>"$attempt/prepare.err" |
+      jq --arg lane "$lane" '{schemaVersion: 1, lane: $lane, workspace, allocation: "existing", ref: null, head: .baseCommit, task: .}' >"$attempt/allocation.json" || status=$?
+  elif [ -z "$reused" ]; then
+    "$cc_remote" "${prepare[@]}" >"$attempt/allocation.json" 2>"$attempt/prepare.err" || status=$?
+  fi
   [ -n "$reused" ] || echo "$status" >"$attempt/prepare.status"
   [ "$status" -eq 0 ] || die "cc-remote orca prepare exited $status; $attempt keeps its output, nothing was attached, and launching this brief again prepares afresh"
 
-  verdict=$(jq -rs --arg lane "$lane" --arg ref "$ref" --arg kind "$kind" --arg model "$model_id" --arg effort "$effort" --arg tier "$tier" \
+  verdict=$(jq -rs --arg lane "$lane" --arg ref "$ref" --arg continued "$continued" --arg kind "$kind" --arg model "$model_id" --arg effort "$effort" --arg tier "$tier" \
     --arg sha "$sha" --argjson bytes "$bytes" '
     if length != 1 or (.[0] | type) != "object" then "not one JSON object"
     else .[0]
       | if .schemaVersion != 1 or .lane != $lane then "an allocation other than schema 1 for lane \($lane)"
         elif (.workspace | type) != "string" or (.workspace | test("\\A[a-z0-9][a-z0-9-]{0,54}\\z") | not) then "an invalid allocated workspace"
-        elif (.allocation != "warm" and .allocation != "created") or (.allocation == "created" and .workspace != $lane) or (.allocation == "warm" and .workspace == $lane) then "an allocation kind inconsistent with its workspace"
-        elif (.ref | type) != "string" or .ref == "" or ($ref != "" and .ref != $ref) then "a ref other than the requested branch or tag"
+        elif (.allocation | IN("warm", "created", "existing") | not) or (.allocation == "created" and .workspace != $lane) or (.allocation == "warm" and .workspace == $lane) or (.allocation == "existing" and $continued == "") or ($continued != "" and .workspace != $continued) then "an allocation kind inconsistent with its workspace"
+        elif .allocation != "existing" and ((.ref | type) != "string" or .ref == "" or ($ref != "" and .ref != $ref)) then "a ref other than the requested branch or tag"
         elif (.task | type) != "object" or .task.workspace != .workspace or .task.provider != "sprites" or .task.profile != "agents" then "a task other than the allocated Sprite agents workspace"
         elif .task.prepared != true then "prepared is not true"
         elif (.task.managedServer | type) != "string" or .task.managedServer == "" then "an Orca runtime serving on Electron, not its managed server"
@@ -242,11 +268,15 @@ if [ "$route" = sprite ]; then
         else "ok \(.task.baseCommit)"
         end
     end' "$attempt/allocation.json" 2>/dev/null) || verdict="not readable as JSON"
-  [[ $verdict == "ok "* ]] || die "$attempt/allocation.json holds $verdict, so the prepared worker stays idle and unattached"
+  if [[ $verdict != "ok "* ]]; then
+    owned=$(jq -r --arg lane "$lane" 'select(.lane == $lane and (.allocation == "warm" or .allocation == "created") and .task.workspace == .workspace and (.workspace | test("\\A[a-z0-9][a-z0-9-]{0,54}\\z"))) | .workspace' "$attempt/allocation.json" 2>/dev/null) || owned=
+    [ -n "$owned" ] || die "$attempt/allocation.json holds $verdict, so the prepared worker stays idle and unattached"
+    die "$attempt/allocation.json holds $verdict, so nothing was attached, and $(discard "$owned")"
+  fi
   jq '.task' "$attempt/allocation.json" >"$attempt/prepared.json"
   base=${verdict#ok }
   [ -z "$expect" ] || [ "$base" = "$expect" ] ||
-    die "the Sprite checked out $base, not WORKER_EXPECT_BASE $expect, so the prepared worker stays idle and unattached, and nothing is prepared again"
+    die "the Sprite checked out $base, not WORKER_EXPECT_BASE $expect, so nothing was attached, $(discard "$(jq -r .workspace "$attempt/allocation.json")"), and nothing is prepared again"
   "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/orca-sprite-tools.sh" "$attempt/prepared.json" >"$attempt/tools.out" 2>"$attempt/tools.err" ||
     die "the Sprite did not take the released ccx and cc-notes or the wasm toolchain: $(tail -n 1 "$attempt/tools.err"); the prepared worker stays idle and unattached, $attempt keeps tools.err, and launching this brief again reruns the tool check on that Sprite"
 

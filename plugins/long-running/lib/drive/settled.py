@@ -14,12 +14,12 @@ UNKEPT_ASK = (
     " communicator draws the card from that file; keep the question with `drive job ask <j> <file>`, then post this"
     " record again with that path"
 )
-UNJOBBED = "refused: an ask record names the job that kept its ASK, which his answer resumes; post it again with `--attr job=<j>`, the j in the ASK's file name"
+UNJOBBED = "refused: an ask record names the job that kept its ASK, which his answer resumes; post it again with `job` in its attrs, the j in the ASK's file name"
 KEEP_ASKED = (
     "the communicator draws the card from that file alone. Keep this record's question with `drive job ask {job} <file>`, or"
     " `drive job ask {job}` with no file for a remote lane's ASK the watch did not keep, which reads its report;"
-    " then post this record again with the path it prints as `cci post --kind ask --attr job={job} --attr ask=<path> --path <path>`"
-    " and no text, which takes the kept question's first line as its text"
+    " then post this record again on the cci `post` tool with the path it prints, as `kind: ask`, `attrs: {{job: {job}, ask: <path>}}`,"
+    " `path: <path>` and no text, which takes the kept question's first line as its text"
 )
 UNMARKED_INCIDENT = (
     "refused: {job} works on open incident {orders}, so this card blocks it, and the handler says so in the incident's thread"

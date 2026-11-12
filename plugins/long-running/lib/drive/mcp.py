@@ -17,14 +17,18 @@ CALLS: dict[int | str, subprocess.Popen] = {}
 LIST_CHANGED = {"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}
 INSTRUCTIONS = (
     "Every message to him goes through say: one call posts it to his Slack DM and shows it on the drive's dashboard."
-    " Name a card as {card:<waits id>}, a PR as {pr:<number or owner/repo#number>}, an order as {order:<id>}, a ruling of his as"
+    " Name a card as {card:<waits id>}, a PR the drive holds as {pr:<number>} and any other as"
+    " {pr:<owner/repo#number>|<what it does>}, an order as {order:<id>}, a ruling of his as"
     " {answer:<id>} and the record that measured a cause or number as {record:<seq>} in its text, and the tool links each the way each surface"
-    " shows it, under its title or under the words after a |, as {pr:298|the fix that draws charts}. Its hook finds a line"
-    " naming a cause with no {record:}, a line telling him the drive failed with no {order:} or {pr:} carrying how that is"
-    " prevented, and each `cc-slack check-post` finding, and Jev judges each by the rule it stands for and his words;"
+    " shows it, under its title or under the words after a |, as {pr:298|the fix that draws charts}. When a job started or a"
+    " record went out is {started:<job>} or {at:<seq>}, which say fills from the drive's stamps; only a time to come, as in"
+    " \"next line by 5:40 AM\", is typed. Its hook finds a clock time typed for work already done, a line naming a cause"
+    " with no {record:}, a line telling him the drive failed with no {order:} or {pr:} carrying how that is prevented, and"
+    " each `cc-slack check-post` finding, and Jev judges each by the rule it stands for and his words;"
     " on a handler's post Jev also weighs its own reads, every tool call of its transcript whose result came back, and"
-    " sends back a line about code no read of the code that does it backs, a comment, message, doc, PR body or earlier"
-    " answer being a claim to test, never a source; it posts exactly the words the hook let out and adds none."
+    " names beside the post, which goes out as written, a line about code no read of the code that does it backs, a"
+    " comment, message, doc, PR body or earlier answer being a claim to test, never a source; it posts exactly the words"
+    " the hook let out and adds none."
     " The drive's verbs are tools too: heard, handler, which starts a handler as its own session, record for the"
     " records between the drive's sessions, order, job and pr taking several ops a call, and status; each takes"
     " dry_run, and drive, the drive it acts on when this session is bound to none or several."
@@ -44,7 +48,10 @@ VISUAL = {
             "description": (
                 "What it draws, as in a Show me fence: the code; Mermaid or dot source; a Vega-Lite JSON spec, data inline, for"
                 ' a chart; {"options": [{"name", "recommended", "language", "code", "points": ["+ a gain", "- a cost"]}]} for a'
-                " compare; an arch/v1 JSON document; an image's absolute path or URL"
+                ' compare; for arch, {"arch": 1, "name", "title", "nodes": [{"id", "kind", "name", "role"}], "edges": [{"from", "to",'
+                ' "label"}]}, each id lowercase letters, digits and dashes, kind actor, app, service, worker, store, log, external,'
+                ' artifact or doc, a store or log node adding "medium": memory, disk, bucket, keys or pages;'
+                " an image's absolute path or URL"
             ),
         },
         "language": {"type": "string", "description": "The code's language, for its highlighting"},
@@ -61,15 +68,16 @@ SAY = {
         " URL>} and {order:<id>} link under the words naming the card, PR or order, or the words after a |, as"
         " {pr:298|the fix that draws charts}; Slack draws the card under the link. {record:<seq>} links what that record"
         " measured, its url, under the first clause of its own words, at most ten, or under the words after a |. {answer:<id>}"
-        " draws his recorded answer as when he said it and its first words, linked to the ack of them in his DM. Returns POSTED"
+        " draws his recorded answer as when he said it and its first words, linked to the ack of them in his DM. {started:<job>}"
+        " and {at:<seq>} write when a job started and when a record went out from the drive's stamps, since a clock time typed"
+        " for work already done is refused and only a promise such as \"next line by 5:40 AM\" passes. Returns POSTED"
         " <permalink>, CARD <permalink> for a card, the question card's own link first, recorded as the card of the"
         " question asked under its waits id, and with order"
         " the line recording the post on it. A refusal posts nothing and names its fix: a reference that names nothing,"
         " an order or job id such as j1700, or a finding Jev read its rule as holding against, such as a line naming a cause (because, caused) with no {record:}, a"
         " line telling him a card, check, hook, session, job or tool of the drive failed, refused or disconnected with no"
-        " {order:} or {pr:} on it carrying how that is prevented, or a word `cc-slack check-post` flags, or on a handler's"
-        " post a line about code no read of its own backs, such as one repeating a comment or a panic message as what the"
-        " code does: make the fix and call again. A post cc-slack reports failing after it went out is read back from Slack,"
+        " {order:} or {pr:} on it carrying how that is prevented, or a word `cc-slack check-post` flags: make the fix and"
+        " call again. A post cc-slack reports failing after it went out is read back from Slack,"
         " kept and recorded on its order, cc-slack's error after WARNING. A reference, link or mention written inside the"
         " words of a raw <url|words> link is refused outright, since Slack draws it as a broken link: close that link first and"
         " put the inner one after it. edit=<the permalink of a post of yours, in his DM or in a thread outside it>"

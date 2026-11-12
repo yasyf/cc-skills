@@ -2827,10 +2827,26 @@ def test_a_limit_left_standing_is_his_choice_and_returns_ask_or_design(
     assert keep(monkeypatch, capsys, "j2", f'DONE limits.py and cli.py never set "hints" (0 grep hits)\n{check}') == (0, "")
     for evidence in (
         f'DEFECT: ccx vcs gh refuses every read on this Sprite: "{refusal}"',
-        f'Measured: stack-enqueue read the queue under its "GitHub rate limit floor" of 500 calls, then its 1:20 PM read was refused: "{refusal}"',
-        f'Measured: gh pr view was refused 3 times between 1:10 PM and 1:24 PM, each "{refusal}"',
+        f'Measured: stack-enqueue read the queue under its "GitHub rate limit floor" of 500 calls, then its `1:20 PM` read was refused: "{refusal}"',
+        f'Measured: gh pr view was refused 3 times between `1:10 PM` and `1:24 PM`, each "{refusal}"',
     ):
         assert keep(monkeypatch, capsys, "j2", f"DONE the copy finished\n{check}{evidence}\n") == (0, "")
+
+
+def test_a_job_report_typing_when_past_work_happened_is_refused_naming_the_jobs_stamp(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy the bucket")
+    run("job", "add", "builder", "--order", "o1", "--goal", "copy it")
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["created"] = state.stamp(state.now().replace(hour=4, minute=50, second=21, microsecond=0))
+    check = "CHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n"
+    code, err = keep(monkeypatch, capsys, "j1", f"DONE j1 started at 4:55 AM and the copy finished\n{check}")
+    assert code == 2
+    assert 'j1: refused, nothing kept: "4:55 AM" is a time typed for work already done' in err
+    assert "j1 was created at 4:50:21 AM, which {started:j1} says" in err
+    assert state.load(demo)["jobs"]["j1"]["state"] == "running"
+    assert keep(monkeypatch, capsys, "j1", f"DONE j1 started at {{started:j1}} and the copy finished\n{check}") == (0, "")
 
 
 def test_a_builders_ready_is_kept_whatever_its_pr_body_says(
@@ -3584,6 +3600,19 @@ def test_pr_add_refuses_a_body_whose_shown_sections_speak_of_him_as_he_or_his(ru
     assert state.load("demo")["prs"] == {}
     on_github["body"] = CARD_BODY.replace("once your tap comes in", 'once your tap comes in, as `he` and "his tap" say')
     assert run("pr", "add", PR, "--job", "j1")[0] == 0
+
+
+def test_pr_add_refuses_a_show_me_fence_that_does_not_draw_and_adds_it_once_it_draws(run: Run, demo: str, on_github: dict, chrome: Chrome, capsys: pytest.CaptureFixture[str]) -> None:
+    run("order", "add", "--title", "Move the strip", "--project", "The drive", "--workstream", "Releases", "move the strip")
+    run("job", "add", "builder", "--order", "o1", "--goal", "move it")
+    on_github["body"] = CARD_BODY + '\n## Show me\nThe map\n```arch\n{"arch": 1}\n```\n\n![before](https://example.com/before.png)\n'
+    chrome.refusal = '"name" is required'
+    assert cli.main(["pr", "add", PR, "--job", "j1"]) == 2
+    assert capsys.readouterr().err.strip() == 'drive: Forge-AI/monorepo#42: refused, nothing added: its Show me arch does not draw: "name" is required'
+    assert state.load("demo")["prs"] == {}
+    chrome.refusal = None
+    assert run("pr", "add", PR, "--job", "j1")[0] == 0
+    assert [kind for kind, _ in chrome.drawn] == ["arch"]
 
 
 def test_pr_set_tap_refuses_a_title_retitled_since_drive_pr_add_read_it(
@@ -4492,7 +4521,7 @@ def test_no_post_delivers_an_open_incidents_fix_until_the_watch_records_it_live_
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
-    report_records(monkeypatch, {"674088": {"order": "o1", "incident": "true", "part": "o1:fix"}, "674089": {"part": "fix;first check"}, "674090": {"close": "o1"}})
+    report_records(monkeypatch, {"674088": {"order": "o1", "incident": "true", "part": "o1:fix"}, "674089": {"part": "fix;o1:first check"}, "674090": {"close": "o1"}})
     assert run("order", "posted", "o1", line, "--record", "674088") == (0, f"o1 progress line, no part delivered: {line}")
     assert run("order", "posted", "o1", line, "--record", "674089") == (0, f'o1 "first check": posted {line}')
     assert state.load("demo")["orders"]["o1"]["parts"]["fix"]["posted"] is None

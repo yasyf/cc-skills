@@ -4,6 +4,8 @@ import json
 import os
 import re
 import subprocess
+import sys
+import time
 import uuid
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import AbstractContextManager, contextmanager
@@ -91,6 +93,10 @@ BATCHED: dict[str, str] = {}
 HELD_INSTALL: dict[Path, IO] = {}
 INSTALL_HOLDER = "LONG_RUNNING_INSTALL_HOLDER"
 WAITED_OLDER: set[Path] = set()
+OLDER_VERBS_SECONDS = 20
+LOCK_POLL_SECONDS = 0.1
+HOLDER_CHARS = 200
+HOLDERS_SECONDS = 5
 AFTER_SAVE: dict[str, list[Callable[[], list[str]]]] = {}
 VERSION = json.loads((Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json").read_text())["version"]
 
@@ -178,8 +184,8 @@ def cursor_path(name: str, project: str | None = None) -> Path:
     return drive_dir(name) / f"watch{watch_suffix(project)}.cursor"
 
 
-def held_path(name: str) -> Path:
-    return drive_dir(name) / "watch.held"
+def held_path(name: str, project: str | None = None) -> Path:
+    return drive_dir(name) / f"watch{watch_suffix(project)}.held"
 
 
 def cards_path(name: str) -> Path:
@@ -872,16 +878,43 @@ def held_by_parent() -> bool:
 
 
 def older_verbs_done(name: str) -> None:
-    """Wait until every verb an older install started has ended, before this process first saves a drive an older install saved last, so no verb meets a drive.json saved by an install newer than its own code; taken outside the drive's lock, which those verbs still take, and once a process, since no older verb starts after it."""
+    """Wait up to OLDER_VERBS_SECONDS for every verb an older install started to end, before this process first saves a drive an older install saved last, so no verb meets a drive.json saved by an install newer than its own code; taken outside the drive's lock, which those verbs still take, and once a process, since no older verb starts after it. A verb still running after that, stuck or waiting on something of its own, does not hold every newer verb behind it: the save goes ahead, naming it, and that verb refuses the drive at its next load, which runs under the drive's lock and refuses a newer save, so it never writes over one."""
     path = state_path(name)
     if path in WAITED_OLDER or not path.exists():
         return
     if saver := json.loads(path.read_text()).get("saved_by"):
+        ends = time.monotonic() + OLDER_VERBS_SECONDS
         for older in (root() / "installs").glob("*.lock"):
             if version_order(saver) <= version_order(older.stem) < version_order(VERSION):
-                with flocked(older):
-                    pass
+                with open(older, "a") as handle:
+                    if not taken(handle, ends - time.monotonic()):
+                        print(f"drive: {name} saved past long-running {older.stem}'s verbs still running after {OLDER_VERBS_SECONDS}s, which refuse it from now on: {holders(older)}", file=sys.stderr)
     WAITED_OLDER.add(path)
+
+
+def taken(handle: IO, seconds: float) -> bool:
+    """Take handle's lock exclusive within seconds, polling, since a blocking flock waits forever and on macOS lets new shared holders past a waiting exclusive one; whether it was taken."""
+    ends = time.monotonic() + seconds
+    while True:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
+        except BlockingIOError:
+            if time.monotonic() >= ends:
+                return False
+            time.sleep(LOCK_POLL_SECONDS)
+
+
+def holders(path: Path) -> str:
+    """Each other process with path open, as lsof finds it, by pid and command, which names who holds its lock; within HOLDERS_SECONDS, so naming them never holds back what waited on them."""
+    try:
+        pids = [pid for pid in subprocess.run(["lsof", "-t", str(path)], capture_output=True, text=True, timeout=HOLDERS_SECONDS).stdout.split() if pid != str(os.getpid())]
+        if not pids:
+            return "no holder found"
+        listed = subprocess.run(["ps", "-o", "pid=,command=", "-p", ",".join(pids)], capture_output=True, text=True, timeout=HOLDERS_SECONDS).stdout.splitlines()
+    except subprocess.TimeoutExpired:
+        return f"its holders did not list within {HOLDERS_SECONDS}s"
+    return "; ".join(f"pid {line.strip()[:HOLDER_CHARS]}" for line in listed)
 
 
 def save(name: str, data: dict) -> None:
@@ -1220,9 +1253,15 @@ def save_watch_cursor(name: str, offset: int, project: str | None = None) -> Non
     os.replace(tmp, path)
 
 
-def take_held_lines(name: str) -> list[str]:
-    """The lines a watch run under a Monitor held for its next batch when it stopped, once, so the watch process delivers them."""
-    path = held_path(name)
+def hold_lines(name: str, project: str | None, lines: list[str]) -> None:
+    """Keep the lines a watch process made and has not posted for the watch process after it, as it hands itself to a newer install or stops."""
+    with held_path(name, project).open("a") as held:
+        held.write("".join(f"{line}\n" for line in lines))
+
+
+def take_held_lines(name: str, project: str | None = None) -> list[str]:
+    """The lines the watch process before this one held for it, once, so this one hands them on before its first pass."""
+    path = held_path(name, project)
     if not path.exists():
         return []
     lines = path.read_text().splitlines()

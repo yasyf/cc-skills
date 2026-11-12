@@ -144,7 +144,7 @@ def test_a_ready_record_to_the_communicator_for_a_pr_the_drive_owes_no_tap_on_is
         data["prs"]["Forge-AI/monorepo#4242"] |= {"tap": {"label": "Approve", "at": "2026-11-10T18:40:00-08:00", "head": "abc", "source": "slack"}}
     reason = refusal(record_lines.decision(post(kind="ready", text="j1 green, his order o1", pr=[TAPPED], to=TO)))
     assert "Forge-AI/monorepo#4242: he tapped Approve at " in reason
-    for said in ("carries his Approve tap", "he tapped Approve at 6:40 PM", "his approval landed at 6:40 PM"):
+    for said in ("carries his Approve tap", "he tapped Approve at `6:40 PM`", "his approval landed at `6:40 PM`"):
         for to in (["root@demo"], META):
             assert record_lines.decision(post(kind="ready", text=f"land it, his order o1: {said}", pr=[TAPPED], to=to)) is None
         assert record_lines.decision(post(kind="handoff", text=f"land {TAPPED}: {said}", to=["root@demo"])) is None
@@ -246,6 +246,27 @@ def test_an_ask_attaching_its_kept_file_takes_it_as_its_ask(demo: str) -> None:
     asked = kept(demo, "j1", IDLE)
     made = record_lines.decision(post(kind="ask", text=IDLE, path=asked["ask"], attrs={"job": "j1"}))
     assert made["updatedInput"]["attrs"] == asked
+
+
+def test_an_ask_attaching_its_kept_file_with_no_text_asks_the_line_cci_stores_from_it(demo: str) -> None:
+    asked = kept(demo, "j1", IDLE)
+    file = Path(asked["ask"])
+    file.parent.mkdir(parents=True, exist_ok=True)
+    file.write_text(f"\n  ASK {IDLE}\nThe idle ones hold a slot each.\n")
+    assert record_lines.decision(post(kind="ask", path=asked["ask"], attrs=asked)) is None
+    made = record_lines.decision(post(kind="ask", path=asked["ask"], attrs={"job": "j1"}))["updatedInput"]
+    assert made["attrs"] == asked and "text" not in made
+    file.write_text(f"ASK {LAYOUT}\n")
+    reason = refusal(record_lines.decision(post(kind="ask", path=asked["ask"], attrs=asked)))
+    assert "which this record does not ask" in reason and "on the cci `post` tool" in reason and "cci post --" not in reason
+
+
+def test_a_report_attaching_a_file_with_no_text_is_checked_by_the_files_first_line(demo: str, tmp_path: Path) -> None:
+    facts = tmp_path / "j702.md"
+    facts.write_text("POST j702 merged\nproof: https://github.com/yasyf/cc-skills/pull/4093\n")
+    assert record_lines.decision(post(kind="report", to=TO, path=str(facts), attrs=PROGRESS)) is None
+    facts.write_text("j702 merged\n")
+    assert "`POST`" in refusal(record_lines.decision(post(kind="report", to=TO, path=str(facts), attrs=PROGRESS)))
 
 
 def test_an_ask_for_a_job_on_an_open_incident_order_says_so_and_names_the_incidents_thread(run: Callable[..., tuple[int, str]], demo: str) -> None:
@@ -490,12 +511,61 @@ def test_a_wait_on_anything_else_says_how_long_and_whether_it_runs(demo: str) ->
 
 
 def test_a_job_is_called_stuck_only_after_a_read_of_its_transcript(demo: str, turn: Path) -> None:
-    stuck = {"kind": "report", "text": "POST j702 is stuck since 5 PM", "to": TO, "attrs": PROGRESS}
+    stuck = {"kind": "report", "text": "POST j702 is stuck with no line for 40 minutes", "to": TO, "attrs": PROGRESS}
     assert "`drive job replies <j>`" in refusal(record_lines.decision(coordinator(turn, **stuck)))
     called(turn, "old", "Bash", {"command": "drive job replies j702"}, age=timedelta(minutes=30))
     assert "j702" in refusal(record_lines.decision(coordinator(turn, **stuck)))
     called(turn, "read", "Bash", {"command": "drive job replies j702"})
     assert record_lines.decision(coordinator(turn, **stuck)) is None
+
+
+STALL = (
+    "POST The builder for your pick on the 3:27 AM replica stall started at 4:55 AM, about 25 minutes late: the workflow_runs"
+    " export moves to its own read replica and the api replica replays at once, cancelling a conflicting read."
+)
+FIX_HALF = (
+    "POST Yes to both, and the fix half was missing until 4:50 AM. Cause: a reader is on it and has not confirmed one; its"
+    " leads are the replication sync deadline (30 s) against a large first snapshot upload on adopted or retried journals,"
+    " and the SandSQL sidecar's 2 CPU / 2 Gi limits with the replicator at 1.47 GB. Fix: the first fix job ended at a dead"
+    " end with no PR (journal /view and replication /sync failures precede the executor exits, evidence"
+    " https://app.datadoghq.com/notebook/1), and nothing replaced it; a second fix job started at 4:50 AM and builds from"
+    " the cause as it lands. Prevention: the drive's watch gets a rule that an incident fix job ending with no PR starts the"
+    " next fix job in the same minute, sent to the tooling session at 4:54 AM. Next line by 5:05 AM."
+)
+FIX_JOBS = (
+    "Jobs: j1784 (codex fix, ended BLOCKED, record 46b398c), j1845 (cause reader, running since about 4:25 AM), j1860"
+    " (Opus builder on the fix part, started 4:50 AM)."
+)
+
+
+def test_a_report_typing_when_past_work_happened_is_refused_naming_its_stamp_and_a_promise_passes(
+    demo: str, turn: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    posted = state.now().replace(hour=4, minute=50, second=56, microsecond=0)
+    monkeypatch.setattr(limits, "now", lambda: posted)
+    assert refusal(record_lines.decision(coordinator(turn, kind="report", text=STALL, to=TO, attrs=PROGRESS))).startswith(
+        'refused: "3:27 AM", "4:55 AM" are times typed for work already done, and the drive\'s stamps say when it happened:'
+        " this write is stamped 4:50:56 AM. Name the job or record and let its stamp give the time, {started:<job>}"
+    )
+    monkeypatch.setattr(limits, "now", lambda: posted.replace(minute=47, second=0))
+    assert refusal(record_lines.decision(coordinator(turn, kind="report", text=FIX_HALF, body=FIX_JOBS, to=TO, attrs=PROGRESS))).startswith(
+        'refused: "4:50 AM", "4:54 AM", "4:25 AM" are times typed for work already done, and the drive\'s stamps say when it'
+        " happened: this write is stamped 4:47:00 AM."
+    )
+    for promised in ("POST The fix PR is up; next line by 5:40 AM.", "POST The fix lands by 5:40 AM.", "POST A second fix job started at {started:j1}; due 6 AM."):
+        assert record_lines.decision(coordinator(turn, kind="report", text=promised, to=TO, attrs=PROGRESS)) is None, promised
+    assert record_lines.decision(post(kind="owner", text="his 4:18 AM pick: times come from stamps", attrs={"about": "his work"})) is None
+
+
+def test_a_report_naming_a_jobs_start_is_refused_with_that_jobs_created_stamp(
+    run: Callable[..., tuple[int, str]], demo: str, turn: Path
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "SandSQL", "--workstream", "Replication", "fix the replication sync")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix the sync")
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["created"] = state.stamp(state.now().replace(hour=4, minute=50, second=21, microsecond=0))
+    reason = refusal(record_lines.decision(coordinator(turn, kind="report", text="POST j1 started at 4:55 AM on the fix part", to=TO, attrs=PROGRESS)))
+    assert "j1 was created at 4:50:21 AM, which {started:j1} says." in reason
 
 
 def test_the_communicators_record_for_a_coordinator_goes_to_the_session_hearing_the_order_it_serves_whatever_lane_it_names(

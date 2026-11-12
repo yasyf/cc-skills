@@ -1170,7 +1170,9 @@ def test_bash_posts_a_drive_ask_only_when_it_carries_the_ask_kept_for_its_questi
     from_path = f"cci post --kind ask --attr ask={kept} --attr job=j1 --path {kept}"
     assert landing_guard.deny_reason(asked_from_bash(from_path, session)) is None
     unexpanded = landing_guard.deny_reason(asked_from_bash(f'cci post --kind ask --attr ask={kept} --attr job=j1 --text "$(head -1 {kept})"', session))
-    assert "which this record does not ask" in unexpanded and "--attr ask=<path> --path <path>` and no text" in unexpanded
+    assert "which this record does not ask" in unexpanded and "on the cci `post` tool" in unexpanded and "`path: <path>` and no text" in unexpanded
+    kept.write_text("\n  ASK Close these sessions?\nThe idle ones hold a slot each.\n")
+    assert landing_guard.deny_reason(asked_from_bash(from_path, session)) is None
     assert landing_guard.deny_reason(asked_from_bash("cci post --kind report 'merged'", session)) is None
     assert landing_guard.deny_reason(asked_from_bash("cci post --kind ask 'Close these sessions?'", "another-session")) is None
 
@@ -1200,6 +1202,16 @@ def test_a_bash_report_naming_an_attr_a_separator_or_one_letter_from_one_the_dri
     assert "`--attr close=" in landing_guard.deny_reason(asked_from_bash(closes, session))
     assert landing_guard.deny_reason(asked_from_bash("cci post --kind report --lane root --attr catch_up=true 'POST his catch-up'", session)) is None
     assert landing_guard.deny_reason(asked_from_bash(catch_up, "another-session")) is None
+
+
+def test_a_bash_record_typing_when_past_work_happened_is_refused_and_one_naming_the_job_passes(demo: str, no_calls: list[list[str]]) -> None:
+    session = os.environ["CLAUDE_CODE_SESSION_ID"]
+    typed = (
+        "cci post --kind report --lane root --to communicator@demo --attr progress=true"
+        " 'POST A fix job with apply authority and a diagnosis job started at 10:33 PM; next line by 10:38 PM.'"
+    )
+    assert landing_guard.deny_reason(asked_from_bash(typed, session)).startswith('refused: "10:33 PM" is a time typed for work already done')
+    assert landing_guard.deny_reason(asked_from_bash(typed.replace("at 10:33 PM", "at {started:j1}"), session)) is None
 
 
 def test_a_communicators_bash_cci_post_naming_a_lane_other_than_the_session_hearing_its_order_is_refused(

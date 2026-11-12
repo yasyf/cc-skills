@@ -127,7 +127,8 @@ COORDINATOR_RULES = (
         " fit a line of 60 words or a summary of 120, with nothing for a second record. A POST names what it"
         " finishes, --attr close=<o>, part=<o>:<part> or progress=true, and carries every part of its order a finished job"
         " answered and no post delivered. What he reads names things by their proper"
-        " technical terms, never a stand-in, and no drive id he cannot open. "
+        " technical terms, never a stand-in, and no drive id he cannot open. A job's start is {started:<job>} and a"
+        " record's time {at:<seq>}, never a clock time you type. "
         + PREVENTED
     ),
     REACHING,
@@ -276,8 +277,8 @@ META_RULES = (
         " works, what it unblocks and the proof from the surface he uses; a ruling's rewrite lists each rule as it now"
         " reads in the installed skill, in his ruling's thread. READY on a Forge-AI PR gets drive pr set <url> --tap"
         " --serves <o> --design none, or with an EXEMPT line drive pr set <url> --exempt <class> and a builder briefed"
-        " `Handoff: LAND <url> Drive: <name> Scratch: <folder>`. ASK gets an ask record to communicator@<drive> with"
-        " `--attr ask=<its path> --attr job=<j> --path <its path>` and no text; BUILT, PUSHED and WAITING need nothing; BLOCKED gets drive job set <j> --state"
+        " `Handoff: LAND <url> Drive: <name> Scratch: <folder>`. ASK gets an ask record to communicator@<drive> on the cci"
+        " `post` tool with `attrs: {ask: <its path>, job: <j>}`, `path: <its path>` and no text; BUILT, PUSHED and WAITING need nothing; BLOCKED gets drive job set <j> --state"
         " stopped and a fresh builder on another route; an AFTER line goes in a POST report, and a DEFECT line gets its"
         " own order and reader."
     ),

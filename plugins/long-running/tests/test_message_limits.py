@@ -46,19 +46,19 @@ LOOK_INTO = "Also look into how it got into this bad state "
 FIGURE_OUT = "Get the release out but also figure out how it got into a bad state "
 HOW_IT_GOT_THERE = (
     "*How it got into this state: the cause is not found, but the chain that kept it hidden is.*\n\n*Observed:* Acme's"
-    " database was backed up to Acme's bucket at 1:23 AM Nov 9, and its folder there was empty by 3:15 AM Nov 10. Two"
+    " database was backed up to Acme's bucket at `1:23 AM` Nov 9, and its folder there was empty by 3:15 AM Nov 10. Two"
     " more Acme databases have empty folders. Our own cleanup always keeps the newest backup, so it does not explain an"
     " empty folder.\n\n*Not known:* who removed the files. A rule on Acme's bucket or a direct delete is what is left;"
     " the logs that would tell them apart need Acme's bucket-owner access.\n\n*Why nobody noticed:* a sleeping"
     " database is trusted as backed up at server start, with no look at the bucket.\n\n*Why the rollout stayed aborted:*"
-    " a release refuses to switch while an old abort exists, and nothing clears it; the retry at 3:31 AM did.\n\n*Now:*"
+    " a release refuses to switch while an old abort exists, and nothing clears it; the retry at `3:31 AM` did.\n\n*Now:*"
     " the new replica of <https://ci.example.com/builds/14185|build #14185> is still not ready 18 minutes in,"
-    " held by Acme's registry database, which is behind. A fix is on it; the rollout gives up at about 3:51 AM unless"
+    " held by Acme's registry database, which is behind. A fix is on it; the rollout gives up by about 3:51 AM unless"
     " it catches up. Next line 3:55 AM."
 )
 SWITCH_LINE = (
-    "*<https://ci.example.com/builds/14185|The release switch> failed again at 3:51 AM; production still serves from the old version.* Acme's registry"
-    " database has uploaded no LTX files since Nov 9 5:09 PM, so the new SandSQL replica never became ready. Its"
+    "*<https://ci.example.com/builds/14185|The release switch> failed again at `3:51 AM`; production still serves from the old version.* Acme's registry"
+    " database has uploaded no LTX files since Nov 9 `5:09 PM`, so the new SandSQL replica never became ready. Its"
     " snapshot is being rewritten, then the switch retries. Next line by 4:10 AM.\n\n*How it got into this state:* the"
     " LTX files under three Acme databases' bucket prefixes were removed after upload; our epoch cleanup keeps the"
     " newest populated epoch, so it was not that. Not known yet: who removed them, which Acme's bucket audit log"
@@ -66,12 +66,12 @@ SWITCH_LINE = (
     " file 1 is gone. Next, a code fix so one stuck database cannot hold up the replica's readiness."
 )
 NOT_KNOWN_YET = (
-    "*How it got into this state.* Acme's LTX files were uploaded to its bucket prefix at 1:23 AM Nov 9, and the"
+    "*How it got into this state.* Acme's LTX files were uploaded to its bucket prefix at `1:23 AM` Nov 9, and the"
     " prefix was empty by 3:15 AM Nov 10, like two more Acme prefixes. Our epoch cleanup keeps the newest populated"
     " epoch, so it did not remove them.\n\nNot known yet, each with what would show it: who removed them, which"
     " Acme's bucket audit log shows and which needs their bucket-owner access; why only Acme, which their bucket"
     " rules beside Globex's would show; and why the registry's local LTX file 1 is gone, which that pod's disk history"
-    " would show.\n\nThe registry's uploader has failed since 5:09 PM Nov 9. A code fix so one stuck database cannot"
+    " would show.\n\nThe registry's uploader has failed since `5:09 PM` Nov 9. A code fix so one stuck database cannot"
     " block the replica's readiness is being built."
 )
 
@@ -80,14 +80,14 @@ WHY_TWO_PLACES = "Why would each db dats live in two place? Which db? wtf are yo
 STILL_NO_SENSE = "And the db one still makes no sense "
 WHICH_DB = (
     "*Your data is not stored twice, and the card's \"two places\" was bad wording.* It never should have been asked:"
-    " your Nov 5 1:25 AM answer already settled it, and that card is withdrawn.\n\n*Which databases:* every database a"
+    " your Nov 5 `1:25 AM` answer already settled it, and that card is withdrawn.\n\n*Which databases:* every database a"
     " cloud SandSQL server keeps. That is each chat's own database and each project environment's tables, on the"
     " SandSQL servers in the main production cluster and in each customer cluster.\n\n*What is stored where:* each"
     " server keeps the live database on its own disk and a backup in the cluster's storage bucket, as it always"
     " has.\n\n*What \"two places\" meant:* today the backup gets a new numbered folder each time a database moves to a"
     " new server or disk, and a cleanup job deletes the old folders later. The card meant those old numbered folders"
     " sitting next to the current one.\n\n*The change:* every backup goes to one fixed folder with no number.\n\n*How"
-    " existing databases move:* you decided this on Nov 5 at 1:25 AM: \"no copy job, it just always falls back to the"
+    " existing databases move:* you decided this on Nov 5 at `1:25 AM`: \"no copy job, it just always falls back to the"
     " old one, and make sure in new tree all writeers are using the one with no generation\".\n\nSo nothing is copied."
     " A restore reads the fixed folder and falls back to the newest old folder when the fixed one is empty. Each server"
     " fills the fixed folder by writing a full fresh backup of its own database.\n\n*What went wrong:* the open change"
@@ -111,7 +111,7 @@ HIS_RULING = (
     "2, it can proactively build the recommended but can’t put up a PR until I answer design Qs, and make that state a"
     " first class thing in our ledger"
 )
-CONFIRMATION = """*Installed: long-running 1.0.76.* The skill update for your 1:26 AM answer is merged and live. The rules now in the skill:
+CONFIRMATION = """*Installed: long-running 1.0.76.* The skill update for your `1:26 AM` answer is merged and live. The rules now in the skill:
 1. A builder may build the recommended option before you answer a design card, on a pushed branch, and opens no pull request until you answer.
 2. The drive's list has a state for that work, "Built, waiting on your design answers", on your status tab and the dashboard.
 3. A pull request that waits on a card of yours gets no approve card and stays out of your tap queue.
@@ -154,7 +154,7 @@ REWORDINGS = [
         ("*Acme's stuck database is repaired, 3:15 AM.* Its 3 missing history files are back in its bucket, which was empty"
         " before.\n\nA replica rebuilt from them matches the primary byte for byte. A second Acme database also has an empty"
         " history folder.\n\nThe release job is finishing the switch, then runs a full release. Next line by 3:40 AM."),
-        ("*Acme's stuck database is repaired, 3:15 AM.* Its 3 missing LTX files are back in its bucket, which was empty"
+        ("*Acme's stuck database is repaired, `3:15 AM`.* Its 3 missing LTX files are back in its bucket, which was empty"
         " before.\n\nA replica rebuilt from them matches the primary byte for byte. A second Acme database also has no LTX"
         " files in its bucket.\n\nThe release job is finishing the switch, then runs a full release. Next line by 3:40 AM."),
     ),
@@ -163,7 +163,7 @@ REWORDINGS = [
         ("*Two causes are being traced.* Acme's history files were uploaded at 1:23 AM Nov 9 and gone by 3:15 AM Nov 10; the"
         " bucket's delete log is refused to us, so who removed them is open. The aborted rollout blocked the resume because"
         " the release tool refuses to retry it. Next line by 3:50 AM."),
-        ("*Two causes are being traced.* Acme's snapshot was uploaded at 1:23 AM Nov 9 and its LTX files in the bucket were"
+        ("*Two causes are being traced.* Acme's snapshot was uploaded at `1:23 AM` Nov 9 and its LTX files in the bucket were"
         " gone by 3:15 AM Nov 10; the bucket's delete log is refused to us, so who removed them is open. The aborted rollout"
         " blocked the resume because the release tool refuses to retry it (see {record:661300}). Next line by 3:50 AM."),
     ),
@@ -172,9 +172,9 @@ REWORDINGS = [
 
 THREADS = ("1.2", BAD_STATE_THREAD, DB_THREAD, AUDIT_THREAD, HARDWARE_THREAD)
 
-TEAMMATES_PR = "A teammate's PR landed at 2:12 PM today: every locked chat shows an Update sand button."
+TEAMMATES_PR = "A teammate's PR landed earlier today: every locked chat shows an Update sand button."
 JOSHS_PR = (
-    "<https://github.com/Forge-AI/monorepo/pull/53618|Juniper Cole's PR> landed at 2:12 PM today: every locked chat shows"
+    "<https://github.com/Forge-AI/monorepo/pull/53618|Juniper Cole's PR> landed earlier today: every locked chat shows"
     " an Update sand button."
 )
 SHOW_ME = "*Show me*\nToday, the card after a download:\n```\n" + "\n".join(f"line {index} of the card" for index in range(60)) + "\n```"
@@ -992,7 +992,7 @@ def test_a_handlers_post_links_each_thing_it_names_where_it_names_it(talker: str
     holds_pr("o1")
     refusal = posted(transcript, text=TEAMMATES_PR)
     assert refusal.startswith(
-        "refused: \"teammate's PR\" names something he could open with no link there, in \"A teammate's PR landed at 2:12 PM"
+        "refused: \"teammate's PR\" names something he could open with no link there, in \"A teammate's PR landed earlier"
         " today\"; put those words in its link, <url|teammate's PR>, so he opens it where it is named"
     )
     assert '"never mention somehting and expect me to go look it up myself"' in refusal
@@ -1130,7 +1130,7 @@ def test_a_line_telling_him_the_drive_failed_goes_out_warning_the_session_until_
         (
             failed,
             disconnected,
-            f"The card hook refused it at 1 AM; {fix} makes that hook read each PR's title.",
+            f"The card hook refused it tonight; {fix} makes that hook read each PR's title.",
             "An older SandSQL reader in the api refused that session's newer format.",
             "> nobody checked the card",
             'You asked "why was the card refused"; the card is up now.',
@@ -1193,23 +1193,23 @@ def test_a_line_answering_his_order_by_a_missing_plan_or_record_is_found_and_a_l
     refused = say(transcript, text=excuse)
     assert refused is not None and refused.startswith("refused: his message is the order") and refused.endswith(f"The lines: {excuse}")
     assert "Nothing in the plan asks for a lazy cache" in say(transcript, text="Nothing in the plan asks for a lazy cache, so the disk stays as is.")
-    for text in ("Doing it now: the compact window drops to 1024 tokens.", "> no plan names it\nThe compact window drops to 1024 tokens now.", "No new records since 2 PM."):
+    for text in ("Doing it now: the compact window drops to 1024 tokens.", "> no plan names it\nThe compact window drops to 1024 tokens now.", "No new records for an hour."):
         assert say(transcript, text=text) is None
 
 
 def test_a_post_saying_a_coordinator_is_down_is_found_and_one_saying_it_was_restarted_is_not(talker: str, transcript: Path) -> None:
     with state.edit("demo") as data:
         data["roles"]["coordinator"] = {"session": "coordinator-session", "terminal": None, "cwd": "/work", "started": state.stamp()}
-    for text in ("The coordinator is down, so no record has moved since 2 PM.", "The coordinator's process exited at 2 PM, so the records wait."):
+    for text in ("The coordinator is down, so no record has moved for an hour.", "The coordinator's process exited, so the records wait."):
         refused = say(transcript, text=text)
         assert refused is not None and refused.startswith("refused: a coordinator that is down is restarted that minute, never reported to him as down"), text
         assert "creating the terminal resuming session coordinator-session in /work, or a sub-coordinator's session" in refused
-    for text in ("The coordinator's process exited at 2 PM; I restarted it at 2:01 PM and the records move again.", "The coordinator answered every record since 2 PM."):
+    for text in ("The coordinator's process exited; I restarted it a minute later and the records move again.", "The coordinator answered every record this hour."):
         assert say(transcript, text=text) is None, text
 
 
 def test_a_post_calling_a_job_stuck_is_found_until_its_poster_read_that_jobs_transcript(talker: str, transcript: Path) -> None:
-    text = "The copy fix's builder, j702, is stuck since 5 PM."
+    text = "The copy fix's builder, j702, is stuck with no line for 40 minutes."
     assert say(transcript, text=text) == (
         "refused: this line calls j702 stuck or silent, and your transcript shows no read of its transcript in the last 10"
         " minutes; read it with `drive job replies <j>` or `cc-transcript`, then quote what it shows"
@@ -1219,7 +1219,17 @@ def test_a_post_calling_a_job_stuck_is_found_until_its_poster_read_that_jobs_tra
         with lane_of(transcript).open("a") as lane:
             lane.write(json.dumps({"type": "assistant", "timestamp": (datetime.now(UTC) - age).isoformat(), "message": {"role": "assistant", "content": [use]}}) + "\n")
         assert (say(transcript, text=text) is None) == (age == timedelta()), age
-    assert say(transcript, text="The copy fix's builder is at work since 5 PM.") is None
+    assert say(transcript, text="The copy fix's builder is at work for 40 minutes.") is None
+
+
+def test_say_refuses_a_time_typed_for_past_work_and_passes_a_jobs_start_from_its_stamp_and_a_promise(talker: str, transcript: Path) -> None:
+    with state.edit("demo") as data:
+        data["jobs"]["j1"] = state.new_job("o1", "builder", "fix the replication sync", [], state.stamp())
+    refused = say(transcript, text="The fix job started at 4:55 AM, about 25 minutes late.")
+    assert refused is not None and refused.startswith('refused: "4:55 AM" is a time typed for work already done')
+    assert refused.rule == agents.TYPED_TIME_RULE
+    assert say(transcript, text="The fix job started at {started:j1}; next line by 5:40 AM.") is None
+    assert say(transcript, text="The fix job's log printed `4:55:02 AM` for its first write.") is None
 
 
 def test_a_summary_naming_a_drive_pr_is_found_until_it_says_what_the_pr_serves(talker: str, transcript: Path, run: Run) -> None:
@@ -1233,14 +1243,14 @@ def test_a_summary_naming_a_drive_pr_is_found_until_it_says_what_the_pr_serves(t
         f"<https://github.com/Forge-AI/monorepo/pull/{number}|{words}>"
         for number, words in ((53618, "The tap reader"), (53619, "The card line"), (53620, "The old card fix"))
     )
-    summary = f"*Taps*\n{taps} landed at 2 PM.\n*Cards*\n{cards} is green, and {port} landed at 3 PM."
+    summary = f"*Taps*\n{taps} landed this morning.\n*Cards*\n{cards} is green, and {port} landed tonight."
     assert say(transcript, text=summary) == (
         "refused: this summary names a PR and never says what it serves, the first thing he asks of a PR; say it where each is"
         ' named: Forge-AI/monorepo#53618 is "Drive tooling:" and what it unblocks; Forge-AI/monorepo#53619 is his order'
         " {order:o2}; Forge-AI/monorepo#53620 is port of #49001"
     )
-    assert say(transcript, text=summary.replace("landed at 2 PM", "landed at 2 PM, Drive tooling: the watch reads taps")) is None
-    assert say(transcript, text=f"{taps} landed at 2 PM.") is None
+    assert say(transcript, text=summary.replace("landed this morning", "landed this morning, Drive tooling: the watch reads taps")) is None
+    assert say(transcript, text=f"{taps} landed this morning.") is None
 
 
 def test_a_word_he_corrected_is_found_in_the_text_a_links_words_a_caption_or_a_card_and_not_in_a_quote_of_him(talker: str, transcript: Path) -> None:

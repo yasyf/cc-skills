@@ -113,6 +113,13 @@ def git_in(repo: Path, *args: str) -> str:
     return subprocess.run(["git", "-C", str(repo), *identity, *args], check=True, capture_output=True, text=True).stdout.strip()
 
 
+def staged(stage: Callable[[watch.Watcher, datetime], list[str]], watching: watch.Watcher, moment: datetime) -> list[str]:
+    """A watch stage's lines as its pass takes them: those it joined to the watcher's made lines at its save, then those it returned."""
+    returned = stage(watching, moment)
+    made, watching.made = watching.made, []
+    return [*made, *returned]
+
+
 def commit_files(repo: Path, message: str, files: dict[str, str]) -> str:
     for name, text in files.items():
         (repo / name).parent.mkdir(parents=True, exist_ok=True)

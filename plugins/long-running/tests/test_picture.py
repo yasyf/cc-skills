@@ -25,7 +25,7 @@ DOC = {
     "path": {"steps": [{"from": "body", "to": "drive"}]},
 }
 MERMAID_LOOK = r"""<!doctype html>
-<html><body><div id="visual"></div><script type="module">VISUALS
+<html><body><div id="visual"></div><script type="module">import { draw } from "./visuals.js";
 const host = document.getElementById("visual");
 await draw(host, "mermaid", "flowchart LR\n  boot[first boot: instance store blank] -->|now: up waits| job[AWS job formats it]");
 await document.fonts.ready;
@@ -59,9 +59,8 @@ def chrome() -> None:
 
 
 def test_a_mermaid_picture_draws_rounded_unshadowed_nodes_in_a_legible_sans_with_quiet_edge_labels_and_no_margin_past_the_diagram(tmp_path) -> None:
-    page = tmp_path / "look.html"
-    page.write_text(MERMAID_LOOK.replace("VISUALS", picture.VISUALS.read_text(), 1))
-    dumped = picture.headless(page.as_uri(), tmp_path / "profile", "--window-size=1200,1200", "--no-sandbox", "--dump-dom")
+    with picture.visual_site(tmp_path, MERMAID_LOOK) as page:
+        dumped = picture.headless(page, tmp_path / "profile", "--window-size=1200,1200", "--no-sandbox", "--dump-dom")
     assert json.loads(html.unescape(LOOK.search(dumped)[1])) == {
         "node": {"fill": "rgb(246, 248, 250)", "border": "rgb(175, 184, 193)", "corner": "6px", "shadow": "none"},
         "text": {"size": "15px", "font": "-apple-system"},
@@ -77,6 +76,21 @@ def test_a_mermaid_diagram_mermaid_cannot_parse_raises_its_parse_error_and_draws
         picture.visual_png("mermaid", NOTED, tmp_path / "noted.png")
     picture.visual_png("mermaid", NOTED.replace("picture; refuses", "picture#59; refuses"), tmp_path / "noted.png")
     assert (tmp_path / "noted.png").is_file()
+
+
+def test_an_arch_doc_in_the_shape_the_drive_teaches_draws_and_a_store_without_its_medium_raises_arch_maps_problem(tmp_path, monkeypatch) -> None:
+    headless = picture.headless
+    monkeypatch.setattr(picture, "headless", lambda url, profile, *args: headless(url, profile, "--no-sandbox", *args))
+    taught = {
+        "arch": 1, "name": "drive", "title": "The dashboard reads the drive",
+        "nodes": [{"id": "page", "kind": "app", "name": "Dashboard", "role": "draws cards"}, {"id": "state", "kind": "store", "medium": "disk", "name": "drive.json", "role": "keeps state"}],
+        "edges": [{"from": "page", "to": "state", "label": "reads", "kind": "sync"}],
+    }
+    picture.visual_png("arch", json.dumps(taught), tmp_path / "taught.png")
+    assert (tmp_path / "taught.png").is_file()
+    unstored = taught | {"nodes": [taught["nodes"][0], {key: value for key, value in taught["nodes"][1].items() if key != "medium"}]}
+    with pytest.raises(picture.PictureError, match='node "state": a store node needs "medium"'):
+        picture.visual_png("arch", json.dumps(unstored), tmp_path / "unstored.png")
 
 
 def test_sources_lists_diagrams_and_images_in_the_order_they_appear_each_with_its_caption_and_no_chart() -> None:
@@ -323,7 +337,7 @@ def test_a_visual_chrome_dumped_before_it_finished_drawing_is_measured_again(tmp
     sizes = []
 
     def headless(url, profile, *args: str) -> str:
-        sizes.append(args[0])
+        sizes.append(next(arg for arg in args if arg.startswith("--window-size=")))
         if shot := next((arg.removeprefix("--screenshot=") for arg in args if arg.startswith("--screenshot=")), None):
             Path(shot).write_bytes(b"\x89PNG\r\n")
             return ""

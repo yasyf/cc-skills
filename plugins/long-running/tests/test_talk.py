@@ -2,7 +2,7 @@ import json
 import os
 import re
 from collections.abc import Callable
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -203,6 +203,18 @@ def test_his_ruling_draws_as_his_words_and_when_he_said_them_linked_to_their_ack
     assert posts[0][-1] == f'Fixed under <{ack}|his {when} ruling "you need to fix the hookw henver it wrongly refuses…">.'
     commit = "1:30 commit-sha '1a2b3c4': link the commit"
     assert refs.answer_ids(["1:12 commit-sha 'f03a0aa': link the commit", commit], state.load(demo)) == [commit]
+
+
+def test_a_jobs_start_and_a_records_time_are_filled_from_the_drives_stamps(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
+    today = state.now().replace(microsecond=0)
+    with state.edit(demo) as data:
+        data["jobs"]["j1860"] = state.new_job("o1", "builder", "fix the replication sync", [], state.stamp(today.replace(hour=4, minute=50, second=21)))
+    went_out = today.replace(hour=4, minute=47, second=9).astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    monkeypatch.setattr(reads, "run", lambda argv, checkout: json.dumps({"at": went_out, "text": "POST Yes to both", "refs": {}}))
+    talk.say(demo, {"text": "A second fix job started at {started:j1860}, after the report of {at:673251}."})
+    assert posts[0][-1] == "A second fix job started at 4:50 AM, after the report of 4:47 AM."
+    with pytest.raises(DriveError, match=r"\{started:j9\} names no job of the drive's"):
+        talk.say(demo, {"text": "It started at {started:j9}."})
 
 
 def test_a_card_asked_again_with_new_words_moves_its_question_and_each_wait_on_it_to_the_new_card(demo: str, posts: list[tuple[str, ...]]) -> None:
@@ -458,11 +470,12 @@ def test_a_report_delivers_only_the_parts_its_posts_words_carry_and_its_dry_run_
     with state.edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
+        data["orders"]["o1"]["fixed"] = "release 13990 ships #54336 on sand"
     answer = slack_thread.post(state.now(), from_claude=True, text=INCIDENT_REPORT)
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": answer, "thread_ts": thread})
     report(monkeypatch, {"incident": "true", "order": "o1", "thread": thread, "part": "o1:first check;o1:fix;o1:cause"})
     jev.unsaid = {"fix", "cause"}
-    unsaid = '"fix", "cause": not delivered, Jev reads its words as not saying they are done'
+    unsaid = '"cause": not delivered, Jev reads its words as not saying it is done'
     dry = talk.say(demo, {"text": INCIDENT_REPORT, "thread_ts": thread, "order": "o1", "record": "672826", "dry_run": True})
     assert dry.endswith(f'; o1 "first check": would be delivered; {unsaid}')
     assert [part["posted"] for part in state.load(demo)["orders"]["o1"]["parts"].values()] == [None, None, None]
@@ -471,11 +484,11 @@ def test_a_report_delivers_only_the_parts_its_posts_words_carry_and_its_dry_run_
     assert {part: kept["posted"] for part, kept in state.load(demo)["orders"]["o1"]["parts"].items()} == {"first check": answer, "fix": None, "cause": None}
     asked = jev.asked[-1]
     assert asked["state"] == {"order": "Executor Destroy Run Crash Count", "post": INCIDENT_REPORT}
-    assert [question["binary"]["instructions"].split('"')[1] for question in asked["questions"].values()] == ["first check", "fix", "cause"]
+    assert [question["binary"]["instructions"].split('"')[1] for question in asked["questions"].values()] == ["first check", "cause"]
     jev.answer = None
     code, unheard = run("order", "posted", "o1", answer, "--record", "672826")
-    assert code == 0 and unheard.startswith(f'o1 "first check", "fix", "cause": posted {answer}')
-    assert unheard.endswith('; Jev did not say whether its words carry "first check", "fix", "cause" (Command \'spawnllm decide\' timed out after 60 seconds), so each is delivered as named')
+    assert code == 0 and unheard.startswith(f'o1 "first check", "cause": posted {answer}')
+    assert unheard.endswith('; Jev did not say whether its words carry "first check", "cause" (Command \'spawnllm decide\' timed out after 60 seconds), so each is delivered as named')
 
 
 @pytest.mark.parametrize(
@@ -889,7 +902,9 @@ def test_a_report_answering_his_message_records_on_the_order_it_names_in_the_thr
     report(monkeypatch, {"progress": "true", "order": "o1"}, answers=671734)
     answer = slack_thread.post(state.now() + timedelta(minutes=1), from_claude=True)
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": answer, "thread_ts": asked})
-    assert talk.say(demo, {"text": "Rendering and the zoomed-out view are live.", "thread_ts": asked, "order": "o1", "record": "671739"}) == (
+    line = {"text": "Rendering and the zoomed-out view are live.", "thread_ts": asked, "order": "o1", "record": "671739"}
+    assert talk.say(demo, line | {"dry_run": True}) == f"DRY thread {asked}, 0 pictures: {line['text']}; o1 progress line, no part delivered"
+    assert talk.say(demo, line) == (
         f"POSTED {answer}; o1 progress line, no part delivered: {answer}, in thread {asked}, where he asked about it, now one of its threads"
     )
     assert [where[:2] for where in state.load(demo)["orders"]["o1"]["asked_in"]] == [["D123", asked]]

@@ -217,7 +217,7 @@ Its Show me:
 | The question turns on | Kind | Fence holds |
 |---|---|---|
 | the shape of an API, call, query or schema the options change | code | the real calls, in a fence naming its language: ```sand, ```sql, ```go |
-| components, data layout or flow between them | arch | an arch/v1 JSON document, the diagram the dashboard and cc-present draw |
+| components, data layout or flow between them | arch | `{"arch": 1, "name", "title", "nodes": [{"id", "kind", "name", "role"}], "edges": [{"from", "to", "label"}]}`: each id lowercase letters, digits and dashes; kind actor, app, service, worker, store, log, external, artifact or doc; a store or log node adds "medium", one of memory, disk, bucket, keys or pages; an edge may add "kind", one of sync, async, copy or control. `drive pr add` draws it and refuses one that does not draw |
 | routing, ownership, steps over time, a state machine, a small graph | mermaid | Mermaid source |
 | a graph whose layout carries the point, such as clusters of what runs where | dot | Graphviz source |
 | numbers: sizes, counts, timings, before and after | chart | a Vega-Lite JSON spec with its data inline: a bar, line or area mark, or an arc for a pie, which Slack draws as its own chart |
@@ -522,8 +522,8 @@ restating it.
   or "a cc-slack fix" alone. When a record mentions a change without its PR, the handler finds the PR
   first, with `drive status` or `gh pr list --search`.
 - Name a PR as `{pr:<number>}` and say in the line what it does; `say` links it under the PR's title,
-  never by its number alone, or under words of the post's own as `{pr:<number>|<what it does>}`,
-  the one way to link a PR the drive does not hold. Say what each PR serves: the order of his it carries out, in his words,
+  never by its number alone, or under words of the post's own as `{pr:<number>|<what it does>}`. A
+  bare number names only a PR the drive holds: name any other as `{pr:<owner/repo#number>|<what it does>}`. Say what each PR serves: the order of his it carries out, in his words,
   "port of #N" with the old PR linked, or "Drive tooling:" and what it unblocks. The say hook finds
   a summary naming a drive PR that says none of these. Link each other PR the message names the same
   way.
@@ -548,8 +548,9 @@ restating it.
   controls that piece where it would run, by his words "we cant do that since we dont control the
   poloices on customer bucket". The say hook hands Jev each handler post's own reads, every tool call
   of its transcript whose result came back and each name the post uses beside the line of a read
-  holding it, and Jev sends back a line no read backs, naming the read it needs. The fix is that read,
-  or the line cut to what the reads show, never the line posted marked unread.
+  holding it, and Jev names beside the post, which goes out as written, a line no read backs and the
+  read it needs. When Jev is right, the fix is that read and a correction, never a line posted marked
+  unread.
 - A card's title and options draw no links, so link whatever they name in its summary or a Show me
   caption. `drive job ask` and the post hook refuse an `ASK` or a post that names such a thing with no
   link there, naming the words and the clause they sit in, and that a thing not open yet is said so
@@ -630,6 +631,14 @@ restating it.
 - The current time, and any time you estimated: Slack already stamps every post. Compute a promised
   time from `date`, or write it as `+30m` to `--due` and read it back from `drive status`, never from
   your sense of how long the turn has run, which drifts.
+- A clock time typed for work already done. Name the job or record and let the drive's stamp give the
+  time: `{started:<job>}` for when a job started and `{at:<seq>}` for when a record went out, which `say`
+  fills. The cci `post` hook, a Bash `cci post`, `say`, a SendMessage from the coordinator or meta
+  session, a defect through `record` and `drive job report` refuse a time such as "started at 4:55 AM",
+  naming the write's stamp and each named job's: on Nov 12 a report posted at 4:50 AM said its builder
+  started at 4:55 AM. A promise of a time to come, such as "next line by 5:40 AM" or "due 6 AM", a time
+  quoted as a tool printed it, in backticks, and a linked time pass. His ruling of Nov 3: "the agent
+  should never be passing in a time".
 
 ## Examples
 
