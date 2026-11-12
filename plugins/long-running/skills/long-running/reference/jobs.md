@@ -24,8 +24,8 @@ Contents:
 - At most eight builders run on this Mac at once: each agent here still in its turn, and each Orca
   worker started here with `drive job launch --local` while it launches or runs. An agent that ended
   its turn, on a result line or a question, does not count, nor does a launch that started no worker
-  or a lane on a Sprite. `drive job add builder` refuses a ninth without `--remote`, naming each
-  builder it counted with its order and when its agent last wrote. Before you start a
+  or a lane on a Sprite. `drive job add builder` records a ninth with no agent, waiting for a slot, and
+  names each builder it counted with its order and when its agent last wrote. Before you start a
   Forge-AI/monorepo builder, run `drive place` and start it where it says. It answers `remote` when
   this Mac's CPU is at or over its load gate's limit or eight builders run here, and `local`
   otherwise; a remote builder runs its builds and checks on its own Sprite. Past eight, the

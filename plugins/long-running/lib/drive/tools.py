@@ -6,7 +6,7 @@ import os
 import shlex
 import subprocess
 
-from drive import cli, limits, slack, state, superseded, talk, view
+from drive import cli, limits, render, slack, state, superseded, talk, view
 from drive.state import DriveError
 
 UNTYPED = {"help", "drive", "json"}
@@ -19,13 +19,19 @@ UNSENT = (
     " disconnect is never a reason a message did not go, by his ruling 4535fb1: \"use regualr claude code sesion"
     " messaging until it sback then there sno excuse\""
 )
-DRY_RUN = {"type": "boolean", "description": "print the drive command or record each op would run, and run nothing"}
+CHAINED = "<id>"
+RECORDS = {"order": ("orders", "order"), "incident": ("orders", "order"), "job": ("jobs", "job")}
+DRY_RUN = {"type": "boolean", "description": "check each op as a call does, print the drive command or record each would run, and run nothing"}
 DRIVE = {"type": "string", "description": "the drive this call acts on, as --drive names it; default the drive bound to this session, else the only drive"}
 OPS_HELP = (
-    "{lead} Runs the ops in order, each one verb with its flags as fields, and returns one line per op. A refusal stops"
-    " the call, keeps the lines of the ops that ran, and names the op, its fix and the ops left unrun: make the fix and"
-    " send those ops again."
+    "{lead} Checks every op before any runs, each one verb with its flags as fields, then runs them in order and returns one"
+    " line per op. An op the check refuses runs none of them, and the call names every refused op with its fix: fix each"
+    " and send the whole call again. {saves}"
 )
+ONE_SAVE = ("order", "job")
+SAVED_ONCE = "The call saves the drive once, so a refusal while it runs writes nothing either."
+KEPT_BEFORE = "A refusal while it runs keeps each op before it, since {why}: send the ops it names unrun again."
+STARTS_OUTSIDE = {"pr": "pr add starts the lander", "incident": "open and freeze start an evidence record and a freeze"}
 LEADS = {
     "order": (
         "His orders: add records one from his words, set changes one, posted records the communicator's post on one, told records"
@@ -203,7 +209,7 @@ def run(tool: str, name: str, arguments: dict) -> str:
             return record(name, listing(arguments, "records", "owner, answer or defect records"), dry_run)
         case "heard" | "handler" | "status" | "search_plan":
             said: list[str] = []
-            return "\n".join(ran(name, said, 1, 1, ONE_VERB[tool], arguments, dry_run) or said)
+            return "\n".join(ran(name, said, 1, ONE_VERB[tool], arguments, dry_run) or said)
         case group:
             return batch(name, group, listing(arguments, "ops", ", ".join(OPS[group])), dry_run)
 
@@ -239,7 +245,7 @@ def ops_tool(group: str, typed: dict[str, dict]) -> dict:
     ]
     return {
         "name": group,
-        "description": OPS_HELP.format(lead=LEADS[group], verbs=", ".join(verbs)),
+        "description": OPS_HELP.format(lead=LEADS[group], saves=SAVED_ONCE if group in ONE_SAVE else KEPT_BEFORE.format(why=STARTS_OUTSIDE[group])),
         "inputSchema": {
             "type": "object",
             "properties": {"ops": {"type": "array", "minItems": 1, "items": {"oneOf": shapes}}, "drive": DRIVE, "dry_run": DRY_RUN},
@@ -320,33 +326,102 @@ def listed(value: object) -> list[str]:
 
 
 def batch(name: str, group: str, ops: list[dict], dry_run: bool) -> str:
+    """Check every op first, then run them in order, the order and job tools under one save of the drive."""
+    if refused := refusals(name, group, ops):
+        raise DriveError("\n".join([f"refused, nothing written: {len(refused)} of {len(ops)} ops refused; fix each and send the whole call again", *refused]))
     said: list[str] = []
     made = None
+    index = 0
+    try:
+        with state.batch(name) if group in ONE_SAVE and not dry_run else contextlib.nullcontext([]) as after:
+            for index, op in enumerate(ops, start=1):
+                [(verb, given)] = op.items()
+                words = (group, verb)
+                if words == ("job", "add") and isinstance(given.get("order"), dict):
+                    given = given | {"order": first(ran(name, said, index, ("order", "add"), given["order"], dry_run))}
+                if verb != "add" and "id" in fields(leaf(*words)) and "id" not in given:
+                    given = given | {"id": made}
+                printed = ran(name, said, index, words, given, dry_run)
+                if verb == "add":
+                    made = first(printed)
+    except DriveError as error:
+        if group in ONE_SAVE:
+            raise DriveError(f"{error}; nothing written: fix it and send the whole call again") from None
+        left = f"; ops {index + 1}-{len(ops)} not run" if index < len(ops) else ""
+        raise DriveError("\n".join([*said, f"{error}{left}"])) from None
+    return "\n".join([*said, *after])
+
+
+def refusals(name: str, group: str, ops: list[dict]) -> list[str]:
+    """Every refusal the ops meet before any runs, a line each naming the op by its index, verb and opening words, with its fix."""
+    data = state.load(name)
+    lines = []
     for index, op in enumerate(ops, start=1):
-        if len(op) != 1:
-            raise DriveError("\n".join([*said, f"{index}: an op names one verb, not {', '.join(op) or 'none'}"]))
-        [(verb, given)] = op.items()
-        if verb not in OPS[group]:
-            raise DriveError("\n".join([*said, f"{index}: the {group} tool runs {', '.join(OPS[group])}, not {verb}"]))
-        words = (group, verb)
-        if words == ("job", "add") and isinstance(given.get("order"), dict):
-            given = given | {"order": first(ran(name, said, index, len(ops), ("order", "add"), given["order"], dry_run))}
-        if verb != "add" and "id" in fields(leaf(*words)) and "id" not in given:
-            if made is None:
-                raise DriveError("\n".join([*said, f"{index} {' '.join(words)}: name its id, since no add came before it"]))
-            given = given | {"id": made}
-        printed = ran(name, said, index, len(ops), words, given, dry_run)
-        if verb == "add":
-            made = first(printed)
-    return "\n".join(said)
+        given = next(iter(op.values())) if len(op) == 1 else {}
+        opening = given.get("words") or given.get("goal")
+        try:
+            refuse(data, name, group, op, any("add" in earlier for earlier in ops[: index - 1]))
+        except DriveError as error:
+            named = " ".join([group, *op]) + (f" {json.dumps(render.cut(opening, 60), ensure_ascii=False)}" if opening else "")
+            lines.append(f"{index} {named} refused: {error}")
+    return lines
+
+
+def refuse(data: dict, name: str, group: str, op: dict, after_add: bool) -> None:
+    """Raise what the op's verb refuses before it writes, read from the drive as the call found it and the adds before it: an op that is not one verb of the tool, a field or flag its verb refuses, an id no record holds or no earlier add makes, an order add added_order refuses, a "Drive tooling:" order's new words check-post finds anything in, and a job add naming no part of its order."""
+    if len(op) != 1:
+        raise DriveError(f"an op names one verb, not {', '.join(op) or 'none'}")
+    [(verb, given)] = op.items()
+    if verb not in OPS[group]:
+        raise DriveError(f"the {group} tool runs {', '.join(OPS[group])}, not {verb}")
+    words = (group, verb)
+    chained = verb != "add" and "id" in fields(leaf(*words)) and "id" not in given
+    if chained and not after_add:
+        raise DriveError("name its id, since no add came before it")
+    nested = given.get("order") if words == ("job", "add") and isinstance(given.get("order"), dict) else None
+    args = parsed_args(name, words, given | ({"id": CHAINED} if chained else {}) | ({"order": ordered(data, name, nested)} if nested else {}))
+    if group in RECORDS and not chained and "id" in given:
+        cli.find(data[RECORDS[group][0]], args.id, RECORDS[group][1])
+    if words == ("order", "add"):
+        ordered(data, name, given)
+    if words == ("order", "set") and (args.words or "").startswith(state.TOOLING):
+        cli.check_tooling_words(args.words)
+    if words == ("job", "add"):
+        cli.pick_parts(args.order, cli.find(data["orders"], args.order, "order"), args.part)
+        data["jobs"][state.next_id(data["jobs"], "j")] = {"order": args.order}
+
+
+def ordered(data: dict, name: str, given: dict) -> str:
+    """The id of the order an order add makes or returns, refused as added_order refuses before it writes: a flag it refuses, his order filed under no project or workstream, and a "Drive tooling:" order's words check-post finds anything in, which an open order already holding them returns unchecked. The order it makes stands in the drive the check reads, so a later op may name it."""
+    args = parsed_args(name, ("order", "add"), given)
+    tooling = args.words.startswith(state.TOOLING)
+    if tooling and (held := next((order_id for order_id, order in state.open_orders(data).items() if order["text"] == args.words), None)):
+        return held
+    project, workstream = cli.filing(data, args.words, args.project, args.workstream)
+    if tooling:
+        cli.check_tooling_words(args.words)
+    order_id = state.next_id(data["orders"], "o")
+    data["orders"][order_id] = {"text": args.words, "state": "open", "parts": dict.fromkeys(args.parts or [state.whole_order(args.words)]), "project": project, "workstream": workstream}
+    return order_id
+
+
+def parsed_args(name: str, words: tuple[str, ...], given: dict) -> argparse.Namespace:
+    """The op's flags as the drive's parser reads them, its refusal raised as one line."""
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+        try:
+            return cli.parser().parse_args([*argv(words, given), "--drive", name])
+        except SystemExit:
+            pass
+    raise DriveError(out.getvalue().strip().splitlines()[-1])
 
 
 def first(printed: list[str]) -> str:
     return printed[0].split()[0] if printed else "<id>"
 
 
-def ran(name: str, said: list[str], index: int, count: int, words: tuple[str, ...], given: dict, dry_run: bool) -> list[str]:
-    """Run one drive verb in this process, appending its line to said; a refusal raises with every line so far and the ops left unrun."""
+def ran(name: str, said: list[str], index: int, words: tuple[str, ...], given: dict, dry_run: bool) -> list[str]:
+    """Run one drive verb in this process, appending its line to said; a refusal raises naming the op and why."""
     line = argv(words, given)
     if dry_run:
         said.append(f"{index} {shlex.join(['drive', *line])}")
@@ -359,9 +434,8 @@ def ran(name: str, said: list[str], index: int, count: int, words: tuple[str, ..
             code, usage = stop.code, True
     printed = [text.strip() for text in out.getvalue().splitlines() if text.strip()]
     if code:
-        left = f"; ops {index + 1}-{count} not run" if index < count else ""
         why = printed[-1:] if usage else printed
-        raise DriveError("\n".join([*said, f"{index} {' '.join(words)} refused: {'; '.join(why)}{left}"]))
+        raise DriveError(f"{index} {' '.join(words)} refused: {'; '.join(why)}")
     said.append(f"{index} {' '.join(words)}: {'; '.join(printed)}")
     return printed
 

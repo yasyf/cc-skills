@@ -31,11 +31,14 @@ def test_a_call_runs_its_ops_in_order_and_an_op_after_an_add_acts_on_what_it_mad
     assert len(status) > 2 and not status[0].startswith("1 status")
 
 
-def test_a_refusal_keeps_the_lines_before_it_and_names_the_ops_left_unrun(demo: str) -> None:
+def test_a_call_with_a_refused_op_writes_nothing_and_names_every_refused_op_with_its_fix(demo: str) -> None:
     with pytest.raises(DriveError) as refused:
         tools.run("order", demo, {"ops": [{"add": {"words": "Ship it", "project": "The drive", "workstream": "Drive tooling"}}, {"set": {"id": "o9", "note": "x"}}, {"set": {"note": "never"}}]})
-    assert str(refused.value).splitlines() == ["1 order add: o1", "2 order set refused: drive: no order o9; ops 3-3 not run"]
-    assert state.load(demo)["orders"]["o1"]["note"] is None
+    assert str(refused.value).splitlines() == [
+        "refused, nothing written: 1 of 3 ops refused; fix each and send the whole call again",
+        "2 order set refused: no order o9",
+    ]
+    assert state.load(demo)["orders"] == {}
     with pytest.raises(DriveError, match="invalid choice: 'finished'"):
         tools.run("order", demo, {"ops": [{"set": {"id": "o1", "state": "finished"}}]})
     for empty in ({"ops": []}, {}):
@@ -45,6 +48,65 @@ def test_a_refusal_keeps_the_lines_before_it_and_names_the_ops_left_unrun(demo: 
         tools.run("job", demo, {"ops": [{"launch": {"id": "j1"}}]})
     with pytest.raises(DriveError, match="drive order set takes no colour"):
         tools.run("order", demo, {"ops": [{"set": {"id": "o1", "colour": "red"}}]})
+    with pytest.raises(DriveError, match="1 order set refused: name its id, since no add came before it"):
+        tools.run("order", demo, {"ops": [{"set": {"note": "x"}}]})
+
+
+def test_a_call_whose_second_tooling_order_check_post_refuses_adds_neither_and_names_that_op_with_its_finding(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(slack, "check_post", lambda text, asked: ["1:44 drive-term 'o610': say what happens to the reader's work instead"] if "o610" in text else [])
+    ops = [{"add": {"words": "Drive tooling: a report states job start times in the future"}}, {"add": {"words": "Drive tooling: a promised time left o610 due"}}]
+    with pytest.raises(DriveError) as refused:
+        tools.run("order", demo, {"ops": ops})
+    [head, line] = str(refused.value).splitlines()
+    assert head == "refused, nothing written: 1 of 2 ops refused; fix each and send the whole call again"
+    assert line.startswith("2 order add \"Drive tooling: a promised time left o610 due\" refused: refused, `cc-slack check-post` finds 1:44 drive-term 'o610'")
+    assert state.load(demo)["orders"] == {}
+    with pytest.raises(DriveError, match="2 order add .* refused: refused, `cc-slack check-post` finds"):
+        tools.run("order", demo, {"dry_run": True, "ops": ops})
+    ops[1]["add"]["words"] = "Drive tooling: a promised time stays due until a handler sets it"
+    assert tools.run("order", demo, {"ops": ops}).splitlines() == ["1 order add: o1", "2 order add: o2"]
+    assert [(order["project"], order["workstream"]) for order in state.load(demo)["orders"].values()] == [("The drive", "Drive tooling")] * 2
+
+
+def test_a_job_add_naming_no_part_of_the_two_part_order_it_adds_is_refused_before_that_order_is_written(demo: str) -> None:
+    order = {"words": "Drive tooling: a refused write leaves nothing half-written", "kind": "build", "parts": ["all or none", "default filing"]}
+    with pytest.raises(DriveError) as refused:
+        tools.run("job", demo, {"ops": [{"add": {"kind": "reader", "order": order, "goal": "research it"}}, {"brief": {"serves": "drive tooling", "done_when": "x", "where": "y"}}]})
+    assert str(refused.value).splitlines()[1] == (
+        '1 job add "research it" refused: o1 has parts "all or none", "default filing"; name the one this covers with --part'
+    )
+    assert state.load(demo)["orders"] == {}
+
+
+def test_a_call_with_three_refused_ops_prints_all_three(demo: str) -> None:
+    tools.run("order", demo, {"ops": [{"add": {"words": "Ship it", "project": "Iris", "workstream": "Run page"}}]})
+    with pytest.raises(DriveError) as refused:
+        tools.run("order", demo, {"ops": [{"add": {"words": "ship the run page"}}, {"set": {"id": "o1", "note": "x"}}, {"set": {"id": "o7"}}, {"told": {"id": "o8", "link": "x"}}]})
+    assert str(refused.value).splitlines() == [
+        "refused, nothing written: 3 of 4 ops refused; fix each and send the whole call again",
+        '1 order add "ship the run page" refused: refused, no order added: name --project and --workstream, which file his order on the'
+        " dashboard's Now screen, reusing a pair in use where it fits: Iris / Run page",
+        "3 order set refused: no order o7",
+        "4 order told refused: no order o8",
+    ]
+    assert state.load(demo)["orders"]["o1"]["note"] is None
+
+
+def test_a_refusal_while_a_job_call_runs_writes_nothing_and_a_passing_call_saves_the_drive_once(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    order = {"words": "Fix the card", "project": "The drive", "workstream": "Drive tooling"}
+    lands = {"kind": "reader", "order": "o1", "goal": "read", "lands": ["https://github.com/a/b/pull/1"]}
+    with pytest.raises(DriveError) as refused:
+        tools.run("job", demo, {"ops": [{"add": {"kind": "builder", "order": order, "goal": "fix it"}}, {"add": lands}]})
+    assert str(refused.value) == "2 job add refused: drive: --lands names the PRs a builder lands, which only a builder does; nothing written: fix it and send the whole call again"
+    assert (state.load(demo)["orders"], state.load(demo)["jobs"]) == ({}, {})
+    saves: list[str] = []
+    save = state.save
+    monkeypatch.setattr(state, "save", lambda name, data: saves.append(name) or save(name, data))
+    tools.run("job", demo, {"ops": [{"add": {"kind": "builder", "order": order, "goal": "fix it"}}, {"set": {"branch": "lr-fix"}}, {"set": {"said": "pushed"}}]})
+    assert saves == [demo]
+    assert state.load(demo)["jobs"]["j1"]["branch"] == "lr-fix"
 
 
 def test_a_dry_run_prints_each_command_and_changes_nothing(demo: str) -> None:
@@ -61,7 +123,7 @@ def test_each_verb_tool_is_typed_from_the_parser_the_cli_runs() -> None:
     job_set = ops["set"]["set"]
     assert job_set["properties"]["state"]["enum"] == list(state.JOB_STATES)
     assert (job_set["properties"]["waits"]["type"], "id" in job_set["required"]) == ("array", False)
-    assert ops["add"]["add"]["properties"]["order"]["anyOf"][1]["required"] == ["words", "project", "workstream"]
+    assert ops["add"]["add"]["properties"]["order"]["anyOf"][1]["required"] == ["words"]
     assert listed["status"]["annotations"] == {"readOnlyHint": True}
 
 

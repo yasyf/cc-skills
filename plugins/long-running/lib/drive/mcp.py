@@ -184,7 +184,7 @@ def listed(drive: str) -> list[dict]:
 
 
 def call(request_id: int | str, tool: str, arguments: dict) -> dict | None:
-    """Run the tool in the newest installed drive, so a live session's call runs the plugin installed now, as its hooks do; a refusal keeps the lines of the ops that ran before it.
+    """Run the tool in the newest installed drive, so a live session's call runs the plugin installed now, as its hooks do; a refusal names every op the check refused, or the op that refused while the call ran.
     Its arguments go in a file rather than a pipe the server writes, so a child that fails before reading them cannot hold the call past CALL_SECONDS; a call Claude Code cancels has its child killed and gets no reply."""
     with tempfile.TemporaryFile("w+") as given:
         json.dump(arguments, given)

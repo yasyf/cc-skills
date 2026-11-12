@@ -26,6 +26,7 @@ REVERT = re.compile(r"^Reverts?\s|⏪|\bThis reverts\b", re.MULTILINE)
 STORED_DATA = re.compile(r"(?:^|/)migrations?/|(?:^|/)[^/]*schema[^/]*$|\.(?:sql|proto)$", re.IGNORECASE)
 PORT_DATA_RULING = 'his Nov 12 words "port his visuals but always do it the fundamentally right way when it comes to modelng the data"'
 FILING = ("project", "workstream")
+TOOLING_FILING = ("The drive", "Drive tooling")
 JOB_ID = re.compile(r"j\d+")
 SLACK_USER = re.compile(r"[UW][A-Z0-9]{2,}")
 RULING = "ruling"
@@ -197,21 +198,26 @@ def fresh_pr_cards(name: str) -> list[dict]:
 
 
 def rework_prs(name: str, urls: list[str], by: str, words: str) -> list[str]:
-    """Mark the open drive PRs reworked to his words and withdraw in the same call each open card of his carrying one, his words its reason: no card, ready or tap of his stands on one until its builder's READY says how his words are met; a withdrawal that fails goes again on the watch's next read."""
-    from drive import view
-
+    """Mark the open drive PRs reworked to his words and withdraw in the same call, once the drive is saved, each open card of his carrying one, his words its reason: no card, ready or tap of his stands on one until its builder's READY says how his words are met; a withdrawal that fails goes again on the watch's next read."""
     with state.edit(name) as data:
         keys = [key for key in dict.fromkeys(map(state.pr_key, urls)) if key in data["prs"] and data["prs"][key]["state"] == "open"]
         for key in keys:
             state.rework(data["prs"][key], by, words)
     lines = [f"{key} reworked to {by}: its card stays down until its builder's READY says how his words are met" for key in keys]
-    for key in keys:
-        reason = state.rework_reason(data["prs"][key])
+    return lines + state.after_save(name, lambda: withdrawn_cards(name, {key: data["prs"][key] for key in keys}))
+
+
+def withdrawn_cards(name: str, prs: dict[str, dict]) -> list[str]:
+    from drive import view
+
+    lines = []
+    for key, pr in prs.items():
+        reason = state.rework_reason(pr)
         try:
-            lines += [f"withdrew his card {card}: {reason}" for card in slack.withdraw_pr_card(data["prs"][key]["url"], reason)]
+            lines += [f"withdrew his card {card}: {reason}" for card in slack.withdraw_pr_card(pr["url"], reason)]
         except slack.SlackError as error:
             lines.append(f"{key}: withdrawing its card failed, so the watch withdraws it on its next read: {error}")
-    if keys:
+    if prs:
         view.refresh_cards(name)
     return lines
 
@@ -238,6 +244,7 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
         held = next((order_id for order_id, order in state.open_orders(state.load(name)).items() if order["text"] == args.words), None)
         if held:
             return held, state.load(name)["orders"][held], [*noted, f"{held} already holds these words, so no order was added"], []
+    project, workstream = filing(state.load(name), args.words, args.project, args.workstream)
     if args.thread:
         check_thread(state.load(name), {"from": args.source, "from_thread": from_thread, "thread": args.thread})
     if tooling:
@@ -286,8 +293,8 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
             "options_only": args.options_only,
             "once": args.once,
             "owner": owner,
-            "project": args.project,
-            "workstream": args.workstream,
+            "project": project,
+            "workstream": workstream,
             "proof": None,
             "note": joined and joined["note"],
             "joins": joined and (joined["joins"] or args.joins),
@@ -412,13 +419,23 @@ def check_thread(data: dict, order: dict) -> None:
 
 
 def check_tooling_words(words: str) -> None:
-    """Refuse a drive tooling order's words that `cc-slack check-post` finds anything in, since they reach him verbatim: quoted on the line above its PR card, and as the title an {order:} link shows."""
+    """Refuse a drive tooling order's words that `cc-slack check-post` finds anything in, since they reach him verbatim: quoted on the line above its PR card, and as the title an {order:} link shows. One line, each finding with its fix first, so a shell keeping only a refusal's last line keeps all of it."""
     if findings := slack.post_findings(words, True):
         raise DriveError(
-            f'"{words}": refused, a "{state.TOOLING}" order\'s words reach him verbatim, quoted on the line above its PR card and as the title'
-            " an {order:} link shows, and `cc-slack check-post` finds this in them; fix each in words of your own, then pass the fixed words:\n"
-            + "\n".join(findings)
+            f"refused, `cc-slack check-post` finds {'; '.join(findings)}; a \"{state.TOOLING}\" order's words reach him verbatim, quoted on"
+            " the line above its PR card and as the title an {order:} link shows, so fix each in words of your own and pass the fixed words"
         )
+
+
+def filing(data: dict, words: str, project: str | None, workstream: str | None) -> tuple[str, str]:
+    """The project and workstream the dashboard's Now screen files an order under: on a "Drive tooling:" order The drive and Drive tooling unless a flag names another, and on his order both named, refused naming the pairs in use."""
+    if words.startswith(state.TOOLING):
+        return project or TOOLING_FILING[0], workstream or TOOLING_FILING[1]
+    if project and workstream:
+        return project, workstream
+    missing = " and ".join(f"--{field}" for field, value in (("project", project), ("workstream", workstream)) if not value)
+    pairs = "; ".join(f"{named} / {stream}" for named, stream in filing_pairs(data)) or "none yet"
+    raise DriveError(f"refused, no order added: name {missing}, which file his order on the dashboard's Now screen, reusing a pair in use where it fits: {pairs}")
 
 
 def need_thread(data: dict, order_id: str, order: dict) -> None:
@@ -866,7 +883,7 @@ def job_add(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     created = state.stamp()
     if args.kind == "builder" and not args.remote and not args.agent and not args.waits:
-        refuse_a_local_builder(state.load(name), args.repo)
+        refuse_a_local_builder(args.repo)
     if args.waits and args.agent:
         raise DriveError("--waits records a job whose agent starts on the watch's FREE line once its last wait ends, so it takes no --agent")
     if args.lands and args.kind != "builder":
@@ -901,6 +918,8 @@ def job_add(args: argparse.Namespace) -> int:
         order["updated"] = created
         state.end_carried_designs(data, args.order, created)
     waiting = [f"{job_id} {job['said']}: start no agent for it until the watch's FREE line says its last wait ended"] if args.waits else []
+    if args.kind == "builder" and job["where"] == "local" and not args.agent and not args.waits and len(builders := place.local_builders(data, state.now())) >= place.LOCAL_BUILDERS:
+        waiting.append(f"{job_id} waits for a builder here to finish, since {place.at_cap(builders)}; start the first waiting once one does: {', '.join(place.waiting_builders(data))}")
     return emit(args, "\n".join([job_id, *waiting, *beside]), {"id": job_id, **job, "beside": beside})
 
 
@@ -1519,11 +1538,11 @@ def place_job(args: argparse.Namespace) -> int:
     return emit(args, f"{where}: {why}", payload)
 
 
-def refuse_a_local_builder(data: dict, repo: str | None) -> None:
-    """A builder starts on this Mac only under its cap of local builders, and a monorepo builder only while drive place says local."""
-    builders = place.local_builders(data, state.now())
-    monorepo = (repo or "").casefold() == place.MONOREPO.casefold()
-    where, why = place.verdict(place.busy() if monorepo else 0.0, place.limit(), builders)
+def refuse_a_local_builder(repo: str | None) -> None:
+    """A monorepo builder starts on this Mac only while its load says local; one past this Mac's cap of builders is added waiting with no agent, and the agent_brief hook starts none here until a builder finishes."""
+    if (repo or "").casefold() != place.MONOREPO.casefold():
+        return
+    where, why = place.verdict(place.busy(), place.limit(), {})
     if where == "remote":
         raise DriveError(f"refused, no job added: {why}, so this builder starts remote: add --remote, or wait until drive place says local")
 
@@ -2798,8 +2817,16 @@ def parser() -> argparse.ArgumentParser:
         ),
     )
     verb.add_argument("--reporter", metavar="LINK", help=REPORTER_HELP)
-    verb.add_argument("--project", metavar="NAME", required=True, help="the project the dashboard's Now screen files this order under, reusing one drive order unfiled lists as in use where it fits")
-    verb.add_argument("--workstream", metavar="NAME", required=True, help="the workstream inside its project the Now screen files this order under, reusing one in use where it fits")
+    verb.add_argument(
+        "--project",
+        metavar="NAME",
+        help=f'the project the dashboard\'s Now screen files this order under, reusing one drive order unfiled lists as in use where it fits; needed on his order, and on a "{state.TOOLING}" order default {TOOLING_FILING[0]}',
+    )
+    verb.add_argument(
+        "--workstream",
+        metavar="NAME",
+        help=f'the workstream inside its project the Now screen files this order under, reusing one in use where it fits; needed on his order, and on a "{state.TOOLING}" order default {TOOLING_FILING[1]}',
+    )
     verb.set_defaults(run=order_add)
     verb = order.add_parser("set", parents=both)
     verb.add_argument("id", help="the order")

@@ -817,8 +817,7 @@ def test_order_set_updates_given_fields_and_stamps_lined(run: Run, demo: str) ->
 
 
 def test_an_order_is_filed_when_it_is_added_and_unfiled_lists_the_older_ones_still_missing_a_filing(run: Run, demo: str) -> None:
-    with pytest.raises(SystemExit):
-        cli.main(["order", "add", "fix the composer", "--project", "Iris"])
+    assert cli.main(["order", "add", "fix the composer", "--project", "Iris"]) == 2
     assert state.load("demo")["orders"] == {}
     run("order", "add", "redo the dashboard", "--project", "The drive", "--workstream", "Dashboard")
     with state.edit("demo") as data:
@@ -3242,7 +3241,7 @@ def test_pr_add_on_an_incident_order_refuses_a_revert_unless_it_waits_on_his_tap
     assert run("pr", "add", PR, "--job", "j1")[0] == 0
 
 
-def test_job_add_refuses_a_local_builder_past_the_macs_cap_or_a_monorepo_one_while_drive_place_says_remote(
+def test_job_add_records_a_local_builder_past_the_macs_cap_waiting_and_refuses_a_monorepo_one_while_drive_place_says_remote(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(place, "busy", lambda: 0.95)
@@ -3259,13 +3258,13 @@ def test_job_add_refuses_a_local_builder_past_the_macs_cap_or_a_monorepo_one_whi
     assert run("job", "add", "builder", "--order", "o1", "--goal", "land", "--repo", "yasyf/cc-skills")[0] == 0
     with state.edit("demo") as data:
         data["jobs"]["j9"].update(state.local_lane("dispatch-9"))
-    assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "land", "--repo", "yasyf/cc-skills"]) == 2
-    assert "its cap of 8 (j2 on o1, its agent a last wrote at " in (refused := capsys.readouterr().err)
-    assert "; j9 on o1, its Orca lane dispatch-9, not ended), so this builder starts remote: add --remote" in refused
+    code, added = run("job", "add", "builder", "--order", "o1", "--goal", "land", "--repo", "yasyf/cc-skills")
+    added_id, waits, *_ = added.splitlines()
+    assert (code, added_id) == (0, "j10")
+    assert waits.startswith("j10 waits for a builder here to finish, since 8 builders already run on this Mac, its cap of 8 (j2 on o1")
+    assert waits.endswith("; j9 on o1, its Orca lane dispatch-9, not ended); start the first waiting once one does: j10")
+    assert place.waiting_builders(state.load(demo)) == ["j10"]
     assert run("job", "add", "reader", "--order", "o1", "--goal", "read")[0] == 0
-    with state.edit("demo") as data:
-        state.lane_died(data["jobs"]["j9"], "dispatch-9", "its worker finished", state.now())
-    assert run("job", "add", "builder", "--order", "o1", "--goal", "land", "--repo", "yasyf/cc-skills")[0] == 0
 
 
 def test_job_add_records_an_agent_already_running_past_the_macs_cap_and_its_limit(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -4203,8 +4202,9 @@ def test_a_drive_tooling_orders_words_pass_check_post_since_his_pr_card_quotes_t
     filed = ["order", "add", "--project", "p", "--workstream", "w"]
     assert cli.main([*filed, flagged]) == 2
     refused = capsys.readouterr().err
+    assert refused.startswith(f"drive: refused, `cc-slack check-post` finds {'; '.join(drive_terms(flagged, []))}; ")
     assert 'a "Drive tooling:" order\'s words reach him verbatim, quoted on the line above its PR card' in refused
-    assert refused.endswith("\n".join(drive_terms(flagged, [])) + "\n")
+    assert refused.count("\n") == 1 and flagged not in refused
     assert run(*filed, reworded) == (0, "o1")
     assert run(*filed, "send j844's numbers to o341's thread") == (0, "o2")
     with state.edit("demo") as data:
@@ -4216,6 +4216,20 @@ def test_a_drive_tooling_orders_words_pass_check_post_since_his_pr_card_quotes_t
     assert capsys.readouterr().err.count('--words: refused, only a "Drive tooling:" order\'s words change') == 2
     assert run("order", "set", "o1", "--words", reworded)[0] == 0
     assert [order["text"] for order in state.load("demo")["orders"].values()] == [reworded, "send j844's numbers to o341's thread"]
+
+
+def test_a_drive_tooling_order_with_no_project_or_workstream_is_filed_under_the_drive_and_his_order_is_refused_naming_the_pairs_in_use(
+    run: Run, demo: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert run("order", "add", "Drive tooling: the say tool drops a table") == (0, "o1")
+    assert run("order", "add", "--workstream", "Slack cards and posts", "Drive tooling: a card drops its chart") == (0, "o2")
+    assert cli.main(["order", "add", "--project", "Iris", "ship the run page"]) == 2
+    assert capsys.readouterr().err.strip() == (
+        "drive: refused, no order added: name --workstream, which file his order on the dashboard's Now screen, reusing a pair in use"
+        " where it fits: The drive / Drive tooling; The drive / Slack cards and posts"
+    )
+    orders = state.load(demo)["orders"]
+    assert [(order["project"], order["workstream"]) for order in orders.values()] == [("The drive", "Drive tooling"), ("The drive", "Slack cards and posts")]
 
 
 def test_a_proof_is_the_checks_link_file_or_output_never_a_claim(

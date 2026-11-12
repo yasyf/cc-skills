@@ -1084,6 +1084,12 @@ def test_bash_posts_a_drive_ask_only_when_it_carries_the_ask_kept_for_its_questi
     assert "which this record does not ask" in landing_guard.deny_reason(asked_from_bash(other, session))
     carried = f"cci post --kind ask --attr ask={kept} --attr job=j1 'Close these sessions?'"
     assert landing_guard.deny_reason(asked_from_bash(carried, session)) is None
+    kept.parent.mkdir(parents=True, exist_ok=True)
+    kept.write_text("ASK Close these sessions?\nThe idle ones hold a slot each.\n")
+    from_path = f"cci post --kind ask --attr ask={kept} --attr job=j1 --path {kept}"
+    assert landing_guard.deny_reason(asked_from_bash(from_path, session)) is None
+    unexpanded = landing_guard.deny_reason(asked_from_bash(f'cci post --kind ask --attr ask={kept} --attr job=j1 --text "$(head -1 {kept})"', session))
+    assert "which this record does not ask" in unexpanded and "--attr ask=<path> --path <path>` and no text" in unexpanded
     assert landing_guard.deny_reason(asked_from_bash("cci post --kind report 'merged'", session)) is None
     assert landing_guard.deny_reason(asked_from_bash("cci post --kind ask 'Close these sessions?'", "another-session")) is None
 

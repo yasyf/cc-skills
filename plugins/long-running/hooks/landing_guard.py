@@ -536,15 +536,15 @@ def body_reason(script: str, shell: Shell) -> str | None:
 
 
 def cci_posts(script: str, shell: Shell) -> list[tuple[str, dict[str, str], list[str], str, str | None, list[str]]]:
-    """The kind, attrs, addressed lanes, text, url and answered seqs of each record a script posts with `cci post`."""
+    """The kind, attrs, addressed lanes, text, url and answered seqs of each record a script posts with `cci post`, its text read as cci reads it: the positionals, else --text, else the first line of the file --path names."""
     posts = []
-    for _, words, _ in commands(script, shell):
+    for _, words, run_in in commands(script, shell):
         if found := landing_of(words, (CCI_POST,)):
             _, positionals, options = found
             attrs = dict(pair.split("=", 1) for value in options.get("attr", []) for pair in value.split(","))
             to = [lane for value in options.get("to", []) for lane in value.split(",")]
             answered = [seq for value in options.get("re", []) for seq in value.split(",")]
-            text = " ".join(positionals) or (options.get("text") or [""])[-1]
+            text = " ".join(positionals) or (options.get("text") or [""])[-1] or first_line(run_in.cwd, (options.get("path") or [None])[-1])
             posts.append(((options.get("kind") or [""])[-1].lower(), attrs, to, text, (options.get("url") or [None])[-1], answered))
     return posts
 
@@ -574,6 +574,13 @@ def cci_change(attachment: dict, connected: bool | None) -> bool | None:
     if "addedNames" in ours:
         return True
     return False if ours else connected
+
+
+def first_line(cwd: str, named: str | None) -> str:
+    """The first line of the file a `cci post --path` names, from the folder the post runs in; none when it names no file there."""
+    if named is None or not (path := Path(moved(cwd, named))).is_file():
+        return ""
+    return path.read_text().partition("\n")[0]
 
 
 def misrouted(posts: list[tuple[str, dict[str, str], list[str], str, str | None, list[str]]], drives: dict[str, dict], session: str) -> str | None:
