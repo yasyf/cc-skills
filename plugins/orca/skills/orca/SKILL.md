@@ -422,10 +422,12 @@ origin or landed. A worktree with uncommitted or unpushed work stays. Add
 `orca-reclaim.py --run <run> --dispatch <ctx>` closes its idle terminal and
 reclaims its worktree.
 
-`orca-reclaim.py --run <run> --held <ctx>` changes nothing. It prints what that
-Dispatch's Sprite holds that a fresh Sprite would not get, or nothing: uncommitted
-changes, an unpushed HEAD, or each branch or stash with commits on no remote,
-by name. A root whose job outlives the lane, such as one waiting on CI, reads it
+`orca-reclaim.py --held <workspace>` changes nothing. It prints what the Sprite
+cc-remote records under that workspace name holds that a fresh Sprite would not
+get, or nothing: each worktree with uncommitted changes and how many files, each
+branch or stash with commits on no remote, and an unpushed HEAD, all by name, or
+why the read failed. It reads through cc-remote alone, so a Sprite whose Dispatch
+or environment Orca dropped is read too. A root whose job outlives the lane, such as one waiting on CI, reads it
 before `--done`: `--done` keeps such a Sprite, but it stops the lane that could
 push the work.
 

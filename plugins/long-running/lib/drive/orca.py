@@ -326,9 +326,9 @@ def reclaim(run: str, dispatch: str, checkout: Path) -> str:
     return reclaimer(checkout, "--run", run, "--done", dispatch)
 
 
-def held(run: str, dispatch: str, checkout: Path) -> str | None:
-    """What the lane's Sprite holds that a fresh Sprite would not get, such as a branch with commits on no remote, by the reclaimer's own read of the checkout it keeps a Sprite for; None when it holds nothing, or the lane runs on this Mac."""
-    return reclaimer(checkout, "--run", run, "--held", dispatch) or None
+def held(job: dict, checkout: Path) -> str | None:
+    """What the job's Sprite holds that a fresh Sprite would not get, naming each worktree with uncommitted changes and each branch or stash with commits on no remote, by the reclaimer's own read of the checkout it keeps a Sprite for, found by the job's workspace so a Sprite Orca forgot is read too; why that read failed, such as a Sprite that never woke; None when it holds nothing, or the lane runs on this Mac."""
+    return None if state.on_mac(job) else reclaimer(checkout, "--held", job["workspace"]) or None
 
 
 def reclaimer(checkout: Path, *args: str) -> str:

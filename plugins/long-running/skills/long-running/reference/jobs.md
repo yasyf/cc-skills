@@ -187,7 +187,13 @@ question.
   next worker in its terminal. A dead worker, or one whose Sprite's Orca environment is gone, as
   `drive job end` leaves it, is relaunched on a fresh Sprite on the same Run.
 - Either new worker gets a handoff carrying the job's brief, branch, last line, report, PRs and the
-  message, and the output says which ran. Work the dead lane had not pushed is lost.
+  message, and the output says which ran.
+- Before a relaunch on a fresh Sprite it reads the dead lane's Sprite, found by the job's workspace
+  even when Orca dropped its dispatch or environment. While that Sprite holds uncommitted changes or
+  a branch or stash on no remote, or does not answer, it exits 2 naming each worktree, branch and
+  stash, and relaunches nothing: wake the Sprite with the `cc-remote resume` it names, push the work
+  and resume again. `--leave-unpushed` relaunches anyway, and its output names what stays on the old
+  Sprite.
 - When Orca cannot reach the lane's Sprite, or refuses the send or the start, nothing is delivered
   and it exits 2 with Orca's refusal; resume again once the watch reads the lane.
 - Run it in the foreground with `timeout: 20000`: a message to a live lane returns in about five

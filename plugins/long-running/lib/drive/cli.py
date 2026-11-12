@@ -1595,8 +1595,17 @@ def job_resume(args: argparse.Namespace) -> int:
 
 
 def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEnd) -> int:
-    """Start the job's next worker with a handoff: in the terminal of a worker that finished while Orca holds it, on its Sprite or on this Mac, else on a fresh Sprite, or in a fresh worktree on this Mac, on the same Run."""
-    root = None if end.worktree else checkout(state.load(name))
+    """Start the job's next worker with a handoff: in the terminal of a worker that finished while Orca holds it, on its Sprite or on this Mac, else on a fresh Sprite, or in a fresh worktree on this Mac, on the same Run; refused, changing nothing, while the dead lane's Sprite holds what a fresh one would not get or cannot be read, unless --leave-unpushed."""
+    data = state.load(name)
+    job = data["jobs"][args.id]
+    root = None if end.worktree else checkout(data)
+    left = None if end.worktree else orca.held(job, root)
+    if left and not args.leave_unpushed:
+        raise DriveError(
+            f"{args.id}: refused, nothing relaunched: its lane {orca.place(job)} is dead ({end.why}), and a fresh Sprite starts without what"
+            f" {job['workspace']} holds: {left}. Wake it with cc-remote resume {job['workspace']}, which prints its connection, push that"
+            " from it, then resume again; or pass --leave-unpushed to relaunch and leave it there"
+        )
     with state.edit(name) as data:
         job = data["jobs"][args.id]
         state.lane_died(job, dispatch, end.why, state.now())
@@ -1625,10 +1634,11 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
             f" as dispatch {started['dispatch']} {carrying}; its lane {was} had finished ({end.why})"
         )
     else:
+        source = "its worktree" if local else ended["workspace"]
         line = (
             f"{args.id}: the message went to the job's next worker, relaunched {'in a fresh worktree ' + orca.ON_MAC if local else orca.place({**job, **started})}"
-            f" as dispatch {started['dispatch']} {carrying}; its lane {was} was dead ({end.why}), and work not pushed from"
-            f" {'its worktree' if local else ended['workspace']} is not carried over"
+            f" as dispatch {started['dispatch']} {carrying}; its lane {was} was dead ({end.why}), and "
+            + (f"{source} keeps what --leave-unpushed left there: {left}" if left else f"work not pushed from {source} is not carried over")
         )
     how = f"started {orca.ON_MAC if local else 'on its Sprite'}" if end.worktree else "relaunched"
     return emit(args, line, {"id": args.id, "how": how, "ended": ended, "handoff": str(kept), **started})
@@ -1648,7 +1658,7 @@ def job_end(args: argparse.Namespace) -> int:
     data = state.load(name)
     job = started_job(data, args.id)
     root = checkout(data)
-    if job["state"] not in state.FINISHED_JOB_STATES and (holds := orca.held(job["run"], job["dispatch"], root)):
+    if job["state"] not in state.FINISHED_JOB_STATES and (holds := orca.held(job, root)):
         raise DriveError(
             f"{args.id}: refused, nothing ended: it is {job['state']}, and its next lane starts on a fresh Sprite without what"
             f" {job['workspace']} holds: {holds}. Have this lane push it first with drive job resume {args.id}"
@@ -2945,7 +2955,9 @@ def parser() -> argparse.ArgumentParser:
             "Answer a remote lane's question, or send it the next event, once Orca shows its worker alive. When its "
             "worker finished and Orca still holds its terminal, on its Sprite or on this Mac, start the job's next worker "
             "in that terminal; when its worker is dead, relaunch the job on a fresh Sprite, or in a fresh worktree on this "
-            "Mac, on the same Run, where work the dead lane had not pushed is not carried over. Either new worker gets a handoff carrying the job's brief, its branch, its last line, "
+            "Mac, on the same Run, where work the dead lane had not pushed is not carried over. Before a relaunch on a fresh Sprite it reads "
+            "the dead lane's Sprite and, while that Sprite holds uncommitted changes or a branch or stash on no remote, or does not answer, "
+            "exits 2 naming each and relaunching nothing, unless --leave-unpushed. Either new worker gets a handoff carrying the job's brief, its branch, its last line, "
             "its report, its PRs and this text. When Orca cannot reach the lane's Sprite, or refuses what would deliver "
             "this text, exit 2 with Orca's refusal."
         ),
@@ -2955,6 +2967,11 @@ def parser() -> argparse.ArgumentParser:
         "text",
         type=lambda value: sys.stdin.read() if value == "-" else value,
         help="his answer, or the event the lane acts on next, or - to read it from stdin",
+    )
+    verb.add_argument(
+        "--leave-unpushed",
+        action="store_true",
+        help="relaunch a dead lane on a fresh Sprite even though its old Sprite holds work on no remote, or cannot be read, which stays there",
     )
     verb.set_defaults(run=job_resume)
     verb = job.add_parser(
