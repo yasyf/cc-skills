@@ -696,7 +696,11 @@ GET 2 page ranges
   every prompt of a handler's own `claude --bg` session are the communicator's or a writer's words,
   never his, whatever they quote. Jev judges only the line each finding names, by its rule: the post
   goes out when no finding's rule holds against its line, or his words lift it, and comes back with
-  Jev's reason when one does, never for saying more than his message asked. A session's account of
+  Jev's reason when one does, never for saying more than his message asked. When Jev cannot finish,
+  because it errs, times out, or reads the transcript past capt-hook's deadline, each finding only
+  warns: the post goes out as written, and the session that posts it hears every finding beside it
+  and rewords the post in place when one holds. His pick: "Refusals only warn when the judge cannot
+  finish: no post ever waits, but it goes out unchecked, as twice this morning". A session's account of
   its own act or mistake names no cause the cause rule asks a record for. An order or job id, such as
   o643 or j1700, comes back with no judging unless a message of his the post passes as asked used it.
   His words: "stop hard coding it and just use jev evaluating my message and rules to see if it's ok
@@ -714,7 +718,7 @@ GET 2 page ranges
   check-post that exits 1 naming no finding.
 - A handler's new line in his thread comes back until that handler has read the thread in the last
   10 minutes, so the line cannot miss what he said there since. Past that read every other check
-  runs. A post Jev upholds a finding on, one check-post flags, one over its limit, one naming
+  runs. A post Jev upholds a finding on, such as one check-post flags, one over its limit, one naming
   something he could open with no link there, or one asking a tap that is not owed, comes back once,
   with every finding, Jev's reason and what to fix.
 - Then read it as he will, on a phone, with no other context. Does he know what changed, whether he

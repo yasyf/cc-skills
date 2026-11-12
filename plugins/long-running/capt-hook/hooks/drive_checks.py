@@ -26,9 +26,11 @@ from captain_hook import (
     on,
 )
 from captain_hook.prompt import Prompt
+from captain_hook.snapshots.client import EvidenceIncomplete
 from captain_hook.tickets import Context, Decide, Evidence, Proposal, Undecided, UserAnswered
 from captain_hook.tickets.context import said_evidence
 from captain_hook.tickets.decide import UNPERMITTED, cited
+from captain_hook.transcripts import TranscriptLoadError
 from spawnllm import LabelAnswer
 
 newest_install = runpy.run_path(str(Path(__file__).resolve().parents[2] / "hooks" / "installed.py"))["root"]
@@ -200,7 +202,7 @@ def checked(evt: BaseHookEvent, script: str) -> HookResult | None:
 
 
 def judged(evt: BaseHookEvent, reason: str, rule: str, words: list[Evidence], post: dict, heard: str = "") -> HookResult | None:
-    """Jev's verdict on a post the drive's checks found something in, or on any handler's say post: Jev reads the post as Slack gets it, each of say's references linked, each finding beside its rule's words, his messages and card answers in this thread and his answers in the transcripts, and on a handler's post the reads it made itself and the report it carries. It goes out when no finding's rule holds against the line it names, or his words lift it, and stays back with Jev's reason otherwise, never for saying more than his message asked; a judge that gives no verdict, such as one that timed out, leaves it back and names why, as a check that could not finish does. On a post the checks found nothing in, Jev's verdict on whether each claim of a handler's stands on a read of its own or the record that measured it only advises: the post goes out as written, with Jev's finding, or why it gave none, and any warning the checks heard beside it. A handler's own `claude --bg` session reads as a session of his to capt-hook, but every prompt it holds is the communicator's brief or a record, so its judge reads no prompt there as his words."""
+    """Jev's verdict on a post the drive's checks found something in, or on any handler's say post: Jev reads the post as Slack gets it, each of say's references linked, each finding beside its rule's words, his messages and card answers in this thread and his answers in the transcripts, and on a handler's post the reads it made itself and the report it carries. It goes out when no finding's rule holds against the line it names, or his words lift it, and stays back with Jev's reason otherwise, never for saying more than his message asked. When Jev cannot finish, because it errs, times out, or reads the transcript past capt-hook's deadline, each finding only warns: the post goes out as written with every finding beside it for the session that posts it, by his pick "Refusals only warn when the judge cannot finish: no post ever waits, but it goes out unchecked, as twice this morning". On a post the checks found nothing in, Jev's verdict on whether each claim of a handler's stands on a read of its own or the record that measured it only advises: the post goes out as written, with Jev's finding, or why it gave none, and any warning the checks heard beside it. A handler's own `claude --bg` session reads as a session of his to capt-hook, but every prompt it holds is the communicator's brief or a record, so its judge reads no prompt there as his words."""
     place = {"thread": str(post.get("thread_ts") or "")} | ({"channel": post["channel_id"]} if post.get("channel_id") else {})
     where = f"in thread {place['thread']} of channel {post['channel_id']}" if post.get("channel_id") else "to him in his DM"
     if post.get("channel_id") and not place["thread"]:
@@ -209,14 +211,18 @@ def judged(evt: BaseHookEvent, reason: str, rule: str, words: list[Evidence], po
     judge = HANDLER_JUDGE if evt._raw.get("agent_type") == HANDLER and not evt.agent_id else JUDGE
     rules = [Evidence(id="rule:findings", source=RULE_SOURCE, quote=rule)] if rule else []
     shown = f"\n```\n{reason}\n```" if reason else ""
-    if not (items := [*judge.items(ctx), *words, *rules]):
-        return evt.block(f"Jev found no rule and no words of his to weigh this post against, so what the drive's checks found stands: fix each finding below, then call say again.{shown}")
     try:
+        if not (items := [*judge.items(ctx), *words, *rules]):
+            return evt.block(f"Jev found no rule and no words of his to weigh this post against, so what the drive's checks found stands: fix each finding below, then call say again.{shown}")
         verdict = judge.verdict(ctx, items)
-    except Undecided as exc:
-        if not reason:
-            return evt.context("\n\n".join(filter(None, [heard, f"message_limits: Jev gave no verdict ({exc.cause}) on whether each claim of this post stands on a read of yours, and that verdict only advises, so the post goes out as written."])))
-        return evt.block(f"Jev gave no verdict ({exc.cause}), and a judge that does not answer never lets a post through, so what the drive's checks found stands: fix each finding below, then call say again.{shown}")
+    except (Undecided, EvidenceIncomplete, TranscriptLoadError) as exc:
+        cause = exc.cause if isinstance(exc, Undecided) else f"{type(exc).__name__}: {exc}"
+        unjudged = (
+            f"message_limits: Jev gave no verdict ({cause}), so each finding below only warns and the post goes out as written: if one holds, reword the post in place.{shown}"
+            if reason
+            else f"message_limits: Jev gave no verdict ({cause}) on whether each claim of this post stands on a read of yours, and that verdict only advises, so the post goes out as written."
+        )
+        return evt.context("\n\n".join(filter(None, [heard, unjudged])))
     if not reason:
         advice = None if verdict.allow else (
             "message_limits: Jev reads a claim of this post as standing on no read of yours. Jev's reads verdict only advises, so"
@@ -390,7 +396,17 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             root_transcript=[T.user("ship the memory fix", timestamp=SAID_AT.isoformat()), T.assistant("on it")],
             decide=JEV_UNSURE,
             llm={"error": TimeoutError("codex timed out after 19s")},
-        ): Block(pattern=r"Jev gave no verdict \(TimeoutError: codex timed out after 19s\).*what the drive's checks found stands"),
+        ): Warn(pattern=r"(?s)Jev gave no verdict \(TimeoutError: codex timed out after 19s\), so each finding below only warns and the post goes out as written.*Refused on purpose: he is away"),
+        Input(
+            tool=SLACK + "slack_dm_status",
+            tool_input={"text": "The fix merged."},
+            session_id=COMMUNICATOR,
+            agent_id="a1",
+            transcript=COMMUNICATOR_TURN,
+            root_transcript=[T.user("ship the memory fix", timestamp=SAID_AT.isoformat()), T.assistant("on it")],
+            decide=JEV_UNSURE,
+            llm={"error": EvidenceIncomplete("deadline", "foreground transcript deadline exhausted")},
+        ): Warn(pattern=r"(?s)Jev gave no verdict \(EvidenceIncomplete: transcript evidence deadline: foreground transcript deadline exhausted\), so each finding below only warns.*Refused on purpose: he is away"),
         Input(
             tool=SLACK + "slack_dm_status",
             tool_input={"text": "Deleting the old memory indexes still waits on your tap: https://acme.slack.com/archives/D123/p1794288799976279"},
