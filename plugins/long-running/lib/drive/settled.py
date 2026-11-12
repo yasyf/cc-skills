@@ -26,7 +26,7 @@ MATCHES = 3
 SUBJECT_WORDS = 2
 CODE_NAME = re.compile(r"\b\w+_\w+\b|\b\w+\(\)|\b[\w.-]+(?:/[\w.-]+){2,}|\b[\w-]+\.(?:py|go|rs|ts|tsx|js|sql|md|json|ya?ml|toml|sh)\b|#\d{3,}\b")
 APPROVAL = "kind:approval"
-APPROVED = re.compile(r"Approve\b")
+TAP_HEADER = "header:Tap"
 TAP_QUESTION = re.compile(r"(?:PR )?(?:Taps?\b|Approv|Land\b).*?(?:#\d+|/pull/\d+)", re.IGNORECASE)
 RARE = re.compile(r"[a-z][a-z0-9-]{4,}")
 AMOUNT = re.compile(r"(?<![\w.,:#/$-])(\d+(?:\.\d+)?)[- ]?([a-z]+)\b", re.IGNORECASE)
@@ -115,10 +115,10 @@ def kind(words: str) -> list[str]:
 
 
 def backfill(cwd: str) -> None:
-    """Label as approvals the taps on PR cards recorded before `drive answer` labelled them: his words open with Approve and the question, opening with Tap, Approve or Land, names a PR."""
+    """Label as approvals the taps on PR cards recorded before `drive answer` labelled them, by the question alone, whatever his words: one opening with Tap, Approve or Land that names a PR, or one under a Tap header."""
     listed = ccn(["ccn", "answer", "list", "--label", "scope:durable", "--limit", "0", "--full", "--json"], "", cwd, "could not read his recorded answers")
     for answer in json.loads(listed):
-        if APPROVAL not in answer["tags"] and APPROVED.match(answer["body"].lstrip()) and TAP_QUESTION.match(answer["title"]):
+        if APPROVAL not in answer["tags"] and (TAP_QUESTION.match(answer["title"]) or TAP_HEADER in answer["tags"]):
             ccn(["ccn", "answer", "edit", answer["id"], "--add-label", APPROVAL], "", cwd, f"could not label his answer {answer['id'][:7]} an approval")
 
 
