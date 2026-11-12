@@ -81,11 +81,15 @@ the Sprite the toolchain cc-context's `ensure-wasm` hook builds its go:embed
 WASM artifacts with, which a Sprite otherwise lacks, so the hook and the
 golangci-lint typecheck after it fail on every cc-context ship: the Rust
 `stable` toolchain with its `wasm32-unknown-unknown` target, through the
-Sprite's `/.sprite/bin/rustup`, and zig 0.14.0, the version cc-context's CI
+Sprite's `/.sprite/bin/rustup` under `sudo`, since root owns its rustup home
+`/.sprite/languages/rust/rustup` and the ssh session, unlike the agents the
+Sprite's Orca runtime starts, holds no capability to write it, and zig 0.14.0, the version cc-context's CI
 pins, checked against its SHA-256 and linked into `~/.local/bin`. Each is
 skipped when present, but a Sprite serves one lane and is destroyed after, so
 every launch downloads both: about 28 seconds for the toolchain and 9 for zig. When any step fails, the launcher starts no worker, leaves the
-prepared one idle, and prints the reason from the attempt's `tools.err`.
+prepared one idle, and prints the reason from the attempt's `tools.err`. Launching the same
+brief again reuses that Sprite: it reruns this step and starts the worker once
+the step passes.
 
 A coordinator whose terminal answers other Runs between launches sets
 `WORKER_BIND` to a command prefix that binds the Run and runs the command it is
