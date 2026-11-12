@@ -9,7 +9,7 @@ import subprocess
 import sys
 import types
 from collections.abc import Callable, Iterator
-from datetime import timedelta
+from datetime import UTC, timedelta
 from pathlib import Path
 
 import drive
@@ -25,6 +25,7 @@ from drive import (
     orca,
     picture,
     place,
+    reads,
     render,
     served,
     settled,
@@ -1550,6 +1551,29 @@ def test_job_card_redraws_a_kept_text_fence_as_a_code_block_where_it_sat(
     assert shown[5].startswith("![go code](")
 
 
+def test_job_card_fills_each_reference_in_its_show_me_table_and_descriptions_as_say_fills_a_posts(
+    run: Run, asking: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    went_out = state.now().replace(hour=4, minute=47, second=9, microsecond=0).astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    monkeypatch.setattr(reads, "run", lambda argv, checkout: json.dumps({"at": went_out, "text": "POST Yes to both", "refs": {}}))
+    table = (
+        "Show me:\nThe report each layout's numbers come from:\n| Layout | Requests to open a run | Its report went out |\n| --- | --- | --- |\n"
+        "| One snapshot file per finished run | 3 | {at:674271} |\n| A map file beside each journal file | 360 | {at:675198} |\n"
+    )
+    head, rest = SHORT_ASK.split("Show me:\n", 1)
+    options = rest[rest.index("- One snapshot file per finished run, written") :]
+    described = options.replace("a backfill writes one for each old run.", "a backfill writes one for each old run, as the report of {at:675201} asked.")
+    block = tmp_path / "ask.md"
+    block.write_text(head + table + described)
+    code, printed = run("job", "card", str(block), "--waits", "demo:j1-7")
+    assert code == 0
+    card = json.loads(printed)
+    assert "| One snapshot file per finished run | 3 | 4:47 AM |" in card["body"].splitlines()
+    assert "| A map file beside each journal file | 360 | 4:47 AM |" in card["body"].splitlines()
+    assert card["hints"][card["recommended"]].endswith("a backfill writes one for each old run, as the report of 4:47 AM asked.")
+    assert "{at:" not in printed
+
+
 def test_job_card_draws_a_card_no_job_asked_and_gives_no_job_its_waits(
     run: Run, asking: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2206,8 +2230,8 @@ def test_job_ask_sends_the_question_to_him_when_jev_picks_none_is_less_sure_than
 ) -> None:
     block = tmp_path / "ask.md"
     recorded.found = [FLAT_RULING]
-    for title, reads, answer in (("How should", {}, Jev().answer), ("Where should", {"ac61348": {"none": 0.21, "picks": 0.4, "orders": 0.39}}, Jev().answer), ("When should", {}, None)):
-        jev.reads, jev.answer = reads, answer
+    for title, read, answer in (("How should", {}, Jev().answer), ("Where should", {"ac61348": {"none": 0.21, "picks": 0.4, "orders": 0.39}}, Jev().answer), ("When should", {}, None)):
+        jev.reads, jev.answer = read, answer
         block.write_text(SHORT_ASK.replace("ASK How should", f"ASK {title}"))
         assert run("job", "ask", asking, str(block))[0] == 0
     assert [question["refused"] for question in state.load("demo")["jobs"]["j1"]["questions"]] == [None, None, None]
