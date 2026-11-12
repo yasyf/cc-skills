@@ -654,9 +654,13 @@ def deny_reason(payload: dict) -> str | None:
 
 
 def cli_posted(payload: dict) -> str | None:
-    """Why a drive session's or agent's `cci post` in Bash must not run whatever it posts, a refusal capt-hook's Jev never weighs again: its cci MCP server is connected, so the cci `post` and `close` tools send the record and their hook checks its words, and no refusal of its words comes first to be fixed in a command this one then refuses."""
-    _, shell = shell_of(payload)
-    return CLI_POST if shell.driving and cci_posts(payload["tool_input"]["command"], shell) and cci_connected(payload) else None
+    """Why a drive session's or agent's `cci post` in Bash must not run whatever its words say, a refusal capt-hook's Jev never weighs again: it posts the communicator's owner record about the drive, which only the drive's `record` tool sends, adding its order first, or its cci MCP server is connected, so the cci `post` and `close` tools send the record and their hook checks its words, and no refusal of its words comes first to be fixed in a command this one then refuses."""
+    names, shell = shell_of(payload)
+    posts = cci_posts(payload["tool_input"]["command"], shell) if shell.driving else []
+    role = state.session_role(state.load(names[0]), shell.session) if names and posts else None
+    if unordered := next(filter(None, (state.unrecorded(role, post["kind"], post["attrs"]) for post in posts)), None):
+        return unordered
+    return CLI_POST if posts and cci_connected(payload) else None
 
 
 def shell_of(payload: dict) -> tuple[list[str], Shell]:

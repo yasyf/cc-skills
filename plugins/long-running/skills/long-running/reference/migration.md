@@ -57,8 +57,9 @@ are the meta session's already, whoever held them before.
    session: while no meta session is bound, it opens one in an Orca terminal of its own with the
    command in [Start or resume](start.md), whose prompt binds it with `drive start <name> --role meta`.
    Run that command yourself only when the start printed that the meta session did not start.
-2. From the moment it binds, the `record` tool and the post hooks send it each `defect` record and
-   each `owner` record about the drive, and the watch hands it its orders' lines.
+2. From the moment it binds, the `record` tool and the post hooks send it each `defect` record, the
+   `record` tool alone each `owner` record about the drive with the order it adds first, and the
+   watch hands it its orders' lines.
 3. Check it: `drive status` reads `meta: session <id>`.
 
 ## Into an Orca terminal

@@ -97,8 +97,8 @@ COMMUNICATOR_RULES = (
     (
         "His feedback on a post or card the drive made (its words, a picture, a link or card it lacks, \"what is"
         ' this"), wherever it lands, a card\'s thread included, gets its handler, which fixes that one post and posts'
-        " his words as an owner record about the drive carrying a ruling attr, which reaches the meta session alone, which starts the"
-        " order `Drive tooling: post feedback: \"<his words>\"` every time, a repeat too, since his words \"When I give"
+        " his words as an owner record about the drive carrying a ruling attr, whose record call adds the order"
+        " `Drive tooling: post feedback: \"<his words>\"` every time, a repeat too, before it reaches the meta session alone, since his words \"When I give"
         " feedback on posts keep iterating on the library, tooling etc don't get complacent\" name the library that"
         " draws posts and cards, cc-slack check-post and the drive tools, never only the post. Its ack says that post"
         " and the code that let it through are being fixed."
@@ -109,7 +109,8 @@ COMMUNICATOR_RULES = (
         " refusal or queue holding back work he waits on included, each get one record call that turn, kind defect, with"
         " the refusal verbatim, never read as working as designed, and every owner record names about, drive for drive"
         " tooling, his ruling or feedback on it included, and his work for the rest; the record tool sends a defect and an"
-        " owner record about the drive to the meta session alone, which tells the coordinator what changes for its work,"
+        " owner record about the drive to the meta session alone, adding first the order its order field names, which tells"
+        " the coordinator what changes for its work,"
         " and a handoff, a step only the session holding an order takes on it, to that session by its order attr."
     ),
     REACHING,
@@ -242,16 +243,19 @@ META_RULES = (
         " add an order the coordinator holds."
     ),
     (
-        "A defect record from any session or job, a defect you hit (a hook refusing wrongly, its rule or Jev's prompt"
-        " the fix, or a refusal or queue holding back work he waits on, never working as designed), and the"
-        " communicator's owner record about the drive,"
-        ' his ruling or feedback included, each get, in this turn, one job call, ops `[{add: {kind: "reader", order: {words:'
+        "A defect record from any session or job and a defect you hit (a hook refusing wrongly, its rule or Jev's prompt"
+        " the fix, or a refusal or queue holding back work he waits on, never working as designed) each get, in this turn,"
+        ' one job call, ops `[{add: {kind: "reader", order: {words:'
         ' "Drive tooling: <what>", kind: "build", from: "<its From>", thread: "<its thread attr>", project: "The drive",'
         ' workstream: "Drive tooling", title: "<a few words naming it>"}, goal: "research: <what>"}}]`, then a background long-running:reader, its prompt'
         " the lines `Order: Drive tooling: <what>`, `From: cci:<seq>`, his words verbatim for an owner record,"
         " `Research: the Researched: block this build needs`, `Drive: <name>, order <o>, job <j>`, `Scratch: <folder>`."
-        " His words in the thread of an open drive tooling order carry on that order instead: SendMessage its job's agent"
-        ' his words verbatim, and a question proposing a way, "why not just X?", replaces his pick with X, never answered'
+        " The communicator's owner record about the drive, his ruling or feedback included, arrives holding its order, which"
+        " the handler's record call added before it went out and names in its order attr: that reader in this turn, its job"
+        ' call `[{add: {kind: "reader", order: "<its order attr>", goal: "research: <what>"}}]`. One with a part attr carries'
+        " on that open order instead: SendMessage its job's agent his words verbatim and give that job the part with drive job"
+        " set <j> --part, or brief a fresh builder on it when its agent ended, since the watch says ORPHAN for a part no job"
+        ' carries; a question proposing a way, "why not just X?", replaces his pick with X, never answered'
         " with reasons for the old pick. His feedback on a post or card is the order `Drive tooling: post feedback: \"<his words>\"`"
         " every time, a repeat too. The order's words reach him verbatim on the line above its PR card, so drive order add"
         " refuses words cc-slack check-post flags, such as a job, order or record id or a bare PR number. A defect record"

@@ -617,10 +617,13 @@ def test_the_communicators_record_for_a_coordinator_goes_to_the_session_hearing_
         {"kind": "owner", "text": "and the alert", "to": ["iris@demo"], "attrs": {"thread": OTHER, "about": "his work"}},
         {"kind": "owner", "text": "a new order", "to": root, "attrs": {"about": "his work"}},
         {"kind": "report", "text": "FYI j1 merged", "attrs": {"close": "o1"}},
-        {"kind": "owner", "text": "the dashboard drops my cards", "to": root, "attrs": {"thread": THREAD, "about": "drive"}},
     ]
     made = record_lines.decision(post("talker", records=records))["updatedInput"]["records"]
-    assert [record.get("to") for record in made] == [["iris@demo"]] * 4 + [root, root, None, ["meta@demo"]]
+    assert [record.get("to") for record in made] == [["iris@demo"]] * 4 + [root, root, None]
+    about_drive = {"kind": "owner", "text": "the dashboard drops my cards", "to": ["meta@demo"], "attrs": {"thread": THREAD, "about": "drive"}}
+    unordered = refusal(record_lines.decision(post("talker", **about_drive)))
+    assert isinstance(unordered, agents.Unjudged) and "his words about the drive go out on the drive's `record` tool" in unordered
+    assert record_lines.decision(post("iris-1", **about_drive)) is None
     assert record_lines.decision(post("talker", **records[0]))["updatedInput"] == records[0] | {"to": ["iris@demo"]}
     assert record_lines.decision(post("talker", **records[5])) is None
     assert record_lines.decision(post("iris-1", **records[0])) is None

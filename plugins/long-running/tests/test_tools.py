@@ -342,8 +342,9 @@ def test_the_communicators_records_about_the_drive_reach_the_meta_session_alone_
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
     run("start", demo, "--role", "communicator")
     defect = {"kind": "defect", "text": "cc-slack delete hides --url"}
-    ruling = {"kind": "owner", "text": "meta stuff goes to a meta root", "ruling": "abc1234", "about": "drive", "to": "root"}
-    dashboard = {"kind": "owner", "text": "the dashboard drops my cards", "about": "drive", "thread": THREAD}
+    rewrite = {"words": "Drive tooling: meta stuff goes to a meta root", "title": "Meta stuff to a meta root"}
+    ruling = {"kind": "owner", "text": "meta stuff goes to a meta root", "ruling": "abc1234", "about": "drive", "to": "root", "order": rewrite}
+    dashboard = {"kind": "owner", "text": "the dashboard drops my cards", "about": "drive", "thread": THREAD, "order": "o2"}
     product = {"kind": "owner", "text": "and the logs page", "about": "his work", "thread": THREAD}
     beside = {"kind": "owner", "text": "also ship the alert fix", "about": "his work", "thread": tooling}
     tools.run("record", demo, {"records": [defect, ruling, dashboard, product, beside]})
@@ -353,7 +354,7 @@ def test_the_communicators_records_about_the_drive_reach_the_meta_session_alone_
     run("start", demo, "--role", "meta")
     with pytest.raises(DriveError, match="a defect it hits is its own: one job call adds its order and reader, by drive manual meta defect"):
         tools.run("record", demo, {"records": [defect]})
-    tools.run("record", demo, {"records": [ruling | {"text": "the rewrite is o2; your cards change"}]})
+    tools.run("record", demo, {"records": [{key: value for key, value in ruling.items() if key != "order"} | {"text": "the rewrite is o3; your cards change"}]})
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-under-test")
     tools.run("record", demo, {"records": [defect]})
     assert [(lane, [(record["kind"], record["to"]) for record in records]) for lane, records in posted] == [
@@ -362,6 +363,73 @@ def test_the_communicators_records_about_the_drive_reach_the_meta_session_alone_
         ("root", [("defect", ["meta@demo"])]),
     ]
     assert [record["attr"]["about"] for record in posted[0][1][1:]] == ["drive", "drive", "his work", "his work"]
+    assert [{key: record["attr"].get(key) for key in ("order", "part")} for record in posted[0][1][1:3]] == [
+        {"order": "o3", "part": None},
+        {"order": "o2", "part": "o2:the dashboard drops my cards"},
+    ]
+    orders = state.load(demo)["orders"]
+    assert (orders["o3"]["text"], orders["o3"]["owner"], list(orders["o2"]["parts"])) == (rewrite["words"], "meta", ["Drive tooling: cards say why", "the dashboard drops my cards"])
+
+
+def test_his_badge_ask_of_record_672014_reaches_the_meta_session_holding_the_drive_tooling_order_its_record_call_adds(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    posted: list[dict] = []
+    cci = {"up": False}
+
+    def post(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if argv[:2] != ["cci", "post"]:
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        if not cci["up"]:
+            return subprocess.CompletedProcess(argv, 1, "", "cci: daemon unreachable")
+        posted.extend(json.loads(str(kwargs["input"])))
+        return subprocess.CompletedProcess(argv, 0, f"{672014 + len(posted)}\n", "")
+
+    monkeypatch.setattr(subprocess, "run", post)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", demo, "--role", "communicator")
+    thread = "1794480049.653959"
+    asked = {
+        "kind": "owner",
+        "text": (
+            "there's still 4 open including one from yesterday is that correct? also we should have an equivalent bade gfor bug"
+            " reports that tracks all teh way trhough to letting the user know its live and fixed"
+        ),
+        "url": f"https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794480122672259?thread_ts={thread}&cid=D0C4HQWPLCC",
+        "thread": thread,
+        "about": "drive",
+    }
+    with pytest.raises(DriveError, match="1: refused, his words about the drive reach the meta session holding an order, and no order holds this record or its thread"):
+        tools.run("record", demo, {"records": [asked]})
+    badge = {"words": "Drive tooling: bug reports get a badge tracking each one until its reporter hears the fix is live", "title": "Bug report badge"}
+    with pytest.raises(DriveError, match='1: refused, his words about the drive go to a "Drive tooling: <what they ask for>" order'):
+        tools.run("record", demo, {"records": [asked | {"order": badge | {"words": "a bug report badge"}}]})
+    dry = tools.run("record", demo, {"records": [asked | {"order": badge}], "dry_run": True}).splitlines()
+    assert dry[0].startswith("1 drive order add 'Drive tooling: bug reports get a badge")
+    assert (posted, state.load(demo)["orders"]) == ([], {})
+    with pytest.raises(DriveError) as down:
+        tools.run("record", demo, {"records": [asked | {"order": badge}]})
+    assert str(down.value).splitlines()[0] == "1 order add: o1"
+    cci["up"] = True
+    assert tools.run("record", demo, {"records": [asked | {"order": badge}]}).splitlines() == [
+        "1 order add: o1; o1 already holds these words, so no order was added",
+        "1 owner 672015",
+    ]
+    order = state.load(demo)["orders"]["o1"]
+    assert (order["text"], order["owner"], order["from"], order["thread"], order["project"], order["workstream"]) == (
+        badge["words"], "meta", "slack:D0C4HQWPLCC/1794480122.672259", ["D0C4HQWPLCC", thread], "The drive", "Drive tooling"
+    )
+    more = asked | {"text": "and count the ones from yesterday too", "url": f"https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794480200000100?thread_ts={thread}"}
+    assert tools.run("record", demo, {"records": [more]}).splitlines()[-1] == "1 owner 672016"
+    assert tools.run("record", demo, {"records": [more]}).splitlines() == ["1 owner 672017"]
+    assert (list(state.load(demo)["orders"]), list(state.load(demo)["orders"]["o1"]["parts"])) == (["o1"], [state.whole_order(badge["words"]), more["text"]])
+    assert [(record["to"], record["attr"]["order"], record["attr"].get("part")) for record in posted] == [
+        (["meta@demo"], "o1", None),
+        (["meta@demo"], "o1", f"o1:{more['text']}"),
+        (["meta@demo"], "o1", f"o1:{more['text']}"),
+    ]
+    with pytest.raises(DriveError, match="1: refused, nothing posted: order is the order the communicator's owner record about the drive goes to"):
+        tools.run("record", demo, {"records": [{"kind": "owner", "text": "ship the run page", "about": "his work", "order": badge}]})
 
 
 def test_the_communicators_owner_or_answer_record_goes_to_the_session_hearing_its_jobs_or_threads_order_whatever_lane_it_names(

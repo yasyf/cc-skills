@@ -1160,14 +1160,18 @@ def report_orders(data: dict, attrs: dict) -> list[str]:
     return list(dict.fromkeys(order_id for order_id in named if order_id in data["orders"]))
 
 
+def served_order(data: dict, attrs: dict) -> str | None:
+    """The order a record serves: the one its attr order names, else the order of the job its attr job or waits id names, else the newest order in its thread; None when it names none."""
+    job = data["jobs"].get(named_job(data, attrs))
+    named = attrs.get("order") if attrs.get("order") in data["orders"] else job and job["order"]
+    return named or thread_order(data, attrs.get("thread"))
+
+
 def serving_lane(data: dict, kind: str, attrs: dict) -> str | None:
     """The cci lane of the session a communicator's owner, answer, handoff, posted or refused record serves, the order its attr order names, else the order of the job its attr job or waits id names, else the newest order in its thread: the coordinator session hearing that order, or the meta session's for a drive tooling order but for his words about his work; None for another kind, or a record naming none."""
     if kind not in ROUTED_KINDS:
         return None
-    job = data["jobs"].get(named_job(data, attrs))
-    named = attrs.get("order") if attrs.get("order") in data["orders"] else job and job["order"]
-    order_id = named or thread_order(data, attrs.get("thread"))
-    if order_id is None:
+    if (order_id := served_order(data, attrs)) is None:
         return None
     order = data["orders"][order_id]
     if order["owner"] != "meta":
@@ -1194,12 +1198,28 @@ def routed(drives: dict[str, dict], session: str | None, kind: str, attrs: dict,
         communicates = role == "communicator"
         if kind == "defect" and lane in ("root", *HOLDERS) and role != "meta":
             lane = "meta"
-        elif communicates and kind == "owner" and attrs.get("about") == ABOUT_DRIVE:
+        elif meta_alone(role, kind, attrs):
             lane = "meta"
         elif communicates and lane in ("root", *map(project_lane, data["subcoordinators"])) and (serving := serving_lane(data, kind, attrs)):
             lane = serving
         made.append(f"{lane}@{name}")
     return list(dict.fromkeys(made))
+
+
+def meta_alone(role: str | None, kind: str, attrs: dict) -> bool:
+    """Whether a record is the communicator's owner record about the drive, his ruling or feedback on it included, which reaches the meta session alone and goes out only through the drive's record tool, which adds the "Drive tooling:" order it carries in the same call."""
+    return role == "communicator" and kind == "owner" and attrs.get("about") == ABOUT_DRIVE
+
+
+def unrecorded(role: str | None, kind: str, attrs: dict) -> str | None:
+    """Why a record cannot go out on cci post: it is the communicator's owner record about the drive, which only the drive's record tool sends, adding its order first."""
+    if not meta_alone(role, kind, attrs):
+        return None
+    return (
+        f'refused, nothing posted: his words about the drive go out on the drive\'s `record` tool, kind owner, about "{ABOUT_DRIVE}", whose'
+        f' order field adds the "{TOOLING} <what they ask for>" order, or his words as a part of the open one they carry on, in the same'
+        " call, so no word of his reaches the meta session without an order"
+    )
 
 
 def unabout(kind: str, attrs: dict) -> str | None:
