@@ -14,6 +14,11 @@
       "version": ">=12.121.70"
     },
     {
+      "name": "cc-slack",
+      "marketplace": "cc-slack",
+      "version": ">=0.19.143"
+    },
+    {
       "name": "cc-inbox",
       "marketplace": "cc-inbox",
       "version": ">=0.54.10"

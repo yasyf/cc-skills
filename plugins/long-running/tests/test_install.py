@@ -1,14 +1,15 @@
 import json
+import plistlib
 import subprocess
 import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
-from drive import install, state
+from drive import github, install, settled, state
 
 SHA = "abc123def4567890"
 REPO = "yasyf/cc-skills"
@@ -25,6 +26,11 @@ BREW_TAP = ["brew", "--repository", "yasyf/tap"]
 TAP_PULL = ["git", "-C", TAP_DIR, "pull", "--ff-only", "--quiet"]
 SEEDED = ("long-running@skills", "cc-context@skills", "cc-inbox@skills", "codex@skills")
 OLD_COMMIT = "0ld0c0mm1t0ld"
+LISTED = ("long-running", "cc-context", "cc-inbox", "codex", "cc-slack", "captain-hook")
+HOOKS_FLOOR = {"name": "captain-hook", "marketplace": "captain-hook", "version": ">=12.121.70"}
+SLACK_FLOOR = {"name": "cc-slack", "marketplace": "cc-slack", "version": ">=0.19.143"}
+HELPER_CARD = install.HELPER_ASKED.format(release="12.121.70")
+RESTART = ["capt-hook", "helper", "install"]
 
 
 def upgrade(binary: str) -> list[str]:
@@ -52,6 +58,19 @@ class FakeGit:
         self.projects: list[str] = []
         self.stuck: set[str] = set()
         self.cwds: list[str | None] = []
+        self.needs: dict[str, list[dict]] = {}
+        self.versions: dict[str, str] = {}
+        self.app = config / "Captain Hook.app" / "Contents" / "Info.plist"
+        self.helper = "12.121.70"
+
+    @property
+    def helper(self) -> str:
+        return plistlib.loads(self.app.read_bytes())["CFBundleShortVersionString"]
+
+    @helper.setter
+    def helper(self, version: str) -> None:
+        self.app.parent.mkdir(parents=True, exist_ok=True)
+        self.app.write_bytes(plistlib.dumps({"CFBundleShortVersionString": version}))
 
     def seed(self) -> None:
         def entry(scope: str, **fields: str) -> dict:
@@ -69,7 +88,7 @@ class FakeGit:
         moved = next(each for each in plugins[key] if each["scope"] == scope and each.get("projectPath") == (None if scope == "user" else cwd))
         if scope not in self.stuck:
             plugin = key.partition("@")[0]
-            moved |= {"version": "1.0.3", "lastUpdated": "2026-11-09T10:00:00.000Z", "installPath": str(self.install_root / plugin / "1.0.3"), "gitCommitSha": self.installed_sha or self.refs[0]}
+            moved |= {"version": self.versions.get(plugin, "1.0.3"), "lastUpdated": "2026-11-09T10:00:00.000Z", "installPath": str(self.install_root / plugin / "1.0.3"), "gitCommitSha": self.installed_sha or self.refs[0]}
         self.write_installed(plugins)
 
     def clock(self) -> float:
@@ -93,6 +112,8 @@ class FakeGit:
             return subprocess.CompletedProcess(cmd, 1, "", "gh: API rate limit exceeded (HTTP 403)")
         if cmd[:3] == ["claude", "plugin", "update"]:
             self.update(cmd[3], cmd[5], options.get("cwd"))
+        if cmd == RESTART:
+            self.helper = "12.121.70"
         return subprocess.CompletedProcess(cmd, 0, self.answer(cmd), "")
 
     def orca(self, cmd: list[str], timeout: float) -> subprocess.CompletedProcess:
@@ -115,8 +136,12 @@ class FakeGit:
     def answer(self, cmd: list[str]) -> str:
         verb = cmd[3:] if cmd[:2] == ["git", "-C"] else []
         if verb == SHOW_MARKETPLACE:
-            source = self.path or {"source": "git-subdir", "url": f"https://github.com/{REPO}", "path": FOLDER, "ref": self.next_ref()}
-            return json.dumps({"name": "skills", "plugins": [{"name": name, "source": source} for name in ("long-running", "cc-context")]})
+            ref = None if self.path else self.next_ref()
+            sources = {name: self.path or {"source": "git-subdir", "url": f"https://github.com/{REPO}", "path": f"plugins/{name}", "ref": ref} for name in LISTED}
+            return json.dumps({"name": "skills", "plugins": [{"name": name, "source": source} for name, source in sources.items()]})
+        if verb[:1] == ["show"] and verb[1].endswith(install.MANIFEST):
+            folder = PurePosixPath(verb[1].partition(":")[2]).parent.parent
+            return json.dumps({"version": self.versions.get(folder.name, "1.0.3"), "dependencies": self.needs.get(folder.name, [])})
         if verb[:1] == ["log"]:
             return self.next_ref() + "\n"
         if cmd[1:] == ["--version"]:
@@ -148,6 +173,8 @@ def config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, state_root: Path) ->
         "skills": {"source": {"source": "github", "repo": REPO}, "installLocation": str(config / "m")},
         "revdiff": {"source": {"source": "git", "url": "https://github.com/umputun/revdiff.git"}},
         "forge": {"source": {"source": "directory", "path": "/somewhere"}},
+        "cc-slack": {"source": {"source": "github", "repo": "yasyf/cc-slack"}},
+        "captain-hook": {"source": {"source": "github", "repo": "yasyf/captain-hook"}},
     }
     (config / "plugins" / "known_marketplaces.json").write_text(json.dumps(known))
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config))
@@ -160,6 +187,7 @@ def fake(config: Path, monkeypatch: pytest.MonkeyPatch) -> Callable[..., FakeGit
         git = FakeGit(config, refs, holding, call_seconds, path)
         git.seed()
         monkeypatch.setattr(install.subprocess, "run", git.run)
+        monkeypatch.setattr(install, "APP_PLIST", git.app)
         monkeypatch.setattr(install, "clock", git.clock)
         monkeypatch.setattr(install, "sleep", git.sleep)
         return git
@@ -181,7 +209,7 @@ def test_a_tag_that_already_contains_the_sha_updates_and_prints_the_version(
     fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
 ) -> None:
     git = fake(["long-running--v1.0.3"], {"long-running--v1.0.3"})
-    code = install.main("long-running@skills", SHA, None, 900)
+    code = install.main("long-running@skills", SHA, None, 900, None)
     assert code == 0
     assert capsys.readouterr().out.strip() == "installed long-running@skills 1.0.3"
     assert git.sleeps == []
@@ -192,6 +220,7 @@ def test_a_tag_that_already_contains_the_sha_updates_and_prints_the_version(
         [*install.FETCH, "+refs/tags/long-running--v1.0.3:refs/tags/long-running--v1.0.3"],
         holds(SHA, "long-running--v1.0.3"),
         ["ls-tree", "-r", "--name-only", "long-running--v1.0.3", "--", FOLDER],
+        ["show", f"long-running--v1.0.3:{FOLDER}/{install.MANIFEST}"],
         [*install.FETCH, "long-running--v1.0.3"],
         holds(SHA, "long-running--v1.0.3"),
     ]
@@ -206,7 +235,7 @@ def test_each_scope_installed_in_a_folder_still_here_is_updated_in_that_folder(f
     git.projects = [str(tmp_path / "durable-agents")]
     (tmp_path / "durable-agents").mkdir()
     git.seed()
-    assert install.main("long-running@skills", SHA, None, 900) == 0
+    assert install.main("long-running@skills", SHA, None, 900, None) == 0
     updates = [(call[-1], cwd) for call, cwd in zip(git.calls, git.cwds, strict=True) if call[:3] == ["claude", "plugin", "update"]]
     assert updates == [("user", None), ("project", str(tmp_path / "durable-agents"))]
 
@@ -219,7 +248,7 @@ def test_a_scope_the_update_left_without_the_sha_is_refused_naming_its_folder(
     (tmp_path / "durable-agents").mkdir()
     git.seed()
     git.stuck = {"project"}
-    assert install.main("long-running@skills", SHA, None, 900) == 1
+    assert install.main("long-running@skills", SHA, None, 900, None) == 1
     assert capsys.readouterr().err.strip() == (
         f"drive install: long-running@skills in the project scope of {tmp_path / 'durable-agents'} is still at 1.0.2 ({OLD_COMMIT[:12]}) after the update,"
         f" which does not hold {SHA[:12]}, the sha awaited"
@@ -232,7 +261,7 @@ def test_an_update_left_at_a_commit_without_the_sha_is_refused_naming_both(
     start_drive("demo", communicator="term_comm")
     git = fake(["long-running--v1.0.3"], {"long-running--v1.0.3"})
     git.installed_sha = "0ldc0mm1t5ha99"
-    assert install.main("long-running@skills", SHA, None, 900) == 1
+    assert install.main("long-running@skills", SHA, None, 900, None) == 1
     out, err = capsys.readouterr()
     assert out == ""
     assert err.strip() == f"drive install: long-running@skills in the user scope is still at 1.0.3 (0ldc0mm1t5ha) after the update, which does not hold {SHA[:12]}, the sha awaited"
@@ -249,7 +278,7 @@ def test_an_update_running_a_binary_from_a_release_without_the_sha_is_refused_na
     bin_dir.mkdir(parents=True)
     (bin_dir / "codex-ask.binrun").write_text(binrun("codex-ask", REPO, "1.15.2"))
     (bin_dir / "codex-ask.binrun.tmpl").write_text("{{ not json }}")
-    assert install.main("long-running@skills", SHA, None, 900) == 1
+    assert install.main("long-running@skills", SHA, None, 900, None) == 1
     assert capsys.readouterr().err.strip() == (
         f"drive install: long-running@skills 1.0.3 in the user scope runs codex-ask from release v1.15.2 after the update, which does not hold {SHA[:12]}, the sha awaited"
     )
@@ -262,13 +291,13 @@ def test_a_binary_released_from_another_repo_is_not_held_to_the_sha(fake: Callab
     bin_dir = git.install_root / "long-running" / "1.0.3" / "bin"
     bin_dir.mkdir(parents=True)
     (bin_dir / "slop-cop.binrun").write_text(binrun("slop-cop", "yasyf/slop-cop", "0.1.75"))
-    assert install.main("long-running@skills", SHA, None, 900) == 0
+    assert install.main("long-running@skills", SHA, None, 900, None) == 0
     assert not [call for call in git.git_calls() if "v0.1.75" in call[-1]]
 
 
 def test_a_github_api_rate_limit_cannot_stall_an_install(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
     git = fake(["long-running--v1.0.3"], {"long-running--v1.0.3"})
-    assert install.main("long-running@skills", SHA, None, 540) == 0
+    assert install.main("long-running@skills", SHA, None, 540, None) == 0
     assert capsys.readouterr().out.strip() == "installed long-running@skills 1.0.3"
     assert (git.sleeps, [call for call in git.calls if call[0] == "gh"]) == ([], [])
 
@@ -277,7 +306,7 @@ def test_a_tag_behind_the_sha_is_polled_until_a_new_tag_catches_up(
     fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
 ) -> None:
     git = fake(["long-running--v1.0.2", "long-running--v1.0.2", "long-running--v1.0.3"], {"long-running--v1.0.3"})
-    code = install.main("long-running@skills", SHA, None, 900)
+    code = install.main("long-running@skills", SHA, None, 900, None)
     assert code == 0
     assert git.sleeps == [20, 20]
     assert capsys.readouterr().out.strip() == "installed long-running@skills 1.0.3"
@@ -288,7 +317,7 @@ def test_a_wait_names_each_new_release_lacking_the_sha_and_its_timeout_the_last(
     fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
 ) -> None:
     git = fake(["long-running--v1.0.1", "long-running--v1.0.2"], set())
-    code = install.main("long-running@skills", SHA, None, 60)
+    code = install.main("long-running@skills", SHA, None, 60, None)
     assert code == 1
     assert git.sleeps == [20, 20, 20]
     waited, *_, timed_out = capsys.readouterr().err.splitlines()
@@ -305,7 +334,7 @@ def test_a_path_source_waits_for_the_manifest_commit_that_contains_the_sha(
     fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], path: str, manifest: str, folder: str
 ) -> None:
     git = fake(["0ld5ync", "n3w5ync"], {"n3w5ync"}, path=path)
-    assert install.main("long-running@skills", SHA, None, 900) == 0
+    assert install.main("long-running@skills", SHA, None, 900, None) == 0
     assert ["log", "-1", "--first-parent", "--format=%H", install.DEFAULT_BRANCH, "--", manifest] in git.git_calls()
     assert holds(SHA, "n3w5ync") in git.git_calls()
     assert ["ls-tree", "-r", "--name-only", "n3w5ync", "--", folder] in git.git_calls()
@@ -317,7 +346,7 @@ def test_a_path_source_waits_for_the_manifest_commit_that_contains_the_sha(
 
 def test_slow_reads_count_against_the_timeout(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
     git = fake(["long-running--v1.0.2"], set(), call_seconds=8)
-    assert install.main("long-running@skills", SHA, None, 60) == 1
+    assert install.main("long-running@skills", SHA, None, 60, None) == 1
     assert git.now == 1060
     assert git.timeouts == [60, 52, 44, 36, 28, 20]
     assert git.sleeps == [12]
@@ -327,7 +356,7 @@ def test_slow_reads_count_against_the_timeout(fake: Callable[..., FakeGit], caps
 
 def test_a_hung_read_is_cut_at_the_deadline(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
     git = fake(["long-running--v1.0.3"], {"long-running--v1.0.3"}, call_seconds=3600)
-    assert install.main("long-running@skills", SHA, None, 60) == 1
+    assert install.main("long-running@skills", SHA, None, 60, None) == 1
     assert git.now == 1060
     assert "ran past the deadline" in capsys.readouterr().err
     assert git.claude_calls() == []
@@ -335,22 +364,23 @@ def test_a_hung_read_is_cut_at_the_deadline(fake: Callable[..., FakeGit], capsys
 
 def test_each_update_gets_only_the_time_left(fake: Callable[..., FakeGit]) -> None:
     git = fake(["unused"], set(), call_seconds=5)
-    assert install.main("long-running@skills", None, None, 900) == 0
-    assert git.timeouts == [900, 895]
+    assert install.main("long-running@skills", None, None, 900, None) == 0
+    assert [timeout for call, timeout in zip(git.calls, git.timeouts, strict=True) if call[0] == "claude"] == [870, 865]
 
 
 def test_without_a_sha_it_installs_what_the_marketplace_names_now(
     fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
 ) -> None:
     git = fake(["unused"], set())
-    assert install.main("long-running@skills", None, None, 900) == 0
-    assert [call[0] for call in git.calls] == ["claude", "claude"]
+    assert install.main("long-running@skills", None, None, 900, None) == 0
+    assert git.claude_calls() == [["claude", "plugin", "marketplace", "update", "skills"], ["claude", "plugin", "update", "long-running@skills", "--scope", "user"]]
+    assert not [call for call in git.git_calls() if call[0] == "rev-list"]
     assert capsys.readouterr().out.strip() == "installed long-running@skills 1.0.3"
 
 
 def test_an_explicit_repo_wins_over_the_known_marketplace(fake: Callable[..., FakeGit]) -> None:
     git = fake(["long-running--v1.0.3"], {"long-running--v1.0.3"})
-    assert install.main("long-running@skills", SHA, "someone/fork", 900) == 0
+    assert install.main("long-running@skills", SHA, "someone/fork", 900, None) == 0
     assert git.git_calls()[0] == ["remote", "add", "origin", "https://github.com/someone/fork"]
 
 
@@ -383,13 +413,13 @@ def test_a_merge_touches_each_installed_plugin_of_its_repo_whose_folder_it_chang
 
 def test_a_marketplace_with_no_github_repo_asks_for_repo(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
     fake(["unused"], set())
-    assert install.main("plugin@forge", SHA, None, 900) == 1
+    assert install.main("plugin@forge", SHA, None, 900, None) == 1
     assert "pass --repo" in capsys.readouterr().err
 
 
 def test_a_plugin_the_marketplace_does_not_name_fails_at_once(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
     git = fake(["long-running--v1.0.3"], {"long-running--v1.0.3"})
-    assert install.main("cci@skills", SHA, None, 900) == 1
+    assert install.main("cci@skills", SHA, None, 900, None) == 1
     assert "the skills marketplace names no plugin cci" in capsys.readouterr().err
     assert (git.sleeps, git.claude_calls()) == ([], [])
 
@@ -471,7 +501,7 @@ def test_a_release_sync_merged_straight_back_holds_its_own_merge_commit(
 
 def test_installing_cc_inbox_moves_the_cci_daemon_onto_the_new_build(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
     git = fake(["unused"], set())
-    assert install.main("cc-inbox@skills", None, None, 900) == 0
+    assert install.main("cc-inbox@skills", None, None, 900, None) == 0
     assert git.other_calls() == [["/cache/cc-inbox/1.0.3/bin/cci", "serve"], BREW_TAP, upgrade("cci")]
     assert git.homebrew_calls() == [BREW_TAP, TAP_PULL, upgrade("cci")]
     assert capsys.readouterr().out.strip() == "installed cc-inbox@skills 1.0.3"
@@ -482,7 +512,7 @@ def test_a_homebrew_twin_is_upgraded_until_the_bare_binary_runs_a_release_holdin
 ) -> None:
     git = fake(["cc-context--v1.0.3"], {"cc-context--v1.0.3", "v0.95.70"})
     git.bare = ["v0.95.69", "v0.95.70"]
-    assert install.main("cc-context@skills", SHA, None, 900) == 0
+    assert install.main("cc-context@skills", SHA, None, 900, None) == 0
     each_pass = [TAP_PULL, upgrade("ccx"), ["ccx", "--version"]]
     assert git.homebrew_calls() == [BREW_TAP, *each_pass, *each_pass]
     assert holds(SHA, "v0.95.69") in git.git_calls()
@@ -497,7 +527,7 @@ def test_a_bare_binary_still_lacking_the_sha_at_the_deadline_refuses_the_install
 ) -> None:
     git = fake(["cc-context--v1.0.3"], {"cc-context--v1.0.3"})
     git.bare = ["0.95.69 (5aff6f4)"]
-    assert install.main("cc-context@skills", SHA, None, 60) == 1
+    assert install.main("cc-context@skills", SHA, None, 60, None) == 1
     assert git.sleeps == [20, 20]
     out, err = capsys.readouterr()
     assert out == ""
@@ -509,7 +539,7 @@ def test_a_homebrew_pass_fetches_only_the_yasyf_tap_so_another_taps_fetch_cannot
 ) -> None:
     git = fake(["cc-context--v1.0.3"], {"cc-context--v1.0.3", "v0.95.70"})
     git.bare = ["v0.95.70"]
-    assert install.main("cc-context@skills", SHA, None, 900) == 0
+    assert install.main("cc-context@skills", SHA, None, 900, None) == 0
     assert git.homebrew_calls() == [BREW_TAP, TAP_PULL, upgrade("ccx"), ["ccx", "--version"]]
     assert not [call for call in git.calls if call[:2] == ["brew", "update"]]
     assert capsys.readouterr().out.strip() == "installed cc-context@skills 1.0.3"
@@ -517,7 +547,7 @@ def test_a_homebrew_pass_fetches_only_the_yasyf_tap_so_another_taps_fetch_cannot
 
 def test_other_plugins_run_nothing_after_the_update(fake: Callable[..., FakeGit]) -> None:
     git = fake(["unused"], set())
-    assert install.main("long-running@skills", None, None, 900) == 0
+    assert install.main("long-running@skills", None, None, 900, None) == 0
     assert git.other_calls() == []
 
 
@@ -538,7 +568,7 @@ def test_installs_run_at_once_take_turns_on_the_plugin_updates(fake: Callable[..
     monkeypatch.setattr(install.subprocess, "run", slow_claude)
     keys = ["long-running@skills", "cc-inbox@skills", "codex@skills"]
     with ThreadPoolExecutor() as pool:
-        versions = list(pool.map(lambda key: install.install(key, None, None, git.clock() + 900, 900), keys))
+        versions = list(pool.map(lambda key: install.install(key, None, None, git.clock() + 900, 900, None), keys))
     assert versions == ["1.0.3"] * 3
     assert len(git.claude_calls()) == 6
     assert max(most_at_once) == 1
@@ -570,7 +600,7 @@ def test_an_install_types_reload_plugins_into_both_drive_sessions_once_each_is_i
     start_drive("demo", communicator="term_comm", coordinator="term_coord")
     git = fake(["unused"], set())
     git.together = threading.Barrier(2, timeout=5)
-    assert install.main("long-running@skills", None, None, 900) == 0
+    assert install.main("long-running@skills", None, None, 900, None) == 0
     assert git.typed_into("term_comm") == [waited("term_comm", "30000"), sent("term_comm")]
     assert git.typed_into("term_coord") == [waited("term_coord", "30000"), sent("term_coord")]
     assert capsys.readouterr().out.splitlines() == [
@@ -586,7 +616,7 @@ def test_an_install_reloads_the_sessions_of_a_drive_a_newer_install_saved_after_
     path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "9.9.9"}))
     git = fake(["unused"], set())
     git.together = threading.Barrier(2, timeout=5)
-    assert install.main("long-running@skills", None, None, 900) == 0
+    assert install.main("long-running@skills", None, None, 900, None) == 0
     assert capsys.readouterr().out.splitlines() == [
         "installed long-running@skills 1.0.3",
         "demo communicator: reloaded in term_comm",
@@ -601,7 +631,7 @@ def test_a_session_still_busy_after_the_wait_gets_reload_plugins_queued_behind_i
     git = fake(["unused"], set())
     git.together = threading.Barrier(2, timeout=5)
     git.waits["term_coord"] = BUSY
-    assert install.main("long-running@skills", None, None, 900) == 0
+    assert install.main("long-running@skills", None, None, 900, None) == 0
     assert git.typed_into("term_comm") == [waited("term_comm", "30000"), sent("term_comm")]
     assert git.typed_into("term_coord") == [waited("term_coord", "30000"), sent("term_coord")]
     assert capsys.readouterr().out.splitlines()[1:] == [
@@ -614,7 +644,7 @@ def test_an_install_near_its_deadline_waits_only_the_time_left(fake: Callable[..
     start_drive("demo", communicator="term_comm")
     git = fake(["unused"], set(), call_seconds=5)
     git.waits["term_comm"] = BUSY
-    assert install.main("long-running@skills", None, None, 30) == 0
+    assert install.main("long-running@skills", None, None, 60, None) == 0
     assert git.typed_into("term_comm") == [waited("term_comm", "10000"), sent("term_comm")]
     assert sorted(git.orca_timeouts) == [60, 70]
     assert "demo communicator: busy for 10s" in capsys.readouterr().out
@@ -643,7 +673,7 @@ def test_a_terminal_orca_cannot_find_or_that_shows_a_prompt_is_typed_nothing(
     git.together = threading.Barrier(2, timeout=5)
     git.waits["term_gone"] = {"ok": False, "error": {"code": "terminal_not_found", "message": "no terminal term_gone"}}
     git.waits["term_menu"] = {"ok": True, "result": {"wait": {"satisfied": False, "blockedReason": "agent-trust-workspace"}}}
-    assert install.main("long-running@skills", None, None, 900) == 0
+    assert install.main("long-running@skills", None, None, 900, None) == 0
     assert [call[2] for call in git.orca_calls] == ["wait", "wait"]
     assert capsys.readouterr().out.splitlines()[1:] == [
         f"demo communicator: not reloaded (orca terminal wait: terminal_not_found: no terminal term_gone); {by_hand('term_gone')}",
@@ -656,7 +686,7 @@ def test_a_drive_session_with_no_terminal_recorded_is_skipped_with_a_line(
 ) -> None:
     start_drive("solo", coordinator=None)
     git = fake(["unused"], set())
-    assert install.main("long-running@skills", None, None, 900) == 0
+    assert install.main("long-running@skills", None, None, 900, None) == 0
     assert git.orca_calls == []
     assert capsys.readouterr().out.splitlines() == [
         "installed long-running@skills 1.0.3",
@@ -675,7 +705,7 @@ def test_a_session_another_install_reloaded_after_this_update_is_not_reloaded_tw
     }
     reloads.write_text(json.dumps(stamps))
     git = fake(["unused"], set())
-    assert install.main("long-running@skills", None, None, 900) == 0
+    assert install.main("long-running@skills", None, None, 900, None) == 0
     assert git.typed_into("term_comm") == []
     assert git.typed_into("term_coord") == [waited("term_coord", "30000"), sent("term_coord")]
     assert capsys.readouterr().out.splitlines() == [
@@ -694,7 +724,7 @@ def test_an_install_reloads_each_sub_coordinator_beside_both_roles_stamping_each
         data["subcoordinators"]["Iris"] = {"session": "demo-iris", "terminal": "term_iris", "cwd": "/work", "started": state.stamp()}
     git = fake(["unused"], set())
     git.together = threading.Barrier(3, timeout=5)
-    assert install.main("long-running@skills", None, None, 900) == 0
+    assert install.main("long-running@skills", None, None, 900, None) == 0
     assert git.typed_into("term_iris") == [waited("term_iris", "30000"), sent("term_iris")]
     assert capsys.readouterr().out.splitlines() == [
         "installed long-running@skills 1.0.3",
@@ -709,5 +739,92 @@ def test_a_reload_never_sent_leaves_no_stamp_so_the_next_install_sends_it(fake: 
     start_drive("demo", communicator="term_comm")
     git = fake(["unused"], set())
     git.waits["term_comm"] = {"ok": False, "error": {"code": "terminal_not_found", "message": "no terminal term_comm"}}
-    assert install.main("long-running@skills", None, None, 900) == 0
+    assert install.main("long-running@skills", None, None, 900, None) == 0
     assert "communicator" not in json.loads((state.drive_dir("demo") / install.RELOADS).read_text())
+
+
+def needing_the_app(fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch, answers: list[dict]) -> FakeGit:
+    start_drive("demo", coordinator=None)
+    git = fake(["long-running--v1.0.3"], {"long-running--v1.0.3"})
+    git.needs = {"long-running": [HOOKS_FLOOR]}
+    git.versions = {"captain-hook": "12.121.70"}
+    git.helper = "12.121.68"
+    hooks = {"scope": "user", "version": "12.121.70", "lastUpdated": "2026-11-12T04:00:00.000Z", "installPath": "/cache/captain-hook/12.121.70", "gitCommitSha": OLD_COMMIT}
+    installed = json.loads((git.config / "plugins" / "installed_plugins.json").read_text())["plugins"]
+    git.write_installed(installed | {"captain-hook@captain-hook": [hooks]})
+    monkeypatch.setattr(github, "read", lambda what, cmd, max_age="0s", text=True: "v12.121.70\n")
+    monkeypatch.setattr(settled, "ccn", lambda argv, text, cwd, failure: json.dumps(answers))
+    return git
+
+
+@pytest.mark.parametrize("key", ["long-running@skills", "captain-hook@captain-hook"])
+def test_a_plugin_needing_a_newer_captain_hook_app_installs_nothing_until_his_install_now_tap(
+    fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], key: str
+) -> None:
+    git = needing_the_app(fake, monkeypatch, [{"title": HELPER_CARD, "body": "Not now\nOptions: Install now (recommended) | Installs never need me | Not now"}])
+    assert install.main(key, None, None, 900, "demo") == 1
+    assert capsys.readouterr().err.strip() == (
+        f'drive install: holds {key} for his card "{HELPER_CARD}" (Install now (recommended), Installs never need me and Not now), asked with drive job ask:'
+        " it needs captain-hook 12.121.70, and Captain Hook.app, which runs every hook, runs 12.121.68; run this again once `drive answer` records his pick"
+    )
+    with state.edit("demo") as data:
+        data["jobs"]["j1"] = state.new_job("o1", "builder", "ship", [], state.stamp()) | {"questions": [state.new_question("/asks/j1-helper.md", HELPER_CARD, state.stamp())]}
+    assert install.main(key, None, None, 900, "demo") == 1
+    assert capsys.readouterr().err.startswith(f"drive install: holds {key} for his card /asks/j1-helper.md: it needs captain-hook 12.121.70")
+    assert (git.claude_calls(), RESTART in git.calls, git.helper) == ([], False, "12.121.68")
+
+
+def test_his_install_now_tap_moves_captain_hook_app_onto_the_release_before_the_plugin_installs(
+    fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    git = needing_the_app(fake, monkeypatch, [{"title": HELPER_CARD, "body": "Install now\nOptions: Install now (recommended) | Installs never need me | Not now"}])
+    assert install.main("long-running@skills", SHA, None, 900, "demo") == 0
+    assert git.calls.index(RESTART) < git.calls.index(["claude", "plugin", "marketplace", "update", "skills"])
+    assert git.helper == "12.121.70"
+    assert capsys.readouterr().out.splitlines()[0] == "installed long-running@skills 1.0.3"
+
+
+def test_an_app_already_at_the_floor_is_not_restarted(fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch) -> None:
+    git = needing_the_app(fake, monkeypatch, [])
+    git.helper = "12.121.70"
+    monkeypatch.setattr(github, "read", lambda *args, **kwargs: pytest.fail("read captain-hook's newest release for an app at the floor"))
+    assert install.main("long-running@skills", SHA, None, 900, "demo") == 0
+    assert RESTART not in git.calls
+
+
+def needing_slack(fake: Callable[..., FakeGit], released: str) -> FakeGit:
+    git = fake(["long-running--v1.0.3"], {"long-running--v1.0.3"})
+    git.needs = {"long-running": [SLACK_FLOOR]}
+    git.versions = {"cc-slack": released}
+    git.bare = [f"v{released}"]
+    slack = {"scope": "user", "version": "0.19.142", "lastUpdated": "2026-11-12T04:00:00.000Z", "installPath": "/cache/cc-slack/0.19.142", "gitCommitSha": OLD_COMMIT}
+    installed = json.loads((git.config / "plugins" / "installed_plugins.json").read_text())["plugins"]
+    git.write_installed(installed | {"cc-slack@cc-slack": [slack]})
+    return git
+
+
+def test_a_sibling_below_the_release_a_plugin_needs_installs_before_it(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
+    git = needing_slack(fake, "0.19.143")
+    assert install.main("long-running@skills", SHA, None, 900, None) == 0
+    assert git.claude_calls() == [
+        ["claude", "plugin", "marketplace", "update", "cc-slack"],
+        ["claude", "plugin", "update", "cc-slack@cc-slack", "--scope", "user"],
+        ["claude", "plugin", "marketplace", "update", "skills"],
+        ["claude", "plugin", "update", "long-running@skills", "--scope", "user"],
+    ]
+    assert git.homebrew_calls() == [BREW_TAP, TAP_PULL, upgrade("cc-slack"), ["cc-slack", "--version"]]
+    assert capsys.readouterr().out.splitlines()[0] == "installed long-running@skills 1.0.3"
+
+
+def test_a_plugin_whose_sibling_release_is_not_out_waits_for_it_and_installs_nothing_past_the_deadline(
+    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
+) -> None:
+    git = needing_slack(fake, "0.19.142")
+    assert install.main("long-running@skills", SHA, None, 60, None) == 1
+    lacking = "cc-slack@cc-slack in the user scope is at 0.19.142"
+    assert capsys.readouterr().err.splitlines() == [
+        f"drive install: waiting for cc-slack@cc-slack 0.19.143: {lacking}",
+        f"drive install: timed out after 60s waiting for cc-slack@cc-slack 0.19.143; {lacking}",
+    ]
+    assert git.sleeps == [20, 20]
+    assert ["claude", "plugin", "update", "long-running@skills", "--scope", "user"] not in git.calls

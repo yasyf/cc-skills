@@ -1,14 +1,13 @@
 import io
 import json
-import subprocess
-import types
+import plistlib
 from collections.abc import Callable
 from pathlib import Path
 
 import bash_guard
 import pytest
 from conftest import SESSION
-from drive import github, orca, settled, state
+from drive import github, install, orca, settled, state
 from drive.orca import OrcaError
 
 Run = Callable[..., tuple[int, str]]
@@ -196,16 +195,20 @@ HELPER_CARD = "Captain-hook update, your Mac: install {} now? It restarts the ho
 HELPER_OPTIONS = "Options: Install now (recommended) | Installs never need me | Not now"
 
 
-def test_a_hook_helper_install_runs_only_on_his_install_now_for_the_newest_release_once(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    helper = {"newest": "v12.121.70", "runs": "helper v12.121.69 ok=True cli v12.121.70"}
+def holding(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, release: str) -> Path:
+    app = tmp_path / "Captain Hook.app" / "Contents" / "Info.plist"
+    app.parent.mkdir(parents=True, exist_ok=True)
+    app.write_bytes(plistlib.dumps({"CFBundleShortVersionString": release}))
+    monkeypatch.setattr(install, "APP_PLIST", app)
+    return app
+
+
+def test_a_hook_helper_install_runs_only_on_his_install_now_for_the_newest_release_once(demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    helper = {"newest": "v12.121.70"}
     answers = [{"id": "1352576", "title": HELPER_CARD.format("12.121.63"), "body": f"Install now: the misfire stops for every session on this Mac.\n{HELPER_OPTIONS}", "tags": []}]
     monkeypatch.setattr(github, "read", lambda what, cmd, max_age="0s", text=True: f"{helper['newest']}\n")
     monkeypatch.setattr(settled, "ccn", lambda argv, text, cwd, failure: json.dumps(answers))
-
-    def status(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
-        return subprocess.CompletedProcess(argv, 1, helper["runs"], "")
-
-    monkeypatch.setattr(bash_guard, "subprocess", types.SimpleNamespace(run=status, TimeoutExpired=subprocess.TimeoutExpired))
+    holding(monkeypatch, tmp_path, "12.121.69")
     reason = bash_guard.deny_reason(bash("uvx capt-hook helper install"))
     assert reason.startswith("refused: `capt-hook helper install` installs captain-hook 12.121.70, the newest release, and restarts the hook helper")
     assert f'"{HELPER_CARD.format("12.121.70")}"' in reason
@@ -213,6 +216,23 @@ def test_a_hook_helper_install_runs_only_on_his_install_now_for_the_newest_relea
     assert bash_guard.deny_reason(bash("capt-hook helper install")).startswith("refused: `capt-hook helper install` installs captain-hook 12.121.70")
     answers.append({"id": "a2", "title": HELPER_CARD.format("12.121.70"), "body": f"Install now\n{HELPER_OPTIONS}", "tags": []})
     assert bash_guard.deny_reason(bash("uvx --from capt-hook capt-hook helper install")) is None
-    helper["runs"] = "helper v12.121.70 ok=True cli v12.121.70"
-    assert bash_guard.deny_reason(bash("capt-hook helper install")).startswith("refused: the hook helper already runs captain-hook 12.121.70")
+    holding(monkeypatch, tmp_path, "12.121.70")
+    assert bash_guard.deny_reason(bash("capt-hook helper install")).startswith("refused: Captain Hook.app already holds captain-hook 12.121.70")
     assert bash_guard.deny_reason(bash("capt-hook helper status")) is None
+
+
+def test_any_sessions_hook_helper_restart_waits_for_his_install_now_tap_on_the_card_naming_its_release(demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    answers: list[dict] = []
+    monkeypatch.setattr(github, "read", lambda what, cmd, max_age="0s", text=True: "v12.121.70\n")
+    monkeypatch.setattr(settled, "ccn", lambda argv, text, cwd, failure: json.dumps(answers))
+    holding(monkeypatch, tmp_path, "12.121.68")
+    with state.edit(demo) as data:
+        data["jobs"]["j1"] = state.new_job("o1", "builder", "ship", [], state.stamp()) | {"questions": [state.new_question("/asks/j1-helper.md", HELPER_CARD.format("12.121.70"), state.stamp())]}
+    restarts = ["capt-hook helper install", "brew upgrade yasyf/tap/captain-hook", "brew reinstall --cask captain-hook", "brew upgrade"]
+    for command, step in zip(restarts, ["`capt-hook helper install`", "`brew upgrade` of captain-hook", "`brew reinstall` of captain-hook", "`brew upgrade` of captain-hook"], strict=True):
+        reason = bash_guard.deny_reason(bash(command, session="ordinary"))
+        assert reason.startswith(f"refused: {step} installs captain-hook 12.121.70, the newest release, and restarts the hook helper")
+        assert "no answer of his picks Install now on his card /asks/j1-helper.md" in reason
+    assert bash_guard.deny_reason(bash("brew upgrade yasyf/tap/ccx", session="ordinary")) is None
+    answers.append({"id": "a2", "title": HELPER_CARD.format("12.121.70"), "body": f"Install now\n{HELPER_OPTIONS}", "tags": []})
+    assert [bash_guard.deny_reason(bash(command, session="ordinary")) for command in restarts] == [None] * len(restarts)

@@ -2779,7 +2779,7 @@ def move(args: argparse.Namespace) -> int:
 
 
 def install_plugin(args: argparse.Namespace) -> int:
-    return install.main(args.plugin, args.sha, args.repo, args.timeout)
+    return install.main(args.plugin, args.sha, args.repo, args.timeout, args.drive)
 
 
 def reload_plugins(args: argparse.Namespace) -> int:
@@ -3639,7 +3639,7 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.set_defaults(run=move)
 
-    verb = verbs.add_parser("install")
+    verb = verbs.add_parser("install", parents=[drive_opt])
     verb.add_argument("plugin", metavar="plugin@marketplace")
     verb.add_argument("--sha")
     verb.add_argument("--repo")
