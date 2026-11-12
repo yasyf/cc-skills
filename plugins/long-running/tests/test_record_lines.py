@@ -99,7 +99,7 @@ def test_an_ask_naming_another_open_question_or_another_jobs_file_is_refused_and
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     shown = {"url": CARD, "question": LAYOUT, "asked": state.stamp(), "card": {"title": LAYOUT, "waits": "demo:j1-7"}}
-    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": []})
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": [], "closed": []})
     earlier = kept(demo, "j1", LAYOUT, card=CARD)
     assert "which this record does not ask" in refusal(record_lines.decision(post(kind="ask", text=HANDLE, attrs=earlier)))
     elsewhere = kept(demo, "j2", HANDLE)
@@ -503,7 +503,7 @@ def test_his_words_in_the_thread_of_a_card_an_orders_job_drew_go_to_the_session_
 
 def test_his_words_on_his_open_card_go_only_through_the_record_tool_that_closes_it(demo: str) -> None:
     shown = {"url": CARD, "question": LAYOUT, "asked": state.stamp(), "card": {"title": LAYOUT, "waits": "demo:j1-7"}}
-    state.cards_path(demo).write_text(json.dumps({"source": "live", "team_url": "", "questions": [shown], "pr_cards": []}))
+    state.cards_path(demo).write_text(json.dumps({"source": "live", "team_url": "", "questions": [shown], "closed": [], "pr_cards": []}))
     answer = refusal(record_lines.decision(post(kind="answer", text="the lazy copy", re=["7"], attrs={"job": "j1"})))
     assert f"his open card {CARD}" in answer and "send it with the drive's `record` tool" in answer
     under = f"{CARD}?thread_ts={CARD_THREAD}"

@@ -716,7 +716,7 @@ def test_a_post_saying_a_pr_waits_on_his_tap_is_refused_unless_he_has_its_tap_ca
         data["prs"]["Forge-AI/monorepo#53971"]["tap"] = None
     assert "Forge-AI/monorepo#53971: no open tap card of his stands at its head" in posted(transcript, text=text)
     tap = {"asked": state.stamp(), "url": link, "prs": [url], "card": {"title": "Fix: land it?", "prs": [{"url": url, "head": "abc123"}]}}
-    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [tap]})
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [tap], "closed": []})
     view.refresh_cards("demo")
     assert f"Forge-AI/monorepo#53971: the words do not link its open tap card {link}" in posted(transcript, text=text)
     assert posted(transcript, text=f"{text} <{link}|Its tap card> is up.") is None
@@ -734,7 +734,7 @@ def test_a_tap_card_say_just_drew_lets_the_next_say_link_it_as_what_the_pr_waits
     with state.edit("demo") as data:
         data["prs"]["yasyf/cc-skills#7"] = state.new_pr(url, "j1", "o1") | {"head": "f3ed5a7"}
     drawn: list[dict] = []
-    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": drawn})
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": drawn, "closed": []})
     view.refresh_cards("demo")
     text = f"<{url}|The unfurl fix> waits on your Approve: <{link}|its tap card>."
     assert "yasyf/cc-skills#7: no open tap card of his stands at its head" in say(transcript, text=text)

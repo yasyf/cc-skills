@@ -57,7 +57,7 @@ def test_load_gives_each_picture_drawn_before_pictures_kept_their_source_its_kep
     (drive / "asks").mkdir()
     (drive / "asks" / "j1.md").write_text("ASK Which entry point?\nShow me:\n```rust\nfn main() {}\n```\n- Keep main\n")
     pr_card = {"card": {"prs": [{"description": "## Show me\n\n```sand\nbrowser::click(@page, @b) -> @r\n```\n"}]}}
-    (drive / "cards.json").write_text(json.dumps({"pr_cards": [pr_card], "questions": [], "source": "live", "team_url": ""}))
+    (drive / "cards.json").write_text(json.dumps({"closed": [], "pr_cards": [pr_card], "questions": [], "source": "live", "team_url": ""}))
     asked, landed = drive / "pictures" / "e133bc15ea5e3141", drive / "pictures" / "c704dc0a0eebbf8f"
     for home in (asked, landed):
         home.mkdir(parents=True)
@@ -82,7 +82,7 @@ def test_load_rebuilds_from_his_stored_card_the_ask_file_a_question_never_kept_w
     (shown / "source.json").write_text(json.dumps({"kind": "code:sql", "source": "select count(*) from alerts\n"}))
     body = f"*This question is being redone:* new numbers\nCounting reads every row.\nRecommended: exact.\n*Show me*\nOne query per table:\n![Show me]({shown / 'show-me.png'})\n![dash](/nowhere/dash.png)"
     card = {"title": "Should row counts be exact?", "body": body, "options": ["Exact: one query per table", "Estimate: the planner's numbers"], "recommended": "Exact: one query per table", "waits": "demo:j1-7"}
-    (drive / "cards.json").write_text(json.dumps({"pr_cards": [], "questions": [{"card": card}], "source": "live", "team_url": ""}))
+    (drive / "cards.json").write_text(json.dumps({"closed": [], "pr_cards": [], "questions": [{"card": card}], "source": "live", "team_url": ""}))
     kept = drive / "asks" / "j1-7.md"
     assert state.load("demo")["jobs"]["j1"]["questions"][0]["file"] == str(kept)
     assert kept.read_text() == (
