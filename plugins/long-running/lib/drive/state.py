@@ -1031,8 +1031,8 @@ def promise(order: dict, due: str, moment: datetime) -> None:
 
 
 def remind(order: dict, due: str, moment: datetime) -> None:
-    """Set the time an order with no thread wakes the drive at: no post can keep it, so it replaces any time set before and is said once."""
-    order.update(due=due, promised=stamp(moment), kept=None, withdrawn=None, due_said=None, next_due=None, next_set=None)
+    """Owe due from moment in place of any time owed or waiting before: the time a drive post made at moment promised in the order's thread, which the next post keeps, or the time an order with no thread wakes the drive at, which no post keeps, so it is said once."""
+    order.update(due=due, promised=moment.isoformat(), kept=None, withdrawn=None, due_said=None, next_due=None, next_set=None)
 
 
 def keep(order: dict, posts: list[datetime], announced: bool = True) -> None:
