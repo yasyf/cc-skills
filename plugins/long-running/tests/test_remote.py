@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 from conftest import Answers, Drawing, Jev
-from drive import cli, github, orca, place, reads, render, slack, state, watch
+from drive import cli, github, install, orca, place, reads, render, slack, state, watch
 
 Run = Callable[..., tuple[int, str]]
 T0 = state.parse_time("2026-11-09T07:30:00-08:00")
@@ -1768,6 +1768,71 @@ def test_bound_keeps_the_worker_start_receipt_and_status_when_a_newer_install_sa
     assert cli.main(["bound", "--drive", remote, RUN, "--", "orca", "orchestration", "worker-start"]) == 0
     assert capsys.readouterr().out == receipt
     assert binds == [RUN, DRIVE_RUN]
+
+
+class Execed(Exception):
+    pass
+
+
+def started_as_a_newer_install_saves(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, drive: str, receipt: dict) -> Path:
+    """The newest install's drive, which an older one execs in place of itself, once its worker started as that install saved drive.json."""
+    path = state.state_path(drive)
+    newer = tmp_path / "cache" / "9.9.9" / "bin" / "drive"
+
+    def installed_mid_launch(*args: object) -> dict:
+        path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "9.9.9"}))
+        return receipt
+
+    def execv(drive: Path, argv: list[str]) -> None:
+        raise Execed(drive, argv)
+
+    monkeypatch.setattr(orca, "launch", installed_mid_launch)
+    monkeypatch.setattr(install, "upgraded", lambda: newer)
+    monkeypatch.setattr(install.os, "execv", execv)
+    return newer
+
+
+def test_a_launch_a_newer_install_saved_the_drive_during_hands_its_receipt_to_that_install_which_records_the_started_worker(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / ".orca.json").write_text("{}")
+    (tmp_path / "brief.md").write_text("Order (his words): ship it\nDrive: demo, order o1, job j1\n")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship it", "--remote")
+    monkeypatch.setattr(orca, "new_run", lambda objective: RUN)
+    receipt = {field: f"{field}-1" for field in cli.LAUNCHED if field != "run"} | {"dispatch": DISPATCH}
+    newer = started_as_a_newer_install_saves(monkeypatch, tmp_path, demo, receipt)
+    with pytest.raises(Execed) as execed:
+        cli.main(["job", "launch", "j1", "brief.md", "--drive", demo])
+    handed = ["job", "launch", "j1", "--drive", demo, "--started", json.dumps({"run": RUN} | receipt)]
+    assert execed.value.args == (newer, [str(newer), *handed])
+    path = state.state_path(demo)
+    assert json.loads(path.read_text())["jobs"]["j1"].get("dispatch") is None
+    path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": state.VERSION}))
+    assert run(*handed) == (0, f"j1 started on Sprite workspace-1 as dispatch {DISPATCH}")
+    job = state.load(demo)["jobs"]["j1"]
+    assert (job["dispatch"], job["run"], job["state"], job["brief"]) == (DISPATCH, RUN, "running", str(state.drive_dir(demo) / "jobs" / "j1.md"))
+
+
+def test_a_relaunch_a_newer_install_saved_the_drive_during_hands_its_receipt_and_handoff_to_that_install_which_records_the_started_worker(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / ".orca.json").write_text("{}")
+    dead_lane_holding(remote, tmp_path, monkeypatch, "")
+    receipt = {field: f"{field}-2" for field in cli.LAUNCHED if field != "run"}
+    newer = started_as_a_newer_install_saves(monkeypatch, tmp_path, remote, receipt)
+    with pytest.raises(Execed) as execed:
+        cli.main(["job", "resume", "j1", "Use @poeticapps/poetic", "--drive", remote])
+    handoff = str(state.drive_dir(remote) / "jobs" / "j1-2.md")
+    handed = ["job", "launch", "j1", "--drive", remote, "--started", json.dumps({"run": FRESH_RUN} | receipt), "--handoff", handoff]
+    assert execed.value.args == (newer, [str(newer), *handed])
+    path = state.state_path(remote)
+    assert json.loads(path.read_text())["jobs"]["j1"]["dispatch"] == DISPATCH
+    path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": state.VERSION}))
+    assert run(*handed) == (0, "j1 started on Sprite workspace-2 as dispatch dispatch-2")
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["dispatch"], job["run"], job["handoff"], job["state"], job["reads"], job["undelivered"]) == ("dispatch-2", FRESH_RUN, handoff, "running", {}, [])
+    assert [death["dispatch"] for death in job["deaths"]] == [DISPATCH]
 
 
 NO_RUN = "orca orchestration run-use: run_not_found: no such Run"

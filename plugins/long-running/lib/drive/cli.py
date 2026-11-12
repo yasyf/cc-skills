@@ -1668,8 +1668,14 @@ def transcript_line(job_id: str, job: dict) -> str | None:
 
 
 def job_launch(args: argparse.Namespace) -> int:
-    """Start a job's Orca lane, on a Sprite or with --local on this Mac, stamped as launching once nothing refuses it so the watch reads it as starting until the launch could have finished."""
+    """Start a job's Orca lane, on a Sprite or with --local on this Mac, stamped as launching once nothing refuses it so the watch reads it as starting until the launch could have finished; with --started, record the receipt of a worker an older install started, launching nothing."""
     name = state.resolve(args.drive)
+    started = json.loads(args.started) if args.started else launched(args, name)
+    job = record_start(args, name, started, args.handoff)
+    return emit(args, f"{args.id} started {orca.place(job)} as dispatch {started['dispatch']}", started)
+
+
+def launched(args: argparse.Namespace, name: str) -> dict:
     data = state.load(name)
     job = find(data["jobs"], args.id, "job")
     if dispatch := job.get("dispatch"):
@@ -1694,7 +1700,7 @@ def job_launch(args: argparse.Namespace) -> int:
             job.update(agent=None, session=taker)
         if not job.get("agent"):
             job.update(where="remote", route=state.LOCAL_ROUTE if args.local else None, launching=state.stamp())
-    kept = state.drive_dir(name) / "jobs" / f"{args.id}.md"
+    kept = launch_brief(name, args.id)
     kept.parent.mkdir(exist_ok=True)
     try:
         receipt = launch_attempt(name, job, args.id, kept, orca.vm_brief(name, args.id, text, job["route"]), root)
@@ -1702,11 +1708,21 @@ def job_launch(args: argparse.Namespace) -> int:
         with state.edit(name) as data:
             data["jobs"][args.id]["launching"] = None
         raise
-    started = {field: receipt[field] for field in LAUNCHED}
-    with state.edit(name) as data:
+    return {field: receipt[field] for field in LAUNCHED}
+
+
+def launch_brief(name: str, job_id: str) -> Path:
+    return state.drive_dir(name) / "jobs" / f"{job_id}.md"
+
+
+def record_start(args: argparse.Namespace, name: str, started: dict, handoff: str | None) -> dict:
+    """Record a started worker's receipt on its job, with the handoff a relaunch started it on, else the launch's brief; when a newer install saved drive.json while the worker started, the newest install's `drive job launch --started` records it in place of this process, since this code may misread the drive."""
+    handed = ["job", "launch", args.id, "--drive", name, "--started", json.dumps(started), *(["--handoff", handoff] if handoff else []), *(["--json"] if args.json else [])]
+    with install.handed_to_newest(handed), state.edit(name) as data:
         job = data["jobs"][args.id]
-        job.update(started, brief=str(kept), ask=None, report=None, state="running", updated=state.stamp())
-    return emit(args, f"{args.id} started {orca.place(job)} as dispatch {started['dispatch']}", started)
+        kept = {"handoff": handoff, "reads": {}, "undelivered": []} if handoff else {"brief": str(launch_brief(name, args.id))}
+        job.update(started, **kept, ask=None, report=None, state="running", updated=state.stamp())
+    return job
 
 
 def launch_attempt(name: str, job: dict, attempt: str, kept: Path, brief: str, root: Path) -> dict:
@@ -1813,9 +1829,7 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
     else:
         receipt = launch_attempt(name, job, attempt, kept, brief, root)
     started = {field: receipt[field] for field in LAUNCHED}
-    with state.edit(name) as data:
-        fresh = data["jobs"][args.id]
-        fresh.update(started, handoff=str(kept), ask=None, report=None, reads={}, undelivered=[], state="running", updated=state.stamp())
+    fresh = record_start(args, name, started, str(kept))
     carrying = "in a handoff carrying its brief, its branch, its last line, its report and its PRs"
     if args.text.strip() not in kept.read_text():
         orca.answer(name, fresh, args.text)
@@ -3250,6 +3264,12 @@ def parser() -> argparse.ArgumentParser:
         action="store_true",
         help="start it as an Orca worker on this Mac, in a fresh worktree of this checkout's Orca repository, read like a Sprite's lane",
     )
+    verb.add_argument(
+        "--started",
+        metavar="RECEIPT",
+        help="launch nothing and record this receipt of a worker already started, as a launch older than the drive hands its record to the newest install",
+    )
+    verb.add_argument("--handoff", help="with --started, the handoff brief a relaunch started that worker on")
     verb.set_defaults(run=job_launch)
     verb = job.add_parser(
         "resume",

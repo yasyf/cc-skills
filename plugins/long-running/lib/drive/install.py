@@ -5,7 +5,9 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 
@@ -224,6 +226,17 @@ def upgraded() -> Path | None:
     plugins = json.loads((config_dir() / "plugins" / "installed_plugins.json").read_text())["plugins"]
     drive = Path(newest([entry for key, entries in plugins.items() if key.partition("@")[0] == "long-running" for entry in entries])["installPath"]) / "bin" / "drive"
     return None if drive.resolve() == DRIVE else drive
+
+
+@contextmanager
+def handed_to_newest(argv: list[str]) -> Iterator[None]:
+    """Run `drive <argv>` from the newest install in place of this process when the block is refused because a newer install saved drive.json while this verb acted, since this code may misread it: argv records what the verb already did, such as a worker it started, and does none of it again."""
+    try:
+        yield
+    except state.NewerDrive:
+        if not (newer := upgraded()):
+            raise
+        os.execv(newer, [str(newer), *argv])
 
 
 def newest(entries: list[dict]) -> dict:
