@@ -3224,7 +3224,7 @@ def test_a_builders_done_on_an_incidents_fix_records_it_live_so_the_watch_closes
     assert [line for line in watch.run_pass(watching, T0 + timedelta(minutes=1)) if line.startswith("RECOVERED")] == [
         f"RECOVERED o1: {fixed}, so the communicator posts its Live line and closes o1"
     ]
-    assert [record["body"] for records in ready_records for record in records] == [f"Incident: ship the watch\nFix live: {fixed}, {state.pr_url(KEY)}\n"]
+    assert [record["body"] for records in ready_records for record in records] == [f"Incident: ship the watch\nFix live: {fixed}\n"]
     assert view.incidents(state.load(demo)) == []
 
 

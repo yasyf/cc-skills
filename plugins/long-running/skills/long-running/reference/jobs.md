@@ -139,8 +139,8 @@ minutes is said with the remedy, a `SendMessage` to wake it.
 as one blocking Orca question, `DRIVE <its words>` over the JSON of its stdin and of each file a
 word names, and the watch queues it as a read. `drive job read` runs it in the coordinator's
 checkout with no session of this Mac's, on the lane's own job and drive alone, and answers
-`drive exited <status>` over what it printed, each file named by the lane's own path, which the
-lane's `drive` prints and exits with. It runs `job report`, `job ask`, `job set --repro`,
+what it printed under a first line naming its exit status, each file named by the lane's own path,
+which the lane's `drive` prints and exits with. It runs `job report`, `job ask`, `job set --repro`,
 `job replies`, `pr add`, `plan search`, `manual`, `status` and `break-glass`, and refuses, running
 nothing, any other verb, such as `pr set --tap` or an order verb, another job or another drive. A
 lane's `break-glass` runs as yours does, its grant's reason naming the drive and job, and its
