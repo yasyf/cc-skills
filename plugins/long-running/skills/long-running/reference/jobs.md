@@ -32,8 +32,10 @@ Contents:
   names the builder jobs waiting for one, oldest due first: the earliest time promised him on an
   order each serves, then the oldest added. When a builder here finishes, start the first of them.
 - Readers, codex jobs, builders on any other repository (a yasyf/* tool installs on this Mac), any
-  job that touches this Mac's processes, and a handoff whose `PROVE:` line runs `ci mac-box` or
-  `ci devbox` always run here. A Sprite holds no AWS credentials, and both verbs run on this Mac's
+  job that touches this Mac's processes, a handoff whose `PROVE:` line runs `ci mac-box` or
+  `ci devbox`, and a job whose brief or handoff runs `drive break-glass`, by his pick "No Sprite lane runs break-glass: a step needing a grant moves to a lane on this Mac", always
+  run here: while `drive place` says remote, add a monorepo one with `--remote` and start it with
+  `drive job launch <j> --local`, which refuses on a Sprite a brief that runs `drive break-glass`. A Sprite holds no AWS credentials, and `ci mac-box` and `ci devbox` run on this Mac's
   machine profile through `DEVBOX_AWS_PROFILE`, with no sign-in.
 
 ## Start one on this Mac
@@ -145,10 +147,11 @@ word names, and the watch queues it as a read. `drive job read` runs it in the c
 checkout with no session of this Mac's, on the lane's own job and drive alone, and answers
 what it printed under a first line naming its exit status, each file named by the lane's own path,
 which the lane's `drive` prints and exits with. It runs `job report`, `job ask`, `job set --repro`,
-`job replies`, `pr add`, `plan search`, `manual`, `status` and `break-glass`, and refuses, running
-nothing, any other verb, such as `pr set --tap` or an order verb, another job or another drive. A
-lane's `break-glass` runs as yours does, its grant's reason naming the drive and job, and its
-command writes in production only on his word or an incident order at 0 deletes and 0 replaces.
+`job replies`, `pr add`, `plan search`, `manual` and `status`, and refuses, running
+nothing, any other verb, such as `pr set --tap` or an order verb, another job or another drive. It
+refuses `break-glass` too, since its command would run on this Mac as your user, by his pick
+"No Sprite lane runs break-glass: a step needing a grant moves to a lane on this Mac": the lane returns `BLOCKED` naming the step and its command, and you move that step to a
+lane on this Mac.
 
 **Reports.** A lane keeps its report with `drive job report <j> -` and an `ASK` block with
 `drive job ask <j> <file>`, each refusing it as it refuses yours, then ends its turn through Orca
@@ -184,8 +187,8 @@ question.
   the directory the coordinator started the drive from, and the watch replies with the output, cut
   to 12,000 characters, once that reader ends, so a read that runs for minutes holds up no pass. The
   reader keeps first the answer its own end leaves, then the one it finishes with, under its
-  question's message id, so a refused reply sends the same answer again and a read stopped mid-run,
-  a `drive break-glass` included, is answered as stopped, never run twice. A `LOG` answer leads each failed job's share with its failure lines, such as a
+  question's message id, so a refused reply sends the same answer again and a read stopped mid-run
+  is answered as stopped, never run twice. A `LOG` answer leads each failed job's share with its failure lines, such as a
   Go `--- FAIL:` line or a Rust `panicked at`, then each failure's own output, a Go test's lines
   from its `=== RUN` and anything else's failure line with the two lines after it, then fills the
   rest with the output's last characters. A test's failure often sits far before the end of its

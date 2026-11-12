@@ -1506,7 +1506,7 @@ def test_a_card_asking_him_to_sign_in_or_tap_touch_id_for_an_aws_action_is_refus
     assert (
         "this Mac's machine profile runs it with no sign-in, Touch ID or cc-sudo, every AWS call under a profile ~/.aws/config chains to the"
         " machine certificate, such as `AWS_PROFILE=plat-prod tools/ci pass-box launch`, and break-glass as `drive break-glass <job> --stack"
-        ' <domain>/<env> --reason "<why>" -- <command>` from this Mac or a Sprite, so that run takes its place'
+        ' <domain>/<env> --reason "<why>" -- <command>` from a lane on this Mac, so that run takes its place'
         f" ({limits.MACHINE_PROFILE_RULING})"
     ) in str(refused.value)
 

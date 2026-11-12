@@ -347,8 +347,8 @@ check's verdict, or from the order when none ran.
   by [SKILL.md](../SKILL.md).
 - Break-glass applies are authorized at 0 deletes and 0 replaces; report both counts. Break-glass
   runs on this Mac's machine profile with no sign-in:
-  `drive break-glass <job> --stack <domain>/<env> --reason "<why>" -- <command>`, from this Mac or
-  a lane's Sprite, and no card asks him to sign in for it.
+  `drive break-glass <job> --stack <domain>/<env> --reason "<why>" -- <command>`, from a lane on
+  this Mac, never a Sprite's, and no card asks him to sign in for it.
 - A pass, migration or backfill over a team's data runs as a service account inside the cluster
   that serves that team, by the brief's `Runs as:` line in [jobs.md](jobs.md), never from an admin
   `kubectl exec`, anyone's own sign-in, or another cluster with credentials copied in. An urgent

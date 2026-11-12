@@ -1,7 +1,11 @@
 import configparser
 import json
 import os
+import signal
 import subprocess
+import threading
+import time
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -489,29 +493,37 @@ def test_a_drive_question_runs_the_lanes_verb_here_with_its_files_and_stdin_and_
     )
 
 
-@pytest.mark.parametrize(
-    ("words", "why"),
-    [
-        ("pr set Forge-AI/monorepo#7 --tap approve", "a lane runs only these verbs: job report, job ask, job set, job replies, pr add, plan search, manual, status, break-glass"),
-        ("order add --title x", "a lane runs only these verbs"),
-        ("job report j8 -", "it names j8, and a lane's drive verbs act on its own job, j7, alone"),
-        ('break-glass j8 --stack sandsql/plat-usw2-prod --reason "x" -- aws s3 ls', "it names j8"),
-        ('break-glass --stack sandsql/plat-usw2-prod --reason "x" -- aws s3 ls j8', "a lane's break-glass grant names its own job"),
-        ("job set j7 --state done", "a lane's job set takes only --repro, and it names --state"),
-        ("status --drive other", "it names drive other, and a lane acts on its own drive, demo, alone"),
-        ("job replies j7 --drive=other", "it names drive other"),
-    ],
-)
-def test_a_drive_question_for_a_verb_job_or_drive_not_the_lanes_own_runs_nothing(words: str, why: str, fake_drive: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(reads.subprocess, "run", lambda *args, **kwargs: pytest.fail(f"ran {args}"))
-    said = reads.answer(f"DRIVE {words}", fake_drive, "demo", "j7")
-    assert said.startswith(f"drive exited 2\ndrive {' '.join(words.split()[:2])}: refused, nothing ran: ") and why in said
-
-
 @pytest.mark.parametrize("question", ['DRIVE job report j7 -\n{"stdin": ', 'DRIVE job report "j7 -'])
 def test_a_drive_question_the_watch_cannot_parse_exits_2_naming_why(question: str, fake_drive: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(reads.subprocess, "run", lambda *args, **kwargs: pytest.fail(f"ran {args}"))
     assert reads.answer(question, fake_drive, "demo", "j7").startswith(f"drive exited 2\n{question.partition(chr(10))[0]}: ")
+
+
+def test_a_drive_question_runs_its_verb_as_the_lanes_job_marked_as_a_sprite_lane_so_drive_refuses_any_other(fake_drive: Path) -> None:
+    fake_drive.mkdir()
+    reads.DRIVE_BIN.write_text(f'#!/bin/sh\necho "${reads.SPRITE_LANE} ${state.OWN_JOB_ENV}"\n')
+    assert reads.answer("DRIVE status", fake_drive, "demo", "j7") == "drive exited 0\n1 j7"
+
+
+def launched_once_written(marker: Path, monkeypatch: pytest.MonkeyPatch, then: Callable[[], None] = lambda: None) -> list[datetime]:
+    launch = subprocess.Popen
+    ready_at: list[datetime] = []
+
+    def ready(*args: object, **kwargs: object) -> subprocess.Popen:
+        monkeypatch.setattr(subprocess, "Popen", launch)
+        started = launch(*args, **kwargs)
+        deadline = time.monotonic() + 10
+        while not (marker.exists() and marker.read_text().strip()):
+            if time.monotonic() > deadline:
+                started.kill()
+                pytest.fail(f"{args[0]} never wrote {marker}")
+            time.sleep(0.02)
+        ready_at.append(state.now())
+        then()
+        return started
+
+    monkeypatch.setattr(subprocess, "Popen", ready)
+    return ready_at
 
 
 def test_a_drive_question_running_past_its_time_is_stopped_and_exits_124(fake_drive: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -522,3 +534,102 @@ def test_a_drive_question_running_past_its_time_is_stopped_and_exits_124(fake_dr
     assert reads.answer("DRIVE job report j7 -", fake_drive, "demo", "j7") == (
         f"drive exited 124\ndrive job report ran past {reads.DRIVE_SECONDS} seconds, stopped here; what it changed before then stays"
     )
+
+
+def ended(pid: int) -> bool:
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        status = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True, check=False).stdout.strip()
+        if not status or status.startswith("Z"):
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def test_a_command_still_running_at_its_grants_end_is_killed_by_then_with_every_process_it_started_even_ignoring_sigterm(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(reads, "STOP_GRACE", 1)
+    child = tmp_path / "child"
+    ready_at = launched_once_written(child, monkeypatch)
+    with reads.stop_signals() as stops:
+        granted = reads.Grant(GRANT, "plat-prod", state.now() + timedelta(seconds=3), dict(os.environ), stops)
+        status = reads.run_granted(["sh", "-c", f"trap '' TERM; sleep 60 & echo $! > {child}; wait"], granted)
+    assert status == reads.GRANT_ENDED
+    assert state.now() < max(granted.ends, *ready_at) + timedelta(seconds=1)
+    assert ended(int(child.read_text()))
+    assert capsys.readouterr().err == (
+        f"the break-glass grant {GRANT} ended at {clock(granted.ends.astimezone(), seconds=True)}, so its command was stopped with every process left in its group\n"
+    )
+
+
+def test_a_command_that_exits_under_its_grant_exits_as_it_did_and_leaves_no_process_it_started_running(tmp_path: Path) -> None:
+    child = tmp_path / "child"
+    with reads.stop_signals() as stops:
+        granted = reads.Grant(GRANT, "plat-prod", state.now() + timedelta(minutes=50), dict(os.environ), stops)
+        assert reads.run_granted(["sh", "-c", f"sleep 60 & echo $! > {child}; exit 3"], granted) == 3
+    assert ended(int(child.read_text()))
+
+
+def test_a_command_told_to_stop_with_less_than_its_grace_left_on_its_grant_is_killed_by_the_grants_end(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    child = tmp_path / "child"
+    with reads.stop_signals() as stops:
+        ready_at = launched_once_written(child, monkeypatch, lambda: stops.signals.append(signal.SIGHUP))
+        granted = reads.Grant(GRANT, "plat-prod", state.now() + timedelta(seconds=3), dict(os.environ), stops)
+        status = reads.run_granted(["sh", "-c", f"trap '' TERM; sleep 60 & echo $! > {child}; wait"], granted)
+    assert status == 128 + signal.SIGHUP
+    assert state.now() < max(granted.ends, *ready_at) + timedelta(seconds=1)
+    assert ended(int(child.read_text()))
+    assert capsys.readouterr().err == "break-glass stopped by SIGHUP, so its command was stopped with every process left in its group\n"
+
+
+def test_a_command_whose_grant_ended_before_it_starts_never_starts(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setattr(reads.subprocess, "Popen", lambda *args, **kwargs: pytest.fail(f"ran {args}"))
+    granted = reads.Grant(GRANT, "plat-prod", state.now() - timedelta(seconds=1), dict(os.environ), reads.Stops(-1, []))
+    assert reads.run_granted(["aws", "s3", "ls"], granted) == reads.GRANT_ENDED
+    assert capsys.readouterr().err == (
+        f"the break-glass grant {GRANT} ended at {clock(granted.ends.astimezone(), seconds=True)} before its command started, so nothing ran\n"
+    )
+
+
+def test_a_drive_told_to_stop_before_its_command_starts_never_starts_it(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setattr(reads.subprocess, "Popen", lambda *args, **kwargs: pytest.fail(f"ran {args}"))
+    granted = reads.Grant(GRANT, "plat-prod", state.now() + timedelta(minutes=50), dict(os.environ), reads.Stops(-1, [signal.SIGHUP]))
+    assert reads.run_granted(["aws", "s3", "ls"], granted) == 128 + signal.SIGHUP
+    assert capsys.readouterr().err == "break-glass stopped by SIGHUP before its command started, so nothing ran\n"
+
+
+def test_ending_a_command_whose_group_holds_only_an_unreaped_exit_returns_its_status() -> None:
+    group = subprocess.Popen(["sh", "-c", "exit 5"], start_new_session=True)
+    assert ended(group.pid)
+    reads.end(group, time.monotonic())
+    assert group.returncode == 5
+
+
+def test_a_break_glass_told_to_stop_and_stopped_again_while_it_ends_its_command_ends_every_process_and_deletes_its_credentials(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    grantable(tmp_path, monkeypatch, MACHINE)
+    child = tmp_path / "child"
+
+    def stop_once_started() -> None:
+        deadline = time.monotonic() + 5
+        while not (child.exists() and child.read_text().strip()):
+            if time.monotonic() > deadline:
+                return
+            time.sleep(0.02)
+        os.kill(os.getpid(), signal.SIGTERM)
+
+    stopper = threading.Thread(target=stop_once_started)
+    with reads.break_glass("sandsql/plat-usw2-prod", "count rows, read only", ASKER, tmp_path) as granted:
+        config = Path(granted.env["AWS_CONFIG_FILE"])
+        stopper.start()
+        status = reads.run_granted(["sh", "-c", f"trap 'kill -TERM $PPID; exit 0' TERM; sleep 60 & echo $! > {child}; wait"], granted)
+    stopper.join()
+    assert status == 128 + signal.SIGTERM
+    assert granted.stops.signals == [signal.SIGTERM, signal.SIGTERM]
+    assert not config.exists()
+    assert ended(int(child.read_text()))
+    assert capsys.readouterr().err == "break-glass stopped by SIGTERM, so its command was stopped with every process left in its group\n"
