@@ -932,7 +932,7 @@ def proving(config: Path, tmp_path: Path, git: FakeGit, exits: int) -> Path:
     start_drive("demo", coordinator=None)
     with state.edit("demo") as data:
         part = "Drive tooling: prove each install"
-        data["orders"]["o1"] = state.new_order(part, "slack", None, None, {part: state.new_part()}, state.stamp()) | {"jobs": ["j1"]}
+        data["orders"]["o1"] = state.new_order(part, "slack", None, {part: state.new_part()}, state.stamp()) | {"jobs": ["j1"]}
         data["jobs"]["j1"] = state.new_job("o1", "builder", "prove", [part], state.stamp()) | {"state": "waiting", "said": f"PUSHED {URL}", "prs": [URL], "repro": str(script)}
         data["prs"]["yasyf/cc-skills#7"] = state.new_pr(URL, "j1", "o1") | {"state": "merged", "merged_sha": SHA, "title": "Fix: prove each install"}
     return script

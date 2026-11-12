@@ -49,8 +49,8 @@ COMMUNICATOR_RULES = (
         " since the coordinator answers any question it hears. Then the turn ends, but for one"
         " call more for a read-only question, so the watch holds his answer: the job tool with ops `[{add: {kind:"
         ' "reader", order: {words: "<his words, verbatim>", kind: "answer", complex: true, from:'
-        ' "slack:<channel>/<ts>", thread: "<ts>", project: "<the project in use his words are about>", workstream:'
-        ' "<its workstream>", title: "<a few words naming it>"}, goal: "<one line>", agent: "<the id handler returned>"}}]`, leaving out complex only for'
+        ' "<his message\'s permalink>", project: "<the project in use his words are about>", workstream:'
+        ' "<its workstream>", title: "<a few words naming it>"}, goal: "<one line>", agent: "<the id handler returned>"}}]`, the permalink naming his thread, leaving out complex only for'
         " a one-fact lookup."
     ),
     (
@@ -496,7 +496,7 @@ def subcoordinator_line(project: str, held: dict, seen: dict[str, str]) -> str:
 
 def order_block(drive: dict, order_id: str, order: dict, whole: bool) -> list[str]:
     limit = WHOLE if whole else 80
-    lines = [f"- {order_line(order_id, order, limit, promise_thread(drive, order))}"]
+    lines = [f"- {order_line(order_id, order, limit, promise_thread(order))}"]
     if whole:
         lines.append(f"  parts: {'; '.join(order['parts'])}")
     for job_id in order["jobs"]:

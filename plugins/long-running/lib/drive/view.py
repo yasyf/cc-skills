@@ -286,7 +286,7 @@ def order_title(order: dict) -> str:
 
 def thread_url(drive: dict, team_url: str, order: dict) -> str | None:
     """Slack's link to the thread an order's lines go in, in the channel that thread is in."""
-    if not (team_url and (where := state.promise_thread(drive, order))):
+    if not (team_url and (where := state.promise_thread(order))):
         return None
     return f"{team_url}archives/{where[0]}/p{where[1].replace('.', '')}"
 

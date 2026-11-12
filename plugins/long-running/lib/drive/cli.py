@@ -31,6 +31,15 @@ TITLE_CHARS = 60
 TOOLING_FILING = ("The drive", "Drive tooling")
 JOB_ID = re.compile(r"j\d+")
 SLACK_USER = re.compile(r"[UW][A-Z0-9]{2,}")
+SLACK_TS = re.compile(r"\d+\.\d+")
+FROM_HELP = (
+    "where he wrote it: his Slack message's permalink, a reply's carrying thread_ts, slack:<channel>/<thread ts>/<his reply ts>"
+    " or slack:<channel>/<ts>, the one form Slack is asked which thread it is in; or terminal"
+)
+THREAD_HELP = (
+    "the thread the order's lines go in, in his DM or a channel such as an alert's: its permalink, slack:<channel>/<ts>, or its ts"
+    " in the channel of the --from message, his DM for an order from the terminal"
+)
 RULING = "ruling"
 CODE_LABEL = "code:"
 ID_FORMS = "an order o<n>, a job j<n>, or a PR as owner/repo#N, its URL or its bare number"
@@ -185,7 +194,7 @@ def refuse_unreworkable(data: dict, urls: list[str], job_id: str | None = None) 
 def thread_cards(name: str, order: dict) -> list[dict]:
     from drive import view
 
-    return [card for card in fresh_pr_cards(name) if view.card_thread(card["url"]) == order["thread"]] if order["thread"] else []
+    return [card for card in fresh_pr_cards(name) if state.link_thread(card["url"]) == state.promise_thread(order)] if order["thread"] else []
 
 
 def rework_named_prs(name: str, order_id: str, urls: list[str], cards: list[dict], how: str) -> list[str]:
@@ -242,7 +251,8 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
             f'an incident order starts its fix job at the alert, beside diagnosis: name "{state.INCIDENT_FIX}" among --parts, such as'
             f' --parts {state.INCIDENT_FIX} "first check", or pass --joins <o> when an open incident order covers the same failing service'
         )
-    from_thread = source_thread(args.source)
+    message = his_message(args.source)
+    thread = order_thread(state.load(name), args.source, message, args.thread)
     reported = state.reporter(args.reporter) if args.reporter else None
     if (args.incident or args.joins) and args.options_only:
         raise DriveError(
@@ -257,8 +267,6 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
             return held, state.load(name)["orders"][held], [f"{held} already holds these words, so no order was added"], []
     project, workstream = filing(state.load(name), args.words, args.project, args.workstream)
     title = titled(args.title)
-    if args.thread:
-        check_thread(state.load(name), {"from": args.source, "from_thread": from_thread, "thread": args.thread})
     if tooling:
         check_tooling_words(name, args.words)
     with state.edit(name) as data:
@@ -281,7 +289,7 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
         incidents = [render.incident_line(other_id, other) for other_id, other in state.open_orders(data).items() if args.incident and not joined and other["incident"]]
         order_id = state.next_id(data["orders"], "o")
         parts = {part: state.new_part() for part in args.parts or [state.whole_order(args.words)]}
-        order = data["orders"][order_id] = state.new_order(args.words, args.source, from_thread, args.thread or from_thread, parts, created) | {
+        order = data["orders"][order_id] = state.new_order(args.words, slack_key(args.source, message), thread, parts, created) | {
             "due": due_stamp(args.due) if args.due else None,
             "promised": created if args.due else None,
             "alerts": alerts,
@@ -299,7 +307,7 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
             "joins": joined and (joined["joins"] or args.joins),
         }
         if args.due:
-            need_thread(data, order_id, order)
+            need_thread(order_id, order)
         started = [state.incident_job(data, name, order_id, part, created) for part in (order["parts"] if args.incident and not joined else [])]
     if joined:
         started.append(f"joins {args.joins}: {joined['note'] or 'no record'}; its owner job carries this order with --carries {order_id}")
@@ -393,30 +401,50 @@ def incident_release(args: argparse.Namespace) -> int:
     return emit(args, f"{args.id}: {args.release} named; the turn it fails a step, {args.id}'s stop reopens", {"id": args.id, "release": args.release})
 
 
-def source_thread(source: str) -> str | None:
-    """The thread the Slack message an order came from is in, its parent's ts when he wrote it as a reply, so the order's lines go in the thread his reply is in; None for an order from anywhere else."""
-    if not source.startswith("slack:"):
+def his_message(source: str) -> tuple[str, str, str | None] | None:
+    """The Slack message --from names, as state.slack_message reads it, refused when it names Slack in no form that reads; None for a source outside Slack, such as terminal."""
+    if (message := state.slack_message(source)) or not (source.startswith("slack:") or "/archives/" in source):
+        return message
+    raise DriveError(f"--from {source}: refused, name his message by its permalink, a reply's carrying thread_ts, as slack:<channel>/<thread ts>/<his reply ts>, or as slack:<channel>/<ts>")
+
+
+def slack_key(source: str, message: tuple[str, str, str | None] | None) -> str:
+    """Where an order came from as the drive keeps it: slack:<channel>/<ts> of his Slack message, the key state.message_order finds it by, else the source as given."""
+    return f"slack:{message[0]}/{message[1]}" if message else source
+
+
+def order_thread(data: dict, source: str, message: tuple[str, str, str | None] | None, flag: str | None) -> tuple[str, str] | None:
+    """The channel and thread an order's lines go in: the one --thread names, checked, else the thread of the message --from names, which its permalink and slack:<channel>/<thread ts>/<his reply ts> carry, so only slack:<channel>/<ts> asks Slack which thread it is in; None for an order from outside Slack with no --thread."""
+    if flag:
+        return check_thread(data, flag, message)
+    if not message:
         return None
-    channel, ts = source.removeprefix("slack:").split("/")
+    if message[2]:
+        return message[0], message[2]
     try:
-        return slack.thread_of(channel, ts)
+        return message[0], slack.thread_of(message[0], message[1])
     except slack.SlackError as error:
-        raise DriveError(f"--from {source}: refused, Slack cannot read the message it names: {error}") from None
+        raise DriveError(
+            f"--from {source}: refused, Slack cannot read the message it names: {error}; pass its permalink, a reply's carrying thread_ts,"
+            " or slack:<channel>/<thread ts>/<his reply ts>, which name its thread with no Slack read"
+        ) from None
 
 
-def check_thread(data: dict, order: dict) -> None:
-    """Refuse a thread Slack cannot read where the order's lines go, his DM or the channel of the message the order came from when it is that message or its thread, and a reply's ts, naming the thread it is in; the thread that message is in was read when the order was added."""
-    thread = order["thread"]
-    if thread == order["from_thread"]:
-        return
-    if not (where := state.promise_thread(data, order)):
-        raise DriveError(f"--thread {thread}: refused, the drive has no DM to read it in; start it with --channel <his DM>")
+def check_thread(data: dict, flag: str, message: tuple[str, str, str | None] | None) -> tuple[str, str]:
+    """The channel and thread --thread names, by permalink, slack:<channel>/<ts>, or a bare ts in the channel of the message the order came from, his DM for one from outside Slack; refused when Slack reads no thread at that ts there, naming the thread a reply is in. The thread of the message the order came from, which --from already names, needs no read."""
+    if SLACK_TS.fullmatch(flag):
+        where = (message[0] if message else data["slack"]["channel"], flag)
+    elif not (where := state.link_thread(flag)):
+        raise DriveError(f"--thread {flag}: refused, name the thread by its permalink, as slack:<channel>/<ts>, or by its ts in the channel of the --from message")
+    if message and where == (message[0], message[2]):
+        return where
     try:
-        root = slack.thread_of(where[0], thread)
+        root = slack.thread_of(*where)
     except slack.SlackError as error:
-        raise DriveError(f"--thread {thread}: refused, it is no thread in {where[0]}, where the order's lines go: {error}") from None
-    if root != thread:
-        raise DriveError(f"--thread {thread}: refused, it is a reply in thread {root}; pass --thread {root}")
+        raise DriveError(f"--thread {flag}: refused, it is no thread in {where[0]}, where the order's lines go: {error}; name a thread elsewhere by its permalink") from None
+    if root != where[1]:
+        raise DriveError(f"--thread {flag}: refused, it is a reply in thread {root}; pass --thread {root}")
+    return where
 
 
 def check_tooling_words(name: str, words: str) -> None:
@@ -446,9 +474,9 @@ def titled(title: str) -> str:
     return title.strip()
 
 
-def need_thread(data: dict, order_id: str, order: dict) -> None:
-    if not state.promise_thread(data, order):
-        raise DriveError(f"{order_id}: refused, no time stored: a promised time needs the thread its line goes in; pass --thread <ts>")
+def need_thread(order_id: str, order: dict) -> None:
+    if not state.promise_thread(order):
+        raise DriveError(f"{order_id}: refused, no time stored: a promised time needs the thread its line goes in; pass --thread <its permalink>")
 
 
 def find(records: dict, key: str, label: str) -> dict:
@@ -567,13 +595,22 @@ def order_set(args: argparse.Namespace) -> int:
             " or the link of the live post; data fetched from an API or a command's output does not show what he sees"
             + ("" if args.proof else "; close it with --proof <that recording or link>")
         )
-    destination = order | {"thread": args.thread or order["thread"]}
-    if args.thread:
-        check_thread(data, destination)
+    message = his_message(args.source) if args.source else state.slack_message(order["from"])
+    thread = check_thread(data, args.thread, message) if args.thread else None
+    destination = order | ({"thread": list(thread)} if thread else {})
     report = need_record_close(data, args.id, args.record, args.state == "dropped" and bool(args.note)) if args.state in state.CLOSED_ORDER_STATES else {}
-    closing = closing and state.promise_thread(data, destination) is not None
+    closing = closing and state.promise_thread(destination) is not None
     posts, unread = slack.order_posts(data, args.id, destination) if closing and state.owed(order) else ([], None)
-    changes = {"text": args.words, "note": args.note, "proof": args.proof, "thread": args.thread, "withdrawn": withdrawn, "options_only": args.options_only, "once": args.once}
+    changes = {
+        "text": args.words,
+        "from": args.source and slack_key(args.source, message),
+        "note": args.note,
+        "proof": args.proof,
+        "thread": thread and list(thread),
+        "withdrawn": withdrawn,
+        "options_only": args.options_only,
+        "once": args.once,
+    }
     moment = state.now()
     due = state.parse_due(args.due, moment) if args.due else None
     if due and due <= moment:
@@ -584,11 +621,11 @@ def order_set(args: argparse.Namespace) -> int:
         before = apart_from_filing(order)
         aimed = (order["kind"], order["thread"])
         order.update({field: value for field, value in changes.items() if value is not None})
-        if due and not (where := state.promise_thread(data, order)):
+        if due and not (where := state.promise_thread(order)):
             state.remind(order, state.stamp(due), moment)
             promised = (
                 f"\nstored {render.when(state.stamp(due))} as the drive's own time: {args.id} has no thread, so no line to him"
-                " keeps it, and the watch says DUE once then; a time promised to him needs --thread <ts>"
+                " keeps it, and the watch says DUE once then; a time promised to him needs --thread <its permalink>"
             )
         elif due:
             held = state.owed_at(order) if state.owed(order) else None
@@ -2965,13 +3002,12 @@ def parser() -> argparse.ArgumentParser:
     order = verbs.add_parser("order", help="his orders").add_subparsers(dest="action", required=True)
     verb = order.add_parser("add", parents=both)
     verb.add_argument("words", help='his words, verbatim, or a "Drive tooling:" order\'s own, which `cc-slack check-post` must pass, since its PR card quotes them')
-    verb.add_argument("--from", dest="source", default="terminal", help="where he wrote it: slack:<channel>/<ts>, or terminal")
+    verb.add_argument("--from", dest="source", default="terminal", help=FROM_HELP)
     verb.add_argument(
         "--thread",
         help=(
-            "the ts of the thread the order's lines go in; default: the thread the --from message is in. An order in the"
-            " thread of his open PR card names that card and leaves it up, since its stack can meet his words already:"
-            " only --rework withdraws one"
+            f"{THREAD_HELP}; default: the thread the --from message is in. An order in the thread of his open PR card names"
+            " that card and leaves it up, since its stack can meet his words already: only --rework withdraws one"
         ),
     )
     verb.add_argument("--rework", action="append", default=[], metavar="PR", help=REWORK_HELP)
@@ -3048,7 +3084,8 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("--note", help="where the order stands, in a few words")
     verb.add_argument("--proof", help="the check that proves it done: its link, its saved file or its pasted output, never a one-line claim of what it showed")
-    verb.add_argument("--thread", help="the ts of the thread the order's lines go in, naming each open PR card of his rooted there as order add --thread does")
+    verb.add_argument("--from", dest="source", help=f"{FROM_HELP}; the order's thread stays unless --thread names another")
+    verb.add_argument("--thread", help=f"{THREAD_HELP}, naming each open PR card of his rooted there as order add --thread does")
     verb.add_argument("--rework", action="append", default=[], metavar="PR", help=REWORK_HELP)
     verb.add_argument("--lined", action="store_true", help="a line just went in its thread")
     verb.add_argument(
@@ -3134,8 +3171,8 @@ def parser() -> argparse.ArgumentParser:
         ),
     )
     verb.add_argument("words", help="his words, or the alert's text, verbatim")
-    verb.add_argument("--from", dest="source", default="terminal", help="where it came from: slack:<channel>/<ts>, or terminal")
-    verb.add_argument("--thread", help="the ts of the thread the incident's lines go in; default: the thread the --from message is in")
+    verb.add_argument("--from", dest="source", default="terminal", help=FROM_HELP.replace("he wrote it", "it came from"))
+    verb.add_argument("--thread", help=f"{THREAD_HELP}; default: the thread the --from message is in")
     verb.add_argument("--due", help="the time his ack promised a line by; the watch says DUE from then until a line is in the thread")
     verb.add_argument("--record", required=True, metavar="TITLE", help="the evidence record's title: <service> on <cluster>: <symptom>, since <time>")
     verb.add_argument("--reporter", metavar="LINK", help=REPORTER_HELP)

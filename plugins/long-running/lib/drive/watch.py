@@ -410,7 +410,7 @@ def closed(watcher: Watcher, head: str, links: list[str], moment: datetime) -> l
         "kind": "report",
         "to": [f"communicator@{watcher.name}"],
         "topic": f"watch-recovered-{head}",
-        "attr": {"close": ",".join(group)} | ({"thread": incident["thread"]} if incident["thread"] else {}),
+        "attr": {"close": ",".join(group)} | ({"thread": incident["thread"][1]} if incident["thread"] else {}),
         "text": f"POST incident {head} is over: its monitors read OK and its fix is live; post the Live line in its thread",
         "body": "\n".join(facts) + "\n",
     }
@@ -444,7 +444,7 @@ def follow_up(data: dict, head: str, group: list[str], created: str) -> str | No
         return None
     order_id = state.next_id(data["orders"], "o")
     parts = {part: data["orders"][other]["parts"].pop(part) for other, names in left.items() for part in names}
-    follow = data["orders"][order_id] = state.new_order(incident["text"], incident["from"], incident["from_thread"], incident["thread"], parts, created) | {
+    follow = data["orders"][order_id] = state.new_order(incident["text"], incident["from"], state.promise_thread(incident), parts, created) | {
         "owner": incident["owner"],
         "project": incident["project"],
         "workstream": incident["workstream"],
@@ -1017,7 +1017,7 @@ def due_lines(watcher: Watcher, moment: datetime) -> list[tuple[str, str]]:
     data = state.load(watcher.name)
     away = state.owner_away(data, moment)
     threads = {
-        order_id: slack.order_posts(data, order_id, order) if state.promise_thread(data, order) else None
+        order_id: slack.order_posts(data, order_id, order) if state.promise_thread(order) else None
         for order_id, order in heard_orders(watcher, data).items()
         if overdue(order, moment, away)
     }

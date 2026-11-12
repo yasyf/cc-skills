@@ -274,7 +274,7 @@ def own_words(data: dict, order_id: str, question: str) -> list[dict]:
 
 def thread_words(data: dict, order_id: str, team_url: str, question: str) -> list[dict]:
     """His messages about the order in its own thread past its root, as state.message_order reads each, never one about another order sharing that thread, sharing a rare word with the question, each with its permalink and the words shared."""
-    if not (where := state.promise_thread(data, data["orders"][order_id])):
+    if not (where := state.promise_thread(data["orders"][order_id])):
         return []
     try:
         messages = slack.thread("--channel", where[0], "--thread", where[1], "--limit", str(slack.WHOLE_THREAD))

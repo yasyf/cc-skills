@@ -14,7 +14,6 @@ CARD_KINDS = (("question", "question"), ("tap", "PR card"))
 HELD = "report {seq} held for his catch-up, since he is away; drive status lists it until the catch-up posts"
 TICKET_FLAGS = {"ticket_id": "--ticket", "ticket_tree": "--ticket-tree", "ticket_agent": "--ticket-agent", "ticket_call": "--ticket-call", "ticket_fingerprint": "--ticket-fingerprint"}
 EDIT_TAKES = {"edit", "text", "asked", "dry_run", *TICKET_FLAGS}
-DM_ONLY = ("card", "tap_prs", "about")
 OPENING_WORDS = 12
 RECENT_POSTS = 50
 WORD = re.compile(r"\w+")
@@ -131,11 +130,9 @@ def dry(name: str, post: dict) -> str:
     found = refs.resolved(name, post.get("text") or "")
     check(name, post)
     visuals, words, lifted = shown(name, post)
+    data = state.load(name)
     stack = [state.pr_key(each) for each in post.get("tap_prs") or []]
-    where = f"edit of {post['edit']}" if post.get("edit") else ", ".join(f"thread {thread}" if thread else "his DM root" for thread in threads(name, post, stack))
-    where += f" of channel {post['channel_id']}" if post.get("channel_id") else ""
-    if post.get("channel_id") and not post.get("thread_ts"):
-        where = f"the group DM of {post['channel_id']}, him and the bot"
+    where = f"edit of {post['edit']}" if post.get("edit") else ", ".join(shown_at(data, place) for place in places(data, post, stack))
     card = f", card {post['card'].get('title')!r}" if post.get("card") else ""
     prs = f", PR card for {len(post['tap_prs'])} PRs" if post.get("tap_prs") else ""
     pictures = len([visual for visual in visuals if "picture" in visual]) + len(lifted)
@@ -143,14 +140,19 @@ def dry(name: str, post: dict) -> str:
 
 
 def check(name: str, post: dict) -> None:
-    """Refuse an edit carrying anything but new words for its post, or a fence that draws as a picture, which an edit of a Slack message cannot add, a PR card naming a PR the drive holds none of, which it cannot draw, and a post outside his DM naming his DM, carrying what only cc-slack dm-status draws, or with no thread in a channel, where only a person's user id opens a conversation, the group DM of that person, him and the bot."""
+    """Refuse an edit carrying anything but new words for its post, or a fence that draws as a picture, which an edit of a Slack message cannot add, a PR card naming a PR the drive holds none of, which it cannot draw, a post outside his DM naming his DM, carrying about, which names a card his reply in his DM is about, or with no thread in a channel, where only a person's user id opens a conversation, the group DM of that person, him and the bot, and a card there, a thread outside his DM named with no channel_id, and a PR card leaving out the thread outside his DM of an order its PRs carry out, which its line goes in."""
+    data = state.load(name)
     if channel := post.get("channel_id"):
-        if channel == state.load(name)["slack"]["channel"]:
+        if channel == data["slack"]["channel"]:
             raise DriveError(f"nothing posted: channel_id {channel} is his DM; leave channel_id out, and say posts there through cc-slack dm-status")
         if not post.get("thread_ts") and not cli.SLACK_USER.fullmatch(channel):
             raise DriveError(f"nothing posted: channel_id {channel} names the channel of a thread outside his DM, so it takes that thread's thread_ts; a person's user id with no thread posts in the group DM of that person, him and the bot")
-        if extra := [key for key in DM_ONLY if post.get(key)]:
-            raise DriveError(f"nothing posted: {', '.join(extra)} draws only in his DM, through cc-slack dm-status, so a post with channel_id takes none")
+        if post.get("about"):
+            raise DriveError("nothing posted: about names the card a reply in his DM is about, which cc-slack puts in that card's thread there, so a post with channel_id takes none")
+        if not post.get("thread_ts") and (post.get("card") or post.get("tap_prs")):
+            raise DriveError(f"nothing posted: a card goes up in his DM and its line in a thread outside it, so with channel_id {channel} it takes that thread's thread_ts")
+    if refused := misplaced(data, post):
+        raise DriveError(refused)
     if post.get("edit") and (extra := sorted(key for key, value in post.items() if value and key not in EDIT_TAKES)):
         raise DriveError(
             f"nothing edited: an edit rewords the text of one post of yours, so it takes edit, text and asked alone, and this one also"
@@ -160,10 +162,25 @@ def check(name: str, post: dict) -> None:
         raise DriveError("nothing edited: an edit needs text, the post's new words")
     if post.get("edit") and any(picture.pictured(fence[1], fence[2]) for fence in picture.FENCE.finditer(post["text"])):
         raise DriveError("nothing edited: a code or diagram fence draws as a picture, which an edit of a Slack message cannot add; post it as a new post")
-    data = state.load(name)
     stack = [state.pr_key(each) for each in post.get("tap_prs") or []]
     if strays := [key for key in stack if key not in data["prs"]]:
         raise DriveError(f"tap_prs names {', '.join(strays)}, which the drive holds no PR for, so nothing was posted: drive pr add records it")
+    outside = [where for where in state.pr_threads(data, stack) if where[0] != data["slack"]["channel"]]
+    if outside and (post.get("channel_id"), post.get("thread_ts")) not in outside:
+        raise DriveError(
+            f"nothing posted: {', '.join(stack)} carry out an order whose thread is {outside[0][1]} of channel {outside[0][0]}, so the card's line"
+            f" and link go there as well as in his DM: pass channel_id {outside[0][0]} and thread_ts {outside[0][1]}, the place cc-slack's Slack"
+            " permission hook judges this say for"
+        )
+
+
+def misplaced(data: dict, post: dict) -> str | None:
+    """Why a post naming a thread with no channel_id goes nowhere: the thread is an order's in a channel outside his DM, such as an alert's, so in his DM Slack finds no such thread."""
+    if post.get("channel_id") or post.get("edit") or not (thread := post.get("thread_ts")):
+        return None
+    dm = data["slack"]["channel"]
+    place = next((where[0] for order in data["orders"].values() if (where := state.promise_thread(order)) and where[1] == thread and where[0] != dm), None)
+    return place and f"nothing posted: thread {thread} is in channel {place}, not his DM, so pass channel_id {place} with it"
 
 
 def shown(name: str, post: dict) -> tuple[list[dict], str, list[str]]:
@@ -189,17 +206,20 @@ def shown(name: str, post: dict) -> tuple[list[dict], str, list[str]]:
 
 
 def posted(name: str, post: dict) -> dict:
-    """cc-slack's reply to the post, or to the edit rewording a post of its own, which went out with its references linked, each visual drawn as a picture but a chart, which Slack draws itself, and each code or diagram fence of its text drawn as a picture too, and is kept as a said event for the dashboard, which draws each visual and fence live from its source and each PR of a stack card with its state now, an edit's words in place of its post's; a post that draws a card stores his cards as cc-slack lists them now, so the next post's hook sees that card; a post check refuses goes nowhere, and a new post of words alone that cc-slack reports failing is read back from Slack, kept and recorded when it went out anyway, cc-slack's error its warning. A PR card's line goes in each thread its PRs' orders have, so whichever he reads carries the card's link."""
+    """cc-slack's reply to the post, or to the edit rewording a post of its own, which went out with its references linked, each visual drawn as a picture but a chart, which Slack draws itself, and each code or diagram fence of its text drawn as a picture too, and is kept as a said event for the dashboard, which draws each visual and fence live from its source and each PR of a stack card with its state now, an edit's words in place of its post's; a post that draws a card stores his cards as cc-slack lists them now, so the next post's hook sees that card; a post check refuses goes nowhere, and a new post of words alone that cc-slack reports failing is read back from Slack, kept and recorded when it went out anyway, cc-slack's error its warning. A card's line goes in each thread of his DM its PRs' orders have, and through cc-slack reply in the thread outside his DM the post names, such as an alert's, so whichever he reads carries the card's link; the post's permalink is then that line's."""
     text = post.get("text") or ""
     found = refs.resolved(name, text)
     check(name, post)
     visuals, words, lifted = shown(name, post)
     card = post.get("card")
     stack = [state.pr_key(each) for each in post.get("tap_prs") or []]
+    data = state.load(name)
+    dm = data["slack"]["channel"]
     sent = refs.slack(words, found, shown_in(name, post))
     pictures = [*(visual["picture"] for visual in visuals if "picture" in visual), *lifted]
     asked = cli.asked_on(name, card["waits"]) if card and card.get("waits") else set()
-    first, *others = threads(name, post, stack)
+    drawn = bool(card or stack)
+    first, *rest = places(data, post, stack)
     began = time.time()
     try:
         reply = slack.cc_slack(
@@ -207,12 +227,12 @@ def posted(name: str, post: dict) -> dict:
                 ["edit", "--url", post["edit"], "--text", sent, *ticketed(post)]
                 if post.get("edit")
                 else replied(post, pictures, sent)
-                if post.get("channel_id")
-                else status(name, post | {"thread_ts": first}, stack, pictures, sent)
+                if first[0] != dm
+                else status(name, post | {"thread_ts": first[1]}, stack, pictures, sent)
             )
         )
     except slack.SlackError as error:
-        if post.get("edit") or card or stack or not sent:
+        if post.get("edit") or drawn or not sent:
             raise
         reply = landed(name, post, began, sent, error)
     if card:
@@ -224,7 +244,7 @@ def posted(name: str, post: dict) -> dict:
         name,
         "said",
         text=kept,
-        channel=post.get("channel_id"),
+        channel=None if first[0] == dm else first[0],
         thread=reply.get("thread_ts"),
         url=reply["permalink"],
         card=reply.get("card_permalink"),
@@ -233,10 +253,13 @@ def posted(name: str, post: dict) -> dict:
         prs=stack,
         edited=bool(post.get("edit")),
     )
-    if card or stack:
+    if drawn:
         view.refresh_cards(name)
-    for thread in others:
-        linked(name, reply["permalink"], thread, stack, refs.slack(words, found, thread), kept)
+    for place in [place for place in rest if place[0] == dm]:
+        linked(name, reply["permalink"], place[1], stack, refs.slack(words, found, place[1]), kept)
+    label = card["title"] if card else "; ".join(view.pr_title(data["prs"][key]) for key in stack)
+    for place in [place for place in rest if place[0] != dm]:
+        reply |= {"permalink": carried(name, reply, place, post, refs.slack(words, found, place[1]), label, kept, stack)}
     return reply
 
 
@@ -259,9 +282,21 @@ def landed(name: str, post: dict, began: float, sent: str, error: slack.SlackErr
     raise error
 
 
-def threads(name: str, post: dict, stack: list[str]) -> list[str | None]:
-    """Each thread of his DM the post goes in, None for his DM root: the one it names, then for a PR card each thread of the orders its PRs carry out."""
-    return list(dict.fromkeys(filter(None, [post.get("thread_ts"), *state.pr_threads(state.load(name), stack)]))) or [None]
+def places(data: dict, post: dict, stack: list[str]) -> list[tuple[str, str | None]]:
+    """Each channel and thread the post goes in, (his DM, None) for his DM root and (a person's user id, None) for the group DM of that person, him and the bot: the one it names; for a card, which cc-slack dm-status draws in his DM alone, first each place in his DM, the one it names, then for a PR card each thread of the orders its PRs carry out, else his DM root, then the one outside his DM it names, such as an alert's thread, which takes the card's line, since cc-slack's Slack permission hook judges a say for the place it names alone."""
+    dm = data["slack"]["channel"]
+    named = (post.get("channel_id") or dm, post.get("thread_ts"))
+    if not (post.get("card") or stack):
+        return [named]
+    linked = [where for where in state.pr_threads(data, stack) if where[0] == dm or where == named]
+    spots = list(dict.fromkeys([named, *linked] if named != (dm, None) else linked))
+    return [*([where for where in spots if where[0] == dm] or [(dm, None)]), *(where for where in spots if where[0] != dm)]
+
+
+def shown_at(data: dict, place: tuple[str, str | None]) -> str:
+    if place[0] == data["slack"]["channel"]:
+        return f"thread {place[1]}" if place[1] else "his DM root"
+    return f"thread {place[1]} of channel {place[0]}" if place[1] else f"the group DM of {place[0]}, him and the bot"
 
 
 def shown_in(name: str, post: dict) -> str | None:
@@ -270,7 +305,7 @@ def shown_in(name: str, post: dict) -> str | None:
         return view.card_thread(post["edit"])
     if post.get("about"):
         return view.card_thread(refs.card(refs.open_cards(name), state.load(name), post["about"])["url"])
-    return threads(name, post, [state.pr_key(each) for each in post.get("tap_prs") or []])[0]
+    return places(state.load(name), post, [state.pr_key(each) for each in post.get("tap_prs") or []])[0][1]
 
 
 def linked(name: str, first: str, thread: str, stack: list[str], sent: str, kept: str) -> None:
@@ -280,6 +315,18 @@ def linked(name: str, first: str, thread: str, stack: list[str], sent: str, kept
     except slack.SlackError as error:
         raise slack.SlackError(f"posted {first} with its card, but its line in thread {thread} did not go out, so post neither again: {error}") from None
     state.append_event(name, "said", text=kept, thread=reply.get("thread_ts"), url=reply["permalink"], card=reply.get("card_permalink"), order=None, visuals=[], prs=stack, edited=False)
+
+
+def carried(name: str, reply: dict, place: tuple[str, str], post: dict, sent: str, label: str, kept: str, stack: list[str]) -> str:
+    """Post a card's line in a thread outside his DM, such as an alert's, linking the card cc-slack drew in his DM, since cc-slack dm-status links a card into his DM's threads alone, through cc-slack reply with the ticket cc-slack's Slack permission hook attached to the say call, and keep it for the dashboard; its permalink. A failure says the card already went out, so nothing is posted again."""
+    card = (reply.get("card_permalink") or reply["permalink"]).split()[0]
+    text = "\n".join(filter(None, [sent, f"<{card}|{label.translate(refs.LINK_WORDS)}>"]))
+    try:
+        line = slack.cc_slack("reply", "--agent", "claude", "--channel", place[0], "--thread", place[1], "--text", text, *ticketed(post))
+    except slack.SlackError as error:
+        raise slack.SlackError(f"posted {card}, but its line in thread {place[1]} of channel {place[0]} did not go out, so post neither again: {error}") from None
+    state.append_event(name, "said", text=kept, channel=place[0], thread=line.get("thread_ts"), url=line["permalink"], card=card, order=None, visuals=[], prs=stack, edited=False)
+    return line["permalink"]
 
 
 def status(name: str, post: dict, stack: list[str], pictures: list[str], sent: str) -> list[str]:

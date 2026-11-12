@@ -99,17 +99,17 @@ def redraw_pr_cards(url: str) -> int:
 
 
 def names_order_pr(data: dict, order_id: str, root: dict | None) -> bool:
-    """Whether a thread hangs from the drive's own post naming a PR the drive holds on the order, as that PR's card does in every state, tapped or not."""
+    """Whether a thread hangs from the drive's own post naming a PR whose change is checked against the order's words, the one it serves, its job's own or one its job carries, as that PR's card does in every state, tapped or not, a stack's card for each PR on it."""
     if not root or not root.get("from_claude"):
         return False
     named = {f"{owner}/{name}#{number}".casefold() for owner, name, number in state.PR_URL.findall(root.get("text") or "")}
-    return any(key.casefold() in named for key, pr in data["prs"].items() if pr["order"] == order_id)
+    return any(key.casefold() in named for key, pr in data["prs"].items() if order_id in state.served_orders(data, pr))
 
 
 def order_threads(data: dict, order_id: str, order: dict) -> list[tuple[str, str]]:
     """The threads a line for an order goes in: its own, then on an incident the own thread of each other order of it, the incident an alert's order joined and every alert joined to it, both ways, then each thread of his where a report on one of them answered his message, then each of their cards'."""
     others = [data["orders"][other] for other in state.incident_orders(data, order_id) if other != order_id]
-    own = filter(None, (state.promise_thread(data, each) for each in [order, *others]))
+    own = filter(None, (state.promise_thread(each) for each in [order, *others]))
     asked = ((channel, ts) for each in [order, *others] for channel, ts, _ in each["asked_in"])
     return list(dict.fromkeys([*own, *asked, *incident_cards(data, order_id)]))
 
