@@ -969,7 +969,9 @@ def job_set(args: argparse.Namespace) -> int:
             added = pick_parts(job["order"], data["orders"][job["order"]], args.part)
             job["parts"] = list(dict.fromkeys([*job["parts"], *added]))
             refuse_a_shared_immediate_fix(job["parts"])
-        if args.agent and args.agent.startswith(state.DISPATCH_PREFIX):
+        if args.agent and args.agent == job.get("dispatch"):
+            job.update(where="remote", agent=None, handed_to=None)
+        elif args.agent and args.agent.startswith(state.DISPATCH_PREFIX):
             job.update(state.local_lane(args.agent), agent=None)
         elif args.agent:
             job["where"] = "local"
@@ -1512,7 +1514,8 @@ def remote_job(data: dict, job_id: str) -> dict:
     if job.get("where") == "remote":
         return job
     if job.get("agent"):
-        raise DriveError(f"{job_id} runs on this Mac as agent {job['agent']}; resume it with SendMessage")
+        restore = f", or put it back on its lane with drive job set {job_id} --agent {job['dispatch']}, then resume it" if job.get("dispatch") else ""
+        raise DriveError(f"{job_id} runs on this Mac as agent {job['agent']}; resume it with SendMessage{restore}")
     raise DriveError(
         f"{job_id} has no agent and no lane yet: start it on a Sprite with drive job launch {job_id} <brief>, as an Orca"
         f" worker on this Mac with drive job launch {job_id} <brief> --local, or start an Agent here whose brief ends Drive: <drive>, order <order>, job {job_id}"
@@ -2949,7 +2952,7 @@ def parser() -> argparse.ArgumentParser:
     verb.set_defaults(run=job_add)
     verb = job.add_parser("set", parents=[*both, waits_opt])
     verb.add_argument("id", help="the job")
-    verb.add_argument("--agent", help="the agent id the Agent tool returned")
+    verb.add_argument("--agent", help="the agent id the Agent tool returned, or the dispatch the job records, which puts it back on its Orca lane")
     verb.add_argument(
         "--state", choices=state.JOB_STATES, help="stopped: it ends unfinished; every other state comes from the line the job returns, and one it holds changes nothing"
     )

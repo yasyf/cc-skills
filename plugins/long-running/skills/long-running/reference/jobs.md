@@ -65,10 +65,18 @@ release or public-body refusal of `landing_guard` blocks outright.
 
 The brief's `Drive:` line names the job, or, when it names none, the job `--agent` already recorded
 the agent on. The agent's first Bash, Read, Write or Edit call, or its stop, records the agent on that
-job, and its first call after a `SendMessage` marks the job running again. A `long-running:handler` is never recorded this way, even when its brief, the brief file it names or
-the record it is briefed with names a job, so a handler started to run `drive job launch <j>` leaves
-`<j>` to the lane it launches and its return sets nothing on `<j>`. A handler holds a job only when
-the communicator names it with `agent`, the id the `handler` tool returned, as it adds a read-only question's reader job. The line the agent returns, or the first line it pipes to `drive job report <j> -`, sets the
+job, and its first call after a `SendMessage` marks the job running again, when its type is one the
+job's kind runs as: `long-running:builder` on a builder, `long-running:reader` on a reader,
+`long-running:designer` on a design job, and `codex:codex-wrapper` or an incident's second-lane
+`long-running:builder` on a codex job. An agent of any other type is never recorded this way, even
+when its brief, the brief file it names or the record it is briefed with names a job: a
+`long-running:handler` started to run `drive job launch <j>` leaves `<j>` to the lane it launches
+and its return sets nothing on `<j>`, and an `orca:orca-doctor` or Explore agent that reads a lane's
+brief leaves the job to that lane. No agent is recorded over a remote job's dispatch either: its
+Orca lane holds it, and `drive job resume` restarts that lane once it dies. A handler holds a job
+only when the communicator names it with `agent`, the id the `handler` tool returned, as it adds a
+read-only question's reader job. `drive job set <j> --agent <the dispatch the job records>` puts a
+remote job an agent took back on its own lane, its Sprite kept, so `drive job resume` reaches it. The line the agent returns, or the first line it pipes to `drive job report <j> -`, sets the
 state and said line of every job but a codex job:
 
 | First line | The job's state |

@@ -201,16 +201,16 @@ def record(seq: str) -> str:
 
 
 def free(data: dict, job_id: str, session: str) -> bool:
-    """Whether an agent of the session at work on the job takes it: the job exists, nobody stopped it, and no agent runs it already but one that ended with its session, which no role holds any more, or one drive job resume handed over to this session."""
+    """Whether an agent of the session at work on the job takes it: the job exists, nobody stopped it, no Orca lane holds it by its dispatch, which drive job resume restarts once that lane dies, and no agent runs it already but one that ended with its session, which no role holds any more, or one drive job resume handed over to this session."""
     job = data["jobs"].get(job_id)
-    if not job or job["state"] == "stopped":
+    if not job or job["state"] == "stopped" or (job["where"] == "remote" and job.get("dispatch")):
         return False
     return job.get("handed_to") == session or not (job["state"] == "running" and job["agent"] and not state.agent_gone(data, job))
 
 
 def hold(payload: dict) -> None:
-    """Record on the job its brief's Drive line names, else the job already recorded with this agent, the agent whose step fired this hook, and run the job: a session runs the newest copy of each hook it registered at start but no hook registered since, so the drive hears of an agent from the hooks its own steps fire, its first step and its first after each wake. A handler is never held: it works one item for the communicator, and a job its brief names, by a `Job:` line, a brief file or the record it reads in, is that job's own agent's."""
-    if payload.get("agent_type") == HANDLER or not payload.get("agent_id"):
+    """Record on the job its brief's Drive line names, else the job already recorded with this agent, the agent whose step fired this hook, and run the job: a session runs the newest copy of each hook it registered at start but no hook registered since, so the drive hears of an agent from the hooks its own steps fire, its first step and its first after each wake. Only an agent of a type the job's kind runs as is held, so a handler working one item for the communicator, an orca-doctor reading a lane's brief or an Explore agent whose prompt names a done job never takes a job its brief names, by a `Job:` line, a brief file or the record it reads in."""
+    if not payload.get("agent_id"):
         return
     names = state.session_drives(payload["session_id"])
     if not names:
@@ -218,7 +218,7 @@ def hold(payload: dict) -> None:
     known = state.load(names[0])
     match = BRIEF_JOB.search(brief(payload))
     job_id = match[1] if match else state.agent_job(known, payload["agent_id"])
-    if not job_id or not free(known, job_id, payload["session_id"]):
+    if not job_id or not free(known, job_id, payload["session_id"]) or payload.get("agent_type") not in state.JOB_AGENTS[known["jobs"][job_id]["kind"]]:
         return
     with state.edit(names[0]) as data:
         if free(data, job_id, payload["session_id"]):
