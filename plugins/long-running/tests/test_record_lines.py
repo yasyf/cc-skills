@@ -111,7 +111,7 @@ def test_an_ask_naming_another_open_question_or_another_jobs_file_is_refused_and
 def test_a_jobs_second_question_from_a_remote_lane_goes_out_on_the_new_file_drive_job_ask_keeps(
     run: Callable[..., tuple[int, str]], demo: str, tmp_path: Path
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "design the run page")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "design the run page")
     run("job", "add", "builder", "--order", "o1", "--goal", "design it")
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
@@ -131,7 +131,7 @@ TAPPED = "https://github.com/Forge-AI/monorepo/pull/4242"
 def test_a_ready_record_to_the_communicator_for_a_pr_the_drive_owes_no_tap_on_is_refused_and_a_line_saying_he_tapped_it_goes_out(
     run: Callable[..., tuple[int, str]], demo: str
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Releases", "fix the update button")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "fix the update button")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
     with state.edit(demo) as data:
         data["prs"]["Forge-AI/monorepo#4242"] = state.new_pr(TAPPED, "j1", "o1") | {"head": "4a4d1f0aa1", "checked": {"head": "4a4d1f0aa1", "orders": ["o1"], "patch": ""}}
@@ -151,7 +151,7 @@ def test_a_ready_record_to_the_communicator_for_a_pr_the_drive_owes_no_tap_on_is
 def test_a_ready_record_for_a_pr_whose_change_at_its_head_nobody_checked_against_his_words_is_refused_naming_its_orders_holder(
     run: Callable[..., tuple[int, str]], demo: str
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Releases", "fix the update button")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "fix the update button")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
     with state.edit(demo) as data:
         data["prs"]["Forge-AI/monorepo#4242"] = state.new_pr(TAPPED, "j1", "o1") | {"head": "ebc103801ea6", "checked": {"head": "4a4d1f0aa1", "orders": ["o1"], "patch": ""}}
@@ -230,8 +230,8 @@ def test_a_ready_record_says_which_kind_its_prs_are(demo: str) -> None:
 
 
 def test_a_ready_record_naming_its_order_takes_its_kind_from_that_order(run: Callable[..., tuple[int, str]], demo: str) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: fix ask")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: fix ask")
     made = record_lines.decision(post(kind="ready", text="#4244 is ready", attrs={"order": "o1"}))
     assert made["updatedInput"]["text"] == '#4244 is ready; his order o1 "ship the fix"'
     assert record_lines.decision(post(kind="ready", text="#4244 is ready", attrs={"order": "o2"}))["updatedInput"]["text"] == "#4244 is ready; Drive tooling: fix ask"
@@ -245,7 +245,7 @@ def test_an_ask_attaching_its_kept_file_takes_it_as_its_ask(demo: str) -> None:
 
 
 def test_an_ask_for_a_job_on_an_open_incident_order_says_so_and_names_the_incidents_thread(run: Callable[..., tuple[int, str]], demo: str) -> None:
-    run("order", "add", "--project", "SandSQL", "--workstream", "Alerts", "--from", f"slack:C0822AHFY3G/{ALERT}", "unknown column case_v2.audit_status", "--incident", "--parts", "fix", "first check")
+    run("order", "add", "--title", "Short title", "--project", "SandSQL", "--workstream", "Alerts", "--from", f"slack:C0822AHFY3G/{ALERT}", "unknown column case_v2.audit_status", "--incident", "--parts", "fix", "first check")
     asked = kept(demo, "j1", IDLE) | {"order": "o1"}
     marked = asked | {"incident": "true", "thread": ALERT}
     assert record_lines.decision(post(kind="ask", text=IDLE, attrs=asked))["updatedInput"]["attrs"] == marked
@@ -299,7 +299,7 @@ def test_a_report_attr_a_separator_or_one_letter_from_one_the_drive_reads_is_ref
 
 
 def test_a_report_that_finishes_an_order_names_one_of_its_threads(run: Callable[..., tuple[int, str]], demo: str, turn: Path) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     with state.edit(demo) as data:
         data["orders"]["o1"]["thread"] = THREAD
     reason = refusal(record_lines.decision(coordinator(turn, kind="report", text="POST j1 merged", to=TO, attrs={"close": "o1", "thread": OTHER})))
@@ -311,7 +311,7 @@ def test_a_report_that_finishes_an_order_names_one_of_its_threads(run: Callable[
 def test_a_report_answering_his_message_finishes_an_order_in_that_messages_thread_and_no_other(
     run: Callable[..., tuple[int, str]], demo: str, turn: Path, cci_records: dict[str, dict]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     with state.edit(demo) as data:
         data["orders"]["o1"]["thread"] = THREAD
     cci_records["671734"] = {"seq": 671734, "kind": "owner", "lane": "communicator", "refs": {"url": f"https://acme.slack.com/archives/D123/p{OTHER.replace('.', '')}"}, "fields": {"attrs": {}}}
@@ -323,8 +323,8 @@ def test_a_report_answering_his_message_finishes_an_order_in_that_messages_threa
 def test_a_report_about_an_order_in_another_orders_thread_is_refused_when_written_until_its_re_names_his_message_there(
     run: Callable[..., tuple[int, str]], demo: str, turn: Path, cci_records: dict[str, dict]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "the 50 dashboard improvements")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "why the card asked for Okta MFA")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the 50 dashboard improvements")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why the card asked for Okta MFA")
     with state.edit(demo) as data:
         data["orders"]["o1"]["thread"] = THREAD
         data["orders"]["o2"]["thread"] = OTHER
@@ -337,7 +337,7 @@ def test_a_report_about_an_order_in_another_orders_thread_is_refused_when_writte
 
 
 def test_a_report_whose_thread_is_no_slack_thread_is_refused_naming_his_dm_root(run: Callable[..., tuple[int, str]], demo: str, turn: Path) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     reason = refusal(record_lines.decision(coordinator(turn, kind="report", text="POST j1 merged", to=TO, attrs={"close": "o1", "thread": "none"})))
     assert "thread none is no Slack thread" in reason and "leave thread out for a post at his DM root" in reason
     assert record_lines.decision(coordinator(turn, kind="report", text="POST j1 merged", to=TO, attrs={"close": "o1"})) is None
@@ -346,7 +346,7 @@ def test_a_report_whose_thread_is_no_slack_thread_is_refused_naming_his_dm_root(
 def test_a_post_report_telling_him_the_drive_failed_goes_out_warning_the_session_until_it_says_how_that_is_prevented(
     run: Callable[..., tuple[int, str]], demo: str, turn: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     with state.edit(demo) as data:
         data["orders"]["o1"]["thread"] = THREAD
     failed = "POST j1 merged; its card was refused since nobody checked that PR against your words"
@@ -367,7 +367,7 @@ def test_a_post_report_telling_him_the_drive_failed_goes_out_warning_the_session
 
 
 def test_a_post_report_names_what_its_post_finishes_and_the_last_part_of_an_order_closes_it(run: Callable[..., tuple[int, str]], demo: str, turn: Path) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "why does the search worker OOM?", "--parts", "cause", "fix")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why does the search worker OOM?", "--parts", "cause", "fix")
     run("job", "add", "builder", "--order", "o1", "--part", "cause", "--goal", "find the cause")
     merged = {"kind": "report", "text": "POST the search worker's fix merged", "to": TO}
     reason = refusal(record_lines.decision(coordinator(turn, **merged, attrs={"job": "j1"})))
@@ -392,7 +392,7 @@ def test_a_post_report_names_what_its_post_finishes_and_the_last_part_of_an_orde
 def test_a_post_report_on_an_order_carries_each_part_a_finished_job_answered_and_no_post_delivered(
     run: Callable[..., tuple[int, str]], demo: str, turn: Path
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "why does the search worker OOM?", "--parts", "cause", "fix")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why does the search worker OOM?", "--parts", "cause", "fix")
     run("job", "add", "reader", "--order", "o1", "--part", "cause", "--goal", "find the cause")
     progress = {"kind": "report", "text": "POST the search worker's fix is building", "to": TO}
     assert record_lines.decision(coordinator(turn, **progress, attrs={"job": "j1", **PROGRESS})) is None
@@ -414,8 +414,8 @@ def test_a_post_report_on_an_order_carries_each_part_a_finished_job_answered_and
 
 
 def test_a_part_attr_names_parts_of_several_orders_and_each_must_be_one_the_drive_holds(run: Callable[..., tuple[int, str]], demo: str, turn: Path) -> None:
-    run("order", "add", "--project", "Platform", "--workstream", "Search", "fix the search worker", "--parts", "fix", "first check")
-    run("order", "add", "--project", "Platform", "--workstream", "Search", "raise its RAM", "--parts", "increase the RAM")
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Search", "fix the search worker", "--parts", "fix", "first check")
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Search", "raise its RAM", "--parts", "increase the RAM")
     shared = {"kind": "report", "text": "POST the search worker's fix and its RAM increase are live", "to": TO}
     assert record_lines.decision(coordinator(turn, **shared, attrs={"order": "o1", "part": "fix;o2:increase the RAM", "close": "o2"})) is None
     assert 'delivers "increase the RAM", the last part of o2' in refusal(record_lines.decision(coordinator(turn, **shared, attrs={"order": "o1", "part": "fix;o2:increase the RAM"})))
@@ -479,8 +479,8 @@ def test_a_job_is_called_stuck_only_after_a_read_of_its_transcript(demo: str, tu
 def test_the_communicators_record_for_a_coordinator_goes_to_the_session_hearing_the_order_it_serves_whatever_lane_it_names(
     run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page")
-    run("order", "add", "--project", "Platform", "--workstream", "Alerts", "fix the alert")
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Alerts", "fix the alert")
     run("job", "add", "builder", "--order", "o1", "--goal", "build it")
     with state.edit(demo) as data:
         data["orders"]["o1"]["thread"], data["orders"]["o2"]["thread"] = THREAD, OTHER
@@ -509,7 +509,7 @@ def test_the_communicators_record_for_a_coordinator_goes_to_the_session_hearing_
 
 
 def bound_to_iris(run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    run("order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     run("job", "add", "builder", "--order", "o1", "--goal", "build it")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
     run("start", demo, "--role", "coordinator", "--project", "Iris")

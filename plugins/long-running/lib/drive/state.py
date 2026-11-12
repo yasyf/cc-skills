@@ -337,6 +337,7 @@ def load(name: str) -> dict:
         order.pop("milestone", None)
         order.setdefault("project", None)
         order.setdefault("workstream", None)
+        order.setdefault("title", None)
         order.setdefault("kind", None)
         order.setdefault("complex", False)
         order.setdefault("options_only", False)
@@ -752,6 +753,7 @@ def new_order(text: str, source: str, from_thread: str | None, thread: str | Non
         "owner": None,
         "project": None,
         "workstream": None,
+        "title": None,
         "proof": None,
         "note": None,
         "joins": None,

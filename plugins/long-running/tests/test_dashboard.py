@@ -507,7 +507,7 @@ RESULT = re.compile(r'<html[^>]*\bdata-result="([^"]*)"')
 FEATURE = {
     "id": "o1", "title": "ship the fix", "state": "running", "now": "", "project": "Platform", "workstream": "SandSQL", "due": None, "late": False,
     "proof": None, "updated": "2026-11-11T00:00:00-08:00", "url": None, "prs": [], "built": [], "cards": [], "text": "ship the fix", "note": "",
-    "created": "2026-11-10T20:00:00-08:00", "jobs": [],
+    "created": "2026-11-10T20:00:00-08:00", "jobs": [], "parts": [], "where": None, "holdup": None,
 }
 
 QUESTION = {
@@ -786,6 +786,191 @@ done({ overview, project, stream, task, closed: { ...look(), sheet: !!canvas.que
         "closed": {"hash": "#/now/Platform/SandSQL", "level": "stream", "same": True, "top": 120, "shown": True, "sheet": False},
     }
     assert seen["overview"]["scale"] < seen["project"]["scale"] < seen["stream"]["scale"]
+
+
+@pytest.mark.parametrize("size", ["1440,900", "390,844"])
+def test_now_draws_each_project_with_open_work_as_a_readable_card_with_a_tip_per_segment_and_leaves_one_with_nothing_open_off(tmp_path: Path, size: str) -> None:
+    card = {"title": "Raise the limit?", "url": QUESTION["answer"], "asked": "2026-11-10T23:00:00-08:00"}
+    features = [
+        FEATURE,
+        FEATURE | {"id": "o2", "title": "journal replays", "state": "blocked", "cards": [card]},
+        FEATURE | {"id": "o3", "title": "chats open on the Mac", "project": "Iris", "workstream": "Desktop app", "state": "waiting"},
+        FEATURE | {"id": "o4", "title": "old guide", "project": "Docs", "workstream": "Guides", "state": "live"},
+        *(FEATURE | {"id": f"o{n}", "title": f"shipped {n}", "workstream": "Tables", "state": "live"} for n in range(10, 40)),
+    ]
+    seen = browse(tmp_path, """
+location.hash = '#/now';
+await wait(800);
+const canvas = document.querySelector('#main .canvas');
+const cards = [...canvas.querySelectorAll('.region')].map((region) => {
+  const box = region.getBoundingClientRect();
+  const glance = region.querySelector('.region-glance');
+  const name = glance.querySelector('.glance-name b');
+  const lines = [...glance.children].map((line) => line.getBoundingClientRect());
+  return {
+    project: region.dataset.camKey,
+    said: [name.textContent, glance.querySelector('.glance-streams').textContent, glance.querySelector('.glance-open').textContent, [...glance.querySelectorAll('.need')].map((need) => need.textContent)],
+    tips: [...glance.querySelectorAll('.statebar i')].map((segment) => [segment.dataset.tip, segment.getBoundingClientRect().width >= 7.5]),
+    size: `${Math.round(box.width)}x${Math.round(box.height)}`,
+    readable: parseFloat(getComputedStyle(name).fontSize) * camera.k > 15.9
+      && [...glance.querySelectorAll('.glance-streams, .glance-open, .need')].every((small) => parseFloat(getComputedStyle(small).fontSize) * camera.k > 10.9)
+      && lines.every((line) => line.height > 0 && line.top >= box.top && line.bottom <= box.bottom && line.right <= box.right + 0.5),
+    inside: box.left >= 0 && box.right <= innerWidth,
+  };
+});
+canvas.querySelector('.region[data-cam-key="Platform"] .region-glance .statebar i:last-child').dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+await wait(50);
+const tip = document.querySelector('#srctip');
+const hovered = tip.matches(':popover-open') && tip.textContent;
+canvas.querySelector('.region[data-cam-key="Platform"]').click();
+await wait(800);
+const segments = [...canvas.querySelectorAll('.region[data-cam-key="Platform"] .region-head .statebar i, .region[data-cam-key="Platform"] .stream-head .statebar i')];
+done({
+  cards: cards.map(({ size, ...each }) => each),
+  sizes: new Set(cards.map((each) => each.size)).size,
+  hovered,
+  zoomed: { hash: location.hash, level: canvas.dataset.level, same: document.querySelector('#main .canvas') === canvas },
+  wide: segments.length > 3 && segments.every((segment) => segment.dataset.tip && segment.getBoundingClientRect().width >= 7.5),
+});
+""", board(status=[{"state": "running", "features": features}]), size, "--force-prefers-reduced-motion")
+    assert seen == {
+        "cards": [
+            {"project": "Iris", "said": ["Iris", "1 workstream: Desktop app", "1 open of 1", []], "tips": [["1 waiting", True]], "readable": True, "inside": True},
+            {
+                "project": "Platform",
+                "said": ["Platform", "2 workstreams: SandSQL, Tables", "2 open of 32", ["1 question for you", "1 blocked"]],
+                "tips": [["1 blocked", True], ["1 being built", True], ["30 live", True]],
+                "readable": True,
+                "inside": True,
+            },
+        ],
+        "sizes": 1,
+        "hovered": "30 live",
+        "zoomed": {"hash": "#/now/Platform", "level": "project", "same": True},
+        "wide": True,
+    }
+
+
+def test_one_crumb_in_the_top_bar_names_the_screen_project_workstream_task_or_day_he_is_on(tmp_path: Path) -> None:
+    seen = browse(tmp_path, """
+const crumb = async (hash) => {
+  location.hash = hash;
+  await wait(200);
+  return [...document.querySelectorAll('#crumb a, #crumb strong')].map((step) => (step.tagName === 'A' ? [step.textContent, step.getAttribute('href')] : [step.textContent]));
+};
+const walked = {};
+for (const hash of ['#/', '#/now', '#/now/Platform/SandSQL', '#/feature/o1', '#/work/Platform/SandSQL/j1', '#/history/2026-11-10', '#/now/Platform/SandSQL/o1']) walked[hash] = await crumb(hash);
+document.querySelector('#crumb a[href="#/now/Platform"]').click();
+await wait(200);
+done({ walked, clicked: location.hash, trails: document.querySelectorAll('.crumb, .crumbs').length });
+""", board())
+    task = [["demo", "#/"], ["Now", "#/now"], ["Platform", "#/now/Platform"], ["SandSQL", "#/now/Platform/SandSQL"], ["ship the fix"]]
+    assert seen == {
+        "walked": {
+            "#/": [["demo", "#/"], ["Your queue"]],
+            "#/now": [["demo", "#/"], ["Now"]],
+            "#/now/Platform/SandSQL": [["demo", "#/"], ["Now", "#/now"], ["Platform", "#/now/Platform"], ["SandSQL"]],
+            "#/feature/o1": task,
+            "#/work/Platform/SandSQL/j1": [["demo", "#/"], ["Work", "#/work"], ["Platform", "#/work/Platform"], ["SandSQL", "#/work/Platform/SandSQL"], ["j1"]],
+            "#/history/2026-11-10": [["demo", "#/"], ["History", "#/history"], ["Nov 10"]],
+            "#/now/Platform/SandSQL/o1": task,
+        },
+        "clicked": "#/now/Platform",
+        "trails": 1,
+    }
+
+
+def test_the_now_headline_and_the_top_strip_read_one_count_of_what_waits_on_him_and_his_oldest_wait(tmp_path: Path) -> None:
+    newer = QUESTION | {"since": "2026-11-10T23:00:00-08:00"}
+    older = QUESTION | {"answer": "https://x.slack.com/archives/D1/p1794382400000000", "title": "Shard it?", "since": "2026-11-10T21:30:00-08:00"}
+    tap = QUESTION | {"kind": "tap", "answer": "https://x.slack.com/archives/D1/p1794382453859300", "since": "2026-11-10T22:15:00-08:00"}
+    owned = FEATURE | {"cards": [{"title": newer["title"], "url": newer["answer"], "asked": newer["since"]}]}
+    seen = browse(tmp_path, """
+location.hash = '#/now';
+await wait(300);
+done({
+  headline: document.querySelector('#main .lead').textContent.replace(/\\s+/g, ' '),
+  strip: [...document.querySelectorAll('#alerts > *')].map((chip) => chip.textContent),
+  needs: [...document.querySelectorAll('#main .region[data-cam-key="Platform"] .region-glance .need')].map((need) => need.textContent),
+});
+""", board(queue=[newer, older, tap], status=[{"state": "running", "features": [owned]}]))
+    assert seen["strip"] == ["2 decisions for you", "1 PR to tap"]
+    assert seen["needs"] == ["1 question for you"]
+    assert re.fullmatch(
+        r"0 features went live in the last day, 1 is moving and 0 are blocked; 2 decisions and 1 PR to tap wait on you,"
+        r" the oldest since Nov 10 9:30 PM \(\d+[hd]\)\. 1 of the decisions holds no open task\.",
+        seen["headline"],
+    )
+
+
+def test_a_task_sheet_heads_with_what_it_waits_on_and_lists_where_it_is_what_ships_what_went_wrong_and_what_comes_next(tmp_path: Path) -> None:
+    words = " ".join(["refunds page: show the processing fee we keep, in the same line as the amount, and say why;"] * 3)
+    red = {"title": "Fix: 🧾 show the kept fee", "url": "https://github.com/demo-org/shop/pull/418", "state": "open", "checks": "fail", "review": "none", "tap": None}
+    merged = red | {"title": "New: 🏷️ the fee line", "url": "https://github.com/demo-org/shop/pull/401", "state": "merged", "checks": "pass"}
+    lane = board()["work"][0] | {"feature": "o2"}
+    jobs = [
+        lane | {"id": "j2", "kind": "reader", "goal": "research: refund fees", "state": "done", "said": "PUSHED https://github.com/demo-org/shop/pull/401 shows the fee and links the policy", "updated": "2026-11-10T22:00:00-08:00"},
+        lane | {"id": "j3", "goal": "refund fee line", "state": "failed", "said": "BLOCKED buildkite/test is red on https://github.com/demo-org/shop/pull/418 since the total rounds down", "updated": "2026-11-10T23:15:00-08:00"},
+        lane | {"id": "j4", "goal": "round like the ledger", "state": "running", "said": "rounding fixed; adding its test next", "updated": "2026-11-10T23:50:00-08:00"},
+    ]
+    parts = [
+        {"name": "fee line", "whole": False, "delivered": True, "posted": False, "job": "j2", "kind": "reader", "state": "done", "at": "2026-11-10T22:00:00-08:00"},
+        {"name": "say why", "whole": False, "delivered": False, "posted": False, "job": "j4", "kind": "builder", "state": "running", "at": "2026-11-10T23:50:00-08:00"},
+        {"name": "receipt copy", "whole": False, "delivered": False, "posted": False, "job": None, "kind": None, "state": None, "at": None},
+    ]
+    entry = FEATURE | {
+        "id": "o2", "title": "Refund page shows the fee", "text": words, "state": "blocked", "prs": [red, merged], "jobs": jobs, "parts": parts,
+        "where": {"text": jobs[0]["said"], "job": "j2", "state": "done", "at": jobs[0]["updated"]},
+        "holdup": {"text": "red checks on #418", "card": None, "pr": "demo-org/shop#418", "url": red["url"]},
+    }
+    seen = browse(tmp_path, """
+location.hash = '#/now/Platform/SandSQL';
+await wait(300);
+const row = document.querySelector('#main .stream.here a.task-row[href$="/o2"]');
+const listed = row.querySelector('.task-body b').textContent;
+row.click();
+await wait(400);
+const sheet = document.querySelector('#main .task-sheet');
+const text = (el) => el.textContent.replace(/\\s+/g, ' ').trim();
+const section = (name) => [...sheet.querySelectorAll('h2.sec')].find((head) => head.firstChild.textContent.trim() === name);
+const items = (name) => [...section(name).nextElementSibling.querySelectorAll('li')];
+const report = (el) => [el.querySelector('.pill')?.textContent ?? null, text(el), [...el.querySelectorAll('a')].map((a) => [a.textContent, a.getAttribute('href')])];
+const where = [...sheet.querySelectorAll('dt')].find((dt) => dt.textContent === 'Where it is').nextElementSibling.querySelector('.report');
+const kick = sheet.querySelector('.kick');
+const eyebrows = [...sheet.querySelectorAll('.piece .eyebrow')];
+const oneLine = (el) => { const range = document.createRange(); range.selectNodeContents(el); return new Set([...range.getClientRects()].map((rect) => Math.round(rect.top))).size === 1; };
+eyebrows[0].dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+await wait(50);
+done({
+  listed,
+  title: sheet.querySelector('h2.sheet-title').textContent,
+  words: sheet.querySelector('blockquote.said').textContent,
+  head: [kick.querySelector('.pill').textContent, kick.querySelector('.holdup').textContent, kick.querySelector('.holdup [data-pr]')?.dataset.pr],
+  where: report(where),
+  ships: [section('What it ships').querySelector('.count').textContent, items('What it ships').map((li) => [...li.querySelectorAll('.line-text, small')].map(text))],
+  wrong: items('What went wrong').map((li) => [li.querySelector('b').textContent, ...report(li.querySelector('.report'))]),
+  next: items('Next').map((li) => [li.querySelector('b').textContent, ...report(li.querySelector('.report'))]),
+  prs: [section('Pull requests').querySelector('.count').textContent, section('Pull requests').querySelector('.meta').textContent],
+  eyebrows: eyebrows.map((eyebrow) => [eyebrow.textContent, eyebrow.dataset.tip, oneLine(eyebrow)]),
+  tip: document.querySelector('#srctip').textContent,
+});
+""", board(status=[{"state": "blocked", "features": [entry]}, {"state": "running", "features": [FEATURE]}]), "1440,900")
+    assert seen == {
+        "listed": "Refund page shows the fee",
+        "title": "Refund page shows the fee",
+        "words": words,
+        "head": ["Blocked", "red checks on #418", "demo-org/shop#418"],
+        "where": ["Done", "Done since it last said PR up: #401 shows the fee and links the policy", [["#401", "https://github.com/demo-org/shop/pull/401"]]],
+        "ships": [
+            "1 of 3 delivered",
+            [["fee line", "delivered · Nov 10 10:00 PM"], ["say why", "builder j4 running · Nov 10 11:50 PM"], ["receipt copy", "no job carries it yet"]],
+        ],
+        "wrong": [["builder j3", "Blocked", "Blocked buildkite/test is red on #418 since the total rounds down", [["#418", "https://github.com/demo-org/shop/pull/418"]]]],
+        "next": [["builder j4", None, "rounding fixed; adding its test next", []]],
+        "prs": ["2", "1 merged"],
+        "eyebrows": [["Pull request #418", "demo-org/shop#418", True], ["Pull request #401", "demo-org/shop#401", True]],
+        "tip": "demo-org/shop#418",
+    }
 
 
 def test_a_card_link_opens_that_card_and_the_queue_keeps_its_place_in_the_address(tmp_path: Path) -> None:

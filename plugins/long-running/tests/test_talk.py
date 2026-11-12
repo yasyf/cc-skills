@@ -138,8 +138,8 @@ def test_a_card_he_answered_or_the_drive_withdrew_still_links_by_its_waits_id(de
 def test_an_order_links_its_thread_in_slack_or_else_its_dashboard_page_under_his_words(
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Releases", "a verb for owners", "--thread", "1794200000.000100")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: one owner per order")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "a verb for owners", "--thread", "1794200000.000100")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: one owner per order")
     view.refresh_cards(demo)
     talk.say(demo, {"text": "{order:o1} is live; {order:o2} is next."})
     assert posts[0][-1] == (
@@ -290,7 +290,7 @@ def building(demo: str) -> None:
 def test_a_stack_card_names_each_pr_by_its_url_and_the_dashboard_keeps_the_stack(
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Run page", "show a run's history")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "show a run's history")
     building(demo)
     with pytest.raises(DriveError, match=r"tap_prs names yasyf/cc-skills#8, which the drive holds no PR for"):
         talk.say(demo, {"text": "land these", "tap_prs": [PR_URL, "https://github.com/yasyf/cc-skills/pull/8"]})
@@ -303,10 +303,10 @@ def test_a_stack_card_names_each_pr_by_its_url_and_the_dashboard_keeps_the_stack
 def test_a_pr_card_goes_in_the_thread_of_each_open_order_its_pr_carries_out_so_the_one_he_reads_carries_its_link(
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Run page", "show a run's history", "--thread", "1794200000.000100")
-    run("order", "add", "--project", "The drive", "--workstream", "Run page", "There's no approval button", "--thread", "1794300000.000100")
-    run("order", "add", "--project", "The drive", "--workstream", "Run page", "why is the page slow?", "--thread", "1794400000.000100")
-    run("order", "add", "--project", "The drive", "--workstream", "Run page", "one more check", "--from", "slack:C9TEAM/1794500000.000100")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "show a run's history", "--thread", "1794200000.000100")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "There's no approval button", "--thread", "1794300000.000100")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "why is the page slow?", "--thread", "1794400000.000100")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "one more check", "--from", "slack:C9TEAM/1794500000.000100")
     building(demo)
     with state.edit(demo) as data:
         for order_id in ("o2", "o3", "o4"):
@@ -323,8 +323,8 @@ def test_a_pr_card_goes_in_the_thread_of_each_open_order_its_pr_carries_out_so_t
 def test_a_pr_cards_line_that_fails_in_a_later_thread_says_the_card_went_out_so_none_is_posted_again(
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Run page", "show a run's history", "--thread", "1794200000.000100")
-    run("order", "add", "--project", "The drive", "--workstream", "Run page", "There's no approval button", "--thread", "1794300000.000100")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "show a run's history", "--thread", "1794200000.000100")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "There's no approval button", "--thread", "1794300000.000100")
     building(demo)
     with state.edit(demo) as data:
         state.carry(data, "j1", "o2", list(data["orders"]["o2"]["parts"]))
@@ -364,7 +364,7 @@ def test_a_post_its_order_will_not_take_still_says_it_went_out_so_nobody_sends_i
 def test_a_post_on_an_order_in_none_of_its_threads_posts_nothing_and_says_where_it_goes(
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], slack_thread: Thread
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "why the copy stalls", "--thread", "1794200000.000100")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why the copy stalls", "--thread", "1794200000.000100")
     with pytest.raises(DriveError) as refused:
         talk.say(demo, {"text": "The copy stalls on the lock.", "thread_ts": "1794200090.000700", "order": "o1"})
     assert str(refused.value) == (
@@ -384,9 +384,9 @@ def test_a_post_on_an_order_in_none_of_its_threads_posts_nothing_and_says_where_
 def test_a_post_on_an_incident_goes_in_each_joined_alerts_thread_both_ways_and_one_elsewhere_names_whose_thread_it_is(
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL errors on plat", "--thread", "1794200000.000100", "--incident", "--parts", "fix", "first check")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL error log count", "--from", "slack:D123/1794300000.000100", "--thread", "1794300000.000100", "--joins", "o1")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "why the copy stalls", "--thread", "1794400000.000100")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL errors on plat", "--thread", "1794200000.000100", "--incident", "--parts", "fix", "first check")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL error log count", "--from", "slack:D123/1794300000.000100", "--thread", "1794300000.000100", "--joins", "o1")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why the copy stalls", "--thread", "1794400000.000100")
     assert talk.say(demo, {"text": "The fix is merged.", "thread_ts": "1794300000.000100", "order": "o1"}).startswith(f"POSTED {POSTED}")
     assert talk.say(demo, {"text": "The fix is merged.", "thread_ts": "1794200000.000100", "order": "o2"}).startswith(f"POSTED {POSTED}")
     with pytest.raises(DriveError) as refused:
@@ -408,7 +408,7 @@ def test_a_post_delivers_the_part_its_report_names_and_a_progress_report_naming_
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
 ) -> None:
     thread = "1794200000.000100"
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "why it fails, and the options", "--thread", thread, "--parts", "cause", "options as a card")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why it fails, and the options", "--thread", thread, "--parts", "cause", "options as a card")
     run("start", "demo", "--role", "communicator")
     with state.edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -460,7 +460,7 @@ def test_a_time_a_post_promises_becomes_its_orders_due_once_slack_has_the_post_a
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
 ) -> None:
     thread = "1794200000.000100"
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Iris chat turns fail on sand 0.162.3983", "--thread", thread)
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Iris chat turns fail on sand 0.162.3983", "--thread", thread)
     run("start", "demo", "--role", "communicator")
     at = datetime(2026, 11, 11, 21, 29, 43, 954739).astimezone()
     with state.edit(demo) as data:
@@ -493,8 +493,8 @@ def test_a_report_delivers_on_an_order_only_from_the_lane_of_its_holder_and_a_re
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
 ) -> None:
     thread = "1794200000.000100"
-    run("order", "add", "--project", "The drive", "--workstream", "Questions", "which page shows a run's history?", "--thread", thread, "--owner", "communicator")
-    run("order", "add", "--project", "The drive", "--workstream", "Run page", "show a run's history", "--thread", thread, "--owner", "coordinator")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Questions", "which page shows a run's history?", "--thread", thread, "--owner", "communicator")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "show a run's history", "--thread", thread, "--owner", "coordinator")
     run("start", "demo", "--role", "communicator")
     with state.edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -643,7 +643,7 @@ def test_his_catch_up_posts_nothing_while_cc_slack_cannot_list_the_cards_it_clos
 def test_a_held_report_is_told_to_the_coordinator_session_that_wrote_it_else_the_one_hearing_its_order(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a verb for owners")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a verb for owners")
     with state.edit(demo) as data:
         data["orders"]["o1"]["project"] = "Iris"
         data["subcoordinators"]["Iris"] = {"session": "iris-1", "terminal": None, "cwd": "/work", "started": state.stamp(), "from": 0}
@@ -703,7 +703,7 @@ TICKET = {"ticket_id": "t1", "ticket_tree": "tree1", "ticket_agent": "agent1", "
 
 def alert_order(run: Callable[..., tuple[int, str]], slack_thread: Thread) -> None:
     slack_thread.messages.append({"ts": ALERT, "from_user": False})
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "the release failed", "--from", f"slack:C0ALERT1/{ALERT}", "--incident", "--parts", "fix", "first check")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the release failed", "--from", f"slack:C0ALERT1/{ALERT}", "--incident", "--parts", "fix", "first check")
 
 
 def test_a_line_in_an_alerts_thread_goes_out_through_cc_slack_reply_with_the_ticket_its_hook_named(
@@ -782,8 +782,8 @@ def test_a_note_to_a_person_with_no_thread_goes_out_through_cc_slack_send_into_t
 def test_a_post_whose_report_is_about_its_order_in_another_orders_thread_is_told_to_post_in_its_own_never_with_the_other(
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "why the copy stalls", "--thread", "1794200000.000100", "--parts", "cause")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "the run page", "--thread", "1794400000.000100")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why the copy stalls", "--thread", "1794200000.000100", "--parts", "cause")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the run page", "--thread", "1794400000.000100")
     listed = "nothing posted: refused, thread 1794400000.000100 is o2's thread and none of o1's threads, its own, those he asked about it in, its cards' or its PRs' cards': 1794200000.000100;"
     report(monkeypatch, {"close": "o1"})
     with pytest.raises(DriveError) as refused:
@@ -847,8 +847,8 @@ def test_a_report_answering_his_message_joins_his_thread_only_to_the_order_it_is
 
 def test_his_later_words_in_a_thread_go_to_the_order_that_came_into_it_last(demo: str, run: Callable[..., tuple[int, str]]) -> None:
     thread = "1794200000.000100"
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "the 50 dashboard improvements")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "how many incidents are open", "--thread", thread)
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the 50 dashboard improvements")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "how many incidents are open", "--thread", thread)
     with state.edit(demo) as data:
         created = state.parse_time(data["orders"]["o2"]["created"])
         data["orders"]["o1"]["asked_in"] = [["D123", thread]]
@@ -865,8 +865,8 @@ def test_an_order_holding_no_thread_but_his_keeps_his_dm_root_and_refuses_any_ot
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread, cci_records: dict[str, dict]
 ) -> None:
     asked, stray = "1794200000.000100", "1794170000.000100"
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "the dashboard looks good")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "how many incidents are open", "--from", f"slack:D123/{asked}", "--thread", asked)
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the dashboard looks good")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "how many incidents are open", "--from", f"slack:D123/{asked}", "--thread", asked)
     run("start", "demo", "--role", "communicator")
     with state.edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -888,9 +888,9 @@ def test_an_order_holding_no_thread_but_his_keeps_his_dm_root_and_refuses_any_ot
 
 
 def asked_orders(run: Callable[..., tuple[int, str]], demo: str, cci_records: dict[str, dict], own: str, asked: str, other: str) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "the 50 dashboard improvements", "--thread", own)
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "how many incidents are open", "--from", f"slack:D123/{asked}", "--thread", asked)
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "the zoomed-out view", "--thread", other)
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the 50 dashboard improvements", "--thread", own)
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "how many incidents are open", "--from", f"slack:D123/{asked}", "--thread", asked)
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the zoomed-out view", "--thread", other)
     run("start", "demo", "--role", "communicator")
     with state.edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]

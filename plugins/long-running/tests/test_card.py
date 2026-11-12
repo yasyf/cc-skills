@@ -530,7 +530,7 @@ def test_no_card_is_drawn_for_a_pr_someone_else_opened_unless_the_order_it_serve
     drive: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(card, "run", answering(pr_json()))
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "retry flaky uploads")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "retry flaky uploads")
     with state.edit(drive) as data:
         data["prs"]["Forge-AI/monorepo#42"]["author"] = "rowan"
     reply = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})
@@ -581,7 +581,7 @@ def test_a_tap_card_whose_body_has_only_a_title_draws_with_approve(drive: str, m
 def test_a_drive_tooling_pr_whose_his_words_say_none_draws_its_card_with_approve(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
     body = FIX_BODY.split("## His words, step by step")[0] + "## His words, step by step\nNone: drive tooling.\n"
     monkeypatch.setattr(card, "run", answering(pr_json(body=body)))
-    assert cli.main(["order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a tooling PR lands on his Approve", "--drive", drive]) == 0
+    assert cli.main(["order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a tooling PR lands on his Approve", "--drive", drive]) == 0
     with state.edit(drive) as data:
         data["prs"]["Forge-AI/monorepo#42"]["serves"] = "o1"
     reply = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})
@@ -649,7 +649,7 @@ def test_refused_appends_one_event_per_new_reason(drive: str) -> None:
 
 def test_a_refusal_and_a_tap_are_written_with_the_lane_hearing_their_order_then(drive: str) -> None:
     assert ask({"refused": [{"repo": "Forge-AI/monorepo", "number": 42, "reason": "card needs a title"}]}) == {"refused": 1}
-    assert cli.main(["order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page", "--drive", drive]) == 0
+    assert cli.main(["order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page", "--drive", drive]) == 0
     with state.edit(drive) as data:
         data["prs"]["Forge-AI/monorepo#42"]["order"] = "o1"
         cli.bind_subcoordinator(data, "Iris", {"session": "iris-1", "terminal": None, "cwd": "/work", "started": state.stamp()})
@@ -728,7 +728,7 @@ def test_answer_stores_his_tap_and_appends_a_tap_event(drive: str) -> None:
 def test_his_approve_starts_the_lander_on_a_green_monorepo_pr_at_once_and_leaves_a_red_one_to_the_watch(
     drive: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
 ) -> None:
-    assert cli.main(["order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page", "--drive", drive]) == 0
+    assert cli.main(["order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page", "--drive", drive]) == 0
     monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
     view.refresh_cards(drive)
     with state.edit(drive) as data:
@@ -746,7 +746,7 @@ def test_his_approve_starts_the_lander_on_a_green_monorepo_pr_at_once_and_leaves
 def moved_under_his_card(drive: str, monkeypatch: pytest.MonkeyPatch) -> dict:
     """His card drawn at HEAD, then a push of a new change to MOVED, which the watch read and no check judged yet; the card request that redraws it."""
     asked = {"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]}
-    assert cli.main(["order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page", "--drive", drive]) == 0
+    assert cli.main(["order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page", "--drive", drive]) == 0
     monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
     view.refresh_cards(drive)
     with state.edit(drive) as data:

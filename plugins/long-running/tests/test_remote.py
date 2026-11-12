@@ -85,7 +85,7 @@ def message(kind: str, text: str, **overrides: str | None) -> dict:
 
 @pytest.fixture
 def remote(run: Run, demo: str) -> str:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the remote builder")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the remote builder")
     run("job", "add", "builder", "--order", "o1", "--goal", "remote builders", "--remote")
     with state.edit(demo) as data:
         data["jobs"]["j1"].update(run=RUN, dispatch=DISPATCH, ask=None, report=None)
@@ -96,7 +96,7 @@ def remote(run: Run, demo: str) -> str:
 @pytest.fixture
 def rooted(run: Run, demo: str) -> str:
     """A root started by hand with the orca skill's local route and recorded with drive job set --agent <its dispatch>, as drives saved it before local lanes."""
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "the tooling root")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the tooling root")
     run("job", "add", "builder", "--order", "o1", "--goal", "root tooling")
     with state.edit(demo) as data:
         data["jobs"]["j1"].update(agent=ROOT_DISPATCH, where="local", said="root-tooling: dispatch ctx_ab821100f80b")
@@ -145,7 +145,7 @@ def test_place_counts_only_running_builders_on_this_mac(
 ) -> None:
     monkeypatch.setattr(place, "busy", lambda: 0.2)
     monkeypatch.setenv(place.LIMIT_ENV, "0.5")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "many")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "many")
     for _ in range(7):
         run("job", "add", "builder", "--order", "o1", "--goal", "here", "--agent", "a")
     run("job", "add", "builder", "--order", "o1", "--goal", "there", "--remote")
@@ -167,7 +167,7 @@ def test_place_counts_a_builder_here_only_while_its_agent_is_in_its_turn(
 ) -> None:
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
     monkeypatch.setattr(watch, "last_write", REAL_LAST_WRITE)
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "three")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "three")
     turns = {
         "a1": {"type": "assistant", "message": {"stop_reason": "tool_use", "content": [{"type": "tool_use", "name": "Bash"}]}},
         "a2": {"type": "assistant", "message": {"stop_reason": "end_turn", "content": [{"type": "text", "text": "WAITING on Forge-AI/monorepo#7"}]}},
@@ -190,7 +190,7 @@ def test_place_counts_a_builder_lane_started_on_this_mac_while_it_launches_or_ru
 ) -> None:
     monkeypatch.setattr(place, "busy", lambda: 0.2)
     monkeypatch.setenv(place.LIMIT_ENV, "0.5")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "many")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "many")
     monkeypatch.setattr(orca, "worker", lambda dispatch: SPRITE_WORKER if dispatch == SPRITE_DISPATCH else LIVE_WORKER)
     for goal in ("lane here", "lane here ended", "launching here", "never started here", "on a Sprite", "recorded by hand on a Sprite"):
         run("job", "add", "builder", "--order", "o1", "--goal", goal, "--remote")
@@ -211,7 +211,7 @@ def test_a_local_launch_that_started_no_worker_stops_counting_as_a_builder_here(
 ) -> None:
     (tmp_path / ".orca.json").write_text("{}")
     (tmp_path / "brief.md").write_text("Drive: demo, order o1, job j1\n")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship it")
     monkeypatch.setattr(orca, "new_run", lambda objective: RUN)
 
@@ -232,7 +232,7 @@ def test_place_skips_a_running_builder_whose_agent_is_gone(
     monkeypatch.setattr(
         watch, "local_gap", lambda job_id, job, data, moment: f"{job_id}'s agent ended with an earlier session" if job_id == "j1" else None
     )
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "two")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "two")
     run("job", "add", "builder", "--order", "o1", "--goal", "gone", "--agent", "a")
     run("job", "add", "builder", "--order", "o1", "--goal", "alive", "--agent", "b")
     assert json.loads(run("place", "--json")[1])["local_builders"] == 1
@@ -279,7 +279,7 @@ def test_launch_composes_the_vm_brief_and_records_the_lane(
 ) -> None:
     (tmp_path / ".orca.json").write_text("{}")
     (tmp_path / "brief.md").write_text("Order (his words): ship it\nDrive: demo, order o1, job j1\n")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship it", "--remote")
     objectives = []
     monkeypatch.setattr(orca, "new_run", lambda objective: objectives.append(objective) or RUN)
@@ -309,7 +309,7 @@ def test_launch_composes_the_vm_brief_and_records_the_lane(
 def test_launch_clones_from_the_drives_recorded_checkout_whatever_folder_it_runs_in(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship it", "--remote")
     state_folder = state.drive_dir(demo)
     (state_folder / "brief.md").write_text("Drive: demo, order o1, job j1\n")
@@ -329,7 +329,7 @@ def test_a_sprite_brief_carries_every_drive_file_it_names_whole_a_lanes_report_k
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     folder = state.drive_dir(demo)
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     for goal in ("research it", "design it", "list it"):
         run("job", "add", "reader", "--order", "o1", "--goal", goal)
     with state.edit(demo) as data:
@@ -370,7 +370,7 @@ def test_launch_refuses_a_brief_naming_a_drive_file_the_drive_keeps_no_text_of_a
     (tmp_path / ".orca.json").write_text("{}")
     asked = state.drive_dir(demo) / "asks" / "j1290-702505b0.md"
     (tmp_path / "brief.md").write_text(f"Order (his words): ship it\nPlan: j404 kept the plan\nDone when: his card in {asked} draws\nDrive: demo, order o1, job j1\n")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship it", "--remote")
     before = state.load(demo)["jobs"]["j1"]
     assert cli.main(["job", "launch", "j1", "brief.md"]) == 2
@@ -382,7 +382,7 @@ def test_launch_refuses_a_brief_naming_a_drive_file_the_drive_keeps_no_text_of_a
 def test_launch_refuses_a_job_on_this_mac_and_a_checkout_without_orca_values(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "here", "--agent", "a")
     run("job", "add", "builder", "--order", "o1", "--goal", "there", "--remote")
     assert cli.main(["job", "launch", "j1", "brief.md"]) == 2
@@ -395,7 +395,7 @@ def test_launch_refuses_a_brief_file_that_is_not_there_and_stamps_nothing(
     run: Run, demo: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     (tmp_path / ".orca.json").write_text("{}")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship it")
     before = state.load(demo)["jobs"]["j1"]
     assert cli.main(["job", "launch", "j1", "brief.md"]) == 2
@@ -408,7 +408,7 @@ def test_launch_starts_a_job_added_with_no_agent_as_a_remote_lane(
 ) -> None:
     (tmp_path / ".orca.json").write_text("{}")
     (tmp_path / "brief.md").write_text("Drive: demo, order o1, job j1\n")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship it")
     assert cli.main(["job", "resume", "j1", "next"]) == 2
     assert capsys.readouterr().err == (
@@ -428,7 +428,7 @@ def test_launch_local_from_a_session_that_did_not_start_the_jobs_agent_starts_it
 ) -> None:
     (tmp_path / ".orca.json").write_text("{}")
     (tmp_path / "brief.md").write_text("Drive: demo, order o1, job j1\n")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "a verb for owners")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "a verb for owners")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--agent", "a-1")
     run("job", "brief", "j1", "--serves", "drive tooling", "--done-when", "merged and installed", "--where", "yasyf/cc-skills main")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "meta-session")
@@ -1011,14 +1011,14 @@ def test_resume_keeps_a_question_the_lane_asked_while_it_was_answered(
 
 def test_resume_and_end_refuse_a_lane_that_never_started(run: Run, demo: str, tmp_path: Path) -> None:
     (tmp_path / ".orca.json").write_text("{}")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "there", "--remote")
     assert run("job", "resume", "j1", "go")[0] == 2
     assert run("job", "end", "j1")[0] == 2
 
 
 def carrying(run: Run, remote: str) -> list[str]:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "show the tallies")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "show the tallies")
     with state.edit(remote) as data:
         parts = list(data["orders"]["o2"]["parts"])
         state.carry(data, "j1", "o2", parts)
@@ -1728,7 +1728,7 @@ def test_a_run_a_finished_job_shares_gives_the_live_job_only_its_own_workers_mai
 def test_two_watches_reading_one_shared_run_each_take_the_mail_of_the_jobs_they_hear_lose_none_and_take_no_other_workers(
     run: Run, remote: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     run("job", "add", "builder", "--order", "o2", "--goal", "run page", "--remote")
     with state.edit(remote) as data:
         data["jobs"]["j2"].update(run=RUN, dispatch="ctx_lane0002", ask=None, report=None)
@@ -1750,7 +1750,7 @@ def test_two_watches_reading_one_shared_run_each_take_the_mail_of_the_jobs_they_
 def test_two_watches_reading_one_run_past_orcas_newest_hundred_each_take_every_message_of_the_jobs_they_hear(
     run: Run, remote: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     run("job", "add", "builder", "--order", "o2", "--goal", "run page", "--remote")
     with state.edit(remote) as data:
         data["jobs"]["j2"].update(run=RUN, dispatch="ctx_lane0002", ask=None, report=None)
@@ -1932,7 +1932,7 @@ def test_a_launch_a_newer_install_saved_the_drive_during_hands_its_receipt_to_th
 ) -> None:
     (tmp_path / ".orca.json").write_text("{}")
     (tmp_path / "brief.md").write_text("Order (his words): ship it\nDrive: demo, order o1, job j1\n")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship it", "--remote")
     monkeypatch.setattr(orca, "new_run", lambda objective: RUN)
     receipt = {field: f"{field}-1" for field in cli.LAUNCHED if field != "run"} | {"dispatch": DISPATCH}
@@ -2030,7 +2030,7 @@ def test_a_root_recorded_by_its_orca_dispatch_is_read_through_worker_show_and_it
 
 
 def test_an_orca_dispatch_set_as_a_jobs_agent_records_a_lane_on_this_mac(run: Run, demo: str) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "the tooling root")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the tooling root")
     run("job", "add", "builder", "--order", "o1", "--goal", "root tooling")
     run("job", "set", "j1", "--agent", ROOT_DISPATCH)
     saved = json.loads(state.state_path(demo).read_text())["jobs"]["j1"]
@@ -2047,7 +2047,7 @@ def test_an_orca_dispatch_on_a_sprite_set_as_a_jobs_agent_records_its_sprite_and
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(orca, "worker", lambda dispatch: SPRITE_WORKER)
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "the tooling root")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the tooling root")
     run("job", "add", "builder", "--order", "o1", "--goal", "root tooling")
     run("job", "set", "j1", "--agent", SPRITE_DISPATCH)
     data = state.load(demo)
@@ -2057,7 +2057,7 @@ def test_an_orca_dispatch_on_a_sprite_set_as_a_jobs_agent_records_its_sprite_and
 
 def test_the_watch_files_a_lane_recorded_on_this_mac_on_the_sprite_its_worker_show_names(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     deliver(monkeypatch)
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "the tooling root")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the tooling root")
     run("job", "add", "builder", "--order", "o1", "--goal", "root tooling")
     with state.edit(demo) as data:
         data["jobs"]["j1"].update(state.local_lane(SPRITE_DISPATCH), run=RUN, task="task_sprite", terminal="term_sprite")
@@ -2104,7 +2104,7 @@ def test_launch_local_records_a_lane_on_this_mac_that_reads_as_starting_while_it
 ) -> None:
     (tmp_path / ".orca.json").write_text("{}")
     (tmp_path / "brief.md").write_text("Drive: demo, order o1, job j1\n")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship it")
     monkeypatch.setattr(orca, "new_run", lambda objective: RUN)
     launched = {}
@@ -2137,7 +2137,7 @@ def test_launch_local_records_a_lane_on_this_mac_that_reads_as_starting_while_it
 def test_a_job_with_no_dispatch_reads_as_starting_until_a_launch_would_have_finished(
     run: Run, demo: str, ago: timedelta, gap: str | None
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship it", "--remote")
     with state.edit(demo) as data:
         data["jobs"]["j1"]["launching"] = state.stamp(T0 - ago)
@@ -2151,7 +2151,7 @@ def test_a_job_added_or_set_waiting_on_a_pr_or_a_release_waits_unlaunched_until_
 ) -> None:
     key = "Forge-AI/monorepo#7"
     shipping = f"release:api:{key}"
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "the PR it builds on", "--remote")
     with state.edit(demo) as data:
         data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1")

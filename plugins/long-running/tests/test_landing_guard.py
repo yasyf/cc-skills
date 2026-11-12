@@ -19,7 +19,7 @@ DEMO = "https://github.com/yasyf/cc-skills/blob/3d8111f/pr-shots/demo-hover/x.pn
 
 @pytest.fixture
 def drive_pr(run: Run, demo: str) -> str:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
     run("pr", "add", PR, "--job", "j1")
     return state.pr_key(PR)
@@ -355,7 +355,7 @@ def test_a_drive_sessions_cci_post_in_bash_is_refused_for_the_cci_tools_while_it
 
 
 def test_a_report_posted_with_cci_post_in_bash_gets_the_checks_the_cci_post_tool_runs(run: Run, demo: str, no_calls: None) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "why does the search worker OOM?", "--parts", "cause", "fix")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why does the search worker OOM?", "--parts", "cause", "fix")
     run("job", "add", "reader", "--order", "o1", "--part", "cause", "--goal", "find the cause")
     with state.edit("demo") as data:
         data["jobs"]["j1"]["state"] = "done"
@@ -399,7 +399,7 @@ def test_a_question_kept_with_drive_job_ask_goes_to_jev_as_the_case_its_block_ma
     ],
 )
 def test_every_form_handing_the_verb_one_block_gives_jev_one_case(run: Run, demo: str, no_calls: None, tmp_path: Path, form: str) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
     with state.edit("demo") as data:
         data["jobs"]["j1"]["report"] = SHORT_ASK

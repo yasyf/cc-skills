@@ -23,7 +23,7 @@ ANSWER = {
 
 
 def test_a_call_runs_its_ops_in_order_and_an_op_after_an_add_acts_on_what_it_made(demo: str) -> None:
-    order = {"words": "Fix the card", "from": f"slack:D123/{THREAD}", "thread": THREAD, "project": "The drive", "workstream": "Drive tooling"}
+    order = {"words": "Fix the card", "title": "Fix the card", "from": f"slack:D123/{THREAD}", "thread": THREAD, "project": "The drive", "workstream": "Drive tooling"}
     said = tools.run("job", demo, {"ops": [{"add": {"kind": "builder", "order": order, "goal": "fix it"}}, {"set": {"branch": "lr-fix", "said": "pushed"}}]})
     assert said.splitlines()[:2] == ["1 order add: o1", "1 job add: j1"]
     assert said.splitlines()[2].startswith("2 job set: j1")
@@ -35,7 +35,7 @@ def test_a_call_runs_its_ops_in_order_and_an_op_after_an_add_acts_on_what_it_mad
 
 def test_a_call_with_a_refused_op_writes_nothing_and_names_every_refused_op_with_its_fix(demo: str) -> None:
     with pytest.raises(DriveError) as refused:
-        tools.run("order", demo, {"ops": [{"add": {"words": "Ship it", "project": "The drive", "workstream": "Drive tooling"}}, {"set": {"id": "o9", "note": "x"}}, {"set": {"note": "never"}}]})
+        tools.run("order", demo, {"ops": [{"add": {"words": "Ship it", "title": "Short title", "project": "The drive", "workstream": "Drive tooling"}}, {"set": {"id": "o9", "note": "x"}}, {"set": {"note": "never"}}]})
     assert str(refused.value).splitlines() == [
         "refused, nothing written: 1 of 3 ops refused; fix each and send the whole call again",
         "2 order set refused: no order o9",
@@ -58,7 +58,7 @@ def test_a_call_whose_second_tooling_order_check_post_refuses_adds_neither_and_n
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(slack, "check_post", lambda text, asked: ["1:44 drive-term 'o610': say what happens to the reader's work instead"] if "o610" in text else [])
-    ops = [{"add": {"words": "Drive tooling: a report states job start times in the future"}}, {"add": {"words": "Drive tooling: a promised time left o610 due"}}]
+    ops = [{"add": {"words": "Drive tooling: a report states job start times in the future", "title": "Short title"}}, {"add": {"words": "Drive tooling: a promised time left o610 due", "title": "Short title"}}]
     with pytest.raises(DriveError) as refused:
         tools.run("order", demo, {"ops": ops})
     [head, line] = str(refused.value).splitlines()
@@ -73,7 +73,7 @@ def test_a_call_whose_second_tooling_order_check_post_refuses_adds_neither_and_n
 
 
 def test_a_job_add_naming_no_part_of_the_two_part_order_it_adds_is_refused_before_that_order_is_written(demo: str) -> None:
-    order = {"words": "Drive tooling: a refused write leaves nothing half-written", "kind": "build", "parts": ["all or none", "default filing"]}
+    order = {"words": "Drive tooling: a refused write leaves nothing half-written", "title": "Refused writes leave nothing", "kind": "build", "parts": ["all or none", "default filing"]}
     with pytest.raises(DriveError) as refused:
         tools.run("job", demo, {"ops": [{"add": {"kind": "reader", "order": order, "goal": "research it"}}, {"brief": {"serves": "drive tooling", "done_when": "x", "where": "y"}}]})
     assert str(refused.value).splitlines()[1] == (
@@ -83,9 +83,9 @@ def test_a_job_add_naming_no_part_of_the_two_part_order_it_adds_is_refused_befor
 
 
 def test_a_call_with_three_refused_ops_prints_all_three(demo: str) -> None:
-    tools.run("order", demo, {"ops": [{"add": {"words": "Ship it", "project": "Iris", "workstream": "Run page"}}]})
+    tools.run("order", demo, {"ops": [{"add": {"words": "Ship it", "title": "Short title", "project": "Iris", "workstream": "Run page"}}]})
     with pytest.raises(DriveError) as refused:
-        tools.run("order", demo, {"ops": [{"add": {"words": "ship the run page"}}, {"set": {"id": "o1", "note": "x"}}, {"set": {"id": "o7"}}, {"told": {"id": "o8", "link": "x"}}]})
+        tools.run("order", demo, {"ops": [{"add": {"words": "ship the run page", "title": "Short title"}}, {"set": {"id": "o1", "note": "x"}}, {"set": {"id": "o7"}}, {"told": {"id": "o8", "link": "x"}}]})
     assert str(refused.value).splitlines() == [
         "refused, nothing written: 3 of 4 ops refused; fix each and send the whole call again",
         '1 order add "ship the run page" refused: refused, no order added: name --project and --workstream, which file his order on the'
@@ -97,7 +97,7 @@ def test_a_call_with_three_refused_ops_prints_all_three(demo: str) -> None:
 
 
 def test_a_refusal_while_a_job_call_runs_writes_nothing_and_a_passing_call_saves_the_drive_once(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    order = {"words": "Fix the card", "project": "The drive", "workstream": "Drive tooling"}
+    order = {"words": "Fix the card", "title": "Fix the card", "project": "The drive", "workstream": "Drive tooling"}
     lands = {"kind": "reader", "order": "o1", "goal": "read", "lands": ["https://github.com/a/b/pull/1"]}
     with pytest.raises(DriveError) as refused:
         tools.run("job", demo, {"ops": [{"add": {"kind": "builder", "order": order, "goal": "fix it"}}, {"add": lands}]})
@@ -125,7 +125,7 @@ def test_each_verb_tool_is_typed_from_the_parser_the_cli_runs() -> None:
     job_set = ops["set"]["set"]
     assert job_set["properties"]["state"]["enum"] == list(state.JOB_STATES)
     assert (job_set["properties"]["waits"]["type"], "id" in job_set["required"]) == ("array", False)
-    assert ops["add"]["add"]["properties"]["order"]["anyOf"][1]["required"] == ["words"]
+    assert ops["add"]["add"]["properties"]["order"]["anyOf"][1]["required"] == ["words", "title"]
     assert listed["status"]["annotations"] == {"readOnlyHint": True}
 
 
@@ -143,7 +143,7 @@ PLAN = {
 def test_drive_break_glass_grants_in_the_jobs_name_then_runs_its_command_in_the_grants_environment_and_exits_as_it_does(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "count the stranded table copies")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "count the stranded table copies")
     run("job", "add", "reader", "--order", "o1", "--goal", "count them")
     granted, ran = [], []
     grant = reads.Grant("https://buildkite.com/forge/break-glass/builds/1926", "plat-prod", state.parse_time("2026-11-12T12:22:25Z"), {"AWS_PROFILE": "plat-prod"})
@@ -170,7 +170,7 @@ def test_drive_break_glass_grants_in_the_jobs_name_then_runs_its_command_in_the_
 
 
 def test_drive_break_glass_refuses_a_blank_reason_before_any_grant(demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "count the stranded table copies")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "count the stranded table copies")
     monkeypatch.setattr(reads, "break_glass", lambda *args: pytest.fail("a blank reason started a grant"))
     with pytest.raises(SystemExit) as refused:
         run("break-glass", "o1", "--stack", "sandsql/plat-usw2-prod", "--reason", " ", "--", "aws", "s3", "ls")
@@ -209,7 +209,7 @@ def test_search_plan_returns_the_plan_sections_carrying_its_words_under_their_he
 def test_a_tool_call_naming_its_drive_acts_on_that_drive_from_a_session_no_drive_binds(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    tools.run("order", demo, {"ops": [{"add": {"words": "Fix the card", "project": "The drive", "workstream": "Drive tooling"}}]})
+    tools.run("order", demo, {"ops": [{"add": {"words": "Fix the card", "title": "Short title", "project": "The drive", "workstream": "Drive tooling"}}]})
     run("start", "other", "--role", "coordinator")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "bound-to-none")
 
@@ -295,7 +295,7 @@ def test_a_long_defect_goes_to_the_other_session_as_one_line_with_its_whole_text
 def test_a_sub_coordinator_posts_from_its_lane_and_his_answer_to_its_card_or_an_owner_record_heard_routes_reaches_it(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     run("job", "add", "builder", "--order", "o1", "--goal", "build it")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
     run("start", demo, "--role", "coordinator", "--project", "Iris")
@@ -336,8 +336,8 @@ def test_the_communicators_records_about_the_drive_reach_the_meta_session_alone_
         return subprocess.CompletedProcess(argv, 0, "".join(f"#{n}\n" for n, _ in enumerate(records)), "")
 
     tooling = "1794200000.000300"
-    run("order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page", "--thread", THREAD)
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: cards say why", "--thread", tooling)
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page", "--thread", THREAD)
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: cards say why", "--thread", tooling)
     monkeypatch.setattr(subprocess, "run", post)
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
     run("start", demo, "--role", "communicator")
@@ -367,8 +367,8 @@ def test_the_communicators_records_about_the_drive_reach_the_meta_session_alone_
 def test_the_communicators_owner_or_answer_record_goes_to_the_session_hearing_its_jobs_or_threads_order_whatever_lane_it_names(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page")
-    run("order", "add", "--project", "Platform", "--workstream", "Alerts", "fix the alert")
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Alerts", "fix the alert")
     run("job", "add", "builder", "--order", "o1", "--goal", "build it")
     other = "1794200000.000200"
     with state.edit(demo) as data:
@@ -397,9 +397,9 @@ def test_the_communicators_owner_or_answer_record_goes_to_the_session_hearing_it
 def test_a_handlers_handoff_goes_to_the_session_holding_the_order_its_order_attr_names(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page")
-    run("order", "add", "--project", "Platform", "--workstream", "Alerts", "fix the alert")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: cards say why")
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Alerts", "fix the alert")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: cards say why")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
     run("start", demo, "--role", "coordinator", "--project", "Iris")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
@@ -433,7 +433,7 @@ def open_cards(monkeypatch: pytest.MonkeyPatch, *waits: str, prs: tuple[str, ...
 
 
 def test_his_answer_waits_on_each_job_it_answers_until_that_job_resumes(demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch) -> None:
-    run("order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     run("job", "add", "builder", "--order", "o1", "--goal", "build it")
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, "#61\n#62\n", ""))
     open_cards(monkeypatch, "demo:j1-7")
@@ -464,7 +464,7 @@ def test_his_words_on_an_open_card_close_it_in_the_same_call_that_sends_them(dem
 def test_an_answer_closing_an_ask_his_recorded_rules_settled_before_any_card_drew_settles_its_kept_question(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--project", "Iris", "--workstream", "Durable agents", "one card per subject")
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Durable agents", "one card per subject")
     run("job", "add", "builder", "--order", "o1", "--goal", "build it")
     asked = str(state.drive_dir(demo) / "asks" / "j1-5c1d.md")
     with state.edit(demo) as data:
@@ -497,7 +497,7 @@ def test_his_answer_settling_a_finished_readers_question_reaches_the_builder_at_
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, recorded: Answers
 ) -> None:
     recorded.shown["73060f0"] = ANSWER
-    run("order", "add", "--project", "Iris", "--workstream", "Durable agents", "one card per subject", "--kind", "build")
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Durable agents", "one card per subject", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the card")
     state.keep_report(demo, "j1", state.load(demo)["jobs"]["j1"], "DONE researched the store copy", RESEARCH)
     first, second = (str(state.drive_dir(demo) / "asks" / f"j1-{key}.md") for key in ("5c1d", "9e2f"))
@@ -535,7 +535,7 @@ def test_his_answer_settling_a_finished_readers_question_reaches_the_builder_at_
 def test_his_owner_words_under_a_pr_card_leave_it_up_since_only_his_order_on_its_thread_withdraws_it(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, withdrawals: Withdrawals
 ) -> None:
-    run("order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     run("job", "add", "builder", "--order", "o1", "--goal", "build it")
     pr = "https://github.com/Forge-AI/monorepo/pull/54084"
     run("pr", "add", pr, "--job", "j1")
@@ -550,7 +550,7 @@ def test_his_owner_words_under_a_pr_card_leave_it_up_since_only_his_order_on_its
 
 def test_a_brief_carries_his_order_and_each_ruling_word_for_word(demo: str, run: Callable[..., tuple[int, str]], recorded: Answers) -> None:
     recorded.shown["73060f0"] = ANSWER
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "do a pass on the tools", "--from", f"slack:D123/{THREAD}")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "do a pass on the tools", "--from", f"slack:D123/{THREAD}")
     run("job", "add", "reader", "--order", "o1", "--goal", "read it")
     run("job", "add", "builder", "--order", "o1", "--goal", "make the verbs MCP tools")
     brief = {"id": "j2", "serves": "drive tooling", "done_when": "installed", "where": "yasyf/cc-skills main", "ruling": ["73060f0"]}
