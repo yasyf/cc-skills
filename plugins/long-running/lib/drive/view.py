@@ -58,10 +58,11 @@ NOW_CHARS = 180
 NO_CARDS = {"questions": [], "pr_cards": [], "closed": [], "team_url": ""}
 UNREAD = "not read yet: the drive's watch reads them every minute"
 SWEARS = re.compile(r"\b(?:fuck\w*|shit\w*|bullshit\w*|damn\w*|goddamn\w*|wtf|crap\w*|hell)\b", re.IGNORECASE)
-HISTORY_EVENTS = ("tap", "refused", "said")
+HISTORY_EVENTS = ("tap", "refused", "said", "answered", "undone")
+HISTORY_ONLY = {"said", "answered", "undone"}
 ZONE = ZoneInfo("America/Los_Angeles")
 HISTORY_PAGE = 80
-HISTORY_SHOWN = {"all": None, "prs": {"merged"}, "you": {"order", "tap"}, "said": {"said"}}
+HISTORY_SHOWN = {"all": None, "prs": {"merged"}, "you": {"order", "answer", "tap", "answered", "undone"}, "said": {"said"}}
 STORY_KINDS = {"order", "live", "merged", "tap"}
 STORY_LINES = 6
 LINK_LABEL = str.maketrans({"[": "(", "]": ")", "|": "/"})
@@ -601,13 +602,14 @@ def progress(drive: dict) -> dict:
 
 
 def history(drive: dict, events: Iterable[dict], team_url: str) -> list[dict]:
-    """What happened on every day of the drive, newest first: his orders, features gone live, merges, failed jobs, his taps, refused cards and every message he was sent, with its visuals, a message reworded in place showing its newest words at the time it was sent."""
+    """What happened on every day of the drive, newest first: his orders, his recorded answers, features gone live, merges, failed jobs, his taps and answers on cards and their undos, refused cards and every message he was sent, with its visuals, a message reworded in place showing its newest words at the time it was sent; the swears counted are those in his own words, his Slack orders and recorded answers."""
     prs = drive["prs"]
     happened = []
     sent: dict[str, dict] = {}
     for order_id, order in drive["orders"].items():
         url = thread_url(drive, team_url, order)
-        swears = len(SWEARS.findall(order["text"]))
+        his = order["from"].startswith("slack:") and not order["reporter"]
+        swears = len(SWEARS.findall(order["text"])) if his else 0
         happened.append({"at": order["created"], "kind": "order", "text": plain(order["text"], TITLE_CHARS), "detail": "", "url": url, "feature": order_id, "swears": swears})
         if order["state"] == "done":
             happened.append({"at": order["updated"], "kind": "live", "text": plain(order["text"], TITLE_CHARS), "detail": said(order.get("proof")), "url": url, "feature": order_id})
@@ -617,7 +619,15 @@ def history(drive: dict, events: Iterable[dict], team_url: str) -> list[dict]:
     for job in drive["jobs"].values():
         if job["state"] == "failed":
             happened.append({"at": job["updated"], "kind": "failed", "text": job["goal"], "detail": said(job["said"]), "url": None, "feature": job["order"]})
+    for answer in drive["answers"].values():
+        happened.append({"at": answer["at"], "kind": "answer", "text": plain(answer["words"], TITLE_CHARS), "detail": "", "url": answer["link"], "feature": None, "swears": len(SWEARS.findall(answer["words"]))})
+    recorded = {(card_thread(answer["link"]) or "").replace(".", "") for answer in drive["answers"].values()}
     for event in (event for event in events if event["kind"] in HISTORY_EVENTS):
+        if event["kind"] == "answered" and message_key(event["url"]) in recorded:
+            continue
+        if event["kind"] in ("answered", "undone"):
+            happened.append({"at": event["at"], "kind": event["kind"], "text": event["question"] or "a card", "detail": event["label"], "url": event["url"], "feature": None})
+            continue
         if event["kind"] == "said" and event.get("edited") and (post := sent.get(message_key(event["url"]))):
             post["text"] = event["text"]
             continue
@@ -720,26 +730,36 @@ def day_of(at: str) -> date:
     return state.parse_time(at).astimezone(ZONE).date()
 
 
-def day_counts(day: date, moments: list[dict]) -> dict:
-    asked = [entry for entry in moments if entry["kind"] == "order"]
-    return {"day": day.isoformat(), "merged": sum(entry["kind"] == "merged" for entry in moments), "swears": sum(entry["swears"] for entry in asked), "asked": len(asked), "moments": len(moments)}
+def counts(moments: list[dict]) -> dict:
+    return {
+        "merged": sum(entry["kind"] == "merged" for entry in moments),
+        "swears": sum(entry["swears"] for entry in moments if entry["kind"] in ("order", "answer")),
+        "asked": sum(entry["kind"] == "order" for entry in moments),
+        "moments": len(moments),
+    }
 
 
 def history_page(model: dict, day: str | None, show: str, page: int) -> dict:
-    """One page of HISTORY_PAGE moments, newest first, of the Pacific day asked or else of every day, kept to the kinds show names, with each day's counts from the drive's first day to today."""
+    """One page of HISTORY_PAGE moments, newest first, of the Pacific day asked or else of every day, kept to the kinds show names, with each day's counts from the drive's first day to today and, for the day asked, each Pacific hour's."""
     by_day: dict[date, list[dict]] = {}
     for entry in model["history"]:
         by_day.setdefault(day_of(entry["at"]), []).append(entry)
     days = []
     if model["history"]:
         first, last = day_of(model["history"][-1]["at"]), day_of(model["at"])
-        days = [day_counts(each, by_day.get(each, [])) for each in (first + timedelta(days=n) for n in range((last - first).days + 1))]
+        days = [{"day": each.isoformat()} | counts(by_day.get(each, [])) for each in (first + timedelta(days=n) for n in range((last - first).days + 1))]
     zoomed = day if any(each["day"] == day for each in days) else None
     kinds = HISTORY_SHOWN[show]
     scope = by_day.get(date.fromisoformat(zoomed), []) if zoomed else model["history"]
+    hours = []
+    if zoomed:
+        by_hour: list[list[dict]] = [[] for _ in range(24)]
+        for entry in scope:
+            by_hour[state.parse_time(entry["at"]).astimezone(ZONE).hour].append(entry)
+        hours = [{"hour": hour} | counts(moments) for hour, moments in enumerate(by_hour)]
     kept = [entry for entry in scope if kinds is None or entry["kind"] in kinds]
     listed = kept[(page - 1) * HISTORY_PAGE : page * HISTORY_PAGE]
-    return {"days": days, "day": zoomed, "moments": listed, "page": page, "pages": max(1, math.ceil(len(kept) / HISTORY_PAGE))}
+    return {"days": days, "hours": hours, "day": zoomed, "moments": listed, "page": page, "pages": max(1, math.ceil(len(kept) / HISTORY_PAGE))}
 
 
 def story(model: dict, ids: set[str] | None) -> list[dict]:

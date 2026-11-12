@@ -15,12 +15,13 @@ const GROUPS = {
 };
 const CHECKS = { pass: 'green', fail: 'red', pending: 'running', none: 'no CI' };
 const JOB_STATES = { running: 'Running', waiting: 'Waiting', built: 'Built, no PR until you answer', done: 'Done', failed: 'Failed', stopped: 'Stopped' };
-const HAPPENED = { order: 'You asked', live: 'Live', merged: 'Merged', failed: 'Failed', refused: 'No card drawn', said: 'Sent you' };
+const HAPPENED = { order: 'You asked', answer: 'You answered', live: 'Live', merged: 'Merged', failed: 'Failed', refused: 'No card drawn', said: 'Sent you' };
+const DECIDED = { tap: 'You tapped', answered: 'You picked', undone: 'You took back' };
 const FEATURE_KINDS = new Set(['order', 'live', 'failed']);
 const HISTORY_FILTERS = [
   ['all', 'Everything'],
   ['prs', 'PRs merged'],
-  ['you', 'Your asks and taps'],
+  ['you', 'Your asks and answers'],
   ['said', 'Sent to you'],
 ];
 const NONE = '~';
@@ -864,7 +865,7 @@ function taskRow(entry, href = `#/feature/${entry.id}`) {
 
 function momentText(entry) {
   const text = FEATURE_KINDS.has(entry.kind) ? featureLink(entry.feature, entry.text) : link(entry.text, entry.url);
-  return `<b class="what">${entry.kind === 'tap' ? `You tapped ${esc(entry.detail)} on` : HAPPENED[entry.kind]}</b> ${text}`;
+  return `<b class="what">${DECIDED[entry.kind] ? `${DECIDED[entry.kind]} ${esc(entry.detail)} on` : HAPPENED[entry.kind]}</b> ${text}`;
 }
 
 function story(scope) {
@@ -1403,13 +1404,13 @@ function incidentList() {
 }
 
 function saidRow(entry) {
-  return `<li class="happened said">
+  return `<li class="happened" data-kind="said">
     <span class="time">${timeOf(entry.at)}</span>
     <span class="dot"></span>
     <div class="body">
       <div><b class="what">${HAPPENED.said}</b></div>
       <div class="said-text">${prose(entry.text)}</div>
-      ${entry.visuals.map((each) => (each.kind === 'image' ? shot(each.picture, each.caption) : visual(each.kind, each.source, each.caption))).join('')}
+      ${entry.visuals.length ? `<div class="thumbs">${entry.visuals.map((each) => (each.kind === 'image' ? shot(each.picture, each.caption) : visual(each.kind, each.source, each.caption))).join('')}</div>` : ''}
       ${entry.prs.length ? `<ul class="prlist card">${entry.prs.map(prItem).join('')}</ul>` : ''}
       ${entry.prs.some((pr) => pr.tap === 'wanted') ? '<a class="more" href="#/queue/tap">Tap it in your queue ›</a>' : ''}
     </div>
@@ -1418,12 +1419,12 @@ function saidRow(entry) {
 
 function historyRow(entry) {
   if (entry.kind === 'said') return saidRow(entry);
-  return `<li class="happened ${esc(entry.kind)}">
+  return `<li class="happened" data-kind="${esc(entry.kind)}">
     <span class="time">${timeOf(entry.at)}</span>
     <span class="dot"></span>
     <div class="body">
       <div>${momentText(entry)}</div>
-      ${entry.detail && entry.kind !== 'tap' ? `<div class="meta">${esc(entry.detail)}</div>` : ''}
+      ${entry.detail && !DECIDED[entry.kind] ? `<div class="meta">${esc(entry.detail)}</div>` : ''}
     </div>
   </li>`;
 }
@@ -1442,31 +1443,38 @@ function timeline(list, withDays) {
   }).join('');
 }
 
-function dayChart(series, field, title, note, unit, zoomed) {
+function hourName(hour) {
+  return `${hour % 12 || 12} ${hour < 12 ? 'AM' : 'PM'}`;
+}
+
+function dayChart(series, field, title, note, unit) {
   const top = Math.max(1, ...series.map((each) => each[field]));
   const bars = series.map((each) => {
-    const label = dayName(each.day);
-    const tone = zoomed ? (zoomed === each ? ' on' : ' dim') : '';
-    return `<a class="bar${tone}" href="${historyHref(each.day)}" style="--h:${Math.max(2, (100 * each[field]) / top).toFixed(1)}%" data-tip="${esc(`${label}: ${counted(each[field], unit)}. Click to zoom into the day.`)}" aria-label="${esc(`${label}: ${counted(each[field], unit)}`)}"><span class="col"><i><b>${each[field]}</b></i></span><span class="day">${label}</span></a>`;
+    const label = each.day ? dayName(each.day) : hourName(each.hour);
+    const said = `${label}: ${counted(each[field], unit)}`;
+    const look = `class="bar" style="--h:${Math.max(2, (100 * each[field]) / top).toFixed(1)}%" aria-label="${esc(said)}"`;
+    const drawn = `<span class="col"><i><b>${each[field]}</b></i></span><span class="day">${label}</span>`;
+    return each.day ? `<a ${look} href="${historyHref(each.day)}" data-tip="${esc(`${said}. Click to zoom into the day.`)}">${drawn}</a>` : `<span ${look} tabindex="0" data-tip="${esc(said)}">${drawn}</span>`;
   }).join('');
-  return `<div class="day-chart ${field}"><div class="chart-head"><span>${title}</span><small>${note}</small></div><div class="bars">${bars}</div></div>`;
+  return `<div class="day-chart ${field}${series[0].day ? '' : ' hours'}"><div class="chart-head"><span>${title}</span><small>${note}</small></div><div class="bars">${bars}</div></div>`;
 }
 
 function historyScreen() {
   const filter = shownFilter();
   const read = slice(`/api/history?${new URLSearchParams({ day: route().id ?? '', show: filter, page: historyPage() })}`);
   if (!read?.ok) return notRead(read);
-  const { days: series, moments: listed, page, pages } = read;
+  const { days: series, hours, moments: listed, page, pages } = read;
   const zoomed = series.find((each) => each.day === read.day);
   const scope = zoomed ? [zoomed] : series;
   const total = (field) => scope.reduce((sum, each) => sum + each[field], 0);
-  const stats = [[total('merged'), 'PRs merged'], [total('swears'), 'swear words in your orders'], [total('asked'), 'orders from you'], [total('moments'), 'moments']];
+  const stats = [[total('merged'), 'PRs merged'], [total('swears'), 'swear words you wrote'], [total('asked'), 'orders from you'], [total('moments'), 'moments']];
   const filters = HISTORY_FILTERS.map(([id, label]) => `<a href="${historyHref(zoomed?.day, id)}" class="${id === filter ? 'on' : ''}"${id === filter ? ' aria-current="true"' : ''}>${label}</a>`).join('');
   const latest = series.at(-1);
   const zoom = zoomed ? `<a class="map-btn" href="${historyHref()}">← All days</a>` : latest ? `<a class="map-btn" href="${historyHref(latest.day)}">Zoom to ${dayName(latest.day, { month: 'long', day: 'numeric' })} ›</a>` : '';
   const newer = page > 1 ? `<a class="map-btn" href="${historyHref(zoomed?.day, filter, page - 1)}">‹ Newer</a>` : '';
   const older = page < pages ? `<a class="map-btn" href="${historyHref(zoomed?.day, filter, page + 1)}">Older ›</a>` : '';
   const where = `${zoomed ? `Every moment of ${dayName(zoomed.day, { month: 'long', day: 'numeric' })}` : page > 1 ? 'Older moments' : `The newest ${counted(listed.length, 'moment')}`}${pages > 1 ? `, page ${page} of ${pages}` : ''}`;
+  const [bars, by] = zoomed ? [hours, 'hour'] : [series, 'day'];
   return `<div class="page-head">
       <div><div class="eyebrow">History</div><h1 class="h1">${zoomed ? esc(dayName(zoomed.day, { weekday: 'long', month: 'long', day: 'numeric' })) : 'A little momentum. A little profanity.'}</h1><p class="lead">${zoomed ? 'Every moment of the day, newest first.' : 'Click a day to zoom in.'} Click a moment to follow it back to the work.</p></div>
       <nav class="subtabs" aria-label="Show">${filters}</nav>
@@ -1474,25 +1482,41 @@ function historyScreen() {
     <div class="history-layout">
       <section class="history-stage">
         <div class="history-stats">${stats.map(([n, label]) => `<div><b>${n}</b><span>${label}</span></div>`).join('')}</div>
-        ${series.length ? dayChart(series, 'merged', 'PRs merged', 'By the Pacific day each merged', 'PR', zoomed) : ''}
-        ${series.length ? dayChart(series, 'swears', 'A vocabulary of urgency', 'Swear words in your orders, by the day you sent each', 'swear word', zoomed) : ''}
+        ${bars.length ? dayChart(bars, 'merged', 'PRs merged', `By the Pacific ${by} each merged`, 'PR') : ''}
+        ${bars.length ? dayChart(bars, 'swears', 'A vocabulary of urgency', `Swear words in your orders and answers, by the ${by} you wrote each`, 'swear word') : ''}
         <div class="history-zoom"><span>${where}</span><span>${[newer, older, zoom].filter(Boolean).join(' ')}</span></div>
         <ul class="history">${timeline(listed, !zoomed) || '<li class="empty">Nothing yet.</li>'}</ul>
       </section>
-      ${series.length ? historySide(series, zoomed) : ''}
+      ${zoomed ? daySide(zoomed, hours) : series.length ? historySide(series) : ''}
     </div>`;
 }
 
-function historySide(series, zoomed) {
-  const most = (field) => series.reduce((best, each) => (each[field] > best[field] ? each : best));
-  const [busiest, saltiest] = [most('merged'), most('swears')];
+function most(series, field) {
+  return series.reduce((best, each) => (each[field] > best[field] ? each : best));
+}
+
+function historySide(series) {
+  const [busiest, saltiest] = [most(series, 'merged'), most(series, 'swears')];
   return `<aside class="history-side">
-    <div class="eyebrow">${zoomed ? 'A day in the drive' : 'The shape of the drive'}</div>
-    <div class="big-date">${zoomed ? Number(zoomed.day.slice(-2)) : series.length}</div>
-    <h3>${zoomed ? esc(dayName(zoomed.day, { weekday: 'long' })) : `${series.length === 1 ? 'day' : 'days'} of the drive`}</h3>
+    <div class="eyebrow">The shape of the drive</div>
+    <div class="big-date">${series.length}</div>
+    <h3>${series.length === 1 ? 'day' : 'days'} of the drive</h3>
     <p>Busiest day: <a href="${historyHref(busiest.day)}">${dayName(busiest.day)}</a>, ${counted(busiest.merged, 'PR')} merged.</p>
-    ${saltiest.swears ? `<p>Saltiest day: <a href="${historyHref(saltiest.day)}">${dayName(saltiest.day)}</a>, ${counted(saltiest.swears, 'swear word')} in your orders.</p>` : ''}
-    <p class="rail-note">PRs count each change the drive merged, on the Pacific day it merged. Swears count words such as ${SWEAR_WORDS} in your orders' own words, on the day you sent each.</p>
+    ${saltiest.swears ? `<p>Saltiest day: <a href="${historyHref(saltiest.day)}">${dayName(saltiest.day)}</a>, ${counted(saltiest.swears, 'swear word')} from you.</p>` : ''}
+    <p class="rail-note">PRs count each change the drive merged, on the Pacific day it merged. Swears count words such as ${SWEAR_WORDS} in your own words, your Slack orders and the answers you gave, on the day you wrote each.</p>
+  </aside>`;
+}
+
+function daySide(day, hours) {
+  const [busiest, saltiest] = [most(hours, 'merged'), most(hours, 'swears')];
+  return `<aside class="history-side">
+    <div class="eyebrow">A day in the drive</div>
+    <div class="big-date">${Number(day.day.slice(-2))}</div>
+    <h3>${esc(dayName(day.day, { weekday: 'long' }))}</h3>
+    <p>${counted(day.merged, 'PR')} merged, ${counted(day.asked, 'order')} from you and ${counted(day.moments, 'moment')} in all.</p>
+    ${busiest.merged ? `<p>Busiest hour: ${hourName(busiest.hour)}, ${counted(busiest.merged, 'PR')} merged.</p>` : ''}
+    ${saltiest.swears ? `<p>Saltiest hour: ${hourName(saltiest.hour)}, ${counted(saltiest.swears, 'swear word')} from you.</p>` : ''}
+    <p class="rail-note">Each bar is one Pacific hour of the day. Swears count words such as ${SWEAR_WORDS} in your own words, your Slack orders and the answers you gave.</p>
   </aside>`;
 }
 
@@ -1906,6 +1930,7 @@ document.addEventListener('focusout', (event) => {
   if (event.target.closest('a[data-src], [data-tip]')) hideSource();
 });
 window.addEventListener('hashchange', () => {
+  hideSource();
   if (render() || history.state?.y !== undefined) window.scrollTo(0, history.state?.y ?? 0);
 });
 document.addEventListener('pointerdown', (event) => {

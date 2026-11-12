@@ -250,6 +250,7 @@ class Board:
         self.offset = 0
         self.answers: dict[str, list[str]] = {}
         self.revisions: dict[str, tuple[str, list[str | None]]] = {}
+        self.questions: set[str] = set()
         self.heads: dict[str, str] = {}
         self.pictures: set[str] = set()
         self.threads: set[str] = set()
@@ -290,6 +291,7 @@ class Board:
             self.model = model
             self.answers = {item["answer"]: item["card"]["options"] for item in asked}
             self.revisions = {item["answer"]: revision(item["card"]) for item in asked}
+            self.questions = {item["answer"] for item in model["queue"] if item["kind"] == "question"}
             self.heads = {entry["key"]: entry["head"] for entry in model["review"]}
             self.pictures = pictures
             self.threads = {item["thread"] for item in [*model["queue"], *model["review"]] if item.get("thread")}
@@ -460,7 +462,7 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 self.answered(502, {"error": str(error)})
 
         def answer(self, asked: dict, via: str) -> None:
-            """Hold his answer for UNDO_SECONDS, then send it unless an undo took it back first or the card was drawn again with another question or PR head meanwhile."""
+            """Hold his answer for UNDO_SECONDS, then send it unless an undo took it back first or the card was drawn again with another question or PR head meanwhile; History keeps a sent question card answer, which cc-slack hands the drive no card request for, and an undo, as his decisions."""
             card = asked["card"]
             if asked["label"] not in board.answers.get(card, []):
                 self.answered(409, {"error": GONE})
@@ -475,6 +477,7 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
             undone.wait(UNDO_SECONDS)
             with board.holding:
                 if board.held.pop(card, None) is not undone:
+                    state.append_event(board.name, "undone", url=card, label=asked["label"], question=shown[0])
                     self.answered(200, {"undone": True})
                     return
             if card in board.revisions and board.revisions[card] != shown:
@@ -485,6 +488,8 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
             except (DriveError, subprocess.TimeoutExpired) as error:
                 self.answered(502, {"error": str(error)})
                 return
+            if card in board.questions:
+                state.append_event(board.name, "answered", url=card, label=asked["label"], question=shown[0])
             view.refresh_cards(board.name)
             self.answered(200, said)
 

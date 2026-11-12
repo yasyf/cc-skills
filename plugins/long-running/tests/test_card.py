@@ -668,11 +668,13 @@ def test_a_tap_goes_to_the_drive_whose_entry_for_the_pr_was_updated_last(drive: 
     assert card.drive_prs()["Forge-AI/monorepo#42"][0] == "copy"
 
 
-def test_an_answer_on_a_drives_question_card_is_posted_as_its_one_answer_record(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_an_answer_on_a_drives_question_card_is_posted_as_its_one_answer_record_and_kept_for_history_by_its_question(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
     posted: list[tuple[list[str], list[dict]]] = []
+    url = "https://acme.slack.com/archives/D123/p1794200000000100"
+    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS | {"questions": [{"question": "Ring or knock?", "url": url, "card": {"waits": f"{drive}:j3-661440"}}]})
+    view.refresh_cards(drive)
     ok = subprocess.CompletedProcess([], 0, "661500\n", "")
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append((argv, json.loads(kwargs["input"]))) or ok)
-    url = "https://acme.slack.com/archives/D123/p1794200000000100"
     tap = {"waits": f"{drive}:j3-661440", "label": "Ring", "url": url, "action_ts": "1794200001.000100", "source": "slack"}
     assert ask({"answer": tap}) == {"ok": True, "seq": "661500"}
     ask({"answer": tap | {"label": "neither, keep both", "other": True}})
@@ -686,7 +688,12 @@ def test_an_answer_on_a_drives_question_card_is_posted_as_its_one_answer_record(
         (batch, [answer | {"text": "undone: Ring", "attr": {"job": "j3", "undone": "Ring"}}]),
         (batch, [{"kind": "answer", "to": [f"root@{drive}"], "url": url, "topic": "card:1794200000.000100", "text": "Keep both until Friday", "attr": {"maps": "none"}}]),
     ]
-    assert events(drive) == []
+    assert [(event["kind"], event["label"], event["question"], event["url"]) for event in events(drive)] == [
+        ("answered", "Ring", "Ring or knock?", url),
+        ("answered", "neither, keep both", "Ring or knock?", url),
+        ("undone", "Ring", "Ring or knock?", url),
+        ("answered", "Keep both until Friday", "Ring or knock?", url),
+    ]
     with pytest.raises(state.DriveError, match="step-3:merge is no drive's question card"):
         card.respond({"answer": tap | {"waits": "step-3:merge"}})
 
@@ -752,7 +759,7 @@ def test_answer_on_an_unknown_pr_fails(drive: str) -> None:
         ask({"answer": answer})
 
 
-def test_an_unheard_tap_on_a_drives_question_card_is_posted_as_its_one_answer_record_and_appends_no_event(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_an_unheard_tap_on_a_drives_question_card_is_posted_as_its_one_answer_record_and_kept_for_history(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
     posted: list[list[dict]] = []
     ok = subprocess.CompletedProcess([], 0, "671608\n", "")
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append(json.loads(kwargs["input"])) or ok)
@@ -760,7 +767,7 @@ def test_an_unheard_tap_on_a_drives_question_card_is_posted_as_its_one_answer_re
     tap = {"card": f"{drive}:j3-661440", "label": "Ring", "question": "Which store keeps the tally?", "permalink": url, "at": "2026-11-12T08:40:42Z", "key": "slack-action:D123:1794200000.000100:1794472842.827253"}
     assert ask({"unheard": tap}) == {"ok": True, "seq": "671608", "heard": True}
     assert posted == [[{"kind": "answer", "to": [f"root@{drive}"], "url": url, "re": ["661440"], "text": "Ring", "attr": {"job": "j3"}}]]
-    assert [event["kind"] for event in events(drive)] == []
+    assert [(event["kind"], event["label"], event["question"]) for event in events(drive)] == [("answered", "Ring", None)]
 
 
 def test_unheard_appends_an_event(drive: str) -> None:

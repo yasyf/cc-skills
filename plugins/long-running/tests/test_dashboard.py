@@ -176,11 +176,16 @@ def test_a_drive_saved_by_a_newer_install_hands_the_port_to_that_install_which_a
     assert len(answers) >= handed_at + 3
     assert set(answers) == {demo}
 
-def test_an_answer_reaches_cc_slack_only_from_the_page_itself_for_a_card_still_waiting_on_that_option(monkeypatch: pytest.MonkeyPatch) -> None:
-    card = "https://acme.slack.com/archives/D1/p100"
+
+def test_an_answer_reaches_cc_slack_only_from_the_page_itself_for_a_card_still_waiting_on_that_option_and_history_keeps_a_question_answered(
+    state_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state.create(state.new_drive("demo", "coordinator", "s1", "/work", "D1"))
+    card, question = "https://acme.slack.com/archives/D1/p100", "https://acme.slack.com/archives/D1/p200"
     board = dashboard.Board("demo", [])
-    board.answers = {card: ["Approve", "Hold"]}
-    board.revisions = {card: ("Fix: approve web search?", [])}
+    board.answers = {card: ["Approve", "Hold"], question: ["Raise it", "Shard it"]}
+    board.revisions = {card: ("Fix: approve web search?", []), question: ("Raise the limit?", [])}
+    board.questions = {question}
     asked = []
     monkeypatch.setattr(dashboard, "answer_card", lambda card, label, via: asked.append((card, label, via)) or {"answered": True, "label": label})
     monkeypatch.setattr(dashboard.view, "refresh_cards", lambda name: None)
@@ -189,14 +194,19 @@ def test_an_answer_reaches_cc_slack_only_from_the_page_itself_for_a_card_still_w
     elsewhere = post_answer(port, "https://evil.example", card, "Approve")
     gone = post_answer(port, f"http://box:{port}", card, "Merge")
     taken = post_answer(port, f"http://box:{port}", card, "Approve")
+    picked = post_answer(port, f"http://box:{port}", question, "Shard it")
     server.shutdown()
     assert elsewhere[0] == 403
     assert gone == (409, {"error": dashboard.GONE})
-    assert taken == (200, {"answered": True, "label": "Approve"})
-    assert asked == [(card, "Approve", f"http://box:{port}/")]
+    assert (taken, picked) == ((200, {"answered": True, "label": "Approve"}), (200, {"answered": True, "label": "Shard it"}))
+    assert asked == [(card, "Approve", f"http://box:{port}/"), (question, "Shard it", f"http://box:{port}/")]
+    assert [(event["kind"], event["url"], event["label"], event["question"]) for event, _ in state.read_events("demo")] == [("answered", question, "Shard it", "Raise the limit?")]
 
 
-def test_an_answer_undone_while_held_never_reaches_cc_slack_and_one_already_sent_cannot_be_undone(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_an_answer_undone_while_held_never_reaches_cc_slack_and_history_keeps_the_undo_and_one_already_sent_cannot_be_undone(
+    state_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state.create(state.new_drive("demo", "coordinator", "s1", "/work", "D1"))
     card = "https://acme.slack.com/archives/D1/p100"
     board = dashboard.Board("demo", [])
     board.answers = {card: ["Approve", "Hold"]}
@@ -225,6 +235,7 @@ def test_an_answer_undone_while_held_never_reaches_cc_slack_and_one_already_sent
     assert sent == (200, {"answered": True, "label": "Hold"})
     assert late == (409, {"error": dashboard.SENT})
     assert asked == [(card, "Hold")]
+    assert [(event["kind"], event["label"], event["question"]) for event, _ in state.read_events("demo")] == [("undone", "Approve", "Fix: approve web search?")]
 
 
 def test_an_answer_held_while_its_card_is_drawn_again_for_another_pr_head_never_reaches_cc_slack(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1164,6 +1175,120 @@ done({ wide: document.documentElement.scrollWidth, room: innerWidth });
 """, board(history=[live]), "390,844")
     assert seen["wide"] <= seen["room"]
 
+
+
+def test_his_asks_and_answers_list_each_decision_of_his_his_orders_taps_card_answers_recorded_answers_and_undos(tmp_path: Path) -> None:
+    card = QUESTION["answer"]
+    moments = [
+        {"at": "2026-11-10T23:59:00-08:00", "kind": "undone", "text": "Raise the limit?", "detail": "Shard it", "url": card, "feature": None},
+        {"at": "2026-11-10T23:58:00-08:00", "kind": "answered", "text": "Raise the limit?", "detail": "Shard it", "url": card, "feature": None},
+        {"at": "2026-11-10T23:57:00-08:00", "kind": "answer", "text": "keep both until Friday", "detail": "", "url": card, "feature": None, "swears": 0},
+        {"at": "2026-11-10T23:56:00-08:00", "kind": "tap", "text": "change 1", "detail": "Approve", "url": "https://github.com/a/b/pull/1", "feature": "o1"},
+        {"at": "2026-11-10T23:55:00-08:00", "kind": "order", "text": "ship the fix", "detail": "", "url": None, "feature": "o1", "swears": 0},
+        {"at": "2026-11-10T23:54:00-08:00", "kind": "merged", "text": "change 1", "detail": "", "url": "https://github.com/a/b/pull/1", "feature": "o1"},
+    ]
+    seen = browse(tmp_path, """
+location.hash = '#/history?show=you';
+await wait(150);
+done({ on: document.querySelector('.subtabs a.on').textContent, rows: [...document.querySelectorAll('#main .history .happened .body > div:first-child')].map((row) => row.textContent) });
+""", board(history=moments))
+    assert seen == {
+        "on": "Your asks and answers",
+        "rows": [
+            "You took back Shard it on Raise the limit?",
+            "You picked Shard it on Raise the limit?",
+            "You answered keep both until Friday",
+            "You tapped Approve on change 1",
+            "You asked ship the fix",
+        ],
+    }
+
+
+def test_the_swear_chart_counts_the_swears_in_his_orders_and_his_answers_by_the_day_he_wrote_each(tmp_path: Path) -> None:
+    moments = [
+        {"at": "2026-11-10T23:00:00-08:00", "kind": "answer", "text": "keep both, damn it", "detail": "", "url": None, "feature": None, "swears": 2},
+        {"at": "2026-11-10T22:00:00-08:00", "kind": "order", "text": "fix the damn thing", "detail": "", "url": None, "feature": "o1", "swears": 1},
+        {"at": "2026-11-09T22:00:00-08:00", "kind": "order", "text": "Drive tooling: the shit the lanes say", "detail": "", "url": None, "feature": "o1", "swears": 0},
+    ]
+    seen = browse(tmp_path, """
+location.hash = '#/history';
+await wait(150);
+const swears = document.querySelector('#main .history-stats > div:nth-child(2)');
+done({ stat: [swears.querySelector('b').textContent, swears.querySelector('span').textContent], bars: [...document.querySelectorAll('#main .day-chart.swears .bar')].map((bar) => bar.getAttribute('aria-label')), note: document.querySelector('#main .day-chart.swears small').textContent });
+""", board(history=moments))
+    assert seen == {
+        "stat": ["3", "swear words you wrote"],
+        "bars": ["Nov 9: 0 swear words", "Nov 10: 3 swear words", "Nov 11: 0 swear words"],
+        "note": "Swear words in your orders and answers, by the day you wrote each",
+    }
+
+
+def test_a_day_he_zooms_into_shows_its_hours_and_its_own_side_and_the_bar_tip_closes_as_he_goes(tmp_path: Path) -> None:
+    seen = browse(tmp_path, """
+location.hash = '#/history';
+await wait(150);
+const tip = document.querySelector('#srctip');
+const bar = document.querySelector('#main .day-chart.merged .bar');
+bar.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+const tipped = tip.matches(':popover-open');
+bar.click();
+await wait(200);
+const bars = [...document.querySelectorAll('#main .day-chart.merged .bar')];
+done({
+  tipped,
+  open: tip.matches(':popover-open'),
+  hash: location.hash,
+  bars: bars.length,
+  links: bars.filter((each) => each.matches('a')).length,
+  hours: [bars[0], bars[22]].map((each) => each.getAttribute('aria-label')),
+  side: [...document.querySelectorAll('#main .history-side p:not(.rail-note)')].map((each) => each.textContent),
+});
+""", board())
+    assert seen == {
+        "tipped": True,
+        "open": False,
+        "hash": "#/history/2026-11-10",
+        "bars": 24,
+        "links": 0,
+        "hours": ["12 AM: 0 PRs", "10 PM: 60 PRs"],
+        "side": ["120 PRs merged, 0 orders from you and 120 moments in all.", "Busiest hour: 10 PM, 60 PRs merged."],
+    }
+
+
+@pytest.mark.parametrize("size", ["1440,900", "390,844"])
+def test_the_history_numbers_sit_on_an_even_grid_in_full_contrast(tmp_path: Path, size: str) -> None:
+    seen = browse(tmp_path, """
+location.hash = '#/history';
+await wait(150);
+const stats = [...document.querySelectorAll('#main .history-stats > div')].map((each) => each.getBoundingClientRect());
+done({ lefts: stats.map((each) => Math.round(each.left)), widths: stats.map((each) => Math.round(each.width)), color: getComputedStyle(document.querySelector('#main .big-date')).color });
+""", board(), size)
+    columns = sorted(set(seen["lefts"]))
+    steps = {right - left for left, right in zip(columns, columns[1:])}
+    assert (len(columns), max(steps) - min(steps) <= 1, len(set(seen["widths"])) == 1, seen["color"]) == (4 if size == "1440,900" else 2, True, True, "rgb(34, 39, 39)")
+
+
+def test_a_picture_or_figure_sent_him_is_a_thumbnail_in_its_row_that_opens_in_the_lightbox(tmp_path: Path) -> None:
+    visuals = [
+        {"kind": "image", "source": "", "caption": "before", "picture": "/before.png"},
+        {"kind": "mermaid", "source": "flowchart LR\n  run --> server", "caption": "the flow", "picture": "/flow.png"},
+    ]
+    said = {"at": "2026-11-10T23:59:30-08:00", "kind": "said", "text": "the flow, before and after", "detail": "", "url": None, "feature": "o1", "visuals": visuals, "prs": []}
+    seen = browse(tmp_path, """
+location.hash = '#/history';
+await wait(150);
+const row = document.querySelector('#main .happened[data-kind="said"]');
+const figure = row.querySelector('.thumbs figure.visual');
+figure.scrollIntoView({ block: 'center' });
+await wait(50);
+const box = figure.getBoundingClientRect();
+document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2).click();
+await wait(50);
+const lightbox = document.querySelector('#lightbox');
+done({ tall: row.getBoundingClientRect().height, open: lightbox.open, kind: lightbox.querySelector('.visual-host')?.dataset.visual, caption: lightbox.querySelector('.lb-caption').textContent });
+""", board(history=[said]), "1440,900")
+    assert seen["tall"] < 200
+    assert {key: seen[key] for key in ("open", "kind", "caption")} == {"open": True, "kind": "mermaid", "caption": "the flow"}
 
 VISITS = ["#/queue/all", "#/now", "#/now/Platform/SandSQL/o1", "#/feature/o1", "#/work", "#/work/Platform/SandSQL", "#/history", "#/history/2026-11-09"]
 VISITED = f"""

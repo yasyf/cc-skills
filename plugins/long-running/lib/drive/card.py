@@ -692,7 +692,7 @@ def answered(ask: dict) -> dict:
 
 
 def question_answered(ask: dict) -> dict:
-    """Post his answer on a drive's question card, by a tap, its number typed in its thread or his words in its Other box, as the one answer record the coordinator gets for it: `--re` its ask when the waits id names one, else `topic: card:<thread_ts>`; kept on the job the waits id names until drive job resume carries it there, as the record tool keeps one."""
+    """Post his answer on a drive's question card, by a tap, its number typed in its thread or his words in its Other box, as the one answer record the coordinator gets for it: `--re` its ask when the waits id names one, else `topic: card:<thread_ts>`; kept on the job the waits id names until drive job resume carries it there, as the record tool keeps one; History keeps it, or its undo, as his decision."""
     from drive import tools, view
 
     name, _, _ = ask["waits"].partition(":")
@@ -706,6 +706,8 @@ def question_answered(ask: dict) -> dict:
     made = tools.post(item, data, "root", (data["roles"].get("communicator") or {}).get("session"))
     [seq] = tools.sent(name, "communicator", [made])
     tools.keep_undelivered(name, [made], [seq], [[]])
+    card = view.asked_card(view.stored_cards(name)[0], ask["url"])
+    state.append_event(name, "undone" if ask.get("undone") else "answered", url=ask["url"], label=ask["label"], question=card and card["question"])
     return {"ok": True, "seq": seq}
 
 

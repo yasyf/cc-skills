@@ -440,33 +440,45 @@ def test_board_adds_progress_work_and_each_features_order_and_jobs() -> None:
     assert [job_entry["id"] for job_entry in entry["jobs"]] == ["j1", "j2"]
 
 
-def test_history_lists_every_day_newest_first_with_his_taps_by_title_each_line_sent_him_and_the_swears_in_his_orders() -> None:
+def test_history_lists_every_day_newest_first_with_his_taps_answers_and_undos_each_line_sent_him_and_the_swears_in_his_own_words() -> None:
+    card = "https://acme.slack.com/archives/D123/p1794200000000300"
     data = drive_of(
         {
             "o1": order("ship the page", ["j1"], created=at(-30), state="done", updated=at(-10), proof="installed 1.0.21"),
-            "o2": order("WTF, fix the damn thing. Hello, shell", [], created=state.stamp(T0 - timedelta(days=2)), state="waiting"),
+            "o2": order("WTF, fix the damn thing. Hello, shell", [], created=state.stamp(T0 - timedelta(days=2)), state="waiting", **{"from": "slack:D123/1794200000.000100"}, reporter=None),
+            "o3": order("Drive tooling: the shit the lanes say", [], created=at(-40)),
+            "o4": order("damn, the build is down", [], created=at(-50), **{"from": "slack:C9/1794200000.000200"}, reporter={"link": "https://acme.slack.com/archives/C9/p1794200000000200"}),
         },
         {"j1": job("o1", "failed", "CI red (m12)", updated=-20)},
         [pr(1, "o1", state="merged", updated=at(-15))],
     )
+    data["answers"] = {"a1": {"words": "keep both, damn it", "link": f"{card}?thread_ts=1794200000.000300", "at": at(-6), "said": at(-6), "cards": {}, "jobs": {}}}
     events = [
         {"kind": "tap", "at": at(-5), "repo": "yasyf/cc-skills", "number": 1, "label": "Approve"},
         {"kind": "shown", "at": at(-4), "repo": "yasyf/cc-skills", "number": 1, "waits": ""},
+        {"kind": "answered", "at": at(-4), "url": card, "label": "Keep both", "question": "Ring or knock?"},
+        {"kind": "answered", "at": at(-4), "url": "https://acme.slack.com/archives/D123/p1794200000000400", "label": "Shard it", "question": "Raise the limit?"},
+        {"kind": "undone", "at": at(-3), "url": "https://acme.slack.com/archives/D123/p1794200000000400", "label": "Shard it", "question": None},
         {"kind": "refused", "at": at(-3), "repo": "yasyf/cc-skills", "number": 9, "reason": "its body lacks a section"},
         {"kind": "said", "at": at(-2), "text": "[change 1](https://github.com/yasyf/cc-skills/pull/1) is live", "url": "https://acme.slack.com/archives/D123/p1", "order": "o1", "visuals": []},
     ]
     history = view.board(data, found(), "live", events, T0, set())["history"]
     assert [(entry["kind"], entry["text"], entry["detail"]) for entry in history] == [
         ("said", "[change 1](https://github.com/yasyf/cc-skills/pull/1) is live", ""),
+        ("undone", "a card", "Shard it"),
         ("refused", "https://github.com/yasyf/cc-skills/pull/9", "its body lacks a section"),
+        ("answered", "Raise the limit?", "Shard it"),
         ("tap", "change 1", "Approve"),
+        ("answer", "keep both, damn it", ""),
         ("live", "ship the page", "installed 1.0.21"),
         ("merged", "change 1", ""),
         ("failed", "g", "CI red"),
         ("order", "ship the page", ""),
+        ("order", "Drive tooling: the shit the lanes say", ""),
+        ("order", "damn, the build is down", ""),
         ("order", "WTF, fix the damn thing. Hello, shell", ""),
     ]
-    assert [entry["swears"] for entry in history if entry["kind"] == "order"] == [0, 2]
+    assert [entry["swears"] for entry in history if entry["kind"] in ("order", "answer")] == [1, 0, 0, 0, 2]
 
 
 def test_a_stack_card_sent_to_him_shows_each_pr_as_it_stands_now() -> None:
@@ -621,8 +633,24 @@ def test_history_pages_eighty_moments_newest_first_of_a_pacific_day_or_every_day
         ("2026-11-11", 0, 0, 0, 0),
     ]
     assert (every["day"], every["moments"], every["pages"]) == (None, [merged, *said[:79]], 2)
-    assert view.history_page(model, "2026-11-09", "said", 2) | {"days": []} == {"days": [], "day": "2026-11-09", "moments": said[80:], "page": 2, "pages": 2}
+    assert view.history_page(model, "2026-11-09", "said", 2) | {"days": [], "hours": []} == {"days": [], "hours": [], "day": "2026-11-09", "moments": said[80:], "page": 2, "pages": 2}
     assert view.history_page(model, "2026-11-12", "prs", 1)["moments"] == [merged]
+
+
+def test_a_zoomed_day_counts_each_pacific_hour_of_it_and_his_words_answers_and_orders() -> None:
+    history = [
+        {"at": "2026-11-09T23:10:00-08:00", "kind": "merged"},
+        {"at": "2026-11-09T09:40:00-08:00", "kind": "answer", "swears": 1},
+        {"at": "2026-11-09T09:05:00-08:00", "kind": "merged"},
+        {"at": "2026-11-09T09:00:00-08:00", "kind": "order", "swears": 2},
+        {"at": "2026-11-08T09:00:00-08:00", "kind": "merged"},
+    ]
+    model = {"at": "2026-11-11T10:00:00-08:00", "history": history}
+    hours = view.history_page(model, "2026-11-09", "all", 1)["hours"]
+    assert len(hours) == 24
+    assert [(each["hour"], each["merged"], each["swears"], each["asked"], each["moments"]) for each in hours if each["moments"]] == [(9, 1, 3, 1, 3), (23, 1, 0, 0, 1)]
+    assert view.history_page(model, None, "all", 1)["hours"] == []
+    assert [each["swears"] for each in view.history_page(model, None, "all", 1)["days"]] == [0, 3, 0, 0]
 
 
 def test_the_live_story_is_the_newest_six_orders_launches_merges_and_taps_of_the_features_in_view() -> None:

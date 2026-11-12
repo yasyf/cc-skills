@@ -395,10 +395,12 @@ def test_a_handoff_the_meta_session_did_not_get_goes_again_and_says_so_from_the_
     assert [argv[-1] for argv in sent] == [f"PR {KEY}: checks failed [o1 j1]"]
 
 
-def test_a_line_sent_him_wakes_no_one(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_line_sent_him_or_his_answer_kept_for_history_wakes_no_one(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     watching = watcher(demo)
     state.append_event(demo, "said", text="shipped", thread=None, url="https://acme.slack.com/archives/D123/p1", card=None, order=None, visuals=[])
+    for kind in ("answered", "undone"):
+        state.append_event(demo, kind, url="https://acme.slack.com/archives/D123/p2", label="Ring", question="Ring or knock?")
     assert watch.run_pass(watching, T0) == []
 
 
