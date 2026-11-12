@@ -25,7 +25,7 @@ the shape to keep: "don't go based on what's currently there design this cleanly
   error or log message, a doc, a PR body, the brief or an earlier answer is a claim to test against
   the code that does it, never a fact, by his words "dont just take things for granted critically
   evakuate them". A fact about every case cites what decides it, and a mechanism an option proposes
-  cites the read showing the system controls that piece where it would run, by his words "we cant
+  cites the read or his words showing whether the system controls that piece where it would run, by his words "we cant
   do that since we dont control the poloices on customer bucket".
 - Before the design adds any table, column, store, file, process, mechanism, check or verb, find what
   already does or holds that fact or behavior, in any language or storage: `ccx code search` by

@@ -582,8 +582,8 @@ restating it.
   granted critically evakuate them". A code comment, a panic, error or log message, a doc, a PR body,
   the brief, a record's words or an earlier answer is a claim to test against that code, never a
   line to repeat, and the post says whether each claim it relies on holds. A line about every case
-  stands on a read of what decides it, and a mechanism it proposes on a read showing the system
-  controls that piece where it would run, by his words "we cant do that since we dont control the
+  stands on a read of what decides it, and a mechanism it proposes on a read or his words showing
+  whether the system controls that piece where it would run, by his words "we cant do that since we dont control the
   poloices on customer bucket". A handler passes `say` each such line in `claims`, beside the read
   behind it: `record:<seq>`, or words copied from a call of its own, such as a path, command or query,
   a claim standing on several reads listed once beside each. The say hook hands Jev every call those
