@@ -952,7 +952,7 @@ def test_a_pass_that_finds_the_drive_saved_by_a_newer_install_hands_that_install
     passes = []
     monkeypatch.setattr(watch, "run_pass", lambda watching, moment: passes.append(moment) or [])
     run_watch(demo, monkeypatch)
-    assert (posted(sent), passes, state.held_path(demo).exists()) == ([("handoff", f"root@{demo}", merged)], [], False)
+    assert (posted(sent), passes, state.held_path(demo).exists()) == ([("evidence", f"root@{demo}", merged)], [], False)
 
 
 def test_a_line_whose_post_failed_goes_to_the_newer_install_the_watch_hands_itself_to_between_passes(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -982,7 +982,7 @@ def test_a_crashed_watch_keeps_the_lines_its_pass_made_for_the_watch_drive_watch
     assert ([text.split(":")[0] for _, _, text in posted(sent)], state.held_path(demo).read_text()) == (["WATCH stopped on long-running " + state.VERSION], f"{merged}\n")
     monkeypatch.setattr(watch, "run_pass", lambda watching, moment: [])
     run_watch(demo, monkeypatch)
-    assert posted(sent)[1:] == [("handoff", f"root@{demo}", merged)]
+    assert posted(sent)[1:] == [("evidence", f"root@{demo}", merged)]
 
 
 def test_ensure_starts_the_watch_with_no_session_unless_one_runs(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2770,16 +2770,17 @@ def test_a_line_the_coordinator_acts_on_now_wakes_it_and_the_rest_wait_for_its_b
     assert len({argv[argv.index("--topic") + 1] for argv in sent}) == len(sent)
 
 
-@pytest.mark.parametrize(("job_state", "kind"), [("running", "evidence"), ("waiting", "handoff"), ("done", "handoff")])
-def test_a_prs_merge_or_red_wakes_the_coordinator_only_when_no_running_job_takes_it(
-    demo: str, monkeypatch: pytest.MonkeyPatch, job_state: str, kind: str
+@pytest.mark.parametrize(("job_state", "kind", "merged_kind"), [("running", "evidence", "evidence"), ("waiting", "handoff", "handoff"), ("done", "handoff", "evidence")])
+def test_a_prs_red_wakes_the_coordinator_only_when_no_running_job_takes_it_and_its_merge_only_while_its_job_waits(
+    demo: str, monkeypatch: pytest.MonkeyPatch, job_state: str, kind: str, merged_kind: str
 ) -> None:
     with state.edit(demo) as data:
         data["jobs"]["j1"]["state"] = job_state
     sent = posts(monkeypatch)
-    moves = [f"PR {KEY}: {move} [o1 j1]" for move in ("merged", "checks failed", "conflicts with its base", "changes requested", "still red for 30 minutes")]
-    watch.sent(watcher(demo), "root", moves, T0)
-    assert posted(sent) == [(kind, f"root@{demo}", line) for line in moves]
+    merged = f"PR {KEY}: merged [o1 j1]"
+    reds = [f"PR {KEY}: {move} [o1 j1]" for move in ("checks failed", "conflicts with its base", "changes requested", "still red for 30 minutes")]
+    watch.sent(watcher(demo), "root", [merged, *reds], T0)
+    assert posted(sent) == [(merged_kind, f"root@{demo}", merged), *[(kind, f"root@{demo}", line) for line in reds]]
 
 
 @pytest.mark.parametrize(("wants_tap", "exempt"), [(True, "incident fix"), (False, "incident fix"), (True, None), (False, None)])
