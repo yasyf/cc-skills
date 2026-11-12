@@ -2,7 +2,22 @@ ASK Start a release now to carry the page-map fix?
 <https://github.com/acme/app/pull/12|The fix that writes each finished run's page map at a fixed place> merged at 3:40 PM and no release carries it, so pages keep guessing until one does.
 I recommend starting now; meanwhile nothing ships.
 - Start now: a release starts from main tonight and carries the fix; pages stop guessing once it is live (recommended)
+  Touches:
+  ```mermaid
+  flowchart TD
+    main[main with the fix] --> release[a release tonight]
+    release --> pages[run pages]
+  ```
+  Leaves out: any other change waiting on main
+  Starts: a release from main tonight
 - Wait for the next release: nothing starts tonight; the fix rides the next release, and pages keep guessing until then
+  Touches:
+  ```mermaid
+  flowchart TD
+    next[the next release] --> pages[run pages]
+  ```
+  Leaves out: any release tonight
+  Starts: nothing until the next release
 
 Findings:
 Root cause: fixed: each LTX file recorded its page map's length only in its last 24 bytes, so a reader guessed a range before it could read the map; removed by https://github.com/acme/app/pull/12, merged 3:40 PM
