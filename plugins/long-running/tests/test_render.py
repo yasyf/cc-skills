@@ -132,6 +132,12 @@ def test_the_meta_session_and_communicator_read_one_definition_of_drive_tooling(
     assert "The meta session: session s3." in render.context(drive, "coordinator").splitlines()[0]
 
 
+def test_every_role_reads_a_question_proposing_a_way_as_his_order_and_meta_reads_his_ruling_to_keep_simplifying() -> None:
+    contexts = {role: render.context(sample(), role) for role in state.ROLES}
+    assert [role for role, text in contexts.items() if '"why not just X?"' not in text] == []
+    assert [role for role, text in contexts.items() if "in geernal keeps implifying all this tuff" in text] == ["meta"]
+
+
 def test_each_page_naming_drive_tooling_carries_its_one_definition() -> None:
     pages = [cli.PAGES / "communicator.md", cli.PAGES / "meta.md", cli.PAGES / "concepts.md", cli.PAGES.parents[2] / "agents" / "handler.md"]
     assert [page.name for page in pages if state.DRIVE_TOOLING not in page.read_text()] == []

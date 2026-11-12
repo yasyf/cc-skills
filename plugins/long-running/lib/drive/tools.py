@@ -535,7 +535,8 @@ def closed_by(name: str, data: dict, found: dict, index: int, made: dict) -> tup
     raise DriveError(
         f"{index}: refused, nothing posted: the card this answer names no longer waits on him, so his answer on it is"
         " recorded already: a tap or its number typed needs nothing more, and words he wrote are a message from him:"
-        " a question, an order or a ruling"
+        ' a question of fact, an order, one proposing a way such as "why not just X?" included, which replaces his'
+        " tap with X, or a ruling"
     )
 
 

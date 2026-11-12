@@ -94,7 +94,7 @@ Interim fix: <on a bug hurting someone now: the link of the PR, release, rollbac
   whole or up to the colon that ends its first part, the option that removes it through one
   abstraction every caller goes through, so the defect cannot occur. That option is always offered
   and always recommended, and each other option says it keeps the structure and what that costs; one
-  that keeps it behind a cap, timer, retry, exit, flag, pin or sweeper is never recommended. A cause
+  that keeps it behind a cap, timer, retry, exit, flag, pin or sweeper is never recommended. On drive tooling, the simplest build that does his words, with the fewest checks, steps, flags and verbs, such as stripping every escape code, is always an option, each other option saying what it adds over it, by his words "in geernal keeps implifying all this tuff". A cause
   not found yet reads `Root cause: not found: <the job finding it>`, and the card offers no cap, timer
   or exit around the step it has not explained. A card asking only whether to release a merged fix reads
   `Root cause: fixed: <the structure>, removed by <the merged PR's link>` with no `First principles:`

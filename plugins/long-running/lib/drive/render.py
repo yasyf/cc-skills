@@ -44,8 +44,9 @@ COMMUNICATOR_RULES = (
     (
         "Your next message is the drive's handler tool (away: true when he says he is going to sleep or away), which"
         " records that he wrote and starts the long-running:handler as its own claude --bg session, returning started"
-        " <its id> and nothing to act on; the handler posts his owner record for an order, alert or ruling and none for"
-        " a read-only question, since the coordinator answers any question it hears. Then the turn ends, but for one"
+        " <its id> and nothing to act on; the handler posts his owner record for an order, alert or ruling, a question"
+        ' proposing work such as "why not just X?" included, and none for a read-only question, which asks for facts,'
+        " since the coordinator answers any question it hears. Then the turn ends, but for one"
         " call more for a read-only question, so the watch holds his answer: the job tool with ops `[{add: {kind:"
         ' "reader", order: {words: "<his words, verbatim>", kind: "answer", complex: true, from:'
         ' "slack:<channel>/<ts>", thread: "<ts>", project: "<the project in use his words are about>", workstream:'
@@ -130,8 +131,8 @@ COORDINATOR_RULES = (
     ),
     REACHING,
     (
-        "When an owner record asks a question, report what you have inside 5 to 10 seconds; the read follows in a"
-        " second report, in a job when it takes more than one call."
+        "When an owner record asks a question of fact, report what you have inside 5 to 10 seconds, the read in a"
+        ' second report, in a job past one call; one proposing work, such as "why not just X?", is his order to build X.'
     ),
     (
         "Every order goes to one background job that owns its deliverable end to end, past-due ones too, since work you"
@@ -159,10 +160,6 @@ COORDINATOR_RULES = (
         " from #N's storage, a design part: pr set refuses `port_of` on a migration or schema change."
     ),
     (
-        "A ready record asks only for a tap drive status <pr> shows still owed, never one he gave or one on a PR merged"
-        " or closed."
-    ),
-    (
         "A part with a tricky design (a data layout or file format, a schema, a lock or queue, an API shape, a new"
         " background process, any two shapes costly to switch; when unsure it counts) first gets one"
         " long-running:designer, and each fork reaches him as one question card. The recommended option's builder starts beside the cards, unless his words on that order ask for"
@@ -184,7 +181,7 @@ COORDINATOR_RULES = (
         " <key>=stop|<job>`, or `--reopened <PR>=<job>` naming the live job reworking it to his words. It also lists each job"
         " waiting on an order his answer touches and refuses until each is marked: SendMessage it his words verbatim, then"
         " `--sent <job>`, or `--untouched <job>` for one they leave."
-        " `--others-stand` only once you have read every card and PR left; it refuses past 3."
+        " `--others-stand` only once you have read every card and PR left."
     ),
     (
         "Every part has an owner: an order add names its kind, answer or build, its project and workstream, and for a"
@@ -215,8 +212,8 @@ COORDINATOR_RULES = (
         " sign-in."
     ),
     (
-        "A time he is promised is recorded with order set due; DUE repeats every 10 minutes until a drive post is in"
-        " the order's thread, and done or dropped refuses until then."
+        "A time he is promised is recorded with order set due, and done or dropped refuses until a drive post in the"
+        " order's thread keeps it."
     ),
     (
         "Job results and events feed the next TICK's report; while he is away only cards and incident lines go out, and a"
@@ -236,8 +233,10 @@ META_RULES = (
     ),
     REACHING,
     (
-        f"You hold drive tooling alone, {DRIVE_TOOLING}, each piece of work a background job you start. You never touch his"
-        ' product orders, their jobs or PRs: drive order add refuses you an order not opening "Drive tooling:", and job'
+        f"You hold drive tooling alone, {DRIVE_TOOLING}, each piece of work a background job you start, and each change"
+        " folds a new check, step, hook, flag or verb into what exists, or deletes one, before adding one, by his words"
+        ' "in geernal keeps implifying all this tuff", which every tooling brief\'s Decisions that bind carries. You never'
+        ' touch his product orders, their jobs or PRs: drive order add refuses you an order not opening "Drive tooling:", and job'
         " add an order the coordinator holds."
     ),
     (
@@ -250,7 +249,8 @@ META_RULES = (
         " the lines `Order: Drive tooling: <what>`, `From: cci:<seq>`, his words verbatim for an owner record,"
         " `Research: the Researched: block this build needs`, `Drive: <name>, order <o>, job <j>`, `Scratch: <folder>`."
         " His words in the thread of an open drive tooling order carry on that order instead: SendMessage its job's agent"
-        " his words verbatim. His feedback on a post or card is the order `Drive tooling: post feedback: <his words>`"
+        ' his words verbatim, and a question proposing a way, "why not just X?", replaces his pick with X, never answered'
+        " with reasons for the old pick. His feedback on a post or card is the order `Drive tooling: post feedback: <his words>`"
         " every time, a repeat too. The order's words reach him verbatim on the line above its PR card, so drive order add"
         " refuses words cc-slack check-post flags, such as a job, order or record id or a bare PR number. A defect record"
         " naming a job whose order a brief serving drive tooling gave you gets no order or reader: start its"
