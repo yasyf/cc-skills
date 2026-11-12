@@ -612,12 +612,14 @@ def browse(tmp_path: Path, steps: str, model: dict, size: str = "1200,600", *fla
     """Serve the dashboard of model from the real handler and load it in headless Chrome with only its stream stubbed, and its renderers unless
     drawn: the page reads the summary once, and push(model) shows the board model and hands the page its summary. Run before, a script ahead of
     app.js that may stand in for the server's reads, then steps, an async module that may call push(model), wait(ms) and until(test), and return
-    what steps put in done(result); /test/embed serves EMBED, a stand-in for cc-review's embedded review."""
+    what steps put in done(result); /test/embed serves EMBED, a stand-in for cc-review's embedded review. Each poll of until also waits on a
+    fetch the server answers 50 ms later, since Chrome's virtual clock runs on while a renderer compiles off the page's thread, as viz's wasm
+    does, but stops while a fetch is out, so a slow machine's draw is waited for and never spends the polls or the clock's budget."""
     harness = f"""<script>
 const MODEL = {json.dumps(model)};
 window.EventSource = class {{ constructor() {{ window.STREAM = this; fetch('/api/view').then((reply) => reply.text()).then((data) => this.onmessage({{ data }})); }} }};
 const wait = (ms) => new Promise((done) => setTimeout(done, ms));
-const until = async (test) => {{ for (let tries = 0; tries < 200 && !test(); tries++) await wait(50); }};
+const until = async (test) => {{ for (let tries = 0; tries < 200 && !test(); tries++) await Promise.all([wait(50), fetch('/test/tick')]); }};
 const push = async (model) => {{ const reply = await fetch('/test/push', {{ method: 'POST', body: JSON.stringify(model) }}); window.STREAM.onmessage({{ data: await reply.text() }}); await wait(50); }};
 const done = (result) => {{ document.documentElement.dataset.result = JSON.stringify(result); }};
 </script>"""
@@ -638,6 +640,9 @@ const done = (result) => {{ document.documentElement.dataset.result = JSON.strin
 
     class Pushed(server.RequestHandlerClass):
         def do_GET(self) -> None:
+            if self.path == "/test/tick":
+                time.sleep(0.05)
+                return self.reply(b"", "text/plain")
             if not self.path.startswith("/test/embed"):
                 return super().do_GET()
             self.reply(EMBED.encode(), "text/html; charset=utf-8")

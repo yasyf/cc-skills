@@ -415,6 +415,7 @@ def test_a_post_on_an_order_in_none_of_its_threads_posts_nothing_and_says_where_
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], slack_thread: Thread
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why the copy stalls", "--thread", "1794200000.000100")
+    building(demo)
     with pytest.raises(DriveError) as refused:
         talk.say(demo, {"text": "The copy stalls on the lock.", "thread_ts": "1794200090.000700", "order": "o1"})
     assert str(refused.value) == (
@@ -496,7 +497,6 @@ def test_a_report_delivers_only_the_parts_its_posts_words_carry_and_its_dry_run_
     with state.edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
-        data["orders"]["o1"]["fixed"] = "release 13990 ships #54336 on sand"
     answer = slack_thread.post(state.now(), from_claude=True, text=INCIDENT_REPORT)
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": answer, "thread_ts": thread})
     report(monkeypatch, {"incident": "true", "order": "o1", "thread": thread, "part": "o1:first check;o1:fix;o1:cause"})
