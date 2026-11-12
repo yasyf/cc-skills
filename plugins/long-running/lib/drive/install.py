@@ -545,7 +545,7 @@ def provable(data: dict, repo: str) -> list[str]:
 
 
 def prove(name: str, job_id: str, key: str, repo: str, clone: str, deadline: float) -> str | None:
-    """Run the job's kept proof file with the bin folder of each plugin its merges change first on PATH, keep its output beside the job's report, take DONE on exit 0 and BLOCKED otherwise, and send the close report when DONE leaves its order nothing to do, each said on its PRs' lines; nothing while an install another plugin needs is still to come, or after another install took the job's result first."""
+    """Run the job's kept proof file with the bin folder of each plugin its merges change first on PATH, keep its output beside the job's report, take DONE on exit 0 and BLOCKED otherwise, and keep the close report on its order for the watch to post when DONE leaves the order nothing to do, each said on its PRs' lines; nothing while an install another plugin needs is still to come, or after another install took the job's result first."""
     data = state.load(name)
     job = data["jobs"][job_id]
     merges = {state.pr_key(url): data["prs"][state.pr_key(url)]["merged_sha"] for url in job["prs"]}
@@ -570,6 +570,7 @@ def prove(name: str, job_id: str, key: str, repo: str, clone: str, deadline: flo
     urls = " ".join(job["prs"])
     tail = next((line.strip() for line in reversed(output.splitlines()) if line.strip()), "no output")
     line = f"DONE {urls} live: {job['repro']} exits 0 on {versions}" if code == 0 else f"BLOCKED {urls}: {job['repro']} exits {code} on {versions}: {tail[:SAID_CHARS]}"
+    proven = f"{PROVEN} on {versions}: {job['repro']} exits 0, its output {kept}"
     from drive import brief, cli
 
     with state.edit(name) as data:
@@ -585,36 +586,30 @@ def prove(name: str, job_id: str, key: str, repo: str, clone: str, deadline: flo
         unseen = cli.surface(data, order) if not seen else None
         closes = code == 0 and not unseen and all(state.delivered(data, job["order"], part) for part in order["parts"])
         closes = closes and all(data["jobs"][other]["state"] in state.FINISHED_JOB_STATES for other in order["jobs"])
+        order_id, lane = job["order"], state.heard_lane(data, job["order"])
         if closes:
+            title = "; ".join(data["prs"][pr]["title"] for pr in merges)
             order["proof"] = " ".join([str(kept), *seen])
-        cwd, order_id, lane, thread = data["roles"]["coordinator"]["cwd"], job["order"], state.heard_lane(data, job["order"]), order["thread"]
-        title = "; ".join(data["prs"][pr]["title"] for pr in merges)
-    change = f"{PROVEN} on {versions}: {job['repro']} exits 0, its output {kept}"
+            order["close_report"] = {
+                "id": f"install-proved-{job_id}",
+                "kind": "report",
+                "to": [f"communicator@{name}"],
+                "topic": f"install-proved-{order_id}",
+                "attr": {"close": order_id} | ({"thread": order["thread"]} if order["thread"] else {}),
+                "text": f"POST {title} is live in {versions}",
+                "body": f"Fixed: {title}, {urls}\nLive: {versions}\nProof: {proven}\n",
+            }
+    change = proven
     if code:
         change = f"drive install's proof failed: {line.removeprefix('BLOCKED ')}"
     elif unseen:
         change = f"drive install's proof passed on {versions}, but he sees this on {unseen}: prove it there with a recording or the live post, then send the close report"
-    if closes:
-        change = closed(name, order_id, title, urls, versions, change, thread, cwd, deadline)
+    elif closes:
+        change = f"{proven}; its close report of {order_id} waits on the order for the watch, which posts it to the communicator on its next read and again each read until cci takes it"
     for pr in merges:
         merged_in, number = pr.split("#")
         state.append_event(name, "proof", repo=merged_in, number=int(number), change=change, lane=lane)
     return f"{name} {job_id}: {change}"
-
-
-def closed(name: str, order_id: str, title: str, urls: str, versions: str, change: str, thread: str | None, cwd: str, deadline: float) -> str:
-    """Send the communicator the report whose post closes the order its proven job finishes, as a builder's DONE gets; the proof line, naming a post that failed."""
-    facts = f"Fixed: {title}, {urls}\nLive: {versions}\nProof: {change}\n"
-    with tempfile.NamedTemporaryFile("w", suffix=".md") as body:
-        body.write(facts)
-        body.flush()
-        argv = ["cci", "post", "--drive", name, "--lane", "watch", "--kind", "report", "--to", f"communicator@{name}", "--topic", f"install-proved-{order_id}"]
-        argv += ["--attr", f"close={order_id}", *(["--attr", f"thread={thread}"] if thread else []), "--body-file", body.name, "--text", f"POST {title} is live in {versions}"]
-        try:
-            run(argv, deadline, cwd)
-        except InstallError as error:
-            return f"drive install proved it, but its close report of {order_id} did not post, so send it by the builder DONE row: {error}"
-    return f"{change}; its close report of {order_id} went to the communicator"
 
 
 def reload_session(drive: str, seat: str, version: str, updated: datetime, deadline: float) -> str:
