@@ -14,7 +14,7 @@ from pathlib import Path
 
 import drive
 import pytest
-from conftest import CARD_BODY, RESEARCH, SHORT_ASK, Answers, Chrome, Drawing, Jev, Judge, MetaLaunches, Thread, WatchProcess, Withdrawals
+from conftest import CARD_BODY, CHOICE, RESEARCH, SHORT_ASK, Answers, Chrome, Drawing, Jev, Judge, MetaLaunches, Thread, WatchProcess, Withdrawals, chosen
 from drive import (
     card,
     cli,
@@ -42,7 +42,7 @@ REPORTED = "https://acme.slack.com/archives/C0REPORTS01/p1794400100000200"
 ROOT_CAUSE = "Root cause: none: where a copy runs is a pick between two designs, with no defect behind it\n"
 DESIGN_TITLE = "Where should store_copy_at in supervisor/copies.rs run each store copy?"
 SECOND_OPTION = "- store_copy_at runs on a separate worker that reads each store from the bucket and copies it there\n"
-DESIGN_RESEARCH = (
+DESIGN_RESEARCH = chosen(
     f"DESIGN {DESIGN_TITLE}\n"
     "store_copy_at copies one store, and it can run on the primary or on a separate worker that reads the bucket.\n"
     "Recommended: on the primary; held until you pick, so nothing ships meanwhile.\n"
@@ -1192,7 +1192,7 @@ def test_job_ask_check_refuses_a_summary_answering_none_of_his_next_questions_un
     state_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     block = tmp_path / "ask.md"
-    bare = "ASK Which way should this go?\nTwo ways to copy.\n- server-side copy (recommended)\n- copy in batches\nFindings:\nRoot cause: none: a design pick\nKept on disk.\n"
+    bare = chosen("ASK Which way should this go?\nTwo ways to copy.\n- server-side copy (recommended)\n- copy in batches\nFindings:\nRoot cause: none: a design pick\nKept on disk.\n")
     block.write_text(bare)
     assert cli.main(["job", "ask", "--check", str(block)]) == 2
     assert (
@@ -1236,9 +1236,11 @@ def test_job_ask_keeps_an_option_his_no_sweepers_ruling_refuses_only_when_unsett
 ) -> None:
     block = tmp_path / "ask.md"
     block.write_text(
-        "ASK How do leases stop leaking?\nA lease outlives the run that took it, so the next run waits on it.\n"
-        "- reclaim orphaned leases every 10 minutes (recommended)\n- one owner holds the lease until it ends\n"
-        "Findings:\nRoot cause: none: a design pick\nTwo runs held one lease.\n"
+        chosen(
+            "ASK How do leases stop leaking?\nA lease outlives the run that took it, so the next run waits on it.\n"
+            "- reclaim orphaned leases every 10 minutes (recommended)\n- one owner holds the lease until it ends\n"
+            "Findings:\nRoot cause: none: a design pick\nTwo runs held one lease.\n"
+        )
     )
     assert cli.main(["job", "ask", "--check", str(block)]) == 2
     assert 'cleans up a bad state with "reclaim orphaned"' in capsys.readouterr().err
@@ -1306,7 +1308,7 @@ def test_job_ask_counts_the_show_me_outside_its_150_words(run: Run, asking: str,
     assert run("job", "ask", asking, str(block))[0] == 0
 
 
-TEAMMATE_FIX = """ASK A teammate's PR for the missing update button landed first: keep it, add our download status to it, or replace it?
+TEAMMATE_FIX = chosen("""ASK A teammate's PR for the missing update button landed first: keep it, add our download status to it, or replace it?
 A teammate's PR landed at 2:12 PM today: every locked chat shows an Update sand button that downloads and installs in one click, even mid-download. Ours shows the button once the download finishes and says downloading until then. They conflict. Ours waits unlanded meanwhile.
 - Keep theirs, close ours: the button is always there and nothing needs a terminal, but the card never says it is downloading. (recommended)
 - Add our status line beside their always-on button: the card says checking, downloading or downloaded; ours is rebuilt and reviewed again.
@@ -1314,7 +1316,7 @@ A teammate's PR landed at 2:12 PM today: every locked chat shows an Update sand 
 Findings:
 Root cause: none: two landed designs of one button, a pick between them with no defect behind it
 - Theirs merged 2:12 PM Nov 10; ours now conflicts with dev.
-"""
+""")
 TEAMMATE_FIX_SHOWN = TEAMMATE_FIX.replace(
     "A teammate's PR landed at 2:12 PM today:",
     "<https://github.com/Forge-AI/monorepo/pull/53618|A teammate's PR for the update button> landed at 2:12 PM today:",
@@ -1414,11 +1416,11 @@ def test_job_ask_keeps_an_option_that_lands_first_and_backfills_after(
 ) -> None:
     block = tmp_path / "ask.md"
     landing = "- Land the snapshot writer now, then backfill old runs from a pass box: opens in 3 requests"
-    block.write_text(SHORT_ASK.replace("- A map file beside each journal file", f"{landing}\n- A map file beside each journal file"))
+    block.write_text(SHORT_ASK.replace("- A map file beside each journal file", f"{landing}\n{CHOICE}- A map file beside each journal file"))
     assert run("job", "ask", asking, str(block))[0] == 0
 
 
-LANDING_ASK = """ASK Land your run history change so the run page change you approved can land?
+LANDING_ASK = chosen("""ASK Land your run history change so the run page change you approved can land?
 <https://github.com/acme/app/pull/12|The run page change> is built on <https://github.com/acme/app/pull/11|your run history change>, which is green and approved but has no tap of yours.
 I recommend landing both together, run history first; meanwhile both stay open.
 - Land both now, run history first (recommended)
@@ -1427,7 +1429,7 @@ I recommend landing both together, run history first; meanwhile both stay open.
 Findings:
 Root cause: none: landing two PRs, with no defect behind it
 The run page change's base branch is the run history change's branch, so the merge queue cannot take it alone.
-"""
+""")
 
 
 def test_job_ask_sends_an_ask_to_land_prs_to_their_stack_card_and_still_redraws_one_it_kept(
@@ -1462,10 +1464,13 @@ def test_job_card_draws_the_show_me_code_as_pictures_on_lines_of_their_own(
     assert [caption for caption, _ in pictures] == [
         "1 · One snapshot file per finished run, the requests its page makes",
         "2 · A map file beside each journal file, the requests its page makes",
+        "1 · One snapshot file per finished run, written when it ends, old runs backfilled",
+        "2 · A map file beside each journal file",
+        "3 · Map at the start of each file",
     ]
     assert all(Path(path).is_file() for _, path in pictures)
     assert "```" not in card["body"]
-    assert drawn == ["code:http", "code:http"]
+    assert drawn == ["code:http", "code:http", "choice", "choice", "choice"]
     assert (card["waits"], card["recommended"]) == ("demo:j1-7", "One snapshot file per finished run, written when it ends, old runs backfilled: opens in 3 requests")
     assert run("job", "card", str(block), "--waits", "demo:j1-7") == (0, printed)
     assert drawn == ["code:http", "code:http"]
@@ -1491,9 +1496,9 @@ def test_job_ask_check_keep_and_card_refuse_a_show_me_picture_that_does_not_draw
     code, kept = run("job", "ask", asking, str(block))
     assert code == 0
     assert Path(kept).read_text() == SHORT_ASK
-    assert [kind for kind, _ in chrome.drawn] == ["code:http", "code:http", "code:http", "code:http"]
+    assert [kind for kind, _ in chrome.drawn] == ["code:http", "code:http", "choice", "choice", "choice"] * 2
     assert run("job", "card", str(block), "--waits", "demo:j1-7")[0] == 0
-    assert len(chrome.drawn) == 4
+    assert len(chrome.drawn) == 10
 
 
 KEPT_TEXT_FENCE_ASK = """ASK Should the newest server warn the open window at launch when the api refuses it?

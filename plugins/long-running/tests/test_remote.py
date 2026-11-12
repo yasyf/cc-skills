@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import LIVE_WORKER, Answers, Drawing, Jev
+from conftest import LIVE_WORKER, Answers, Drawing, Jev, chosen
 from drive import cli, github, install, orca, place, reads, render, slack, state, watch
 
 Run = Callable[..., tuple[int, str]]
@@ -54,14 +54,14 @@ UNSENT = (
     " brief again retries worker-start in it"
 )
 DESIGN_PICK = "Root cause: none: a design pick, with no defect behind it"
-ASK_IN_SHAPE = f"""ASK Where should the nightly store copy run?
+ASK_IN_SHAPE = chosen(f"""ASK Where should the nightly store copy run?
 The nightly store copy reads every store once; it can run on the primary or on its own worker.
 - On the primary, beside the queries it serves (recommended)
 - On a separate worker that reads the bucket
 Findings:
 {DESIGN_PICK}
 One copy took 40 minutes on the primary.
-"""
+""")
 
 
 def kept_ask(drive: str) -> Path:

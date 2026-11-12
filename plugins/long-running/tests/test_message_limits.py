@@ -8,7 +8,7 @@ from pathlib import Path
 
 import message_limits
 import pytest
-from conftest import Checked, Thread
+from conftest import Checked, Thread, chosen
 from drive import agents, limits, refs, slack, state, talk, view
 from drive.state import DriveError
 
@@ -180,7 +180,7 @@ JOSHS_PR = (
 SHOW_ME = "*Show me*\nToday, the card after a download:\n```\n" + "\n".join(f"line {index} of the card" for index in range(60)) + "\n```"
 BREAK_GLASS = "Use break glass with machine profile then you don't need sso, I tell you this once a day"
 SENTRY_EVENT = "https://forge-rf.sentry.io/issues/SAND-3Z/events/bc99372dd60d40dcb36c07511693ce06/"
-STRAY_CHATS_ASK = f"""ASK Rowan's stray chats likely come from the old build writing into the new app's chat folder on his Mac; how do we stop it?
+STRAY_CHATS_ASK = chosen(f"""ASK Rowan's stray chats likely come from the old build writing into the new app's chat folder on his Mac; how do we stop it?
 Both builds share one chat folder on his Mac. <{SENTRY_EVENT}|The old build> runs its own server there and saves each new chat before setup, which the new app lists Untitled and read-only. A check inside the new app cannot stop that server, so I recommend a separate folder. Unproven until Rowan's files are read.
 Show me:
 <https://github.com/Forge-AI/monorepo/blob/dev/go/sand/internal/durable/agent.go#L120-L125|The old build> makes a chat file holding only a writer stamp; the chat's setup waits for a first turn that never comes.
@@ -199,7 +199,7 @@ Findings:
 Root cause: both builds share one chat folder on his Mac, so the old build's own server writes chats there
 First principles: New app moves its chats once into a folder of its own and lists unloaded chats as loading; the old build cannot reach them.
 Rowan sees Untitled, unstarted chats marked state_missing that must be forked.
-"""
+""")
 HIS_PICK = "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794239768768559?thread_ts=1794220171.175389&cid=D0C4HQWPLCC"
 WATCHDOG_QUESTION = 'Which "1+2 hybrid" did you pick on Nov 9: an always-on listener that never acts, or a service that also lands and installs?'
 WATCHDOG_SUMMARY = (
@@ -221,11 +221,11 @@ WATCHDOG_OPTIONS = [
     "An always-on listener that feeds pushes and runs the watchdog but never lands or installs: one new process; landing still needs a session.",
     "An always-on service that also lands PRs you tapped Approve and installs after merge: nothing waits for a session; it holds merge rights.",
 ]
-WATCHDOG_ASK = (
+WATCHDOG_ASK = chosen(
     f"ASK {WATCHDOG_QUESTION}\n{WATCHDOG_SUMMARY}\nShow me:\n{WATCHDOG_SHOW_ME}\n- {WATCHDOG_OPTIONS[0]} (recommended)\n"
     f"- {WATCHDOG_OPTIONS[1]}\nFindings:\nRoot cause: none: a question about his own pick\nOnly the watcher that saves its place is built today.\n"
 )
-FROZEN_COPIES_ASK = """ASK Before the 30 frozen copies from the Oct 13 fleet move are deleted, what must prove each moved copy is whole?
+FROZEN_COPIES_ASK = chosen("""ASK Before the 30 frozen copies from the Oct 13 fleet move are deleted, what must prove each moved copy is whole?
 Removing a frozen copy deletes its database files and its folder in the team's bucket, at once and for good. These moved on Oct 13 under older code, and one team's moved databases later lost bucket history, so "ready on Oct 13" proves nothing today. Nothing is deleted meanwhile.
 Show me:
 The 30 frozen copies, counted by the move's metric. Names and sizes need an in-cluster credential, so most are unread.
@@ -261,7 +261,7 @@ Root cause: none: a proof before a delete, with no defect behind it
 - Removal unlinks the local files, then deletes the bucket folder in the same request, with no waiting period.
 - A bucket that denies deletes keeps its folder; the team's blobs are not removed with the database.
 - Whether the Oct 13 build had the snapshot upload step is unread, which is why the 30 are re-proved.
-"""
+""")
 
 
 WATCH_OPTIONS = [
@@ -270,7 +270,7 @@ WATCH_OPTIONS = [
     "self::alarm gains a check and rings only on a change. Smallest surface; no period under a minute, and alarms move to the central inbox",
 ]
 WATCH_QUESTION = "Should a watch be its own watch:: package, or the first source of an event:: subscription API?"
-WATCH_ASK = f"""ASK {WATCH_QUESTION}
+WATCH_ASK = chosen(f"""ASK {WATCH_QUESTION}
 A watch is Sand source with a check function and a period in seconds; its session's host reruns it, and a changed result arrives as one message in that session's inbox.
 I recommend watch::; a builder may start on it meanwhile.
 - {WATCH_OPTIONS[0]} (recommended)
@@ -279,9 +279,9 @@ I recommend watch::; a builder may start on it meanwhile.
 Findings:
 Root cause: none: this names a new feature's API; no defect is being diagnosed.
 His order settles that a watch reruns code on a period and a change reaches the central inbox.
-"""
+""")
 MACHINE_PROFILE_READ = "Break-glass read: this Mac's machine profile requests the grant and runs one read-only query per SandSQL server (recommended)"
-EXPIRED_SIGN_IN = (
+EXPIRED_SIGN_IN = chosen(
     "ASK The hand repair needs break-glass, and this Mac's AWS sign-in expired. Renew it, or skip the hand repair?\n"
     'AWS answers "Token has expired and refresh failed", and the renewal, `aws sso login --profile core-root` in a terminal'
     " on this Mac, needs your MFA.\n"
@@ -1192,7 +1192,7 @@ def test_the_case_jev_reads_carries_the_show_me_and_only_words_said_in_quotes() 
 
 def options_ask(*options: str) -> str:
     listed = "".join(f"- {option}\n" for option in options)
-    return f"ASK Which way should this go?\nThe pick below decides it, so the work waits on it.\n{listed}Findings:\nRoot cause: none: a design pick\nKept on disk.\n"
+    return chosen(f"ASK Which way should this go?\nThe pick below decides it, so the work waits on it.\n{listed}Findings:\nRoot cause: none: a design pick\nKept on disk.\n")
 
 
 def test_the_recommended_option_comes_first_in_a_new_block_and_a_kept_one_still_redraws() -> None:

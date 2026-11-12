@@ -102,6 +102,28 @@ Root cause: none: a design choice, with no defect behind it
 """
 
 
+CHOICE = """  Touches:
+  ```mermaid
+  flowchart TD
+    picked[the picked option] --> changed[the code it changes]
+  ```
+  Leaves out: the rest of the drive
+  Starts: its build on a branch
+"""
+
+
+def chosen(block: str) -> str:
+    """block with a choice under each of its options, as every new ASK block carries."""
+    asked, findings = block.split("Findings:", 1)
+    lines, fenced = [], False
+    for line in asked.splitlines(keepends=True):
+        fenced ^= line.lstrip().startswith("```")
+        lines.append(line)
+        if not fenced and line.startswith("- "):
+            lines.append(("" if line.endswith("\n") else "\n") + CHOICE)
+    return "".join(lines) + "Findings:" + findings
+
+
 @pytest.fixture
 def state_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     root = tmp_path / "long-running"
