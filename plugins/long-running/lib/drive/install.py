@@ -277,7 +277,7 @@ def bare_clone(clone: str, repo: str, deadline: float) -> None:
 
 
 def await_release(clone: str, repo: str, plugin: str, sha: str, deadline: float, timeout: int) -> tuple[str, str]:
-    """The newest release the marketplace names for the plugin once it holds sha, its ref and the plugin's folder in it; NoRelease at the first read where it lacks sha and the repo's release-tag workflow cuts no release holding it."""
+    """The newest release the marketplace names for the plugin once it holds sha, its ref and the plugin's folder in it; NoRelease at the first read where it lacks sha and the repo's release-tag workflow cuts no release holding it. Each read that fails is said as it fails, since a wait whose reads all fail looks like one for a release not out yet."""
     last = "no release read"
     failure = ""
     owed = False
@@ -301,6 +301,7 @@ def await_release(clone: str, repo: str, plugin: str, sha: str, deadline: float,
             raise
         except InstallError as error:
             failure = f" (last read failed: {error})"
+            print(f"drive install: a read of the {plugin} release failed, reading again within {POLL_SECONDS}s: {error}", file=sys.stderr, flush=True)
         left = deadline - clock()
         if left <= 0:
             raise InstallError(f"timed out after {timeout}s waiting for a {plugin} release holding {sha[:12]}; {last}{failure}")

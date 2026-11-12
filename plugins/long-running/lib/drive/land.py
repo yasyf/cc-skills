@@ -294,7 +294,7 @@ def said(output: str) -> str:
 
 
 def enqueued(name: str, clone: Path, keys: list[str], dry_run: bool = False) -> str:
-    """Queue the unit through stack-enqueue as the head of its repository's default branch holds it, run from a fresh() worktree of the coordinator checkout's clone and never from that checkout: --check first, whose BLOCKED lines end the landing, unless each gap is an approval on an older head, which stack-enqueue names only once ai-review finished on the head; a dry run stops there, saying what it would queue; then forge-pr-reviewer is asked to review each such head once, and --watch waits until Trunk holds every PR of it or one needs a fix rather than a wait; what came of it. The lander lets go of its install's lock for the watch, since it may wait an hour and a half on Trunk."""
+    """Queue the unit through stack-enqueue as the head of its repository's default branch holds it, run from a fresh() worktree of the coordinator checkout's clone and never from that checkout: --check first, whose BLOCKED lines end the landing, unless each gap is an approval on an older head, which stack-enqueue names only once ai-review finished on the head; a dry run stops there, saying what it would queue; then forge-pr-reviewer is asked to review each such head once, and --watch waits until Trunk holds every PR of it or one needs a fix rather than a wait; what came of it. The lander lets go of its install's lock before --check, which reads GitHub for every PR of the unit, and holds none through --watch, which may wait an hour and a half on Trunk; a drive a newer install saved meanwhile ends the landing unlanded, for the next landing on that install."""
     repo = github.repo_of(keys[0])
     numbers = [key.split("#")[1] for key in keys]
     try:
@@ -302,6 +302,7 @@ def enqueued(name: str, clone: Path, keys: list[str], dry_run: bool = False) -> 
         with fresh(name, clone, branch) as (checkout, sha):
             script = str(checkout / ENQUEUE)
             print(f"{', '.join(keys)}: stack-enqueue from {checkout}, a fresh worktree of {repo}'s {branch} at {sha}", flush=True)
+            state.let_go_install()
             try:
                 checked = subprocess.run([script, "--check", *numbers], cwd=checkout, capture_output=True, text=True)
             except OSError as error:
@@ -312,9 +313,12 @@ def enqueued(name: str, clone: Path, keys: list[str], dry_run: bool = False) -> 
                 return f"not landed: {cut('; '.join(line[0] for line in blocked), SAID_CHARS)}; its whole output is in {state.drive_dir(name) / LOG}"
             if dry_run:
                 return f"would queue {', '.join(keys)} through stack-enqueue --watch from {branch} at {sha[:12]}: every PR below it is merged, approved by him or exempt"
-            if refused := ask_review(name, repo, {line["number"]: line["head"] for line in blocked}):
+            try:
+                refused = ask_review(name, repo, {line["number"]: line["head"] for line in blocked})
+            except state.NewerDrive as error:
+                return f"not landed: a newer long-running saved the drive while stack-enqueue --check ran, so the next landing runs on it: {cut(str(error), SAID_CHARS)}"
+            if refused:
                 return refused
-            state.let_go_install()
             done = subprocess.run([script, "--watch", *numbers], cwd=checkout, capture_output=True, text=True)
     except github.GithubError as error:
         return f"not landed: no fresh worktree of {repo}'s default branch to run stack-enqueue from: {cut(str(error), SAID_CHARS)}"

@@ -126,6 +126,20 @@ def test_a_first_save_goes_ahead_past_an_older_installs_verb_running_longer_than
         state.load("demo")
 
 
+def test_a_write_waiting_past_the_drive_lock_wait_changes_nothing_and_names_the_lock_held(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    make("demo")
+    monkeypatch.setattr(state, "DRIVE_LOCK_SECONDS", 0.3)
+    with open(state.drive_dir("demo") / ".lock", "a") as stuck:
+        fcntl.flock(stuck, fcntl.LOCK_EX)
+        with pytest.raises(DriveError, match=r"demo's drive lock is still held after 0\.3s, so this changed nothing: "):
+            with state.edit("demo") as data:
+                data["run"] = "run-1"
+    assert "run" not in state.load("demo")
+    with state.edit("demo") as data:
+        data["run"] = "run-1"
+    assert state.load("demo")["run"] == "run-1"
+
+
 def test_load_gives_each_picture_drawn_before_pictures_kept_their_source_its_kept_question_or_pr_fence_once(state_root: Path) -> None:
     make("demo")
     drive = state_root / "demo"

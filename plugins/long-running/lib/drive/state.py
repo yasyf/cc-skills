@@ -98,6 +98,7 @@ OLDER_VERBS_SECONDS = 20
 LOCK_POLL_SECONDS = 0.1
 HOLDER_CHARS = 200
 HOLDERS_SECONDS = 5
+DRIVE_LOCK_SECONDS = 300
 AFTER_SAVE: dict[str, list[Callable[[], list[str]]]] = {}
 VERSION = json.loads((Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json").read_text())["version"]
 
@@ -938,8 +939,15 @@ def flocked(path: Path) -> Iterator[None]:
             fcntl.flock(handle, fcntl.LOCK_UN)
 
 
-def locked(name: str) -> AbstractContextManager[None]:
-    return flocked(drive_dir(name) / ".lock")
+@contextmanager
+def locked(name: str) -> Iterator[None]:
+    """Hold the drive's lock for one load and save, waiting up to DRIVE_LOCK_SECONDS for the process holding it, then refusing with who that is, so a process stuck under it fails this verb instead of holding every writer of the drive behind it."""
+    path = drive_dir(name) / ".lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a") as handle:
+        if not taken(handle, DRIVE_LOCK_SECONDS):
+            raise DriveError(f"{name}'s drive lock is still held after {DRIVE_LOCK_SECONDS}s, so this changed nothing: {holders(path)}")
+        yield
 
 
 def binding(name: str) -> AbstractContextManager[None]:
