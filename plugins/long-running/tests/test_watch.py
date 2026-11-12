@@ -12,6 +12,9 @@ from drive import cli, github, install, land, reads, render, served, slack, stat
 
 KEY = "Forge-AI/monorepo#42"
 OTHER = "Forge-AI/monorepo#43"
+YASYF = "yasyf/cc-skills#7"
+BASE_MOVED = "GraphQL: Base branch was modified. Review and try the merge again. (mergePullRequest)"
+DIRTY = f"X Pull request {YASYF} is not mergeable: the merge commit cannot be cleanly created."
 T0 = state.parse_time("2026-11-09T10:00:00-05:00")
 GATE = "LTX Behavioral Gate (short)"
 RUNNING = [{"name": "test", "conclusion": None}]
@@ -2582,9 +2585,66 @@ def test_a_yasyf_lander_merges_with_admin_and_installs_each_plugin_its_merge_cha
     ]
 
 
-def test_a_yasyf_merge_gh_refuses_is_said_as_not_landed(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: land.subprocess.CompletedProcess(argv, 1, "", "required status check is failing\n"))
-    assert land.merged("yasyf/cc-skills#7") == "not landed: gh pr merge --squash --admin refused it: required status check is failing"
+def tried(name: str, outcome: str) -> None:
+    with state.edit(name) as data:
+        lander = {"head": "aaaaaaa111", "pid": os.getpid(), "at": state.stamp(T0), "outcome": outcome}
+        data["prs"][YASYF] = state.new_pr(state.pr_url(YASYF), "j1", "o1") | {"head": "aaaaaaa111", "wants_tap": False, "lander": lander}
+
+
+@pytest.mark.parametrize(
+    ("merge", "update", "outcome", "wakes"),
+    [
+        (
+            BASE_MOVED,
+            (0, "✓ PR branch updated"),
+            f"{land.UPDATED} with gh pr update-branch, as gh pr merge --squash --admin refused it: {BASE_MOVED}; the lander merges its new head once the watch reads it",
+            False,
+        ),
+        (
+            DIRTY,
+            (1, "X Cannot update PR branch due to conflicts"),
+            f"not landed: gh pr merge --squash --admin refused it: {DIRTY}; gh pr update-branch answered: X Cannot update PR branch due to conflicts",
+            True,
+        ),
+        (
+            BASE_MOVED,
+            (0, "✓ PR branch already up-to-date"),
+            f"not landed: gh pr merge --squash --admin refused it: {BASE_MOVED}; gh pr update-branch answered: ✓ PR branch already up-to-date",
+            True,
+        ),
+    ],
+)
+def test_a_yasyf_merge_gh_refuses_brings_its_base_into_its_branch_and_wakes_its_job_only_when_git_cannot_merge_the_two(
+    demo: str, monkeypatch: pytest.MonkeyPatch, merge: str, update: tuple[int, str], outcome: str, wakes: bool
+) -> None:
+    answers = {"merge": (1, merge), "update-branch": update}
+    runs: list[list[str]] = []
+    monkeypatch.setattr(
+        land.subprocess, "run", lambda argv, **kwargs: runs.append(argv) or land.subprocess.CompletedProcess(argv, answers[argv[2]][0], "", answers[argv[2]][1] + "\n")
+    )
+    assert land.merged(YASYF) == outcome
+    assert runs == [["gh", "pr", "merge", "7", "-R", "yasyf/cc-skills", "--squash", "--admin"], ["gh", "pr", "update-branch", "7", "-R", "yasyf/cc-skills"]]
+    waiting_job(demo)
+    tried(demo, outcome)
+    assert watch.wakes(f"PR {YASYF}: {outcome} [o1 j1]", state.load(demo)) == wakes
+
+
+def test_a_yasyf_pr_whose_head_moved_past_its_landers_merges_at_the_next_read_free_of_conflicts_with_no_builder_registering_it(
+    demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
+) -> None:
+    tried(demo, f"{land.UPDATED} with gh pr update-branch, as gh pr merge --squash --admin refused it: {BASE_MOVED}")
+    reads = {KEY: read(), YASYF: read()}
+    serve(monkeypatch, reads)
+    watching = watcher(demo)
+    started = []
+    for minute, (head, mergeable) in enumerate([("aaaaaaa111", "MERGEABLE"), ("bbbbbbb222", "CONFLICTING"), ("bbbbbbb222", "MERGEABLE"), ("bbbbbbb222", "MERGEABLE")]):
+        reads[YASYF] = read(headRefOid=head, mergeable=mergeable)
+        watch.run_pass(watching, T0 + timedelta(minutes=minute))
+        started.append(len(landers))
+    assert started == [0, 0, 1, 1]
+    assert landers == [(YASYF,)]
+    lander = state.load(demo)["prs"][YASYF]["lander"]
+    assert (lander["head"], lander["outcome"]) == ("bbbbbbb222", None)
 
 
 def test_a_line_the_coordinator_did_not_get_goes_again_and_says_so_from_the_third_failure(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

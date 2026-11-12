@@ -216,7 +216,7 @@ event needs. The first four events then return as step 7 says.
 | Event | What you do |
 | --- | --- |
 | A failing check | Read its log, fix, push. |
-| A conflict with its base | Rebase onto the base, resolve each conflict by what both sides meant, push. |
+| A conflict with its base | Rebase onto the base, resolve each conflict by what both sides meant, push. The watch lands a `yasyf/*` PR's pushed head itself once GitHub reads it free of conflicts, so it needs no second `drive pr add`. |
 | A review | Answer or fix every finding; a non-critical bot finding you judge wrong gets a one-line reply saying why. |
 | His answers to the design cards a built branch or open PR waited on | Rebuild wherever his pick differs from the option built, and open the PR if none is open. |
 | His tap or order to land | Land it by the landing reference for its repository (`drive manual landing`). While a question card of his on the change is open, land and enqueue nothing, which the `landing_guard` hook refuses, and return `WAITING` naming the card: neither his order nor its recommended option answers it. |

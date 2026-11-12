@@ -67,7 +67,7 @@ STUCK_WORDS = {
     "landing": "green, approved and exempt, and not landed",
 }
 ABOUT = re.compile(r"\[(?P<order>o\d+) (?P<job>j\d+)\]$|^(?:FREE (?:\S+ )?j\d+|ORPHAN|DUE(?: j\d+)?|LIVE|TELL|JOB j\d+|LANE j\d+|STUCK j\d+) (?P<named>o\d+)\b")
-OWN_MOVES = ("new head", "checks passed", "approved", land.QUEUED, served.CHECKED)
+OWN_MOVES = ("new head", "checks passed", "approved", land.QUEUED, land.UPDATED, served.CHECKED)
 
 
 @dataclass
@@ -1691,9 +1691,11 @@ def carried_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def landed(watcher: Watcher) -> None:
-    """Start the drive's lander on each PR the watch hears that his Approve or an exempt class clears once it qualifies, within one GitHub read of it going green and approved."""
+    """Start the drive's lander on each PR the watch hears that his Approve or an exempt class clears once it qualifies, within one GitHub read of it going green and approved, and on each yasyf/* one whose head moved past the one its lander tried, so a branch its builder or the lander brought onto its base merges with no builder registering it again."""
     data = state.load(watcher.name)
-    land.start(watcher.name, [key for key in state.open_pr_keys(data) if hears(watcher, data, data["prs"][key]["order"])], watcher.cards)
+    keys = [key for key in state.open_pr_keys(data) if hears(watcher, data, data["prs"][key]["order"])]
+    land.start(watcher.name, keys, watcher.cards)
+    land.follow(watcher.name, keys)
 
 
 def holder_line(line: str, data: dict) -> str | None:
