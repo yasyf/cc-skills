@@ -521,21 +521,21 @@ dl.keyed dd ul { margin: 2px 0 0; }
 .region-open b { font-size: 56px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
 .region-open small { color: var(--muted); font-size: 20px; }
 .region-open .statebar { width: 320px; height: 14px; margin: 6px 0 0; border-radius: 7px; }
-.canvas.now[data-level="all"] .world { width: 100%; grid-template-columns: minmax(0, 1fr); grid-auto-rows: 1fr; align-items: stretch; gap: 10px; padding: 14px; }
-.canvas.now[data-level="all"] .region { align-content: center; gap: 0; padding: 14px 20px; border-width: 1px; border-radius: 14px; box-shadow: none; }
+.canvas.now[data-level="all"] .world { width: 100%; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); align-items: stretch; gap: 8px; padding: 12px; }
+.canvas.now[data-level="all"] .region { align-content: stretch; gap: 0; padding: 10px 14px; border-width: 1px; border-radius: 14px; box-shadow: none; }
 .canvas.now[data-level="all"] .region:hover, .canvas.now[data-level="all"] .region:has(> .region-head:focus-visible) { border-color: var(--accent); }
 .canvas.now[data-level="all"] .streams { display: none; }
-.canvas.now[data-level="all"] .region-head { flex-wrap: wrap; gap: 8px 16px; }
-.canvas.now[data-level="all"] .region-head .zoom-mark { width: 38px; height: 38px; border-radius: 10px; font-size: 17px; }
-.canvas.now[data-level="all"] .region-name { flex-basis: 220px; gap: 3px; }
-.canvas.now[data-level="all"] .region-name b { font-size: 19px; letter-spacing: -.3px; line-height: 1.2; }
+.canvas.now[data-level="all"] .region-head { display: grid; grid-template: "mark name name" auto "flags flags open" auto / auto minmax(0, 1fr) auto; align-content: space-between; align-items: center; gap: 8px 12px; }
+.canvas.now[data-level="all"] .region-head .zoom-mark { grid-area: mark; width: 38px; height: 38px; border-radius: 10px; font-size: 17px; }
+.canvas.now[data-level="all"] .region-name { grid-area: name; gap: 3px; }
+.canvas.now[data-level="all"] .region-name b { overflow: hidden; font-size: 19px; letter-spacing: -.3px; line-height: 1.2; white-space: nowrap; text-overflow: ellipsis; }
 .canvas.now[data-level="all"] .region-name small { font-size: 12.5px; }
-.canvas.now[data-level="all"] .region-head .flags { gap: 6px; }
-.canvas.now[data-level="all"] .region-head .need { padding: 2px 8px; border-radius: 6px; font-size: 11.5px; }
-.canvas.now[data-level="all"] .region-open { grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 2px 6px; }
+.canvas.now[data-level="all"] .region-head .flags { grid-area: flags; gap: 4px; margin: 0; }
+.canvas.now[data-level="all"] .region-head .need { padding: 2px 7px; border-radius: 6px; font-size: 11.5px; }
+.canvas.now[data-level="all"] .region-open { grid-area: open; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 2px 6px; margin: 0; }
 .canvas.now[data-level="all"] .region-open b { font-size: 22px; }
 .canvas.now[data-level="all"] .region-open small { font-size: 11.5px; }
-.canvas.now[data-level="all"] .region-open .statebar { grid-column: 1 / -1; width: 168px; height: 6px; margin: 2px 0 0; border-radius: 3px; }
+.canvas.now[data-level="all"] .region-open .statebar { grid-column: 1 / -1; width: 100%; min-width: 96px; height: 6px; margin: 2px 0 0; border-radius: 3px; }
 .region.aside:hover, .stream:not(.here):hover { border-color: var(--accent); }
 .streams { display: grid; grid-template-columns: repeat(var(--n), minmax(var(--sw), 1fr)); gap: 40px; }
 .stream { position: relative; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 18px; height: var(--sh); padding: 28px 30px; overflow: hidden; border: 1.5px solid var(--line); border-radius: 28px; background: var(--bg); cursor: zoom-in; transition: opacity .35s, border-color .2s; }

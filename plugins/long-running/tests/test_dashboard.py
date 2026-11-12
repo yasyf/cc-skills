@@ -926,7 +926,7 @@ done({ overview, project, stream, task, closed: { ...look(), sheet: !!canvas.que
 
 
 @pytest.mark.parametrize("size", ["1440,900", "390,844"])
-def test_now_draws_each_project_with_open_work_as_a_readable_row_of_one_height_with_a_tip_per_segment_and_leaves_one_with_nothing_open_off(tmp_path: Path, size: str) -> None:
+def test_now_draws_each_project_with_open_work_as_a_readable_card_of_one_size_with_a_tip_per_segment_and_leaves_one_with_nothing_open_off(tmp_path: Path, size: str) -> None:
     card = {"title": "Raise the limit?", "url": QUESTION["answer"], "asked": "2026-11-10T23:00:00-08:00"}
     features = [
         FEATURE,
@@ -987,6 +987,25 @@ done({
         "zoomed": {"hash": "#/now/Platform", "level": "project", "same": True},
         "wide": True,
     }
+
+
+def test_now_zoomed_out_shows_all_twelve_project_cards_on_one_screen_each_with_its_whole_name_readable(tmp_path: Path) -> None:
+    projects = ["Cloud agents", "Drive", "Drive tooling", "Durable agents", "Incidents", "Iris", "Iris desktop", "Memory", "Platform", "Platform reliability", "SandSQL", "Search"]
+    features = [
+        FEATURE | {"id": f"o{n}", "title": f"task {n}", "project": projects[n // 2], "workstream": f"Workstream {n}", "state": "blocked" if n % 2 else "waiting"}
+        for n in range(2 * len(projects))
+    ]
+    seen = browse(tmp_path, """
+location.hash = '#/now';
+await wait(800);
+const view = document.querySelector('#main .canvas .viewport').getBoundingClientRect();
+done([...document.querySelectorAll('#main .canvas .region')].map((region) => {
+  const box = region.getBoundingClientRect();
+  const name = region.querySelector('.region-name b');
+  return [region.dataset.camKey, box.top >= view.top && box.bottom <= view.bottom && box.left >= view.left && box.right <= view.right, parseFloat(getComputedStyle(name).fontSize) * nowCamera.at.k > 15.9 && name.scrollWidth <= name.clientWidth];
+}));
+""", board(status=[{"state": "running", "features": features}]), "1600,1000", "--force-prefers-reduced-motion")
+    assert sorted(seen) == [[name, True, True] for name in projects]
 
 
 def test_one_crumb_in_the_top_bar_names_the_screen_project_workstream_task_or_day_he_is_on(tmp_path: Path) -> None:
