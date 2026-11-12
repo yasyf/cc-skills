@@ -595,7 +595,7 @@ def prove(name: str, job_id: str, key: str, repo: str, clone: str, deadline: flo
                 "kind": "report",
                 "to": [f"communicator@{name}"],
                 "topic": f"install-proved-{order_id}",
-                "attr": {"close": order_id} | ({"thread": order["thread"]} if order["thread"] else {}),
+                "attr": {"close": order_id} | ({"thread": order["thread"][1]} if order["thread"] else {}),
                 "text": f"POST {title} is live in {versions}",
                 "body": f"Fixed: {title}, {urls}\nLive: {versions}\nProof: {proven}\n",
             }

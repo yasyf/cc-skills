@@ -372,7 +372,7 @@ def test_the_communicators_owner_or_answer_record_goes_to_the_session_hearing_it
     run("job", "add", "builder", "--order", "o1", "--goal", "build it")
     other = "1794200000.000200"
     with state.edit(demo) as data:
-        data["orders"]["o1"]["thread"], data["orders"]["o2"]["thread"] = THREAD, other
+        data["orders"]["o1"]["thread"], data["orders"]["o2"]["thread"] = ["D123", THREAD], ["D123", other]
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
     run("start", demo, "--role", "coordinator", "--project", "Iris")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")

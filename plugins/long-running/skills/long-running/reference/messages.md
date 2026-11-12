@@ -286,8 +286,11 @@ Posting it:
   name, naming the `drive job ask <j> <file>` that keeps them. A block rebuilt from his card, and one
   no job kept, meet every rule a new block meets before they draw.
 - cc-slack posts a card that names its drive and waits on him at his DM root, whatever thread it is
-  given, and posts the card's permalink under its question in that thread. Give a drive tooling card
-  no thread, since its order has none.
+  given, and posts the card's permalink under its question in that thread. In a thread outside his
+  DM, such as an alert's, pass its `channel_id` too: `say` draws the card at his DM root and posts its
+  link in that thread through `cc-slack reply`, and returns that line as `POSTED` and the card as
+  `CARD`. A thread outside his DM named with no `channel_id` is refused, naming the channel. Give a
+  drive tooling card no thread, since its order has none.
 - Then close the `ask` record with a `posted` record carrying the card's permalink and `waits` id. His
   tap comes back as an `answer` record, so "card posted" and "he answered" stay two states.
 - Every question card carries its `waits` id, `<drive>:<job>-<the seq of the ask record that first
@@ -355,7 +358,10 @@ When it is answered, replaced or redone:
   waits on him. The drive posts the line in the thread of each open order those PRs carry out, the
   one each serves, its own and each its job carries, in his DM, and cc-slack puts the card's
   permalink under it there, so whichever thread he reads carries its buttons; with none, the line
-  goes at his DM root. His words: "There's no approval button". The call's `card_permalink` names
+  goes at his DM root. An order whose thread is outside his DM, such as an alert's, gets the line with
+  the card's link through `cc-slack reply`, so the call names that thread with `channel_id` and
+  `thread_ts`, the one place cc-slack's Slack permission hook judges it for, and is refused without
+  them, naming both. His words: "There's no approval button". The call's `card_permalink` names
   the card and its `permalink` only the first line. When the card command gives a PR no card, the call fails with its reason
   and posts nothing.
 - The same PRs show under the line on the dashboard's history, each with where it stands now. A post

@@ -64,7 +64,7 @@ changed and when, its findings the suspects, and its root cause the verdict.
 - **Every other job**, a reader, the rollback or the fix, appends what it observed and names no
   cause. Read `ccn investigation show <id>` before any line about the cause.
 - **A later alert or question** about a service whose incident is open joins it, with no job of
-  its own: `drive order add "<his words, or the alert text>" --from slack:<channel>/<ts> --joins
+  its own: `drive order add "<his words, or the alert text>" --from <its permalink> --joins
   <o> --alert <its link> --project "<o's project>" --workstream "<o's workstream>" --title "<a few words>"`. It takes the
   parts his words ask for with `drive order set <new> --parts "<part>"`, and the owner carries it with
   `drive job set <owner> --carries <new> --part "<part>"`. `--joins` refuses an order that is
@@ -81,7 +81,7 @@ changed and when, its findings the suspects, and its root cause the verdict.
 2. Read the open incident orders on the dashboard's top strip. One on the same failing service
    makes this a join, by [One incident, one record](#one-incident-one-record), and nothing below
    starts. Otherwise, open it in one call, filed under the area it hit: `drive incident open "<his
-   words, or the alert text>" --from slack:<channel>/<ts> --record "<service> on <cluster>:
+   words, or the alert text>" --from <its permalink> --record "<service> on <cluster>:
    <symptom>, since <time>" --alert <link> --release --due +5m --project "<p>" --workstream "<w>" --title "<a few words>"`.
    - `--alert`, once for each alert, is its Datadog monitor or Sentry issue link, from the alert's
      post; `drive order set <o> --alert <link>` adds one later. An incident from his words alone

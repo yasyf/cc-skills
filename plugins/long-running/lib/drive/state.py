@@ -76,7 +76,7 @@ SENTRY_ISSUE = re.compile(r"https://(?:[\w-]+\.)*sentry\.io/(?:organizations/[\w
 KEPT_ASK = re.compile(r"(?P<job>[\w.-]+)-(?P<hash>[0-9a-f]{8})")
 PR_REF = re.compile(rf"{PR_URL.pattern}|{PR_KEY.pattern}|#(\d+)\b")
 CARD_LINK = re.compile(r"/archives/([A-Z0-9]+)/p(\d{10})(\d{6})(?:\?thread_ts=([\d.]+))?")
-SLACK_SOURCE = re.compile(r"slack:([A-Z0-9]+)/(\d{10}\.\d{6})")
+SLACK_SOURCE = re.compile(r"slack:([A-Z0-9]+)/(\d+\.\d+)(?:/(\d+\.\d+))?")
 OFFSET = re.compile(r"\+(\d+)([mhd])")
 CLOCK = re.compile(r"(\d{1,2}):(\d{2})(?:\s*([AaPp])\.?[Mm]\.?)?")
 OFFSET_UNITS = {"m": "minutes", "h": "hours", "d": "days"}
@@ -357,8 +357,6 @@ def load(name: str) -> dict:
         order.setdefault("complex", False)
         order.setdefault("options_only", False)
         order.setdefault("once", False)
-        order.setdefault("thread", None)
-        order.setdefault("from_thread", None)
         order["asked_in"] = [where if len(where) == 3 else [*where, order["last_line"] or order["created"]] for where in order.get("asked_in", [])]
         order.setdefault("releases", {})
         order.setdefault("shipped", {})
@@ -368,7 +366,8 @@ def load(name: str) -> dict:
         order.setdefault("recovered", None)
         order.setdefault("reporter", None)
         order["owner"] = "meta" if order["text"].startswith(TOOLING) else order.get("owner")
-        order["thread"] = dm_thread(data, order)
+        if "from_thread" in order or isinstance(order.get("thread", ""), str):
+            order["thread"] = saved_thread(data, order)
         for part in order["parts"].values():
             part.setdefault("design", None)
             part["after"] = [part["after"]] if isinstance(part.get("after"), str) else part.get("after") or []
@@ -487,13 +486,15 @@ def pr_bodies(name: str) -> list[str]:
     return [row.get("description") or "" for card in json.loads(cards_path(name).read_text())["pr_cards"] for row in card["card"].get("prs") or []]
 
 
-def dm_thread(data: dict, order: dict) -> str | None:
-    """The order's thread, or, when it is the ts of the order's own post in a channel that is neither his DM nor one the drive watches, the thread its posts in his DM hang from."""
+def saved_thread(data: dict, order: dict) -> list[str] | None:
+    """The channel and thread the lines of an order an older install saved go in, read as that install read its bare thread ts: in the channel of the message the order came from when the ts is that message or the thread it is in, else in his DM, where the thread its posts in his DM hang from stands in for its own post in a channel neither his DM nor one the drive watches."""
+    dm, thread, from_thread = data["slack"]["channel"], order.get("thread"), order.pop("from_thread", None)
     posts = [(link[1], f"{link[2]}.{link[3]}", link[4]) for part in order["parts"].values() if (link := CARD_LINK.search(part["posted"] or ""))]
-    ours = {data["slack"]["channel"], *data["slack"].get("watch", [])}
-    if not any(ts == order["thread"] and channel not in ours for channel, ts, _ in posts):
-        return order["thread"]
-    return next((thread or ts for channel, ts, thread in posts if channel == data["slack"]["channel"]), None)
+    if any(ts == thread and channel not in {dm, *data["slack"].get("watch", [])} for channel, ts, _ in posts):
+        thread = next((parent or ts for channel, ts, parent in posts if channel == dm), None)
+    source = SLACK_SOURCE.fullmatch(order.get("from", ""))
+    thread = thread or (source and source[2])
+    return [source[1] if source and thread in (source[2], from_thread) else dm, thread] if thread else None
 
 
 def job_parts(job: dict, order_id: str) -> list[str]:
@@ -743,12 +744,11 @@ def whole_order(text: str) -> str:
     return " ".join(text.split())[:PART_CHARS]
 
 
-def new_order(text: str, source: str, from_thread: str | None, thread: str | None, parts: dict[str, dict], created: str) -> dict:
+def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dict[str, dict], created: str) -> dict:
     return {
         "text": text,
         "from": source,
-        "from_thread": from_thread,
-        "thread": thread,
+        "thread": list(thread) if thread else None,
         "asked_in": [],
         "state": "open",
         "due": None,
@@ -791,13 +791,9 @@ def new_part() -> dict:
 
 def reporter(link: str) -> dict:
     """The bug report an order fixes, as the Slack thread its one fix-live note goes in, read from its permalink, a reply's carrying its thread's ts, or from slack:<channel>/<thread ts>, with no Slack call, since the bot may not be in that channel; none told yet."""
-    if linked := link_thread(link):
-        channel, thread = linked
-    elif found := SLACK_SOURCE.fullmatch(link):
-        channel, thread = found[1], found[2]
-    else:
+    if not (linked := link_thread(link)):
         raise DriveError(f"--reporter {link}: refused, name the bug report by its Slack permalink or as slack:<channel>/<its thread's ts>")
-    return {"link": link, "channel": channel, "thread": thread, "told": None, "tell_said": None}
+    return {"link": link, "channel": linked[0], "thread": linked[1], "told": None, "tell_said": None}
 
 
 def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str) -> dict:
@@ -1059,9 +1055,18 @@ def card_threads(data: dict, order: dict) -> list[tuple[str, str]]:
 
 
 def link_thread(link: str) -> tuple[str, str] | None:
-    """The channel and thread of the Slack message a permalink names: its thread's ts for a reply, else its own ts, the thread under it."""
-    found = CARD_LINK.search(link)
-    return found and (found[1], found[4] or f"{found[2]}.{found[3]}")
+    """The channel and thread of the Slack message a permalink or a slack: form names: its thread's ts for a reply, else its own ts, the thread under it."""
+    found = slack_message(link)
+    return found and (found[0], found[2] or found[1])
+
+
+def slack_message(source: str) -> tuple[str, str, str | None] | None:
+    """The Slack message a source names, as its channel, its ts and the ts of the thread it is in, read with no Slack call: a permalink, a reply's carrying thread_ts, and slack:<channel>/<thread ts>/<reply ts> name that thread, while slack:<channel>/<ts> names none, None in its place; None for a source that is no Slack message, such as terminal."""
+    if found := SLACK_SOURCE.fullmatch(source):
+        return (found[1], found[3], found[2]) if found[3] else (found[1], found[2], None)
+    if found := CARD_LINK.search(source):
+        return found[1], f"{found[2]}.{found[3]}", found[4] or f"{found[2]}.{found[3]}"
+    return None
 
 
 def incident_orders(data: dict, order_id: str) -> list[str]:
@@ -1077,7 +1082,7 @@ def thread_order(data: dict, thread: str | None, until: datetime | None = None) 
     came = [
         (moment, index, order_id)
         for index, (order_id, order) in enumerate(data["orders"].items())
-        for at in ([order["created"]] if thread in (order["thread"], *(ts for _, ts in card_threads(data, order))) else []) + [at for _, ts, at in order["asked_in"] if ts == thread]
+        for at in ([order["created"]] if thread in (order["thread"] and order["thread"][1], *(ts for _, ts in card_threads(data, order))) else []) + [at for _, ts, at in order["asked_in"] if ts == thread]
         for moment in [parse_time(at)]
         if until is None or moment <= until
     ]
@@ -1324,35 +1329,26 @@ def incident_job(data: dict, name: str, order_id: str, part: str, created: str) 
     return f'{job_id} on "{part}": start its agent now, its brief ending Drive: {name}, order {order_id}, job {job_id}'
 
 
-def promise_thread(data: dict, order: dict) -> tuple[str, str] | None:
-    """The channel and thread an order's promised line goes in: its thread, in his DM unless it is the Slack message the order came from or the thread that message is in, as an alert's is or his reply's; else that message's."""
-    source = order["from"].removeprefix("slack:").split("/") if order["from"].startswith("slack:") else [None, None]
-    thread = order["thread"] or source[1]
-    channel = source[0] if thread in (source[1], order["from_thread"]) else data["slack"]["channel"]
-    return (channel, thread) if channel and thread else None
+def promise_thread(order: dict) -> tuple[str, str] | None:
+    """The channel and thread an order's lines go in, as the order keeps them, in his DM or a channel such as an alert's."""
+    return (order["thread"][0], order["thread"][1]) if order["thread"] else None
 
 
-def pr_threads(data: dict, keys: list[str]) -> list[str]:
-    """The threads of his DM a card for these PRs is linked in: the thread of each open order they carry out, the one each serves, its own and each its job carries."""
-    orders = dict.fromkeys(
-        order_id
-        for key in keys
-        for order_id in filter(None, [data["prs"][key].get("serves"), data["prs"][key]["order"], *data["jobs"][data["prs"][key]["job"]]["carries"]])
-    )
+def pr_threads(data: dict, keys: list[str]) -> list[tuple[str, str]]:
+    """The channel and thread a card for these PRs is linked in, in his DM or a channel such as an alert's: the thread of each open order whose words they are checked against, the one each serves, its job's own and each its job carries."""
+    orders = dict.fromkeys(order_id for key in keys for order_id in served_orders(data, data["prs"][key]))
     return list(
         dict.fromkeys(
-            where[1]
+            where
             for order_id in orders
-            if data["orders"][order_id]["state"] not in CLOSED_ORDER_STATES
-            and (where := promise_thread(data, data["orders"][order_id]))
-            and where[0] == data["slack"]["channel"]
+            if data["orders"][order_id]["state"] not in CLOSED_ORDER_STATES and (where := promise_thread(data["orders"][order_id]))
         )
     )
 
 
 def incident_threads(data: dict, order_ids: list[str]) -> list[str]:
     """The thread of each of these incident orders, where the drive says at once that a card of his blocks it."""
-    return [where[1] for order_id in order_ids if (where := promise_thread(data, data["orders"][order_id]))]
+    return [where[1] for order_id in order_ids if (where := promise_thread(data["orders"][order_id]))]
 
 
 def owed(order: dict) -> bool:

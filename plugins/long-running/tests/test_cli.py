@@ -487,7 +487,8 @@ def test_order_add_allocates_ids_and_stores_words_verbatim(run: Run, demo: str) 
     orders = state.load("demo")["orders"]
     assert orders["o1"]["text"] == "first  words"
     assert orders["o1"]["from"] == "slack:D123/1.2"
-    assert orders["o1"]["thread"] == "1.2"
+    assert orders["o1"]["thread"] == ["D123", "1.2"]
+    assert orders["o2"]["thread"] == ["D123", "1.3"]
     assert orders["o1"]["state"] == "open"
     assert orders["o1"]["due"] is None
     assert orders["o2"]["from"] == "terminal"
@@ -519,10 +520,10 @@ def test_an_orders_thread_is_refused_unless_slack_reads_it_as_a_thread_where_its
     assert run(*words, "--thread", "1794200000.000100") == (0, "o1")
     assert cli.main(["order", "set", "o1", "--thread", "1794200090.000700"]) == 2
     assert "--thread 1794200090.000700: refused, it is no thread in D123" in capsys.readouterr().err
-    assert state.load("demo")["orders"]["o1"]["thread"] == "1794200000.000100"
+    assert state.load("demo")["orders"]["o1"]["thread"] == ["D123", "1794200000.000100"]
     assert reads[:2] == [
-        ("--channel", "D123", "--thread", "1794200050.000200", "--limit", "1"),
         ("--channel", "D123", "--thread", "1794200090.000700", "--limit", "1"),
+        ("--channel", "D123", "--thread", "1794200050.000200", "--limit", "1"),
     ]
 
 
@@ -547,25 +548,48 @@ def test_an_order_from_his_reply_goes_in_the_thread_his_reply_is_in_in_the_chann
     filed = ["order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling"]
     assert run(*filed, "What the hell is this message?", "--from", f"slack:D123/{reply}") == (0, "o1")
     assert run(*filed, "the card still shows the old state", "--from", f"slack:C0BUGS1/{bug_reply}") == (0, "o2")
-    assert run(*filed, "and the dashboard too", "--from", f"slack:C0BUGS1/{bug_reply}", "--thread", bug_root) == (0, "o3")
     assert reads == [
         ("--channel", "D123", "--thread", reply, "--limit", "1"),
         ("--channel", "C0BUGS1", "--thread", bug_reply, "--limit", "1"),
-        ("--channel", "C0BUGS1", "--thread", bug_reply, "--limit", "1"),
     ]
+    permalink = f"https://acme.slack.com/archives/C0BUGS1/p{bug_reply.replace('.', '')}?thread_ts={bug_root}&cid=C0BUGS1"
+    assert run(*filed, "and the dashboard too", "--from", f"slack:C0BUGS1/{bug_root}/{bug_reply}", "--thread", bug_root) == (0, "o3")
+    assert run(*filed, "and the card", "--from", permalink) == (0, "o4")
+    assert run(*filed, "and the list", "--from", f"slack:C0BUGS1/{bug_root}/{bug_reply}", "--thread", f"slack:C0BUGS1/{bug_root}") == (0, "o5")
+    assert len(reads) == 2
     data = state.load("demo")
-    assert {order_id: (order["thread"], order["from_thread"], state.promise_thread(data, order)) for order_id, order in data["orders"].items()} == {
-        "o1": (root, root, ("D123", root)),
-        "o2": (bug_root, bug_root, ("C0BUGS1", bug_root)),
-        "o3": (bug_root, bug_root, ("C0BUGS1", bug_root)),
+    assert {order_id: (order["from"], order["thread"], state.promise_thread(order)) for order_id, order in data["orders"].items()} == {
+        "o1": (f"slack:D123/{reply}", ["D123", root], ("D123", root)),
+        "o2": (f"slack:C0BUGS1/{bug_reply}", ["C0BUGS1", bug_root], ("C0BUGS1", bug_root)),
+        "o3": (f"slack:C0BUGS1/{bug_reply}", ["C0BUGS1", bug_root], ("C0BUGS1", bug_root)),
+        "o4": (f"slack:C0BUGS1/{bug_reply}", ["C0BUGS1", bug_root], ("C0BUGS1", bug_root)),
+        "o5": (f"slack:C0BUGS1/{bug_reply}", ["C0BUGS1", bug_root], ("C0BUGS1", bug_root)),
     }
+    assert state.message_order(data, "C0BUGS1", bug_root, bug_reply) == "o2"
     assert cli.thread_refusal(data, "o1", ("D123", root), {}) is None
     assert cli.main([*filed, "look at this", "--from", "slack:C0GONE1/1794341700.000300"]) == 2
     assert (
         "--from slack:C0GONE1/1794341700.000300: refused, Slack cannot read the message it names: cc-slack can't read this conversation (channel_not_found)"
         in capsys.readouterr().err
     )
-    assert set(state.load("demo")["orders"]) == {"o1", "o2", "o3"}
+    assert set(state.load("demo")["orders"]) == {"o1", "o2", "o3", "o4", "o5"}
+
+
+def test_order_set_from_points_an_order_at_his_dm_post_while_its_lines_stay_in_the_alert_thread(run: Run, demo: str, slack_thread: Thread) -> None:
+    alert, reply, dm_post = "1794493064.110609", "1794495071.669329", "1794495097.793329"
+    filed = ["order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling"]
+    assert run(*filed, "unpause the release", "--from", f"slack:C0822AHFY3G/{alert}/{reply}") == (0, "o1")
+    assert slack_thread.reads == []
+    order = state.load("demo")["orders"]["o1"]
+    assert (order["from"], order["thread"]) == (f"slack:C0822AHFY3G/{reply}", ["C0822AHFY3G", alert])
+    dm_link, alert_link = (f"https://acme.slack.com/archives/{channel}/p{ts.replace('.', '')}" for channel, ts in (("D123", dm_post), ("C0822AHFY3G", alert)))
+    assert run("order", "set", "o1", "--from", dm_link, "--thread", alert_link)[0] == 0
+    data = state.load("demo")
+    assert (data["orders"]["o1"]["from"], state.promise_thread(data["orders"]["o1"])) == (f"slack:D123/{dm_post}", ("C0822AHFY3G", alert))
+    assert state.message_order(data, "D123", dm_post, dm_post) == "o1"
+    assert run("order", "set", "o1", "--from", f"slack:D123/{dm_post}")[0] == 0
+    assert state.load("demo")["orders"]["o1"]["thread"] == ["C0822AHFY3G", alert]
+    assert slack_thread.reads == [("--channel", "C0822AHFY3G", "--thread", alert, "--limit", "1")]
 
 
 def test_order_set_due_on_an_order_with_no_thread_stores_the_drives_own_time_which_the_next_replaces_and_a_close_never_reads(
@@ -576,7 +600,7 @@ def test_order_set_due_on_an_order_with_no_thread_stores_the_drives_own_time_whi
     first = state.load("demo")["orders"]["o1"]["due"]
     said = (
         f"stored {render.when(first)} as the drive's own time: o1 has no thread, so no line to him keeps it, and the watch"
-        " says DUE once then; a time promised to him needs --thread <ts>"
+        " says DUE once then; a time promised to him needs --thread <its permalink>"
     )
     assert (code, out.splitlines()[-1]) == (0, said)
     assert run("order", "set", "o1", "--due", "+60m")[0] == 0
@@ -4635,7 +4659,7 @@ def test_start_outside_an_orca_terminal_is_refused_naming_the_command_that_start
 def test_a_drive_tooling_order_keeps_his_thread_so_his_later_words_there_find_it(run: Run, demo: str) -> None:
     tooling = ["order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "Drive tooling: fix ask", "--thread", "1794378983.440769"]
     assert run(*tooling) == (0, "o1")
-    assert state.load("demo")["orders"]["o1"]["thread"] == "1794378983.440769"
+    assert state.load("demo")["orders"]["o1"]["thread"] == ["D123", "1794378983.440769"]
     assert state.thread_order(state.load("demo"), "1794378983.440769") == "o1"
 
 

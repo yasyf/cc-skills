@@ -476,7 +476,7 @@ def test_a_promised_time_is_said_every_ten_minutes_until_a_drive_post_is_in_its_
     serve(monkeypatch, {})
     with state.edit(demo) as data:
         data["orders"]["o1"].update(
-            thread="1794200000.000100", due=state.stamp(T0 - timedelta(minutes=30)), promised=state.stamp(T0 - timedelta(minutes=60))
+            thread=["D123", "1794200000.000100"], due=state.stamp(T0 - timedelta(minutes=30)), promised=state.stamp(T0 - timedelta(minutes=60))
         )
         data["orders"]["o3"] = order(state="done", due=state.stamp(T0 - timedelta(hours=1)))
     slack_thread.post(T0 - timedelta(minutes=90), from_claude=True)
@@ -513,7 +513,7 @@ def test_a_drive_line_keeps_its_promised_time_however_many_of_his_messages_follo
     serve(monkeypatch, {})
     promised = T0 - timedelta(minutes=60)
     with state.edit(demo) as data:
-        data["orders"]["o1"].update(thread="1794200000.000100", due=state.stamp(T0 - timedelta(minutes=30)), promised=state.stamp(promised))
+        data["orders"]["o1"].update(thread=["D123", "1794200000.000100"], due=state.stamp(T0 - timedelta(minutes=30)), promised=state.stamp(promised))
     slack_thread.post(promised + timedelta(minutes=1), from_claude=True)
     for second in range(60):
         slack_thread.post(promised + timedelta(minutes=2, seconds=second), from_user=True)
@@ -537,7 +537,7 @@ def test_a_drive_line_in_the_thread_of_the_orders_card_keeps_its_promised_time(
     monkeypatch.setattr(slack, "thread", lambda *where: list(threads[where[3]]))
     with state.edit(demo) as data:
         data["orders"]["o1"].update(
-            thread="1794200000.000100", due=state.stamp(T0 - timedelta(minutes=30)), promised=state.stamp(T0 - timedelta(minutes=60))
+            thread=["D123", "1794200000.000100"], due=state.stamp(T0 - timedelta(minutes=30)), promised=state.stamp(T0 - timedelta(minutes=60))
         )
         data["jobs"]["j1"]["questions"].append(state.new_question(None, None, state.stamp(T0), card=f"https://acme.slack.com/archives/D123/p{card.replace('.', '')}"))
     watching = watcher(demo)
@@ -556,7 +556,7 @@ def test_a_drive_line_in_the_thread_of_the_orders_card_keeps_its_promised_time(
         ("slack:C0CELUMJ6MU/1794341600.000200", "1794341529.595149", "1794341529.595149", ("C0CELUMJ6MU", "1794341529.595149")),
     ],
 )
-def test_a_due_order_from_another_channel_reads_its_thread_in_the_channel_the_thread_is_in(
+def test_a_due_order_an_older_install_saved_reads_its_thread_in_the_channel_that_install_read_it_in(
     demo: str, monkeypatch: pytest.MonkeyPatch, slack_thread: "Thread", source: str, from_thread: str | None, thread: str | None, where: tuple[str, str]
 ) -> None:
     serve(monkeypatch, {})
@@ -573,6 +573,24 @@ def test_a_due_order_from_another_channel_reads_its_thread_in_the_channel_the_th
     [line] = said_due(watcher(demo), T0)
     assert line.startswith('DUE o1 "ship the watch" was due ')
     assert slack_thread.reads == [("--channel", where[0], "--thread", where[1], "--since-ts", str(int((T0 - timedelta(minutes=60)).timestamp())), "--limit", "1000")]
+
+
+def test_a_due_order_from_his_dm_whose_thread_is_an_alerts_reads_that_thread_in_the_alert_channel(
+    demo: str, monkeypatch: pytest.MonkeyPatch, slack_thread: "Thread"
+) -> None:
+    serve(monkeypatch, {})
+    with state.edit(demo) as data:
+        data["orders"]["o1"].update(
+            {
+                "from": "slack:D123/1794495097.793329",
+                "thread": ["C0822AHFY3G", "1794493064.110609"],
+                "due": state.stamp(T0 - timedelta(minutes=30)),
+                "promised": state.stamp(T0 - timedelta(minutes=60)),
+            }
+        )
+    [line] = said_due(watcher(demo), T0)
+    assert line.startswith('DUE o1 "ship the watch" was due ')
+    assert slack_thread.reads == [("--channel", "C0822AHFY3G", "--thread", "1794493064.110609", "--since-ts", str(int((T0 - timedelta(minutes=60)).timestamp())), "--limit", "1000")]
 
 
 def test_moved_due_fires_again(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1986,7 +2004,7 @@ def test_a_card_holding_a_built_job_is_told_once_in_its_own_thread_and_again_aft
     asking(monkeypatch, demo, "demo:j1-7-a")
     with state.edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
-        data["orders"]["o1"]["thread"] = "1794200000.000100"
+        data["orders"]["o1"]["thread"] = ["D123", "1794200000.000100"]
         data["jobs"]["j1"] |= {"state": "built", "branch": "lane/built", "waits": ["demo:j1-7-a"]}
     posts: list[dict] = []
 
@@ -3191,7 +3209,7 @@ def test_an_incident_closes_once_its_monitor_reads_ok_and_a_release_shipped_its_
     calls = monitors_read(monkeypatch, {"315028134": status})
     with state.edit(demo) as data:
         parts = {name: state.new_part() for name in ("fix", "stop", "cause", "follow-up")}
-        data["orders"]["o1"].update(incident=True, thread="1794200000.000100", note="record 5f6b2b5", alerts=[MONITOR], jobs=["j1", "j2"], parts=parts)
+        data["orders"]["o1"].update(incident=True, thread=["D123", "1794200000.000100"], note="record 5f6b2b5", alerts=[MONITOR], jobs=["j1", "j2"], parts=parts)
         data["prs"][KEY].update(state="merged", merged_sha="abc123")
         data["jobs"]["j1"].update(kind="codex", parts=[part], state="waiting", waits=[f"release:api:{KEY}"], updated=state.stamp(T0 - timedelta(minutes=10)))
         data["jobs"]["j2"] = job(parts=["follow-up"], prs=[state.pr_url(OTHER)])
@@ -3229,7 +3247,7 @@ def test_an_incident_closes_once_its_monitor_reads_ok_and_a_release_shipped_its_
         "build",
         ["follow-up", "the migration check"],
         ["j2"],
-        "1794200000.000100",
+        ["D123", "1794200000.000100"],
         "follow-up of incident o1",
     )
     assert (data["jobs"]["j2"]["order"], data["prs"][OTHER]["order"]) == ("o3", "o3")

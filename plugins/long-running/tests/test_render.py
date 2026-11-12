@@ -15,7 +15,6 @@ def order(
     return {
         "text": text,
         "from": "terminal",
-        "from_thread": None,
         "thread": None,
         "state": order_state,
         "due": due,
@@ -249,7 +248,7 @@ def test_when_names_the_day_for_other_days() -> None:
 
 def test_status_text_names_the_thread_each_orders_lines_go_in() -> None:
     drive = sample()
-    drive["orders"]["o1"]["thread"] = "1794307360.614569"
+    drive["orders"]["o1"]["thread"] = ["D123", "1794307360.614569"]
     lines = render.status_text(drive, {}).splitlines()
     due = render.when(drive["orders"]["o1"]["due"])
     assert next(line for line in lines if line.startswith("- o1 ")).startswith(

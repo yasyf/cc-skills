@@ -1896,11 +1896,20 @@ def test_a_promise_names_the_order_job_or_time_that_carries_it(talker: str, tran
     assert posted(transcript, text='He wrote "I will tap it after lunch".') is None
 
 
+def test_a_say_naming_an_alert_orders_thread_with_no_channel_id_is_told_its_channel_since_his_dm_holds_no_such_thread(run: Run, talker: str, transcript: Path) -> None:
+    alert = "1794493064.110609"
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the release failed", "--from", f"slack:C0822AHFY3G/{alert}")
+    assert state.promise_thread(state.load("demo")["orders"]["o1"]) == ("C0822AHFY3G", alert)
+    assert say(transcript, text="The fix merged.", thread_ts=alert) == f"nothing posted: thread {alert} is in channel C0822AHFY3G, not his DM, so pass channel_id C0822AHFY3G with it"
+    assert message_limits.posted_order(state.load("demo"), {"channel_id": "C0822AHFY3G", "thread_ts": alert})[0] == "o1"
+    assert message_limits.posted_order(state.load("demo"), {"thread_ts": alert}) is None
+
+
 def test_while_he_is_away_only_cards_incident_lines_and_answers_go_out(run: Run, talker: str, transcript: Path) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     with state.edit("demo") as data:
         data["owner"] = {"heard": state.stamp(), "away": True}
-        data["orders"]["o1"].update(thread="1.2", incident=True)
+        data["orders"]["o1"].update(thread=[DM, "1.2"], incident=True)
     reason = posted(transcript, text="The fix merged.")
     assert reason.startswith("Refused on purpose: he is away")
     assert "joins the catch-up the drive posts when he is back" in reason
@@ -1918,7 +1927,7 @@ def test_an_incident_report_keeps_its_alert_links_bare_by_the_incident_its_order
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "unblock the users")
     with state.edit("demo") as data:
-        data["orders"]["o1"].update(thread="1.2", incident=True)
+        data["orders"]["o1"].update(thread=[DM, "1.2"], incident=True)
     monkeypatch.setattr(
         message_limits.cli.reads,
         "run",

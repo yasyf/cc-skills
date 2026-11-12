@@ -281,7 +281,7 @@ def test_a_job_saved_before_jobs_recorded_where_they_run_reads_with_every_field_
     assert jobs["j1"].keys() >= state.new_job("o1", "builder", "fix", [], old["created"]).keys()
 
 
-def test_an_order_whose_thread_is_its_own_post_outside_his_dm_and_watched_channels_reads_with_its_dm_thread(state_root: Path) -> None:
+def test_an_order_an_older_install_saved_with_a_bare_thread_reads_as_the_channel_and_thread_that_install_read_it_in(state_root: Path) -> None:
     make("demo")
     data = state.load("demo")
     data["slack"].update(channel="D123", watch=["C0B75AL4XEW"])
@@ -289,18 +289,46 @@ def test_an_order_whose_thread_is_its_own_post_outside_his_dm_and_watched_channe
     shared = {"posted": "https://acme.slack.com/archives/C0SHARED1/p1794200090000700", "orphan_said": None}
     watched = {"posted": "https://acme.slack.com/archives/C0B75AL4XEW/p1794200095000800", "orphan_said": None}
     base = {"text": "tell the stopped people", "from": "slack:D123/1794200030.000400", "jobs": [], "promised": None, "updated": "2026-11-10T18:46:23-08:00"}
+    alert = {"from": "slack:C0822AHFY3G/1794493064.110609", "parts": {"answer": in_dm}}
     data["orders"] = {
         "o1": base | {"thread": "1794200090.000700", "parts": {"answer": in_dm, "tell them": shared}},
         "o2": base | {"thread": "1794200095.000800", "parts": {"answer": in_dm, "tell them": watched}},
         "o3": base | {"thread": "1794200000.000100", "parts": {"answer": in_dm, "tell them": shared}},
+        "o4": base | alert | {"from": "slack:C0822AHFY3G/1794495071.669329", "from_thread": "1794493064.110609", "thread": "1794493064.110609"},
+        "o5": base | alert | {"from_thread": None, "thread": None},
+        "o6": base | {"from": "terminal", "from_thread": None, "thread": None, "parts": {"answer": in_dm}},
+        "o7": base | {"from": "slack:D123/1794495097.793329", "thread": ["C0822AHFY3G", "1794493064.110609"], "parts": {"answer": in_dm}},
     }
     state.create(data)
     orders = state.load("demo")["orders"]
     assert {order_id: order["thread"] for order_id, order in orders.items()} == {
-        "o1": "1794200000.000100",
-        "o2": "1794200095.000800",
-        "o3": "1794200000.000100",
+        "o1": ["D123", "1794200000.000100"],
+        "o2": ["D123", "1794200095.000800"],
+        "o3": ["D123", "1794200000.000100"],
+        "o4": ["C0822AHFY3G", "1794493064.110609"],
+        "o5": ["C0822AHFY3G", "1794493064.110609"],
+        "o6": None,
+        "o7": ["C0822AHFY3G", "1794493064.110609"],
     }
+    assert not any("from_thread" in order for order in orders.values())
+    assert [state.promise_thread(order) for order in orders.values()][3:] == [("C0822AHFY3G", "1794493064.110609")] * 2 + [None, ("C0822AHFY3G", "1794493064.110609")]
+
+
+@pytest.mark.parametrize(
+    ("source", "message"),
+    [
+        ("slack:D123/1794495097.793329", ("D123", "1794495097.793329", None)),
+        ("slack:C0822AHFY3G/1794493064.110609/1794495071.669329", ("C0822AHFY3G", "1794495071.669329", "1794493064.110609")),
+        (
+            "https://acme.slack.com/archives/C0822AHFY3G/p1794495071669329?thread_ts=1794493064.110609&cid=C0822AHFY3G",
+            ("C0822AHFY3G", "1794495071.669329", "1794493064.110609"),
+        ),
+        ("https://acme.slack.com/archives/D123/p1794495097793329", ("D123", "1794495097.793329", "1794495097.793329")),
+        ("terminal", None),
+    ],
+)
+def test_a_slack_message_is_read_from_each_form_of_its_link_with_no_slack_call(source: str, message: tuple[str, str, str | None] | None) -> None:
+    assert state.slack_message(source) == message
 
 
 def test_edit_discards_changes_when_the_body_raises(state_root: Path) -> None:
