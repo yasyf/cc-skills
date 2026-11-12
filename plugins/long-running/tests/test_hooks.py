@@ -294,6 +294,22 @@ def test_an_agent_is_recorded_on_its_briefs_job_by_its_own_steps_and_a_step_afte
     assert no_calls == []
 
 
+def test_an_agent_whose_brief_names_no_job_runs_the_job_recorded_with_it_after_a_wake_and_its_result_sets_that_job(
+    demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--agent", "a-9")
+    with state.edit("demo") as data:
+        data["jobs"]["j1"].update(state="waiting", said="Which store?")
+    unnamed = stepped(tmp_path, "Goal: fix it\nDrive: demo, order o1.\nScratch: /x")
+    assert hook_output(landing_guard, monkeypatch, capsys, json.dumps(bash("git status") | unnamed)) == ""
+    assert state.load("demo")["jobs"]["j1"]["state"] == "running"
+    ready = "READY https://github.com/yasyf/cc-skills/pull/1"
+    hook_output(one_line_result, monkeypatch, capsys, json.dumps(agent_stop(ready, stop_hook_active=True, **unnamed)))
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["state"], job["said"]) == ("waiting", ready)
+
+
 def test_a_handlers_steps_never_bind_it_to_the_job_its_brief_names(
     demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

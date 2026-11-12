@@ -188,15 +188,19 @@ def free(data: dict, job_id: str) -> bool:
 
 
 def hold(payload: dict) -> None:
-    """Record on the job its brief's Drive line names the agent whose step fired this hook, and run the job: a session runs the newest copy of each hook it registered at start but no hook registered since, so the drive hears of an agent from the hooks its own steps fire, its first step and its first after each wake. A handler is never held: it works one item for the communicator, and a job its brief names, by a `Job:` line, a brief file or the record it reads in, is that job's own agent's."""
-    if payload.get("agent_type") == HANDLER:
+    """Record on the job its brief's Drive line names, else the job already recorded with this agent, the agent whose step fired this hook, and run the job: a session runs the newest copy of each hook it registered at start but no hook registered since, so the drive hears of an agent from the hooks its own steps fire, its first step and its first after each wake. A handler is never held: it works one item for the communicator, and a job its brief names, by a `Job:` line, a brief file or the record it reads in, is that job's own agent's."""
+    if payload.get("agent_type") == HANDLER or not payload.get("agent_id"):
         return
+    names = state.session_drives(payload["session_id"])
+    if not names:
+        return
+    known = state.load(names[0])
     match = BRIEF_JOB.search(brief(payload))
-    names = state.session_drives(payload["session_id"]) if match else []
-    if not names or not free(state.load(names[0]), match[1]):
+    job_id = match[1] if match else state.agent_job(known, payload["agent_id"])
+    if not job_id or not free(known, job_id):
         return
     with state.edit(names[0]) as data:
-        if free(data, match[1]):
-            data["jobs"][match[1]].update(
+        if free(data, job_id):
+            data["jobs"][job_id].update(
                 agent=payload["agent_id"], where="local", session=payload["session_id"], undelivered=[], state="running", updated=state.stamp()
             )

@@ -1655,6 +1655,36 @@ def test_a_job_with_no_dispatch_reads_as_starting_until_a_launch_would_have_fini
     assert watching.agent_gaps == {"j1": gap}
 
 
+def test_a_job_added_or_set_waiting_on_a_pr_or_a_release_waits_unlaunched_until_free_names_its_launch(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    key = "Forge-AI/monorepo#7"
+    shipping = f"release:api:{key}"
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "the PR it builds on", "--remote")
+    with state.edit(demo) as data:
+        data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1")
+    code, out = run("job", "add", "builder", "--order", "o1", "--goal", "after it ships", "--remote", "--waits", key, "--waits", shipping)
+    assert (code, out.splitlines()[1]) == (0, f"j2 waits on {key}, {shipping}: start no agent for it until the watch's FREE line says its last wait ended")
+    run("job", "add", "builder", "--order", "o1", "--goal", "given its wait after", "--remote")
+    run("job", "set", "j3", "--waits", key)
+    jobs = state.load(demo)["jobs"]
+    assert [(jobs[job_id]["state"], jobs[job_id]["waits"]) for job_id in ("j2", "j3")] == [("waiting", [key, shipping]), ("waiting", [key])]
+    assert cli.main(["job", "launch", "j2"]) == 2
+    assert f"j2 waits on {key}, {shipping}: launch it on the watch's FREE line" in capsys.readouterr().err
+    watching = watch.Watcher(demo, offset=state.events_end(demo), ticked_at=T0)
+    watch.agent_lines(watching, T0)
+    assert watching.agent_gaps == {"j1": "j1 never started on its Sprite"}
+    with state.edit(demo) as data:
+        data["prs"][key].update(state="merged", merged_sha="abc123")
+    shipped = f"release releases/2026-11-09/1 ships {key} on api"
+    monkeypatch.setattr(watch.view, "shipped_by", lambda drive, wait: shipped)
+    assert watch.waits_lines(watching, T0) == [
+        f"FREE j2 o1: {key} answered or done, {shipped}, nothing else holds it, not started yet: drive job launch j2 starts it",
+        f"FREE j3 o1: {key} answered or done, nothing else holds it, not started yet: drive job launch j3 starts it",
+    ]
+
+
 def test_resume_to_a_local_lane_that_finished_starts_the_next_worker_in_its_worktree_and_terminal_on_this_mac(
     run: Run, rooted: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

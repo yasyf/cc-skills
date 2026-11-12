@@ -842,10 +842,11 @@ def job_add(args: argparse.Namespace) -> int:
     if args.kind == "builder" and not args.remote and not args.agent and not args.waits:
         refuse_a_local_builder(state.load(name), args.repo)
     if args.waits and args.agent:
-        raise DriveError("--waits records a job whose agent starts on the watch's FREE line once its reader returns, so it takes no --agent")
+        raise DriveError("--waits records a job whose agent starts on the watch's FREE line once its last wait ends, so it takes no --agent")
     if args.lands and args.kind != "builder":
         raise DriveError("--lands names the PRs a builder lands, which only a builder does")
     lands = list(dict.fromkeys(map(state.pr_key, args.lands)))
+    check_waits(name, args.waits)
     with state.edit(name) as data:
         order = find(data["orders"], args.order, "order")
         parts = pick_parts(args.order, order, args.part)
@@ -867,13 +868,13 @@ def job_add(args: argparse.Namespace) -> int:
             "repo": args.repo,
             "branch": args.branch,
             "worktree": args.worktree,
+            "waits": list(dict.fromkeys(args.waits)),
         }
-        if args.waits:
-            job.update(state="waiting", waits=args.waits, said=f"waits on reader {', '.join(args.waits)}")
+        state.hold_unstarted(job)
         order["jobs"].append(job_id)
         order["updated"] = created
         state.end_carried_designs(data, args.order, created)
-    waiting = [f"{job_id} waits on {', '.join(args.waits)}: start no agent for it until the watch's FREE line says the reader returned"] if args.waits else []
+    waiting = [f"{job_id} {job['said']}: start no agent for it until the watch's FREE line says its last wait ended"] if args.waits else []
     return emit(args, "\n".join([job_id, *waiting, *beside]), {"id": job_id, **job, "beside": beside})
 
 
@@ -952,6 +953,7 @@ def job_set(args: argparse.Namespace) -> int:
         if args.card:
             hold_card(job, args.card, shown)
         job["waits"] = merged_waits(job, args)
+        state.hold_unstarted(job)
         if args.carries:
             if args.part and len(args.carries) > 1:
                 raise DriveError("--part names the parts of one carried order; carry one order a call to name its parts")
@@ -1599,6 +1601,8 @@ def job_launch(args: argparse.Namespace) -> int:
     job = find(data["jobs"], args.id, "job")
     if dispatch := job.get("dispatch"):
         raise DriveError(f"{args.id} already started as dispatch {dispatch}")
+    if job["waits"]:
+        raise DriveError(f"{args.id} waits on {', '.join(job['waits'])}: launch it on the watch's FREE line, which comes once the last wait ends")
     if job.get("agent"):
         remote_job(data, args.id)
     if not (args.brief or job.get("brief")):
@@ -2880,10 +2884,11 @@ def parser() -> argparse.ArgumentParser:
         "--waits",
         action="append",
         default=[],
-        metavar="JOB",
+        metavar="CARD|PR|RELEASE|JOB",
         help=(
-            "a build order's reader still at work that this designer or builder waits on: it is recorded waiting on the reader with no"
-            " agent, so its part is never in no job, and the watch says FREE once the reader returns, when its agent starts"
+            "a card of his still open, a PR the drive tracks as <owner>/<repo>#<n> or release:<service>:<owner>/<repo>#<n>, as job set"
+            " takes them, or for a build order's designer or builder its reader still at work, that this job waits on: it is recorded"
+            " waiting with no agent, so its part is never in no job, and the watch says FREE once the last wait ends, when its agent starts"
         ),
     )
     verb.set_defaults(run=job_add)

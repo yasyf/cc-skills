@@ -2117,7 +2117,7 @@ def test_a_build_orders_designer_and_builder_are_added_waiting_on_its_reader_sti
     assert cli.main(["job", "add", "design", "--order", "o1", "--part", "design options", "--goal", "cards"]) == 2
     assert "while j1 reads, add this design now waiting on it with --waits j1" in capsys.readouterr().err
     added = run("job", "add", "design", "--order", "o1", "--part", "design options", "--goal", "cards", "--waits", "j1")
-    assert added == (0, "j2\nj2 waits on j1: start no agent for it until the watch's FREE line says the reader returned")
+    assert added == (0, "j2\nj2 waits on j1: start no agent for it until the watch's FREE line says its last wait ended")
     assert run("job", "add", "builder", "--order", "o1", "--part", "control freak", "--goal", "build it", "--waits", "j1")[0] == 0
     jobs = state.load("demo")["jobs"]
     assert [(jobs[job_id]["state"], jobs[job_id]["waits"], jobs[job_id]["agent"]) for job_id in ("j2", "j3")] == [("waiting", ["j1"], None)] * 2
@@ -2506,16 +2506,17 @@ def test_a_kept_report_sets_a_running_job_from_its_first_line(
     assert (jobs["j2"]["state"], jobs["j2"]["said"]) == ("stopped", None)
 
 
-def test_a_built_return_sets_its_job_built_on_its_branch_waiting_on_each_card_it_names(
-    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("branch", ["lr-move", "passive-only-checkpoints, passive-only-checkpoints-next, litestream-passive-only"])
+def test_a_built_return_sets_its_job_built_on_its_branches_waiting_on_each_card_it_names(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, branch: str
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
     card = "https://acme.slack.com/archives/D123/p1794200000000100"
-    monkeypatch.setattr("sys.stdin", io.StringIO(f"BUILT lr-move, waits on demo:j1-3, {card}\nCHECK: build 12\n"))
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"BUILT {branch}, waits on demo:j1-3, {card}\nCHECK: build 12\n"))
     run("job", "report", "j1", "-")
     job = state.load("demo")["jobs"]["j1"]
-    assert (job["state"], job["branch"], job["waits"]) == ("built", "lr-move", ["demo:j1-3", card])
+    assert (job["state"], job["branch"], job["waits"]) == ("built", branch, ["demo:j1-3", card])
 
 
 def test_job_set_keeps_a_jobs_state_for_any_state_but_stopped_and_still_sets_the_rest(run: Run, demo: str) -> None:
