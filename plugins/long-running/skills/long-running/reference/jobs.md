@@ -214,9 +214,8 @@ question.
   longer finds that terminal or worktree, the worker counts as dead. A dead worker, or one whose
   Sprite's Orca environment is gone, as `drive job end` leaves it, is relaunched on a fresh Sprite
   on a Run this terminal makes, since Orca binds a Run only to the terminal that made it. A
-  relaunch whose earlier try prepared a Sprite and started no worker on it reuses that Sprite with
-  the handoff it was prepared with, and sends the new text to the worker as a message when that
-  handoff holds another.
+  relaunch whose earlier try prepared a Sprite and started no worker on it reuses that Sprite, and
+  the launcher copies the new handoff onto it.
 - Either new worker gets a handoff carrying the job's brief, branch, last line, report, PRs and the
   message, and the output says which ran.
 - Before a relaunch on a fresh Sprite it saves the dead lane's Sprite, found by the job's workspace

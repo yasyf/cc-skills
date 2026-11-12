@@ -1,4 +1,3 @@
-import hashlib
 import itertools
 import json
 import os
@@ -600,7 +599,7 @@ def test_resume_to_a_dead_worker_relaunches_the_job_with_the_message_in_its_hand
     ]
 
 
-def test_a_resume_retried_after_its_bind_refused_sends_the_new_text_to_the_sprite_its_first_handoff_prepared(
+def test_a_resume_retried_after_its_bind_refused_relaunches_the_same_attempt_with_the_new_handoff(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     (tmp_path / ".orca.json").write_text("{}")
@@ -616,10 +615,6 @@ def test_a_resume_retried_after_its_bind_refused_sends_the_new_text_to_the_sprit
 
     def bind_refused(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None, workspace: str | None) -> dict:
         launched.append((brief, brief.read_text(), run_id))
-        attempt = brief.with_suffix(".worker")
-        attempt.mkdir()
-        (attempt / "worker-start.unsent").write_text("\n")
-        (attempt / "prepared.json").write_text(json.dumps({"brief": {"sha256": hashlib.sha256(brief.read_bytes()).hexdigest()}}))
         raise orca.Unstarted(f"no worker started on Sprite pool-two: WORKER_BIND refused before worker-start ran: {NO_RUN}")
 
     monkeypatch.setattr(orca, "launch", bind_refused)
@@ -633,17 +628,15 @@ def test_a_resume_retried_after_its_bind_refused_sends_the_new_text_to_the_sprit
     monkeypatch.setattr(orca, "launch", started)
     assert run("job", "resume", "j1", "PR #12 merged at abc123: prove it live") == (
         0,
-        "j1: the message went to the job's next worker, relaunched on Sprite workspace-2 as dispatch dispatch-2 after the handoff"
-        " an earlier try prepared its Sprite with, sent to it as a message; its lane on Sprite sprite-old was dead (its worker"
+        "j1: the message went to the job's next worker, relaunched on Sprite workspace-2 as dispatch dispatch-2 in a handoff"
+        " carrying its brief, its branch, its last line, its report and its PRs; its lane on Sprite sprite-old was dead (its worker"
         " exited), and work not pushed from sprite-old is not carried over",
     )
     (prepared, kept, first_run), (relaunched, again, second_run) = launched
     assert (relaunched, first_run, second_run) == (prepared, "run_try1", "run_try2")
     assert orca.brief_of(kept).endswith("which you act on now:\n\nPR #12 merged: prove it live")
     assert orca.brief_of(again).endswith("which you act on now:\n\nPR #12 merged at abc123: prove it live")
-    assert sent == [
-        ("send", "--to", "dispatch:dispatch-2", "--run", "run_try2", "--subject", "From the coordinator", "--body", "PR #12 merged at abc123: prove it live")
-    ]
+    assert sent == []
     job = state.load(remote)["jobs"]["j1"]
     assert (job["run"], job["dispatch"], [death["dispatch"] for death in job["deaths"]]) == ("run_try2", "dispatch-2", [DISPATCH])
 

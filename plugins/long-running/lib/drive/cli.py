@@ -1796,7 +1796,7 @@ def record_start(name: str, job_id: str, started: dict, handoff: str | None) -> 
 
 
 def launch_attempt(name: str, job: dict, attempt: str, kept: Path, brief: str, root: Path, workspace: str | None) -> dict:
-    """Launch one attempt of a job's lane on a Run this terminal makes, since Orca binds a Run only to the terminal that made it and the coordinator moves terminals: on a fresh Sprite, or on the workspace's own Sprite in the checkout it holds; a try whose worker-start sent nothing reuses the Sprite it prepared, whose worker reads the brief that try prepared it with."""
+    """Launch one attempt of a job's lane on a Run this terminal makes, since Orca binds a Run only to the terminal that made it and the coordinator moves terminals: on a fresh Sprite, or on the workspace's own Sprite in the checkout it holds; a try whose worker-start sent nothing reuses the Sprite it prepared, and the launcher copies this brief onto it."""
     kept.write_text(brief)
     run = orca.new_run(f"drive {name} {attempt}: {job['goal']}")
     return {**orca.launch(name, orca.lane_name(name, attempt), kept, root, run, job["route"], workspace), "run": run}
@@ -1872,7 +1872,7 @@ def hand_over(args: argparse.Namespace, name: str, data: dict, session: str) -> 
 
 
 def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEnd) -> int:
-    """Start the job's next worker with a handoff: in the terminal of a worker that finished while Orca holds it, on its Sprite or on this Mac, on that worker's Run; else, on a Run this terminal makes, on a fresh Sprite, or in a fresh worktree on this Mac. Before a relaunch it saves to GitHub what the dead lane's Sprite holds that a fresh one would not get, and its handoff names the saved branches; when that Sprite cannot be read or the save fails, the relaunch runs on that Sprite instead, in the checkout the dead lane left. A relaunch on a fresh Sprite then destroys the dead lane's Sprite once it holds nothing on no remote. A finished worker whose terminal or worktree Orca no longer finds starts its next worker as a dead one's would. A try whose Sprite an earlier try prepared with an earlier handoff gets the text as a message."""
+    """Start the job's next worker with a handoff: in the terminal of a worker that finished while Orca holds it, on its Sprite or on this Mac, on that worker's Run; else, on a Run this terminal makes, on a fresh Sprite, or in a fresh worktree on this Mac. Before a relaunch it saves to GitHub what the dead lane's Sprite holds that a fresh one would not get, and its handoff names the saved branches; when that Sprite cannot be read or the save fails, the relaunch runs on that Sprite instead, in the checkout the dead lane left. A relaunch on a fresh Sprite then destroys the dead lane's Sprite once it holds nothing on no remote. A finished worker whose terminal or worktree Orca no longer finds starts its next worker as a dead one's would."""
     data = state.load(name)
     job = data["jobs"][args.id]
     root = None if end.worktree else checkout(data)
@@ -1903,11 +1903,8 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
     else:
         receipt = launch_attempt(name, job, attempt, kept, brief, root, job["workspace"] if left else None)
     started = {field: receipt[field] for field in LAUNCHED}
-    fresh = record_start(name, args.id, started, str(kept))
+    record_start(name, args.id, started, str(kept))
     carrying = "in a handoff carrying its brief, its branch, its last line, its report and its PRs"
-    if not orca.holds_brief(kept):
-        orca.answer(name, fresh, args.text)
-        carrying = "after the handoff an earlier try prepared its Sprite with, sent to it as a message"
     local = state.on_mac(job)
     if end.worktree:
         line = (

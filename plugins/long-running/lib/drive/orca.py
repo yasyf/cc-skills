@@ -1,5 +1,4 @@
 import contextlib
-import hashlib
 import json
 import os
 import re
@@ -388,12 +387,6 @@ def launch(drive: str, lane: str, brief: Path, checkout: Path, run: str, route: 
 def unsent(brief: Path) -> bool:
     """Whether a launch of this brief prepared a Sprite whose worker-start sent nothing, which a launch of the same brief reuses."""
     return (brief.with_suffix(".worker") / "worker-start.unsent").exists()
-
-
-def holds_brief(brief: Path) -> bool:
-    """Whether the Sprite a launch of this brief started its worker on holds this text of it, not an earlier one an earlier try prepared it with and the launch reused."""
-    prepared = brief.with_suffix(".worker") / "prepared.json"
-    return not prepared.exists() or json.loads(prepared.read_text())["brief"]["sha256"] == hashlib.sha256(brief.read_bytes()).hexdigest()
 
 
 def reclaim(run: str, dispatch: str, checkout: Path) -> str:
