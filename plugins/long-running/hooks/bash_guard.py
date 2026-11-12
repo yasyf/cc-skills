@@ -1,12 +1,14 @@
 import json
+import os
 import re
+import subprocess
 import sys
 from itertools import pairwise
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, github, install, orca, state
+from drive import agents, github, install, land, orca, state, view
 from drive.orca import OrcaError
 from drive.shell import runnable, simple_commands
 
@@ -17,7 +19,10 @@ SHELLS = {"sh", "bash", "zsh", "dash", "fish"}
 WRAPPERS = {"command", "exec", "nohup", "env", "time"}
 VALUED = {"-C", "-R", "--repo", "--drive"}
 ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*")
-PUSHES = (("gh", "pr", "create"), ("git", "push"), ("jj", "git", "push"), ("ccx", "vcs", "ship"), ("gt", "submit"))
+SHIP = ("ccx", "vcs", "ship")
+PUSHES = (("gh", "pr", "create"), ("git", "push"), ("jj", "git", "push"), SHIP, ("gt", "submit"))
+PUSH_ONLY = {"--no-pr", "--dry-run"}
+LANE_HELD_SECONDS = 540
 CACHED_PAGE = re.compile(r"plugins/cache/([^/\s'\"]+)/long-running/([^/\s'\"]+)/skills/long-running/reference/")
 RERUNS = (("ci", "bk", "rerun"), ("bk", "job", "retry"), ("bk", "build", "rebuild"), ("gh", "run", "rerun"))
 FLAKE = "--flake"
@@ -87,6 +92,45 @@ def bare_pr(found: list[list[str]]) -> str | None:
         " the `open-pr` skill, which ships it with `ccx vcs ship --pr-title-file <title> --pr-body-file <body>` and keeps"
         " the branch, stack and PR text the repository expects"
     )
+
+
+def opens_pr(found: list[list[str]]) -> bool:
+    """Whether a call runs a `ccx vcs ship` that may open a PR: one with neither `--no-pr` nor `--dry-run`."""
+    return any(tuple(verb(words)[:3]) == SHIP and not PUSH_ONLY & set(words) for words in found)
+
+
+def held(job_id: str, cards: list[str]) -> str:
+    return (
+        f"refused: {job_id}'s work waits on his answer to {', '.join(cards)}, and this ship would open its PR, which goes"
+        " up only once he answers each, since work does not land with a question of his on it unanswered: push the"
+        " branch with `ccx vcs ship --no-pr` and return `BUILT <branch>, waits on <cards>`; the watch says FREE when"
+        " the last is answered"
+    )
+
+
+def held_pr(found: list[list[str]], agent: str, drives: list[str]) -> str | None:
+    """Why a builder's `ccx vcs ship` on this Mac may not open its PR: his open cards hold its job."""
+    if not opens_pr(found):
+        return None
+    for name in drives:
+        data = state.load(name)
+        if (job_id := state.agent_job(data, agent)) and (cards := land.ship_held(data, job_id, view.live_cards(name))):
+            return held(job_id, cards)
+    return None
+
+
+def lane_held(found: list[list[str]]) -> str | None:
+    """Why a Sprite lane's `ccx vcs ship` may not open its PR: `drive job held`, which the Sprite's `drive` asks of the coordinator's Mac, names his open cards holding the lane's job."""
+    if not opens_pr(found):
+        return None
+    try:
+        done = subprocess.run(["drive", "job", "held", "--json"], capture_output=True, text=True, timeout=LANE_HELD_SECONDS, check=False)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return f"refused: `drive job held` could not say whether his open cards hold this lane's PR: {error}; ship again once it answers"
+    if done.returncode:
+        return f"refused: `drive job held` could not say whether his open cards hold this lane's PR: {(done.stderr or done.stdout).strip()}; ship again once it answers"
+    answer = json.loads(done.stdout)
+    return held(answer["id"], answer["cards"]) if answer["cards"] else None
 
 
 def cached_page(text: str) -> str | None:
@@ -227,7 +271,7 @@ def mid_incident(found: list[list[str]]) -> str | None:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive session's or drive agent's call must not run: a designer pushes, a read takes a stale version's cached skill page, or a session is resumed while it runs, from a shell-ending command, or ended mid-incident, a call retries past a failing check; why any session's call restarts the hook helper he never approved on a card; and why Claude Code's permission prompt on a drive agent's command gets a refusal rather than an answer nobody gives."""
+    """Why a drive session's or drive agent's call must not run: a designer pushes, a builder, on this Mac or a Sprite, opens its PR while his open cards hold its job, a read takes a stale version's cached skill page, or a session is resumed while it runs, from a shell-ending command, or ended mid-incident, a call retries past a failing check; why any session's call restarts the hook helper he never approved on a card; and why Claude Code's permission prompt on a drive agent's command gets a refusal rather than an answer nobody gives."""
     call = payload["tool_input"]
     session = payload.get("session_id") or ""
     drives = state.session_drives(session)
@@ -237,12 +281,15 @@ def deny_reason(payload: dict) -> str | None:
     if payload["tool_name"] != "Bash":
         return cached_page(call.get("file_path") or call.get("path") or "") if drives else None
     found = commands(runnable(call["command"]))
+    if not drives and os.environ.get(state.REMOTE_LANE_ENV):
+        return lane_held(found)
     if not drives and not kind.startswith(AGENTS):
         return helper_install(found, drives)
     scripts = terminal_scripts(found)
     reasons = (
         lambda: designer_push(found) if kind == DESIGNER else None,
         lambda: bare_pr(found) if kind == BUILDER else None,
+        lambda: held_pr(found, payload.get("agent_id") or "", drives) if kind == BUILDER else None,
         lambda: cached_page(call["command"]) if drives else None,
         lambda: shell_after_claude(scripts),
         lambda: live_resume(found + [words for inner in scripts for words in inner]),

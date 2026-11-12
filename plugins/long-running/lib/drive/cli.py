@@ -2078,6 +2078,18 @@ def job_replies(args: argparse.Namespace) -> int:
     return emit(args, text or f"{args.id} has sent nothing yet", kept)
 
 
+def job_held(args: argparse.Namespace) -> int:
+    from drive import view
+
+    name = state.resolve(args.drive)
+    job_id = args.id or os.environ.get(state.OWN_JOB_ENV)
+    if not job_id:
+        raise DriveError("job held needs the job: name it, or run it from a Sprite lane, whose own job it reads")
+    data = state.load(name)
+    find(data["jobs"], job_id, "job")
+    cards = land.ship_held(data, job_id, view.live_cards(name))
+    return emit(args, "\n".join(cards) or f"{job_id}: no open card of his holds its PR", {"id": job_id, "cards": cards})
+
 def release_sprite(job: dict, root: Path) -> str | None:
     """Destroy the Sprite cc-remote still records for the job's lane once it holds nothing on no remote; what happened to it, or None when none is recorded."""
     if not orca.holds_sprite(job):
@@ -2140,8 +2152,6 @@ def pr_add(args: argparse.Namespace) -> int:
 
 def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = None, exempt: str | None = None, no_tap: bool = False) -> dict:
     """Register a PR on its job from its GitHub read, refused as `drive pr add` refuses, keeping the title it read, so a PR merged and proved before the watch's next read is named by it; the PR as registered, the job's first in place of each wait on its change. `drive pr add` runs it for a builder on this Mac, and the watch for each PR a remote lane's mail names, so a PR built on a Sprite lands as one built here does."""
-    from drive import view
-
     url = state.pr_url(key)
     refuse_an_unkinded_title(key, read, port_of)
     refuse_third_person(key, read)
@@ -2159,11 +2169,6 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
         job = find(data["jobs"], job_id, "job")
         if data["orders"][job["order"]]["once"]:
             raise DriveError(f"refused, {job['order']} is a repair he asked to run once: run it, and put up no PR for it")
-        if key not in data["prs"] and (cards := land.open_cards(data, job_id, [], view.live_cards(name))):
-            raise DriveError(
-                f"{job_id}'s work waits on his answer to {', '.join(cards)}: it puts up no PR until he answers each, since work"
-                " does not land with a question of his on it unanswered; the watch says FREE when the last is answered"
-            )
         wants_tap = state.guarded(key) or not tooling(data["orders"][job["order"]])
         pr = data["prs"].setdefault(key, state.new_pr(url, job_id, job["order"]) | {"wants_tap": wants_tap})
         pr.update(job=job_id, order=job["order"], author=author, title=read["title"])
@@ -3697,6 +3702,13 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("id")
     verb.set_defaults(run=job_replies)
+    verb = job.add_parser(
+        "held",
+        parents=both,
+        help="his open cards holding the job's PR from going up, one waits id a line, which the bash_guard hook asks before a ccx vcs ship opens it; none once the job has an open PR",
+    )
+    verb.add_argument("id", nargs="?", help="the job; a Sprite lane's own job when left out")
+    verb.set_defaults(run=job_held)
     verb = job.add_parser(
         "end",
         parents=both,

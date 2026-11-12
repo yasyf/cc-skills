@@ -78,6 +78,7 @@ HOLDERS = ("communicator", "meta")
 HANDLER_ENV = "LONG_RUNNING_HANDLER"
 DRIVE_ENV = "CLAUDE_LONG_RUNNING_DRIVE"
 OWN_JOB_ENV = "LONG_RUNNING_OWN_JOB"
+REMOTE_LANE_ENV = "LONG_RUNNING_REMOTE_LANE"
 LANE_ROLES = {"communicator": "communicator", "root": "coordinator", "meta": "meta"}
 DRIVE_LANES = ("root", "communicator", "coordinator", "meta", "handler", "builder", "reader", "designer", "root-tooling", "root-skill", "root-dashboard", "watch")
 NUMBERED_LANE = re.compile(r"(?P<stem>.+)-\d+")

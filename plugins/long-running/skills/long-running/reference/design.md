@@ -79,8 +79,8 @@ background process. When you cannot tell, it counts, because a wrong shape costs
    opens no PR. The line sets its job built on that branch, waiting on each card's waits id or
    Slack link it names.
    - `drive status`, `drive view`, the dashboard and his Slack status page show it built, with its
-     branch and each card. Outside an incident, `drive pr add` refuses a new PR for it while one of
-     its cards is open. An immediate fix's job is never held: its PR goes up at once.
+     branch and each card. Outside an incident, the `bash_guard` hook refuses the `ccx vcs ship` that
+     would open its PR while one of its cards is open. An immediate fix's job is never held: its PR goes up at once.
    - The minute a card holds a built job, the watch replies once in that card's own thread, in
      plain words, that its recommended answer is built and paused on his pick, and `drive view` puts
      that card first in his queue.
