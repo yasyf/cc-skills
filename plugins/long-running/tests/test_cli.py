@@ -3378,20 +3378,17 @@ def test_pr_set_never_leaves_a_forge_ai_pr_with_neither_his_tap_nor_an_exempt_cl
     assert (pr["wants_tap"], pr["exempt"]) == (True, None)
 
 
-def test_pr_set_tap_sizes_his_card_by_the_prs_native_github_stack_not_a_longer_chain_it_was_drawn_on(
-    run: Run, with_pr: str, native_stacks: dict[str, list[tuple[str, str]]], capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_pr_set_tap_takes_a_pr_whatever_the_size_of_its_stack(run: Run, with_pr: str, native_stacks: dict[str, list[tuple[str, str]]]) -> None:
     chain = [f"Forge-AI/monorepo#{n}" for n in (42, 43, 44, 45, 46, 47, 48)]
     with state.edit("demo") as data:
         for key in chain[1:]:
             data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1")
-        data["prs"]["Forge-AI/monorepo#43"]["state"] = "closed"
         for key in chain:
             data["prs"][key]["stack"] = chain
-    assert cli.main(["pr", "set", PR, "--tap", "--serves", "o1", "--design", "none"]) == 2
-    assert capsys.readouterr().err.startswith(f"drive: {with_pr}: its stack holds 6 PRs and a stack is at most 4,")
-    native_stacks[with_pr] = [("Forge-AI/monorepo#41", "open"), (with_pr, "open"), (chain[2], "open"), (chain[3], "open")]
+    for key in chain:
+        native_stacks[key] = [(member, "open") for member in chain]
     assert run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")[0] == 0
+    assert state.load("demo")["prs"][with_pr]["wants_tap"] is True
 
 
 def test_pr_set_serves_or_design_from_a_session_not_holding_the_prs_order_is_refused_naming_its_holder(

@@ -25,7 +25,6 @@ STACK_KINDS = ("New", "Fix", "Port", "Cleanup")
 REFRESHER_HEADINGS = ("refresher", "eli5", "in plain words", "context")
 STACK_HEADING = "the stack"
 STACK_CHARS = 700
-STACK_MOST = 4
 HATE_HEADINGS = ("what you'll hate most", "what you will hate most", "what you'll hate the most", "what you will hate the most")
 PLAN_HEADINGS = ("against the plan", "differs from the plan", "plan deviations")
 SHOWN_HEADINGS = ("summary", *REFRESHER_HEADINGS, "biggest surprise", *HATE_HEADINGS, "show me", *PLAN_HEADINGS, "port", STACK_HEADING)
@@ -456,20 +455,13 @@ def groups(known: dict[str, tuple[str, dict]], keys: list[str], reads: dict[str,
 
 
 def loose_cards(known: dict[str, tuple[str, dict]], keys: list[str], reads: dict[str, dict]) -> list[list[str]]:
-    """The cards PRs in no native GitHub stack draw on, by state.card_unit as the watch's ready record names them: each chain of them by base branch on its own card, bottom first, and the rest one card per repository and order they serve, a new card begun past STACK_MOST PRs on his tap, while one chain past it is refused whole."""
+    """The cards PRs in no native GitHub stack draw on, by state.card_unit as the watch's ready record names them: each chain of them by base branch on its own card, bottom first, and the rest one card per repository and order they serve, however many PRs each holds."""
     units: dict[tuple[str, tuple[tuple[str, ...], str, str]], list[str]] = {}
     for chain in chains(keys, reads):
         stack = tuple(chain) if len(chain) > 1 else ()
         for key in chain:
             units.setdefault((known[key][0], state.card_unit(key, stack, known[key][1])), []).append(key)
-    found: list[list[str]] = []
-    for (_, (stack, _, _)), members in units.items():
-        found.append([])
-        for key in members:
-            if not stack and len(on_tap(known, [*found[-1], key])) > STACK_MOST:
-                found.append([])
-            found[-1].append(key)
-    return found
+    return list(units.values())
 
 
 def group_of(known: dict[str, tuple[str, dict]], key: str) -> list[str]:
@@ -522,22 +514,6 @@ def drawn(known: dict[str, tuple[str, dict]], members: list[str]) -> None:
 
 def drawn_card(shown: list[Member]) -> dict:
     return render_stack(shown) if len(shown) > 1 else render(*shown[0])
-
-
-def oversized(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
-    """Why a stack is too long for his card, which shows each PR in its own section with its pictures: more than STACK_MOST open PRs that land on his tap."""
-    tapped = on_tap(known, members)
-    if len(tapped) <= STACK_MOST:
-        return ""
-    return (
-        f"its stack holds {len(tapped)} PRs and a stack is at most {STACK_MOST}, so his card shows each in its own section"
-        f" with its pictures: split it into stacks of that size, or fold PRs that carry one decision into one; exempt and"
-        f" {state.NO_TAP_OWNER}/* PRs, which land with no tap, are not counted"
-    )
-
-
-def on_tap(known: dict[str, tuple[str, dict]], members: list[str]) -> list[str]:
-    return [key for key in members if known[key][1]["state"] == "open" and not (known[key][1].get("exempt") or state.merges_untapped(key))]
 
 
 def holding(known: dict[str, tuple[str, dict]], key: str) -> dict[str, str]:
@@ -631,7 +607,7 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
         if fresh and not reason and (off := untapped(known, reads, members)):
             skipped += [skip(key, off) for key in members]
             continue
-        reason = reason or (fresh and (waiting(known, members) or unchecked(known, members))) or oversized(known, members)
+        reason = reason or (fresh and (waiting(known, members) or unchecked(known, members)))
         if not reason:
             taken: set[str] = set()
             try:

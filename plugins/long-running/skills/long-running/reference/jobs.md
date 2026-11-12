@@ -355,6 +355,5 @@ A close job closes only what he named: each session or terminal his words or tap
 its exact id after a fresh idle check and never a live drive lane, returning the closed count with
 the ids. A close cannot be undone, so his naming is the whole authorization.
 
-A stack is at most four PRs. His card shows each PR of a stack in its own section with its pictures,
-so the card draw refuses a fifth. Split the change into stacks that each land on their own, or fold
-PRs that carry one decision into one.
+A stack draws one card whatever its size. The card names every PR, and the PR sections past the 50
+blocks one Slack message holds open under its Explain more.

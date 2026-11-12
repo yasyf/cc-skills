@@ -25,9 +25,8 @@ for its repository says, then return `DONE <proof>`.
   the coordinator puts in front of him by [Design first](design.md). An incident's repair is the
   exception: it lands on the recommended option, the card stays open, and a different pick of his
   starts a follow-up job on the same order.
-- Keep a stack to four PRs at most, because his card shows each PR of a stack in its own section with
-  its pictures; `drive pr set --serves` refuses a longer one and says how to split or fold it. Exempt and
-  `yasyf/*` PRs, which land with no tap, are not counted.
+- A stack draws one card for his Approve whatever its size: the card names every PR, and the PR
+  sections past the 50 blocks one Slack message holds open under its Explain more.
 - Title: `Fix:`, `New:`, `Cleanup:` or `Port:`, then what changes for a user, in plain words. A
   repository whose title check demands `fix:` or `feat:` keeps that prefix; the card reads either.
   `drive pr add` refuses a title the card cannot name the kind of, `drive pr set --tap` one retitled
