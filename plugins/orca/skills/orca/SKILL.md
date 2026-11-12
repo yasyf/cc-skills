@@ -453,6 +453,23 @@ or environment Orca dropped is read too. A root whose job outlives the lane, suc
 before `--done`: `--done` keeps such a Sprite, but it stops the lane that could
 push the work.
 
+`orca-reclaim.py --save <workspace> <lane>` takes what `--held` names to
+GitHub, so a fresh Sprite gets it: a stopped worker's GitHub sign-in lived only
+in its process, so nothing left on its Sprite can push. One ssh to the Sprite
+commits each worktree's uncommitted changes there, with `--no-verify` and no
+hooks, names each commit, branch or stash GitHub holds nowhere as the local
+branch `saved/<lane>/<its branch>`, and pushes `refs/heads/saved/<lane>/*` over
+https on the token `gh auth token` prints. The token travels on the ssh
+session's stdin into that one shell's environment, and git reads it through a
+credential helper that names only the variable, so it never reaches the
+Sprite's disk, its shell history or a process's arguments. It prints what it
+saved and each saved branch with its short sha, or nothing, and exits 1 naming
+why the read or the save failed; a failed push leaves each commit on its
+`saved/<lane>` branch, which `--held` still names, so the Sprite is kept.
+`drive job resume` and `drive job end` run it before they relaunch or free a
+lane. A branch whose tip is already in GitHub's default branch, such as a local
+`dev` at a squash merge, counts as on a remote for both verbs.
+
 When `orca worktree rm` answers with an error such as `runtime_unavailable`
 but the directory is gone, the reclaimer counts the worktree as removed. The
 Orca error prints on its own `error` line, and a dropped runtime connection

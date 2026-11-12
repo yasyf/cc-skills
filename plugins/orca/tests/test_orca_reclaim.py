@@ -1020,6 +1020,109 @@ class SpriteTest(unittest.TestCase):
         self.assertEqual(sprites, {("repo_live::/home/sprite/repo", "term_live"): orca_gc.Sprite("live", "live", "/s/ssh/live.ssh", "/home/sprite/repo", "env_live")})
 
 
+def git_in(cwd: Path, *args: str) -> str:
+    config = ("-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null")
+    return subprocess.run(["git", *config, *args], cwd=cwd, capture_output=True, text=True, check=True).stdout.strip()
+
+
+class SavingCcRemote(FakeCcRemote):
+    def __init__(self, sprite: orca_gc.Sprite, held: orca_gc.Checkout | str, github: Path):
+        super().__init__({(SPRITE_WT, "term_sprite"): sprite}, {sprite.workspace: held})
+        self.github = github
+        self.sent: list[tuple[str, str | None]] = []
+
+    def ssh(self, sprite: orca_gc.Sprite, script: str, given: str | None = None) -> subprocess.CompletedProcess[str]:
+        self.sent.append((script, given))
+        github = {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": f"url.{self.github}.insteadOf", "GIT_CONFIG_VALUE_0": "https://github.com/acme/repo.git"}
+        return subprocess.run(["sh", "-c", script], input=given, capture_output=True, text=True, env={**os.environ, **github})
+
+
+class SaveTest(unittest.TestCase):
+    def sprite_holding_work(self) -> tuple[orca_gc.Sprite, Path, orca_gc.Checkout, dict[str, str]]:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        base = Path(tmp.name).resolve()
+        git_in(base, "init", "--quiet", "--bare", "-b", "dev", "github.git")
+        git_in(base, "init", "--quiet", "-b", "dev", "repo")
+        root = base / "repo"
+        for key, value in (("user.name", "Sprite"), ("user.email", "sprite@example.com"), ("commit.gpgsign", "false"), ("remote.origin.url", str(base / "github.git"))):
+            git_in(root, "config", key, value)
+        git_in(root, "commit", "--quiet", "--allow-empty", "-m", "base")
+        git_in(root, "push", "--quiet", "origin", "dev")
+        git_in(root, "switch", "--quiet", "-c", "other")
+        git_in(root, "commit", "--quiet", "--allow-empty", "-m", "other")
+        git_in(root, "switch", "--quiet", "-c", "lane", "dev")
+        (root / "kept.txt").write_text("kept\n")
+        git_in(root, "add", "kept.txt")
+        git_in(root, "commit", "--quiet", "-m", "lane")
+        (root / "kept.txt").write_text("changed\n")
+        (root / "new.txt").write_text("new\n")
+        git_in(root, "worktree", "add", "--quiet", "--detach", str(base / "loose"), "dev")
+        (base / "loose" / "scratch.txt").write_text("scratch\n")
+        tips = {name: git_in(root, "rev-parse", name) for name in ("dev", "other", "lane")}
+        sprite = orca_gc.Sprite("pool-abc", "pool-abc", "/s/ssh/pool-abc.ssh", str(root), "env_abc")
+        changed = (("2", str(root)), ("1", str(base / "loose")))
+        held = checkout(str(root), dirty=True, branch="lane", head=tips["lane"], repository="acme/repo", off_origin=(("other", tips["other"]),), changed=changed)
+        return sprite, base, held, tips
+
+    def test_save_commits_each_dirty_worktree_and_pushes_all_github_lacks_to_saved_branches_on_a_token_given_on_stdin(self):
+        sprite, base, held, tips = self.sprite_holding_work()
+        root, loose, github = base / "repo", base / "loose", base / "github.git"
+        cc_remote = SavingCcRemote(sprite, held, github)
+        with mock.patch.object(orca_gc, "github_token", return_value="ghs_lent"):
+            said = orca_gc.save("pool-abc", "demo-j1", cc_remote)
+        loose_head = git_in(loose, "rev-parse", "HEAD")
+        saved = dict(line.split() for line in git_in(github, "for-each-ref", "--format=%(refname:lstrip=2) %(objectname)", "refs/heads/saved/").splitlines())
+        self.assertEqual(
+            saved,
+            {"saved/demo-j1/lane": git_in(root, "rev-parse", "lane"), "saved/demo-j1/other": tips["other"], f"saved/demo-j1/{loose_head[:10]}": loose_head},
+        )
+        self.assertEqual(git_in(github, "rev-parse", "saved/demo-j1/lane^"), tips["lane"])
+        self.assertEqual(git_in(github, "rev-parse", f"saved/demo-j1/{loose_head[:10]}^"), tips["dev"])
+        self.assertEqual(
+            [git_in(github, "show", f"{branch}:{file}") for branch, file in (("saved/demo-j1/lane", "kept.txt"), ("saved/demo-j1/lane", "new.txt"), (f"saved/demo-j1/{loose_head[:10]}", "scratch.txt"))],
+            ["changed", "new", "scratch"],
+        )
+        self.assertEqual((git_in(root, "status", "--porcelain"), git_in(loose, "status", "--porcelain")), ("", ""))
+        branches = ", ".join(f"{name} at {sha[:10]}" for name, sha in sorted(saved.items()))
+        self.assertEqual(said, f"uncommitted changes in {root} (2 files), {loose} (1 file); commits on no remote on other, lane, now on acme/repo as {branches}")
+        [(script, given)] = cc_remote.sent
+        self.assertEqual(given, "ghs_lent\n")
+        self.assertNotIn("ghs_lent", script)
+        self.assertIn("push --quiet https://github.com/acme/repo.git 'refs/heads/saved/demo-j1/*:refs/heads/saved/demo-j1/*'", script)
+
+    def test_a_failed_push_leaves_each_commit_on_a_local_saved_branch_so_the_sprite_still_reads_as_holding_it(self):
+        sprite, base, held, tips = self.sprite_holding_work()
+        root = base / "repo"
+        with mock.patch.object(orca_gc, "github_token", return_value="ghs_lent"), self.assertRaisesRegex(orca_gc.Unsaved, r"^the save on pool-abc failed: fatal: .*does not appear to be a git repository"):
+            orca_gc.save("pool-abc", "demo-j1", SavingCcRemote(sprite, held, base / "gone.git"))
+        kept = dict(line.split() for line in git_in(root, "for-each-ref", "--format=%(refname:lstrip=2) %(objectname)", "refs/heads/saved/").splitlines())
+        self.assertEqual((len(kept), kept["saved/demo-j1/other"], kept["saved/demo-j1/lane"]), (3, tips["other"], git_in(root, "rev-parse", "lane")))
+        self.assertEqual(git_in(base / "github.git", "for-each-ref", "refs/heads/saved/"), "")
+
+    def test_save_of_a_sprite_holding_nothing_or_unknown_runs_nothing_on_it(self):
+        cc_remote = SavingCcRemote(SPRITE, checkout(SPRITE.root), Path("/nonexistent"))
+        self.assertIsNone(orca_gc.save("pool-abc", "demo-j1", cc_remote))
+        self.assertIsNone(orca_gc.save("pool-other", "demo-j1", cc_remote))
+        self.assertEqual(cc_remote.sent, [])
+
+    def test_save_of_a_sprite_that_cannot_be_read_names_why(self):
+        cc_remote = SavingCcRemote(SPRITE, "ssh to pool-abc could not read /home/sprite/repo: i/o timeout", Path("/nonexistent"))
+        with self.assertRaisesRegex(orca_gc.Unsaved, "^ssh to pool-abc could not read /home/sprite/repo: i/o timeout$"):
+            orca_gc.save("pool-abc", "demo-j1", cc_remote)
+        self.assertEqual(cc_remote.sent, [])
+
+    def test_a_local_branch_at_a_commit_githubs_default_branch_already_holds_is_not_work_on_no_remote(self):
+        squash_merge = "8" * 40
+        stale_dev = checkout(SPRITE.root, off_origin=(("dev", squash_merge),))
+        self.assertIsNone(orca_gc.unsaved(stale_dev, orca_gc.Remote(REMOTE.heads, REMOTE.landed, frozenset({squash_merge}))))
+        self.assertEqual(orca_gc.unsaved(stale_dev, REMOTE), "commits on no remote on dev")
+        cc_remote = SavingCcRemote(SPRITE, stale_dev, Path("/nonexistent"))
+        cc_remote.remote = lambda slug: orca_gc.Remote(REMOTE.heads, REMOTE.landed, frozenset({squash_merge}))
+        self.assertIsNone(orca_gc.save("pool-abc", "demo-j1", cc_remote))
+        self.assertEqual(cc_remote.sent, [])
+
+
 class GitCheckoutTest(unittest.TestCase):
     def test_a_missing_directory_is_already_removed(self):
         with tempfile.TemporaryDirectory() as root:
@@ -1331,6 +1434,11 @@ class OrcaArgvTest(unittest.TestCase):
         self.replying({"repos/acme/repo/commits/a/branches-where-head": (0, '[{"name": "lane"}]', ""), "repos/acme/repo/commits/b/branches-where-head": (0, "[]", ""), "repos/acme/repo/commits/c/branches-where-head": (1, "{}", "gh: No commit found for SHA: c (HTTP 422)")})
         tips = orca_gc.GitHubTips("acme/repo")
         self.assertEqual(("a" in tips, "b" in tips, "c" in tips), (True, False, False))
+
+    def test_github_trunk_holds_a_commit_its_default_branch_contains(self):
+        self.replying({"repos/acme/repo": (0, '{"default_branch": "dev"}', ""), "repos/acme/repo/compare/dev...82ce567a65?per_page=1": (0, '{"status": "behind"}', ""), "repos/acme/repo/compare/dev...b?per_page=1": (0, '{"status": "diverged"}', "")})
+        trunk = orca_gc.GitHubTrunk("acme/repo")
+        self.assertEqual(("82ce567a65" in trunk, "b" in trunk), (True, False))
 
     def test_github_landed_needs_this_head_merged_into_trunk(self):
         pull = {"merged_at": "2026-11-03T00:00:00Z", "head": {"sha": "a"}, "base": {"ref": "dev"}}

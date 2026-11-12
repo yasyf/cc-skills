@@ -40,7 +40,8 @@ PATH_END = re.compile(r"[^\w/]+$")
 DRIVE = PLUGIN / "bin" / "drive"
 CALL_SECONDS = 60
 ON_MAC = "on this Mac"
-UNPUSHED = "work it had not committed and pushed is not carried over. Commit and push before any long build."
+PUSH_FIRST = "Commit and push before any long build."
+UNPUSHED = f"work it had not committed and pushed is not carried over. {PUSH_FIRST}"
 RELOAD = "/reload-plugins"
 SUBMIT_SECONDS = 10
 TIMEOUT = "timeout"
@@ -301,7 +302,8 @@ def handoff(brief: str, ended: dict, job: dict, text: str, end: LaneEnd) -> str:
         how, where = "finished", f"You continue the job in its terminal and checkout {ON_MAC if local else 'on the same Sprite'}, as it left them."
     else:
         how, where = "died", (
-            f"You take the job over {'in a fresh worktree ' + ON_MAC if local else 'on a fresh Sprite'} from its pushed branches; {UNPUSHED}"
+            f"You take the job over {'in a fresh worktree ' + ON_MAC if local else 'on a fresh Sprite'} from its pushed branches; "
+            + (f"what it held on no remote was saved for you: {ended['saved']}. Fetch each saved branch and carry its work on. {PUSH_FIRST}" if ended.get("saved") else UNPUSHED)
         )
     held = f"The lane that held this job {how} {place(job)} at {render.when(ended['at'])}: {ended['why']}. {where}"
     return taking_over(brief, f"a lane that {how}", held, end.branch, job, f"The coordinator's message it never read, which you act on now:\n\n{text.strip()}\n")
@@ -385,9 +387,9 @@ def reclaim(run: str, dispatch: str, checkout: Path) -> str:
     return reclaimer(checkout, "--run", run, "--done", dispatch)
 
 
-def held(job: dict, checkout: Path) -> str | None:
-    """What the job's Sprite holds that a fresh Sprite would not get, naming each worktree with uncommitted changes and each branch or stash with commits on no remote, by the reclaimer's own read of the checkout it keeps a Sprite for, found by the job's workspace so a Sprite Orca forgot is read too; why that read failed, such as a Sprite that never woke; None when it holds nothing, or the lane runs on this Mac."""
-    return None if state.on_mac(job) else reclaimer(checkout, "--held", job["workspace"]) or None
+def save(drive: str, job_id: str, job: dict, checkout: Path) -> str | None:
+    """Take what the job's Sprite holds that a fresh Sprite would not get to GitHub, by the reclaimer's own read of the checkout it keeps a Sprite for, found by the job's workspace so a Sprite Orca forgot is saved too: it commits each worktree's uncommitted changes on the Sprite and pushes each commit GitHub holds nowhere as saved/<the dead lane's name>/<its branch>, on a GitHub token lent to that one push. What it saved and the branches it is on now; None when the Sprite holds nothing, or the lane runs on this Mac; OrcaError naming why the Sprite could not be read or the save failed, such as a Sprite that never woke."""
+    return None if state.on_mac(job) else reclaimer(checkout, "--save", job["workspace"], job.get("lane") or lane_name(drive, job_id)) or None
 
 
 def reclaimer(checkout: Path, *args: str) -> str:
