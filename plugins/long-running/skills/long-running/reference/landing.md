@@ -186,7 +186,7 @@ No tap and no green gate: by his standing rule a `yasyf/*` PR merges without ask
      moved tags does, or running a binary whose release tag lacks it, naming that scope and its folder, the installed version,
      that commit or release, and the merge sha. It also refuses when the bare binary still runs a
      release without the merge at the timeout, naming that release. Each drive's dashboard hands itself to a newer
-     long-running the moment the drive next changes after its install, by `drive install` or Claude Code's own update: that install's
+     long-running the moment its install replaces `installed_plugins.json` in the Claude config directory's `plugins/` folder, by `drive install` or Claude Code's own update: that install's
      drive takes the server's process on the same listening sockets, so its page answers throughout, and its watch reopens on it before
      its next pass. A live session runs the installed version's
      script for each hook it registered at start, but loads a hook added since, and its skills, agents,

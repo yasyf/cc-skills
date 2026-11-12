@@ -439,12 +439,17 @@ def meet_sibling(key: str, floor: str, deadline: float, timeout: int, drive: str
         sleep(POLL_SECONDS)
 
 
+def newest_drive() -> Path:
+    """The drive of the newest long-running installed, which each drive process running an older one hands its place to."""
+    plugins = json.loads((config_dir() / "plugins" / "installed_plugins.json").read_text())["plugins"]
+    return Path(newest([entry for key, entries in plugins.items() if key.partition("@")[0] == "long-running" for entry in entries])["installPath"]) / "bin" / "drive"
+
+
 def upgraded() -> Path | None:
     """The drive of the newest installed long-running, when this code runs from the plugin cache and a newer one is installed."""
     if not DRIVE.is_relative_to((config_dir() / "plugins" / "cache").resolve()):
         return None
-    plugins = json.loads((config_dir() / "plugins" / "installed_plugins.json").read_text())["plugins"]
-    drive = Path(newest([entry for key, entries in plugins.items() if key.partition("@")[0] == "long-running" for entry in entries])["installPath"]) / "bin" / "drive"
+    drive = newest_drive()
     return None if drive.resolve() == DRIVE else drive
 
 
@@ -556,7 +561,9 @@ def live_builds(merges: dict[str, str], deadline: float, timeout: int, drive: st
 
 
 def prove(name: str, job_id: str, timeout: int) -> str:
-    """Prove live a builder's READY or PUSHED whose PRs all merged, the step the watch starts: install each plugin a merge changes whose newest install lacks it, then run the job's proof file with those plugins' bin folders first on PATH, keep its output beside the job's report, take DONE on exit 0 and BLOCKED otherwise, an install that fails or a merge no release will carry taking BLOCKED naming it, and keep the close report on its order for the watch to post when DONE leaves the order nothing to do, but an open incident's, which the watch closes once DONE records its fix live, each said on its PRs' lines; refused for a job waiting on no such READY or PUSHED, or one proof_gap names; nothing after another proof took the job's result first. It holds its install's lock through none of it, as drive install holds none through its waits, so a drive a newer install saved meanwhile ends it with no result, for that install's watch to prove again."""
+    """Prove live a builder's READY or PUSHED whose PRs all merged, the step the watch starts: install each plugin a merge changes whose newest install lacks it, wait until the drive's dashboard runs the newest long-running installed, then run the job's proof file with those plugins' bin folders first on PATH, keep its output beside the job's report, take DONE on exit 0 and BLOCKED otherwise, an install that fails, a merge no release will carry or a dashboard still on an older install at the deadline taking BLOCKED naming it, and keep the close report on its order for the watch to post when DONE leaves the order nothing to do, but an open incident's, which the watch closes once DONE records its fix live, each said on its PRs' lines; refused for a job waiting on no such READY or PUSHED, or one proof_gap names; nothing after another proof took the job's result first. It holds its install's lock through none of it, as drive install holds none through its waits, so a drive a newer install saved meanwhile ends it with no result, for that install's watch to prove again."""
+    from drive import brief, cli, dashboard
+
     deadline = clock() + timeout
     state.let_go_install()
     data = state.load(name)
@@ -577,8 +584,11 @@ def prove(name: str, job_id: str, timeout: int) -> str:
         versions = ", ".join(f"{plugin} {build['version']}" for plugin, build in builds.items()) or "no plugin of this Mac"
         path = os.pathsep.join([*(str(Path(build["installPath"]) / "bin") for build in builds.values()), os.environ.get("PATH", "")])
         try:
+            dashboard.await_newest(name, deadline)
             done = subprocess.run([job["repro"]], check=False, capture_output=True, text=True, timeout=max(deadline - clock(), 0.001), env=os.environ | {"PATH": path})
             code, output = done.returncode, done.stdout + done.stderr
+        except state.DriveError as error:
+            code, output = "unrun", str(error)
         except subprocess.TimeoutExpired as expired:
             code, output = "past drive job prove's deadline", f"{expired.stdout or ''}{expired.stderr or ''}"
         except OSError as error:
@@ -587,8 +597,6 @@ def prove(name: str, job_id: str, timeout: int) -> str:
         line = f"DONE {urls} live: {job['repro']} exits 0 on {versions}" if code == 0 else f"BLOCKED {urls}: {job['repro']} exits {code} on {versions}: {tail[:SAID_CHARS]}"
     state.let_go_install()
     proven = f"{PROVEN} on {versions}: {job['repro']} exits 0, its output {kept}"
-    from drive import brief, cli
-
     with state.edit(name) as data:
         job, order = data["jobs"][job_id], data["orders"][data["jobs"][job_id]["order"]]
         if job["state"] != "waiting" or not state.REPORTED_LINE.match(job["said"] or ""):
