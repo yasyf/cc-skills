@@ -149,13 +149,17 @@ copy of the drive's cci or cc-notes records, so a lane reads through this Mac wi
 question.
 
 - Its first line opens with the read, after the lane's job id when it writes one: `LOG <url>` for a
-  red Buildkite or GitHub Actions check, or `READ <command>` for a `cci` or `ccn` read the builder
-  agent lists. `READ: LOG <url>` reads as `LOG <url>`. A `LOG` question reads every `LOG <url>` it
-  names, each in an even share of the 12,000 characters, and a `READ` question runs its first line
-  alone.
+  red Buildkite or GitHub Actions check, `READ <command>` for a `cci` or `ccn` read the builder
+  agent lists, or `BREAK-GLASS --stack <domain>/<env> --reason "<why>" -- <command>` for a command
+  that needs the admin role of that env's account. `READ: LOG <url>` reads as `LOG <url>`. A `LOG`
+  question reads every `LOG <url>` it names, each in an even share of the 12,000 characters, and a
+  `READ` or `BREAK-GLASS` question runs its first line alone.
 - The watch answers it itself, with no event: it runs `tools/ci bk`, `ccx vcs job-log`, `cci` or
   `ccn` in the directory the coordinator started the drive from and replies with the output, cut to
-  12,000 characters. A `LOG` answer leads each failed job's share with its failure lines, such as a
+  12,000 characters. A `BREAK-GLASS` read runs as `drive break-glass` does, its grant's reason
+  naming the drive and job: the `forge/break-glass` grant, then the command under this Mac's
+  machine profile for the env, with no sign-in. Its command writes in production only on his word
+  or an incident order at 0 deletes and 0 replaces. A `LOG` answer leads each failed job's share with its failure lines, such as a
   Go `--- FAIL:` line or a Rust `panicked at`, then each failure's own output, a Go test's lines
   from its `=== RUN` and anything else's failure line with the two lines after it, then fills the
   rest with the output's last characters. A test's failure often sits far before the end of its

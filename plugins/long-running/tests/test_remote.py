@@ -507,14 +507,14 @@ def test_resume_answers_an_open_question_naming_logs_with_those_logs_ahead_of_it
 ) -> None:
     calls, asked = [], []
     monkeypatch.setattr(orca, "call", lambda *args: calls.append(args) or {})
-    monkeypatch.setattr(reads, "answer", lambda question, root: asked.append((question, root)) or "FAIL hold_test.go:41")
+    monkeypatch.setattr(reads, "answer", lambda question, root, asker: asked.append((question, root, asker)) or "FAIL hold_test.go:41")
     report = "j1 READ, two reads: (1) LOG https://buildkite.com/forge/test/builds/1 (2) the field facts"
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(ask="msg_q1", state="waiting", report=report)
     code, out = run("job", "resume", "j1", "The field facts: none")
     assert code == 0
     assert "with LOG https://buildkite.com/forge/test/builds/1 read ahead of your text" in out
-    assert asked == [("LOG https://buildkite.com/forge/test/builds/1", tmp_path)]
+    assert asked == [("LOG https://buildkite.com/forge/test/builds/1", tmp_path, f"{remote} j1")]
     assert ("reply", "--id", "msg_q1", "--run", RUN, "--body", "FAIL hold_test.go:41\n\nThe field facts: none") in calls
 
 
@@ -1181,11 +1181,11 @@ def test_the_watch_answers_a_read_question_itself_and_keeps_the_job_as_it_was(
     url = "https://buildkite.com/forge/test/builds/121531"
     deliver(monkeypatch, [message("question", said.format(url=url), id="msg_log")])
     asked, replies = [], []
-    monkeypatch.setattr(reads, "answer", lambda question, root: asked.append((question, root)) or "ERROR: journal write")
+    monkeypatch.setattr(reads, "answer", lambda question, root, asker: asked.append((question, root, asker)) or "ERROR: journal write")
     monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
     assert watch.run_pass(watching, T0) == []
-    assert asked == [(f"LOG {url}", tmp_path)]
+    assert asked == [(f"LOG {url}", tmp_path, f"{remote} j1")]
     assert replies == [
         ("run-use", "--id", RUN),
         ("reply", "--id", "msg_log", "--run", RUN, "--body", "ERROR: journal write"),
@@ -1199,7 +1199,7 @@ def test_a_question_naming_logs_past_its_first_line_goes_to_the_coordinator_sayi
     remote: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     deliver(monkeypatch, [message("question", "j1 PUSHED #7\nLOG https://buildkite.com/forge/test/builds/1", id="msg_q")])
-    monkeypatch.setattr(reads, "answer", lambda question, root: pytest.fail(f"the watch read {question}"))
+    monkeypatch.setattr(reads, "answer", lambda question, root, asker: pytest.fail(f"the watch read {question}"))
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
     assert watch.run_pass(watching, T0) == [
         "JOB j1 o1 j1 PUSHED #7; drive job resume reads LOG https://buildkite.com/forge/test/builds/1 ahead of your answer"
@@ -1211,7 +1211,7 @@ def test_a_read_that_cannot_be_answered_tells_its_lane_why_and_says_so(remote: s
     question = "LOG https://buildkite.com/forge/test/builds/1"
     deliver(monkeypatch, [message("question", question, id="msg_log")])
 
-    def refuse(question: str, root: Path) -> str:
+    def refuse(question: str, root: Path, asker: str) -> str:
         raise reads.ReadError("tools/ci bk api exited 1: 404 Not Found")
 
     monkeypatch.setattr(reads, "answer", refuse)
@@ -1228,7 +1228,7 @@ def test_a_read_answer_orca_refuses_is_retried_until_it_goes_through_and_said_fr
     remote: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     deliver(monkeypatch, [message("question", "LOG https://buildkite.com/forge/test/builds/1", id="msg_log")])
-    monkeypatch.setattr(reads, "answer", lambda question, root: "log")
+    monkeypatch.setattr(reads, "answer", lambda question, root, asker: "log")
     replies, refusals = [], iter(range(3))
 
     def fenced_three_times(*args: str) -> dict:
@@ -1253,7 +1253,7 @@ def test_a_read_answer_orca_refuses_is_retried_until_it_goes_through_and_said_fr
 
 def test_a_read_someone_already_answered_is_dropped_with_no_line(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
     deliver(monkeypatch, [message("question", "READ ccn answer search x", id="relay_6779eb1e29a6")])
-    monkeypatch.setattr(reads, "answer", lambda question, root: "x")
+    monkeypatch.setattr(reads, "answer", lambda question, root, asker: "x")
     replies = []
     monkeypatch.setattr(orca, "call", answered_elsewhere(replies))
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
@@ -1267,7 +1267,7 @@ def test_a_read_someone_already_answered_is_dropped_with_no_line(remote: str, mo
 
 def test_a_read_whose_dispatch_closed_is_dropped_and_said_once(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
     deliver(monkeypatch, [message("question", "LOG https://buildkite.com/forge/test/builds/124676", id="relay_4d6bfb09372e")])
-    monkeypatch.setattr(reads, "answer", lambda question, root: "log")
+    monkeypatch.setattr(reads, "answer", lambda question, root, asker: "log")
     replies = []
     closed = f"Dispatch {DISPATCH} finished on pool-one, which cannot take follow-ups for finished workers yet."
     monkeypatch.setattr(orca, "call", reply_refused(replies, "dispatch_inactive", closed))
@@ -1288,14 +1288,14 @@ def test_a_read_the_watch_stopped_before_answering_is_answered_by_the_next_watch
 ) -> None:
     deliver(monkeypatch, [message("question", 'READ ccn answer search "dom extraction"', id="relay_read")])
 
-    def stopped(question: str, root: Path) -> str:
+    def stopped(question: str, root: Path, asker: str) -> str:
         raise KeyboardInterrupt
 
     monkeypatch.setattr(reads, "answer", stopped)
     with pytest.raises(KeyboardInterrupt):
         watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0), T0)
     replies = []
-    monkeypatch.setattr(reads, "answer", lambda question, root: f"{question}: empty, the read printed nothing")
+    monkeypatch.setattr(reads, "answer", lambda question, root, asker: f"{question}: empty, the read printed nothing")
     monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
     assert watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0), T0 + timedelta(minutes=5)) == []
     assert replies == [
@@ -1313,7 +1313,7 @@ def test_an_open_question_kept_before_the_watch_read_it_as_a_read_is_answered_an
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(ask="relay_kept", state="waiting", said=said, report=f"{said}\n#53313's two reds are fixed at 29d4d04e")
     asked, replies = [], []
-    monkeypatch.setattr(reads, "answer", lambda question, root: asked.append(question) or "FAIL hold_test.go:41")
+    monkeypatch.setattr(reads, "answer", lambda question, root, asker: asked.append(question) or "FAIL hold_test.go:41")
     monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
     assert watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0), T0) == []
     assert asked == ["LOG https://buildkite.com/forge/test/builds/123761 https://buildkite.com/forge/test/builds/123764"]
@@ -1480,7 +1480,7 @@ def test_every_worker_on_a_jobs_own_run_is_heard_the_one_it_replaced_and_one_it_
             message("worker_done", f"READY {pr}\nThis rewrote Show me", id="msg_newest", from_handle="dispatch:ctx_lane0003"),
         ],
     )
-    monkeypatch.setattr(reads, "answer", lambda question, root: "x")
+    monkeypatch.setattr(reads, "answer", lambda question, root, asker: "x")
     calls = []
     monkeypatch.setattr(orca, "call", lambda *args: calls.append(args) or {})
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
@@ -1501,7 +1501,7 @@ def test_a_watch_whose_mail_mark_another_install_lost_takes_none_of_the_mail_its
     ]
     done = message("worker_done", "DONE merged and installed", id="msg_done")
     deliver(monkeypatch, kept, [*kept, done])
-    monkeypatch.setattr(reads, "answer", lambda question, root: "x")
+    monkeypatch.setattr(reads, "answer", lambda question, root, asker: "x")
     replies = []
     monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)

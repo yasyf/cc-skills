@@ -120,10 +120,12 @@ def test_a_handler_or_reader_ending_on_a_refused_read_is_sent_down_the_staff_rou
     blocked = "BLOCKED access denied reading the bucket"
     reason = one_line_result.block_reason(agent_stop(blocked, tmp_path, called("Bash", command="gsutil ls gs://acme-backups"), **HANDLER))
     assert reason.startswith("Refused on purpose: your line ends on a refused read")
-    assert "the `db-read` skill, or the `break-glass` skill with his words as its reason" in reason
+    assert "the `db-read` skill, or `drive break-glass`, which runs it under this Mac's machine profile with no sign-in" in reason
     assert "`UNPROVEN:`" in reason
     handled = f"POSTED {POST}; UNPROVEN: access denied reading the bucket"
     assert one_line_result.block_reason(agent_stop(handled, tmp_path, called("Skill", skill="break-glass", args="his words"), **HANDLER)) is None
+    granted = called("Bash", command='drive break-glass o1 --stack storage/plat-usw2-prod --reason "list the backups" -- aws s3 ls s3://acme-backups')
+    assert one_line_result.block_reason(agent_stop(handled, tmp_path, granted, **HANDLER)) is None
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "what is in the bucket")
     run("job", "add", "reader", "--order", "o1", "--goal", "read the bucket")
     run("job", "set", "j1", "--agent", "a-7")

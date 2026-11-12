@@ -267,6 +267,15 @@ Findings:
 Root cause: none: this names a new feature's API; no defect is being diagnosed.
 His order settles that a watch reruns code on a period and a change reaches the central inbox.
 """
+MACHINE_PROFILE_READ = "Break-glass read: this Mac's machine profile requests the grant and runs one read-only query per SandSQL server (recommended)"
+EXPIRED_SIGN_IN = (
+    "ASK The hand repair needs break-glass, and this Mac's AWS sign-in expired. Renew it, or skip the hand repair?\n"
+    'AWS answers "Token has expired and refresh failed", and the renewal, `aws sso login --profile core-root` in a terminal'
+    " on this Mac, needs your MFA.\n"
+    "- I signed in: the repair job takes the grant, proves the change on a copy and repairs the one Env (recommended)\n"
+    "- Skip the hand repair: the Env waits for the code fix and its release\n"
+    "Findings:\nRoot cause: none: a design pick\nKept on disk.\n"
+)
 
 
 def said(count: int) -> str:
@@ -1101,6 +1110,54 @@ def test_an_option_asking_someone_to_retry_or_confirm_is_refused_naming_the_fix_
     with pytest.raises(DriveError, match='option "ask Rowan to retry the restore" asks someone to retry or confirm "ask Rowan to retry", which fixes nothing: offer the fix itself'):
         limits.question(options_ask("restore from the replica (recommended)", "ask Rowan to retry the restore"))
     assert limits.question(options_ask("restore from the replica (recommended)", "restore from last night's backup")).options
+
+
+@pytest.mark.parametrize(
+    ("block", "found"),
+    [
+        (
+            options_ask("Sign in: you run the AWS single sign-on login once; a break-glass read of the chat follows (recommended)", "Close on the fix"),
+            'option "Sign in: you run the AWS single sign-on login once; a break-glass read of the chat follows" asks him to sign in with "Sign in"',
+        ),
+        (
+            options_ask("You renew the identity-break-glass sign-in with Okta MFA; a job runs the registry GET for env dev (recommended)", "Close on the fix"),
+            'asks him to sign in with "You renew the identity-break-glass sign-in"',
+        ),
+        (EXPIRED_SIGN_IN, 'the question asks him to sign in with "Renew"'),
+        (EXPIRED_SIGN_IN, 'the summary asks him to sign in with "your MFA"'),
+        (EXPIRED_SIGN_IN, 'asks him to sign in with "I signed in"'),
+        (
+            options_ask("Break-glass read: you open BreakGlassAccess with Okta MFA and run one read-only query per SandSQL server (recommended)", "Close on the fix"),
+            'asks him to sign in with "you open BreakGlassAccess"',
+        ),
+        (options_ask("Break-glass read: you approve the Okta push for the grant, then a lane runs one query (recommended)", "Close on the fix"), 'with "you approve the Okta"'),
+        (options_ask("Break-glass read: you run aws sso login, then one read-only query per server (recommended)", "Close on the fix"), 'with "you run aws sso login"'),
+        (options_ask("Break-glass read: you renew this Mac's AWS sign-in in the browser, then a lane reads (recommended)", "Close on the fix"), 'with "you renew this Mac\'s AWS sign-in"'),
+    ],
+)
+def test_a_card_asking_him_to_sign_in_for_break_glass_is_refused_naming_the_machine_profile_route(block: str, found: str) -> None:
+    with pytest.raises(DriveError) as refused:
+        limits.question(block)
+    assert found in str(refused.value)
+    assert (
+        "break-glass runs on this Mac's machine profile with no sign-in, `drive break-glass <job> --stack <domain>/<env> --reason"
+        f' "<why>" -- <command>` here or a `BREAK-GLASS` read from a Sprite, so offer that run itself ({limits.MACHINE_PROFILE_RULING})'
+    ) in str(refused.value)
+
+
+@pytest.mark.parametrize(
+    "block",
+    [
+        options_ask(MACHINE_PROFILE_READ, "Close on the fix"),
+        options_ask("Break-glass read: no Okta MFA or SSO sign-in, drive break-glass runs it under the machine profile (recommended)", "Close on the fix"),
+        options_ask(MACHINE_PROFILE_READ, "Close on the fix").replace(
+            "The pick below decides it,", 'His words "you dont fucking need okta MFA how many times have I told u to use machine profile" settle the grant;'
+        ),
+        options_ask("Users sign in with Okta on the dashboard as today (recommended)", "Close on the fix"),
+    ],
+)
+def test_a_card_running_break_glass_on_the_machine_profile_quoting_his_words_or_naming_a_product_sign_in_passes(block: str) -> None:
+    assert limits.question(block).options
 
 
 def test_an_option_ruling_out_a_retry_or_a_sweeper_is_no_option_proposing_one() -> None:

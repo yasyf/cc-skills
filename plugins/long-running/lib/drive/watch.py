@@ -741,14 +741,14 @@ def track_lane_prs(data: dict, job_id: str, body: str) -> None:
 
 
 def read_lines(watcher: Watcher, data: dict, moment: datetime) -> list[str]:
-    """Answer each `LOG` or `READ` question a live lane queued, here, since a Sprite holds no CI credentials or drive records; one the read cannot answer gets why as its answer and a `JOB` line saying so. A question leaves its job's queue only once its answer goes through; with no line since nothing is owed on it, once Orca says it already holds another answer, since a lane whose wait ends waits again on the same question; or with one `JOB` line once Orca says the question's dispatch closed, since no lane waits on it then: any other refused reply or a watch stopped mid-answer only delays it."""
+    """Answer each `LOG`, `READ` or `BREAK-GLASS` question a live lane queued, here, since a Sprite holds no CI or AWS credentials or drive records; one the read cannot answer gets why as its answer and a `JOB` line saying so. A question leaves its job's queue only once its answer goes through; with no line since nothing is owed on it, once Orca says it already holds another answer, since a lane whose wait ends waits again on the same question; or with one `JOB` line once Orca says the question's dispatch closed, since no lane waits on it then: any other refused reply or a watch stopped mid-answer only delays it."""
     checkout = Path(data["roles"]["coordinator"]["cwd"])
     lines = []
     for job_id, job in live_lanes(watcher, data).items():
         for message_id, question in job.get("reads", {}).items():
             source = f"the answer to {job_id}'s"
             try:
-                said, why = reads.answer(question, checkout), None
+                said, why = reads.answer(question, checkout, f"{watcher.name} {job_id}"), None
             except reads.ReadError as error:
                 said = why = f"{question}: {error}"
             try:
