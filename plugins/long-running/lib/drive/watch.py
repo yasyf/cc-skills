@@ -1980,6 +1980,7 @@ def main(drive_name: str | None = None, project: str | None = None) -> int:
         return 0
     try:
         while holder(state.monitor_pid_path(name)):
+            state.let_go_install()
             time.sleep(POLL_SECONDS)
         held = {} if project else {"root": state.take_held_lines(name)}
         watching(Watcher(name, offset=state.watch_cursor(name, project), ticked_at=state.now(), project=project, unsent=held))
