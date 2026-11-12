@@ -548,6 +548,7 @@ class Jev:
     answer: dict | None = field(default_factory=lambda: {"type": "label", "choice": "none", "probabilities": {"none": 0.9}, "confidence": 0.9})
     reads: dict[str, dict[str, float]] = field(default_factory=dict)
     unsaid: set[str] = field(default_factory=set)
+    owed: dict[str, float] = field(default_factory=dict)
     changes: dict[str, float] = field(default_factory=dict)
     plain: set[str] = field(default_factory=set)
     illustrated: list[str] = field(default_factory=list)
@@ -561,7 +562,8 @@ class Jev:
         self.reads[answer_id] = {"none": round(1 - probability, 2), how: probability}
 
     def carries(self, question: dict) -> dict:
-        p_yes = 0.05 if any(f'"{part}"' in question["instructions"] for part in self.unsaid) else 0.95
+        part = question["instructions"].split('"')[1]
+        p_yes = self.owed.get(part, 0.95 if part in self.unsaid else 0.05)
         return {"type": "binary", "p_yes": p_yes, "confidence": round(abs(2 * p_yes - 1), 2)}
 
 

@@ -434,7 +434,7 @@ def refuse(data: dict, name: str, group: str, op: dict, after_add: bool) -> None
 
 
 def ordered(data: dict, name: str, given: dict) -> str:
-    """The id of the order an order add makes or returns, refused as added_order refuses before it writes: a flag it refuses, his order filed under no project or workstream, one with no short title, and a "Drive tooling:" order's words check-post finds anything in, which an open order already holding them returns unchecked. The order it makes stands in the drive the check reads, so a later op may name it."""
+    """The id of the order an order add makes or returns, refused as added_order refuses before it writes: a flag it refuses, his order filed under no project or workstream, one with no short title, --answers naming no part of it, and a "Drive tooling:" order's words check-post finds anything in, which an open order already holding them returns unchecked. The order it makes stands in the drive the check reads, so a later op may name it."""
     args = parsed_args(name, ("order", "add"), given)
     tooling = args.words.startswith(state.TOOLING)
     if held := cli.held_order(data, args.words, args.owner):
@@ -447,12 +447,14 @@ def ordered(data: dict, name: str, given: dict) -> str:
     data["orders"][order_id] = {
         "text": args.words,
         "state": "open",
+        "kind": "build" if args.incident or args.joins else args.kind,
         "owner": "meta" if tooling else args.owner,
-        "parts": dict.fromkeys(args.parts or [state.whole_order(args.words)]),
+        "parts": {part: state.new_part() for part in args.parts or [state.whole_order(args.words)]},
         "project": project,
         "workstream": workstream,
         "title": title,
     }
+    cli.mark_answers(order_id, data["orders"][order_id], args.answers)
     return order_id
 
 

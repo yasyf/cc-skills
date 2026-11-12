@@ -356,7 +356,7 @@ def load(name: str) -> dict:
     for order in data["orders"].values():
         if "parts" not in order:
             whole = whole_order(order["text"])
-            order["parts"] = {whole: new_part()}
+            order["parts"] = {whole: new_part("answer" if order.get("kind") == "answer" else "build")}
             for job_id in order["jobs"]:
                 data["jobs"][job_id].setdefault("parts", [whole])
         if "promised" not in order:
@@ -385,6 +385,7 @@ def load(name: str) -> dict:
             order["thread"] = saved_thread(data, order)
         order["parts"] = {part.strip(): held for part, held in order["parts"].items()}
         for part in order["parts"].values():
+            part.setdefault("kind", "answer" if order["kind"] == "answer" else "build")
             part.setdefault("design", None)
             part["after"] = [each.strip() for each in ([part["after"]] if isinstance(part.get("after"), str) else part.get("after") or [])]
     mail = data.pop("lane_mail", {})
@@ -832,8 +833,9 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
     }
 
 
-def new_part() -> dict:
-    return {"posted": None, "orphan_said": None, "design": None, "after": []}
+def new_part(kind: str = "build") -> dict:
+    """A part of an order, of its kind: answer, words he reads, such as his question's answer, a retro or a status, or build, work he ordered done."""
+    return {"kind": kind, "posted": None, "orphan_said": None, "design": None, "after": []}
 
 
 def reporter(link: str) -> dict:
