@@ -47,6 +47,50 @@ UNREAD = (
     " thread_ts={thread}, limit=1000), then post. When the tool saves a long thread to a file, the call is not a read"
     " until you open that file and read its newest messages."
 )
+DRIVE_ID = re.compile(r"^\d+:\d+ drive-term '[oj]\d+'")
+CAUSE_RULE = (
+    "State a cause, a number or a state only through the record that measured it, as {record:<seq>} on the same line: on"
+    ' Nov 10 a line at 8:46 PM blamed "the change that started the failures" without naming it, and a card he tapped at'
+    ' 9:49 PM carried a false "disk full".'
+)
+PLAIN_WORDS_RULE = (
+    "Write every post for the person reading the thread, in plain words: no internal shorthand such as tracking ids, agent"
+    " lane names, raw commit shas or object ULIDs, and code, files, products and alerts by their proper names. A multi-agent"
+    " term such as lane, desk, walker, parity or fence is shorthand, but never inside a function, file, path, product or"
+    " alert name or in a code span, and one the reader used in the message the post answers passes in the answer."
+)
+LENGTH_RULE = (
+    "A line in his thread is at most 60 words and a summary of two or more features at most 120, the coordinator's reading"
+    ' of his words "your messages need to be way shorter rewrite this for a human"; an answer to a question or order of his'
+    " in that thread, his words passed as asked, goes out whole at any length."
+)
+ACK_RULE = "The communicator's ack is one sentence: what he asked, in his words, and what happens next; its handler answers the rest."
+LINK_RULE = (
+    "Link everything he could open where it is named, a PR, a teammate's fix, a card, a release, a build, an alert, a thread"
+    " or an earlier decision, so he never has to look it up himself."
+)
+OWED_TAP_RULE = "Ask for a tap only when one is owed: when he tapped a PR already, or it merged or closed, say what happened to it instead."
+CARD_RULE = 'Anything that says it waits on him carries the card with its buttons, by his words "Anything that says waiting on me you always need to embed the card with the buttons".'
+PROMISE_RULE = (
+    'A promise such as "from now on…" or "next you get…" goes out only with the order, due time or job that carries it out'
+    " named in the same message, because a promise with nothing behind it is one he cannot believe."
+)
+SWITCH_RULE = "A switch command he is given is the role's line `drive status` prints, word for word, naming a terminal a session of the drive runs in."
+PREVENTED_RULE = (
+    "A failure of the drive's that reaches him, such as a card refused, a check nobody ran, a message that never arrived or a"
+    " hook refusing a post he ordered, says on that same line how it is prevented: the tool change, the {order:} or {pr:}"
+    ' carrying it, and when it is live, by his words "thats not acceptable to dsay without telling me how you will prevent it".'
+)
+ORDERED_RULE = (
+    "His message is the order, so no line answers it by a plan, record or answer of his that is missing, since his records are"
+    ' read only so he is never asked again, by his words "Who cares if you have a record if they or not I\'m telling you to do it".'
+)
+TERM_RULE = (
+    "A word he corrected names that thing no more: the post uses the proper term `drive term` keeps beside it, by his words"
+    ' "use the proper fucking terms for things".'
+)
+TOOLING_RULE = "The line above a PR card quotes the order its PRs serve: his words, or a drive tooling order's \"Drive tooling: …\" words."
+DOWN_RULE = f"A coordinator that is down is restarted that minute, and he hears it was restarted, never only that it is down, by {DOWN_RULING}."
 SAY_RULE = (
     "Every message to him in his DM, a new post or an edit of one, goes through say, the one call that links its references"
     ' and shows it on the dashboard too, by his words "it shoulkd be one tool call to a lr mcp tool that formats and sends to'
@@ -151,7 +195,7 @@ def unread(payload: dict, dm: str) -> str | None:
 
 
 def unchecked(tool_input: dict) -> str | None:
-    """What `cc-slack check-post` finds in the exact words the post sends; a post that draws a card, or a PR's tap card through tap_prs, carries the card its words say waits on him."""
+    """What `cc-slack check-post` finds in the exact words the post sends, judged by cc-slack's plain-words rule; an order or job id the message it answers never used refuses unjudged, since no reading of his words makes it open anything; a post that draws a card, or a PR's tap card through tap_prs, carries the card its words say waits on him."""
     if not (text := tool_input.get("text") or ""):
         return None
     try:
@@ -160,7 +204,12 @@ def unchecked(tool_input: dict) -> str | None:
         return f"refused: `cc-slack check-post` could not check this post's words, so it does not go out: {error}."
     if not findings:
         return None
-    return "refused: `cc-slack check-post` finds this in the post's exact words; fix each, then post the fixed words:\n" + "\n".join(findings)
+    if ids := [finding for finding in findings if DRIVE_ID.match(finding)]:
+        return agents.Unjudged(
+            "refused: an order or job id opens nothing for him, and no message of his this post answers used it: say what that"
+            " order or job does instead, or pass his message naming it as asked:\n" + "\n".join(ids)
+        )
+    return agents.Ruled("refused: `cc-slack check-post` finds this in the post's exact words; fix each, then post the fixed words:\n" + "\n".join(findings), PLAIN_WORDS_RULE)
 
 
 def thread_words(payload: dict, dm: str) -> list[dict]:
@@ -193,18 +242,19 @@ def unbacked(payload: dict, said: str) -> str | None:
     """Why a line of say's post names a cause with no {record:} of the record that measured it."""
     if payload["tool_name"] != SAY or not (lines := refs.unbacked(said)):
         return None
-    return f"refused: a line naming a cause carries {{record:<seq>}} of the record that measured it, on that line: {' | '.join(lines)}"
+    return agents.Ruled(f"refused: a line naming a cause carries {{record:<seq>}} of the record that measured it, on that line: {' | '.join(lines)}", CAUSE_RULE)
 
 
 def unprevented(said: str) -> str | None:
     """Why a line of a post to him names a failure, refusal or gap of the drive's own with no word on how it is prevented."""
     if not (lines := refs.unprevented(said)):
         return None
-    return (
+    return agents.Ruled(
         "refused: a line telling him a card, check, hook, lane or session of the drive failed, refused, disconnected or"
         " left a gap says on that same line how it is prevented: the tool change, the {order:<o>} or {pr:<n>} carrying it,"
         " and when it is live. A disconnect is no excuse, since a session reaches another with SendMessage while cci is down."
-        f' His ruling 6a6edbf: "thats not acceptable to dsay without telling me how you will prevent it". The lines: {" | ".join(lines)}'
+        f' His ruling 6a6edbf: "thats not acceptable to dsay without telling me how you will prevent it". The lines: {" | ".join(lines)}',
+        PREVENTED_RULE,
     )
 
 
@@ -212,10 +262,11 @@ def unordered(said: str) -> str | None:
     """Why a line of a post to him answers his order by a plan, record or answer of his that is missing, when his message is the order."""
     if not (lines := refs.record_excuses(said)):
         return None
-    return (
+    return agents.Ruled(
         "refused: his message is the order, so no line answers it by a plan, record or answer of his that is missing; his records"
         " are read only so he is never asked again. Do what his words ask, or name what stands in the way of doing it. His ruling"
-        f" 9769307: \"Who cares if you have a record if they or not I'm telling you to do it\". The lines: {' | '.join(lines)}"
+        f" 9769307: \"Who cares if you have a record if they or not I'm telling you to do it\". The lines: {' | '.join(lines)}",
+        ORDERED_RULE,
     )
 
 
@@ -223,7 +274,7 @@ def corrected(tool_input: dict, drive: dict) -> str | None:
     """Why a post calls a thing by a word he corrected, which `drive term` keeps beside its proper term."""
     if (refusal := limits.stand_in_refusal(tool_input, drive["stand_ins"])) is None:
         return None
-    return f"refused: {refusal}"
+    return agents.Ruled(f"refused: {refusal}", TERM_RULE)
 
 
 def untooled(payload: dict, drive: dict, said: str) -> str | None:
@@ -233,7 +284,7 @@ def untooled(payload: dict, drive: dict, said: str) -> str | None:
     stack = [key for each in payload["tool_input"].get("tap_prs") or [] if (key := state.pr_key(each)) in drive["prs"]]
     if (refusal := talk.unquoted_tooling(drive, stack, said)) is None:
         return None
-    return f"refused: {refusal}"
+    return agents.Ruled(f"refused: {refusal}", TOOLING_RULE)
 
 
 def his_words(payload: dict) -> list[dict]:
@@ -319,7 +370,7 @@ def found_in(payload: dict, drive: dict, said: str, titled: int) -> str | None:
         long += TITLED.format(titled)
     return every(
         [
-            long,
+            long and agents.Ruled(long, LENGTH_RULE),
             long_ack(payload),
             unlinked(payload, drive),
             untapped(payload),
@@ -343,11 +394,12 @@ def reported_down(drive: dict, said: str) -> str | None:
     if RESTARTED.search(said) or not any(COORDINATOR.search(part) and DOWN.search(part) for part in SENTENCE_BREAK.split(said)):
         return None
     held = drive["roles"]["coordinator"]
-    return (
+    return agents.Ruled(
         f"refused: a coordinator that is down is restarted that minute, never reported to him as down ({DOWN_RULING}). Restart it now"
         " by steps 5 to 7 of `drive manual migration`, Into an Orca terminal, creating the terminal resuming session"
         f" {held['session']} in {held['cwd']}, or a sub-coordinator's session in the folder its `drive status` line names, then tell"
-        " him it was restarted"
+        " him it was restarted",
+        DOWN_RULE,
     )
 
 
@@ -459,9 +511,10 @@ def long_ack(payload: dict) -> str | None:
     sentences = [part for part in SENTENCE_BREAK.split(limits.masked(tool_input.get("text") or "").strip()) if part.strip()]
     if len(sentences) < 2:
         return None
-    return (
+    return agents.Ruled(
         f"refused: this ack is {len(sentences)} sentences, and an ack is one: what he asked, in his words, and what happens next."
-        " Post that one sentence and put the rest in the handler's brief; the handler answers him in this thread."
+        " Post that one sentence and put the rest in the handler's brief; the handler answers him in this thread.",
+        ACK_RULE,
     )
 
 
@@ -473,9 +526,10 @@ def unpromised(payload: dict) -> str | None:
     text = limits.masked(tool_input.get("text") or "")
     if not (promise := PROMISE.search(text)) or CARRIER.search(text):
         return None
-    return (
+    return agents.Ruled(
         f'refused: "{promise[0]}" promises him something, and this post names no order, job or due time that does it, so nothing'
-        " holds the drive to it. Pass say's order=<the order that does it>, or name the time it lands, or drop the promise."
+        " holds the drive to it. Pass say's order=<the order that does it>, or name the time it lands, or drop the promise.",
+        PROMISE_RULE,
     )
 
 
@@ -489,10 +543,11 @@ def raw_visuals(tool_input: dict) -> str | None:
     if not raw:
         return None
     source, what = raw[0]
-    return (
+    return agents.Ruled(
         f'refused: the code visual holding "{render.cut(" ".join(source.split()), 60)}" is {what}, raw data or tool output, and a'
         f" picture of it shows him nothing: say what it means in words, show a short snippet of real code, or {picture.INSTEAD}"
-        f" ({limits.RAW_RULING})"
+        f" ({limits.RAW_RULING})",
+        f"A picture shows him what words cannot, never raw data or tool output, by {limits.RAW_RULING}.",
     )
 
 
@@ -501,19 +556,23 @@ def unswitched(tool_input: dict, drive: dict) -> str | None:
     held = {role.get("terminal") for role in state.bound_sessions(drive).values()}
     if not (wrong := [handle for handle in SWITCH.findall(tool_input.get("text") or "") if handle not in held]):
         return None
-    return (
+    return agents.Ruled(
         f"refused: `orca terminal switch --terminal {wrong[0]}` names a terminal no session of this drive runs in. Give him a switch"
-        " command only as the role's line `drive status` prints it, word for word, and none when that line carries none."
+        " command only as the role's line `drive status` prints it, word for word, and none when that line carries none.",
+        SWITCH_RULE,
     )
 
 
 def every(refusals: list[str | None]) -> str | None:
-    """One refusal holding each check's, so a single rewrite fixes them all."""
+    """One refusal holding each check's, so a single rewrite fixes them all, its rules numbered as its findings are so Jev judges each finding by its own; a refusal no Jev judges comes back alone."""
     found = [refusal for refusal in refusals if refusal]
+    if unjudged := next((refusal for refusal in found if isinstance(refusal, agents.Unjudged)), None):
+        return unjudged
     if len(found) < 2:
         return next(iter(found), None)
     listed = "\n".join(f"{index}. {refusal.removeprefix('refused: ')}" for index, refusal in enumerate(found, 1))
-    return f"refused, {len(found)} ways; fix each, then post the fixed words once:\n{listed}"
+    rules = "\n".join(f"{index}. {refusal.rule}" for index, refusal in enumerate(found, 1) if isinstance(refusal, agents.Ruled))
+    return agents.Ruled(f"refused, {len(found)} ways; fix each, then post the fixed words once:\n{listed}", rules)
 
 
 def untapped(payload: dict) -> str | None:
@@ -521,7 +580,8 @@ def untapped(payload: dict) -> str | None:
     if not (tap_prs := payload["tool_input"].get("tap_prs")):
         return None
     prs = {key: pr for name in state.session_drives(payload["session_id"]) for key, pr in state.load(name)["prs"].items()}
-    return limits.tap_refusal("\n".join(tap_prs), prs)
+    refusal = limits.tap_refusal("\n".join(tap_prs), prs)
+    return refusal and agents.Ruled(refusal, OWED_TAP_RULE)
 
 
 def claimed_tap(tool_input: dict, drive: dict) -> str | None:
@@ -531,14 +591,15 @@ def claimed_tap(tool_input: dict, drive: dict) -> str | None:
     card = tool_input.get("card") or {}
     words = "\n".join([tool_input.get("text") or "", card.get("title") or "", card.get("body") or "", *(card.get("options") or [])])
     refusal = view.tap_claim_refusal(drive, tool_input.get("order") or "", words, (view.live_cards(drive["name"]) or view.NO_CARDS)["pr_cards"])
-    return refusal and f"{refusal}. A PR the drive owes his tap on and no open card asks gets its tap card from tap_prs on the post."
+    return refusal and agents.Ruled(f"{refusal}. A PR the drive owes his tap on and no open card asks gets its tap card from tap_prs on the post.", CARD_RULE)
 
 
 def unlinked(payload: dict, drive: dict) -> str | None:
     """Why a handler's post names a PR or card the drive holds with no link where it is named; a PR card's line quotes his order and cc-slack draws its card, and the communicator's ack names nothing."""
     if not payload.get("agent_id") or payload["tool_input"].get("tap_prs"):
         return None
-    return limits.link_refusal(payload["tool_input"], limits.held(drive, payload["tool_input"].get("order")))
+    refusal = limits.link_refusal(payload["tool_input"], limits.held(drive, payload["tool_input"].get("order")))
+    return refusal and agents.Ruled(refusal, LINK_RULE)
 
 
 def over_length(payload: dict, dm: str) -> str | None:
