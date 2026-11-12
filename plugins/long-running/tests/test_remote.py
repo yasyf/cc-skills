@@ -57,7 +57,13 @@ DESIGN_PICK = "Root cause: none: a design pick, with no defect behind it"
 ASK_IN_SHAPE = f"""ASK Where should the nightly store copy run?
 The nightly store copy reads every store once; it can run on the primary or on its own worker.
 - On the primary, beside the queries it serves (recommended)
+  Does: each night the primary copies every store once between the queries it serves, and the copy lands in the bucket.
+  Data: each store's nightly copy in the team's bucket, written by the primary and read back by a restore.
+  Touches: `supervisor/copies.rs` on the primary; each query waits behind a running copy.
 - On a separate worker that reads the bucket
+  Does: each night a separate worker reads every store from the bucket and copies it there, so the primary serves only queries.
+  Data: each store and its nightly copy in the team's bucket, read and written by that worker.
+  Touches: `supervisor/copies.rs` and a new worker in `supervisor/worker.rs`, one more process per cluster.
 Findings:
 {DESIGN_PICK}
 One copy took 40 minutes on the primary.

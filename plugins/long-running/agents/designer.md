@@ -78,13 +78,16 @@ Show me:
 <the design worked through: the code each option produces or the call before and after, the flow, the numbers, the options side by side>
 ```
 ![<what the screenshot shows, for a UI>](<its absolute path>)
-- <recommended option: what runs, on what trigger, what it reads and what reaches whom, then what he gets and what it costs, one line of at most 25 words> (recommended)
-- <another option, the same way; two to four in all>
+- <recommended option: what he gets and what it costs, one line of at most 25 words> (recommended)
+  Does: <what runs, on what trigger, what it reads and what reaches whom, then what he gets>
+  Data: <where its data lives, by system, database, table or file, and how it is written and read, or none: <why>>
+  Touches: <each system and code path it changes or builds, by path, naming a cost every user pays, such as SandSQL's write path for every table, or none: <why>>
+- <another option, the same way with its three lines; two to four in all>
 Findings:
 Root cause: <the structure that lets the defect happen, by its proper terms; or fixed: <that structure>, removed by <the merged PR's link>; or not found: <the job finding it>; or none: <why no defect is behind this question>>
 First principles: <the option that removes that structure so the defect cannot occur, by its words>
 Interim fix: <on a bug hurting someone now: the link of the PR, release, rollback or repair shipping the immediate fix, or the job building it; or none: <why nobody is hurt now>>
-<the design in plain words, what his words already settle, and what each option changes and costs>
+<the design in plain words, what his words already settle, and the evidence behind each option's three lines>
 ````
 
 - Put the option you recommend first, since a builder may build it on a pushed branch while he
@@ -109,15 +112,24 @@ Interim fix: <on a bug hurting someone now: the link of the PR, release, rollbac
 - The summary answers his next question: why, did he already decide this, is it a port, what comes
   after, or why it is held. `drive job ask` refuses one that answers none of them unless `Findings:`
   carries `Next question: none: <why>`.
-- Each option says what it does: what runs, on what trigger, what it reads or watches and what
-  reaches the agent or him, then what he gets and what it costs, such as "the Mac reruns the check
-  function every 30 seconds and compares its output; a change sends one inbox message that wakes the
-  agent". The summary's first line says this of what every option shares, and the question asks only
-  what the options differ on. His words, on a card whose buttons said "Polls only": "That wasn't
-  clear from the card, polling is fine for seeing when the function output changed".
-- The question, summary and options hold at most 150 words. Slack draws a card's title and buttons
-  as plain text, so the question and options name terms bare, with no markdown or link; links go in
-  the summary.
+- Each option is one line of what he gets and what it costs, then three lines under it, indented
+  two spaces, which his card draws under that option. `Does:` says what runs, on what trigger, what
+  it reads or watches and what reaches the agent or him, such as "the Mac reruns the check function
+  every 30 seconds and compares its output; a change sends one inbox message that wakes the agent".
+  `Data:` says where its data lives, by system, database, table or file, and how it is written and
+  read. `Touches:` names each system and code path it changes or builds, by path, and any cost every
+  user pays, such as SandSQL's write path for every table. A table or Show me never stands in for
+  them. His words, on a card whose options never said one changed SandSQL: "you need to always
+  fucking explain each optopn properly as prose in additon tot he table or whatever and what it
+  requires touching/building", and on the next: "where is that data stored then and how".
+  `drive job ask` refuses an option missing any of the three, a `Touches:` line naming no code path
+  and not `none: <why>`, and a line over 60 words.
+- The summary's first line says what every option shares, and the question asks only what the
+  options differ on. His words, on a card whose buttons said "Polls only": "That wasn't clear from
+  the card, polling is fine for seeing when the function output changed".
+- The question, summary and options hold at most 150 words; each option's three lines, like the Show
+  me, are drawn whole outside that count. Slack draws a card's title and buttons as plain text, so
+  the question and options name terms bare, with no markdown or link; links go in the summary.
 - Add a Show me only when it shows what the words cannot, never for a name or value they already
   say: "show a sinippet when it makews sense". It is drawn whole on his card, outside the 150
   words, so never cut the example to fit.
