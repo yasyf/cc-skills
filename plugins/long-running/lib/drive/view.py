@@ -574,6 +574,11 @@ def status(drive: dict, moment: datetime, found: dict) -> list[dict]:
     features = [feature(drive, order_id, order, moment, found) for order_id, order in drive["orders"].items() if shown(order, moment)]
     features.sort(key=lambda entry: state.parse_time(entry["updated"]), reverse=True)
     features.sort(key=lambda entry: (entry["due"] is None, entry["due"] and state.parse_time(entry["due"])))
+    spellings = {}
+    for entry in features:
+        for place in ("project", "workstream"):
+            if entry[place]:
+                entry[place] = spellings.setdefault((place, entry[place].casefold()), entry[place])
     return [{"state": name, "features": [entry for entry in features if entry["state"] == name]} for name in STATES]
 
 
@@ -599,6 +604,7 @@ def job_entry(job_id: str, job: dict, reports: set[str]) -> dict:
         "branch": job["branch"],
         "waits": len(job["waits"]),
         "files": artifacts.kept(job_id, job, reports),
+        "agent": job.get("agent") or job.get("dispatch"),
     }
 
 

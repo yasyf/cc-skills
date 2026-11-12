@@ -27,11 +27,18 @@ const HISTORY_FILTERS = [
 const NONE = '~';
 const UNFILED = 'Unfiled';
 const RANK = ['blocked', 'built', 'running', 'waiting', 'not started', 'merged', 'live'];
-const PACKET_SECONDS = 9;
-const ORBIT_SECONDS = 100;
-const MAP_ZOOMS = [0.7, 0.85, 1, 1.2, 1.45];
-const SATELLITES = 14;
+const SATELLITES = 10;
 const RING_LIMIT = 8;
+const LANE_STATES = { working: ['Working', 'doing', 'Working'], quiet: [`Quiet ${STALL_MINUTES} minutes or more`, 'bad', 'Quiet'], waiting: ['Waiting', 'waiting', 'Waiting'], built: ['Built, waits on you', 'you', 'Built'] };
+const LANE_ORDER = ['quiet', 'waiting', 'built'];
+const KIND_DOING = { builder: 'building', reader: 'reading', design: 'designing', codex: 'asking Codex' };
+const LINE_FROM = { transcript: 'Its newest words in its transcript', said: 'The line it last sent', report: 'The first line of its report' };
+const WIDE_STAGE = { w: 1100, h: 500 };
+const NARROW_WIDTH = 300;
+const NARROW_ROW = 84;
+const NODE = { w: 185, h: 103 };
+const LANE_RATIO = 2.4;
+const LANE_MAX = { w: 280, h: 104 };
 const SWEAR_WORDS = 'damn, shit and fuck';
 const QUEUE_FILTERS = [
   ['all', 'All', () => true],
@@ -104,8 +111,12 @@ const ICONS = {
 let model = null;
 let connected = false;
 let lostAt = null;
-let paused = null;
-let mapZoom = MAP_ZOOMS.indexOf(1);
+let paused = false;
+let laneFilter = { at: null, words: '' };
+let lanesRead = null;
+let laneSeen = new Map();
+const packets = [];
+let narrow = null;
 let shownHash = null;
 let queueAt = null;
 let queueSlot = 0;
@@ -790,8 +801,8 @@ function waiting() {
   return { picks: kinds.get('question')?.length ?? 0, taps: kinds.get('tap')?.length ?? 0, late: kinds.get('late')?.length ?? 0, oldest: since[0] };
 }
 
-function gone(what) {
-  return `<p class="empty">${what} has no open work on the dashboard now. <a href="#/now">All projects</a></p>`;
+function gone(what, screen = 'now') {
+  return `<p class="empty">${what} has no open work on the dashboard now. <a href="#/${screen}">All projects</a></p>`;
 }
 
 function trail() {
@@ -902,13 +913,23 @@ function aim() {
 }
 
 function boxOf(el, world) {
-  let x = 0;
-  let y = 0;
-  for (let at = el; at !== world; at = at.offsetParent) {
-    x += at.offsetLeft;
-    y += at.offsetTop;
-  }
-  return { x, y, w: el.offsetWidth, h: el.offsetHeight };
+  const at = el.getBoundingClientRect();
+  const origin = world.getBoundingClientRect();
+  const k = origin.width / world.offsetWidth;
+  return { x: (at.left - origin.left) / k, y: (at.top - origin.top) / k, w: at.width / k, h: at.height / k };
+}
+
+function focused(viewport) {
+  const world = viewport.querySelector('.world');
+  const target = viewport.dataset.at && viewport.querySelector(`[data-cam-key="${CSS.escape(viewport.dataset.at)}"]`);
+  if (!target) return { box: { x: 0, y: 0, w: world.scrollWidth, h: world.scrollHeight }, unit: 1 };
+  const box = boxOf(target, world);
+  return { box, unit: target.offsetWidth / box.w };
+}
+
+function zoomed(viewport, k) {
+  const { unit } = focused(viewport);
+  return Math.min(3 * unit, Math.max(0.03 * unit, k));
 }
 
 function fitTo(box, viewport, level) {
@@ -923,13 +944,17 @@ function fitTo(box, viewport, level) {
 
 function cameraTarget() {
   const viewport = $('#main .viewport');
-  const world = viewport.querySelector('.world');
-  const at = viewport.dataset.at;
-  const target = at ? viewport.querySelector(`[data-cam-key="${CSS.escape(at)}"]`) : world.firstElementChild;
-  const box = at ? boxOf(target, world) : { x: 0, y: 0, w: world.scrollWidth, h: world.scrollHeight };
+  const { box, unit } = focused(viewport);
   const sheet = viewport.querySelector('.task-sheet');
   const room = { clientWidth: viewport.clientWidth - (sheet && viewport.clientWidth - sheet.offsetWidth >= 420 ? sheet.offsetWidth : 0), clientHeight: viewport.clientHeight };
-  return fitTo(box, room, $('#main .canvas').dataset.level);
+  const fit = fitTo({ x: 0, y: 0, w: box.w * unit, h: box.h * unit }, room, $('#main .canvas').dataset.level);
+  const chosen = viewport.querySelector('.topo-node.lane.on');
+  const k = (chosen ? 1 : Math.min(1, room.clientWidth / (box.w * unit * 1.05))) * unit;
+  if (fit.k * unit >= k || !(chosen || (narrow.matches && viewport.closest('.work')))) return { k: fit.k * unit, x: box.x + fit.x / unit, y: box.y + fit.y / unit };
+  const seen = { w: room.clientWidth / k, h: room.clientHeight / k };
+  const mid = chosen ? boxOf(chosen, viewport.querySelector('.world')) : { ...box, h: seen.h };
+  const span = (center, shown, start, length) => (length <= shown ? start + length / 2 - shown / 2 : Math.min(Math.max(center - shown / 2, start), start + length - shown));
+  return { k, x: span(mid.x + mid.w / 2, seen.w, box.x, box.w), y: span(mid.y + mid.h / 2, seen.h, box.y, box.h) };
 }
 
 function settleCamera(arrived) {
@@ -989,7 +1014,7 @@ function zoomAround(factor, px, py, ms = 0) {
   const viewport = $('#main .viewport');
   const ux = camera.x + px / camera.k;
   const uy = camera.y + py / camera.k;
-  const k = Math.min(3, Math.max(0.03, camera.k / factor));
+  const k = zoomed(viewport, camera.k / factor);
   const target = { k, x: ux - px / k, y: uy - py / k };
   if (ms) return flyTo(target, ms);
   cancelAnimationFrame(flying);
@@ -1366,116 +1391,257 @@ function isStalled(job) {
   return job.state === 'running' && minutesSince(job.updated) >= STALL_MINUTES;
 }
 
-function phase(seconds, offset = 0) {
-  return `${-(((paused ?? Date.now()) / 1000 + offset) % seconds).toFixed(2)}s`;
+function laneState(job) {
+  if (isStalled(job)) return 'quiet';
+  return job.state === 'running' ? 'working' : job.state;
 }
 
 function laneTone(job) {
-  if (isStalled(job)) return 't-bad';
-  return job.state === 'running' ? 't-doing' : 't-you';
+  return LANE_STATES[laneState(job)][1];
 }
 
-function laneState(job) {
-  return isStalled(job) ? `Quiet ${ago(job.updated)}` : JOB_STATES[job.state];
-}
-
-function laneTree(work) {
-  const filed = (job, field) => fileKey(featureOf(job.feature)[field]);
-  const projects = [...Map.groupBy(work, (job) => filed(job, 'project'))].sort(byName);
-  return new Map(projects.map(([project, lanes]) => [project, new Map([...Map.groupBy(lanes, (job) => filed(job, 'workstream'))].sort(byName))]));
+function workTree(lanes) {
+  const held = Map.groupBy(lanes, (job) => job.feature);
+  return new Map([...index().tree].map(([project, streams]) => [project, new Map([...streams].map(([stream, entries]) => [stream, entries.flatMap((entry) => held.get(entry.id) ?? [])]))]));
 }
 
 function workScreen() {
   const read = slice('/api/lanes');
   if (!read?.ok) return notRead(read);
   const [project, stream, laneId] = route().path;
-  const tree = laneTree(read.lanes);
-  const streams = tree.get(project);
-  const lanes = streams?.get(stream);
-  const running = read.lanes.filter((job) => job.state === 'running').length;
-  const keys = [project, stream].filter((key) => key !== undefined);
-  const zooms = stream === undefined ? `<button class="map-btn" data-zoom="-1" aria-label="Zoom out"${mapZoom === 0 ? ' disabled' : ''}>−</button><button class="map-btn" data-zoom="1" aria-label="Zoom in"${mapZoom === MAP_ZOOMS.length - 1 ? ' disabled' : ''}>+</button>` : '';
-  const shown = project === undefined ? projectMap(tree)
-    : !streams ? '<p class="empty topo-empty">This project has no lane running or waiting now. <a href="#/work">All projects</a></p>'
-    : stream === undefined ? streamMap(project, streams)
-    : lanes ? laneZoom(zoomHref('work', project, stream), lanes, laneId)
-    : `<p class="empty topo-empty">This workstream has no lane running or waiting now. <a href="${zoomHref('work', project)}">${esc(fileName(project))}</a></p>`;
+  const tree = workTree(read.lanes);
+  const streams = project === undefined ? null : tree.get(project);
+  if (project !== undefined && !streams) return gone('This project', 'work');
+  const lanes = stream === undefined ? null : streams.get(stream);
+  if (stream !== undefined && !lanes) return gone('This workstream', 'work');
+  listen(read, tree);
+  const shown = [...tree.values()].flatMap((each) => [...each.values()].flat());
+  const working = shown.filter((job) => laneState(job) === 'working').length;
   return `<div class="page-head">
-      <div><div class="eyebrow">Work</div><h1 class="h1">Inside the machine.</h1><p class="lead">${counted(read.lanes.length, 'lane')}, ${running} working. Click a project to zoom into its workstreams, then a workstream to see each lane.</p></div>
-      <button class="secondary" data-motion aria-pressed="${Boolean(paused)}">${paused ? '▷ Resume motion' : 'Ⅱ Pause motion'}</button>
+      <div><div class="eyebrow">Work</div><h1 class="h1">Inside the machine.</h1><p class="lead">${counted(shown.length, 'lane')}, ${working} working, across the ${counted(tree.size, 'project')} Now lists. Click a project to fly into its workstreams, then a workstream to see each lane.</p></div>
+      <div class="page-tools"><button class="secondary" data-motion aria-pressed="${paused}">${paused ? '▷ Resume motion' : 'Ⅱ Pause motion'}</button><button class="linkish" data-map-context>ⓘ Map context</button></div>
     </div>
-    <section class="topology${paused ? ' paused' : ''}" style="--zoom:${MAP_ZOOMS[mapZoom]}" aria-label="Agent topology">
-      <div class="topology-bar"><div>${zooms}</div></div>
-      ${shown}
-      <div class="map-legend"><span class="t-doing">Working</span><span class="t-you">Waiting or built</span><span class="t-bad">Quiet ${STALL_MINUTES} minutes or more</span><span>Moving packets are decoration, not traffic</span></div>
-    </section>`;
+    ${workCanvas(tree, project, stream, lanes?.find((job) => job.id === laneId) ?? null, shown)}`;
 }
 
-function projectMap(tree) {
-  const nodes = [...tree].map(([key, streams]) => ({ key, href: zoomHref('work', key), sub: key === NONE ? 'Orders not filed yet' : counted(streams.size, 'workstream'), lanes: [...streams.values()].flat() }));
-  return topoMap(model.drive, 'Coordinator ↔ communicator', nodes);
+function workCanvas(tree, project, stream, lane, shown) {
+  const level = stream !== undefined ? 'stream' : project !== undefined ? 'project' : 'all';
+  const keys = [project, stream].filter((key) => key !== undefined);
+  const at = keys.join('/');
+  const words = laneFilter.at === at ? laneFilter.words : '';
+  const lanes = level === 'stream' ? tree.get(project).get(stream) : [];
+  const agents = new Set(shown.map((job) => job.agent).filter(Boolean)).size;
+  return `<section class="canvas work${paused ? ' paused' : ''}" data-level="${level}" aria-label="Agent topology">
+    <div class="canvas-bar">${level === 'stream' ? `<input class="lane-filter" type="search" data-lane-filter="${esc(at)}" value="${esc(words)}" placeholder="Filter ${counted(lanes.length, 'lane')}" aria-label="Filter lanes" autocomplete="off">` : `<span class="meta canvas-hint">${level === 'all' ? 'Click a project to fly in. Drag to pan; ⌘ or Ctrl and scroll, or pinch, to zoom.' : 'Click a workstream to see its lanes. Esc zooms out.'}</span>`}
+      <div class="canvas-tools"><button class="map-btn" data-cam="out" aria-label="Zoom out">−</button><button class="map-btn" data-cam="in" aria-label="Zoom in">+</button><button class="map-btn" data-cam="fit" aria-label="Fit to this level" title="Fit">⤢</button></div></div>
+    <div class="viewport" data-at="${esc(at)}" data-view="${esc(lane?.id ?? '')}">
+      <div class="world" style="${cameraStyle()}">${driveStage(tree, project, stream, lane, words)}</div>
+      ${lane ? laneSheet(lane, zoomHref('work', project, stream)) : ''}
+    </div>
+    <div class="canvas-foot"><div class="map-legend">${Object.values(LANE_STATES).map(([word, tone]) => `<span class="t-${tone}">${word}</span>`).join('')}<span class="packet-key">A packet is a lane's record reaching the coordinator, or the coordinator starting a lane</span></div><span class="topo-label">${counted(shown.length, 'active job record')} · ${counted(agents, 'registered agent')}</span></div>
+  </section>`;
 }
 
-function streamMap(project, streams) {
-  const nodes = [...streams].map(([key, lanes]) => ({ key, href: zoomHref('work', project, key), sub: key === NONE ? 'No workstream filed yet' : lanes[0].said || lanes[0].goal, lanes }));
-  return topoMap(fileName(project), counted(nodes.reduce((sum, node) => sum + node.lanes.length, 0), 'lane'), nodes);
-}
-
-function topoMap(root, under, nodes) {
-  if (!nodes.length) return '<p class="empty topo-empty">No lane is running or waiting.</p>';
-  const spots = nodes.map((node, i) => {
-    const angle = -Math.PI / 2 + (2 * Math.PI * i) / nodes.length;
-    const reach = nodes.length > RING_LIMIT && i % 2 ? 0.7 : 1;
-    return { node, i, x: 50 + 37 * reach * Math.cos(angle), y: 50 + 35 * reach * Math.sin(angle) };
+function driveStage(tree, project, stream, lane, words) {
+  const nodes = [...tree].map(([key, streams]) => {
+    const lanes = [...streams.values()].flat();
+    const inner = key === project ? (box) => projectStage(key, streams, stream, lane, words, box) : null;
+    return { key, name: fileName(key), unfiled: key === NONE, href: zoomHref('work', key), lanes, inner };
   });
-  const paths = spots.map(({ x, y, i }) => {
-    const d = `M 550 305 C 550 ${(y * 6.1).toFixed(1)} ${(x * 11).toFixed(1)} 305 ${(x * 11).toFixed(1)} ${(y * 6.1).toFixed(1)}`;
-    return `<path class="flow-path" d="${d}"/><path class="flow-packet" d="${d}" style="animation-delay:${phase(PACKET_SECONDS, i * 1.3)}"/>`;
-  }).join('');
-  const cards = spots.map(({ node, x, y, i }) => {
-    const name = fileName(node.key);
-    const working = node.lanes.filter((job) => job.state === 'running').length;
-    const quiet = node.lanes.filter(isStalled).length;
-    const dots = node.lanes.slice(0, SATELLITES).map((job) => `<i class="${laneTone(job)}"></i>`).join('');
-    const more = node.lanes.length > SATELLITES ? `<em>+${node.lanes.length - SATELLITES}</em>` : '';
-    const tip = `${name}: ${counted(node.lanes.length, 'lane')}, ${working} working${quiet ? `, ${quiet} quiet` : ''}. Click to zoom in.`;
-    return `<a class="topo-node${node.key === NONE ? ' unfiled' : ''}" href="${node.href}" style="left:${x.toFixed(2)}%;top:${y.toFixed(2)}%;--i:${i}" data-tip="${esc(tip)}">
-      <strong>${esc(name)} ›</strong>
-      <small class="sub">${esc(node.sub)}</small>
-      <small>${counted(node.lanes.length, 'lane')} · ${working} working</small>
-      <span class="satellites">${dots}${more}</span>
-    </a>`;
-  }).join('');
-  return `<div class="map">
-    <svg class="topo-svg" viewBox="0 0 1100 610" preserveAspectRatio="none" aria-hidden="true"><ellipse class="orbital" cx="550" cy="305" rx="410" ry="220" style="animation-delay:${phase(ORBIT_SECONDS)}"/><ellipse class="orbital" cx="550" cy="305" rx="300" ry="150" style="animation-delay:${phase(ORBIT_SECONDS, 50)}"/>${paths}</svg>
-    <div class="topo-root"><b>${esc(root)}</b><small>${esc(under)}</small></div>
-    ${cards}
+  const hub = `<b>${esc(model.drive)}</b><small>Coordinator</small>`;
+  return topoStage('', '#/work', project === undefined, hub, nodes);
+}
+
+function projectStage(project, streams, stream, lane, words, box) {
+  const nodes = [...streams].map(([key, lanes]) => ({
+    key: `${project}/${key}`,
+    name: fileName(key),
+    unfiled: key === NONE,
+    href: zoomHref('work', project, key),
+    lanes,
+    inner: key === stream ? (inside) => laneStage(project, key, lanes, lane, words, inside) : null,
+  }));
+  const hub = `<b>${esc(fileName(project))}</b>${doing(nodes.flatMap((node) => node.lanes))}`;
+  return topoStage(project, zoomHref('work', project), stream === undefined, hub, nodes, box);
+}
+
+function laneStage(project, stream, lanes, lane, words, box) {
+  const href = zoomHref('work', project, stream);
+  const terms = words.toLowerCase().split(/\s+/).filter(Boolean);
+  const kept = lanes.filter((job) => terms.every((term) => `${job.goal} ${job.id} ${job.kind} ${job.where} ${LANE_STATES[laneState(job)][0]} ${job.said}`.toLowerCase().includes(term)));
+  const { size, hub, spots, wire } = laneLayout(kept.length);
+  const wires = spots.map((spot, i) => `<path class="wire" data-wire="${esc(`${project}/${stream}/${kept[i].id}`)}" d="${wire(spot)}"/>`).join('');
+  const empty = !lanes.length ? 'No lane is running or waiting in this workstream.' : !kept.length ? `No lane here matches “${words.trim()}”.` : '';
+  return `<div class="stage lanes${lane ? '' : ' here'}" data-cam-key="${esc(`${project}/${stream}`)}" data-href="${href}" style="${stageStyle(size, box)}">
+    <svg class="wires" viewBox="0 0 ${size.w} ${size.h}" aria-hidden="true">${wires}<g class="packets"></g></svg>
+    <div class="hub" style="${boxStyle(hub)}"><b>${esc(fileName(stream))}</b>${doing(lanes)}${terms.length ? `<small>${kept.length} of ${counted(lanes.length, 'lane')} match</small>` : ''}</div>
+    ${kept.map((job, i) => laneNode(job, spots[i], i, href, lane)).join('')}
+    ${empty ? `<p class="stage-empty">${esc(empty)}</p>` : ''}
   </div>`;
 }
 
-function laneZoom(href, lanes, laneId) {
-  const chosen = lanes.find((job) => job.id === laneId) ?? lanes[0];
-  const cards = lanes.map((job, i) => `<a class="lane-card${job === chosen ? ' on' : ''}" href="${href}/${encodeURIComponent(job.id)}" style="--i:${i}"${job === chosen ? ' aria-current="true"' : ''}>
-      <small><i class="${laneTone(job)}"></i>${esc(laneState(job))} · ${esc(job.kind)}</small>
-      <strong>${esc(job.goal)}</strong>
-      <span class="lane-id">${esc(job.id)} · ${esc(job.where)} · last word ${ago(job.updated)} ago</span>
-    </a>`).join('');
-  return `<div class="lane-zoom"><div class="lane-cards">${cards}</div>${laneInspector(chosen)}</div>`;
+function topoStage(key, href, here, hubHtml, nodes, box = null) {
+  const { size, hub, spots, wire } = ringLayout(nodes.length);
+  const center = [size.w / 2, size.h / 2];
+  const orbits = narrow.matches ? '' : [[0.41, 0.42], [0.29, 0.3]].map(([rx, ry]) => `<ellipse class="orbital" cx="${center[0]}" cy="${center[1]}" rx="${size.w * rx}" ry="${size.h * ry}"/>`).join('');
+  const wires = spots.map((spot, i) => `<path class="wire" data-wire="${esc(nodes[i].key)}" d="${wire(spot)}"/>`).join('');
+  return `<div class="stage${here ? ' here' : ''}" data-cam-key="${esc(key)}" data-href="${href}" style="${stageStyle(size, box)}">
+    <svg class="wires" viewBox="0 0 ${size.w} ${size.h}" aria-hidden="true">${orbits}${wires}<g class="packets"></g></svg>
+    <div class="hub" style="${boxStyle(hub)}">${hubHtml}</div>
+    ${nodes.map((node, i) => topoNode(node, spots[i], i)).join('')}
+    ${nodes.length ? '' : '<p class="stage-empty">No workstream is filed here.</p>'}
+  </div>`;
 }
 
-function laneInspector(job) {
-  const entry = featureOf(job.feature);
-  const facts = [job.where, job.branch ? `on ${job.branch}` : '', job.prs ? counted(job.prs, 'PR') : '', job.waits ? `waits on ${counted(job.waits, 'card or job', 'cards or jobs')}` : ''].filter(Boolean);
-  return `<aside class="lane-inspector" aria-label="Inside this lane">
-    <div class="eyebrow">Inside this lane</div>
-    <h3>${esc(job.goal)}</h3>
-    <span class="mono">${esc(job.id)} · ${esc(laneState(job).toLowerCase())} · ${esc(job.kind)}</span>
-    ${job.said ? `<p class="lane-said">${esc(job.said)}</p>` : '<p class="meta">No progress line yet.</p>'}
-    <p class="meta">Last word ${clock(job.updated)}, ${ago(job.updated)} ago · ${esc(facts.join(' · '))}</p>
+function topoNode(node, spot, i) {
+  const open = Boolean(node.inner);
+  const tip = `${node.name}: ${node.lanes.length ? `${counted(node.lanes.length, 'lane')}, ${doingParts(node.lanes).map(([word, n]) => `${n} ${word}`).join(', ')}` : 'no lane at work'}. Click to fly in.`;
+  return `<div class="topo-node${node.unfiled ? ' unfiled' : ''}${open ? ' open' : ''}${node.lanes.length ? '' : ' idle'}"${open ? '' : ` data-href="${node.href}"`} style="${boxStyle(spot)};--i:${i}">
+    <a class="face" href="${node.href}" data-tip="${esc(tip)}"${open ? ' tabindex="-1"' : ''}><b>${esc(node.name)} ›</b>${doing(node.lanes)}<span class="satellites">${node.lanes.slice(0, SATELLITES).map((job) => `<i class="t-${laneTone(job)}"></i>`).join('')}${node.lanes.length > SATELLITES ? `<em>+${node.lanes.length - SATELLITES}</em>` : ''}</span></a>
+    ${open ? node.inner(spot) : ''}
+  </div>`;
+}
+
+function laneNode(job, spot, i, href, chosen) {
+  const [word, tone, short] = LANE_STATES[laneState(job)];
+  const tip = `${job.goal} · ${job.id}, ${word.toLowerCase()}, last word ${ago(job.updated)} ago`;
+  return `<a class="topo-node lane${job === chosen ? ' on' : ''}${spot.h < 50 ? ' tight' : ''}" href="${href}/${encodeURIComponent(job.id)}" data-lane="${esc(job.id)}" data-tip="${esc(tip)}" style="${boxStyle(spot)};--i:${i}"${job === chosen ? ' aria-current="true"' : ''}>
+    <small class="t-${tone}"><i></i>${short} · ${esc(job.kind)}</small>
+    <b class="t-${tone}">${esc(job.goal)}</b>
+    <span class="lane-id">${esc(job.id)} · ${esc(job.where)} · ${ago(job.updated)} ago</span>
+  </a>`;
+}
+
+function doingParts(lanes) {
+  const by = (working) => Map.groupBy(lanes, (job) => (laneState(job) === 'working' ? working(job) : laneState(job)));
+  const kinds = by((job) => KIND_DOING[job.kind]);
+  const parts = kinds.size > 3 ? by(() => 'working') : kinds;
+  return [...parts].map(([word, list]) => [word, list.length]).sort(([a], [b]) => LANE_ORDER.indexOf(a) - LANE_ORDER.indexOf(b));
+}
+
+function doing(lanes) {
+  const parts = doingParts(lanes).map(([word, n]) => `<span class="t-${LANE_STATES[word]?.[1] ?? 'doing'}">${n} ${esc(word)}</span>`);
+  return `<span class="doing">${parts.join('') || '<span>No lane at work</span>'}</span>`;
+}
+
+function stageStyle(size, box) {
+  if (!box) return `width:${size.w}px;height:${size.h}px`;
+  const k = Math.min(box.w / size.w, box.h / size.h);
+  return `width:${size.w}px;height:${size.h}px;transform:translate(${((box.w - size.w * k) / 2).toFixed(2)}px, ${((box.h - size.h * k) / 2).toFixed(2)}px) scale(${k.toFixed(5)})`;
+}
+
+function boxStyle(box) {
+  return `left:${box.x.toFixed(1)}px;top:${box.y.toFixed(1)}px;width:${box.w.toFixed(1)}px;height:${box.h.toFixed(1)}px`;
+}
+
+function ringLayout(n) {
+  const at = (box) => [box.x + box.w / 2, box.y + box.h / 2];
+  if (narrow.matches) {
+    const w = NARROW_WIDTH;
+    const hub = { x: 12, y: 12, w: w - 24, h: 64 };
+    const spots = [...Array(n).keys()].map((i) => ({ x: i % 2 ? w / 2 + 6 : 12, y: 92 + Math.floor(i / 2) * NARROW_ROW, w: w / 2 - 18, h: NARROW_ROW - 8 }));
+    return { size: { w, h: 100 + Math.max(1, Math.ceil(n / 2)) * NARROW_ROW }, hub, spots, wire: (spot) => `M ${w / 2} ${hub.y + hub.h} V ${at(spot)[1].toFixed(1)} H ${(spot.x < w / 2 ? spot.x + spot.w : spot.x).toFixed(1)}` };
+  }
+  const { w, h } = WIDE_STAGE;
+  const hub = { x: w / 2 - 100, y: h / 2 - 48, w: 200, h: 96 };
+  const wire = (spot) => {
+    const [x, y] = at(spot).map((v) => v.toFixed(1));
+    return `M ${w / 2} ${h / 2} C ${w / 2} ${y} ${x} ${h / 2} ${x} ${y}`;
+  };
+  if (n <= RING_LIMIT) {
+    const spots = [...Array(n).keys()].map((i) => {
+      const angle = -Math.PI / 2 + (2 * Math.PI * i) / n;
+      return { x: w / 2 + 0.37 * w * Math.cos(angle) - NODE.w / 2, y: h / 2 + 0.36 * h * Math.sin(angle) - NODE.h / 2, ...NODE };
+    });
+    return { size: WIDE_STAGE, hub, spots, wire };
+  }
+  let [cols, rows] = [4, 3];
+  while (2 * cols + 2 * rows - 4 < n) [cols, rows] = cols / rows < 1.9 ? [cols + 1, rows] : [cols, rows + 1];
+  const ring = [
+    ...[...Array(cols).keys()].map((i) => [i, 0]),
+    ...[...Array(rows - 2).keys()].map((j) => [cols - 1, j + 1]),
+    ...[...Array(cols).keys()].map((i) => [cols - 1 - i, rows - 1]),
+    ...[...Array(rows - 2).keys()].map((j) => [0, rows - 2 - j]),
+  ];
+  const cell = { w: w / cols, h: h / rows };
+  const node = { w: Math.min(NODE.w, cell.w - 18), h: Math.min(NODE.h, cell.h - 18) };
+  return { size: WIDE_STAGE, hub, spots: ring.slice(0, n).map(([i, j]) => ({ x: i * cell.w + (cell.w - node.w) / 2, y: j * cell.h + (cell.h - node.h) / 2, ...node })), wire };
+}
+
+function laneLayout(n) {
+  const w = narrow.matches ? NARROW_WIDTH : WIDE_STAGE.w;
+  const hub = narrow.matches ? { x: 12, y: 12, w: w - 24, h: 64 } : { x: w / 2 - 160, y: 14, w: 320, h: 74 };
+  const top = hub.y + hub.h + 22;
+  const h = narrow.matches ? top + Math.max(1, Math.ceil(n / 2)) * ((w - 24) / 2 / LANE_RATIO) + 12 : WIDE_STAGE.h;
+  const area = { x: 12, y: top, w: w - 24, h: h - top - 12 };
+  const fits = (cols) => Math.min(area.w / cols / LANE_RATIO, area.h / Math.ceil(n / cols));
+  const cols = [...Array(n).keys()].reduce((best, i) => (fits(i + 1) > fits(best) ? i + 1 : best), 1);
+  const cell = { w: Math.min(area.w / cols, LANE_MAX.w), h: Math.min(fits(cols), LANE_MAX.h) };
+  const left = area.x + (area.w - cols * cell.w) / 2;
+  const spots = [...Array(n).keys()].map((i) => ({ x: left + (i % cols) * cell.w + 5, y: area.y + Math.floor(i / cols) * cell.h + 4, w: cell.w - 10, h: cell.h - 8 }));
+  const [rootX, rootY] = [w / 2, hub.y + hub.h];
+  return { size: { w, h }, hub, spots, wire: (spot) => `M ${rootX} ${rootY} C ${rootX} ${(rootY + spot.y) / 2} ${(spot.x + spot.w / 2).toFixed(1)} ${(rootY + spot.y) / 2} ${(spot.x + spot.w / 2).toFixed(1)} ${spot.y.toFixed(1)}` };
+}
+
+function laneSheet(job, href) {
+  const read = slice(`/api/lane?${new URLSearchParams({ id: job.id })}`);
+  const [word, tone] = LANE_STATES[laneState(job)];
+  const facts = [job.branch ? `on ${job.branch}` : '', job.prs ? counted(job.prs, 'PR') : '', job.waits ? `waits on ${counted(job.waits, 'card or job', 'cards or jobs')}` : ''].filter(Boolean);
+  const newest = read?.ok && read.newest;
+  return `<aside class="task-sheet lane-sheet" aria-label="Inside this lane">
+    <div class="sheet-bar"><span class="eyebrow">Lane ${esc(job.id)}</span><a class="linkish" href="${href}">Close</a></div>
+    <h2 class="sheet-title">${esc(job.goal)}</h2>
+    <p class="lane-state">${pill(word, tone)}<span class="meta">${esc(job.kind)} · ${esc(job.where)} · last word ${clock(job.updated)}, ${ago(job.updated)} ago</span></p>
+    <h3 class="sec">Newest progress</h3>
+    ${!read?.ok ? notRead(read) : newest ? `<p class="lane-said">${esc(newest.line)}</p><p class="meta">${LINE_FROM[newest.from]}${newest.at ? `, ${clock(newest.at)}` : ''}</p>` : `<p class="meta">${esc(job.id)} has said nothing yet: it sent no line, kept no report, and this Mac holds no transcript of it.</p>`}
+    ${facts.length ? `<p class="meta">${esc(facts.join(' · '))}</p>` : ''}
     ${fileButtons(job)}
     <a class="btn ghost" href="#/feature/${esc(job.feature)}">See the task ›</a>
-    <p class="rail-note">For: ${esc(entry.title)}</p>
+    <p class="rail-note">For: ${esc(featureOf(job.feature).title)}</p>
   </aside>`;
+}
+
+function listen(read, tree) {
+  if (read === lanesRead) return;
+  const routes = new Map([...tree].flatMap(([project, streams]) => [...streams].flatMap(([stream, lanes]) => lanes.map((job) => [job.id, [project, `${project}/${stream}`, `${project}/${stream}/${job.id}`]]))));
+  if (lanesRead && shownHash === 'work') {
+    for (const job of read.lanes) {
+      const was = laneSeen.get(job.id);
+      if (was !== job.updated && routes.has(job.id)) packets.push({ lane: job.id, route: routes.get(job.id), up: was !== undefined });
+    }
+  }
+  lanesRead = read;
+  laneSeen = new Map(read.lanes.map((job) => [job.id, job.updated]));
+}
+
+function sendPackets() {
+  const sent = packets.splice(0);
+  if (paused || route().screen !== 'work' || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  for (const { lane, route: wires, up } of sent) {
+    for (const wire of document.querySelectorAll(wires.map((key) => `#main .wire[data-wire="${CSS.escape(key)}"]`).join(', '))) {
+      const packet = wire.cloneNode();
+      packet.setAttribute('class', 'packet');
+      packet.setAttribute('pathLength', '100');
+      wire.parentElement.querySelector('.packets').append(packet);
+      packet.animate({ strokeDashoffset: up ? ['-100', '6'] : ['6', '-100'] }, { duration: 1500, easing: 'ease-in-out' }).finished.then(() => packet.remove());
+    }
+    document.querySelector(`#main .topo-node.lane[data-lane="${CSS.escape(lane)}"]`)?.animate({ boxShadow: ['0 0 0 0 #34685466', '0 0 0 14px #34685400'] }, { duration: 1100, easing: 'ease-out' });
+  }
+}
+
+function mapContext() {
+  const lanes = lanesRead?.lanes ?? [];
+  const drawer = $('#drawer');
+  drawer.classList.remove('wide');
+  drawer.addEventListener('close', () => drawer.classList.add('wide'), { once: true });
+  drawer.innerHTML = `<div class="dr-bar"><b>A map of the registered work</b><button class="linkish" data-close>Close</button></div>
+    <div class="dr-pane body-pane map-context">
+      <p>Every active job in drive.json: ${counted(lanes.length, 'lane')} running, waiting or built, under the projects and workstreams Now lists, so both screens name the same ${counted(index().tree.size, 'project')}.</p>
+      <p>A node sits where its order is filed, project then workstream. Positions group the work; they do not show which agent started which.</p>
+      <p>A packet moves only for a record between a lane and the coordinator: toward the coordinator when a lane's last word changes, toward the lane when the coordinator starts it. Nothing moves until the drive records something. Pause motion, or the reduced-motion setting, stops packets and orbits.</p>
+      <p>${counted(new Set(lanes.map((job) => job.agent).filter(Boolean)).size, 'registered agent')}: the distinct local agents and Orca dispatches behind those lanes.</p>
+    </div>`;
+  if (!drawer.open) drawer.showModal();
 }
 
 function jumpItems() {
@@ -1829,6 +1995,7 @@ function render() {
   else morphChildren($('#main'), Object.assign(document.createElement('main'), { innerHTML: html }));
   settleCamera(arrived);
   if (reviewing) drawDrawer();
+  sendPackets();
   if ($('#jump').open) drawJump();
   for (const url of [...slices.keys()].slice(0, -SLICES_KEPT)) slices.delete(url);
   measure();
@@ -1839,8 +2006,7 @@ function render() {
 
 function pageKey() {
   const { screen, path } = route();
-  if (screen === 'work') return `work/${path.slice(0, 2).join('/')}`;
-  return screen === 'now' ? 'now' : screen === 'queue' ? `queue/${filterOf(path[0])}` : location.hash;
+  return ['now', 'work'].includes(screen) ? screen : screen === 'queue' ? `queue/${filterOf(path[0])}` : location.hash;
 }
 
 function morph(old, made) {
@@ -1850,6 +2016,7 @@ function morph(old, made) {
     return;
   }
   if (old.matches('.visual-host.drawn') && old.dataset.visual === made.dataset.visual && old.dataset.source === made.dataset.source) return;
+  if (old.matches('.packets')) return;
   for (const { name } of [...old.attributes]) if (!made.hasAttribute(name) && !(name === 'open' && old.matches('details'))) old.removeAttribute(name);
   for (const { name, value } of made.attributes) if (old.getAttribute(name) !== value) old.setAttribute(name, value);
   if (old.matches('textarea')) {
@@ -2035,6 +2202,11 @@ function connect() {
 document.addEventListener('input', (event) => {
   const box = event.target.closest('textarea[data-draft]');
   if (box) drafts.set(box.dataset.draft, box.value);
+  const filter = event.target.closest('#main [data-lane-filter]');
+  if (!filter) return;
+  laneFilter = { at: filter.dataset.laneFilter, words: filter.value };
+  render();
+  flyTo(cameraTarget(), 300);
 });
 document.addEventListener('submit', (event) => {
   const note = event.target.closest('form[data-note]');
@@ -2071,15 +2243,12 @@ document.addEventListener('click', (event) => {
     return go('#/queue/all');
   }
   if (event.target.closest('[data-motion]')) {
-    paused = paused ? null : Date.now();
+    paused = !paused;
     localStorage.setItem('motion', paused ? 'paused' : 'moving');
+    if (paused) for (const packet of document.querySelectorAll('#main .packet')) packet.remove();
     return render();
   }
-  const zoomed = event.target.closest('[data-zoom]');
-  if (zoomed) {
-    mapZoom = Math.max(0, Math.min(MAP_ZOOMS.length - 1, mapZoom + Number(zoomed.dataset.zoom)));
-    return render();
-  }
+  if (event.target.closest('[data-map-context]')) return mapContext();
   const file = event.target.closest('button[data-file]');
   if (file) return openFile(file.dataset.file, file.dataset.title);
   if (event.target.closest('#kbtn')) return openJump();
@@ -2208,32 +2377,47 @@ window.addEventListener('hashchange', () => {
 document.addEventListener('pointerover', (event) => {
   touched = event.pointerType !== 'mouse';
 });
+const pointers = new Map();
+let grip = null;
+
+function gripOf(viewport) {
+  const points = [...pointers.values()];
+  const r = viewport.getBoundingClientRect();
+  const span = points.length > 1 ? Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y) : 0;
+  return { camera: { ...camera }, x: points.reduce((sum, p) => sum + p.x, 0) / points.length - r.left, y: points.reduce((sum, p) => sum + p.y, 0) / points.length - r.top, span };
+}
+
 document.addEventListener('pointerdown', (event) => {
   const viewport = event.target.closest('#main .viewport');
-  if (!viewport || event.button !== 0 || event.target.closest('.task-sheet, .stream.here .stream-body')) return;
-  const start = { x: event.clientX, y: event.clientY, camera: { ...camera } };
-  dragged = false;
-  const move = (moved) => {
-    const dx = moved.clientX - start.x;
-    const dy = moved.clientY - start.y;
-    if (!dragged && Math.hypot(dx, dy) < 6) return;
-    if (!dragged) viewport.setPointerCapture(event.pointerId);
-    dragged = true;
-    viewport.classList.add('dragging');
-    cancelAnimationFrame(flying);
-    camera = { ...start.camera, x: start.camera.x - dx / start.camera.k, y: start.camera.y - dy / start.camera.k };
-    aim();
-  };
-  const end = () => {
-    viewport.classList.remove('dragging');
-    viewport.removeEventListener('pointermove', move);
-  };
-  viewport.addEventListener('pointermove', move);
-  viewport.addEventListener('pointerup', end, { once: true });
-  viewport.addEventListener('pointercancel', end, { once: true });
+  if (!viewport || event.button !== 0 || event.target.closest('.task-sheet, .stream.here .stream-body, input')) return;
+  if (!pointers.size) dragged = false;
+  pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  grip = gripOf(viewport);
 });
+document.addEventListener('pointermove', (event) => {
+  if (!pointers.has(event.pointerId)) return;
+  const viewport = $('#main .viewport');
+  pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  const now = gripOf(viewport);
+  if (!dragged && Math.hypot(now.x - grip.x, now.y - grip.y) < 6 && Math.abs(now.span - grip.span) < 6) return;
+  if (event.pointerType === 'mouse' && !viewport.hasPointerCapture(event.pointerId)) viewport.setPointerCapture(event.pointerId);
+  dragged = true;
+  viewport.classList.add('dragging');
+  cancelAnimationFrame(flying);
+  const k = grip.span ? zoomed(viewport, (grip.camera.k * now.span) / grip.span) : grip.camera.k;
+  camera = { k, x: grip.camera.x + grip.x / grip.camera.k - now.x / k, y: grip.camera.y + grip.y / grip.camera.k - now.y / k };
+  aim();
+});
+for (const ended of ['pointerup', 'pointercancel']) {
+  document.addEventListener(ended, (event) => {
+    if (!pointers.delete(event.pointerId)) return;
+    const viewport = $('#main .viewport');
+    if (pointers.size && viewport) grip = gripOf(viewport);
+    else viewport?.classList.remove('dragging');
+  });
+}
 document.addEventListener('click', (event) => {
-  if (!dragged || !event.target.closest('#main .viewport')) return;
+  if (!dragged || !event.detail || !event.target.closest('#main .viewport')) return;
   dragged = false;
   event.preventDefault();
   event.stopImmediatePropagation();
@@ -2325,7 +2509,9 @@ document.addEventListener('keydown', (event) => {
 });
 window.addEventListener('DOMContentLoaded', () => {
   history.scrollRestoration = 'manual';
-  paused = localStorage.getItem('motion') === 'paused' ? Date.now() : null;
+  paused = localStorage.getItem('motion') === 'paused';
+  narrow = matchMedia('(max-width: 760px)');
+  narrow.addEventListener('change', render);
   $('#jumpfind').addEventListener('input', () => {
     jumpAt = 0;
     drawJump();
