@@ -1209,6 +1209,62 @@ def test_job_ask_keeps_an_ask_in_the_shape_he_reads_and_sets_the_job_waiting(
     assert shown["show_me"][-1] == "```"
 
 
+PINNED_CHATS_ASK = explained("""ASK Where should pinned chats draw in the Iris sidebar?
+A row's menu gains Pin and Unpin, and the sidebar draws pinned chats and agents ahead of unpinned ones. The choice is which spot counts as the top.
+You have not decided this. A user asked to keep a Unichat pinned at the top at all times, and a Unichat lists under Agents, below every chat, so I recommend one Pinned group above both.
+Show me:
+The sidebar from the top down under each option, with a pinned Unichat and one pinned chat
+| Sidebar, top down | 1 · Pinned group on top | 2 · Top of each section | 3 · One shared Pinned section |
+| --- | --- | --- | --- |
+| First | New Chat, Search, New Agent | New Chat, Search, New Agent | New Chat, Search, New Agent |
+| Second | Pinned: Unichat, CPQ sync | Chats: CPQ sync with a pin mark, then folders | Pinned: Unichat, CPQ sync, Deal desk app |
+| Third | Chats: folders, then the 5 newest chats | Agents: Unichat with a pin mark, then the 5 newest agents | Chats: folders, then the 5 newest chats |
+- A new Pinned group above Chats and Agents: pinned chats and agents draw there in the order you drag (recommended)
+- Pinned rows rise to the top of their own section: a pinned Unichat tops Agents but stays below every chat and folder
+- Chat pins join today's Pinned section of projects and apps, and that section moves from below the chat lists to the top
+Findings:
+Root cause: none: a new feature a user asked for, not a defect
+The sidebar draws New Chat, Search, New Agent, then the session list, then the Pinned section of projects and apps.
+""")
+
+
+def test_job_ask_refuses_a_look_choice_until_each_option_carries_its_screenshot(
+    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], jev: Jev
+) -> None:
+    block = tmp_path / "ask.md"
+    block.write_text(PINNED_CHATS_ASK)
+    jev.looks = 0.99
+    assert cli.main(["job", "ask", asking, str(block)]) == 2
+    refused = capsys.readouterr().err
+    assert "the ASK's options differ in how a screen looks, so he picks by seeing each, and options 1, 2, 3 carry no screenshot" in refused
+    assert "his ruling 0d2b7df" in refused
+    [looked] = jev.looked
+    assert (looked["question"], looked["options"][0]["option"]) == (
+        "Where should pinned chats draw in the Iris sidebar?",
+        "A new Pinned group above Chats and Agents: pinned chats and agents draw there in the order you drag",
+    )
+    shots = []
+    for number, what in enumerate(("Pinned group on top", "Top of each section", "One shared Pinned section"), start=1):
+        shot = tmp_path / "shots" / f"option-{number}.png"
+        shot.parent.mkdir(exist_ok=True)
+        shot.write_bytes(b"\x89PNG\r\n")
+        shots.append(f"![{number} · {what}]({shot})")
+    block.write_text(PINNED_CHATS_ASK.replace("Show me:\n", "Show me:\n" + "\n".join(shots[:2]) + "\n"))
+    assert cli.main(["job", "ask", asking, str(block)]) == 2
+    assert "and option 3 carries no screenshot" in capsys.readouterr().err
+    block.write_text(PINNED_CHATS_ASK.replace("Show me:\n", "Show me:\n" + "\n".join(shots) + "\n"))
+    assert run("job", "ask", asking, str(block))[0] == 0
+    assert len(jev.looked) == 2
+
+
+def test_job_ask_keeps_a_choice_he_reads_about_with_no_screenshot(run: Run, asking: str, tmp_path: Path, jev: Jev) -> None:
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    jev.looks = 0.02
+    assert run("job", "ask", asking, str(block))[0] == 0
+    assert [looked["question"] for looked in jev.looked] == ["How should a finished run's files be laid out so its page opens without guessing?"]
+
+
 def test_job_ask_refuses_findings_before_the_question(
     run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -5643,10 +5699,12 @@ def test_job_ask_says_on_stderr_that_jev_gave_no_answer_and_sends_the_question_t
     recorded.found = [FLAT_RULING]
     jev.answer = None
     assert cli.main(["job", "ask", asking, str(block)]) == 0
+    unheard = capsys.readouterr().err
     assert (
         "drive job ask: Jev did not say whether his answer ac61348 decides this question, so it goes to him: Command 'spawnllm decide' timed out after 60 seconds"
-        in capsys.readouterr().err
+        in unheard
     )
+    assert "drive job ask: Jev did not say whether this question's options differ in how a screen looks, so it goes up unchecked for screenshots" in unheard
     assert state.load("demo")["jobs"]["j1"]["questions"][0]["refused"] is None
 
 

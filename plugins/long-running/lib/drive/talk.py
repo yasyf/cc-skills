@@ -160,7 +160,7 @@ def check(name: str, post: dict) -> None:
         )
     if post.get("edit") and not post.get("text"):
         raise DriveError("nothing edited: an edit needs text, the post's new words")
-    if post.get("edit") and any(picture.pictured(fence[1], fence[2]) for fence in picture.FENCE.finditer(post["text"])):
+    if post.get("edit") and any(picture.drawable(fence[1], fence[2]) for fence in picture.FENCE.finditer(post["text"])):
         raise DriveError("nothing edited: a code or diagram fence draws as a picture, which an edit of a Slack message cannot add; post it as a new post")
     stack = [state.pr_key(each) for each in post.get("tap_prs") or []]
     if strays := [key for key in stack if key not in data["prs"]]:
@@ -193,7 +193,7 @@ def shown(name: str, post: dict) -> tuple[list[dict], str, list[str]]:
     lifted = []
 
     def lift(fence: re.Match[str]) -> str:
-        if not picture.pictured(fence[1], fence[2]):
+        if not picture.drawable(fence[1], fence[2]):
             return fence[0]
         language = fence[1].lower()
         visual = {"kind": language} if language in picture.DIAGRAMS else {"kind": "code", "language": language}

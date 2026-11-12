@@ -118,6 +118,14 @@ SIGNED = re.compile(r'<img src="([^"]+)"')
 SIGNING_CONTEXT = "cli/cli"
 SOURCED = ".sourced"
 SOURCE = "source.json"
+ILLUSTRATES = (
+    "This fence is about to be drawn as a picture of code on his Slack card. Does the picture illustrate something the card's"
+    " words cannot say as well, such as the shape of a function, a type, a query or several statements working together?"
+    " Answer no when it is trivial: a value flipped, such as write = 0 becoming write = 1, an argument or list item added or"
+    " dropped, a name or path changed, or one declaration, which a sentence says as well."
+)
+ILLUSTRATIVE = 0.5
+JUDGED = "illustrative"
 
 
 class PictureError(Exception):
@@ -237,7 +245,7 @@ def fetched(url: str) -> bytes:
 
 
 def sources(show_me: str) -> list[tuple[str, str, str]]:
-    """Each picture a Show me section holds, in order, as (kind, source, caption): a diagram or compare fence, or a code fence naming its language and holding no sentences, captioned by the line just above it, or an image link, captioned by its alt text. A ```chart is no picture, since cc-slack draws it as Slack's own chart."""
+    """Each picture a Show me section holds, in order, as (kind, source, caption): a diagram or compare fence, or a code fence naming its language, holding no sentences and illustrating something, captioned by the line just above it, or an image link, captioned by its alt text. A ```chart is no picture, since cc-slack draws it as Slack's own chart."""
     found = [
         (match.start(), fence_kind(match["language"]), match["source"], match["caption"] or "")
         for match in CAPTIONED.finditer(show_me)
@@ -310,9 +318,38 @@ def quoted(language: str, source: str) -> bool:
     return language.lower() not in DIAGRAMS and not raw(language, source) and prose(source)
 
 
-def pictured(language: str, source: str) -> bool:
-    """Whether a fence draws as a picture on his card: one naming a language, holding neither raw data, tool output nor sentences, and no chart, which Slack draws as its own."""
+def drawable(language: str, source: str) -> bool:
+    """Whether a fence can draw as a picture: one naming a language, holding neither raw data, tool output nor sentences, and no chart, which Slack draws as its own."""
     return language.lower() not in (*WORDS, *NATIVE) and not raw(language, source) and not quoted(language, source)
+
+
+def pictured(language: str, source: str) -> bool:
+    """Whether a fence draws as a picture on his card: one that can, and whose picture illustrates something."""
+    return drawable(language, source) and illustrative(language, source)
+
+
+def illustrative(language: str, source: str) -> bool:
+    """Whether a fence is worth a picture on his card, by his pick 29865ea, "drop the ones where the code is not illustrative or is just one line or something": every diagram is, a fence of one line never is, and code is when Jev reads its picture as illustrating what the card's words cannot say as well, ILLUSTRATIVE sure or more, never a value flipped, an argument dropped or a name changed. Jev's verdict on each source is kept under the state root, so every draw of a card shows the same pictures; when Jev gives none the fence draws, said on stderr."""
+    if language.lower() in DIAGRAMS:
+        return True
+    if len([line for line in source.splitlines() if line.strip()]) < 2:
+        return False
+    from drive import settled, state
+
+    key = hashlib.sha256(f"{language.lower()}\n{source}".encode()).hexdigest()[:16]
+    kept = state.root() / JUDGED / f"{key}.json"
+    if kept.is_file():
+        return json.loads(kept.read_text())["illustrative"]
+    try:
+        sure = settled.jev({"state": {"language": language, "code": source}, "questions": {"illustrates": {"binary": {"instructions": ILLUSTRATES}}}})["illustrates"]["p_yes"]
+    except settled.Unheard as failure:
+        print(f"drive card: Jev did not say whether a ```{language} fence illustrates anything, so it draws as a picture: {failure}", file=sys.stderr)
+        return True
+    kept.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile("w", dir=kept.parent, suffix=".tmp", delete=False) as written:
+        json.dump({"language": language, "source": source, "p_yes": sure, "illustrative": sure >= ILLUSTRATIVE}, written)
+    os.replace(written.name, kept)
+    return sure >= ILLUSTRATIVE
 
 
 def file_name(caption: str) -> str:
@@ -395,7 +432,7 @@ def apart(name: str, taken: set[str]) -> str:
 
 
 def drawn(folder: Path, show_me: list[str]) -> list[str]:
-    """A question card's Show me with each fenced block that draws as a picture replaced by one line holding it, `![caption](/abs.png)`, which cc-slack draws as an image block where the line sits, or with the pictures beside it as one gallery, titled with the caption line just above the fence, or what kind of picture it is when none is. A fence of sentences, such as a draft message or a quote, becomes `> ` lines under its caption, which Slack shows as a quote of the text, links and all. A ```chart stays as written, since cc-slack draws it as Slack's own chart. A fence of other words, with no language or `text`, which only a block kept before `drive job ask` refused one holds, stays as written with its caption, so a redraw never loses it and Slack draws it as a code block, since a picture of words shows nothing; one with no language that holds code draws as a code picture, its grammar guessed by the renderer. A fence of raw data or tool output leaves the card with its caption, since a picture of JSON or a terminal shows nothing, and a fence that does not draw raises the DriveError `shot` names it in, such as Mermaid's parse error, so no card goes up without its picture."""
+    """A question card's Show me with each fenced block that draws as a picture replaced by one line holding it, `![caption](/abs.png)`, which cc-slack draws as an image block where the line sits, or with the pictures beside it as one gallery, titled with the caption line just above the fence, or what kind of picture it is when none is. A fence of sentences, such as a draft message or a quote, becomes `> ` lines under its caption, which Slack shows as a quote of the text, links and all. A ```chart stays as written, since cc-slack draws it as Slack's own chart. A fence of other words, with no language or `text`, which only a block kept before `drive job ask` refused one holds, stays as written with its caption, so a redraw never loses it and Slack draws it as a code block, since a picture of words shows nothing; one with no language that holds code draws as a code picture, its grammar guessed by the renderer. A code fence whose picture would illustrate nothing, by `illustrative`, stays with its caption as Slack's code block, its language left off, which Slack would show as its first line. A fence of raw data or tool output leaves the card with its caption, since a picture of JSON or a terminal shows nothing, and a fence that does not draw raises the DriveError `shot` names it in, such as Mermaid's parse error, so no card goes up without its picture."""
 
     def picture_line(fence: re.Match[str]) -> str:
         language = fence["language"].lower()
@@ -406,6 +443,8 @@ def drawn(folder: Path, show_me: list[str]) -> list[str]:
         if what := raw(fence["language"], fence["source"]):
             print(f"drive card: its Show me holds {what} in a ```{fence['language']} fence, which leaves the card; {INSTEAD}", file=sys.stderr)
             return ""
+        if not illustrative(language, fence["source"]):
+            return "\n".join([*filter(None, [fence["caption"]]), "```", fence["source"].rstrip("\n"), "```"])
         shown = fence_kind(fence["language"])
         caption = fence["caption"] or title(shown)
         which = f'the Show me picture "{caption}", a ```{fence["language"]} fence,'

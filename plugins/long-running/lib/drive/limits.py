@@ -1,5 +1,6 @@
 import json
 import re
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from itertools import groupby, pairwise, permutations
@@ -37,6 +38,16 @@ IMMEDIATE_FIX_RULING = 'his Nov 11 1:05 PM words "always do the immediate fix (o
 CONSTANT_RULING = 'his Nov 10 11:03 PM words "we needed an image to show a const? use your brain show a snippet when it makes sense"'
 CHART_RULING = 'his Nov 10 10:53 PM words "for the chart slack ltieraly has the native … vertsion of this why didnt youi build that for the renderer"'
 PHONE_RULING = 'his Nov 11 12:21 AM words "mermaid is but is ugly"'
+LOOKS_RULING = 'his ruling 0d2b7df, "this should have included images; you include images when they are usless and dont add anyhtng, and then dont when its things like this, its totlly backwards"'
+LOOKS = "looks"
+LOOKS_SURE = 0.8
+LOOKS_QUESTION = (
+    "Do this question's options differ in how a screen someone sees looks, such as where rows draw in a sidebar, a page's layout,"
+    " where a control sits or how it is styled, or an icon, so that he must see each option drawn to pick one? Pick looks when"
+    " they do. Pick none when they differ in something he reads about rather than sees, such as where data is stored, which code"
+    " runs, a schedule, a rule, a process, a message's wording or a cost, even when the work behind them ends up on a screen."
+)
+LOOK_OPTIONS = {"none": "They differ in something he reads about rather than sees.", LOOKS: "They differ in how a screen looks, so he must see each to pick."}
 HAND_DRAWN = ("asks", "pictures")
 BEFORE = re.compile(r"\bbefore\b", re.IGNORECASE)
 AFTER = re.compile(r"\bafter\b", re.IGNORECASE)
@@ -630,12 +641,37 @@ def question(text: str, kept: bool = False, unsettled: str | None = None, hurtin
 
 
 def shape(text: str, drive: str, job_id: str, pictures: Path, unsettled: str | None = None, hurting: bool = False) -> Question:
-    """The question a job's ASK block puts to him once its three checks pass: its words, then the card it draws, which cc-slack refuses in its own words, then each picture of its Show me, drawn under pictures, where its card finds them, and refused with why one does not draw, such as Mermaid's parse error. `drive job ask <j>`, `drive job ask --check` and the watch on a remote lane's ASK check here alike; `drive job ask <j>`, which the watch then runs on that ASK, also checks it against his recorded answers."""
+    """The question a job's ASK block puts to him once its four checks pass: its words, then a real screenshot of each option when they differ in how a screen looks, then the card it draws, which cc-slack refuses in its own words, then each picture of its Show me, drawn under pictures, where its card finds them, and refused with why one does not draw, such as Mermaid's parse error. `drive job ask <j>`, `drive job ask --check` and the watch on a remote lane's ASK check here alike; `drive job ask <j>`, which the watch then runs on that ASK, also checks it against his recorded answers."""
     asked = question(text, unsettled=unsettled, hurting=hurting)
+    if unshown := unshot(asked):
+        raise DriveError(unshown)
     if refused := slack.draw_refusal(asked.card(drive, f"{drive}:{job_id}-0")):
         raise DriveError(f"the ASK's card is out of shape, so cc-slack would not draw it: {refused}")
     picture.drawn(pictures, asked.show_me)
     return asked
+
+
+def unshot(asked: Question) -> str | None:
+    """Why a question goes to him without a picture of each option, by his ruling 0d2b7df: Jev reads its options as differing in how a screen looks, LOOKS_SURE sure or more, so he picks by seeing each, and an option has no picture line captioned with its number, `![N · …](path)`. Jev reads the question in one call, and when it gives no reading the question goes up, said on stderr."""
+    from drive import settled
+
+    shot = {int(number[1]) for line in captions(asked.show_me) if (found := PICTURE.fullmatch(line)) and (number := OPTION_CAPTION.match(found[1]))}
+    if not (unshown := [index for index in range(1, len(asked.options) + 1) if index not in shot]):
+        return None
+    seen = {"question": asked.title, "summary": "\n".join(asked.summary), "options": [{"option": option, "description": asked.hints.get(option, "")} for option in asked.options]}
+    try:
+        read = settled.jev({"state": seen, "questions": {LOOKS: {"label": {"instructions": LOOKS_QUESTION, "options": LOOK_OPTIONS}}}})[LOOKS]
+    except settled.Unheard as failure:
+        print(f"drive job ask: Jev did not say whether this question's options differ in how a screen looks, so it goes up unchecked for screenshots: {failure}", file=sys.stderr)
+        return None
+    if read["probabilities"].get(LOOKS, 0) < LOOKS_SURE:
+        return None
+    which = f"option {unshown[0]} carries" if len(unshown) == 1 else f"options {', '.join(map(str, unshown))} carry"
+    return (
+        f"the ASK's options differ in how a screen looks, so he picks by seeing each, and {which} no screenshot: take a real screenshot of each option's screen, as built or in a prototype of it,"
+        " with agent-browser or `screencapture`, and put each on a line of its own in the Show me as `![N · what it shows](/absolute/path.png)`,"
+        f" N its option's number, which his card draws side by side as one gallery ({LOOKS_RULING})"
+    )
 
 
 def option_problems(options: list[str], unsettled: str | None) -> list[str]:
@@ -980,9 +1016,9 @@ def visual_problems(show_me: list[str], options: int) -> list[str]:
         for fence in code
         if constant(fence[2])
     ]
-    if len(code) >= max(2, options):
+    if len(pictured := [fence for fence in code if picture.illustrative(fence[1], fence[2])]) >= max(2, options):
         problems.append(
-            f"the Show me draws {len(code)} code fences as {len(code)} pictures, one per option and each full size: carry them in"
+            f"the Show me draws {len(pictured)} code fences as {len(pictured)} pictures, one per option and each full size: carry them in"
             f" one ```compare whose options name each, so he sees them side by side, labeled ({BIG_RULING}; {GALLERY_RULING})"
         )
     problems += [

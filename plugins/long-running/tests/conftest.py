@@ -14,6 +14,7 @@ from drive import (
     dashboard,
     github,
     land,
+    limits,
     orca,
     page,
     picture,
@@ -163,6 +164,13 @@ def meta(run: Callable[..., tuple[int, str]], demo: str) -> str:
     with state.edit(demo) as data:
         data["roles"]["coordinator"]["session"] = "elsewhere"
     return demo
+
+
+@pytest.fixture(autouse=True)
+def judged_pictures(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every test keeps the verdicts on which fences illustrate something under its own state root, never the real one or another test's."""
+    monkeypatch.delenv("LONG_RUNNING_STATE", raising=False)
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
 
 
 @pytest.fixture(autouse=True)
@@ -508,6 +516,10 @@ class Jev:
     reads: dict[str, dict[str, float]] = field(default_factory=dict)
     unsaid: set[str] = field(default_factory=set)
     changes: dict[str, float] = field(default_factory=dict)
+    plain: set[str] = field(default_factory=set)
+    illustrated: list[str] = field(default_factory=list)
+    looks: float = 0.0
+    looked: list[dict] = field(default_factory=list)
 
     def picks(self, choice: str, probability: float = 0.9) -> None:
         self.answer = label(choice, {"none": round(1 - probability, 2), choice: probability})
@@ -529,9 +541,20 @@ def jev(monkeypatch: pytest.MonkeyPatch) -> Jev:
     judged = Jev()
 
     def answered(request: dict) -> dict:
-        judged.asked.append(request)
+        questions = request["questions"]
+        if "illustrates" in questions:
+            judged.illustrated.append(request["state"]["code"])
+        elif limits.LOOKS in questions:
+            judged.looked.append(request["state"])
+        else:
+            judged.asked.append(request)
         if judged.answer is None:
             raise settled.Unheard("Command 'spawnllm decide' timed out after 60 seconds")
+        if "illustrates" in questions:
+            p_yes = 0.05 if request["state"]["code"] in judged.plain else 0.95
+            return {"illustrates": {"type": "binary", "p_yes": p_yes, "confidence": 0.9}}
+        if limits.LOOKS in questions:
+            return {limits.LOOKS: label(limits.LOOKS if judged.looks >= 0.5 else "none", {"none": round(1 - judged.looks, 2), limits.LOOKS: judged.looks})}
         if "changes" in request["questions"]:
             read = {"none": 0.9} | judged.changes
             return {"changes": label(max(read, key=read.__getitem__), read)}

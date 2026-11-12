@@ -153,8 +153,10 @@ Interim fix: <on a bug hurting someone now: the link of the PR, release, rollbac
   four nodes; `compare` or a markdown table for the options side by side, with their code, gains and
   costs; `chart` (Vega-Lite) for sizes, counts and timings, which Slack draws as its own chart, its
   title at most 50 characters, each label at most 20, at most 12 series and 20 categories, 2 charts a
-  card; `arch` for components; the code's language for the real call; a screenshot on its own line
-  for a UI.
+  card; `arch` for components; the code's language for the real call, which draws as a picture only
+  when it illustrates a shape and otherwise shows as Slack's code block; a real screenshot on its own
+  line for a UI, one per option, captioned with its number, when the options differ in how a screen
+  looks.
 - Two or more pictures draw side by side as one Slack gallery, so open each caption with its
   option's number as the card numbers them, the recommended option 1, and a middle dot:
   `1 · Feed first`.
@@ -174,6 +176,7 @@ Interim fix: <on a bug hurting someone now: the link of the PR, release, rollbac
   - two or more PRs listed by number, which a stack card shows;
   - a `Show me:` with no visual;
   - a table with one value in every cell;
+  - options that differ in how a screen looks, as Jev reads them, with no screenshot for each option;
   - a question or option that names polling, a push, a subscription, a notification, a listener or
     an event by a bare word, such as "Polls only", "a Poll source" or "the event system", while a Sand
     name such as `event::on` passes;

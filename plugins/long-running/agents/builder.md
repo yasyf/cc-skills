@@ -482,7 +482,10 @@ Interim fix: <on a bug hurting someone now: the link of the PR, release, rollbac
   `chart` fence (a Vega-Lite spec) for numbers, which Slack draws as its own chart, its title at
   most 50 characters, each label at most 20, at most 12 series and 20 categories, 2 charts a card;
   and an `arch` fence for components. Use a fence naming its language (`sand`, `sql`, `go`) for a
-  code or API shape, the real call itself, a screenshot on a line of its own for a UI, and a draft
+  code or API shape, the real call itself, which draws as a picture only when it illustrates a shape,
+  a one-line or trivial snippet such as a value flipped or an argument dropped showing as Slack's code
+  block; a real screenshot on a line of its own for a UI, one per option, captioned with its number,
+  when the options differ in how a screen looks; and a draft
   message or quote as its sentences on `> ` lines, which Slack shows as its own quote, never a
   picture of text. Two or
   more pictures draw side by side as one Slack gallery, so open each caption with its option's
@@ -507,7 +510,8 @@ Interim fix: <on a bug hurting someone now: the link of the PR, release, rollbac
   - a picture kept in the drive's asks or pictures folder, drawn by hand rather than from a fence, which a
     before and an after screenshot kept there is not; a
     picture inside a sentence or table cell; two or more PRs listed by number, which a stack card
-    shows; a table with one value in every cell; a `Show me:` with no visual.
+    shows; a table with one value in every cell; a `Show me:` with no visual;
+  - options that differ in how a screen looks, as Jev reads them, with no screenshot for each option.
 - A card never asks him to tap, approve or hold a PR that `drive status <pr>` shows he tapped, or that
   merged or closed; the post check refuses one.
 - The findings stay on disk: his tap on Explain more posts the one section his question rests on.

@@ -182,15 +182,18 @@ def comment_refresher(pr: dict) -> str:
 
 
 def show_me_words(text: str, pictured: bool, charts: int) -> str:
-    """A Show me's words on his card, a blank line between each: one short caption, each markdown table and at most charts ```chart fences as written, which cc-slack draws as Slack's own data table and chart, and its first code block when no picture draws."""
+    """A Show me's words on his card, a blank line between each: one short caption, each markdown table and at most charts ```chart fences as written, which cc-slack draws as Slack's own data table and chart, its first code block when no picture draws, and each code fence whose picture would illustrate nothing, by his pick 29865ea, as Slack's code block under the caption the picture would have carried."""
     bare = picture.FENCE.sub("", picture.IMAGE.sub("", text))
     first = SENTENCES.split(first_paragraph(without_records(bare)), maxsplit=1)[0].strip()
     readable = first and not first.startswith("|") and "`" not in first and len(first) <= CAPTION_CHARS
     shown = [first] if readable else []
     shown += natives(text, charts)
-    code = next((match for match in picture.FENCE.finditer(text) if match[1].lower() not in picture.DIAGRAMS and not picture.raw(match[1], match[2])), None)
-    if code and not pictured:
-        shown.append("```\n" + code_clipped(code[2].strip("\n")) + "\n```")
+    code = [match for match in picture.CAPTIONED.finditer(text) if match["language"].lower() not in picture.DIAGRAMS and not picture.raw(match["language"], match["source"])]
+    for index, match in enumerate(code):
+        plain = picture.drawable(match["language"], match["source"]) and not picture.illustrative(match["language"], match["source"])
+        if plain or not (index or pictured):
+            caption = match["caption"] if plain and match["caption"] != first.rstrip(":") else None
+            shown.append("\n".join([*filter(None, [caption]), "```", code_clipped(match["source"].strip("\n")), "```"]))
     return "\n\n".join(shown)
 
 

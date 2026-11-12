@@ -216,7 +216,11 @@ Its Show me:
 - Each visual is one fence whose language names its kind, and one render layer,
   `lib/drive/site/visuals.js`, draws that one source for each surface. Slack gets a picture of it,
   since a Slack message takes no code or diagram blocks, except a chart, which Slack draws as its own
-  [chart block](https://docs.slack.dev/reference/block-kit/blocks/data-visualization-block). The
+  [chart block](https://docs.slack.dev/reference/block-kit/blocks/data-visualization-block). Code gets
+  a picture only when Jev reads it as illustrating a shape the words cannot, such as a function, a type
+  or a query, by his pick 29865ea, "drop the ones where the code is not illustrative or is just one
+  line or something": a one-line fence, a value flipped such as `write = 0` to `write = 1`, or an
+  argument or list item dropped shows as Slack's code block under its caption. The
   dashboard and other web pages draw each kind's source natively, as highlighted code, a live diagram or chart, or a compare, never as a picture. A
   markdown table is native on both: a Slack data table and an HTML table.
 - Pick the kind that shows what the words cannot:
@@ -231,7 +235,7 @@ Its Show me:
 | a tradeoff between options | compare | `{"options": [{"name", "recommended", "language", "code", "points": ["+ a gain", "- a cost"]}]}`, drawn side by side |
 | words compared across rows | table | a markdown table, which cc-slack draws as a native Slack table |
 | a draft message or a quote | quote | its sentences, each line opening with `> `, which Slack shows as its own quote, links and all |
-| a UI or anything only a picture shows | image | `![what it shows](/absolute/path.png)` on a line of its own, a screenshot or a gen-image or codex imagegen picture |
+| a UI or anything only a picture shows | image | `![what it shows](/absolute/path.png)` on a line of its own, a screenshot or a gen-image or codex imagegen picture; options that differ in how a screen looks carry one real screenshot each, captioned `N · …` |
 
 - Put a caption line of at most 25 words just above each fence. `drive job card` makes it the
   picture's title, as `say` does with a post's `visuals` caption: it replaces the fence with
@@ -266,7 +270,11 @@ Its Show me:
   - a picture kept in the drive's asks or pictures folder, drawn by hand instead of from a fence, which a before and an
     after screenshot kept there is not;
   - two or more PRs listed by number, which their stack's PR card shows;
-  - a `Show me:` with no visual under it, and a picture inside a sentence or a table cell.
+  - a `Show me:` with no visual under it, and a picture inside a sentence or a table cell;
+  - options Jev reads as differing in how a screen looks, such as where rows draw in a sidebar, with
+    no `![N · …](path)` screenshot for each option, by his ruling 0d2b7df, "this should have
+    included images; you include images when they are usless and dont add anyhtng, and then dont
+    when its things like this, its totlly backwards".
 - List every member of a set the card counts. `drive job ask`, `drive job card` and the post hook
   refuse a question, summary or option that counts two to twelve things, as "four strategies" or
   "5 oversized tables" does, unless the card lists that many. It lists them as options, Show me

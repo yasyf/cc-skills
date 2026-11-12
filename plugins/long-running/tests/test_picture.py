@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 
 import pytest
-from drive import github, limits, picture, state
+from drive import card, github, limits, picture, state
 
 DOC = {
     "arch": 1,
@@ -218,7 +218,7 @@ def test_a_pr_cards_pictures_are_each_named_exactly_their_caption_which_slack_ti
         "Seconds per wake: before and after\n```chart\n{\"mark\": \"bar\"}\n```\n"
         "1 · Feed first / then read [today]:\n```mermaid\nflowchart TD\n  a --> b\n```\n"
         "```go\nfunc wake() {\n\tread()\n}\n```\n"
-        f"{long}\n```sand\nlane::diff(@tree) -> @diff\n```\n"
+        f"{long}\n```sand\nlet diff = lane::diff(@tree)\nlane::post(diff)\n```\n"
     )
     named = [Path(path).name for path in picture.pictures(tmp_path / "pictures", "monorepo PR 54043", show_me, set())]
     assert named == ["1 · Feed first then read today", "go code", " ".join(long.split())[: picture.TITLE_CHARS].rstrip()]
@@ -266,9 +266,11 @@ def test_a_question_cards_show_me_draws_each_fence_titled_by_its_caption_or_kind
         "The call today:",
         "```sand",
         "fn note() -> int {",
+        "}",
         "```",
         "```proto",
-        "message Run {}",
+        "message Run {",
+        "}",
         "```",
         "```",
         "GET journal/0001.ltx",
@@ -313,7 +315,7 @@ def test_a_question_cards_show_me_draws_each_fence_titled_by_its_caption_or_kind
     ]
     assert tried == ["code:sand", "code:proto", "mermaid", "dot"]
     with pytest.raises(state.DriveError, match='^the Show me picture "The call that breaks", a ```go fence, does not draw: the code:go did not finish drawing$'):
-        picture.drawn(tmp_path / "pictures", ["The call that breaks:", "```go", "broken", "```"])
+        picture.drawn(tmp_path / "pictures", ["The call that breaks:", "```go", "broken()", "next()", "```"])
 
 
 def test_a_fence_of_sentences_shows_as_a_quote_of_its_text_and_a_bare_fence_draws_as_a_code_picture_only_when_it_holds_code(
@@ -407,3 +409,91 @@ def test_a_pages_text_is_the_words_the_view_its_address_names_shows_once_its_scr
     assert picture.page_text(f"{page.as_uri()}?slack=pr") == "Local Block Kit preview Approve Hold"
     with pytest.raises(picture.PictureError, match="could not load .*missing.html: net::ERR_FILE_NOT_FOUND"):
         picture.page_text((tmp_path / "missing.html").as_uri())
+
+
+FLAG_FLIP = '# before\n[target."platform/runs"]\nwrite = 0\n\n# after\n[target."platform/runs"]\nwrite = 1\n'
+ARGUMENT_DROPPED = "// before\nclient.PushSchema(ctx, db, []*sandsql.LogicalTable{runClaims, sessionClaims, teamRuns})\n\n// after\nclient.PushSchema(ctx, db, []*sandsql.LogicalTable{runClaims, teamRuns})\n"
+ENTRY_BEFORE = 'REVIEWER_TOKEN: {\n  name: "REVIEWER_TOKEN",\n  path: "/ci/review/token",\n},\n'
+ENTRY_AFTER = 'REVIEWER_TOKEN: {\n  name: "REVIEWER_TOKEN",\n  path: "/ci/review/app-key",\n  app: "1234",\n},\n'
+CLAIM = (
+    "func (s *Store) Claim(ctx context.Context, run RunID) (Lease, error) {\n\tlease, err := s.leases.Acquire(ctx, run, s.ttl)\n\tif err != nil {\n"
+    '\t\treturn Lease{}, fmt.Errorf("claim %s: %w", run, err)\n\t}\n\ts.journal.Append(ctx, ClaimEvent{Run: run, Lease: lease.ID})\n\treturn lease, nil\n}\n'
+)
+MIGRATION_SHOW_ME = (
+    "The new migration:\n```sql\nDROP TABLE session_claims;\n```\n"
+    f"`formats.toml`, before and after:\n```toml\n{FLAG_FLIP}```\n"
+    f"The fixture's schema push, before and after:\n```go\n{ARGUMENT_DROPPED}```\n"
+    f"The claim it keeps:\n```go\n{CLAIM}```\n"
+)
+TOKEN_SHOW_ME = (
+    "A session step's command before this PR\n```sh\nexec bun run tools/oncall/session.ts --role responder\n```\n"
+    "The same step after this PR\n```sh\nexec ci oncall-github bun run tools/oncall/session.ts --role responder\n```\n"
+    f"The secret declaration before this PR\n```ts\n{ENTRY_BEFORE}```\n"
+    f"The same declaration after this PR\n```ts\n{ENTRY_AFTER}```\n"
+)
+
+
+def test_a_pr_cards_one_line_fence_value_flip_and_dropped_argument_show_as_code_blocks_while_a_function_still_draws(tmp_path, monkeypatch, jev) -> None:
+    drawn = []
+    monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: drawn.append(source) or out.write_bytes(b"\x89PNG\r\n"))
+    jev.plain = {FLAG_FLIP, ARGUMENT_DROPPED}
+    named = [Path(path).name for path in picture.pictures(tmp_path / "pictures", "monorepo PR 54962", MIGRATION_SHOW_ME, set())]
+    assert (named, drawn) == (["The claim it keeps"], [CLAIM])
+    assert jev.illustrated == [FLAG_FLIP, ARGUMENT_DROPPED, CLAIM]
+    assert card.show_me_words(MIGRATION_SHOW_ME, True, 2) == (
+        "The new migration:\n\n```\nDROP TABLE session_claims;\n```\n\n"
+        f"`formats.toml`, before and after\n```\n{FLAG_FLIP.rstrip()}\n```\n\n"
+        f"The fixture's schema push, before and after\n```\n{ARGUMENT_DROPPED.rstrip()}\n```"
+    )
+    assert jev.illustrated == [FLAG_FLIP, ARGUMENT_DROPPED, CLAIM]
+
+
+def test_a_pr_card_of_two_one_line_commands_and_a_map_entry_before_and_after_draws_no_picture(tmp_path, monkeypatch, jev) -> None:
+    monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: pytest.fail(f"drew a {kind} picture"))
+    jev.plain = {ENTRY_BEFORE, ENTRY_AFTER}
+    assert picture.pictures(tmp_path / "pictures", "monorepo PR 54809", TOKEN_SHOW_ME, set()) == []
+    assert card.show_me_words(TOKEN_SHOW_ME, False, 2).split("\n\n") == [
+        "A session step's command before this PR",
+        "```\nexec bun run tools/oncall/session.ts --role responder\n```",
+        "The same step after this PR\n```\nexec ci oncall-github bun run tools/oncall/session.ts --role responder\n```",
+        f"The secret declaration before this PR\n```\n{ENTRY_BEFORE.rstrip()}\n```",
+        f"The same declaration after this PR\n```\n{ENTRY_AFTER.rstrip()}\n```",
+    ]
+
+
+def test_a_question_cards_fence_that_illustrates_nothing_stays_a_captioned_code_block_and_a_diagram_is_never_judged(tmp_path, monkeypatch, jev) -> None:
+    drawn = []
+    monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: drawn.append(kind) or out.write_bytes(b"\x89PNG\r\n"))
+    jev.plain = {FLAG_FLIP}
+    show_me = ["The table it drops:", "```sql", "DROP TABLE session_claims;", "```", "The flag:", "```toml", *FLAG_FLIP.splitlines(), "```"]
+    show_me += ["1 · The claim:", "```go", *CLAIM.splitlines(), "```", "The flow:", "```mermaid", "flowchart TD", "  a --> b", "```"]
+    shown = picture.drawn(tmp_path / "pictures", show_me)
+    assert [line.split("](")[0] for line in shown] == [
+        "The table it drops",
+        "```",
+        "DROP TABLE session_claims;",
+        "```",
+        "The flag",
+        "```",
+        *FLAG_FLIP.rstrip("\n").splitlines(),
+        "```",
+        "![1 · The claim",
+        "![The flow",
+    ]
+    assert drawn == ["code:go", "mermaid"]
+    assert jev.illustrated == [FLAG_FLIP, CLAIM]
+
+
+def test_jevs_verdict_on_a_fence_is_kept_so_every_draw_shows_the_same_pictures_and_a_fence_jev_gives_none_draws(jev, capsys) -> None:
+    jev.plain = {FLAG_FLIP}
+    assert not picture.illustrative("toml", FLAG_FLIP)
+    jev.plain = set()
+    assert not picture.illustrative("TOML", FLAG_FLIP)
+    assert jev.illustrated == [FLAG_FLIP]
+    [kept] = (state.root() / picture.JUDGED).glob("*.json")
+    assert json.loads(kept.read_text()) == {"language": "toml", "source": FLAG_FLIP, "p_yes": 0.05, "illustrative": False}
+    assert not picture.illustrative("go", "return lease, nil\n") and picture.illustrative("mermaid", "flowchart TD\n")
+    jev.answer = None
+    assert picture.illustrative("go", CLAIM)
+    assert capsys.readouterr().err == "drive card: Jev did not say whether a ```go fence illustrates anything, so it draws as a picture: Command 'spawnllm decide' timed out after 60 seconds\n"
+    assert len(list((state.root() / picture.JUDGED).glob("*.json"))) == 1
