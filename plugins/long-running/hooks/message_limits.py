@@ -29,6 +29,13 @@ PROMISE = re.compile(r"\b(?:from now on|next you(?:['’]ll| will)? get|I(?:['�
 CARRIER = re.compile(r"\b[oj]\d+\b|\b\d{1,2}:\d{2}\s*[AP]M\b", re.IGNORECASE)
 SWITCH = re.compile(r"orca terminal switch --terminal[= ]([^\s`'\"<>|]+)")
 CARD_ANSWER = re.compile(r"✓ ([^\n]+)")
+COORDINATOR = re.compile(r"\bcoordinator\b", re.IGNORECASE)
+DOWN = re.compile(
+    r"\b(?:is|was|went|has been|had been|seems?|looks?)\s+(?:down|dead|gone|offline|unresponsive)\b|\b(?:crashed|exited|died|not running|stopped responding)\b",
+    re.IGNORECASE,
+)
+RESTARTED = re.compile(r"\brestart", re.IGNORECASE)
+DOWN_RULING = "his Nov 8 ruling: \"The coordinator is down? Then why the fuck haven't you restarted it?\" and \"It's unacceptable to just say it's down\""
 WAITING = "WAITING-ON-HIM"
 AWAY_RULE = "While he is away, a line of news to him that is not a card, a line saying what waits on him, an incident line or an answer to a message of his."
 TITLED = (
@@ -282,7 +289,7 @@ def checked(payload: dict) -> tuple[str | None, dict]:
 
 
 def found_in(payload: dict, drive: dict, said: str, titled: int) -> str | None:
-    """What the drive's checks find in a post, which the say hook hands Jev to judge against his words: a bug report's thread gets one fix-live note once the fix is proven live, an edit of his question card redraws it, an edit of a post say made goes through say, a post in his DM goes through say, a handler's line in his thread waits for its read of that thread, and then, every finding at once, the post keeps its length, links what it names, asks no tap that is not owed, backs each cause with its record, answers his order by no plan, record or answer of his that is missing, calls nothing by a word he corrected, and `cc-slack check-post` passes its exact words."""
+    """What the drive's checks find in a post, which the say hook hands Jev to judge against his words: a bug report's thread gets one fix-live note once the fix is proven live, an edit of his question card redraws it, an edit of a post say made goes through say, a post in his DM goes through say, a handler's line in his thread waits for its read of that thread, and then, every finding at once, the post keeps its length, links what it names, asks no tap that is not owed, backs each cause with its record, answers his order by no plan, record or answer of his that is missing, calls nothing by a word he corrected, tells him no coordinator is down that was not restarted, and `cc-slack check-post` passes its exact words."""
     dm = drive["slack"]["channel"]
     tool_input = payload["tool_input"]
     if PLACEHOLDER.fullmatch(text := (tool_input.get("text") or "").strip()):
@@ -313,7 +320,21 @@ def found_in(payload: dict, drive: dict, said: str, titled: int) -> str | None:
             unordered(said),
             corrected(tool_input, drive),
             untooled(payload, drive, said),
+            reported_down(drive, said),
         ]
+    )
+
+
+def reported_down(drive: dict, said: str) -> str | None:
+    """Why a post tells him a coordinator is down: a coordinator whose process exited is restarted that minute, resuming its session, and he hears that it was restarted, never only that it is down."""
+    if RESTARTED.search(said) or not any(COORDINATOR.search(part) and DOWN.search(part) for part in SENTENCE_BREAK.split(said)):
+        return None
+    held = drive["roles"]["coordinator"]
+    return (
+        f"refused: a coordinator that is down is restarted that minute, never reported to him as down ({DOWN_RULING}). Restart it now"
+        " by steps 5 to 7 of `drive manual migration`, Into an Orca terminal, creating the terminal resuming session"
+        f" {held['session']} in {held['cwd']}, or a sub-coordinator's session in the folder its `drive status` line names, then tell"
+        " him it was restarted"
     )
 
 

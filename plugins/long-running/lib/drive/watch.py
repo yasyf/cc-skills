@@ -78,6 +78,7 @@ class Watcher:
     cards: dict | None = None
     agent_gaps: dict[str, str | None] = field(default_factory=dict)
     unsent: dict[str, list[str]] = field(default_factory=dict)
+    down: str | None = None
 
     @property
     def lane(self) -> str:
@@ -1033,6 +1034,25 @@ def compact_lines(watcher: Watcher, moment: datetime) -> list[str]:
     return [f"WATCH compacted the communicator {why}"]
 
 
+def down_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Tell the communicator, once each time it exits, that the coordinator this watch posts to runs no Claude Code process, so nothing hears the drive's records: the communicator restarts it that minute, resuming its session, and never reports it to him as down."""
+    data = state.load(watcher.name)
+    held = data["subcoordinators"][watcher.project] if watcher.project else data["roles"]["coordinator"]
+    if orca.live_pid(held["session"]) is not None:
+        watcher.down = None
+        return []
+    if watcher.down == held["session"]:
+        return []
+    watcher.down = held["session"]
+    role = f"sub-coordinator for {watcher.project}" if watcher.project else "coordinator"
+    line = (
+        f"DOWN the {role}'s Claude Code process has exited, so nothing hears the drive's records: restart it now, with no word from"
+        f" him, by steps 5 to 7 of drive manual migration, Into an Orca terminal, creating the terminal resuming {held['session']}"
+        f" in {held['cwd']}, and tell him it was restarted, never that it is down"
+    )
+    return sent(watcher, "communicator", [line], moment)
+
+
 def said_last(entry: dict) -> str:
     texts = [block["text"] for block in entry["message"]["content"] if block.get("type") == "text"]
     return first_line(texts[-1]) if texts else "nothing"
@@ -1455,7 +1475,7 @@ def tick_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """One loop of the watch: his cards, GitHub, a lander on each PR his Approve covers that qualifies, his PR cards whose PRs all ended, the waits his answers or a job's end release, a READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the communicator's compaction and the status page every 60 s, GitHub again next poll after a failure, new events, promised times still owed a line, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries, a tick every 30 minutes while he is here."""
+    """One loop of the watch: his cards, GitHub, a lander on each PR his Approve covers that qualifies, his PR cards whose PRs all ended, the waits his answers or a job's end release, a READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the communicator's compaction, the status page and a coordinator whose process exited every 60 s, GitHub again next poll after a failure, new events, promised times still owed a line, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries, a tick every 30 minutes while he is here."""
     lines = []
     if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
         watcher.read_at = moment
@@ -1477,6 +1497,7 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
         lines += agent_lines(watcher, moment)
         lines += compact_lines(watcher, moment)
         lines += page_lines(watcher, moment)
+        lines += down_lines(watcher, moment)
     lines += event_lines(watcher)
     due = due_lines(watcher, moment)
     lines += [line for _, line in due]

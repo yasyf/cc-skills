@@ -50,7 +50,7 @@ orca terminal create --worktree path:<worktree> --title <drive>-<lane> --command
 5. Any other line carries no switch command. Tell him what it says in its own words, and act on it:
    - `not visible in Orca, which hides the worktrees it did not make for this repository`: the repository setting above shows it with no restart; `drive start` runs it for the drive's own repository and says so, and `drive status` prints it.
    - `not visible in Orca until restarted into a terminal` (Orca shows the terminal, but its process tree no longer holds the session) or `in no Orca terminal`, tmux included: move the session into a fresh Orca terminal by [migration.md](migration.md#into-an-orca-terminal), on his word.
-6. When the coordinator's Claude Code process has exited, the communicator starts a handler that restarts it at once with step 5 of [migration.md](migration.md#into-an-orca-terminal), resuming its session, and tells him it did. He ruled that a coordinator that is down is restarted, never only reported.
+6. When the coordinator's Claude Code process has exited, the drive's watch sends the communicator one `DOWN` line within a minute, naming the session and its folder, and the communicator starts a handler that restarts it at once with step 5 of [migration.md](migration.md#into-an-orca-terminal), resuming its session, and tells him it did. A project's watch does the same for its sub-coordinator. He ruled that a coordinator that is down is restarted, never only reported.
 
 ## What a compaction keeps
 

@@ -162,6 +162,12 @@ def claude_pids(session: str) -> list[int]:
     return [int(path.stem) for path in sessions.glob("*.json") if json.loads(path.read_text())["sessionId"] == session]
 
 
+def live_pid(session: str) -> int | None:
+    """The pid of the Claude Code process running the session, None once it has exited, since its `~/.claude/sessions/<pid>.json` can outlive it."""
+    running = parents()
+    return next((pid for pid in claude_pids(session) if pid in running), None)
+
+
 def parents() -> dict[int, int]:
     listing = subprocess.run(["ps", "-axo", "pid=,ppid="], capture_output=True, text=True, check=True).stdout
     return {pid: ppid for pid, ppid in (map(int, line.split()) for line in listing.splitlines())}

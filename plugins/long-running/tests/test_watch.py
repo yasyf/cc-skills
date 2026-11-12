@@ -318,6 +318,25 @@ def posted(sent: list[list[str]]) -> list[tuple[str, str, str]]:
     return [(argv[argv.index("--kind") + 1], argv[argv.index("--to") + 1], argv[argv.index("--text") + 1]) for argv in sent]
 
 
+def test_the_watch_tells_the_communicator_once_each_time_the_coordinators_process_exits(
+    demo: str, monkeypatch: pytest.MonkeyPatch, live_sessions: dict[str, int | None]
+) -> None:
+    serve(monkeypatch, {KEY: read()})
+    sent = posts(monkeypatch)
+    watching = watcher(demo)
+    down = (
+        "handoff",
+        f"communicator@{demo}",
+        "DOWN the coordinator's Claude Code process has exited, so nothing hears the drive's records: restart it now, with no word"
+        " from him, by steps 5 to 7 of drive manual migration, Into an Orca terminal, creating the terminal resuming"
+        " session-under-test in /work, and tell him it was restarted, never that it is down",
+    )
+    for moment, pid in enumerate((None, None, 4242, None)):
+        live_sessions["session-under-test"] = pid
+        watch.run_pass(watching, T0 + moment * watch.READ_EVERY)
+    assert [entry for entry in posted(sent) if entry[1] == f"communicator@{demo}"] == [down, down]
+
+
 @pytest.mark.parametrize("text", ["Drive tooling: the watch sends tooling lines to the communicator", "I told him since you never did, fix that"])
 def test_the_lines_of_an_order_the_communicator_holds_go_to_it_and_never_the_coordinator(demo: str, monkeypatch: pytest.MonkeyPatch, text: str) -> None:
     tooling_order(demo, "waiting", text)
