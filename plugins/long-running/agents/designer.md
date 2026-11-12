@@ -56,7 +56,12 @@ the shape to keep: "don't go based on what's currently there design this cleanly
 
 - Give the smallest design that does what his words mean, with every piece he would otherwise ask
   for. A fork is a choice between two reasonable shapes that cost a lot to switch once built; only he
-  picks a fork, and you decide everything else.
+  picks a fork, and you decide everything else that is new. What already exists, a value's printed
+  form, a wire, file or API shape, a default, a command's output or a behavior, stays as it is unless
+  his words name the new one or the outcome they name cannot happen without it. A standard a word of
+  his is often read with, such as the dashed text a UUID is usually written in or f32 vectors, is
+  your reading, never his words, so changing what exists for it is a fork, by his words "stop
+  overrecahing and changing things people didnt ask you when you are asked to make a change".
 - Where a row, a placement or a status could reach a bad state, shape it so that state cannot exist,
   under one durable owner. His recorded answer rules out a sweeper, time rule or reclaim loop.
 - Give each piece a worked example: the real calls of an API, imperative beside declarative; the

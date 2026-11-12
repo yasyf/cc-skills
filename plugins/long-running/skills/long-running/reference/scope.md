@@ -24,6 +24,12 @@ summary line about it, because work stopped before it starts wastes nothing.
   `--design asked:<his answer id>` for a settled design; it prints his words back. When an order
   asks for cards or a summary, those cards deliver it, and each fix waits for his pick on its card.
   A PR serves an order only if the order's words ask for it, not because jobs it unblocks serve it.
+  Inside it, what already exists, a value's printed form, a wire, file or API shape, a default, a
+  command's output or a behavior, stays as it was unless his words name the new one or the outcome
+  they name, the problem they describe included, cannot happen without it; any other change to it
+  is his pick on a card, by his words "stop overrecahing and changing things people didnt ask you
+  when you are asked to make a change, put that int eh skill". The check before his card lists each
+  change the diff makes to what exists, before and after, and refuses each his words do not need.
 - **Drive tooling**: a fix to a tool the drive runs on, such as a launcher, the watch, cards, or CI
   plumbing, or a rewrite of this skill a ruling of his asks for, by [Tooling](../SKILL.md#tooling).
   It is the meta session's, under its own order in the thread his words ordering it came in, else

@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 from collections.abc import Callable
 
@@ -8,6 +9,7 @@ from drive import github, served, state
 KEY = "Forge-AI/monorepo#42"
 URL = "https://github.com/Forge-AI/monorepo/pull/42"
 READ_CHANGE = served.change
+JUDGE = served.judged
 SOURCE = ["app/fixtures.go", "app/fixtures_load.go", "cmd/fixtures.go", "tools/move_fixtures.py"]
 SMALL = b"diff --git a/api/run.ts b/api/run.ts\nindex 1111111111aa..2222222222bb 100644\n--- a/api/run.ts\n+++ b/api/run.ts\n@@ -10,3 +10,3 @@ export function run() {\n   const flag = staff();\n-  return flag;\n+  return !flag;\n }\n"
 
@@ -64,3 +66,53 @@ def test_a_restack_carries_a_check_kept_on_the_text_of_gh_pr_diff_to_the_compare
     monkeypatch.setattr(served, "change", lambda key: {"title": "Fix: run", "head": "head3", "diff": SMALL.replace(b"+  return !flag;", b"+  return flag && !staff();")})
     assert served.carry(demo, [KEY]) == []
     assert state.load(demo)["prs"][KEY]["checked"] is None
+
+
+GAPS = (
+    'b3cbd28, 2026-11-12T02:15:56-08:00, asked "Do you accept the two wrong-id gaps the reviewer bot is holding the UUIDv7 row ids change on?":'
+    ' "Accept both: keeps the id-less answer, so these two rare wrong-id gaps stay; your pick here becomes my owner ruling, no code change."'
+)
+REPLAYS = {
+    "Forge-AI/monorepo#54664": (
+        {
+            "created": "2026-11-10T19:40:59-08:00",
+            "text": "also this should be built on top of both auto-splitting tbales from the DB when too large (is that live and working yhet?) and auto-paritioning big"
+            " tables (you were suppsoed to get me some desing options for thart, iut shoiujld lok at usage patterns to decide when it croses the threshold should it"
+            " be time or hash based partition, etc)",
+        },
+        [
+            "sandsql: new row ids are UUIDv7s minted by the client. Waits on nothing; can sta",
+            "sandsql: reads and writes reach a table with several parts (three placement colu",
+            "sandsql: a table past 1.7 GB is partitioned on its own (roll-over, carve, rule, ",
+        ],
+        [GAPS],
+        "identity.rs",
+    ),
+    "Forge-AI/monorepo#54901": (
+        {
+            "created": "2026-11-12T06:34:37-08:00",
+            "text": "can we keep them as uuidv7 but just format them in the same 32 hex way without dashes so they are the same format? incident urgency, if so and wr dont"
+            " loose anytjing make that change asap (and anyhtign that relies on it) and ,let himknow",
+        },
+        ["fix"],
+        [GAPS],
+        None,
+    ),
+    "Forge-AI/monorepo#54863": (
+        {"created": "2026-11-12T04:33:42-08:00", "text": "why did it lag? we need to fix that"},
+        ["Spread rewrites: the new primary rewrites a few teams per minute so the replica keeps pace"],
+        [
+            'ab71450, 2026-11-12T05:20:46-08:00, asked "How should a SandSQL release keep the replica caught up when a new primary rewrites every database?": "1+3"',
+        ],
+        None,
+    ),
+}
+
+
+@pytest.mark.skipif(os.environ.get("DRIVE_REAL_JUDGE") != "1", reason="replays three merged PRs, read from GitHub, on the judge itself, which DRIVE_REAL_JUDGE=1 asks for")
+@pytest.mark.parametrize("key", list(REPLAYS))
+def test_the_judge_refuses_uuidv7_row_ids_printed_dashed_where_32_hex_stood_and_passes_the_32_hex_fix_and_a_fix_his_words_need(key: str, demo: str) -> None:
+    order, parts, answered, refused_in = REPLAYS[key]
+    said = served.words({"orders": {"o1": order | {"parts": dict.fromkeys(parts)}}}, {"order": "o1", "parts": parts, "carries": {}}, ["o1"], [], answered, [])
+    found = JUDGE(demo, said, {key: READ_CHANGE(key)})
+    assert any(refused_in in item["change"] for item in found) if refused_in else found == [], found

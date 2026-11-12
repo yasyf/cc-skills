@@ -27,6 +27,14 @@ RETRY = timedelta(minutes=10)
 VERDICT = {
     "type": "object",
     "properties": {
+        "changed": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"file": {"type": "string"}, "before": {"type": "string"}, "after": {"type": "string"}, "named_by": {"type": "string"}},
+                "required": ["file", "before", "after", "named_by"],
+            },
+        },
         "against": {
             "type": "array",
             "items": {
@@ -36,36 +44,38 @@ VERDICT = {
             },
         }
     },
-    "required": ["against"],
+    "required": ["changed", "against"],
 }
 RULES = """You check a change before the drive puts it on his card for his Approve. <his_words> holds the words of each order the change serves, his own words verbatim, oldest first, with the parts of each this change delivers and, when its PRs name theirs, the parts other changes deliver, and, when this change is one PR of a job that has others, those PRs: the merged ones, which already deliver their share, and the open ones, each judged on its own; then his answers the PRs cite for the design decisions they make, oldest first, each the question he was asked and his answer, the option he tapped or his own words. <change> holds each pull request's title and diff, source files before tests. PR bodies are left out by his ruling: "Get rid of the fucking PR body check that's insane to delay on who cares about the body".
 
 An answer of his is his words on this change as much as an order is: where an answer settles how or when an order's words are met, such as a step it leaves to a later change, judge the change against the answer.
 
-List in `against` each place where the change goes against his words: it does or keeps what his words rule out, such as a flag, a switch or a page they say goes; it removes, or leaves out of every PR here, what his words say this change delivers; or it makes the outcome his words name impossible. Read his words for what he means, as a careful colleague would. In `order` name the order, or the answer's id or link, in `words` quote the words of his it goes against, and in `change` name the file and the line or hunk that does it, with one sentence on why.
+First list in `changed` each change the diff makes to what already exists: what existing code returns, prints, stores, accepts or depends on, such as a wire, file or API shape, a default or a command's output, and each behavior it removes. List each side of one value as its own change, what it holds or how it is made apart from the form it is written, stored or sized in, since his words can name one and leave the other: a timestamp moving from local time to UTC and from seconds to an ISO string is two changes. Give each its `before` and `after` as the diff shows them, and in `named_by` quote the words of his or of a cited answer that name that side's new form or behavior, else none. Words naming the kind of value name what it holds, never the form it is written in or what else it stops doing: a convention such a word is often read with is a reader's reading, never his words naming it. New code that alters nothing existing is not a change to list.
+
+Then list in `against` each place where the change goes against his words: it does or keeps what his words rule out, such as a flag, a switch or a page they say goes; it removes, or leaves out of every PR here, what his words say this change delivers; it makes the outcome his words name impossible; or it makes a change in `changed` that nothing of his names and the outcome his words name, the problem they describe included, does not need, by his words "stop overrecahing and changing things people didnt ask you when you are asked to make a change". Read his words for what he means, as a careful colleague would. In `order` name the order, or the answer's id or link, in `words` quote the words of his it goes against or beyond, and in `change` name the file and the line or hunk that does it, with its before and after when it changes what exists, and one sentence on why.
 
 Leave out:
 - what his newer words on the same point overrule, an answer's included, since his newest words win;
 - what his words leave to a later change or to the parts other changes deliver, or what one PR here leaves and another PR here, or another PR of its job that <his_words> names, merged or open, does;
-- style, naming, tests and anything his words do not speak to;
+- style, naming and tests, and new code the outcome his words name needs;
 - any line the diff does not show: judge only what it shows, an unchanged context line included.
 
 An empty `against` says the change meets his words."""
 
 
 class Against(DriveError):
-    """A change judged to go against his words, which its builder fixes, as against a read or judge that failed, which runs again; named holds each of his words it goes against and what in the change does."""
+    """A change judged to go against his words, a change to what already exists that they do not need included, which its builder fixes, as against a read or judge that failed, which runs again; named holds each of his words it goes against or beyond and what in the change does, before and after."""
 
     def __init__(self, keys: list[str], named: str):
         self.named = named
         super().__init__(
             f"{', '.join(keys)} go against his words, judged from each PR's title and diff: {named}. Change the PRs to his words,"
-            " push, and return READY again; a reading his words leave open goes to him as an ASK"
+            " putting back what exists where they do not need it changed, push, and return READY again; a reading his words leave open goes to him as an ASK"
         )
 
 
 def check(name: str, keys: list[str], also: list[str], cited: list[str], setting: dict[str, dict]) -> None:
-    """Judge the change of the PRs in keys, read whole from GitHub at each head, title and diff and never the body, against the words of every order they serve and each order in also, and against each answer of his cited names or a PR's design cites, and keep each head checked; each order is judged for the parts its PRs name, else every part its job delivers, and every other PR its job carries, and each job a PR here was handed from, is named as delivering its own share, the merged ones marked merged and the closed ones left out, so neither a sibling's diff nor a part an earlier PR already landed refuses a PR. A PR's design and parts are those drive pr set kept, or those setting gives for a PR this call sets. Refuse, naming each of his words the change goes against, so his card draws only on a change checked against his words."""
+    """Judge the change of the PRs in keys, read whole from GitHub at each head, title and diff and never the body, against the words of every order they serve and each order in also, and against each answer of his cited names or a PR's design cites, and keep each head checked; each order is judged for the parts its PRs name, else every part its job delivers, and every other PR its job carries, and each job a PR here was handed from, is named as delivering its own share, the merged ones marked merged and the closed ones left out, so neither a sibling's diff nor a part an earlier PR already landed refuses a PR. A PR's design and parts are those drive pr set kept, or those setting gives for a PR this call sets. The judge first lists each change the diff makes to what already exists, before and after, then refuses each his words do not need, by his words "stop overrecahing and changing things people didnt ask you when you are asked to make a change". Refuse, naming each of his words the change goes against or beyond, so his card draws only on a change checked against his words."""
     data = state.load(name)
     orders = list(dict.fromkeys([*(order_id for key in keys for order_id in state.served_orders(data, data["prs"][key])), *also]))
     if all(state.checked(data, data["prs"][key]) and set(also) <= set(data["prs"][key]["checked"]["orders"]) for key in keys):
@@ -253,7 +263,7 @@ def shown(changes: dict[str, dict]) -> str:
 
 
 def judged(name: str, said: str, changes: dict[str, dict]) -> list[dict]:
-    """Where a Claude session given no tools judges the change goes against his words, by RULES; an empty list when it meets them."""
+    """Where a Claude session given no tools judges the change goes against his words, by RULES, once it has listed each change to what already exists, before and after; an empty list when it meets them."""
     prompt = f"<his_words>\n{said}\n</his_words>\n\n<change>\n{shown(changes)}\n</change>"
     argv = [
         "claude", "-p", "--model", MODEL, "--effort", EFFORT, "--restricted", "--strict-mcp-config", "--tools", "", "--disable-slash-commands",
