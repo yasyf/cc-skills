@@ -222,7 +222,7 @@ VAGUE = re.compile(
     r"|\bthis\b(?=\s*[?:,]|$)",
     re.IGNORECASE,
 )
-SOURCE_FILE = r"[\w-]+\.(?:py|go|rs|ts|tsx|js|sql|md|json|ya?ml|toml|sh)"
+SOURCE_FILE = r"[\w-]+(?:\.[\w-]+)*\.(?:py|go|rs|ts|tsx|js|jsx|sql|md|json|jsonl|ya?ml|toml|sh|db|lock|log|txt|csv|zst|html|css|proto|mod|sum)(?:\.[\w-]+)*"
 TERM = re.compile(
     r"\b\w+_\w+\b|\b\w+\(\)|\b[A-Z][A-Z0-9]{2,}\b|\b[A-Z]{2,}[a-z]{2,}\w*\b|\b[a-z]+[A-Z]\w*\b|\b[A-Z][a-z]+[A-Z]\w*\b"
     rf"|\b{SOURCE_FILE}\b"
@@ -244,8 +244,9 @@ OPTION_SHAPE = "what he gets and what it costs, its `Does:`, `Data:` and `Touche
 EXPLAINED = ("Does", "Data", "Touches")
 EXPLANATION = re.compile(rf"({'|'.join(EXPLAINED)}):[ \t]*(.*)")
 HINT_LINE = re.compile(rf"^\*({'|'.join(EXPLAINED)}):\*[ \t]*(.*)$", re.MULTILINE)
+CODE_LINE = r"(?::\d+(?:-\d+)?)?"
 CODE_PATH = re.compile(
-    rf"(?<![\w./~-])(?![A-Za-z]+/[A-Za-z]+(?![\w/-]|\.\w))(?=[\w.~/-]*[A-Za-z])~?[\w.-]*/[\w./-]*(?<=[\w/])|\b{SOURCE_FILE}\b"
+    rf"(?<![\w./~-])(?![A-Za-z]+/[A-Za-z]+(?![\w/-]|\.\w))(?=[\w.~/-]*[A-Za-z])~?[\w.-]*/(?:[\w./-]|(?<=/)\*)*(?<=[\w/*]){CODE_LINE}|\b{SOURCE_FILE}{CODE_LINE}\b"
 )
 UNCODED = re.compile(rf"(?P<kept>`[^`\n]*`|<[^<>\n]*>|!?\[[^\]\n]*\]\([^)\s]*\)|https?://\S+)|{CODE_PATH.pattern}")
 EXPLAINED_SHAPE = (
