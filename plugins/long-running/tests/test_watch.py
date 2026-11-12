@@ -220,7 +220,9 @@ def test_a_red_required_check_ends_a_pushed_with_its_build_and_goes_back_to_a_la
     assert resumed == [[str(watch.DRIVE), "job", "resume", "j1", refused, "--drive", demo]]
 
 
-def test_a_ready_waits_on_the_pr_it_names_and_the_watch_frees_its_job_once_that_pr_merges(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_ready_waits_on_the_pr_it_names_and_its_job_takes_done_once_that_product_pr_merges_with_no_free_or_wake(
+    demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], ready_records: list[list[dict]]
+) -> None:
     serve(monkeypatch, {KEY: read(state="MERGED", mergeCommit="ccc333")})
     with state.edit(demo) as data:
         state.take_result(data, "j1", f"READY {state.pr_url(KEY)}")
@@ -228,8 +230,12 @@ def test_a_ready_waits_on_the_pr_it_names_and_the_watch_frees_its_job_once_that_
     watching = watcher(demo)
     said = watch.run_pass(watching, T0) + watch.run_pass(watching, T0 + timedelta(seconds=61))
     assert f"PR {KEY}: merged [o1 j1]" in said
-    assert [line for line in said if line.startswith("FREE ")] == [f"FREE j1 o1: {KEY} answered or done, nothing else holds it"]
-    assert state.load(demo)["jobs"]["j1"]["waits"] == []
+    assert not [line for line in said if line.startswith(("FREE ", "ORPHAN "))]
+    data = state.load(demo)
+    assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["said"], data["jobs"]["j1"]["waits"]) == ("done", f"DONE {state.pr_url(KEY)} merged: {KEY} at ccc333", [])
+    assert not watch.wakes(f"PR {KEY}: merged [o1 j1]", data)
+    assert [record["attr"] for records in ready_records for record in records if record.get("topic") == "merged-o1"] == [{"close": "o1"}]
+    assert provers == []
 
 
 def test_a_job_waiting_on_a_builders_change_waits_on_its_first_pr_and_the_watch_frees_it_once_that_pr_merges(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -3116,6 +3122,9 @@ def test_a_yasyf_lander_merges_with_admin_records_its_merge_commit_and_installs_
         ("done", f"{install.PROVEN} on long-running@skills 1.0.4: /p.sh exits 0", False),
         ("failed", "merged at ccc333ddd444; long-running@skills 1.0.4 installed", False),
         ("failed", f"{install.PROOF_FAILED}: https://github.com/yasyf/cc-skills/pull/7: /p.sh exits 1", True),
+        ("waiting", "merged", True),
+        ("done", "merged", False),
+        ("done", f"{install.MERGED_DONE}: {KEY} at ccc333ddd444", False),
     ],
 )
 def test_a_merge_its_proof_proved_wakes_no_one_and_a_failed_proof_wakes_the_holder(demo: str, state_after: str, change: str, wakes: bool) -> None:
@@ -3161,30 +3170,59 @@ def test_a_merged_ready_job_waits_for_its_lander_before_its_proof_starts(demo: s
     assert (watch.run_pass(watcher(demo), T0), provers) == ([], [])
 
 
-@pytest.mark.parametrize(
-    ("key", "kept", "why"),
-    [
-        (
-            YASYF,
-            False,
-            "j1 keeps no proof file to run: keep one with drive job set j1 --repro <file>, which the watch runs on the installed plugins,"
-            " or start a fresh builder with a merge handoff that proves it from its INSTALL: and PROVE: lines",
-        ),
-        (
-            OTHER,
-            True,
-            f"{OTHER} merged outside yasyf/*, where a merge goes live only in its repository's release, which no drive install puts on this Mac:"
-            " a fresh builder with a merge handoff proves it from its INSTALL: and PROVE: lines once that release is out",
-        ),
-    ],
-)
-def test_a_merged_ready_job_the_watch_cannot_prove_is_said_orphaned_naming_who_proves_it(
-    demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], tmp_path: Path, key: str, kept: bool, why: str
+def test_a_merged_ready_tooling_job_keeping_no_proof_file_is_said_orphaned_once_and_proved_once_it_keeps_one(
+    demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], tmp_path: Path
 ) -> None:
     serve(monkeypatch, {})
-    merged_ready(demo, key, proof_file(tmp_path) if kept else None)
-    assert watch.run_pass(watcher(demo), T0) == [f'ORPHAN o1 "ship the watch": j1\'s PRs all merged and nothing proves them live: {why}']
+    merged_ready(demo, YASYF, None)
+    watching = watcher(demo)
+    why = (
+        "j1 keeps no proof file to run: keep one with drive job set j1 --repro <file>, which the watch runs on the installed plugins,"
+        " or start a fresh builder with a merge handoff that proves it from its INSTALL: and PROVE: lines"
+    )
+    assert watch.run_pass(watching, T0) == [f'ORPHAN o1 "ship the watch": j1\'s PRs all merged and nothing proves them live: {why}']
+    assert watch.run_pass(watching, T0 + timedelta(minutes=31)) == []
+    assert watch.run_pass(watching, T0 + timedelta(minutes=62)) == []
     assert provers == []
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["repro"] = proof_file(tmp_path)
+    assert watch.run_pass(watching, T0 + timedelta(minutes=63)) == []
+    assert provers == ["j1"]
+
+
+def test_a_merged_ready_product_job_takes_done_at_its_merge_with_no_proof_or_orphan(
+    demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], tmp_path: Path, ready_records: list[list[dict]]
+) -> None:
+    serve(monkeypatch, {})
+    merged_ready(demo, OTHER, proof_file(tmp_path))
+    with state.edit(demo) as data:
+        data["prs"][OTHER]["title"] = "Fix: the page"
+    watching = watcher(demo)
+    merged = f"{OTHER} at ccc333ddd444"
+    closing = "its close report of o1 waits on the order for the watch, which posts it to the communicator on its next read and again each read until cci takes it"
+    lines = watch.run_pass(watching, T0)
+    assert f"PR {OTHER}: {install.MERGED_DONE}: {merged}; {closing} [o1 j1]" in lines
+    assert not [line for line in lines if line.startswith(("FREE ", "ORPHAN "))]
+    assert state.load(demo)["jobs"]["j1"]["said"] == f"DONE {state.pr_url(OTHER)} merged: {merged}"
+    assert [record["text"] for records in ready_records for record in records if record.get("topic") == "merged-o1"] == [f"POST Fix: the page merged: {merged}"]
+    assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=31)) if line.startswith(("FREE ", "ORPHAN "))]
+    assert provers == []
+
+
+def test_a_merged_ready_product_job_on_an_open_incidents_fix_waits_for_its_release_and_is_said_orphaned(
+    demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], tmp_path: Path
+) -> None:
+    serve(monkeypatch, {})
+    merged_ready(demo, OTHER, None)
+    with state.edit(demo) as data:
+        data["orders"]["o1"].update(incident=True, parts={"fix": state.new_part()})
+        data["jobs"]["j1"]["parts"] = ["fix"]
+    why = (
+        f"{OTHER} merged outside yasyf/*, where a merge goes live only in its repository's release, which no drive install puts on this Mac:"
+        " a fresh builder with a merge handoff proves it from its INSTALL: and PROVE: lines once that release is out"
+    )
+    assert f'ORPHAN o1 "fix": j1\'s PRs all merged and nothing proves them live: {why}' in watch.run_pass(watcher(demo), T0)
+    assert (state.load(demo)["jobs"]["j1"]["state"], provers) == ("waiting", [])
 
 
 @pytest.mark.parametrize(("version", "started"), [(state.VERSION, []), ("1.0.1", ["j1"])])

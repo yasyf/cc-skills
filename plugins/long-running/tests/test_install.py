@@ -983,6 +983,47 @@ def test_a_proof_of_merges_in_two_repositories_whose_installs_hold_them_runs_the
     assert state.load("demo")["jobs"]["j1"]["said"] == f"DONE {URL} {slack} live: {script} exits 0 on long-running@skills 1.0.2"
 
 
+def test_a_proof_of_a_yasyf_merge_beside_a_product_merge_installs_the_yasyf_one_alone_and_runs_the_proof_file(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
+    git = fake([BUILD], {BUILD})
+    script = proving(config, tmp_path, git, 0)
+    product = "https://github.com/Forge-AI/monorepo/pull/9"
+    with state.edit("demo") as data:
+        data["jobs"]["j1"].update(said=f"READY {URL} {product}", prs=[URL, product])
+        data["prs"]["Forge-AI/monorepo#9"] = state.new_pr(product, "j1", "o1") | {"state": "merged", "merged_sha": "fedcba", "title": "Fix: the page"}
+    assert install.proof_gap(state.load("demo"), "j1") is None
+    assert install.prove("demo", "j1", 900).startswith(f"j1: {install.PROVEN} on long-running@skills 1.0.3: {script} exits 0")
+    assert ["claude", "plugin", "update", "long-running@skills", "--scope", "user"] in git.calls
+    data = state.load("demo")
+    assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["said"]) == ("done", f"DONE {URL} {product} live: {script} exits 0 on long-running@skills 1.0.3")
+    assert [key for key, _ in proof_events()] == ["yasyf/cc-skills#7", "Forge-AI/monorepo#9"]
+
+
+def test_a_product_merge_takes_done_at_once_its_merge_commit_its_check_and_keeps_the_close_report_for_the_watch(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
+    proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
+    product = "https://github.com/Forge-AI/monorepo/pull/9"
+    with state.edit("demo") as data:
+        data["jobs"]["j1"].update(said=f"READY {product}", prs=[product], repro=None)
+        data["prs"]["Forge-AI/monorepo#9"] = state.new_pr(product, "j1", "o1") | {"state": "merged", "merged_sha": "fedcba9876543210", "title": "Fix: the page"}
+        merged = "Forge-AI/monorepo#9 at fedcba987654"
+        change = install.merged_done("demo", data, "j1")
+        install.said_on_prs("demo", data, "j1", change)
+    assert change == f"{install.MERGED_DONE}: {merged}; its close report of o1 waits on the order for the watch, which posts it to the communicator on its next read and again each read until cci takes it"
+    data = state.load("demo")
+    commit = "https://github.com/Forge-AI/monorepo/commit/fedcba9876543210"
+    assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["said"]) == ("done", f"DONE {product} merged: {merged}")
+    assert data["orders"]["o1"]["proof"] == commit
+    assert data["orders"]["o1"]["close_report"] == {
+        "id": "merged-j1",
+        "kind": "report",
+        "to": ["communicator@demo"],
+        "topic": "merged-o1",
+        "attr": {"close": "o1"},
+        "text": f"POST Fix: the page merged: {merged}",
+        "body": f"Fixed: Fix: the page, {product}\nMerged: {merged}\nProof: {commit}\n",
+    }
+    assert proof_events() == [("Forge-AI/monorepo#9", change)]
+
+
 def test_an_incidents_fix_proven_live_records_it_live_and_leaves_its_close_to_the_watch(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
     git = fake([BUILD], {BUILD})
     script = proving(config, tmp_path, git, 0)
@@ -1087,11 +1128,11 @@ def test_a_merge_no_release_will_carry_takes_blocked_naming_it_and_runs_no_proof
     ("change", "refusal"),
     [
         ({"repro": None}, "j1 keeps no proof file to run: keep one with drive job set j1 --repro <file>"),
-        ({"prs": [URL, "https://github.com/Forge-AI/monorepo/pull/9"]}, "Forge-AI/monorepo#9 merged outside yasyf/*, where a merge goes live only in its repository's release"),
+        ({"prs": ["https://github.com/Forge-AI/monorepo/pull/9"]}, "Forge-AI/monorepo#9 merged outside yasyf/*, where a merge goes live only in its repository's release"),
         ({"said": "WAITING on the release"}, "j1 waits on no READY or PUSHED whose PRs all merged, so there is nothing to prove"),
     ],
 )
-def test_a_proof_is_refused_naming_who_proves_it_for_a_job_with_no_proof_file_a_merge_outside_yasyf_or_no_merged_ready(
+def test_a_proof_is_refused_naming_who_proves_it_for_a_job_with_no_proof_file_only_merges_outside_yasyf_or_no_merged_ready(
     config: Path, tmp_path: Path, fake: Callable[..., FakeGit], change: dict, refusal: str
 ) -> None:
     proving(config, tmp_path, fake([BUILD], {BUILD}), 0)

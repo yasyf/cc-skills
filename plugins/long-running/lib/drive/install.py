@@ -41,6 +41,7 @@ EVERY_INSTALL = "Installs never need me"
 HELPER_OPTIONS = f"{INSTALL_NOW} (recommended), {EVERY_INSTALL} and Not now"
 PROVEN = "proven live by drive job prove"
 PROOF_FAILED = "drive job prove failed"
+MERGED_DONE = "done at its merge"
 SAID_CHARS = 300
 
 
@@ -525,13 +526,18 @@ def merged_ready(data: dict, job_id: str) -> bool:
     )
 
 
+def product(data: dict, job_id: str) -> bool:
+    """Whether every PR of the job merges outside yasyf/*, a product change, which no drive install puts on this Mac."""
+    return not any(state.merges_untapped(state.pr_key(url)) for url in data["jobs"][job_id]["prs"])
+
+
 def proof_gap(data: dict, job_id: str) -> str | None:
-    """What keeps `drive job prove` from proving a builder whose PRs merged, naming who proves it instead, or None when it runs: a merge outside yasyf/* goes live only in its repository's release, and a job keeping no executable proof file leaves nothing to run."""
+    """What keeps `drive job prove` from proving a builder whose PRs merged, naming who proves it instead, or None when it runs on its yasyf/* merges, its others merged at once: a job whose every merge is outside yasyf/* goes live only in its repository's release, and a job keeping no executable proof file leaves nothing to run."""
     job = data["jobs"][job_id]
-    if released := [key for key in map(state.pr_key, job["prs"]) if not state.merges_untapped(key)]:
+    if product(data, job_id):
         return (
-            f"{', '.join(released)} merged outside yasyf/*, where a merge goes live only in its repository's release, which no drive install puts on this Mac:"
-            " a fresh builder with a merge handoff proves it from its INSTALL: and PROVE: lines once that release is out"
+            f"{', '.join(map(state.pr_key, job['prs']))} merged outside yasyf/*, where a merge goes live only in its repository's release, which no drive install"
+            " puts on this Mac: a fresh builder with a merge handoff proves it from its INSTALL: and PROVE: lines once that release is out"
         )
     if not (job.get("repro") and os.access(job["repro"], os.X_OK)):
         return (
@@ -560,9 +566,63 @@ def live_builds(merges: dict[str, str], deadline: float, timeout: int, drive: st
     return builds
 
 
+def merges_of(data: dict, job_id: str) -> dict[str, str]:
+    return {state.pr_key(url): data["prs"][state.pr_key(url)]["merged_sha"] for url in data["jobs"][job_id]["prs"]}
+
+
+def finish(name: str, data: dict, job_id: str, line: str, check: list[str], seen: bool, post: str, facts: str, kind: str) -> tuple[str | None, bool]:
+    """Take the line the watch's finish of a merged READY or PUSHED sets on its builder, its report naming its PRs and CHECK:, and on a DONE that leaves its open order nothing to do, an open incident's aside, which the watch closes once DONE records its fix live, keep on the order its proof and the close report the watch posts to the communicator, opening POST with the PRs' titles and post; held while he sees the order's result on a surface no CHECK: came from. That surface and whether the order closes."""
+    from drive import cli
+
+    job = data["jobs"][job_id]
+    order_id, urls = job["order"], " ".join(job["prs"])
+    order = data["orders"][order_id]
+    whole = f"{line}\nPR: {urls}\nCHECK: {' '.join(check)}\n"
+    state.keep_report(name, job_id, line, whole)
+    state.take_result(data, job_id, line, whole)
+    unseen = None if seen else cli.surface(data, order)
+    closes = line.startswith("DONE") and not unseen and order["state"] not in state.CLOSED_ORDER_STATES and all(state.delivered(data, order_id, part) for part in order["parts"])
+    closes = closes and all(data["jobs"][other]["state"] in state.FINISHED_JOB_STATES for other in order["jobs"]) and not state.open_incidents(data, [order_id])
+    if closes:
+        title = "; ".join(data["prs"][state.pr_key(url)]["title"] for url in job["prs"])
+        order["proof"] = " ".join(check)
+        order["close_report"] = {
+            "id": f"{kind}-{job_id}",
+            "kind": "report",
+            "to": [f"communicator@{name}"],
+            "topic": f"{kind}-{order_id}",
+            "attr": {"close": order_id} | ({"thread": order["thread"][1]} if order["thread"] else {}),
+            "text": f"POST {title} {post}",
+            "body": f"Fixed: {title}, {urls}\n{facts}",
+        }
+    return unseen, closes
+
+
+def said_on_prs(name: str, data: dict, job_id: str, change: str) -> None:
+    lane = state.heard_lane(data, data["jobs"][job_id]["order"])
+    for key in map(state.pr_key, data["jobs"][job_id]["prs"]):
+        merged_in, number = key.split("#")
+        state.append_event(name, "proof", repo=merged_in, number=int(number), change=change, lane=lane)
+
+
+def merged_done(name: str, data: dict, job_id: str) -> str:
+    """Take DONE at its merge on a builder whose READY or PUSHED's PRs all merged outside yasyf/*, a product change, its merge commits its CHECK:, and keep its order's close report for the watch when that leaves the order nothing to do, as a proof does; what it says on the job's PRs' lines."""
+    merges = merges_of(data, job_id)
+    merged = ", ".join(f"{key} at {sha[:12]}" for key, sha in merges.items())
+    commits = [f"https://github.com/{key.partition('#')[0]}/commit/{sha}" for key, sha in merges.items()]
+    line = f"DONE {' '.join(data['jobs'][job_id]['prs'])} merged: {merged}"
+    unseen, closes = finish(name, data, job_id, line, commits, False, f"merged: {merged}", f"Merged: {merged}\nProof: {' '.join(commits)}\n", "merged")
+    order_id = data["jobs"][job_id]["order"]
+    if unseen:
+        return f"its PRs merged and {job_id} took DONE, but he sees this on {unseen}: prove it there with a recording or the live post once its release is out, then send the close report"
+    if closes:
+        return f"{MERGED_DONE}: {merged}; its close report of {order_id} waits on the order for the watch, which posts it to the communicator on its next read and again each read until cci takes it"
+    return f"{MERGED_DONE}: {merged}"
+
+
 def prove(name: str, job_id: str, timeout: int) -> str:
-    """Prove live a builder's READY or PUSHED whose PRs all merged, the step the watch starts: install each plugin a merge changes whose newest install lacks it, wait until the drive's dashboard runs the newest long-running installed, then run the job's proof file with those plugins' bin folders first on PATH, keep its output in reports/<j>.proof.txt, take DONE on exit 0 and BLOCKED otherwise, an install that fails, a merge no release will carry or a dashboard still on an older install at the deadline taking BLOCKED naming it, and keep the close report on its order for the watch to post when DONE leaves the order nothing to do, but an open incident's, which the watch closes once DONE records its fix live, each said on its PRs' lines; refused for a job waiting on no such READY or PUSHED, or one proof_gap names; nothing after another proof took the job's result first. It holds its install's lock through none of it, as drive install holds none through its waits, so a drive a newer install saved meanwhile ends it with no result, for that install's watch to prove again."""
-    from drive import brief, cli, dashboard
+    """Prove live a builder's READY or PUSHED whose PRs all merged, the step the watch starts: install each plugin a yasyf/* merge changes whose newest install lacks it, its other merges taken at once, wait until the drive's dashboard runs the newest long-running installed, then run the job's proof file with those plugins' bin folders first on PATH, keep its output in reports/<j>.proof.txt, take DONE on exit 0 and BLOCKED otherwise, an install that fails, a merge no release will carry or a dashboard still on an older install at the deadline taking BLOCKED naming it, and keep the close report on its order for the watch to post when DONE leaves the order nothing to do, but an open incident's, which the watch closes once DONE records its fix live, each said on its PRs' lines; refused for a job waiting on no such READY or PUSHED, or one proof_gap names; nothing after another proof took the job's result first. It holds its install's lock through none of it, as drive install holds none through its waits, so a drive a newer install saved meanwhile ends it with no result, for that install's watch to prove again."""
+    from drive import brief, dashboard
 
     deadline = clock() + timeout
     state.let_go_install()
@@ -572,11 +632,11 @@ def prove(name: str, job_id: str, timeout: int) -> str:
     if why := proof_gap(data, job_id):
         raise state.DriveError(why)
     job = data["jobs"][job_id]
-    merges = {state.pr_key(url): data["prs"][state.pr_key(url)]["merged_sha"] for url in job["prs"]}
+    merges = merges_of(data, job_id)
     urls = " ".join(job["prs"])
     kept = state.proof_path(name, job_id)
     try:
-        builds = live_builds(merges, deadline, timeout, name)
+        builds = live_builds({key: sha for key, sha in merges.items() if state.merges_untapped(key)}, deadline, timeout, name)
     except (InstallError, NoRelease) as error:
         code, output, versions = "unrun", str(error), "no install holding it"
         line = f"BLOCKED {urls}: not installed, so {job['repro']} did not run: {str(error)[:SAID_CHARS]}"
@@ -598,41 +658,21 @@ def prove(name: str, job_id: str, timeout: int) -> str:
     state.let_go_install()
     proven = f"{PROVEN} on {versions}: {job['repro']} exits 0, its output {kept}"
     with state.edit(name) as data:
-        job, order = data["jobs"][job_id], data["orders"][data["jobs"][job_id]["order"]]
+        job = data["jobs"][job_id]
         if job["state"] != "waiting" or not state.REPORTED_LINE.match(job["said"] or ""):
             return f"{job_id}: another proof took its result first"
         kept.parent.mkdir(exist_ok=True)
         kept.write_text(output)
         seen = [found for found in brief.proofs(output) if brief.SEEN_PROOF.search(found)]
-        whole = f"{line}\nPR: {urls}\nCHECK: {' '.join([str(kept), *seen])}\n"
-        state.keep_report(name, job_id, line, whole)
-        state.take_result(data, job_id, line, whole)
-        unseen = cli.surface(data, order) if not seen else None
-        closes = code == 0 and not unseen and all(state.delivered(data, job["order"], part) for part in order["parts"])
-        closes = closes and all(data["jobs"][other]["state"] in state.FINISHED_JOB_STATES for other in order["jobs"]) and not state.open_incidents(data, [job["order"]])
-        order_id, lane = job["order"], state.heard_lane(data, job["order"])
-        if closes:
-            title = "; ".join(data["prs"][pr]["title"] for pr in merges)
-            order["proof"] = " ".join([str(kept), *seen])
-            order["close_report"] = {
-                "id": f"install-proved-{job_id}",
-                "kind": "report",
-                "to": [f"communicator@{name}"],
-                "topic": f"install-proved-{order_id}",
-                "attr": {"close": order_id} | ({"thread": order["thread"][1]} if order["thread"] else {}),
-                "text": f"POST {title} is live in {versions}",
-                "body": f"Fixed: {title}, {urls}\nLive: {versions}\nProof: {proven}\n",
-            }
-    change = proven
-    if code:
-        change = f"{PROOF_FAILED}: {line.removeprefix('BLOCKED ')}"
-    elif unseen:
-        change = f"its proof passed on {versions}, but he sees this on {unseen}: prove it there with a recording or the live post, then send the close report"
-    elif closes:
-        change = f"{proven}; its close report of {order_id} waits on the order for the watch, which posts it to the communicator on its next read and again each read until cci takes it"
-    for pr in merges:
-        merged_in, number = pr.split("#")
-        state.append_event(name, "proof", repo=merged_in, number=int(number), change=change, lane=lane)
+        unseen, closes = finish(name, data, job_id, line, [str(kept), *seen], bool(seen), f"is live in {versions}", f"Live: {versions}\nProof: {proven}\n", "install-proved")
+        change = proven
+        if code:
+            change = f"{PROOF_FAILED}: {line.removeprefix('BLOCKED ')}"
+        elif unseen:
+            change = f"its proof passed on {versions}, but he sees this on {unseen}: prove it there with a recording or the live post, then send the close report"
+        elif closes:
+            change = f"{proven}; its close report of {job['order']} waits on the order for the watch, which posts it to the communicator on its next read and again each read until cci takes it"
+    said_on_prs(name, data, job_id, change)
     return f"{job_id}: {change}"
 
 

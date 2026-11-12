@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Self
 
 from drive import agents, codex, dashboard, github, land, limits, orca, page, reads, render, served, slack, state, superseded, view
-from drive.install import PROVEN, config_dir, merged_ready, proof_gap, upgraded
+from drive.install import MERGED_DONE, PROVEN, config_dir, merged_done, merged_ready, product, proof_gap, said_on_prs, upgraded
 from drive.render import cut, subscribe, when
 
 POLL_SECONDS = 5
@@ -75,7 +75,7 @@ STUCK_WORDS = {
     "landing": "green, approved and exempt, and not landed",
 }
 ABOUT = re.compile(r"\[(?P<order>o\d+) (?P<job>j\d+)\]$|^(?:FREE (?:\S+ )?j\d+|ORPHAN|DUE(?: j\d+)?|RECOVERED|TELL|JOB j\d+|LANE j\d+|STUCK j\d+) (?P<named>o\d+)\b")
-OWN_MOVES = ("new head", "checks passed", "approved", land.QUEUED, land.WAITS_CHECK, served.CHECKED, PROVEN)
+OWN_MOVES = ("new head", "checks passed", "approved", land.QUEUED, land.WAITS_CHECK, served.CHECKED, PROVEN, MERGED_DONE)
 
 
 @dataclass
@@ -288,7 +288,7 @@ def bare(wait: str) -> str:
 
 
 def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Drop each wait of a job or PR that ended, his card answered, the job finished or the release out, and say once, as its last wait ends, that nothing holds it, holding back the job's ORPHAN for 30 minutes; the cards a job asked him on hold it too, so it keeps its waits until he answers them. His open card for a PR whose waits ended is redrawn in place, so it names only the waits that still hold. The release that ships the last release wait of a job or PR on an open incident's fix is kept on the incident as its fix live, by the watch dropping that wait."""
+    """Drop each wait of a job or PR that ended, his card answered, the job finished or the release out, and say once, as its last wait ends, that nothing holds it, holding back the job's ORPHAN for 30 minutes, but for a builder's READY or PUSHED whose PRs all merged, which the watch finishes next in the same pass, or else says once as an ORPHAN naming who finishes it; the cards a job asked him on hold it too, so it keeps its waits until he answers them. His open card for a PR whose waits ended is redrawn in place, so it names only the waits that still hold. The release that ships the last release wait of a job or PR on an open incident's fix is kept on the incident as its fix live, by the watch dropping that wait."""
     data = state.load(watcher.name)
     out, lines = shipped(watcher, data, moment)
     owners = [
@@ -302,7 +302,7 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
             if not heard_job(watcher, data, job) or view.open_cards(job, watcher.cards):
                 continue
             fixing(data, [job["order"], *job["carries"]], job, job, out)
-            if (ended := released(data, job, watcher.cards, out)) and job["state"] not in state.FINISHED_JOB_STATES:
+            if (ended := released(data, job, watcher.cards, out)) and job["state"] not in state.FINISHED_JOB_STATES and not merged_ready(data, job_id):
                 job["updated"] = state.stamp(moment)
                 for order_id in [job["order"], *job["carries"]]:
                     parts = data["orders"][order_id]["parts"]
@@ -370,7 +370,7 @@ def recovered_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def close_report_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Post in one cci batch each close report drive job prove keeps on an open order it proved live, for the communicator's handler to post in the order's thread and close it; each stays on its order until cci takes it, so a post that fails goes again next read, said from its third failure in a row, and a watch on a newer install posts it as well."""
+    """Post in one cci batch each close report drive job prove, or the watch's DONE at a merge, keeps on an open order it finished, for the communicator's handler to post in the order's thread and close it; each stays on its order until cci takes it, so a post that fails goes again next read, said from its third failure in a row, and a watch on a newer install posts it as well."""
     data = state.load(watcher.name)
     owed = {order_id: order["close_report"] for order_id, order in heard_orders(watcher, data).items() if order["close_report"]}
     if not owed:
@@ -1641,7 +1641,7 @@ def unanswered(job_id: str, job: dict, cards: dict | None, moment: datetime) -> 
 
 
 def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, moment: datetime) -> str | None:
-    """Why the job leaves its parts with no one, None when it carries them or is a design its builder carries, or SETTLING while a change in the last two minutes is still being handed over; a local job no agent has taken settles one minute only, since its agent's first step records it within seconds of starting."""
+    """Why the job leaves its parts with no one, None when it carries them or is a design its builder carries, or SETTLING while a change in the last two minutes is still being handed over; a local job no agent has taken settles one minute only, since its agent's first step records it within seconds of starting; a builder's READY or PUSHED whose yasyf/* PRs merged with no proof file to run is said once on its line, since only the proof file drive job set --repro keeps wakes it."""
     if moment - state.parse_time(job["updated"]) < (UNSTARTED_FOR if unstarted(job) else HANDOFF):
         return SETTLING
     if job["state"] == "running":
@@ -1657,7 +1657,7 @@ def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, moment: dateti
         if can_wake(job_id, job, data, watcher.cards, moment):
             return None
         if merged_ready(data, job_id):
-            return merged_gap(job_id, data)
+            return None if unproven(data, job_id) and job.get("unproven_said") == job["said"] else merged_gap(job_id, data)
         waiting = f"is built on {job['branch']}" if job["state"] == "built" else f'waits on "{cut(job["said"] or "nothing named", 80)}"'
         return f"{job_id} {waiting} and no open PR, card or due time can wake it"
     if job["state"] == "done":
@@ -1672,15 +1672,28 @@ def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, moment: dateti
 
 
 def merged_gap(job_id: str, data: dict) -> str:
-    """Who proves live a builder's READY or PUSHED whose PRs all merged once the watch proves it no more: who proof_gap names, else a run again of the proof that ended with no result."""
+    """Who proves live a builder's READY or PUSHED whose PRs all merged that the watch neither took DONE on at its merge nor proves: who proof_gap names, else a run again of the proof that ended with no result."""
     if why := proof_gap(data, job_id):
         return f"{job_id}'s PRs all merged and nothing proves them live: {why}"
     proof = data["jobs"][job_id]["proof"]
     return f"{job_id}'s proof, drive job prove pid {proof['pid']}, ended with no result, its output in the drive's {PROOFS_LOG}: drive job prove {job_id} runs it again"
 
 
+def unproven(data: dict, job_id: str) -> bool:
+    """Whether a builder's READY or PUSHED whose PRs all merged names a yasyf/* PR and keeps no executable proof file, so it waits on the proof file drive job set --repro keeps, which the watch then runs, and nothing else wakes it."""
+    return merged_ready(data, job_id) and not product(data, job_id) and bool(proof_gap(data, job_id))
+
+
+def at_merge(data: dict, job_id: str) -> bool:
+    """Whether the watch takes DONE at its merge on a builder waiting on a READY or PUSHED whose PRs all merged outside yasyf/*, a product change, with nothing else holding it, unless it is an open incident's fix, which is live only once its release is out."""
+    job = data["jobs"][job_id]
+    if not merged_ready(data, job_id) or job["waits"] or not product(data, job_id):
+        return False
+    return not any(state.INCIDENT_FIX in state.job_parts(job, order_id) for order_id in state.open_incidents(data, [job["order"], *job["carries"]]))
+
+
 def proof_due(data: dict, job_id: str) -> bool:
-    """Whether the watch starts the job's proof: a builder still waiting on a READY or PUSHED whose PRs all merged, every one a yasyf/* PR no lander still merges or installs, keeping an executable proof file, and no proof started on that line, or one that ended with no result before a newer long-running's watch read it."""
+    """Whether the watch starts the job's proof: a builder still waiting on a READY or PUSHED whose PRs all merged, a yasyf/* one among them, none a PR a lander still merges or installs, keeping an executable proof file, and no proof started on that line, or one that ended with no result before a newer long-running's watch read it."""
     job = data["jobs"][job_id]
     if not merged_ready(data, job_id) or proof_gap(data, job_id) or any(land.running(data["prs"][state.pr_key(url)]) for url in job["prs"]):
         return False
@@ -1697,15 +1710,22 @@ def proving(data: dict, job_id: str) -> bool:
     return proof_due(data, job_id) or any(land.running(data["prs"][state.pr_key(url)]) for url in job["prs"]) or proof["said"] == job["said"] and state.alive(proof["pid"])
 
 
-def proved(watcher: Watcher, moment: datetime) -> None:
-    """Start drive job prove on each job the watch hears whose proof is due, marking the job under the drive's lock so no second proof starts on its line; the proof takes the job's DONE or BLOCKED and says it on its PRs' lines."""
+def finished(watcher: Watcher, moment: datetime) -> None:
+    """Finish each builder the watch hears whose READY or PUSHED's PRs all merged: one whose PRs all merged outside yasyf/* takes DONE at its merge, and one naming a yasyf/* PR and keeping an executable proof file gets drive job prove, which takes its DONE or BLOCKED once the installed plugins hold its yasyf/* merges, marked under the drive's lock so no second proof starts on its line; each says it on the job's PRs' lines."""
     data = state.load(watcher.name)
-    if not any(hears(watcher, data, job["order"]) and proof_due(data, job_id) for job_id, job in data["jobs"].items()):
+    if not any(hears(watcher, data, job["order"]) and (at_merge(data, job_id) or proof_due(data, job_id)) for job_id, job in data["jobs"].items()):
         return
+    said = {}
     with state.edit(watcher.name) as data:
         for job_id, job in data["jobs"].items():
-            if hears(watcher, data, job["order"]) and proof_due(data, job_id):
+            if not hears(watcher, data, job["order"]):
+                continue
+            if at_merge(data, job_id):
+                said[job_id] = merged_done(watcher.name, data, job_id)
+            elif proof_due(data, job_id):
                 job["proof"] = {"pid": prove(watcher.name, job_id), "at": state.stamp(moment), "said": job["said"], "version": state.VERSION}
+    for job_id, change in said.items():
+        said_on_prs(watcher.name, data, job_id, change)
 
 
 def prove(name: str, job_id: str) -> int:
@@ -1787,6 +1807,9 @@ def orphan_lines(watcher: Watcher, moment: datetime, due: set[str]) -> list[str]
                 data["orders"][key[0]]["parts"][key[1]]["orphan_said"] = None if change == "heal" else state.stamp(moment)
             if change == "say":
                 lines.append(f'ORPHAN {key[0]} "{cut(key[1], 80)}": {gap}')
+                for job_id, job in state.part_jobs(data, *key):
+                    if unproven(data, job_id) and gap == merged_gap(job_id, data):
+                        job["unproven_said"] = job["said"]
     return lines
 
 
@@ -1895,7 +1918,7 @@ def tick_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """One loop of the watch: his cards, GitHub, a lander on each PR his Approve covers that qualifies, the proof of each builder whose READY's PRs all merged, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, the waits his answers or a job's end release, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the communicator's compaction, the status page, a coordinator whose process exited and a dashboard whose server exited every 60 s, GitHub again next poll after a failure, new events, the catch-up owed him, promised times still owed a line, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries, a tick every 30 minutes while he is here. Each stage's lines join the watcher's made lines as it returns, or as it saves when it keeps working after its save, so a pass that ends early, in a crash or on a drive a newer install saved, leaves them to the watch process after it."""
+    """One loop of the watch: his cards, GitHub, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, the waits his answers or a job's end release, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the communicator's compaction, the status page, a coordinator whose process exited and a dashboard whose server exited every 60 s, GitHub again next poll after a failure, new events, the catch-up owed him, promised times still owed a line, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries, a tick every 30 minutes while he is here. Each stage's lines join the watcher's made lines as it returns, or as it saves when it keeps working after its save, so a pass that ends early, in a crash or on a drive a newer install saved, leaves them to the watch process after it."""
     lines = watcher.made
     if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
         watcher.read_at = moment
@@ -1905,11 +1928,11 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
         lines += github_lines(watcher, moment)
         lines += carried_lines(watcher, moment)
         landed(watcher)
-        proved(watcher, moment)
         checks(watcher, moment)
         lines += settle_lines(watcher, moment)
         lines += rework_lines(watcher, moment)
         lines += waits_lines(watcher, moment)
+        finished(watcher, moment)
         lines += recovered_lines(watcher, moment)
         lines += close_report_lines(watcher, moment)
         lines += ready_lines(watcher, moment)
@@ -1974,7 +1997,7 @@ def holder_line(line: str, data: dict) -> str | None:
 
 
 def needs_step(line: str, data: dict) -> bool:
-    """Whether a line asks for a step now: any line but a PR's, his Approve of a PR the drive's lander queues only when it is red or conflicts with its base or has sat unlanded with no lander holding it, and a PR's when its job is not running to take it, its new head, checks passed, approval or queueing only when the coordinator owes it its exempt landing, which the drive's lander does for a Forge-AI/monorepo one; never his card itself, which the watch draws, nor its landing after his Approve, which the lander does, nor GitHub's merged line for a PR the lander merges and says so itself, nor the lander's merged line on a job already proved or whose proof the watch runs, whose proof line says so, nor when its author or its own builder lands it."""
+    """Whether a line asks for a step now: any line but a PR's, his Approve of a PR the drive's lander queues only when it is red or conflicts with its base or has sat unlanded with no lander holding it, and a PR's when its job is not running to take it, its new head, checks passed, approval or queueing only when the coordinator owes it its exempt landing, which the drive's lander does for a Forge-AI/monorepo one; never his card itself, which the watch draws, nor its landing after his Approve, which the lander does, nor GitHub's merged line for a PR the lander merges and says so itself or whose job took DONE at its merge, nor the lander's merged line on a job already proved or whose proof the watch runs, whose proof line says so, nor when its author or its own builder lands it."""
     if (tapped := TAP_EVENT.match(line)) and tapped["label"] == "Approve" and state.queued_by_lander(tapped["key"]):
         pr = data["prs"].get(tapped["key"])
         return bool(tapped["stalled"]) or pr is None or pr["checks"] == "fail" or bool(pr["conflict"])
@@ -1982,7 +2005,7 @@ def needs_step(line: str, data: dict) -> bool:
     if not found:
         return not line.startswith("PR ")
     pr = data["prs"][found["key"]]
-    if found["change"] == "merged" and land.reported(found["key"], pr):
+    if found["change"] == "merged" and (land.reported(found["key"], pr) or data["jobs"][found["job"]]["state"] == "done"):
         return False
     if found["change"].startswith("merged at") and (data["jobs"][found["job"]]["state"] in state.FINISHED_JOB_STATES or proving(data, found["job"])):
         return False
