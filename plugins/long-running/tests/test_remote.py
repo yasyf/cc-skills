@@ -1441,7 +1441,7 @@ def test_a_lane_question_nothing_answers_is_an_orphan_every_thirty_minutes_whate
 ) -> None:
     def cards(*drawn: tuple[str, datetime]) -> None:
         listed = [{"question": "Run the data pass?", "options": ["Yes", "No"], "recommended": "Yes", "asked": state.stamp(at), "url": url, "card": {"title": "Run the data pass?"}} for url, at in drawn]
-        monkeypatch.setattr(watch.view, "cards", lambda name: {"team_url": "", "questions": listed, "pr_cards": []})
+        monkeypatch.setattr(watch.view, "cards", lambda name: {"team_url": "", "questions": listed, "closed": [], "pr_cards": []})
 
     older, newer = (T0 - timedelta(hours=8), T0 + timedelta(minutes=61))
     older_card, newer_card = "https://acme.slack.com/archives/D123/p1794345043324699", "https://acme.slack.com/archives/D123/p1794388741836339"

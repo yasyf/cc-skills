@@ -1084,7 +1084,7 @@ def test_a_waiting_job_lives_while_its_card_is_open_and_is_an_orphan_once_the_ca
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     card = {"question": "Which store?", "options": ["Team", "Run"], "recommended": "Team", "asked": state.stamp(T0), "url": f"{CARD}?thread_ts=1.2", "card": {"title": "Which store?"}}
-    monkeypatch.setattr(watch.view, "cards", lambda name: {"team_url": "", "questions": [card], "pr_cards": []})
+    monkeypatch.setattr(watch.view, "cards", lambda name: {"team_url": "", "questions": [card], "closed": [], "pr_cards": []})
     with state.edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["jobs"]["j1"].update(
@@ -1132,7 +1132,7 @@ def test_a_done_design_job_is_carried_by_its_open_card_and_its_part_needs_a_job_
 ) -> None:
     serve(monkeypatch, {})
     card = {"question": "Which Mac owns a chat?", "options": ["First", "Last"], "recommended": "First", "asked": state.stamp(T0), "url": f"{CARD}?thread_ts=1.2", "card": {"title": "Which Mac owns a chat?", "waits": "demo:j2-7-a"}}
-    monkeypatch.setattr(watch.view, "cards", lambda name: {"team_url": "", "questions": [card], "pr_cards": []})
+    monkeypatch.setattr(watch.view, "cards", lambda name: {"team_url": "", "questions": [card], "closed": [], "pr_cards": []})
     with state.edit(demo) as data:
         data["orders"]["o2"] = order(text="options: only the owning machine writes", jobs=["j2"])
         data["jobs"]["j2"] = job(order="o2", kind="design", state="done", questions=[state.new_question(None, None, state.stamp(T0), card=CARD)], updated=state.stamp(T0 - timedelta(minutes=10)))
@@ -1330,7 +1330,7 @@ def returned(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: s
     monkeypatch.setattr(watch, "local_gap", REAL_LOCAL_GAP)
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
     card = {"question": ASKED, "options": ["Renew", "Sign in"], "recommended": "Renew", "asked": state.stamp(T0), "url": f"{CARD}?thread_ts=1.2", "card": {"title": ASKED}}
-    monkeypatch.setattr(watch.view, "cards", lambda name: {"team_url": "", "questions": [card], "pr_cards": []})
+    monkeypatch.setattr(watch.view, "cards", lambda name: {"team_url": "", "questions": [card], "closed": [], "pr_cards": []})
     kept = state.drive_dir(demo) / "asks" / "j1-4d8033be.md"
     write_transcript(tmp_path / "config", [CALLING, RESULT, ended_on(text.format(kept=kept))], timedelta(minutes=4))
     if report:
@@ -1521,7 +1521,7 @@ def question(waits: str) -> dict:
 
 
 def asking(monkeypatch: pytest.MonkeyPatch, name: str, *waits: str) -> None:
-    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question(waits) for waits in waits], "pr_cards": []})
+    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question(waits) for waits in waits], "closed": [], "pr_cards": []})
     watch.view.refresh_cards(name)
 
 
@@ -1648,7 +1648,7 @@ def test_a_built_job_is_told_once_under_each_card_it_waits_on_and_freed_once_whe
 ) -> None:
     serve(monkeypatch, {})
     other = "https://acme.slack.com/archives/D123/p1794200000000300"
-    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question("demo:j1-7-a"), question("demo:j1-7-b") | {"url": other}], "pr_cards": []})
+    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question("demo:j1-7-a"), question("demo:j1-7-b") | {"url": other}], "closed": [], "pr_cards": []})
     watch.view.refresh_cards(demo)
     with state.edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
@@ -1667,7 +1667,7 @@ def test_a_built_job_is_told_once_under_each_card_it_waits_on_and_freed_once_whe
 
 def test_a_built_job_is_told_once_though_its_sub_coordinator_is_bound_while_the_drives_watch_posts(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
-    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question("demo:j1-7-a")], "pr_cards": []})
+    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question("demo:j1-7-a")], "closed": [], "pr_cards": []})
     watch.view.refresh_cards(demo)
     with state.edit(demo) as data:
         data["orders"]["o1"]["project"] = "Iris"
@@ -1738,14 +1738,14 @@ def test_a_built_job_asking_him_its_own_question_is_freed_only_once_he_answers_i
     serve(monkeypatch, {})
     asked = f"{CARD[:-1]}9"
     own = question("demo:j1-9") | {"url": asked}
-    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question("demo:j1-7-a"), own], "pr_cards": []})
+    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question("demo:j1-7-a"), own], "closed": [], "pr_cards": []})
     watch.view.refresh_cards(demo)
     with state.edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["jobs"]["j1"] |= {"state": "built", "branch": "lane/built", "waits": ["demo:j1-7-a"], "questions": [state.new_question("/asks/j1.md", "Pick?", state.stamp(T0), card=asked)]}
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == waiting("demo:j1-7-a")
-    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [own], "pr_cards": []})
+    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [own], "closed": [], "pr_cards": []})
     watch.view.refresh_cards(demo)
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
     assert state.load(demo)["jobs"]["j1"]["waits"] == ["demo:j1-7-a"]
@@ -1800,7 +1800,7 @@ def test_a_wait_added_to_a_pr_redraws_his_open_card_in_place_never_withdraws_it_
     assert cli.main(["pr", "set", KEY, "--waits", "demo:j1-7-a", "--drive", demo]) == 0
     assert (withdrawals.asked, redraws.asked) == ([], [])
     tap_card = pr_card(KEY, url="https://acme.slack.com/archives/D123/p1794200000000200")
-    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question("demo:j1-7-a")], "pr_cards": [tap_card]})
+    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question("demo:j1-7-a")], "closed": [], "pr_cards": [tap_card]})
     assert cli.main(["pr", "set", KEY, "--waits", "j1", "--drive", demo]) == 0
     assert (withdrawals.asked, redraws.asked) == ([], [state.pr_url(KEY)])
     assert capsys.readouterr().out.strip().endswith("redrawing in place the 1 open card(s) of his carrying it, Approve and Hold kept, to say what it waits on")
@@ -1940,7 +1940,7 @@ def test_a_pr_green_and_approved_draws_his_card_from_the_watch_once_a_head_with_
     with state.edit(demo) as data:
         data["prs"][KEY]["wants_tap"] = True
     serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
-    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [], "pr_cards": []})
+    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [], "closed": [], "pr_cards": []})
     sent: list[tuple[str, list[dict]]] = []
     monkeypatch.setattr(tools, "sent", lambda name, lane, records: sent.append((lane, records)) or ["#9"])
     watching = watcher(demo)
@@ -2020,7 +2020,7 @@ def test_a_pr_reworked_to_his_words_gets_no_ready_and_loses_a_card_left_up_until
         data["prs"][KEY]["wants_tap"] = True
         state.rework(data["prs"][KEY], "o2", "Topology goes in the meta table")
     serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
-    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [], "pr_cards": [pr_card(KEY)]})
+    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [], "closed": [], "pr_cards": [pr_card(KEY)]})
     withdrawals.cards = [CARD]
     assert f"CARD {CARD} withdrawn: {KEY} is being reworked to his words" in watch.run_pass(watcher(demo), T0)
     reason = 'Being reworked to your words "Topology goes in the meta table". A fresh card asks your tap once its builder says how they are met'
@@ -2050,7 +2050,7 @@ def test_a_green_approved_exempt_pr_its_lander_could_not_land_for_thirty_minutes
     line = f"PR {KEY}: green, approved and exempt, and not landed for 30 minutes [o1 j1]"
     assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [line]
     assert watch.wakes(line, state.load(demo))
-    assert render.pr_line(KEY, state.load(demo)["prs"][KEY]).endswith("checks pass, review approved, no tap needed, exempt: incident fix")
+    assert render.pr_line(KEY, state.load(demo)["prs"][KEY], None).endswith("checks pass, review approved, no tap needed, exempt: incident fix")
     assert landers == []
 
 
@@ -2220,7 +2220,7 @@ def test_a_monorepo_pr_going_green_and_approved_wakes_no_one_since_the_lander_qu
     assert landers == [(KEY,)] * bool(exempt)
 
 
-NO_CARDS = {"team_url": "", "questions": [], "pr_cards": []}
+NO_CARDS = {"team_url": "", "questions": [], "closed": [], "pr_cards": []}
 
 
 def approve(name: str, *keys: str) -> None:
@@ -2733,7 +2733,7 @@ def test_his_open_pr_card_is_settled_in_place_once_every_pr_it_carries_merged_or
     other = "Forge-AI/monorepo#43"
     with state.edit(demo) as data:
         data["prs"][other] = state.new_pr(state.pr_url(other), "j1", "o1") | {"head": "ddddddd444"}
-    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [], "pr_cards": [pr_card(KEY, other)]})
+    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [], "closed": [], "pr_cards": [pr_card(KEY, other)]})
     settled = []
     monkeypatch.setattr(watch.slack, "withdraw_pr_card", lambda url, why: settled.append((url, why)) or [CARD])
     reads = {KEY: read(state=ended, mergeCommit="ccc333"), other: read(headRefOid="ddddddd444")}
@@ -2751,7 +2751,7 @@ def test_a_merged_pr_settles_its_own_card_only_once_every_other_card_carrying_it
     with state.edit(demo) as data:
         data["prs"][other] = state.new_pr(state.pr_url(other), "j1", "o1") | {"head": "ddddddd444"}
     shown = [pr_card(KEY), pr_card(KEY, other, url=stack)]
-    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [], "pr_cards": list(shown)})
+    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [], "closed": [], "pr_cards": list(shown)})
     asked = []
 
     def withdraw(url: str, why: str) -> list[str]:

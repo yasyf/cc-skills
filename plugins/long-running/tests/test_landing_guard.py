@@ -304,7 +304,7 @@ def test_a_ship_with_a_public_pr_body_reads_its_repo_from_the_checkout(
 def test_his_words_on_his_open_card_posted_with_cci_post_are_refused_for_the_record_tool(demo: str, no_calls: None) -> None:
     card = "https://forge.slack.com/archives/D123/p1794379200123456"
     shown = {"url": card, "question": "Which ring?", "asked": state.stamp(), "card": {"title": "Which ring?", "waits": "demo:j1-7"}}
-    state.cards_path("demo").write_text(json.dumps({"source": "live", "team_url": "", "questions": [shown], "pr_cards": []}))
+    state.cards_path("demo").write_text(json.dumps({"source": "live", "team_url": "", "questions": [shown], "closed": [], "pr_cards": []}))
     answer = "cci post --kind answer --lane root --to communicator@demo --re 7 --attr job=j1 'the lazy copy'"
     assert f"his open card {card}" in landing_guard.deny_reason(bash(answer, agent_id="a1"))
     owner = f"cci post --kind owner --lane root --to communicator@demo --attr 'about=his work' --url '{card}?thread_ts=1794379200.123456' 'why is this card still up'"

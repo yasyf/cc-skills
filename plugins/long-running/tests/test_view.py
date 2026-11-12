@@ -65,8 +65,8 @@ def drive_of(orders: dict, jobs: dict, prs: list[tuple[str, dict]]) -> dict:
     return data
 
 
-def found(questions: list[dict] = (), pr_cards: list[dict] = ()) -> dict:
-    return {"team_url": TEAM, "questions": list(questions), "pr_cards": list(pr_cards)}
+def found(questions: list[dict] = (), pr_cards: list[dict] = (), closed: list[dict] = ()) -> dict:
+    return {"team_url": TEAM, "questions": list(questions), "pr_cards": list(pr_cards), "closed": list(closed)}
 
 
 def question(title: str, minutes: int, waits: str | None = None) -> dict:
@@ -622,5 +622,41 @@ UNLISTED = "https://acme.slack.com/archives/D123/p1794200000000900"
 )
 def test_each_wait_reads_on_his_card_as_what_it_waits_for_in_linked_words(wait: str, words: str) -> None:
     data = {"jobs": {"j3": {"goal": "prove the real run"}}, "prs": {"Forge-AI/monorepo#7": {"title": "Fix: retry [flaky] uploads", "url": "https://github.com/Forge-AI/monorepo/pull/7"}}}
-    listed = {"team_url": "", "pr_cards": [], "questions": [{"question": "Pick a store?", "url": f"{QUESTION}?thread_ts=1.2", "card": {"title": "Pick a store?", "waits": "demo:j1-7-a"}}]}
+    listed = {"team_url": "", "pr_cards": [], "closed": [], "questions": [{"question": "Pick a store?", "url": f"{QUESTION}?thread_ts=1.2", "card": {"title": "Pick a store?", "waits": "demo:j1-7-a"}}]}
     assert view.wait_words(data, wait, listed) == words
+
+
+def closed(url: str, minutes: int, waits: str = "", prs: list[str] = (), answer: dict | None = None, replaced_by: str = "", tapped: str = "") -> dict:
+    return {"waits": waits, "title": "", "prs": list(prs), "asked": at(minutes), "url": url, "answer": answer, "tapped": tapped, "replaced_by": replaced_by}
+
+
+def test_card_words_name_each_question_card_as_cc_slacks_store_holds_it_open_answered_withdrawn_or_redrawn() -> None:
+    first, again, other = (f"{TEAM}archives/D123/p17943808{n}" for n in (45, 50, 55))
+    ledger = found(
+        [question("Pick a store?", -5, "demo:j9-3")],
+        closed=[
+            closed(first, -60, "demo:j7-1", answer={"label": "his order replaced it", "at": at(-40), "withdrawn": True}),
+            closed(again, -30, "demo:j7-2", answer={"label": "Yes", "at": at(-20)}),
+            closed(other, -50, "demo:j8-1", answer={"label": "his order changed it", "at": at(-45), "withdrawn": True}, replaced_by=again),
+        ],
+    )
+    assert view.card_words(ledger, "live", "demo:j9-3") == f"card {TEAM}archives/D123/p-5 open since {when(at(-5))}"
+    assert view.card_words(ledger, "live", first) == f"card {first} withdrawn at {when(at(-40))}: his order replaced it"
+    assert view.card_words(ledger, "live", "demo:j7-2") == f'card {again} answered "Yes" at {when(at(-20))}'
+    assert view.card_words(ledger, "live", "demo:j8-1") == f'card {other} withdrawn at {when(at(-45))}: his order changed it, redrawn as card {again} answered "Yes" at {when(at(-20))}'
+    assert view.card_words(ledger, "live", None) == "never drawn"
+    assert view.card_words(ledger, "live", "demo:j7-9") == "card demo:j7-9 never drawn"
+    assert view.card_words(None, "unavailable: not signed in", first) == "his cards could not be read (unavailable: not signed in)"
+    assert (view.withdrawn(ledger, first), view.withdrawn(ledger, "demo:j7-2"), view.withdrawn(ledger, "demo:j8-1"), view.withdrawn(ledger, "demo:j9-3")) == (True, False, False, False)
+
+
+def test_pr_card_words_name_his_open_tap_card_a_tap_on_a_redrawn_one_or_none() -> None:
+    pr, other = "https://github.com/acme/app/pull/41", "https://github.com/acme/app/pull/42"
+    first, again = f"{TEAM}archives/D123/p1794448525433989", f"{TEAM}archives/D123/p1794479611192239"
+    tapped = closed(again, -10, "merge:acme/app:41", [pr], answer={"label": "Approve", "at": at(-5)}, tapped="✓ Approve")
+    withdrawn = closed(first, -60, "merge:acme/app:41", [pr], answer={"label": "a new head", "at": at(-59), "withdrawn": True}, replaced_by=again)
+    ledger = found(pr_cards=[{"prs": [other], "asked": at(-30), "url": f"{TEAM}archives/D123/p1794454407770969", "card": {"waits": "merge:acme/app:42"}}], closed=[withdrawn, tapped])
+    assert view.pr_card_words(ledger, "live", other) == f"card {TEAM}archives/D123/p1794454407770969 open since {when(at(-30))}"
+    assert view.pr_card_words(ledger, "live", pr) == f'card {again} answered "Approve" at {when(at(-5))}'
+    assert view.pr_card_words(found(closed=[withdrawn]), "live", pr) == f"card {first} withdrawn at {when(at(-59))}: a new head, redrawn as card {again}, which cc-slack no longer keeps"
+    assert view.pr_card_words(ledger, "live", "https://github.com/acme/app/pull/43") is None

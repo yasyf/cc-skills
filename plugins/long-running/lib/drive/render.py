@@ -421,9 +421,11 @@ def agentless_lines(drive: dict) -> list[str]:
     ]
 
 
-def pr_line(key: str, pr: dict) -> str:
+def pr_line(key: str, pr: dict, card: str | None) -> str:
     owed = {"card": "wants tap", "reworking": "no card while its builder reworks it to his words, until its READY says how they are met"}
-    tap = pr["tap"]["label"] if pr.get("tap") else owed.get(owed_step(pr)) or "no tap needed"
+    step = None if pr.get("tap") else owed_step(pr)
+    tap = pr["tap"]["label"] if pr.get("tap") else owed.get(step) or "no tap needed"
+    tap += f", {card or 'his card never drawn'}" if card or step == "card" else ""
     exempt = f", exempt: {pr['exempt']}" if pr.get("exempt") else ""
     port = f" of #{pr['port_of']}" if pr.get("exempt") == "pure port" and pr.get("port_of") else ""
     waits = f", waits on {', '.join(pr['waits'])}" if pr.get("waits") else ""
@@ -445,8 +447,7 @@ def job_line(job_id: str, job: dict, limit: int = 100) -> str:
 
 
 def question_line(question: dict) -> str:
-    drawn = question["card"] or question["waits"]
-    card = f"card {drawn}" if drawn else f"refused, so no card draws: {cut(question['refused'].removeprefix('refused: '), 120)}" if question["refused"] else "no card drawn yet"
+    card = f"refused, so no card draws: {cut(question['refused'].removeprefix('refused: '), 120)}" if question["refused"] else question["card_state"]
     waits = f" ({question['waits']})" if question["card"] and question["waits"] else ""
     kept = f", kept in {question['file']}" if question["file"] else ""
     return f"asks him: {cut(question['title'] or 'his question card', 80)}; {card}{waits}{kept}"
@@ -454,7 +455,7 @@ def question_line(question: dict) -> str:
 
 def job_pr_lines(drive: dict, job_id: str, job: dict) -> list[str]:
     keys = dict.fromkeys([*map(pr_key, job["prs"]), *job_prs(drive, job_id)])
-    return [pr_line(key, drive["prs"][key]) if key in drive["prs"] else pr_url(key) for key in keys]
+    return [pr_line(key, drive["prs"][key], drive["prs"][key]["card_state"]) if key in drive["prs"] else pr_url(key) for key in keys]
 
 
 FEED_SUBSCRIPTION = "cc-slack subscribe --kind alerts,releases,posts --channel <id>"

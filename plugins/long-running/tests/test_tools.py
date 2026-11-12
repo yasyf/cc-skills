@@ -387,7 +387,7 @@ def open_cards(monkeypatch: pytest.MonkeyPatch, *waits: str, prs: tuple[str, ...
             {"card": {"waits": wait, "title": "Which ring?"}, "url": CARD if index == 0 else f"{CARD[:-2]}{index:02d}", "question": "Which ring?"}
             for index, wait in enumerate(waits)
         ],
-        "pr_cards": [{"url": PR_CARD, "prs": list(prs), "card": {"options": ["Approve", "Hold"]}}] if prs else [],
+        "closed": [], "pr_cards": [{"url": PR_CARD, "prs": list(prs), "card": {"options": ["Approve", "Hold"]}}] if prs else [],
     }
     monkeypatch.setattr(view, "cards", lambda name: found)
     answered: list[tuple[str, ...]] = []

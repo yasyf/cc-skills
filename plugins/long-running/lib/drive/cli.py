@@ -1212,7 +1212,7 @@ def drop_ask(name: str, job_id: str, file: Path) -> dict:
 
 
 def keep_ask(name: str, job_id: str, text: str, unsettled: str | None) -> tuple[Path, limits.Question, dict]:
-    """Keep the job's ASK block, or the ASK a DESIGN return puts to him, in its own file once it is in the shape he reads, in place of the job's open question asking the same, and set the job waiting on it; one Jev reads an answer of his as already deciding stays kept as the job's pending question with its refusal, which draws no card, so the watch says the job waits on a card never posted until it asks again or drops it."""
+    """Keep the job's ASK block, or the ASK a DESIGN return puts to him, in its own file once it is in the shape he reads, in place of the job's open question asking the same, and set the job waiting on it; a question any job asked on a card since withdrawn keeps that card's waits id, so asking it again redraws that card; one Jev reads an answer of his as already deciding stays kept as the job's pending question with its refusal, which draws no card, so the watch says the job waits on a card never posted until it asks again or drops it."""
     from drive import superseded, view
 
     text = limits.ask_block(text)
@@ -1251,11 +1251,12 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None) -> tuple[
             replaced = [*(twin for twin in twins if twin["refused"]), *reworded]
             job.update(updated=state.stamp(), may_settle=decided)
         else:
-            held = next((twin for twin in twins if twin["card"]), None) or next((twin for twin in twins if twin["waits"]), None)
+            withdrawn = superseded.redrawable(data, asked.title, cards)
+            held = next((twin for twin in [*twins, *withdrawn] if twin["card"]), None) or next((twin for twin in twins if twin["waits"]), None)
             question = state.new_question(str(kept), asked.title, held["asked"] if held else state.stamp(), unsettled)
             if held:
                 question.update(waits=held["waits"], card=held["card"])
-            replaced = [*twins, *reworded]
+            replaced = [*twins, *withdrawn, *reworded]
             moment = state.stamp()
             job.update(state="waiting", said=asked.title, updated=moment, returned=moment, may_settle=None)
         job["questions"] = [*(other for other in job["questions"] if not any(other is gone for gone in replaced)), question]
@@ -1411,7 +1412,7 @@ def cards_redraw(args: argparse.Namespace) -> int:
 
 
 def cards_withdraw(args: argparse.Namespace) -> int:
-    """Withdraw his open question card that his words, wherever he wrote them, withdraw, or whose question or options they change: it settles in place showing his words and a link to them, with no buttons, so a late tap records nothing and no question asks him on a card while its work is being redone; its job asks again on a new card once the work is back."""
+    """Withdraw his open question card that his words, wherever he wrote them, withdraw, or whose question or options they change: it settles in place showing his words and a link to them, with no buttons, so a late tap records nothing and no question asks him on a card while its work is being redone; its job asks again under the card's waits id once the work is back, which redraws it."""
     from drive import superseded, view
 
     name = state.resolve(args.drive)
@@ -1427,7 +1428,7 @@ def cards_withdraw(args: argparse.Namespace) -> int:
     view.refresh_cards(name)
     waits = shown["card"].get("waits") or view.message_key(shown["url"])
     job_id = waits.partition(":")[2].partition("-")[0]
-    again = f"; {job_id} asks again on a new card once its work is back" if job_id in state.load(name)["jobs"] else ""
+    again = f"; {job_id} asks again under {waits} once its work is back, which redraws this card" if job_id in state.load(name)["jobs"] else ""
     line = f"withdrew his card {shown['url']} ({waits}): it shows his words and a link to them, with no buttons{again}"
     return emit(args, line, {"card": shown["url"], "waits": waits, "job": job_id or None})
 
@@ -2026,10 +2027,11 @@ def pr_set(args: argparse.Namespace) -> int:
             withdrawn = slack.withdraw_pr_card(pr["url"], why)
         except slack.SlackError as error:
             raise DriveError(f"{key}: withdrawing its open card failed, so his Approve still shows: {error}; run this again") from None
-        view.refresh_cards(name)
     corrected = correct_card(name, key, pr["url"]) if args.waits or args.no_waits else ""
     out = "".join(f"\n{shipping}, so it is not a wait" for shipping in shipped.values())
-    line = render.pr_line(key, pr) + served + untapped + out + "".join(f"\nwithdrew his card {card}: {why}" for card in withdrawn) + corrected
+    view.refresh_cards(name)
+    found, source = view.stored_cards(name)
+    line = render.pr_line(key, pr, view.pr_card_words(found if source == "live" else None, source, pr["url"])) + served + untapped + out + "".join(f"\nwithdrew his card {card}: {why}" for card in withdrawn) + corrected
     return emit(args, line, {"key": key, "withdrawn": withdrawn, **pr})
 
 
@@ -2541,9 +2543,13 @@ def status(args: argparse.Namespace) -> int:
 
     name = state.resolve(args.drive)
     data = state.load(name)
-    found = view.live_cards(name)
-    for job in data["jobs"].values():
-        job["questions"] = view.open_questions(job, found)
+    view.refresh_cards(name)
+    found, source = view.stored_cards(name)
+    found = found if source == "live" else None
+    for question in (question for job in data["jobs"].values() for question in job["questions"]):
+        question["card_state"] = view.card_words(found, source, question["card"] or question["waits"])
+    for pr in data["prs"].values():
+        pr["card_state"] = view.pr_card_words(found, source, pr["url"]) if pr["state"] == "open" else None
     corrected = agents.corrections(name, data["held"])
     for seq, mark in data["held"].items():
         mark["corrections"] = corrected.get(seq, [])
@@ -3521,8 +3527,8 @@ def parser() -> argparse.ArgumentParser:
         description=(
             "Withdraw his open question card that his words withdraw, wherever he wrote them, or whose question or options they"
             " change, such as more options, a new constraint or a rework of its work: it settles in place showing his words and"
-            " a link to them, with no buttons, so a late tap records nothing, and its job asks again on a new card once the"
-            " work is back."
+            " a link to them, with no buttons, so a late tap records nothing, and its question, asked again on any job once the"
+            " work is back, keeps this card's waits id and redraws it."
         ),
     )
     verb.add_argument("card", help="the card, by its waits id or its permalink")
