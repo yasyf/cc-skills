@@ -87,8 +87,8 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    - An AWS action, such as starting a pass box and reading its key, break-glass, `db-read` or a
      devbox, runs on this Mac's own credentials first, its AWS calls under a profile
      `~/.aws/config` chains to the machine certificate, such as
-     `AWS_PROFILE=plat-prod tools/ci pass-box launch`, break-glass through `drive break-glass`, and
-     from a Sprite as a `BREAK-GLASS` read. Nobody signs in, taps Touch ID or approves cc-sudo for
+     `AWS_PROFILE=plat-prod tools/ci pass-box launch`, and break-glass through `drive break-glass`,
+     from this Mac or a Sprite. Nobody signs in, taps Touch ID or approves cc-sudo for
      it, so no card, brief or `WAITING` asks him to, by his words "1 but you could have used machine
      profile for this" and "Use break glass with machine profile then you don't need sso, I tell
      you this once a day".
@@ -99,8 +99,8 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      `kubectl create job` a person types runs as that person. A brief with no `Runs as:` line for such work, or one saying `none`, gets an `ASK`.
      An urgent hand repair of the records a bug left stuck is the immediate fix, not a pass: run it at
      once through this Mac's machine-profile break-glass,
-     `drive break-glass <job> --stack <domain>/<env> --reason "<why>" -- <command>`, or a
-     `BREAK-GLASS` read on a Sprite, by his words "manually repair his stuck ones with machine
+     `drive break-glass <job> --stack <domain>/<env> --reason "<why>" -- <command>`, from this Mac
+     or a Sprite, by his words "manually repair his stuck ones with machine
      profile break glass asap".
    - Before you push, compile the Go or Rust you touched and run nothing else: tests, typechecks
      (TypeScript included), linters and review bots are CI's, and a local run only repeats them. When
@@ -129,8 +129,7 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    against the words of your order and every order your job carries and each answer of his your
    `DESIGN:` line names by id or card permalink, read whole, and refuses a `PUSHED` naming
    each of his words the change goes against: change the PRs to his words, push and return `PUSHED`
-   again, or `ASK` for a reading his words leave open. On a Sprite the watch runs that judge on your
-   `READY` or `PUSHED` itself, and a refusal reaches you as `PR … NOT READY: …`. The watch draws his
+   again, or `ASK` for a reading his words leave open. The watch draws his
    card the minute GitHub reports a checked PR green and approved, whatever its body says; a port
    gets the coordinator's check against the old PR instead. A body is fixed beside
    the landing, never before it: a gap anyone finds in it is an edit you push while the PR waits, and
@@ -258,6 +257,13 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 - Work in the checkout Orca prepared, on a branch you cut from `dev`. Run Rust and Go checks here with
   `CARGO_LOCAL=1` and `GO_LOCAL=1`, so the remote-builder shims keep them here, after `mise install`
   if the pinned toolchain is missing; a TypeScript check still goes to CI.
+- Type each `drive` verb this file names as on this Mac: your Sprite's `drive` asks it of the
+  coordinator's Mac as one blocking Orca question, carrying stdin and each file a word names, then
+  prints what it printed there and exits with its status. It runs `job report`, `job ask`,
+  `job set --repro`, `job replies`, `pr add`, `plan search`, `manual`, `status` and `break-glass`,
+  each on your own job alone, and refuses, running nothing, any other verb, job or drive. A verb
+  stopped mid-run answers that it stopped and never runs twice: read what it changed before you type
+  it again.
 - The Sprite holds no Buildkite or AWS credentials and no copy of the drive's records, so
   `tools/ci bk`, `ccx`'s log reads, `cci` and `ccn` refuse or are missing. Every drive file your
   brief names comes whole above your brief: the report of each job its `Researched:` and `Plan:`
@@ -267,33 +273,20 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   coordinator's Mac with one blocking question that prints the answer within about a minute,
   `orca orchestration ask --question "<read>" --wait --timeout-ms 600000`, and keep working: it is a
   read, not a report. Open the question with its read: a `LOG` question reads every `LOG <url>` it
-  names, splitting the 12,000 characters across them, and a `READ` or `BREAK-GLASS` question runs
-  its first line alone. A question for the coordinator that names a `LOG <url>` gets that log ahead
+  names, splitting the 12,000 characters across them, and a `READ` question runs its first line
+  alone. A question for the coordinator that names a `LOG <url>` gets that log ahead
   of its answer.
 
 | Read | What it returns |
 | --- | --- |
 | `LOG <url>` | For the failing check's Buildkite build or job URL, or its GitHub Actions job URL: the failing jobs' own command output, 12,000 characters split across them, each Buildkite job's opening with its failure lines (Go `--- FAIL:` anywhere in a line and `FAIL` package lines, nextest `FAIL [`, Rust `panicked at`, tsc `error TS`, vitest and jest `✕`, `✖` and `●`), then each failure's own output (a Go test's lines from its `=== RUN`, else the failure line and the two after it), then its last characters; a job URL reads that one job. |
 | `READ <command>` | For one of `cci show\|grep\|find\|digest\|state` with `--drive <the brief's drive>`, `ccn search\|show\|relevant`, `ccn answer\|note\|doc search\|show` or `ccn answer list`: its output's first 12,000 characters, for his recorded words and the records a brief or PR cites. |
-| `BREAK-GLASS --stack <domain>/<env> --reason "<why>" -- <command>` | For a command that needs the admin role of that env's account, such as a production read or the hand repair above: the `forge/break-glass` grant, its reason your drive, job and `<why>`, then the command in the coordinator's checkout holding only that env's admin credentials, minted on this Mac's machine profile to end with the grant, as `drive break-glass` runs it, with no sign-in; the grant's link, then the output's first 12,000 characters. A blank `<why>` is refused, and the command runs once, however often the answer is sent. A read writes nothing; a production write runs only on his word or an incident order at 0 deletes and 0 replaces. |
 
-- No drive's records are here, so skip `drive pr add`, `drive job set --repro` and keeping a block
-  with `drive job ask`: the watch registers each PR your report's `PR:` line links the minute it
-  arrives, as `drive pr add` does, and a `yasyf/*` one's lander merges and installs it once your
-  `READY` or `PUSHED` with its `REPRO:` proof file is taken; an `EXEMPT:`
-  line names an exempt class and a port's `SERVES: port of #N` line names its old PR, which the
-  coordinator registers. A `REPRO:` line names the file, with its whole text in a fence on the lines
-  under it, which the watch keeps in the drive's `repro/` folder as `drive job set --repro` does. An
-  `ASK` report is the block itself, in the ASK section's shape. The drive's watch on the
-  coordinator's Mac keeps it the moment it arrives, within about a minute, in the drive's `asks/`
-  folder as `drive job ask` does, its words and the card cc-slack draws from it checked. A reply opening
-  `ASK refused, fix each line and ask again:` names every fix: apply them all and ask again with the
-  whole block. Any other reply is his answer.
-- Report through Orca, never in a final message: `ASK` with
-  `orca orchestration ask --question "<your report>"`, then end your turn until his answer or the
-  watch's refusal wakes you;
-  `DONE`, `PUSHED`, `BUILT`, `WAITING` and `HANDOFF` with
-  `orca orchestration send --type worker_done --outcome succeeded --subject "<first line>" --body "<your report>"`,
+- Keep your report with `drive job report` and an `ASK` block with `drive job ask` as on this Mac,
+  each refusing what it refuses on this Mac, then end your turn through Orca, never a final message:
+  an `ASK` with `orca orchestration ask --question "ASK <the path drive job ask printed>"`, then end
+  your turn until his answer wakes you; `DONE`, `PUSHED`, `BUILT`, `WAITING` and `HANDOFF` with
+  `orca orchestration send --type worker_done --outcome succeeded --subject "<first line>" --body "<the report you kept>"`,
   and `BLOCKED` the same way with `--outcome failed`. The next PR event starts a fresh lane.
 - Orca brings the coordinator's mail, his answer to your `ASK` included, by typing "You have N
   orchestration messages" into your terminal. Read it with `orca orchestration check` as that line
@@ -338,7 +331,7 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 | `SERVES:` | `port of #N`, or the order of his it carries out, quoted from your brief |
 | `CHANGE:` | what changed for him; on a PR reworked to his words, how they are met, which its fresh card shows him |
 | `CHECK:` | the proof: a link, or the absolute path of a file that exists |
-| `DESIGN:` | on a `READY`, each design decision the PR makes beside the answer id or card permalink of his that settled it, or `none`; `drive job report`, or the watch's check on a Sprite, reads each answer it names whole as his words when it judges the change |
+| `DESIGN:` | on a `READY`, each design decision the PR makes beside the answer id or card permalink of his that settled it, or `none`; `drive job report` reads each answer it names whole as his words when it judges the change |
 | `NATIVE:` | what the platform he sees it on already does for this and what the change builds on, with links, or `none: he never sees it` |
 | `RULINGS:` | each ruling of his on the area you followed, quoted |
 | `REUSES:` | on a `READY` whose research found something that exists, how the PR calls or extends it; `drive job report` refuses a `READY` without it |
@@ -353,7 +346,7 @@ listing decisions that block nothing is not a result.
 | Result | When |
 | --- | --- |
 | `DONE <proof link or one-line proof>` | Live and checked where he uses it, which a merge alone is not. When he sees what you built (`NATIVE:` is not `none: he never sees it`), the proof comes from that surface: the live post's link, a picture of it, or a recording of the click through each view his words name (agent-browser's recording, or `screencapture -v` of the window), since data fetched from an API does not show what he sees. `drive job report` refuses a `DONE` without that proof on `CHECK:`. |
-| `PUSHED <pr url> [<pr url>…]` | Pushed and registered, its CI and review still running, and its change checked against his words by `drive job report`, or on a Sprite by the watch. It is the `READY` below held until the watch reads green every check its repository's default branch rules name, one not yet posted holding it too, or at its first read when they name none, waking nobody meanwhile; a red one comes back to you. |
+| `PUSHED <pr url> [<pr url>…]` | Pushed and registered, its CI and review still running, and its change checked against his words by `drive job report`. It is the `READY` below held until the watch reads green every check its repository's default branch rules name, one not yet posted holding it too, or at its first read when they name none, waking nobody meanwhile; a red one comes back to you. |
 | `READY <pr url> [<pr url>…]` | The same, with every check its repository's rules require green; the watch draws his card once it is green and approved. A stack names every PR, bottom first, so it gets one card, as sibling PRs of one order ready together do. When he sees what you built (`NATIVE:` is not `none: he never sees it`), a Show me on its card carries a before and an after screenshot of it, pushed beside the landing when it is missing. A question whose answer only lands PRs, such as an open PR below yours, is this `READY` naming each, never an `ASK`: their stack card is his tap and needs no Show me, and `drive job ask` refuses an ask to land PRs. |
 | `BUILT <branch>, waits on <cards>` | The recommended options built and pushed on `<branch>`, no PR open, waiting on his answer to each design card the brief names, by its waits id or Slack link. Its lines name the option built for each card and what his other picks would change. |
 | `WAITING <what, in plain words>` | Another PR or a release; never CI, a review or a queue on your own PR, which `PUSHED` covers, nor his sign-in, Touch ID or cc-sudo for an AWS action, which this Mac's machine profile runs. `WAITING <your PR> waits on <cards>`, each card by its waits id or Slack link, holds that PR's card until he answers each. |
@@ -386,7 +379,7 @@ Show me picture and prints every fix, such as Mermaid's parse error for a diagra
 or `ready`. Then run `drive job ask <your job> <file>`, which refuses a block out of shape
 and names each fix, and return the path it prints. A kept block you will not return, such as an
 earlier wording of the same question, counts as open until `drive job ask <your job> --drop <its path>`
-throws it away. On a Sprite, send it as On a Sprite says, and the watch runs the same check.
+throws it away. On a Sprite, ask with the path it prints as On a Sprite says.
 
 ````
 ASK <the question, one line>

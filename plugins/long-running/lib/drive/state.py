@@ -19,6 +19,7 @@ ORDER_STATES = ("open", "working", "waiting", "done", "dropped")
 ORDER_KINDS = ("answer", "build")
 CLOSED_ORDER_STATES = ("done", "dropped")
 JOB_KINDS = ("builder", "reader", "design", "codex")
+REPORT_REPLY = "report_"
 JOB_AGENTS = {"builder": ("long-running:builder",), "reader": ("long-running:reader",), "design": ("long-running:designer",), "codex": ("codex:codex-wrapper", "long-running:builder")}
 JOB_STATES = ("running", "waiting", "built", "done", "failed", "stopped")
 FINISHED_JOB_STATES = ("done", "failed", "stopped")
@@ -212,7 +213,7 @@ def report_text(name: str, job_id: str, job: dict) -> str:
 
 def keep_report(name: str, job_id: str, job: dict, line: str, whole: str) -> bool:
     """Keep a return a job on this Mac made in its history, which keeps each, as it keeps a remote lane's, so a later return never loses an earlier one, and, while the job runs, as reports/<j>.md, which every reader takes as its report: only the job's own turn writes that file, so a return on a job that already returned, such as a coordinator restating its result, leaves its agent's report as it was. Whether it wrote the file."""
-    keep_reply(name, job_id, {"created_at": stamp(), "id": f"report_{uuid.uuid4().hex[:12]}", "type": "worker_done", "subject": line, "body": whole})
+    keep_reply(name, job_id, {"created_at": stamp(), "id": f"{REPORT_REPLY}{uuid.uuid4().hex[:12]}", "type": "worker_done", "subject": line, "body": whole})
     if job["state"] != "running":
         return False
     kept = report_path(name, job_id)
@@ -563,7 +564,7 @@ def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | Non
             return (
                 f"it names {', '.join(merging)}, which merges once this is taken and drive install proves by running {job_id}'s proof file, and {job_id}"
                 f" keeps none it can run: keep an executable script exiting 0 once the installed plugins hold the fix with drive job set {job_id} --repro <file>,"
-                " or on a Sprite in the fence under a REPRO: line, then send this report again"
+                " then send this report again"
             )
     if re.match(r"WAITING\b", line) and not (job["waits"] or job["due"] or named_waits(data, job["order"], line)):
         return (

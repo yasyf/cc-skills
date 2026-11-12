@@ -278,7 +278,7 @@ if [ "$route" = sprite ]; then
   [ -z "$expect" ] || [ "$base" = "$expect" ] ||
     die "the Sprite checked out $base, not WORKER_EXPECT_BASE $expect, so nothing was attached, $(discard "$(jq -r .workspace "$attempt/allocation.json")"), and nothing is prepared again"
   "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/orca-sprite-tools.sh" "$attempt/prepared.json" >"$attempt/tools.out" 2>"$attempt/tools.err" ||
-    die "the Sprite did not take the released ccx and cc-notes or the wasm toolchain: $(tail -n 1 "$attempt/tools.err"); the prepared worker stays idle and unattached, $attempt keeps tools.err, and launching this brief again reruns the tool check on that Sprite"
+    die "the Sprite did not take the released ccx and cc-notes, the tools WORKER_TOOLS names, or the wasm toolchain: $(tail -n 1 "$attempt/tools.err"); the prepared worker stays idle and unattached, $attempt keeps tools.err, and launching this brief again reruns the tool check on that Sprite"
 
   terminal=$(jq -r .terminal "$attempt/prepared.json")
   wt=$(jq -r .projectRoot "$attempt/prepared.json")

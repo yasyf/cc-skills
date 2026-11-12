@@ -39,6 +39,7 @@ CARRIED = "reports|asks|repro|scratch"
 PATH_CHARS = r"[^\s`'\"<>()\[\]{}*,;|]+"
 PATH_END = re.compile(r"[^\w/]+$")
 DRIVE = PLUGIN / "bin" / "drive"
+SPRITE_DRIVE = PLUGIN / "lib" / "sprite" / "drive"
 CALL_SECONDS = 60
 ON_MAC = "on this Mac"
 PUSH_FIRST = "Commit and push before any long build."
@@ -344,13 +345,12 @@ def tool(name: str) -> str:
 
 
 def launch(drive: str, lane: str, brief: Path, checkout: Path, run: str, route: str | None, workspace: str | None) -> dict:
-    """Start one builder through the orca plugin's launcher, on a fresh Sprite, on the workspace's own Sprite in the checkout it holds, or, on the local route, in a fresh worktree of the checkout's Orca repository on this Mac; its success line, with the Sprite's prepared server."""
+    """Start one builder through the orca plugin's launcher, on a fresh Sprite or on the workspace's own Sprite in the checkout it holds, either way giving its `~/.local/bin` the `drive` that asks each verb of this Mac, or, on the local route, in a fresh worktree of the checkout's Orca repository on this Mac; its success line, with the Sprite's prepared server."""
     env = {**os.environ, "WORKER_RUN": run, "WORKER_ENV": LANE_ENV, "WORKER_BIND": f"{DRIVE} bound --drive {drive} {run} --"}
     if workspace:
         env["WORKER_WORKSPACE"] = workspace
     local = route == state.LOCAL_ROUTE
-    if local:
-        env |= {"WORKER_LOCAL": "1", "WORKER_REPO": request("repo", "show", "--repo", f"path:{main_checkout(str(checkout))}")["repo"]["id"]}
+    env |= {"WORKER_LOCAL": "1", "WORKER_REPO": request("repo", "show", "--repo", f"path:{main_checkout(str(checkout))}")["repo"]["id"]} if local else {"WORKER_TOOLS": f"drive={SPRITE_DRIVE}"}
     try:
         done = subprocess.run(
             [tool(LAUNCHER), lane, MODEL, EFFORT, str(brief)],

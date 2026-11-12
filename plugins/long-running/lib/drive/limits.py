@@ -675,7 +675,7 @@ def sign_in_problems(lines: list[tuple[str, str]]) -> list[str]:
         f'{where} asks him to sign in with "{line[found.start() : found.end()].strip(" .;:")}": this Mac\'s machine profile runs it with no'
         " sign-in, Touch ID or cc-sudo, every AWS call under a profile ~/.aws/config chains to the machine certificate, such as"
         ' `AWS_PROFILE=plat-prod tools/ci pass-box launch`, and break-glass as `drive break-glass <job> --stack <domain>/<env> --reason "<why>"'
-        f" -- <command>`, or from a Sprite a `BREAK-GLASS` read, so that run takes its place ({MACHINE_PROFILE_RULING})"
+        f" -- <command>` from this Mac or a Sprite, so that run takes its place ({MACHINE_PROFILE_RULING})"
         for where, line, masked in said
         if SIGN_IN.search(masked) and (found := proposed(ASKS_HIM_TO_SIGN_IN, masked))
     ]

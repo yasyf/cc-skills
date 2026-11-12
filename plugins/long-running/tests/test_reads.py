@@ -1,6 +1,7 @@
 import configparser
 import json
 import os
+import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -35,7 +36,6 @@ role_arn = arn:aws:iam::333:role/frg-tnt-gbl-0ddq7rb-admin
 """
 GRANT_ENDS = "2026-11-12T12:22:25.577Z"
 GRANTED = state.parse_time("2026-11-12T11:22:30Z")
-BREAK_GLASS = 'BREAK-GLASS --stack sandsql/plat-usw2-prod --reason "count rows, read only" -- aws sts get-caller-identity'
 ASSUME = ["aws", "sts", "assume-role", "--profile", "tf", "--role-arn", "arn:aws:iam::222:role/frg-plat-gbl-prod-admin", "--role-session-name", "demo-j7"]
 LOG = (
     "\x1b_bk;t=1\x07~~~ Running repository pre-command hook\r\n"
@@ -88,9 +88,10 @@ def serve(monkeypatch: pytest.MonkeyPatch, build: str) -> list[list[str]]:
         ("READ cci show 2065", "READ cci show 2065"),
         ("j247: READ ccn answer show 5299250c9a85\nfor his words", "READ ccn answer show 5299250c9a85"),
         (
-            'j7 BREAK-GLASS --stack sandsql/plat-usw2-prod --reason "count rows, read only" -- aws sts get-caller-identity\nmore',
-            'BREAK-GLASS --stack sandsql/plat-usw2-prod --reason "count rows, read only" -- aws sts get-caller-identity',
+            ' DRIVE break-glass j7 --stack sandsql/plat-usw2-prod --reason "count rows" -- aws s3 ls\n{"stdin": ""}\n',
+            'DRIVE break-glass j7 --stack sandsql/plat-usw2-prod --reason "count rows" -- aws s3 ls\n{"stdin": ""}',
         ),
+        ("j7 DRIVE status", None),
         ("READY https://x/pull/1", None),
         (f"j242 READ, two reads for #7: (1) LOG {BUILD} (2) the field facts", None),
         ("READ: please send the full text of design-run-read-api.md", None),
@@ -122,7 +123,7 @@ def test_a_log_read_naming_two_builds_reads_both_in_half_the_budget_each(
     limits = []
     monkeypatch.setattr(reads, "excerpt", lambda log, limit: limits.append(limit) or "cut")
     said = f"== step 01a1: failed, exit 1, {BUILD}#{FAILED_JOB}\ncut"
-    assert reads.answer(f"LOG {BUILD} {OTHER}", tmp_path, ASKER) == f"{said}\n\n{said}"
+    assert reads.answer(f"LOG {BUILD} {OTHER}", tmp_path, "demo", "j7") == f"{said}\n\n{said}"
     assert limits == [reads.BUDGET // 2] * 2
 
 
@@ -198,7 +199,7 @@ def test_a_build_url_reads_every_failed_script_job(monkeypatch: pytest.MonkeyPat
             job(FAILED_JOB, "failed"), job("0" * 8 + FAILED_JOB[8:], "passed"), job("1" * 36, "failed", "trigger")
         ),
     )
-    answer = reads.answer(f"LOG {BUILD}", tmp_path, ASKER)
+    answer = reads.answer(f"LOG {BUILD}", tmp_path, "demo", "j7")
     assert calls == [["bk", "api", "/pipelines/test/builds/121531"], ["bk", "log", "test", "121531", FAILED_JOB]]
     assert answer == f"== step 01a1: failed, exit 1, {BUILD}#{FAILED_JOB}\nERROR: raises journal write to 13"
 
@@ -207,20 +208,20 @@ def test_a_build_url_reads_every_failed_script_job(monkeypatch: pytest.MonkeyPat
 def test_a_job_url_reads_that_job_alone(suffix: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     other = "0" * 8 + FAILED_JOB[8:]
     calls = serve(monkeypatch, build_json(job(other, "failed"), job(FAILED_JOB, "passed")))
-    reads.answer(f"LOG {BUILD}{suffix}", tmp_path, ASKER)
+    reads.answer(f"LOG {BUILD}{suffix}", tmp_path, "demo", "j7")
     assert calls[1] == ["bk", "log", "test", "121531", FAILED_JOB]
 
 
 def test_a_green_build_says_it_has_no_failed_job(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     serve(monkeypatch, build_json(job(FAILED_JOB, "passed")))
-    assert reads.answer(f"LOG {BUILD}", tmp_path, ASKER) == f"{BUILD} is failed with no failed job"
+    assert reads.answer(f"LOG {BUILD}", tmp_path, "demo", "j7") == f"{BUILD} is failed with no failed job"
 
 
 def test_an_actions_job_url_reads_through_ccx(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     calls = []
     monkeypatch.setattr(reads, "run", lambda argv, checkout: calls.append(argv) or "tail")
     url = "https://github.com/yasyf/cc-skills/actions/runs/19/job/126958155452"
-    assert reads.answer(f"LOG {url}", tmp_path, ASKER) == "tail"
+    assert reads.answer(f"LOG {url}", tmp_path, "demo", "j7") == "tail"
     assert calls == [["ccx", "vcs", "job-log", "126958155452", "-R", "yasyf/cc-skills", "--budget", "3000"]]
 
 
@@ -230,9 +231,9 @@ def test_a_failed_read_or_unknown_url_raises_why(monkeypatch: pytest.MonkeyPatch
 
     monkeypatch.setattr(reads, "run", refuse)
     with pytest.raises(reads.ReadError, match="^tools/ci bk api exited 1: 404 Not Found$"):
-        reads.answer(f"LOG {BUILD}", tmp_path, ASKER)
+        reads.answer(f"LOG {BUILD}", tmp_path, "demo", "j7")
     with pytest.raises(reads.ReadError, match="or a GitHub Actions job URL$"):
-        reads.answer("LOG https://example.com/x", tmp_path, ASKER)
+        reads.answer("LOG https://example.com/x", tmp_path, "demo", "j7")
 
 
 def test_a_record_read_runs_the_allowed_command_from_the_checkout(
@@ -240,8 +241,8 @@ def test_a_record_read_runs_the_allowed_command_from_the_checkout(
 ) -> None:
     calls = []
     monkeypatch.setattr(reads, "run", lambda argv, checkout: calls.append((argv, checkout)) or "m2065 his words\n")
-    assert reads.answer('READ ccn answer search "close #52897"', tmp_path, ASKER) == "m2065 his words"
-    assert reads.answer("READ cci show 2065 2066", tmp_path, ASKER) == "m2065 his words"
+    assert reads.answer('READ ccn answer search "close #52897"', tmp_path, "demo", "j7") == "m2065 his words"
+    assert reads.answer("READ cci show 2065 2066", tmp_path, "demo", "j7") == "m2065 his words"
     assert calls == [
         (["ccn", "answer", "search", "close #52897"], tmp_path),
         (["cci", "show", "2065", "2066"], tmp_path),
@@ -264,7 +265,7 @@ def test_a_search_read_passes_its_words_before_the_first_flag_as_one_query(
 ) -> None:
     calls = []
     monkeypatch.setattr(reads, "run", lambda ran, checkout: calls.append(ran) or "his words")
-    reads.answer(f"READ {command}", tmp_path, ASKER)
+    reads.answer(f"READ {command}", tmp_path, "demo", "j7")
     assert calls == [argv]
 
 
@@ -274,19 +275,19 @@ def test_a_record_read_refuses_anything_but_a_listed_read(
 ) -> None:
     monkeypatch.setattr(reads, "run", lambda argv, checkout: pytest.fail(f"ran {argv}"))
     with pytest.raises(reads.ReadError, match="^only these reads run here: cci show"):
-        reads.answer(f"READ {command}", tmp_path, ASKER)
+        reads.answer(f"READ {command}", tmp_path, "demo", "j7")
 
 
 def test_a_long_record_read_keeps_its_head(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(reads, "BUDGET", 5)
     monkeypatch.setattr(reads, "run", lambda argv, checkout: "HEAD-and-more")
-    assert reads.answer("READ ccn search x", tmp_path, ASKER) == "[first 5 of 13 characters]\nHEAD-"
+    assert reads.answer("READ ccn search x", tmp_path, "demo", "j7") == "[first 5 of 13 characters]\nHEAD-"
 
 
 def test_an_empty_read_says_it_was_empty(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(reads, "run", lambda argv, checkout: "\n")
     question = 'READ ccn answer search "cloud agent new pod start"'
-    assert reads.answer(question, tmp_path, ASKER) == f"{question}: empty, the read printed nothing"
+    assert reads.answer(question, tmp_path, "demo", "j7") == f"{question}: empty, the read printed nothing"
 
 
 class Granted:
@@ -327,11 +328,16 @@ def grantable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: str, ende
     return granted
 
 
-def test_a_break_glass_read_runs_its_command_holding_only_the_stacks_credentials_minted_to_end_before_the_grant(
+def glass(checkout: Path, stack: str = "sandsql/plat-usw2-prod") -> str:
+    with reads.break_glass(stack, "count rows, read only", ASKER, checkout) as granted:
+        return f"{granted.link} {reads.held(granted)}\n{reads.run(['aws', 'sts', 'get-caller-identity'], checkout, granted.env).strip()}"
+
+
+def test_a_break_glass_grant_runs_its_command_holding_only_the_stacks_credentials_minted_to_end_before_the_grant(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     granted = grantable(tmp_path, monkeypatch, SSO_FIRST + MACHINE)
-    said = reads.answer(BREAK_GLASS, tmp_path, ASKER)
+    said = glass(tmp_path)
     why = "demo j7: count rows, read only"
     assert granted.calls == [
         ["bk", "build", "create", "-p", "forge/break-glass", "-b", "dev", "-m", why]
@@ -359,8 +365,7 @@ def test_a_break_glass_read_runs_its_command_holding_only_the_stacks_credentials
     }
     assert not Path(env["AWS_CONFIG_FILE"]).exists()
     assert said == (
-        f"break-glass grant {GRANT} passed; aws ran holding only the plat-prod profile's credentials, which end at"
-        f" {clock(state.parse_time(GRANT_ENDS).astimezone())}\n"
+        f"{GRANT} holding only the plat-prod profile's credentials, which end at {clock(state.parse_time(GRANT_ENDS).astimezone())}\n"
         '{"Arn": "arn:aws:sts::222:assumed-role/frg-plat-gbl-prod-admin/demo-j7"}'
     )
 
@@ -369,7 +374,7 @@ def test_a_break_glass_read_runs_its_command_holding_only_the_stacks_credentials
 def test_a_grant_ending_before_the_shortest_credentials_sts_mints_runs_nothing(now: datetime, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     granted = grantable(tmp_path, monkeypatch, MACHINE, now=now)
     with pytest.raises(reads.ReadError, match=f"^the break-glass grant {GRANT} ends at .*, too soon for the 15 minutes the shortest AWS credentials last, so nothing ran"):
-        reads.answer(BREAK_GLASS, tmp_path, ASKER)
+        glass(tmp_path)
     assert [argv[0] for argv in granted.calls] == ["bk", "bk", "bk"]
 
 
@@ -377,7 +382,7 @@ def test_credentials_sts_stamps_past_the_grants_end_are_never_used(tmp_path: Pat
     granted = grantable(tmp_path, monkeypatch, MACHINE)
     granted.expiration = "2026-11-12T12:22:26+00:00"
     with pytest.raises(reads.ReadError, match=f"^STS minted credentials ending at 2026-11-12T12:22:26\\+00:00, past the end of the break-glass grant {GRANT}"):
-        reads.answer(BREAK_GLASS, tmp_path, ASKER)
+        glass(tmp_path)
     assert granted.calls[-1][:3] == ["aws", "sts", "assume-role"]
     assert granted.envs == []
 
@@ -385,26 +390,21 @@ def test_credentials_sts_stamps_past_the_grants_end_are_never_used(tmp_path: Pat
 def test_a_break_glass_grant_that_does_not_pass_runs_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     granted = grantable(tmp_path, monkeypatch, MACHINE, ended="failed")
     with pytest.raises(reads.ReadError, match=f"^the break-glass grant {GRANT} failed, so nothing ran$"):
-        reads.answer('BREAK-GLASS --stack sandsql/plat-usw2-prod --reason "count rows" -- aws sts get-caller-identity', tmp_path, ASKER)
+        glass(tmp_path)
     assert [argv[0] for argv in granted.calls] == ["bk", "bk", "bk"]
 
 
 @pytest.mark.parametrize(
-    ("words", "why"),
+    ("stack", "why"),
     [
-        ('--stack plat-usw2-prod --reason "x" -- aws s3 ls', '^"plat-usw2-prod" is no stack: name it as <domain>/<env>, such as sandsql/plat-usw2-prod$'),
-        ('--stack sandsql/plat-usw2-dev --reason "x" -- aws s3 ls', "^plat-usw2-dev is no env .* declares in infra/envs$"),
-        ('--stack sandsql/plat-usw2-prod -- aws s3 ls', '^BREAK-GLASS --stack <domain>/<env> --reason "<why>" -- <command>: the following arguments are required: --reason$'),
-        ('--stack sandsql/plat-usw2-prod --reason "  " -- aws s3 ls', "argument --reason: is blank: say why, as #releases shows it beside the grant"),
-        ('--stack sandsql/plat-usw2-prod --reason "x" --profile admin -- aws s3 ls', "unrecognized arguments: --profile$"),
+        ("plat-usw2-prod", '^"plat-usw2-prod" is no stack: name it as <domain>/<env>, such as sandsql/plat-usw2-prod$'),
+        ("sandsql/plat-usw2-dev", "^plat-usw2-dev is no env .* declares in infra/envs$"),
     ],
 )
-def test_a_break_glass_read_naming_no_stack_env_or_reason_is_refused_before_any_grant(
-    words: str, why: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_break_glass_grant_naming_no_stack_or_env_is_refused_before_any_grant(stack: str, why: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     granted = grantable(tmp_path, monkeypatch, MACHINE)
     with pytest.raises(reads.ReadError, match=why):
-        reads.answer(f"BREAK-GLASS {words}", tmp_path, ASKER)
+        glass(tmp_path, stack)
     assert granted.calls == []
 
 
@@ -413,9 +413,88 @@ def test_an_env_reached_only_through_an_sso_sign_in_has_no_machine_profile_and_p
 ) -> None:
     granted = grantable(tmp_path, monkeypatch, SSO_FIRST)
     with pytest.raises(reads.ReadError) as refused:
-        reads.answer('BREAK-GLASS --stack sandsql/plat-usw2-prod --reason "x" -- aws s3 ls', tmp_path, ASKER)
+        glass(tmp_path)
     assert str(refused.value) == (
         f"no profile in {tmp_path / 'aws'} assumes frg-plat-gbl-prod-admin through source_profile from a credential_process,"
         " so plat-usw2-prod has no machine profile"
     )
     assert granted.calls == []
+
+
+FAKE_DRIVE = """#!/bin/sh
+printf '%s\\n' "$@"
+printf 'drive=%s session=%s cwd=%s\\n' "$LONG_RUNNING_DRIVE" "${CLAUDE_CODE_SESSION_ID:-none}" "$(pwd)"
+for word in "$@"; do [ -f "$word" ] && { [ -x "$word" ] && echo executable; cat "$word"; }; done
+cat
+echo failed >&2
+exit 3
+"""
+
+
+@pytest.fixture
+def fake_drive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    script = tmp_path / "bin" / "drive"
+    script.parent.mkdir()
+    script.write_text(FAKE_DRIVE)
+    script.chmod(0o755)
+    monkeypatch.setattr(reads, "DRIVE_BIN", script)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "this-macs-session")
+    return tmp_path / "checkout"
+
+
+def test_a_drive_question_runs_the_lanes_verb_here_with_its_files_and_stdin_and_answers_its_exit_and_output(fake_drive: Path) -> None:
+    fake_drive.mkdir()
+    proof = "/home/sprite/scratch/j7/proof.sh"
+    sent = {"stdin": "DONE proven\n", "files": {proof: {"text": "#!/bin/sh\nexit 0\n", "executable": True}}}
+    said = reads.answer(f"DRIVE job set j7 --repro {proof}\n{json.dumps(sent)}", fake_drive, "demo", "j7")
+    assert said == "\n".join(
+        [
+            "drive exited 3",
+            "job",
+            "set",
+            "j7",
+            "--repro",
+            proof,
+            f"drive=demo session=none cwd={fake_drive.resolve()}",
+            "executable",
+            "#!/bin/sh",
+            "exit 0",
+            "DONE proven",
+            "failed",
+        ]
+    )
+
+
+@pytest.mark.parametrize(
+    ("words", "why"),
+    [
+        ("pr set Forge-AI/monorepo#7 --tap approve", "a lane runs only these verbs: job report, job ask, job set, job replies, pr add, plan search, manual, status, break-glass"),
+        ("order add --title x", "a lane runs only these verbs"),
+        ("job report j8 -", "it names j8, and a lane's drive verbs act on its own job, j7, alone"),
+        ('break-glass j8 --stack sandsql/plat-usw2-prod --reason "x" -- aws s3 ls', "it names j8"),
+        ('break-glass --stack sandsql/plat-usw2-prod --reason "x" -- aws s3 ls j8', "a lane's break-glass grant names its own job"),
+        ("job set j7 --state done", "a lane's job set takes only --repro, and it names --state"),
+        ("status --drive other", "it names drive other, and a lane acts on its own drive, demo, alone"),
+        ("job replies j7 --drive=other", "it names drive other"),
+    ],
+)
+def test_a_drive_question_for_a_verb_job_or_drive_not_the_lanes_own_runs_nothing(words: str, why: str, fake_drive: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(reads.subprocess, "run", lambda *args, **kwargs: pytest.fail(f"ran {args}"))
+    said = reads.answer(f"DRIVE {words}", fake_drive, "demo", "j7")
+    assert said.startswith(f"drive exited 2\ndrive {' '.join(words.split()[:2])}: refused, nothing ran: ") and why in said
+
+
+@pytest.mark.parametrize("question", ['DRIVE job report j7 -\n{"stdin": ', 'DRIVE job report "j7 -'])
+def test_a_drive_question_the_watch_cannot_parse_exits_2_naming_why(question: str, fake_drive: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(reads.subprocess, "run", lambda *args, **kwargs: pytest.fail(f"ran {args}"))
+    assert reads.answer(question, fake_drive, "demo", "j7").startswith(f"drive exited 2\n{question.partition(chr(10))[0]}: ")
+
+
+def test_a_drive_question_running_past_its_time_is_stopped_and_exits_124(fake_drive: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def slow(argv: list[str], **kwargs: object) -> None:
+        raise subprocess.TimeoutExpired(argv, reads.DRIVE_SECONDS)
+
+    monkeypatch.setattr(reads.subprocess, "run", slow)
+    assert reads.answer("DRIVE job report j7 -", fake_drive, "demo", "j7") == (
+        f"drive exited 124\ndrive job report ran past {reads.DRIVE_SECONDS} seconds, stopped here; what it changed before then stays"
+    )
