@@ -222,11 +222,16 @@ seed_browserbase() {
 }
 
 login_url='^https?://([^/?#]*[.-])?(login|signin|accounts|auth|sso|okta)[.-][^/?#]*([/?#]|$)|^https?://[^/?#]+/([^?#]*/)?(login|log-in|signin|sign-in|sign_in|sso|auth|authorize|session/new)([/?#]|$)'
+signin_page='[document.title, ...Array.from(document.querySelectorAll("h1"), h => h.innerText)].some(t => /^\s*(sign|log)[ -]?in\b/i.test(t)) || Array.from(document.querySelectorAll("input[type=password]")).some(i => i.offsetParent !== null)'
 
 require_session() {
-  local landed host target machine profiles
+  local landed signin host target machine profiles
+  [[ ! "$primary" =~ $login_url ]] || return 0
   landed="$(run_ab get url)" || die "could not read the landed url"
-  [[ "$landed" =~ $login_url && ! "$primary" =~ $login_url ]] || return 0
+  if [[ ! "$landed" =~ $login_url ]]; then
+    signin="$(run_ab eval "$signin_page")" || die "could not read the landed page"
+    [[ "$signin" == true ]] || return 0
+  fi
   host="$(bare_host "$primary")"
   target="${peer:-$(cookiesync self)}" || die "'cookiesync self' failed"
   machine="${peer:-$(scutil --get ComputerName)}"
