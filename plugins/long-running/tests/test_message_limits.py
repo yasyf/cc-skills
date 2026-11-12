@@ -1232,6 +1232,26 @@ def test_say_refuses_a_time_typed_for_past_work_and_passes_a_jobs_start_from_its
     assert say(transcript, text="The fix job's log printed `4:55:02 AM` for its first write.") is None
 
 
+def test_say_refuses_a_jobs_start_given_as_when_a_release_started_and_passes_the_builds_own_start_on_the_line_linking_it(
+    talker: str, transcript: Path
+) -> None:
+    with state.edit("demo") as data:
+        data["jobs"]["j1"] = state.new_job("o1", "builder", "release the sandsql component", [], state.stamp())
+    for posted in (
+        "*SandSQL is releasing at 9b6130c, on your pick; it started {started:j1}.* api needs no release.",
+        "*SandSQL at api's commit 9b6130c started releasing at {started:j1}* to plat-usw2-prod.",
+    ):
+        refused = say(transcript, text=posted)
+        assert refused is not None and refused.rule == agents.TYPED_TIME_RULE, posted
+        assert "and this line says when a release, build or deploy started: a job's or record's stamp never stands in" in refused, posted
+    assert say(transcript, text="*SandSQL is releasing; it started {started:j1}.*").startswith("refused: {started:j1} is when job j1 started")
+    build = "<https://buildkite.com/forge/release/builds/15020|The SandSQL release build>"
+    assert say(transcript, text=f"{build} started `11:30 AM`; its builder started at {{started:j1}}.") is None
+    assert say(transcript, text="<https://buildkite.com/forge/release/builds/15020|The SandSQL release build started 11:30 AM>.") is None
+    unlinked = say(transcript, text="The SandSQL release build started `11:30 AM`.")
+    assert unlinked is not None and unlinked.startswith("refused: `11:30 AM` says when a release, build or deploy started, and its line links no build")
+
+
 def test_a_summary_naming_a_drive_pr_is_found_until_it_says_what_the_pr_serves(talker: str, transcript: Path, run: Run) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: the watch reads taps")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Cards", "cards show under the line")

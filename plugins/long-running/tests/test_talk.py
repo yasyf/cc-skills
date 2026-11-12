@@ -212,9 +212,15 @@ def test_a_jobs_start_and_a_records_time_are_filled_from_the_drives_stamps(demo:
     went_out = today.replace(hour=4, minute=47, second=9).astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
     monkeypatch.setattr(reads, "run", lambda argv, checkout: json.dumps({"at": went_out, "text": "POST Yes to both", "refs": {}}))
     talk.say(demo, {"text": "A second fix job started at {started:j1860}, after the report of {at:673251}."})
-    assert posts[0][-1] == "A second fix job started at 4:50 AM, after the report of 4:47 AM."
+    assert posts[0][-1] == "A second fix job started at 4:50 AM (job start), after the report of 4:47 AM."
+    build = "<https://buildkite.com/forge/release/builds/15020|The SandSQL release build>"
+    talk.say(demo, {"text": f"{build} started `11:30 AM`, and its builder at {{started:j1860}}."})
+    assert posts[1][-1] == f"{build} started `11:30 AM`, and its builder at 4:50 AM (job start)."
     with pytest.raises(DriveError, match=r"\{started:j9\} names no job of the drive's"):
         talk.say(demo, {"text": "It started at {started:j9}."})
+    with pytest.raises(DriveError, match=r"\{started:j1860\|the release's start\} would draw its words in place of the job's start"):
+        talk.say(demo, {"text": "SandSQL is releasing; it started {started:j1860|the release's start}."})
+    assert len(posts) == 2
 
 
 def test_a_card_asked_again_with_new_words_moves_its_question_and_each_wait_on_it_to_the_new_card(demo: str, posts: list[tuple[str, ...]]) -> None:

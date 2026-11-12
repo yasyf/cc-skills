@@ -39,7 +39,9 @@ UNREAD_JOB = (
 TAIL_BYTES = 4 << 20
 TYPED_TIME_RULE = (
     "A clock time a session typed for work already done, such as when a job started or a post went out, which the drive's"
-    " stamps give; a promise of a time to come, a time quoted as a tool printed it and a linked time pass."
+    " stamps give, and a job's or record's stamp given as when a release, build or deploy started; a promise of a time to"
+    " come, a time quoted as a tool printed it and a linked time pass, a release's, build's or deploy's start only on the line"
+    " linking the build or tool it was quoted from."
 )
 
 

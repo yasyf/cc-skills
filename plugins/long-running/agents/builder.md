@@ -343,8 +343,10 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 - Its first line is exactly one result line below. The lines after it are the inputs a handler writes
   his message from, one fact a line, unpolished, never the write-up itself, plus any exact quote,
   number or path the message needs. Name when a job started as `{started:<job>}` and when a record
-  went out as `{at:<seq>}`, and quote a time a tool printed in backticks as it printed it:
-  `drive job report` and the watch refuse a clock time typed for work already done.
+  went out as `{at:<seq>}`, never as when anything else started, and quote a time a tool printed in
+  backticks as it printed it, a release's, build's or deploy's start on the line linking that build or
+  tool: `drive job report` and the watch refuse a clock time typed for work already done, and a job's or
+  record's stamp given as a release's, build's or deploy's start.
 
 | Line | What it holds |
 | --- | --- |

@@ -3,9 +3,9 @@ import re
 from pathlib import Path
 
 from drive import dashboard, picture, reads, render, settled, state, view
+from drive.limits import REF
 from drive.state import DriveError
 
-REF = re.compile(r"\{(card|pr|order|record|answer|started|at):([^{}\s|]+)(?:\|([^{}]+))?\}")
 ACK = re.compile(r"\bAck: (https://\S+)")
 RAW_ANSWER = re.compile(r"^\d+:\d+ commit-sha '([0-9a-f]{7,40})'")
 OPEN_LINK = re.compile(r"<((?:https?://|mailto:)[^<>|\s]*)\|[^<>]*\Z")
@@ -13,6 +13,7 @@ INNER = re.compile(r"<[^<>]*>?")
 CODE = re.compile(r"`[^`\n]+`")
 LINK_WORDS = str.maketrans({"<": "", ">": "", "|": "/", "[": "(", "]": ")"})
 THIS_CARD = "this card"
+JOB_START = "(job start)"
 CAUSE = re.compile(
     r"\b(?:because|caus(?:ed|es|ing)|due to|culprit)\b"
     r"|\bcause(?:\s+(?:is|was)|:)\s+(?!(?:yes|still|being|unknown|unclear|pending|tbd|not yet|under (?:way|investigation|review))\b|an?\s+(?:read|reader|lane|agent)\s+(?:is|has)\b)",
@@ -41,7 +42,7 @@ RECORD_WORDS = 10
 
 
 def resolved(name: str, text: str) -> dict[str, dict]:
-    """Each reference the text holds, read from the drive: {card:<waits id>}, {pr:<number, owner/repo#number or URL>}, {order:<id>}, {record:<seq>}, {answer:<id>}, and {started:<job>} and {at:<seq>}, the time a job started and a record went out, with the words that name it, the words after a | when it has them, and where it opens; one that names nothing, or a reference or link inside a raw link's words, refuses the post."""
+    """Each reference the text holds, read from the drive: {card:<waits id>}, {pr:<number, owner/repo#number or URL>}, {order:<id>}, {record:<seq>}, {answer:<id>}, and {started:<job>} and {at:<seq>}, the time a job started, labelled as the job's start, and the time a record went out, with the words that name it, the words after a | when it has them, and where it opens; one that names nothing, or a reference or link inside a raw link's words, refuses the post."""
     if refusal := nested(text):
         raise DriveError(refusal)
     found = {}
@@ -65,7 +66,7 @@ def resolved(name: str, text: str) -> dict[str, dict]:
             case "answer":
                 found[match[0]] = answer(data, match[2])
             case "started":
-                found[match[0]] = started(data, match[2])
+                found[match[0]] = started(data, match[2], label)
             case "at":
                 found[match[0]] = posted_at(name, match[2])
         if label:
@@ -211,11 +212,16 @@ def answered(answer_id: str, data: dict) -> bool:
     return True
 
 
-def started(data: dict, job_id: str) -> dict:
-    """When a job started, the stamp the drive wrote as it added the job, so no session types the time."""
+def started(data: dict, job_id: str, label: str) -> dict:
+    """When a job started, the stamp the drive wrote as it added the job, so no session types the time, labelled as the job's start so it never reads as when anything the job did started, such as a release; words after a | would replace that label, and refuse the post."""
     if job_id not in data["jobs"]:
         raise DriveError(f"{{started:{job_id}}} names no job of the drive's; drive status lists them")
-    return {"kind": "started", "title": render.when(data["jobs"][job_id]["created"]), "url": None, "board": None}
+    if label:
+        raise DriveError(
+            f"{{started:{job_id}|{label}}} would draw its words in place of the job's start: {{started:{job_id}}} draws only when that job"
+            " started, labelled so, and takes no words after a |"
+        )
+    return {"kind": "started", "title": f"{render.when(data['jobs'][job_id]['created'])} {JOB_START}", "url": None, "board": None}
 
 
 def posted_at(name: str, seq: str) -> dict:

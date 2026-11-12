@@ -229,6 +229,30 @@ PROMISED_BEFORE = re.compile(
 )
 CATCH_UP_SINCE = re.compile(r"\bcatch-up since\b[^\n*]*", re.IGNORECASE)
 STAMP_RULING = 'his Nov 3 ruling 20c4c24, "the agent should never be passing in a time"'
+RELEASE_START = (
+    re.compile(
+        r"\b(?:releas(?:e|es|ed|ing)|build(?:s|ing)?|deploy(?:s|ed|ing|ments?)?|roll(?:s|ed|ing)?[ -]?(?:out|back)s?|rollouts?|rollbacks?)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\b(?:start(?:s|ed|ing)?|began|begun|begins?|kicked off|launched)\b", re.IGNORECASE),
+)
+REF = re.compile(r"\{(card|pr|order|record|answer|started|at):([^{}\s|]+)(?:\|([^{}]+))?\}")
+STAMPED = {
+    "started": (
+        re.compile(r"\b(?:j\d+|jobs?|builders?|readers?|designers?|handlers?|lanes?|agents?|workers?|codex)\b", re.IGNORECASE),
+        "job {id} started",
+        '"its builder started at {{started:{id}}}"',
+    ),
+    "at": (
+        re.compile(r"\b(?:records?|reports?|posts?|lines?|messages?|repl(?:y|ies)|answers?)\b", re.IGNORECASE),
+        "record {id} went out",
+        '"after the report of {{at:{id}}}"',
+    ),
+}
+SENTENCE_END = re.compile(r"[.;!?]+[*_~)\]]*(?=\s|$)")
+BACKTICKED = re.compile(r"`[^`\n]*`")
+SOURCE_LINK = re.compile(r"https?://|\{record:")
+QUOTED_START = "<https://buildkite.com/forge/release/builds/15020|the release build> started `11:30 AM`"
 VAGUE = re.compile(
     r"\b(?:the|this|that|these|those|your|our)\s+(?:\w+\s+)?(?:change|fix|pick|copy|thing|work|issue|problem|bug|approach|code|path)s?\b"
     r"|\bthis\b(?=\s*[?:,]|$)",
@@ -1232,11 +1256,11 @@ def masked(line: str) -> str:
 
 
 def typed_time(text: str, data: dict) -> str | None:
-    """Why a write types a clock time for work already done, which the drive's stamps give, naming the stamp of the write and of each job it names: a time in code, a quote, a link or a catch-up's title, which the drive writes from its stamp, stays as written, and one its words promise, as "next line by 5:40 AM" and "due 6 AM" do, is a time to come."""
+    """Why a write types a clock time for work already done, which the drive's stamps give, naming the stamp of the write and of each job it names, or gives a release, build or deploy a start its build or tool never printed: a time in code, a quote, a link or a catch-up's title, which the drive writes from its stamp, stays as written, and one its words promise, as "next line by 5:40 AM" and "due 6 AM" do, is a time to come."""
     plain = CATCH_UP_SINCE.sub(lambda found: MASK * len(found[0]), QUOTED_LINE.sub(lambda found: MASK * len(found[0]), masked(text)))
     typed = list(dict.fromkeys(found[0] for found in CLOCK_TIME.finditer(plain) if not PROMISED_BEFORE.search(plain, 0, found.start())))
     if not typed:
-        return None
+        return unsourced_start(text)
     jobs = [
         f", {job_id} was created at {when(data['jobs'][job_id]['created'], seconds=True)}, which {{started:{job_id}}} says"
         for job_id in dict.fromkeys(JOB_ID.findall(plain))
@@ -1247,9 +1271,44 @@ def typed_time(text: str, data: dict) -> str | None:
         f"{times} {'is a time' if len(typed) == 1 else 'are times'} typed for work already done, and the drive's stamps say when"
         f" it happened: this write is stamped {clock(now(), seconds=True)}{''.join(jobs)}. Name the job or"
         " record and let its stamp give the time, {started:<job>} for when a job started and {at:<seq>} for when a record went out,"
-        " which say fills; quote a time a tool printed in backticks, as it printed it; a promise of a time to come, such as"
-        f' "next line by 5:40 AM", passes ({STAMP_RULING})'
+        " which say fills, never for when anything else started; quote a time a tool printed as it printed it, in backticks,"
+        f" and a release's, build's or deploy's start on the line linking that build or tool, as {QUOTED_START} does; a promise of"
+        f' a time to come, such as "next line by 5:40 AM", passes ({STAMP_RULING})'
     )
+
+
+def unsourced_start(text: str) -> str | None:
+    """Why a line saying when a release, build or deploy started gives it a time its build or tool never printed: a job's {started:<job>} or a record's {at:<seq>} in a clause saying something started that names no job or record, so that stamp stands in for the action's own start, or a time quoted in backticks on a line linking no build or tool it was quoted from. A time in a link's words carries its link."""
+    for line in FENCED.sub("", text).splitlines():
+        if line.lstrip().startswith(QUOTE) or not all(pattern.search(spoken(line)) for pattern in RELEASE_START):
+            continue
+        for clause in SENTENCE_END.split(line):
+            if not RELEASE_START[1].search(words := spoken(clause)):
+                continue
+            for stamp in (found for found in REF.finditer(QUOTED.sub(lambda quote: MASK * len(quote[0]), clause)) if found[1] in STAMPED):
+                named, what, example = STAMPED[stamp[1]]
+                if not named.search(words):
+                    return (
+                        f"{stamp[0]} is when {what.format(id=stamp[2])}, and this line says when a release, build or deploy started: a job's or"
+                        " record's stamp never stands in for another action's start. Quote the start its build or tool printed, in backticks"
+                        f" or the words of the link to it, on the line linking it, as {QUOTED_START} does, or say in that clause what the stamp"
+                        f" is the time of, as {example.format(id=stamp[2])} does"
+                    )
+        if (quoted := [found[0] for found in BACKTICKED.finditer(line) if CLOCK_TIME.search(found[0])]) and not SOURCE_LINK.search(line):
+            return (
+                f"{', '.join(quoted)} says when a release, build or deploy started, and its line links no build or tool it was quoted"
+                f" from: put the link to that build or tool on the line, as {QUOTED_START} does"
+            )
+    return None
+
+
+def spoken(line: str) -> str:
+    """The line's own words: each link and say reference reduced to its words, and each URL, code span, quote and reference with no words of its own blanked."""
+    line = MARKDOWN_LINK.sub(lambda found: found[1], LABELLED.sub(lambda found: found[1], line))
+    line = REF.sub(lambda found: found[3] or MASK * len(found[0]), line)
+    for pattern in (TOKEN, URL, QUOTED):
+        line = pattern.sub(lambda found: MASK * len(found[0]), line)
+    return line
 
 
 def clause(line: str, bare: str, start: int, end: int) -> tuple[str, str]:

@@ -596,6 +596,17 @@ def test_a_report_naming_a_jobs_start_is_refused_with_that_jobs_created_stamp(
     assert "j1 was created at 4:50:21 AM, which {started:j1} says." in reason
 
 
+def test_a_report_giving_a_jobs_start_as_when_a_release_started_is_refused_and_one_naming_its_job_passes(demo: str, turn: Path) -> None:
+    stood_in = "POST The SandSQL release at 9b6130cd is starting on your pick {started:j1}; api gets no release."
+    reason = refusal(record_lines.decision(coordinator(turn, kind="report", text=stood_in, to=TO, attrs=PROGRESS)))
+    assert reason.startswith("refused: {started:j1} is when job j1 started, and this line says when a release, build or deploy started")
+    went_out = "POST The SandSQL release went out; it started {at:676829}."
+    reason = refusal(record_lines.decision(coordinator(turn, kind="report", text=went_out, to=TO, attrs=PROGRESS)))
+    assert reason.startswith("refused: {at:676829} is when record 676829 went out")
+    named = "POST The SandSQL release's builder started at {started:j1}; api gets no release."
+    assert record_lines.decision(coordinator(turn, kind="report", text=named, to=TO, attrs=PROGRESS)) is None
+
+
 def test_the_communicators_record_for_a_coordinator_goes_to_the_session_hearing_the_order_it_serves_whatever_lane_it_names(
     run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
