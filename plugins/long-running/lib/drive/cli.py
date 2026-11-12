@@ -4,7 +4,6 @@ import os
 import re
 import shlex
 import shutil
-import subprocess
 import sys
 import tempfile
 import textwrap
@@ -1849,7 +1848,7 @@ def transcript_line(job_id: str, job: dict) -> str | None:
 
 
 def job_launch(args: argparse.Namespace) -> int:
-    """Start a job's Orca lane, on a Sprite or with --local on this Mac, stamped as launching once nothing refuses it so the watch reads it as starting until the launch could have finished; or record the worker an earlier launch of its brief started and never recorded, whose ready receipt the launcher keeps."""
+    """Start a job's Orca lane, on a Sprite or with --local on this Mac, where a brief that runs drive break-glass starts, stamped as launching once nothing refuses it so the watch reads it as starting until the launch could have finished; or record the worker an earlier launch of its brief started and never recorded, whose ready receipt the launcher keeps."""
     name = state.resolve(args.drive)
     started = launched(args, name)
     job = record_start(name, args.id, started, None)
@@ -1875,7 +1874,12 @@ def launched(args: argparse.Namespace, name: str) -> dict:
     if taker:
         text = orca.agent_handoff(text, job, None)
     role = state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
-    if refused := state.held_elsewhere(data, job["order"], role) or brief.brief_refusal(name, data, args.id, text) or orca.uncarried(name, text):
+    if refused := (
+        state.held_elsewhere(data, job["order"], role)
+        or brief.brief_refusal(name, data, args.id, text)
+        or orca.uncarried(name, text)
+        or (f"its brief runs drive break-glass, which no Sprite lane runs, by {reads.NO_SPRITE_GRANT}: launch it with --local" if not args.local and reads.GRANT_STEP.search(text) else None)
+    ):
         raise DriveError(f"{args.id}: refused, not launched: {refused}")
     with state.edit(name) as data:
         job = data["jobs"][args.id]
@@ -2991,7 +2995,7 @@ def plan_search(args: argparse.Namespace) -> int:
 
 
 def break_glass(args: argparse.Namespace) -> int:
-    """Run one command under the forge/break-glass grant for a stack, started in the job's or order's name with its reason, holding only the stack's env's admin credentials, minted on this Mac's machine profile to end no later than the grant: its output and exit status are the verb's, and nobody signs in."""
+    """Run one command under the forge/break-glass grant for a stack, started in the job's or order's name with its reason, holding only the stack's env's admin credentials, minted on this Mac's machine profile to end no later than the grant, and stopped with every process left in its group by the grant's end or when drive is stopped: its output and exit status are the verb's, and nobody signs in."""
     name = state.resolve(args.drive)
     data = state.load(name)
     records, label = (data["jobs"], "job") if JOB_ID.fullmatch(args.id) else (data["orders"], "order")
@@ -2999,7 +3003,7 @@ def break_glass(args: argparse.Namespace) -> int:
     try:
         with reads.break_glass(args.stack, args.reason, f"{name} {args.id}", Path(data["roles"]["coordinator"]["cwd"])) as granted:
             print(f"break-glass grant {granted.link} passed; running {args.command[0]} {reads.held(granted)}", file=sys.stderr, flush=True)
-            return subprocess.run(args.command, env=granted.env, check=False).returncode
+            return reads.run_granted(args.command, granted)
     except reads.ReadError as error:
         raise DriveError(f"break-glass: {error}") from None
 
@@ -3932,7 +3936,9 @@ def parser() -> argparse.ArgumentParser:
             " blank, and wait for it to pass. Then mint the env's account admin role with aws sts assume-role from the source_profile"
             " of the profile in ~/.aws/config that reaches it from a credential_process, never an SSO sign-in, to end a minute"
             " before the grant's recorded end, and run the command after -- with an AWS config naming that one profile alone, so"
-            " a command naming another stack's profile finds none; the credentials are deleted when it exits. A grant ending"
+            " a command naming another stack's profile finds none; the credentials are deleted when it exits. The command runs as"
+            " a process group of its own, ended with every process it started when it exits, when the grant ends, which exits"
+            " 124, and when drive gets SIGTERM, SIGHUP or SIGINT. A grant ending"
             " within 15 minutes, the shortest credentials STS mints, runs nothing. A read writes nothing; a production write runs"
             " only on his word or an incident order at 0 deletes and 0 replaces. A remote lane runs the same verb from its Sprite,"
             " in its own job's name."
@@ -3973,12 +3979,15 @@ def parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run one verb holding its install's lock, so a newer install's first save waits for it to end, in the newest installed drive when this process started from an older install, such as a launch's bind prefix, unless the drive process that started it holds its own install's lock and waits on it as part of its verb."""
+    """Run one verb holding its install's lock, so a newer install's first save waits for it to end, in the newest installed drive when this process started from an older install, such as a launch's bind prefix, unless the drive process that started it holds its own install's lock and waits on it as part of its verb. A Sprite lane's verb, which reads.lane_drive marks as a SPRITE_LANE run as its job's own lane, runs only when reads.lane_refusal finds nothing in what it parsed acting on another job or drive, and nothing it starts carries that mark."""
     if argv is None and state.held_by_parent():
         state.hold_install()
     elif argv is None:
         install.reopen(sys.argv[1:])
     args = parser().parse_args(argv)
+    if os.environ.pop(reads.SPRITE_LANE, None) and (refused := reads.lane_refusal(args, parser().parse_args, os.environ["LONG_RUNNING_DRIVE"], os.environ[state.OWN_JOB_ENV])):
+        print(refused, file=sys.stderr)
+        return 2
     try:
         return args.run(args)
     except (DriveError, state.NewerDrive, slack.SlackError, github.GithubError) as error:

@@ -105,7 +105,7 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      devbox, runs on this Mac's own credentials first, its AWS calls under a profile
      `~/.aws/config` chains to the machine certificate, such as
      `AWS_PROFILE=plat-prod tools/ci pass-box launch`, and break-glass through `drive break-glass`,
-     from this Mac or a Sprite. Nobody signs in, taps Touch ID or approves cc-sudo for
+     from a lane on this Mac. Nobody signs in, taps Touch ID or approves cc-sudo for
      it, so no card, brief or `WAITING` asks him to, by his words "1 but you could have used machine
      profile for this" and "Use break glass with machine profile then you don't need sso, I tell
      you this once a day".
@@ -116,8 +116,8 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      `kubectl create job` a person types runs as that person. A brief with no `Runs as:` line for such work, or one saying `none`, gets an `ASK`.
      An urgent hand repair of the records a bug left stuck is the immediate fix, not a pass: run it at
      once through this Mac's machine-profile break-glass,
-     `drive break-glass <job> --stack <domain>/<env> --reason "<why>" -- <command>`, from this Mac
-     or a Sprite, by his words "manually repair his stuck ones with machine
+     `drive break-glass <job> --stack <domain>/<env> --reason "<why>" -- <command>`, from a lane on
+     this Mac, by his words "manually repair his stuck ones with machine
      profile break glass asap".
    - Before you push, compile the Go or Rust you touched and run nothing else: tests, typechecks
      (TypeScript included), linters and review bots are CI's, and a local run only repeats them. When
@@ -285,10 +285,13 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 - Type each `drive` verb this file names as on this Mac: your Sprite's `drive` asks it of the
   coordinator's Mac as one blocking Orca question, carrying stdin and each file a word names, then
   prints what it printed there and exits with its status. It runs `job report`, `job ask`,
-  `job set --repro`, `job replies`, `pr add`, `plan search`, `manual`, `status` and `break-glass`,
+  `job set --repro`, `job replies`, `pr add`, `plan search`, `manual` and `status`,
   each on your own job alone, and refuses, running nothing, any other verb, job or drive. A verb
   stopped mid-run answers that it stopped and never runs twice: read what it changed before you type
   it again.
+- No Sprite lane runs `drive break-glass`, whose command would run on this Mac as its user, by his
+  pick "No Sprite lane runs break-glass: a step needing a grant moves to a lane on this Mac": a step that needs a grant returns `BLOCKED` naming the step and its command, and
+  the coordinator moves it to a lane on this Mac.
 - The Sprite holds no Buildkite or AWS credentials and no copy of the drive's records, so
   `tools/ci bk`, `ccx`'s log reads, `cci` and `ccn` refuse or are missing. Every drive file your
   brief names comes whole above your brief: the report of each job its `Researched:` and `Plan:`

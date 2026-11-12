@@ -5,10 +5,14 @@ import itertools
 import json
 import os
 import re
+import select
 import shlex
+import signal
 import subprocess
+import sys
 import tempfile
-from collections.abc import Iterator
+import time
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -22,6 +26,7 @@ DRIVE = re.compile(r"DRIVE\s+(.+)")
 DRIVE_BIN = Path(__file__).resolve().parents[2] / "bin" / "drive"
 DRIVE_SECONDS = 540
 DRIVE_EXIT = "drive exited"
+SPRITE_LANE = "LONG_RUNNING_SPRITE_LANE"
 LANE_VERBS = (
     ("job", "report"),
     ("job", "ask"),
@@ -31,15 +36,18 @@ LANE_VERBS = (
     ("plan", "search"),
     ("manual",),
     ("status",),
-    ("break-glass",),
 )
-LANE_SET_FLAGS = ("--repro", "--json")
+NO_SPRITE_GRANT = 'his pick "No Sprite lane runs break-glass: a step needing a grant moves to a lane on this Mac"'
+GRANT_STEP = re.compile(r"\bdrive break-glass\b")
 JOB_WORD = re.compile(r"j\d+")
 BREAK_GLASS_PIPELINE = "forge/break-glass"
 BREAK_GLASS_BRANCH = "dev"
 GRANT_ENDS = "break-glass-expires-at"
 STS_SHORTEST = timedelta(minutes=15)
 STS_CLOCK_MARGIN = timedelta(minutes=1)
+STOP_SIGNALS = {signal.SIGTERM, signal.SIGHUP, signal.SIGINT}
+STOP_GRACE = 10
+GRANT_ENDED = 124
 ASSUMED_KEYS = ("role_arn", "source_profile", "role_session_name")
 SESSION_NAME = re.compile(r"[^\w+=,.@-]+")
 STACK = re.compile(r"[a-z0-9-]+/([a-z0-9_-]+)")
@@ -94,11 +102,18 @@ class ReadError(Exception):
 
 
 @dataclass(frozen=True)
+class Stops:
+    reader: int
+    signals: list[int]
+
+
+@dataclass(frozen=True)
 class Grant:
     link: str
     profile: str
     ends: datetime
     env: dict[str, str]
+    stops: Stops
 
 
 def request(body: str) -> str | None:
@@ -140,15 +155,13 @@ def answer(question: str, checkout: Path, drive: str, job_id: str) -> str:
 
 
 def lane_drive(question: str, checkout: Path, drive: str, job_id: str) -> str:
-    """Run a Sprite lane's drive command here, where the drive's records live, as `drive` would on this Mac: its first line `DRIVE <its words>`, the rest the JSON the Sprite's drive sent with it, `stdin` for a `-` and the text of each file a word names under that word, each written to a folder of its own here for the run and named by its Sprite path in what it prints. It acts on the asking lane's drive and job alone, in the coordinator's checkout with no session of this Mac's, as that job's own lane, and answers `drive exited <status>` over what it printed, which the Sprite's drive prints and exits with."""
+    """Run a Sprite lane's drive command here, where the drive's records live, as `drive` would on this Mac: its first line `DRIVE <its words>`, the rest the JSON the Sprite's drive sent with it, `stdin` for a `-` and the text of each file a word names under that word, each written to a folder of its own here for the run and named by its Sprite path in what it prints. It runs in the coordinator's checkout with no session of this Mac's, as the asking lane's job's own lane, marked as a SPRITE_LANE, so the drive it runs refuses, as lane_refusal says, a verb no Sprite lane runs and whatever it parsed the words as acting on but that job and drive, and answers `drive exited <status>` over what it printed, which the Sprite's drive prints and exits with."""
     line, _, rest = question.partition("\n")
     try:
         argv = shlex.split(DRIVE.fullmatch(line)[1])
         sent = json.loads(rest) if rest.strip() else {}
     except ValueError as error:
         return lane_exit(2, f"{line}: {error}")
-    if refused := lane_refusal(argv, drive, job_id):
-        return lane_exit(2, f"drive {' '.join(argv[:2])}: refused, nothing ran: {refused}")
     session = {key: value for key, value in os.environ.items() if key != "CLAUDE_CODE_SESSION_ID"}
     with tempfile.TemporaryDirectory(prefix="drive-lane-") as held:
         here = {}
@@ -162,7 +175,7 @@ def lane_drive(question: str, checkout: Path, drive: str, job_id: str) -> str:
             done = subprocess.run(
                 [str(DRIVE_BIN), *(here.get(word, word) for word in argv)],
                 cwd=checkout,
-                env=session | {"LONG_RUNNING_DRIVE": drive, state.OWN_JOB_ENV: job_id},
+                env=session | {"LONG_RUNNING_DRIVE": drive, state.OWN_JOB_ENV: job_id, SPRITE_LANE: "1"},
                 input=sent.get("stdin", ""),
                 capture_output=True,
                 text=True,
@@ -178,21 +191,25 @@ def lane_drive(question: str, checkout: Path, drive: str, job_id: str) -> str:
     return lane_exit(done.returncode, head(printed))
 
 
-def lane_refusal(argv: list[str], drive: str, job_id: str) -> str | None:
-    """Why a Sprite lane's drive command may not run here: a verb no builder runs, such as a tap or an order verb, a job other than its own, a `job set` other than its `--repro`, a `break-glass` in another name than its job's, or another drive."""
-    words = argv[: argv.index("--")] if "--" in argv else argv
-    verb = next((verb for verb in LANE_VERBS if tuple(words[: len(verb)]) == verb), None)
+def lane_refusal(args: argparse.Namespace, parse: Callable[[list[str]], argparse.Namespace], drive: str, job_id: str) -> str | None:
+    """Why a Sprite lane's drive command, as drive parsed it to run, may not: a `break-glass`, whose command would run on this Mac as its user, so the step moves to a lane on this Mac; a verb no builder runs, such as a tap or an order verb; a job other than its own in any value it parsed; a `job set` other than its `--repro`; or another drive. It reads the parsed values, so an abbreviated flag, a `--flag=value` and a word after `--` mean here what they mean to the verb."""
+    words = tuple(word for word in (args.verb, getattr(args, "action", None)) if word)
+    verb = next((verb for verb in LANE_VERBS if words[: len(verb)] == verb), None)
+    refused = f"drive {' '.join(words)}: refused, nothing ran:"
+    if words[:1] == ("break-glass",):
+        return f"{refused} no Sprite lane runs break-glass, by {NO_SPRITE_GRANT}: return BLOCKED naming the step and its command, and the coordinator moves it to a lane on this Mac"
     if verb is None:
-        return f"a lane runs only these verbs: {', '.join(' '.join(verb) for verb in LANE_VERBS)}"
-    if others := sorted({word for word in words if JOB_WORD.fullmatch(word)} - {job_id}):
-        return f"it names {', '.join(others)}, and a lane's drive verbs act on its own job, {job_id}, alone"
-    if verb == ("break-glass",) and words[1:2] != [job_id]:
-        return f"a lane's break-glass grant names its own job: drive break-glass {job_id} --stack <domain>/<env> --reason \"<why>\" -- <command>"
-    if verb == ("job", "set") and (flags := sorted({word.partition("=")[0] for word in words if word.startswith("-")} - {*LANE_SET_FLAGS, "--drive"})):
-        return f"a lane's job set takes only --repro, and it names {', '.join(flags)}"
-    named = [value for flag, value in itertools.pairwise(words) if flag == "--drive"] + [word.partition("=")[2] for word in words if word.startswith("--drive=")]
-    if others := sorted(set(named) - {drive}):
-        return f"it names drive {', '.join(others)}, and a lane acts on its own drive, {drive}, alone"
+        return f"{refused} a lane runs only these verbs: {', '.join(' '.join(verb) for verb in LANE_VERBS)}"
+    parsed = {key: value for key, value in vars(args).items() if key != "run"}
+    values = {word for value in parsed.values() for word in (value if isinstance(value, list | tuple) else [value]) if isinstance(word, str)}
+    if others := sorted({word for word in values if JOB_WORD.fullmatch(word)} - {job_id}):
+        return f"{refused} it names {', '.join(others)}, and a lane's drive verbs act on its own job, {job_id}, alone"
+    if verb == ("job", "set") and (
+        flags := sorted(f"--{key.replace('_', '-')}" for key, value in vars(parse(["job", "set", job_id])).items() if key in parsed and key not in ("repro", "json", "drive") and parsed[key] != value)
+    ):
+        return f"{refused} a lane's job set takes only --repro, and it names {', '.join(flags)}"
+    if parsed.get("drive") not in (None, drive):
+        return f"{refused} it names drive {parsed['drive']}, and a lane acts on its own drive, {drive}, alone"
     return None
 
 
@@ -251,7 +268,7 @@ def break_glass_options(options: argparse.ArgumentParser) -> argparse.ArgumentPa
     options.add_argument(
         "command",
         nargs="+",
-        help="after --, the command to run holding only the env's admin credentials, minted on this Mac's machine profile to end with the grant",
+        help="after --, the command to run holding only the env's admin credentials, minted on this Mac's machine profile to end with the grant, and stopped with every process it started at the grant's end",
     )
     return options
 
@@ -269,8 +286,83 @@ def held(granted: Grant) -> str:
 
 
 @contextlib.contextmanager
+def stop_signals() -> Iterator[Stops]:
+    """Record SIGTERM, SIGHUP and SIGINT in the block rather than act on them, each one, as each SIGCHLD, waking whatever waits on the stops' reader, so a drive told to stop, once or again, still ends its command's processes and deletes its grant's credentials before it exits."""
+    reader, writer = os.pipe()
+    os.set_blocking(reader, False)
+    os.set_blocking(writer, False)
+    stops = Stops(reader, [])
+    kept = {signum: signal.signal(signum, lambda signum, _frame: stops.signals.append(signum)) for signum in STOP_SIGNALS}
+    kept[signal.SIGCHLD] = signal.signal(signal.SIGCHLD, lambda _signum, _frame: None)
+    woken = signal.set_wakeup_fd(writer)
+    try:
+        yield stops
+    finally:
+        signal.set_wakeup_fd(woken)
+        for signum, handler in kept.items():
+            signal.signal(signum, handler)
+        os.close(reader)
+        os.close(writer)
+
+
+def run_granted(command: list[str], granted: Grant) -> int:
+    """Run the command under the grant as a process group of its own, its exit status the run's, and end every process left in that group: at once when the command exits; with SIGTERM STOP_GRACE seconds before the grant ends and SIGKILL at its end, exiting GRANT_ENDED; and with SIGTERM once drive is told to stop and SIGKILL STOP_GRACE seconds on or at the grant's end if that comes first, exiting 128 plus the signal. A drive told to stop before the command starts, or whose grant has ended by then, never starts it. A process that leaves the group, as a daemon does with setsid, is out of its reach."""
+    if granted.stops.signals:
+        print(f"break-glass stopped by {signal.Signals(granted.stops.signals[0]).name} before its command started, so nothing ran", file=sys.stderr, flush=True)
+        return 128 + granted.stops.signals[0]
+    ends = time.monotonic() + (granted.ends - state.now()).total_seconds()
+    if ends <= time.monotonic():
+        print(f"the break-glass grant {granted.link} ended at {clock(granted.ends.astimezone(), seconds=True)} before its command started, so nothing ran", file=sys.stderr, flush=True)
+        return GRANT_ENDED
+    group = subprocess.Popen(command, env=granted.env, start_new_session=True)
+    killed_by = time.monotonic()
+    try:
+        while (status := group.poll()) is None and not granted.stops.signals and (left := ends - STOP_GRACE - time.monotonic()) > 0:
+            if select.select([granted.stops.reader], [], [], left)[0]:
+                os.read(granted.stops.reader, 512)
+        if status is not None:
+            return status
+        killed_by = min(time.monotonic() + STOP_GRACE, ends) if granted.stops.signals else ends
+    finally:
+        end(group, killed_by)
+    if granted.stops.signals:
+        print(f"break-glass stopped by {signal.Signals(granted.stops.signals[0]).name}, so its command was stopped with every process left in its group", file=sys.stderr, flush=True)
+        return 128 + granted.stops.signals[0]
+    print(f"the break-glass grant {granted.link} ended at {clock(granted.ends.astimezone(), seconds=True)}, so its command was stopped with every process left in its group", file=sys.stderr, flush=True)
+    return GRANT_ENDED
+
+
+def end(group: subprocess.Popen, killed_by: float) -> None:
+    """End every process left in the command's group: SIGTERM, then SIGKILL once the command exits or the time.monotonic() clock reaches killed_by, and SIGKILL alone once it has."""
+    if killed_by > time.monotonic() and signal_group(group.pid, signal.SIGTERM):
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            group.wait(timeout=killed_by - time.monotonic())
+    signal_group(group.pid, signal.SIGKILL)
+    group.wait()
+
+
+def signal_group(group: int, signum: int) -> bool:
+    """Send the signal to every process in the group; False when none is left to get it, none at all or only exited ones their parent has yet to reap, which macOS refuses to signal with EPERM, so a live process it may not signal still raises."""
+    try:
+        os.killpg(group, signum)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        if live(group):
+            raise
+        return False
+    return True
+
+
+def live(group: int) -> bool:
+    """Whether a process in the group is still running rather than exited and waiting to be reaped."""
+    listed = subprocess.run(["ps", "-A", "-o", "pgid=,stat="], capture_output=True, text=True, check=True).stdout
+    return any(int(pgid) == group and not stat.startswith("Z") for pgid, stat in (line.split() for line in listed.splitlines()))
+
+
+@contextlib.contextmanager
 def break_glass(stack: str, reason: str, asker: str, checkout: Path) -> Iterator[Grant]:
-    """The forge/break-glass grant for the stack, started in the asker's name and passed, with the environment a command under it runs in: the env's admin credentials, minted on this Mac's machine profile so nobody signs in and ending no later than the grant, as the one profile its AWS config names, every other AWS setting of this Mac left out, so a command naming another stack's profile finds none. A stack with no machine profile is refused before any grant posts; the credentials go when the block ends."""
+    """The forge/break-glass grant for the stack, started in the asker's name and passed, with the environment a command under it runs in: the env's admin credentials, minted on this Mac's machine profile so nobody signs in and ending no later than the grant, as the one profile its AWS config names, every other AWS setting of this Mac left out, so a command naming another stack's profile finds none. A stack with no machine profile is refused before any grant posts; the credentials go when the block ends, and from their writing to their deletion drive's stop signals are recorded for run_granted rather than acted on, so a drive told to stop deletes them."""
     if not (named := STACK.fullmatch(stack)):
         raise ReadError(f'"{stack}" is no stack: name it as <domain>/<env>, such as sandsql/plat-usw2-prod')
     profile = machine_profile(named[1], checkout)
@@ -278,7 +370,7 @@ def break_glass(stack: str, reason: str, asker: str, checkout: Path) -> Iterator
     minted = mint(profile, SESSION_NAME.sub("-", asker)[:64], link, ends, checkout)
     name = profile.name.removeprefix("profile ")
     settings = {key: value for key, value in profile.items() if key not in ASSUMED_KEYS}
-    with tempfile.TemporaryDirectory(prefix="drive-break-glass-") as kept:
+    with stop_signals() as stops, tempfile.TemporaryDirectory(prefix="drive-break-glass-") as kept:
         config = configparser.RawConfigParser()
         config[f"profile {name}"] = {
             **settings,
@@ -290,7 +382,7 @@ def break_glass(stack: str, reason: str, asker: str, checkout: Path) -> Iterator
         with path.open("w") as written:
             config.write(written)
         isolated = {key: value for key, value in os.environ.items() if not key.startswith("AWS_")}
-        yield Grant(link, name, ends, {**isolated, "AWS_CONFIG_FILE": str(path), "AWS_SHARED_CREDENTIALS_FILE": os.devnull, "AWS_PROFILE": name})
+        yield Grant(link, name, ends, {**isolated, "AWS_CONFIG_FILE": str(path), "AWS_SHARED_CREDENTIALS_FILE": os.devnull, "AWS_PROFILE": name}, stops)
 
 
 def grant(stack: str, why: str, checkout: Path) -> tuple[str, datetime]:

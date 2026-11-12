@@ -459,6 +459,27 @@ def test_launch_starts_a_job_added_with_no_agent_as_a_remote_lane(
     assert (job["where"], job["dispatch"]) == ("remote", DISPATCH)
 
 
+def test_launch_starts_a_brief_that_runs_break_glass_only_on_this_mac(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / ".orca.json").write_text("{}")
+    (tmp_path / "brief.md").write_text(
+        "Drive: demo, order o1, job j1\nRepair: drive break-glass j1 --stack sandsql/plat-usw2-prod --reason stuck -- aws s3 ls\n"
+    )
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship it")
+    monkeypatch.setattr(orca, "new_run", lambda objective: RUN)
+    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+    monkeypatch.setattr(orca, "launch", lambda *args: {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH})
+    assert cli.main(["job", "launch", "j1", "brief.md"]) == 2
+    assert capsys.readouterr().err == (
+        f"drive: j1: refused, not launched: its brief runs drive break-glass, which no Sprite lane runs, by {reads.NO_SPRITE_GRANT}: launch it with --local\n"
+    )
+    assert state.load(demo)["jobs"]["j1"].get("launching") is None
+    assert run("job", "launch", "j1", "brief.md", "--local") == (0, f"j1 started on this Mac as dispatch {DISPATCH}")
+    assert state.load(demo)["jobs"]["j1"]["route"] == state.LOCAL_ROUTE
+
+
 def test_launch_local_from_a_session_that_did_not_start_the_jobs_agent_starts_its_lane_on_a_handoff_as_that_sessions(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

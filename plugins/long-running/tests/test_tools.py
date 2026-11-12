@@ -1,6 +1,7 @@
 import contextlib
 import io
 import json
+import os
 import subprocess
 from collections.abc import Callable, Iterator
 from datetime import timedelta
@@ -146,7 +147,7 @@ def test_drive_break_glass_grants_in_the_jobs_name_then_runs_its_command_in_the_
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "count the stranded table copies")
     run("job", "add", "reader", "--order", "o1", "--goal", "count them")
     granted, ran = [], []
-    grant = reads.Grant("https://buildkite.com/forge/break-glass/builds/1926", "plat-prod", state.parse_time("2026-11-12T12:22:25Z"), {"AWS_PROFILE": "plat-prod"})
+    grant = reads.Grant("https://buildkite.com/forge/break-glass/builds/1926", "plat-prod", state.parse_time("2026-11-12T12:22:25Z"), {"AWS_PROFILE": "plat-prod"}, reads.Stops(-1, []))
 
     @contextlib.contextmanager
     def held(stack: str, reason: str, asker: str, checkout: object) -> Iterator[reads.Grant]:
@@ -154,7 +155,7 @@ def test_drive_break_glass_grants_in_the_jobs_name_then_runs_its_command_in_the_
         yield grant
 
     monkeypatch.setattr(reads, "break_glass", held)
-    monkeypatch.setattr(subprocess, "run", lambda argv, env, check: ran.append((argv, env)) or subprocess.CompletedProcess(argv, 3))
+    monkeypatch.setattr(reads, "run_granted", lambda command, granted: ran.append((command, granted.env)) or 3)
     assert run("break-glass", "j1", "--stack", "sandsql/plat-usw2-prod", "--reason", "count rows, read only", "--", "aws", "sts", "get-caller-identity")[0] == 3
     coordinator = state.load(demo)["roles"]["coordinator"]["cwd"]
     assert granted == [("sandsql/plat-usw2-prod", "count rows, read only", "demo j1", coordinator)]
@@ -167,6 +168,48 @@ def test_drive_break_glass_grants_in_the_jobs_name_then_runs_its_command_in_the_
     monkeypatch.setattr(reads, "break_glass", failed)
     assert run("break-glass", "o1", "--stack", "sandsql/plat-usw2-prod", "--reason", "x", "--", "aws", "s3", "ls")[0] == 2
     assert len(granted) == len(ran) == 1
+
+
+@pytest.mark.parametrize(
+    ("words", "why"),
+    [
+        (
+            ["order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "count"],
+            "drive order add: refused, nothing ran: a lane runs only these verbs: job report, job ask, job set, job replies, pr add, plan search, manual, status",
+        ),
+        (["job", "report", "j8", "-"], "drive job report: refused, nothing ran: it names j8, and a lane's drive verbs act on its own job, j7, alone"),
+        (["job", "report", "--", "j8", "-"], "drive job report: refused, nothing ran: it names j8"),
+        (["pr", "add", "https://github.com/yasyf/cc-skills/pull/1", "--jo=j8"], "drive pr add: refused, nothing ran: it names j8"),
+        (
+            ["break-glass", "j7", "--stack", "sandsql/plat-usw2-prod", "--reason", "x", "--", "aws", "s3", "ls"],
+            f"drive break-glass: refused, nothing ran: no Sprite lane runs break-glass, by {reads.NO_SPRITE_GRANT}: return BLOCKED naming the step and its command",
+        ),
+        (["job", "set", "j7", "--sta", "done"], "drive job set: refused, nothing ran: a lane's job set takes only --repro, and it names --state"),
+        (["status", "--drive", "other"], "drive status: refused, nothing ran: it names drive other, and a lane acts on its own drive, demo, alone"),
+        (["status", "--dri", "other"], "drive status: refused, nothing ran: it names drive other"),
+        (["job", "replies", "j7", "--drive=other"], "drive job replies: refused, nothing ran: it names drive other"),
+    ],
+)
+def test_a_sprite_lanes_verb_acting_on_another_job_or_drive_however_it_is_spelled_runs_nothing(
+    words: list[str], why: str, demo: str, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(reads.SPRITE_LANE, "1")
+    monkeypatch.setenv(state.OWN_JOB_ENV, "j7")
+    monkeypatch.setenv("LONG_RUNNING_DRIVE", demo)
+    monkeypatch.setattr(reads, "break_glass", lambda *args: pytest.fail("a refused break-glass started a grant"))
+    capsys.readouterr()
+    assert cli.main(words) == 2
+    assert capsys.readouterr().err.startswith(why)
+
+
+def test_a_sprite_lanes_verb_on_its_own_job_and_drive_runs_and_starts_nothing_carrying_its_mark(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(reads.SPRITE_LANE, "1")
+    monkeypatch.setenv(state.OWN_JOB_ENV, "j7")
+    monkeypatch.setenv("LONG_RUNNING_DRIVE", demo)
+    assert run("status")[0] == 0
+    assert reads.SPRITE_LANE not in os.environ
 
 
 def test_drive_break_glass_refuses_a_blank_reason_before_any_grant(demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch) -> None:
