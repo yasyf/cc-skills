@@ -285,6 +285,7 @@ AWS_ACTION = re.compile(
     re.IGNORECASE,
 )
 RECORD_CHARS = 120
+THIRD_PERSON = re.compile(r"\b(?:he|him|his|himself)\b", re.IGNORECASE)
 WHOLE_KINDS = {"owner", "answer", "incident"}
 REPORT_ATTRS = {"catch_up": "true", "close": "<o,…>", "part": "<o>:<part>", "progress": "true", "job": "<j>", "thread": "<ts>", "waits": "<drive>:<j>-<seq>"}
 UNSPELLED = re.compile(r"[^a-z0-9]")
@@ -1206,6 +1207,17 @@ def stand_in_refusal(post: dict, stand_ins: dict[str, str]) -> str | None:
     if not found:
         return None
     return f"this post calls a thing by a word he corrected, so write its proper term in that word's place: {'; '.join(found)} ({PROPER_TERMS_RULING})"
+
+
+def third_person(found: dict[str, str]) -> list[str]:
+    """Each section, by heading, whose words outside a quote or code speak of him as he or his, with the words around the first; his card shows them to him, so they say you."""
+    named = []
+    for heading, text in found.items():
+        bare = QUOTED.sub(lambda said: MASK * len(said[0]), FENCED.sub(lambda code: MASK * len(code[0]), text))
+        if match := THIRD_PERSON.search(bare):
+            start, end = text.rfind(" ", 0, max(0, match.start() - 20)) + 1, text.find(" ", match.end() + 20)
+            named.append(f'{heading}: "{" ".join(text[start : end if end > 0 else None].split())}"')
+    return named
 
 
 def phrase(words: str) -> re.Pattern[str]:

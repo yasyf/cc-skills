@@ -28,6 +28,7 @@ STACK_CHARS = 700
 STACK_MOST = 4
 HATE_HEADINGS = ("what you'll hate most", "what you will hate most", "what you'll hate the most", "what you will hate the most")
 PLAN_HEADINGS = ("against the plan", "differs from the plan", "plan deviations")
+SHOWN_HEADINGS = ("summary", *REFRESHER_HEADINGS, "biggest surprise", *HATE_HEADINGS, "show me", *PLAN_HEADINGS, "port", STACK_HEADING)
 CONVENTIONAL_KINDS = {
     "fix": "Fix",
     "feat": "New",

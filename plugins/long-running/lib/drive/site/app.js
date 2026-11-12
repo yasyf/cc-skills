@@ -45,6 +45,8 @@ const CHECK_FACTS = { pass: ['Tests pass', 'good'], fail: ['Tests fail', 'bad'],
 const REVIEW_FACTS = { approved: ['Review approved', 'good'], stale: ['Approved on an older head', ''], changes: ['Changes requested', 'bad'] };
 const TALK_FOLLOW_MS = 15 * 60 * 1000;
 const FRAMES_KEPT = 4;
+const GONE_ROWS = { merged: 'Landed', live: 'Landed', closed: 'Closed without merging', dropped: 'Dropped from the drive' };
+const SPOTS = 'h4.hd, .shot, figure.visual';
 const SLICES_KEPT = 40;
 const JUMP_ROWS = 40;
 const KEY_SHEET = [
@@ -102,6 +104,10 @@ const prTabs = new Map();
 const prRows = new Map();
 const prReads = new Map();
 const reviews = new Map();
+const pointed = new Map();
+const notes = new Map();
+const told = new Map();
+let noteCount = 0;
 const talked = new Map();
 const reading = new Set();
 const again = new Set();
@@ -294,7 +300,7 @@ function visual(kind, source, caption = '') {
 }
 
 function gallery(item) {
-  const group = item.closest('article, li, aside, section, .pr-pane, .dr-pane, .ask-box') ?? item.parentElement;
+  const group = item.closest('article, li, aside, section, .pr-pane, .ask-box') ?? item.parentElement;
   return [...group.querySelectorAll('[data-shot], figure.visual')];
 }
 
@@ -462,7 +468,15 @@ function current(list) {
 }
 
 function queueHref(filter, item) {
-  return `#/queue/${filter}${item?.answer ? `/${cardTs(item.answer)}` : ''}`;
+  if (!item?.answer) return `#/queue/${filter}`;
+  const rows = item.card?.prs ?? [];
+  return `#/queue/${filter}/${cardTs(item.answer)}${rows.length > 1 ? `/${prKey(rows[chosenRow(item)].url).split('#')[1]}` : ''}`;
+}
+
+function chosenRow(item) {
+  const open = (item.prs ?? []).flatMap((pr, i) => (pr.state === 'open' ? [i] : []));
+  const picked = prRows.get(noticeKey(item));
+  return open.includes(picked) ? picked : open[0] ?? 0;
 }
 
 function move(delta) {
@@ -549,13 +563,16 @@ function decisionCard(item, at, total) {
   </div>`;
 }
 
-function prFacts(item, row, entry, read) {
-  const [checks, checksTone] = CHECK_FACTS[entry?.checks] ?? CHECK_FACTS.none;
-  const [review, reviewTone] = REVIEW_FACTS[entry?.review] ?? ['No review yet', ''];
+function stateFacts(row) {
+  const [checks, checksTone] = CHECK_FACTS[row.checks] ?? CHECK_FACTS.none;
+  const [review, reviewTone] = REVIEW_FACTS[row.review] ?? ['No review yet', ''];
+  return fact(esc(checks), '', checksTone) + fact(esc(review), '', reviewTone);
+}
+
+function prFacts(item, row, read) {
   const pr = read?.pr;
   return [
-    fact(esc(checks), '', checksTone),
-    fact(esc(review), '', reviewTone),
+    stateFacts(row),
     pr ? fact(`<span class="add">+${pr.additions}</span> <span class="del">−${pr.deletions}</span> · ${pr.changedFiles} ${pr.changedFiles === 1 ? 'file' : 'files'}`, `${pr.headRefName} into ${pr.baseRefName}`) : '',
     pr?.isDraft ? fact('Draft', '', 'warn') : '',
     row.head ? fact(`<code>${esc(row.head.slice(0, 7))}</code>`, `The commit this card was drawn for, ${row.head}`) : '',
@@ -566,17 +583,7 @@ function prFacts(item, row, entry, read) {
   ].join('');
 }
 
-function prPane(tab, row, pr, head, read) {
-  if (tab === 'change') {
-    const review = reviews.get(pr);
-    const said = review?.error ? `<p class="refused">cc-review could not open ${esc(pr)}: ${esc(review.error)}</p>` : `<p class="meta">Opening the code review of ${esc(pr)} at ${esc(head.slice(0, 7))}…</p>`;
-    return `<div class="review-slot" data-slot="${esc(pr)}" data-head="${esc(head)}">${said}</div>`;
-  }
-  if (tab === 'context') {
-    const fields = PR_FIELDS.filter(([key]) => key !== 'refresher' && key !== 'show_me' && row[key]).map(([key, label]) => `<dt>${label}</dt><dd>${prose(row[key], pr)}</dd>`).join('');
-    const whole = read?.pr ? `<details class="whole"><summary>The whole description</summary>${prose(read.pr.body, pr)}</details>` : '';
-    return `${fields ? `<dl class="fields">${fields}</dl>` : '<p class="meta">Its description names no surprise, risk or departure from the plan.</p>'}${whole}`;
-  }
+function showMe(row, pr, read) {
   const shown = read?.pr?.show_me?.trim();
   if (shown) return prose(shown, pr);
   const drawn = `${row.show_me ? prose(row.show_me, pr) : ''}${pictures(row.pictures)}`;
@@ -585,38 +592,113 @@ function prPane(tab, row, pr, head, read) {
   return drawn || '<p class="meta">Its description has no Show me section.</p>';
 }
 
-function prCard(item, at, total) {
+function reviewWait(pr, head) {
+  const review = reviews.get(pr);
+  if (review?.error) return `<div class="review-wait" role="alert"><p class="refused">cc-review could not open ${esc(pr)}: ${esc(review.error)}</p><button class="btn" data-retry="${esc(pr)}">Retry</button></div>`;
+  const step = review?.url ? 1 : 0;
+  const steps = [`Start cc-review for ${pr} at ${head.slice(0, 7)}`, 'Load its diff'].map((words, i) => `<li class="${i < step ? 'done' : i === step ? 'on' : ''}">${esc(words)}</li>`).join('');
+  return `<div class="review-wait" role="status"><ol class="steps">${steps}</ol><div class="progress" aria-hidden="true"><i></i></div><p class="meta">cc-review reads the PR from GitHub. If it cannot, the reason shows here, with Retry.</p></div>`;
+}
+
+function prPane(tab, row, pr, head, read, inline) {
+  if (tab === 'change') {
+    const review = reviews.get(pr);
+    const frame = inline && review?.url ? `<iframe class="review-frame${review.loaded ? '' : ' waiting'}" data-review="${esc(pr)}" title="Code and review of ${esc(pr)}" src="${esc(review.url)}" allow="clipboard-write"></iframe>` : '';
+    return `<div class="review-slot" data-slot="${esc(pr)}" data-head="${esc(head)}">${frame}${review?.loaded ? '' : reviewWait(pr, head)}</div>`;
+  }
+  if (tab === 'context') {
+    const fields = PR_FIELDS.filter(([key]) => key !== 'refresher' && key !== 'show_me' && row[key]).map(([key, label]) => `<dt>${label}</dt><dd>${prose(row[key], pr)}</dd>`).join('');
+    const whole = read?.pr ? `<details class="whole"><summary>The whole description</summary>${prose(read.pr.body, pr)}</details>` : '';
+    return `${fields ? `<dl class="fields">${fields}</dl>` : '<p class="meta">Its description names no surprise, risk or departure from the plan.</p>'}${whole}`;
+  }
+  return showMe(row, pr, read);
+}
+
+function stackRow(row, i, on, key) {
+  const name = `<span class="n">${i + 1}</span><span class="name">${esc(`${prKey(row.url)} · ${bare(row.title)}`)}</span>`;
+  if (row.state !== 'open') return `<li class="gone">${name}${fact(esc(GONE_ROWS[row.state] ?? row.state), '', GONE_ROWS[row.state] === 'Landed' ? 'good' : '')}</li>`;
+  const lands = row.lands ? fact('Approve lands it', `It lands once ${row.lands}`, 'good') : row.blocks ? fact(esc(row.blocks), '', 'bad') : '';
+  return `<li><button class="row${on ? ' on' : ''}" data-row="${i}" data-item="${esc(key)}" aria-current="${on}">${name}<span class="row-facts">${stateFacts(row)}${lands}</span></button></li>`;
+}
+
+function landing(item, rows) {
+  if (!item.card) return `<li>${esc(item.untapped ?? 'No Slack card yet, so no tap of yours lands it.')}</li>`;
+  return rows.map((row) => {
+    const said = row.state !== 'open' ? GONE_ROWS[row.state] ?? row.state : row.lands ? `lands once ${row.lands}` : row.blocks ? `does not land on Approve: ${row.blocks}` : 'Reading its card…';
+    return `<li><b>${esc(prKey(row.url))}</b> ${esc(said)}</li>`;
+  }).join('');
+}
+
+function spots(html) {
+  const drawn = Object.assign(document.createElement('template'), { innerHTML: html }).content;
+  return [...drawn.querySelectorAll(SPOTS)].map((el, i) => el.textContent.trim() || el.dataset.caption || `Picture ${i + 1}`);
+}
+
+function jumps(key, row, pr, read) {
+  const shown = spots(showMe(row, pr, read)).map((label, i) => `<li><button class="linkish" data-spot="${i}" data-item="${esc(key)}">${esc(label)}</button></li>`).join('');
+  const words = [row.summary, read?.pr?.show_me, ...PR_FIELDS.map(([field]) => row[field])].join('\n');
+  const cites = [...new Map([...words.matchAll(SOURCE_CITE)].map(([, , path, from]) => [`${path}:${from}`, { path, line: from }])).values()];
+  const point = (path, line, label) => `<li><button class="linkish" data-point="${esc(pr)}" data-item="${esc(key)}" data-path="${esc(path)}"${line ? ` data-line="${line}"` : ''}>${esc(label)}</button></li>`;
+  const files = reviews.get(pr)?.files;
+  return `${shown ? `<p class="spot-head">Show me</p><ul class="spots">${shown}</ul>` : ''}
+    ${cites.length ? `<p class="spot-head">Lines it cites</p><ul class="spots">${cites.map(({ path, line }) => point(path, line, `${path}:${line}`)).join('')}</ul>` : ''}
+    <p class="spot-head">Changed files</p>${files ? `<ul class="spots">${files.map((path) => point(path, '', path)).join('')}</ul>` : '<p class="rail-note">They list here once the review opens.</p>'}`;
+}
+
+function noteBox(key, pr) {
+  const point = pointed.get(pr);
+  const was = notes.get(pr);
+  const status = was?.busy ? `<span class="meta">${reviews.get(pr)?.files ? 'Adding it to the review…' : 'Waiting for the review to open, then adding it…'}</span>`
+    : was?.error ? `<span class="refused">Not added: ${esc(was.error)}</span>`
+    : was?.at ? `<span class="meta">✓ Added ${clock(was.at)}${was.where ? ` on ${esc(was.where)}` : ''}. The review's assistant answers it in The change.</span>` : '';
+  const at = point ? `<span class="point">On <code>${esc(point.line ? `${point.path}:${point.line}` : point.path)}</code><button type="button" class="linkish" data-unpoint="${esc(pr)}" aria-label="Ask about the whole change instead">×</button></span>` : '<span class="meta">About the whole change. Pick a file or line above to comment on it there.</span>';
+  return `<form class="say note" data-note="${esc(pr)}" data-item="${esc(key)}">${at}
+    <textarea data-draft="n:${esc(pr)}" rows="2" placeholder="Ask a question, or comment on that line" aria-label="Question or line comment"${was?.busy ? ' disabled' : ''}>${esc(drafts.get(`n:${pr}`) ?? '')}</textarea>
+    <button class="btn"${was?.busy ? ' disabled' : ''}>Add to review</button>
+    ${status}
+  </form>`;
+}
+
+function prRail(item, key, rows, row, pr, head, read) {
+  const thread = item.thread ? talkPane(item.thread, cardTs(item.answer)) : '<p class="rail-note">This change has no Slack card yet, so the answer comes back in your Slack DM.</p>';
+  return `<aside class="context-rail pr-rail" aria-label="About this change">
+    <div class="rail-block"><div class="eyebrow">Attached to this change <code>${esc(head.slice(0, 7))}</code></div><div class="facts">${stateFacts(row)}</div><p class="spot-head">What Approve lands</p><ul class="rail-list">${landing(item, rows)}</ul></div>
+    <div class="rail-block"><div class="eyebrow">Jump to a point in the change</div>${jumps(key, row, pr, read)}</div>
+    <div class="rail-block"><div class="eyebrow">Question or line comment</div>${noteBox(key, pr)}</div>
+    <div class="rail-block talk"><div class="eyebrow">Tell the drive what to change</div>${thread}
+      ${sayBox(item.answer ? `t:${item.answer}` : `r:${pr}`, item.answer ?? '', 'Ask the drive, or tell Claude what to change', item.answer ? '' : `About ${row.url}`, item.thread ?? '')}
+    </div>
+  </aside>`;
+}
+
+function prCard(item, at, total, inline = false) {
   const key = noticeKey(item);
-  const rows = item.card?.prs ?? [{ url: item.url, title: item.title }];
-  const chosen = Math.min(prRows.get(key) ?? 0, rows.length - 1);
+  const rows = (item.card?.prs ?? [{ url: item.url, title: item.title }]).map((row, i) => ({ ...prReads.get(prKey(row.url))?.pr?.row, ...item.prs?.[i], ...row }));
+  const chosen = chosenRow(item);
   const row = rows[chosen];
   const pr = prKey(row.url);
-  const entry = model.review.find((each) => each.key === pr);
-  const head = entry?.head ?? row.head ?? '';
+  const head = model.review.find((each) => each.key === pr)?.head ?? row.head ?? '';
+  const read = prReads.get(pr);
   const tab = prTabs.get(key) ?? 'show';
   const title = item.card ? bare(item.card.title.replace(/^\w+: approve (.*)\?$/, '$1')).replace(/^./, (c) => c.toUpperCase()) : item.title;
-  const stack = rows.length > 1 ? `<div class="stack" role="group" aria-label="The PRs on this card">${rows.map((each, i) => `<button class="chip${i === chosen ? ' on' : ''}" data-row="${i}" data-item="${esc(key)}" aria-pressed="${i === chosen}">${esc(`${prKey(each.url)} · ${bare(each.title)}`)}</button>`).join('')}</div>` : '';
+  const stack = rows.length > 1 ? `<ol class="stack" aria-label="The PRs on this card, in the order they land">${rows.map((each, i) => stackRow(each, i, i === chosen, key)).join('')}</ol>` : '';
   const tabs = PR_TABS.map(([id, label]) => `<button role="tab" class="${id === tab ? 'on' : ''}" aria-selected="${id === tab}" data-prtab="${id}" data-item="${esc(key)}">${label}</button>`).join('');
-  const thread = item.thread ? talkPane(item.thread, cardTs(item.answer)) : '<p class="rail-note">This change has no Slack card yet, so the answer comes back in your Slack DM.</p>';
+  const panes = PR_TABS.map(([id]) => `<div class="pr-pane ${id}" role="tabpanel"${id === tab ? '' : ' hidden'}>${prPane(id, row, pr, head, read, inline)}</div>`).join('');
   return `<div class="pr-layout" data-read="${esc(pr)}" data-head="${esc(head)}">
     <article class="focus-card pr-card" aria-labelledby="item-title" tabindex="-1">
       <div class="card-content">
-        <div class="card-top"><span class="type-label">Pull request <a href="${esc(row.url)}" target="_blank" rel="noopener" data-tip="Open it on GitHub">${esc(pr)}</a></span>${counter(at, total)}</div>
+        <div class="card-top"><span class="type-label">Pull request <a href="${esc(row.url)}" target="_blank" rel="noopener" data-tip="Open it on GitHub">${esc(pr)}</a></span>${inline ? '' : counter(at, total)}</div>
         <h2 class="card-title" id="item-title">${esc(title)}</h2>
         ${stack}
         ${row.summary ? `<div class="card-summary">${prose(row.summary, pr)}</div>` : ''}
         ${row.refresher ? `<div class="card-summary">${fold(`r:${key}:${pr}`, prose(row.refresher, pr), 3)}</div>` : ''}
-        <div class="facts">${prFacts(item, row, entry, prReads.get(pr))}</div>
+        <div class="facts">${prFacts(item, row, read)}</div>
       </div>
       <div class="pr-tabs" role="tablist" aria-label="About this change">${tabs}</div>
-      <div class="pr-pane ${tab}" role="tabpanel">${prPane(tab, row, pr, head, prReads.get(pr))}</div>
-      <div class="pr-actions">${item.card ? choices(item, true) : '<span class="meta">No Slack card yet, so there is no tap to give here.</span>'}</div>
+      ${panes}
+      <div class="pr-actions">${item.card ? choices(item, true) : `<span class="meta">${esc(item.untapped ?? 'No Slack card yet, so there is no tap to give here.')}</span>`}</div>
     </article>
-    <aside class="context-rail talk-rail" aria-label="Ask about this change">
-      <div class="eyebrow">Ask about this change</div>
-      ${thread}
-      ${sayBox(item.card ? `t:${item.answer}` : `r:${pr}`, item.answer ?? '', 'Ask about this change, or tell Claude what to change', item.card ? '' : `About ${row.url}`, item.thread ?? '')}
-    </aside>
+    ${prRail(item, key, rows, row, pr, head, read)}
   </div>`;
 }
 
@@ -637,6 +719,9 @@ function queueScreen(id) {
   const list = shownQueue(filter);
   const at = current(list);
   const item = list[at];
+  const [, named, number] = route().path;
+  const picked = number && item?.answer && cardTs(item.answer) === named ? (item.card?.prs ?? []).findIndex((row) => row.url.endsWith(`/pull/${number}`)) : -1;
+  if (picked >= 0) prRows.set(noticeKey(item), picked);
   if (location.hash !== queueHref(filter, item)) history.replaceState(history.state, '', queueHref(filter, item));
   const read = item?.answer && slice(`/api/card?${new URLSearchParams({ answer: item.answer })}`);
   const filters = QUEUE_FILTERS.map(([each, label]) => `<a href="#/queue/${each}" class="${each === filter ? 'on' : ''}"${each === filter ? ' aria-current="true"' : ''}>${label}<span class="n">${shownQueue(each).length}</span></a>`).join('');
@@ -891,7 +976,7 @@ function go(href) {
   else location.hash = href;
 }
 
-async function openPR(key) {
+function openPR(key) {
   const item = model.queue.find((each) => each.kind === 'tap' && (each.card?.prs ?? [{ url: each.url }]).some((row) => prKey(row.url) === key));
   if (item) {
     queueAt = noticeKey(item);
@@ -899,86 +984,114 @@ async function openPR(key) {
     return go('#/queue/all');
   }
   reviewing = key;
-  const drawer = $('#drawer');
-  const entry = model.review.find((candidate) => candidate.key === key);
-  drawer.classList.add('wide');
-  drawer.innerHTML = `<div class="dr-bar"><b>${esc(entry?.title ?? key)}</b><button class="linkish" data-close>Close</button></div><p class="empty small">Reading the change…</p>`;
-  if (!drawer.open) drawer.showModal();
-  const [repo, number] = key.split('#');
-  const review = startReview(key);
-  const pr = await ask(`/api/pr/${repo}/${number}`);
-  if (reviewing !== key) return;
-  if (!pr.ok) {
-    drawer.querySelector('.empty').outerHTML = `<p class="refused">${esc(pr.error)}</p>`;
-    return;
-  }
-  const showMe = pr.show_me.trim();
-  drawer.innerHTML = `<div class="dr-bar"><b>${esc(bare(pr.title))}</b><span class="acts"><a class="ext" href="${esc(pr.url)}" target="_blank" rel="noopener">GitHub ↗</a><button class="linkish" data-close>Close</button></span></div>
-    <div class="pr-split">
-      <div class="pr-main">
-        <div class="dr-tabs">${showMe ? '<button class="on" data-drtab="show">Show me</button>' : ''}<button${showMe ? '' : ' class="on"'} data-drtab="review">Code and review</button><button data-drtab="body">Description</button></div>
-        ${showMe ? `<div class="dr-pane body-pane" data-pane="show">${prose(showMe, key)}</div>` : ''}
-        <div class="dr-pane review-pane" data-pane="review"${showMe ? ' hidden' : ''}><p class="empty small">Opening the review of ${esc(key)}…</p></div>
-        <div class="dr-pane body-pane" data-pane="body" hidden>${prose(pr.body, key)}</div>
-      </div>
-      <aside class="pr-side">
-        <p class="meta">${esc(pr.headRefName)} → ${esc(pr.baseRefName)} · ${pr.changedFiles} files · <span class="add">+${pr.additions}</span> <span class="del">−${pr.deletions}</span>${pr.isDraft ? ' · draft' : ''}</p>
-        ${entry ? talkBox(entry) : ''}
-      </aside>
-    </div>`;
+  slotted.get(key)?.remove();
+  slotted.delete(key);
+  const review = reviews.get(key);
+  if (review) Object.assign(review, { loaded: false, files: null });
+  drawDrawer();
+  $('#drawer').showModal();
   fill();
-  showReview(key, await review);
+  $('#drawer [data-prtab][aria-selected="true"]').focus();
 }
 
-async function startReview(key) {
-  const [repo, number] = key.split('#');
-  return ask(`/api/review/${repo}/${number}`, { method: 'POST' });
-}
-
-function showReview(key, review) {
-  const pane = $('#drawer [data-pane="review"]');
-  if (reviewing !== key || !pane) return;
-  if (!review.ok) {
-    pane.innerHTML = `<p class="refused">cc-review could not open ${esc(key)}: ${esc(review.error)}</p>`;
-    return;
-  }
-  if (pane.querySelector('iframe')?.getAttribute('src') === review.url) return;
-  pane.innerHTML = `<iframe class="review-frame" title="Code and review of ${esc(key)}" src="${esc(review.url)}" allow="clipboard-write"></iframe>`;
+function drawDrawer() {
+  const entry = model.review.find((each) => each.key === reviewing);
+  const [repo, number] = reviewing.split('#');
+  const item = entry && {
+    kind: 'tap', url: entry.url, title: entry.title, since: entry.since, answer: entry.answer, thread: entry.thread, card: null,
+    untapped: entry.group === 'decided' ? `You answered ${entry.tap} on its card; ${entry.detail}.` : `It does not wait on your tap yet: ${entry.detail}.`,
+    prs: [{ state: 'open', checks: entry.checks, review: entry.review }],
+  };
+  const html = `<div class="dr-bar"><b>${esc(reviewing)}</b><span class="acts"><a class="ext" href="https://github.com/${esc(repo)}/pull/${esc(number)}" target="_blank" rel="noopener">GitHub ↗</a><button class="linkish" data-close>Close</button></span></div>
+    ${item ? prCard(item, 0, 1, true) : `<p class="meta dr-gone">${esc(reviewing)} is no longer an open PR of this drive.</p>`}`;
+  morphChildren($('#drawer'), Object.assign(document.createElement('div'), { innerHTML: html }));
 }
 
 async function openReview(key, head) {
-  reviews.set(key, { ...reviews.get(key), head, error: null });
-  const review = await startReview(key);
-  if (!review.ok) {
-    reviews.set(key, { head, error: review.error });
-    return render();
-  }
-  reviews.set(key, { head, url: review.url });
-  let frame = slotted.get(key);
-  slotted.delete(key);
-  if (!frame) {
-    frame = Object.assign(document.createElement('iframe'), { className: 'review-frame', title: `Code and review of ${key}`, allow: 'clipboard-write' });
-    $('#frames').append(frame);
-  }
-  slotted.set(key, frame);
-  if (frame.getAttribute('src') !== review.url) frame.src = review.url;
-  for (const [old, kept] of slotted) {
-    if (slotted.size <= FRAMES_KEPT) break;
-    kept.remove();
-    slotted.delete(old);
-    reviews.delete(old);
-  }
-  place();
+  if (reviews.get(key)?.head !== head) reviews.set(key, { head });
+  const [repo, number] = key.split('#');
+  const review = await ask(`/api/review/${repo}/${number}`, { method: 'POST' });
+  const held = reviews.get(key);
+  if (held?.head !== head) return;
+  const url = review.ok ? new URL(review.url) : null;
+  url?.searchParams.set('embed', '1');
+  if (url ? held.url === url.href : held.error === review.error) return;
+  reviews.set(key, url ? { head, url: url.href } : { head, error: review.error });
+  render();
 }
 
 function place() {
+  for (const slot of document.querySelectorAll('#main [data-slot]')) {
+    const key = slot.dataset.slot;
+    const review = reviews.get(key);
+    if (!review?.url) continue;
+    const frame = slotted.get(key) ?? Object.assign(document.createElement('iframe'), { className: 'review-frame', title: `Code and review of ${key}`, allow: 'clipboard-write' });
+    frame.dataset.review = key;
+    slotted.delete(key);
+    slotted.set(key, frame);
+    if (frame.getAttribute('src') !== review.url) {
+      Object.assign(review, { loaded: false, files: null });
+      frame.src = review.url;
+    }
+    if (!frame.isConnected) $('#frames').append(frame);
+  }
+  for (const [key, frame] of [...slotted].slice(0, -FRAMES_KEPT)) {
+    frame.remove();
+    slotted.delete(key);
+  }
   for (const [key, frame] of slotted) {
     const slot = document.querySelector(`#main [data-slot="${CSS.escape(key)}"]`);
-    frame.hidden = !slot || Boolean(reviews.get(key)?.error);
+    const review = reviews.get(key);
+    frame.hidden = !slot?.checkVisibility() || !review?.url;
+    frame.classList.toggle('waiting', !review?.loaded);
     if (frame.hidden) continue;
     const box = slot.getBoundingClientRect();
     Object.assign(frame.style, { top: `${box.top + scrollY}px`, left: `${box.left + scrollX}px`, width: `${box.width}px`, height: `${box.height}px` });
   }
+}
+
+function tell(pr, message) {
+  const review = reviews.get(pr);
+  const frame = document.querySelector(`iframe.review-frame[data-review="${CSS.escape(pr)}"]`);
+  if (review?.files && frame) return frame.contentWindow.postMessage(message, new URL(review.url).origin);
+  told.set(pr, [...(told.get(pr) ?? []), message]);
+}
+
+function heardReview(event) {
+  const frame = [...document.querySelectorAll('iframe.review-frame')].find((each) => each.contentWindow === event.source);
+  const pr = frame?.dataset.review;
+  const review = reviews.get(pr);
+  if (!review?.url || event.origin !== new URL(review.url).origin) return;
+  if (event.data.type === 'cc-review:ready') {
+    review.files = event.data.files;
+    for (const message of told.get(pr)?.splice(0) ?? []) event.source.postMessage(message, event.origin);
+  }
+  const note = notes.get(pr);
+  if (event.data.type === 'cc-review:said' && note?.id === event.data.id) {
+    notes.set(pr, event.data.error ? { error: event.data.error } : { at: new Date().toISOString(), where: note.where });
+    if (!event.data.error) {
+      drafts.delete(`n:${pr}`);
+      pointed.delete(pr);
+    }
+  }
+  render();
+}
+
+function addNote(pr, key) {
+  const text = drafts.get(`n:${pr}`) ?? '';
+  if (!text.trim() || notes.get(pr)?.busy) return;
+  const point = pointed.get(pr);
+  const id = String((noteCount += 1));
+  notes.set(pr, { busy: true, id, where: point && (point.line ? `${point.path}:${point.line}` : point.path) });
+  prTabs.set(key, 'change');
+  tell(pr, { type: 'cc-review:say', id, text, ...point, pr: Number(pr.split('#')[1]) });
+  render();
+}
+
+function reveal(control) {
+  const tabs = control.closest('.pr-layout').querySelector('.pr-tabs');
+  const top = tabs.getBoundingClientRect().top;
+  if (top < 0 || top > innerHeight / 2) tabs.scrollIntoView({ block: 'start', behavior: 'smooth' });
 }
 
 async function readPR(key, head) {
@@ -991,14 +1104,9 @@ async function readPR(key, head) {
 
 function fill() {
   for (const pane of document.querySelectorAll('[data-talk]')) if (!talked.has(pane.dataset.talk)) readTalk(pane.dataset.talk);
-  for (const card of document.querySelectorAll('#main [data-read]')) if (prReads.get(card.dataset.read)?.head !== card.dataset.head) readPR(card.dataset.read, card.dataset.head);
-  for (const slot of document.querySelectorAll('#main [data-slot]')) if (reviews.get(slot.dataset.slot)?.head !== slot.dataset.head) openReview(slot.dataset.slot, slot.dataset.head);
+  for (const card of document.querySelectorAll('[data-read]')) if (prReads.get(card.dataset.read)?.head !== card.dataset.head) readPR(card.dataset.read, card.dataset.head);
+  for (const slot of document.querySelectorAll('[data-slot]')) if (reviews.get(slot.dataset.slot)?.head !== slot.dataset.head) openReview(slot.dataset.slot, slot.dataset.head);
   place();
-}
-
-function talkBox(entry) {
-  const said = entry.thread ? talkPane(entry.thread, cardTs(entry.answer)) : '<p class="meta">This change has no Slack card yet, so the answer comes back in your Slack DM.</p>';
-  return `<section class="talk"><h4 class="hd">Ask about this change</h4>${said}${sayBox(`r:${entry.key}`, entry.answer ?? '', 'Ask about this change, or tell Claude what to change', entry.answer ? '' : `About ${entry.url}`, entry.thread ?? '')}</section>`;
 }
 
 function talkPane(thread, after) {
@@ -1622,6 +1730,7 @@ function render() {
   if (arrived) $('#main').innerHTML = html;
   else morphChildren($('#main'), Object.assign(document.createElement('main'), { innerHTML: html }));
   settleCamera(arrived);
+  if (reviewing) drawDrawer();
   if ($('#jump').open) drawJump();
   for (const url of [...slices.keys()].slice(0, -SLICES_KEPT)) slices.delete(url);
   measure();
@@ -1705,9 +1814,6 @@ async function answer(card, label) {
     toast(card, { ...toasts.get(card), state: 'failed', error: error.message });
   }
   render();
-  const shown = $(`#drawer[open] [data-card="${CSS.escape(card)}"]`)?.closest('.choices, .pr-picks');
-  shown?.nextElementSibling?.classList.contains('refused') && shown.nextElementSibling.remove();
-  if (shown) shown.outerHTML = choices({ ...asked, kind: asked.kind ?? 'tap' });
 }
 
 async function undo(card, about = toasts.get(card)) {
@@ -1753,15 +1859,10 @@ function drawToasts() {
   </div>`).join('');
 }
 
-function redrawBoxes(key) {
-  render();
-  for (const box of document.querySelectorAll(`#drawer form[data-say="${CSS.escape(key)}"]`)) box.outerHTML = sayBox(key, box.dataset.under, box.dataset.placeholder, box.dataset.about);
-}
-
 async function say(key, under, words, about, thread) {
   if (!words.trim() || sent.get(key)?.busy) return;
   sent.set(key, { busy: true });
-  redrawBoxes(key);
+  render();
   try {
     const reply = await fetch('/api/say', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: about ? `${about}: ${words.trim()}` : words.trim(), under }) });
     const said = await reply.json();
@@ -1775,7 +1876,7 @@ async function say(key, under, words, about, thread) {
   } catch (error) {
     sent.set(key, { error: error.message });
   }
-  redrawBoxes(key);
+  render();
 }
 
 let heard = null;
@@ -1832,6 +1933,12 @@ document.addEventListener('input', (event) => {
   if (box) drafts.set(box.dataset.draft, box.value);
 });
 document.addEventListener('submit', (event) => {
+  const note = event.target.closest('form[data-note]');
+  if (note) {
+    event.preventDefault();
+    addNote(note.dataset.note, note.dataset.item);
+    return reveal(note);
+  }
   const form = event.target.closest('form[data-say]');
   if (!form) return;
   event.preventDefault();
@@ -1905,12 +2012,6 @@ document.addEventListener('click', (event) => {
   }
   const closer = event.target.closest('[data-close]') ?? (event.target.matches('#drawer, #reader, #keys, #lightbox, .lb-stage') ? event.target : null);
   if (closer) return closer.closest('dialog').close();
-  const drtab = event.target.closest('[data-drtab]');
-  if (drtab) {
-    for (const button of document.querySelectorAll('[data-drtab]')) button.classList.toggle('on', button === drtab);
-    for (const pane of document.querySelectorAll('[data-pane]')) pane.hidden = pane.dataset.pane !== drtab.dataset.drtab;
-    return;
-  }
   const more = event.target.closest('[data-more]');
   if (more) {
     if (!expanded.delete(more.dataset.more)) expanded.add(more.dataset.more);
@@ -1921,12 +2022,41 @@ document.addEventListener('click', (event) => {
   const prtab = event.target.closest('[data-prtab]');
   if (prtab) {
     prTabs.set(prtab.dataset.item, prtab.dataset.prtab);
-    for (const [key, review] of reviews) if (review.error) reviews.delete(key);
     return render();
   }
   const row = event.target.closest('[data-row]');
   if (row) {
     prRows.set(row.dataset.item, Number(row.dataset.row));
+    if (route().screen === 'queue') history.replaceState(history.state, '', queueHref(filterOf(route().id), model.queue.find((each) => noticeKey(each) === row.dataset.item)));
+    return render();
+  }
+  const retry = event.target.closest('[data-retry]');
+  if (retry) {
+    reviews.delete(retry.dataset.retry);
+    return render();
+  }
+  const marked = event.target.closest('[data-spot]');
+  if (marked) {
+    prTabs.set(marked.dataset.item, 'show');
+    render();
+    reveal(marked);
+    const pane = marked.closest('.pr-layout').querySelector('.pr-pane.show');
+    const target = pane.querySelectorAll(SPOTS)[Number(marked.dataset.spot)];
+    pane.scrollTop += target.getBoundingClientRect().top - pane.getBoundingClientRect().top - 12;
+    return;
+  }
+  const point = event.target.closest('[data-point]');
+  if (point) {
+    const { point: pr, item, path, line } = point.dataset;
+    pointed.set(pr, line ? { path, line: Number(line) } : { path });
+    prTabs.set(item, 'change');
+    render();
+    reveal(point);
+    return tell(pr, { type: 'cc-review:show', path, pr: Number(pr.split('#')[1]) });
+  }
+  const unpoint = event.target.closest('[data-unpoint]');
+  if (unpoint) {
+    pointed.delete(unpoint.dataset.unpoint);
     return render();
   }
 });
@@ -1959,6 +2089,14 @@ document.addEventListener('focusin', (event) => {
 document.addEventListener('focusout', (event) => {
   if (event.target.closest('a[data-src], [data-tip]')) hideSource();
 });
+window.addEventListener('message', heardReview);
+document.addEventListener('load', (event) => {
+  const frame = event.target;
+  const review = frame.matches?.('iframe.review-frame') && reviews.get(frame.dataset.review);
+  if (!review || review.url !== frame.getAttribute('src')) return;
+  review.loaded = true;
+  render();
+}, true);
 window.addEventListener('hashchange', () => {
   hideSource();
   if (render() || history.state?.y !== undefined) window.scrollTo(0, history.state?.y ?? 0);
@@ -2020,7 +2158,7 @@ document.addEventListener('keydown', (event) => {
     event.preventDefault();
     return openJump();
   }
-  const tab = event.target.closest?.('#main [data-prtab]');
+  const tab = event.target.closest?.('[data-prtab]');
   if (tab && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
     const tabs = [...tab.parentElement.querySelectorAll('[data-prtab]')];
     const next = tabs[(tabs.indexOf(tab) + (event.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
@@ -2088,11 +2226,9 @@ window.addEventListener('DOMContentLoaded', () => {
   new ResizeObserver(place).observe($('#main'));
   new MutationObserver(() => drawFigures(document)).observe(document.body, { childList: true, subtree: true });
   setInterval(() => [...toasts.values()].some((shown) => shown.state === 'held') && drawToasts(), 1000);
-  setInterval(async () => {
+  setInterval(() => {
     if (document.hidden) return;
-    for (const slot of document.querySelectorAll('#main [data-slot]')) openReview(slot.dataset.slot, slot.dataset.head);
-    const key = reviewing;
-    if (key) showReview(key, await startReview(key));
+    for (const slot of document.querySelectorAll('[data-slot]')) openReview(slot.dataset.slot, slot.dataset.head);
   }, REVIEW_KEEP_MS);
   $('#lightbox').addEventListener('close', () => {
     viewing.opener?.focus({ preventScroll: true });
@@ -2102,7 +2238,7 @@ window.addEventListener('DOMContentLoaded', () => {
   $('#drawer').addEventListener('close', () => {
     hideSource();
     reviewing = null;
-    $('#drawer').classList.remove('wide');
+    $('#drawer').replaceChildren();
   });
   connect();
 });

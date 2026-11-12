@@ -24,6 +24,10 @@ SERVED = {"ai.request.created", "comment.created"}
 TAILNET_LINE = re.compile(r"^tailnet: (\S+)$", re.M)
 LOCAL_LINE = re.compile(r"^(https?://\S+)$", re.M)
 STARTED_HEAD = "started-head"
+REASONS = (
+    (re.compile(r"rate limit", re.IGNORECASE), "GitHub's API rate limit for your account is used up, so cc-review could not read the PR until it resets within the hour"),
+    (re.compile(r"TLS handshake timeout|context deadline exceeded|i/o timeout|connection reset", re.IGNORECASE), "GitHub did not answer cc-review in time"),
+)
 
 PROMPT = """You are the review assistant behind the drive dashboard's embedded cc-review of {key}. This directory is that review's scope and your session owns it. Handle the one event below, then stop. Never edit a file.
 
@@ -38,6 +42,12 @@ Event:
 
 def cc_review() -> str:
     return str(Path(install.installed(PLUGIN)["installPath"]) / "bin" / "cc-review")
+
+
+def reason(said: str) -> str:
+    """Why cc-review did not start a review: plain words for a failure GitHub caused, then what cc-review said."""
+    plain = next((words for pattern, words in REASONS if pattern.search(said)), None)
+    return f"{plain} (cc-review said: {said})" if plain else f"cc-review said: {said}"
 
 
 def live(url: str) -> bool:
@@ -79,15 +89,18 @@ class Assistant:
             if not ((url := self.urls.get((key, head))) and live(url)):
                 scope = self.scope(key)
                 scope.mkdir(parents=True, exist_ok=True)
-                started = subprocess.run(
-                    [cc_review(), "start", "--pr", key, "--session", self.session(key), "--cwd", str(scope)],
-                    capture_output=True,
-                    text=True,
-                    timeout=START_SECONDS,
-                    check=False,
-                )
+                try:
+                    started = subprocess.run(
+                        [cc_review(), "start", "--pr", key, "--session", self.session(key), "--cwd", str(scope)],
+                        capture_output=True,
+                        text=True,
+                        timeout=START_SECONDS,
+                        check=False,
+                    )
+                except subprocess.TimeoutExpired:
+                    raise DriveError(f"cc-review took more than {START_SECONDS // 60} minutes to open the review, so the dashboard stopped waiting") from None
                 if started.returncode:
-                    raise DriveError(" ".join(started.stderr.split()) or f"cc-review start exited {started.returncode}")
+                    raise DriveError(reason(" ".join(started.stderr.split()) or f"cc-review start exited {started.returncode}"))
                 url = (TAILNET_LINE.search(started.stdout) or LOCAL_LINE.search(started.stdout))[1]
                 self.urls[(key, head)] = url
                 (scope / STARTED_HEAD).write_text(head)
@@ -113,7 +126,7 @@ class Assistant:
             key, head = self.warming.get()
             try:
                 self.url(key, head, viewing=False)
-            except (DriveError, install.InstallError, subprocess.TimeoutExpired) as error:
+            except (DriveError, install.InstallError) as error:
                 print(f"starting the review of {key} at {head[:12]} failed: {error}", file=sys.stderr, flush=True)
 
     def attach(self, key: str) -> None:

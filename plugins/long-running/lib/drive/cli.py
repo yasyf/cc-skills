@@ -1946,6 +1946,7 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
 
     url = state.pr_url(key)
     refuse_an_unkinded_title(key, read, port_of)
+    refuse_third_person(key, read)
     if port_of:
         refuse_a_port_storing_data(key, port_of)
     known = state.load(name)
@@ -2300,6 +2301,20 @@ def refuse_an_unkinded_title(key: str, read: dict, port_of: int | None) -> None:
     raise DriveError(
         f'{key}: refused, its title "{title}" does not open {opening}, the kind of change his card names it by:'
         f' retitle it with gh pr edit {number} -R {repo} --title "{retitled}", then run this again'
+    )
+
+
+def refuse_third_person(key: str, read: dict) -> None:
+    """The sections of a PR's body his card and dashboard show him speak to him as you, never of him as he or his."""
+    from drive import card
+
+    shown = {heading: text for heading, text in card.sections(card.body_of(read)).items() if heading in card.SHOWN_HEADINGS}
+    if not (found := limits.third_person(shown)):
+        return
+    repo, number = key.split("#")
+    raise DriveError(
+        f"{key}: refused, nothing added: its card shows him these sections, which speak of him as he or his: {'; '.join(found)}."
+        f' Say you and your instead, as in "Your Nov 11 words narrowed it", edit the body with gh pr edit {number} -R {repo} --body-file <file>, then run this again'
     )
 
 
