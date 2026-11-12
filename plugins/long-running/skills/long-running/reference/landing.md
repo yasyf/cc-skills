@@ -60,8 +60,8 @@ for its repository says, then return `DONE <proof>`.
     sentences.
   - `## What you'll hate most`: the one thing he is most likely to dislike, said plainly: a cost, a
     behavior he did not ask for, a shortcut, or a risk he would not take.
-  - `## Show me`: one concrete example of the change, which his card draws as a picture and the
-    dashboard draws live: the real SQL, code, CLI call, or Sand call it changes, before and after, in a
+  - `## Show me`: one concrete example of the change, which his card draws as a picture, or as Slack's
+    code block when the code is one line or trivial, and the dashboard draws live: the real SQL, code, CLI call, or Sand call it changes, before and after, in a
     fence naming its language (`sql`, `go`, `sand`). An `arch` map of the components it adds or rewires,
     or a `mermaid` flow, goes beside the example, never in its place; numbers before and after get a
     `chart` fence (Vega-Lite) or a markdown table. A change to what he or a user sees, a UI, page,
