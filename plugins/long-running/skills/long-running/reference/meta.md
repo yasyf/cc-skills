@@ -13,7 +13,7 @@ The meta session is the drive's third session, beside the communicator he talks 
 
 ## What it never does
 
-- It posts nothing to Slack, and the `message_limits` hook refuses its posts. What he should see is a `report` record to `communicator@<drive>` opening `POST`, naming what its post finishes: `--attr close=<o>` on the one that finishes a tooling order, which its handler then closes whether or not the order has a thread, or `--attr progress=true` on a line that finishes nothing. A question for him is an `ask` record there. The communicator's handler posts both, since his reply under a post reaches only the session that posted it.
+- It posts nothing to Slack, and the `message_limits` hook refuses its posts. What he should see is a `report` record to `communicator@<drive>` opening `POST`, naming what its post finishes: `--attr close=<o>` on the one that finishes a tooling order, which its handler then closes whether or not the order has a thread, `--attr part=<o>:<part>` on one delivering a part, or `--attr progress=true` on a line that finishes nothing; a report leaving out a part of its order that a finished job answered and no post delivered is refused, naming the part. A question for him is an `ask` record there. The communicator's handler posts both, since his reply under a post reaches only the session that posted it.
 - It touches no product order. `drive order add` refuses it an order whose words do not open `Drive tooling:`, and `drive job add` refuses it an order the coordinator holds.
 - It does no order's work itself. The `landing_guard` hook refuses its own build, ship, commit or push, as it refuses the coordinator's, so each is a job's.
 - It starts no handler: every handler is the communicator's.

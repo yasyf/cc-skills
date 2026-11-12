@@ -1,3 +1,4 @@
+import csv
 import json
 import os
 import re
@@ -9,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, card, github, land, limits, public_check, settled, slack, state, superseded, view
+from drive import agents, card, github, land, limits, public_check, reports, settled, slack, state, superseded, view
 from drive.cli import asked_report, tap_verdict
 from drive.github import repo_name
 from drive.render import cut
@@ -535,17 +536,22 @@ def body_reason(script: str, shell: Shell) -> str | None:
     return next(filter(None, posted), None)
 
 
-def cci_posts(script: str, shell: Shell) -> list[tuple[str, dict[str, str], list[str], str, str | None, list[str]]]:
-    """The kind, attrs, addressed lanes, text, url and answered seqs of each record a script posts with `cci post`, its text read as cci reads it: the positionals, else --text, else the first line of the file --path names."""
+def cci_posts(script: str, shell: Shell) -> list[dict]:
+    """Each record a script posts with `cci post`, in the shape the cci `post` tool takes: its kind, attrs, addressed lanes, text, body, url and answered seqs, each read as cci reads it: its text the positionals, else --text, else the first line of the file --path names, its body the file --body-file or --path names, and each `--attr` as cci's flag parser reads it, one `key=value` whole, commas and all, and with several `=` comma-separated `key=value` fields, quotes around one holding a comma."""
     posts = []
     for _, words, run_in in commands(script, shell):
         if found := landing_of(words, (CCI_POST,)):
             _, positionals, options = found
-            attrs = dict(pair.split("=", 1) for value in options.get("attr", []) for pair in value.split(","))
-            to = [lane for value in options.get("to", []) for lane in value.split(",")]
-            answered = [seq for value in options.get("re", []) for seq in value.split(",")]
-            text = " ".join(positionals) or (options.get("text") or [""])[-1] or first_line(run_in.cwd, (options.get("path") or [None])[-1])
-            posts.append(((options.get("kind") or [""])[-1].lower(), attrs, to, text, (options.get("url") or [None])[-1], answered))
+            path = (options.get("path") or [None])[-1]
+            posts.append({
+                "kind": (options.get("kind") or [""])[-1].lower(),
+                "attrs": dict(pair.split("=", 1) for value in options.get("attr", []) for pair in ([value.strip('"')] if value.count("=") == 1 else next(csv.reader([value])))),
+                "to": [lane for value in options.get("to", []) for lane in value.split(",")],
+                "text": " ".join(positionals) or (options.get("text") or [""])[-1] or first_line(run_in.cwd, path),
+                "body": file_text(run_in.cwd, (options.get("body-file") or [path])[-1]),
+                "url": (options.get("url") or [None])[-1],
+                "re": [seq for value in options.get("re", []) for seq in value.split(",")],
+            })
     return posts
 
 
@@ -578,16 +584,21 @@ def cci_change(attachment: dict, connected: bool | None) -> bool | None:
 
 def first_line(cwd: str, named: str | None) -> str:
     """The first line of the file a `cci post --path` names, from the folder the post runs in; none when it names no file there."""
+    return file_text(cwd, named).partition("\n")[0]
+
+
+def file_text(cwd: str, named: str | None) -> str:
+    """The text of the file a `cci post` flag names, from the folder the post runs in; none when it names no file there, such as one an earlier command in the call writes."""
     if named is None or not (path := Path(moved(cwd, named))).is_file():
         return ""
-    return path.read_text().partition("\n")[0]
+    return path.read_text()
 
 
-def misrouted(posts: list[tuple[str, dict[str, str], list[str], str, str | None, list[str]]], drives: dict[str, dict], session: str) -> str | None:
+def misrouted(posts: list[dict], drives: dict[str, dict], session: str) -> str | None:
     """Why a drive session's `cci post` names lanes other than the drive routes its record to, which the cci `post` tool's hook readdresses: a defect, or a communicator's owner record about the drive, not to the meta session, or another communicator's record not to the session hearing the order it serves."""
-    for kind, attrs, to, *_ in posts:
-        if (routed := state.routed(drives, session, kind, attrs, to)) != list(dict.fromkeys(to)):
-            return MISROUTED.format(kind=kind, lanes=", ".join(routed), flags=" ".join(f"--to {lane}" for lane in routed))
+    for post in posts:
+        if (routed := state.routed(drives, session, post["kind"], post["attrs"], post["to"])) != list(dict.fromkeys(post["to"])):
+            return MISROUTED.format(kind=post["kind"], lanes=", ".join(routed), flags=" ".join(f"--to {lane}" for lane in routed))
     return None
 
 
@@ -653,17 +664,20 @@ def shell_of(payload: dict) -> tuple[list[str], Shell]:
 
 
 def judged_reason(payload: dict) -> str | None:
-    """Why a drive session's Bash call looks wrong in a way Jev judges before it stands: it posts a drive's ask record past the check against his answers or naming an ASK file that keeps another question than its own or one his answer closed, a report naming an attr a separator, a capital or one letter from one the drive reads, or a record to lanes other than the drive routes it to, or is the coordinator's or the meta session's own order work."""
+    """Why a drive session's Bash call looks wrong in a way Jev judges before it stands: it posts a drive's ask record past the check against his answers or naming an ASK file that keeps another question than its own or one his answer closed, a report naming an attr a separator, a capital or one letter from one the drive reads, a record to lanes other than the drive routes it to, or a report to the communicator that the checks the cci `post` tool's hook runs refuse, such as one leaving out a part a finished job answered, or is the coordinator's or the meta session's own order work."""
     names, shell = shell_of(payload)
     session = shell.session
     command = payload["tool_input"]["command"]
     posts = cci_posts(command, shell)
-    if names and (unkept := next(filter(None, (settled.ask_refusal(names, attrs, text) for kind, attrs, _, text, *_ in posts if kind == "ask")), None)):
+    if names and (unkept := next(filter(None, (settled.ask_refusal(names, post["attrs"], post["text"]) for post in posts if post["kind"] == "ask")), None)):
         return unkept
-    if names and (misnamed := next(filter(None, (limits.misnamed(kind, attrs) for kind, attrs, *_ in posts)), None)):
+    if names and (misnamed := next(filter(None, (limits.misnamed(post["kind"], post["attrs"]) for post in posts)), None)):
         return misnamed
     if posts and (wrong := misrouted(posts, state.bound_drives(names), session)):
         return wrong
+    drive = state.load(names[0]) if names and posts else None
+    if drive and (unreported := next(filter(None, (refused for index in range(len(posts)) for refused in reports.report_refusals(payload, drive, posts, index))), None)):
+        return unreported
     roles = [] if payload.get("agent_id") else [state.session_role(state.load(name), session) for name in names]
     who = next((role for role in roles if role in ("coordinator", "meta")), None)
     if who and (step := own_work(command, shell)):
@@ -680,10 +694,10 @@ def guarded_reason(payload: dict) -> str | None:
     posts = cci_posts(command, shell)
     if shell.driving and posts and cci_connected(payload):
         return CLI_POST
-    unclosed = (superseded.unclosed_refusal(names, kind, attrs, url, answered) for kind, attrs, _, _, url, answered in posts)
+    unclosed = (superseded.unclosed_refusal(names, post["kind"], post["attrs"], post["url"], post["re"]) for post in posts)
     if names and (left_up := next(filter(None, unclosed), None)):
         return left_up
-    if names and (unsaid := next(filter(None, (state.unabout(kind, attrs) for kind, attrs, *_ in posts)), None)):
+    if names and (unsaid := next(filter(None, (state.unabout(post["kind"], post["attrs"]) for post in posts)), None)):
         return unsaid
     return script_reason(command, shell)
 

@@ -1333,11 +1333,11 @@ def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, moment: dateti
         waiting = f"is built on {job['branch']}" if job["state"] == "built" else f'waits on "{cut(job["said"] or "nothing named", 80)}"'
         return f"{job_id} {waiting} and no open PR, card or due time can wake it"
     if job["state"] == "done":
+        if state.unposted_answer(data, job_id):
+            return f"{job_id} answered and the answer is not posted to him"
         if state.design_builder(data, job_id):
             return None
         drawn = [question for question in job["questions"] if question["card"]]
-        if not drawn:
-            return f"{job_id} answered and the answer is not posted to him"
         answered = "card is" if len(drawn) == 1 else "cards are"
         return None if view.open_cards(job, watcher.cards) else f"{job_id}'s {answered} answered and no job carries his answer"
     return f"{job_id} {job['state']}"
@@ -1350,13 +1350,13 @@ def unstarted(job: dict) -> bool:
 def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: datetime) -> str | None:
     """Why a part of the order has no one carrying it, None when it is carried, delivered or waits on something named: a change a design lists waits on each earlier change it builds on, and on his pick while the order asks for options only; a job on the order's immediate fix part carries the order's other parts too until it is done."""
     order = data["orders"][order_id]
-    jobs = part_jobs(data, order_id, part)
+    jobs = state.part_jobs(data, order_id, part)
     gaps = [job_gap(watcher, job_id, job, data, moment) for job_id, job in jobs]
     if stuck := [gap for (_, job), gap in zip(jobs, gaps, strict=True) if gap and (job["state"] == "running" or job["state"] == "waiting" and job.get("ask"))]:
         return stuck[-1]
-    if delivered(data, order_id, part):
+    if state.delivered(data, order_id, part):
         return None
-    if part != state.IMMEDIATE_FIX and any(job["state"] in ("running", "waiting", "built") for _, job in part_jobs(data, order_id, state.IMMEDIATE_FIX)):
+    if part != state.IMMEDIATE_FIX and any(job["state"] in ("running", "waiting", "built") for _, job in state.part_jobs(data, order_id, state.IMMEDIATE_FIX)):
         return None
     if jobs:
         return None if None in gaps else SETTLING if SETTLING in gaps else gaps[-1]
@@ -1364,19 +1364,9 @@ def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: dat
         return None
     if not (design := order["parts"][part]["design"]):
         return "no job"
-    if order["options_only"] or any(after in order["parts"] and not delivered(data, order_id, after) for after in order["parts"][part]["after"]):
+    if order["options_only"] or any(after in order["parts"] and not state.delivered(data, order_id, after) for after in order["parts"][part]["after"]):
         return None
     return f"{design}'s design lists this change and no builder carries it: start one with drive job add builder --part, or add it to its builder with drive job set --part"
-
-
-def part_jobs(data: dict, order_id: str, part: str) -> list[tuple[str, dict]]:
-    return [(job_id, data["jobs"][job_id]) for job_id in data["orders"][order_id]["jobs"] if part in state.job_parts(data["jobs"][job_id], order_id)]
-
-
-def delivered(data: dict, order_id: str, part: str) -> bool:
-    """Whether a part is posted to him or built by a builder that returned DONE."""
-    done = any(job["state"] == "done" and job["kind"] == "builder" for _, job in part_jobs(data, order_id, part))
-    return bool(data["orders"][order_id]["parts"][part]["posted"]) or done
 
 
 def part_gaps(watcher: Watcher, data: dict, moment: datetime) -> dict[tuple[str, str], str | None]:
@@ -1400,7 +1390,7 @@ def orphan_change(data: dict, key: tuple[str, str], gap: str | None, due: set[st
 
 def added_since(data: dict, key: tuple[str, str], said: datetime) -> bool:
     """Whether a local job no agent has taken was added or resumed on the part since the part was last said, news its 30-minute repeat would hold back."""
-    return any(unstarted(job) and state.parse_time(job["updated"]) > said for _, job in part_jobs(data, *key))
+    return any(unstarted(job) and state.parse_time(job["updated"]) > said for _, job in state.part_jobs(data, *key))
 
 
 def orphan_lines(watcher: Watcher, moment: datetime, due: set[str]) -> list[str]:

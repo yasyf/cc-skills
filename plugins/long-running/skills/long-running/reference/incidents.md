@@ -320,7 +320,7 @@ check's verdict, or from the order when none ran.
 
 ## What he hears
 
-Each line is a `report` to the communicator, with `--attr part=<name>` on one delivering a part, such as the
+Each line is a `report` to the communicator, with `--attr part=<o>:<part>` on one delivering a part, such as the
 first check or the cause, and `--attr progress=true` on every other. The communicator posts it in his thread or
 the alert's thread, the alert's with `say(channel_id=<the alert's channel>, thread_ts=<its ts>)`, while he is away too. These rules bind the communicator, its handlers and any reader that posts for
 it.

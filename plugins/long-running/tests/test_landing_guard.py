@@ -332,6 +332,19 @@ def test_a_drive_sessions_cci_post_in_bash_is_refused_for_the_cci_tools_while_it
     assert landing_guard.deny_reason(bash(report)) is None
 
 
+def test_a_report_posted_with_cci_post_in_bash_gets_the_checks_the_cci_post_tool_runs(run: Run, demo: str, no_calls: None) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "why does the search worker OOM?", "--parts", "cause", "fix")
+    run("job", "add", "reader", "--order", "o1", "--part", "cause", "--goal", "find the cause")
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["state"] = "done"
+    post = "cci post --kind report --to communicator@demo --attr job=j1 {attr} 'POST the search worker OOMs on entries past 1024 tokens'"
+    reason = landing_guard.deny_reason(bash(post.format(attr="--attr progress=true")))
+    assert 'o1\'s "cause" was answered by j1, which finished' in reason and '`--attr part="o1:cause"`' in reason
+    assert landing_guard.deny_reason(bash(post.format(attr="--attr 'part=o1:cause'"))) is None
+    assert landing_guard.deny_reason(bash(post.format(attr="--attr 'progress=true,part=o1:cause'"))) is None
+    assert 'delivers "cause", "fix", the last parts of o1' in landing_guard.deny_reason(bash(post.format(attr="--attr 'part=o1:cause;o1:fix'")))
+
+
 def test_each_command_reads_the_stdin_its_own_text_gives_it() -> None:
     script = "cat a.md | drive job ask j1 -\ndrive job ask j2 - < \"$d/b.md\"\ncat > c.md <<'EOF'\nc body\nEOF\ndrive job ask j3 - <<-ASK\nthe block\nASK\ngrep x <<< hi"
     assert len(shell.templates(shell.runnable(script))) == 6

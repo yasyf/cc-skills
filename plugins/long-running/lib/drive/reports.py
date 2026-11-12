@@ -1,0 +1,171 @@
+import json
+import re
+from collections.abc import Iterator
+
+from drive import agents, refs, slack, state
+
+OPENING = re.compile(r"(?:POST|FYI)\b")
+UNOPENED = "refused: a report's text opens `POST`, for a handler to post, or `FYI`, kept as context; add the one it is"
+UNFINISHED = (
+    "refused: this POST report names nothing its post finishes, so its handler cannot tell which order to close; add"
+    " `--attr close=<o,…>` naming each order it finishes{about}, `--attr part=<o>:<part>` naming the part it delivers{parts},"
+    " or `--attr progress=true` on a progress line that finishes nothing"
+)
+LAST_PART = (
+    "refused: this report delivers {parts}, the last {noun} of {order} not yet delivered, so its post finishes the order; add"
+    " `--attr close={order}`, so its handler closes {order} once the line is posted"
+)
+UNKNOWN_ORDER = "refused: the part attr's item {item} names {order}, no order of drive {drive}; name each part as `<o>:<part>`, items separated by `;`"
+UNKNOWN_PART = 'refused: {order} has no part "{part}", so this post would deliver nothing there; its parts: {parts}'
+SKIPPED = (
+    "refused: {answered}, and no post delivered {them}, so this post would go out and leave {them} unposted, which the watch raises"
+    " every 30 minutes; carry {them} in this post with `--attr part=\"{items}\"`, or `--attr close=<o>` on the post that finishes an"
+    " order; when a post of the drive already delivered {them}, the session holding the order marks it first with {marks}"
+)
+OFF_THREAD = (
+    "refused: this report finishes {orders}, and thread {thread} is none of its threads: {threads}. Name one of those threads,"
+    " or add this one with `drive order set <o> --thread {thread}`"
+)
+SECOND_REPORT = (
+    "refused: the coordinator and the meta session send one report per thread per turn, a turn running from a wake to the end of its response,"
+    " and this turn already sent one for thread {thread}; put everything for that thread in that one report, and what"
+    " does not fit waits for the next wake"
+)
+SECOND_REPORT_RULE = "A second report for a thread in one turn of the coordinator's or the meta session's that repeats what its first report there already sent, rather than news that came in since."
+UNPREVENTED = (
+    "refused: a POST line telling him a card, check, hook, lane or session of the drive failed, refused, disconnected or"
+    " left a gap says on that same line how it is prevented, naming the tool change and the order or PR URL carrying it and"
+    " when it is live; start that fix first, a defect record to meta@<drive> for a tool, then name it. His ruling 6a6edbf:"
+    ' "thats not acceptable to dsay without telling me how you will prevent it". The lines: {lines}'
+)
+UNPREVENTED_RULE = "A line telling him the drive failed him, such as a card refused or a check nobody ran, that leaves out how that failure is prevented from now on."
+WAITS_ON_HIM = re.compile(r"\bwait(?:s|ing)? (?:on|for) (?:him|his|your|you)\b|\bneeds? (?:his|your) (?:tap|pick|answer|approval)\b", re.IGNORECASE)
+CARD_NAMED = re.compile(r"slack\.com/archives/|\{card:|\b[\w-]+:j\d+-\d+\b|github\.com/[^/\s]+/[^/\s]+/pull/\d+")
+UNCARDED = "refused: this report says something waits on him and names no card; add its permalink, the PR whose card it is, or its waits id with `--attr waits=<drive>:<j>-<seq>`, so the handler links the card"
+WAITS_ON_OTHER = re.compile(r"\bwait(?:s|ing)? on (?!(?:him|his|your|you|he)\b)\S", re.IGNORECASE)
+WAITED = re.compile(r"\b\d+ ?(?:s|secs?|seconds?|m|mins?|minutes?|h|hrs?|hours?|d|days?)\b|\bsince \d", re.IGNORECASE)
+RUNNING = re.compile(r"\b(?:running|queued|idle|stopped|started|starting|in progress|not started)\b", re.IGNORECASE)
+VAGUE_WAIT = "refused: a line that says something waits on X says how long it has waited and whether X is running, such as \"waits on CI, 40 min, run 123 running\"; add both"
+
+
+def kind(record: dict) -> str:
+    return (record.get("kind") or "").lower()
+
+
+def attrs(record: dict) -> dict:
+    return record.get("attrs") or {}
+
+
+def listed(value: object) -> list[str]:
+    return [] if value is None else [str(item) for item in (value if isinstance(value, list) else [value])]
+
+
+def addressed(record: dict, lane: str) -> bool:
+    return any(entry.split("@", 1)[0] == lane for entry in listed(record.get("to")))
+
+
+def report_refusals(payload: dict, drive: dict, records: list[dict], index: int) -> Iterator[str | None]:
+    """Why a report to the communicator does not go out as written, whether the cci `post` tool or `cci post` in Bash sends it, each check run only once the ones before it pass."""
+    record = records[index]
+    if kind(record) != "report" or not addressed(record, "communicator"):
+        return
+    text = (record.get("text") or "").strip()
+    thread = attrs(record).get("thread")
+    posting = text.startswith("POST")
+    yield None if OPENING.match(text) else UNOPENED
+    yield misnamed_part(drive, record)
+    yield unfinished(drive, record) if posting else None
+    yield skipped(drive, record) if posting else None
+    yield off_thread(drive, record)
+    yield UNCARDED if WAITS_ON_HIM.search(text) and not attrs(record).get("waits") and not CARD_NAMED.search(f"{text}\n{record.get('body') or ''}") else None
+    yield VAGUE_WAIT if WAITS_ON_OTHER.search(text) and not (WAITED.search(text) and RUNNING.search(text)) else None
+    if posting and (lines := refs.unprevented(f"{text}\n{record.get('body') or ''}")):
+        yield agents.Ruled(UNPREVENTED.format(lines=" | ".join(lines)), UNPREVENTED_RULE)
+    if thread and state.session_role(drive, payload.get("session_id")) in ("coordinator", "meta") and not payload.get("agent_id"):
+        yield second_report(payload, records, index, thread)
+    yield agents.unread_job(payload, text)
+
+
+def misnamed_part(drive: dict, record: dict) -> str | None:
+    """Why an item of a report's part attr would deliver nothing: it names an order the drive does not hold, or a part its order does not have."""
+    for order_id, part in state.part_items(attrs(record), state.report_order(drive, attrs(record))):
+        if order_id is None:
+            continue
+        if order_id not in drive["orders"]:
+            return agents.Unjudged(UNKNOWN_ORDER.format(item=json.dumps(f"{order_id}:{part}", ensure_ascii=False), order=order_id, drive=drive["name"]))
+        if part not in (held := drive["orders"][order_id]["parts"]):
+            return agents.Unjudged(UNKNOWN_PART.format(order=order_id, part=part, parts=", ".join(json.dumps(each, ensure_ascii=False) for each in held)))
+    return None
+
+
+def unfinished(drive: dict, record: dict) -> str | None:
+    """Why a report to post leaves its handler guessing what it finishes: it names no close, part or progress attr, or the parts it delivers are the last ones undelivered of an open order it does not close, which would leave that order open once its last answer is posted. An incident's last part is exempt, since its order closes when its fix ships."""
+    named = attrs(record)
+    if named.get("catch_up") or named.get("progress"):
+        return None
+    order_id = state.report_order(drive, named)
+    items = state.part_items(named, order_id)
+    closed = state.closed_orders(named)
+    if not items and not closed:
+        order = state.open_orders(drive).get(order_id or "")
+        quoted = ", ".join(f'"{part}"' for part, kept in order["parts"].items() if not kept["posted"]) if order else ""
+        return UNFINISHED.format(about=f", here {order_id}, the open order it is about" if order else "", parts=f", one of {quoted}" if quoted else "")
+    for on in dict.fromkeys(on for on, _ in items if on not in closed):
+        order = state.open_orders(drive).get(on or "")
+        if not order or order["incident"]:
+            continue
+        left = [part for part, kept in order["parts"].items() if not kept["posted"]]
+        if left and set(left) <= {part for each, part in items if each == on}:
+            return LAST_PART.format(parts=", ".join(f'"{part}"' for part in left), noun="part" if len(left) == 1 else "parts", order=on)
+    return None
+
+
+def skipped(drive: dict, record: dict) -> str | None:
+    """Why a report to post leaves out a part of an open order it is about that a finished job answered and no post delivered: its post would go out while that answer stays unposted, the gap the watch raises until someone marks the part by hand."""
+    named = attrs(record)
+    about = state.report_order(drive, named)
+    items = state.part_items(named, about)
+    closed = state.closed_orders(named)
+    orders = [order_id for order_id in dict.fromkeys([about, *(on for on, _ in items)]) if order_id in state.open_orders(drive) and order_id not in closed]
+    left = [(order_id, part, jobs) for order_id in orders for part, jobs in state.answered_parts(drive, order_id).items() if (order_id, part) not in items]
+    if not left:
+        return None
+    answered = "; ".join(f'{order_id}\'s "{part}" was answered by {", ".join(jobs)}, which finished' for order_id, part, jobs in left)
+    carried = ";".join(f"{order_id}:{part}" for order_id, part in [*((on, part) for on, part in items if on), *((order_id, part) for order_id, part, _ in left)])
+    marks = ", ".join(f'`drive order posted {order_id} <that post\'s link> --part "{part}"`' for order_id, part, _ in left)
+    return agents.Unjudged(SKIPPED.format(answered=answered, them="it" if len(left) == 1 else "them", items=carried, marks=marks))
+
+
+def off_thread(drive: dict, record: dict) -> str | None:
+    """Why a report that finishes an order, or delivers a part of one, names a thread that is none of that order's, where the line would keep no promised time."""
+    named = attrs(record)
+    if not (thread := named.get("thread")) or not (named.get("close") or named.get("part")):
+        return None
+    job = drive["jobs"].get(named.get("job") or "")
+    items = [on for on, _ in state.part_items(named, None)]
+    orders = list(dict.fromkeys(order for order in [*state.closed_orders(named), *items, job and job["order"]] if order and order in drive["orders"]))
+    threads = list(dict.fromkeys(ts for order in orders for _, ts in slack.order_threads(drive, order, drive["orders"][order])))
+    if not orders or thread in threads:
+        return None
+    return OFF_THREAD.format(orders=", ".join(orders), thread=thread, threads=", ".join(threads) or "none yet")
+
+
+def report_threads(tool_input: dict) -> set[str]:
+    return {attrs(record).get("thread") for record in tool_input.get("records") or [tool_input] if kind(record) == "report" and addressed(record, "communicator")} - {None}
+
+
+def second_report(payload: dict, records: list[dict], index: int, thread: str) -> str | None:
+    """Why the coordinator's or the meta session's report for a thread waits for its next turn: the batch, or a post since its last response ended, already carried one for that thread."""
+    if thread in report_threads({"records": records[:index]}):
+        return agents.Ruled(SECOND_REPORT.format(thread=thread), SECOND_REPORT_RULE)
+    sent: dict[str, set[str]] = {}
+    posted: set[str] = set()
+    for row in agents.tail(agents.transcript_of(payload)):
+        if agents.ended(row):
+            sent, posted = {}, set()
+        for part in agents.parts(row):
+            if part.get("type") == "tool_use" and part.get("name") == payload["tool_name"] and part.get("id") != payload.get("tool_use_id"):
+                sent[part["id"]] = report_threads(part.get("input") or {})
+            elif part.get("type") == "tool_result" and part.get("tool_use_id") in sent and not part.get("is_error"):
+                posted.add(part["tool_use_id"])
+    return agents.Ruled(SECOND_REPORT.format(thread=thread), SECOND_REPORT_RULE) if any(thread in sent[call] for call in posted) else None
