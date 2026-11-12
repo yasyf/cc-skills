@@ -36,7 +36,7 @@ BRIEF_NEEDS = ("serves", "done_when", "where")
 READER_RESEARCH = "the Researched: block this build needs"
 NO_SURFACE = re.compile(r"\s*none\b", re.IGNORECASE)
 PROMISED_TIME = re.compile(
-    r"\b(?:by|before|next (?:line|update|post|summary)(?:\s+(?:by|at))?)\s+(?:about\s+|around\s+)?([01]?\d|2[0-3]):([0-5]\d)(?![:\d])(?:\s*([AP])\.?M\b)?", re.IGNORECASE
+    r"\bnext (?:line|update|post|summary)(?:\s+(?:by|before|at))?\s+(?:about\s+|around\s+)?([01]?\d|2[0-3]):([0-5]\d)(?![:\d])(?:\s*([AP])\.?M\b)?", re.IGNORECASE
 )
 REPORTER_HELP = (
     "the bug report the order fixes, by its Slack permalink or slack:<channel>/<its thread's ts>, from the share or link in his"
@@ -849,7 +849,7 @@ def record_post(name: str, order_id: str, link: str, report: dict) -> tuple[str,
 
 
 def promised_due(text: str, at: datetime) -> datetime | None:
-    """The time a post made at `at` promises his next line by: the first clock time its words put after by, before or next line whose time of day nearest the post is after it, read with AM or PM as written, else on either half of a 12-hour clock, so at 9:29 PM "by 9:45" is 9:45 PM and "by 7:30" is past."""
+    """The time a post made at `at` promises his next line by: the first clock time its words put after next line, update, post or summary whose time of day nearest the post is after it, read with AM or PM as written, else on either half of a 12-hour clock, so at 9:29 PM "next line by 9:45" is 9:45 PM and "next line by 7:30" is past, and a time after any other words, such as "due by 2:37", promises nothing."""
     moment = at.replace(second=0, microsecond=0)
     for said in PROMISED_TIME.finditer(limits.masked(text)):
         hour = int(said[1])
