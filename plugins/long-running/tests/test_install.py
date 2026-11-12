@@ -20,6 +20,7 @@ CCI_BINRUN = "plugin/bin/cci.binrun"
 IDLE = {"ok": True, "result": {"wait": {"condition": "tui-idle", "satisfied": True, "status": "running", "exitCode": None}}}
 BUSY = {"ok": False, "error": {"code": "timeout", "message": "timeout"}}
 SENT = {"ok": True, "result": {"send": {"accepted": True}}}
+BREW_UPDATE = ["brew", "update", "--quiet"]
 
 
 class FakeGit:
@@ -38,6 +39,7 @@ class FakeGit:
         self.waits: dict[str, dict] = {}
         self.dashboards: dict[str, dict] = {}
         self.installed_sha: str | None = None
+        self.bare: list[str] = []
         self.install_root = Path("/cache")
         self.together = threading.Barrier(1)
 
@@ -75,13 +77,18 @@ class FakeGit:
     def next_ref(self) -> str:
         return self.refs.pop(0) if len(self.refs) > 1 else self.refs[0]
 
+    def next_bare(self) -> str:
+        return self.bare.pop(0) if len(self.bare) > 1 else self.bare[0]
+
     def answer(self, cmd: list[str]) -> str:
         verb = cmd[3:] if cmd[:2] == ["git", "-C"] else []
         if verb == SHOW_MARKETPLACE:
             source = self.path or {"source": "git-subdir", "url": f"https://github.com/{REPO}", "path": FOLDER, "ref": self.next_ref()}
-            return json.dumps({"name": "skills", "plugins": [{"name": "long-running", "source": source}]})
+            return json.dumps({"name": "skills", "plugins": [{"name": name, "source": source} for name in ("long-running", "cc-context")]})
         if verb[:1] == ["log"]:
             return self.next_ref() + "\n"
+        if cmd[1:] == ["--version"]:
+            return self.next_bare() + "\n"
         if verb[:2] == ["rev-list", "--count"]:
             return "0\n" if verb[-1].removeprefix("^") in self.holding else "4\n"
         if cmd[:3] == ["claude", "plugin", "update"]:
@@ -415,8 +422,35 @@ def test_a_release_sync_merged_straight_back_holds_its_own_merge_commit(
 def test_installing_cc_inbox_moves_the_cci_daemon_onto_the_new_build(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
     git = fake(["unused"], set())
     assert install.main("cc-inbox@skills", None, None, 900) == 0
-    assert git.other_calls() == [["/cache/cc-inbox/1.0.3/bin/cci", "serve"]]
+    assert git.other_calls() == [["/cache/cc-inbox/1.0.3/bin/cci", "serve"], BREW_UPDATE, ["brew", "upgrade", "yasyf/tap/cci"]]
     assert capsys.readouterr().out.strip() == "installed cc-inbox@skills 1.0.3"
+
+
+def test_a_homebrew_twin_is_upgraded_until_the_bare_binary_runs_a_release_holding_the_sha(
+    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
+) -> None:
+    git = fake(["cc-context--v1.0.3"], {"cc-context--v1.0.3", "v0.95.70"})
+    git.bare = ["v0.95.69", "v0.95.70"]
+    assert install.main("cc-context@skills", SHA, None, 900) == 0
+    upgrade = [BREW_UPDATE, ["brew", "upgrade", "yasyf/tap/ccx"], ["ccx", "--version"]]
+    assert git.other_calls() == upgrade + upgrade
+    assert holds(SHA, "v0.95.69") in git.git_calls()
+    assert git.sleeps == [20]
+    out, err = capsys.readouterr()
+    assert out.strip() == "installed cc-context@skills 1.0.3"
+    assert err.strip() == f"drive install: waiting for yasyf/tap/ccx to hold {SHA[:12]}: bare ccx runs release v0.95.69, which lacks it"
+
+
+def test_a_bare_binary_still_lacking_the_sha_at_the_deadline_refuses_the_install(
+    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
+) -> None:
+    git = fake(["cc-context--v1.0.3"], {"cc-context--v1.0.3"})
+    git.bare = ["0.95.69 (5aff6f4)"]
+    assert install.main("cc-context@skills", SHA, None, 60) == 1
+    assert git.sleeps == [20, 20]
+    out, err = capsys.readouterr()
+    assert out == ""
+    assert err.splitlines()[-1] == f"drive install: timed out after 60s waiting for bare ccx to hold {SHA[:12]}; bare ccx runs release v0.95.69, which lacks it"
 
 
 def test_other_plugins_run_nothing_after_the_update(fake: Callable[..., FakeGit]) -> None:
@@ -570,7 +604,7 @@ def test_installing_another_plugin_restarts_no_dashboard(fake: Callable[..., Fak
     git = fake(["unused"], set())
     git.dashboards = {"demo": {"code": "/cache/long-running/1.0.2/lib/drive"}}
     assert install.main("cc-inbox@skills", None, None, 900) == 0
-    assert git.other_calls() == [["/cache/cc-inbox/1.0.3/bin/cci", "serve"]]
+    assert git.other_calls()[0] == ["/cache/cc-inbox/1.0.3/bin/cci", "serve"]
 
 
 def test_a_session_another_install_reloaded_after_this_update_is_not_reloaded_twice(

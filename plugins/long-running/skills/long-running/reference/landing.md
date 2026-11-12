@@ -131,13 +131,21 @@ No tap and no green gate: by his standing rule a `yasyf/*` PR merges without ask
      in the tag of each binary the plugin pins from that repo through a `*.binrun` file, since a
      binary is built at its tag, which can predate the version sync that names it (cc-inbox 0.54.27's
      sync merged after a fix its `cci` was built without). While it waits it prints a line naming
-     the newest release and what of it lacks the merge. Installs run at once take turns on the
-     update under one flock on `plugins/.update.lock` in the Claude config directory, a few seconds
-     each, since Claude Code re-clones a stale marketplace into one fixed `<marketplace>..clone`
-     directory and two clones at once delete each other's files. It refuses when the update left the
-     plugin at a commit without the merge, as a marketplace clone holding moved tags does, or running
-     a binary whose release tag lacks it, naming the installed version, that commit or release, and
-     the merge sha. Installing long-running also restarts each drive's dashboard still serving other code, a
+     the newest release and what of it lacks the merge. A plugin whose binary also has a Homebrew
+     copy from `yasyf/tap` (cc-context's `ccx`, cc-inbox's `cci`, `cc-notes`, `cc-present`,
+     `cc-review` and `cc-slack`) then gets that copy upgraded. Claude Code appends plugin bin
+     directories after `/opt/homebrew/bin` on PATH, so a session's bare `ccx` runs Homebrew's copy.
+     The install runs `brew update`, then `brew upgrade yasyf/tap/<binary>`, about 12 seconds. With
+     `--sha` it reads the bare binary's `--version` and repeats both every 20 seconds until that
+     release's tag holds the merge, since the tap's formula commit can land after the plugin's
+     release. Installs run at once take turns on the update and on each Homebrew pass under one flock
+     on `plugins/.update.lock` in the Claude config directory, a few seconds each. Claude Code
+     re-clones a stale marketplace into one fixed `<marketplace>..clone` directory, where two clones
+     at once delete each other's files, and a second `brew update` refuses while one runs. It refuses
+     when the update left the plugin at a commit without the merge, as a marketplace clone holding
+     moved tags does, or running a binary whose release tag lacks it, naming the installed version,
+     that commit or release, and the merge sha. It also refuses when the bare binary still runs a
+     release without the merge at the timeout, naming that release. Installing long-running also restarts each drive's dashboard still serving other code, a
      line each, so no page keeps serving old code until someone restarts it; one it cannot restart names
      the `drive dashboard --drive <name>` command to run. A live session runs the installed version's
      script for each hook it registered at start, but loads a hook added since, and its skills, agents,
