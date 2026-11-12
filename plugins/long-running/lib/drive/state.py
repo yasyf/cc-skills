@@ -15,6 +15,7 @@ ORDER_STATES = ("open", "working", "waiting", "done", "dropped")
 ORDER_KINDS = ("answer", "build")
 CLOSED_ORDER_STATES = ("done", "dropped")
 JOB_KINDS = ("builder", "reader", "design", "codex")
+JOB_AGENTS = {"builder": ("long-running:builder",), "reader": ("long-running:reader",), "design": ("long-running:designer",), "codex": ("codex:codex-wrapper", "long-running:builder")}
 JOB_STATES = ("running", "waiting", "built", "done", "failed", "stopped")
 FINISHED_JOB_STATES = ("done", "failed", "stopped")
 INCIDENT_STOP = "stop"

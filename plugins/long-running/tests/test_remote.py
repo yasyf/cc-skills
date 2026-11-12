@@ -231,6 +231,31 @@ def test_an_agent_id_moves_a_remote_job_to_this_mac_and_off_its_mail(
     assert calls == []
 
 
+def test_job_set_agent_with_the_jobs_own_dispatch_puts_an_agent_held_job_back_on_its_sprite(
+    run: Run, remote: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(workspace="pool-one", environment="env-one", terminal="term_lane", agent="a-doctor", where="local")
+    assert cli.main(["job", "resume", "j1", "go"]) == 2
+    assert capsys.readouterr().err == (
+        f"drive: j1 runs on this Mac as agent a-doctor; resume it with SendMessage, or put it back on its lane with drive job set j1 --agent {DISPATCH}, then resume it\n"
+    )
+    run("job", "set", "j1", "--agent", DISPATCH)
+    data = state.load(remote)
+    job = data["jobs"]["j1"]
+    assert {field: job[field] for field in ("agent", "where", "route", "dispatch", "workspace", "environment", "run", "terminal")} == {
+        "agent": None,
+        "where": "remote",
+        "route": None,
+        "dispatch": DISPATCH,
+        "workspace": "pool-one",
+        "environment": "env-one",
+        "run": RUN,
+        "terminal": "term_lane",
+    }
+    assert cli.remote_job(data, "j1") is job
+
+
 def test_launch_composes_the_vm_brief_and_records_the_lane(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

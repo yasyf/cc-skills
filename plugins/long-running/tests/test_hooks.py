@@ -269,6 +269,7 @@ def stepped(tmp_path: Path, brief: str, session: str | None = None, **fields: ob
         "session_id": session or os.environ["CLAUDE_CODE_SESSION_ID"],
         "transcript_path": str(tmp_path / "session.jsonl"),
         "agent_id": "a-9",
+        "agent_type": "long-running:builder",
         **fields,
     }
 
@@ -320,6 +321,48 @@ def test_a_handlers_steps_never_bind_it_to_the_job_its_brief_names(
     assert state.load("demo")["jobs"]["j1"]["agent"] is None
 
 
+@pytest.mark.parametrize("agent_type", ["orca:orca-doctor", "Explore", "general-purpose", "long-running:reader"])
+def test_an_agent_of_another_kind_never_holds_the_job_its_brief_names(
+    demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], agent_type: str
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
+    run("job", "add", "design", "--order", "o1", "--goal", "design it", "--agent", "a-1")
+    with state.edit("demo") as data:
+        data["jobs"]["j2"]["state"] = "done"
+    for job_id in ("j1", "j2"):
+        kept = tmp_path / "jobs" / f"{job_id}.brief.md"
+        kept.parent.mkdir(exist_ok=True)
+        kept.write_text(f"Goal: fix it\nDrive: demo, order o1, job {job_id}\n")
+        named = stepped(tmp_path, f"Why did the lane whose brief is {kept} stop?", agent_type=agent_type)
+        hook_output(no_file_tools, monkeypatch, capsys, json.dumps(file_call("Read") | named))
+        hook_output(one_line_result, monkeypatch, capsys, json.dumps(agent_stop(f"{job_id} looks stuck", **named)))
+    jobs = state.load("demo")["jobs"]
+    assert [(job["agent"], job["where"], job["state"]) for job in jobs.values()] == [(None, "local", "running"), ("a-1", "local", "done")]
+
+
+def test_a_step_never_replaces_a_remote_jobs_dispatch(
+    demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--remote")
+    with state.edit("demo") as data:
+        data["jobs"]["j1"].update(dispatch="ctx_lane0001", workspace="pool-one")
+    hook_output(landing_guard, monkeypatch, capsys, json.dumps(bash("git status") | stepped(tmp_path, "Drive: demo, order o1, job j1")))
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["agent"], job["where"], job["dispatch"]) == (None, "remote", "ctx_lane0001")
+
+
+@pytest.mark.parametrize("agent_type", ["codex:codex-wrapper", "long-running:builder"])
+def test_a_codex_relay_or_an_incidents_second_lane_builder_holds_the_codex_job_its_brief_names(
+    demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], agent_type: str
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("job", "add", "codex", "--order", "o1", "--goal", "fix it")
+    hook_output(no_file_tools, monkeypatch, capsys, json.dumps(file_call("Read") | stepped(tmp_path, "Drive: demo, order o1, job j1", agent_type=agent_type)))
+    assert state.load("demo")["jobs"]["j1"]["agent"] == "a-9"
+
+
 def test_a_step_leaves_a_stopped_job_and_a_job_another_agent_runs_as_they_are(
     demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -327,8 +370,9 @@ def test_a_step_leaves_a_stopped_job_and_a_job_another_agent_runs_as_they_are(
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--agent", "a-1")
     run("job", "add", "reader", "--order", "o1", "--goal", "read it")
     run("job", "set", "j2", "--state", "stopped")
-    for job_id in ("j1", "j2"):
-        hook_output(no_file_tools, monkeypatch, capsys, json.dumps(file_call("Edit") | stepped(tmp_path, f"Drive: demo, order o1, job {job_id}")))
+    for job_id, kind in (("j1", "builder"), ("j2", "reader")):
+        named = stepped(tmp_path, f"Drive: demo, order o1, job {job_id}", agent_type=f"long-running:{kind}")
+        hook_output(no_file_tools, monkeypatch, capsys, json.dumps(file_call("Edit") | named))
     jobs = state.load("demo")["jobs"]
     assert [(job["agent"], job["state"]) for job in jobs.values()] == [("a-1", "running"), (None, "stopped")]
 
@@ -376,7 +420,7 @@ def test_an_agent_that_stops_before_any_step_is_recorded_and_its_line_sets_its_j
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "reader", "--order", "o1", "--goal", "read it")
-    stop = agent_stop("j1 is answered: the hook never ran", **stepped(tmp_path, "Drive: demo, order o1, job j1"))
+    stop = agent_stop("j1 is answered: the hook never ran", **stepped(tmp_path, "Drive: demo, order o1, job j1", agent_type="long-running:reader"))
     assert hook_output(one_line_result, monkeypatch, capsys, json.dumps(stop)) == ""
     job = state.load("demo")["jobs"]["j1"]
     assert (job["agent"], job["state"], job["said"]) == ("a-9", "done", "j1 is answered: the hook never ran")
