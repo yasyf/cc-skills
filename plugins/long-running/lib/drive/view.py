@@ -254,6 +254,11 @@ def pr_entry(pr: dict) -> dict:
     }
 
 
+def named_pr(prs: dict, key: str) -> dict:
+    """The PR a kept event names, as the drive holds it now, or by its link alone once drop_pr stopped tracking it, since events.jsonl keeps every key it ever named."""
+    return prs.get(key) or {"title": "", "url": state.pr_url(key), "order": None, "state": "dropped", "checks": None, "review": "none"}
+
+
 def card_for(pr_cards: list[dict], url: str) -> dict | None:
     return next((card for card in reversed(pr_cards) if url in card["prs"]), None)
 
@@ -536,12 +541,12 @@ def history(drive: dict, events: Iterable[dict], team_url: str) -> list[dict]:
             post["text"] = event["text"]
             continue
         if event["kind"] == "said":
-            stack = [pr_entry(prs[key]) for key in event.get("prs", [])]
+            stack = [pr_entry(named_pr(prs, key)) for key in event.get("prs", [])]
             post = {"at": event["at"], "kind": "said", "text": event["text"], "detail": "", "url": event["url"], "feature": event["order"], "visuals": event["visuals"], "prs": stack}
             sent[message_key(event["url"])] = post
             happened.append(post)
             continue
-        pr = prs.get(f"{event['repo']}#{event['number']}") or {"title": "", "url": state.pr_url(f"{event['repo']}#{event['number']}"), "order": None}
+        pr = named_pr(prs, f"{event['repo']}#{event['number']}")
         detail = event["label"] if event["kind"] == "tap" else said(event["reason"])
         happened.append({"at": event["at"], "kind": event["kind"], "text": pr_title(pr), "detail": detail, "url": pr["url"], "feature": pr["order"]})
     return sorted(happened, key=lambda entry: state.parse_time(entry["at"]), reverse=True)

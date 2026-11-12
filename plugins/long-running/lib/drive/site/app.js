@@ -1401,7 +1401,8 @@ function historySide(series, zoomed) {
 }
 
 function prItem(pr) {
-  return `<li><a href="${esc(pr.url)}" target="_blank" rel="noopener"><i class="sq ${esc(prTone(pr))}"></i>${esc(pr.title)}</a><em>${esc(prSaid(pr))}, ${esc(pr.review === 'none' ? 'no review' : pr.review)}</em></li>`;
+  const said = pr.state === 'dropped' ? 'dropped from the drive' : `${prSaid(pr)}, ${pr.review === 'none' ? 'no review' : pr.review}`;
+  return `<li><a href="${esc(pr.url)}" target="_blank" rel="noopener"><i class="sq ${esc(prTone(pr))}"></i>${esc(pr.title)}</a><em>${esc(said)}</em></li>`;
 }
 
 function decisionPiece(card) {
