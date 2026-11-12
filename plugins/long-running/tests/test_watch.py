@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import CodexAsk, Judge, Redraws, Thread, WatchProcess, Withdrawals, commit_files, git_in
+from conftest import CodexAsk, Judge, Redraws, Thread, WatchProcess, Withdrawals, commit_files, git_in, staged
 from drive import card, cli, github, install, land, reads, render, served, slack, state, talk, view, watch
 
 KEY = "Forge-AI/monorepo#42"
@@ -772,9 +772,9 @@ def test_the_watch_waits_for_one_an_older_install_ran_under_a_monitor_and_sends_
     assert (passes, sent) == ([], [])
     state.monitor_pid_path(demo).write_text("999999999\n")
     run_watch(demo, monkeypatch)
+    assert (passes, posted(sent)) == ([], [("evidence", f"root@{demo}", f"PR {KEY}: approved [o1 j1]")])
     run_watch(demo, monkeypatch)
-    assert len(passes) == 2
-    assert posted(sent) == [("evidence", f"root@{demo}", f"PR {KEY}: approved [o1 j1]")]
+    assert (len(passes), len(sent)) == (1, 1)
 
 
 def test_a_crashed_watch_wakes_the_coordinator_naming_its_version_and_the_line_of_the_drives_code_that_raised(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -793,32 +793,82 @@ def test_a_crashed_watch_wakes_the_coordinator_naming_its_version_and_the_line_o
     assert not state.pid_path(demo).exists()
 
 
-def test_a_pass_that_finds_the_drive_saved_by_a_newer_install_hands_the_watch_to_that_install_and_says_nothing(
-    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+class Execed(BaseException):
+    pass
+
+
+def execs_into(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, installs: list[bool]) -> Path:
     newer = tmp_path / "cache" / "9.9.9" / "bin" / "drive"
-    installs = iter([None, newer])
-    monkeypatch.setattr(watch, "upgraded", lambda: next(installs))
-    path = state.state_path(demo)
-
-    def saved_by_newer(watching: watch.Watcher, moment: datetime) -> list[str]:
-        path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "9.9.9"}))
-        state.load(demo)
-        return []
-
-    class Execed(Exception):
-        pass
+    found = iter([newer if newest else None for newest in installs])
+    monkeypatch.setattr(watch, "upgraded", lambda: next(found))
 
     def execv(drive: Path, argv: list[str]) -> None:
         raise Execed(drive, argv)
 
-    monkeypatch.setattr(watch, "run_pass", saved_by_newer)
     monkeypatch.setattr(watch.os, "execv", execv)
+    return newer
+
+
+def saved_by(name: str, saver: str) -> None:
+    path = state.state_path(name)
+    path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": saver}))
+
+
+def mid_pass(monkeypatch: pytest.MonkeyPatch, before_lane_lines: Callable[[], object]) -> None:
+    real = watch.lane_lines
+    monkeypatch.setattr(watch, "lane_lines", lambda watching, moment: before_lane_lines() or real(watching, moment))
+
+
+def test_a_pass_that_finds_the_drive_saved_by_a_newer_install_hands_that_install_every_line_it_made_which_it_posts_before_its_first_pass(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="waiting", said=f"READY {state.pr_url(KEY)}")
+    serve(monkeypatch, {KEY: read(state="MERGED", mergeCommit="ccc333")})
+    newer = execs_into(monkeypatch, tmp_path, [False, True])
+    mid_pass(monkeypatch, lambda: saved_by(demo, "9.9.9"))
     sent = posts(monkeypatch)
+    merged = f"PR {KEY}: merged [o1 j1]"
     with pytest.raises(Execed) as execed:
         watch.main(demo)
     assert execed.value.args == (newer, [str(newer), "watch", "--loop", "--drive", demo])
-    assert sent == []
+    assert (sent, state.saved(demo)["prs"][KEY]["state"], state.held_path(demo).read_text()) == ([], "merged", f"{merged}\n")
+    saved_by(demo, state.VERSION)
+    monkeypatch.setattr(watch, "upgraded", lambda: None)
+    passes = []
+    monkeypatch.setattr(watch, "run_pass", lambda watching, moment: passes.append(moment) or [])
+    run_watch(demo, monkeypatch)
+    assert (posted(sent), passes, state.held_path(demo).exists()) == ([("handoff", f"root@{demo}", merged)], [], False)
+
+
+def test_a_line_whose_post_failed_goes_to_the_newer_install_the_watch_hands_itself_to_between_passes(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    execs_into(monkeypatch, tmp_path, [False, True])
+    tapped = f"TAP Hold {KEY} [o1 j1]"
+    monkeypatch.setattr(watch, "run_pass", lambda watching, moment: [tapped])
+    monkeypatch.setattr(watch.time, "sleep", lambda seconds: None)
+    sent = posts(monkeypatch, [False])
+    with pytest.raises(Execed):
+        watch.main(demo)
+    assert (sent, state.held_path(demo).read_text()) == ([], f"{tapped}\n")
+    monkeypatch.setattr(watch, "upgraded", lambda: None)
+    monkeypatch.setattr(watch, "run_pass", lambda watching, moment: [])
+    run_watch(demo, monkeypatch)
+    assert posted(sent) == [("handoff", f"root@{demo}", tapped)]
+
+
+def test_a_crashed_watch_keeps_the_lines_its_pass_made_for_the_watch_drive_watch_starts_again(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="waiting", said=f"READY {state.pr_url(KEY)}")
+    serve(monkeypatch, {KEY: read(state="MERGED", mergeCommit="ccc333")})
+    mid_pass(monkeypatch, lambda: state.load("gone"))
+    sent = posts(monkeypatch)
+    with pytest.raises(state.DriveError):
+        watch.main(demo)
+    merged = f"PR {KEY}: merged [o1 j1]"
+    assert ([text.split(":")[0] for _, _, text in posted(sent)], state.held_path(demo).read_text()) == (["WATCH stopped on long-running " + state.VERSION], f"{merged}\n")
+    monkeypatch.setattr(watch, "run_pass", lambda watching, moment: [])
+    run_watch(demo, monkeypatch)
+    assert posted(sent)[1:] == [("handoff", f"root@{demo}", merged)]
 
 
 def test_ensure_starts_the_watch_with_no_session_unless_one_runs(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1476,13 +1526,13 @@ def test_a_local_agents_tool_call_with_no_result_for_five_minutes_is_said_stuck_
     write_transcript(tmp_path / "config", [{"type": "assistant", "timestamp": state.stamp(asked), "message": {"stop_reason": "tool_use", "content": [call]}}], timedelta(0))
     with state.edit(demo) as data:
         data["jobs"]["j1"].update(session="session-under-test", agent="a1")
-    assert watch.agent_lines(watcher(demo), asked + timedelta(minutes=4)) == []
-    assert watch.agent_lines(watcher(demo), asked + timedelta(minutes=7)) == [
+    assert staged(watch.agent_lines, watcher(demo), asked + timedelta(minutes=4)) == []
+    assert staged(watch.agent_lines, watcher(demo), asked + timedelta(minutes=7)) == [
         'STUCK j1 o1: its agent\'s Bash call "tables="a,b"; echo ${(s:,:)tables}" has had no result for 7 minutes, so a permission prompt nobody'
         " sees holds it: TaskStop a1, then hand the job to a fresh agent whose brief runs that call as a scratch script"
     ]
     assert state.load(demo)["jobs"]["j1"]["stuck_call"] == "toolu_held"
-    assert watch.agent_lines(watcher(demo), asked + timedelta(minutes=9)) == []
+    assert staged(watch.agent_lines, watcher(demo), asked + timedelta(minutes=9)) == []
 
 
 def test_a_local_agent_from_another_session_or_with_no_transcript_is_gone(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

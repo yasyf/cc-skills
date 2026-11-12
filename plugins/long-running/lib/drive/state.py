@@ -184,8 +184,8 @@ def cursor_path(name: str, project: str | None = None) -> Path:
     return drive_dir(name) / f"watch{watch_suffix(project)}.cursor"
 
 
-def held_path(name: str) -> Path:
-    return drive_dir(name) / "watch.held"
+def held_path(name: str, project: str | None = None) -> Path:
+    return drive_dir(name) / f"watch{watch_suffix(project)}.held"
 
 
 def cards_path(name: str) -> Path:
@@ -1253,9 +1253,15 @@ def save_watch_cursor(name: str, offset: int, project: str | None = None) -> Non
     os.replace(tmp, path)
 
 
-def take_held_lines(name: str) -> list[str]:
-    """The lines a watch run under a Monitor held for its next batch when it stopped, once, so the watch process delivers them."""
-    path = held_path(name)
+def hold_lines(name: str, project: str | None, lines: list[str]) -> None:
+    """Keep the lines a watch process made and has not posted for the watch process after it, as it hands itself to a newer install or stops."""
+    with held_path(name, project).open("a") as held:
+        held.write("".join(f"{line}\n" for line in lines))
+
+
+def take_held_lines(name: str, project: str | None = None) -> list[str]:
+    """The lines the watch process before this one held for it, once, so this one hands them on before its first pass."""
+    path = held_path(name, project)
     if not path.exists():
         return []
     lines = path.read_text().splitlines()
