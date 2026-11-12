@@ -640,7 +640,7 @@ def main() -> None:
         return
     agents.hold(payload)
     if reason:
-        print(json.dumps({"ask": reason, "his_words": [limits.ROOT_CAUSE_WORDS]}))
+        print(json.dumps({"ask": reason, "his_words": [limits.root_cause_words(reason)]}))
 
 
 if __name__ == "__main__":

@@ -90,22 +90,39 @@ NONE_WHY = re.compile(r"none[ \t]*:[ \t]*\S", re.IGNORECASE)
 INTERIM_FIX = re.compile(r"^[ \t]*Interim fix:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
 SHIPPING = re.compile(r"https?://\S+|\bj\d+\b")
 NOT_FOUND = re.compile(r"not found[ \t]*:[ \t]*(.*)", re.IGNORECASE)
+FIXED = re.compile(r"fixed[ \t]*:[ \t]*(.*)", re.IGNORECASE)
 FINDING_JOB = re.compile(r"\bj\d+\b")
 ROOT_CAUSE_QUOTE = "Update your skill to not just brush over the root cause ever"
 ROOT_CAUSE_RULING = f'his ruling 0c59046, "{ROOT_CAUSE_QUOTE}"'
-ROOT_CAUSE_RULE = (
-    "A question card starts from the root cause: the structure that lets the defect happen, or that it is not found yet and"
-    " which job is finding it. Its recommended option removes that structure so the defect cannot occur, through one"
-    " abstraction every caller goes through; an option that keeps the structure behind a cap, timer, retry, exit, flag,"
-    " pin or sweeper is never the recommended one, and a card whose root cause is not found offers no cap, timer or exit"
-    " around a step it has not explained. When the card quotes words of his as settled, its recommended option is the one"
-    " those words choose. A question with no defect behind it, a pick between designs that are his, passes."
-)
-ROOT_CAUSE_WORDS = {"id": "ruling:0c59046", "source": "his ruling on root causes", "quote": ROOT_CAUSE_QUOTE, "detail": ROOT_CAUSE_RULE}
+ROOT_CAUSE_RULES = {
+    "none": (
+        "This card says no defect is behind it, and passes only when that is true: a pick between designs that are his, or"
+        " his approval of an action his rules hold for him, such as a benchmark run or a release. A card that ships,"
+        " releases or works around a fix or retry for a defect has one behind it and fails here, as does one recommending"
+        " an option that keeps a defect behind a cap, timer, retry, exit, flag, pin, sweeper or raised threshold; a"
+        " release of a merged fix says `Root cause: fixed:` instead."
+    ),
+    "fixed": (
+        "This card says a merged PR removed the defect's root cause and asks him only whether to release that PR now. It"
+        " passes when its Root cause line names the structure that let the defect happen and the PR it links removed that"
+        " structure. It fails when the line names only the step where the defect showed, or the PR adds a cap, timer,"
+        " retry, exit, flag, pin or sweeper, which removes nothing."
+    ),
+    "found": (
+        "This card starts from the root cause, the structure that lets the defect happen, or says it is not found yet and"
+        " which job is finding it. It passes when it recommends the option that removes that structure through one"
+        " abstraction every caller goes through; what happens until it ships is no part of that option. It fails when"
+        " that option keeps the structure behind a cap, timer, retry, exit, flag, pin or sweeper, or, with the cause not"
+        " found, the card offers one around a step it has not explained."
+    ),
+}
+ROOT_CAUSE_SETTLED = " Words of his it quotes as settled choose its recommended option; a card quoting none needs none."
+ROOT_CAUSE_WORDS = {"id": "ruling:0c59046", "source": "his ruling on root causes", "quote": ROOT_CAUSE_QUOTE}
 ROOT_CAUSE_SHAPE = (
     "`Root cause: <the structure that lets the defect happen, by its proper terms>` with `First principles: <the option"
-    " that removes it>`, `Root cause: not found: <the job finding it>`, or `Root cause: none: <why no defect is behind"
-    " this question>`"
+    " that removes it>`, `Root cause: fixed: <that structure>, removed by <the merged PR's link>` on a card asking only"
+    " when that PR ships, `Root cause: not found: <the job finding it>`, or `Root cause: none: <why no defect is behind"
+    " this question, such as a pick between his designs or his approval of an action his rules hold for him>`"
 )
 NEXT_QUESTION = re.compile(
     r"\b(?:because|since|so|why|decided|already|your\s+(?:\S+\s+){0,3}?(?:answer|pick|ruling|words|approval)|port(?:s|ed)?"
@@ -115,7 +132,8 @@ NEXT_QUESTION = re.compile(
 NO_NEXT_QUESTION = re.compile(r"^[ \t]*Next question:[ \t]*none[ \t]*:[ \t]*\S", re.MULTILINE | re.IGNORECASE)
 NEXT_QUESTIONS = "why, did he already decide this, is it a port, what comes after, or why it is held"
 HEAD_END = re.compile(r"(?<!:):(?!:)(?=\s|$)")
-QUOTED = re.compile(r'"[^"\n]*"|“[^”\n]*”|`[^`\n]*`')
+SAID = re.compile(r'"[^"\n]*"|“[^”\n]*”')
+QUOTED = re.compile(rf"{SAID.pattern}|`[^`\n]*`")
 QUOTED_LINE = re.compile(rf"^[ \t]*{QUOTE}.*$", re.MULTILINE)
 KINDS = r"(?:question|PR|tap|pick|design|status) cards?|pull requests?|PRs?"
 POST_KINDS = rf"{KINDS}|change"
@@ -575,12 +593,16 @@ def captions(show_me: list[str]) -> list[str]:
 
 
 def root_cause_problems(findings: str, options: list[str], recommended: str) -> list[str]:
-    """Whether the findings start from the root cause, the structure that lets the defect happen, and recommend the option that removes it so the defect cannot occur; or say the cause is not found yet, naming the job finding it; or say no defect is behind the question. Whether that option truly removes the structure, and whether words of his the card quotes choose another, Jev judges when `drive job ask` keeps it."""
+    """Whether the findings start from the root cause, the structure that lets the defect happen, and recommend the option that removes it so the defect cannot occur; or name that structure as fixed, linking the merged PR that removed it, on a card asking only when that PR ships; or say the cause is not found yet, naming the job finding it; or say no defect is behind the question. Whether that option or PR truly removes the structure, and whether words of his the card quotes choose another, Jev judges when `drive job ask` keeps it."""
     cause = ROOT_CAUSE.search(findings)
     if not cause:
         return [f"no `Root cause:` line under `Findings:`: write {ROOT_CAUSE_SHAPE} ({ROOT_CAUSE_RULING})"]
     if NONE_WHY.match(cause[1]):
         return []
+    if fixed := FIXED.match(cause[1]):
+        if PR_URL.search(fixed[1]):
+            return []
+        return [f"`Root cause: {cause[1]}` links no merged PR: write `Root cause: fixed: <the structure>, removed by <the merged PR's link>` ({ROOT_CAUSE_RULING})"]
     if unfound := NOT_FOUND.match(cause[1]):
         if FINDING_JOB.search(unfound[1]):
             return []
@@ -614,17 +636,25 @@ def root_cause_review(text: str, unsettled: str | None) -> str | None:
         return None
     findings = FINDINGS.split(text, maxsplit=1)[1]
     lines = [found[0].strip() for pattern in (ROOT_CAUSE, FIRST_PRINCIPLES) if (found := pattern.search(findings))]
-    quoted = QUOTED.findall("\n".join([*asked.summary, findings]))
+    quoted = SAID.findall("\n".join([*asked.summary, findings]))
     return "\n".join(
         [
             f"Question: {asked.title}",
             *asked.summary,
+            *(["Show me:", *asked.show_me] if asked.show_me else []),
             f"Recommended: {asked.recommended}",
             *(f"Also offered: {option}" for option in asked.options if option != asked.recommended),
             *lines,
             *([f"Words it quotes: {' '.join(quoted)}"] if quoted else []),
         ]
     )
+
+
+def root_cause_words(case: str) -> dict[str, str]:
+    """His ruling on root causes as Jev weighs it beside a card's case: its words, and the rule for the form of the case's `Root cause:` line, a cause named, one fixed by a merged PR, or none behind the question, so each rule Jev weighs fits whole in what it reads."""
+    cause = ROOT_CAUSE.findall(case)[-1]
+    form = "none" if NONE_WHY.match(cause) else "fixed" if FIXED.match(cause) else "found"
+    return ROOT_CAUSE_WORDS | {"detail": ROOT_CAUSE_RULES[form] + ROOT_CAUSE_SETTLED}
 
 
 def interim_fix_problems(findings: str) -> list[str]:
