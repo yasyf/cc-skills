@@ -275,7 +275,22 @@ reply becomes that JSON in place of prose, never a JSON block decorating it.
 
 Every run mounts `datadog` and `sentry` when `~/.codex/config.toml` configures
 and enables them, so any lane can read logs, metrics, monitors, spans, and
-Sentry issues. `--mcp <names>` mounts further servers for this run,
+Sentry issues. Configure `sentry` as Sentry's stdio server
+`@sentry/mcp-server`, started on a read-only auth token (`event:read`,
+`org:read`, `project:read`) that its command reads from your secret store at
+each start. Never configure the hosted `https://mcp.sentry.dev/mcp`: it ends
+each OAuth grant 30 days after sign-in and takes no token, and `codex mcp list
+--json` still lists a lapsed grant's server as enabled, so every run then fails
+at start naming `sentry`. A `sentry` entry on a token:
+
+```toml
+[mcp_servers.sentry]
+command = "/bin/sh"
+args = ["-c", "SENTRY_AUTH_TOKEN=$(aws ssm get-parameter --name <parameter> --with-decryption --query Parameter.Value --output text) && export SENTRY_AUTH_TOKEN && exec npx -y @sentry/mcp-server"]
+startup_timeout_sec = 60.0
+```
+
+`--mcp <names>` mounts further servers for this run,
 comma-separated, from `~/.codex/config.toml`. Every other configured
 server disables for the run via `-c mcp_servers.<name>.enabled=false`, and
 `--disable apps` drops codex's app-connector tools on every run. `-c
@@ -283,9 +298,14 @@ mcp_servers={}` cannot do this: `-c` merges tables, so an empty one subtracts
 nothing. `config.toml` stays the source of truth for each server's
 command/url/env/headers. A name missing from `codex
 mcp list --json`, or present but disabled, exits 2. `node_repl` (120s
-browser-REPL startup) never mounts implicitly. The dispatcher appends a
-`## MCP` section to `developer_instructions` naming what's mounted; codex may
-not list those tools up front, so the lane calls them by full name. Use it to
+browser-REPL startup) never mounts implicitly. Each mounted server runs with
+`-c mcp_servers.<name>.required=true`, so `codex exec` holds the first turn
+until every one has started, and a server that cannot start fails the run:
+codex-ask exits 1 with codex's `required MCP servers failed to initialize:
+<name>: <error>` in the log tail, naming the credential or command to fix. The
+dispatcher appends a `## MCP` section to `developer_instructions` naming what's
+mounted; codex may not list those tools up front, so the lane calls them by
+full name. Use it to
 answer an observability question in one dispatch instead of round-tripping
 every query through the caller:
 
