@@ -86,7 +86,13 @@ Sprite's `/.sprite/bin/rustup` under `sudo`, since root owns its rustup home
 Sprite's Orca runtime starts, holds no capability to write it, and zig 0.14.0, the version cc-context's CI
 pins, checked against its SHA-256 and linked into `~/.local/bin`. Each is
 skipped when present, but a Sprite serves one lane and is destroyed after, so
-every launch downloads both: about 28 seconds for the toolchain and 9 for zig. When any step fails, the launcher starts no worker, leaves the
+every launch downloads both: about 28 seconds for the toolchain and 9 for zig.
+Before the releases it places each tool `WORKER_TOOLS` names, its words
+`NAME=FILE` naming a file on this Mac, as `~/.local/bin/NAME` with mode 755,
+sent whole over the same ssh session, and checks a login shell runs it from
+there: the long-running plugin's drive launcher passes
+`drive=<its lib/sprite/drive>`, so a Sprite lane types the same `drive` verbs a
+Mac lane does. When any step fails, the launcher starts no worker, leaves the
 prepared one idle, and prints the reason from the attempt's `tools.err`. Launching the same
 brief again reuses that Sprite: it reruns this step and starts the worker once
 the step passes.

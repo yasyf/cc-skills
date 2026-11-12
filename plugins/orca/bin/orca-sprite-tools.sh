@@ -29,13 +29,35 @@ for entry in "${released[@]}"; do
   words+=("$bin" "$tag" "$url" "${digest#sha256:}" "$alias")
 done
 
-printf -v args ' %q' "${words[@]}"
+read -ra tools <<<"${WORKER_TOOLS:-}"
+placed=()
+for pair in ${tools[@]+"${tools[@]}"}; do
+  name=${pair%%=*} file=${pair#*=}
+  [[ $pair == *=* && $name =~ ^[A-Za-z0-9._-]+$ && -f $file ]] ||
+    die "WORKER_TOOLS holds $pair, and each of its words is NAME=FILE naming a file on this Mac, so no tool was installed"
+  placed+=("$name" "$(base64 <"$file" | tr -d '\n')")
+done
+
+printf -v args ' %q' "$((${#placed[@]} / 2))" ${placed[@]+"${placed[@]}"} "${words[@]}"
 ssh -F "$config" -o BatchMode=yes -o ConnectTimeout=30 "$host" "bash -s --$args" <<'SPRITE'
 set -eu
 dest=$HOME/.local/bin
 staged=$(mktemp -d)
 trap 'rm -rf "$staged"' EXIT
 mkdir -p "$dest"
+placed=$1
+shift
+while [ "$placed" -gt 0 ]; do
+  name=$1 text=$2
+  shift 2
+  placed=$((placed - 1))
+  printf '%s' "$text" | base64 -d >"$staged/$name"
+  chmod 755 "$staged/$name"
+  mv -f "$staged/$name" "$dest/$name"
+  found=$(bash -lc "command -v $name" 2>/dev/null) || found=nothing
+  [ "$found" = "$dest/$name" ] || { echo "a login shell runs $name from $found, not the $dest/$name placed for it" >&2; exit 1; }
+  echo "$name placed"
+done
 while [ $# -gt 0 ]; do
   bin=$1 tag=$2 url=$3 sha=$4 alias=$5
   shift 5

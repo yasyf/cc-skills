@@ -1840,7 +1840,7 @@ def job_resume(args: argparse.Namespace) -> int:
     asked = reads.logs(job["report"] or "") if job.get("ask") else None
     if asked:
         try:
-            said = reads.answer(asked, Path(data["roles"]["coordinator"]["cwd"]), f"{name} {args.id}")
+            said = reads.answer(asked, Path(data["roles"]["coordinator"]["cwd"]), name, args.id)
         except reads.ReadError as error:
             said = f"{asked}: {error}"
         text = f"{said}\n\n{args.text}"
@@ -1928,6 +1928,13 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
             line += f"; {released}"
     how = f"started {orca.ON_MAC if local else 'on its Sprite'}" if end.worktree else "relaunched"
     return emit(args, line, {"id": args.id, "how": how, "ended": ended, "handoff": str(kept), **started})
+
+
+def job_read(args: argparse.Namespace) -> int:
+    """Answer one question a remote lane queued, as the watch's reader."""
+    name = state.resolve(args.drive)
+    said, why = watch.answer_read(name, args.id, args.message)
+    return emit(args, why or said, {"id": args.id, "message": args.message, "answer": said, "why": why})
 
 
 def job_replies(args: argparse.Namespace) -> int:
@@ -3437,6 +3444,14 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.set_defaults(run=job_resume)
     verb = job.add_parser(
+        "read",
+        parents=both,
+        help="what the watch starts on a remote lane's LOG, READ or DRIVE question: answer it here, keeping first the answer its own end leaves so it never runs twice, then the one the watch sends",
+    )
+    verb.add_argument("id")
+    verb.add_argument("message", help="the question's Orca message id")
+    verb.set_defaults(run=job_read)
+    verb = job.add_parser(
         "replies", parents=both, help="every result and question a remote lane sent, and every return drive job report kept, oldest first, with when each came"
     )
     verb.add_argument("id")
@@ -3710,8 +3725,8 @@ def parser() -> argparse.ArgumentParser:
             " before the grant's recorded end, and run the command after -- with an AWS config naming that one profile alone, so"
             " a command naming another stack's profile finds none; the credentials are deleted when it exits. A grant ending"
             " within 15 minutes, the shortest credentials STS mints, runs nothing. A read writes nothing; a production write runs"
-            " only on his word or an incident order at 0 deletes and 0 replaces. A remote lane asks the same with a BREAK-GLASS"
-            " read, these flags after it."
+            " only on his word or an incident order at 0 deletes and 0 replaces. A remote lane runs the same verb from its Sprite,"
+            " in its own job's name."
         ),
     )
     verb.add_argument("id", metavar="JOB|ORDER", help="the job or order the grant is for, named in its reason")

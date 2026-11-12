@@ -1,0 +1,52 @@
+#!/usr/bin/env python3
+"""drive on a Sprite lane: each verb runs on the coordinator's Mac, where the drive's records live.
+
+It asks the verb as one blocking Orca question, `DRIVE <its words>` over the JSON of what goes with it: stdin when a word
+is `-`, and the text of each file a word names. The drive's watch runs it there for this lane's job and answers
+`drive exited <status>` over what it printed, which this prints, exiting with that status.
+"""
+
+import json
+import os
+import re
+import shlex
+import subprocess
+import sys
+from pathlib import Path
+
+ANSWER = re.compile(r"drive exited (\d+)\n?")
+QUESTION_BYTES = 120_000
+WAIT_MS = 600_000
+
+
+def main(argv: list[str]) -> int:
+    sent: dict = {"files": {word: {"text": Path(word).read_text(), "executable": os.access(word, os.X_OK)} for word in dict.fromkeys(argv) if Path(word).is_file()}}
+    if "-" in argv:
+        sent["stdin"] = sys.stdin.read()
+    question = f"DRIVE {shlex.join(argv)}\n{json.dumps(sent)}"
+    if len(question.encode()) > QUESTION_BYTES:
+        print(
+            f"drive: refused, nothing sent: its words, stdin and files come to {len(question.encode())} bytes, past the {QUESTION_BYTES}"
+            " an Orca question carries here, since Linux takes at most 128 KiB in one argument: cut what goes with it",
+            file=sys.stderr,
+        )
+        return 2
+    asked = ask("--question", question)
+    while asked.get("timedOut"):
+        asked = ask("--resume", asked["messageId"])
+    answer = asked.get("answer") or ""
+    status = ANSWER.match(answer)
+    if printed := answer[status.end() :] if status else answer:
+        print(printed)
+    return int(status[1]) if status else 1
+
+
+def ask(*words: str) -> dict:
+    done = subprocess.run(["orca", "orchestration", "ask", *words, "--wait", "--timeout-ms", str(WAIT_MS), "--json"], capture_output=True, text=True, check=False)
+    if done.returncode:
+        raise SystemExit(f"drive: orca orchestration ask exited {done.returncode}: {(done.stderr or done.stdout).strip()}")
+    return json.loads(done.stdout)["result"]
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

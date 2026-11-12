@@ -134,51 +134,59 @@ minutes is said with the remedy, a `SendMessage` to wake it.
 
 ## Remote lanes
 
-**Reports.** A lane reports through Orca mail. The drive's watch turns each report into a
-`JOB <j> <o> <line>` event opening with the result line of the lane's final report, which sets the
-job's state as a local agent's line does. A report sent as an Orca question, one whose first line
-opens with a result word other than `ASK`, is that result and asks nothing, and a report ends any
-question the lane asked before it, since the lane no longer waits on that answer. The watch takes
-each message once: one the job's kept history already holds is never an event again, so a watch
-that restarts after an install says nothing it said before. `drive status --json` holds the whole latest report, and
-`drive job replies <j>` prints every result and question the lane sent, and every return a job on
-this Mac kept with `drive job report <j> -`, oldest first with its time, for a line that points at an
-earlier reply.
+**Drive verbs.** A lane types the drive's verbs as a job on this Mac does. Its `drive`, which
+`drive job launch` has the `orca` skill's launcher place in the Sprite's `~/.local/bin`, asks each
+as one blocking Orca question, `DRIVE <its words>` over the JSON of its stdin and of each file a
+word names, and the watch queues it as a read. `drive job read` runs it in the coordinator's
+checkout with no session of this Mac's, on the lane's own job and drive alone, and answers
+`drive exited <status>` over what it printed, each file named by the lane's own path, which the
+lane's `drive` prints and exits with. It runs `job report`, `job ask`, `job set --repro`,
+`job replies`, `pr add`, `plan search`, `manual`, `status` and `break-glass`, and refuses, running
+nothing, any other verb, such as `pr set --tap` or an order verb, another job or another drive. A
+lane's `break-glass` runs as yours does, its grant's reason naming the drive and job, and its
+command writes in production only on his word or an incident order at 0 deletes and 0 replaces.
+
+**Reports.** A lane keeps its report with `drive job report <j> -` and an `ASK` block with
+`drive job ask <j> <file>`, each refusing it as it refuses yours, then ends its turn through Orca
+mail: a `worker_done` carrying the report it kept, or an `ASK <path>` question naming the block
+`drive job ask` kept. Each is a `JOB <j> <o> <line>` event, as a job's own return is: the report's
+result line the moment the watch sends the lane its `drive job report` answer, a `PUSHED` aside,
+which waits on its checks, so the `worker_done` after it is no second event, and `ASK <path>` when
+that question comes. A report `drive job report` never took, such as one
+from a lane launched before its Sprite had `drive`, the watch takes itself, setting the job's state
+as a local agent's line does, and its line names each PR a `READY`, `PUSHED` or `PR:` line links
+that the drive does not track, since only `drive pr add <url> --job <j>`, which you run, registers
+one. A report sent as an Orca question, one whose first line opens with a result word other than
+`ASK`, is that result and asks nothing, and a report ends any question the lane asked before it,
+since the lane no longer waits on that answer. Any other `ASK` question is a `JOB` line saying that
+`drive job ask <j>`, which you run, keeps it. The watch takes each message once: one the job's kept
+history already holds is never an event again, so a watch that restarts after an install says
+nothing it said before. `drive status --json` holds the whole latest report, and
+`drive job replies <j>` prints every result and question the lane sent and every return
+`drive job report <j> -` kept, oldest first with its time, for a line that points at an earlier
+reply.
 
 **Reads.** A Sprite holds no Buildkite or AWS credentials, by his least-privilege ruling, and no
 copy of the drive's cci or cc-notes records, so a lane reads through this Mac with a blocking
 question.
 
 - Its first line opens with the read, after the lane's job id when it writes one: `LOG <url>` for a
-  red Buildkite or GitHub Actions check, `READ <command>` for a `cci` or `ccn` read the builder
-  agent lists, or `BREAK-GLASS --stack <domain>/<env> --reason "<why>" -- <command>` for a command
-  that needs the admin role of that env's account. `READ: LOG <url>` reads as `LOG <url>`. A `LOG`
-  question reads every `LOG <url>` it names, each in an even share of the 12,000 characters, and a
-  `READ` or `BREAK-GLASS` question runs its first line alone.
-- The watch answers it itself, with no event: it runs `tools/ci bk`, `ccx vcs job-log`, `cci` or
-  `ccn` in the directory the coordinator started the drive from and replies with the output, cut to
-  12,000 characters. A `BREAK-GLASS` read runs as `drive break-glass` does, its grant's reason
-  naming the drive and job: the `forge/break-glass` grant, then the command holding only the env's
-  admin credentials, minted on this Mac's machine profile to end with the grant, with no sign-in.
-  Its command writes in production only on his word or an incident order at 0 deletes and 0
-  replaces. The watch keeps each answer under its question's message id before it replies, so a
-  refused reply sends the same answer again, and a `BREAK-GLASS` command a stopped watch cut off is
-  answered as cut off, never run twice. A `LOG` answer leads each failed job's share with its failure lines, such as a
+  red Buildkite or GitHub Actions check, or `READ <command>` for a `cci` or `ccn` read the builder
+  agent lists. `READ: LOG <url>` reads as `LOG <url>`. A `LOG` question reads every `LOG <url>` it
+  names, each in an even share of the 12,000 characters, and a `READ` question runs its first line
+  alone.
+- The watch answers it itself, with no event, as it answers a `DRIVE` question: `drive job read`,
+  which it starts as a process of its own, runs `tools/ci bk`, `ccx vcs job-log`, `cci` or `ccn` in
+  the directory the coordinator started the drive from, and the watch replies with the output, cut
+  to 12,000 characters, once that reader ends, so a read that runs for minutes holds up no pass. The
+  reader keeps first the answer its own end leaves, then the one it finishes with, under its
+  question's message id, so a refused reply sends the same answer again and a read stopped mid-run,
+  a `drive break-glass` included, is answered as stopped, never run twice. A `LOG` answer leads each failed job's share with its failure lines, such as a
   Go `--- FAIL:` line or a Rust `panicked at`, then each failure's own output, a Go test's lines
   from its `=== RUN` and anything else's failure line with the two lines after it, then fills the
   rest with the output's last characters. A test's failure often sits far before the end of its
   log, and a passing Go test's own log lines never come ahead of a failing one's. A read that fails, such as a command off that list or a tool that exits
   non-zero, replies with why and arrives as a `JOB <j> <o> READ unanswered` line.
-- A question opening with `ASK `, after the lane's job id when it writes one, is the lane's `ASK`
-  block. The watch keeps it the moment it reads it, as `drive job ask` keeps a job's own: its words
-  and the card cc-slack draws from it checked, then his recorded answers and open cards, and the
-  block kept in its own file under `asks/`. One out of shape it answers itself, with no event, by a
-  reply opening `ASK refused, fix each line and ask again:` and every fix, and the lane asks again;
-  one kept is a `JOB <j> <o> ASK <path>` line, as a job's own return is. One `drive job ask` refused
-  goes on as a `JOB` line naming why, kept pending with no card when Jev reads his words as deciding it, and
-  one cc-slack cannot check as a `JOB` line that `drive job ask <j>` keeps.
-- A report's `REPRO:` line names its reproduction file with the file's whole text in a fence under
-  it, and the watch keeps that text in the drive's `repro/` folder as `drive job set --repro` does.
 - A question that opens any other way, such as `READ: please send <file>`, is a `JOB` line for you
   to answer; one opening with another result word is a report, by **Reports**. One that names a `LOG <url>` past its first line says so on its line, and
   `drive job resume` reads each such log ahead of your text, so start no reader for it. One
@@ -194,11 +202,6 @@ question.
 
 **What the watch reads each minute.**
 
-- Each PR a lane's `READY`, `PUSHED` or `PR:` line links that the drive does not track is
-  registered on that job by `drive pr add`'s own code, before its line is taken: it waits on his
-  tap by the same rule, and once the line is taken a `yasyf/*` one starts the lander that merges it
-  and installs what it changes. A refusal, a failed GitHub read or a lander that does not start is a
-  `JOB … PR <url>:` line naming why: fix what it names, then run `drive pr add <url> --job <j>`.
 - The lane's Dispatch, from Orca: a lane that sat at its prompt for 30 minutes makes its parts
   `ORPHAN`s, and a lane whose worker died or whose Sprite's Orca environment is gone, running or
   waiting, is one `LANE … died` line.
@@ -231,8 +234,8 @@ question.
 - The `bash_guard` hook runs it in the foreground with `timeout: 20000` however it is called: a
   message to a live lane returns in about five seconds, and a relaunch, which takes minutes, moves itself to the background at 20 seconds and
   notifies you when it ends.
-- A remote lane's `EXEMPT:` line still gets `drive pr set <url> --exempt <class>`, and its
-  `SERVES: port of #N` line the `READY` row's check against #N.
+- A remote lane registers its PR with `drive pr add`, its `--port-of` or `--exempt` included, as a
+  job here does, and its `SERVES: port of #N` line still gets the `READY` row's check against #N.
 
 ## The brief
 

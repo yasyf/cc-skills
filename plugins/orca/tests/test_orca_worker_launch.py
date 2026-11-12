@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
@@ -226,10 +227,10 @@ class Launch:
         opening = [continued, "--existing"] if continued else [lane, "--warm"]
         return ["cc-remote", "orca", "prepare", *opening, "--provider", "sprites", "--profile", "agents", "--agent", kind, "--model", model, "--effort", effort, "--brief-file", str(self.brief), *extra]
 
-    def tools(self) -> list[list[str]]:
+    def tools(self, placed: str = "0") -> list[list[str]]:
         latest = [["gh", "api", f"repos/{repo}/releases/latest", "--jq", f'[.tag_name, (.assets[] | select(.name == "{bin}_linux_amd64") | .browser_download_url, .digest)] | @tsv'] for bin, repo, *_ in RELEASES]
         words = " ".join(f"{bin} {tag} {download(repo, tag, bin)} {sha} {alias or "''"}" for bin, repo, tag, sha, alias in RELEASES)
-        return [*latest, ["ssh", "-F", PREPARED["forward"]["config"], "-o", "BatchMode=yes", "-o", "ConnectTimeout=30", WORKSPACE, f"bash -s -- {words}"]]
+        return [*latest, ["ssh", "-F", PREPARED["forward"]["config"], "-o", "BatchMode=yes", "-o", "ConnectTimeout=30", WORKSPACE, f"bash -s -- {placed} {words}"]]
 
     def copy(self) -> list[str]:
         return ["ssh", "-F", PREPARED["forward"]["config"], "-o", "BatchMode=yes", "-o", "ConnectTimeout=30", WORKSPACE, f"cat >{PREPARED['brief']['path']}"]
@@ -894,7 +895,7 @@ class SpriteTest(LaunchTest):
                 launch = self.fresh()
                 launch.sprite()
                 launch.reply(command, *replies)
-                line = f"the Sprite did not take the released ccx and cc-notes or the wasm toolchain: {reason}; the prepared worker stays idle and unattached, {launch.attempt} keeps tools.err, and launching this brief again reruns the tool check on that Sprite"
+                line = f"the Sprite did not take the released ccx and cc-notes, the tools WORKER_TOOLS names, or the wasm toolchain: {reason}; the prepared worker stays idle and unattached, {launch.attempt} keeps tools.err, and launching this brief again reruns the tool check on that Sprite"
                 first = [VERSION, CURRENT, launch.prepare(), *launch.tools()[:reached]]
                 self.assert_failed(launch, launch.run(), line, first)
                 self.assertEqual(launch.kept(), TOOLS_KEPT)
@@ -904,6 +905,24 @@ class SpriteTest(LaunchTest):
                 self.assertEqual(json.loads(relaunched.stdout)["dispatch"], "ctx_a")
                 self.assertEqual(launch.calls(), [*first, VERSION, CURRENT, launch.copy(), *launch.tools(), launch.start()])
                 self.assertEqual(launch.kept(), SPRITE_KEPT)
+
+    def test_each_tool_worker_tools_names_goes_to_the_sprite_whole_beside_the_released_ones(self):
+        launch = self.fresh()
+        launch.sprite()
+        tool = launch.root / "drive"
+        tool.write_text("#!/usr/bin/env python3\nprint('on the Mac')\n")
+        result = launch.run(WORKER_TOOLS=f"drive={tool}")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        text = base64.b64encode(tool.read_bytes()).decode()
+        self.assertEqual(launch.calls(), [VERSION, CURRENT, launch.prepare(), *launch.tools(f"1 drive {text}"), launch.start()])
+
+    def test_a_worker_tools_word_naming_no_file_starts_no_worker(self):
+        launch = self.fresh()
+        launch.sprite()
+        result = launch.run(WORKER_TOOLS="drive=/nowhere/drive")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("WORKER_TOOLS holds drive=/nowhere/drive, and each of its words is NAME=FILE naming a file on this Mac, so no tool was installed", result.stderr)
+        self.assertNotIn(launch.start(), launch.calls())
 
     def test_an_unproven_ready_never_prints_success_or_retries(self):
         result = RECEIPT["result"]

@@ -33,10 +33,11 @@ OWNER_MOVES = ("merged", "checks failed", "READY refused", served.NOT_READY, "co
 PR_EVENT = re.compile(r"PR (?P<key>\S+): (?P<change>.+) \[(?P<order>o\d+) (?P<job>j\d+)\]$")
 TAP_EVENT = re.compile(r"TAP (?P<label>\S+) (?P<key>\S+)")
 LANE = "watch"
+READS_LOG = "reads.log"
 UNTHREADED = "the order has no thread, so its time was the drive's own and is said this once"
 CUT_OFF = (
-    "the watch stopped while this command ran, so whether it finished and what it printed are unknown, and no watch runs a"
-    " BREAK-GLASS command twice: read what it changed, then ask again if it must run again"
+    f"its read stopped before it finished, so what it did and printed are unknown, its output in the drive's {READS_LOG}, and no read"
+    " runs twice: read what a drive command changed, then ask again if it must run again"
 )
 DRIVE = Path(__file__).resolve().parents[2] / "bin" / "drive"
 OWING_STATES = ("working", "waiting")
@@ -45,8 +46,9 @@ RELEASES_AT_ONCE = 2
 LINE_BREAKS = re.compile(r"[\r\n]+")
 HANDOFF = timedelta(minutes=2)
 SETTLING = ""
+PR_LINE = re.compile(r"\s*(?:READY|PUSHED|PR:)")
+LANE_REPORT = re.compile(r"DRIVE job report\b")
 UNKEPT_ASK = "keep it with `drive job ask {job}`, which prints the file its ask record names, since no file holds it until then"
-LANE_REPRO = re.compile(r"^REPRO:[ \t]*(?P<path>\S*\w)[^\n]*\n+```[^\n]*\n(?P<text>.*?)^```[ \t]*$", re.MULTILINE | re.DOTALL)
 PAUSED = "The recommended answer to this question is built and paused on your pick: tap it and the work ships; another pick rebuilds it first."
 QUIET_FOR = timedelta(minutes=30)
 STUCK_FOR = timedelta(minutes=30)
@@ -59,7 +61,6 @@ TAIL_BYTES = 65536
 COMPACT_PAST_TOKENS = 120_000
 COMPACT_WHEN_QUIET = timedelta(minutes=10)
 NOT_SLUG = re.compile(r"[^A-Za-z0-9]")
-PR_LINE = re.compile(r"\s*(?:READY|PUSHED|PR:)")
 READY_LINE = re.compile(r"READY\b")
 STUCK_WORDS = {
     "red": "still red",
@@ -710,8 +711,8 @@ def first_line(text: str) -> str:
     return next((line.strip() for line in text.splitlines() if line.strip()), "")
 
 
-def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetime, kept: Path | None, unkept: str | None) -> str | None:
-    """Record one message from a remote lane on its job, a final report ending any question the lane asked before it and setting its state unless state.result_refusal refuses it or it types a clock time for work already done, which the event line names, a question opening with a result other than ASK being that result, and the file a `REPRO:` line carries in the fence under it kept as `drive job set --repro` keeps one, executable when it opens with a shebang; the event line it wakes the coordinator with, if any, which for a question naming `LOG <url>`s says drive job resume reads them ahead of the answer, for an `ASK` the watch kept is `ASK <its file>`, as a job's own return is, and for one it could not keep says why, or that `drive job ask` keeps it."""
+def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetime, kept: Path | None, taken: bool) -> str | None:
+    """Record one message from a remote lane on its job, a final report ending any question the lane asked before it and setting its state unless state.result_refusal refuses it or it types a clock time for work already done, which the event line names, and a question opening with a result other than ASK being that result; the event line it wakes the coordinator with, if any, which for a question naming `LOG <url>`s says drive job resume reads them ahead of the answer, for an `ASK <file>` naming the block `drive job ask` kept is that line, as a job's own return is, and for any other `ASK` says that `drive job ask` keeps it. A report `drive job report` already took, as a lane keeps it before its worker_done ends its turn, only ends that question, since its line went with that command's answer; a report the watch takes itself names each PR it links that the drive does not track, since only `drive pr add` registers one."""
     job = data["jobs"][job_id]
     kind = message["type"]
     body = message["body"] or ""
@@ -719,17 +720,14 @@ def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetim
     if kind == "escalation":
         last = first_line(body.split("Last output:")[-1])
         return f"JOB {job_id} {job['order']} STOPPED without a report, last output: {cut(last, 160)}"
+    if taken:
+        job.update(report=body, ask=None)
+        return None
     if not kept:
         job["said"] = message["subject"] if kind == "worker_done" else first_line(body) or message["subject"]
     if kind == "status":
         return None
     job["report"] = body
-    if repro := LANE_REPRO.search(body):
-        (path := state.repro_path(name, job_id, Path(repro["path"]).suffix)).parent.mkdir(exist_ok=True)
-        path.write_text(repro["text"])
-        if repro["text"].startswith("#!"):
-            path.chmod(0o755)
-        job["repro"] = str(path)
     if kind == "question" and (kept or not state.reported(job["said"])):
         job.update(ask=message["id"], ask_at=job["updated"], state="waiting")
     elif kind in ("question", "worker_done"):
@@ -741,6 +739,8 @@ def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetim
             return f'JOB {job_id} {job["order"]} {job["said"]}; refused, its state unset: {refused}; drive job resume {job_id} "<the refusal>" sends it back'
         state.take_result(data, job_id, job["said"], body)
         state.add_changes(data, job_id, body)
+        if untracked := [url for url in dict.fromkeys(found[0] for line in body.splitlines() if PR_LINE.match(line) for found in state.PR_URL.finditer(line)) if state.pr_key(url) not in data["prs"]]:
+            return f"JOB {job_id} {job['order']} {job['said']}; the drive tracks no {', '.join(untracked)}: drive pr add <url> --job {job_id} registers each"
         if state.PUSHED_LINE.match(job["said"]):
             return None
     if kept:
@@ -750,13 +750,11 @@ def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetim
         return line
     if asked := reads.logs(body):
         return f"{line}; drive job resume reads {asked} ahead of your answer"
-    if unkept:
-        return f"{line}; `drive job ask {job_id}` refused it: {unkept}"
     return f"{line}; {UNKEPT_ASK.format(job=job_id)}" if reads.asks(body) else line
 
 
 def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each live remote lane's mail, from every worker of its job and not only the newest, read from its own Run and kept in its job's history: reports become JOB lines, read questions and refused ASKs queue on their job to be answered here, an open question kept before the watch read it as a read included. Each job keeps the sequence of the newest of its messages taken, judged and moved under the lock, so a watch reads a Run back to the oldest mark of the jobs it hears there, takes only their mail and passes over the rest, and a job's mail no watch has taken waits for whichever watch hears it next. A message its job's history already keeps is never taken again, so a watch whose mark another install's save lost replays nothing."""
+    """Each live remote lane's mail, from every worker of its job and not only the newest, read from its own Run and kept in its job's history: reports become JOB lines, read and `DRIVE` questions queue on their job to be answered here, an open question kept before the watch read it as a read included. Each job keeps the sequence of the newest of its messages taken, judged and moved under the lock, so a watch reads a Run back to the oldest mark of the jobs it hears there, takes only their mail and passes over the rest, and a job's mail no watch has taken waits for whichever watch hears it next. A message its job's history already keeps is never taken again, so a watch whose mark another install's save lost replays nothing."""
     queue_kept_reads(watcher)
     data = state.load(watcher.name)
     lanes = lane_handles(watcher, data)
@@ -770,8 +768,7 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
             lines += read_failed(watcher, source, error, moment)
             continue
         watcher.failures.pop(source, None)
-    refusals, asks, unkept, said = keep_asks(watcher, data, lanes, messages, kept, moment)
-    lines += said + add_lane_prs(watcher, data, lanes, messages, kept)
+    asks = kept_asks(data, lanes, messages, kept)
     reported = set()
     if messages:
         with state.edit(watcher.name) as data:
@@ -784,43 +781,33 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 if message["type"] == "heartbeat" or message["id"] in kept(job_id):
                     continue
                 state.keep_reply(watcher.name, job_id, message)
-                if message["type"] == "question" and (question := reads.request(message["body"] or "") or refusals.get(message["id"])):
+                if message["type"] == "question" and (question := reads.request(message["body"] or "")):
                     data["jobs"][job_id].setdefault("reads", {})[message["id"]] = question
                     continue
-                track_lane_prs(data, job_id, message["body"] or "")
-                lines.append(mail_line(watcher.name, data, job_id, message, moment, asks.get(message["id"]), unkept.get(message["id"])))
-                if message["type"] in ("worker_done", "question"):
+                taken = message["type"] == "worker_done" and kept_return(watcher.name, job_id, message["body"] or "")
+                lines.append(mail_line(watcher.name, data, job_id, message, moment, asks.get(message["id"]), taken))
+                if message["type"] in ("worker_done", "question") and not taken:
                     reported.add(job_id)
     watcher.made += [line for line in lines if line]
     return [line for line in merge_lane_prs(watcher, reported) + read_lines(watcher, data, moment) if line]
 
 
-def keep_asks(
-    watcher: Watcher, data: dict, lanes: dict[str, dict[str | None, str]], messages: list[tuple[str, dict]], kept: Callable[[str], set[str]], moment: datetime
-) -> tuple[dict[str, str], dict[str, Path], dict[str, str], list[str]]:
-    """Keep each new `ASK` a remote lane asked in the drive as `drive job ask` keeps a job's own, by its message id: the reply sending it back to the lane when its words or its card are out of shape, checked here as it arrives, so it never wakes the coordinator; else the file `drive job ask` kept it in, checked against his recorded answers and open cards, or why it refused to, which the coordinator acts on. One cc-slack could not check goes on to the coordinator unkept, whose `drive job ask <j>` keeps it."""
-    from drive import cli
-
-    refusals, asks, unkept, lines = {}, {}, {}, []
+def kept_asks(data: dict, lanes: dict[str, dict[str | None, str]], messages: list[tuple[str, dict]], kept: Callable[[str], set[str]]) -> dict[str, Path]:
+    """The file of each new `ASK <file>` question a remote lane asked naming a block `drive job ask` kept for its job, by its message id, as a job on this Mac returns `ASK <file>`; any other ASK goes on to the coordinator, whose `drive job ask <j>` keeps it."""
+    asks = {}
     for run, message in messages:
         job_id = sender(lanes, run, message)
-        if not job_id or message["sequence"] <= data["jobs"][job_id]["mail_seen"] or message["type"] != "question" or not reads.asks(message["body"] or "") or message["id"] in kept(job_id):
+        if not job_id or message["sequence"] <= data["jobs"][job_id]["mail_seen"] or message["type"] != "question" or message["id"] in kept(job_id):
             continue
-        job = data["jobs"][job_id]
-        try:
-            limits.shape(message["body"], watcher.name, job_id, state.drive_dir(watcher.name) / "pictures", hurting=any(state.hurts_now(data["orders"][order_id]) for order_id in [job["order"], *job["carries"]]))
-        except state.DriveError as error:
-            refusals[message["id"]] = f"{reads.REFUSED} {error}"
-        except slack.SlackError as error:
-            lines += failed(watcher, "ASK check", "remote ASK check", error, moment)
-            continue
-        else:
-            try:
-                asks[message["id"]] = cli.keep_ask(watcher.name, job_id, message["body"], None)[0]
-            except (state.DriveError, slack.SlackError) as error:
-                unkept[message["id"]] = str(error)
-        watcher.failures.pop("ASK check", None)
-    return refusals, asks, unkept, lines
+        if (asked := state.ASK_LINE.fullmatch(reads.opening(message["body"] or ""))) and state.kept_in(data["jobs"][job_id], Path(asked["file"]).expanduser()):
+            asks[message["id"]] = Path(asked["file"]).expanduser()
+    return asks
+
+
+def kept_return(name: str, job_id: str, body: str) -> bool:
+    """Whether this report is the newest `drive job report` took for the job, as a lane on a Sprite keeps it before its worker_done carries it."""
+    returns = [reply["body"] for reply in state.replies(name, job_id) if reply["id"].startswith(state.REPORT_REPLY)]
+    return bool(returns) and returns[-1].strip() == body.strip()
 
 
 def queue_kept_reads(watcher: Watcher) -> None:
@@ -865,27 +852,6 @@ def sender(lanes: dict[str, dict[str | None, str]], run: str, message: dict) -> 
     return handles.get(None) or handles.get(message["from_handle"])
 
 
-def add_lane_prs(watcher: Watcher, data: dict, lanes: dict[str, dict[str | None, str]], messages: list[tuple[str, dict]], kept: Callable[[str], set[str]]) -> list[str]:
-    """Register each PR the drive does not track yet that a remote lane's new mail names, through `drive pr add`'s own add_pr, before its line is taken so its result waits on it. A refusal or a failed read is the lane's JOB line, naming why."""
-    from drive import cli
-
-    lines, tracked = [], set(data["prs"])
-    for run, message in messages:
-        job_id = sender(lanes, run, message)
-        if not job_id or message["sequence"] <= data["jobs"][job_id]["mail_seen"] or message["id"] in kept(job_id):
-            continue
-        for key in lane_prs(message["body"] or ""):
-            if key in tracked:
-                continue
-            tracked.add(key)
-            url, order = state.pr_url(key), data["jobs"][job_id]["order"]
-            try:
-                cli.add_pr(watcher.name, key, job_id, cli.github_pr(key))
-            except (state.DriveError, github.GithubError) as error:
-                lines.append(f"JOB {job_id} {order} PR {url}: the watch's drive pr add {url} --job {job_id} failed: {error}")
-    return lines
-
-
 def merge_lane_prs(watcher: Watcher, job_ids: set[str]) -> list[str]:
     """Start the lander on each yasyf/* PR the reports taken from these lanes name, as `drive job report` does on this Mac, once their proof files are kept; a lander that does not start is the lane's JOB line, naming why."""
     from drive import cli
@@ -899,27 +865,22 @@ def merge_lane_prs(watcher: Watcher, job_ids: set[str]) -> list[str]:
     ]
 
 
-def track_lane_prs(data: dict, job_id: str, body: str) -> None:
-    """List on the lane's job each PR the drive tracks that its mail names, one add_lane_prs registered included."""
-    job = data["jobs"][job_id]
-    for key in lane_prs(body):
-        if key in data["prs"] and (url := state.pr_url(key)) not in job["prs"]:
-            job["prs"].append(url)
-
-
-def lane_prs(body: str) -> list[str]:
-    """The key of each PR a lane's message names on a READY, PUSHED or PR: line."""
-    return list(dict.fromkeys(state.pr_key(found[0]) for line in body.splitlines() if PR_LINE.match(line) for found in state.PR_URL.finditer(line)))
-
-
 def read_lines(watcher: Watcher, data: dict, moment: datetime) -> list[str]:
-    """Answer each `LOG`, `READ` or `BREAK-GLASS` question a live lane queued, here, since a Sprite holds no CI or AWS credentials or drive records; one the read cannot answer gets why as its answer and a `JOB` line saying so. Its answer is kept under its message id before it is sent, so a refused reply sends that answer again and never reruns the read. A question leaves its job's queue only once its answer goes through; with no line since nothing is owed on it, once Orca says it already holds another answer, since a lane whose wait ends waits again on the same question; or with one `JOB` line once Orca says the question's dispatch closed, since no lane waits on it then: any other refused reply, or a watch stopped mid-read on any read but a `BREAK-GLASS` command, only delays it."""
-    checkout = Path(data["roles"]["coordinator"]["cwd"])
-    lines = []
+    """Send each `LOG`, `READ` or `DRIVE` question a lane queued the answer `drive job read` keeps for it here, since a Sprite holds no CI credentials or drive records, starting that read as its own process for a live lane's question with neither an answer nor a reader still running, so a drive command that runs for minutes holds up no pass; one the read cannot answer gets why as its answer and a `JOB` line saying so. A lane's `drive job report` that took its return wakes the coordinator with its `JOB` line as its answer goes, as a job's own return does on this Mac, a `PUSHED` aside, which waits on its checks; its job may have left the live states by then, so a kept answer goes whatever its job's state. An answer goes only once its reader ended, so the cut-off answer a reader keeps before it runs never goes ahead of the one it finishes with, and a refused reply sends the kept answer again and never reruns the read. A question leaves its job's queue only once its answer goes through; with no line since nothing is owed on it, once Orca says it already holds another answer, since a lane whose wait ends waits again on the same question; or with one `JOB` line once Orca says the question's dispatch closed, since no lane waits on it then: any other refused reply only delays it."""
     for job_id, job in live_lanes(watcher, data).items():
-        for message_id, question in job.get("reads", {}).items():
+        for message_id in job.get("reads", {}):
+            if message_id not in job.get("read_answers", {}) and not reading(job, message_id):
+                reader = spawn_reader(watcher.name, job_id, message_id)
+                with state.edit(watcher.name) as fresh:
+                    fresh["jobs"][job_id].setdefault("readers", {})[message_id] = reader
+    lines = []
+    data = state.load(watcher.name)
+    for job_id, job in data["jobs"].items():
+        for message_id, question in job.get("reads", {}).items() if heard_job(watcher, data, job) else ():
+            if reading(job, message_id) or not (kept := job.get("read_answers", {}).get(message_id)):
+                continue
+            said, why = kept
             source = f"the answer to {job_id}'s"
-            said, why = job.get("read_answers", {}).get(message_id) or answer_read(watcher.name, job_id, message_id, question, checkout)
             try:
                 orca.reply(watcher.name, job["run"], message_id, said)
             except orca.OrcaError as error:
@@ -930,19 +891,33 @@ def read_lines(watcher: Watcher, data: dict, moment: datetime) -> list[str]:
                     continue
             else:
                 lines += [f"JOB {job_id} {job['order']} READ unanswered, its lane was told why: {why}"] if why else []
+            if LANE_REPORT.match(question) and said.startswith(f"{reads.DRIVE_EXIT} 0\n") and not state.PUSHED_LINE.match(job["said"]):
+                lines.append(f"JOB {job_id} {job['order']} {job['said']}")
             watcher.failures.pop(source, None)
             with state.edit(watcher.name) as fresh:
-                fresh["jobs"][job_id]["reads"].pop(message_id, None)
-                fresh["jobs"][job_id].get("read_answers", {}).pop(message_id, None)
+                for held in ("reads", "read_answers", "readers"):
+                    fresh["jobs"][job_id].get(held, {}).pop(message_id, None)
     return lines
 
 
-def answer_read(name: str, job_id: str, message_id: str, question: str, checkout: Path) -> list[str | None]:
-    """Run a lane's read and keep its answer, and why it is no answer when it failed, under its message id. A `BREAK-GLASS` command, which may write production, first keeps the answer a watch stopped mid-run leaves, so no later watch runs it twice."""
-    if reads.BREAK_GLASS.fullmatch(question):
-        keep_answer(name, job_id, message_id, [f"{question}: {CUT_OFF}"] * 2)
+def reading(job: dict, message_id: str) -> bool:
+    """Whether a reader still runs on this question: its answer is not final yet and its process lives, so a reader the watch has not reaped yet holds no answer it already kept."""
+    kept = job.get("read_answers", {}).get(message_id)
+    return (not kept or kept[1] == CUT_OFF) and bool((reader := job.get("readers", {}).get(message_id)) and state.alive(reader))
+
+
+def spawn_reader(name: str, job_id: str, message_id: str) -> int:
+    """Run `drive job read` on one question a lane queued as its own process, outliving the pass that started it, its output appended to the drive's reads log."""
+    return state.detach(name, ["job", "read", job_id, message_id], READS_LOG)
+
+
+def answer_read(name: str, job_id: str, message_id: str) -> list[str | None]:
+    """Run a lane's queued read here and keep its answer, and why it is no answer when it failed, under its message id, for the watch to send. It first keeps the answer a reader stopped mid-run leaves, so no read runs twice, a `drive break-glass` in production included, and none that crashes starts again."""
+    data = state.load(name)
+    question = data["jobs"][job_id]["reads"][message_id]
+    keep_answer(name, job_id, message_id, [reads.lane_exit(1, CUT_OFF) if reads.DRIVE.match(question) else f"{question}: {CUT_OFF}", CUT_OFF])
     try:
-        kept = [reads.answer(question, checkout, f"{name} {job_id}"), None]
+        kept = [reads.answer(question, Path(data["roles"]["coordinator"]["cwd"]), name, job_id), None]
     except reads.ReadError as error:
         kept = [f"{question}: {error}"] * 2
     keep_answer(name, job_id, message_id, kept)

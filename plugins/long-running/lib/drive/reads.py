@@ -18,7 +18,23 @@ from drive.render import clock
 
 LOG = re.compile(r"LOG\s+(https?://\S+)")
 READ = re.compile(r"READ\s+(.+)")
-BREAK_GLASS = re.compile(r"BREAK-GLASS\s+(.+)")
+DRIVE = re.compile(r"DRIVE\s+(.+)")
+DRIVE_BIN = Path(__file__).resolve().parents[2] / "bin" / "drive"
+DRIVE_SECONDS = 540
+DRIVE_EXIT = "drive exited"
+LANE_VERBS = (
+    ("job", "report"),
+    ("job", "ask"),
+    ("job", "set"),
+    ("job", "replies"),
+    ("pr", "add"),
+    ("plan", "search"),
+    ("manual",),
+    ("status",),
+    ("break-glass",),
+)
+LANE_SET_FLAGS = ("--repro", "--json")
+JOB_WORD = re.compile(r"j\d+")
 BREAK_GLASS_PIPELINE = "forge/break-glass"
 BREAK_GLASS_BRANCH = "dev"
 GRANT_ENDS = "break-glass-expires-at"
@@ -34,7 +50,6 @@ CLOUD_KEY = re.compile(r"^[ \t]+(account|namespace):[ \t]*(\S+)", re.MULTILINE)
 AWS_CONFIG = "~/.aws/config"
 JOB_ID = re.compile(r"^j\d+[\s:,]+")
 READ_MARK = re.compile(r"^READ\b[\s:,]*")
-REFUSED = "ASK refused, fix each line and ask again:"
 READ_VERBS = (
     ("cci", "show"),
     ("cci", "grep"),
@@ -86,11 +101,13 @@ class Grant:
 
 
 def request(body: str) -> str | None:
-    """The read a remote lane's question asks for when its first line, past the lane's job id, opens with one: every `LOG <url>` the question names, with `READ:` before the first and any other text aside, `READ <command>` or `BREAK-GLASS <its flags> -- <command>`; None for a report or a question only the coordinator can answer."""
+    """The read a remote lane's question asks for: a `DRIVE` question whole, else, when its first line, past the lane's job id, opens with one, every `LOG <url>` the question names, with `READ:` before the first and any other text aside, or `READ <command>`; None for a report or a question only the coordinator can answer."""
+    if DRIVE.match(body.strip()):
+        return body.strip()
     line = opening(body)
     if LOG.match(READ_MARK.sub("", line, count=1)):
         return logs(body)
-    return line if READ.match(line) or BREAK_GLASS.match(line) else None
+    return line if READ.match(line) else None
 
 
 def asks(body: str) -> bool:
@@ -109,18 +126,77 @@ def logs(body: str) -> str | None:
     return f"LOG {' '.join(urls)}" if urls else None
 
 
-def answer(question: str, checkout: Path, asker: str) -> str:
-    """Answer a read question with this Mac's credentials and records, never with nothing, a `LOG` read splitting the budget across its URLs, a `BREAK-GLASS` read granted in the asker's name, and an `ASK` the watch refused with its refusal; ReadError says why it could not."""
-    if question.startswith(REFUSED):
-        return question
+def answer(question: str, checkout: Path, drive: str, job_id: str) -> str:
+    """Answer a read question with this Mac's credentials and records, never with nothing, a `LOG` read splitting the budget across its URLs and a `DRIVE` question running its verb for the asking lane's job; ReadError says why a `LOG` or `READ` could not."""
+    if question.startswith("DRIVE"):
+        return lane_drive(question, checkout, drive, job_id)
     if question.startswith("LOG "):
         urls = question.split()[1:]
         said = "\n\n".join(read_log(url, checkout, BUDGET // len(urls)) for url in urls)
-    elif found := BREAK_GLASS.fullmatch(question):
-        said = read_break_glass(found[1], checkout, asker)
     else:
         said = read_records(READ.fullmatch(question)[1], checkout)
     return said or f"{question}: empty, the read printed nothing"
+
+
+def lane_drive(question: str, checkout: Path, drive: str, job_id: str) -> str:
+    """Run a Sprite lane's drive command here, where the drive's records live, as `drive` would on this Mac: its first line `DRIVE <its words>`, the rest the JSON the Sprite's drive sent with it, `stdin` for a `-` and the text of each file a word names under that word, each written to a folder of its own here for the run and named by its Sprite path in what it prints. It acts on the asking lane's drive and job alone, in the coordinator's checkout with no session of this Mac's, and answers `drive exited <status>` over what it printed, which the Sprite's drive prints and exits with."""
+    line, _, rest = question.partition("\n")
+    try:
+        argv = shlex.split(DRIVE.fullmatch(line)[1])
+        sent = json.loads(rest) if rest.strip() else {}
+    except ValueError as error:
+        return lane_exit(2, f"{line}: {error}")
+    if refused := lane_refusal(argv, drive, job_id):
+        return lane_exit(2, f"drive {' '.join(argv[:2])}: refused, nothing ran: {refused}")
+    session = {key: value for key, value in os.environ.items() if key != "CLAUDE_CODE_SESSION_ID"}
+    with tempfile.TemporaryDirectory(prefix="drive-lane-") as held:
+        here = {}
+        for number, (path, file) in enumerate(sent.get("files", {}).items()):
+            copy = Path(held) / str(number) / Path(path).name
+            copy.parent.mkdir()
+            copy.write_text(file["text"])
+            copy.chmod(0o755 if file["executable"] else 0o644)
+            here[path] = str(copy)
+        try:
+            done = subprocess.run(
+                [str(DRIVE_BIN), *(here.get(word, word) for word in argv)],
+                cwd=checkout,
+                env=session | {"LONG_RUNNING_DRIVE": drive},
+                input=sent.get("stdin", ""),
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=DRIVE_SECONDS,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            return lane_exit(124, f"drive {' '.join(argv[:2])} ran past {DRIVE_SECONDS} seconds, stopped here; what it changed before then stays")
+    printed = "\n".join(part.strip() for part in (done.stdout, done.stderr) if part.strip())
+    for path, copy in here.items():
+        printed = printed.replace(copy, path)
+    return lane_exit(done.returncode, head(printed))
+
+
+def lane_refusal(argv: list[str], drive: str, job_id: str) -> str | None:
+    """Why a Sprite lane's drive command may not run here: a verb no builder runs, such as a tap or an order verb, a job other than its own, a `job set` other than its `--repro`, a `break-glass` in another name than its job's, or another drive."""
+    words = argv[: argv.index("--")] if "--" in argv else argv
+    verb = next((verb for verb in LANE_VERBS if tuple(words[: len(verb)]) == verb), None)
+    if verb is None:
+        return f"a lane runs only these verbs: {', '.join(' '.join(verb) for verb in LANE_VERBS)}"
+    if others := sorted({word for word in words if JOB_WORD.fullmatch(word)} - {job_id}):
+        return f"it names {', '.join(others)}, and a lane's drive verbs act on its own job, {job_id}, alone"
+    if verb == ("break-glass",) and words[1:2] != [job_id]:
+        return f"a lane's break-glass grant names its own job: drive break-glass {job_id} --stack <domain>/<env> --reason \"<why>\" -- <command>"
+    if verb == ("job", "set") and (flags := sorted({word.partition("=")[0] for word in words if word.startswith("-")} - {*LANE_SET_FLAGS, "--drive"})):
+        return f"a lane's job set takes only --repro, and it names {', '.join(flags)}"
+    named = [value for flag, value in itertools.pairwise(words) if flag == "--drive"] + [word.partition("=")[2] for word in words if word.startswith("--drive=")]
+    if others := sorted(set(named) - {drive}):
+        return f"it names drive {', '.join(others)}, and a lane acts on its own drive, {drive}, alone"
+    return None
+
+
+def lane_exit(status: int, printed: str) -> str:
+    return f"{DRIVE_EXIT} {status}\n{printed}"
 
 
 def read_log(url: str, checkout: Path, budget: int) -> str:
@@ -156,7 +232,7 @@ def head(output: str) -> str:
 
 
 def break_glass_options(options: argparse.ArgumentParser) -> argparse.ArgumentParser:
-    """The options with the flags and command `drive break-glass` takes after its job, which a remote lane's `BREAK-GLASS` read takes whole."""
+    """The options with the flags and command `drive break-glass` takes after its job."""
     options.add_argument(
         "--stack",
         required=True,
@@ -182,17 +258,6 @@ def grant_reason(words: str) -> str:
     if not words.strip():
         raise argparse.ArgumentTypeError("is blank: say why, as #releases shows it beside the grant, such as: count rows, read only")
     return words.strip()
-
-
-def read_break_glass(words: str, checkout: Path, asker: str) -> str:
-    """Run a remote lane's command in the checkout under its break-glass grant, as `drive break-glass` does, its output cut as a record read's is."""
-    try:
-        asked = break_glass_options(argparse.ArgumentParser(prog="BREAK-GLASS", add_help=False, exit_on_error=False)).parse_args(shlex.split(words))
-    except (ValueError, argparse.ArgumentError) as error:
-        raise ReadError(f'BREAK-GLASS --stack <domain>/<env> --reason "<why>" -- <command>: {error}') from None
-    with break_glass(asked.stack, asked.reason, asker, checkout) as granted:
-        output = run(asked.command, checkout, granted.env).strip()
-    return f"break-glass grant {granted.link} passed; {Path(asked.command[0]).name} ran {held(granted)}\n{head(output)}"
 
 
 def held(granted: Grant) -> str:
