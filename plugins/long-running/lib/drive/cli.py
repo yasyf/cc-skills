@@ -24,6 +24,7 @@ INCIDENT_EXEMPTION = "incident fix"
 REVERT = re.compile(r"^Reverts?\s|⏪|\bThis reverts\b", re.MULTILINE)
 FILING = ("project", "workstream")
 JOB_ID = re.compile(r"j\d+")
+SLACK_USER = re.compile(r"[UW][A-Z0-9]{2,}")
 RULING = "ruling"
 CODE_LABEL = "code:"
 ID_FORMS = "an order o<n>, a job j<n>, or a PR as owner/repo#N, its URL or its bare number"
@@ -566,7 +567,8 @@ def untold(order_id: str, reporter: dict) -> str:
         f"{order_id}: refused, its bug was reported in {reporter['link']}, and no fix-live note there is recorded. Once drive order set"
         f" {order_id} --proof <the check> keeps the proof its fix is live, the handler of a report on it posts one plain line in that"
         f" thread with slack_reply saying what is fixed and since when, and records it with drive order told {order_id} <its permalink>;"
-        " when the bot cannot reach that thread, it says so to him in the order's thread and passes that line with --unreachable."
+        " when the bot cannot post in that thread, it posts the note as usual to the reporter's Slack user id, which opens the group DM"
+        " of that person, him and the bot, and records it with --group-dm <that user id>."
         f" The coordinator, which posts nothing, sends that report with --attr close={order_id}, and drive order set {order_id}"
         " --no-reporter <his message> takes the reporter off when he says not to tell them"
     )
@@ -675,7 +677,7 @@ def answered_by(name: str, order_id: str, part: str, link: str) -> tuple[str, di
 
 
 def order_told(args: argparse.Namespace) -> int:
-    """Record the one fix-live note the bug report an order fixes gets, posted in its thread once the fix is proven live, or, when the bot cannot reach that thread, the line in one of the order's threads that tells him in its place."""
+    """Record the one fix-live note the bug report an order fixes gets once the fix is proven live: the drive's post in the report's thread, or, when the bot cannot post there, its post in the group DM of the reporter, him and the bot."""
     name = state.resolve(args.drive)
     data = state.load(name)
     order = communicators_order(data, args.id)
@@ -688,20 +690,25 @@ def order_told(args: argparse.Namespace) -> int:
             f"{args.id}: refused, it keeps no proof that its fix is live, so a note now would come before the fix:"
             f" drive order set {args.id} --proof <the check> records it once the fix is live"
         )
-    if args.unreachable:
-        drive_post_at(args.link, data, args.id, False)
-    else:
-        posted, _ = slack.message_and_root(args.link)
-        found = state.CARD_LINK.search(args.link)
-        if not posted.get("from_claude") or (found[1], posted.get("thread_ts")) != (reporter["channel"], reporter["thread"]):
-            raise DriveError(
-                f"{args.link} is not the drive's post in {reporter['link']}, the thread the bug was reported in; when the bot cannot reach"
-                " that thread, pass the line that tells him in the order's thread with --unreachable"
-            )
+    posted, _ = slack.message_and_root(args.link)
+    channel = state.CARD_LINK.search(args.link)[1]
+    if args.group_dm and not (posted.get("from_claude") and slack.group_dm(args.group_dm) == channel):
+        raise DriveError(f"{args.link} is not the drive's post in the group DM of {args.group_dm}, him and the bot, the one cc-slack opens for channel_id {args.group_dm}")
+    if not args.group_dm and (not posted.get("from_claude") or (channel, posted.get("thread_ts")) != (reporter["channel"], reporter["thread"])):
+        raise DriveError(
+            f"{args.link} is not the drive's post in {reporter['link']}, the thread the bug was reported in; when the bot cannot post"
+            " there, the note goes to the group DM of the reporter, him and the bot: pass the reporter's Slack user id with --group-dm"
+        )
     with state.edit(name) as data:
         data["orders"][args.id]["reporter"]["told"] = args.link
-    where = "said to him in place of the reporter's thread" if args.unreachable else "told in the reporter's thread"
-    return emit(args, f"{args.id}: {where}, {args.link}", {"id": args.id, "told": args.link, "unreachable": args.unreachable})
+    where = f"told in the group DM of {args.group_dm}, him and the bot" if args.group_dm else "told in the reporter's thread"
+    return emit(args, f"{args.id}: {where}, {args.link}", {"id": args.id, "told": args.link, "group_dm": args.group_dm})
+
+
+def slack_user(text: str) -> str:
+    if SLACK_USER.fullmatch(text):
+        return text
+    raise argparse.ArgumentTypeError("name the reporter by their Slack user id, such as U0123ABCDE: a channel id names no person")
 
 
 def communicators_order(data: dict, order_id: str) -> dict:
@@ -2654,11 +2661,19 @@ def parser() -> argparse.ArgumentParser:
     verb = order.add_parser(
         "told",
         parents=both,
-        help="the communicator's handler posted the one fix-live note in the thread the order's bug was reported in, once its proof is kept; done refuses until then",
+        help=(
+            "the communicator's handler posted the one fix-live note in the thread the order's bug was reported in, or in the group DM of"
+            " its reporter, him and the bot when the bot cannot post there, once its proof is kept; done refuses until then"
+        ),
     )
     verb.add_argument("id", help="the order")
-    verb.add_argument("link", help="the Slack link of the drive's note in the reporter's thread, or with --unreachable of its line to him in one of the order's threads")
-    verb.add_argument("--unreachable", action="store_true", help="the bot cannot post in the reporter's thread, so the link is the line telling him in its place")
+    verb.add_argument("link", help="the Slack link of the drive's note in the reporter's thread, or with --group-dm in their group DM with him and the bot")
+    verb.add_argument(
+        "--group-dm",
+        metavar="USER",
+        type=slack_user,
+        help="the reporter's Slack user id: the bot cannot post in the reporter's thread, so the note went to the group DM of that person, him and the bot",
+    )
     verb.set_defaults(run=order_told)
     verb = order.add_parser("show", parents=both, help="drive status for these ids")
     verb.add_argument("ids", nargs="+", metavar="ID", help=f"what to read: {ID_FORMS}")

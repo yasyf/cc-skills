@@ -356,8 +356,11 @@ merged and installed, listing each rule now in the skill.
 - Post it once per bug, once the coordinator keeps the proof the fix is live with `--proof`, never
   before: one or two plain sentences saying what is fixed and since when, with the link. The handler
   of the report on that order posts it with `slack_reply` in the same step as his own line, then
-  records it with `drive order told`. When the bot cannot post in that thread, the handler says it to
-  him in the order's thread instead and records that line with `--unreachable`.
+  records it with `drive order told`. When the bot cannot post in that thread, as in a person's 1:1
+  DM with him, the handler posts the same note as usual in the group DM of that person, him and the
+  bot, with one `slack_send` whose `channel_id` is the person's user id, which cc-slack's refusal
+  names, and records it with `drive order told --group-dm <that user id>`. His words: "Dm him in group
+  with bot then as usual".
 - The drive holds it to once and to after the fix: `drive order set --state done` refuses an order
   with a reporter until the note is recorded, the watch says `TELL` once when the proof sat 10 minutes
   with no note, and the post hook refuses a second note in that thread and one before the proof.

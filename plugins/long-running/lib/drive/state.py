@@ -551,11 +551,6 @@ def reporter(link: str) -> dict:
     return {"link": link, "channel": channel, "thread": thread, "told": None, "tell_said": None}
 
 
-def told_in_thread(reporter: dict) -> bool:
-    """Whether the fix-live note went in the reporter's own thread, not to him in its place."""
-    return bool((found := CARD_LINK.search(reporter["told"] or "")) and found[1] == reporter["channel"])
-
-
 def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str) -> dict:
     return {
         "order": order_id,

@@ -84,6 +84,11 @@ def thread(*where: str) -> list[dict]:
     return cc_slack("thread", *where)["messages"]
 
 
+def group_dm(person: str) -> str:
+    """The channel of the group DM of a person, him and the bot, which cc-slack opens with conversations.open for a channel naming the person."""
+    return cc_slack("history", "--channel", person, "--limit", "1", "--json")["channel_id"]
+
+
 def withdraw_pr_card(url: str, reason: str) -> list[str]:
     return cc_slack("withdraw-pr-card", "--pr", url, "--reason", reason)["withdrawn"]
 

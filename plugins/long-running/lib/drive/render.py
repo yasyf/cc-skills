@@ -4,7 +4,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from drive.state import ROLES, agent_gone, hears, now, open_orders, owed, owed_at, owed_step, parse_time, pr_key, pr_url, project_lane, promise_thread, title, told_in_thread
+from drive.state import ROLES, agent_gone, hears, now, open_orders, owed, owed_at, owed_step, parse_time, pr_key, pr_url, project_lane, promise_thread, title
 
 PLUGIN_JSON = Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json"
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
@@ -397,8 +397,7 @@ def reporter_said(order: dict) -> str:
     if reporter["told"] is None:
         owed = "owed its fix-live note now, since its fix is proven live" if order["proof"] else "which hears it is fixed once its fix is proven live"
         return f", reported in {reporter['link']}, {owed}"
-    told = "told it is fixed in" if told_in_thread(reporter) else "out of the bot's reach, so he was told in"
-    return f", reported in {reporter['link']}, {told} {reporter['told']}"
+    return f", reported in {reporter['link']}, told it is fixed in {reporter['told']}"
 
 
 def incident_line(order_id: str, order: dict) -> str:
