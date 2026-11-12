@@ -85,7 +85,7 @@ def report_refusals(payload: dict, drive: dict, records: list[dict], index: int)
     yield off_thread(drive, record)
     yield UNCARDED if WAITS_ON_HIM.search(text) and not attrs(record).get("waits") and not CARD_NAMED.search(f"{text}\n{record.get('body') or ''}") else None
     yield VAGUE_WAIT if WAITS_ON_OTHER.search(text) and not (WAITED.search(text) and RUNNING.search(text)) else None
-    if posting and (lines := refs.unprevented(f"{text}\n{record.get('body') or ''}")):
+    if posting and (lines := refs.unprevented(told := f"{text}\n{record.get('body') or ''}", refs.records(drive["name"], told))):
         yield agents.Ruled(UNPREVENTED.format(lines=" | ".join(lines)), UNPREVENTED_RULE)
     if thread and state.session_role(drive, payload.get("session_id")) in ("coordinator", "meta") and not payload.get("agent_id"):
         yield second_report(payload, records, index, thread)

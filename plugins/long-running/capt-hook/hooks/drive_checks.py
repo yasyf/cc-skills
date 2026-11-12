@@ -91,6 +91,9 @@ POST_RULES = """
     - A line stating or applying a rule the installed skill states, such as a defect record for each refusal hit or an
       alert he shares going to the coordinator as an incident, promises nothing beyond his words.
     - A rule of his in <evidence> that limits this kind of post holds it back, wherever else he permits it.
+    - A line saying how a failure the post tells is prevented, the tool change and the order or PR carrying it, is
+      within his words whenever the post answers a question of his or tells a failure, since his ruling on failures in
+      <evidence> asks for it; it is never other work outside them.
 """
 RULE_SOURCE = "the rules the drive's checks stand for, in the installed long-running and cc-slack skills' words"
 JUDGE = Decide(POST_RULES, frame=POST_FRAME, second_opinion=False, transcript=JUDGED_TURNS, root_transcript=JUDGED_TURNS, tool_results=True)
@@ -149,7 +152,7 @@ def checked(evt: BaseHookEvent, script: str) -> HookResult | None:
 
 
 def judged(evt: BaseHookEvent, reason: str, rule: str, words: list[Evidence], post: dict) -> HookResult | None:
-    """Jev's verdict on a post the drive's checks found something in, judged by the rule each finding stands for: Jev reads the post as Slack gets it, each of say's references linked, each finding beside its rule's words, and his messages and card answers in this thread and his answers in the transcripts, and it goes out when no finding's rule holds against the line it names, or his words lift it, and stays back with Jev's reason when one does, never for saying more than his message asked; a judge that gives no verdict lets it out with the findings noted, as a check that could not finish does. A handler's own `claude --bg` session reads as a session of his to capt-hook, but every prompt it holds is the communicator's brief or a record, so its judge reads no prompt there as his words."""
+    """Jev's verdict on a post the drive's checks found something in, judged by the rule each finding stands for: Jev reads the post as Slack gets it, each of say's references linked, each finding beside its rule's words, and his messages and card answers in this thread and his answers in the transcripts, and it goes out when no finding's rule holds against the line it names, or his words lift it, and stays back with Jev's reason when one does, never for saying more than his message asked; a judge that gives no verdict, such as one that timed out, leaves it back with the findings and names why, as a check that could not finish does. A handler's own `claude --bg` session reads as a session of his to capt-hook, but every prompt it holds is the communicator's brief or a record, so its judge reads no prompt there as his words."""
     place = {"thread": str(post.get("thread_ts") or "")} | ({"channel": post["channel_id"]} if post.get("channel_id") else {})
     where = f"in thread {place['thread']} of channel {post['channel_id']}" if post.get("channel_id") else "to him in his DM"
     if post.get("channel_id") and not place["thread"]:
@@ -162,7 +165,7 @@ def judged(evt: BaseHookEvent, reason: str, rule: str, words: list[Evidence], po
     try:
         verdict = judge.verdict(ctx, items)
     except Undecided as exc:
-        return evt.context(f"message_limits: Jev gave no verdict ({exc.cause}), so the post goes out as written with what the checks found below.\n```\n{reason}\n```")
+        return evt.block(f"Jev gave no verdict ({exc.cause}), and a judge that does not answer never overrides a refusal, so what the drive's checks found stands: fix each finding below, then call say again.\n```\n{reason}\n```")
     if verdict.allow and cited(items, verdict.relied_on):
         return evt.context(f"message_limits: Jev read no finding's rule as holding against this post, so it goes out as written.\n```\nJev: {verdict.reason}\n```")
     return evt.block(f"Jev weighed each finding by its rule and upheld what the drive's checks found: fix what Jev and each finding below name, then call say again.\n```\nJev: {verdict.explained}\n{reason}\n```")
@@ -321,6 +324,16 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             decide=JEV_UNSURE,
             llm={"reason": "he is away and this is news, not an answer", "allow": False, "refusal": "His order asks for the fix, not news of it while he is away."},
         ): Block(pattern="Jev: His order asks for the fix"),
+        Input(
+            tool=SLACK + "slack_dm_status",
+            tool_input={"text": "The fix merged."},
+            session_id=COMMUNICATOR,
+            agent_id="a1",
+            transcript=COMMUNICATOR_TURN,
+            root_transcript=[T.user("ship the memory fix", timestamp=SAID_AT.isoformat()), T.assistant("on it")],
+            decide=JEV_UNSURE,
+            llm={"error": TimeoutError("codex timed out after 19s")},
+        ): Block(pattern=r"Jev gave no verdict \(TimeoutError: codex timed out after 19s\).*what the drive's checks found stands"),
         Input(
             tool=SLACK + "slack_dm_status",
             tool_input={"text": "Deleting the old memory indexes still waits on your tap: https://acme.slack.com/archives/D123/p1794288799976279"},
