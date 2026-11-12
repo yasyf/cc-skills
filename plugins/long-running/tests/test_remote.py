@@ -57,7 +57,13 @@ DESIGN_PICK = "Root cause: none: a design pick, with no defect behind it"
 ASK_IN_SHAPE = f"""ASK Where should the nightly store copy run?
 The nightly store copy reads every store once; it can run on the primary or on its own worker.
 - On the primary, beside the queries it serves (recommended)
+  Does: each night the primary copies every store once between the queries it serves, and the copy lands in the bucket.
+  Data: each store's nightly copy in the team's bucket, written by the primary and read back by a restore.
+  Touches: `supervisor/copies.rs` on the primary; each query waits behind a running copy.
 - On a separate worker that reads the bucket
+  Does: each night a separate worker reads every store from the bucket and copies it there, so the primary serves only queries.
+  Data: each store and its nightly copy in the team's bucket, read and written by that worker.
+  Touches: `supervisor/copies.rs` and a new worker in `supervisor/worker.rs`, one more process per cluster.
 Findings:
 {DESIGN_PICK}
 One copy took 40 minutes on the primary.
@@ -1098,6 +1104,30 @@ def test_end_saves_what_the_sprite_of_a_job_still_at_work_holds_and_its_next_lan
     assert (code, out.endswith(f"and what pool-ie7ugrhamhjtmnwa held on no remote is saved: {SAVED}")) == (0, True)
     assert f"what it held on no remote was saved for you: {SAVED}." in orca.brief_of(launched["brief"])
     assert [(death["why"], death["saved"]) for death in state.load(remote)["jobs"]["j1"]["deaths"]] == [("ended by drive job end", SAVED)]
+
+
+def test_end_destroys_the_sprite_cc_remote_still_records_or_names_what_keeps_it(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / ".orca.json").write_text("{}")
+    carrying(run, remote)
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(state="done", workspace="pool-one")
+    workspaces = tmp_path / "cc-remote-workspaces"
+    workspaces.mkdir()
+    (workspaces / "pool-one.json").write_text("{}")
+    monkeypatch.setattr(orca, "CC_REMOTE_WORKSPACES", workspaces)
+    monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: "nothing to reclaim")
+    released = []
+    monkeypatch.setattr(orca, "release", lambda workspace, root: released.append(workspace) or "destroyed pool-one")
+    assert run("job", "end", "j1") == (0, "nothing to reclaim\ndestroyed pool-one\nj1's lane ended; j1 stays done")
+    assert released == ["pool-one"]
+
+    def kept(workspace: str, root: Path) -> str:
+        raise orca.OrcaError("orca-reclaim.py exited 1: uncommitted changes")
+
+    monkeypatch.setattr(orca, "release", kept)
+    assert run("job", "end", "j1") == (0, "nothing to reclaim\npool-one is kept: orca-reclaim.py exited 1: uncommitted changes\nj1's lane ended; j1 stays done")
 
 
 def test_end_of_a_finished_job_never_reads_its_sprite_and_drops_the_parts_it_carried(

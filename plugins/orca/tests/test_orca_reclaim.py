@@ -1037,6 +1037,34 @@ class SavingCcRemote(FakeCcRemote):
         return subprocess.run(["sh", "-c", script], input=given, capture_output=True, text=True, env={**os.environ, **github})
 
 
+class DestroyTest(unittest.TestCase):
+    def hosting(self, held: orca_gc.Checkout | str, refusal: str | None = None) -> FakeCcRemote:
+        return FakeCcRemote({(SPRITE_WT, "term_sprite"): SPRITE}, {SPRITE.workspace: held}, refusal)
+
+    def test_destroy_destroys_a_sprite_that_holds_nothing_by_its_workspace_with_no_orca(self):
+        cc_remote = self.hosting(checkout(SPRITE.root))
+        self.assertEqual(orca_gc.destroy("pool-abc", cc_remote), "destroyed pool-abc")
+        self.assertEqual(cc_remote.destroyed, ["pool-abc"])
+
+    def test_destroy_of_a_workspace_no_task_records_destroys_nothing(self):
+        cc_remote = self.hosting(checkout(SPRITE.root))
+        self.assertIsNone(orca_gc.destroy("pool-other", cc_remote))
+        self.assertEqual(cc_remote.destroyed, [])
+
+    def test_destroy_keeps_a_sprite_that_holds_work_cannot_be_read_or_cc_remote_refuses(self):
+        for held, refusal, said in (
+            (checkout(SPRITE.root, dirty=True), None, "^uncommitted changes$"),
+            (checkout(SPRITE.root, head="b" * 40), None, "^unpushed commits on v3/lane$"),
+            ("ssh to pool-abc could not read /home/sprite/repo: i/o timeout", None, "^ssh to pool-abc could not read"),
+            (checkout(SPRITE.root), "refused: no workspace label", "^refused: no workspace label$"),
+        ):
+            with self.subTest(said=said):
+                cc_remote = self.hosting(held, refusal)
+                with self.assertRaisesRegex(orca_gc.Unsaved, said):
+                    orca_gc.destroy("pool-abc", cc_remote)
+                self.assertEqual(cc_remote.destroyed, [] if refusal is None else ["pool-abc"])
+
+
 class SaveTest(unittest.TestCase):
     def sprite_holding_work(self) -> tuple[orca_gc.Sprite, Path, orca_gc.Checkout, dict[str, str]]:
         tmp = tempfile.TemporaryDirectory()

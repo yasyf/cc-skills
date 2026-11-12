@@ -115,9 +115,13 @@ happens meanwhile, with each thing he could open linked at the exact view they d
 route, tab, anchor or query string reaches is linked at that address, never the page's root, and a
 view not built yet is called unbuilt, by his words "I dont see tthe slack tab on that link what are you talking abit?". A Show me, when a picture, flow, table, or
 the real code shows what words cannot, is drawn whole with real contents in every row and cell. Two
-to four one-line options close it, each saying what runs, on what trigger, what it reads and what
-reaches whom, then what he gets and what it costs. `drive job ask` refuses a question or option that
-leaves a mechanism such as polling, a push or an event a bare word, as "Polls only" does.
+to four one-line options close it, each saying what he gets and what it costs, with three lines
+drawn under it: `Does:` what runs, on what trigger, what it reads and what reaches whom; `Data:` where
+its data lives and how it is written and read; `Touches:` each system and code path it changes or
+builds, by path, and any cost every user pays, by his words "you need to always fucking explain each
+optopn properly as prose in additon tot he table or whatever and what it requires touching/building".
+`drive job ask` refuses an option missing any of them, and a question or option that leaves a
+mechanism such as polling, a push or an event a bare word, as "Polls only" does.
 
 A question card starts from the root cause, the structure that lets the defect happen, and
 recommends the option that removes it so the defect cannot occur, through one abstraction every

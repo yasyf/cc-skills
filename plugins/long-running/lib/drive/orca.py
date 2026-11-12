@@ -5,7 +5,7 @@ import re
 import shlex
 import subprocess
 from pathlib import Path
-from typing import NamedTuple
+from typing import IO, NamedTuple
 
 from drive import agents, render, state
 from drive.install import config_dir
@@ -48,6 +48,7 @@ TIMEOUT = "timeout"
 ANSWERED_ELSEWHERE = "answer_conflict"
 DISPATCH_CLOSED = "dispatch_inactive"
 UNSTARTED = 75
+CC_REMOTE_WORKSPACES = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "cc-remote" / "workspaces"
 
 
 class OrcaError(DriveError):
@@ -385,6 +386,22 @@ def unsent(brief: Path) -> bool:
 
 def reclaim(run: str, dispatch: str, checkout: Path) -> str:
     return reclaimer(checkout, "--run", run, "--done", dispatch)
+
+
+def release(workspace: str, checkout: Path) -> str:
+    """Destroy the Sprite a finished lane ran on, with its Orca environment and forward, through the reclaimer's own guard: OrcaError naming what it holds on no remote, why its checkout could not be read, or cc-remote's refusal, which keeps it."""
+    return reclaimer(checkout, "--destroy", workspace)
+
+
+def release_detached(workspace: str, checkout: Path, log: IO[str]) -> subprocess.Popen:
+    return subprocess.Popen(
+        [tool(RECLAIMER), "--destroy", workspace], cwd=checkout, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True
+    )
+
+
+def holds_sprite(job: dict) -> bool:
+    """Whether cc-remote still records the Sprite workspace the job's lane ran on."""
+    return not state.on_mac(job) and bool(job.get("workspace")) and (CC_REMOTE_WORKSPACES / f"{job['workspace']}.json").is_file()
 
 
 def save(drive: str, job_id: str, job: dict, checkout: Path) -> str | None:

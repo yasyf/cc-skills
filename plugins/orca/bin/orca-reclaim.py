@@ -728,6 +728,19 @@ class Unsaved(Exception):
     pass
 
 
+def destroy(workspace: str, cc_remote: CcRemote) -> str | None:
+    if (sprite := sprite_of(workspace, cc_remote)) is None:
+        return None
+    checkout = cc_remote.checkout(sprite)
+    if isinstance(checkout, str):
+        raise Unsaved(checkout)
+    if holding := unsaved(checkout, cc_remote.remote(checkout.repository)):
+        raise Unsaved(holding)
+    if refusal := cc_remote.destroy(sprite):
+        raise Unsaved(refusal)
+    return f"destroyed {workspace}"
+
+
 def save(workspace: str, lane: str, cc_remote: CcRemote) -> str | None:
     if (sprite := sprite_of(workspace, cc_remote)) is None:
         return None
@@ -1141,6 +1154,10 @@ def main() -> int:
         "environment and hands git through a credential helper naming only the variable, so nothing writes it to the Sprite's disk or history. "
         "It prints what it saved and each saved/LANE branch with its short sha, or nothing when the Sprite holds nothing, and exits 1 naming "
         "why when the read or the save fails, which leaves each commit it made on its saved/LANE branch, still read as held. "
+        "--destroy WORKSPACE destroys the Sprite a cc-remote task records under that workspace name with cc-remote destroy, which closes its forward and removes its Orca environment, "
+        "once the same checkout read finds it holds nothing --held would name. It needs no Orca Run or dispatch and no idle terminal, so it reaches a Sprite whose dispatch Orca has dropped, "
+        "and the pause does not hold it. It prints the workspace it destroyed, or nothing when no task records a Sprite under that name, and exits 1 naming what the Sprite holds, "
+        "why the read failed, or cc-remote's refusal. "
         "--new is the recurring pass. Without --run it takes one Run a pass, those no pass has swept first, then the one swept longest ago, and skips a Run whose "
         f"coordinator terminal is open, a legacy Run, the unbound Run, and each Run git config --global --get-all {SKIP_RUNS} names. "
         f"In that Run it sweeps up to {SWEPT_BATCH} settled dispatches with an open terminal or a worktree still on disk, those no pass has swept first, newest first, "
@@ -1159,6 +1176,7 @@ def main() -> int:
     parser.add_argument("--done", action="append", default=[], metavar="CTX", help="worker-stop this dispatch, close its terminal, and reclaim its worktree; repeatable")
     parser.add_argument("--held", metavar="WORKSPACE", help="print what this cc-remote workspace's Sprite holds on no remote, or nothing, and change nothing")
     parser.add_argument("--save", nargs=2, metavar=("WORKSPACE", "LANE"), help="commit and push what this cc-remote workspace's Sprite holds on no remote to saved/LANE/<name> branches on GitHub, and print them")
+    parser.add_argument("--destroy", metavar="WORKSPACE", help="destroy this cc-remote workspace's Sprite and its Orca environment once it holds nothing on no remote, and print it")
     parser.add_argument("--new", action="store_true", help="the recurring pass: a bounded batch of settled dispatches, capped closes and removals, backing off when Orca is slow")
     parser.add_argument("--shells", action="store_true", help="with --new, also close empty Orca shells quiet for three days")
     parser.add_argument("--dry-run", action="store_true", help="print what gc would do and change nothing")
@@ -1167,8 +1185,8 @@ def main() -> int:
         parser.error("--new picks its own dispatches; drop --dispatch and --done")
     if args.shells and not args.new:
         parser.error("--shells runs only with --new")
-    if (args.held or args.save) and (args.run or args.new or args.dispatch or args.done or args.dry_run or (args.held and args.save)):
-        parser.error("--held and --save each take one Sprite by its workspace name; use one, and drop --run, --new, --dispatch, --done and --dry-run")
+    if (args.held or args.save or args.destroy) and (args.run or args.new or args.dispatch or args.done or args.dry_run or sum(map(bool, (args.held, args.save, args.destroy))) > 1):
+        parser.error("--held, --save and --destroy each take one Sprite by its workspace name; use one, and drop --run, --new, --dispatch, --done and --dry-run")
     if args.held:
         print(held(args.held, CcRemote()) or "")
         return 0
@@ -1179,8 +1197,15 @@ def main() -> int:
             print(refused, file=sys.stderr)
             return 1
         return 0
+    if args.destroy:
+        try:
+            print(destroy(args.destroy, CcRemote()) or "")
+        except Unsaved as refused:
+            print(refused, file=sys.stderr)
+            return 1
+        return 0
     if not args.new and not args.run:
-        parser.error("--run is required without --new or --held")
+        parser.error("--run is required without --new, --held, --save or --destroy")
     if args.new:
         tally = sweep(args.run, args.shells, args.dry_run, Orca(), Git(), CcRemote(), Pause(RESUMED))
     else:
