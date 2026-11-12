@@ -21,6 +21,7 @@ from typing import Self
 
 import pytest
 from drive import cli, dashboard, picture, state, view
+from conftest import Chrome
 from test_view import drive_of, found, job, order, pr
 
 NET = dashboard.Tailnet("box", "box.tail1.ts.net", ["100.64.0.1", "fd7a::1"], "owner@example.com", False)
@@ -557,15 +558,16 @@ def fresh(minutes: int) -> str:
     return state.stamp(datetime.now(UTC) - timedelta(minutes=minutes))
 
 
-def browse(tmp_path: Path, steps: str, model: dict, size: str = "1200,600", *flags: str, before: str = "") -> object:
-    """Serve the dashboard of model from the real handler and load it in headless Chrome with only its stream stubbed: the page reads the summary
-    once, and push(model) shows the board model and hands the page its summary. Run before, a script ahead of app.js that may stand in for the
-    server's reads, then steps, an async module that may call push(model) and wait(ms), and return what steps put in done(result); /test/embed
-    serves EMBED, a stand-in for cc-review's embedded review."""
+def browse(tmp_path: Path, steps: str, model: dict, size: str = "1200,600", *flags: str, before: str = "", drawn: bool = False) -> object:
+    """Serve the dashboard of model from the real handler and load it in headless Chrome with only its stream stubbed, and its renderers unless
+    drawn: the page reads the summary once, and push(model) shows the board model and hands the page its summary. Run before, a script ahead of
+    app.js that may stand in for the server's reads, then steps, an async module that may call push(model), wait(ms) and until(test), and return
+    what steps put in done(result); /test/embed serves EMBED, a stand-in for cc-review's embedded review."""
     harness = f"""<script>
 const MODEL = {json.dumps(model)};
 window.EventSource = class {{ constructor() {{ window.STREAM = this; fetch('/api/view').then((reply) => reply.text()).then((data) => this.onmessage({{ data }})); }} }};
 const wait = (ms) => new Promise((done) => setTimeout(done, ms));
+const until = async (test) => {{ for (let tries = 0; tries < 200 && !test(); tries++) await wait(50); }};
 const push = async (model) => {{ const reply = await fetch('/test/push', {{ method: 'POST', body: JSON.stringify(model) }}); window.STREAM.onmessage({{ data: await reply.text() }}); await wait(50); }};
 const done = (result) => {{ document.documentElement.dataset.result = JSON.stringify(result); }};
 </script>"""
@@ -575,7 +577,11 @@ const done = (result) => {{ document.documentElement.dataset.result = JSON.strin
     (site / "index.html").write_text(page)
     for name in ("app.js", "app.css"):
         (site / name).symlink_to(SITE / name)
-    (site / "visuals.js").write_text("export function draw() { throw new Error('nothing draws in this test'); }\n")
+    if drawn:
+        for name in ("visuals.js", "vendor"):
+            (site / name).symlink_to(SITE / name)
+    else:
+        (site / "visuals.js").write_text("export function draw() { throw new Error('nothing draws in this test'); }\n")
     shown = dashboard.Board("demo", [])
     shown.show(model)
     server, port = serving(shown)
@@ -607,10 +613,10 @@ await wait(200);
 const canvas = document.querySelector('#main .canvas');
 canvas.querySelector('[data-cam="in"]').click();
 await wait(100);
-const aimed = JSON.stringify(camera);
+const aimed = JSON.stringify(nowCamera.at);
 await push({ ...MODEL, at: '2026-11-11T00:05:00-08:00', work: MODEL.work.map((lane) => ({ ...lane, goal: 'moved on' })) });
 await wait(200);
-done({ same: document.querySelector('#main .canvas') === canvas, aimed: JSON.stringify(camera) === aimed, goal: canvas.querySelector('.topo-node.lane b').textContent });
+done({ same: document.querySelector('#main .canvas') === canvas, aimed: JSON.stringify(nowCamera.at) === aimed, goal: canvas.querySelector('.topo-node.lane b').textContent });
 """, board(), "1200,600", "--force-prefers-reduced-motion")
     assert kept == {"same": True, "aimed": True, "goal": "moved on"}
 
@@ -797,7 +803,7 @@ window.scrollTo(0, 120);
 await wait(200);
 const canvas = document.querySelector('#main .canvas');
 const world = canvas.querySelector('.world');
-const look = () => ({ hash: location.hash, level: canvas.dataset.level, same: document.querySelector('#main .canvas') === canvas, top: scrollY, shown: getComputedStyle(world).visibility === 'visible' && Number(world.style.getPropertyValue('--k')) === camera.k, scale: camera.k });
+const look = () => ({ hash: location.hash, level: canvas.dataset.level, same: document.querySelector('#main .canvas') === canvas, top: scrollY, shown: getComputedStyle(world).visibility === 'visible' && Number(world.style.getPropertyValue('--k')) === nowCamera.at.k, scale: nowCamera.at.k });
 const overview = look();
 canvas.querySelector('.region[data-cam-key="Platform"]').click();
 await wait(800);
@@ -846,8 +852,8 @@ const cards = [...canvas.querySelectorAll('.region')].map((region) => {
     said: [name.textContent, glance.querySelector('.glance-streams').textContent, glance.querySelector('.glance-open').textContent, [...glance.querySelectorAll('.need')].map((need) => need.textContent)],
     tips: [...glance.querySelectorAll('.statebar i')].map((segment) => [segment.dataset.tip, segment.getBoundingClientRect().width >= 7.5]),
     size: `${Math.round(box.width)}x${Math.round(box.height)}`,
-    readable: parseFloat(getComputedStyle(name).fontSize) * camera.k > 15.9
-      && [...glance.querySelectorAll('.glance-streams, .glance-open, .need')].every((small) => parseFloat(getComputedStyle(small).fontSize) * camera.k > 10.9)
+    readable: parseFloat(getComputedStyle(name).fontSize) * nowCamera.at.k > 15.9
+      && [...glance.querySelectorAll('.glance-streams, .glance-open, .need')].every((small) => parseFloat(getComputedStyle(small).fontSize) * nowCamera.at.k > 10.9)
       && lines.every((line) => line.height > 0 && line.top >= box.top && line.bottom <= box.bottom && line.right <= box.right + 0.5),
     inside: box.left >= 0 && box.right <= innerWidth,
   };
@@ -1566,7 +1572,7 @@ def test_work_flies_from_the_drive_to_a_lane_inside_one_canvas_and_esc_steps_bac
 location.hash = '#/work';
 await wait(200);
 const canvas = document.querySelector('#main .canvas');
-const look = () => ({ hash: location.hash, level: canvas.dataset.level, same: document.querySelector('#main .canvas') === canvas, replayed: document.querySelector('#main').classList.contains('arrived'), scale: camera.k });
+const look = () => ({ hash: location.hash, level: canvas.dataset.level, same: document.querySelector('#main .canvas') === canvas, replayed: document.querySelector('#main').classList.contains('arrived'), scale: nowCamera.at.k });
 const overview = look();
 canvas.querySelector('.face[href="#/work/Platform"]').click();
 await wait(300);
@@ -1599,19 +1605,19 @@ const viewport = document.querySelector('#main .viewport');
 const { left, top } = viewport.getBoundingClientRect();
 const [x, y] = [left + 40, top + 40];
 const point = (type, id, px, kind = 'mouse') => viewport.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: id, pointerType: kind, isPrimary: id < 3, button: type === 'pointermove' ? -1 : 0, clientX: px[0], clientY: px[1] }));
-const start = { ...camera };
+const start = { ...nowCamera.at };
 point('pointerdown', 1, [x, y]);
 point('pointermove', 1, [x + 60, y + 30]);
 point('pointerup', 1, [x + 60, y + 30]);
-const dragged = { ...camera };
+const dragged = { ...nowCamera.at };
 viewport.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, ctrlKey: true, deltaY: -50, clientX: x, clientY: y }));
-const wheeled = { ...camera };
+const wheeled = { ...nowCamera.at };
 point('pointerdown', 2, [x, y], 'touch');
 point('pointerdown', 3, [x + 100, y], 'touch');
 point('pointermove', 3, [x + 150, y], 'touch');
 point('pointerup', 3, [x + 150, y], 'touch');
 point('pointerup', 2, [x, y], 'touch');
-const pinched = camera.k / wheeled.k;
+const pinched = nowCamera.at.k / wheeled.k;
 const pinchedAt = location.hash;
 document.querySelector('#main .face[href="#/work/Platform/SandSQL"]').click();
 await wait(100);
@@ -1796,6 +1802,140 @@ const reach = (el) => {{ const r = el.getBoundingClientRect(); return document.e
 done({{ inside: pre.getBoundingClientRect().right <= card.getBoundingClientRect().right + 1, scrolls: pre.scrollWidth > pre.clientWidth, copy: reach(figure.querySelector('[data-copy]')), enlarge: reach(figure.querySelector('.code-bar [data-enlarge]')), floating: getComputedStyle(figure.querySelector(':scope > .enlarge')).display }});
 """, board(history=[{"at": "2026-11-10T23:59:30-08:00", "kind": "said", "text": "the placer", "detail": "", "url": None, "feature": "o1", "visuals": [], "prs": []}]))
     assert seen == {"inside": True, "scrolls": True, "copy": True, "enlarge": True, "floating": "none"}
+
+
+ARCH = {
+    "arch": 1, "name": "drive", "title": "The dashboard reads the drive",
+    "nodes": [
+        {"id": "page", "kind": "app", "name": "Dashboard", "role": "draws cards"},
+        {"id": "server", "kind": "service", "name": "Server", "role": "serves the model"},
+        {"id": "state", "kind": "store", "medium": "disk", "name": "drive.json", "role": "keeps state"},
+    ],
+    "edges": [{"from": "page", "to": "server", "label": "reads /api/view"}, {"from": "server", "to": "state", "label": "loads"}],
+}
+DRAWN = [
+    ("mermaid", "flowchart LR\n  page[Dashboard] --> server[Server] --> state[(drive.json)]"),
+    ("dot", "digraph { rankdir=LR; page -> server -> state }"),
+    ("chart", json.dumps({"data": {"values": [{"day": "Mon", "cards": 4}, {"day": "Tue", "cards": 7}]}, "mark": "bar", "encoding": {"x": {"field": "day", "type": "ordinal"}, "y": {"field": "cards", "type": "quantitative"}}})),
+    ("compare", json.dumps({"options": [{"name": "Vendored", "recommended": True, "points": ["+ no network"]}, {"name": "CDN", "points": ["- a request per page"]}]})),
+    ("arch", json.dumps(ARCH)),
+    ("code:go", "func load(path string) (*Drive, error) {\n\treturn read(path)\n}"),
+]
+ALL_DRAWN = "await until(() => { const hosts = [...document.querySelectorAll('#main .visual-host')]; return hosts.length && hosts.every((host) => host.querySelector('svg, .visual-code, .visual-compare, .refused')); });"
+
+
+def said(text: str = "the drive", visuals: list[tuple[str, str]] = DRAWN) -> dict:
+    shown = [{"kind": kind, "source": source, "caption": kind, "picture": f"/{kind}.png"} for kind, source in visuals]
+    return {"at": "2026-11-10T23:59:30-08:00", "kind": "said", "text": text, "detail": "", "url": None, "feature": "o1", "visuals": shown, "prs": []}
+
+
+def test_every_renderer_draws_from_the_dashboards_own_origin_and_asks_nothing_of_any_other(tmp_path: Path) -> None:
+    seen = browse(tmp_path, f"""
+location.hash = '#/history';
+{ALL_DRAWN}
+const hosts = [...document.querySelectorAll('#main .visual-host')];
+done({{ drawn: hosts.map((host) => [host.dataset.visual, !host.querySelector('.refused')]), elsewhere: performance.getEntriesByType('resource').map((each) => each.name).filter((url) => new URL(url).origin !== location.origin) }});
+""", board(history=[said()]), drawn=True)
+    assert seen == {"drawn": [[kind, True] for kind, _ in DRAWN], "elsewhere": []}
+
+
+def test_every_diagram_pans_zooms_by_wheel_and_pinch_fits_and_goes_full_screen_on_one_camera_and_arch_keeps_its_own(tmp_path: Path) -> None:
+    body = "\n\n".join(f"```{kind}\n{source}\n```" for kind, source in DRAWN[:5])
+    seen = browse(tmp_path, f"location.hash = '#/queue/all';\n{ALL_DRAWN}\n" + """
+const k = (view) => Number(view.firstElementChild.style.getPropertyValue('--k'));
+const press = (view, type, id, x, y) => { const r = view.getBoundingClientRect(); view.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: id, pointerType: 'touch', button: type === 'pointermove' ? -1 : 0, clientX: r.left + x, clientY: r.top + y })); };
+const kinds = ['mermaid', 'dot', 'chart', 'compare'];
+const seen = {};
+for (const kind of kinds) {
+  const host = document.querySelector(`#main .visual-host[data-visual="${kind}"]`);
+  await until(() => host.querySelector('.frame'));
+  const view = host.querySelector('.frame');
+  host.scrollIntoView({ block: 'center' });
+  const fit = k(view);
+  const r = view.getBoundingClientRect();
+  view.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, ctrlKey: true, deltaY: -40, clientX: r.left + 20, clientY: r.top + 20 }));
+  const wheeled = k(view);
+  press(view, 'pointerdown', 2, 20, 20);
+  press(view, 'pointerdown', 3, 60, 20);
+  press(view, 'pointermove', 3, 100, 20);
+  const pinched = k(view);
+  press(view, 'pointerup', 3, 100, 20);
+  const placed = view.firstElementChild.style.transform;
+  press(view, 'pointermove', 2, 5, 5);
+  const panned = view.firstElementChild.style.transform !== placed && k(view) === pinched;
+  press(view, 'pointerup', 2, 5, 5);
+  host.querySelector('[data-cam="fit"]').click();
+  const refit = k(view);
+  seen[kind] = { zooms: wheeled > fit, pinches: pinched > wheeled, panned, fits: refit === fit, tools: [...host.querySelectorAll('.frame-tools button')].map((button) => button.getAttribute('aria-label')) };
+}
+const first = document.querySelector('#main .visual-host[data-visual="mermaid"] .frame');
+press(first, 'pointerdown', 4, 20, 20);
+press(first, 'pointerup', 4, 20, 20);
+first.click();
+for (const kind of kinds) {
+  await until(() => document.querySelector(`#lightbox[open] .visual-host[data-visual="${kind}"] .frame`));
+  const big = document.querySelector('#lightbox .frame').getBoundingClientRect();
+  const stage = document.querySelector('#lightbox .lb-stage').getBoundingClientRect();
+  seen[kind].fills = Math.round(big.width) === Math.round(stage.width) && Math.round(big.height) === Math.round(stage.height);
+  document.querySelector('#lightbox [data-step="1"]').click();
+}
+const arch = document.querySelector('#main .visual-host[data-visual="arch"]');
+seen.arch = { own: [...arch.querySelectorAll('.smap-tools [data-z]')].map((button) => button.dataset.z), ours: getComputedStyle(arch.closest('figure').querySelector(':scope > .enlarge')).display };
+done(seen);
+""", board(queue=[QUESTION | {"card": QUESTION["card"] | {"body": body}}]), "1440,1000", "--force-prefers-reduced-motion", drawn=True)
+    framed = {"zooms": True, "pinches": True, "panned": True, "fits": True, "tools": ["Fit the whole diagram", "Zoom in", "Zoom out", "Full screen"], "fills": True}
+    assert seen == {"mermaid": framed, "dot": framed, "chart": framed, "compare": framed, "arch": {"own": ["fit", "in", "out", "open"], "ours": "none"}}
+
+
+def test_a_cited_line_peeks_highlighted_beside_its_cite_with_its_long_lines_wrapped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    lines = ["import json", "", "def load(path: str) -> dict:", "    with open(path) as handle:", "        return json.load(handle)  # " + "a comment far wider than the peek " * 8, ""]
+    monkeypatch.setattr(dashboard.github, "run", lambda cmd, **_: "\n".join(lines))
+    seen = browse(tmp_path, """
+location.hash = '#/history';
+await until(() => document.querySelector('#main a[data-src]'));
+const cite = document.querySelector('#main a[data-src]');
+cite.scrollIntoView({ block: 'center' });
+cite.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+await until(() => document.querySelector('#srctip pre code span'));
+const tip = document.querySelector('#srctip').getBoundingClientRect();
+const at = cite.getBoundingClientRect();
+const rows = [...document.querySelectorAll('#srctip pre > span')];
+done({
+  beside: tip.left >= at.right && tip.top <= at.bottom && tip.bottom >= at.top,
+  marked: rows.filter((row) => row.classList.contains('hl')).map((row) => row.querySelector('i').textContent),
+  keyword: document.querySelector('#srctip .hljs-keyword').textContent,
+  wrapped: rows.find((row) => row.querySelector('i').textContent === '5').offsetHeight >= 2 * rows[0].offsetHeight,
+  inside: rows.every((row) => row.scrollWidth <= row.clientWidth),
+});
+""", board(history=[said("load reads it at lib/drive/state.py:3-5 first", [])], repo="demo-org/demo-drive"), "1440,900", drawn=True)
+    assert seen == {"beside": True, "marked": ["3", "4", "5"], "keyword": "import", "wrapped": True, "inside": True}
+
+
+def test_a_fence_of_words_shows_as_a_code_embed_in_its_box_that_scrolls_and_copies(tmp_path: Path) -> None:
+    words = "Approve ships it, Hold waits for the next build, and the card says which build it saw " * 3
+    seen = browse(tmp_path, f"""
+location.hash = '#/history';
+{ALL_DRAWN}
+done([...document.querySelectorAll('#main .visual-host[data-visual="code:text"]')].map((host) => {{
+  const pre = host.querySelector('.visual-code');
+  return {{ label: host.querySelector('.code-bar span').textContent, copy: host.querySelector('[data-copy]').textContent, boxed: getComputedStyle(pre).borderTopStyle, scrolls: pre.scrollWidth > pre.clientWidth, colored: host.querySelectorAll('[class^="hljs-"]').length, text: pre.textContent }};
+}}));
+""", board(history=[said(f"```text\n{words}\n```\n\n```\n{words}\n```", [])]), drawn=True)
+    assert seen == [{"label": "text", "copy": "Copy", "boxed": "solid", "scrolls": True, "colored": 0, "text": words}] * 2
+
+
+def test_a_cards_slack_picture_and_its_web_embed_are_drawn_from_one_source(tmp_path: Path, chrome: Chrome) -> None:
+    flow = "flowchart LR\n  page[Dashboard] --> server[Server]"
+    body = "\n".join(["Pick where it reads.", "", *picture.drawn(tmp_path / "pictures", ["The flow", "```mermaid", flow, "```"])])
+    item = QUESTION | {"card": QUESTION["card"] | {"body": body}}
+    seen = browse(tmp_path, """
+location.hash = '#/queue/all';
+await until(() => document.querySelector('#main .visual-host svg'));
+const host = document.querySelector('#main .visual-host');
+done({ kind: host.dataset.visual, source: host.dataset.source, nodes: [...host.querySelectorAll('.nodeLabel')].map((label) => label.textContent) });
+""", board(queue=[item]), drawn=True)
+    assert chrome.drawn == [("mermaid", seen["source"])]
+    assert seen == {"kind": "mermaid", "source": f"{flow}\n", "nodes": ["Dashboard", "Server"]}
 
 
 def test_a_new_dashboard_version_reloads_the_page_unless_he_is_in_the_middle_of_something(tmp_path: Path) -> None:

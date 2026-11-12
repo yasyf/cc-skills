@@ -220,6 +220,7 @@ function up() {
 
 const VISUAL_KINDS = new Set(['arch', 'mermaid', 'chart', 'compare', 'dot']);
 const WORD_FENCES = new Set(['', 'text', 'txt', 'plain']);
+const FRAMED = new Set(['mermaid', 'dot', 'chart', 'compare']);
 const PICTURE_LINE = /^\s*!\[([^\]]*)\]\((\/[^)\s]+)\)\s*$/;
 const QUOTE_LINE = /^\s*>\s?/;
 const TABLE_ROW = /^\s*\|/;
@@ -307,8 +308,7 @@ function lineBlocks(lines, cite) {
 }
 
 function fenced(language, source) {
-  if (WORD_FENCES.has(language)) return `<pre><code>${esc(source.replace(/\n$/, ''))}</code></pre>`;
-  return visual(VISUAL_KINDS.has(language) ? language : `code:${language}`, source);
+  return visual(VISUAL_KINDS.has(language) ? language : `code:${WORD_FENCES.has(language) ? 'text' : language}`, source);
 }
 
 function shown(path, caption) {
@@ -369,6 +369,7 @@ async function drawFigures(root) {
   for (const host of hosts) {
     try {
       await (await loaded).draw(host, host.dataset.visual, host.dataset.source);
+      if (FRAMED.has(host.dataset.visual) && !host.closest('.thumbs')) frame(host);
       if (host.dataset.visual.startsWith('code:')) host.insertAdjacentHTML('afterbegin', `<div class="code-bar"><span>${esc(host.dataset.visual.slice(5) || 'code')}</span><span class="acts"><button type="button" class="linkish" data-copy>Copy</button><button type="button" class="linkish" data-enlarge>Enlarge</button></span></div>`);
     } catch (failure) {
       host.innerHTML = `<p class="refused">This ${esc(host.dataset.visual.split(':')[0])} did not draw (${esc(failure.message)}), so here is what it is drawn from.</p><pre><code>${esc(host.dataset.source)}</code></pre>`;
@@ -829,7 +830,7 @@ function nowCanvas(tree, project, stream, task) {
     <div class="canvas-bar"><span class="meta">${level === 'all' ? 'Click a project to zoom in' : level === 'project' ? 'Click a workstream to see its tasks' : 'Esc zooms out'}</span>
       <div class="canvas-tools"><button class="map-btn" data-cam="out" aria-label="Zoom out">−</button><button class="map-btn" data-cam="in" aria-label="Zoom in">+</button><button class="map-btn" data-cam="fit" aria-label="Fit to this level" title="Fit">⤢</button></div></div>
     <div class="viewport" data-at="${esc([project, stream].filter((key) => key !== undefined).join('/'))}" data-view="${esc(task?.id ?? '')}">
-      <div class="world" style="${cameraStyle()}">${regions || `<p class="empty small">Nothing is open now${live ? `; ${counted(live, 'feature')} went live in the last day, in History` : ''}.</p>`}</div>
+      <div class="world" style="${placed(nowCamera.at)}">${regions || `<p class="empty small">Nothing is open now${live ? `; ${counted(live, 'feature')} went live in the last day, in History` : ''}.</p>`}</div>
       ${task ? taskSheet(task, project, stream) : ''}
     </div>
   </section>`;
@@ -897,19 +898,25 @@ function taskSheet(entry, project, stream) {
   </aside>`;
 }
 
-let camera = null;
-let cameraAt = null;
-let flying = 0;
+const nowCamera = { at: null, flying: 0, world: null };
+const cams = new WeakMap();
+let nowAt = null;
 let dragged = false;
 let fitter = null;
+let framer = null;
+let gesture = null;
 const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
 
-function cameraStyle() {
-  return camera ? `transform:scale(${camera.k}) translate(${-camera.x}px, ${-camera.y}px);--k:${camera.k}` : 'visibility:hidden';
+function placed(at) {
+  return at ? `transform:scale(${at.k}) translate(${-at.x}px, ${-at.y}px);--k:${at.k}` : 'visibility:hidden';
 }
 
-function aim() {
-  $('#main .world').setAttribute('style', cameraStyle());
+function aim(cam) {
+  cam.world.setAttribute('style', placed(cam.at));
+}
+
+function camOf(view) {
+  return view.matches('.viewport') ? nowCamera : cams.get(view);
 }
 
 function boxOf(el, world) {
@@ -927,8 +934,8 @@ function focused(viewport) {
   return { box, unit: target.offsetWidth / box.w };
 }
 
-function zoomed(viewport, k) {
-  const { unit } = focused(viewport);
+function zoomed(view, k) {
+  const unit = view.matches('.viewport') ? focused(view).unit : 1;
   return Math.min(3 * unit, Math.max(0.03 * unit, k));
 }
 
@@ -942,17 +949,21 @@ function fitTo(box, viewport, level) {
   return { k, x: box.x + box.w / 2 - w / k / 2, y: top };
 }
 
-function cameraTarget() {
-  const viewport = $('#main .viewport');
-  const { box, unit } = focused(viewport);
-  const sheet = viewport.querySelector('.task-sheet');
-  const room = { clientWidth: viewport.clientWidth - (sheet && viewport.clientWidth - sheet.offsetWidth >= 420 ? sheet.offsetWidth : 0), clientHeight: viewport.clientHeight };
+function fitOf(view) {
+  if (view.matches('.frame')) {
+    const { offsetWidth: w, offsetHeight: h } = view.firstElementChild;
+    const k = Math.min(view.clientWidth / w, view.clientHeight / h, 1);
+    return { k, x: w / 2 - view.clientWidth / k / 2, y: h / 2 - view.clientHeight / k / 2 };
+  }
+  const { box, unit } = focused(view);
+  const sheet = view.querySelector('.task-sheet');
+  const room = { clientWidth: view.clientWidth - (sheet && view.clientWidth - sheet.offsetWidth >= 420 ? sheet.offsetWidth : 0), clientHeight: view.clientHeight };
   const fit = fitTo({ x: 0, y: 0, w: box.w * unit, h: box.h * unit }, room, $('#main .canvas').dataset.level);
-  const chosen = viewport.querySelector('.topo-node.lane.on');
+  const chosen = view.querySelector('.topo-node.lane.on');
   const k = (chosen ? 1 : Math.min(1, room.clientWidth / (box.w * unit * 1.05))) * unit;
-  if (fit.k * unit >= k || !(chosen || (narrow.matches && viewport.closest('.work')))) return { k: fit.k * unit, x: box.x + fit.x / unit, y: box.y + fit.y / unit };
+  if (fit.k * unit >= k || !(chosen || (narrow.matches && view.closest('.work')))) return { k: fit.k * unit, x: box.x + fit.x / unit, y: box.y + fit.y / unit };
   const seen = { w: room.clientWidth / k, h: room.clientHeight / k };
-  const mid = chosen ? boxOf(chosen, viewport.querySelector('.world')) : { ...box, h: seen.h };
+  const mid = chosen ? boxOf(chosen, view.querySelector('.world')) : { ...box, h: seen.h };
   const span = (center, shown, start, length) => (length <= shown ? start + length / 2 - shown / 2 : Math.min(Math.max(center - shown / 2, start), start + length - shown));
   return { k, x: span(mid.x + mid.w / 2, seen.w, box.x, box.w), y: span(mid.y + mid.h / 2, seen.h, box.y, box.h) };
 }
@@ -961,23 +972,24 @@ function settleCamera(arrived) {
   const viewport = $('#main .viewport');
   if (!viewport) {
     fitter?.disconnect();
-    camera = null;
-    cameraAt = null;
+    nowCamera.at = null;
+    nowAt = null;
     return;
   }
-  if (arrived || !camera) {
+  nowCamera.world = viewport.querySelector('.world');
+  if (arrived || !nowCamera.at) {
     fitColumns();
-    camera = cameraTarget();
-    aim();
+    nowCamera.at = fitOf(viewport);
+    aim(nowCamera);
     fitter?.disconnect();
     fitter = new ResizeObserver(() => {
       fitColumns();
-      camera = cameraTarget();
-      aim();
+      nowCamera.at = fitOf(viewport);
+      aim(nowCamera);
     });
     fitter.observe(viewport);
-  } else if (`${viewport.dataset.at}#${viewport.dataset.view}` !== cameraAt) flyTo(cameraTarget());
-  cameraAt = `${viewport.dataset.at}#${viewport.dataset.view}`;
+  } else if (`${viewport.dataset.at}#${viewport.dataset.view}` !== nowAt) flyTo(nowCamera, fitOf(viewport));
+  nowAt = `${viewport.dataset.at}#${viewport.dataset.view}`;
 }
 
 function fitColumns() {
@@ -990,37 +1002,78 @@ function fitColumns() {
   canvas.style.setProperty('--cols', cols);
 }
 
-function flyTo(target, ms = 560) {
-  cancelAnimationFrame(flying);
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    camera = target;
-    return aim();
-  }
-  const from = { ...camera, w: 1 / camera.k };
-  const to = { ...target, w: 1 / target.k };
-  const t0 = performance.now();
-  const step = (now) => {
-    const t = Math.min(1, (now - t0) / ms);
-    const e = ease(t);
-    const w = from.w + (to.w - from.w) * e;
-    camera = { k: 1 / w, x: from.x + (to.x - from.x) * e, y: from.y + (to.y - from.y) * e };
-    aim();
-    if (t < 1) flying = requestAnimationFrame(step);
-  };
-  flying = requestAnimationFrame(step);
+function frame(host) {
+  const stage = Object.assign(document.createElement('div'), { className: 'stage' });
+  stage.append(...host.childNodes);
+  const view = Object.assign(document.createElement('div'), { className: 'frame' });
+  view.append(stage);
+  host.replaceChildren(view);
+  host.insertAdjacentHTML('afterbegin', `<div class="frame-tools"><button type="button" class="map-btn" data-cam="fit" aria-label="Fit the whole diagram">Fit</button><button type="button" class="map-btn" data-cam="in" aria-label="Zoom in">+</button><button type="button" class="map-btn" data-cam="out" aria-label="Zoom out">−</button><button type="button" class="map-btn" data-enlarge aria-label="Full screen" title="Full screen">${icon('enlarge')}</button></div>`);
+  cams.set(view, { at: null, flying: 0, world: stage });
+  fitFrame(view);
+  framer ??= new ResizeObserver((seen) => {
+    for (const { target } of seen) {
+      if (target.isConnected) fitFrame(target.querySelector('.frame'));
+      else framer.unobserve(target);
+    }
+  });
+  framer.observe(host.closest('figure'));
 }
 
-function zoomAround(factor, px, py, ms = 0) {
-  const viewport = $('#main .viewport');
-  const ux = camera.x + px / camera.k;
-  const uy = camera.y + py / camera.k;
-  const k = zoomed(viewport, camera.k / factor);
-  const target = { k, x: ux - px / k, y: uy - py / k };
-  if (ms) return flyTo(target, ms);
-  cancelAnimationFrame(flying);
-  camera = target;
-  aim();
-  return viewport;
+function fitFrame(view) {
+  const { offsetWidth: w, offsetHeight: h } = view.firstElementChild;
+  if (!w) return;
+  if (!view.closest('.lb-stage')) {
+    const room = view.closest('figure').clientWidth;
+    view.style.width = `${Math.min(w, room)}px`;
+    view.style.height = `${Math.ceil(h * Math.min(1, room / w))}px`;
+  }
+  const cam = cams.get(view);
+  cam.at = fitOf(view);
+  aim(cam);
+}
+
+function flyTo(cam, target, ms = 560) {
+  cancelAnimationFrame(cam.flying);
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    cam.at = target;
+    return aim(cam);
+  }
+  const from = { ...cam.at, w: 1 / cam.at.k };
+  const to = { ...target, w: 1 / target.k };
+  const t0 = performance.now();
+  const step = (time) => {
+    const t = Math.min(1, (time - t0) / ms);
+    const e = ease(t);
+    const w = from.w + (to.w - from.w) * e;
+    cam.at = t < 1 ? { k: 1 / w, x: from.x + (to.x - from.x) * e, y: from.y + (to.y - from.y) * e } : target;
+    aim(cam);
+    if (t < 1) cam.flying = requestAnimationFrame(step);
+  };
+  cam.flying = requestAnimationFrame(step);
+}
+
+function zoomAround(view, factor, px, py, ms = 0) {
+  const cam = camOf(view);
+  const k = zoomed(view, cam.at.k / factor);
+  const target = { k, x: cam.at.x + px / cam.at.k - px / k, y: cam.at.y + py / cam.at.k - py / k };
+  if (ms) return flyTo(cam, target, ms);
+  cancelAnimationFrame(cam.flying);
+  cam.at = target;
+  aim(cam);
+}
+
+function grip(points, view) {
+  const r = view.getBoundingClientRect();
+  const all = [...points.values()];
+  const x = all.reduce((sum, point) => sum + point.x, 0) / all.length - r.left;
+  const y = all.reduce((sum, point) => sum + point.y, 0) / all.length - r.top;
+  return { x, y, spread: all.length > 1 ? Math.hypot(all[0].x - all[1].x, all[0].y - all[1].y) : 1 };
+}
+
+function regrip() {
+  gesture.from = grip(gesture.points, gesture.view);
+  gesture.camera = { ...gesture.cam.at };
 }
 
 function askRow(card) {
@@ -1338,7 +1391,7 @@ function sourceRows(a, found) {
   const head = `<header>${esc(a.dataset.src.split('#')[0])} · ${esc(a.dataset.path)}</header>`;
   if (!found) return `${head}<p>Reading the lines from GitHub…</p>`;
   if (found.error) return `${head}<p>${esc(found.error)}</p>`;
-  return `${head}<pre>${found.lines.map((line) => `<span class="${line.n >= Number(a.dataset.line) && line.n <= Number(a.dataset.to) ? 'hl' : ''}"><i>${line.n}</i>${esc(line.text)}</span>`).join('')}</pre>`;
+  return `${head}<pre>${found.lines.map((line) => `<span class="${line.n >= Number(a.dataset.line) && line.n <= Number(a.dataset.to) ? 'hl' : ''}"><i>${line.n}</i><code>${line.lit ?? esc(line.text)}</code></span>`).join('')}</pre>`;
 }
 
 function hideSource() {
@@ -1353,9 +1406,19 @@ function showTip(el) {
   tip.dataset.key = `tip:${el.dataset.tip}`;
   tip.innerHTML = `<p>${esc(el.dataset.tip)}</p>`;
   if (!tip.matches(':popover-open')) tip.showPopover();
-  const box = el.getBoundingClientRect();
-  tip.style.left = `${Math.max(8, Math.min(innerWidth - tip.offsetWidth - 8, box.left))}px`;
-  tip.style.top = `${box.bottom + 6 + tip.offsetHeight > innerHeight ? Math.max(8, box.top - tip.offsetHeight - 6) : box.bottom + 6}px`;
+  placeTip(tip, el.getBoundingClientRect(), false);
+}
+
+function placeTip(tip, box, beside) {
+  const { offsetWidth: width, offsetHeight: height } = tip;
+  const right = box.right + 10 + width <= innerWidth - 8;
+  if (beside && (right || box.left - 10 - width >= 8)) {
+    tip.style.left = `${right ? box.right + 10 : box.left - 10 - width}px`;
+    tip.style.top = `${Math.max(8, Math.min(innerHeight - height - 8, box.top + box.height / 2 - height / 2))}px`;
+    return;
+  }
+  tip.style.left = `${Math.max(8, Math.min(innerWidth - width - 8, box.left))}px`;
+  tip.style.top = `${box.bottom + 6 + height > innerHeight ? Math.max(8, box.top - height - 6) : box.bottom + 6}px`;
 }
 
 function preview(choice) {
@@ -1373,15 +1436,14 @@ function showSource(a) {
   tip.dataset.key = a.href;
   tip.innerHTML = sourceRows(a, sourceSeen.get(a.href));
   if (!tip.matches(':popover-open')) tip.showPopover();
-  const box = a.getBoundingClientRect();
-  tip.style.left = `${Math.max(8, Math.min(innerWidth - tip.offsetWidth - 8, box.left))}px`;
-  tip.style.top = `${box.bottom + 6 + tip.offsetHeight > innerHeight ? Math.max(8, box.top - tip.offsetHeight - 6) : box.bottom + 6}px`;
+  placeTip(tip, a.getBoundingClientRect(), true);
   if (sourceSeen.has(a.href)) return;
   const key = a.href;
   fetch(`/api/source?${new URLSearchParams({ cite: a.dataset.src, path: a.dataset.path, line: a.dataset.line, to: a.dataset.to })}`)
     .then((reply) => reply.json())
     .catch((failure) => ({ error: `Could not reach the dashboard server (${failure.message}).` }))
-    .then((found) => {
+    .then(async (found) => {
+      if (found.lines) for (const [at, lit] of (await (await import('/visuals.js')).lines(a.dataset.path, found.lines.map((line) => line.text))).entries()) found.lines[at].lit = lit;
       sourceSeen.set(key, found);
       if (tip.dataset.key === key && a.isConnected && tip.matches(':popover-open')) showSource(a);
     });
@@ -1435,7 +1497,7 @@ function workCanvas(tree, project, stream, lane, shown) {
     <div class="canvas-bar">${level === 'stream' ? `<input class="lane-filter" type="search" data-lane-filter="${esc(at)}" value="${esc(words)}" placeholder="Filter ${counted(lanes.length, 'lane')}" aria-label="Filter lanes" autocomplete="off">` : `<span class="meta canvas-hint">${level === 'all' ? 'Click a project to fly in. Drag to pan; ⌘ or Ctrl and scroll, or pinch, to zoom.' : 'Click a workstream to see its lanes. Esc zooms out.'}</span>`}
       <div class="canvas-tools"><button class="map-btn" data-cam="out" aria-label="Zoom out">−</button><button class="map-btn" data-cam="in" aria-label="Zoom in">+</button><button class="map-btn" data-cam="fit" aria-label="Fit to this level" title="Fit">⤢</button></div></div>
     <div class="viewport" data-at="${esc(at)}" data-view="${esc(lane?.id ?? '')}">
-      <div class="world" style="${cameraStyle()}">${driveStage(tree, project, stream, lane, words)}</div>
+      <div class="world" style="${placed(nowCamera.at)}">${driveStage(tree, project, stream, lane, words)}</div>
       ${lane ? laneSheet(lane, zoomHref('work', project, stream)) : ''}
     </div>
     <div class="canvas-foot"><div class="map-legend">${Object.values(LANE_STATES).map(([word, tone]) => `<span class="t-${tone}">${word}</span>`).join('')}<span class="packet-key">A packet is a lane's record reaching the coordinator, or the coordinator starting a lane</span></div><span class="topo-label">${counted(shown.length, 'active job record')} · ${counted(agents, 'registered agent')}</span></div>
@@ -2206,7 +2268,7 @@ document.addEventListener('input', (event) => {
   if (!filter) return;
   laneFilter = { at: filter.dataset.laneFilter, words: filter.value };
   render();
-  flyTo(cameraTarget(), 300);
+  flyTo(nowCamera, fitOf($('#main .viewport')), 300);
 });
 document.addEventListener('submit', (event) => {
   const note = event.target.closest('form[data-note]');
@@ -2259,11 +2321,11 @@ document.addEventListener('click', (event) => {
   if (event.target.id === 'jump') return $('#jump').close();
   if (event.target.closest('#incidents a')) $('#incidents').hidePopover();
   if (event.target.closest('[data-reload]')) return reloadPage();
-  const cam = event.target.closest('#main [data-cam]');
-  if (cam) {
-    const viewport = $('#main .viewport');
-    if (cam.dataset.cam === 'fit') return flyTo(cameraTarget(), 420);
-    return zoomAround(cam.dataset.cam === 'in' ? 0.7 : 1 / 0.7, viewport.clientWidth / 2, viewport.clientHeight / 2, 260);
+  const tool = event.target.closest('[data-cam]');
+  if (tool) {
+    const view = tool.closest('.canvas, .visual-host').querySelector('.viewport, .frame');
+    if (tool.dataset.cam === 'fit') return flyTo(camOf(view), fitOf(view), 420);
+    return zoomAround(view, tool.dataset.cam === 'in' ? 0.7 : 1 / 0.7, view.clientWidth / 2, view.clientHeight / 2, 260);
   }
   const spot = !event.target.closest('a, button, .task-sheet') && event.target.closest('#main .viewport [data-href]');
   if (spot) {
@@ -2271,7 +2333,7 @@ document.addEventListener('click', (event) => {
     if (!zone.matches('.here')) location.hash = zone.dataset.href;
     return;
   }
-  const shown = event.target.closest('#main [data-shot], #drawer [data-shot], #main [data-enlarge], #drawer [data-enlarge]');
+  const shown = event.target.closest('#main [data-shot], #drawer [data-shot], #main [data-enlarge], #drawer [data-enlarge], #main .frame, #drawer .frame');
   if (shown) return openLightbox(shown.closest('figure.visual') ?? shown);
   const stepped = event.target.closest('#lightbox [data-step]');
   if (stepped) return stepLightbox(Number(stepped.dataset.step));
@@ -2377,65 +2439,57 @@ window.addEventListener('hashchange', () => {
 document.addEventListener('pointerover', (event) => {
   touched = event.pointerType !== 'mouse';
 });
-const pointers = new Map();
-let grip = null;
-
-function gripOf(viewport) {
-  const points = [...pointers.values()];
-  const r = viewport.getBoundingClientRect();
-  const span = points.length > 1 ? Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y) : 0;
-  return { camera: { ...camera }, x: points.reduce((sum, p) => sum + p.x, 0) / points.length - r.left, y: points.reduce((sum, p) => sum + p.y, 0) / points.length - r.top, span };
-}
-
 document.addEventListener('pointerdown', (event) => {
-  const viewport = event.target.closest('#main .viewport');
-  if (!viewport || event.button !== 0 || event.target.closest('.task-sheet, .stream.here .stream-body, input')) return;
-  if (!pointers.size) dragged = false;
-  pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-  grip = gripOf(viewport);
+  const view = event.target.closest('#main .viewport, .frame');
+  if (!view || event.button !== 0 || (view.matches('.viewport') && event.target.closest('.task-sheet, .stream.here .stream-body, input'))) return;
+  if (!gesture) dragged = false;
+  if (gesture?.view !== view) gesture = { view, cam: camOf(view), points: new Map(), moved: false };
+  gesture.points.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  regrip();
 });
 document.addEventListener('pointermove', (event) => {
-  if (!pointers.has(event.pointerId)) return;
-  const viewport = $('#main .viewport');
-  pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-  const now = gripOf(viewport);
-  if (!dragged && Math.hypot(now.x - grip.x, now.y - grip.y) < 6 && Math.abs(now.span - grip.span) < 6) return;
-  if (event.pointerType === 'mouse' && !viewport.hasPointerCapture(event.pointerId)) viewport.setPointerCapture(event.pointerId);
-  dragged = true;
-  viewport.classList.add('dragging');
-  cancelAnimationFrame(flying);
-  const k = grip.span ? zoomed(viewport, (grip.camera.k * now.span) / grip.span) : grip.camera.k;
-  camera = { k, x: grip.camera.x + grip.x / grip.camera.k - now.x / k, y: grip.camera.y + grip.y / grip.camera.k - now.y / k };
-  aim();
+  if (!gesture?.points.has(event.pointerId)) return;
+  gesture.points.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  const { view, cam, from, camera } = gesture;
+  const to = grip(gesture.points, view);
+  if (!gesture.moved && gesture.points.size === 1 && Math.hypot(to.x - from.x, to.y - from.y) < 6) return;
+  if (!gesture.moved && event.pointerType === 'mouse') view.setPointerCapture(event.pointerId);
+  view.classList.add('dragging');
+  gesture.moved = dragged = true;
+  cancelAnimationFrame(cam.flying);
+  const k = zoomed(view, camera.k * (to.spread / from.spread));
+  cam.at = { k, x: camera.x + from.x / camera.k - to.x / k, y: camera.y + from.y / camera.k - to.y / k };
+  aim(cam);
 });
 for (const ended of ['pointerup', 'pointercancel']) {
   document.addEventListener(ended, (event) => {
-    if (!pointers.delete(event.pointerId)) return;
-    const viewport = $('#main .viewport');
-    if (pointers.size && viewport) grip = gripOf(viewport);
-    else viewport?.classList.remove('dragging');
+    if (!gesture?.points.delete(event.pointerId)) return;
+    if (gesture.points.size) return regrip();
+    gesture.view.classList.remove('dragging');
+    gesture = null;
   });
 }
 document.addEventListener('click', (event) => {
-  if (!dragged || !event.detail || !event.target.closest('#main .viewport')) return;
+  if (!dragged || !event.detail || !event.target.closest('#main .viewport, .frame')) return;
   dragged = false;
   event.preventDefault();
   event.stopImmediatePropagation();
 }, true);
 document.addEventListener('wheel', (event) => {
-  const viewport = event.target.closest('#main .viewport');
-  if (!viewport) return;
-  if (!(event.ctrlKey || event.metaKey)) {
-    const tall = viewport.querySelector('.world').offsetHeight - viewport.clientHeight / camera.k;
+  const view = event.target.closest('#main .viewport, .frame');
+  if (!view) return;
+  if (!(event.ctrlKey || event.metaKey || view.closest('.lb-stage'))) {
+    if (!view.matches('.viewport')) return;
+    const tall = view.querySelector('.world').offsetHeight - view.clientHeight / nowCamera.at.k;
     if ($('#main .canvas').dataset.level !== 'all' || tall <= 0) return;
     event.preventDefault();
-    cancelAnimationFrame(flying);
-    camera = { ...camera, y: Math.min(tall, Math.max(0, camera.y + event.deltaY / camera.k)) };
-    return aim();
+    cancelAnimationFrame(nowCamera.flying);
+    nowCamera.at = { ...nowCamera.at, y: Math.min(tall, Math.max(0, nowCamera.at.y + event.deltaY / nowCamera.at.k)) };
+    return aim(nowCamera);
   }
   event.preventDefault();
-  const r = viewport.getBoundingClientRect();
-  zoomAround(Math.exp(event.deltaY * (event.ctrlKey ? 0.01 : 0.0016)), event.clientX - r.left, event.clientY - r.top);
+  const r = view.getBoundingClientRect();
+  zoomAround(view, Math.exp(event.deltaY * (event.ctrlKey ? 0.01 : 0.0016)), event.clientX - r.left, event.clientY - r.top);
 }, { passive: false });
 window.addEventListener('scroll', () => {
   if (touched) hideSource();
