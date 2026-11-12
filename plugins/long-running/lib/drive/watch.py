@@ -1503,7 +1503,7 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
             watcher.failures.pop(source, None)
             lane = orca.placement(worker) if state.on_mac(job) else {}
             if not job.get("run"):
-                lane |= {"run": worker["dispatch"]["runId"], "task": worker["dispatch"]["taskId"], "terminal": worker["terminal"]["handle"]}
+                lane |= orca.run_of(worker)
             if any(job.get(field) != value for field, value in lane.items()):
                 found[job_id] = lane
             if why := orca.death(worker):

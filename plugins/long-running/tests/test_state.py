@@ -1,4 +1,5 @@
 import fcntl
+import itertools
 import json
 import re
 import shutil
@@ -107,23 +108,30 @@ def test_a_first_save_waits_only_for_verbs_of_the_installs_from_the_one_that_sav
         handle.close()
 
 
-def test_a_first_save_goes_ahead_past_an_older_installs_verb_running_longer_than_the_wait_which_then_refuses_the_drive(
-    state_root: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_a_first_save_waits_for_an_older_installs_verb_however_long_it_runs_never_saving_past_it(
+    state_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     make("demo")
     path = state.state_path("demo")
     path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "0.0.1"}))
-    monkeypatch.setattr(state, "OLDER_VERBS_SECONDS", 0.3)
+    hours = itertools.count(step=3600)
+    monkeypatch.setattr(state.time, "monotonic", lambda: next(hours))
     state.install_lock("0.0.1").parent.mkdir(parents=True)
-    with open(state.install_lock("0.0.1"), "a") as stuck:
-        fcntl.flock(stuck, fcntl.LOCK_SH)
+    launch = open(state.install_lock("0.0.1"), "a")
+    fcntl.flock(launch, fcntl.LOCK_SH)
+
+    def save() -> None:
         with state.edit("demo") as data:
-            data["run"] = "run-1"
-    assert (state.load("demo")["run"], json.loads(path.read_text())["saved_by"]) == ("run-1", state.VERSION)
-    assert "demo saved past long-running 0.0.1's verbs still running after 0.3s" in capsys.readouterr().err
-    monkeypatch.setattr(state, "VERSION", "0.0.1")
-    with pytest.raises(state.NewerDrive):
-        state.load("demo")
+            data["slack"]["page_stale"] = "the newer install's save"
+
+    saving = threading.Thread(target=save, daemon=True)
+    saving.start()
+    saving.join(2)
+    assert (saving.is_alive(), json.loads(path.read_text())["saved_by"]) == (True, "0.0.1")
+    launch.close()
+    saving.join(10)
+    saved = json.loads(path.read_text())
+    assert (saving.is_alive(), saved["saved_by"], saved["slack"]["page_stale"]) == (False, state.VERSION, "the newer install's save")
 
 
 def test_a_write_waiting_past_the_drive_lock_wait_changes_nothing_and_names_the_lock_held(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:

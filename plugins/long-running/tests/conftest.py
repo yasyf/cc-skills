@@ -35,8 +35,9 @@ TEAM = [
 ]
 LIVE_WORKER = {
     "worker": {"state": "ready"},
+    "dispatch": {"runId": "run_live", "taskId": "task_live"},
     "projection": {"liveness": {"verdict": "live"}, "outcome": "in_progress", "attention": {"categories": []}},
-    "terminal": {"lastOutputAt": None},
+    "terminal": {"handle": "term_live", "lastOutputAt": None},
 }
 CARD_BODY = """## Summary
 `land.py` lands the PR once your tap comes in.

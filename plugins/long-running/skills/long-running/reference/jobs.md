@@ -117,7 +117,9 @@ minutes is said with the remedy, a `SendMessage` to wake it.
    started or why it could not.
 3. When no worker started, start the job here with the Agent tool on its brief and say so in the
    order's next report, never silently. When the failure came after worker-start ran, the lane may
-   be live, so a reader checks that attempt before anything starts the job again.
+   be live, so a reader checks that attempt before anything starts the job again. A launch whose
+   worker started and was never recorded needs no reader: `drive job launch <j>` again records it
+   from the ready receipt its attempt keeps.
 4. Send a handoff or message to a lane on stdin, `drive job resume <j> -`, never in a file you
    write: Claude Code reads the files a session wrote back into its context after every compaction.
 5. A "You have N orchestration messages" line Orca types into your terminal needs nothing: the watch
