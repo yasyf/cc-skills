@@ -144,6 +144,7 @@ def test_a_ready_record_for_a_pr_the_drive_owes_no_tap_on_is_refused(demo: str) 
 
 
 TO = ["communicator@demo"]
+PROGRESS = {"progress": "true"}
 THREAD = "1794378983.440769"
 OTHER = "1794379098.881109"
 CARD = "https://forge.slack.com/archives/D123/p1794379200123456"
@@ -187,7 +188,7 @@ def test_a_handler_returns_a_defect_line_instead_of_posting_one(communicator: st
     assert "DEFECT <tool>" in reason
     assert record_lines.decision(post(kind="defect", text="cc-slack say fails", to=["root@demo"])) is None
     assert record_lines.decision(by("long-running:designer", kind="defect", text="drive job ask fails", to=TO, lane="designer")) is None
-    assert record_lines.decision(by("long-running:handler", kind="report", text="POST j12 merged", to=TO, lane="handler")) is None
+    assert record_lines.decision(by("long-running:handler", kind="report", text="POST j12 merged", to=TO, lane="handler", attrs=PROGRESS)) is None
 
 
 def test_an_ask_naming_no_job_is_refused(demo: str) -> None:
@@ -230,7 +231,7 @@ def test_an_ask_for_a_job_on_an_open_incident_order_says_so_and_names_the_incide
 
 
 def test_a_record_carrying_a_max_words_attr_is_refused_on_any_kind(demo: str) -> None:
-    for record in ({"kind": "report", "text": "POST j702 merged", "to": TO}, {"kind": "note", "text": "the watch reads taps"}):
+    for record in ({"kind": "report", "text": "FYI j702 merged", "to": TO}, {"kind": "note", "text": "the watch reads taps"}):
         reason = refusal(record_lines.decision(post(**record, attrs={"max_words": "200"})))
         assert "`max_words`" in reason
         assert f"at most {limits.LINE_WORDS} words" in reason
@@ -240,7 +241,7 @@ def test_a_record_carrying_a_max_words_attr_is_refused_on_any_kind(demo: str) ->
 
 def test_a_report_opens_post_or_fyi(demo: str) -> None:
     assert "`POST`" in refusal(record_lines.decision(post(kind="report", text="j702 merged", to=TO)))
-    assert record_lines.decision(post(kind="report", text="POST j702 merged", to=TO)) is None
+    assert record_lines.decision(post(kind="report", text="POST j702 merged", to=TO, attrs=PROGRESS)) is None
     assert record_lines.decision(post(kind="report", text="j702 merged", to=["builder@demo"])) is None
 
 
@@ -271,29 +272,52 @@ def test_a_report_that_finishes_an_order_names_one_of_its_threads(run: Callable[
     reason = refusal(record_lines.decision(coordinator(turn, kind="report", text="POST j1 merged", to=TO, attrs={"close": "o1", "thread": OTHER})))
     assert f"drive order set <o> --thread {OTHER}" in reason and THREAD in reason
     assert record_lines.decision(coordinator(turn, kind="report", text="POST j1 merged", to=TO, attrs={"close": "o1", "thread": THREAD})) is None
-    assert record_lines.decision(coordinator(turn, kind="report", text="POST j1 is building", to=TO, attrs={"thread": OTHER})) is None
+    assert record_lines.decision(coordinator(turn, kind="report", text="POST j1 is building", to=TO, attrs={"thread": OTHER, **PROGRESS})) is None
+
+
+def test_a_post_report_names_what_its_post_finishes_and_the_last_part_of_an_order_closes_it(run: Callable[..., tuple[int, str]], demo: str, turn: Path) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "why does the search worker OOM?", "--parts", "cause", "fix")
+    run("job", "add", "builder", "--order", "o1", "--part", "cause", "--goal", "find the cause")
+    merged = {"kind": "report", "text": "POST the search worker's fix merged", "to": TO}
+    reason = refusal(record_lines.decision(coordinator(turn, **merged, attrs={"job": "j1"})))
+    assert "here o1, the open order it is about" in reason and 'one of "cause", "fix"' in reason and "`--attr progress=true`" in reason
+    reason = refusal(record_lines.decision(coordinator(turn, **merged)))
+    assert "`--attr close=<o,…>` naming each order it finishes, `--attr part=<name>` naming the part it delivers, or" in reason
+    for named in ({"job": "j1", "close": "o1"}, {"job": "j1", "part": "cause"}, {"job": "j1", "progress": "true"}, {"catch_up": "true"}, {"close": "o1"}):
+        assert record_lines.decision(coordinator(turn, **merged, attrs=named)) is None
+    assert record_lines.decision(coordinator(turn, kind="report", text="FYI the search worker's fix merged", to=TO, attrs={"job": "j1"})) is None
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["parts"]["cause"]["posted"] = CARD
+    assert 'delivers "fix", the last part of o1' in refusal(record_lines.decision(coordinator(turn, **merged, attrs={"job": "j1", "part": "fix"})))
+    assert record_lines.decision(coordinator(turn, **merged, attrs={"job": "j1", "part": "fix", "close": "o1"})) is None
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["incident"] = True
+    assert record_lines.decision(coordinator(turn, **merged, attrs={"job": "j1", "part": "fix"})) is None
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["state"] = "done"
+    assert "the open order it is about" not in refusal(record_lines.decision(coordinator(turn, **merged, attrs={"job": "j1"})))
 
 
 def test_the_coordinator_sends_one_report_per_thread_per_turn(demo: str, turn: Path) -> None:
     tool = "mcp__plugin_cc-inbox_cci__post"
-    earlier = {"kind": "report", "text": "POST j1 merged", "to": TO, "attrs": {"thread": THREAD}}
+    earlier = {"kind": "report", "text": "POST j1 merged", "to": TO, "attrs": {"thread": THREAD, **PROGRESS}}
     called(turn, "refused", tool, earlier, failed=True)
     assert record_lines.decision(coordinator(turn, **earlier)) is None
     called(turn, "first", tool, earlier)
-    assert "one report per thread per turn" in refusal(record_lines.decision(coordinator(turn, kind="report", text="POST j2 merged", to=TO, attrs={"thread": THREAD})))
-    assert record_lines.decision(coordinator(turn, kind="report", text="POST j2 merged", to=TO, attrs={"thread": OTHER})) is None
+    assert "one report per thread per turn" in refusal(record_lines.decision(coordinator(turn, kind="report", text="POST j2 merged", to=TO, attrs={"thread": THREAD, **PROGRESS})))
+    assert record_lines.decision(coordinator(turn, kind="report", text="POST j2 merged", to=TO, attrs={"thread": OTHER, **PROGRESS})) is None
     wake = '<channel source="plugin:cc-inbox:cci" kind="handoff" lane="watch" seq="662305">\n@2:36 AM\n662305 handoff watch j242 green'
     with turn.open("a") as transcript:
         transcript.write(json.dumps({"type": "user", "isMeta": True, "message": {"role": "user", "content": "the skill's body"}}) + "\n")
-    assert "one report per thread per turn" in refusal(record_lines.decision(coordinator(turn, kind="report", text="POST j2 merged", to=TO, attrs={"thread": THREAD})))
+    assert "one report per thread per turn" in refusal(record_lines.decision(coordinator(turn, kind="report", text="POST j2 merged", to=TO, attrs={"thread": THREAD, **PROGRESS})))
     with turn.open("a") as transcript:
         transcript.write(json.dumps({"type": "assistant", "message": {"role": "assistant", "stop_reason": "end_turn", "content": [{"type": "text", "text": "Sent."}]}}) + "\n")
         transcript.write(json.dumps({"type": "user", "isMeta": True, "message": {"role": "user", "content": wake}}) + "\n")
     called(turn, "now", tool, earlier)
-    assert record_lines.decision(coordinator(turn, kind="report", text="POST j2 merged", to=TO, attrs={"thread": THREAD})) is None
+    assert record_lines.decision(coordinator(turn, kind="report", text="POST j2 merged", to=TO, attrs={"thread": THREAD, **PROGRESS})) is None
     assert "one report per thread per turn" in refusal(record_lines.decision(coordinator(turn, records=[earlier, earlier])))
     called(turn, "woken", tool, earlier)
-    assert "the next wake" in refusal(record_lines.decision(coordinator(turn, kind="report", text="POST j3 merged", to=TO, attrs={"thread": THREAD})))
+    assert "the next wake" in refusal(record_lines.decision(coordinator(turn, kind="report", text="POST j3 merged", to=TO, attrs={"thread": THREAD, **PROGRESS})))
 
 
 def said(count: int) -> str:
@@ -301,23 +325,23 @@ def said(count: int) -> str:
 
 
 def test_a_post_report_past_a_posts_length_goes_to_the_handler_whose_post_say_checks(demo: str) -> None:
-    assert "permissionDecision" not in record_lines.decision(post(kind="report", text=f"POST {said(90)}", to=TO))
+    assert "permissionDecision" not in record_lines.decision(post(kind="report", text=f"POST {said(90)}", to=TO, attrs=PROGRESS))
 
 
 def test_a_report_saying_something_waits_on_him_names_its_card(demo: str) -> None:
-    assert "--attr waits=" in refusal(record_lines.decision(post(kind="report", text="POST the copy fix waits on his pick", to=TO)))
-    assert record_lines.decision(post(kind="report", text="POST the copy fix waits on his pick", to=TO, attrs={"waits": "durable-agents:j750-661229"})) is None
-    assert record_lines.decision(post(kind="report", text="POST the copy fix waits on his pick {card:durable-agents:j750-661229}", to=TO)) is None
-    assert record_lines.decision(post(kind="report", text="POST https://github.com/yasyf/cc-skills/pull/4093 waits on his pick", to=TO)) is None
+    assert "--attr waits=" in refusal(record_lines.decision(post(kind="report", text="POST the copy fix waits on his pick", to=TO, attrs=PROGRESS)))
+    assert record_lines.decision(post(kind="report", text="POST the copy fix waits on his pick", to=TO, attrs={"waits": "durable-agents:j750-661229", **PROGRESS})) is None
+    assert record_lines.decision(post(kind="report", text="POST the copy fix waits on his pick {card:durable-agents:j750-661229}", to=TO, attrs=PROGRESS)) is None
+    assert record_lines.decision(post(kind="report", text="POST https://github.com/yasyf/cc-skills/pull/4093 waits on his pick", to=TO, attrs=PROGRESS)) is None
 
 
 def test_a_wait_on_anything_else_says_how_long_and_whether_it_runs(demo: str) -> None:
-    assert "how long it has waited" in refusal(record_lines.decision(post(kind="report", text="POST j702 waits on CI", to=TO)))
-    assert record_lines.decision(post(kind="report", text="POST j702 waits on CI, 40 min, run 123 running", to=TO)) is None
+    assert "how long it has waited" in refusal(record_lines.decision(post(kind="report", text="POST j702 waits on CI", to=TO, attrs=PROGRESS)))
+    assert record_lines.decision(post(kind="report", text="POST j702 waits on CI, 40 min, run 123 running", to=TO, attrs=PROGRESS)) is None
 
 
 def test_a_job_is_called_stuck_only_after_a_read_of_its_transcript(demo: str, turn: Path) -> None:
-    stuck = {"kind": "report", "text": "POST j702 is stuck since 5 PM", "to": TO}
+    stuck = {"kind": "report", "text": "POST j702 is stuck since 5 PM", "to": TO, "attrs": PROGRESS}
     assert "`drive job replies <j>`" in refusal(record_lines.decision(coordinator(turn, **stuck)))
     called(turn, "old", "Bash", {"command": "drive job replies j702"}, age=timedelta(minutes=30))
     assert "j702" in refusal(record_lines.decision(coordinator(turn, **stuck)))

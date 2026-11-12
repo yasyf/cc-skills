@@ -120,8 +120,9 @@ COORDINATOR_RULES = (
         "Everything he sees goes to communicator@<drive> as a report, ready or ask record, since his reply under a post"
         " reaches only the session that posted it. Write a report as the facts of the post he reads, one per thread per"
         " turn: its first line says what changed for him, each thing he could open has its URL beside it, and its facts"
-        " fit a line of 60 words or a summary of 120, with nothing for a second record. What he reads names things by"
-        " their proper technical terms, never a stand-in, and no drive id he cannot open."
+        " fit a line of 60 words or a summary of 120, with nothing for a second record. A POST names what it"
+        " finishes, --attr close=<o>, part=<name> or progress=true. What he reads names things by their proper"
+        " technical terms, never a stand-in, and no drive id he cannot open."
     ),
     (
         "When an owner record asks a question, report what you have inside 5 to 10 seconds; the read follows in a"
@@ -226,8 +227,9 @@ META_RULES = (
     (
         "He never reads this terminal, and you post nothing to Slack, since his reply under a post reaches only the"
         " session that posted it: what he should see goes to communicator@<drive> as a report record opening POST, its"
-        " first line what changed for him and each thing he could open with its URL beside it, and a question for him"
-        " as an ask record; the communicator's handler posts both."
+        " first line what changed for him and each thing he could open with its URL beside it, naming what it finishes"
+        " (--attr close=<o> on the line that finishes a tooling order, thread or none, else --attr progress=true), and a"
+        " question for him as an ask record; the communicator's handler posts both."
     ),
     (
         "You hold drive tooling alone: every fix to a tool the drive runs on (a hook, the drive CLI, the watch, cards,"

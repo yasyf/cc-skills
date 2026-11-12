@@ -3989,6 +3989,27 @@ def test_order_posted_on_the_communicators_own_order_takes_the_report_its_handle
     assert run("order", "posted", "o1", line, "--record", "664350") == (0, f'o1 "which page shows a run\'s history?": posted {line}')
 
 
+def test_order_set_done_refuses_the_report_order_posted_refuses_so_one_check_decides_both_verbs(
+    run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "p", "--workstream", "w", "ship the run page", "--thread", "1794200000.000100")
+    run("start", "demo", "--role", "communicator")
+    with state.edit("demo") as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    line = slack_thread.post(state.now(), from_claude=True)
+    report_records(monkeypatch, {"669443": {"close": "o1"}}, lane="communicator")
+    refused = "refused, the report is the communicator's and o1 is the coordinator's order, so it delivers nothing there: pass the coordinator's own report on o1"
+    for verb in (["order", "posted", "o1", line, "--record", "669443"], ["order", "set", "o1", "--state", "done", "--record", "669443"]):
+        assert cli.main(verb) == 2
+        assert refused in capsys.readouterr().err
+    assert state.load("demo")["orders"]["o1"]["state"] == "open"
+    report_records(monkeypatch, {"669450": {"close": "o1"}})
+    assert run("order", "posted", "o1", line, "--record", "669450")[0] == 0
+    assert run("order", "set", "o1", "--state", "done", "--record", "669450")[0] == 0
+    assert state.load("demo")["orders"]["o1"]["state"] == "done"
+
+
 def test_start_outside_an_orca_terminal_is_refused_naming_the_command_that_starts_it_in_one(
     run: Run, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
