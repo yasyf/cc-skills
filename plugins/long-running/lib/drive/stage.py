@@ -97,14 +97,14 @@ def landing_why(pr: dict) -> str:
 
 
 def unlanded(data: dict, pr: dict) -> str | None:
-    """How a lander's try at the PR's head ended without landing it, or None when no try at this head stands: none ran on it, Trunk holds it, or what the try waited on moved since, a PR below it that is cleared or merged now, a newer install's save that ended it before it queued anything, or no fresh worktree of the default branch to land from, such as when GitHub did not answer, so the lander tries again."""
+    """How a lander's try at the PR's head ended without landing it, or None when no try at this head stands: none ran on it, Trunk holds it, or what the try waited on moved since, a PR below it that is cleared or merged now, a newer install's save that ended it before it queued anything, a hold of his that it or halt() stopped it on, which held() reads while it stands, or no fresh worktree of the default branch to land from, such as when GitHub did not answer, so the lander tries again."""
     lander = pr["lander"]
     if not lander or lander["head"] != pr["head"] or land.running(pr):
         return None
     if lander["outcome"] == land.QUEUED:
         return "Trunk ejected it from the merge queue" if pr["ejected"] else None
     outcome = lander["outcome"] or UNLANDED_SILENT
-    if outcome.startswith((land.NEWER_INSTALL, land.NO_WORKTREE)):
+    if outcome.startswith((land.NEWER_INSTALL, land.NO_WORKTREE, land.HELD)):
         return None
     if lander.get("below") and all(key in data["prs"] and (state.cleared(data["prs"][key]) or data["prs"][key]["state"] == "merged") for key in lander["below"]):
         return None
@@ -112,14 +112,14 @@ def unlanded(data: dict, pr: dict) -> str | None:
 
 
 def held(data: dict, pr: dict, cards: dict) -> str:
-    """What of his holds the PR: his Hold, the hold label, a card of his it waits on, or a question card of his open on its work."""
+    """What of his holds the PR: his Hold, the hold label, a card of his it waits on, or a question card of his open on the work of any job carrying it."""
     if (pr["tap"] or {}).get("label") == "Hold":
         return f"held by his Hold of {pr['tap']['at']}"
     if pr["hold_label"]:
         return "held by the hold label on GitHub"
     if waiting := [wait for wait in view.holding(data, pr["waits"], cards) if state.card_wait(data, wait)]:
         return f"it waits on his cards {', '.join(waiting)}"
-    if asking := land.open_cards(data, pr["job"], pr["waits"], cards):
+    if asking := land.pr_cards(data, pr, cards):
         return f"his cards {', '.join(asking)} on its work are open"
     return ""
 

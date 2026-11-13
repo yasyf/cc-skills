@@ -2090,8 +2090,13 @@ def served_orders(data: dict, pr: dict) -> list[str]:
     """The orders whose words a PR's change is checked against: the one `drive pr set --serves` names alone, else its job's own, the order of every other job carrying it, a builder that took the PR over included, and each order those jobs carry."""
     if pr.get("serves"):
         return [pr["serves"]]
-    jobs = [data["jobs"][pr["job"]], *(job for job_id, job in data["jobs"].items() if job_id != pr["job"] and pr["url"] in job["prs"])]
+    jobs = [data["jobs"][job_id] for job_id in pr_jobs(data, pr)]
     return list(dict.fromkeys([pr["order"], *(order_id for job in jobs for order_id in (job["order"], *job["carries"]))]))
+
+
+def pr_jobs(data: dict, pr: dict) -> list[str]:
+    """The jobs carrying a PR: its own, then each other job listing it among its PRs, a builder that took it over or one that holds its landing included."""
+    return [pr["job"], *(job_id for job_id, job in data["jobs"].items() if job_id != pr["job"] and pr["url"] in job["prs"])]
 
 
 def checked(data: dict, pr: dict) -> bool:

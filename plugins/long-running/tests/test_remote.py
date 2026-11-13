@@ -1957,6 +1957,18 @@ def test_end_refuses_while_the_sprite_of_a_job_still_at_work_cannot_be_saved(
     assert state.load(remote)["jobs"]["j1"].get("deaths", []) == []
 
 
+def test_end_refuses_a_running_job_whose_lane_stopped_without_its_line_naming_resume(
+    remote: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(state="running", said="WAITING #49869 merged; his pick on the open card lands as a follow-up PR", waits=["demo:j1-5-a"], workspace="pool-one")
+    monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: pytest.fail("a refused end saves nothing"))
+    monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: pytest.fail("a refused end reclaims nothing"))
+    assert cli.main(["job", "end", "j1"]) == 2
+    assert "j1: refused, nothing ended: it is running, so its lane has returned no line to end it on; drive job resume j1 sends" in capsys.readouterr().err
+    assert (state.load(remote)["jobs"]["j1"]["state"], state.load(remote)["jobs"]["j1"].get("deaths", [])) == ("running", [])
+
+
 def test_end_saves_what_the_sprite_of_a_job_still_at_work_holds_and_its_next_lane_gets_the_saved_branches(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -2055,9 +2055,10 @@ def acted(watcher: Watcher, key: str, now: stage.Stage, entered: bool, line: str
 
 
 def landed(watcher: Watcher) -> None:
-    """Start the drive's lander on each PR the watch hears that his Approve or an exempt class clears once it qualifies, within one GitHub read of it going green and approved, and on each yasyf/* one whose head moved past the one its lander tried, so a branch its builder or the lander brought onto its base merges with no builder registering it again."""
+    """Stop each lander on a PR the watch hears that a hold of his came on since it started, start the drive's lander on each that his Approve or an exempt class clears once it qualifies, within one GitHub read of it going green and approved, and on each yasyf/* one whose head moved past the one its lander tried, so a branch its builder or the lander brought onto its base merges with no builder registering it again."""
     data = state.load(watcher.name)
     keys = [key for key in state.open_pr_keys(data) if hears(watcher, data, data["prs"][key]["order"])]
+    land.halt(watcher.name, keys, watcher.cards)
     land.start(watcher.name, keys, watcher.cards)
     land.follow(watcher.name, keys)
 

@@ -1,5 +1,6 @@
 import os
 import re
+import signal
 import subprocess
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -21,6 +22,7 @@ NOT_MERGING = "not merging it"
 MERGE = ("gh", "pr", "merge", "--squash")
 NEWER_INSTALL = "not landed: a newer long-running saved the drive while stack-enqueue --check ran, so the landing runs again on it"
 NO_WORKTREE = "not landed: no fresh worktree"
+HELD = "not landed while he holds it"
 REVIEW_ASK = "@forge-pr-reviewer review"
 BLOCKED_LINE = re.compile(r"^#(?P<number>\d+) BLOCKED (?P<head>\w+) (?P<gaps>.+)$", re.MULTILINE)
 OLDER_HEAD = re.compile(r"awaiting approval on head from \S+ \(approved [^,]+, (?:on an older head|dismissed by a push)\)")
@@ -44,6 +46,11 @@ def open_cards(data: dict, job_id: str, waits: list[str], cards: dict | None) ->
         if (drawn := question["card"] or question["waits"]) and state.names_part(question["holds"], state.worked(data, job_id, order_id))
     ]
     return list(dict.fromkeys([*waited, *asked]))
+
+
+def pr_cards(data: dict, pr: dict, cards: dict | None) -> list[str]:
+    """His open cards holding a PR from landing: those holding the work of any job carrying it, its own and each that holds its landing, by open_cards()."""
+    return list(dict.fromkeys(card for job_id in state.pr_jobs(data, pr) for card in open_cards(data, job_id, pr["waits"], cards)))
 
 
 def ship_held(data: dict, job_id: str, cards: dict | None) -> list[str]:
@@ -134,6 +141,13 @@ def unready(data: dict, key: str, cards: dict) -> str | None:
     return None if now.name == "ready" else f"{now.name}: {now.why}"
 
 
+def held(data: dict, keys: list[str], cards: dict | None) -> str:
+    """What of his holds any PR among keys, each by its key, as its stage reads it; empty when nothing does."""
+    from drive import stage
+
+    return "; ".join(f"{key}: {why}" for key in keys if (why := stage.held(data, data["prs"][key], cards)))
+
+
 def unit(data: dict, under: dict[str, str | None], key: str, cards: dict) -> tuple[str, ...]:
     """The PRs one lander queues for key: its chain(), key and the PRs under it bottom first, once every PR of it lands now, else none, so a PR above it that is red, untapped or held never holds it."""
     members = chain(under, key)
@@ -183,7 +197,7 @@ def merge_ready(name: str, key: str, read: dict) -> str:
     cards = view.live_cards(name)
     with state.edit(name) as data:
         pr = data["prs"][key]
-        if why is None and (asking := open_cards(data, pr["job"], pr["waits"], cards)):
+        if why is None and (asking := pr_cards(data, pr, cards)):
             why = f"his questions on its work are unanswered, {', '.join(asking)}; its builder reports again once he answers each"
         if why is None and running(pr):
             why = f"lander pid {pr['lander']['pid']} already merges it"
@@ -204,6 +218,29 @@ def follow(name: str, keys: list[str]) -> list[str]:
         for key in started:
             mark(data, (key,), spawn(name, (key,)))
     return started
+
+
+def halt(name: str, keys: list[str], cards: dict | None) -> list[str]:
+    """Stop each lander queueing a Forge-AI/monorepo unit through stack-enqueue that a hold of his on a PR among keys holds, his Hold, the hold label or a card of his opened on its work since it started, by ending its process group, which dequeues what it queued, and record that on each PR of its unit, which reads held until he answers and lands then; the PRs stopped. With his cards unread, none."""
+    if cards is None or not held_landers(state.load(name), keys, cards):
+        return []
+    with state.edit(name) as data:
+        stopped = held_landers(data, keys, cards)
+        under = unders(data)
+        units = {pid: sorted((key for key, pr in data["prs"].items() if running(pr) and pr["lander"]["pid"] == pid), key=lambda key: len(chain(under, key))) for pid in stopped}
+        for pid, unit in units.items():
+            os.killpg(pid, signal.SIGTERM)
+            noted(name, data, unit, stopped[pid], [])
+    return [key for unit in units.values() for key in unit]
+
+
+def held_landers(data: dict, keys: list[str], cards: dict) -> dict[int, str]:
+    """Each running lander queueing a Forge-AI/monorepo unit with a PR among keys that a hold of his holds, by its pid, with the outcome saying so."""
+    return {
+        data["prs"][key]["lander"]["pid"]: f"{HELD}: {holding}"
+        for key in keys
+        if state.queued_by_lander(key) and running(data["prs"][key]) and (holding := held(data, [key], cards))
+    }
 
 
 def moved(key: str, pr: dict) -> bool:
@@ -247,7 +284,7 @@ def spawn(name: str, keys: tuple[str, ...]) -> int:
 
 
 def run(name: str, keys: list[str], dry_run: bool = False) -> str:
-    """Land one unit his Approve or exempt classes clear, or one yasyf/* PR, in whichever repository the drive tracks it, never a PR the drive does not track or one someone else opened that no order of his it serves names, then record what came of it on each PR, which its stage reads, and as a landing event: a yasyf/* PR merges with gh pr merge --admin past its checks, a Forge-AI/monorepo unit queues through stack-enqueue, and a PR of any other repository merges with gh pr merge at the head its stage read ready, which GitHub merges only once its repository's rules pass. His Approve lands the PR whatever the check of its change against his words says, which only informs his card and its owner; a unit with a PR below it that nothing clears is not landed, since its landing would land that PR too, nor one with a PR its changes put outside its exempt class. A dry run runs stack-enqueue --check as the landing would, says what it would do, and lands and records nothing."""
+    """Land one unit his Approve or exempt classes clear, or one yasyf/* PR, in whichever repository the drive tracks it, never a PR the drive does not track or one someone else opened that no order of his it serves names, then record what came of it on each PR, which its stage reads, and as a landing event: a yasyf/* PR merges with gh pr merge --admin past its checks, a Forge-AI/monorepo unit queues through stack-enqueue, and a PR of any other repository merges with gh pr merge at the head its stage read ready, which GitHub merges only once its repository's rules pass. His Approve lands the PR whatever the check of its change against his words says, which only informs his card and its owner; a unit with a PR below it that nothing clears is not landed, since its landing would land that PR too, nor one with a PR its changes put outside its exempt class, nor one a hold of his holds, his Hold, the hold label or an open card of his on the work of any job carrying a PR of it. A dry run runs stack-enqueue --check as the landing would, says what it would do, and lands and records nothing."""
     data = state.load(name)
     if untracked := [key for key in keys if key not in data["prs"]]:
         raise state.DriveError(f"{', '.join(untracked)}: the drive tracks no such PR, so it lands none; drive pr add <url> --job <job> registers one first")
@@ -256,7 +293,9 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
     if foreign := [why for key in keys if (why := state.foreign_pr(data, key))]:
         raise state.DriveError("; ".join(foreign))
     below: list[str] = []
-    if state.merges_untapped(keys[0]):
+    if holding := held(data, keys, view.live_cards(name)):
+        outcome = f"{HELD}: {holding}"
+    elif state.merges_untapped(keys[0]):
         outcome = f"would merge it with {' '.join(MERGE)} --admin, then install each plugin it changes" if dry_run else merged(name, keys[0], ["--admin"])
     else:
         try:
@@ -283,14 +322,26 @@ def record(name: str, keys: list[str], outcome: str, below: list[str]) -> str:
     """Record what came of a landing on each PR, with the top of keys as its entry, the PR stack-enqueue submits and so the one whose labels say Trunk ejected them all, and as a landing event unless the try before it on the same head came to the same, such as a retried landing that again could make no worktree; on the newest install, which `drive pr land --outcome` records it on when one landed while this lander waited on the queue or an install."""
     install.reopen(["pr", "land", *map(state.pr_url, keys), "--drive", name, "--outcome", outcome, *(flag for key in below for flag in ("--below", key))])
     with state.edit(name) as data:
-        for key in keys:
-            pr = data["prs"][key]
-            pr["lander"] = (pr["lander"] or {"head": pr["head"], "pid": os.getpid(), "at": state.stamp()}) | {"outcome": outcome, "below": below, "entry": keys[-1]}
-            if pr["lander"].get("was") == outcome:
-                continue
-            repo, number = key.split("#")
-            state.append_event(name, "landing", repo=repo, number=int(number), change=outcome, lane=state.heard_lane(data, pr["order"]))
+        noted(name, data, keys, outcome, below)
     return outcome
+
+
+def noted(name: str, data: dict, keys: list[str], outcome: str, below: list[str]) -> None:
+    for key in keys:
+        pr = data["prs"][key]
+        pr["lander"] = (pr["lander"] or {"head": pr["head"], "pid": os.getpid(), "at": state.stamp()}) | {"outcome": outcome, "below": below, "entry": keys[-1]}
+        if pr["lander"].get("was") == outcome:
+            continue
+        repo, number = key.split("#")
+        state.append_event(name, "landing", repo=repo, number=int(number), change=outcome, lane=state.heard_lane(data, pr["order"]))
+
+
+class Halted(SystemExit):
+    pass
+
+
+def halted(signum: int, frame: object) -> None:
+    raise Halted(128 + signum)
 
 
 def said(output: str) -> str:
@@ -298,9 +349,10 @@ def said(output: str) -> str:
 
 
 def enqueued(name: str, clone: Path, keys: list[str], dry_run: bool = False) -> str:
-    """Queue the unit through stack-enqueue as the head of its repository's default branch holds it, run from a fresh() worktree of the coordinator checkout's clone and never from that checkout: --check first, whose BLOCKED lines end the landing, unless each gap is an approval on an older head, which stack-enqueue names only once ai-review finished on the head, or a wait to retarget onto the default branch once the PR under it lands; a dry run stops there, saying what it would queue; then forge-pr-reviewer is asked to review each head approved only on an older one, once, and --watch waits until Trunk holds every PR of it or one needs a fix rather than a wait; what came of it. The lander lets go of its install's lock before --check, which reads GitHub for every PR of the unit, and holds none through --watch, which may wait an hour and a half on Trunk; a drive a newer install saved meanwhile ends the landing unlanded, for the next landing on that install."""
+    """Queue the unit through stack-enqueue as the head of its repository's default branch holds it, run from a fresh() worktree of the coordinator checkout's clone and never from that checkout: --check first, whose BLOCKED lines end the landing, unless each gap is an approval on an older head, which stack-enqueue names only once ai-review finished on the head, or a wait to retarget onto the default branch once the PR under it lands; a dry run stops there, saying what it would queue; then forge-pr-reviewer is asked to review each head approved only on an older one, once, and --watch waits until Trunk holds every PR of it or one needs a fix rather than a wait, unless halt() ends it first, which dequeues each PR of it; what came of it. The lander lets go of its install's lock before --check, which reads GitHub for every PR of the unit, and holds none through --watch, which may wait an hour and a half on Trunk; a drive a newer install saved meanwhile ends the landing unlanded, for the next landing on that install."""
     repo = github.repo_of(keys[0])
     numbers = [key.split("#")[1] for key in keys]
+    signal.signal(signal.SIGTERM, halted)
     try:
         branch = github.default_branch(repo)
         with fresh(name, clone, branch) as (checkout, sha):
@@ -323,7 +375,12 @@ def enqueued(name: str, clone: Path, keys: list[str], dry_run: bool = False) -> 
                 return f"{NEWER_INSTALL}: {cut(str(error), SAID_CHARS)}"
             if refused:
                 return refused
-            done = subprocess.run([script, "--watch", *numbers], cwd=checkout, capture_output=True, text=True)
+            try:
+                done = subprocess.run([script, "--watch", *numbers], cwd=checkout, capture_output=True, text=True)
+            except Halted:
+                for number in numbers:
+                    subprocess.run([script, "--dequeue", number], cwd=checkout)
+                raise
     except github.GithubError as error:
         return f"{NO_WORKTREE} of {repo}'s default branch to run stack-enqueue from: {cut(str(error), SAID_CHARS)}"
     print(done.stdout + done.stderr, flush=True)

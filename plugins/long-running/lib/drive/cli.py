@@ -2318,10 +2318,15 @@ def job_prove(args: argparse.Namespace) -> int:
 
 
 def job_end(args: argparse.Namespace) -> int:
-    """Free a remote job's lane: its Sprite, destroyed once what it holds on no remote is saved to GitHub, whatever the job's state, or its terminal and clean worktree on this Mac. The job keeps the state its line set, with its waits, PRs and carried parts, so a waiting job's next event starts its next lane and nothing waiting on it is freed. A job still at work first has what its Sprite holds that its next lane would not get saved to GitHub, which that lane's handoff names; refused, ending nothing, when that Sprite cannot be read or the save fails."""
+    """Free a remote job's lane: its Sprite, destroyed once what it holds on no remote is saved to GitHub, whatever the job's state, or its terminal and clean worktree on this Mac. The job keeps the state its line set, with its waits, PRs and carried parts, so a waiting job's next event starts its next lane and nothing waiting on it is freed. A job still at work first has what its Sprite holds that its next lane would not get saved to GitHub, which that lane's handoff names; refused, ending nothing, when that Sprite cannot be read or the save fails, and for a running job, whose lane has returned no line, so its next event, never its end, comes next."""
     name = state.resolve(args.drive)
     data = state.load(name)
     job = started_job(data, args.id)
+    if job["state"] == "running":
+        raise DriveError(
+            f"{args.id}: refused, nothing ended: it is running, so its lane has returned no line to end it on; drive job resume {args.id} sends a lane that stopped"
+            f" without one its next event, and drive job set {args.id} --state stopped ends it unfinished"
+        )
     root = orca.checkout(name, data)
     saved = None
     if job["state"] not in state.FINISHED_JOB_STATES:
@@ -4054,7 +4059,7 @@ def parser() -> argparse.ArgumentParser:
             "free a remote job's lane once it returned its line: its Sprite, destroyed once what it holds on no remote is saved to GitHub as saved/<its lane>/<branch>, or its terminal and clean worktree on this Mac. The job"
             " stays in the state its line set, with its waits, PRs and carried parts. A job not yet done first has what its Sprite holds"
             " on no remote, uncommitted changes included, saved to GitHub as saved/<its lane>/<branch>, which its next lane's handoff"
-            " names; refused, naming why, when that Sprite cannot be read or the save fails"
+            " names; refused, naming why, when that Sprite cannot be read or the save fails, and for a running job, whose lane returned no line: drive job resume sends it its next event"
         ),
     )
     verb.add_argument("id")
