@@ -276,6 +276,7 @@ class LivePollRebuildsThePage(unittest.TestCase):
             self.assertGreater(state["messages"], 0, "the draft's Slack thread did not load from the live branch")
             self.assertEqual(state["missing"], [], "the draft reported its evidence missing")
         finally:
+            self.publish(record())
             server.shutdown()
             server.server_close()
             chrome.close()
