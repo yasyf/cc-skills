@@ -103,7 +103,8 @@ POST_RULES = """
     - A rule of his in <evidence> that limits this kind of post holds it back, wherever else he permits it.
     - A line saying how a failure the post tells is prevented, the tool change and the order or PR carrying it, is
       within his words whenever the post answers a question of his or tells a failure, since his ruling on failures in
-      <evidence> asks for it; it is never other work outside them.
+      <evidence> asks for it; it is never other work outside them, and a post lacking it is never held back for that,
+      since the drive's check for that line only warns.
 
     Reads, by his ruling "stop saying wrong shit bc you jsut guess" and "dont just take things for granted critically
     evakuate them". A handler's post lists in claims each line of it saying where code lives, what it does or why, or a

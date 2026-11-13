@@ -110,7 +110,8 @@ PREVENTION_WORDS = {
     "quote": "thats not acceptable to dsay without telling me how you will prevent it",
     "detail": (
         "his words on a post telling him why something failed: it says how that is prevented, the tool change and the order or"
-        " PR carrying it, so that line is within his words whenever the post answers his question or tells a failure"
+        " PR carrying it, so that line is within his words whenever the post answers his question or tells a failure,"
+        " and a post lacking it goes out with a warning, never held back"
     ),
 }
 WHOLE = (
