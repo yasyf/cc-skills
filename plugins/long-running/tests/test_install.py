@@ -113,6 +113,8 @@ class FakeGit:
         self.changed = f"{FOLDER}/lib/drive/install.py"
         self.drive_status = subprocess.CompletedProcess([], 0, "", "")
         self.tried: list[tuple[list[str], dict]] = []
+        self.refusal = subprocess.CompletedProcess([], 2, "", "drive: no order, job or PR j0; name an order o<n>, a job j<n>, or a PR as owner/repo#N, its URL or its bare number\n")
+        self.refusals: list[list[str]] = []
 
     @property
     def helper(self) -> str:
@@ -181,6 +183,9 @@ class FakeGit:
                 copied.setenv("LONG_RUNNING_STATE", cmd[1].partition("=")[2])
                 self.tried.append((cmd, state.stored(cmd[5])))
             return subprocess.CompletedProcess(cmd, self.drive_status.returncode, "", self.drive_status.stderr)
+        if cmd[0] == "env" and cmd[3:5] == ["status", install.NO_JOB]:
+            self.refusals.append(cmd)
+            return subprocess.CompletedProcess(cmd, self.refusal.returncode, "", self.refusal.stderr)
         if cmd[:3] == ["claude", "plugin", "update"]:
             self.update(cmd[3], cmd[5], options.get("cwd"))
         if cmd == RESTART:
@@ -904,6 +909,27 @@ def test_a_long_running_release_whose_own_drive_status_fails_on_a_copy_of_a_driv
     assert "NameError: name 'report_path' is not defined" in err
 
 
+UNBOUND = "Traceback (most recent call last):\nUnboundLocalError: cannot access local variable 'refused' where it is not associated with a value\n"
+
+
+@pytest.mark.parametrize(("code", "stderr"), [(1, UNBOUND), (0, "")], ids=["a traceback and exit 1", "no refusal and exit 0"])
+def test_a_long_running_release_whose_own_refusal_is_not_its_drive_line_and_exit_2_is_refused_before_any_scope_updates(
+    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], code: int, stderr: str
+) -> None:
+    start_drive("demo", communicator="term_comm")
+    git = fake(["long-running--v1.0.3"], {"long-running--v1.0.3"})
+    git.refusal = subprocess.CompletedProcess([], code, "", stderr)
+    assert install.main("long-running@skills", SHA, None, 900, None) == 1
+    assert git.claude_calls() == []
+    assert git.orca_calls == []
+    err = capsys.readouterr().err
+    assert (
+        f"refused long-running--v1.0.3, keeping the release installed now: its own drive status j0 on a copy of the demo drive exited {code}"
+        " without printing its `drive:` refusal and exiting 2" in err
+    )
+    assert stderr.strip() in err
+
+
 def test_a_long_running_release_reads_a_copy_of_every_drive_with_its_own_drive_status_before_it_installs(fake: Callable[..., FakeGit]) -> None:
     start_drive("demo", communicator="term_comm")
     start_drive("other", communicator="term_other")
@@ -914,7 +940,8 @@ def test_a_long_running_release_reads_a_copy_of_every_drive_with_its_own_drive_s
     assert all(cmd[2].endswith(f"{FOLDER}/bin/drive") for cmd, _ in git.tried)
     assert len(copies) == 1 and state.root() not in copies
     assert [saved for _, saved in git.tried] == [state.stored(name) for name in ("demo", "other")]
-    assert git.calls.index(git.tried[-1][0]) < git.calls.index(["claude", "plugin", "marketplace", "update", "skills"])
+    assert git.refusals == [[*git.tried[0][0][:3], "status", "j0", "--drive", "demo"]]
+    assert git.calls.index(git.refusals[0]) < git.calls.index(["claude", "plugin", "marketplace", "update", "skills"])
     checkout = next(call for call in git.git_calls() if "checkout" in call)
     assert checkout[1:] == ["checkout", "long-running--v1.0.3", "--", FOLDER]
 
