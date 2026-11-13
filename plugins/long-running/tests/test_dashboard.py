@@ -175,7 +175,6 @@ def test_a_drive_saved_by_a_newer_install_hands_the_port_to_that_install_which_a
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     newer = tmp_path / "cache" / "9.9.9" / "bin" / "drive"
-    path = state.state_path(demo)
     older = state.install_lock(state.VERSION)
     done = threading.Event()
     answers: list[object] = []
@@ -220,16 +219,14 @@ def test_a_drive_saved_by_a_newer_install_hands_the_port_to_that_install_which_a
             time.sleep(0.05)
         threading.Thread(target=ask, daemon=True).start()
         time.sleep(0.3)
-        saving = path.with_name("drive.json.newer")
         with state.flocked(older):
-            saving.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "9.9.9"}))
-            saving.replace(path)
+            state.store(demo, state.stored(demo) | {"saved_by": "9.9.9"})
 
     monkeypatch.setattr(dashboard, "changes", changes)
     monkeypatch.setattr(dashboard, "tailnet", lambda: None)
     monkeypatch.setattr(dashboard, "home_repo", lambda checkout: None)
     monkeypatch.setattr(dashboard.signal, "signal", lambda signum, handler: None)
-    monkeypatch.setattr(dashboard.install, "upgraded", lambda: newer if json.loads(path.read_text())["saved_by"] == "9.9.9" else None)
+    monkeypatch.setattr(dashboard.install, "upgraded", lambda: newer if state.saved_by(demo) == "9.9.9" else None)
     monkeypatch.setattr(dashboard.os, "execv", execv)
     with socket.create_server((dashboard.LOOPBACK, 0)) as probe:
         port = probe.getsockname()[1]

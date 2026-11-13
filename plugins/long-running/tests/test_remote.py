@@ -2344,11 +2344,10 @@ def test_bound_keeps_the_worker_start_receipt_and_status_when_a_newer_install_sa
 ) -> None:
     binds = []
     monkeypatch.setattr(orca, "call", lambda *args: binds.append(args[2]) if args[0] == "run-use" else {})
-    path = state.state_path(remote)
     receipt = json.dumps({"ok": True, "result": {"state": "ready", "dispatchId": DISPATCH}})
 
     def worker_start(argv: list[str], **kwargs: object) -> Started:
-        path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "9.9.9"}))
+        state.store(remote, state.stored(remote) | {"saved_by": "9.9.9"})
         return Started(argv, stdout=receipt)
 
     monkeypatch.setattr(orca.subprocess, "Popen", worker_start)
@@ -2416,7 +2415,7 @@ def test_an_orca_dispatch_set_as_a_jobs_agent_records_a_lane_on_this_mac(run: Ru
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the tooling root")
     run("job", "add", "builder", "--order", "o1", "--goal", "root tooling")
     run("job", "set", "j1", "--agent", ROOT_DISPATCH)
-    saved = json.loads(state.state_path(demo).read_text())["jobs"]["j1"]
+    saved = state.stored(demo)["jobs"]["j1"]
     assert {field: saved[field] for field in ("agent", "dispatch", "where", "route", "workspace")} == {
         "agent": None,
         "dispatch": ROOT_DISPATCH,

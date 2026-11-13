@@ -160,7 +160,9 @@ class FakeGit:
         if cmd[0] == "gh":
             return subprocess.CompletedProcess(cmd, 1, "", "gh: API rate limit exceeded (HTTP 403)")
         if cmd[0] == "env" and cmd[3:5] == ["status", "--drive"]:
-            self.tried.append((cmd, json.loads((Path(cmd[1].partition("=")[2]) / cmd[5] / "drive.json").read_text())))
+            with pytest.MonkeyPatch.context() as copied:
+                copied.setenv("LONG_RUNNING_STATE", cmd[1].partition("=")[2])
+                self.tried.append((cmd, state.stored(cmd[5])))
             return subprocess.CompletedProcess(cmd, self.drive_status.returncode, "", self.drive_status.stderr)
         if cmd[:3] == ["claude", "plugin", "update"]:
             self.update(cmd[3], cmd[5], options.get("cwd"))
@@ -712,8 +714,7 @@ def test_an_install_types_reload_plugins_into_both_drive_sessions_once_each_is_i
 
 def test_an_install_reloads_the_sessions_of_a_drive_a_newer_install_saved_after_its_update(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
     start_drive("demo", communicator="term_comm", coordinator="term_coord")
-    path = state.state_path("demo")
-    path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "9.9.9"}))
+    state.store("demo", state.stored("demo") | {"saved_by": "9.9.9"})
     git = fake(["unused"], set())
     git.together = threading.Barrier(2, timeout=5)
     assert install.main("long-running@skills", None, None, 900, None) == 0
@@ -866,7 +867,7 @@ def test_a_long_running_release_reads_a_copy_of_every_drive_with_its_own_drive_s
     assert [cmd[3:] for cmd, _ in git.tried] == [["status", "--drive", "demo"], ["status", "--drive", "other"]]
     assert all(cmd[2].endswith(f"{FOLDER}/bin/drive") for cmd, _ in git.tried)
     assert len(copies) == 1 and state.root() not in copies
-    assert [saved for _, saved in git.tried] == [json.loads(state.state_path(name).read_text()) for name in ("demo", "other")]
+    assert [saved for _, saved in git.tried] == [state.stored(name) for name in ("demo", "other")]
     assert git.calls.index(git.tried[-1][0]) < git.calls.index(["claude", "plugin", "marketplace", "update", "skills"])
     checkout = next(call for call in git.git_calls() if "checkout" in call)
     assert checkout[1:] == ["checkout", "long-running--v1.0.3", "--", FOLDER]

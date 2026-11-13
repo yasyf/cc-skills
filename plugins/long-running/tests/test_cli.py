@@ -357,14 +357,14 @@ def test_the_meta_session_holds_every_tooling_order_but_no_product_order(
 
 def test_a_drive_saved_with_one_driver_reads_as_its_coordinator(run: Run, demo: str) -> None:
     with state.locked("demo"):
-        saved = json.loads(state.state_path("demo").read_text())
+        saved = state.stored("demo")
         saved["driver"] = saved.pop("roles")["coordinator"]
-        state.state_path("demo").write_text(json.dumps(saved))
+        state.store("demo", saved)
     data = state.load("demo")
     assert "driver" not in data
     assert data["roles"]["coordinator"]["session"] == os.environ["CLAUDE_CODE_SESSION_ID"]
     assert run("start", "demo", "--role", "communicator")[0] == 0
-    saved = json.loads(state.state_path("demo").read_text())
+    saved = state.stored("demo")
     assert "driver" not in saved
     assert set(saved["roles"]) == {"communicator", "coordinator"}
 
@@ -1043,9 +1043,9 @@ def test_filing_an_order_keeps_the_time_it_last_moved_and_any_other_change_moves
 
 def test_a_drive_stored_with_milestones_loads_without_them(run: Run, demo: str) -> None:
     run("order", "add", "--title", "Short title", "ship the fix", "--project", "Platform", "--workstream", "SandSQL")
-    stored = json.loads(state.state_path("demo").read_text())
+    stored = state.stored("demo")
     stored["orders"]["o1"]["milestone"] = "Dashboard parity"
-    state.state_path("demo").write_text(json.dumps(stored))
+    state.store("demo", stored)
     assert "milestone" not in state.load("demo")["orders"]["o1"]
 
 
@@ -1396,9 +1396,9 @@ def test_term_keeps_a_word_he_corrected_beside_its_proper_term_and_a_drive_saved
     assert state.load(demo)["stand_ins"] == {}
     assert run("term", "backup", "S3 replica") == (0, 'say\'s hook finds "backup" from now on, naming "S3 replica", for Jev to judge against his words')
     assert state.load(demo)["stand_ins"] == {"backup": "S3 replica"}
-    saved = json.loads(state.state_path(demo).read_text())
+    saved = state.stored(demo)
     del saved["stand_ins"]
-    state.state_path(demo).write_text(json.dumps(saved))
+    state.store(demo, saved)
     assert state.load(demo)["stand_ins"] == {}
 
 
@@ -4710,13 +4710,13 @@ def test_an_alert_saved_before_joins_was_kept_loads_joined_to_the_incident_its_o
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "SandSQL error log count", "--joins", "o1")
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "SandSQL restore runs retrying", "--joins", "o2")
     with state.locked("demo"):
-        saved = json.loads(state.state_path("demo").read_text())
+        saved = state.stored("demo")
         assert [saved["orders"][order_id]["joins"] for order_id in ("o1", "o2", "o3")] == [None, "o1", "o1"]
         for order in saved["orders"].values():
             del order["joins"]
         saved["jobs"]["j1"]["carries"]["o2"] = ["SandSQL error log count"]
         saved["orders"]["o2"]["jobs"].append("j1")
-        state.state_path("demo").write_text(json.dumps(saved))
+        state.store("demo", saved)
     data = state.load("demo")
     assert [data["orders"][order_id]["joins"] for order_id in ("o1", "o2", "o3")] == [None, "o1", None]
     assert state.incident_orders(data, "o2") == ["o1", "o2"]
@@ -5294,10 +5294,10 @@ def test_an_incident_order_is_never_limited_to_options_since_its_codex_jobs_star
 def test_an_order_saved_before_options_only_and_once_loads_as_neither(run: Run, demo: str) -> None:
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "fix the watch")
     with state.locked("demo"):
-        saved = json.loads(state.state_path("demo").read_text())
+        saved = state.stored("demo")
         for field in ("options_only", "once"):
             del saved["orders"]["o1"][field]
-        state.state_path("demo").write_text(json.dumps(saved))
+        state.store("demo", saved)
     order = state.load("demo")["orders"]["o1"]
     assert (order["options_only"], order["once"]) == (False, False)
 
@@ -6144,8 +6144,7 @@ def test_a_pr_carrying_a_code_ruling_is_refused_until_it_writes_his_words_into_t
 def test_a_drive_started_from_an_older_install_hands_its_verb_to_the_newest_install_before_a_drive_json_it_saved_refuses_it(
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    path = state.state_path(demo)
-    path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "9.9.9"}))
+    state.store(demo, state.stored(demo) | {"saved_by": "9.9.9"})
     newer = tmp_path / "cache" / "9.9.9" / "bin" / "drive"
     argv = ["drive", "status", "--drive", demo]
 
@@ -6163,4 +6162,4 @@ def test_a_drive_started_from_an_older_install_hands_its_verb_to_the_newest_inst
     assert execed.value.args == (newer, [str(newer), *argv[1:]])
     monkeypatch.setattr(install, "upgraded", lambda: None)
     assert cli.main() == 2
-    assert capsys.readouterr().err.startswith(f"drive: drive.json of {demo} was saved by long-running 9.9.9")
+    assert capsys.readouterr().err.startswith(f"drive: the {demo} drive was saved by long-running 9.9.9")

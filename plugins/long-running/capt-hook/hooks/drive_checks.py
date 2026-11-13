@@ -4,12 +4,14 @@ import json
 import os
 import re
 import runpy
+import sqlite3
 import subprocess
 import sys
 import tempfile
 import threading
 from collections import OrderedDict
 from collections.abc import Callable, Sequence
+from contextlib import closing
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -251,6 +253,7 @@ def state_root() -> Path:
 
 
 BINDINGS: dict[Path, tuple[tuple[int, int, int], frozenset[str]]] = {}
+BOUND_FIELDS = ("driver", "roles", "subcoordinators")
 
 
 def saved_sessions(data: dict) -> frozenset[str]:
@@ -260,14 +263,26 @@ def saved_sessions(data: dict) -> frozenset[str]:
     return frozenset(entry["session"] for entry in held)
 
 
+def saved_bindings(folder: Path) -> dict:
+    """A drive's bindings as its database saved them, read as `state.saved` reads them: its roles, sub-coordinators and handlers rows."""
+    fields = ", ".join("?" * len(BOUND_FIELDS))
+    with closing(sqlite3.connect(folder / "drive.db")) as db:
+        rows = db.execute(f"SELECT collection, key, body FROM rows WHERE collection = '' AND key IN ({fields}) OR collection = 'handlers'", BOUND_FIELDS).fetchall()
+    return {key: json.loads(body) for collection, key, body in rows if not collection} | {"handlers": {key: json.loads(body) for collection, key, body in rows if collection}}
+
+
 def bound_sessions() -> frozenset[str]:
-    """The sessions any drive on this Mac binds, each drive's state parsed again only once its file changes, so a call from a session no drive binds costs a stat of each drive's state and no parse."""
+    """The sessions any drive on this Mac binds: each drive's binding rows read from its database at each call, a short read in one transaction, and a drive still on drive.json parsed again only once that file changes, so a call from a session no drive binds costs no parse."""
     root = state_root()
     if not root.is_dir():
         return frozenset()
     bound: set[str] = set()
     for entry in os.scandir(root):
-        path = Path(entry.path) / "drive.json"
+        folder = Path(entry.path)
+        if (folder / "drive.db").is_file():
+            bound |= saved_sessions(saved_bindings(folder))
+            continue
+        path = folder / "drive.json"
         try:
             seen = path.stat()
         except (FileNotFoundError, NotADirectoryError):

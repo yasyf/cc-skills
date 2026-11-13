@@ -1,16 +1,20 @@
 import fcntl
 import hashlib
+import itertools
 import json
+import marshal
 import math
 import os
 import re
+import sqlite3
 import subprocess
 import sys
+import threading
 import time
 import traceback
 import uuid
 from collections.abc import Callable, Iterable, Iterator
-from contextlib import AbstractContextManager, contextmanager
+from contextlib import AbstractContextManager, closing, contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import IO
@@ -121,6 +125,8 @@ ROUTED_KINDS = ("owner", "answer", "handoff", "posted", "refused")
 APPROVALS_LABELLED = ".approvals-labelled-by-question"
 BATCHED: dict[str, str] = {}
 HELD_INSTALL: dict[Path, IO] = {}
+WHOLE_READS: dict[tuple[Path, int], tuple[sqlite3.Connection, int, bytes]] = {}
+READING = threading.Lock()
 INSTALL_HOLDER = "LONG_RUNNING_INSTALL_HOLDER"
 WAITED_OLDER: set[Path] = set()
 MOVED_REPORTS: set[Path] = set()
@@ -130,6 +136,17 @@ HOLDERS_SECONDS = 5
 DRIVE_LOCK_SECONDS = 300
 SLOW_HOLD_SECONDS = 2
 AFTER_SAVE: dict[str, list[Callable[[], list[str]]]] = {}
+DATABASE = "drive.db"
+BACKUP = "drive.json.before-sqlite"
+MOVED = "moved_to"
+MOVED_SAVER = "999999.0.0"
+SCHEMA = "1"
+COLLECTIONS = ("orders", "jobs", "prs", "answers", "handlers")
+BINDINGS = ("driver", "roles", "subcoordinators", "handlers")
+TABLES = """
+CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
+CREATE TABLE rows (collection TEXT NOT NULL, key TEXT NOT NULL, place INTEGER NOT NULL, body TEXT, PRIMARY KEY (collection, key)) WITHOUT ROWID;
+"""
 VERSION = json.loads((Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json").read_text())["version"]
 
 
@@ -185,6 +202,18 @@ def detach(name: str, args: list[str], log: str) -> int:
 
 def state_path(name: str) -> Path:
     return drive_dir(name) / "drive.json"
+
+
+def database_path(name: str) -> Path:
+    return drive_dir(name) / DATABASE
+
+
+def wal_path(name: str) -> Path:
+    return drive_dir(name) / f"{DATABASE}-wal"
+
+
+def backup_path(name: str) -> Path:
+    return drive_dir(name) / BACKUP
 
 
 def events_path(name: str) -> Path:
@@ -314,11 +343,11 @@ def names() -> list[str]:
     base = root()
     if not base.is_dir():
         return []
-    return sorted(entry.name for entry in base.iterdir() if (entry / "drive.json").is_file())
+    return sorted(entry.name for entry in base.iterdir() if (entry / DATABASE).is_file() or (entry / "drive.json").is_file())
 
 
 def exists(name: str) -> bool:
-    return state_path(name).is_file()
+    return database_path(name).is_file() or state_path(name).is_file()
 
 
 def now() -> datetime:
@@ -386,11 +415,75 @@ def new_drive(
 
 
 def saved(name: str) -> dict:
-    """A drive as saved, with the sessions bound to it: one saved with a single driver session reads as that session coordinating."""
+    """The sessions bound to a drive as saved, read alone from its database: each role's, each sub-coordinator's and each handler's, one saved with a single driver session reading as that session coordinating."""
+    return bound(stored(name, BINDINGS))
+
+
+def stored(name: str, fields: tuple[str, ...] | None = None) -> dict:
+    """The drive as saved, its saved_by the install that saved it last, or only these top-level fields of it, read in one transaction; a drive no install moved to its database yet read from its drive.json whole."""
+    if not (path := database_path(name)).exists():
+        return stored_json(name)
+    return whole(path) if fields is None else rows_read(path, fields)
+
+
+def whole(path: Path) -> dict:
+    """The drive's whole saved state, read again only once another connection committed since this process last read it, as PRAGMA data_version on a connection of this process's own that never writes says, else a fresh copy of what it read last, so a verb's many loads parse the drive's rows once."""
+    with READING:
+        key = (path, path.stat().st_ino)
+        watcher, version, kept = WHOLE_READS.get(key) or (sqlite3.connect(path, check_same_thread=False, isolation_level=None), None, b"")
+        if (now := watcher.execute("PRAGMA data_version").fetchone()[0]) == version:
+            return marshal.loads(kept)
+        data = rows_read(path, None)
+        WHOLE_READS[key] = (watcher, now, marshal.dumps(data))
+        return data
+
+
+def rows_read(path: Path, fields: tuple[str, ...] | None) -> dict:
+    """The drive's rows, or those of these top-level fields, read in one transaction and built back into the drive."""
+    named = "" if fields is None else f" WHERE collection = '' AND key IN ({', '.join('?' * len(fields))}) OR collection IN ({', '.join('?' * len(fields))})"
+    with closing(connect(path)) as db:
+        db.execute("BEGIN")
+        rows = db.execute(f"SELECT collection, place, key, body FROM rows{named}", (fields or ()) * 2).fetchall()
+        saver = db.execute("SELECT value FROM meta WHERE key = 'saved_by'").fetchone()
+        db.execute("COMMIT")
+    data: dict = {}
+    for collection, _, key, body in sorted(rows, key=lambda row: row[:2]):
+        if collection:
+            data[collection][key] = json.loads(body)
+        else:
+            data[key] = {} if body is None else json.loads(body)
+    return data | ({"saved_by": saver[0]} if saver else {})
+
+
+def stored_json(name: str) -> dict:
+    """The drive as its drive.json holds it; once moved to its database, which drive.json then only points to, the database's, or the copy of drive.json kept as it moved while the database is not in place yet."""
     try:
         data = json.loads(state_path(name).read_text())
     except FileNotFoundError:
         raise DriveError(f"no drive named {name}") from None
+    if MOVED not in data:
+        return data
+    return stored(name) if database_path(name).exists() else json.loads(backup_path(name).read_text())
+
+
+def saved_by(name: str) -> str | None:
+    """The install that saved the drive last, read alone."""
+    if not (path := database_path(name)).exists():
+        return stored_json(name).get("saved_by")
+    with closing(connect(path)) as db:
+        found = db.execute("SELECT value FROM meta WHERE key = 'saved_by'").fetchone()
+    return found and found[0]
+
+
+def connect(path: Path) -> sqlite3.Connection:
+    """A connection to a drive's database that begins each transaction itself, waiting up to DRIVE_LOCK_SECONDS for another's write."""
+    db = sqlite3.connect(path, timeout=DRIVE_LOCK_SECONDS, isolation_level=None)
+    db.execute("PRAGMA synchronous = NORMAL")
+    return db
+
+
+def bound(data: dict) -> dict:
+    """The drive's bindings brought up to the fields this install reads."""
     if "driver" in data:
         data["roles"] = {"coordinator": data.pop("driver")}
     data.setdefault("subcoordinators", {})
@@ -409,9 +502,9 @@ def load(name: str) -> dict:
     """Read a drive, bringing a drive saved by an older install up to the fields this one reads, from what is on this Mac alone; one a newer install saved is refused before any of it is read, since this code may misread its shapes. Inside a batch, the batch's copy as its writes so far left it."""
     if name in BATCHED:
         return json.loads(BATCHED[name])
-    data = saved(name)
+    data = bound(stored(name))
     if (saver := data.get("saved_by")) and version_order(saver) > version_order(VERSION):
-        raise NewerDrive(f"drive.json of {name} was saved by long-running {saver}, newer than this {VERSION}, which may misread it: run the newest install's drive")
+        raise NewerDrive(f"the {name} drive was saved by long-running {saver}, newer than this {VERSION}, which may misread it: run the newest install's drive")
     for order in data["orders"].values():
         if "parts" not in order:
             whole = whole_order(order["text"])
@@ -1071,11 +1164,11 @@ def held_by_parent() -> bool:
 
 
 def older_verbs_done(name: str) -> None:
-    """Wait until every verb an older install started has ended, before this process first saves a drive an older install saved last, so no verb meets a drive.json saved by an install newer than its own code, however long it runs; taken outside the drive's lock, which those verbs still take, and once a process, since no older verb starts after it. A process that outlives its verb lets go of its lock whenever it waits on something of its own, so only verbs running hold this wait; a wait past SLOW_HOLD_SECONDS is logged to locks.log with the verbs it waited on."""
-    path = state_path(name)
-    if path in WAITED_OLDER or not path.exists():
+    """Wait until every verb an older install started has ended, before this process first saves a drive an older install saved last, so no verb meets a drive saved by an install newer than its own code, however long it runs; taken outside the drive's lock, which those verbs still take, and once a process, since no older verb starts after it. A process that outlives its verb lets go of its lock whenever it waits on something of its own, so only verbs running hold this wait; a wait past SLOW_HOLD_SECONDS is logged to locks.log with the verbs it waited on."""
+    path = drive_dir(name)
+    if path in WAITED_OLDER or not exists(name):
         return
-    if saver := json.loads(path.read_text()).get("saved_by"):
+    if saver := saved_by(name):
         for older in (root() / "installs").glob("*.lock"):
             if version_order(saver) <= version_order(older.stem) < version_order(VERSION):
                 with open(older, "a") as handle:
@@ -1119,10 +1212,117 @@ def holders(path: Path) -> str:
 
 
 def save(name: str, data: dict) -> None:
-    path = state_path(name)
-    tmp = path.with_name("drive.json.tmp")
-    tmp.write_text(json.dumps(data | {"saved_by": VERSION}, indent=2) + "\n")
-    os.replace(tmp, path)
+    """Save the drive as this install's, refused with nothing written when a newer install saved it since."""
+    written(name, data | {"saved_by": VERSION}, VERSION)
+
+
+def store(name: str, data: dict) -> None:
+    """Store data as the drive's saved state, its saved_by the install data names."""
+    written(name, data, None)
+
+
+def written(name: str, data: dict, newest: str | None) -> None:
+    """Write data to the drive's database in one transaction: each row whose JSON changed, each it no longer holds deleted, and saved_by when it changed, so a write that changes nothing writes nothing; refused, writing nothing, when an install newer than newest saved it last. A drive with no database yet gets one built whole beside it and moved into place, so no reader meets it half built, then the drive.json pointing to it that every older install refuses."""
+    if not (path := database_path(name)).exists():
+        os.replace(built(name, data), path)
+        pointed(name, data)
+        return
+    with closing(connect(path)) as db:
+        db.execute("BEGIN IMMEDIATE")
+        try:
+            rewrite(name, db, data, newest)
+        except BaseException:
+            db.execute("ROLLBACK")
+            raise
+        db.execute("COMMIT")
+
+
+def built(name: str, data: dict) -> Path:
+    """A database holding data alone, in WAL mode, built under a name of this process's beside the drive's."""
+    path = database_path(name).with_name(f"{DATABASE}.{os.getpid()}.tmp")
+    path.unlink(missing_ok=True)
+    with closing(connect(path)) as db:
+        db.execute("PRAGMA journal_mode = WAL")
+        db.executescript(TABLES)
+        db.execute("BEGIN IMMEDIATE")
+        db.execute("INSERT INTO meta VALUES ('schema', ?)", (SCHEMA,))
+        rewrite(name, db, data, None)
+        db.execute("COMMIT")
+    return path
+
+
+def rewrite(name: str, db: sqlite3.Connection, data: dict, newest: str | None) -> None:
+    """Make the database's rows data's, inside a transaction: one row for each top-level field, a collection's with no body, and one for each record of a collection, each keeping its place unless the order data holds them in moved."""
+    found = db.execute("SELECT value FROM meta WHERE key = 'saved_by'").fetchone()
+    if newest and found and version_order(found[0]) > version_order(newest):
+        raise NewerDrive(f"the {name} drive was saved by long-running {found[0]} since this {newest} read it, which may misread it: run the newest install's drive")
+    kept: dict[str, dict[str, tuple[int, str | None]]] = {}
+    for collection, key, place, body in db.execute("SELECT collection, key, place, body FROM rows"):
+        kept.setdefault(collection, {})[key] = (place, body)
+    rows: dict[str, dict[str, str | None]] = {"": {}}
+    for field, value in data.items():
+        if field in COLLECTIONS:
+            rows[""][field] = None
+            rows[field] = {key: json.dumps(record) for key, record in value.items()}
+        elif field != "saved_by":
+            rows[""][field] = json.dumps(value)
+    for collection in {*kept, *rows}:
+        before, after = kept.get(collection, {}), rows.get(collection, {})
+        places = placed(before, list(after))
+        db.executemany("DELETE FROM rows WHERE collection = ? AND key = ?", [(collection, key) for key in before if key not in after])
+        db.executemany(
+            "INSERT OR REPLACE INTO rows VALUES (?, ?, ?, ?)",
+            [(collection, key, places[key], body) for key, body in after.items() if before.get(key) != (places[key], body)],
+        )
+    if (saver := data.get("saved_by")) != (found and found[0]):
+        db.execute("DELETE FROM meta WHERE key = 'saved_by'")
+        if saver:
+            db.execute("INSERT INTO meta VALUES ('saved_by', ?)", (saver,))
+
+
+def placed(before: dict[str, tuple[int, str | None]], order: list[str]) -> dict[str, int]:
+    """The place of each key of a collection in order: the one it had, and each new key's after every earlier one, while the keys it had stay in their order ahead of the new ones; else each key's index, so the collection reads back in order."""
+    kept = [key for key in order if key in before]
+    if order[: len(kept)] == kept and all(before[one][0] < before[other][0] for one, other in itertools.pairwise(kept)):
+        start = max((place for place, _ in before.values()), default=-1) + 1 - len(kept)
+        return {key: before[key][0] if key in before else start + index for index, key in enumerate(order)}
+    return {key: index for index, key in enumerate(order)}
+
+
+def moved(name: str) -> None:
+    """Move a drive an older install saved to drive.json into its database, under the drive's lock, which every older install's write takes, once each older install's verb that may read it ended: drive.json kept as it was beside it, then replaced by the pointer every older install refuses, then the database moved into place; a move cut short goes on from the kept copy, and a drive a newer install saved is refused, moving nothing."""
+    if database_path(name).exists() or not (path := state_path(name)).exists():
+        return
+    found = json.loads(path.read_text())
+    data = json.loads(backup_path(name).read_text()) if MOVED in found else found
+    if (saver := data.get("saved_by")) and version_order(saver) > version_order(VERSION):
+        raise NewerDrive(f"the {name} drive was saved by long-running {saver}, newer than this {VERSION}, which may misread it: run the newest install's drive")
+    if MOVED not in found:
+        linking = backup_path(name).with_name(f"{BACKUP}.{os.getpid()}.tmp")
+        linking.unlink(missing_ok=True)
+        os.link(path, linking)
+        os.replace(linking, backup_path(name))
+    database = built(name, data)
+    pointed(name, data)
+    os.replace(database, database_path(name))
+
+
+def pointed(name: str, data: dict) -> None:
+    """Replace drive.json with a pointer to the drive's database, saved_by an install newer than any, so every older install's load, edit, batch and edit_or_create refuse the drive as a newer install's, its bindings kept so an older verb still resolves the drive and says so."""
+    pointer = {MOVED: DATABASE, "backup": BACKUP, "saved_by": MOVED_SAVER, "name": name, "roles": {}, "subcoordinators": {}, "handlers": {}, "launched": {}}
+    tmp = state_path(name).with_name("drive.json.tmp")
+    tmp.write_text(json.dumps(pointer | {field: data[field] for field in BINDINGS if field in data}, indent=2) + "\n")
+    os.replace(tmp, state_path(name))
+
+
+def clone(name: str, folder: Path) -> None:
+    """Copy the drive's saved state into folder, as the drive of its name there, read in one transaction."""
+    (folder / name).mkdir(parents=True)
+    if not database_path(name).exists():
+        (folder / name / "drive.json").write_text(json.dumps(stored_json(name)))
+        return
+    with closing(connect(database_path(name))) as source, closing(sqlite3.connect(folder / name / DATABASE)) as copy:
+        source.backup(copy)
 
 
 @contextmanager
@@ -1178,6 +1378,15 @@ def job_locked(name: str, job_id: str, seconds: float) -> Iterator[None]:
 
 
 @contextmanager
+def writing(name: str) -> Iterator[None]:
+    """Hold the drive's lock for a write, once every older install's verb that may read the drive ended, moving a drive.json an older install saved into the drive's database first."""
+    older_verbs_done(name)
+    with locked(name):
+        moved(name)
+        yield
+
+
+@contextmanager
 def edit(name: str) -> Iterator[dict]:
     """Load the drive under its lock, yield it for changes, and save it atomically on exit; inside a batch, which holds the lock already, keep the changes for the batch's one save."""
     if name in BATCHED:
@@ -1185,8 +1394,7 @@ def edit(name: str) -> Iterator[dict]:
         yield data
         BATCHED[name] = json.dumps(data)
         return
-    older_verbs_done(name)
-    with locked(name):
+    with writing(name):
         data = load(name)
         yield data
         save(name, data)
@@ -1196,8 +1404,7 @@ def edit(name: str) -> Iterator[dict]:
 def batch(name: str) -> Iterator[list[str]]:
     """Hold the drive's lock across a call of several writes, each load and edit inside it reading and changing one copy in memory, saved once when the call ends and never when it raises, so a refused write leaves drive.json as it was; what a write does outside the drive runs after that save, its lines added to the list it yields."""
     after: list[str] = []
-    older_verbs_done(name)
-    with locked(name):
+    with writing(name):
         BATCHED[name] = json.dumps(load(name))
         AFTER_SAVE[name] = []
         try:
@@ -1221,15 +1428,14 @@ def after_save(name: str, effect: Callable[[], list[str]]) -> list[str]:
 @contextmanager
 def edit_or_create(name: str, fresh: dict) -> Iterator[dict]:
     """Like edit, but start from fresh when the drive does not exist yet; the lock covers the check too."""
-    older_verbs_done(name)
-    with locked(name):
+    with writing(name):
         data = load(name) if exists(name) else fresh
         yield data
         save(name, data)
 
 
 def create(data: dict) -> None:
-    with locked(data["name"]):
+    with writing(data["name"]):
         save(data["name"], data)
 
 

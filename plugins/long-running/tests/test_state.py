@@ -39,19 +39,18 @@ def test_edit_saves_atomically_and_leaves_no_temp(state_root: Path) -> None:
     with state.edit("demo") as data:
         data["orders"]["o1"] = {"text": "ship it", "jobs": []}
     assert state.load("demo")["orders"]["o1"]["text"] == "ship it"
-    assert not (state_root / "demo" / "drive.json.tmp").exists()
+    assert [path.name for path in (state_root / "demo").iterdir() if path.name.endswith(".tmp")] == []
     assert (state_root / "demo" / ".lock").exists()
 
 
 def test_a_drive_a_newer_install_saved_is_refused_before_any_of_it_is_read_while_its_bindings_still_read(state_root: Path) -> None:
     make("demo", session="session-1")
-    path = state_root / "demo" / "drive.json"
-    assert json.loads(path.read_text())["saved_by"] == state.VERSION
+    assert state.saved_by("demo") == state.VERSION
     major, minor, patch = state.VERSION.split(".")
-    path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": f"{major}.{minor}.{int(patch) - 1}"}))
+    state.store("demo", state.stored("demo") | {"saved_by": f"{major}.{minor}.{int(patch) - 1}"})
     assert state.load("demo")["roles"]["coordinator"]["session"] == "session-1"
     newer = f"{major}.{minor}.{int(patch) + 1}"
-    path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": newer, "orders": {"o1": {"parts": "a shape no install reads yet"}}}))
+    state.store("demo", state.stored("demo") | {"saved_by": newer, "orders": {"o1": {"parts": "a shape no install reads yet"}}})
     with pytest.raises(state.NewerDrive, match=f"saved by long-running {re.escape(newer)}, newer than this {re.escape(state.VERSION)}"):
         state.load("demo")
     assert state.saved("demo")["roles"]["coordinator"]["session"] == "session-1"
@@ -80,14 +79,13 @@ def test_a_newer_release_saving_mid_verb_waits_for_the_older_releases_verb_so_th
         data["run"] = "the older verb's receipt"
     state.let_go_install()
     assert saving.wait(timeout=30) == 0
-    saved = json.loads(state.state_path("demo").read_text())
+    saved = state.stored("demo")
     assert (saved["saved_by"], saved["run"], saved["slack"]["page_stale"]) == ("9.9.9", "the older verb's receipt", "the newer release's save")
 
 
 def test_a_first_save_waits_only_for_verbs_of_the_installs_from_the_one_that_saved_the_drive_up_to_its_own(state_root: Path) -> None:
     make("demo")
-    path = state.state_path("demo")
-    path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "0.0.2"}))
+    state.store("demo", state.stored("demo") | {"saved_by": "0.0.2"})
     state.hold_install()
     verbs = {version: open(state.install_lock(version), "a") for version in ("0.0.1", "0.0.2", "9.9.9")}
     for handle in verbs.values():
@@ -112,8 +110,7 @@ def test_a_first_save_waits_for_an_older_installs_verb_however_long_it_runs_neve
     state_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     make("demo")
-    path = state.state_path("demo")
-    path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "0.0.1"}))
+    state.store("demo", state.stored("demo") | {"saved_by": "0.0.1"})
     hours = itertools.count(step=3600)
     monkeypatch.setattr(state.time, "monotonic", lambda: next(hours))
     state.install_lock("0.0.1").parent.mkdir(parents=True)
@@ -127,10 +124,10 @@ def test_a_first_save_waits_for_an_older_installs_verb_however_long_it_runs_neve
     saving = threading.Thread(target=save, daemon=True)
     saving.start()
     saving.join(2)
-    assert (saving.is_alive(), json.loads(path.read_text())["saved_by"]) == (True, "0.0.1")
+    assert (saving.is_alive(), state.saved_by("demo")) == (True, "0.0.1")
     launch.close()
     saving.join(10)
-    saved = json.loads(path.read_text())
+    saved = state.stored("demo")
     assert (saving.is_alive(), saved["saved_by"], saved["slack"]["page_stale"]) == (False, state.VERSION, "the newer install's save")
     assert "for long-running 0.0.1's verbs before its first save: drive " in (state.drive_dir("demo") / "locks.log").read_text()
 
@@ -455,13 +452,13 @@ def test_a_drive_saved_before_sub_coordinators_loads_with_none_and_a_sub_coordin
     state_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     make("demo", "top", "2026-11-11T01:00:00-08:00")
-    saved = json.loads(state.state_path("demo").read_text())
+    saved = state.stored("demo")
     del saved["subcoordinators"]
     saved["orders"] = {
         order_id: {"text": text, "jobs": [], "parts": {}, "promised": None, "project": project}
         for order_id, project, text in (("o1", "Iris", "ship the run page"), ("o2", "Platform", "fix the alert"), ("o3", None, "a new order"))
     }
-    state.state_path("demo").write_text(json.dumps(saved))
+    state.store("demo", saved)
     with state.edit("demo") as data:
         assert data["subcoordinators"] == {}
         data["subcoordinators"]["Iris"] = {"session": "iris", "terminal": None, "cwd": "/work", "started": "2026-11-11T02:00:00-08:00"}
@@ -704,27 +701,27 @@ def test_two_questions_are_the_same_whatever_their_case_and_spacing_and_an_untit
 
 def test_a_drive_saved_with_one_change_a_part_waited_on_loads_it_as_the_list_of_changes_it_waits_on(state_root: Path) -> None:
     make("demo")
-    saved = json.loads(state.state_path("demo").read_text())
+    saved = state.stored("demo")
     parts = {
         "the interface": {"posted": None, "design": "j2", "after": None},
         "the reads": {"posted": None, "design": "j2", "after": "the interface"},
         "the order": {"posted": None},
     }
     saved["orders"] = {"o1": {"text": "move the tables", "jobs": [], "parts": parts, "promised": None}}
-    state.state_path("demo").write_text(json.dumps(saved))
+    state.store("demo", saved)
     loaded = state.load("demo")["orders"]["o1"]["parts"]
     assert {part: held["after"] for part, held in loaded.items()} == {"the interface": [], "the reads": ["the interface"], "the order": []}
 
 
 def test_a_part_an_older_install_saved_with_spaces_around_its_name_loads_trimmed_wherever_a_job_or_pr_names_it(state_root: Path) -> None:
     make("demo")
-    saved = json.loads(state.state_path("demo").read_text())
+    saved = state.stored("demo")
     cut = "both PRs he approved this morning and the stack he tapped an hour later sat for "
     parts = {cut: {"posted": None, "design": None, "after": []}, " fix": {"posted": None, "design": None, "after": [cut]}}
     saved["orders"] = {"o1": {"text": "the stack sat", "jobs": ["j1", "j2"], "parts": parts, "promised": None}, "o2": {"text": "why", "jobs": [], "parts": {"cause ": {"posted": None}}, "promised": None}}
     saved["jobs"] = {"j1": state.new_job("o1", "reader", "find why", [cut], state.stamp()), "j2": state.new_job("o2", "builder", "fix it", ["cause "], state.stamp()) | {"carries": {"o1": [" fix"]}}}
     saved["prs"] = {"yasyf/cc-skills#7": state.new_pr("https://github.com/yasyf/cc-skills/pull/7", "j2", "o1") | {"parts": [" fix"]}}
-    state.state_path("demo").write_text(json.dumps(saved))
+    state.store("demo", saved)
     loaded = state.load("demo")
     whole = cut.rstrip()
     assert {part: held["after"] for part, held in loaded["orders"]["o1"]["parts"].items()} == {whole: [], "fix": [whole]}
@@ -736,12 +733,12 @@ def test_a_part_an_older_install_saved_with_spaces_around_its_name_loads_trimmed
 
 def test_a_part_an_older_install_saved_with_no_kind_loads_as_work_but_on_an_answer_order_as_words_he_reads(state_root: Path) -> None:
     make("demo")
-    saved = json.loads(state.state_path("demo").read_text())
+    saved = state.stored("demo")
     saved["orders"] = {
         order_id: {"text": "why, then fix it", "jobs": [], "parts": {"why": {"posted": None}, "fix": {"posted": None}}, "promised": None} | kind
         for order_id, kind in (("o1", {"kind": "answer"}), ("o2", {"kind": "build"}), ("o3", {}))
     }
-    state.state_path("demo").write_text(json.dumps(saved))
+    state.store("demo", saved)
     orders = state.load("demo")["orders"]
     assert {order_id: [held["kind"] for held in order["parts"].values()] for order_id, order in orders.items()} == {
         "o1": ["answer", "answer"],
