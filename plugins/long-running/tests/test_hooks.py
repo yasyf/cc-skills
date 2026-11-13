@@ -1344,7 +1344,7 @@ def test_a_bash_report_naming_an_attr_a_separator_or_one_letter_from_one_the_dri
     assert landing_guard.deny_reason(asked_from_bash(catch_up, "another-session")) is None
 
 
-def test_a_bash_record_typing_when_past_work_happened_is_refused_and_one_naming_the_job_passes(demo: str, no_calls: list[list[str]]) -> None:
+def test_a_bash_post_report_typing_when_past_work_happened_is_refused_and_a_record_between_sessions_typing_it_passes(demo: str, no_calls: list[list[str]]) -> None:
     session = os.environ["CLAUDE_CODE_SESSION_ID"]
     typed = (
         "cci post --kind report --lane root --to communicator@demo --attr progress=true"
@@ -1352,6 +1352,9 @@ def test_a_bash_record_typing_when_past_work_happened_is_refused_and_one_naming_
     )
     assert landing_guard.deny_reason(asked_from_bash(typed, session)).startswith('refused: "10:33 PM" is a time typed for work already done')
     assert landing_guard.deny_reason(asked_from_bash(typed.replace("at 10:33 PM", "at {started:j1}"), session)) is None
+    assert landing_guard.deny_reason(asked_from_bash(typed.replace("'POST ", "'FYI "), session)) is None
+    defect = "cci post --kind defect --lane root --to meta@demo 'record refused his 3:40 PM pick, nothing posted'"
+    assert landing_guard.deny_reason(asked_from_bash(defect, session)) is None
 
 
 def test_a_communicators_bash_cci_post_naming_a_lane_other_than_the_session_hearing_its_order_is_refused(

@@ -76,6 +76,14 @@ def addressed(record: dict, lane: str) -> bool:
     return any(entry.split("@", 1)[0] == lane for entry in listed(record.get("to")))
 
 
+def relayed_time(record: dict, drive: dict) -> str | None:
+    """Why a record whose words a handler posts to him, a POST report, a ready or an ask record to the communicator, types a clock time for work already done; any other record goes between sessions and types the times it quotes, by his words "i think that time hook its tooa ggessive too"."""
+    text = record.get("text") or ""
+    if kind(record) not in ("report", "ready", "ask") or not addressed(record, "communicator") or (kind(record) == "report" and not text.startswith("POST")):
+        return None
+    return agents.typed_time(f"{text}\n{record.get('body') or ''}", drive)
+
+
 def report_refusals(payload: dict, drive: dict, records: list[dict], index: int) -> Iterator[str | None]:
     """Why a report to the communicator does not go out as written, whether the cci `post` tool or `cci post` in Bash sends it, each check run only once the ones before it pass; a report on an open incident order is never held to one a thread a turn, by his words "this is incident so uyou should be faster and communicating more with me"."""
     record = records[index]

@@ -522,7 +522,7 @@ FIX_JOBS = (
 )
 
 
-def test_a_report_typing_when_past_work_happened_is_refused_naming_its_stamp_and_a_promise_passes(
+def test_a_post_report_typing_when_past_work_happened_is_refused_naming_its_stamp_and_a_promise_or_a_record_between_sessions_passes(
     demo: str, turn: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     posted = state.now().replace(hour=4, minute=50, second=56, microsecond=0)
@@ -539,6 +539,9 @@ def test_a_report_typing_when_past_work_happened_is_refused_naming_its_stamp_and
     for promised in ("POST The fix PR is up; next line by 5:40 AM.", "POST The fix lands by 5:40 AM.", "POST A second fix job started at {started:j1}; due 6 AM."):
         assert record_lines.decision(coordinator(turn, kind="report", text=promised, to=TO, attrs=PROGRESS)) is None, promised
     assert record_lines.decision(post(kind="owner", text="his 4:18 AM pick: times come from stamps", attrs={"about": "his work"})) is None
+    for between in (post(kind="defect", text="say refused his 3:40 PM pick, nothing posted", to=META), coordinator(turn, kind="report", text="FYI j1 merged at 4:50 AM", to=TO)):
+        made = record_lines.decision(between)
+        assert made is None or made.get("permissionDecision") != "deny", between
 
 
 def test_a_report_naming_a_jobs_start_is_refused_with_that_jobs_created_stamp(

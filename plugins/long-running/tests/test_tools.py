@@ -358,21 +358,16 @@ def test_a_long_defect_goes_to_the_other_session_as_one_line_with_its_whole_text
     assert sent["body"] == f"{defect.strip()}\n\nseen on the run page"
 
 
-def test_a_defect_quoting_a_builds_start_on_the_line_linking_the_build_posts_and_one_typing_or_unlinking_it_is_refused(
-    demo: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_defect_quoting_his_messages_clock_time_or_a_builds_start_posts_since_it_goes_between_sessions(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     posted: list[list[dict]] = []
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append(json.loads(kwargs["input"])) or subprocess.CompletedProcess([], 0, "#45\n", ""))
-    typed = "say {started:j1}: two posts say the SandSQL release started 9:52 AM, but build 15020 started 11:30 AM; the job's start was printed as the release's."
-    with pytest.raises(DriveError, match='"9:52 AM", "11:30 AM" are times typed for work already done'):
-        tools.run("record", demo, {"records": [{"kind": "defect", "text": typed}]})
-    build = "<https://buildkite.com/forge/release/builds/15020|release build 15020>"
-    quoted = f'say `{{started:j1}}`: two posts say the SandSQL release started "9:52 AM", but {build} started `11:30 AM`; the job\'s start was printed as the release\'s.'
-    assert tools.run("record", demo, {"records": [{"kind": "defect", "text": quoted}]}) == "1 defect #45"
-    assert (posted[0][0]["text"], posted[0][0]["body"]) == (limits.first_line(quoted), quoted)
-    with pytest.raises(DriveError, match="`11:30 AM` says when a release, build or deploy started, and its line links no build or tool"):
-        tools.run("record", demo, {"records": [{"kind": "defect", "text": quoted.replace(build, "release build 15020")}]})
-    assert len(posted) == 1
+    defects = (
+        "record refused his 3:40 PM pick beside https://acme.slack.com/archives/D123/p1794526841094869, nothing posted",
+        "say {started:j1}: two posts say the SandSQL release started 9:52 AM, but build 15020 started 11:30 AM; the job's start was printed as the release's.",
+    )
+    for defect in defects:
+        assert tools.run("record", demo, {"records": [{"kind": "defect", "text": defect}]}) == "1 defect #45", defect
+    assert [sent["text"] for [sent] in posted] == [limits.first_line(defect) for defect in defects]
 
 
 def test_a_sub_coordinator_posts_from_its_lane_and_his_answer_to_its_card_or_an_owner_record_heard_routes_reaches_it(

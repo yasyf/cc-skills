@@ -1293,7 +1293,7 @@ def drop_ask(name: str, job_id: str, file: Path) -> tuple[str | None, bool]:
 
 
 def keep_ask(name: str, job_id: str, text: str, unsettled: str | None) -> tuple[Path, limits.Question, dict, str | None]:
-    """Keep the job's ASK block, or the ASK a DESIGN return puts to him, in its own file once it is in the shape he reads, in place of the job's open question asking the same, and set the job waiting on it; the question keeps the words of its `Holds:` line, which hold from landing only the PRs of jobs working a change they name, refused when they name no part of the job's orders, unless a design job names the changes its `Change:` lines are about to make parts; asked again with no --unsettled, as a reader's DESIGN report re-asks it, it keeps the --unsettled its kept question with that title carries; a question any job asked on a card since withdrawn keeps that card's waits id, so asking it again redraws that card. One he already answered, the same words asked on a card he tapped or wrote on or under, or under a record keeping his words, is kept settled by that answer, draws no card and leaves the job as it was, so it goes straight to building on his words, and the session holding its order hears so in one record; no answer he gave another question settles it, and no ccn match or Jev reading is asked. One refused stays kept as the job's pending question with its refusal, which draws no card, so the watch says the job waits on a card never posted until it asks again or drops it. Each question of the job in the same words that ended with no card drawn is replaced, so a question once kept settled on another answer of his draws its card when asked again."""
+    """Keep the job's ASK block, or the ASK a DESIGN return puts to him, in its own file once it is in the shape he reads and the words his card draws type no clock time for work already done, in place of the job's open question asking the same, and set the job waiting on it; the question keeps the words of its `Holds:` line, which hold from landing only the PRs of jobs working a change they name, refused when they name no part of the job's orders, unless a design job names the changes its `Change:` lines are about to make parts; asked again with no --unsettled, as a reader's DESIGN report re-asks it, it keeps the --unsettled its kept question with that title carries; a question any job asked on a card since withdrawn keeps that card's waits id, so asking it again redraws that card. One he already answered, the same words asked on a card he tapped or wrote on or under, or under a record keeping his words, is kept settled by that answer, draws no card and leaves the job as it was, so it goes straight to building on his words, and the session holding its order hears so in one record; no answer he gave another question settles it, and no ccn match or Jev reading is asked. One refused stays kept as the job's pending question with its refusal, which draws no card, so the watch says the job waits on a card never posted until it asks again or drops it. Each question of the job in the same words that ended with no card drawn is replaced, so a question once kept settled on another answer of his draws its card when asked again."""
     from drive import superseded, view
 
     text = limits.ask_block(text)
@@ -1310,7 +1310,9 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None) -> tuple[
             f" the words that name it, an {{order:<o>}} as the first {view.TITLE_CHARS} characters of his order, and at most"
             f" {limits.QUESTION_WORDS} in all: give a reference a few words of its own, as {{order:<o>|<a few words>}}, or cut the summary"
         )
-    said ="\n".join([asked.title, *asked.summary]).casefold()
+    if typed := limits.typed_time("\n".join([asked.title, *asked.summary, *asked.show_me, *asked.options, *asked.hints.values()]), data):
+        raise DriveError(f"{job_id}: refused, nothing kept: his card draws these words, and {typed}")
+    said = "\n".join([asked.title, *asked.summary]).casefold()
     if unnamed := [pr["port_of"] for pr in data["prs"].values() if pr["job"] == job_id and pr.get("port_of") and f"port of #{pr['port_of']}" not in said]:
         raise DriveError(
             f'{job_id}\'s PR is a port of #{unnamed[0]}: its ASK\'s summary says "port of #{unnamed[0]}", as the text of that PR\'s link,'
@@ -1585,7 +1587,7 @@ def keep_waits(job: dict, file: Path, waits: str) -> None:
 
 
 def job_report(args: argparse.Namespace) -> int:
-    """Keep a job's whole return from stdin in its history, which is its report, its first line setting the job's state, or refuse it with nothing kept, naming the fix, when that line would set none or it types a clock time for work already done; a reader's DESIGN is kept as its ASK in the same call, whose path it prints, and each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links is registered on the job before the take, which joins its order to the bug, or kept untracked with the reason drive pr add refused it. With no stdin, print every return the job took, newest first."""
+    """Keep a job's whole return from stdin in its history, which is its report, its first line setting the job's state, or refuse it with nothing kept, naming the fix, when that line would set none; a reader's DESIGN is kept as its ASK in the same call, whose path it prints, and each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links is registered on the job before the take, which joins its order to the bug, or kept untracked with the reason drive pr add refused it. With no stdin, print every return the job took, newest first."""
     name = state.resolve(args.drive)
     data = state.load(name)
     job = find(data["jobs"], args.id, "job")
@@ -1594,7 +1596,7 @@ def job_report(args: argparse.Namespace) -> int:
         if not whole.strip():
             raise DriveError(f"stdin held no report for {args.id}; pipe its whole return in: printf '%s\\n' '<line>' ... | drive job report {args.id} -")
         line = whole.strip().splitlines()[0].strip()
-        if refused := brief.report_refusal(name, data, args.id, whole) or state.result_refusal(data, args.id, line, whole) or limits.typed_time(whole, data):
+        if refused := brief.report_refusal(name, data, args.id, whole) or state.result_refusal(data, args.id, line, whole):
             raise DriveError(f"{args.id}: refused, nothing kept: {refused}")
         try:
             registered = register_named(name, args.id, line)

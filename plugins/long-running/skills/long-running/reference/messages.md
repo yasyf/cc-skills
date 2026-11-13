@@ -681,18 +681,20 @@ restating it.
   your sense of how long the turn has run, which drifts.
 - A clock time typed for work already done. Name the job or record and let the drive's stamp give the
   time: `{started:<job>}` for when a job started and `{at:<seq>}` for when a record went out, which `say`
-  fills. The cci `post` hook, a Bash `cci post`, `say`, a SendMessage from the coordinator or meta
-  session, a defect through `record` and `drive job report` refuse a time such as "started at 4:55 AM",
-  naming the write's stamp and each named job's: on Nov 12 a report posted at 4:50 AM said its builder
-  started at 4:55 AM. A promise of a time to come, such as "next line by 5:40 AM" or "due 6 AM", a time
-  quoted as a tool printed it, in backticks, and a linked time pass. His ruling of Nov 3: "the agent
-  should never be passing in a time".
+  fills. Only words he reads are checked: `say`, a card `drive job ask` keeps, and a POST report, ready
+  or ask record to the communicator, through the cci `post` tool or a Bash `cci post`, refuse a time such
+  as "started at 4:55 AM", naming the write's stamp and each named job's: on Nov 12 a report posted at
+  4:50 AM said its builder started at 4:55 AM. A SendMessage, a defect, a handoff, any other record
+  between sessions and `drive job report` quote times as they stand, by his words "i think that time
+  hook its tooa ggessive too". A promise of a time to come, such as "next line by 5:40 AM" or "due 6
+  AM", a time quoted as a tool printed it, in backticks, and a linked time pass. His ruling of Nov 3:
+  "the agent should never be passing in a time".
 - A job's or record's stamp as another action's time. `{started:<job>}` draws as the job's start,
   labelled so, as "9:52 AM (job start)", and `{at:<seq>}` as when its record went out; neither is when
   a release, build or deploy started. Quote that start as its build or tool printed it, in backticks or
   its link's words, on the line linking it, as in
   ``<https://buildkite.com/forge/release/builds/15020|the release build> started `11:30 AM` ``.
-  Every write path the clock-time check runs on refuses a line saying when a release, build or deploy
+  Every surface the clock-time check runs on refuses a line saying when a release, build or deploy
   started with either stamp in a clause naming no job or record, or a quoted time on a line linking no
   build or tool: on Nov 12 two posts said the SandSQL release started at its job's start, over an hour
   before its release build did.

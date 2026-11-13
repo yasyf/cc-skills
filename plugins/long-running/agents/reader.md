@@ -85,7 +85,9 @@ where its data lives, and what it requires touching or building, by name, with a
 pays, such as SandSQL's write path for every table, by his words "you need to always fucking explain each optopn properly as prose in additon tot he table or whatever and what it requires touching/building" and
 "this does/data/toches is not as helpful as each option just having a plain-text shot concise but clear and comprehensive description of what it is". It is for a design job to turn into his cards. Written in the ASK block's shape, which
 `drive job ask --check` passes with `ASK` for `DESIGN` and your research under `Findings:`, it is his
-card as it stands: `drive job card <j>` draws it with no file written by hand. It starts from the root cause your
+card as it stands: `drive job card <j>` draws it with no file written by hand, and `drive job report` refuses a clock time typed in it
+for work already done, so name a job's start as `{started:<job>}` and a record's as `{at:<seq>}`, and quote a time a tool printed
+in backticks as it printed it; any other report quotes times as it needs. It starts from the root cause your
 evidence finds, the structure that lets the defect happen: a `Root cause:` line names it, and a
 `First principles:` line names the option that removes it so the defect cannot occur, always offered
 and recommended, and on drive tooling the simplest build that does his words, with the fewest checks, steps,
