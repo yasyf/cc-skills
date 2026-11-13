@@ -38,13 +38,29 @@ def test_a_builders_serves_line_names_one_of_the_three(demo: str) -> None:
         assert agent_brief.deny_reason(started("long-running:builder", f"{order}Serves: {serves}\nGoal: fix it")) is None
 
 
-def test_a_builders_brief_kept_outside_the_jobs_folder_is_read_from_its_read_your_brief_first_line(demo: str, tmp_path: Path) -> None:
+def test_a_builders_brief_file_is_read_from_whichever_line_of_its_prompt_names_it_wherever_it_is_kept(demo: str, tmp_path: Path) -> None:
     kept = tmp_path / "scratch" / "coordinator" / "j3.brief.md"
     kept.parent.mkdir(parents=True)
-    kept.write_text("Order (his words): fix the watch\nServes: his order\nGoal: fix it\n")
-    assert agent_brief.deny_reason(started("long-running:builder", f"Read your brief first: {kept}")) is None
-    kept.write_text("Order (his words): fix the watch\nGoal: fix it\n")
-    assert agent_brief.deny_reason(started("long-running:builder", f"Read your brief first: {kept}")).startswith(
+    kept.write_text("Order (his words): fix the watch\nServes: his order\nGoal: fix it\nDrive: demo, order o1, job j3\n")
+    for prompt in (
+        f"Read your brief first: {kept}",
+        f"Read your brief first: {kept}; his words from o1, rulings: 0, earlier jobs: 0",
+        f"Brief: {kept} (read it whole; it is your brief)\nDrive: demo, order o1, job j3",
+        f"Read the whole brief at `{kept}`, then follow it.",
+    ):
+        assert agent_brief.deny_reason(started("long-running:builder", prompt)) is None
+    kept.write_text("Order (his words): fix the watch\nGoal: fix it\nDrive: demo, order o1, job j3\n")
+    assert agent_brief.deny_reason(started("long-running:builder", f"Brief: {kept}")).startswith(
+        "refused: a builder's brief, in its prompt or the brief file the prompt names, carries a `Serves:` line"
+    )
+
+
+def test_a_builder_reads_no_brief_of_another_job_its_prompt_names_beside_its_own_drive_line(demo: str, tmp_path: Path) -> None:
+    other = tmp_path / "jobs" / "j2.brief.md"
+    other.parent.mkdir()
+    other.write_text("Order (his words): fix the watch\nServes: his order\nDrive: demo, order o1, job j2\n")
+    prompt = f"Order (his words): fix the watch\nGoal: find why the builder on {other} stopped\nDrive: demo, order o1, job j3"
+    assert agent_brief.deny_reason(started("long-running:builder", prompt)).startswith(
         "refused: a builder's brief, in its prompt or the brief file the prompt names, carries a `Serves:` line"
     )
 

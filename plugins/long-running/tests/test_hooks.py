@@ -690,7 +690,7 @@ def test_a_drive_roles_agent_runs_unnamed_with_fable_on_its_designer_alone_and_n
     )
     written = tmp_path / "jobs" / "j1.brief.md"
     written.parent.mkdir()
-    written.write_text("Order (his words): fix it\nServes: his order\n")
+    written.write_text("Order (his words): fix it\nServes: his order\nDrive: demo, order o1, job j1\n")
     assert agent_brief.deny_reason(started_by_role(coordinator, subagent_type="long-running:builder", prompt=f"Read your brief first: {written}")) is None
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
     run("start", "demo", "--role", "communicator")
