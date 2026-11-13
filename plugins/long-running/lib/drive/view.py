@@ -229,9 +229,9 @@ def drawn_on(drive: dict, *cards: str) -> list[tuple[str, dict]]:
 
 
 def stored_waits(drive: dict, waits: list[str], found: dict | None = None) -> list[str]:
-    """The waits as a job or PR stores them: each once, and a card of his named by its Slack link under its waits id, the one the drive's question drawn on that link holds or else the one cc-slack keeps on its open card there, so one card is one wait whichever way it is named; every other wait as given."""
-    listed = [*found["questions"], *found["pr_cards"]] if found else []
-    return list(dict.fromkeys(waits_id(drive, listed, wait) for wait in waits))
+    """The waits as a job or PR stores them: each once, his question card named by its Slack link under its waits id, the one the drive's question drawn on that link holds or else the one cc-slack keeps on its open card there, and his open PR card named either way under its Slack link, since its waits id names the head each PR on it is asked at and moves with a push while the card redraws in place, so one card is one wait whichever way it is named; every other wait as given."""
+    questions, pr_cards = (found["questions"], found["pr_cards"]) if found else ([], [])
+    return list(dict.fromkeys(next((card["url"] for card in pr_cards if names_card(card, wait)), None) or waits_id(drive, questions, wait) for wait in waits))
 
 
 def waits_id(drive: dict, listed: list[dict], wait: str) -> str:

@@ -142,7 +142,7 @@ def test_a_monorepo_fix_waiting_on_his_tap_asks_for_approve() -> None:
         "prs": [row(lands="you approve and CI passes")],
         "options": ["Approve", "Hold"],
         "recommended": "Approve",
-        "waits": "merge:Forge-AI:monorepo:42",
+        "waits": asked_waits(42),
     }
 
 
@@ -151,7 +151,7 @@ def test_a_change_since_his_tap_asks_again_with_what_changed() -> None:
     drawn = card.render(pr_json(), changed)
     assert (drawn["status"], drawn["waits"], drawn["prs"][0]["changed"]) == (
         "needs_you",
-        "merge:Forge-AI:monorepo:42",
+        asked_waits(42),
         "rewritten to do the opposite of the version he held",
     )
 
@@ -585,7 +585,7 @@ def test_a_pr_whose_wait_holds_redraws_his_open_card_with_its_buttons_saying_wha
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [tap_card], "closed": []})
     view.refresh_cards(drive)
     [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
-    assert (drawn["card"]["status"], drawn["card"]["options"], drawn["card"]["waits"]) == ("needs_you", ["Approve", "Hold"], "merge:Forge-AI:monorepo:42")
+    assert (drawn["card"]["status"], drawn["card"]["options"], drawn["card"]["waits"]) == ("needs_you", ["Approve", "Hold"], asked_waits(42))
     release = "the dashboard release carrying [retry flaky uploads](https://github.com/Forge-AI/monorepo/pull/7) is out"
     assert drawn["card"]["prs"][0]["lands"] == f"you approve, CI passes and {release}"
     assert card.render(pr_json(), entry(tap="Approve", checks="pass", now="waiting"), (), (release,))["prs"][0]["blocks"] == f"Approved by you. Lands once {release}"
@@ -649,7 +649,7 @@ def test_numbers_lists_every_drive_pr_with_that_number(drive: str) -> None:
 
 def test_shown_counts_known_prs_and_wakes_nobody(drive: str) -> None:
     shown = [
-        {"repo": "Forge-AI/monorepo", "number": 42, "waits": "merge:Forge-AI:monorepo:42"},
+        {"repo": "Forge-AI/monorepo", "number": 42, "waits": asked_waits(42)},
         {"repo": "Forge-AI/monorepo", "number": 99, "waits": ""},
     ]
     assert ask({"shown": shown}) == {"shown": 1}
@@ -825,7 +825,7 @@ def test_answer_stores_his_tap_and_appends_a_tap_event(drive: str) -> None:
     answer = {
         "repo": "Forge-AI/monorepo",
         "number": 42,
-        "waits": "merge:Forge-AI:monorepo:42",
+        "waits": asked_waits(42),
         "label": "Approve",
         "heads": {},
         "action_ts": "1762700000.000100",
@@ -847,7 +847,7 @@ def test_answer_stores_his_tap_and_appends_a_tap_event(drive: str) -> None:
 
 
 def test_a_tap_cc_slack_applies_again_keeps_its_first_time_and_appends_no_second_event(drive: str) -> None:
-    answer = {"repo": "Forge-AI/monorepo", "number": 42, "waits": "merge:Forge-AI:monorepo:42", "label": "Approve", "heads": {}, "action_ts": "1762700000.000100", "source": "slack"}
+    answer = {"repo": "Forge-AI/monorepo", "number": 42, "waits": asked_waits(42), "label": "Approve", "heads": {}, "action_ts": "1762700000.000100", "source": "slack"}
     assert ask({"answer": answer}) == {"ok": True}
     first = state.load(drive)["prs"]["Forge-AI/monorepo#42"]["tap"]
     assert ask({"answer": answer}) == {"ok": True}
@@ -865,7 +865,7 @@ def test_his_approve_starts_the_lander_on_a_green_monorepo_pr_at_once_and_leaves
     with state.edit(drive) as data:
         data["jobs"]["j1"] = state.new_job("o1", "builder", "the run page", [], state.stamp())
         data["prs"]["Forge-AI/monorepo#42"] |= {"order": "o1", "checks": "fail", "review": "approved"}
-    answer = {"repo": "Forge-AI/monorepo", "number": 42, "waits": "merge:Forge-AI:monorepo:42", "label": "Approve", "heads": {}, "action_ts": "", "source": "s"}
+    answer = {"repo": "Forge-AI/monorepo", "number": 42, "waits": asked_waits(42), "label": "Approve", "heads": {}, "action_ts": "", "source": "s"}
     assert ask({"answer": answer}) == {"ok": True}
     assert landers == []
     with state.edit(drive) as data:
@@ -891,7 +891,7 @@ def moved_under_his_card(drive: str, monkeypatch: pytest.MonkeyPatch) -> dict:
 
 
 def tap_approve(shown: str) -> None:
-    answer = {"repo": "Forge-AI/monorepo", "number": 42, "waits": "merge:Forge-AI:monorepo:42", "label": "Approve", "heads": {"Forge-AI/monorepo#42": shown}, "action_ts": "", "source": "pressed the button"}
+    answer = {"repo": "Forge-AI/monorepo", "number": 42, "waits": asked_waits(42), "label": "Approve", "heads": {"Forge-AI/monorepo#42": shown}, "action_ts": "", "source": "pressed the button"}
     assert ask({"answer": answer}) == {"ok": True}
 
 
@@ -952,7 +952,7 @@ def test_answer_on_an_unknown_pr_fails(drive: str) -> None:
 @pytest.mark.parametrize(
     "tap",
     [
-        {"answer": {"repo": "Forge-AI/monorepo", "number": 42, "waits": "merge:Forge-AI:monorepo:42", "label": "Approve", "heads": {}, "action_ts": "", "source": "slack"}},
+        {"answer": {"repo": "Forge-AI/monorepo", "number": 42, "waits": asked_waits(42), "label": "Approve", "heads": {}, "action_ts": "", "source": "slack"}},
         {"answer": {"waits": "demo:j3-661440", "label": "Ring", "url": "https://acme.slack.com/archives/D123/p1794200000000100", "action_ts": "", "source": "slack"}},
     ],
 )
@@ -982,6 +982,10 @@ STACK = {
 
 def stack_url(number: int) -> str:
     return f"https://github.com/Forge-AI/monorepo/pull/{number}"
+
+
+def asked_waits(*numbers: int, head: str = HEAD) -> str:
+    return f"merge:{'.'.join(map(str, numbers))}:{state.ask_hash(' '.join([head] * len(numbers)))}"
 
 
 @pytest.fixture
@@ -1015,7 +1019,7 @@ def test_a_stack_draws_one_card_listing_each_pr_bottom_first(stacked: list[list[
     assert [row["url"] for row in stack_card["prs"]] == [stack_url(41), stack_url(42), stack_url(43)]
     assert stack_card["title"] == "New: the orders table moves to a new one without a pause"
     assert stack_card["body"] == "Readers read both tables, every row is copied across, then the old table goes."
-    assert stack_card["waits"] == "merge:Forge-AI:monorepo:41-43"
+    assert stack_card["waits"] == asked_waits(41, 42, 43)
     assert (stack_card["options"], stack_card["recommended"], stack_card["status"]) == (["Approve", "Hold"], "Approve", "needs_you")
     assert all(row["hate_most"] == "Retries could send a file twice. The server drops the copy." for row in stack_card["prs"])
     keys = ["Forge-AI/monorepo#41", "Forge-AI/monorepo#42", "Forge-AI/monorepo#43"]
@@ -1096,7 +1100,7 @@ def test_a_native_stack_of_six_prs_draws_one_card_whose_approve_taps_each(stacke
         native_stacks[key] = [(member, "open") for member in keys]
     [drawn] = ask(asks(*numbers))["cards"]
     assert [row["url"] for row in drawn["card"]["prs"]] == [stack_url(n) for n in numbers]
-    assert (drawn["card"]["waits"], drawn["card"]["options"]) == ("merge:Forge-AI:monorepo:41-46", ["Approve", "Hold"])
+    assert (drawn["card"]["waits"], drawn["card"]["options"]) == (asked_waits(41, 42, 43, 44, 45, 46), ["Approve", "Hold"])
     ask({"answer": {"repo": "Forge-AI/monorepo", "number": 41, "waits": drawn["card"]["waits"], "label": "Approve", "heads": {}, "action_ts": "", "source": "slack"}})
     assert [state.load("demo")["prs"][key]["tap"]["label"] for key in keys] == ["Approve"] * 6
 
@@ -1109,7 +1113,7 @@ def test_a_stack_with_one_pr_reworked_to_his_words_draws_the_prs_below_it_alone_
         state.rework(data["prs"]["Forge-AI/monorepo#42"], "o2", "Topology goes in the meta table")
     reason = 'Forge-AI/monorepo#42 is being reworked to his words "Topology goes in the meta table", so no card asks his tap until its builder\'s READY says how they are met'
     for drawn in (ask(asks(41, 42, 43)), ask(asks(42) | {"redraw": True})):
-        assert [([row["url"] for row in each["card"]["prs"]], each["card"]["waits"]) for each in drawn["cards"]] == [([stack_url(41)], "merge:Forge-AI:monorepo:41")]
+        assert [([row["url"] for row in each["card"]["prs"]], each["card"]["waits"]) for each in drawn["cards"]] == [([stack_url(41)], asked_waits(41))]
         assert [(skipped["number"], skipped["reason"]) for skipped in drawn["skipped"]] == [(42, reason), (43, reason)]
     assert state.load("demo")["prs"]["Forge-AI/monorepo#41"]["stack"] == ["Forge-AI/monorepo#41"]
     with state.edit("demo") as data:
@@ -1131,7 +1135,7 @@ def test_a_redraw_of_one_pr_in_a_stack_redraws_the_whole_stack(stacked: list[lis
     ask(asks(41, 42, 43))
     [drawn] = ask(asks(42))["cards"]
     assert [row["url"] for row in drawn["card"]["prs"]] == [stack_url(41), stack_url(42), stack_url(43)]
-    assert drawn["card"]["waits"] == "merge:Forge-AI:monorepo:41-43"
+    assert drawn["card"]["waits"] == asked_waits(41, 42, 43)
     assert "siblings" not in drawn["card"]
 
 
@@ -1154,7 +1158,7 @@ def test_a_pr_added_to_the_stack_later_gets_its_own_card(stacked: list[list[str]
     ask(asks(41, 42, 43))
     [drawn] = ask(asks(44))["cards"]
     assert [row["url"] for row in drawn["card"]["prs"]] == [stack_url(44)]
-    assert drawn["card"]["waits"] == "merge:Forge-AI:monorepo:44"
+    assert drawn["card"]["waits"] == asked_waits(44)
     assert state.load("demo")["prs"]["Forge-AI/monorepo#44"]["stack"] == ["Forge-AI/monorepo#44"]
 
 
@@ -1162,11 +1166,11 @@ def test_a_pr_added_on_top_joins_the_stack_card_when_asked_with_it(stacked: list
     ask(asks(41, 42, 43))
     [drawn] = ask(asks(41, 42, 43, 44))["cards"]
     assert [row["url"] for row in drawn["card"]["prs"]] == [stack_url(n) for n in (41, 42, 43, 44)]
-    assert drawn["card"]["waits"] == "merge:Forge-AI:monorepo:41-44"
+    assert drawn["card"]["waits"] == asked_waits(41, 42, 43, 44)
     keys = [f"Forge-AI/monorepo#{n}" for n in (41, 42, 43, 44)]
     assert all(state.load("demo")["prs"][key]["stack"] == keys for key in keys)
     [again] = ask(asks(43))["cards"]
-    assert again["card"]["waits"] == "merge:Forge-AI:monorepo:41-44"
+    assert again["card"]["waits"] == asked_waits(41, 42, 43, 44)
 
 
 def test_a_stack_split_by_an_ask_missing_a_member_draws_one_card_once_asked_whole(stacked: list[list[str]]) -> None:
@@ -1174,7 +1178,7 @@ def test_a_stack_split_by_an_ask_missing_a_member_draws_one_card_once_asked_whol
     assert state.load("demo")["prs"]["Forge-AI/monorepo#43"]["stack"] == ["Forge-AI/monorepo#43", "Forge-AI/monorepo#44"]
     [drawn] = ask(asks(41, 42, 43, 44))["cards"]
     assert [row["url"] for row in drawn["card"]["prs"]] == [stack_url(n) for n in (41, 42, 43, 44)]
-    assert drawn["card"]["waits"] == "merge:Forge-AI:monorepo:41-44"
+    assert drawn["card"]["waits"] == asked_waits(41, 42, 43, 44)
     assert not any(state.load("demo")["prs"][f"Forge-AI/monorepo#{n}"].get("refused") for n in (41, 42, 43, 44))
 
 
@@ -1200,7 +1204,7 @@ def test_prs_of_one_order_in_no_native_stack_asked_together_draw_one_card_whose_
     keys = siblings(monkeypatch, {54591: "o601", 54602: "o601", 54608: "o601"}, drawn_alone)
     [drawn] = ask(asks(54591, 54602, 54608))["cards"]
     assert [row["url"] for row in drawn["card"]["prs"]] == [stack_url(n) for n in (54591, 54602, 54608)]
-    assert drawn["card"]["waits"] == "merge:Forge-AI:monorepo:54591-54608"
+    assert drawn["card"]["waits"] == asked_waits(54591, 54602, 54608)
     assert (drawn["card"]["title"], drawn["card"]["siblings"]) == ("Fix: 3 PRs of one request: one move of the cutover", True)
     assert all(state.load("demo")["prs"][key]["stack"] == keys for key in keys)
     ask({"answer": {"repo": "Forge-AI/monorepo", "number": 54591, "waits": drawn["card"]["waits"], "label": "Approve", "heads": {}, "action_ts": "", "source": "slack"}})
@@ -1258,7 +1262,7 @@ def test_approve_on_a_stack_card_taps_each_open_pr_bottom_first(stacked: list[li
     answer = {
         "repo": "Forge-AI/monorepo",
         "number": 41,
-        "waits": "merge:Forge-AI:monorepo:41-43",
+        "waits": asked_waits(41, 42, 43),
         "label": "Approve",
         "heads": {},
         "action_ts": "1762700000.000100",
@@ -1275,9 +1279,26 @@ def test_approve_on_a_stack_card_taps_each_open_pr_bottom_first(stacked: list[li
 
 def test_a_tap_on_a_single_pr_card_taps_only_that_pr(stacked: list[list[str]]) -> None:
     ask(asks(41, 42, 43))
-    answer = {"repo": "Forge-AI/monorepo", "number": 41, "waits": "merge:Forge-AI:monorepo:41", "label": "Hold", "heads": {}, "action_ts": "", "source": "s"}
+    answer = {"repo": "Forge-AI/monorepo", "number": 41, "waits": asked_waits(41), "label": "Hold", "heads": {}, "action_ts": "", "source": "s"}
     ask({"answer": answer})
     assert [event["number"] for event in events("demo")] == [41]
+
+
+def test_a_push_that_takes_back_his_approve_on_a_stack_card_asks_again_under_a_new_waits_id_whose_tap_covers_that_pr_alone(
+    stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    [drawn] = ask(asks(41, 42, 43))["cards"]
+    ask({"answer": {"repo": "Forge-AI/monorepo", "number": 41, "waits": drawn["card"]["waits"], "label": "Approve", "heads": {}, "action_ts": "1794516000.000001", "source": "slack"}})
+    with state.edit("demo") as data:
+        data["prs"]["Forge-AI/monorepo#42"].update(head=MOVED, tap=None, fundamental="it now copies rows in batches")
+    stacked_gh = card.run
+    monkeypatch.setattr(card, "run", lambda cmd, **_: stacked_gh(cmd) if cmd[1] == "api" or cmd[3] != "42" else json.dumps(json.loads(stacked_gh(cmd)) | {"headRefOid": MOVED}))
+    [again] = ask(asks(41, 42, 43) | {"redraw": True})["cards"]
+    assert [row["url"] for row in again["card"]["prs"]] == [stack_url(41), stack_url(42), stack_url(43)]
+    assert (again["card"]["status"], again["card"]["options"], again["card"]["waits"]) == ("needs_you", ["Approve", "Hold"], asked_waits(42, head=MOVED))
+    ask({"answer": {"repo": "Forge-AI/monorepo", "number": 41, "waits": again["card"]["waits"], "label": "Hold", "heads": {}, "action_ts": "1794516100.000001", "source": "slack"}})
+    prs = state.load("demo")["prs"]
+    assert [prs[f"Forge-AI/monorepo#{n}"]["tap"]["label"] for n in (41, 42, 43)] == ["Approve", "Hold", "Approve"]
 
 
 def typed(number: int, label: str) -> None:
@@ -1307,7 +1328,7 @@ def test_his_typed_approve_of_one_pr_and_hold_of_the_other_redraw_their_stack_ca
     [redrawn] = ask(asks(41, 42) | {"redraw": True})["cards"]
     assert (redrawn["card"]["status"], "options" in redrawn["card"], "waits" in redrawn["card"]) == ("info", False, False)
     assert [row["blocks"] for row in redrawn["card"]["prs"]] == ["Approved by you. CI failed; the agent is fixing it", "Held by you"]
-    collapsed = {"url": "https://acme.slack.com/archives/D123/p1794515083771169", "prs": [stack_url(41), stack_url(42)], "waits": "merge:Forge-AI:monorepo:41-42", "answer": None, "replaced_by": "", "tapped": "This PR no longer waits on your tap."}
+    collapsed = {"url": "https://acme.slack.com/archives/D123/p1794515083771169", "prs": [stack_url(41), stack_url(42)], "waits": asked_waits(41, 42), "answer": None, "replaced_by": "", "tapped": "This PR no longer waits on your tap."}
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [], "closed": [collapsed]})
     typed(42, "Approve")
     assert redraws.asked == [stack_url(41), stack_url(42), stack_url(42)]
@@ -1353,7 +1374,7 @@ def test_a_pr_in_a_native_stack_draws_its_native_stack_and_the_rest_of_the_chain
     monkeypatch.setattr(card, "run", gh)
     drawn = ask(asks(41, 42, 44, 45, 46))["cards"]
     assert [[row["url"] for row in each["card"]["prs"]] for each in drawn] == [[stack_url(n) for n in (41, 42, 44)], [stack_url(45), stack_url(46)]]
-    assert [each["card"]["waits"] for each in drawn] == ["merge:Forge-AI:monorepo:41-44", "merge:Forge-AI:monorepo:45-46"]
+    assert [each["card"]["waits"] for each in drawn] == [asked_waits(41, 42, 44), asked_waits(45, 46)]
     assert state.load("demo")["prs"][keys[44]]["stack"] == [keys[41], keys[42], keys[44]]
 
 
@@ -1369,7 +1390,7 @@ def test_a_pr_added_to_its_native_stack_after_the_stack_card_was_drawn_gets_its_
     [drawn] = ask(asks(44))["cards"]
     assert [row["url"] for row in drawn["card"]["prs"]] == [stack_url(44)]
     [again] = ask(asks(42) | {"redraw": True})["cards"]
-    assert again["card"]["waits"] == "merge:Forge-AI:monorepo:41-43"
+    assert again["card"]["waits"] == asked_waits(41, 42, 43)
 
 
 TITLE_55405 = "sandsql: 🐛 Fix: a stopping SandSQL primary leaves an applying migration attached for its final writer drain"

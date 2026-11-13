@@ -1354,7 +1354,7 @@ def test_a_job_carrying_his_order_leaves_his_open_card_on_its_pr_up_until_rework
 def test_job_set_waits_on_his_pr_card_by_its_slack_link_or_merge_waits_id_as_one_wait_until_he_taps_it(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    link, merge = "https://acme.slack.com/archives/D123/p1794300000000400", "merge:acme:app:42"
+    link, merge = "https://acme.slack.com/archives/D123/p1794300000000400", "merge:42:0a1b2c3d"
     tap = {"asked": state.stamp(), "url": link, "prs": ["https://github.com/acme/app/pull/42"], "card": {"title": "New: land it?", "waits": merge}}
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [tap], "closed": []})
     view.refresh_cards("demo")
@@ -1362,7 +1362,7 @@ def test_job_set_waits_on_his_pr_card_by_its_slack_link_or_merge_waits_id_as_one
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
     assert run("job", "set", "j1", "--waits", link, "--waits", merge)[0] == 0
     data = state.load("demo")
-    assert data["jobs"]["j1"]["waits"] == [merge]
+    assert data["jobs"]["j1"]["waits"] == [link]
     assert view.holding(data, [link, merge], view.live_cards("demo")) == [link, merge]
     monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
     view.refresh_cards("demo")
@@ -1370,7 +1370,7 @@ def test_job_set_waits_on_his_pr_card_by_its_slack_link_or_merge_waits_id_as_one
     assert cli.main(["job", "set", "j1", "--waits", merge]) == 2
     assert (
         f"--waits {merge}: name a job of this drive, the Slack link or waits id of a card of his still open, a question"
-        " card or a PR card still waiting on his tap, whose waits id is merge:<owner>:<repo>:<n>, a PR of this drive as"
+        " card or a PR card still waiting on his tap, whose waits id is merge:<n>[.<n>…]:<heads>, a PR of this drive as"
     ) in capsys.readouterr().err
     assert cli.main(["job", "set", "j1", "--waits", "acme/app#9"]) == 2
     assert "--waits acme/app#9: the drive tracks no PR acme/app#9; drive pr add it to its job first" in capsys.readouterr().err
@@ -7732,7 +7732,7 @@ def test_his_answer_reopening_the_top_pr_of_a_two_pr_stack_card_cards_the_pr_it_
     read = {"title": "Fix: land it", "body": CARD_BODY, "state": "OPEN", "isDraft": False, "headRefOid": "abc", "baseRefName": "main", "headRefName": "land-it", "reviewDecision": "APPROVED", "labels": []}
     monkeypatch.setattr(card, "run", lambda cmd, **_: "[]" if cmd[1] == "api" else json.dumps(read | {"url": f"https://github.com/Forge-AI/monorepo/pull/{cmd[3]}"}))
     drawn = card.cards([{"repo": "Forge-AI/monorepo", "number": 42}])
-    assert [([row["url"] for row in each["card"]["prs"]], each["card"]["waits"], each["card"]["options"]) for each in drawn["cards"]] == [([PR], "merge:Forge-AI:monorepo:42", ["Approve", "Hold"])]
+    assert [([row["url"] for row in each["card"]["prs"]], each["card"]["waits"], each["card"]["options"]) for each in drawn["cards"]] == [([PR], f"merge:42:{state.ask_hash('abc')}", ["Approve", "Hold"])]
     assert [skipped["number"] for skipped in drawn["skipped"]] == [44]
     assert [state.load("demo")["prs"][key]["stack"] for key in stack] == [[designing], stack]
 

@@ -136,6 +136,7 @@ PART_CHARS = 80
 REBUILT_ASKS = ".rebuilt"
 NOT_LANE = re.compile(r"[^a-z0-9]+")
 WAITS_ID = re.compile(r"([\w.-]+):(j\d+)-(\d+)")
+ASK_WAITS = re.compile(r"merge:(\d+(?:\.\d+)*):[0-9a-f]{8}")
 ORDER_LIST = re.compile(r"[\s,]+")
 PART_ITEMS = re.compile(r"\s*;\s*(?=o\d+:)")
 ORDER_PART = re.compile(r"(o\d+):\s*(.+)", re.DOTALL)
