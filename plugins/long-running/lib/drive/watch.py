@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Self
 
-from drive import agents, codex, dashboard, github, land, limits, orca, page, place, procs, reads, render, served, slack, stage, state, superseded, view
+from drive import agents, codex, dashboard, github, land, launchd, limits, orca, page, place, procs, reads, render, served, slack, stage, state, superseded, view
 from drive.install import MERGED_DONE, PROVEN, config_dir, merged_done, merged_ready, product, proof_gap, said_on_prs, upgraded
 from drive.render import cut, subscribe, when
 
@@ -42,7 +42,6 @@ CUT_OFF = (
     f"its read stopped before it finished, so what it did and printed are unknown, its output in the drive's {READS_LOG}, and no read"
     " runs twice: read what a drive command changed, then ask again if it must run again"
 )
-DRIVE = Path(__file__).resolve().parents[2] / "bin" / "drive"
 OWING_STATES = ("working", "waiting")
 LIVE_JOB_STATES = ("running", "waiting")
 RELEASES_AT_ONCE = 2
@@ -1190,7 +1189,7 @@ def down_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 def dashboard_lines(watcher: Watcher) -> list[str]:
     """Hand the drive's dashboard to its launch agent when no agent keeps it, as one started before the agent existed, telling the coordinator once each time it then does not start, a defect of the drive's code; a proof's drive and a project's watch leave it alone."""
-    if watcher.project or state.scratch() or dashboard.kept(watcher.name):
+    if watcher.project or state.scratch() or launchd.kept(dashboard.label(watcher.name)):
         watcher.dashboard_down = False
         return []
     try:
@@ -2070,30 +2069,28 @@ def release(name: str, project: str | None = None) -> None:
             path.unlink()
 
 
-def loop_argv(drive: Path, name: str, project: str | None) -> list[str]:
-    return [str(drive), "watch", "--loop", "--drive", name, *(["--project", project] if project else [])]
+def label(name: str, project: str | None = None) -> str:
+    """The label of the launch agent keeping the drive's watch, or a project's."""
+    return f"{launchd.LABEL}.watch.{name}" + (f".{state.project_lane(project)}" if project else "")
 
 
 def ensure(name: str, project: str | None = None) -> str:
-    """Start the drive's watch, or a project's, as its own process unless one runs or the drive sits under LONG_RUNNING_STATE, its output in its own log and its environment naming the drive, which lets the drive's sessions end it unasked; the line saying which. A project's watch first reads the events from where the log ended as its sub-coordinator was bound."""
+    """Load the launch agent keeping the drive's watch, or a project's, unless it is loaded or the drive sits under LONG_RUNNING_STATE: launchd starts the watch now and again within RESTART_SECONDS of any exit, crash included, on the newest install, its output in its own log and its environment naming the drive; the line saying which. A project's watch first reads the events from where the log ended as its sub-coordinator was bound."""
     watcher = f"the watch for {project}" if project else "the watch"
     reader = f"the sub-coordinator for {project}" if project else "the coordinator"
     if state.scratch():
         return f"{watcher} does not start for a drive under LONG_RUNNING_STATE={state.root()}; a proof runs its passes in-process with watch.run_pass(watch.Watcher(...), moment)"
-    if pid := holder(state.pid_path(name, project)):
-        return f"{watcher} runs as pid {pid} and posts its lines to {reader} over cci; arm no Monitor for it"
-    env = {key: value for key, value in os.environ.items() if key != "CLAUDE_CODE_SESSION_ID"} | {"CLAUDE_LONG_RUNNING_LANE": LANE, state.DRIVE_ENV: name}
-    with state.watch_log_path(name, project).open("a") as log:
-        started = subprocess.Popen(
-            loop_argv(DRIVE, name, project),
-            cwd=state.drive_dir(name),
-            env=env,
-            stdin=subprocess.DEVNULL,
-            stdout=log,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-        )
-    return f"started {watcher} as pid {started.pid}; it posts its lines to {reader} over cci, so arm no Monitor for it"
+    agent = f"its launch agent {label(name, project)}, which starts it again within {launchd.RESTART_SECONDS} seconds of any exit, crash included"
+    if launchd.kept(label(name, project)):
+        return f"{watcher} runs under {agent}, and posts its lines to {reader} over cci; arm no Monitor for it"
+    launchd.keep(
+        label(name, project),
+        ["watch", "--loop", "--drive", name, *(["--project", project] if project else [])],
+        state.watch_log_path(name, project),
+        {"CLAUDE_LONG_RUNNING_LANE": LANE, state.DRIVE_ENV: name},
+        state.drive_dir(name),
+    )
+    return f"started {watcher} under {agent}; it posts its lines to {reader} over cci, so arm no Monitor for it"
 
 
 def listen(name: str, session: str, project: str | None = None) -> None:
@@ -2107,18 +2104,21 @@ def stopped(watcher: Watcher, error: Exception) -> None:
     frame = next(frame for frame in reversed(traceback.extract_tb(error.__traceback__)) if Path(frame.filename).resolve().parent == Path(__file__).resolve().parent)
     where = f"{type(error).__name__} at {Path(frame.filename).name}:{frame.lineno} in {frame.name}"
     said = f"{where}: {cut(str(error), 200)}" if str(error) else where
-    again = shlex.join(["drive", "watch", *(["--project", watcher.project] if watcher.project else [])])
-    line = f"WATCH stopped on long-running {state.VERSION}: {said}; its traceback is in {state.watch_log_path(watcher.name, watcher.project)}; {again} starts it again"
+    line = f"WATCH stopped on long-running {state.VERSION}: {said}; its traceback is in {state.watch_log_path(watcher.name, watcher.project)}; its launch agent starts it again within {launchd.RESTART_SECONDS} seconds"
     with contextlib.suppress(reads.ReadError):
         sent(watcher, watcher.lane, [line], state.now())
 
 
 def main(drive_name: str | None = None, project: str | None = None) -> int:
-    """Run the drive's watch, or a project's, until it stops, once a watch an older install ran under a Monitor has ended; on a drive under LONG_RUNNING_STATE, end at once, so a watch an older install started there ends at its next re-exec."""
+    """Run the drive's watch, or a project's, as the process its launch agent starts, until it stops, once a watch an older install ran under a Monitor has ended. Any other process, such as one an older install's watch re-executed itself into, lets the watch go, loads its agent and ends, so launchd runs every watch. On a drive under LONG_RUNNING_STATE, end at once, so a watch an older install started there ends at its next re-exec."""
     if state.scratch():
         print(f"no watch runs for a drive under LONG_RUNNING_STATE={state.root()}", flush=True)
         return 0
     name = state.resolve(drive_name)
+    if os.environ.get(launchd.LAUNCHED_ENV) != label(name, project):
+        release(name, project)
+        print(ensure(name, project), flush=True)
+        return 0
     if not claim(name, project):
         return 0
     try:
@@ -2132,13 +2132,11 @@ def main(drive_name: str | None = None, project: str | None = None) -> int:
 
 
 def watching(watcher: Watcher) -> None:
-    """Hand each pass's lines to whoever acts on them, first any a watch before this one held for it, and let a newer install take over in place before a pass, or the moment a pass finds the drive saved by one, so no pass runs older code on a drive a newer install saved; a crash wakes the coordinator session it posts to first. Every line made and not yet posted is held for the watch after this one, which hands it on before its first pass, so the watch holds no install's lock: a pass that reads GitHub and each Sprite for minutes, or waits on a drive process it started, never holds a newer install's verbs."""
+    """Hand each pass's lines to whoever acts on them, first any a watch before this one held for it, and end before a pass once a newer long-running is installed, or the moment a pass finds the drive saved by one, so its launch agent starts the watch on that install and no pass runs older code on a drive a newer install saved; a crash wakes the coordinator session it posts to first. Every line made and not yet posted is held for the watch after this one, which hands it on before its first pass, so the watch holds no install's lock: a pass that reads GitHub and each Sprite for minutes, or waits on a drive process it started, never holds a newer install's verbs."""
     state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
     state.let_go_install()
     try:
-        while True:
-            if newer := upgraded():
-                handed_over(watcher, newer)
+        while not upgraded():
             read_from, moment = watcher.offset, state.now()
             orca.speak_as(coordinator(state.load(watcher.name), watcher.project)["terminal"])
             said = handed(watcher, watcher.made, moment) if watcher.made else run_pass(watcher, moment)
@@ -2148,16 +2146,12 @@ def watching(watcher: Watcher) -> None:
                 state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
             time.sleep(POLL_SECONDS)
     except Exception as error:
-        if isinstance(error, state.NewerDrive) and (newer := upgraded()):
-            handed_over(watcher, newer)
         keep_unposted(watcher)
+        if isinstance(error, state.NewerDrive) and upgraded():
+            return
         stopped(watcher, error)
         raise
-
-
-def handed_over(watcher: Watcher, newer: Path) -> None:
     keep_unposted(watcher)
-    os.execv(newer, loop_argv(newer, watcher.name, watcher.project))
 
 
 def keep_unposted(watcher: Watcher) -> None:

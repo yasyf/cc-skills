@@ -3092,7 +3092,7 @@ def dashboard_command(args: argparse.Namespace) -> int:
 
 
 def watch_events(args: argparse.Namespace) -> int:
-    """Run the watch with --loop; else start it as its own process unless one runs, and point the cci channel of the coordinator session it posts to at its records when this is that session. A project's watch starts only from the session of that project's sub-coordinator, and a drive under LONG_RUNNING_STATE gets neither the process nor the channel."""
+    """Run the watch with --loop; else load its launch agent unless one is loaded, and point the cci channel of the coordinator session it posts to at its records when this is that session. A project's watch starts only from the session of that project's sub-coordinator, and a drive under LONG_RUNNING_STATE gets neither the process nor the channel."""
     if args.loop:
         return watch.main(args.drive, args.project)
     name = state.resolve(args.drive)
@@ -4107,8 +4107,8 @@ def parser() -> argparse.ArgumentParser:
         help="with --serve, serve on this inherited listening socket instead of binding the port: an older install's dashboard hands its sockets to the newest this way",
     )
     verb.set_defaults(run=dashboard_command)
-    verb = verbs.add_parser("watch", parents=[drive_opt], help="start the drive's watch as its own process unless one runs")
-    verb.add_argument("--loop", action="store_true", help="run the watch in the foreground: the process drive watch starts")
+    verb = verbs.add_parser("watch", parents=[drive_opt], help="load the launch agent that keeps the drive's watch running unless one is loaded")
+    verb.add_argument("--loop", action="store_true", help="run the watch in the foreground: the process its launch agent runs")
     verb.add_argument(
         "--project",
         metavar="NAME",
