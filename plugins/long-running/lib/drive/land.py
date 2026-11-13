@@ -21,7 +21,7 @@ BASE_MOVED = "Base branch was modified"
 NOT_MERGING = "not merging it"
 MERGE = ("gh", "pr", "merge", "--squash")
 NEWER_INSTALL = "not landed: a newer long-running saved the drive while stack-enqueue --check ran, so the landing runs again on it"
-NO_WORKTREE = "not landed: no fresh worktree"
+NO_WORKTREE = "the lander could not check out"
 HELD = "not landed while he holds it"
 REVIEW_ASK = "@forge-pr-reviewer review"
 BLOCKED_LINE = re.compile(r"^#(?P<number>\d+) BLOCKED (?P<head>\w+) (?P<gaps>.+)$", re.MULTILINE)
@@ -382,7 +382,7 @@ def enqueued(name: str, clone: Path, keys: list[str], dry_run: bool = False) -> 
                     subprocess.run([script, "--dequeue", number], cwd=checkout)
                 raise
     except github.GithubError as error:
-        return f"{NO_WORKTREE} of {repo}'s default branch to run stack-enqueue from: {cut(str(error), SAID_CHARS)}"
+        return f"{NO_WORKTREE} {repo}'s default branch to queue {', '.join(keys)} from: {cut(str(error), SAID_CHARS)}"
     print(done.stdout + done.stderr, flush=True)
     if done.returncode == 0:
         return QUEUED
@@ -391,11 +391,14 @@ def enqueued(name: str, clone: Path, keys: list[str], dry_run: bool = False) -> 
 
 @contextmanager
 def fresh(name: str, clone: Path, branch: str) -> Iterator[tuple[Path, str]]:
-    """A worktree of the clone's repository at the head of branch as origin holds it now, made for one landing in the drive's landing folder and removed once it ends: its path and that head's sha. A landing runs the repository's scripts, and the toolchain its mise.toml pins for them, as that head holds them, never as the coordinator's checkout holds them at whatever commit and edits it carries, which it leaves untouched. Every core checks it out at once, with no hook, since the monorepo's post-checkout hook warms node_modules that no landing step reads."""
+    """A worktree of the clone's repository at the head of branch as origin holds it now, made for one landing in the drive's landing folder and removed once it ends: its path and that head's sha. A landing runs the repository's scripts, and the toolchain its mise.toml pins for them, as that head holds them, never as the coordinator's checkout holds them at whatever commit and edits it carries, which it leaves untouched. Every core checks it out at once, with no hook, since the monorepo's post-checkout hook warms node_modules that no landing step reads, and with origin's negotiationInclude cleared, since git 2.56 offers each included ref as a have even when its checkout downloads a file that ref's commit holds, so GitHub leaves the file out and the checkout fails; TODO: drop the override once cc-notes writes negotiationRestrict in its place."""
     git = ["git", "-C", str(clone)]
     sha = github.fetched(str(clone), branch)
     checkout = state.drive_dir(name) / LANDINGS / str(os.getpid())
-    github.run([*git, "-c", "core.hooksPath=/dev/null", "-c", "checkout.workers=0", "worktree", "add", "-q", "--detach", str(checkout), sha], timeout=CHECKOUT_SECONDS)
+    try:
+        github.run([*git, "-c", "core.hooksPath=/dev/null", "-c", "checkout.workers=0", "-c", "remote.origin.negotiationInclude=", "worktree", "add", "-q", "--detach", str(checkout), sha], timeout=CHECKOUT_SECONDS)
+    except github.GithubError as error:
+        raise github.GithubError(f"git worktree add at {sha[:12]} failed: {error}") from None
     try:
         yield checkout, sha
     finally:

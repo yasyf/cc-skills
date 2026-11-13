@@ -3736,8 +3736,8 @@ def test_a_lander_runs_stack_enqueue_as_the_default_branchs_head_holds_it_from_a
     assert (len(git_in(clone, "worktree", "list").splitlines()), checkout.exists()) == (1, False)
 
 
-def test_a_landing_whose_worktree_checkout_could_not_fetch_a_blob_is_said_once_and_tried_again_with_no_new_tap_until_a_good_worktree_queues_it(
-    demo: str, tmp_path: Path, landers: list[tuple[str, ...]]
+def test_a_landing_whose_worktree_checkout_could_not_fetch_a_blob_is_said_once_to_the_meta_session_as_the_landers_defect_and_tried_again_with_no_new_tap_until_a_good_worktree_queues_it(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
 ) -> None:
     waiting_job(demo)
     approve(demo, KEY)
@@ -3756,7 +3756,8 @@ def test_a_landing_whose_worktree_checkout_could_not_fetch_a_blob_is_said_once_a
     loose.unlink()
     watching = watcher(demo)
     failed = land.run(demo, [KEY])
-    assert failed.startswith(f"{land.NO_WORKTREE} of Forge-AI/monorepo's default branch to run stack-enqueue from: ")
+    sha = git_in(blobless, "rev-parse", "refs/remotes/origin/main")
+    assert failed.startswith(f"{land.NO_WORKTREE} Forge-AI/monorepo's default branch to queue {KEY} from: git worktree add at {sha[:12]} failed: ")
     assert f"could not fetch {blob} from promisor remote" in failed
     assert (len(git_in(blobless, "worktree", "list").splitlines()), (state.drive_dir(demo) / land.LANDINGS / str(os.getpid())).exists()) == (1, False)
     assert land.start(demo, [KEY], NO_CARDS) == [(KEY,)]
@@ -3767,8 +3768,30 @@ def test_a_landing_whose_worktree_checkout_could_not_fetch_a_blob_is_said_once_a
     assert land.start(demo, [KEY], NO_CARDS) == []
     assert landers == [(KEY,), (KEY,)]
     lines = watch.event_lines(watching)
-    assert lines == [f"PR {KEY}: {failed} [o1 j1]", f"PR {KEY}: {land.QUEUED} [o1 j1]"]
+    assert lines == [f"{watch.LANDER}{failed}", f"PR {KEY}: {land.QUEUED} [o1 j1]"]
     assert [watch.wakes(line, state.load(demo)) for line in lines] == [False, False]
+    sent = posts(monkeypatch)
+    assert watch.handed(watching, lines, T0) == [f"PR {KEY}: {land.QUEUED} [o1 j1]"]
+    assert posted(sent) == [("defect", f"meta@{demo}", f"{watch.LANDER}{failed}")]
+
+
+def test_a_landings_checkout_offers_no_commit_for_a_file_new_on_the_default_branch_though_cc_notes_set_negotiation_include_so_github_sends_it(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    origin, blobless, trace = tmp_path / "origin", tmp_path / "blobless", tmp_path / "trace"
+    origin.mkdir()
+    git_in(origin, "init", "-q", "-b", "main")
+    git_in(origin, "config", "uploadpack.allowFilter", "true")
+    commit_files(origin, "first", {"a.txt": "a\n"})
+    git_in(tmp_path, "clone", "-q", "--filter=blob:none", f"file://{origin}", str(blobless))
+    git_in(blobless, "config", "--add", "remote.origin.negotiationInclude", "refs/remotes/origin/main")
+    commit_files(origin, "admin", {"admin.rs": "fn admin() {}\n"})
+    blob = git_in(origin, "rev-parse", "HEAD:admin.rs")
+    monkeypatch.setenv("GIT_TRACE_PACKET", str(trace))
+    with land.fresh(demo, blobless, "main") as (checkout, _):
+        assert (checkout / "admin.rs").read_text() == "fn admin() {}\n"
+    download = next(request for request in trace.read_text().split("command=fetch") if f"want {blob}" in request)
+    assert "fetch> have" not in download
 
 
 def test_a_lander_that_outlived_an_install_reopens_on_the_newest_drive_which_records_its_outcome_and_logs_it_under_its_pr(
