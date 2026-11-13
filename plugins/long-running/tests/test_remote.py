@@ -1749,7 +1749,7 @@ def test_the_watch_ends_a_waiting_jobs_dead_lane_on_a_sprite_once(remote: str, m
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
     assert (shown, ended_lanes) == ([DISPATCH], ["j1"])
     job = state.load(remote)["jobs"]["j1"]
-    assert (job["state"], [(death["dispatch"], death["ended"]) for death in job["deaths"]]) == ("waiting", [(DISPATCH, {"pid": os.getpid(), "at": state.stamp(T0)})])
+    assert (job["state"], [(death["dispatch"], death.get("ended")) for death in job["deaths"]]) == ("waiting", [(DISPATCH, None)])
 
 
 def test_the_watch_releases_the_sprite_a_lane_died_on_once_no_unfinished_job_runs_on_it(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2111,6 +2111,51 @@ def test_end_of_a_finished_job_never_reads_its_sprite_and_keeps_the_parts_it_car
     assert run("job", "end", "j1") == (0, "j1's lane ended; j1 stays stopped")
     data = state.load(remote)
     assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["carries"], data["orders"]["o2"]["jobs"]) == ("stopped", {"o2": parts}, ["j1"])
+
+
+GONE_SPRITE = "Orca no longer holds its Sprite's environment"
+
+
+def test_a_lane_drive_job_end_is_destroying_is_never_read_as_dead_or_ended_a_second_time(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ended_lanes: list[str]
+) -> None:
+    cloned(tmp_path, remote)
+    deliver(monkeypatch)
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(state="waiting", said="READY https://github.com/Forge-AI/monorepo/pull/55192", workspace="pool-4yf2z2cdrlsrofv5")
+    monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: SAVED)
+    monkeypatch.setattr(orca, "worker", refused("invalid_argument", "Unknown environment: f0b7755c-d270-48fa-88c3-8ad678a1c2e4"))
+    watched = []
+
+    def destroy(run_id: str, dispatch: str, root: Path) -> str:
+        watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+        watched.append(staged(watch.agent_lines, watching, T0) + watch.death_lines(remote, {"j1": (DISPATCH, GONE_SPRITE)}, T0))
+        return "destroyed pool-4yf2z2cdrlsrofv5 dispatch ctx_lane0001"
+
+    monkeypatch.setattr(orca, "reclaim", destroy)
+    assert run("job", "end", "j1")[0] == 0
+    assert (watched, ended_lanes) == ([[]], [])
+    [death] = state.load(remote)["jobs"]["j1"]["deaths"]
+    assert (death["why"], death["ended"]["pid"], death["saved"]) == ("ended by drive job end", os.getpid(), SAVED)
+    monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: pytest.fail("an end of an ended lane saves nothing"))
+    monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: pytest.fail("an end of an ended lane reclaims nothing"))
+    assert run("job", "end", "j1") == (0, f"j1's lane was already ended by the drive job end of {death['ended']['at']}, so nothing changed; j1 stays waiting")
+    assert state.load(remote)["jobs"]["j1"]["deaths"] == [death]
+
+
+def test_an_end_whose_save_is_refused_leaves_the_watchs_record_of_the_lanes_death_and_runs_again(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cloned(tmp_path, remote)
+    died = {"dispatch": DISPATCH, "workspace": "pool-sleeping", "why": GONE_SPRITE, "at": state.stamp(T0)}
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(state="waiting", workspace="pool-sleeping", deaths=[died])
+    monkeypatch.setattr(orca, "save", unsaveable(UNREAD))
+    assert run("job", "end", "j1")[0] == 2
+    assert state.load(remote)["jobs"]["j1"]["deaths"] == [died]
+    monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: None)
+    monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: "destroyed pool-sleeping dispatch ctx_lane0001")
+    assert run("job", "end", "j1") == (0, "destroyed pool-sleeping dispatch ctx_lane0001\nj1's lane ended; j1 stays waiting")
 
 
 def test_resume_after_end_relaunches_the_job_on_a_fresh_sprite_with_the_message_in_its_handoff(
@@ -2994,6 +3039,55 @@ def test_a_report_drive_job_report_took_is_not_taken_again_when_its_lane_sends_i
     job, prs = state.load(remote)["jobs"]["j1"], state.load(remote)["prs"]
     assert ({key: job[key] for key in ("said", "state", "waits", "returned")}, prs) == ({key: taken[key] for key in ("said", "state", "waits", "returned")}, {})
     assert [reply["id"].startswith(state.REPORT_REPLY) for reply in state.replies(remote, "j1")] == [True, False]
+
+
+def test_the_worker_done_ending_a_kept_reports_turn_is_never_taken_again_whatever_its_body(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    pushed = "PUSHED https://github.com/Forge-AI/monorepo/pull/55192 https://github.com/Forge-AI/monorepo/pull/55596"
+    report = f"{pushed}\nPR: https://github.com/Forge-AI/monorepo/pull/55192\nCHANGE: #55192 is replayed onto the rebased base\n"
+    with state.edit(remote) as data:
+        state.keep_report(remote, "j1", pushed, report)
+        state.take_result(data, "j1", pushed, report)
+        state.take_result(data, "j1", "READY" + pushed.removeprefix("PUSHED"), report)
+    settled = state.load(remote)["jobs"]["j1"]
+    summary = "PR #55192 is replayed onto the rebased base and both PRs are registered."
+    deliver(monkeypatch, [message("worker_done", summary, subject=pushed, id="relay_6c98dc2ddc4d")])
+    assert staged(watch.lane_lines, watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0), T0) == []
+    job = state.load(remote)["jobs"]["j1"]
+    assert {key: job[key] for key in ("said", "state", "waits", "returned")} == {key: settled[key] for key in ("said", "state", "waits", "returned")}
+    assert state.report_text(remote, "j1") == report
+
+
+@pytest.mark.parametrize("ended", [False, True])
+def test_the_exit_of_a_lane_that_kept_its_report_is_not_said_stopped(run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ended: bool) -> None:
+    cloned(tmp_path, remote)
+    ready = "READY https://github.com/Forge-AI/monorepo/pull/9"
+    with state.edit(remote) as data:
+        state.keep_report(remote, "j1", ready, f"{ready}\nPR: https://github.com/Forge-AI/monorepo/pull/9\n", state.parse_time("2026-11-13T06:33:50Z"))
+        state.take_result(data, "j1", ready)
+        data["jobs"]["j1"]["workspace"] = "pool-one"
+    if ended:
+        monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: None)
+        monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: "stopped ctx_lane0001 stopped")
+        assert run("job", "end", "j1")[0] == 0
+    stopped = "Worker term_1 exited (Terminal closed by operator request) without sending worker_done.\nLast output:\nkept j1's report: READY"
+    deliver(monkeypatch, [message("escalation", stopped, subject="Worker exited without reporting", id="msg_stop_926de80909585e54654a273f")])
+    assert staged(watch.lane_lines, watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0), T0) == []
+    assert (state.load(remote)["jobs"]["j1"]["said"], state.report_text(remote, "j1").splitlines()[0]) == (ready, ready)
+
+
+def test_the_exit_of_a_lane_drive_job_end_ended_while_it_waited_on_its_question_is_not_said_stopped(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cloned(tmp_path, remote)
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(state="waiting", said="ASK which npm name?", ask="msg_q1", workspace="pool-one")
+    monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: None)
+    monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: "stopped ctx_lane0001 stopped")
+    assert run("job", "end", "j1")[0] == 0
+    stopped = "Worker term_1 exited (Terminal closed by operator request) without sending worker_done.\nLast output:\nASK which npm name?"
+    deliver(monkeypatch, [message("escalation", stopped, subject="Worker exited without reporting")])
+    assert staged(watch.lane_lines, watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0), T0) == []
+    assert (state.load(remote)["jobs"]["j1"]["state"], state.load(remote)["jobs"]["j1"]["said"]) == ("waiting", "ASK which npm name?")
 
 
 def test_a_lanes_ready_on_a_yasyf_pr_it_added_with_its_proof_file_kept_starts_the_lander_once_the_watch_takes_it(

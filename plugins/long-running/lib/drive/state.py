@@ -26,6 +26,7 @@ ORDER_KINDS = ("answer", "build")
 CLOSED_ORDER_STATES = ("done", "dropped")
 JOB_KINDS = ("builder", "reader", "design", "codex")
 REPORT_REPLY = "report_"
+TURN_ENDS = ("worker_done", "escalation")
 EARLIER_RETURN = "--- an earlier return, kept {at} ---"
 JOB_ID = re.compile(r"j\d+")
 JOB_AGENTS = {"builder": ("long-running:builder",), "reader": ("long-running:reader",), "design": ("long-running:designer",), "codex": ("codex:codex-wrapper", "long-running:builder")}
@@ -270,16 +271,30 @@ def repro_path(name: str, job_id: str, suffix: str) -> Path:
 
 
 def returns(name: str, job_id: str) -> list[dict]:
-    """Every return the job's history keeps, newest first, an identical body once, each its row with its body, or its subject when a lane sent none: each `drive job report` took, each codex reply and proof, and each result a remote lane sent, as its worker_done or as a question opening with a result."""
+    """Every return the job's history keeps, newest first, an identical body once, each its row with its body, or its subject when a lane sent none: each `drive job report` took, each codex reply and proof, and each result a remote lane sent, as its worker_done or as a question opening with a result, never the message ending the turn of a return `drive job report` kept."""
+    kept = replies(name, job_id)
+    ends = turn_ends(kept)
     taken = [
         reply | {"body": reply["body"] or reply["subject"]}
-        for reply in replies(name, job_id)
-        if reply["type"] == "worker_done" or reply["type"] == "question" and reported(opening(reply["body"] or ""))
+        for reply in kept
+        if reply["id"] not in ends and (reply["type"] == "worker_done" or reply["type"] == "question" and reported(opening(reply["body"] or "")))
     ]
     once: dict[str, dict] = {}
     for reply in sorted(reversed(taken), key=lambda reply: parse_time(reply["created_at"]), reverse=True):
         once.setdefault(reply["body"].strip(), reply)
     return list(once.values())
+
+
+def turn_ends(kept: list[dict]) -> set[str]:
+    """The id of each lane message in a job's history that ends the turn of a return `drive job report` kept, whatever its body: the first worker_done or escalation after that return, which carries it and adds none of its own."""
+    ends, open_return = set(), False
+    for reply in kept:
+        if reply["id"].startswith(REPORT_REPLY):
+            open_return = True
+        elif open_return and reply["type"] in TURN_ENDS:
+            ends.add(reply["id"])
+            open_return = False
+    return ends
 
 
 def opening(text: str) -> str:
@@ -1104,6 +1119,11 @@ def held(job: dict) -> list[dict]:
 def lane_death(job: dict) -> dict | None:
     """The recorded death of the job's current remote lane, which takes no message until drive job resume relaunches it; None while it lives or the job has none."""
     return next((death for death in job.get("deaths", []) if death["dispatch"] == job.get("dispatch")), None)
+
+
+def lane_ended(job: dict) -> bool:
+    """Whether a `drive job end` ended the job's current remote lane, which it records before it saves, stops or destroys anything, so whatever that lane sends or Orca says of it afterwards is the end's own doing."""
+    return bool((death := lane_death(job)) and death.get("ended"))
 
 
 def whole_order(text: str) -> str:
