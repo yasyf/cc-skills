@@ -792,11 +792,21 @@ def test_a_session_still_busy_after_the_wait_gets_reload_plugins_queued_behind_i
     ]
 
 
-def test_an_install_near_its_deadline_waits_only_the_time_left(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
+def test_an_install_near_its_deadline_waits_only_the_time_left(
+    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     start_drive("demo", communicator="term_comm")
-    git = fake(["unused"], set(), call_seconds=5)
+    git = fake(["unused"], set())
     git.waits["term_comm"] = BUSY
-    assert install.main("long-running@skills", None, None, 85, None) == 0
+    installing = install.install
+
+    def ending_20s_before_its_deadline(key: str, sha: str | None, repo: str | None, deadline: float, timeout: int, drive: str | None) -> str:
+        version = installing(key, sha, repo, deadline, timeout, drive)
+        git.now = deadline - 20
+        return version
+
+    monkeypatch.setattr(install, "install", ending_20s_before_its_deadline)
+    assert install.main("long-running@skills", None, None, 900, None) == 0
     assert git.typed_into("term_comm") == [waited("term_comm", "10000"), sent("term_comm")]
     assert sorted(git.orca_timeouts) == [60, 70]
     assert "demo communicator: busy for 10s" in capsys.readouterr().out
