@@ -517,7 +517,7 @@ def reporter_post(payload: dict, drive: dict) -> str | None:
 
 
 def unsaid_post(payload: dict, drive: dict) -> str | None:
-    """Why a write goes through say: slack_edit rewords a post in his DM, or one say made outside it, with each {card:…}, {pr:…}, {order:…}, {record:…} and {answer:…} reference left as raw text and the dashboard still showing its old words, and another tool posting a reference in his DM sends it raw too."""
+    """Why a write goes through say: slack_edit rewords a post in his DM, or one say made outside it, with each {card:…}, {pr:…}, {order:…}, {record:…} and {answer:…} reference left as raw text and the dashboard still showing its old words, another tool posting a file in his DM, such as a screen recording, puts it in Slack alone and never on the dashboard, and one posting a reference there sends it raw too."""
     dm = drive["slack"]["channel"]
     if payload["tool_name"] == EDIT and (posts_to(payload, dm) or said_post(drive["name"], edited(payload))):
         return agents.Ruled(
@@ -526,7 +526,15 @@ def unsaid_post(payload: dict, drive: dict) -> str | None:
             " which links each reference as a new post's are and rewords the post on the dashboard too.",
             SAY_RULE,
         )
-    if payload["tool_name"] in (SAY, EDIT) or not posts_to(payload, dm) or not (raw := refs.REF.search(payload["tool_input"].get("text") or "")):
+    if payload["tool_name"] in (SAY, EDIT) or not posts_to(payload, dm):
+        return None
+    if payload["tool_input"].get("files"):
+        return agents.Unjudged(
+            f"Refused on purpose: a file {payload['tool_name'].removeprefix(SLACK)} posts to him reaches Slack alone and never the dashboard."
+            ' Post it with say(text=…, visuals=[{"kind": "image", "source": "<its absolute path>", "caption": "<what it shows>"}]),'
+            " one visual per file, which uploads each picture or screen recording to his DM and shows it in the post on the dashboard too."
+        )
+    if not (raw := refs.REF.search(payload["tool_input"].get("text") or "")):
         return None
     return agents.Ruled(
         f"Refused on purpose: {raw[0]} would reach him as raw text, since only say links a drive reference. Post it with"

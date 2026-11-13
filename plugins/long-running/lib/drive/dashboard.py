@@ -1,3 +1,4 @@
+import contextlib
 import functools
 import hashlib
 import http.client
@@ -73,6 +74,7 @@ REVIEW_PATH = re.compile(r"/api/review/([\w.-]+/[\w.-]+)/(\d+)")
 FILE_PATH = re.compile(r"/api/file/(j[\w-]+)/(\w+)")
 PAGE_PATH = re.compile(r"/pages/([^/]+)/(.*)")
 REPO_FILE = re.compile(r"[\w.@-]+(?:/[\w.@-]+)+")
+BYTE_RANGE = re.compile(r"bytes=(\d+)-(\d*)")
 NOT_OWNER = "only the drive's owner can do this, and this device is not signed in to the tailnet as him"
 GONE = "this card no longer waits on that answer"
 ELSEWHERE = "that is not a card thread of this drive"
@@ -492,7 +494,15 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
             elif path not in board.pictures or not Path(path).is_file():
                 self.send_error(404)
             else:
-                self.reply(Path(path).read_bytes(), mimetypes.guess_type(path)[0] or "application/octet-stream")
+                with Path(path).open("rb") as file:
+                    size = os.fstat(file.fileno()).st_size
+                    asked = BYTE_RANGE.fullmatch(self.headers.get("Range") or "")
+                    first, last = (int(asked[1]), min(int(asked[2] or size - 1), size - 1)) if asked else (0, size - 1)
+                    file.seek(first)
+                    body = file.read(last - first + 1)
+                ranged = (("Content-Range", f"bytes {first}-{last}/{size}"),) if asked else ()
+                with contextlib.suppress(BrokenPipeError, ConnectionResetError):
+                    self.reply(body, mimetypes.guess_type(path)[0] or "application/octet-stream", headers=(("Accept-Ranges", "bytes"), *ranged), status=206 if asked else 200)
 
         def source(self, query: dict[str, str]) -> None:
             cite, path, line, to = (query.get(field, "") for field in ("cite", "path", "line", "to"))
@@ -631,8 +641,8 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 except (BrokenPipeError, ConnectionResetError):
                     return
 
-        def reply(self, body: bytes, kind: str, cache: str = "no-store", headers: tuple[tuple[str, str], ...] = ()) -> None:
-            self.send_response(200)
+        def reply(self, body: bytes, kind: str, cache: str = "no-store", headers: tuple[tuple[str, str], ...] = (), status: int = 200) -> None:
+            self.send_response(status)
             self.send_header("Content-Type", kind)
             self.send_header("Cache-Control", cache)
             for header, value in headers:

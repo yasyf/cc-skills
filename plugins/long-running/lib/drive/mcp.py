@@ -29,7 +29,8 @@ WARMING = threading.Lock()
 KILL_SECONDS = 10
 LIST_CHANGED = {"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}
 INSTRUCTIONS = (
-    "Every message to him goes through say: one call posts it to his Slack DM and shows it on the drive's dashboard."
+    "Every message to him goes through say, each picture or screen recording he is sent included: one call posts it to his Slack DM and"
+    " shows it on the drive's dashboard."
     " Name a card as {card:<waits id>}, a PR the drive holds as {pr:<number>} and any other as"
     " {pr:<owner/repo#number>|<what it does>}, an order as {order:<id>}, a ruling of his as"
     " {answer:<id>} and the record that measured a cause or number as {record:<seq>} in its text, and the tool links each the way each surface"
@@ -52,12 +53,15 @@ INSTRUCTIONS = (
 TEXT = {"type": "string"}
 VISUAL = {
     "type": "object",
-    "description": "One visual: a picture in Slack, or Slack's own chart for a chart, and drawn live from its source on the dashboard",
+    "description": (
+        "One visual: a picture in Slack, or Slack's own chart for a chart, and drawn live from its source on the dashboard;"
+        " a screen recording uploads to Slack as its file and plays on the dashboard"
+    ),
     "properties": {
         "kind": {
             "type": "string",
             "enum": ["code", "arch", "mermaid", "chart", "compare", "dot", "image"],
-            "description": "An arch map for arch, a before-and-after for compare, Graphviz for dot",
+            "description": "An arch map for arch, a before-and-after for compare, Graphviz for dot, a picture or screen recording file for image",
         },
         "source": {
             "type": "string",
@@ -67,7 +71,7 @@ VISUAL = {
                 ' compare; for arch, {"arch": 1, "name", "title", "nodes": [{"id", "kind", "name", "role"}], "edges": [{"from", "to",'
                 ' "label"}]}, each id lowercase letters, digits and dashes, kind actor, app, service, worker, store, log, external,'
                 ' artifact or doc, a store or log node adding "medium": memory, disk, bucket, keys or pages;'
-                " an image's absolute path or URL"
+                " for image, the absolute path or URL of a picture or of a screen recording, such as a .mov or .mp4"
             ),
         },
         "language": {"type": "string", "description": "The code's language, for its highlighting"},
@@ -102,7 +106,8 @@ CLAIMS = {
 SAY = {
     "name": "say",
     "description": (
-        "Post a line, an answer, a PR card (tap_prs) or a question card (card) to his Slack DM, with any visuals, and"
+        "Post a line, an answer, a PR card (tap_prs) or a question card (card) to his Slack DM, with any visuals, pictures and screen"
+        " recordings included, and"
         " show it on the drive's dashboard, in one call; with channel_id, post a line, or a card's line linking the card it draws in"
         " his DM, in a thread outside his DM, such as an alert's, through cc-slack reply, or with a person's user id and no thread_ts a new post in the group DM of that person, him and the bot, through cc-slack send; cc-slack's Slack permission hook judges either as it judges slack_reply or slack_send. In text, {card:<waits id>}, {pr:<number, owner/repo#number or"
         " URL>} and {order:<id>} link under the words naming the card, PR or order, or the words after a |, as"

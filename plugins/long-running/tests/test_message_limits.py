@@ -2183,6 +2183,17 @@ def test_a_write_to_his_dm_goes_through_say_so_each_reference_is_linked_and_the_
     assert message_limits.deny_reason(call("slack_edit", transcript, channel_id="C0B75AL4XEW", ts="1794288799.000003", text="Reworded.")).startswith("Refused on purpose: slack_edit")
 
 
+def test_a_file_posted_to_his_dm_outside_say_is_refused_naming_say_visuals(talker: str, transcript: Path) -> None:
+    recording = "/drive/scratch/j1/after.mov"
+    for tool, where in (("slack_reply", {"channel_id": DM, "thread_ts": BAD_STATE_THREAD}), ("slack_dm_status", {"thread_ts": BAD_STATE_THREAD})):
+        reason = message_limits.deny_reason(call(tool, transcript, text="The recording of the fix.", files=[recording], **where))
+        assert reason.startswith(f"Refused on purpose: a file {tool} posts to him reaches Slack alone and never the dashboard.")
+        assert 'say(text=…, visuals=[{"kind": "image", "source": "<its absolute path>"' in reason
+        assert isinstance(reason, agents.Unjudged)
+    assert message_limits.deny_reason(call("slack_reply", transcript, channel_id="C0B75AL4XEW", thread_ts="1.2", text="The recording.", files=[recording])) is None
+    assert say(transcript, text="The recording of the fix.", visuals=[{"kind": "image", "source": recording, "caption": "The fix (90 s)"}]) is None
+
+
 def test_a_switch_command_names_the_terminal_drive_status_prints(talker: str, transcript: Path) -> None:
     with state.edit("demo") as data:
         data["roles"]["communicator"]["terminal"] = "term_live"
