@@ -282,7 +282,7 @@ check's verdict, or from the order when none ran.
     tap. The watch keeps those facts on each incident at its first pass after each line, and the
     report names what moved and which jobs are at work. An incident whose every job waits, on his
     card, a release or a PR, gets no line until one of them moves. Every open order with a thread
-    shares this rule with no clock, by [When it goes out](messages.md#when-it-goes-out).
+    shares this rule and its five-minute clock, by [When it goes out](messages.md#when-it-goes-out).
   - It runs while he is away too. It restarts once a handler has the report, and only a post keeps
     the facts, so a handler that cannot post leaves the same news owed five minutes on.
   - It stops once an order of the incident keeps proof that users are unblocked, by his pick "Proof
