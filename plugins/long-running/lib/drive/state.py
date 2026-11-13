@@ -3,7 +3,6 @@ import hashlib
 import itertools
 import json
 import marshal
-import math
 import os
 import re
 import sqlite3
@@ -133,11 +132,8 @@ ORDER_PART = re.compile(r"(o\d+):\s*(.+)", re.DOTALL)
 ROUTED_KINDS = ("owner", "answer", "handoff", "posted", "refused")
 APPROVALS_LABELLED = ".approvals-labelled-by-question"
 BATCHED: dict[str, bytes] = {}
-HELD_INSTALL: dict[Path, IO] = {}
 WHOLE_READS: dict[tuple[Path, int], tuple[sqlite3.Connection, int, bytes]] = {}
 READING = threading.Lock()
-INSTALL_HOLDER = "LONG_RUNNING_INSTALL_HOLDER"
-WAITED_OLDER: set[Path] = set()
 MOVED_REPORTS: set[Path] = set()
 LOCK_POLL_SECONDS = 0.1
 HOLDER_CHARS = 200
@@ -195,8 +191,8 @@ def alive(pid: int) -> bool:
 
 
 def detach(name: str, args: list[str], log: str) -> int:
-    """Run the drive CLI with args on the drive as its own process, outliving the watch pass or tap that started it, its output appended to the drive's log of that name; it holds its own install's lock, since nothing waits on it, and its environment names the drive, which lets the drive's sessions end it unasked once it outlives its use."""
-    env = {variable: value for variable, value in os.environ.items() if variable not in ("CLAUDE_CODE_SESSION_ID", INSTALL_HOLDER)} | {DRIVE_ENV: name}
+    """Run the drive CLI with args on the drive as its own process, outliving the watch pass or tap that started it, its output appended to the drive's log of that name; its environment names the drive, which lets the drive's sessions end it unasked once it outlives its use."""
+    env = {variable: value for variable, value in os.environ.items() if variable != "CLAUDE_CODE_SESSION_ID"} | {DRIVE_ENV: name}
     with (drive_dir(name) / log).open("a") as out:
         return subprocess.Popen(
             [str(Path(__file__).resolve().parents[2] / "bin" / "drive"), *args, "--drive", name],
@@ -1340,58 +1336,6 @@ def version_order(version: str) -> tuple[int, ...]:
     return tuple(map(int, version.split(".")))
 
 
-def install_lock(version: str) -> Path:
-    return root() / "installs" / f"{version}.lock"
-
-
-def hold_install() -> None:
-    """Hold this install's lock shared until let_go_install or the process ends, naming this process its holder to the drive processes it starts, so a newer install's first save of a drive waits for this process, and a drive it runs and waits on runs this install as part of its verb."""
-    path = install_lock(VERSION)
-    if path in HELD_INSTALL:
-        return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    handle = open(path, "a")
-    fcntl.flock(handle, fcntl.LOCK_SH)
-    HELD_INSTALL[path] = handle
-    os.environ[INSTALL_HOLDER] = str(os.getpid())
-
-
-def let_go_install() -> None:
-    """Let go of this install's lock, as a process that outlives its verb does while it waits: the dashboard between rebuilds, the watch between passes, the MCP server between calls and a lander on the merge queue."""
-    for handle in HELD_INSTALL.values():
-        handle.close()
-    HELD_INSTALL.clear()
-    os.environ.pop(INSTALL_HOLDER, None)
-
-
-def held_by_parent() -> bool:
-    """Whether the drive process that started this one holds its install's lock, which makes this one part of that verb."""
-    return os.environ.get(INSTALL_HOLDER) == str(os.getppid())
-
-
-def older_verbs_done(name: str) -> None:
-    """Wait until every verb an older install started has ended, before this process first saves a drive an older install saved last, so no verb meets a drive saved by an install newer than its own code, however long it runs; taken outside the drive's lock, which those verbs still take, and once a process, since no older verb starts after it. A process that outlives its verb lets go of its lock whenever it waits on something of its own, so only verbs running hold this wait; a wait past SLOW_HOLD_SECONDS is logged to locks.log with the verbs it waited on."""
-    path = drive_dir(name)
-    if path in WAITED_OLDER or not exists(name):
-        return
-    if saver := saved_by(name):
-        for older in (root() / "installs").glob("*.lock"):
-            if version_order(saver) <= version_order(older.stem) < version_order(VERSION):
-                with open(older, "a") as handle:
-                    asked = time.monotonic()
-                    if not taken(handle, SLOW_HOLD_SECONDS):
-                        running = holders(older)
-                        taken(handle, math.inf)
-                        kept_wait(name, older.stem, time.monotonic() - asked, running)
-    WAITED_OLDER.add(path)
-
-
-def kept_wait(name: str, older: str, waited: float, running: str) -> None:
-    """Log a first save's wait past SLOW_HOLD_SECONDS for an older install's verbs to locks.log: how long, the verb that waited and the verbs still running when it began, so a verb holding every newer install behind it is named."""
-    with open(drive_dir(name) / "locks.log", "a") as log:
-        log.write(f"{stamp()} pid {os.getpid()} waited {waited:.1f}s for long-running {older}'s verbs before its first save: drive {' '.join(sys.argv[1:])[:HOLDER_CHARS]}; running then: {running}\n")
-
-
 def taken(handle: IO, seconds: float) -> bool:
     """Take handle's lock exclusive within seconds, polling, since a blocking flock waits forever and on macOS lets new shared holders past a waiting exclusive one; whether it was taken."""
     ends = time.monotonic() + seconds
@@ -1578,24 +1522,18 @@ def binding(name: str) -> AbstractContextManager[None]:
 
 @contextmanager
 def job_locked(name: str, job_id: str, seconds: float) -> Iterator[None]:
-    """Hold the job's own lock while one launch, resume or PR wake reads its last worker and starts or messages the next, waiting up to seconds for another doing so, so a second one acts on the worker the first started; refused naming who holds it past that. It waits holding no install's lock, taken again once the job's is, since the launch it waits on may hand its receipt to a newer install whose first save waits on this one; a newer save meanwhile refuses this one's first load."""
+    """Hold the job's own lock while one launch, resume or PR wake reads its last worker and starts or messages the next, waiting up to seconds for another doing so, so a second one acts on the worker the first started; refused naming who holds it past that. A newer install's save meanwhile refuses this one's first load."""
     path = drive_dir(name) / "jobs" / f"{job_id}.lock"
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "a") as handle:
-        if not taken(handle, 0):
-            held = bool(HELD_INSTALL)
-            let_go_install()
-            if not taken(handle, seconds):
-                raise DriveError(f"{job_id}'s lock is still held after {seconds:g}s, so nothing was started or sent: {holders(path)}")
-            if held:
-                hold_install()
+        if not taken(handle, seconds):
+            raise DriveError(f"{job_id}'s lock is still held after {seconds:g}s, so nothing was started or sent: {holders(path)}")
         yield
 
 
 @contextmanager
 def writing(name: str) -> Iterator[None]:
-    """Hold the drive's lock for a write, once every older install's verb that may read the drive ended, moving a drive.json an older install saved into the drive's database first."""
-    older_verbs_done(name)
+    """Hold the drive's lock for a write, moving a drive.json an older install saved into the drive's database first."""
     with locked(name):
         moved(name)
         yield

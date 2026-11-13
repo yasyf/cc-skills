@@ -261,7 +261,6 @@ def rewritten() -> bool:
 
 def main() -> int:
     """Take GitHub's signed deliveries on loopback behind the Funnel path, the process the receiver's launch agent runs. It listens before it opens the path and asks GitHub what it missed, so a delivery landing meanwhile waits in the socket's queue, then serves until the newest long-running installed runs another receiver.py, as rewritten reads it, or the clock jumps past SLEPT_SECONDS, as after this Mac slept, and exits for launchd to start it again, which asks GitHub again."""
-    state.let_go_install()
     os.environ.update(launchd.session_env())
     server = ThreadingHTTPServer((dashboard.LOOPBACK, PORT), handler(secret().encode()))
     server.daemon_threads = True

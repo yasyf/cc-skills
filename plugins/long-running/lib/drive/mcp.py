@@ -224,8 +224,7 @@ def tool_named(name: str) -> dict:
 
 
 def serve(stdin: TextIO, stdout: TextIO) -> int:
-    """Answer MCP requests read from stdin, each in its own thread, so a slow post never holds the next call, holding no install's lock for the session's life, since each call runs as its own process of the newest installed drive."""
-    state.let_go_install()
+    """Answer MCP requests read from stdin, each in its own thread, so a slow post never holds the next call, each call running as its own process of the newest installed drive."""
     writing = threading.Lock()
     for line in stdin:
         if line.strip():
@@ -416,8 +415,7 @@ def kept(tool: str) -> str:
 
 
 def warm() -> int:
-    """Fork one process for each call read from stdin, each running its tool as `drive tool` would, kill one a kill line names while it runs, and say on stdout each one's exit code once reaped; end once stdin closes and every call it forked has. It holds no install's lock itself, since it runs no verb, and builds the parser before its first fork, so no call pays for it."""
-    state.let_go_install()
+    """Fork one process for each call read from stdin, each running its tool as `drive tool` would, kill one a kill line names while it runs, and say on stdout each one's exit code once reaped; end once stdin closes and every call it forked has. It builds the parser before its first fork, so no call pays for it."""
     for module in pkgutil.iter_modules(drive.__path__):
         importlib.import_module(f"drive.{module.name}")
     cli.parser()
@@ -461,7 +459,7 @@ def told(key: str, code: int) -> None:
 
 
 def forked(request: dict, woken: int, wake: int) -> None:
-    """The forked call: its tool run as `drive tool` runs it, holding this install's lock, its lines and warnings written to the files the server reads, then exit with its code."""
+    """The forked call: its tool run as `drive tool` runs it, its lines and warnings written to the files the server reads, then exit with its code."""
     signal.set_wakeup_fd(-1)
     signal.signal(signal.SIGCHLD, signal.SIG_DFL)
     os.close(woken)
@@ -471,7 +469,6 @@ def forked(request: dict, woken: int, wake: int) -> None:
     os.dup2(os.open(request["err"], os.O_WRONLY | os.O_TRUNC), 2)
     code = 1
     try:
-        state.hold_install()
         print(cli.run_tool(request["tool"], request["arguments"]))
         code = 0
     except cli.VERB_ERRORS as error:

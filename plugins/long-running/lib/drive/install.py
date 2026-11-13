@@ -64,8 +64,6 @@ def clock() -> float:
 
 
 def sleep(seconds: float) -> None:
-    """Wait between reads holding no install's lock, so a newer install's first save never waits on an install waiting for a release."""
-    state.let_go_install()
     time.sleep(seconds)
 
 
@@ -88,8 +86,7 @@ def config_dir() -> Path:
 
 @contextmanager
 def update_lock(deadline: float) -> Iterator[None]:
-    """Take turns on Claude Code's plugin store and on Homebrew with every other install on this Mac, holding no install's lock while waiting, and failing at the deadline with who holds the turn."""
-    state.let_go_install()
+    """Take turns on Claude Code's plugin store and on Homebrew with every other install on this Mac, failing at the deadline with who holds the turn."""
     path = config_dir() / "plugins" / UPDATE_LOCK
     with open(path, "a") as handle:
         if not state.taken(handle, max(deadline - clock(), 0)):
@@ -468,7 +465,7 @@ def newest_drive() -> Path:
 
 
 def handed(newer: Path, name: str, verb: list[str], receipt: Path, kept: dict, what: str, seconds: float) -> str:
-    """Run the newest install's `drive <verb> <receipt>` on what an older install's verb kept in receipt, once a newer install saved the drive while that verb worked holding no install's lock, so what it did lands either way; its stdout, or a refusal naming the receipt, which stays."""
+    """Run the newest install's `drive <verb> <receipt>` on what an older install's verb kept in receipt, once a newer install saved the drive while that verb worked, so what it did lands either way; its stdout, or a refusal naming the receipt, which stays."""
     receipt.parent.mkdir(parents=True, exist_ok=True)
     receipt.write_text(json.dumps(kept))
     try:
@@ -489,8 +486,7 @@ def upgraded() -> Path | None:
 
 
 def reopen(argv: list[str]) -> None:
-    """Hold this install's lock, then run `drive <argv>` from the newest install in place of this process when a newer one is installed, so what this process reads and writes of a drive from here on runs on the newest install, and an install landing later waits for it before its first save: a verb at its start, and a process that outlives its verb before each step, argv saying what it already did."""
-    state.hold_install()
+    """Run `drive <argv>` from the newest install in place of this process when a newer one is installed, so what this process reads and writes of a drive from here on runs on the newest install: a verb at its start, and a process that outlives its verb before each step, argv saying what it already did."""
     if newer := upgraded():
         os.execv(newer, [str(newer), *argv])
 
@@ -755,11 +751,10 @@ def merged_done(name: str, data: dict, job_id: str) -> str:
 
 
 def prove(name: str, job_id: str, timeout: int) -> str:
-    """Prove live a builder's READY or PUSHED whose PRs all merged, the step the watch starts: install each plugin a yasyf/* merge changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, its other merges taken at once, wait until each workflow a yasyf/* merge ran on its default branch completed its first run from the merge on that was not cancelled, the run drive pr ci judges the merge by, and until the drive's dashboard runs the newest long-running installed, then run the job's proof file with the bin folders of those plugins' newest installs, read right before it runs, first on PATH, and again on the newer ones within the deadline when it fails while a newer install of any of them landed, keep the last run's output in reports/<j>.proof.txt, take DONE on exit 0 with its output proving each user story the job's brief names on his surface, as brief.story_gap reads it, and BLOCKED otherwise, an install that fails, a merge no release will carry, or a CI run still running or a dashboard still on an older install at the deadline taking BLOCKED naming it, and keep the close report on its order for the watch to post when DONE leaves the order nothing to do, but an open incident's, which the watch closes once DONE records its fix live, each said on its PRs' lines; refused for a job waiting on no such READY or PUSHED, or one proof_gap names; nothing after another proof took the job's result first. It holds its install's lock through none of it, as drive install holds none, so a newer install's first save never waits on its installs, CI waits or proof file; when that newer install saved the drive first, its `drive job proved` keeps the result, which proof_kept hands it."""
+    """Prove live a builder's READY or PUSHED whose PRs all merged, the step the watch starts: install each plugin a yasyf/* merge changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, its other merges taken at once, wait until each workflow a yasyf/* merge ran on its default branch completed its first run from the merge on that was not cancelled, the run drive pr ci judges the merge by, and until the drive's dashboard runs the newest long-running installed, then run the job's proof file with the bin folders of those plugins' newest installs, read right before it runs, first on PATH, and again on the newer ones within the deadline when it fails while a newer install of any of them landed, keep the last run's output in reports/<j>.proof.txt, take DONE on exit 0 with its output proving each user story the job's brief names on his surface, as brief.story_gap reads it, and BLOCKED otherwise, an install that fails, a merge no release will carry, or a CI run still running or a dashboard still on an older install at the deadline taking BLOCKED naming it, and keep the close report on its order for the watch to post when DONE leaves the order nothing to do, but an open incident's, which the watch closes once DONE records its fix live, each said on its PRs' lines; refused for a job waiting on no such READY or PUSHED, or one proof_gap names; nothing after another proof took the job's result first. When a newer install saved the drive while it installed, waited on CI or ran the proof file, that install's `drive job proved` keeps the result, which proof_kept hands it."""
     from drive import brief, dashboard
 
     deadline = clock() + timeout
-    state.let_go_install()
     data = state.load(name)
     if not merged_ready(data, job_id):
         raise state.DriveError(f"{job_id} waits on no READY or PUSHED whose PRs all merged, so there is nothing to prove")
@@ -796,7 +791,6 @@ def prove(name: str, job_id: str, timeout: int) -> str:
         if code == 0 and brief.surface(job) and (gap := brief.story_gap(job_id, job, brief.proofs(output), output)):
             code, tail = "0 but falls short of its surface", gap
         line = f"DONE {urls} live: {job['repro']} exits 0 on {versions}" if code == 0 else f"BLOCKED {urls}: {job['repro']} exits {code} on {versions}: {tail[:SAID_CHARS]}"
-    state.let_go_install()
     return proof_kept(name, job_id, {"line": line, "output": output, "versions": versions, "code": code})
 
 
@@ -888,8 +882,7 @@ def reload_main() -> int:
 
 
 def main(plugin_at_marketplace: str, sha: str | None, repo: str | None, timeout: int, drive: str | None) -> int:
-    """Wait for a release holding sha, its commit and each binary it pins, bring each sibling its manifest there needs up to that release first, Captain Hook.app only once he tapped Install now on the drive's card for it, update the plugin and its Homebrew twin until the bare binary holds sha, print the installed version, then reload every drive session on this Mac. It holds no install's lock, since it saves no drive after its update and reads each drive's bindings alone, so a newer install's first save of a drive waits on none of it. A sha no release will hold prints why and installs nothing."""
-    state.let_go_install()
+    """Wait for a release holding sha, its commit and each binary it pins, bring each sibling its manifest there needs up to that release first, Captain Hook.app only once he tapped Install now on the drive's card for it, update the plugin and its Homebrew twin until the bare binary holds sha, print the installed version, then reload every drive session on this Mac. A sha no release will hold prints why and installs nothing."""
     deadline = clock() + timeout
     try:
         version = install(plugin_at_marketplace, sha, repo, deadline, timeout, drive)
@@ -901,7 +894,6 @@ def main(plugin_at_marketplace: str, sha: str | None, repo: str | None, timeout:
         return 1
     updated = state.now()
     print(f"installed {plugin_at_marketplace} {version}")
-    state.let_go_install()
     for line in reload_sessions(version, updated, deadline):
         print(line)
     return 0

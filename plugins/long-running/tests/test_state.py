@@ -1,11 +1,9 @@
 import fcntl
-import itertools
 import json
 import re
 import shutil
 import subprocess
 import sys
-import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -65,71 +63,20 @@ with state.edit("demo") as data:
 """
 
 
-def test_a_newer_release_saving_mid_verb_waits_for_the_older_releases_verb_so_the_verb_and_the_save_both_land(state_root: Path, tmp_path: Path) -> None:
+def test_an_older_installs_save_after_a_newer_installs_is_refused_leaving_the_newer_save_whole(state_root: Path, tmp_path: Path) -> None:
     make("demo")
     release = tmp_path / "9.9.9"
     shutil.copytree(Path(state.__file__).resolve().parent, release / "lib" / "drive")
     (release / ".claude-plugin").mkdir()
     (release / ".claude-plugin" / "plugin.json").write_text(json.dumps({"version": "9.9.9"}))
-    state.hold_install()
-    saving = subprocess.Popen([sys.executable, "-c", NEWER_RELEASE_SAVE, str(release / "lib")])
-    with pytest.raises(subprocess.TimeoutExpired):
-        saving.wait(timeout=2)
-    with state.edit("demo") as data:
+    read = state.load("demo")
+    subprocess.run([sys.executable, "-c", NEWER_RELEASE_SAVE, str(release / "lib")], check=True, timeout=30)
+    with pytest.raises(state.NewerDrive, match="saved by long-running 9.9.9 since this"):
+        state.save("demo", read | {"terminal": "the older verb's receipt"})
+    with pytest.raises(state.NewerDrive, match="saved by long-running 9.9.9, newer than this"), state.edit("demo") as data:
         data["terminal"] = "the older verb's receipt"
-    state.let_go_install()
-    assert saving.wait(timeout=30) == 0
     saved = state.stored("demo")
-    assert (saved["saved_by"], saved["terminal"], saved["slack"]["page_stale"]) == ("9.9.9", "the older verb's receipt", "the newer release's save")
-
-
-def test_a_first_save_waits_only_for_verbs_of_the_installs_from_the_one_that_saved_the_drive_up_to_its_own(state_root: Path) -> None:
-    make("demo")
-    state.store("demo", state.stored("demo") | {"saved_by": "0.0.2"})
-    state.hold_install()
-    verbs = {version: open(state.install_lock(version), "a") for version in ("0.0.1", "0.0.2", "9.9.9")}
-    for handle in verbs.values():
-        fcntl.flock(handle, fcntl.LOCK_SH)
-
-    def save() -> None:
-        with state.edit("demo") as data:
-            data["terminal"] = "term-1"
-
-    saving = threading.Thread(target=save, daemon=True)
-    saving.start()
-    saving.join(1)
-    assert saving.is_alive()
-    verbs.pop("0.0.2").close()
-    saving.join(10)
-    assert (saving.is_alive(), state.load("demo")["terminal"]) == (False, "term-1")
-    for handle in verbs.values():
-        handle.close()
-
-
-def test_a_first_save_waits_for_an_older_installs_verb_however_long_it_runs_never_saving_past_it(
-    state_root: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    make("demo")
-    state.store("demo", state.stored("demo") | {"saved_by": "0.0.1"})
-    hours = itertools.count(step=3600)
-    monkeypatch.setattr(state.time, "monotonic", lambda: next(hours))
-    state.install_lock("0.0.1").parent.mkdir(parents=True)
-    launch = open(state.install_lock("0.0.1"), "a")
-    fcntl.flock(launch, fcntl.LOCK_SH)
-
-    def save() -> None:
-        with state.edit("demo") as data:
-            data["slack"]["page_stale"] = "the newer install's save"
-
-    saving = threading.Thread(target=save, daemon=True)
-    saving.start()
-    saving.join(2)
-    assert (saving.is_alive(), state.saved_by("demo")) == (True, "0.0.1")
-    launch.close()
-    saving.join(10)
-    saved = state.stored("demo")
-    assert (saving.is_alive(), saved["saved_by"], saved["slack"]["page_stale"]) == (False, state.VERSION, "the newer install's save")
-    assert "for long-running 0.0.1's verbs before its first save: drive " in (state.drive_dir("demo") / "locks.log").read_text()
+    assert (saved["saved_by"], saved.get("terminal"), saved["slack"]["page_stale"]) == ("9.9.9", None, "the newer release's save")
 
 
 def test_a_write_waiting_past_the_drive_lock_wait_changes_nothing_and_names_the_lock_held(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:

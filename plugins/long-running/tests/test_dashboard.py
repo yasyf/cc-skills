@@ -224,7 +224,6 @@ def test_a_drive_saved_by_a_newer_install_hands_the_port_to_that_install_which_a
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     newer = tmp_path / "cache" / "9.9.9" / "bin" / "drive"
-    older = state.install_lock(state.VERSION)
     done = threading.Event()
     answers: list[object] = []
     handed: list[list[str]] = []
@@ -268,8 +267,7 @@ def test_a_drive_saved_by_a_newer_install_hands_the_port_to_that_install_which_a
             time.sleep(0.05)
         threading.Thread(target=ask, daemon=True).start()
         time.sleep(0.3)
-        with state.flocked(older):
-            state.store(demo, state.stored(demo) | {"saved_by": "9.9.9"})
+        state.store(demo, state.stored(demo) | {"saved_by": "9.9.9"})
 
     monkeypatch.setattr(dashboard, "changes", changes)
     monkeypatch.setattr(dashboard, "tailnet", lambda: None)

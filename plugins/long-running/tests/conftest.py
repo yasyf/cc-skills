@@ -232,12 +232,6 @@ def drive_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
-def install_lock() -> Iterator[None]:
-    yield
-    state.let_go_install()
-
-
-@pytest.fixture(autouse=True)
 def asks_sent(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     sent: list[dict] = []
     real = tools.sent

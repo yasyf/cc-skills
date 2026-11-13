@@ -78,13 +78,12 @@ class Against(DriveError):
 
 
 def check(name: str, key: str, cited: list[str]) -> dict:
-    """Judge one PR's change, read whole from GitHub at its head, title and diff and never the body, against the words of the orders it serves, for the parts it carries, and against each answer of his cited names or its design cites, a flake fix against his ruling FLAKE_RULING in place of any order, and return the head it checked, or the one its head already holds, for verdict to keep, judging past no install's lock; every other PR its job carries, and each job it was handed from, is named as delivering its own share, the merged ones marked merged and the closed ones left out, so neither a sibling's diff nor a part an earlier PR already landed refuses it. The judge first lists each change the diff makes to what already exists, before and after, then refuses each his words do not need, by his words "stop overrecahing and changing things people didnt ask you when you are asked to make a change". Refuse, naming each of his words the change goes against or beyond, so his card draws only on a change checked against his words, leaving out each objection to a file whose added and removed lines are those of the head the check last passed, while it serves no order that head was not checked against, so a verdict holds for the same change after a restack."""
+    """Judge one PR's change, read whole from GitHub at its head, title and diff and never the body, against the words of the orders it serves, for the parts it carries, and against each answer of his cited names or its design cites, a flake fix against his ruling FLAKE_RULING in place of any order, and return the head it checked, or the one its head already holds, for verdict to keep; every other PR its job carries, and each job it was handed from, is named as delivering its own share, the merged ones marked merged and the closed ones left out, so neither a sibling's diff nor a part an earlier PR already landed refuses it. The judge first lists each change the diff makes to what already exists, before and after, then refuses each his words do not need, by his words "stop overrecahing and changing things people didnt ask you when you are asked to make a change". Refuse, naming each of his words the change goes against or beyond, so his card draws only on a change checked against his words, leaving out each objection to a file whose added and removed lines are those of the head the check last passed, while it serves no order that head was not checked against, so a verdict holds for the same change after a restack."""
     data = state.load(name)
     pr = data["prs"][key]
     if state.checked(data, pr):
         return pr["checked"]
     orders = state.served_orders(data, pr)
-    state.let_go_install()
     read = change(key)
     lines = digests(read["diff"])
     passed = pr["checked"]["lines"] if pr["checked"] and set(orders) <= set(pr["checked"]["orders"]) else {}
@@ -116,7 +115,7 @@ def verdict(name: str, key: str) -> str:
 
 
 def kept(name: str, key: str, result: dict) -> str:
-    """Keep a check's outcome on its PR, with the head it checked, and redraw his open card for it, as verdict describes, unless another check of it started after this one, whose outcome is the one kept; when a newer install saved the drive while the check judged holding no install's lock, the newest install's `drive pr checked` keeps it, so no judgment runs twice."""
+    """Keep a check's outcome on its PR, with the head it checked, and redraw his open card for it, as verdict describes, unless another check of it started after this one, whose outcome is the one kept; when a newer install saved the drive while the check judged, the newest install's `drive pr checked` keeps it, so no judgment runs twice."""
     outcome = result["outcome"]
     try:
         with state.edit(name) as data:

@@ -186,7 +186,7 @@ No tap and no green gate: by his standing rule a `yasyf/*` PR merges without ask
      release's tag holds the merge, since the tap's formula commit can land after the plugin's
      release. Installs run at once take turns on the update and on each Homebrew pass under one flock
      on `plugins/.update.lock` in the Claude config directory, a few seconds each, waiting for its turn no
-     longer than its deadline and holding no install's lock while it waits. Claude Code
+     longer than its deadline. Claude Code
      re-clones a stale marketplace into one fixed `<marketplace>..clone` directory, where two clones
      at once delete each other's files, and two pulls of one tap clone at once collide on its index lock. It refuses
      when the update left any scope's install at a commit without the merge, as a marketplace clone holding
