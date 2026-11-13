@@ -2,8 +2,8 @@ import io
 import json
 import os
 import re
+import subprocess
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import agent_brief
@@ -364,28 +364,54 @@ def test_a_record_in_a_live_handlers_thread_or_on_its_re_chain_is_handed_to_it_w
     assert handlers[handler]["handed"] == ([then.format(scratch=tmp_path)] if met == "handed" else [])
 
 
-def test_a_handler_is_gone_once_no_running_process_or_unfinished_job_claude_code_keeps_names_its_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_handler_is_gone_once_no_running_process_claude_code_keeps_names_its_session_at_work_whatever_its_job_says(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     config = tmp_path / "claude"
     (config / "sessions").mkdir(parents=True)
-    (config / "daemon").mkdir()
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config))
-    (config / "sessions" / f"{os.getpid()}.json").write_text(json.dumps({"sessionId": "running", "kind": "interactive"}))
-    (config / "sessions" / "1.json").write_text(json.dumps({"sessionId": "exited", "kind": "interactive"}))
-    old, now = (datetime.now(UTC) - timedelta(minutes=5)).isoformat(), datetime.now(UTC).isoformat()
+    spare = subprocess.Popen(["sleep", "60"])
+    for pid, session, status in ((os.getpid(), "busy", "busy"), (spare.pid, "idle", "idle"), (1, "died", "busy")):
+        (config / "sessions" / f"{pid}.json").write_text(json.dumps({"sessionId": session, "kind": "bg", "status": status}))
     jobs = {
-        "a1b2c3d4": {"sessionId": "worked", "state": "working", "tempo": "active", "createdAt": old},
-        "b2c3d4e5": {"sessionId": "died", "state": "working", "tempo": "active", "createdAt": old},
-        "c3d4e5f6": {"sessionId": "blocked", "state": "blocked", "tempo": "blocked", "createdAt": old},
-        "d4e5f6a7": {"sessionId": "done", "state": "done", "tempo": "idle", "createdAt": old},
-        "e5f6a7b8": {"sessionId": "fresh", "state": "working", "tempo": "active", "createdAt": now},
+        "a1b2c3d4": {"sessionId": "idle", "state": "working", "tempo": "idle"},
+        "c3d4e5f6": {"sessionId": "blocked", "state": "blocked", "tempo": "blocked"},
     }
     for short, kept in jobs.items():
         (config / "jobs" / short).mkdir(parents=True)
         (config / "jobs" / short / "state.json").write_text(json.dumps(kept))
-    (config / "daemon" / "roster.json").write_text(json.dumps({"proto": 1, "workers": {"a1b2c3d4": {"pid": os.getpid()}, "b2c3d4e5": {"pid": 1}}}))
-    sessions = ["running", "exited", "worked", "died", "blocked", "done", "fresh", "unknown"]
-    assert {session: GONE(session) for session in sessions} == {
-        "running": False, "exited": True, "worked": False, "died": True, "blocked": False, "done": True, "fresh": False, "unknown": True,
-    }
+    try:
+        assert {session: GONE(session) for session in ("busy", "idle", "died", "blocked", "unknown")} == {"busy": False, "idle": True, "died": True, "blocked": True, "unknown": True}
+    finally:
+        spare.kill()
     assert GONE(None) is False
     assert agents.background_job("blocked") == ("c3d4e5f6", jobs["c3d4e5f6"])
+
+
+def test_a_handler_whose_stop_hook_meets_a_drive_a_newer_install_saved_still_ends_and_the_next_brief_in_its_thread_starts_a_fresh_handler_handed_what_it_never_took(
+    communicator: str,
+    tmp_path: Path,
+    started: list[list[str]],
+    cci_records: dict[str, dict],
+    ended_sessions: set[str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    cci_records |= {seq: {"seq": int(seq), "kind": "report", "lane": "root", "fields": {"attrs": {"thread": "1794527558.312319"}}} for seq in ("684116", "684835", "684840")}
+    briefs = {seq: f"Record: {seq} Drive: demo Scratch: {tmp_path / seq}" for seq in cci_records}
+    handler = tools.run("handler", "demo", {"brief": briefs["684116"]}).removeprefix("started ")
+    assert [tools.run("handler", "demo", {"brief": briefs[seq]}) for seq in ("684835", "684840")] == [f"handed to {handler}"] * 2
+    transcript = tmp_path / "h-session.jsonl"
+    bind(monkeypatch, handler, "h-session", transcript)
+    major, minor, patch = state.VERSION.split(".")
+    state.store("demo", state.stored("demo") | {"saved_by": f"{major}.{minor}.{int(patch) + 1}"})
+    monkeypatch.setattr(agents, "hold", lambda payload: pytest.fail("a handler's Stop hook holds no job"))
+    removed: list[list[str]] = []
+    monkeypatch.setattr(agents.subprocess, "Popen", lambda argv, **kwargs: removed.append(argv))
+    monkeypatch.setattr(agents, "background_job", lambda session: (BACKGROUND_JOB, {"sessionId": session}))
+    assert stop(monkeypatch, capsys, "h-session", transcript, LINE) == ""
+    assert started[-1] == ["cci", "post", "--drive", "demo", "--lane", "handler", "--kind", "done", "--to", "communicator@demo", "--id", f"handler-{handler}", "--text", LINE]
+    assert removed == [["claude", "rm", BACKGROUND_JOB]]
+
+    state.store("demo", state.stored("demo") | {"saved_by": state.VERSION})
+    ended_sessions.add("h-session")
+    fresh = tools.run("handler", "demo", {"brief": briefs["684835"]}).removeprefix("started ")
+    assert {key: entry["handed"] for key, entry in state.load("demo")["handlers"].items()} == {fresh: [briefs["684840"]]}

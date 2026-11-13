@@ -21,9 +21,6 @@ RE_HOPS = 8
 CORRECTION_BYTES = 1 << 20
 HANDLER = "long-running:handler"
 SYNTHETIC = "<synthetic>"
-FINISHED_JOB = ("done", "failed", "stopped")
-JOB_GRACE = timedelta(seconds=5)
-ROSTER_PROTO = 1
 DESIGNER = "long-running:designer"
 HIS_WORDS = "Message (his words)"
 ORDER = "Order"
@@ -255,27 +252,10 @@ def holder(data: dict, held: dict) -> str | None:
 
 
 def gone(session: str | None) -> bool:
-    """Whether a bound handler's session is one `claude agents` no longer lists, as when it died before its Stop hook ended it, read from the records `claude agents` reads, so no Claude Code process starts and probes every session: listed while a running process's `sessions/<pid>.json` names it, or while its background job is unfinished and its worker runs, it was made in the last 5 seconds, or it is blocked."""
+    """Whether a bound handler's turn is over, whatever its Stop hook did: no running process's `sessions/<pid>.json`, the record Claude Code keeps of each session's process, names its session with a status but idle, so an idle `claude --bg` session that outlived its turn, as one does until `claude rm` takes it, holds nothing; its background job's state is no test, since Claude Code sets it from the words of its last message. A handler not bound yet has not started its turn, so it is not gone."""
     if not session:
         return False
-    found = background_job(session)
-    claimed = [
-        (pid, record.get("procStartFt") or record.get("procStart"))
-        for pid, record in session_records()
-        if record.get("sessionId") == session or found and record.get("kind") == "bg" and record.get("jobId") == found[0]
-    ]
-    worker = found and roster_workers().get(found[0])
-    working = [(worker["pid"], worker.get("procStart"))] if worker else []
-    live = running([*claimed, *working])
-    if live.intersection(claimed):
-        return False
-    if not found:
-        return True
-    kept = found[1]
-    if kept["state"] in FINISHED_JOB and kept.get("tempo") != "active":
-        return True
-    fresh = datetime.now(UTC) - datetime.fromisoformat(kept["createdAt"]) < JOB_GRACE
-    return not (live.intersection(working) or kept["state"] == "blocked" or fresh)
+    return not running([(pid, record.get("procStartFt") or record.get("procStart")) for pid, record in session_records() if record.get("sessionId") == session and record.get("status") != "idle"])
 
 
 def registry_record(path: Path) -> dict | None:
@@ -303,12 +283,6 @@ def background_job(session: str) -> tuple[str, dict] | None:
     )
 
 
-def roster_workers() -> dict[str, dict]:
-    """The workers Claude Code's daemon says it runs, by job id, from the roster it writes."""
-    kept = registry_record(install.config_dir() / "daemon" / "roster.json") or {}
-    return kept["workers"] if kept.get("proto") == ROSTER_PROTO else {}
-
-
 def running(started: list[tuple[int, str | None]]) -> set[tuple[int, str | None]]:
     """Each pid and the start its record keeps whose process runs and started then, as `claude agents` checks each record on its own: signal 0 reaches the pid, and its start, read in this process and printed as `TZ=UTC ps -o lstart=` prints it, is the one the record keeps, or the record keeps none, or no start can be read."""
     reached = [(pid, start) for pid, start in started if pid > 1 and signalled(pid)]
@@ -329,22 +303,21 @@ class Busy(state.DriveError):
 
 
 def handle(name: str, brief: str, detached: bool = False, briefed: Callable[[str], str] | None = None) -> tuple[str, bool]:
-    """Start a handler on its brief, unless a live one already holds what the brief holds, since a message of his or a thread has one handler at a time: a brief for another record on that message, in that thread or on its record's re chain is handed to that handler, which takes it at its next step; the id of the handler at work on the brief, and whether it was handed. briefed writes the brief a new handler starts on from its id, recording what it adds; a handler that does not start leaves no entry, and no job it was given nor the order made for that job. Detached, as the handler tool runs it, the handler's session starts after the call returns, from the brief kept for `drive handler-start`; the watch starts it in the call, since nothing waits on the watch."""
+    """Start a handler on its brief, unless a live one already holds what the brief holds, since a message of his or a thread has one handler at a time: a brief for another record on that message, in that thread or on its record's re chain is handed to that handler, which takes it at its next step; the id of the handler at work on the brief, and whether it was handed. A handler whose turn is over holds nothing, however it ended: it leaves the drive, and each brief handed to it that it never took goes to the handler this brief reaches, but one for the record this brief names. briefed writes the brief a new handler starts on from its id, recording what it adds; a handler that does not start leaves no entry, and no job it was given nor the order made for that job. Detached, as the handler tool runs it, the handler's session starts after the call returns, from the brief kept for `drive handler-start`; the watch starts it in the call, since nothing waits on the watch."""
     held_now = holds(brief)
-    data = state.load(name)
-    if (held := holder(data, held_now)) and gone(data["handlers"][held]["session"]):
-        with state.edit(name) as data:
-            data["handlers"].pop(held, None)
     handler_id = uuid.uuid4().hex[:8]
     with state.edit(name) as data:
-        if held := holder(data, held_now):
+        left: list[str] = []
+        while (held := holder(data, held_now)) and gone(data["handlers"][held]["session"]):
+            left += data["handlers"].pop(held)["handed"]
+        left = [one for one in dict.fromkeys(left) if RECORD.search(one)[1] != held_now["record"]]
+        if held:
             entry = data["handlers"][held]
             his = entry["holds"]["link"] or f"record {entry['holds']['record']}"
             kept = held_now["record"] and held_now["record"] != entry["holds"]["record"]
-            if kept and brief.strip() not in entry["handed"]:
-                entry["handed"].append(brief.strip())
+            entry["handed"] += [one for one in [*left, *([brief.strip()] if kept else [])] if one not in entry["handed"]]
         else:
-            data["handlers"][handler_id] = {"session": None, "started": state.stamp(), "holds": held_now, "handed": [], "posted": []}
+            data["handlers"][handler_id] = {"session": None, "started": state.stamp(), "holds": held_now, "handed": left, "posted": []}
     if held and kept:
         return held, True
     if held:
@@ -464,19 +437,24 @@ def take_handed(name: str, handler: str) -> list[str]:
     return briefs
 
 
-def end_handler(payload: dict) -> str | None:
-    """Hand the line a handler ended on to the communicator as one cci record each post's POSTED, EDITED and CARD links in it say's own result, whole with its thread_ts, in place of any the handler typed, and remove its session, which would otherwise sit idle holding its memory: `claude rm` takes the id of the background job Claude Code keeps for it. A job the handler held keeps its transcript's path, since the drive forgets the handler. A handler drive handler handed briefs since its last step does not end: they come back as the reason its stop is refused, taken in the one edit that would forget it, so no brief lands on a handler that has ended."""
+def end_handler(payload: dict, refused: Callable[[dict], str | None]) -> str | None:
+    """End a handler's turn once refused, the Stop hook's checks of its line, lets it: hand the line it ended on to the communicator as one cci record each post's POSTED, EDITED and CARD links in it say's own result, whole with its thread_ts, in place of any the handler typed, and remove its session, which would otherwise sit idle holding its memory: `claude rm` takes the id of the background job Claude Code keeps for it. A job the handler held keeps its transcript's path, since the drive forgets the handler. A handler drive handler handed briefs since its last step does not end: they come back as the reason its stop is refused, taken in the one edit that would forget it, so no brief lands on a handler that has ended. A drive a newer install saved, which this install may neither check nor write, still ends the handler on its line with the posts its saved bindings hold, its entry left to drive handler, which takes it off with each brief it was handed once its turn is over."""
     name = state.session_drives(payload["session_id"])[0]
-    with state.edit(name) as data:
-        ended_handler = data["handlers"][payload["agent_id"]]
-        if briefs := ended_handler["handed"]:
-            ended_handler["handed"] = []
-        else:
-            data["handlers"].pop(payload["agent_id"])
-            if job_id := state.agent_job(data, payload["agent_id"]):
-                data["jobs"][job_id]["transcript"] = payload["agent_transcript_path"]
-    if briefs:
-        return Unjudged(f"Refused on purpose: {handed(briefs)}")
+    try:
+        if reason := refused(payload):
+            return reason
+        with state.edit(name) as data:
+            ended_handler = data["handlers"][payload["agent_id"]]
+            if briefs := ended_handler["handed"]:
+                ended_handler["handed"] = []
+            else:
+                data["handlers"].pop(payload["agent_id"])
+                if job_id := state.agent_job(data, payload["agent_id"]):
+                    data["jobs"][job_id]["transcript"] = payload["agent_transcript_path"]
+        if briefs:
+            return Unjudged(f"Refused on purpose: {handed(briefs)}")
+    except state.NewerDrive:
+        ended_handler = state.saved(name)["handlers"][payload["agent_id"]]
     line = (payload.get("last_assistant_message") or "").strip()
     if posted := ended_handler["posted"]:
         line = "; ".join(filter(None, [*posted, RETYPED.sub("", line).strip(" ;")]))
