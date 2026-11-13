@@ -784,7 +784,7 @@ def test_jev_gets_each_call_a_claims_read_names_whole_beside_its_claims_a_read_n
     assert (backed["id"], backed["quote"]) == ("read:1", shown(*SHADOWED))
     assert '"lower.rs:295-305", its read behind its claims ["Each table has a `<table>__history` shadow table", "its columns plus the run"]' in backed["source"]
     assert "is a doc" not in backed["source"]
-    assert (unbacked["id"], unbacked["quote"]) == ("read:2", 'none: no call of the handler\'s own holds a word of "values.go 250-280"')
+    assert (unbacked["id"], unbacked["quote"]) == ("read:2", shown(*PANIC))
     assert (doc["id"], doc["quote"]) == ("read:3", shown(*REPORT))
     assert doc["source"].endswith('; ["/drive/reports/j1880.md"] this read opens is a doc, which backs a line telling what that doc says and no line on what code does, even word for word')
 
@@ -808,28 +808,41 @@ def test_a_read_told_as_what_it_found_reaches_the_call_whose_input_holds_an_id_i
     assert unfound["quote"] == 'none: no call of the handler\'s own holds a word of "deploy 15172 went red"'
 
 
-def test_jev_gets_a_long_result_from_the_file_it_was_saved_to_and_an_image_read_as_one_the_handler_was_shown(
+def test_jev_gets_a_long_result_from_the_file_it_was_saved_to_a_transcript_read_as_another_sessions_reads_and_an_image_as_shown(
     talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
     lane = lane_of(transcript)
-    saved = tmp_path / "tool-results" / "buoniclwx.txt"
-    saved.parent.mkdir()
-    saved.write_text("- o839 open\n  - j2273 cause: the Cargill load on plat SandSQL")
+    (tmp_path / "tool-results").mkdir()
+    status_file, job_file = tmp_path / "tool-results" / "buoniclwx.txt", tmp_path / "tool-results" / "b8zy366hf.txt"
+    status_file.write_text("- o839 open\n  - j2273 cause: the load on plat SandSQL")
+    job_file.write_text('713 user* 01:46:28 <-mcp__plugin_datadog_mcp__execute_code {"@cause":"local_upload","sum":17078} {"o":"range/not_found"}')
     status = ("Bash", {"command": "drive status --drive durable-agents o839"})
-    tool(lane, *status, f"<persisted-output>\nOutput too large (11.4KB). Full output saved to: {saved}\n\nPreview (first 2KB):\n- o839 open")
+    job = ("Bash", {"command": "cc-transcript show agent-af4e64b3d9ac171f6.jsonl --range 670:745 --kind user"})
+    grep = ("Bash", {"command": f"grep -o 'local_upload.{{0,80}}' {job_file}"})
+    for (name, asked), kept in ((status, status_file), (job, job_file)):
+        tool(lane, name, asked, f"<persisted-output>\nOutput too large (11.4KB). Full output saved to: {kept}\n\nPreview (first 2KB):\n- o839 open")
+    tool(lane, *grep, '"@cause":"local_upload","sum":17078')
     shot = {"file_path": "/Users/me/.local/state/cc-slack/files/F0CHFST5HTN.png"}
     with lane.open("a") as rows:
         rows.write(json.dumps({"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "shot", "name": "Read", "input": shot}]}}) + "\n")
         rows.write(json.dumps({"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "shot", "content": [{"type": "image", "source": {"type": "base64", "data": "aGVsbG8="}}]}]}}) + "\n")
     claims = [
-        {"claim": "the Cargill load on the plat SandSQL database", "read": "drive status --drive durable-agents o839"},
+        {"claim": "the load on the plat SandSQL database", "read": "drive status --drive durable-agents o839"},
         {"claim": "the screenshot shows `database disk image is malformed`", "read": shot["file_path"]},
+        {"claim": "its sand logged 17,078 failed uploads", "read": "local_upload"},
+        {"claim": "a fetch of its files came back not found", "read": "range/not_found"},
     ]
-    load, image = evidence(transcript, monkeypatch, capsys, text="The screenshot shows `database disk image is malformed`.", thread_ts="1.2", claims=claims)
-    assert load["quote"] == shown(*status, saved.read_text())
-    assert message_limits.IMAGE_SOURCE not in load["source"]
+    load, image, uploads, fetch = evidence(transcript, monkeypatch, capsys, text="The screenshot shows `database disk image is malformed`.", thread_ts="1.2", claims=claims)
+    job_call = f"Bash {json.dumps(job[1])}{message_limits.SAVED_TO.format(file=job_file)}"
+    assert load["quote"] == f"Bash {json.dumps(status[1])}{message_limits.SAVED_TO.format(file=status_file)}\n{status_file.read_text()}"
+    assert not load["source"].endswith((message_limits.IMAGE_SOURCE, message_limits.TRANSCRIPT_SOURCE))
     assert image["quote"] == shown("Read", shot, message_limits.IMAGE_SHOWN)
     assert image["source"].endswith(message_limits.IMAGE_SOURCE)
+    opened = message_limits.SAVED_FROM.format(file=job_file, call=f"Bash {json.dumps(job[1])}")
+    assert uploads["quote"] == f'Bash {json.dumps(grep[1])}{opened}\n"@cause":"local_upload","sum":17078'
+    assert uploads["source"].endswith(message_limits.TRANSCRIPT_SOURCE)
+    assert fetch["quote"] == f"{job_call}\n{job_file.read_text()}"
+    assert fetch["source"].endswith(message_limits.TRANSCRIPT_SOURCE)
 
 
 def test_a_record_a_claim_names_or_the_post_cites_and_the_report_it_carries_reach_jev_whole_and_a_post_naming_no_claim_says_so(

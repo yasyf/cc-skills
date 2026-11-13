@@ -125,12 +125,21 @@ DOC_PATH = re.compile(r"[\w.~/-]+\.(?:md|mdx|rst)\b")
 NAMED_SOURCE = (
     "the calls the posting handler finds by the words {read}, its read behind its claims {claims}: each call of its own"
     " transcript, its posts aside, whose tool name and input hold the most of those words, or an id they name, a word of three"
-    " digits or more such as a PR, build, record or job number or a line range, case aside, with its whole result; the read is each"
+    " digits or more such as a PR, build, record or job number or a line range, case aside, or failing those whose result"
+    " does, with its whole result; the read is each"
     " such call whole, its input and its result, never those words, which copy only part of a call to find it; a call reading a"
     " doc, report, PR body or brief shows what that source says, never what the code it describes does, whoever wrote it"
 )
 DOC_SOURCE = "; {docs} this read opens is a doc, which backs a line telling what that doc says and no line on what code does, even word for word"
 IMAGE_SHOWN = "[an image, shown to the handler and not to Jev]"
+SAVED_TO = ", its result saved to {file}"
+SAVED_FROM = ", opening {file}, the saved result of {call}"
+TRANSCRIPT_READ = re.compile(r"\bcc-transcript\b|\.jsonl\b")
+TRANSCRIPT_SOURCE = (
+    "; a call of cc-transcript or of a .jsonl transcript, or one opening its saved result, shows another session's calls and"
+    " their results: a result there is a read that session made, which backs a line telling what it returned as the read that"
+    " measured it, and that session's own text and thinking back only a line telling what it said"
+)
 IMAGE_SOURCE = f"; a call whose result holds {IMAGE_SHOWN} showed the handler that image, which backs a line telling what the image shows, such as an error a screenshot holds, as the handler read it, and no line on anything else"
 CITED_SOURCE = "a record the post cites as {record:} or a claim names as its read, held whole, its first line naming its writer and, after >, the lanes it went to, root being the coordinator's: it backs a line telling what it says or where it went, and any other line only where it measured what that line says"
 UNCLAIMED = {"id": "claims:none", "source": "the reads the posting handler's claims name", "quote": "none: the post names no claim and no read behind one"}
@@ -756,40 +765,49 @@ def read_evidence(payload: dict, claims: list[dict]) -> list[dict]:
 
 
 def own_calls(payload: dict) -> dict[str, str]:
-    """Each call of the handler's own transcript, its posts aside, as its tool's name and its input, beside its whole result, an error's marked so; the newest result of two calls alike."""
+    """Each call of the handler's own transcript, its posts aside, as its tool's name and its input, beside its whole result, an error's marked so: a long result as the file it was saved to, read whole in place of the preview the call returned, the call naming that file and a later call opening it naming the call whose result it holds, and each image a result showed the handler as IMAGE_SHOWN, since Jev is shown text alone; the newest result of two calls alike."""
     calls: dict[str, str] = {}
+    saved: dict[str, str] = {}
     results: dict[str, str] = {}
     for row in agents.tail(agents.transcript(payload)):
         for part in agents.parts(row):
             if part.get("type") == "tool_use" and part.get("name") not in DM_POSTS | CHANNEL_POSTS:
-                calls[part["id"]] = f"{part['name']} {json.dumps(part.get('input'), ensure_ascii=False)}"
+                asked = json.dumps(part.get("input"), ensure_ascii=False)
+                calls[part["id"]] = f"{part['name']} {asked}" + "".join(SAVED_FROM.format(file=file, call=call) for file, call in saved.items() if file in asked)
             elif part.get("type") == "tool_result" and part.get("tool_use_id") in calls:
-                results[calls[part["tool_use_id"]]] = ("error: " if part.get("is_error") else "") + whole_result(part)
+                content = part.get("content")
+                text = content if isinstance(content, str) else " ".join(IMAGE_SHOWN if piece.get("type") == "image" else piece.get("text", "") for piece in content or [])
+                call = calls[part["tool_use_id"]]
+                if kept := SAVED.match(text):
+                    saved[kept[1]] = call
+                    call, text = call + SAVED_TO.format(file=kept[1]), Path(kept[1]).read_text()
+                results[call] = ("error: " if part.get("is_error") else "") + text
     return results
 
 
-def whole_result(part: dict) -> str:
-    """A call's result whole: the file a long one was saved to in place of the preview the call returned, and each image it showed the handler as IMAGE_SHOWN, since Jev is shown text alone."""
-    content = part.get("content")
-    text = content if isinstance(content, str) else " ".join(IMAGE_SHOWN if piece.get("type") == "image" else piece.get("text", "") for piece in content or [])
-    return Path(saved[1]).read_text() if (saved := SAVED.match(text)) else text
-
-
 def called(index: int, read: str, claimed: list[str], calls: dict[str, str]) -> dict:
-    """Jev's item for one read the claims name: each call whose tool name and input hold the most of the read's words, case aside, a word split at a colon, as a path's from its line numbers, and each holding an id the read names, a word of three digits or more standing alone, since a handler names its read as it tells what it found, with its whole result, or none when no call holds a word of it, its source naming the claims beside the read and each doc, such as a report or a brief, a call of it opens."""
+    """Jev's item for one read the claims name: each call whose tool name and input hold the most of the read's words, case aside, a word split at a colon, as a path's from its line numbers, and each holding an id the read names, a word of three digits or more standing alone, or failing those, the calls whose result holds them, since a handler names its read as it tells what it found, with its whole result, or none when no call holds a word of it, its source naming the claims beside the read and each doc, such as a report or a brief, a call of it opens."""
     folded = read.casefold()
     words = {json.dumps(word, ensure_ascii=False)[1:-1] for word in READ_WORDS.findall(folded)}
     ids = [re.compile(rf"(?<![a-z0-9]){re.escape(found.strip('./-_'))}(?![a-z0-9])") for found in READ_ID.findall(folded)]
-    holding = {call: (sum(word in call.casefold() for word in words), sum(bool(named.search(call.casefold())) for named in ids)) for call in calls}
-    most = max((sum(held) for held in holding.values()), default=0)
-    held = [call for call, (worded, named) in holding.items() if most and worded + named == most or named]
+    held = reached(words, ids, {call: call for call in calls}) or reached(words, ids, calls)
     docs = list(dict.fromkeys(doc for call in held for doc in DOC_PATH.findall(call)))
     source = NAMED_SOURCE.format(read=json.dumps(read, ensure_ascii=False), claims=json.dumps(claimed, ensure_ascii=False))
     return {
         "id": f"read:{index}",
-        "source": source + (DOC_SOURCE.format(docs=json.dumps(docs, ensure_ascii=False)) if docs else "") + (IMAGE_SOURCE if any(IMAGE_SHOWN in calls[call] for call in held) else ""),
+        "source": source
+        + (DOC_SOURCE.format(docs=json.dumps(docs, ensure_ascii=False)) if docs else "")
+        + (IMAGE_SOURCE if any(IMAGE_SHOWN in calls[call] for call in held) else "")
+        + (TRANSCRIPT_SOURCE if any(TRANSCRIPT_READ.search(call) for call in held) else ""),
         "quote": "\n\n".join(f"{call}\n{calls[call]}" for call in held) or f"none: no call of the handler's own holds a word of {json.dumps(read, ensure_ascii=False)}",
     }
+
+
+def reached(words: set[str], ids: list[re.Pattern[str]], shown: dict[str, str]) -> list[str]:
+    """The calls whose shown text holds the most of a read's words and the ids it names, and each holding one of those ids."""
+    holding = {call: (sum(word in text.casefold() for word in words), sum(bool(named.search(text.casefold())) for named in ids)) for call, text in shown.items()}
+    most = max((sum(counts) for counts in holding.values()), default=0)
+    return [call for call, (worded, named) in holding.items() if most and worded + named == most or named]
 
 
 def main() -> None:
