@@ -142,6 +142,7 @@ def read(**overrides: object) -> dict:
         "labels": [],
         "ejected_at": None,
         "native": [],
+        "trunk": None,
         "required_checks": ["buildkite/test"],
         "required_reviews": 1,
     }
@@ -216,7 +217,8 @@ def test_a_pr_that_starts_to_conflict_with_its_base_is_said_once_per_conflict_th
 
 REPLAYED_55220 = "Forge-AI/monorepo#55220"
 STACKED_BASE = "durable-agents-j1389-send-user-question"
-CONFLICTS_WITH_BASE = f"it conflicts with its base {STACKED_BASE}"
+ON_TRUNK = "dev, the trunk of its native stack"
+CONFLICTS_WITH_TRUNK = f"it conflicts with {ON_TRUNK}: restack the whole stack onto dev with ccx vcs stack rebase"
 
 
 def test_replayed_55220_a_conflicting_pr_pushed_one_ahead_of_its_base_waits_on_his_approve_while_github_reads_unknown_and_turns_red_once_it_answers_conflicting(
@@ -227,14 +229,15 @@ def test_replayed_55220_a_conflicting_pr_pushed_one_ahead_of_its_base_waits_on_h
         data["prs"][REPLAYED_55220] = state.new_pr(state.pr_url(REPLAYED_55220), "j1", "o1") | {
             "head": "5e95abf000",
             "base": STACKED_BASE,
+            "trunk": "dev",
             "checks": "pass",
             "review": "approved",
             "conflict": True,
             "card": CARD,
             "checked": CHECKED | {"head": "5e95abf000"},
-            "stage": {"name": "red", "owner": stage.BUILDER, "why": CONFLICTS_WITH_BASE, "since": state.stamp(T0 - timedelta(hours=2, minutes=55)), "woke": state.stamp(T0 - timedelta(minutes=22))},
+            "stage": {"name": "red", "owner": stage.BUILDER, "why": CONFLICTS_WITH_TRUNK, "since": state.stamp(T0 - timedelta(hours=2, minutes=55)), "woke": state.stamp(T0 - timedelta(minutes=22))},
         }
-    pushed = {"headRefOid": "c388588e73", "baseRefName": STACKED_BASE, "checks": GREEN, "reviewDecision": "APPROVED"}
+    pushed = {"headRefOid": "c388588e73", "baseRefName": STACKED_BASE, "checks": GREEN, "reviewDecision": "APPROVED", "native": [(key, "open") for key in REPLAYED_STACK_55221], "trunk": "dev"}
     reads = {REPLAYED_55220: read(**pushed, mergeable="UNKNOWN")}
     serve(monkeypatch, reads)
     watching = watcher(demo)
@@ -244,8 +247,8 @@ def test_replayed_55220_a_conflicting_pr_pushed_one_ahead_of_its_base_waits_on_h
     reads[REPLAYED_55220] = read(**pushed, mergeable="CONFLICTING")
     assert f"PR {REPLAYED_55220}: conflicts with its base [o1 j1]" in watch.run_pass(watching, conflicting_at)
     pr = state.load(demo)["prs"][REPLAYED_55220]
-    assert (pr["stage"]["name"], pr["stage"]["why"]) == ("red", CONFLICTS_WITH_BASE)
-    assert woken == [(REPLAYED_55220, f"{REPLAYED_55220} red since {state.stamp(conflicting_at)}, owed by its builder: {CONFLICTS_WITH_BASE} [o1 j1]")]
+    assert (pr["stage"]["name"], pr["stage"]["why"]) == ("red", CONFLICTS_WITH_TRUNK)
+    assert woken == [(REPLAYED_55220, f"{REPLAYED_55220} red since {state.stamp(conflicting_at)}, owed by its builder: {CONFLICTS_WITH_TRUNK} [o1 j1]")]
 
 
 REPLAYED_54026 = "Forge-AI/monorepo#54026"
@@ -266,13 +269,13 @@ def test_replayed_54026_every_pr_above_the_lowest_pr_of_its_stack_conflicting_wi
     native = [(key, "open") for key in REPLAYED_STACK_55221]
     branches = ["durable-agents-j850", "durable-agents-j1389-a", STACKED_BASE, "durable-agents-j2279-a", "durable-agents-j2279-b", "durable-agents-j2279-c"]
     stacked = {
-        key: {"baseRefName": base, "headRefName": branch, "checks": GREEN, "reviewDecision": "APPROVED", "native": native}
+        key: {"baseRefName": base, "headRefName": branch, "checks": GREEN, "reviewDecision": "APPROVED", "native": native, "trunk": "dev"}
         for key, base, branch in zip(REPLAYED_STACK_55221, ["dev", *branches[:-1]], branches, strict=True)
     }
     reads = {key: read(**stacked[key], mergeable="CONFLICTING" if key == REPLAYED_54026 else "UNKNOWN" if key in REPLAYED_UNKNOWN else "MERGEABLE") for key in REPLAYED_STACK_55221}
     serve(monkeypatch, reads)
     watching = watcher(demo)
-    behind_54026 = ("behind", stage.BUILDER, f"{REPLAYED_54026} below it in its stack conflicts with its base dev, red: it conflicts with its base dev")
+    behind_54026 = ("behind", stage.BUILDER, f"{REPLAYED_54026} below it in its stack conflicts with {ON_TRUNK}, red: {CONFLICTS_WITH_TRUNK}")
     for minutes, mergeable in ((0, "UNKNOWN"), (2, "CONFLICTING"), (32, "CONFLICTING"), (242, "CONFLICTING")):
         for key in REPLAYED_UNKNOWN:
             reads[key] = read(**stacked[key], mergeable=mergeable)
@@ -285,9 +288,9 @@ def test_replayed_54026_every_pr_above_the_lowest_pr_of_its_stack_conflicting_wi
     watch.run_pass(watching, restacked_at)
     prs = state.load(demo)["prs"]
     assert [prs[key]["stage"]["name"] for key in REPLAYED_STACK_55221[:4]] == ["held", "card", "card", "red"]
-    behind_55220 = ("behind", stage.BUILDER, f"{REPLAYED_55220} below it in its stack conflicts with its base {STACKED_BASE}, red: {CONFLICTS_WITH_BASE}")
+    behind_55220 = ("behind", stage.BUILDER, f"{REPLAYED_55220} below it in its stack conflicts with {ON_TRUNK}, red: {CONFLICTS_WITH_TRUNK}")
     assert [(prs[key]["stage"]["name"], prs[key]["stage"]["owner"], prs[key]["stage"]["why"]) for key in REPLAYED_UNKNOWN[1:]] == [behind_55220] * 2
-    assert woken[3:] == [(REPLAYED_55220, f"{REPLAYED_55220} red since {state.stamp(restacked_at)}, owed by its builder: {CONFLICTS_WITH_BASE} [o1 j1]")]
+    assert woken[3:] == [(REPLAYED_55220, f"{REPLAYED_55220} red since {state.stamp(restacked_at)}, owed by its builder: {CONFLICTS_WITH_TRUNK} [o1 j1]")]
 
 
 def test_a_failed_check_being_rerun_never_reads_as_passed(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
