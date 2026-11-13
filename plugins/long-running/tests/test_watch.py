@@ -4432,7 +4432,8 @@ def holding_job(name: str, *waits: str) -> None:
     with state.edit(name) as data:
         data["prs"][KEY] |= {"checks": "pass", "review": "approved", "checked": CHECKED | {"orders": ["o1", "o2"]}}
         data["orders"]["o2"] = order(text=BUSY_WAIT, jobs=["j2"], parts={BUSY_WAIT: state.new_part()})
-        data["jobs"]["j2"] = job(order="o2", goal="change #42", parts=[BUSY_WAIT], carries={}, prs=[state.pr_url(KEY)], waits=[KEY, *waits])
+        data["jobs"]["j2"] = job(order="o2", goal="change #42", parts=[BUSY_WAIT], carries={}, prs=[], waits=list(waits))
+        state.take_pr(data, "j2", KEY)
 
 
 def holding_asks(name: str, holds: str) -> None:
@@ -4449,7 +4450,7 @@ def holding_answered(name: str) -> None:
     ("waits", "holds", "held"),
     [((HOLDING_CARD,), "", True), ((), f'"land #42 once #43 is in": each option changes what #42 carries when it lands; {BUSY_WAIT}', True), ((), "the dashboard", False)],
 )
-def test_his_open_card_holds_a_pr_from_landing_while_another_job_carrying_it_waits_on_that_card_or_its_holds_line_names_that_jobs_change(
+def test_his_open_card_holds_a_pr_from_landing_while_the_job_it_moved_to_waits_on_that_card_or_its_holds_line_names_that_jobs_change(
     demo: str, landers: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch, waits: tuple[str, ...], holds: str, held: bool
 ) -> None:
     approve(demo, KEY)
@@ -4463,6 +4464,28 @@ def test_his_open_card_holds_a_pr_from_landing_while_another_job_carrying_it_wai
         assert land.start(demo, [KEY], cards) == []
         holding_answered(demo)
     assert land.start(demo, [KEY], cards) == [(KEY,)]
+
+
+def test_a_card_the_job_a_pr_moved_off_waits_on_holds_it_no_more_and_no_card_holds_a_main_fix_its_own_job_waits_on(
+    demo: str, landers: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    approve(demo, KEY)
+    holding_job(demo)
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["waits"] = [HOLDING_CARD]
+    asking(monkeypatch, demo, HOLDING_CARD)
+    cards = view.live_cards(demo)
+    moved = state.load(demo)
+    assert (state.pr_jobs(moved, moved["prs"][KEY]), land.pr_cards(moved, moved["prs"][KEY], cards)) == (["j2", "j1"], [])
+    assert land.start(demo, [KEY], cards) == [(KEY,)]
+    with state.edit(demo) as data:
+        state.take_pr(data, "j1", KEY)
+    back = state.load(demo)
+    assert land.pr_cards(back, back["prs"][KEY], cards) == [HOLDING_CARD]
+    with state.edit(demo) as data:
+        data["prs"][KEY]["exempt"] = state.MAIN_FIX
+    fixed = state.load(demo)
+    assert land.pr_cards(fixed, fixed["prs"][KEY], cards) == []
 
 
 def test_the_watch_stops_a_lander_when_a_card_opens_on_the_work_of_a_job_holding_its_pr_and_the_pr_lands_once_he_answers(

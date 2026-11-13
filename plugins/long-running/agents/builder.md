@@ -266,6 +266,12 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      order's words is answered by that registration, never by closing it, emptying it or returning
      `BLOCKED`. Its `SERVES:` line reads `flake fix: <the test>`; in test or fixture code alone it lands
      with no tap, and with any other file his card quotes the ruling for his Approve.
+   - Main fixes: a fix forward of the default branch's red CI that is no flake, such as a test a merge
+     broke, goes up as its own PR registered with `--exempt "main fix"` in the same Bash call as the
+     `ccx vcs ship` that opens it, as a flake fix is, so no card of his, the cards your job waits on
+     included, holds it: `ccx vcs ship ... && drive pr add "$(gh pr view --json url -q .url)" --job <your job id> --exempt "main fix"`.
+     `drive pr add` refuses the class when no workflow's newest run on the default branch failed. It
+     serves your order and keeps the tap its PR would wait on.
    - A PR that makes a design decision he never answered returns `ASK` with it, not `READY`:
      `drive pr set --serves` needs `--design` naming his answer for each.
 

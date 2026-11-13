@@ -81,7 +81,9 @@ CHANGE_LINE = re.compile(r"^Change:[ \t]*(?P<change>.+?)(?:[ \t]*\(waits on (?P<
 CHANGE_WAITS = re.compile(r"\bchange (\d+)")
 BUILT_CARD = re.compile(r"https://[^\s,]+/archives/[^\s,]+/p\d+[^\s,]*|[\w.-]+:j\d+-\d+[\w-]*")
 FLAKE_FIX = "flake fix"
-EXEMPT_CLASSES = ("pure port", "test-only", "ci-only", FLAKE_FIX, "incident fix")
+MAIN_FIX = "main fix"
+UNCARDED_CLASSES = (FLAKE_FIX, MAIN_FIX)
+EXEMPT_CLASSES = ("pure port", "test-only", "ci-only", FLAKE_FIX, MAIN_FIX, "incident fix")
 FLAKE_RULING = "532cd3d"
 FLAKE_WORDS = "and ffs fix these flaky tgests how many times do I have to tell yoiu"
 TAP_LABELS = ("Approve", "Hold")
@@ -2618,8 +2620,8 @@ def cleared(pr: dict) -> bool:
 
 
 def exempted(pr: dict) -> str | None:
-    """The exempt class that lands the PR with no tap: its class, unless it is a flake fix changing code outside tests and fixtures, which keeps his tap and card."""
-    return None if pr.get("exempt") == FLAKE_FIX and pr["wants_tap"] else pr.get("exempt")
+    """The exempt class that lands the PR with no tap: its class, unless it is a flake fix or main fix that keeps his tap and card, a flake fix changing code outside tests and fixtures or a main fix in a repository only his tap lands."""
+    return None if pr.get("exempt") in UNCARDED_CLASSES and pr["wants_tap"] else pr.get("exempt")
 
 
 def names_pr(words: str, key: str) -> bool:
@@ -2697,7 +2699,7 @@ def indexed_pr_jobs(data: dict) -> Iterator[None]:
 
 
 def pr_jobs(data: dict, pr: dict) -> list[str]:
-    """The jobs carrying a PR: its own, then each other job listing it among its PRs, a builder that took it over or one that holds its landing included."""
+    """The jobs carrying a PR: its own, then each other job listing it among its PRs, such as the job a builder took it over from."""
     if (indexed := PR_JOB_INDEX.get()) is not None and indexed[0] is data:
         return [pr["job"], *(job_id for job_id in indexed[1].get(pr["url"], ()) if job_id != pr["job"])]
     return [pr["job"], *(job_id for job_id, job in data["jobs"].items() if job_id != pr["job"] and pr["url"] in job["prs"])]

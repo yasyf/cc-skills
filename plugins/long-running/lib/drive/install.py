@@ -743,6 +743,18 @@ def ci_verdict(repo: str, sha: str) -> list[tuple[str, bool]]:
     return runs + [(f"{names[workflow]}: no run since {sha[:12]} that was not cancelled", False) for workflow in names.keys() - firsts.keys()]
 
 
+def red_on_default(repo: str) -> list[str]:
+    """Each workflow whose newest completed run on repo's default branch, among the branch's hundred newest and past those cancelled or skipped, failed, by its name and link: what a main fix fixes forward. A commit no workflow runs on, such as an autobump's [skip ci], keeps the verdict of the run before it."""
+    branch = github.default_branch(repo)
+    jq = ".workflow_runs[] | {workflow_id, name, conclusion, html_url}"
+    runs = github.read(f"{repo}'s completed runs on {branch}", ["gh", "api", f"repos/{repo}/actions/runs?branch={branch}&status=completed&per_page=100", "--jq", jq])
+    newest: dict[int, dict] = {}
+    for run in map(json.loads, runs.splitlines()):
+        if run["conclusion"] not in ("cancelled", "skipped"):
+            newest.setdefault(run["workflow_id"], run)
+    return [f"{run['name']} {run['html_url']}" for run in newest.values() if run["conclusion"].upper() not in github.PASSED]
+
+
 def merges_of(data: dict, job_id: str) -> dict[str, str]:
     return {key: data["prs"][key]["merged_sha"] for key in reported_prs(data, job_id)}
 

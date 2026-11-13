@@ -176,7 +176,7 @@ immediate fix shipping while he picks (its PR, release, rollback, repair, or the
 or reads `Interim fix: none: <why nobody is hurt now>`; `drive job ask` and a reader's `DESIGN` are
 refused without it. The findings' `Holds:` line names, in each change's own words, every change of the
 order its options alter, or reads `Holds: none: <why>`, and his open card holds from landing,
-among the PRs of jobs working a change it names, only those its own job, its design's builder or a job briefed on its research carries and those it names by link, `#N` or their job's id, and a question kept with no `Holds:` line holds every change of those jobs; no card holds a flake fix. No option asks a
+among the PRs of jobs working a change it names, only those its own job, its design's builder or a job briefed on its research carries and those it names by link, `#N` or their job's id, and a question kept with no `Holds:` line holds every change of those jobs; no card holds a flake fix or a main fix. No option asks a
 reporter or anyone else to retry or confirm. The findings stay in the job's file, and Explain more
 on the card posts the one section he asks about, never a findings post of its own.
 

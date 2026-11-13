@@ -5186,6 +5186,24 @@ def test_an_exempt_class_its_files_are_outside_is_refused_by_the_landers_class_c
     assert state.load("demo")["prs"]["Forge-AI/monorepo#42"]["exempt"] == "test-only"
 
 
+def test_a_main_fix_is_refused_while_no_workflow_fails_on_the_default_branch_and_once_kept_keeps_the_tap_its_forge_ai_pr_waits_on(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], redraws: Redraws
+) -> None:
+    run("order", "add", "--title", "land it", "--project", "The drive", "--workstream", "Drive tooling", "land it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    monkeypatch.setattr(served, "change", lambda key: {"title": "Fix: the verbs page test", "body": "", "head": "abc", "diff": b""})
+    monkeypatch.setattr(github, "default_branch", lambda repo: "dev")
+    red: list[str] = []
+    monkeypatch.setattr(install, "red_on_default", lambda repo: red)
+    assert cli.main(["pr", "add", PR, "--job", "j1", "--exempt", "main fix", *LEAD]) == 2
+    refused = "it is no \"main fix\": no workflow's newest run on Forge-AI/monorepo's dev failed, so it fixes no red default branch"
+    assert f"Forge-AI/monorepo#42: refused, nothing added: {refused}" in capsys.readouterr().err
+    red.append("CI https://github.com/Forge-AI/monorepo/actions/runs/1")
+    assert run("pr", "add", PR, "--job", "j1", "--exempt", "main fix", *LEAD)[0] == 0
+    pr = state.load("demo")["prs"]["Forge-AI/monorepo#42"]
+    assert (pr["exempt"], pr["wants_tap"], state.exempted(pr), stage.carded(pr)) == ("main fix", True, None, True)
+
+
 def test_pr_tapped_refuses_a_pr_the_drive_holds_with_the_hold_label_even_when_exempt(run: Run, with_pr: str) -> None:
     run("pr", "set", PR, "--exempt", "test-only")
     with state.edit("demo") as data:

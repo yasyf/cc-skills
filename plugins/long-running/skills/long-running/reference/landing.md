@@ -26,9 +26,9 @@ for its repository says, then return `DONE <proof>`.
   after the PR teaching its readers is live on every client, and its body links that PR.
 - While a question card of his on the change is unanswered, land and enqueue nothing, whatever order to
   land arrived, since its recommended option never stands in for his answer. `drive pr add`,
-  `drive pr land` and the `landing_guard` hook refuse a PR while a card of his is open that any job
-  carrying it waits on, its own or one holding its landing, or whose `Holds:` line names a change one
-  of them builds; the watch stops a lander already landing it when that card opens, and the lander
+  `drive pr land` and the `landing_guard` hook refuse a PR while a card of his is open that the job its
+  row names waits on, or whose `Holds:` line names a change that job builds, never a card of a job it
+  moved off; none holds a `flake fix` or a `main fix`; the watch stops a lander already landing it when that card opens, and the lander
   dequeues what it queued. On a Sprite lane, which holds no copy of the drive, the hook asks this Mac
   with `drive job held --pr` first and refuses while it does not answer. Return `WAITING <the PR> waits on <the card>`, which
   the coordinator puts in front of him by [Design first](design.md). An incident's repair is the
@@ -269,7 +269,7 @@ by [Neither](scope.md#the-four-kinds-of-pr). A PR lands only when all of these h
   `landing_guard` refuses landing a drive PR with no recorded tap.
 
 **Exempt classes land with no tap** once green, but for a `flake fix` changing a file outside test and
-fixture code. He never sees a PR card for one landing with no tap: `drive card` draws a
+fixture code and a `main fix` whose PR would wait on his tap, as every `Forge-AI` PR does. He never sees a PR card for one landing with no tap: `drive card` draws a
 fresh card only for a PR that asks his tap, by the same check that gives a card its Approve, so a post
 linking an exempt PR keeps its plain link. It is marked as its class wherever he sees it, and its
 order's thread gets one line naming the class and the PR, such as "port of #N landed." The drive's
@@ -277,7 +277,8 @@ lander lands an exempt PR once it is green, after checking it really is in its
 class from its changed files, title and body at its head, by his ruling that the landing tool checks
 the class before it lands: no file that changes how data is stored for a `pure port`, only test and
 fixture files for `test-only` and for a `flake fix` landing with no tap, only CI files for `ci-only`,
-and no revert for an `incident fix`. One outside its class comes back as `PR … not landed: <why>`.
+a failed newest run of some workflow on the default branch for a `main fix`, and no revert for an
+`incident fix`. One outside its class comes back as `PR … not landed: <why>`.
 
 - `pure port`: a `Port:` PR that does what its old-tree PR #N does, line for line, with that PR's tests,
   and nothing more. The coordinator records it with `drive pr set <url> --port-of <N>`. A port that
@@ -299,6 +300,12 @@ and no revert for an `incident fix`. One outside its class comes back as `PR …
   fixture code alone it lands with no tap; with any other file it keeps his tap, and his card quotes the
   ruling's words, by his words "you cna also merge CI/tst-only tweaks/fixes without me, but onyl if it
   doesnt touch non-test/CI code at all".
+- `main fix`: the change fixes the default branch's red CI forward, such as a test a merge broke, which
+  is no flake. Register it with `drive pr add <url> --job <j> --exempt "main fix"` in the Bash call whose
+  `ccx vcs ship` opens it: the class check reads the newest completed run of each GitHub Actions workflow
+  on the default branch and refuses the class when none failed. No card of his holds it, the cards its
+  job waits on included, so it lands at once, keeping the tap its PR would wait on, as every `Forge-AI` PR does.
+  The watch still judges it against its job's orders.
 - `incident fix`: the immediate fix, such as the stop, or the root fix an incident's order ships, by [incidents.md](incidents.md). A revert is
   not one and waits for his tap: `drive pr set` refuses the class to a PR whose title or body says it
   reverts a change.

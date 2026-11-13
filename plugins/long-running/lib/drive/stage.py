@@ -151,7 +151,7 @@ def stopped(pr: dict) -> str:
 
 
 def held(data: dict, pr: dict, cards: dict) -> str:
-    """What of his holds the PR: what stops it, a card of his it waits on, or a question card of his open on the work of any job carrying it; a red PR waiting on one of his cards reads red, so its builder keeps it green while he decides."""
+    """What of his holds the PR: what stops it, a card of his it waits on, or a question card of his open on the work of the job its row names; a red PR waiting on one of his cards reads red, so its builder keeps it green while he decides."""
     if stops := stopped(pr):
         return stops
     if waiting := [wait for wait in view.holding(data, pr["waits"], cards) if state.card_wait(data, wait)]:
