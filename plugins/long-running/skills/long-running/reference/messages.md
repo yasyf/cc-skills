@@ -544,7 +544,7 @@ restating it.
 - What changed for him first. "You can now tap Approve on any open PR card and it lands" beats "the
   rule that pulled your card when checks went red is merged and gone".
 - Plain words for drive jargon he cannot open: a pipeline step, a job, order, record, card or row id,
-  a `waits` id, a record seq, a hash, a lane or a plan step. Replace each with what it is, never
+  a `waits` id, a record seq, a hash or a plan step. Replace each with what it is, never
   quoted as it stands in a record or a log. "Waiting on a manual roll press" becomes "waiting for the button a
   person must press before a customer cluster's changes go out".
 - Proper terms for everything technical. A function, syscall, flag, file, path, service, table or

@@ -60,7 +60,7 @@ CAUSE_RULE = (
 PLAIN_WORDS_RULE = (
     "Write every post for the person reading the thread, in plain words: no internal shorthand such as tracking ids, agent"
     " lane names, raw commit shas or object ULIDs, and code, files, products and alerts by their proper names. A multi-agent"
-    " term such as lane, desk, walker, parity or fence is shorthand, but never inside a function, file, path, product or"
+    " term such as desk, walker, parity or fence is shorthand, but never inside a function, file, path, product or"
     " alert name or in a code span, and one the reader used in the message the post answers passes in the answer."
 )
 LENGTH_RULE = (
