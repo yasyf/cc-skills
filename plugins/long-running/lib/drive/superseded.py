@@ -75,7 +75,7 @@ def asking(data: dict, found: dict) -> dict[str, dict]:
 
 
 def record(data: dict, words: str, link: str, asked: dict[str, dict], changes: set[str], moment: str) -> dict:
-    """A new answer of his beside the cards asking him, parts undelivered and PRs not yet live that it could change, none marked yet: those of the job and order of the card it answers, each part a job of the card it answers delivers, the one he tapped or wrote under, still open or not, those its words name, and each other question card in changes, which Jev read it as deciding, ruling options out of or making moot, whatever job, order or words it shares with the card he answered; and beside each job waiting on an order any of those belongs to, and each running builder whose own card he answered, which builds that card's recommended option while he decides, none marked heard yet."""
+    """A new answer of his beside the cards asking him, parts undelivered and PRs not yet live that it could change, none marked yet: those of the job and order of the card it answers, each part a job of the card it answers delivers, the one he tapped or wrote under, still open or not, those its words name, and each other question card in changes, which Jev read it as deciding, ruling options out of or making moot, whatever job, order or words it shares with the card he answered; and beside each job waiting on an order any of those belongs to, and each running builder whose own card he answered, which builds that card's recommended option while he decides, none marked heard yet. The card he tapped and the question card he wrote under are left out, since his answer ends them, but a PR whose card thread he wrote in is not, since his words end no PR card."""
     answered = [entry for entry in asked.values() if entry["card"] and under(link, entry["card"])]
     drawn = {job_id: job["order"] for job_id, job in data["jobs"].items() for question in job["questions"] if question["card"] and under(link, question["card"])}
     jobs = {entry["job"] for entry in answered if entry["job"]} | drawn.keys()
@@ -83,7 +83,7 @@ def record(data: dict, words: str, link: str, asked: dict[str, dict], changes: s
     cards = {
         key: None
         for key, entry in asked.items()
-        if not (entry["card"] and under(link, entry["card"]))
+        if not answers(link, entry)
         and (entry["job"] in jobs or jobs & set(entry.get("jobs", ())) or entry["order"] in orders or named(words, key, entry) or key in changes)
     }
     touched = orders | {asked[key]["order"] for key in cards if asked[key]["order"]}
@@ -121,7 +121,12 @@ def named(words: str, key: str, entry: dict) -> bool:
 
 def markable(kept: dict, asked: dict[str, dict]) -> list[str]:
     """What an answer may still mark: each card, part or PR still asking him that it has not marked, but the card it answers."""
-    return [key for key, entry in asked.items() if kept["cards"].get(key) is None and not (entry["card"] and under(kept["link"], entry["card"]))]
+    return [key for key, entry in asked.items() if kept["cards"].get(key) is None and not answers(kept["link"], entry)]
+
+
+def answers(link: str, entry: dict) -> bool:
+    """Whether his message at this link answers this entry's card, so it needs no mark: his tap on the card itself, or his words under a question card, which his answer ends; his words under a PR card end nothing, so that PR still asks for one."""
+    return bool(entry["card"]) and (view.message_key(link) == view.message_key(entry["card"]) or entry["kind"] == "question" and under(link, entry["card"]))
 
 
 def under(link: str, card: str) -> bool:
