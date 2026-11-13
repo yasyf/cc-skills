@@ -50,7 +50,7 @@ TEAM = [
     {"name": "mac.ivers", "real_name": "Mac Ivers", "email": "mac.ivers@example.com"},
 ]
 LIVE_WORKER = {
-    "worker": {"state": "ready"},
+    "worker": {"state": "ready", "agentTerminalHandle": "term_live"},
     "dispatch": {"runId": "run_live", "taskId": "task_live"},
     "projection": {"liveness": {"verdict": "live"}, "outcome": "in_progress", "attention": {"categories": []}},
     "terminal": {"handle": "term_live", "lastOutputAt": None},
