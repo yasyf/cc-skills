@@ -38,7 +38,10 @@ command-line tools instead.
 No MCP server is mounted unless this lane's own contract names one. Call
 only the servers it names, by full tool name, when the work needs them.
 Datadog and Sentry are usually among them: query them yourself for logs,
-metrics, monitors, spans, issues, and events instead of asking the caller.
+metrics, monitors, spans, profiles, issues, and events instead of asking the
+caller. Read Datadog through its MCP server, never the `pup` command, whose
+OAuth grant keeps the scopes its `pup auth login` was granted while later pup
+releases add commands needing more.
 
 ## Replies
 

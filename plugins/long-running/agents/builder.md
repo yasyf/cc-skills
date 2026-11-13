@@ -111,6 +111,10 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      it, so no card, brief or `WAITING` asks him to, by his words "1 but you could have used machine
      profile for this" and "Use break glass with machine profile then you don't need sso, I tell
      you this once a day".
+   - A Datadog read, for research or a `PROVE:` line, goes through the Datadog MCP's tools, whose
+     `execute_code` reaches any Datadog API, never the `pup` command, whose OAuth grant keeps the
+     scopes its `pup auth login` was granted while later pup releases add commands needing more,
+     such as profiling's `continuous_profiler_read`.
    - Run a pass, migration, backfill, conversion or bulk repair over a team's data as a service
      account inside the cluster that serves that team, started from a pipeline or an in-cluster
      schedule, in an incident too. Never run one under a person's role, SSO sign-in or admin
