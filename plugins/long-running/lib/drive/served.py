@@ -155,7 +155,7 @@ def spawn(name: str, key: str) -> int:
 
 
 def carry(name: str, keys: list[str]) -> list[str]:
-    """Carry each PR's check, and his Approve, to a head that moved while its change stayed the one judged or approved, by `git patch-id --stable`, as a restack moves it, so his Approve lands a restacked PR at green with no check and none of either stands on a change nobody judged or approved; keep the patch his Approve was tapped on the first time its head is read; the PRs whose check or Approve it carried."""
+    """Carry each PR's check, and his Approve, to a head that moved while its change stayed the one judged or approved, by `git patch-id --stable`, as a restack moves it, so his Approve lands a restacked PR at green with no check and none of either stands on a change nobody judged or approved; keep the patch his Approve was tapped on the first time its head is read, and compare none whose head moved before it was read, as `unread` does; the PRs whose check or Approve it carried."""
     data = state.load(name)
     moved = [key for key in keys if unread(data["prs"][key])]
     if not moved:
@@ -174,10 +174,10 @@ def carry(name: str, keys: list[str]) -> list[str]:
                 pr["checked"] = stamp | {"head": pr["head"]} if carried_here else None
             if tap and tap["head"] == pr["head"]:
                 tap["patch"] = moved_to
-            elif tap and moved_to == tap["patch"]:
+            elif tap and "patch" in tap and moved_to == tap["patch"]:
                 tap["head"] = pr["head"]
                 carried_here = True
-            elif tap:
+            elif tap and "patch" in tap:
                 tap["read"] = pr["head"]
             if carried_here:
                 carried.append(key)
