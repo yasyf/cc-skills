@@ -548,9 +548,11 @@ def draws(monkeypatch: pytest.MonkeyPatch) -> Draws:
         drew.again.append(again)
         if drew.failure:
             raise slack.SlackError(drew.failure)
-        with state.edit(name) as data:
-            for key in keys:
-                data["prs"][key]["card"] = drew.link
+        prs = [state.load(name)["prs"][key] for key in keys]
+        card = {"prs": [pr["url"] for pr in prs], "asked": state.stamp(), "url": drew.link, "card": {"title": "Fix: approve it?", "waits": f"merge:{keys[0]}", "prs": [{"url": pr["url"], "head": pr["head"]} for pr in prs]}}
+        listed = view.cards
+        monkeypatch.setattr(view, "cards", lambda name: (shown := listed(name)) | {"pr_cards": [*shown["pr_cards"], card]})
+        view.refresh_cards(name)
         return drew.link
 
     monkeypatch.setattr(talk, "draw", draw)

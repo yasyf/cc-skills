@@ -365,7 +365,6 @@ def test_the_drives_own_draw_of_his_card_goes_at_his_dm_root_under_a_line_saying
     line = "Waits on your Approve: the run page shows its history; the watch draws the PR card"
     assert posts == [("dm-status", "--agent", "claude", "--drive", "demo", "--tap-pr", PR_URL, "--tap-pr", tooling, "--", line)]
     assert (said(demo)[0]["text"], checked.texts[-1]) == (line, line)
-    assert [state.load(demo)["prs"][key]["card"] for key in ("yasyf/cc-skills#7", "yasyf/cc-skills#8")] == [POSTED, POSTED]
 
 
 def test_the_watchs_ask_again_on_a_stack_card_says_why_it_asks_where_it_posted_a_carries_out_line_quoting_another_order(
@@ -383,8 +382,6 @@ def test_the_watchs_ask_again_on_a_stack_card_says_why_it_asks_where_it_posted_a
         state.carry(data, "j1", "o2", list(data["orders"]["o2"]["parts"]))
         for key in stack[1:]:
             data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1")
-        for key in stack:
-            data["prs"][key]["card"] = "https://acme.slack.com/archives/D123/p1794539626054419"
     view.refresh_cards(demo)
     rows = [{"title": "only the root agent has tools that ask the operator"}, {"title": "every other agent mails the root"}, {"title": "the root asks for each mail it gets"}]
     monkeypatch.setattr("drive.card.cards", lambda asked: {"cards": [{"repo": "yasyf/cc-skills", "number": 7, "card": {"title": "New: approve 3 PRs?", "prs": rows}}], "skipped": []})
@@ -404,7 +401,7 @@ def test_a_line_over_his_card_that_check_post_flags_and_jev_reads_as_shorthand_p
     jev.picks(talk.BREAKS)
     with pytest.raises(DriveError, match="nothing was posted: the line over his card breaks the plain-words rule"):
         DRAW(demo, ["yasyf/cc-skills#7"])
-    assert (posts, said(demo), state.load(demo)["prs"]["yasyf/cc-skills#7"]["card"]) == ([], [], None)
+    assert (posts, said(demo)) == ([], [])
     assert jev.asked[-1]["state"] == {"line": "Waits on your Approve: the desk sheds j12", "findings": checked.findings}
     jev.answer = None
     assert DRAW(demo, ["yasyf/cc-skills#7"]) == POSTED
@@ -1007,12 +1004,12 @@ def test_his_catch_up_counts_every_open_card_and_draws_only_those_asked_since_he
     demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     questions = [question_card(f"https://acme.slack.com/archives/D123/p179430000000020{n}", f"Question {n}?", f"demo:j{n}-1") | ({"asked": AWAY} if n > 2 else {}) for n in range(1, 9)]
-    tap = {"prs": [PR_URL], "asked": AWAY, "url": "https://acme.slack.com/archives/D123/p1794300000000300", "card": {"title": "New: approve the run page history?", "waits": "merge:yasyf:cc-skills:7"}}
+    tap = {"prs": [PR_URL], "asked": AWAY, "url": "https://acme.slack.com/archives/D123/p1794300000000300", "card": {"title": "New: approve the run page history?", "waits": "merge:yasyf:cc-skills:7", "prs": [{"url": PR_URL, "head": ""}]}}
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "https://acme.slack.com/", "questions": questions, "pr_cards": [tap], "closed": []})
     with state.edit(demo) as data:
         data["orders"]["o1"] = state.new_order("show the run page's history", "terminal", None, {}, ASKED)
         data["jobs"]["j1"] = state.new_job("o1", "builder", "show a run's history", [], ASKED)
-        data["prs"]["yasyf/cc-skills#7"].update(checks="pass", card=tap["url"], stage={"name": "card", "owner": "him", "why": "green, waits on his Approve", "since": AWAY, "woke": None})
+        data["prs"]["yasyf/cc-skills#7"].update(checks="pass", stage={"name": "card", "owner": "him", "why": "green, waits on his Approve", "since": AWAY, "woke": None})
     report(monkeypatch, {"catch_up": "true"})
     title = owe(demo)
     text = "*The run page*\nIts fix is live, and {card:demo:j3-1} picks its lock."

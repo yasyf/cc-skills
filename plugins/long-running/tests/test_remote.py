@@ -4006,6 +4006,8 @@ def test_a_lanes_ready_is_kept_as_pushed_waking_no_one_until_a_read_after_it_fin
         "state": "OPEN", "isDraft": False, "headRefOid": "abc1234", "baseRefName": "dev", "headRefName": "fix-x", "mergeCommit": None, "checks": [required], "reviewDecision": None,
         "approvals": [], "mergeable": "MERGEABLE", "title": "Fix: x", "author": "yasyf", "labels": [], "ejected_at": None, "native": [], "trunk": None, "required_checks": ["buildkite/test"], "required_reviews": 1,
     }
+    card = {"title": "Fix: x", "waits": "merge:Forge-AI/monorepo#7", "prs": [{"url": url, "head": "abc1234"}]}
+    monkeypatch.setattr(watch.view, "cards", lambda name: {"team_url": "", "questions": [], "closed": [], "pr_cards": [{"prs": [url], "asked": state.stamp(), "url": "https://slack.test/card", "card": card}]})
     taken = f"JOB j1 o1 READY {url}; Forge-AI/monorepo#7 is at abc1234 on GitHub, red, owed by its builder: forge-pr-reviewer approved nothing at abc1234"
     assert [line for line in watch.run_pass(watching, T0 + timedelta(minutes=1)) if line.startswith(taken)]
 

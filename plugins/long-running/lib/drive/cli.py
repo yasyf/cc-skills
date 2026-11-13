@@ -3020,6 +3020,8 @@ def job_ended(args: argparse.Namespace) -> int:
 
 
 def pr_add(args: argparse.Namespace) -> int:
+    from drive import view
+
     name = state.resolve(args.drive)
     key = state.pr_key(args.url)
     if args.no_tap and not args.why:
@@ -3029,7 +3031,8 @@ def pr_add(args: argparse.Namespace) -> int:
     lead = {line: given for line, flag in limits.LEAD_LINES if (given := getattr(args, flag.removeprefix("--")))}
     kept = state.load(name)["prs"].get(key, {}).get("lead")
     pr = add_pr(name, key, args.job, github_pr(key), args.port_of, args.exempt, args.no_tap, lead)
-    drawn = state.after_save(name, lambda: [releaded(pr) if pr["card"] and pr["lead"] != kept else drawn_card(name, key, pr)])
+    shown = view.card_for((view.live_cards(name) or view.NO_CARDS)["pr_cards"], pr["url"])
+    drawn = state.after_save(name, lambda: [releaded(pr) if pr["lead"] != kept else ""] if shown else [drawn_card(name, key, pr)])
     return emit(args, f"{key}{''.join(drawn)}", {"key": key, **state.load(name)["prs"][key]})
 
 
@@ -3037,7 +3040,7 @@ def drawn_card(name: str, key: str, pr: dict) -> str:
     """Draw his card on a PR waiting on his tap in the call that registers it, so no session's turn stands between the PR and his card; what came of it. A draw that fails leaves its stage uncarded, which the watch draws on its next read."""
     from drive import stage, talk
 
-    if not stage.carded(pr) or pr["card"] or pr["tap"]:
+    if not stage.carded(pr) or pr["tap"]:
         return ""
     try:
         return f", his card {talk.draw(name, [key])}"
@@ -3251,7 +3254,7 @@ def pr_set(args: argparse.Namespace) -> int:
     found = found if source == "live" else None
     now = state.load(name)
     stage.shown(now, found, [key] if now["prs"][key]["state"] == "open" else [])
-    line = render.pr_line(key, now["prs"][key], view.pr_card_words(found, source, pr["url"])) + serving + untapped + out + "".join(told)
+    line = render.pr_line(key, now["prs"][key], view.pr_card_words(found, source, now["prs"][key])) + serving + untapped + out + "".join(told)
     return emit(args, line, {"key": key, "withdrawn": withdrawn, **pr})
 
 
@@ -3895,7 +3898,7 @@ def with_cards(name: str, data: dict, within: dict | None = None) -> dict:
     for question in (question for job in marked["jobs"].values() for question in job["questions"]):
         question["card_state"] = view.question_card_words(found, source, question)
     for pr in marked["prs"].values():
-        pr["card_state"] = view.pr_card_words(found, source, pr["url"]) if pr["state"] == "open" else None
+        pr["card_state"] = view.pr_card_words(found, source, pr) if pr["state"] == "open" else None
     stage.shown(data, found, state.open_pr_keys(marked))
     return data
 
