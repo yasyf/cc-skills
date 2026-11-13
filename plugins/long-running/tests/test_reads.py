@@ -261,7 +261,6 @@ def test_a_record_read_runs_the_allowed_command_from_the_checkout(
         ("ccn note search sandsql evict --limit 5", ["ccn", "note", "search", "sandsql evict", "--limit", "5"]),
         ("cci grep sandsql restore --drive d", ["cci", "grep", "sandsql restore", "--drive", "d"]),
         ("ccn search --limit 5 x", ["ccn", "search", "--limit", "5", "x"]),
-        ("ccn answer show 5299250c9a85 abc", ["ccn", "answer", "show", "5299250c9a85", "abc"]),
     ],
 )
 def test_a_search_read_passes_its_words_before_the_first_flag_as_one_query(
@@ -271,6 +270,13 @@ def test_a_search_read_passes_its_words_before_the_first_flag_as_one_query(
     monkeypatch.setattr(reads, "run", lambda ran, checkout: calls.append(ran) or "his words")
     reads.answer(f"READ {command}", tmp_path, "demo", "j7")
     assert calls == [argv]
+
+
+def test_a_ccn_show_of_several_ids_runs_once_for_each_its_outputs_joined(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    calls = []
+    monkeypatch.setattr(reads, "run", lambda ran, checkout: calls.append(ran) or f"{ran[3]} his words\n")
+    assert reads.answer("READ ccn answer show b1ce8fb 588b46b --json", tmp_path, "demo", "j7") == "b1ce8fb his words\n\n588b46b his words"
+    assert calls == [["ccn", "answer", "show", "b1ce8fb", "--json"], ["ccn", "answer", "show", "588b46b", "--json"]]
 
 
 @pytest.mark.parametrize(

@@ -1212,7 +1212,7 @@ def compact_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def coordinator(data: dict, project: str | None) -> dict:
-    """The session a watch posts to and speaks to Orca as: a project's sub-coordinator, or the coordinator."""
+    """The session a watch posts to: a project's sub-coordinator, or the coordinator."""
     return data["subcoordinators"][project] if project else data["roles"]["coordinator"]
 
 
@@ -1896,10 +1896,16 @@ def tick_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """One loop of the watch: his cards, GitHub, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, the waits his answers or a job's end release, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the communicator's compaction, the status page, a coordinator whose process exited and a dashboard whose server exited every 60 s, GitHub again next poll after a failure, new events, the catch-up owed him, promised times still owed a line, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries, a tick every 30 minutes while he is here. Each stage's lines join the watcher's made lines as it returns, or as it saves when it keeps working after its save, so a pass that ends early, in a crash or on a drive a newer install saved, leaves them to the watch process after it."""
+    """One loop of the watch: the drive's own Orca terminal every Orca call speaks as, his cards, GitHub, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, the waits his answers or a job's end release, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the communicator's compaction, the status page, a coordinator whose process exited and a dashboard whose server exited every 60 s, GitHub again next poll after a failure, new events, the catch-up owed him, promised times still owed a line, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries, a tick every 30 minutes while he is here. Each stage's lines join the watcher's made lines as it returns, or as it saves when it keeps working after its save, so a pass that ends early, in a crash or on a drive a newer install saved, leaves them to the watch process after it."""
     lines = watcher.made
     if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
         watcher.read_at = moment
+        try:
+            orca.speak_as_drive(watcher.name)
+        except orca.OrcaError as error:
+            lines += read_failed(watcher, "drive terminal", error, moment)
+        else:
+            watcher.failures.pop("drive terminal", None)
         view.refresh_cards(watcher.name)
         found, source = view.stored_cards(watcher.name)
         watcher.cards = found if source == "live" else None
@@ -2226,7 +2232,6 @@ def watching(watcher: Watcher) -> None:
     try:
         while not upgraded():
             read_from, moment = watcher.offset, state.now()
-            orca.speak_as(coordinator(state.load(watcher.name), watcher.project)["terminal"])
             said = handed(watcher, watcher.made, moment) if watcher.made else run_pass(watcher, moment)
             for line in sent(watcher, watcher.lane, said, moment):
                 print(line, flush=True)

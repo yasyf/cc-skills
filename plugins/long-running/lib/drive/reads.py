@@ -227,15 +227,18 @@ def read_log(url: str, checkout: Path, budget: int) -> str:
 
 
 def read_records(command: str, checkout: Path) -> str:
-    """Run one listed record read; a search or grep takes its words up to the first flag as one query, quoted or not."""
+    """Run one listed record read; a search or grep takes its words up to the first flag as one query, quoted or not, and a ccn show, which takes one ID, runs once for each ID, its outputs joined."""
     argv = read_words(command)
     verb = next((verb for verb in READ_VERBS if tuple(argv[: len(verb)]) == verb), None)
     if verb is None:
         allowed = ", ".join(" ".join(verb) for verb in READ_VERBS)
         raise ReadError(f"only these reads run here: {allowed}")
     query = list(itertools.takewhile(lambda word: not word.startswith("-"), argv[len(verb) :]))
+    flags = argv[len(verb) + len(query) :]
     if verb[-1] in QUERY_VERBS and query:
-        argv = [*verb, " ".join(query), *argv[len(verb) + len(query) :]]
+        argv = [*verb, " ".join(query), *flags]
+    if verb[0] == "ccn" and verb[-1] == "show" and len(query) > 1:
+        return head("\n\n".join(run([*verb, record, *flags], checkout).strip() for record in query))
     return head(run(argv, checkout).strip())
 
 

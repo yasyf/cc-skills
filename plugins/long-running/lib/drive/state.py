@@ -489,6 +489,8 @@ def bound(data: dict) -> dict:
     data.setdefault("subcoordinators", {})
     data.setdefault("handlers", {})
     data.setdefault("launched", {})
+    data.setdefault("terminal", None)
+    data.pop("run", None)
     for handler in data["handlers"].values():
         handler.setdefault("holds", None)
         handler["handed"] = [*handler.get("handed", []), *handler.pop("held_back", [])]
@@ -1425,7 +1427,7 @@ def kept_hold(name: str, held: float, waited: float) -> None:
 
 
 def binding(name: str) -> AbstractContextManager[None]:
-    """Hold the coordinator terminal's one Run binding for a bind and the call that needs it: a reply, or a launch's worker-start until Orca admits it."""
+    """Hold the drive terminal's one Run binding for a bind and the call that needs it: a reply, or a launch's worker-start until Orca admits it."""
     return flocked(drive_dir(name) / ".binding.lock")
 
 

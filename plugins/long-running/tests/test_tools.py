@@ -235,6 +235,18 @@ def test_a_sprite_lane_reads_another_job_as_a_mac_lane_does_its_bare_status_read
     assert reads.SPRITE_LANE not in os.environ
 
 
+def test_a_sprite_lanes_kept_report_answers_that_it_was_kept_with_its_first_line_never_a_path_on_this_mac(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Copies", "--project", "The drive", "--workstream", "Drive tooling", "count the stranded table copies")
+    run("job", "add", "reader", "--order", "o1", "--goal", "count them")
+    monkeypatch.setenv(reads.SPRITE_LANE, "1")
+    monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
+    monkeypatch.setenv("LONG_RUNNING_DRIVE", demo)
+    monkeypatch.setattr("sys.stdin", io.StringIO(RESEARCH))
+    assert run("job", "report", "j1", "-") == (0, "kept j1's report: DONE researched the store copy")
+
+
 def test_drive_break_glass_refuses_a_blank_reason_before_any_grant(demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "count the stranded table copies")
     monkeypatch.setattr(reads, "break_glass", lambda *args: pytest.fail("a blank reason started a grant"))
