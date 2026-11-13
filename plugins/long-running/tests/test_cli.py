@@ -14,6 +14,7 @@ from pathlib import Path
 
 import drive
 import pytest
+import spawnllm
 from conftest import CARD_BODY, RESEARCH, SETTLED_NOTE, SHORT_ASK, Answers, explained, Chrome, Draws, Drawing, Heard, Jev, Judge, MetaLaunches, Thread, WatchProcess, Withdrawals
 from drive import (
     agents,
@@ -5703,34 +5704,39 @@ def test_an_answer_tapped_on_a_pr_card_is_recorded_as_an_approval_and_his_words_
     ]
 
 
-def test_jev_is_asked_through_spawnllm_decide_and_a_failed_call_or_a_declined_question_is_unheard_with_its_reason(
+def test_jev_is_asked_in_process_through_spawnllm_decide_sync_and_a_failed_call_or_a_declined_question_is_unheard_with_its_reason(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    calls: list[tuple[list[str], dict]] = []
-    answer = {"type": "label", "choice": "none", "probabilities": {"none": 0.9}, "confidence": 0.9}
+    calls: list[tuple[object, dict, dict]] = []
     results = [
-        subprocess.CompletedProcess([], 0, json.dumps({"model": "jev-1.13.0", "answers": {"decides": answer}}), ""),
-        subprocess.CompletedProcess([], 1, "", "Installed 15 packages in 5ms\nError: No such command 'decide'.\n"),
-        subprocess.TimeoutExpired(settled.DECIDE, 60),
-        subprocess.CompletedProcess([], 0, json.dumps({"model": "jev-1.13.0", "answers": {"decides": {"type": "refused"}}}), ""),
+        spawnllm.Decision({"decides": spawnllm.LabelAnswer("none", {"none": 0.9}, 0.9)}, "jev-1.13.0", 12, 40.0),
+        spawnllm.DecideError(400, "unknown question type"),
+        TimeoutError("no jev decision within 20s"),
+        spawnllm.Decision({"decides": spawnllm.Refused()}, "jev-1.13.0", 12, 40.0),
     ]
 
-    def spawnllm(argv: list[str], input: str, **_: object) -> subprocess.CompletedProcess[str]:
-        calls.append((argv, json.loads(input)))
+    def decide_sync(state: object, questions: dict, **options: object) -> spawnllm.Decision:
+        calls.append((state, questions, options))
         if isinstance(result := results.pop(0), Exception):
             raise result
         return result
 
-    monkeypatch.setattr("drive.settled.subprocess", types.SimpleNamespace(run=spawnllm, TimeoutExpired=subprocess.TimeoutExpired))
+    monkeypatch.setattr(spawnllm, "decide_sync", decide_sync)
+    monkeypatch.setenv("TYPESAFE_API_KEY", "jev-key")
+    settled.jev_key.cache_clear()
     request = {"state": {"question": "Which store?"}, "questions": {"decides": {"label": {"instructions": "Which?", "options": {"none": "No"}}}}}
-    assert ASK_JEV(request) == {"decides": answer}
+    assert ASK_JEV(request) == {"decides": {"choice": "none", "probabilities": {"none": 0.9}, "confidence": 0.9}}
     failures = []
     for _ in range(3):
         with pytest.raises(settled.Unheard) as unheard:
             ASK_JEV(request)
         failures.append(str(unheard.value))
-    assert calls == [(settled.DECIDE, request)] * 4
-    assert failures == ["Error: No such command 'decide'.", f"Command '{settled.DECIDE}' timed out after 60 seconds", "Jev declined the question"]
+    settled.jev_key.cache_clear()
+    assert [(seen, questions, options["provider"], options["api_key"]) for seen, questions, options in calls] == [
+        ({"question": "Which store?"}, {"decides": spawnllm.Label("Which?", {"none": "No"})}, spawnllm.JEV, "jev-key")
+    ] * 4
+    assert all(19 < options["timeout"] <= settled.DECIDE_SECONDS for _, _, options in calls)
+    assert failures == ["decision failed with HTTP 400: unknown question type", "no jev decision within 20s", "Jev declined the question"]
 
 
 def test_job_ask_says_on_stderr_that_jev_gave_no_answer_and_sends_the_question_to_him(
@@ -6055,7 +6061,7 @@ def test_an_answer_records_nothing_while_jev_cannot_read_it_against_his_open_car
     jev.answer = None
     assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
     assert (
-        "nothing recorded in the drive: Jev did not read his answer against his 2 open cards (Command 'spawnllm decide' timed out after 60 seconds)"
+        "nothing recorded in the drive: Jev did not read his answer against his 2 open cards (no jev decision within 20s)"
         in capsys.readouterr().err
     )
     assert "a1" not in state.load("demo")["answers"]

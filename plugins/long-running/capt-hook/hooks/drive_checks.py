@@ -5,13 +5,13 @@ import os
 import re
 import runpy
 import subprocess
+import sys
 import tempfile
 import threading
 from collections import OrderedDict
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
-from functools import cache
 from pathlib import Path
 
 from captain_hook import (
@@ -322,12 +322,6 @@ def checks_due(evt: BaseHookEvent, script: str) -> tuple[str, ...]:
     return tuple(unbound)
 
 
-@cache
-def interpreter() -> str:
-    """The interpreter `python3` resolves to on this process's PATH, asked once per worker, so a check runs the same Python with no version manager's shim resolving it again on every call."""
-    return subprocess.run(["python3", "-I", "-c", "import sys; print(sys.executable)"], capture_output=True, text=True, check=True).stdout.strip()
-
-
 @dataclass(slots=True)
 class Batch:
     due: tuple[str, ...]
@@ -339,11 +333,11 @@ class Batch:
 
 
 def run_checks(payload: dict, batch: Batch) -> None:
-    """Run each due script from the newest installed long-running in one interpreter, each on the payload as its own stdin, settling each one's exit code, stdout and stderr in the batch the moment it finishes, so a check's verdict waits only on the checks ahead of it."""
+    """Run each due script from the newest installed long-running in one interpreter, this worker's own, which imports spawnllm as every drive check needs, each on the payload as its own stdin, settling each one's exit code, stdout and stderr in the batch the moment it finishes, so a check's verdict waits only on the checks ahead of it."""
     hooks = newest_install() / "hooks"
     try:
         with tempfile.TemporaryFile("w+") as errors, subprocess.Popen(
-            [interpreter(), "-I", "-c", RUNNER, *(str(hooks / script) for script in batch.due)],
+            [sys.executable, "-I", "-c", RUNNER, *(str(hooks / script) for script in batch.due)],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=errors,
@@ -400,10 +394,10 @@ def batched(payload: dict, script: str, due: tuple[str, ...]) -> dict:
 
 
 def ran_alone(payload: dict, script: str) -> dict:
-    """One check run on its own, as `python3 -I <script>` launched on the interpreter python3 resolves to, since no other check's verdict waits behind it."""
+    """One check run on its own, as `python3 -I <script>` launched on this worker's own interpreter, which imports spawnllm, since no other check's verdict waits behind it."""
     ran = subprocess.run(
         ["python3", "-I", str(newest_install() / "hooks" / script)],
-        executable=interpreter(),
+        executable=sys.executable,
         input=json.dumps(payload),
         capture_output=True,
         text=True,

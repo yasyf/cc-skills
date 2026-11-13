@@ -1,8 +1,11 @@
 #!/usr/bin/env -S python3 -I
+import runpy
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+plugin = Path(__file__).resolve().parent.parent
+runpy.run_path(str(plugin / "hooks" / "installed.py"))["entered"](plugin, [__file__, *sys.argv[1:]])
+sys.path.insert(0, str(plugin / "lib"))
 
 from drive.cli import main
 

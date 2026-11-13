@@ -936,7 +936,7 @@ def test_a_drive_starts_a_release_on_order_naming_an_incidents_answer_or_one_jev
     )
     jev.answer = None
     assert landing_guard.deny_reason(bash(start.format("ac61348")) | top).startswith(
-        "refused: Jev did not say whether his answer ac61348 approves this release (Command 'spawnllm decide' timed out after 60 seconds)"
+        "refused: Jev did not say whether his answer ac61348 approves this release (no jev decision within 20s)"
     )
     assert [landing_guard.deny_reason(bash(command) | top) for command in (start.format("ac61348") + " --dry-run", "tools/ci release start sand")] == [None, None]
     assert landing_guard.deny_reason(bash(start.format("ac61348"))) is None

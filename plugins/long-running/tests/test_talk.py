@@ -541,7 +541,7 @@ def test_a_report_delivers_only_the_parts_its_posts_words_carry_and_its_dry_run_
     jev.answer = None
     code, unheard = run("order", "posted", "o1", answer, "--record", "672826")
     assert code == 0 and unheard.startswith(f'o1 "first check", "cause": posted {answer}')
-    assert unheard.endswith('; Jev did not say whether its words carry "first check", "cause" (Command \'spawnllm decide\' timed out after 60 seconds), so each is delivered as named')
+    assert unheard.endswith('; Jev did not say whether its words carry "first check", "cause" (no jev decision within 20s), so each is delivered as named')
 
 
 @pytest.mark.parametrize(
