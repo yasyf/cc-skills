@@ -96,10 +96,10 @@ for a model or build change too.
 4. Wait until `ps -p <pid>` lists nothing, `<pid>` being the one whose
    `~/.claude/sessions/<pid>.json` names the session: a resume while the old process runs makes a
    copy under a new id answering for the same role, so a hook refuses it.
-5. Only then create the new terminal, resuming that session:
+5. Only then create the new terminal, resuming that session, by the command `drive manual migration` prints, its `<session env>` and `<session settings>` filled as in [Start or resume](start.md):
 
    ```sh
-   orca terminal create --worktree path:<cwd> --title <drive>-<role> --command "claude --resume <session> -n <drive>-<role> --model <claude-fable-5-2 for the coordinator, claude-opus-5-5 for the communicator> --effort xhigh --permission-mode bypassPermissions --settings '{\"bashOutputMaxChars\":6000,\"outputStyle\":\"default\",\"env\":{\"CLAUDE_CODE_SILENT_TURN_REMINDER\":\"0\"},\"permissions\":{\"deny\":[\"AskUserQuestion\"]}}' --channels plugin:cc-inbox@cc-inbox plugin:cc-slack@cc-slack -- '/long-running <drive> as the <role>: run Start or resume for that role'" --json
+   orca terminal create --worktree path:<cwd> --title <drive>-<role> --command "<session env> claude --resume <session> -n <drive>-<role> --model <claude-fable-5-2 for the coordinator, claude-opus-5-5 for the communicator> --effort xhigh --permission-mode bypassPermissions --settings <session settings> --channels plugin:cc-inbox@cc-inbox plugin:cc-slack@cc-slack -- '/long-running <drive> as the <role>: run Start or resume for that role'" --json
    ```
 
    A hook refuses a shell after the session in `--command`, such as `exec zsh -l`, which outlives

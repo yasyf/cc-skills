@@ -10,6 +10,7 @@ from itertools import takewhile
 from pathlib import Path
 
 import pytest
+from conftest import LANE_SPEC
 from drive import agents, cli
 
 SKILL = cli.PAGES.parent
@@ -134,10 +135,35 @@ def test_the_pages_quote_drive_commands() -> None:
     assert len(every_quote()) > 150
 
 
-def test_each_session_start_the_pages_quote_carries_the_drives_session_settings() -> None:
-    quoted = [json.loads(found.replace('\\"', '"')) for page in PAGES for found in re.findall(r"--settings '([^']*)'", page.read_text())]
-    assert quoted
-    assert [settings for settings in quoted if settings != agents.SESSION_SETTINGS] == []
+def session_starts(text: str) -> list[str]:
+    return [line.strip() for line in text.splitlines() if line.strip().startswith("orca terminal create") and " claude " in line]
+
+
+def test_each_session_start_the_pages_quote_leaves_its_env_and_one_settings_to_drive_manual() -> None:
+    starts = [line for page in PAGES for line in session_starts(page.read_text())]
+    assert len(starts) == 5
+    holed = f'--command "{agents.SESSION_ENV} claude '
+    assert [line for line in starts if holed not in line or line.count("--settings") != 1 or f"--settings {agents.SESSION_SETTINGS_HOLE} " not in line] == []
+
+
+@pytest.mark.parametrize("page", ["start", "migration"])
+def test_drive_manual_fills_each_session_start_with_every_lane_variable_and_one_valid_settings(page: str, capsys: pytest.CaptureFixture[str]) -> None:
+    assert cli.manual(argparse.Namespace(page=page, row=None)) == 0
+    starts = session_starts(capsys.readouterr().out)
+    assert starts
+    lane = json.loads(LANE_SPEC.read_text())
+    for line in starts:
+        script = shlex.split(line)
+        session = shlex.split(script[script.index("--command") + 1])
+        claude = session.index("claude")
+        assert session[0] == "env"
+        assert dict(word.split("=", 1) for word in session[1:claude]) == lane["env"] | agents.SESSION_SETTINGS["env"]
+        assert session.count("--settings") == 1
+        settings = json.loads(session[session.index("--settings") + 1])
+        assert settings == agents.session_settings({})
+        assert (settings["env"]["DISABLE_AUTOUPDATER"], settings["spinnerTipsEnabled"], settings["bashOutputMaxChars"]) == ("1", False, 6000)
+        assert settings["permissions"]["deny"] == lane["deniedTools"]
+        assert "-p" not in session and "--print" not in session
 
 
 @pytest.mark.parametrize("words", [pytest.param(words, id=f"{page}: {line}") for (page, line, _), words in every_quote().items()])

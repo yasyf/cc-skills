@@ -20,7 +20,8 @@
     "CLAUDE_CODE_GB_DISK_CACHE_WHEN_TELEMETRY_OFF": "1",
     "CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS": "1",
     "CLAUDE_CODE_DISABLE_BUNDLED_SKILLS": "1",
-    "CLAUDE_CODE_PLUGIN_DIR_WATCH": "false"
+    "CLAUDE_CODE_PLUGIN_DIR_WATCH": "false",
+    "CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL": "1"
   },
   "settings": {
     "spinnerTipsEnabled": false,
@@ -35,7 +36,8 @@
     "statusLine": {
       "type": "command",
       "command": "exit 0"
-    }
+    },
+    "terminalProgressBarEnabled": false
   },
   "deniedTools": [
     "AskUserQuestion",
