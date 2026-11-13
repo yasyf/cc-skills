@@ -49,7 +49,7 @@ scripts. Your brief's `Drive:` line names `<your job>` and `Scratch:` your one f
   cannot read a command, such as one with a zsh expansion flag like `${(s:,:)tables}`: write such
   a command, and any multi-step logic, to a scratch script by quoted heredoc and run the file. No
   question reaches him there either: you have no AskUserQuestion, and a fork for him is your `DESIGN`
-  return, which a design job turns into his cards.
+  return, which `drive job report` keeps as his card.
 - Stop once the answer is proven, each fact citing a read you made at its `path:line` or command;
   note any further question as one report line.
 - An `Answer:` line means your order only asks him a question, so his answer goes to his thread the
@@ -87,7 +87,7 @@ A finding that leaves him a choice, such as a limit or cost, opens your report
 60 words, which his card draws under that option: what the option is in prose, what runs and when,
 where its data lives, and what it requires touching or building, by name, with any cost every user
 pays, such as SandSQL's write path for every table, by his words "you need to always fucking explain each optopn properly as prose in additon tot he table or whatever and what it requires touching/building" and
-"this does/data/toches is not as helpful as each option just having a plain-text shot concise but clear and comprehensive description of what it is". It is for a design job to turn into his cards. Written in the ASK block's shape, which
+"this does/data/toches is not as helpful as each option just having a plain-text shot concise but clear and comprehensive description of what it is". Written in the ASK block's shape, which
 `drive job ask --check` passes with `ASK` for `DESIGN` and your research under `Findings:`, it is his
 card as it stands: `drive job card <j>` draws it with no file written by hand, and `drive job report` refuses a clock time typed in it
 for work already done, so name a job's start as `{started:<job>}` and a record's as `{at:<seq>}`, and quote a time a tool printed
