@@ -83,6 +83,41 @@ def question(title: str, minutes: int, waits: str | None = None) -> dict:
     return {"question": title, "options": ["Yes", "No"], "recommended": "Yes", "asked": at(minutes), "url": f"{TEAM}archives/D123/p{minutes}", "card": drawn}
 
 
+def test_board_reuses_unchanged_text_and_redraws_changed_words(monkeypatch: pytest.MonkeyPatch) -> None:
+    data = drive_of(
+        {f"o{n}": order(f"Ship feature {n} (cci {123456 + n}). Keep its words.", [f"j{n}"], proof=f"Delivered feature {n} (j{n}).", state="done") for n in range(64)},
+        {f"j{n}": job(f"o{n}", "failed", said=f"Failed feature {n} (cci {123456 + n}). Retry it.") for n in range(64)},
+        [],
+    )
+    plain, said = view.plain, view.said
+    plain.cache_clear()
+    said.cache_clear()
+
+    def uncached() -> dict:
+        with monkeypatch.context() as patch:
+            patch.setattr(view, "plain", plain.__wrapped__)
+            patch.setattr(view, "said", said.__wrapped__)
+            return view.board(data, found(), "live", [], T0, set(), {})
+
+    try:
+        first = view.board(data, found(), "live", [], T0, set(), {})
+        assert first == uncached()
+        misses = (plain.cache_info().misses, said.cache_info().misses)
+        assert all(misses)
+        assert view.board(data, found(), "live", [], T0, set(), {}) == first
+        assert (plain.cache_info().misses, said.cache_info().misses) == misses
+        data["orders"]["o0"]["text"] = "Changed title (cci 999999)."
+        data["jobs"]["j0"]["said"] = "Recovered the changed job (cci 999999)."
+        changed = view.board(data, found(), "live", [], T0, set(), {})
+        assert changed != first
+        assert changed == uncached()
+        assert plain.cache_info().misses == misses[0] + 1
+        assert said.cache_info().misses == misses[1] + 1
+    finally:
+        plain.cache_clear()
+        said.cache_clear()
+
+
 def test_queue_ranks_late_promises_then_what_lands_most_then_the_oldest_wait() -> None:
     data = drive_of(
         {
