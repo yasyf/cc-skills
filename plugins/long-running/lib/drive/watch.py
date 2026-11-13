@@ -1629,31 +1629,40 @@ def stranded(job_id: str, data: dict, gap: str | None, unlisted: dict[str, dict]
 
 
 def release_sprites(watcher: Watcher) -> None:
-    """Destroy the Sprite of each done, failed or stopped job it hears that cc-remote still records, with the reclaimer's --destroy in a process of its own run from the drive's checkout, moved to its default branch's head first, at most two at once and each Sprite once a watch, so it and its Orca environment go once it holds nothing on no remote; what each run printed goes to the watch log, and a pass whose move fails releases nothing, saying why there."""
+    """Destroy each Sprite a job it hears is done with that cc-remote still records: a done, failed or stopped job's own, and each one an earlier lane of any job died on that no unfinished job runs on now, such as the Sprite a relaunch moved off. Each goes with the reclaimer's --destroy in a process of its own run from the drive's checkout, moved to its default branch's head first, at most two at once and each Sprite once a watch, so it and its Orca environment go once it holds nothing on no remote; what each run printed goes to the watch log, and a pass whose move fails releases nothing, saying why there."""
     if state.scratch():
         return
     watcher.releasing = {workspace: run for workspace, run in watcher.releasing.items() if run.poll() is None}
     data = state.load(watcher.name)
     live = {job.get("workspace") for job in data["jobs"].values() if job["state"] not in state.FINISHED_JOB_STATES}
     for job in data["jobs"].values():
-        if len(watcher.releasing) >= RELEASES_AT_ONCE:
-            return
-        if job["state"] not in state.FINISHED_JOB_STATES or job.get("workspace") in watcher.released | live:
+        if not heard_job(watcher, data, job):
             continue
-        if not heard_job(watcher, data, job) or not orca.holds_sprite(job):
-            continue
-        with state.watch_log_path(watcher.name, watcher.project).open("a") as log:
-            try:
-                checkout = orca.checkout(watcher.name, data)
-            except state.DriveError as error:
-                log.write(f"{job['workspace']} is kept until a later pass: {error}\n")
+        for workspace in sorted(left_workspaces(job) - watcher.released - live):
+            if len(watcher.releasing) >= RELEASES_AT_ONCE:
                 return
-            watcher.released.add(job["workspace"])
-            watcher.releasing[job["workspace"]] = orca.release_detached(job["workspace"], checkout, log)
+            if not orca.holds_sprite({**job, "workspace": workspace}):
+                continue
+            with state.watch_log_path(watcher.name, watcher.project).open("a") as log:
+                try:
+                    checkout = orca.checkout(watcher.name, data)
+                except state.DriveError as error:
+                    log.write(f"{workspace} is kept until a later pass: {error}\n")
+                    return
+                watcher.released.add(workspace)
+                watcher.releasing[workspace] = orca.release_detached(workspace, checkout, log)
+
+
+def left_workspaces(job: dict) -> set[str]:
+    """The Sprites the job's lanes left: each one a lane of its died on, and its own once it is done, failed or stopped."""
+    left = {death.get("workspace") for death in job.get("deaths", [])}
+    if job["state"] in state.FINISHED_JOB_STATES:
+        left.add(job.get("workspace"))
+    return left - {None}
 
 
 def death_lines(name: str, deaths: dict[str, tuple[str, str]], moment: datetime) -> list[str]:
-    """Record each remote lane's death on its job and say it once. A running job's lane is relaunched that pass by `drive job resume` as a process of its own, its pid kept on the death so no later pass starts a second; a waiting job's waits for the coordinator's resume with his answer."""
+    """Record each remote lane's death on its job and say it once. A running job's lane is relaunched that pass by `drive job resume` as a process of its own, its pid kept on the death so no later pass starts a second; a waiting job's Sprite is freed by `drive job end` in a process of its own, and the job waits for the coordinator's resume with his answer; a waiting job's lane on this Mac just waits."""
     if not deaths:
         return []
     lines = []
@@ -1665,8 +1674,15 @@ def death_lines(name: str, deaths: dict[str, tuple[str, str]], moment: datetime)
             waiting = job["state"] == "waiting"
             died = f'LANE {job_id} {job["order"]} died {orca.place(job)}: {why}, while it {"waited on" if waiting else "worked on"} "{cut(job["said"] or job["goal"], 60)}". '
             fresh = f'{"in a fresh worktree " + orca.ON_MAC if state.on_mac(job) else "on a fresh Sprite"} with a handoff'
-            if waiting:
+            if waiting and state.on_mac(job):
                 lines.append(f'{died}A message sent to it reaches no one; drive job resume {job_id} "<his answer>" relaunches it {fresh}')
+                continue
+            if waiting:
+                job["deaths"][-1]["ended"] = {"pid": end_lane(name, job_id), "at": state.stamp(moment)}
+                lines.append(
+                    f"{died}The watch ran drive job end {job_id}, which saves to GitHub what its Sprite holds on no remote and destroys it, its output in the drive's {RELAUNCHES_LOG};"
+                    f' drive job resume {job_id} "<his answer>" relaunches it {fresh}'
+                )
                 continue
             job["deaths"][-1]["relaunch"] = {"pid": relaunch(name, job_id), "at": state.stamp(moment)}
             lines.append(f"{died}The watch ran drive job resume {job_id}, which relaunches it {fresh}, its output in the drive's {RELAUNCHES_LOG}")
@@ -1676,6 +1692,11 @@ def death_lines(name: str, deaths: dict[str, tuple[str, str]], moment: datetime)
 def relaunch(name: str, job_id: str) -> int:
     """Run `drive job resume` on a running job whose lane died as its own process, outliving the pass that started it, its output appended to the drive's relaunches log."""
     return state.detach(name, ["job", "resume", job_id, CARRY_ON], RELAUNCHES_LOG)
+
+
+def end_lane(name: str, job_id: str) -> int:
+    """Run `drive job end` on a waiting job whose lane on a Sprite died as its own process, so that idle Sprite, its forward and its Orca environment go once what it holds is saved, and the job's next event starts its next lane on a fresh one; its output appended to the drive's relaunches log."""
+    return state.detach(name, ["job", "end", job_id], RELAUNCHES_LOG)
 
 
 def can_wake(job_id: str, job: dict, data: dict, moment: datetime) -> bool:
