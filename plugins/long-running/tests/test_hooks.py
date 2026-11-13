@@ -1357,10 +1357,11 @@ def test_a_communicators_bash_cci_post_naming_a_lane_other_than_the_session_hear
     assert "`--to iris@demo --to owner`" in landing_guard.deny_reason(bash(refused) | handler)
     sent = (
         "cci post --kind posted --lane communicator --to iris@demo --attr waits=demo:j1-8 'card up demo:j1-8'",
-        "cci post --kind owner --lane communicator --to root@demo --attr 'about=his work' 'a new order'",
         "cci post --kind report --lane communicator --attr close=o1 'FYI j1 merged'",
     )
-    assert [landing_guard.deny_reason(bash(command) | handler) for command in sent] == [None, None, None]
+    assert [landing_guard.deny_reason(bash(command) | handler) for command in sent] == [None, None]
+    unparted = landing_guard.deny_reason(bash("cci post --kind owner --lane communicator --to root@demo --attr 'about=his work' 'a new order'") | handler)
+    assert unparted.startswith("refused, nothing posted: his words go out on the drive's `record` tool, kind owner")
     unsaid = landing_guard.deny_reason(bash("cci post --kind owner --lane communicator --to root@demo 'a new order'") | handler)
     assert unsaid.startswith('refused, nothing posted: an owner record names what his words are about, about "drive" for drive tooling')
     for to in ("meta@demo", "root@demo"):

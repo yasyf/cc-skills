@@ -446,12 +446,15 @@ def test_the_communicators_records_about_the_drive_reach_the_meta_session_alone_
         ("root", [("defect", ["meta@demo"])]),
     ]
     assert [record["attr"]["about"] for record in posted[0][1][1:]] == ["drive", "drive", "his work", "his work"]
-    assert [{key: record["attr"].get(key) for key in ("order", "part")} for record in posted[0][1][1:3]] == [
+    assert [{key: record["attr"].get(key) for key in ("order", "part")} for record in posted[0][1][1:]] == [
         {"order": "o3", "part": None},
         {"order": "o2", "part": "o2:the dashboard drops my cards"},
+        {"order": "o1", "part": "o1:and the logs page"},
+        {"order": None, "part": None},
     ]
     orders = state.load(demo)["orders"]
     assert (orders["o3"]["text"], orders["o3"]["owner"], list(orders["o2"]["parts"])) == (rewrite["words"], "meta", ["Drive tooling: cards say why", "the dashboard drops my cards"])
+    assert list(orders["o1"]["parts"]) == ["ship the run page", "and the logs page"]
 
 
 def test_his_ruling_typed_into_the_communicators_terminal_goes_out_at_terminal_and_words_he_never_typed_there_are_refused(
@@ -609,6 +612,46 @@ def test_his_hierarchical_coordinators_question_in_his_own_words_reaches_the_met
     ]
 
 
+def test_his_words_carrying_on_an_order_of_his_work_are_its_parts_the_watch_names_until_a_job_carries_each(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    thread = "1794521367.852649"
+    run("order", "add", "--title", "Writer handover", "--project", "Iris", "--workstream", "Durable agents", "--thread", thread, "--parts", state.IMMEDIATE_FIX, "the SandSQL writer handover pauses writes")
+    assert run("job", "add", "builder", "--order", "o1", "--part", state.IMMEDIATE_FIX, "--goal", "merge the handover stack", "--agent", "builder-1") == (0, "j1")
+    posted: list[dict] = []
+
+    def post(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if argv[:2] == ["cci", "post"]:
+            posted.extend(json.loads(str(kwargs["input"])))
+        return subprocess.CompletedProcess(argv, 0, f"#{len(posted)}\n", "")
+
+    monkeypatch.setattr(subprocess, "run", post)
+    open_cards(monkeypatch)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", demo, "--role", "communicator")
+    dm = "https://poetic-technology.slack.com/archives/D0C4HQWPLCC"
+    iterate = {"kind": "owner", "text": "rase the 1s test for now then keep iterating", "url": f"{dm}/p1794526841094869?thread_ts={thread}", "thread": thread, "about": "his work"}
+    options = {"kind": "owner", "text": "YOU SAID YOU WERE BRINGING ME OPTIONS FOR 0 STALL", "url": f"{dm}/p1794528706341939?thread_ts={thread}", "thread": thread, "about": "his work"}
+    for words in (iterate, options, iterate):
+        tools.run("record", demo, {"records": [words]})
+    assert list(state.load(demo)["orders"]["o1"]["parts"]) == [state.IMMEDIATE_FIX, iterate["text"], options["text"]]
+    assert [(record["to"], record["attr"]["order"], record["attr"]["part"]) for record in posted] == [
+        (["root@demo"], "o1", f"o1:{words['text']}") for words in (iterate, options, iterate)
+    ]
+    watching = watch.Watcher(demo, offset=state.events_end(demo), ticked_at=state.now())
+    later = state.now() + timedelta(minutes=6)
+    assert watch.orphan_lines(watching, later, set()) == []
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["state"] = "done"
+    unstaffed = [f'ORPHAN o1 "{words["text"]}": no job' for words in (iterate, options)]
+    assert watch.orphan_lines(watching, later, set()) == unstaffed
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-under-test")
+    carried = ["--part", iterate["text"], "--part", options["text"]]
+    assert run("job", "add", "reader", "--order", "o1", *carried, "--goal", "options for a zero-stall writer handover", "--agent", "reader-1") == (0, "j2")
+    assert watch.orphan_lines(watching, later + timedelta(minutes=10), set()) == []
+    assert [part["orphan_said"] for part in state.load(demo)["orders"]["o1"]["parts"].values()] == [None, None, None]
+
+
 def test_the_communicators_owner_or_answer_record_goes_to_the_session_hearing_its_jobs_or_threads_order_whatever_lane_it_names(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -630,13 +673,14 @@ def test_the_communicators_owner_or_answer_record_goes_to_the_session_hearing_it
     ]
     open_cards(monkeypatch, "demo:j1-7")
     said = tools.run("record", demo, {"records": records, "dry_run": True}).splitlines()
-    assert [(json.loads(line.split(": ", 1)[1])["kind"], json.loads(line.split(": ", 1)[1])["to"]) for line in said[:4]] == [
+    assert said[:2] == ["1 drive order set o1 --parts 'ship the run page' 'also the logs page'", "2 drive order set o2 --parts 'fix the alert' 'and the alert'"]
+    assert [(json.loads(line.split(": ", 1)[1])["kind"], json.loads(line.split(": ", 1)[1])["to"]) for line in said[2:6]] == [
         ("owner", ["iris@demo"]),
         ("owner", ["root@demo"]),
         ("answer", ["iris@demo"]),
         ("defect", ["meta@demo"]),
     ]
-    assert said[4:] == ['3 would end j1\'s question "Which ring?" answered, closing its card']
+    assert said[6:] == ['3 would end j1\'s question "Which ring?" answered, closing its card']
 
 
 def test_a_handlers_handoff_goes_to_the_session_holding_the_order_its_order_attr_names(

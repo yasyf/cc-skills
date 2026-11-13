@@ -27,8 +27,6 @@ PLACEHOLDER = re.compile(r"\$\([^()]*\)|\$\{[^{}]*\}|<(?![@#!]|\w+:)[^>|]*>")
 SAVED = re.compile(r"Output has been saved to (/\S+?)\.?(?=\s|$)")
 ALERT_LINK = re.compile(r"^\d+:\d+ bare-url 'https://(?:[\w-]+\.slack\.com/archives/|(?:[\w-]+\.)?sentry\.io/|(?:[\w-]+\.)?datadoghq\.com/)")
 SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+|\n+")
-PROMISE = re.compile(r"\b(?:from now on|next you(?:['’]ll| will)? get|I(?:['’]ll| will))\b", re.IGNORECASE)
-CARRIER = re.compile(r"\b[oj]\d+\b|\b\d{1,2}:\d{2}\s*[AP]M\b", re.IGNORECASE)
 SWITCH = re.compile(r"orca terminal switch --terminal[= ]([^\s`'\"<>|]+)")
 CARD_ANSWER = re.compile(r"✓ ([^\n]+)")
 CARD_ANSWERED = "his answer, as the card the bot drew in this thread shows it"
@@ -77,10 +75,6 @@ LINK_RULE = (
 )
 OWED_TAP_RULE = "Ask for a tap only when one is owed: when he tapped a PR already, or it merged or closed, say what happened to it instead."
 CARD_RULE = 'Anything that says it waits on him carries the card with its buttons, by his words "Anything that says waiting on me you always need to embed the card with the buttons".'
-PROMISE_RULE = (
-    'A promise such as "from now on…" or "next you get…" goes out only with the order, due time or job that carries it out'
-    " named in the same message, because a promise with nothing behind it is one he cannot believe."
-)
 SWITCH_RULE = "A switch command he is given is the role's line `drive status` prints, word for word, naming a terminal a session of the drive runs in."
 ORDERED_RULE = (
     "His message is the order, so no line answers it by a plan, record or answer of his that is missing, since his records are"
@@ -451,7 +445,6 @@ def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> s
             unlinked(payload, drive),
             untapped(payload),
             claimed_tap(tool_input, drive),
-            unpromised(payload),
             raw_visuals(tool_input),
             unswitched(tool_input, drive),
             unchecked(tool_input, messages, linked, drive),
@@ -607,21 +600,6 @@ def long_ack(payload: dict) -> str | None:
         f"refused: this ack is {len(sentences)} sentences, and an ack is one: what he asked, in his words, and what happens next."
         " Post that one sentence and put the rest in the handler's brief; the handler answers him in this thread.",
         ACK_RULE,
-    )
-
-
-def unpromised(payload: dict) -> str | None:
-    """Why a handler's post promises him something no order, job or due time carries."""
-    tool_input = payload["tool_input"]
-    if not payload.get("agent_id") or tool_input.get("card") or tool_input.get("tap_prs") or tool_input.get("order"):
-        return None
-    text = limits.masked(tool_input.get("text") or "")
-    if not (promise := PROMISE.search(text)) or CARRIER.search(text):
-        return None
-    return agents.Ruled(
-        f'refused: "{promise[0]}" promises him something, and this post names no order, job or due time that does it, so nothing'
-        " holds the drive to it. Pass say's order=<the order that does it>, or name the time it lands, or drop the promise.",
-        PROMISE_RULE,
     )
 
 
