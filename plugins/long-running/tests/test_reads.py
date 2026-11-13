@@ -86,6 +86,10 @@ role_arn = arn:aws:iam::111:role/frg-core-gbl-identity-studio-break-glass
 role_session_name = operator@example.com
 region = us-west-2
 """
+REFUSED = (
+    "User: arn:aws:sts::111:assumed-role/frg-core-gbl-identity-machines/studio is not authorized to perform: sts:SetSourceIdentity"
+    " on resource: arn:aws:iam::111:role/frg-core-gbl-identity-studio-break-glass"
+)
 GRANT_ENDS = "2026-11-12T12:22:25.577Z"
 GRANTED = state.parse_time("2026-11-12T11:22:30Z")
 ASSUME = ["aws", "sts", "assume-role", "--profile", "tf", "--role-arn", "arn:aws:iam::222:role/frg-plat-gbl-prod-admin", "--role-session-name", "demo-j7"]
@@ -324,6 +328,7 @@ class Granted:
         self.expiration = "2026-11-12T12:21:00+00:00"
         self.listed: list[str] | None = LISTED
         self.histories = HISTORIES
+        self.refusals = 0
 
 
 def grantable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: str, ended: str = "passed", now: datetime = GRANTED) -> Granted:
@@ -348,6 +353,9 @@ def grantable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: str, ende
             return f"Build created: {GRANT}\n"
         if argv[:3] == ["bk", "build", "view"]:
             return json.dumps({"state": ended, "meta_data": {"break-glass-expires-at": GRANT_ENDS}})
+        if argv[: len(WINDOW_ASSUME)] == WINDOW_ASSUME and granted.refusals:
+            granted.refusals -= 1
+            raise reads.ReadError(f"aws sts assume-role exited 254: {REFUSED}")
         if argv[:3] == ["aws", "sts", "assume-role"]:
             minted = {"AccessKeyId": "ASIAMINTED", "SecretAccessKey": "minted-secret", "SessionToken": "minted/token+=", "Expiration": granted.expiration}
             return json.dumps({"Credentials": minted})
@@ -465,6 +473,38 @@ def test_credentials_sts_stamps_past_the_grants_end_are_never_used(tmp_path: Pat
     with pytest.raises(reads.ReadError, match=f"^STS minted credentials ending at 2026-11-12T12:22:26\\+00:00, past the end of the break-glass grant {GRANT}"):
         glass(tmp_path)
     assert granted.calls[-1][:3] == ["aws", "sts", "assume-role"]
+    assert granted.envs == []
+
+
+def slept(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    naps: list[float] = []
+    monkeypatch.setattr(reads.time, "sleep", naps.append)
+    monkeypatch.setattr(reads.time, "monotonic", lambda: sum(naps))
+    return naps
+
+
+def test_a_window_sts_refuses_while_the_grants_trust_propagates_is_minted_again_until_sts_reads_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    granted = grantable(tmp_path, monkeypatch, MACHINE + WINDOW)
+    granted.refusals = 2
+    naps = slept(monkeypatch)
+    glass(tmp_path)
+    window = [*WINDOW_ASSUME, "--role-session-name", "operator@example.com", "--duration-seconds", "3535", "--output", "json"]
+    assert granted.calls[5:] == [[*ASSUME, "--duration-seconds", "3535", "--output", "json"], window, window, window, ["aws", "sts", "get-caller-identity"]]
+    assert naps == [5, 5]
+
+
+def test_a_window_sts_still_refuses_once_the_trust_had_time_to_settle_runs_nothing_and_names_the_grant(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    granted = grantable(tmp_path, monkeypatch, MACHINE + WINDOW)
+    granted.refusals = 100
+    naps = slept(monkeypatch)
+    with pytest.raises(reads.ReadError) as refused:
+        glass(tmp_path)
+    assert str(refused.value) == (
+        f"STS still refused arn:aws:iam::111:role/frg-core-gbl-identity-studio-break-glass 120 seconds after the break-glass grant {GRANT} passed,"
+        f" so nothing ran: aws sts assume-role exited 254: {REFUSED}"
+    )
+    assert sum(naps) == 120
+    assert 100 - granted.refusals == 25
     assert granted.envs == []
 
 

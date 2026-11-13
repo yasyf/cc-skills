@@ -74,6 +74,9 @@ CLOUD = re.compile(r"^cloud:\n((?:[ \t]+\S.*(?:\n|$))+)", re.MULTILINE)
 CLOUD_KEY = re.compile(r"^[ \t]+(account|namespace):[ \t]*(\S+)", re.MULTILINE)
 AWS_CONFIG = "~/.aws/config"
 WINDOW_PROFILE = "machine-break-glass"
+UNAUTHORIZED = "is not authorized to perform"
+TRUST_SETTLES = 120
+TRUST_RETRY = 5
 JOB_ID = re.compile(r"^j\d+[\s:,]+")
 READ_WORD = re.compile(r"""(?:"([^"]*)"|'(.*?)'|(\S+))(?=\s|$)""")
 SLACK_READS = (("cc-slack", "thread"), ("cc-slack", "history"))
@@ -415,16 +418,13 @@ def live(group: int) -> bool:
 
 @contextlib.contextmanager
 def break_glass(stack: str, reason: str, asker: str, checkout: Path) -> Iterator[Grant]:
-    """The forge/break-glass grant for the stack, started in the asker's name and passed, with the environment a command under it runs in: the env's admin credentials and the WINDOW_PROFILE role the grant opens to this Mac's machine, which the SandSQL guards admit, each minted on this Mac's machine profile so nobody signs in and ending no later than the grant, as the two profiles its AWS config names, the admin one its default, every other AWS setting of this Mac left out, so a command naming another stack's profile finds none. A stack with no machine profile, or a Mac with no WINDOW_PROFILE, is refused before any grant posts; the credentials go when the block ends, and from their writing to their deletion drive's stop signals are recorded for run_granted rather than acted on, so a drive told to stop deletes them."""
+    """The forge/break-glass grant for the stack, started in the asker's name and passed, with the environment a command under it runs in: the env's admin credentials and the WINDOW_PROFILE role the grant opens to this Mac's machine, which the SandSQL guards admit, minted once STS reads the trust the grant wrote, as opened says, each minted on this Mac's machine profile so nobody signs in and ending no later than the grant, as the two profiles its AWS config names, the admin one its default, every other AWS setting of this Mac left out, so a command naming another stack's profile finds none. A stack with no machine profile, or a Mac with no WINDOW_PROFILE, is refused before any grant posts; the credentials go when the block ends, and from their writing to their deletion drive's stop signals are recorded for run_granted rather than acted on, so a drive told to stop deletes them."""
     if not (named := STACK.fullmatch(stack)):
         raise ReadError(f'"{stack}" is no stack: name it as <domain>/<env>, such as sandsql/plat-usw2-prod')
     profile = machine_profile(named[1], checkout)
     window = window_profile()
     link, ends = grant(stack, f"{asker}: {reason}", checkout)
-    minted = [
-        (each, mint(each, session, link, ends, checkout))
-        for each, session in ((profile, SESSION_NAME.sub("-", asker)[:64]), (window, window["role_session_name"]))
-    ]
+    minted = [(profile, mint(profile, SESSION_NAME.sub("-", asker)[:64], link, ends, checkout)), (window, opened(window, link, ends, checkout))]
     name = profile.name.removeprefix("profile ")
     with stop_signals() as stops, tempfile.TemporaryDirectory(prefix="drive-break-glass-") as kept:
         config = configparser.RawConfigParser()
@@ -488,6 +488,20 @@ def mint(profile: configparser.SectionProxy, session: str, link: str, ends: date
     if state.parse_time(minted["Expiration"]) > ends:
         raise ReadError(f"STS minted credentials ending at {minted['Expiration']}, past the end of the break-glass grant {link} at {ends.isoformat()}, so nothing ran")
     return minted
+
+
+def opened(window: configparser.SectionProxy, link: str, ends: datetime, checkout: Path) -> dict[str, str]:
+    """Credentials for the WINDOW_PROFILE role once STS reads the trust the grant wrote seconds before, which IAM shows every STS endpoint only some seconds after writing it, so an endpoint still reading the trust of a grant that ended refuses the machine, as AWS's "Changes that I make are not always immediately visible" warns: an assume STS refuses is tried again every TRUST_RETRY seconds, and one still refused TRUST_SETTLES seconds after the first try runs nothing and names the grant, which stays until it ends."""
+    settles = time.monotonic() + TRUST_SETTLES
+    while True:
+        try:
+            return mint(window, window["role_session_name"], link, ends, checkout)
+        except ReadError as error:
+            if UNAUTHORIZED not in str(error):
+                raise
+            if time.monotonic() >= settles:
+                raise ReadError(f"STS still refused {window['role_arn']} {TRUST_SETTLES} seconds after the break-glass grant {link} passed, so nothing ran: {error}") from None
+        time.sleep(TRUST_RETRY)
 
 
 def machine_profile(env: str, checkout: Path) -> configparser.SectionProxy:
