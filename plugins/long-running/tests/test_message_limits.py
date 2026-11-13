@@ -337,7 +337,8 @@ def reads(lane: Path, *threads: str, age: timedelta = timedelta(), failed: bool 
     with lane.open("a") as transcript:
         for thread in threads:
             call_id = f"read-{thread}-{at}"
-            asked = ({"channel_id": channel} if channel else {}) | {"thread_ts": thread, "limit": 1000}
+            where = {"url": thread} if thread.startswith("https://") else ({"channel_id": channel} if channel else {}) | {"thread_ts": thread}
+            asked = where | {"limit": 1000}
             use = {"type": "tool_use", "id": call_id, "name": message_limits.THREAD_READ, "input": asked}
             result = {"type": "tool_result", "tool_use_id": call_id, "content": [{"type": "text", "text": "{}"}]} | ({"is_error": True} if failed else {})
             transcript.write(json.dumps({"type": "assistant", "timestamp": at, "message": {"role": "assistant", "content": [use]}}) + "\n")
@@ -1019,6 +1020,17 @@ def test_a_read_that_leaves_out_channel_id_reads_his_dm_so_the_line_after_it_goe
     reads(lane_of(unread), "1.2", channel=None)
     assert say(unread, text="Fixed.", thread_ts="1.2") is None
     assert posted(unread, text="Fixed.", thread_ts="1.2") is None
+
+
+@pytest.mark.parametrize("read", [link("1794543650.223299"), f"{link('1794552185.429099')}?thread_ts=1794543650.223299&cid={DM}"])
+def test_a_read_by_his_threads_permalink_or_a_replys_counts_so_the_say_after_it_goes_out(talker: str, unread: Path, read: str) -> None:
+    reads(lane_of(unread), read)
+    assert say(unread, text="Fixed.", thread_ts="1794543650.223299") is None
+
+
+def test_a_read_by_the_permalink_of_another_thread_or_channel_still_refuses(talker: str, unread: Path) -> None:
+    reads(lane_of(unread), link("1794543650.223300"), "https://acme.slack.com/archives/C0B75AL4XEW/p1794543650223299")
+    assert say(unread, text="Fixed.", thread_ts="1794543650.223299").startswith("refused: your transcript shows no read of his thread 1794543650.223299")
 
 
 def test_a_card_an_edit_a_root_line_and_the_communicators_own_line_need_no_thread_read(talker: str, unread: Path) -> None:
