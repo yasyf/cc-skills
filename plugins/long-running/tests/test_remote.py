@@ -12,7 +12,7 @@ from pathlib import Path
 from unittest.mock import ANY
 
 import pytest
-from conftest import DRIVE_TERMINAL, LIVE_WORKER, REAL_DRIVE_TERMINAL, REAL_KEEP_LOGS, REAL_SAVED_BRANCHES, REAL_SESSION_OF, RESEARCH, Drawing, cloned, git_in, staged
+from conftest import DRIVE_TERMINAL, LIVE_WORKER, REAL_DRIVE_TERMINAL, REAL_KEEP_LOGS, REAL_SAVED_BRANCHES, REAL_SESSION_OF, RESEARCH, Drawing, Jev, cloned, git_in, staged
 from drive import cli, github, orca, place, reads, render, state, watch
 
 pytestmark = pytest.mark.usefixtures("ccx_worktrees")
@@ -667,9 +667,10 @@ def test_a_launch_holds_no_install_lock_while_its_launcher_runs_and_hands_its_re
     ],
 )
 def test_launch_starts_a_brief_declaring_a_step_only_this_mac_runs_only_on_this_mac(
-    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], flag: str, named: str
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], jev: Jev, flag: str, named: str
 ) -> None:
     cloned(tmp_path, demo)
+    jev.picks("680721")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship it")
     run("job", "brief", "j1", "--serves", "his order", "--done-when", "merged", "--where", "yasyf/cc-skills main", flag, named)
@@ -4000,9 +4001,10 @@ def test_an_orca_dispatch_on_a_sprite_set_as_a_jobs_agent_records_its_sprite_and
 
 
 def kept_attempt(drive: str, attempt: str, dispatch: str) -> None:
-    """The attempt the launcher keeps for a brief whose worker started: worker-start exited 0 with a ready receipt."""
+    """The attempt the launcher keeps for a brief whose worker started: its brief, and worker-start exited 0 with a ready receipt."""
     kept = state.drive_dir(drive) / "jobs" / f"{attempt}.worker"
     kept.mkdir(parents=True)
+    kept.with_suffix(".md").write_text("Order (his words): ship it\n")
     (kept / "worker-start.status").write_text("0\n")
     (kept / "worker-start.json").write_text(json.dumps({"ok": True, "error": None, "result": {"state": "ready", "runId": RUN, "taskId": "task_sprite", "dispatchId": dispatch}}))
 

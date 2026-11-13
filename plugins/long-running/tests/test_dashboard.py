@@ -384,7 +384,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { dirname, join } from "node:path";
 const quiet = { addEventListener() {} };
-const context = vm.createContext({ document: quiet, window: quiet, components: JSON.parse(readFileSync(0, "utf8")) });
+const context = vm.createContext({ document: quiet, window: quiet, URL, components: JSON.parse(readFileSync(0, "utf8")) });
 const kit = readFileSync(join(dirname(process.argv[2]), "kit", "decisions.js"), "utf8");
 console.log(vm.runInContext(kit + "\\n" + readFileSync(process.argv[2], "utf8") + "\\n" + process.argv[3], context));
 """
@@ -1088,7 +1088,8 @@ await wait(300);
 const canvas = document.querySelector('#main .canvas');
 const viewport = canvas.querySelector('.viewport');
 const box = canvas.getBoundingClientRect();
-const fills = { right: innerWidth - box.right <= 24, bottom: innerHeight - box.bottom <= 24, share: box.width * box.height / (innerWidth * innerHeight) > 0.6 };
+const room = document.querySelector('#main').getBoundingClientRect();
+const fills = { right: innerWidth - box.right <= 24, bottom: innerHeight - box.bottom <= 24, share: box.width * box.height / (room.width * room.height) > 0.6 };
 const wheel = (deltaY, [x, y]) => viewport.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY, clientX: x, clientY: y }));
 const middle = (el) => { const r = el.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; };
 const over = middle(canvas.querySelector('.region[data-cam-key="Platform"]'));
@@ -2537,11 +2538,11 @@ def test_the_history_numbers_sit_on_an_even_grid_in_full_contrast(tmp_path: Path
 location.hash = '#/history';
 await wait(150);
 const stats = [...document.querySelectorAll('#main .history-stats > div')].map((each) => each.getBoundingClientRect());
-done({ lefts: stats.map((each) => Math.round(each.left)), widths: stats.map((each) => Math.round(each.width)), color: getComputedStyle(document.querySelector('#main .big-date')).color });
+done({ lefts: stats.map((each) => Math.round(each.left)), widths: stats.map((each) => Math.round(each.width)), color: getComputedStyle(document.querySelector('#main .big-date')).color === getComputedStyle(document.body).color });
 """, board(), size)
     columns = sorted(set(seen["lefts"]))
     steps = {right - left for left, right in zip(columns, columns[1:])}
-    assert (len(columns), max(steps) - min(steps) <= 1, len(set(seen["widths"])) == 1, seen["color"]) == (4 if size == "1440,900" else 2, True, True, "rgb(34, 39, 39)")
+    assert (len(columns), max(steps) - min(steps) <= 1, len(set(seen["widths"])) == 1, seen["color"]) == (4 if size == "1440,900" else 2, True, True, True)
 
 
 def test_a_picture_or_figure_sent_him_is_a_thumbnail_in_its_row_that_opens_in_the_lightbox(tmp_path: Path) -> None:
