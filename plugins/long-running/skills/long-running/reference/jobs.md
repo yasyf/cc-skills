@@ -293,7 +293,7 @@ Native: <where he sees or uses the result, such as a Slack post or card, the das
 Interactions: <when Native names his surface: each click or step he takes on the result, which the builder walks through and records; its order is proven done by that recording or the live post>
 Would he ask: <what he would still have to ask for if only his words were built, such as the next piece, a link, or a native piece passed over>
 Plan: <the plan section this implements, quoted>
-Incident: <an incident job only: the record's id, which its owner, the first check or the cause job, keeps and every other job appends what it observed to; roll back to the newest build provably without the failing change, however many releases back; never a revert, which lands only on his tap; when no rollback stops the harm, the stop ships the immediate fix at once as an incident fix; the fix starts at the alert's code path or the failed release's step and is the root fix of the cause, which deletes any immediate fix and leaves no pin, flag, header, prefix rule, cap, retry, timeout raise, timer, wait, cache or special case standing; a card of his that blocks it never stops it, unless his words on the order ask for options and no fix; from the merged fix to its build nothing stops, no dry run, no cover or cause read, no comparison of open builds, no question; the job that merges the fix lifts the service's freeze, named here by its id, with tools/ci release unfreeze <id>; start the build at the fix commit with the cut reference/incidents.md names and report its link; the approve gate is the only check and reads run while it builds; return the inputs to a write-up, not the write-up; and last, the rule its kind follows on a choice, word for word, which `drive job brief` adds and `brief_refusal` refuses an incident brief without: a codex lane's "a choice never stops it: write the ASK block to a file in your scratch, build its recommended option in the same run, and return your result with an ASK: <that file> line, which puts his card up as you return; never BLOCKED on a choice", a builder's "a choice never stops it: return ASK <path> the moment the fork shows, which puts his card up, and build its recommended option when the coordinator resumes you in that turn; never BLOCKED on a choice">
+Incident: <an incident job only: the record's id, which its owner, the first check or the cause job, keeps and every other job appends what it observed to; roll back to the newest build provably without the failing change, however many releases back; never a revert, which lands only on his tap; when no rollback stops the harm, the stop ships the immediate fix at once as an incident fix; the fix starts at the alert's code path or the failed release's step and is the root fix of the cause, which deletes any immediate fix and leaves no pin, flag, header, prefix rule, cap, retry, timeout raise, timer, wait, cache or special case standing; a card of his that blocks it never stops it, unless his words on the order ask for options and no fix; from the merged fix to its build nothing stops, no dry run, no cover or cause read, no comparison of open builds, no question; the job that merges the fix lifts the service's freeze, named here by its id, with tools/ci release unfreeze <id>; start the build at the fix commit with the cut reference/incidents.md names and report its link; the approve hold, which the job reads, is the only check and other reads run while it builds; return the inputs to a write-up, not the write-up; and last, the rule its kind follows on a choice, word for word, which `drive job brief` adds and `brief_refusal` refuses an incident brief without: a codex lane's "a choice never stops it: write the ASK block to a file in your scratch, build its recommended option in the same run, and return your result with an ASK: <that file> line, which puts his card up as you return; never BLOCKED on a choice", a builder's "a choice never stops it: return ASK <path> the moment the fork shows, which puts his card up, and build its recommended option when the coordinator resumes you in that turn; never BLOCKED on a choice">
 Scratch: <the job's scratch folder>
 Transcripts: <the transcript path of every earlier job on this order, so it reads instead of being told>
 Drive: <name>, order <o>, job <j>
@@ -340,16 +340,19 @@ docs and builds on what the platform already does over anything hand-made. It se
 answers on the whole area and quotes each one it follows. Before it returns, it meets its result as
 he will, on that surface, and closes each thing he would still have to ask for.
 
-His approval of a release approves it, right then. His order or card pick to ship, release or
-approve a release, or the coordinator's record of either, approves that release and its approve gate
-at once, any migration, delete or replace included. The job passes `--order <his answer id>` to
-`tools/ci release start`, or runs `tools/ci release approve <id> --via <agent>` the moment it holds
-at approve, with no second card, check or question between.
+His approval of a release starts it, right then. His order or card pick to ship, release or approve a
+release, or the coordinator's record of either, approves starting that release, never what its approve
+hold holds. The job passes `--order <his answer id>` to `tools/ci release start` with no second card
+or question first. At the approve hold it reads each held migration, delete and replace against the
+code at the release's commit, then runs `tools/ci release approve <id> --via <agent>`, naming in
+`--leave-out` each stack it cannot vouch for, never cancelling the release or asking him, by his pick
+"Land whole stacks and read the gate: no schema change merges without its writer; a stack's bottom
+waits for its top".
 
 A resume or re-plan of a release he ordered keeps his order. No agent approves a release or its gate
 without his approval of that release, and a pick on a card that asked anything else is none. A
 release he started himself is his: never cancel, retry, reorder or approve it. An incident's order
-approves its own cut and rollback, by [incidents.md](incidents.md).
+approves starting its own cut and rollback, by [incidents.md](incidents.md).
 
 Answers resume; PR events start fresh. His answer to a job's `ASK` goes back by `SendMessage` to
 its agent, or `drive job resume <j> -` with it on stdin for a remote lane or for an agent another

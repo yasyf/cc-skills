@@ -255,25 +255,29 @@ event needs. The first four events then return as step 7 says.
 
 ## Releases
 
-- His order or pick on a card to release, or the coordinator's record of either, approves that
-  release, its approve gate included, whatever migration, delete or replace it holds. Pass
-  `--order <his answer id>` to `tools/ci release start`, or run `tools/ci release approve <id> --via <agent>`
-  the moment it holds, with no `ASK`, check or question between: nobody asks him again. A resume or
-  re-plan keeps his order: pass the same `--order` again.
+- His order or pick on a card to release, or the coordinator's record of either, approves starting
+  that release, never the migrations, deletes and replaces its approve hold holds: pass `--order <his
+  answer id>` to `tools/ci release start` with no `ASK` or question first, since nobody asks him
+  again, and pass the same `--order` to a resume or re-plan. At the approve hold, read each held
+  migration, delete and replace against the code at the release's commit, then run `tools/ci release
+  approve <id> --via <agent>`, naming in `--leave-out` each stack you cannot vouch for, never
+  cancelling the release or asking him, by his pick "Land whole stacks and read the gate: no schema
+  change merges without its writer; a stack's bottom waits for its top".
 - Approve only a release he approved. A build or release he started is his: never cancel, retry,
   reorder or approve it, and start no release while it runs. Cancel one of ours only when the
   coordinator's message says to.
-- An incident brief's incident order approves the cut that ships its fix, the default branch's head
-  included when its first check proved that build works: pass `--order <the incident's answer id>`.
+- An incident brief's incident order approves starting the cut that ships its fix, the default
+  branch's head included when its first check proved that build works: pass `--order <the incident's
+  answer id>`, and read its approve hold as above.
   A rollback to an older build, when prudent, is an immediate fix it approves. It never approves a
   revert: a PR or build that takes a change out lands only on his tap, on a card stating the bug in
   it.
 - On an incident nothing stops between the merge and the build: no dry run, no read of what the cut
   covers or what caused the break, no comparison of open builds, no question. Lift the service's
   freeze the brief's `Incident:` line names with `tools/ci release unfreeze <id>`, start the build at
-  the fix commit with the cut the incident reference names, report its link, and read while it
-  builds; the approve gate is the only check. Cut a hotfix from the live commit only after a first
-  check found the default branch's newest build fails too.
+  the fix commit with the cut the incident reference names, report its link, and read while it builds;
+  the approve hold, read as above, is the only check. Cut a hotfix from the live commit only after a
+  first check found the default branch's newest build fails too.
 
 ## On a Sprite
 

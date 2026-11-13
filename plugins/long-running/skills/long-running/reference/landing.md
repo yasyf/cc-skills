@@ -342,14 +342,18 @@ the patch.
   session; `--plan`, `--dry-run`, `status` and `watch` still run. A job of a sub-coordinator returns
   `WAITING release` naming the merged changes the cut must carry, and its sub-coordinator asks the top
   for the cut with a `release` record at `root@<drive>`.
-- His order or his pick on a card to release, or the coordinator's record of either, approves that
-  release, its approve gate included, whatever migration, delete, or replace it holds. A pick on a card
-  that did not ask whether to release approves nothing in one. Start it with `--order <his answer id>`,
-  or run `tools/ci release approve <id> --via <agent>` the moment it holds, with no `ASK`, card, or
-  check in between: nobody asks him again. A resume or re-plan of a release he ordered passes the same
-  `--order` again. The `landing_guard` hook refuses `ci release start --order <id>` in a drive session
-  or its agents when Jev does not read that answer as his order or card pick to release, unless the
-  answer is an incident's, labelled `incident`.
+- His order or his pick on a card to release, or the coordinator's record of either, approves starting
+  that release, never the migrations, deletes and replaces its approve hold holds. A pick on a card
+  that did not ask whether to release approves nothing in one. Start it with `--order <his answer
+  id>`, with no `ASK` or card first: nobody asks him again. A resume or re-plan of a release he
+  ordered passes the same `--order` again. At the approve hold the job that started it reads each held
+  migration, delete and replace against the code at the release's commit, then runs `tools/ci release
+  approve <id> --via <agent>`, naming in `--leave-out` each stack it cannot vouch for, never
+  cancelling the release or asking him, by his pick "Land whole stacks and read the gate: no schema
+  change merges without its writer; a stack's bottom waits for its top". The `landing_guard` hook
+  refuses `ci release start --order <id>` in a drive session or its agents when Jev does not read that
+  answer as his order or card pick to release, unless the answer is an incident's, labelled
+  `incident`.
 - A job never approves a release he has not approved, and never touches one he started himself. An
   incident's order's words approve the incident's own cut, by [incidents.md](incidents.md).
 - Then rerun the reporter's exact case on the live build, and return `DONE <proof>`: one line on what
