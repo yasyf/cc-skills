@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Self
 
 from drive import agents, codex, dashboard, github, install, land, launchd, orca, page, place, procs, reads, receiver, render, served, slack, stage, stall, state, superseded, view
-from drive.install import PROVEN, config_dir, merged_done, merged_ready, product, proof_gap, said_on_prs, upgraded
+from drive.install import MERGED_DONE, PROOF_FAILED, config_dir, merged_done, merged_ready, product, proof_gap, said_on_prs, upgraded
 from drive.render import cut, when
 
 POLL_SECONDS = 5
@@ -31,6 +31,8 @@ FREED_AGAIN = timedelta(minutes=30)
 TELL_AFTER = timedelta(minutes=10)
 WAKES = ("TAP ", "DUE ", "TELL ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "STAGE ", "FREE ", "WATCH stopped")
 PR_EVENT = re.compile(r"PR (?P<key>\S+): (?P<change>.+) \[(?P<order>o\d+) (?P<job>j\d+)\]$")
+STAGE_LINE = re.compile(r"STAGE (?P<key>\S+) (?P<name>\w+)\b")
+ENDED = ("merged", "closed", MERGED_DONE, PROOF_FAILED)
 NOT_LANDED = "not landed"
 LANDER = "LANDER "
 TAP_EVENT = re.compile(rf"TAP (?P<label>\S+) (?P<key>\S+)(?P<stalled> {NOT_LANDED})?")
@@ -2480,10 +2482,12 @@ def holder_line(line: str, data: dict) -> str | None:
     return state.holder_lane(order) if order else None
 
 
-def needs_step(line: str, data: dict) -> bool:
-    """Whether a line asks for a step now: any line but a PR's, his tap but an Approve, which the drive's lander lands in every repository once its stage reads ready, a PR's merged line only when nobody else says it, never GitHub's merged line for a PR the lander merges and says so itself or whose job took DONE at its merge, whose line asks for the builder proving it live on its release, nor the lander's merged line on a job already proved or whose proof the watch runs, whose proof line says so, and a line on a PR no longer open while its job does not run to take it, such as its proof failing, its close or its job's DONE at its merge, but its proof passing. An open PR's moves wake nobody, since its stage wakes its owner."""
+def needs_step(line: str, data: dict, cards: dict | None) -> bool:
+    """Whether a line asks for a step now: any line but a PR's, his tap but an Approve, which the drive's lander lands in every repository once its stage reads ready, a STAGE line on a PR the drive tracks only while stage.of still names that stage, so one made before its PR merged or its lander tried a newer head asks nothing, a PR's merged line only when nobody else says it, never GitHub's merged line for a PR the lander merges and says so itself or whose job took DONE at its merge, whose line asks for the builder proving it live on its release, nor the lander's merged line on a job already proved or whose proof the watch runs, whose proof line says so, and a line on a PR no longer open only when it says how the PR ended, its merge, close, failed proof or its job's DONE at its merge, while its job does not run to take it, never a move made while it was open, such as a lander's try refused at an older head, new heads, checks or a check against his words. An open PR's moves wake nobody, since its stage wakes its owner."""
     if (tapped := TAP_EVENT.match(line)) and tapped["label"] == "Approve":
         return False
+    if (staged := STAGE_LINE.match(line)) and staged["key"] in data["prs"]:
+        return stage.of(data, staged["key"], cards).name == staged["name"]
     found = PR_EVENT.match(line)
     if not found:
         return not line.startswith("PR ")
@@ -2492,14 +2496,14 @@ def needs_step(line: str, data: dict) -> bool:
         return not (land.reported(found["key"], pr) or data["jobs"][found["job"]]["state"] == "done")
     if found["change"].startswith("merged at"):
         return not (data["jobs"][found["job"]]["state"] in state.FINISHED_JOB_STATES or proving(data, found["job"]))
-    if pr["state"] == "open" or found["change"].startswith(PROVEN):
+    if pr["state"] == "open" or not found["change"].startswith(ENDED):
         return False
     return data["jobs"][found["job"]]["state"] != "running"
 
 
-def wakes(line: str, data: dict) -> bool:
+def wakes(line: str, data: dict, cards: dict | None) -> bool:
     """Whether the coordinator acts on the line now: his tap but an Approve the drive's lander acts on, a promised time, an orphan, his answer, a lane's report or death, his return, a stopped watch, or a PR's line that asks for a step, such as its exempt landing or a failure of its landing."""
-    return (line.startswith(WAKES) or line.startswith("PR ")) and needs_step(line, data)
+    return (line.startswith(WAKES) or line.startswith("PR ")) and needs_step(line, data, cards)
 
 
 def handed(watcher: Watcher, lines: list[str], moment: datetime) -> list[str]:
@@ -2517,8 +2521,7 @@ def handed(watcher: Watcher, lines: list[str], moment: datetime) -> list[str]:
             if line not in (meta := watcher.unsent.setdefault("meta", [])):
                 meta.append(line)
         elif holder := holder_line(line, data):
-            if needs_step(line, data):
-                watcher.unsent.setdefault(holder, []).append(line)
+            watcher.unsent.setdefault(holder, []).append(line)
         else:
             kept.append(line)
     watcher.made = kept
@@ -2528,14 +2531,16 @@ def handed(watcher: Watcher, lines: list[str], moment: datetime) -> list[str]:
 
 
 def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> list[str]:
-    """Post each line, after any that failed to post before, to the lane over cci, a remote lane's question its line names by its first line carrying the question whole as the record's body: the lander's own failure goes as a defect, which the meta session starts a fix from, a coordinator's line it acts on now wakes it, its others reach it together at most every five minutes, and a line that fails goes again next pass, said from its third failure in a row. The lines stay among the watcher's unsent until each posts, so a newer install that takes the watch over meanwhile gets them."""
+    """Post each line, after any that failed to post before, to the lane over cci, a remote lane's question its line names by its first line carrying the question whole as the record's body, but drop each one owed the communicator or the meta session that needs_step, judging it as it posts, finds asks no step now, so a line held across a newer install's takeover or a failed post never hands work that ended meanwhile: the lander's own failure goes as a defect, which the meta session starts a fix from, a coordinator's line it acts on now wakes it, its others reach it together at most every five minutes, and a line that fails goes again next pass, said from its third failure in a row. The lines stay among the watcher's unsent until each posts, so a newer install that takes the watch over meanwhile gets them."""
     owed = watcher.unsent[lane] = watcher.unsent.get(lane, []) + lines
     if not owed:
         return []
     data = state.load(watcher.name)
     refusal, unsent = None, []
     for line in owed:
-        kind = "defect" if line.startswith(LANDER) else "handoff" if lane in state.HOLDERS or wakes(line, data) else "evidence"
+        if lane in state.HOLDERS and not needs_step(line, data, watcher.cards):
+            continue
+        kind = "defect" if line.startswith(LANDER) else "handoff" if lane in state.HOLDERS or wakes(line, data, watcher.cards) else "evidence"
         topic = f"watch-{hashlib.sha1(line.encode()).hexdigest()[:10]}"
         asked = asked_whole(watcher.name, line)
         argv = ["cci", "post", "--drive", watcher.name, "--lane", LANE, "--kind", kind, "--to", f"{lane}@{watcher.name}", "--topic", topic, *(["--path", "-"] if asked else []), "--text", line]
@@ -2636,7 +2641,7 @@ def main(drive_name: str | None = None, project: str | None = None) -> int:
         os.environ.update(launchd.session_env())
         while holder(state.monitor_pid_path(name)):
             time.sleep(POLL_SECONDS)
-        watching(Watcher(name, offset=state.watch_cursor(name, project), project=project, made=state.take_held_lines(name, project)))
+        watching(Watcher(name, offset=state.watch_cursor(name, project), project=project, cards=view.live_cards(name), made=state.take_held_lines(name, project)))
     finally:
         release(name, project)
     return 0

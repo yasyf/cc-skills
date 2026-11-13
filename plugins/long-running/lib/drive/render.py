@@ -378,8 +378,8 @@ def design_words(pr: dict) -> str:
 
 
 def stage_words(pr: dict) -> str:
-    """The PR's stage as stage.of named it, and the head and time of the GitHub read it stands on."""
-    if not (now := pr.get("stage")):
+    """The PR's stage as stage.of named it, and the head and time of the GitHub read it stands on; none on a PR no longer open, whose row keeps the stage of its last open read while its state, which pr_line names, says all that is left."""
+    if pr["state"] != "open" or not (now := pr.get("stage")):
         return ""
     since = f" since {when(now['since'])}" if now["since"] else ""
     read = f"; at {pr['head'][:7]} as GitHub read it at {when(pr['required']['read'])}" if pr.get("required") and pr["required"].get("read") else ""
