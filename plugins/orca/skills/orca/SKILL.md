@@ -194,7 +194,8 @@ explicit local worktree route. Do not pass it as the remote branch, strip
 arbitrary prefixes, or replace the requested ref with a commit ID from a local
 prelookup. The prepared record's `baseCommit` is the actual VM base. Setting
 `WORKER_BASE_BRANCH` on the remote route refuses; `WORKER_REF`,
-`WORKER_EXPECT_BASE` and `WORKER_WORKSPACE` refuse on the local route.
+`WORKER_EXPECT_BASE`, `WORKER_WORKSPACE` and `WORKER_SESSION` refuse on the
+local route.
 
 `WORKER_WORKSPACE` names a recorded cc-remote workspace to continue, such as the
 Sprite of a lane that died holding work on no remote. The launcher then calls
@@ -202,6 +203,9 @@ Sprite of a lane that died holding work on no remote. The launcher then calls
 worker starts in that Sprite's checkout as it was left, and it takes no
 `WORKER_REF`. An unstarted attempt of the same brief on another Sprite moves to
 `<brief-stem>.worker.<n>`, leaving that Sprite claimed with its idle terminal.
+`WORKER_SESSION`, with `WORKER_WORKSPACE`, names a Claude session on that
+Sprite, and the launcher adds `--resume <session>`, so the worker resumes that
+session with its whole conversation instead of starting a new one.
 
 Ordinary branch movement is valid. Set `WORKER_EXPECT_BASE` only when the task
 requires an exact base. Supply a full 40- or 64-character lowercase commit ID. The

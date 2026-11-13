@@ -83,6 +83,7 @@ KEPT_ANSWER = "drive answer kept on this Sprite: "
 DRIVE_STATUS = re.compile(r"drive exited \d+\n")
 CHECKOUT_LOCK = ".checkout.lock"
 CHECKOUT_SECONDS = 600
+SESSION_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 
 class OrcaError(DriveError):
@@ -423,11 +424,13 @@ def holder(clone: str, branch: str) -> Path | None:
     return next((Path(lines[0].removeprefix("worktree ")) for lines in entries if f"branch refs/heads/{branch}" in lines), None)
 
 
-def launch(drive: str, lane: str, brief: Path, checkout: Path, run: str, route: str | None, workspace: str | None) -> dict:
-    """Start one builder through the orca plugin's launcher, on a fresh Sprite or on the workspace's own Sprite in the checkout it holds, either way giving its `~/.local/bin` the `drive` that asks each verb of this Mac, or, on the local route, in a fresh worktree of the checkout's Orca repository on this Mac; its success line, with the Sprite's prepared server."""
+def launch(drive: str, lane: str, brief: Path, checkout: Path, run: str, route: str | None, workspace: str | None, session: str | None) -> dict:
+    """Start one builder through the orca plugin's launcher, on a fresh Sprite or on the workspace's own Sprite in the checkout it holds, there resuming the Claude session given, either way giving its `~/.local/bin` the `drive` that asks each verb of this Mac, or, on the local route, in a fresh worktree of the checkout's Orca repository on this Mac; its success line, with the Sprite's prepared server."""
     env = {**os.environ, "WORKER_RUN": run, "WORKER_ENV": LANE_ENV, "WORKER_BIND": f"{DRIVE} bound --drive {drive} {run} --"}
     if workspace:
         env["WORKER_WORKSPACE"] = workspace
+    if session:
+        env["WORKER_SESSION"] = session
     local = route == state.LOCAL_ROUTE
     env |= {"WORKER_LOCAL": "1", "WORKER_REPO": request("repo", "show", "--repo", f"path:{main_checkout(str(checkout))}")["repo"]["id"]} if local else {"WORKER_TOOLS": SPRITE_TOOLS}
     try:
@@ -729,6 +732,26 @@ def on_sprite(workspace: str, command: str, given: bytes, seconds: float) -> sub
         capture_output=True,
         timeout=seconds,
         check=False,
+    )
+
+
+def session_of(workspace: str, dispatch: str) -> str | None:
+    """The Claude session the worker on this dispatch ran on the workspace's Sprite, found by the dispatch id Orca's preamble wrote into its transcript, the newest when several hold it; None when the Sprite cannot be read or holds no such transcript."""
+    try:
+        done = on_sprite(workspace, f"cd && grep -l -F -e {shlex.quote(dispatch)} .claude/projects/*/*.jsonl | xargs -r ls -t | head -n 1", b"", CALL_SECONDS)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    found = Path(done.stdout.decode(errors="replace").strip()).stem
+    return found if SESSION_ID.fullmatch(found) else None
+
+
+def resumed(ended: dict, text: str | None) -> str:
+    """The brief of a lane's own Claude session resumed on its Sprite after its worker died there: why it died, what it resumes on, the dispatch it reports on now, and the coordinator's message it never read, when one came."""
+    return (
+        f"Your lane died at {render.when(ended['at'])}: {ended['why']}. This is your own Claude session, resumed on Sprite {ended['workspace']} in the checkout"
+        " you left, so a tool call that was running then never finished. Read its git status and log, then carry the job on. Report on the task and dispatch"
+        " the Orca preamble above this brief names, never on your earlier ones.\n"
+        + (f"\nThe coordinator's message you never read, which you act on now:\n\n{text.strip()}\n" if text else "")
     )
 
 

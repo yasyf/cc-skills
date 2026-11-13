@@ -17,6 +17,7 @@ LANE_SETTINGS = '{"spinnerTipsEnabled":false,"prefersReducedMotion":true,"verbos
 LANE_DENIED_TOOLS = "AskUserQuestion,EnterPlanMode,ExitPlanMode,PushNotification,DesignSync"
 SPRITE_SETTINGS = json.dumps({**json.loads(LANE_SETTINGS), "permissions": {"deny": LANE_DENIED_TOOLS.split(",")}}, separators=(",", ":"))
 WORKSPACE = "pool-spare"
+SESSION = "5d576546-4c87-4a78-94b4-945eb9e49c86"
 REPO = "repo-local"
 BASE_BRANCH = "origin/main"
 CONE = ("src", "docs")
@@ -949,6 +950,12 @@ class SpriteTest(LaunchTest):
         self.assertEqual(json.loads(result.stdout), {"state": "ready", "task": "task_a", "dispatch": "ctx_a", "terminal": TERMINAL, "worktree": ROOT, "lane": LANE, "workspace": WORKSPACE, "allocation": "existing"})
         self.assertEqual(json.loads(self.launch.receipt("prepared.json")), PREPARED)
 
+    def test_a_continued_workspace_resumes_the_claude_session_it_names(self):
+        self.launch.sprite(allocated=PREPARED)
+        result = self.launch.run(WORKER_WORKSPACE=WORKSPACE, WORKER_SESSION=SESSION)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare("--resume", SESSION, continued=WORKSPACE), *self.launch.tools(), self.launch.start()])
+
     def test_a_continued_workspace_takes_no_ref(self):
         self.launch.sprite(allocated=PREPARED)
         self.assert_refused(self.launch, self.launch.run(WORKER_WORKSPACE=WORKSPACE, WORKER_REF="dev"), "WORKER_WORKSPACE continues that Sprite's checkout as it is, so it takes no WORKER_REF; nothing was prepared", [])
@@ -1160,11 +1167,11 @@ class LocalTest(LaunchTest):
         self.assert_refused(self.launch, self.launch.run(model="gpt-6.1-sol", WORKER_LOCAL="1"), "the local route starts only claude, and codex runs gpt-6.1-sol; nothing launched", [])
 
     def test_the_local_route_refuses_sprite_checkout_settings(self):
-        for env in ({"WORKER_REF": "dev"}, {"WORKER_EXPECT_BASE": BASE}, {"WORKER_WORKSPACE": WORKSPACE}):
+        for env in ({"WORKER_REF": "dev"}, {"WORKER_EXPECT_BASE": BASE}, {"WORKER_WORKSPACE": WORKSPACE}, {"WORKER_SESSION": SESSION}):
             with self.subTest(env=env):
                 launch = self.fresh()
                 launch.local()
-                self.assert_refused(launch, launch.run(model="fable", WORKER_LOCAL="1", **env), "WORKER_REF, WORKER_EXPECT_BASE and WORKER_WORKSPACE pick a Sprite's checkout; the local route takes WORKER_BASE_BRANCH; nothing launched", [])
+                self.assert_refused(launch, launch.run(model="fable", WORKER_LOCAL="1", **env), "WORKER_REF, WORKER_EXPECT_BASE, WORKER_WORKSPACE and WORKER_SESSION pick a Sprite's checkout or session; the local route takes WORKER_BASE_BRANCH; nothing launched", [])
 
     def test_the_local_worktree_takes_a_name_scoped_to_the_run(self):
         self.launch.local()
