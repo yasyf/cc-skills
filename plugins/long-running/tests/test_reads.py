@@ -37,9 +37,16 @@ region = us-west-2
 source_profile = tf
 role_arn = arn:aws:iam::333:role/frg-tnt-gbl-0ddq7rb-admin
 """
+WINDOW = """[profile machine-break-glass]
+source_profile = machine
+role_arn = arn:aws:iam::111:role/frg-core-gbl-identity-studio-break-glass
+role_session_name = operator@example.com
+region = us-west-2
+"""
 GRANT_ENDS = "2026-11-12T12:22:25.577Z"
 GRANTED = state.parse_time("2026-11-12T11:22:30Z")
 ASSUME = ["aws", "sts", "assume-role", "--profile", "tf", "--role-arn", "arn:aws:iam::222:role/frg-plat-gbl-prod-admin", "--role-session-name", "demo-j7"]
+WINDOW_ASSUME = ["aws", "sts", "assume-role", "--profile", "machine", "--role-arn", "arn:aws:iam::111:role/frg-core-gbl-identity-studio-break-glass"]
 APPLIED = "6c751b8b101597fbef4464a3cc7dee314ef778a1"
 LIVE = [
     {"target": "accounts", "component": "infra", "env": "core-gbl-identity", "commit": "920c12e92f89952469bf863d69c1f40abf87b2c4"},
@@ -265,10 +272,10 @@ def glass(checkout: Path, stack: str = "sandsql/plat-usw2-prod") -> str:
         return f"{granted.link} {reads.held(granted)}\n{reads.run(['aws', 'sts', 'get-caller-identity'], checkout, granted.env).strip()}"
 
 
-def test_a_break_glass_grant_runs_its_command_holding_only_the_stacks_credentials_minted_to_end_before_the_grant(
+def test_a_break_glass_grant_runs_its_command_holding_only_the_stacks_and_the_machine_windows_credentials_minted_to_end_before_the_grant(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    granted = grantable(tmp_path, monkeypatch, SSO_FIRST + MACHINE)
+    granted = grantable(tmp_path, monkeypatch, SSO_FIRST + MACHINE + WINDOW)
     said = glass(tmp_path)
     why = "demo j7: count rows, read only"
     assert granted.calls == [
@@ -278,6 +285,7 @@ def test_a_break_glass_grant_runs_its_command_holding_only_the_stacks_credential
         ["bk", "build", "watch", "1926", "-p", "forge/break-glass", "--interval", "2"],
         ["bk", "build", "view", "1926", "-p", "forge/break-glass", "-o", "json"],
         [*ASSUME, "--duration-seconds", "3535", "--output", "json"],
+        [*WINDOW_ASSUME, "--role-session-name", "operator@example.com", "--duration-seconds", "3535", "--output", "json"],
         ["aws", "sts", "get-caller-identity"],
     ]
     [env] = granted.envs
@@ -294,11 +302,17 @@ def test_a_break_glass_grant_runs_its_command_holding_only_the_stacks_credential
             "aws_access_key_id": "ASIAMINTED",
             "aws_secret_access_key": "minted-secret",
             "aws_session_token": "minted/token+=",
-        }
+        },
+        "profile machine-break-glass": {
+            "region": "us-west-2",
+            "aws_access_key_id": "ASIAMINTED",
+            "aws_secret_access_key": "minted-secret",
+            "aws_session_token": "minted/token+=",
+        },
     }
     assert not Path(env["AWS_CONFIG_FILE"]).exists()
     assert said == (
-        f"{GRANT} holding only the plat-prod profile's credentials, which end at {clock(state.parse_time(GRANT_ENDS).astimezone())}\n"
+        f"{GRANT} holding only the plat-prod and machine-break-glass profiles' credentials, which end at {clock(state.parse_time(GRANT_ENDS).astimezone())}\n"
         '{"Arn": "arn:aws:sts::222:assumed-role/frg-plat-gbl-prod-admin/demo-j7"}'
     )
 
@@ -338,14 +352,14 @@ esac
 
 @pytest.mark.parametrize("now",[state.parse_time(GRANT_ENDS) - timedelta(minutes=15, seconds=59), state.parse_time(GRANT_ENDS) + timedelta(seconds=1)])
 def test_a_grant_ending_before_the_shortest_credentials_sts_mints_runs_nothing(now: datetime, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    granted = grantable(tmp_path, monkeypatch, MACHINE, now=now)
+    granted = grantable(tmp_path, monkeypatch, MACHINE + WINDOW, now=now)
     with pytest.raises(reads.ReadError, match=f"^the break-glass grant {GRANT} ends at .*, too soon for the 15 minutes the shortest AWS credentials last, so nothing ran"):
         glass(tmp_path)
     assert [Path(argv[0]).name for argv in granted.calls] == ["ci", "bk", "bk", "bk"]
 
 
 def test_credentials_sts_stamps_past_the_grants_end_are_never_used(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    granted = grantable(tmp_path, monkeypatch, MACHINE)
+    granted = grantable(tmp_path, monkeypatch, MACHINE + WINDOW)
     granted.expiration = "2026-11-12T12:22:26+00:00"
     with pytest.raises(reads.ReadError, match=f"^STS minted credentials ending at 2026-11-12T12:22:26\\+00:00, past the end of the break-glass grant {GRANT}"):
         glass(tmp_path)
@@ -354,7 +368,7 @@ def test_credentials_sts_stamps_past_the_grants_end_are_never_used(tmp_path: Pat
 
 
 def test_a_grant_whose_grantor_stack_lists_no_applied_commit_posts_no_grant(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    granted = grantable(tmp_path, monkeypatch, MACHINE)
+    granted = grantable(tmp_path, monkeypatch, MACHINE + WINDOW)
     granted.live = [each for each in LIVE if (each["target"], each["env"]) != ("identity", "core-gbl-identity")]
     with pytest.raises(reads.ReadError) as refused:
         glass(tmp_path)
@@ -365,7 +379,7 @@ def test_a_grant_whose_grantor_stack_lists_no_applied_commit_posts_no_grant(tmp_
 
 
 def test_a_break_glass_grant_that_does_not_pass_runs_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    granted = grantable(tmp_path, monkeypatch, MACHINE, ended="failed")
+    granted = grantable(tmp_path, monkeypatch, MACHINE + WINDOW, ended="failed")
     with pytest.raises(reads.ReadError, match=f"^the break-glass grant {GRANT} failed, so nothing ran$"):
         glass(tmp_path)
     assert [Path(argv[0]).name for argv in granted.calls] == ["ci", "bk", "bk", "bk"]
@@ -379,7 +393,7 @@ def test_a_break_glass_grant_that_does_not_pass_runs_nothing(tmp_path: Path, mon
     ],
 )
 def test_a_break_glass_grant_naming_no_stack_or_env_is_refused_before_any_grant(stack: str, why: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    granted = grantable(tmp_path, monkeypatch, MACHINE)
+    granted = grantable(tmp_path, monkeypatch, MACHINE + WINDOW)
     with pytest.raises(reads.ReadError, match=why):
         glass(tmp_path, stack)
     assert granted.calls == []
@@ -394,6 +408,18 @@ def test_an_env_reached_only_through_an_sso_sign_in_has_no_machine_profile_and_p
     assert str(refused.value) == (
         f"no profile in {tmp_path / 'aws'} assumes frg-plat-gbl-prod-admin through source_profile from a credential_process,"
         " so plat-usw2-prod has no machine profile"
+    )
+    assert granted.calls == []
+
+
+@pytest.mark.parametrize("window", ["", WINDOW.replace("role_session_name = operator@example.com\n", ""), WINDOW.replace("source_profile = machine", "source_profile = identity")])
+def test_a_mac_whose_machine_break_glass_profile_cannot_mint_the_window_posts_no_grant(window: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    granted = grantable(tmp_path, monkeypatch, SSO_FIRST + MACHINE + window)
+    with pytest.raises(reads.ReadError) as refused:
+        glass(tmp_path)
+    assert str(refused.value) == (
+        f"no machine-break-glass profile in {tmp_path / 'aws'} names a role_session_name and reaches its role through source_profile from a credential_process,"
+        " so no grant opens this Mac's break-glass role"
     )
     assert granted.calls == []
 
@@ -596,7 +622,7 @@ def test_ending_a_command_whose_group_holds_only_an_unreaped_exit_returns_its_st
 def test_a_break_glass_told_to_stop_and_stopped_again_while_it_ends_its_command_ends_every_process_and_deletes_its_credentials(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    grantable(tmp_path, monkeypatch, MACHINE)
+    grantable(tmp_path, monkeypatch, MACHINE + WINDOW)
     child = tmp_path / "child"
 
     def stop_once_started() -> None:
