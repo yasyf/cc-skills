@@ -2038,7 +2038,7 @@ def job_brief(args: argparse.Namespace) -> int:
 
 
 def write_brief(name: str, job_id: str, named: dict) -> tuple[str, dict]:
-    """Write a job's brief from what the drive holds: his order's words verbatim, each ruling's recorded words above the drive's notes, the earlier jobs' transcripts, and the lines named, each flag left out kept from the job's earlier brief and each ruling named added to every ruling a brief of any job on its order binds, its own earlier ones included, by his approval "carried whole into every brief and handoff", its Serves: line drive tooling on a tooling order and his order on any other when neither names one."""
+    """Write a job's brief from what the drive holds, by rewrite_brief, with the lines named, each flag left out kept from the job's earlier brief and each ruling named added to every ruling a brief of any job on its order binds, its own earlier ones included, by his approval "carried whole into every brief and handoff", its Serves: line drive tooling on a tooling order and his order on any other when neither names one."""
     data = state.load(name)
     job = find(data["jobs"], job_id, "job")
     order = data["orders"][job["order"]]
@@ -2055,20 +2055,41 @@ def write_brief(name: str, job_id: str, named: dict) -> tuple[str, dict]:
         )
     if (seen := brief.surface({"brief_flags": flags})) and (unstoried := brief.unstoried(seen, flags["interactions"])):
         raise DriveError(f"{job_id}'s result is something he uses, by --native: {unstoried}")
-    checkout_dir = Path(data["roles"]["coordinator"]["cwd"])
-    if flags["release"] and (unnamed := brief.release_refusal(flags["release"]) or brief.approval_refusal(flags["release"], str(checkout_dir))):
+    if flags["release"] and (unnamed := brief.release_refusal(flags["release"]) or brief.approval_refusal(flags["release"], data["roles"]["coordinator"]["cwd"])):
         raise DriveError(f"{job_id}: {unnamed}")
+    line, payload = rewrite_brief(name, job_id, flags)
+    if kept:
+        line += "\nkept from its earlier brief: " + ", ".join(f"--{flag.replace('_', '-')}" for flag in kept)
+    return line, payload | {"kept": kept}
+
+
+def rebriefed(name: str, job_id: str) -> str:
+    """The brief a worker taking a job over starts on: the job's brief written again by rewrite_brief from the flags drive job brief kept, so his words on each order it carries and each answer of his binding it reach that worker as they stand now, then each takeover section an earlier lane started on, so a message one of them carried reaches the next; or the brief as it stands for a job no drive job brief wrote."""
+    job = state.load(name)["jobs"][job_id]
+    held = orca.brief_of(Path(job["brief"]).read_text())
+    if not job.get("brief_flags"):
+        return held
+    rewrite_brief(name, job_id, job["brief_flags"])
+    _, over, taken = held.partition(orca.TAKING_OVER)
+    return Path(state.load(name)["jobs"][job_id]["brief"]).read_text().strip() + (f"\n\n{over}{taken}" if over else "")
+
+
+def rewrite_brief(name: str, job_id: str, flags: dict) -> tuple[str, dict]:
+    """Write a job's brief from what the drive holds and its flags: his words verbatim on its order and on each order it carries, each answer of his binding it, by brief.bound, as its recorded words above the drive's notes, the earlier jobs' transcripts, and the lines its flags name."""
+    data = state.load(name)
+    job = data["jobs"][job_id]
+    order = data["orders"][job["order"]]
+    checkout_dir = Path(data["roles"]["coordinator"]["cwd"])
     earlier = [line for other in order["jobs"] if other != job_id and (line := transcript_line(other, data["jobs"][other]))]
     planned = order["kind"] == "build" and not order["incident"]
     found = brief.research(name, data, job["order"], job["parts"]) if planned and job["kind"] in brief.RESEARCHED_KINDS else None
-    researched = [closed for question in data["jobs"][found[0]]["questions"] if (closed := question["closed"]) and closed["how"] != "withdrawn"] if found else []
-    settles = [closed["ruling"] for closed in researched if closed["ruling"]]
-    heard = [f'his answer "{closed["words"]}"' + (f" ({closed['link']})" if closed["link"] else "") for closed in researched if not closed["ruling"] and closed["words"]]
-    rulings = [*(ruling_words(answer_id, checkout_dir) for answer_id in dict.fromkeys([*(flags["ruling"] or []), *settles])), *dict.fromkeys(heard)]
+    ids, heard = brief.bound(name, data, job | {"brief_flags": flags})
+    rulings = [*(ruling_words(answer_id, checkout_dir) for answer_id in ids), *heard]
+    carried = "".join(f"\n{order_id}, which it also carries: {data['orders'][order_id]['text']}" for order_id in job["carries"])
     scratch = Path(flags["scratch"]).expanduser() if flags["scratch"] else state.drive_dir(name) / "scratch" / job_id
     scratch.mkdir(parents=True, exist_ok=True)
     fields = {
-        "Order (his words)": order["text"],
+        "Order (his words)": order["text"] + carried,
         "Serves": flags["serves"],
         "Goal": job["goal"],
         "Done when": flags["done_when"],
@@ -2103,16 +2124,14 @@ def write_brief(name: str, job_id: str, named: dict) -> tuple[str, dict]:
         data["jobs"][job_id].update(brief=str(written), brief_flags=flags)
         if given := bool(brief.SERVES_TOOLING.search(text)) and data["orders"][job["order"]]["owner"] != "meta":
             data["orders"][job["order"]]["owner"] = "meta"
-    line = f"Read your brief first: {written}\nhis words from {job['order']}, rulings: {len(rulings)}, earlier jobs: {len(earlier)}"
-    if kept:
-        line += "\nkept from its earlier brief: " + ", ".join(f"--{flag.replace('_', '-')}" for flag in kept)
+    line = f"Read your brief first: {written}\nhis words from {', '.join([job['order'], *job['carries']])}, rulings: {len(rulings)}, earlier jobs: {len(earlier)}"
     if given:
         line += (
             f"\n{job['order']} is the meta session's order now, since a builder serving drive tooling is its alone: only the meta session"
             f" starts {job_id} and its agents and posts its reports; from the coordinator, start no agent on it and send"
             f" meta@{name} a defect record naming {job_id} and its `Read your brief first:` line"
         )
-    return line, {"id": job_id, "brief": str(written), "rulings": len(rulings), "earlier": earlier, "kept": kept}
+    return line, {"id": job_id, "brief": str(written), "rulings": len(rulings), "earlier": earlier}
 
 
 def incident_line(data: dict, job_id: str, given: str | None) -> str | None:
@@ -2328,7 +2347,7 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
         data = state.load(name)
         job = data["jobs"][job_id]
     root = orca.checkout(name, data)
-    written = named_text(brief_file or job["brief"], "brief file")
+    written = rebriefed(name, job_id) if (taker or died) and not brief_file else named_text(brief_file or job["brief"], "brief file")
     held = [kept["words"] for kept in job["undelivered"] if not superseded.carries(written, kept["words"])]
     owed = [f'"{kept["words"]}"' + (f" ({kept['link']})" if kept["link"] else "") for kept in superseded.owed(data, job_id) if not superseded.carries("\n".join([written, *held]), kept["words"])]
     if since := [*held, *owed]:
@@ -2442,7 +2461,7 @@ def hand_over(args: argparse.Namespace, name: str, data: dict, session: str) -> 
     if not job.get("brief"):
         raise DriveError(f"{args.id} has no brief to hand over: write it with drive job brief {args.id}, then resume it again")
     kept = state.drive_dir(name) / "jobs" / f"{args.id}.handoff.md"
-    kept.write_text(orca.agent_handoff(orca.brief_of(Path(job["brief"]).read_text()), job, args.text, None))
+    kept.write_text(orca.agent_handoff(rebriefed(name, args.id), job, args.text, None))
     with state.edit(name) as data:
         data["jobs"][args.id].update(handoff=str(kept), handed_to=session, updated=state.stamp())
     line = (
@@ -2500,7 +2519,7 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
     attempt = f"{args.id}-{len(job['deaths']) + 1}"
     kept = state.drive_dir(name) / "jobs" / f"{attempt}.md"
     kept.parent.mkdir(exist_ok=True)
-    brief = orca.vm_brief(name, args.id, orca.handoff(orca.brief_of(Path(job["brief"]).read_text()), ended, branches, job, message, end, continued, here), route)
+    brief = orca.vm_brief(name, args.id, orca.handoff(rebriefed(name, args.id), ended, branches, job, message, end, continued, here), route)
     was = orca.place(job)
     if same:
         kept.write_text(brief)

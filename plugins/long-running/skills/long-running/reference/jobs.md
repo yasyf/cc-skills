@@ -111,8 +111,9 @@ Orca shows for that dispatch, so `drive job resume` reaches it. The first line t
 an agent holds, and nothing else does but a codex job's run: the stop sends back a line not kept, `drive job set` refuses
 every state but `stopped`, and `drive job report` refuses, naming the fix, a job still stopped, a line
 opening with no result, a `WAITING` naming nothing the watch frees it on, a design lane's `DESIGN`
-whose `Fork:` line names a file keeping no question of the job, and a reader's `DESIGN` that
-`drive job ask` refuses as his card. Each drive PR and `release:<service>:<owner>/<repo>#<n>` a
+whose `Fork:` line names a file keeping no question of the job or that Jev reads as building less
+or later than his words or answers name with no fork asking him, or a strategy before the
+abstraction it shares, and a reader's `DESIGN` that `drive job ask` refuses as his card. Each drive PR and `release:<service>:<owner>/<repo>#<n>` a
 `READY`, `PUSHED` or `WAITING` line names becomes a wait, which the watch's `FREE` line ends once
 the PR merges or closes or the release is out; a release wait whose service `tools/ci release select
 --pr` finds the PR's changed paths never reach is refused, naming the components they reach:
@@ -323,8 +324,9 @@ before it sends or starts.
   each text the job holds and each answer it has not heard that its brief lacks under `His answers since:`; `drive answer
   --sent` records only a `SendMessage` to an agent a coordinator session on this Mac runs, and is
   refused on any other job.
-- Either new worker gets a handoff carrying the job's brief, branch, last line, report, PRs and the
-  message, and the output says which ran.
+- Either new worker gets a handoff carrying the job's brief, rebuilt from its `drive job brief`
+  call so it holds the rulings and carried orders the drive holds now, branch, last line, report,
+  PRs and the message, and the output says which ran.
 - A dead lane whose Sprite answers with the Claude session its worker ran there, found by the
   dispatch id in that session's transcript, as after the Sprite's VM restarts, is resumed instead:
   `cc-remote orca prepare --existing --resume <session>` starts that session again in the
@@ -380,7 +382,7 @@ by his words "you're supposed to proactively view and click through every user s
 acceptance critera for yourself".
 
 ```
-Order (his words): <verbatim; for drive tooling, its order's own "Drive tooling: …" words>
+Order (his words): <verbatim; for drive tooling, its order's own "Drive tooling: …" words; then the words of each order the job carries, each on its own line>
 Serves: <"port of #N", "drive tooling" for a fix to a tool the drive runs on, under its own order and never his feature order's, or "his order" when the Order line asks for this build; a job for anything else is never started>
 Goal: <the deliverable, one sentence>
 Done when: <the check that proves it where he will see or use it, such as the installed command's output, the live post or a picture of each user story, since data fetched from an API proves no screen>
@@ -388,7 +390,7 @@ Where: <repo, base branch, existing branch or PR to adopt>
 Runs as: <only for a pass, migration, backfill, conversion, bulk or hand repair or any other write of a team's data: the service account in that team's cluster it runs as, and how it starts with no person's role and not from this Mac, such as a pipeline or an in-cluster schedule; `none: <why>` when the hook reads such a write in a Goal that makes none>
 Release: <only for a job that starts a release: the one `tools/ci release start` or `tools/ci release hotfix` it may run, its targets, `--env` and `--order` as it runs them, a start naming no `--env` shipping to production as `tools/ci release` defines it; `drive job brief --release` asks Jev once whether the answer its `--order` names approves that release, unless the answer is an incident's, and the `landing_guard` hook refuses a job's start or hotfix of any other targets, envs or `--order`, and, outside an incident, one no `tools/ci release plan` at the same flags passed before in that job>
 Handoff: <a PR event or a built branch freed only: the PR URLs or the built branch, its head, the event line verbatim, and the INSTALL: and PROVE: lines the first builder returned>
-Decisions that bind: <each ruling the call's ruling field names, each one the brief of any job on its order binds, a reader's or a design's included, and each that settled a question of the reader Researched names, its answer's title and body word for word, and every other ruling of his on the whole area this touches, found with answer_search; "none named; search his answers on the area" when none of these names one>
+Decisions that bind: <each ruling the call's ruling field names, each one the brief of any job on its order binds, a reader's or a design's included, each that settled a question of the reader Researched names and each the `rulings:` line of the reader of its order and of each order it carries names, its answer's title and body word for word, and every other ruling of his on the whole area this touches, found with answer_search; "none named; search his answers on the area" when none of these names one>
 Research: <a build order's reader only: the Researched: block this build needs>
 Researched: <a build order's builder, designer or codex lane only: the reader job of its own part, a change a design listed counting as that design's part, whose kept report holds the order's rulings, what exists and its open questions>
 Native: <where he sees or uses the result, such as a Slack post or card, the dashboard, a CLI he runs or a product UI, and what that platform already does for it, with links, such as Block Kit's chart and table blocks; "none" for work he never sees>

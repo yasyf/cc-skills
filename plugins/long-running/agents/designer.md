@@ -65,6 +65,14 @@ the shape to keep: "don't go based on what's currently there design this cleanly
   his is often read with, such as the dashed text a UUID is usually written in or f32 vectors, is
   your reading, never his words, so changing what exists for it is a fork, by his words "stop
   overrecahing and changing things people didnt ask you when you are asked to make a change".
+  Building less than his words or an answer of his name, or building it later, such as one of the
+  strategies he approved left for a follow-up, is a fork whatever it costs to switch: build it in,
+  or keep it as his card, never a line the design decides for him.
+- Where his words or the order's rulings name several strategies, such as time and hash
+  partitioning, design the abstraction they share first and walk every strategy through it on
+  paper, with a worked example of each operation, before any of them is built. The abstraction is
+  change 1 and each strategy a later `Change:` line waiting on it, by his words "we should buiold
+  the abstraction first, make sure it works by imaginign, then implement the strategies".
 - Where a row, a placement or a status could reach a bad state, shape it so that state cannot exist,
   under one durable owner. His recorded answer rules out a sweeper, time rule or reclaim loop.
 - Give each piece a worked example: the real calls of an API, imperative beside declarative; the
@@ -243,7 +251,9 @@ Facts: <the path:line evidence for each load-bearing fact, for the builder>
 `Root cause:`, `Settled:`, `Native:`, `Exists:`, `Change:`, `Fork:` and `Facts:` lines, naming each one missing, a `Fork:`
 path that keeps no question of your job, an `Exists:` entry citing no `path:line` or link or naming
 no change of its list, an `Exists: none` naming no search or while the order's reader's `exists:`
-line names something, and a
+line names something, a design Jev reads as building less than his words or an answer of his name,
+or later, with no fork asking him, or as building a strategy before the abstraction it shares with
+the others, and a
 `Change:` line past 80 characters or holding a backtick, double quote, `$` or backslash. Each
 `Change:` line of a design of several becomes a part of the order under its words before
 `(waits on …)`, and the drive gives each change its own builder as your design returns, waiting on
