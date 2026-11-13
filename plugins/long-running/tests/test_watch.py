@@ -5227,6 +5227,22 @@ def test_a_merged_ready_job_waits_for_its_lander_before_its_proof_starts(demo: s
     assert (watch.run_pass(watcher(demo), T0), provers) == ([], [])
 
 
+SUPERSEDED = "yasyf/cc-skills#8"
+
+
+@pytest.mark.parametrize(("said", "started"), [(f"READY {state.pr_url(YASYF)}", ["j1"]), (f"READY {state.pr_url(YASYF)} {state.pr_url(SUPERSEDED)}", [])])
+def test_a_merged_ready_jobs_proof_counts_the_prs_its_line_names_so_a_closed_pr_the_line_leaves_out_holds_nothing_and_one_it_names_holds_it(
+    demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], tmp_path: Path, said: str, started: list[str]
+) -> None:
+    serve(monkeypatch, {})
+    merged_ready(demo, YASYF, proof_file(tmp_path))
+    with state.edit(demo) as data:
+        data["prs"][SUPERSEDED] = state.new_pr(state.pr_url(SUPERSEDED), "j1", "o1") | {"state": "closed"}
+        data["jobs"]["j1"].update(said=said, prs=[state.pr_url(YASYF), state.pr_url(SUPERSEDED)])
+    lines = watch.run_pass(watcher(demo), T0)
+    assert (provers, any(line.startswith("ORPHAN ") and f"{SUPERSEDED} closed" in line for line in lines)) == (started, not started)
+
+
 def test_a_merged_ready_tooling_job_keeping_no_proof_file_is_said_orphaned_once_and_proved_once_it_keeps_one(
     demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], tmp_path: Path
 ) -> None:
