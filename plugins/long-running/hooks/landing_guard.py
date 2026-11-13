@@ -194,7 +194,7 @@ RELEASE_UNPLANNED = (
 )
 MISROUTED = (
     "This {kind} record goes to {lanes}: a defect, and the communicator's owner record about the drive, to the meta"
-    " session, and the communicator's other owner, answer, handoff, posted or refused record to the session holding the"
+    " session, and the communicator's other owner, answer, handoff or refused record to the session holding the"
     " order it serves; post it again with `{flags}`, or on the cci `post` tool, whose hook addresses it"
 )
 
@@ -645,7 +645,7 @@ def shell_of(payload: dict) -> tuple[list[str], Shell]:
 
 
 def judged_reason(payload: dict) -> str | None:
-    """Why a drive session's Bash call looks wrong in a way Jev judges before it stands: it posts a drive's ask record, which only `drive job ask` posts, a report carrying a part in an attr other than part, which no post reads, or naming an attr a separator, a capital or one letter from one the drive reads, a record to lanes other than the drive routes it to, a report to the communicator that the checks the cci `post` tool's hook runs refuse, such as one leaving out a part a finished job answered, or a record a handler posts to him typing a clock time for work already done, or is the coordinator's or the meta session's own order work."""
+    """Why a drive session's Bash call looks wrong in a way Jev judges before it stands: it posts a drive's ask record, which no session posts since `drive job ask` draws his card itself, a report carrying a part in an attr other than part, which no post reads, or naming an attr a separator, a capital or one letter from one the drive reads, a record to lanes other than the drive routes it to, a report to the communicator that the checks the cci `post` tool's hook runs refuse, such as one leaving out a part a finished job answered, or a record a handler posts to him typing a clock time for work already done, or is the coordinator's or the meta session's own order work."""
     names, shell = shell_of(payload)
     session = shell.session
     command = payload["tool_input"]["command"]

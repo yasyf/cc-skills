@@ -504,12 +504,11 @@ def test_the_communicators_record_for_a_coordinator_goes_to_the_session_hearing_
     root = ["root@demo"]
     records = [
         {"kind": "answer", "text": "Ring", "to": root, "re": ["7"], "attrs": {"job": "j1", "maps": "none"}},
-        {"kind": "posted", "text": "card up demo:j1-8", "to": root, "resolves": ["8"], "attrs": {"waits": "demo:j1-8"}},
         {"kind": "refused", "text": "cc-slack refused the card", "to": root, "resolves": ["9"], "attrs": {"job": "j1"}},
         {"kind": "report", "text": "FYI j1 merged", "attrs": {"close": "o1"}},
     ]
     made = record_lines.decision(post("talker", records=records))["updatedInput"]["records"]
-    assert [record.get("to") for record in made] == [["iris@demo"]] * 3 + [None]
+    assert [record.get("to") for record in made] == [["iris@demo"]] * 2 + [None]
     about_drive = {"kind": "owner", "text": "the dashboard drops my cards", "to": ["meta@demo"], "attrs": {"thread": THREAD, "about": "drive"}}
     unordered = refusal(record_lines.decision(post("talker", **about_drive)))
     assert isinstance(unordered, agents.Unjudged) and "his words about the drive go out on the drive's `record` tool" in unordered

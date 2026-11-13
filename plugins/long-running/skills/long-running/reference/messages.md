@@ -1,7 +1,7 @@
 # Messages to the owner
 
-Only the communicator's side writes to him, from his own messages and from the `report` and
-`ask` records the coordinator sends. The communicator posts the ack alone in its first message and
+Only the communicator's side writes to him, from his own messages and from the `report`
+records the coordinator sends, and on the question cards `drive job ask` draws. The communicator posts the ack alone in its first message and
 nothing else. Its handlers write, check and post every other post, one handler at a time per message of his or
 per thread: the coordinator's record carries the facts, the handler writes the words, and a handler
 answers his read-only questions itself. Every post is short, says what changed for him, and carries
@@ -149,8 +149,8 @@ summary of one feature is a line of at most 60 words.
 
 **A question card.**
 
-- A handler draws it from an `ask` record: the job's `ASK` as `drive job ask` kept it, with nothing
-  posted before or after it.
+- `drive job ask` draws it in the call that keeps the job's `ASK`, from the file it kept, with
+  nothing posted before or after it.
 - Its title is its question, one sentence of plain words that names what it decides by its proper
   terms, the function, flag, file, service or table, never a stand-in such as "the copy change".
   `drive job ask` refuses a title naming its object only as "the change", "the fix" or "this" while
@@ -207,10 +207,9 @@ summary of one feature is a line of at most 60 words.
   card, polling is fine for seeing when the function output changed". A Sand name such as
   `event::on` is a proper term and passes.
 - Write each option to stand alone: cc-slack draws the recommended option first and numbers the rest
-  after it, so the numbers in an `ask` record are not the ones he sees. An option that builds on
+  after it, so the numbers in an `ASK` block are not the ones he sees. An option that builds on
   another repeats what that one does, such as "Own process plus a memory cap per script".
-  `cc-slack check-post` and `drive job ask` refuse "as 1", "same as 2" or "the first option", and the
-  coordinator writes an `ask` record's options the same way.
+  `cc-slack check-post` and `drive job ask` refuse "as 1", "same as 2" or "the first option".
 - The findings stay in the job's file. Explain more on the card posts the one section its question
   rests on, in plain words, and that is the only way findings reach him. Each option's description
   is on the card, never only in the findings.
@@ -315,26 +314,25 @@ Its Show me:
 
 Posting it:
 
-- Post the card with one `say(card=<what drive job card prints>, thread_ts=<his thread>)` call, the
-  card `drive job card <the record's ask file> --waits <its waits id>` prints, never one put together
-  by hand.
+- `drive job ask` posts the card itself, in the same call that keeps the question, as `drive pr add`
+  posts a PR card, and the watch posts on its next read each kept question whose card did not draw
+  then. No session posts a question card, and none is put together by hand.
 - A kept ASK file changes only through `drive job ask`, which checks the new words against every
   rule. `drive job card` and `drive cards redraw` refuse a kept file whose words no longer hash to its
   name, naming the `drive job ask <j> <file>` that keeps them. A block rebuilt from his card, and one
   no job kept, meet every rule a new block meets before they draw.
-- cc-slack posts a card that names its drive and waits on him at his DM root, whatever thread it is
-  given, and posts the card's permalink under its question in that thread. In a thread outside his
-  DM, such as an alert's, pass its `channel_id` too: `say` draws the card at his DM root and posts its
-  link in that thread through `cc-slack reply`, and returns that line as `POSTED` and the card as
-  `CARD`. A thread outside his DM named with no `channel_id` is refused, naming the channel. Give a
-  drive tooling card no thread, since its order has none.
-- Then close the `ask` record with a `posted` record carrying the card's permalink and `waits` id. His
-  tap comes back as an `answer` record, so "card posted" and "he answered" stay two states.
-- Every question card carries its `waits` id, `<drive>:<job>-<the seq of the ask record that first
-  asked it>`. One question keeps one `waits` id and one card, which every copy of it in Slack and the
-  dashboard draws from: `drive job ask` keeps a block asking an open question again, in the same
-  words, as that question, `drive job card` draws it under the question's `waits` id whatever new
-  seq it is given, and his answer closes every copy at once. A question that ended draws under no
+- cc-slack posts a card that names its drive and waits on him at his DM root, and posts the card's
+  permalink under its question in the thread of the job's order, or of its open incident, when that
+  thread is in his DM. A thread outside his DM, such as an alert's, gets the card's line through a
+  report record `drive job ask` sends the communicator, whose handler posts it there, since only a
+  `say` call carries the ticket cc-slack spends on a write outside his DM. His tap comes back as an
+  `answer` record, so "card posted" and "he answered" stay two states.
+- Every question card carries its `waits` id, `<drive>:<job>-<n>`, which `drive job ask` mints when
+  it first keeps the question. One question keeps one `waits` id, which every copy of it in Slack and
+  the dashboard draws from: `drive job ask` keeps a block asking an open question again as that
+  question and redraws its card where it sits under that `waits` id; every other open card of
+  the job asking the same shows asked again with a link to the live one and no buttons, and each
+  wait on it moves to the live one; his answer closes every copy at once. A question that ended draws under no
   `waits` id: `drive job card` refuses it, naming the words it ended on. `drive job ask` refuses a block another
   job's open card asks. When a job builds the recommended option meanwhile, the summary says which
   option is being built, and names the immediate fix or rollback already shipping.
@@ -592,7 +590,7 @@ restating it.
   It used to fetch the last 64 KiB of every file; now it fetches the last one-sixteenth of each file
   (about 6 KiB of a 97 KiB file), never more than 64 KiB.
   ```
-- The coordinator writes its `report` and `ask` records the same way, since a handler writes
+- The coordinator writes its `report` records the same way, since a handler writes
   from their words.
 - Link everything he could open where it is named: a PR, a teammate's fix, a card, a release, a
   build, an alert, a thread or an earlier decision, so he never has to look it up himself. A link
@@ -720,8 +718,8 @@ restating it.
   your sense of how long the turn has run, which drifts.
 - A clock time typed for work already done. Name the job or record and let the drive's stamp give the
   time: `{started:<job>}` for when a job started and `{at:<seq>}` for when a record went out, which `say`
-  fills. Only words he reads are checked: `say`, a card `drive job ask` keeps, and a POST report, ready
-  or ask record to the communicator, through the cci `post` tool or a Bash `cci post`, refuse a time such
+  fills. Only words he reads are checked: `say`, a card `drive job ask` keeps, and a POST report or ready
+  record to the communicator, through the cci `post` tool or a Bash `cci post`, refuse a time such
   as "started at 4:55 AM", naming the write's stamp and each named job's: on Nov 12 a report posted at
   4:50 AM said its builder started at 4:55 AM. A SendMessage, a defect, a handoff, any other record
   between sessions and `drive job report` quote times as they stand, by his words "i think that time

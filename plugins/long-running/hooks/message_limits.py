@@ -163,7 +163,7 @@ def coordinator_post(payload: dict) -> str | None:
             return (
                 f"Refused on purpose: the {state.title(role)} posts nothing to Slack, since his reply under a post reaches only the"
                 f" session that posted it. Send the words as a `report` record to communicator@{name}, and its handler"
-                " posts them; a question for him goes as an `ask` record there."
+                " posts them; a question for him is a job's ASK, kept with `drive job ask`, which draws his card."
             )
     return None
 

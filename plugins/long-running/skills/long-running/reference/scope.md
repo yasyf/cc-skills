@@ -83,8 +83,8 @@ which his share orders, are the two exceptions, by [messages.md](messages.md).
 
 ## A question for him
 
-A question for him reaches him only as a question card, drawn from an `ask` record by the
-communicator's handler, because he reads no terminal. Every drive session and handler starts with
+A question for him reaches him only as a question card, which `drive job ask` draws as it keeps
+the job's `ASK`, because he reads no terminal. Every drive session and handler starts with
 the AskUserQuestion tool denied ([Start or resume](start.md)), the `no_terminal_questions` hook
 refuses the tool in any session bound to a drive, the agents it starts and one started before that
 deny included, and a job asks through its `ASK` return, so no question waits in a terminal. The same
@@ -114,7 +114,7 @@ tap for an amount or choice they name, by his words "You didn't give me a tap fo
 many times do I have to say this". The refusal names each part and the words it breaks: rewrite it,
 or ask again with `--unsettled` naming each id and why those words do not reach it. A tap approving a PR settles only that PR's landing. A block a refusal stops
 stays kept under `asks/` as the job's pending question with its refusal. No card draws from it,
-`drive job ask` posts no `ask` record for it, and `drive status` lists it refused. The watch says its job waits on a
+and `drive status` lists it refused. The watch says its job waits on a
 card never posted until the job asks it again, in its words or others sharing three rare words, or
 `drive job ask <j> --drop <file>` drops it.
 

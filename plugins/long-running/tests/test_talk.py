@@ -196,6 +196,15 @@ def test_a_record_links_what_it_links_under_its_first_clause_or_the_words_after_
     assert said(demo)[0]["text"].startswith(f"The pod restarts because [sandsql-server ran out of memory at its 32 GiB limit]({notebook}).")
 
 
+def test_686941_a_record_whose_words_name_a_waits_id_links_under_its_words_with_the_whole_id_left_out(
+    demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    card = "https://acme.slack.com/archives/D123/p1794549171189889"
+    monkeypatch.setattr(reads, "run", lambda argv, checkout: json.dumps({"kind": "posted", "text": "card up durable-agents:j2801-686784", "refs": {"url": card}}))
+    talk.say(demo, {"text": "His card is {record:686809}."})
+    assert posts[0][-1] == f"His card is <{card}|card up>."
+
+
 def test_his_ruling_draws_as_his_words_and_when_he_said_them_linked_to_their_ack_and_its_id_is_no_commit(
     demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
 ) -> None:

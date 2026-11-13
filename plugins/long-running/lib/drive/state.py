@@ -131,7 +131,7 @@ WAITS_ID = re.compile(r"([\w.-]+):(j\d+)-(\d+)")
 ORDER_LIST = re.compile(r"[\s,]+")
 PART_ITEMS = re.compile(r"\s*;\s*(?=o\d+:)")
 ORDER_PART = re.compile(r"(o\d+):\s*(.+)", re.DOTALL)
-ROUTED_KINDS = ("owner", "answer", "handoff", "posted", "refused")
+ROUTED_KINDS = ("owner", "answer", "handoff", "refused")
 APPROVALS_LABELLED = ".approvals-labelled-by-question"
 PR_JOB_INDEX: ContextVar[tuple[dict, dict[str, list[str]]] | None] = ContextVar("pr_job_index", default=None)
 BATCHED: dict[str, bytes] = {}
@@ -1347,8 +1347,13 @@ def new_question(
 
 
 def refused_by(question: dict) -> str:
-    """The verb that refused a question: `drive job card`, drawing its card from the ask record whose waits id it holds, else `drive job ask`, which refuses a question before its ask record goes out."""
+    """The verb that refused a question: `drive job card`, drawing a card under the waits id the question holds, else `drive job ask`, whose refusal leaves the question holding none."""
     return "drive job card" if question["waits"] else "drive job ask"
+
+
+def new_waits(name: str, job_id: str) -> str:
+    """The waits id a job's new question draws its one card under, numbered by the millisecond it was minted, so no two questions of a job share one and none carries a character cc-slack refuses."""
+    return f"{name}:{job_id}-{time.time_ns() // 1_000_000}"
 
 
 def new_close(
@@ -1792,7 +1797,7 @@ def served_order(data: dict, attrs: dict) -> str | None:
 
 
 def serving_lane(data: dict, kind: str, attrs: dict) -> str | None:
-    """The cci lane of the session a communicator's owner, answer, handoff, posted or refused record serves, the order its attr order names, else the order of the job its attr job or waits id names, else the newest order in its thread: the meta session's for a drive tooling order but for his words about his work, else the coordinator session hearing that order; None for another kind, or a record naming none."""
+    """The cci lane of the session a communicator's owner, answer, handoff or refused record serves, the order its attr order names, else the order of the job its attr job or waits id names, else the newest order in its thread: the meta session's for a drive tooling order but for his words about his work, else the coordinator session hearing that order; None for another kind, or a record naming none."""
     if kind not in ROUTED_KINDS:
         return None
     if (order_id := served_order(data, attrs)) is None:
@@ -1811,7 +1816,7 @@ def named_job(data: dict, attrs: dict) -> str | None:
 
 
 def routed(drives: dict[str, dict], session: str | None, kind: str, attrs: dict, to: list[str]) -> list[str]:
-    """Where a drive session's record goes: a defect to the top coordinator, the communicator or the meta session to the meta session, which holds drive tooling, unless it posts it; the communicator's owner record about the drive to the meta session alone, his ruling on how the drive works included; and the communicator's other owner, answer, handoff, posted or refused record for a coordinator lane to the session holding the order it serves."""
+    """Where a drive session's record goes: a defect to the top coordinator, the communicator or the meta session to the meta session, which holds drive tooling, unless it posts it; the communicator's owner record about the drive to the meta session alone, his ruling on how the drive works included; and the communicator's other owner, answer, handoff or refused record for a coordinator lane to the session holding the order it serves."""
     made = []
     for entry in to:
         lane, _, name = entry.partition("@")

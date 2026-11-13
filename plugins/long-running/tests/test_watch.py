@@ -11,7 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from conftest import DRIVE_TERMINAL, SHORT_ASK, CodexAsk, Draws, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, staged
+from conftest import DRIVE_TERMINAL, SHORT_ASK, CodexAsk, drawn_card, Draws, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, staged
 from drive import agents, card, cli, codex, github, install, land, launchd, orca, place, reads, receiver, render, served, slack, stage, state, superseded, talk, view, watch
 
 KEY = "Forge-AI/monorepo#42"
@@ -2170,7 +2170,7 @@ def test_a_builder_built_beside_its_readers_open_card_waits_on_that_card_whateve
     with state.edit(demo) as data:
         data["prs"].pop(KEY)
         parts = data["jobs"].pop("j1")["parts"]
-        asked = state.new_question(f"/drive/asks/{reader}-ab.md", "Which shape?", state.stamp(T0)) | {"waits": card}
+        asked = state.new_question(f"/drive/asks/{reader}-ab.md", "Which shape?", state.stamp(T0)) | {"waits": card, "card": drawn_card(1)}
         data["jobs"][reader] = job(kind="reader", state="done", parts=parts, questions=[asked])
         data["jobs"][builder] = job(parts=parts)
         data["orders"]["o1"]["jobs"] = [reader, builder]
@@ -2414,8 +2414,8 @@ def test_a_codex_lane_that_built_its_recommended_option_has_the_ask_block_it_nam
     codex_running(demo, codex_ask.run("completed", codex_reply("DONE", "built one snapshot file per finished run on branch snapshot-file", f"ASK: {block}")))
     kept = state.drive_dir(demo) / "asks" / f"j1-{state.ask_hash(SHORT_ASK)}.md"
     assert watch.run_pass(watcher(demo), state.now()) == [
-        f"JOB j1 o1 DONE built one snapshot file per finished run on branch snapshot-file; its ASK is kept in {kept} and its ask record posted,"
-        " so his card draws, and the recommended option it built ships meanwhile"
+        f"JOB j1 o1 DONE built one snapshot file per finished run on branch snapshot-file; its ASK is kept in {kept},"
+        f" his card {drawn_card(1)} asks it under demo:j1-7, and the recommended option it built ships meanwhile"
     ]
     job = state.load(demo)["jobs"]["j1"]
     assert (job["state"], [question["file"] for question in job["questions"]], kept.read_text()) == ("waiting", [str(kept)], SHORT_ASK)
