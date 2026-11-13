@@ -97,9 +97,11 @@ def landing_why(pr: dict) -> str:
 
 
 def unlanded(data: dict, pr: dict) -> str | None:
-    """How a lander's try at the PR's head ended without landing it, or None when no try at this head stands: none ran on it, Trunk holds it, or what the try waited on moved since, a PR below it that is cleared or merged now, a newer install's save that ended it before it queued anything, a hold of his that it or halt() stopped it on, which held() reads while it stands, or no fresh worktree of the default branch to land from, such as when GitHub did not answer, so the lander tries again."""
+    """How a lander's try at the PR's head ended without landing it, or None when no try at this head stands: none ran on it, Trunk holds it, what let it run moved since, nothing clearing it now while it waits on his card, as after drive pr set --no-exempt --tap, or his tap made after the try started, or what the try waited on moved since, a PR below it that is cleared or merged now, a newer install's save that ended it before it queued anything, a hold of his that it or halt() stopped it on, which held() reads while it stands, or no fresh worktree of the default branch to land from, such as when GitHub did not answer, so the lander tries again."""
     lander = pr["lander"]
     if not lander or lander["head"] != pr["head"] or land.running(pr):
+        return None
+    if carded(pr) and not state.cleared(pr) or pr["tap"] and state.parse_time(pr["tap"]["at"]) > state.parse_time(lander["at"]):
         return None
     if lander["outcome"] == land.QUEUED:
         return "Trunk ejected it from the merge queue" if pr["ejected"] else None
