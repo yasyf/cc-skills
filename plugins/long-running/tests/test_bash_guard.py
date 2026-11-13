@@ -83,7 +83,7 @@ def test_a_sprite_lanes_ship_asks_the_coordinators_mac_whether_his_open_cards_ho
         asked.append(argv)
         return subprocess.CompletedProcess(argv, answer["code"], stdout=answer["out"], stderr=answer["err"])
 
-    monkeypatch.setattr(bash_guard.subprocess, "run", drive)
+    monkeypatch.setattr(land.subprocess, "run", drive)
     opening = "ccx vcs ship --pr-title-file /s/t --pr-body-file /s/b"
     assert bash_guard.deny_reason(bash(opening, session="sprite")) is None
     monkeypatch.setenv(state.REMOTE_LANE_ENV, "1")

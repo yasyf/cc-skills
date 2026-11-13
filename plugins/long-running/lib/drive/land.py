@@ -16,6 +16,7 @@ DRIVE = Path(__file__).resolve().parents[2] / "bin" / "drive"
 LOG = "landings.log"
 LANDINGS = "landing"
 CHECKOUT_SECONDS = 600
+LANE_HELD_SECONDS = 540
 SAID_CHARS = 400
 SAID_LINES = 4
 QUEUED = "queued for merge"
@@ -65,6 +66,21 @@ def ship_held(data: dict, job_id: str, cards: dict | None) -> list[str]:
     if any(data["prs"].get(state.pr_key(url), {}).get("state") == "open" for url in data["jobs"][job_id]["prs"]):
         return []
     return open_cards(data, job_id, [], cards)
+
+
+def lane_held(*flags: str) -> dict:
+    """What `drive job held --json` answers a Sprite lane, which holds no drive: the lane's `drive` asks it of the coordinator's Mac, where the drive's records live, waiting up to LANE_HELD_SECONDS; DriveError when it could not say."""
+    try:
+        done = subprocess.run(["drive", "job", "held", "--json", *flags], capture_output=True, text=True, timeout=LANE_HELD_SECONDS, check=False)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise state.DriveError(str(error)) from error
+    if done.returncode:
+        raise state.DriveError((done.stderr or done.stdout).strip())
+    try:
+        return json.loads(done.stdout)
+    except ValueError as error:
+        raise state.DriveError(f"it printed no JSON: {done.stdout.strip()}") from error
+
 
 def approved(pr: dict) -> bool:
     return (pr["tap"] or {}).get("label") == "Approve"
