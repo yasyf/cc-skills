@@ -2399,7 +2399,7 @@ def drawn_card(name: str, key: str, pr: dict) -> str:
 
 
 def pr_wake(args: argparse.Namespace) -> int:
-    """Send a PR's stage line, or the text given, to the builder answering for it, as its stage owes: to a lane Orca holds as a message to its Dispatch, which neither answers its question nor touches its job's ask or state; to a fresh worker on its job when that lane finished or died, as drive job resume relaunches one; and to a builder this Mac's session holds as a handoff record to the session holding its order, which sends it to that agent."""
+    """Send a PR's stage line, or the text given, to the builder answering for it, as its stage owes: to a lane Orca holds as a message to its Dispatch, which neither answers its question nor touches its job's ask or state; to a fresh worker on its job when that lane finished or died, as drive job resume relaunches one; and to a builder this Mac's session holds as a handoff record to the session holding its order, which sends it to that agent. A lane's send or relaunch runs under the job's own lock, as drive job resume's does, so a second wake arriving while the first starts the job's next worker waits for it and sends that worker its line."""
     from drive import stage, view
 
     name = state.resolve(args.drive)
@@ -2411,10 +2411,12 @@ def pr_wake(args: argparse.Namespace) -> int:
     job_id = stage.owner_job(data, key)
     job = data["jobs"][job_id]
     if job.get("dispatch"):
-        end = orca.lane_end(job)
-        if end:
-            return restart(argparse.Namespace(id=job_id, text=text, drive=args.drive, json=args.json), name, job["dispatch"], end, text)
-        how = orca.send(job, f"{key}: its next step is yours", text)
+        with state.job_locked(name, job_id, orca.LAUNCH_SECONDS):
+            job = state.load(name)["jobs"][job_id]
+            end = orca.lane_end(job)
+            if end:
+                return restart(argparse.Namespace(id=job_id, text=text, drive=args.drive, json=args.json), name, job["dispatch"], end, text)
+            how = orca.send(job, f"{key}: its next step is yours", text)
         return emit(args, f"{key}: {job_id} {how}", {"key": key, "job": job_id, "how": how})
     lane = state.holder_lane(data["orders"][job["order"]]) or "root"
     said = f"STAGE {text}; its builder {job_id} is agent {job.get('agent')} of session {job.get('session')}: send it this line"
