@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Self
 
 from drive import agents, codex, dashboard, github, install, land, launchd, orca, page, place, procs, reads, receiver, render, served, slack, stage, stall, state, superseded, view
-from drive.install import MERGED_DONE, PROOF_FAILED, config_dir, merged_done, merged_ready, product, proof_gap, proofless, reported_prs, said_on_prs, upgraded
+from drive.install import MERGED_DONE, PROOF_FAILED, config_dir, merged_done, merged_ready, merged_said, product, proof_gap, proofless, reported_prs, said_on_prs, upgraded
 from drive.render import cut, when
 
 POLL_SECONDS = 5
@@ -2102,9 +2102,11 @@ def unproven(data: dict, job_id: str) -> bool:
 
 
 def at_merge(data: dict, job_id: str) -> bool:
-    """Whether the watch takes DONE at its merge on a builder waiting on a READY or PUSHED whose PRs all merged outside yasyf/*, a product change, with nothing else holding it, unless it is an open incident's fix, which is live only once its release is out."""
+    """Whether the watch takes DONE at its merge on a builder waiting on a READY or PUSHED whose PRs all merged outside yasyf/*, a product change, with nothing else holding it, on an open order no job of which proved those PRs live, unless it is an open incident's fix, which is live only once its release is out."""
     job = data["jobs"][job_id]
-    if not merged_ready(data, job_id) or job["waits"] or not product(data, job_id):
+    if not merged_ready(data, job_id) or job["waits"] or not product(data, job_id) or data["orders"][job["order"]]["state"] in state.CLOSED_ORDER_STATES:
+        return False
+    if state.prover(data, job["order"], reported_prs(data, job_id), job_id):
         return False
     return not any(state.INCIDENT_FIX in state.job_parts(job, order_id) for order_id in state.open_incidents(data, [job["order"], *job["carries"]]))
 
@@ -2137,25 +2139,36 @@ def proving(data: dict, job_id: str) -> bool:
     )
 
 
-def finished(watcher: Watcher, moment: datetime) -> None:
-    """Finish each builder the watch hears whose READY or PUSHED's PRs all merged: one whose PRs all merged outside yasyf/* takes DONE at its merge, its order keeping no proof until a builder proves it live on the release holding its merge, said on the job's PRs' lines; one naming a yasyf/* PR and keeping an executable proof file gets drive job prove, which takes its DONE or BLOCKED once the installed plugins hold its yasyf/* merges, marked under the drive's lock so no second proof starts on its line, said on its PRs' lines too; and one naming a yasyf/* PR and keeping no executable proof file takes BLOCKED, said by its part's ORPHAN line when no other job carries the part, so it leaves the jobs whose lanes each pass reads."""
+def finished(watcher: Watcher, moment: datetime) -> list[str]:
+    """Finish each builder the watch hears whose READY or PUSHED's PRs all merged: one whose PRs all merged outside yasyf/* takes DONE at its merge, its order keeping no proof until the builder merged_done adds proves it live on the release holding its merge, each release its PRs' paths reach read by cli.release_reach before the drive's lock, a read that fails leaving the job to the next pass, said on the job's PRs' lines; one naming a yasyf/* PR and keeping an executable proof file gets drive job prove, which takes its DONE or BLOCKED once the installed plugins hold its yasyf/* merges, marked under the drive's lock so no second proof starts on its line, said on its PRs' lines too; and one naming a yasyf/* PR and keeping no executable proof file takes BLOCKED, said by its part's ORPHAN line when no other job carries the part, so it leaves the jobs whose lanes each pass reads."""
+    from drive import cli
+
     data = state.load(watcher.name)
-    if not any(hears(watcher, data, job["order"]) and finishes(data, job_id) for job_id, job in data["jobs"].items()):
-        return
-    said = {}
+    heard = [job_id for job_id, job in data["jobs"].items() if hears(watcher, data, job["order"])]
+    if not any(finishes(data, job_id) for job_id in heard):
+        return []
+    merging = [job_id for job_id in heard if at_merge(data, job_id)]
+    lines: list[str] = []
+    try:
+        reach = cli.release_reach(watcher.name, data, [key for job_id in merging for key in reported_prs(data, job_id)])
+    except (github.GithubError, state.DriveError) as error:
+        merging, reach, lines = [], {}, failed(watcher, "release select", "`tools/ci release select --pr` read of the releases a merged PR reaches", error, moment)
+    else:
+        watcher.failures.pop("release select", None)
+    added = {}
     with state.edit(watcher.name) as data:
-        for job_id, job in data["jobs"].items():
+        for job_id, job in list(data["jobs"].items()):
             if not hears(watcher, data, job["order"]):
                 continue
-            if at_merge(data, job_id):
-                keys = reported_prs(data, job_id)
-                said[job_id] = (keys, merged_done(watcher.name, data, job_id))
+            if job_id in merging and at_merge(data, job_id):
+                added[job_id] = merged_done(watcher.name, data, job_id, reach)
             elif proof_due(data, job_id):
                 job["proof"] = {"pid": prove(watcher.name, job_id), "at": state.stamp(moment), "said": job["said"], "version": state.VERSION}
             elif unproven(data, job_id):
                 proofless(watcher.name, data, job_id)
-    for job_id, (keys, change) in said.items():
-        said_on_prs(watcher.name, data, job_id, keys, change)
+    for job_id, builder_id in added.items():
+        said_on_prs(watcher.name, data, job_id, reported_prs(data, job_id), merged_said(watcher.name, job_id, builder_id))
+    return lines
 
 
 def finishes(data: dict, job_id: str) -> bool:
@@ -2370,7 +2383,7 @@ def stages(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
         yield settle_lines(watcher, moment)
         yield follow_lines(watcher, moment)
         yield waits_lines(watcher, moment)
-        finished(watcher, moment)
+        yield finished(watcher, moment)
         yield recovered_lines(watcher, moment)
         yield close_report_lines(watcher, moment)
         yield waiting_lines(watcher, moment)

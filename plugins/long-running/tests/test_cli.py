@@ -3490,6 +3490,19 @@ def test_a_builders_ready_naming_a_yasyf_pr_is_refused_until_it_keeps_a_proof_fi
     assert keep(monkeypatch, capsys, "j1", ready) == (0, "")
 
 
+def test_a_builder_proving_a_merged_pr_live_on_a_done_order_is_refused_naming_the_job_that_proved_it(run: Run, communicator: str, capsys: pytest.CaptureFixture[str]) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "show each step", "--kind", "build")
+    key = "Forge-AI/monorepo#51852"
+    with state.edit("demo") as data:
+        data["orders"]["o1"] |= {"state": "done", "jobs": ["j1"]}
+        handoff = f"{key} at 485f9f408150 merged: install it and prove it live"
+        data["jobs"]["j1"] = state.new_job("o1", "builder", "prove it", list(data["orders"]["o1"]["parts"]), state.stamp()) | {"state": "done", "said": "DONE live on its release", "brief_flags": {"handoff": handoff}}
+        data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"state": "merged", "merged_sha": "485f9f408150"}
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", f"prove {key} live"]) == 2
+    assert f"refused, no job added: o1 is done and j1 proved {key} live, so no builder proves {key} live on it again" in capsys.readouterr().err
+    assert list(state.load("demo")["jobs"]) == ["j1"]
+
+
 def test_an_answer_order_is_one_readers_and_a_build_orders_builder_waits_on_its_readers_research(
     run: Run, communicator: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
