@@ -140,6 +140,11 @@ def recorded(title: str, words: str, labels: list[str], cwd: str) -> str:
     return json.loads(ccn(add, words, cwd, "could not record his answer in cc-notes"))["id"][:7]
 
 
+def supersede(pick: str, answer_id: str, cwd: str) -> None:
+    """Record in cc-notes that his answer replaces his earlier pick, so ccn answer match, which every brief's rulings read, no longer ranks the pick as standing."""
+    ccn(["ccn", "answer", "supersede", pick, "--by", answer_id], "", cwd, f"could not mark his pick {pick} superseded by his answer {answer_id} in cc-notes")
+
+
 def kind(words: str) -> list[str]:
     """The kind label of his answer: a tap on a PR card, which answers only Approve or Hold, is an approval."""
     return [APPROVAL] if words in state.TAP_LABELS else []
