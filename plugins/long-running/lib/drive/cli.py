@@ -374,7 +374,7 @@ def incident_stop(args: argparse.Namespace) -> int:
         order = find(data["orders"], args.id, "order")
         if not state.open_incidents(data, [args.id]):
             raise DriveError(f"{args.id}: refused, it is no open incident order")
-        if refused := state.held_elsewhere(data, args.id, state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))):
+        if refused := state.held_elsewhere(data, args.id, os.environ.get("CLAUDE_CODE_SESSION_ID")):
             raise DriveError(f"refused, no stop added: {refused}")
         if running := state.running_stops(data, args.id):
             raise DriveError(f"{args.id}: refused, its stop runs as {', '.join(running)}; resume that job instead")
@@ -1080,21 +1080,23 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         order = find(data["orders"], args.order, "order")
         parts = pick_parts(args.order, order, args.part)
         refuse_a_shared_at_once_part(parts)
-        role = state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
-        if refused := (
-            state.held_elsewhere(data, args.order, role)
-            or unlandable(data, lands)
-            or state.job_wait_refusal(data, args.waits)
-            or brief.job_refusal(name, data, args.order, args.kind, parts, bool(lands), args.waits)
-        ):
-            raise DriveError(f"refused, no job added: {refused}")
-        order["owner"] = order["owner"] or role
-        beside = [
-            f'{other_id} {other["kind"]} {other["state"]} on {", ".join(json.dumps(part, ensure_ascii=False) for part in shared)}: {other["goal"][:60]}'
+        session = os.environ.get("CLAUDE_CODE_SESSION_ID")
+        live = [
+            (other_id, other, ", ".join(json.dumps(part, ensure_ascii=False) for part in shared))
             for other_id in order["jobs"]
             if (other := data["jobs"][other_id])["state"] in ("running", "waiting")
             and (shared := [part for part in parts if part in (other["parts"] if other["order"] == args.order else other["carries"][args.order])])
         ]
+        if refused := (
+            state.held_elsewhere(data, args.order, session)
+            or unlandable(data, lands)
+            or state.job_wait_refusal(data, args.waits)
+            or brief.job_refusal(name, data, args.order, args.kind, parts, bool(lands), args.waits)
+            or second_carrier(order, args.kind, bool(lands), args.waits, live)
+        ):
+            raise DriveError(f"refused, no job added: {refused}")
+        order["owner"] = order["owner"] or state.session_role(data, session)
+        beside = [f'{other_id} {other["kind"]} {other["state"]} on {shared}: {other["goal"][:60]}' for other_id, other, shared in live]
         job_id = state.next_id(data["jobs"], "j")
         job = data["jobs"][job_id] = state.new_job(args.order, args.kind, args.goal, parts, created) | {
             "agent": args.agent,
@@ -1128,6 +1130,22 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             f"{job_id} starts on a Sprite at once, since {crowd}: drive job launch {job_id} <brief>; one whose brief declares a step only this Mac runs, on {place.MAC_LINES}, waits its turn for a slot here once its agent starts"
         )
     return job_id, job | {"builder": builder_id, "beside": beside, "history": history}, [*waiting, *beside, *history]
+
+
+def second_carrier(order: dict, kind: str, lands: bool, waits: list[str], live: list[tuple[str, dict, str]]) -> str | None:
+    """Why a builder or codex job may not join a part a running builder or codex job carries: both would build one change at once and race on its branch, so the event goes to the job still at work on it. A job that returned, such as one waiting on its PR, hands its next event to a fresh builder added beside it; a builder landing PRs already built builds nothing, and one waiting on that job or a PR it opened stacks on its change, so each starts beside it too, as does an incident's second job on a brief whose clock ran out, which races the first by design."""
+    if kind not in state.CHANGE_KINDS or lands or order["incident"]:
+        return None
+    return next(
+        (
+            f"{other_id} {other['kind']} {other['state']} carries {shared} already, so a second {kind} would race it on one change: send it the event with"
+            + (f' drive job resume {other_id} "<the event>"' if other.get("dispatch") or other.get("agent") else f" the brief it starts on, drive job launch {other_id} <brief>")
+            + f", or stop it with drive job set {other_id} --state stopped before adding the job that replaces it"
+            for other_id, other, shared in live
+            if other["kind"] in state.CHANGE_KINDS and other["state"] == "running" and other_id not in waits and not any(state.pr_key(url) in waits for url in other["prs"])
+        ),
+        None,
+    )
 
 
 def waiting_builder(name: str, data: dict, reader_id: str, created: str) -> str | None:
@@ -2087,8 +2105,7 @@ def codex_launch(args: argparse.Namespace, name: str) -> int:
         if not (args.brief or job.get("brief")):
             raise DriveError(f"{args.id} has no brief: write it with drive job brief {args.id}, or name its file")
         written = named_text(args.brief or job["brief"], "brief file")
-        role = state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
-        if refused := state.held_elsewhere(data, job["order"], role) or brief.brief_refusal(name, data, args.id, written):
+        if refused := state.held_elsewhere(data, job["order"], os.environ.get("CLAUDE_CODE_SESSION_ID")) or brief.brief_refusal(name, data, args.id, written):
             raise DriveError(f"{args.id}: refused, not launched: {refused}")
         try:
             folder = codex.ask(name, args.id, written, data["orders"][job["order"]]["incident"])
@@ -2250,9 +2267,8 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
     if taker or died:
         written = orca.agent_handoff(orca.brief_of(written), job, text, died)
     local = local or bool(died and place.mac_step(written))
-    role = state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
     if refused := (
-        state.held_elsewhere(data, job["order"], role)
+        state.held_elsewhere(data, job["order"], os.environ.get("CLAUDE_CODE_SESSION_ID"))
         or brief.brief_refusal(name, data, job_id, written)
         or orca.uncarried(name, job_id, written)
         or (f"its brief's Mac: or Release: line declares {step}, a step only this Mac runs: start it here, with the Agent tool at any load or with --local" if not local and (step := place.mac_step(written)) else None)
@@ -2352,7 +2368,7 @@ def started_job(data: dict, job_id: str) -> dict:
 def hand_over(args: argparse.Namespace, name: str, data: dict, session: str) -> int:
     """Hand a job another session's Agent holds to a fresh agent of this session: a handoff brief carrying the job's brief, what that agent left and the text, whose `Read your brief first:` line is the fresh agent's whole prompt, and the job marked handed to this session, so the drive records that agent on it."""
     job = data["jobs"][args.id]
-    if refused := state.held_elsewhere(data, job["order"], state.session_role(data, session)):
+    if refused := state.held_elsewhere(data, job["order"], session):
         raise DriveError(f"{args.id}: refused, not handed over: {refused}")
     if not job.get("brief"):
         raise DriveError(f"{args.id} has no brief to hand over: write it with drive job brief {args.id}, then resume it again")
@@ -2794,7 +2810,7 @@ def pr_set(args: argparse.Namespace) -> int:
         refuse_a_part_its_job_lacks(known, key, args.part, delivers)
     if args.serves:
         refuse_a_crossed_order(name, known, order, args.serves, f"{key} --serves")
-    if (args.serves or args.design) and (refused := state.held_elsewhere(known, order, state.session_role(known, os.environ.get("CLAUDE_CODE_SESSION_ID")))):
+    if (args.serves or args.design) and (refused := state.held_elsewhere(known, order, os.environ.get("CLAUDE_CODE_SESSION_ID"))):
         raise DriveError(f"{key}: refused, nothing set: {refused}")
     if args.serves:
         refuse_an_unwritten_rule(known, key)
@@ -4118,7 +4134,10 @@ def parser() -> argparse.ArgumentParser:
     verb = job.add_parser(
         "add",
         parents=both,
-        help="start a job on an order's parts: prints its id, then each job still running or waiting on one of those parts",
+        help=(
+            "start a job on an order's parts: prints its id, then each job still running or waiting on one of those parts;"
+            " a builder or codex job beside a running one on a part is refused, but on an incident, with --lands or waiting on it"
+        ),
     )
     verb.add_argument("kind", type=job_kind, choices=state.JOB_KINDS, help="what the job is; designer, its agent type's name, is design")
     verb.add_argument("--order", required=True, help="the order whose parts it delivers")

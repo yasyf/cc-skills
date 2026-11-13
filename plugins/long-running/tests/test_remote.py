@@ -196,17 +196,17 @@ def test_place_counts_only_running_builders_on_this_mac(
 ) -> None:
     monkeypatch.setattr(place, "busy", lambda: 0.2)
     monkeypatch.setenv(place.LIMIT_ENV, "0.5")
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "many")
-    for _ in range(7):
-        run("job", "add", "builder", "--order", "o1", "--goal", "here", "--agent", "a")
-    run("job", "add", "builder", "--order", "o1", "--goal", "there", "--remote")
-    run("job", "add", "reader", "--order", "o1", "--goal", "read", "--agent", "r")
-    run("job", "add", "builder", "--order", "o1", "--goal", "parked", "--agent", "p")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "many", "--parts", *(f"part {number}" for number in range(1, 11)))
+    for number in range(1, 8):
+        run("job", "add", "builder", "--order", "o1", "--part", f"part {number}", "--goal", "here", "--agent", "a")
+    run("job", "add", "builder", "--order", "o1", "--part", "part 8", "--goal", "there", "--remote")
+    run("job", "add", "reader", "--order", "o1", "--part", "part 1", "--goal", "read", "--agent", "r")
+    run("job", "add", "builder", "--order", "o1", "--part", "part 9", "--goal", "parked", "--agent", "p")
     with state.edit("demo") as data:
         data["jobs"]["j10"]["state"] = "waiting"
     code, out = run("place", "--json")
     assert (code, json.loads(out)["where"], json.loads(out)["local_builders"]) == (0, "local", 7)
-    run("job", "add", "builder", "--order", "o1", "--goal", "eighth", "--agent", "e")
+    run("job", "add", "builder", "--order", "o1", "--part", "part 10", "--goal", "eighth", "--agent", "e")
     monkeypatch.setattr(watch, "last_write", lambda job, data: (T0, None))
     wrote = render.when(state.stamp(T0), seconds=True)
     counted = "; ".join(f"j{number} on o1, its agent {agent} last wrote at {wrote}" for number, agent in [*((n, "a") for n in range(1, 8)), (11, "e")])
@@ -303,9 +303,9 @@ def test_place_skips_a_running_builder_whose_agent_is_gone(
     monkeypatch.setattr(
         watch, "local_gap", lambda job_id, job, data, moment: f"{job_id}'s agent ended with an earlier session" if job_id == "j1" else None
     )
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "two")
-    run("job", "add", "builder", "--order", "o1", "--goal", "gone", "--agent", "a")
-    run("job", "add", "builder", "--order", "o1", "--goal", "alive", "--agent", "b")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "two", "--parts", "gone", "alive")
+    run("job", "add", "builder", "--order", "o1", "--part", "gone", "--goal", "gone", "--agent", "a")
+    run("job", "add", "builder", "--order", "o1", "--part", "alive", "--goal", "alive", "--agent", "b")
     assert json.loads(run("place", "--json")[1])["local_builders"] == 1
 
 
@@ -619,9 +619,9 @@ def test_launch_of_a_brief_naming_a_jobs_repro_by_a_suffix_glob_as_j2817s_named_
 def test_launch_refuses_a_job_on_this_mac_and_a_checkout_without_orca_values(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
-    run("job", "add", "builder", "--order", "o1", "--goal", "here", "--agent", "a")
-    run("job", "add", "builder", "--order", "o1", "--goal", "there", "--remote")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it", "--parts", "here", "there")
+    run("job", "add", "builder", "--order", "o1", "--part", "here", "--goal", "here", "--agent", "a")
+    run("job", "add", "builder", "--order", "o1", "--part", "there", "--goal", "there", "--remote")
     assert cli.main(["job", "launch", "j1", "brief.md"]) == 2
     assert capsys.readouterr().err == "drive: j1 runs on this Mac as agent a; resume it with SendMessage\n"
     assert run("job", "launch", "j2", "brief.md")[0] == 2
@@ -2672,7 +2672,7 @@ def test_end_frees_a_waiting_lane_and_the_job_keeps_waiting_with_its_waits_prs_a
 ) -> None:
     cloned(tmp_path, remote)
     parts = carrying(run, remote)
-    run("job", "add", "builder", "--order", "o1", "--goal", "restack onto the fix", "--remote")
+    run("job", "add", "builder", "--order", "o1", "--goal", "restack onto the fix", "--remote", "--waits", "j1")
     url = "https://github.com/Forge-AI/monorepo/pull/53430"
     key = state.pr_key(url)
     with state.edit(remote) as data:
@@ -2701,7 +2701,7 @@ def test_an_end_hands_its_end_to_the_newer_install_that_saved_meanwhile(
     cloned(tmp_path, remote)
     saved_on_github["demo-j1"] = ["saved/demo-j1/restack at 1a2b3c4d5e"]
     carrying(run, remote)
-    run("job", "add", "builder", "--order", "o1", "--goal", "restack onto the fix", "--remote")
+    run("job", "add", "builder", "--order", "o1", "--goal", "restack onto the fix", "--remote", "--waits", "j1")
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(state="waiting", said="WAITING CI", ask="a question", workspace="pool-one")
     handed = []
@@ -2843,8 +2843,10 @@ def test_end_destroys_the_sprite_cc_remote_still_records_or_names_what_keeps_it(
 def test_the_watch_frees_each_finished_lane_once_a_sprite_by_destroy_and_a_quiet_one_on_this_mac_by_its_dispatch_never_one_a_live_job_shares(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    for goal in ("on this mac", "still at work", "its run lives on", "just finished", "stopped by hand"):
-        run("job", "add", "builder", "--order", "o1", "--goal", goal, "--remote")
+    goals = ("on this mac", "still at work", "its run lives on", "just finished", "stopped by hand")
+    run("order", "set", "o1", "--parts", "ship the remote builder", *goals)
+    for goal in goals:
+        run("job", "add", "builder", "--order", "o1", "--part", goal, "--goal", goal, "--remote")
     quiet = state.stamp(T0 - watch.QUIET_LANE)
     ended = {"dispatch": DISPATCH, "workspace": "pool-one", "why": "ended by drive job end", "at": quiet, "ended": {"pid": 1, "at": quiet}}
     with state.edit(remote) as data:
@@ -3834,7 +3836,8 @@ def test_lane_names_fit_a_sprite() -> None:
 
 
 def test_each_lane_is_read_from_its_own_run(run: Run, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    run("job", "add", "builder", "--order", "o1", "--goal", "second lane", "--remote")
+    run("order", "set", "o1", "--parts", "ship the remote builder", "second lane")
+    run("job", "add", "builder", "--order", "o1", "--part", "second lane", "--goal", "second lane", "--remote")
     with state.edit(remote) as data:
         data["jobs"]["j2"].update(run="run_drive0002", dispatch="ctx_lane0002", ask=None)
     mailboxes = {
@@ -3848,7 +3851,8 @@ def test_each_lane_is_read_from_its_own_run(run: Run, remote: str, monkeypatch: 
 
 
 def test_a_run_a_finished_job_shares_gives_the_live_job_only_its_own_workers_mail(run: Run, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    run("job", "add", "builder", "--order", "o1", "--goal", "an earlier lane on the drive's old shared Run", "--remote")
+    run("order", "set", "o1", "--parts", "ship the remote builder", "an earlier lane")
+    run("job", "add", "builder", "--order", "o1", "--part", "an earlier lane", "--goal", "an earlier lane on the drive's old shared Run", "--remote")
     with state.edit(remote) as data:
         data["jobs"]["j2"].update(run=RUN, dispatch="ctx_lane0002", state="done")
     deliver(monkeypatch, [message("worker_done", "DONE earlier", id="msg_old", from_handle="dispatch:ctx_lane0002"), message("worker_done", "BLOCKED CI", id="msg_own")])
@@ -4598,13 +4602,13 @@ def test_a_job_added_or_set_waiting_on_a_pr_or_a_release_waits_unlaunched_until_
 ) -> None:
     key = "Forge-AI/monorepo#7"
     shipping = f"release:api:{key}"
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
-    run("job", "add", "builder", "--order", "o1", "--goal", "the PR it builds on", "--remote")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it", "--parts", "the base", "after it ships", "given its wait after")
+    run("job", "add", "builder", "--order", "o1", "--part", "the base", "--goal", "the PR it builds on", "--remote")
     with state.edit(demo) as data:
         data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1")
-    code, out = run("job", "add", "builder", "--order", "o1", "--goal", "after it ships", "--remote", "--waits", key, "--waits", shipping)
+    code, out = run("job", "add", "builder", "--order", "o1", "--part", "after it ships", "--goal", "after it ships", "--remote", "--waits", key, "--waits", shipping)
     assert (code, out.splitlines()[1]) == (0, f"j2 waits on {key}, {shipping}: start no agent for it until the watch's FREE line says its last wait ended")
-    run("job", "add", "builder", "--order", "o1", "--goal", "given its wait after", "--remote")
+    run("job", "add", "builder", "--order", "o1", "--part", "given its wait after", "--goal", "given its wait after", "--remote")
     run("job", "set", "j3", "--waits", key)
     jobs = state.load(demo)["jobs"]
     assert [(jobs[job_id]["state"], jobs[job_id]["waits"]) for job_id in ("j2", "j3")] == [("waiting", [key, shipping]), ("waiting", [key])]

@@ -32,9 +32,8 @@ def deny_reason(payload: dict) -> str | None:
             " its reply's state a field codex cannot leave out, so no agent relays it"
         )
     order_id = data["jobs"][job_id]["order"]
-    role = state.session_role(data, payload["session_id"])
-    held = state.held_elsewhere(data, order_id, role)
-    if held and role == "meta" and brief.SERVES_TOOLING.search(text):
+    held = state.held_elsewhere(data, order_id, payload["session_id"])
+    if held and state.session_role(data, payload["session_id"]) == "meta" and brief.SERVES_TOOLING.search(text):
         held = f"{order_id} is the {state.title(data['orders'][order_id]['owner'])}'s order, but a builder serving drive tooling is the meta session's alone: {brief.gives_tooling(job_id, order_id)}, then start it again"
     refused = held or brief.brief_refusal(name, data, job_id, text)
     return f"refused, no agent started: {refused}" if refused else None

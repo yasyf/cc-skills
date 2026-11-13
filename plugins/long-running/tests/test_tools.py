@@ -845,9 +845,9 @@ def test_an_answer_or_handoff_naming_a_job_goes_to_the_session_hearing_its_order
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """His words on binding SandSQL's own sub-coordinator, "dont kill any existing handlers or workers just reparent them": the top's agent on an order a sub-coordinator now hears is that session's, which drive job resume hands to a fresh agent of its own."""
-    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
-    run("job", "add", "builder", "--order", "o1", "--goal", "build it", "--agent", "agent-1")
-    run("job", "add", "builder", "--order", "o1", "--goal", "build the page")
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page", "--parts", "the run", "the page")
+    run("job", "add", "builder", "--order", "o1", "--part", "the run", "--goal", "build it", "--agent", "agent-1")
+    run("job", "add", "builder", "--order", "o1", "--part", "the page", "--goal", "build the page")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
     run("start", demo, "--role", "coordinator", "--project", "Iris")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
@@ -906,9 +906,9 @@ def test_his_answer_waits_on_each_job_it_answers_until_that_job_resumes(demo: st
 def test_his_words_on_an_open_card_end_its_question_and_close_it_in_the_same_call_that_sends_them(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
-    run("job", "add", "builder", "--order", "o1", "--goal", "build it")
-    run("job", "add", "builder", "--order", "o1", "--goal", "build the page")
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page", "--parts", "the run", "the page")
+    run("job", "add", "builder", "--order", "o1", "--part", "the run", "--goal", "build it")
+    run("job", "add", "builder", "--order", "o1", "--part", "the page", "--goal", "build the page")
     posted: list[list[dict]] = []
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append(json.loads(kwargs["input"])) or subprocess.CompletedProcess([], 0, "#51\n", ""))
     answered = open_cards(monkeypatch, "demo:j1-7", "demo:j2-8")
@@ -965,9 +965,9 @@ def test_his_owner_words_under_a_question_card_end_its_question_when_about_its_w
 def test_an_answer_naming_his_open_card_by_its_waits_attr_settles_that_card_in_the_same_call(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
-    run("job", "add", "builder", "--order", "o1", "--goal", "build it")
-    run("job", "add", "builder", "--order", "o1", "--goal", "build the page")
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page", "--parts", "the run", "the page")
+    run("job", "add", "builder", "--order", "o1", "--part", "the run", "--goal", "build it")
+    run("job", "add", "builder", "--order", "o1", "--part", "the page", "--goal", "build the page")
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, "#52\n", ""))
     answered = open_cards(monkeypatch, "demo:j1-7", "demo:j2-8")
     card = f"{CARD[:-2]}01"

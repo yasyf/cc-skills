@@ -2510,7 +2510,7 @@ def test_a_question_asked_again_after_its_card_was_withdrawn_redraws_that_card_u
     assert f"card {link} withdrawn at {render.when(withdrawn['at'])}: his order replaced it (demo:j1-7)" in run("status", asking)[1]
     with state.edit("demo") as data:
         data["jobs"]["j1"]["questions"][0]["closed"] = state.new_close("withdrawn", withdrawn["label"], None)
-    run("job", "add", "builder", "--order", "o1", "--goal", "design it again")
+    run("job", "add", "reader", "--order", "o1", "--goal", "design it again")
     monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace("opens in 3 requests", "opens in 2 calls")))
     assert json.loads(run("job", "ask", "j2", "-", "--json")[1])["waits"] == "demo:j1-7"
     assert [(question["waits"], question["card"]) for question in state.load("demo")["jobs"]["j2"]["questions"]] == [("demo:j1-7", link)]
@@ -2586,7 +2586,7 @@ def test_job_ask_refuses_a_question_another_jobs_open_card_asks_naming_the_wait_
     first = run("job", "ask", asking, "-")[1]
     run("job", "card", first, "--waits", "demo:j1-7")
     run("job", "set", asking, "--card", link)
-    run("job", "add", "builder", "--order", "o1", "--goal", "build the run page")
+    run("job", "add", "reader", "--order", "o1", "--goal", "read the run page")
     monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace("opens in 3 requests", "opens in 3 calls")))
     assert cli.main(["job", "ask", "j2", "-"]) == 2
     refusal = capsys.readouterr().err
@@ -2838,7 +2838,7 @@ def test_job_ask_settles_a_question_only_on_his_answer_to_that_same_question_so_
     card = "https://acme.slack.com/archives/D123/p1794300000000100"
     title = SHORT_ASK.splitlines()[0].removeprefix("ASK ")
     words = "One snapshot file per finished run"
-    run("job", "add", "builder", "--order", "o1", "--goal", "lay out the files")
+    run("job", "add", "reader", "--order", "o1", "--goal", "lay out the files")
     with state.edit("demo") as data:
         data["jobs"]["j2"]["questions"] = [
             state.new_question(None, f"  {title.upper()}", state.stamp(), card=card, closed=state.new_close("answered", words, card)) | {"waits": "demo:j2-1"},
@@ -2930,7 +2930,7 @@ SKIPPED = {
 def test_each_question_a_card_on_another_question_once_skipped_now_draws_his_card(skipped: str, run: Run, asking: str) -> None:
     asked, other, words = SKIPPED[skipped]
     card = "https://acme.slack.com/archives/D123/p1794300000000100"
-    run("job", "add", "builder", "--order", "o1", "--goal", "ask him")
+    run("job", "add", "reader", "--order", "o1", "--goal", "ask him")
     with state.edit("demo") as data:
         closed = words and state.new_close("answered", words, card)
         data["jobs"]["j1"]["questions"] = [state.new_question(None, other, state.stamp(), card=card, closed=closed) | {"waits": "demo:j1-1"}]
@@ -3265,7 +3265,12 @@ def test_a_builder_is_added_waiting_on_another_builders_change_until_that_builde
     assert (code, out.splitlines()[:2]) == (0, ["j4", "j4 waits on j3: start no agent for it until the watch's FREE line says its last wait ended"])
     assert run("pr", "add", state.pr_url(built), "--job", "j3")[0] == 0
     assert state.load("demo")["jobs"]["j4"]["waits"] == [built]
-    assert run("job", "add", "builder", "--order", "o1", "--goal", "dropped")[0] == 0
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "dropped"]) == 2
+    assert capsys.readouterr().err.strip().endswith(
+        'refused, no job added: j3 builder running carries "Drive tooling: copy one store" already, so a second builder would race it on one change: send it the event with'
+        " the brief it starts on, drive job launch j3 <brief>, or stop it with drive job set j3 --state stopped before adding the job that replaces it"
+    )
+    assert run("job", "add", "reader", "--order", "o1", "--goal", "dropped")[0] == 0
     assert run("job", "set", "j5", "--state", "stopped")[0] == 0
     refusals = {
         "j1": "--waits j1: j1 is done, so nothing of it is left to wait on",
@@ -3274,7 +3279,7 @@ def test_a_builder_is_added_waiting_on_another_builders_change_until_that_builde
     for waits, refusal in refusals.items():
         assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "x", "--waits", waits]) == 2
         assert capsys.readouterr().err.strip().endswith(f"refused, no job added: {refusal}")
-    assert run("job", "add", "builder", "--order", "o1", "--goal", "x", "--waits", "j5")[1].splitlines()[0] == "j6"
+    assert run("job", "add", "design", "--order", "o1", "--goal", "x", "--waits", "j5")[1].splitlines()[0] == "j6"
     assert state.load("demo")["jobs"]["j6"]["waits"] == ["j5"]
 
 
@@ -3313,7 +3318,9 @@ def test_a_proof_builder_starts_with_no_lands_after_a_readers_design_whatever_qu
     for case, questions in replays.items():
         with state.edit("demo") as data:
             data["jobs"]["j1"]["questions"] = questions
-        assert (case, cli.main(["job", "add", "builder", "--order", "o1", "--part", proof, "--goal", "prove the copy live"])) == (case, 0)
+        code, out = run("job", "add", "builder", "--order", "o1", "--part", proof, "--goal", "prove the copy live")
+        assert (case, code) == (case, 0)
+        run("job", "set", out.splitlines()[0], "--state", "stopped")
 
 
 def test_his_ruling_settling_a_readers_ask_before_its_card_draws_is_kept_on_its_question(
@@ -3368,7 +3375,11 @@ def test_the_immediate_fix_starts_at_once_past_the_research_the_design_and_optio
     assert 'starts at once on its own "immediate fix" part, added with drive order set o1 --parts "the copy" "immediate fix"' in capsys.readouterr().err
     run("job", "add", "reader", "--order", "o1", "--part", "the copy", "--goal", "research: the copy")
     assert keep(monkeypatch, capsys, "j2", DESIGN_RESEARCH) == (0, "")
-    assert run("job", "add", "codex", "--order", "o1", "--part", "immediate fix", "--goal", "stop it another way")[0] == 0
+    assert cli.main(["job", "add", "codex", "--order", "o1", "--part", "immediate fix", "--goal", "stop it another way"]) == 2
+    assert capsys.readouterr().err.strip().endswith(
+        'refused, no job added: j1 builder running carries "immediate fix" already, so a second codex would race it on one change: send it the event with'
+        " the brief it starts on, drive job launch j1 <brief>, or stop it with drive job set j1 --state stopped before adding the job that replaces it"
+    )
     assert cli.main(["job", "add", "builder", "--order", "o1", "--part", "the copy", "--part", "immediate fix", "--goal", "both"]) == 2
     assert 'the "immediate fix" part is a job of its own: its PR lands at once' in capsys.readouterr().err
     assert cli.main(["job", "set", "j1", "--part", "the copy"]) == 2
@@ -4276,11 +4287,11 @@ def test_pr_add_refuses_a_pr_another_projects_job_holds_from_a_sub_coordinator_o
 ) -> None:
     url, key = "https://github.com/Forge-AI/monorepo/pull/53447", "Forge-AI/monorepo#53447"
     on_github["url"] = url
-    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Agents", "agents wake on their inbox")
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Agents", "agents wake on their inbox", "--parts", "wake", "take over")
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Agents", "the agent's chat lists under its env")
-    run("job", "add", "builder", "--order", "o1", "--goal", "wake agents on their inbox")
+    run("job", "add", "builder", "--order", "o1", "--part", "wake", "--goal", "wake agents on their inbox")
     run("job", "add", "builder", "--order", "o2", "--goal", "list the agent's chat")
-    run("job", "add", "builder", "--order", "o1", "--goal", "take over the inbox wake")
+    run("job", "add", "builder", "--order", "o1", "--part", "take over", "--goal", "take over the inbox wake")
     run("pr", "add", url, "--job", "j1")
     for project, session in (("Platform", "platform-1"), ("Iris", "iris-1")):
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", session)
@@ -4298,7 +4309,9 @@ def test_pr_add_refuses_a_pr_another_projects_job_holds_from_a_sub_coordinator_o
         assert f"{key}: refused, nothing added: {held}" in capsys.readouterr().err
     data = state.load("demo")
     assert (data["prs"][key]["job"], data["prs"][key]["order"], data["jobs"]["j2"]["prs"]) == ("j1", "o1", [])
-    assert "is the coordinator's order, session platform-1:" in (state.held_elsewhere(data, "o1", "meta") or "")
+    for session in ("iris-1", "session-under-test"):
+        assert "o1 is the sub-coordinator for Platform's order, session platform-1:" in (state.held_elsewhere(data, "o1", session) or "")
+    assert state.held_elsewhere(data, "o1", "platform-1") is None
     with state.edit("demo") as data:
         data["prs"][key].update(job="j2", order="o2")
         data["jobs"]["j2"]["prs"].append(url)
@@ -4839,16 +4852,16 @@ def test_job_add_sends_a_builder_past_the_macs_cap_or_behind_its_line_to_a_sprit
 ) -> None:
     monkeypatch.setattr(place, "busy", lambda: 0.95)
     monkeypatch.setattr(place, "limit", lambda: 0.8)
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "land the strip")
-    assert run("job", "add", "builder", "--order", "o1", "--goal", "land", "--repo", "Forge-AI/monorepo") == (0, "j1")
-    for _ in range(place.LOCAL_BUILDERS - 1):
-        assert run("job", "add", "builder", "--order", "o1", "--goal", "land", "--repo", "yasyf/cc-skills", "--agent", "a")[0] == 0
-    assert run("job", "add", "builder", "--order", "o1", "--goal", "land", "--repo", "yasyf/cc-skills")[0] == 0
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "land the strip", "--parts", *(f"strip {number}" for number in range(1, 12)))
+    assert run("job", "add", "builder", "--order", "o1", "--part", "strip 1", "--goal", "land", "--repo", "Forge-AI/monorepo") == (0, "j1")
+    for number in range(2, place.LOCAL_BUILDERS + 1):
+        assert run("job", "add", "builder", "--order", "o1", "--part", f"strip {number}", "--goal", "land", "--repo", "yasyf/cc-skills", "--agent", "a")[0] == 0
+    assert run("job", "add", "builder", "--order", "o1", "--part", "strip 9", "--goal", "land", "--repo", "yasyf/cc-skills")[0] == 0
     assert state.load(demo)["jobs"]["j9"]["state"] == "running"
     with state.edit("demo") as data:
         data["jobs"]["j9"].update(state.local_lane("dispatch-9"))
     mac_only = f"one whose brief declares a step only this Mac runs, on {place.MAC_LINES}, waits its turn for a slot here once its agent starts"
-    code, added = run("job", "add", "builder", "--order", "o1", "--goal", "land", "--repo", "yasyf/cc-skills")
+    code, added = run("job", "add", "builder", "--order", "o1", "--part", "strip 10", "--goal", "land", "--repo", "yasyf/cc-skills")
     added_id, sprite, *_ = added.splitlines()
     assert (code, added_id) == (0, "j10")
     assert sprite.startswith("j10 starts on a Sprite at once, since 8 builders already run on this Mac, its cap of 8 (j2 on o1")
@@ -4858,22 +4871,22 @@ def test_job_add_sends_a_builder_past_the_macs_cap_or_behind_its_line_to_a_sprit
     with state.edit("demo") as data:
         data["jobs"]["j2"]["state"] = "done"
         place.queue(data["jobs"]["j10"], state.now())
-    assert run("job", "add", "builder", "--order", "o1", "--goal", "land", "--repo", "yasyf/cc-skills")[1].splitlines()[1] == (
+    assert run("job", "add", "builder", "--order", "o1", "--part", "strip 11", "--goal", "land", "--repo", "yasyf/cc-skills")[1].splitlines()[1] == (
         "j11 starts on a Sprite at once, since builders already wait their turn for a slot on this Mac ahead of it, earliest due first (j10):"
         f" drive job launch j11 <brief>; {mac_only}"
     )
     assert place.waiting_builders(state.load(demo)) == ["j10"]
     assert "j10 builder waiting: land; waits on a builder slot on this Mac, 1 of 1 in line" in run("status", "o1")[1]
     assert json.loads(run("status", "--json")[1])["jobs"]["j10"]["in_line"] == "1 of 1 in line"
-    assert run("job", "add", "reader", "--order", "o1", "--goal", "read")[0] == 0
+    assert run("job", "add", "reader", "--order", "o1", "--part", "strip 1", "--goal", "read")[0] == 0
 
 
 def test_job_add_starts_an_open_incidents_fix_builder_31st_in_line_and_an_immediate_fix_at_once_past_the_macs_cap(run: Run, demo: str) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "tidy the docs")
-    for _ in range(place.LOCAL_BUILDERS):
-        assert run("job", "add", "builder", "--order", "o1", "--goal", "build", "--agent", "a")[0] == 0
-    for _ in range(30):
-        assert "starts on a Sprite at once" in run("job", "add", "builder", "--order", "o1", "--goal", "wait")[1]
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "tidy the docs", "--parts", *(f"doc {number}" for number in range(place.LOCAL_BUILDERS + 30)))
+    for number in range(place.LOCAL_BUILDERS):
+        assert run("job", "add", "builder", "--order", "o1", "--part", f"doc {number}", "--goal", "build", "--agent", "a")[0] == 0
+    for number in range(place.LOCAL_BUILDERS, place.LOCAL_BUILDERS + 30):
+        assert "starts on a Sprite at once" in run("job", "add", "builder", "--order", "o1", "--part", f"doc {number}", "--goal", "wait")[1]
     with state.edit(demo) as data:
         for job in data["jobs"].values():
             if job["where"] == "remote":
@@ -4890,10 +4903,10 @@ def test_job_add_starts_an_open_incidents_fix_builder_31st_in_line_and_an_immedi
 def test_job_add_records_an_agent_already_running_past_the_macs_cap_and_its_limit(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(place, "busy", lambda: 0.95)
     monkeypatch.setattr(place, "limit", lambda: 0.8)
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "land the strip")
-    for _ in range(place.LOCAL_BUILDERS):
-        assert run("job", "add", "builder", "--order", "o1", "--goal", "land", "--agent", "a")[0] == 0
-    assert run("job", "add", "builder", "--order", "o1", "--goal", "land", "--repo", "Forge-AI/monorepo", "--agent", "a-9")[0] == 0
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "land the strip", "--parts", *(f"strip {number}" for number in range(place.LOCAL_BUILDERS + 1)))
+    for number in range(place.LOCAL_BUILDERS):
+        assert run("job", "add", "builder", "--order", "o1", "--part", f"strip {number}", "--goal", "land", "--agent", "a")[0] == 0
+    assert run("job", "add", "builder", "--order", "o1", "--part", f"strip {place.LOCAL_BUILDERS}", "--goal", "land", "--repo", "Forge-AI/monorepo", "--agent", "a-9")[0] == 0
     assert state.load(demo)["jobs"]["j9"]["agent"] == "a-9"
 
 def test_job_brief_writes_native_interactions_would_he_ask_and_a_readers_research_and_keeps_each_flag_left_out(
@@ -4950,9 +4963,9 @@ def test_job_brief_keeps_an_earlier_handoff_and_adds_each_ruling_to_the_earlier_
 
 
 def test_a_live_jobs_handoff_briefed_before_brief_flags_kept_one_is_seeded_from_its_brief_file(run: Run, demo: str) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "watch for stuck jobs")
-    run("job", "add", "builder", "--order", "o1", "--goal", "build the watchdog")
-    run("job", "add", "builder", "--order", "o1", "--goal", "build the watchdog again")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "watch for stuck jobs", "--parts", "the watchdog", "its retry")
+    run("job", "add", "builder", "--order", "o1", "--part", "the watchdog", "--goal", "build the watchdog")
+    run("job", "add", "builder", "--order", "o1", "--part", "its retry", "--goal", "build the watchdog's retry")
     handoff = f"{PR} head abc: CHECK test failed\nINSTALL: drive install long-running@skills\nPROVE: drive status j1"
     for job_id in ("j1", "j2"):
         code, out = run("job", "brief", job_id, "--serves", "his order", "--done-when", "merged", "--where", "yasyf/cc-skills main", "--handoff", handoff)
@@ -5355,14 +5368,17 @@ def test_an_order_lists_its_parts_and_each_job_names_the_ones_it_delivers(run: R
     assert [question["card"] for question in data["jobs"]["j1"]["questions"]] == ["https://acme.slack.com/archives/D1/p1"]
 
 
-def test_job_add_prints_each_live_job_already_carrying_its_part_under_its_id(run: Run, demo: str) -> None:
+def test_job_add_prints_each_live_job_already_carrying_its_part_under_its_id(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "three spikes", "--parts", "spike 1", "spike 2", "spike 3")
     run("job", "add", "builder", "--order", "o1", "--goal", "spike 1: restore cost at three database sizes, one operation at a time", "--part", "spike 1")
     run("job", "add", "reader", "--order", "o1", "--goal", "spike 2", "--part", "spike 2")
     with state.edit("demo") as data:
         data["jobs"]["j2"]["state"] = "done"
     assert run("job", "add", "builder", "--order", "o1", "--goal", "spike 2 again", "--part", "spike 2") == (0, "j3")
-    code, out = run("job", "add", "builder", "--order", "o1", "--goal", "spikes", "--part", "spike 1", "--part", "spike 2", "--part", "spike 3")
+    spikes = ("--part", "spike 1", "--part", "spike 2", "--part", "spike 3")
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "spikes", *spikes]) == 2
+    assert 'refused, no job added: j1 builder running carries "spike 1" already, so a second builder would race it on one change' in capsys.readouterr().err
+    code, out = run("job", "add", "reader", "--order", "o1", "--goal", "spikes", *spikes)
     assert (code, out.splitlines()) == (
         0,
         [
@@ -5373,12 +5389,34 @@ def test_job_add_prints_each_live_job_already_carrying_its_part_under_its_id(run
     )
 
 
+def test_the_immediate_fix_a_sub_coordinators_builder_runs_takes_no_second_change_job_and_no_step_of_the_top_coordinator(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Agents", "fault the socket", "--parts", "one code path", "immediate fix")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "platform-1")
+    run("start", "demo", "--role", "coordinator", "--project", "Platform")
+    assert run("job", "add", "builder", "--order", "o1", "--part", "immediate fix", "--goal", "fault the socket", "--agent", "a1")[1] == "j1"
+    assert cli.main(["job", "add", "codex", "--order", "o1", "--part", "immediate fix", "--goal", "fault it again"]) == 2
+    assert capsys.readouterr().err.strip() == (
+        'drive: refused, no job added: j1 builder running carries "immediate fix" already, so a second codex would race it on one change:'
+        ' send it the event with drive job resume j1 "<the event>", or stop it with drive job set j1 --state stopped before adding the job that replaces it'
+    )
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-under-test")
+    held = "o1 is the sub-coordinator for Platform's order, session platform-1: only the sub-coordinator for Platform adds its jobs"
+    for argv in (["job", "add", "builder", "--order", "o1", "--part", "one code path", "--goal", "build it"], ["job", "resume", "j1", "fault the socket"]):
+        assert cli.main(argv) == 2
+        assert held in capsys.readouterr().err
+    assert list(state.load("demo")["jobs"]) == ["j1"]
+
+
 def test_job_add_prints_each_card_and_job_on_any_order_carrying_a_pr_its_goal_names(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     url, key, link = "https://github.com/acme/app/pull/55", "acme/app#55", "https://acme.slack.com/archives/D123/p1794518129437989"
     run("order", "add", "--title", "Upload fix", "--project", "The drive", "--workstream", "Drive tooling", "ship the upload fix to production")
     run("order", "add", "--title", "Ship again", "--project", "The drive", "--workstream", "Drive tooling", "ship the upload fix again")
     run("job", "add", "builder", "--order", "o1", "--goal", f"waits on release:api:{key}")
     run("job", "add", "reader", "--order", "o1", "--goal", f"write his card on how {url} reaches production through the api release")
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["state"] = "done"
     run("job", "add", "builder", "--order", "o1", "--goal", f"hotfix merged {url} onto the live build")
     run("job", "add", "reader", "--order", "o1", "--goal", "read the release notes")
     run("job", "add", "reader", "--order", "o2", "--goal", f"read what shipping {url} again needs")
@@ -6845,7 +6883,7 @@ def test_an_answer_lists_every_pr_of_its_order_not_yet_live_and_a_reopened_one_g
 ) -> None:
     run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/44", "--job", "j1")
     run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/45", "--job", "j2")
-    run("job", "add", "builder", "--order", "o1", "--goal", "shipped")
+    run("job", "add", "builder", "--order", "o1", "--goal", "shipped", "--waits", "j1")
     run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/46", "--job", "j3")
     settled = cards_asking(monkeypatch, PR)
     withdrawals.cards = [TAP_CARD]
@@ -6881,7 +6919,7 @@ def test_his_answer_reopening_the_top_pr_of_a_two_pr_stack_card_cards_the_pr_it_
     run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, withdrawals: Withdrawals, native_stacks: dict[str, list[tuple[str, str]]]
 ) -> None:
     top, top_url = "Forge-AI/monorepo#44", "https://github.com/Forge-AI/monorepo/pull/44"
-    run("job", "add", "builder", "--order", "o1", "--goal", "rework the top")
+    run("job", "add", "builder", "--order", "o1", "--goal", "rework the top", "--waits", "j1")
     run("pr", "add", top_url, "--job", "j3")
     cards_asking(monkeypatch, PR, top_url)
     stack = [designing, top]
@@ -6969,7 +7007,7 @@ def test_an_answer_stays_unfinished_until_each_job_waiting_on_an_order_it_touche
     run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     cards_asking(monkeypatch, PR)
-    run("job", "add", "builder", "--order", "o1", "--goal", "build the store")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build the store", "--waits", "j1")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the new tool")
     run("job", "add", "builder", "--order", "o2", "--goal", "build the tool")
     with state.edit("demo") as data:
@@ -6998,7 +7036,7 @@ def test_an_agent_the_top_started_on_an_order_a_sub_coordinator_now_hears_takes_
     run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     cards_asking(monkeypatch, PR)
-    run("job", "add", "builder", "--order", "o1", "--goal", "build the store")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build the store", "--waits", "j1")
     with state.edit("demo") as data:
         data["jobs"]["j3"].update(state="waiting", agent="agent-3")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "drive-1")
@@ -7013,7 +7051,7 @@ def test_a_remote_lane_waiting_on_an_order_his_answer_touches_is_marked_sent_onl
     run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     cards_asking(monkeypatch, PR)
-    run("job", "add", "builder", "--order", "o1", "--goal", "build the store", "--remote")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build the store", "--remote", "--waits", "j1")
     with state.edit("demo") as data:
         data["jobs"]["j3"].update(state="waiting", dispatch="ctx_lane0003")
     assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
@@ -7038,7 +7076,7 @@ def test_sent_on_a_job_no_worker_runs_is_refused_and_his_answer_finishes_without
     run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     cards_asking(monkeypatch, PR)
-    run("job", "add", "builder", "--order", "o1", "--goal", "build the store")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build the store", "--waits", "j1")
     with state.edit("demo") as data:
         data["jobs"]["j3"]["state"] = "waiting"
     assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
@@ -7057,7 +7095,7 @@ def test_an_answer_under_a_card_no_longer_open_still_waits_on_each_job_waiting_o
 ) -> None:
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [], "closed": []})
     view.refresh_cards("demo")
-    run("job", "add", "builder", "--order", "o1", "--goal", "build the store")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build the store", "--waits", "j1")
     with state.edit("demo") as data:
         data["jobs"]["j3"].update(state="waiting", agent="agent-3")
     assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
