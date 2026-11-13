@@ -1208,8 +1208,8 @@ def test_the_watch_releases_the_sprite_a_lane_died_on_once_no_unfinished_job_run
         old = [{"dispatch": f"ctx_old{n}", "workspace": workspace, "why": "its worker exited", "at": state.stamp(T0)} for n, workspace in enumerate(["sprite-old", "sprite-gone", "sprite-now"])]
         data["jobs"]["j1"].update(state="waiting", workspace="sprite-now", deaths=old)
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
-    watch.release_sprites(watching)
-    watch.release_sprites(watching)
+    watch.release_lanes(watching, T0)
+    watch.release_lanes(watching, T0)
     assert released == ["sprite-old"]
 
 
@@ -1504,6 +1504,35 @@ def test_end_destroys_the_sprite_cc_remote_still_records_or_names_what_keeps_it(
 
     monkeypatch.setattr(orca, "release", kept)
     assert run("job", "end", "j1") == (0, "nothing to reclaim\npool-one is kept: orca-reclaim.py exited 1: uncommitted changes\nj1's lane ended; j1 stays done")
+
+
+def test_the_watch_frees_each_finished_lane_once_a_sprite_by_destroy_and_a_quiet_one_on_this_mac_by_its_dispatch_never_one_a_live_job_shares(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for goal in ("on this mac", "still at work", "its run lives on", "just finished"):
+        run("job", "add", "builder", "--order", "o1", "--goal", goal, "--remote")
+    quiet = state.stamp(T0 - watch.QUIET_LANE)
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(state="done", workspace="pool-one")
+        data["jobs"]["j2"].update(state="failed", route=state.LOCAL_ROUTE, run="run_mac", dispatch="ctx_mac", updated=quiet)
+        data["jobs"]["j3"].update(state="running", route=state.LOCAL_ROUTE, run="run_live", dispatch="ctx_live", updated=quiet)
+        data["jobs"]["j4"].update(state="stopped", route=state.LOCAL_ROUTE, run="run_live", dispatch="ctx_old", updated=quiet)
+        data["jobs"]["j5"].update(state="done", route=state.LOCAL_ROUTE, run="run_new", dispatch="ctx_new", updated=state.stamp(T0))
+    workspaces = tmp_path / "cc-remote-workspaces"
+    workspaces.mkdir()
+    (workspaces / "pool-one.json").write_text("{}")
+    monkeypatch.setattr(orca, "CC_REMOTE_WORKSPACES", workspaces)
+    monkeypatch.setattr(state, "scratch", lambda: False)
+    monkeypatch.setattr(orca, "checkout", lambda name, data: tmp_path)
+    started: list[tuple[str, ...]] = []
+    finished = subprocess.CompletedProcess([], 0)
+    finished.poll = lambda: 0
+    monkeypatch.setattr(orca, "release_detached", lambda workspace, root, log: started.append(("destroy", workspace)) or finished)
+    monkeypatch.setattr(orca, "reclaim_detached", lambda run_id, dispatch, root, log: started.append(("done", run_id, dispatch)) or finished)
+    watcher = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    watch.release_lanes(watcher, T0)
+    watch.release_lanes(watcher, T0)
+    assert started == [("destroy", "pool-one"), ("done", "run_mac", "ctx_mac")]
 
 
 def test_end_of_a_finished_job_never_reads_its_sprite_and_drops_the_parts_it_carried(

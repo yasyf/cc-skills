@@ -47,6 +47,7 @@ DRIVE = Path(__file__).resolve().parents[2] / "bin" / "drive"
 OWING_STATES = ("working", "waiting")
 LIVE_JOB_STATES = ("running", "waiting")
 RELEASES_AT_ONCE = 2
+QUIET_LANE = timedelta(minutes=30)
 LINE_BREAKS = re.compile(r"[\r\n]+")
 HANDOFF = timedelta(minutes=2)
 SETTLING = ""
@@ -1628,37 +1629,38 @@ def stranded(job_id: str, data: dict, gap: str | None, unlisted: dict[str, dict]
     return "; ".join([gap or f"{job_id} is running", *tracked, *untracked])
 
 
-def release_sprites(watcher: Watcher) -> None:
-    """Destroy each Sprite a job it hears is done with that cc-remote still records: a done, failed or stopped job's own, and each one an earlier lane of any job died on that no unfinished job runs on now, such as the Sprite a relaunch moved off. Each goes with the reclaimer's --destroy in a process of its own run from the drive's checkout, moved to its default branch's head first, at most two at once and each Sprite once a watch, so it and its Orca environment go once it holds nothing on no remote; what each run printed goes to the watch log, and a pass whose move fails releases nothing, saying why there."""
+def release_lanes(watcher: Watcher, moment: datetime) -> None:
+    """Free what each job it hears is done with still holds, never what an unfinished job holds: each Sprite cc-remote still records that a done, failed or stopped job ran on, or that an earlier lane of any job died on, such as the Sprite a relaunch moved off, destroyed with its Orca environment by --destroy once it holds nothing on no remote; and the dispatch of a done, failed or stopped lane on this Mac once its job has been quiet for QUIET_LANE, as lr's gc --done waited after a lane's last word, whose terminal --run --done closes and whose worktree it removes once clean and pushed, the reclaimer skipping whatever its pauses hold. Each goes with the reclaimer in a process of its own run from the drive's checkout, moved to its default branch's head first, at most two at once and each once a watch; what each run printed goes to the watch log, and a pass whose move fails frees nothing, saying why there."""
     if state.scratch():
         return
-    watcher.releasing = {workspace: run for workspace, run in watcher.releasing.items() if run.poll() is None}
+    watcher.releasing = {held: run for held, run in watcher.releasing.items() if run.poll() is None}
     data = state.load(watcher.name)
-    live = {job.get("workspace") for job in data["jobs"].values() if job["state"] not in state.FINISHED_JOB_STATES}
+    live = {job.get(key) for job in data["jobs"].values() if job["state"] not in state.FINISHED_JOB_STATES for key in ("workspace", "run", "dispatch")} - {None}
     for job in data["jobs"].values():
         if not heard_job(watcher, data, job):
             continue
-        for workspace in sorted(left_workspaces(job) - watcher.released - live):
+        for held in sorted(lane_holds(job, moment, live) - watcher.released - live):
             if len(watcher.releasing) >= RELEASES_AT_ONCE:
                 return
-            if not orca.holds_sprite({**job, "workspace": workspace}):
-                continue
             with state.watch_log_path(watcher.name, watcher.project).open("a") as log:
                 try:
                     checkout = orca.checkout(watcher.name, data)
                 except state.DriveError as error:
-                    log.write(f"{workspace} is kept until a later pass: {error}\n")
+                    log.write(f"{held} is kept until a later pass: {error}\n")
                     return
-                watcher.released.add(workspace)
-                watcher.releasing[workspace] = orca.release_detached(workspace, checkout, log)
+                watcher.released.add(held)
+                watcher.releasing[held] = orca.reclaim_detached(job["run"], held, checkout, log) if state.on_mac(job) else orca.release_detached(held, checkout, log)
 
 
-def left_workspaces(job: dict) -> set[str]:
-    """The Sprites the job's lanes left: each one a lane of its died on, and its own once it is done, failed or stopped."""
+def lane_holds(job: dict, moment: datetime, live: set[str]) -> set[str]:
+    """What the job's lanes left for the reclaimer: on this Mac, the dispatch of a done, failed or stopped job quiet for QUIET_LANE whose Run no unfinished job shares; on a Sprite, each Sprite cc-remote still records that a lane of its died on, and its own once it is done, failed or stopped."""
+    if state.on_mac(job):
+        quiet = job["state"] in state.FINISHED_JOB_STATES and job.get("dispatch") and job.get("run") not in live | {None} and moment - state.parse_time(job["updated"]) >= QUIET_LANE
+        return {job["dispatch"]} if quiet else set()
     left = {death.get("workspace") for death in job.get("deaths", [])}
     if job["state"] in state.FINISHED_JOB_STATES:
         left.add(job.get("workspace"))
-    return left - {None}
+    return {workspace for workspace in left - {None} if orca.holds_sprite({**job, "workspace": workspace})}
 
 
 def death_lines(name: str, deaths: dict[str, tuple[str, str]], moment: datetime) -> list[str]:
@@ -2024,7 +2026,7 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
         lines += waiting_lines(watcher, moment)
         lines += answer_lines(watcher, moment)
         lines += lane_lines(watcher, moment)
-        release_sprites(watcher)
+        release_lanes(watcher, moment)
         lines += pushed_lines(watcher, moment)
         lines += agent_lines(watcher, moment)
         lines += compact_lines(watcher, moment)
