@@ -32,6 +32,7 @@ TELL_AFTER = timedelta(minutes=10)
 WAKES = ("TAP ", "DUE ", "TELL ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "STUCK ", "STAGE ", "FREE ", "EVENT stop ", "WATCH stopped")
 PR_EVENT = re.compile(r"PR (?P<key>\S+): (?P<change>.+) \[(?P<order>o\d+) (?P<job>j\d+)\]$")
 NOT_LANDED = "not landed"
+LANDER = "LANDER "
 TAP_EVENT = re.compile(rf"TAP (?P<label>\S+) (?P<key>\S+)(?P<stalled> {NOT_LANDED})?")
 LANE = "watch"
 READS_LOG = "reads.log"
@@ -877,6 +878,8 @@ def event_line(event: dict, prs: dict) -> str:
     suffix = f" {ids(prs[key])}" if key in prs else ""
     if event["kind"] == "tap":
         return f"TAP {event['label']} {key}{suffix}"
+    if event["kind"] == "landing" and event["change"].startswith(land.NO_WORKTREE):
+        return f"{LANDER}{event['change']}"
     if event["kind"] in ("landing", "check", "proof"):
         return f"PR {key}: {event['change']}{suffix}"
     details = " ".join(f"{name}={value}" for name, value in event.items() if name not in ("kind", "at", "lane"))
@@ -2144,7 +2147,7 @@ def wakes(line: str, data: dict) -> bool:
 
 
 def handed(watcher: Watcher, lines: list[str], moment: datetime) -> list[str]:
-    """Hand each line to the one who acts on it: an order's the communicator or the meta session holds to that session, a check's NOT READY whole to the builder answering for its PR through drive pr wake, and the rest, returned, to the coordinator. Until it is handed, each line stays on the watcher, the coordinator's among its made lines and a holder's among its unsent, so a newer install that takes the watch over meanwhile gets it."""
+    """Hand each line to the one who acts on it: the lander's own failure, once however many PRs it held back, and an order's the communicator or the meta session holds to that session, a check's NOT READY whole to the builder answering for its PR through drive pr wake, and the rest, returned, to the coordinator. Until it is handed, each line stays on the watcher, the coordinator's among its made lines and a holder's among its unsent, so a newer install that takes the watch over meanwhile gets it."""
     lines = [LINE_BREAKS.sub(" ", line) for line in lines]
     if not lines and not any(watcher.unsent.get(lane) for lane in state.HOLDERS):
         return []
@@ -2153,6 +2156,9 @@ def handed(watcher: Watcher, lines: list[str], moment: datetime) -> list[str]:
     for line in lines:
         if (found := PR_EVENT.match(line)) and found["change"].startswith(served.NOT_READY):
             stage.wake(watcher.name, found["key"], line)
+        elif line.startswith(LANDER):
+            if line not in (meta := watcher.unsent.setdefault("meta", [])):
+                meta.append(line)
         elif holder := holder_line(line, data):
             if needs_step(line, data):
                 watcher.unsent.setdefault(holder, []).append(line)
@@ -2165,14 +2171,14 @@ def handed(watcher: Watcher, lines: list[str], moment: datetime) -> list[str]:
 
 
 def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> list[str]:
-    """Post each line, after any that failed to post before, to the lane over cci, a remote lane's question its line names by its first line carrying the question whole as the record's body: a coordinator's line it acts on now wakes it, its others reach it together at most every five minutes, and a line that fails goes again next pass, said from its third failure in a row. The lines stay among the watcher's unsent until each posts, so a newer install that takes the watch over meanwhile gets them."""
+    """Post each line, after any that failed to post before, to the lane over cci, a remote lane's question its line names by its first line carrying the question whole as the record's body: the lander's own failure goes as a defect, which the meta session starts a fix from, a coordinator's line it acts on now wakes it, its others reach it together at most every five minutes, and a line that fails goes again next pass, said from its third failure in a row. The lines stay among the watcher's unsent until each posts, so a newer install that takes the watch over meanwhile gets them."""
     owed = watcher.unsent[lane] = watcher.unsent.get(lane, []) + lines
     if not owed:
         return []
     data = state.load(watcher.name)
     refusal, unsent = None, []
     for line in owed:
-        kind = "handoff" if lane in state.HOLDERS or wakes(line, data) else "evidence"
+        kind = "defect" if line.startswith(LANDER) else "handoff" if lane in state.HOLDERS or wakes(line, data) else "evidence"
         topic = f"watch-{hashlib.sha1(line.encode()).hexdigest()[:10]}"
         asked = asked_whole(watcher.name, line)
         argv = ["cci", "post", "--drive", watcher.name, "--lane", LANE, "--kind", kind, "--to", f"{lane}@{watcher.name}", "--topic", topic, *(["--path", "-"] if asked else []), "--text", line]

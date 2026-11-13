@@ -300,9 +300,10 @@ lands with no second check. A `NOT READY` at the PR's head clears no tap and hol
 card keeps Approve and draws the objection whole under Where it stands, and its `PR … NOT READY`
 line goes to the builder answering for the PR through `drive pr wake`. His order to merge a PR as it
 stands is his Approve. Each head gets one try, but a try that could make no fresh worktree of the default
-branch, such as when GitHub did not send a blob its checkout fetched, says nothing of the PR, so the lander
-tries again at the watch's next pass with no new tap, and a try that comes to what the one before it on that
-head did is said once. A try stands only while what let it run does: once `drive pr set <url> --no-exempt --tap`
+branch, such as when GitHub did not send a blob its checkout fetched, says nothing of the PR: the watch says
+it once to the meta session as the lander's own `LANDER the lander could not check out …` defect, never as
+the PR's not landed line, and the lander tries again at the watch's next pass with no new tap. A try that
+comes to what the one before it on that head did is said once. A try stands only while what let it run does: once `drive pr set <url> --no-exempt --tap`
 puts the PR on his card, or his tap comes after the try started, the PR reads his card or `ready` again, never
 `unlanded`. Its outcome comes back as the PR's stage:
 `landing` while Trunk holds it, and `unlanded`, a lander's try that ended without queueing it, with
