@@ -962,7 +962,7 @@ def record_post(name: str, order_id: str, link: str, report: dict, sent: str | N
 
 
 def record_on(name: str, order_id: str, link: str, report: dict, items: list[tuple[str | None, str]], sent: str | None = None) -> tuple[str, dict]:
-    """Record the drive's post on one order: the promised time it keeps, the time its words promise his next line by but on an incident, whose next line the watch owes five quiet minutes after its last, the order's last line, the parts its report's items deliver there, and its thread among the order's, with when it joined, when the order holds it not yet."""
+    """Record the drive's post on one order: the promised time it keeps, the time its words promise his next line by but on an incident, whose next line the watch owes five quiet minutes after its last once it has news, the order's last line, the parts its report's items deliver there, and its thread among the order's, with when it joined, when the order holds it not yet."""
     data = state.load(name)
     order = find(data["orders"], order_id, "order")
     if refused := report_refusal(data, order_id, report):

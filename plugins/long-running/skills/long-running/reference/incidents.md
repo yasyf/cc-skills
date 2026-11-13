@@ -264,7 +264,7 @@ check's verdict, or from the order when none ran.
 | First check: the live build's commit, and the default branch's newest build tried on a test machine | 10 minutes | A second job on the first check |
 | Rollback started on the proven target, or the evidence that no build can serve | 10 minutes | A second job on the rollback |
 | Every later step, until live | at most 10 minutes out | A second job on that step |
-| His next line, until users are unblocked | 5 minutes after the incident's last line | The watch's report, and a handler posting where it stands |
+| His next line, until users are unblocked | 5 minutes after the incident's last line, while a job of it works or once something it names moved | The watch's report, and a handler posting what moved and where it stands |
 
 - His next line's clock is the watch's, never a time a line promises, by his pick "Watch-owned
   clock: no 10-minute silence again, a line every five quiet minutes from a handler reading the
@@ -275,8 +275,15 @@ check's verdict, or from the order when none ran.
   order's note says it stands, so two incidents in one thread get one line, not one each. It
   starts one handler on that report, which reads the jobs and posts where each incident stands in
   that thread; a handler already at work in the thread takes the report at its next step.
-  - It runs while he is away too, and restarts once a handler has the report, so a handler that
-    cannot post leaves the next five minutes owed.
+  - It owes that line only on news, by his pick "Owe a line only on news: while a job works or
+    something it names changed; silent while all waits.": while a job of the incidents works, or
+    once an order, job or PR of them moved since the thread's last line, a job by its state, waits,
+    returned line or the cards of his its questions are open on, a PR by its state, checks, review
+    or tap. The watch keeps those facts on each incident at its first pass after each line, and the
+    report names what moved and which jobs are at work. An incident whose every job waits, on his
+    card, a release or a PR, gets no line until one of them moves.
+  - It runs while he is away too. It restarts once a handler has the report, and only a post keeps
+    the facts, so a handler that cannot post leaves the same news owed five minutes on.
   - It stops once an order of the incident keeps proof that users are unblocked, by his pick "Proof
     ends the line: none once users are unblocked; the incident stays open until its root fix is
     live.": a builder's `DONE` on its `fix`, `stop` or `rollback` part keeps its proof as the
@@ -379,9 +386,9 @@ the alert's thread, the alert's with `say(channel_id=<the alert's channel>, thre
 report per thread per turn that `record_lines` holds the coordinator and the meta session to never holds one, by his words "this is incident so uyou should be faster and communicating more with
 me". These rules bind the communicator, its handlers and any reader that posts for it.
 
-- Until users are unblocked he hears a line at least every five minutes, the watch owing one after
-  any five quiet minutes by [Clocks](#clocks), and until the fix is live each step below the moment
-  it happens. A link
+- Until users are unblocked he hears a line five quiet minutes after the last while a job works on
+  it or something it names moved, the watch owing it by [Clocks](#clocks), and until the fix is live
+  each step below the moment it happens. A link
   appears once, inline, where the sentence names the thing it points at.
 - Each line names the failing service, function, file or table by its proper term, never a
   stand-in, and carries no "not proven" paragraph under any label, by [messages.md](messages.md).

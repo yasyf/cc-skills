@@ -386,9 +386,12 @@ def question_line(question: dict) -> str:
     return f"asks him: {cut(question['title'] or 'his question card', 80)}; {card}{waits}{kept}"
 
 
+def job_pr_keys(drive: dict, job_id: str, job: dict) -> list[str]:
+    return list(dict.fromkeys([*map(pr_key, job["prs"]), *job_prs(drive, job_id)]))
+
+
 def job_pr_lines(drive: dict, job_id: str, job: dict) -> list[str]:
-    keys = dict.fromkeys([*map(pr_key, job["prs"]), *job_prs(drive, job_id)])
-    return [pr_line(key, drive["prs"][key], drive["prs"][key]["card_state"]) if key in drive["prs"] else pr_url(key) for key in keys]
+    return [pr_line(key, drive["prs"][key], drive["prs"][key]["card_state"]) if key in drive["prs"] else pr_url(key) for key in job_pr_keys(drive, job_id, job)]
 
 
 FEED_SUBSCRIPTION = "cc-slack subscribe --kind alerts,releases,posts --channel <id>"
