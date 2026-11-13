@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 from drive import agents, card, cli, limits, mcp, reads, settled, slack, state, superseded, tools, view, watch
-from conftest import LEAD, LOCK_STALL, LOCK_STALL_AGAIN, RESEARCH, Answers, Heard, Jev, Withdrawals
+from conftest import LEAD, LOCK_STALL, LOCK_STALL_AGAIN, RESEARCH, Answers, Cci, Heard, Jev, Withdrawals
 from drive.state import DriveError
 
 THREAD = "1794200000.000100"
@@ -440,7 +440,7 @@ def test_a_record_goes_to_the_other_session_and_a_tap_takes_its_job_and_waits_fr
         (
             ["cci", "post", "--drive", "demo", "--lane", "root", "--batch", "-"],
             [
-                {"kind": "answer", "to": ["communicator@demo"], "text": "undone: Ring", "attr": {"job": "j2", "waits": "demo:j2-7", "undone": "Ring"}, "json": True},
+                {"kind": "answer", "to": ["communicator@demo"], "text": "undone: Ring", "topic": "demo:j2-7", "attr": {"job": "j2", "waits": "demo:j2-7", "undone": "Ring"}, "json": True},
                 {"kind": "defect", "to": ["meta@demo"], "text": "cc-slack delete hides --url", "json": True},
             ],
         )
@@ -1100,6 +1100,22 @@ def test_an_answer_naming_his_open_card_by_its_waits_attr_settles_that_card_in_t
     assert answered == [("card-answer", "--card", card, "--label", "Ring", "--settled", "--other", "--via", card)]
 
 
+def test_his_tap_and_an_answer_naming_his_card_by_its_waits_attr_each_post_under_their_cards_thread_which_cci_requires_and_end_its_question(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page", "--parts", "the run", "the page")
+    run("job", "add", "builder", "--order", "o1", "--part", "the run", "--goal", "build it")
+    run("job", "add", "builder", "--order", "o1", "--part", "the page", "--goal", "build the page")
+    cci = Cci()
+    monkeypatch.setattr(subprocess, "run", cci.run)
+    open_cards(monkeypatch, "demo:j1-7", "demo:j2-8")
+    assert card.question_answered({"waits": "demo:j1-7", "label": "Ring", "url": CARD, "action_ts": "1794200001.000100"}) == {"ok": True, "seq": "51"}
+    assert tools.run("record", demo, {"records": [{"kind": "answer", "text": "Ring", "attrs": {"waits": "demo:j2-8"}}]}).splitlines()[0] == "1 answer 52"
+    assert [record["topic"] for batch in cci.posted for record in batch] == ["card:1794200000.000700", "card:1794200000.000701"]
+    data = state.load(demo)
+    assert [(view.holds(data, wait, view.NO_CARDS), question["closed"]["seq"]) for wait, question in zip(("demo:j1-7", "demo:j2-8"), (data["jobs"]["j1"]["questions"][0], data["jobs"]["j2"]["questions"][0]), strict=True)] == [(False, "51"), (False, "52")]
+
+
 def test_an_answer_his_recorded_rules_give_by_the_waits_id_of_a_question_whose_card_never_drew_settles_it_under_the_rulings_full_id(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, heard: Heard, recorded: Answers
 ) -> None:
@@ -1129,7 +1145,7 @@ def test_an_answer_his_recorded_rules_give_by_the_waits_id_of_a_question_whose_c
     assert tools.run("record", demo, {"records": [answer], "dry_run": True}).splitlines()[1:] == ['1 would end j1\'s question "Which card keeps the subject?" answered, closing its card']
     assert posted == []
     assert tools.run("record", demo, {"records": [answer]}).splitlines()[0] == "1 answer 672342"
-    assert (posted[0][0].get("resolves"), posted[0][0]["attr"]) == (None, {"job": "j1", "waits": "demo:j1-672331", "ruling": ruling})
+    assert (posted[0][0].get("resolves"), posted[0][0]["topic"], posted[0][0]["attr"]) == (None, "demo:j1-672331", {"job": "j1", "waits": "demo:j1-672331", "ruling": ruling})
     job = state.load(demo)["jobs"]["j1"]
     closed = job["questions"][0]["closed"]
     assert ((closed["how"], closed["words"], closed["seq"], closed["ruling"]), view.open_questions(job)) == (("answered", "one subject has one card", "672342", ruling), [])
