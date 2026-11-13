@@ -3427,47 +3427,68 @@ LONG_READ = 'DRIVE job replies j1\n{"files": {}}'
 LONG_ANSWER = "drive exited 0\n" + 'a "quoted" line\n' * 15_000
 
 
-def sprite_refuses(workspace: str, folder: str, name: str, text: bytes) -> str:
-    raise orca.Unfit(f"writing {folder}/{name} onto {workspace} exited 255: Connection closed")
-
-
-def test_an_answer_past_one_orca_relay_message_keeps_what_fits_over_a_line_naming_the_cut_and_the_question_that_gets_it_whole() -> None:
-    cut = orca.relayable(LONG_ANSWER, LONG_READ)
-    relayed = len(json.dumps({"questionId": "relay_4ee9b39cd0c6", "answerMessageId": "msg_" + "0" * 32, "body": cut}).encode())
-    assert orca.RELAY_BYTES - 2 * orca.RELAY_ROOM < relayed <= orca.RELAY_BYTES
-    head, _, closing = cut.rstrip("\n").rpartition("\n")
-    assert LONG_ANSWER.startswith(head)
-    assert closing == (
-        f"[cut {len(LONG_ANSWER) - len(head):,} of {len(LONG_ANSWER):,} bytes, past the 64 KiB one Orca relay message carries:"
-        " ask `drive job replies j1` again and its whole answer comes as a file on this Sprite]"
+def kept_on_sprite(message_id: str, answer: str) -> str:
+    return (
+        f"drive exited 0\n{orca.KEPT_ANSWER}/home/sprite/{orca.SPRITE_ANSWERS}/{message_id}.txt"
+        f" ({len(answer.encode())} bytes, SHA-256 {hashlib.sha256(answer.encode()).hexdigest()}); read it in full\n"
     )
-    assert orca.relayable("drive exited 0\nshort", LONG_READ) == "drive exited 0\nshort"
 
 
-def test_a_read_answer_kept_whole_past_one_orca_relay_message_goes_cut_and_leaves_the_queue(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    ("size", "escapes", "relayed", "filed"),
+    [(62_131, 225, 62_438, False), (65_453, 1, 65_536, False), (65_454, 1, 65_537, True), (64_467, 1_076, 65_625, True), (207_979, 1_789, 209_850, True)],
+    ids=["drive manual verbs, relayed", "a relay message of exactly 64 KiB", "one byte past it", "drive manual messages, under 64 KiB yet refused", "drive job replies, refused"],
+)
+def test_an_answer_goes_whole_while_its_relay_message_counted_as_orca_counts_it_fits_64_kib_and_past_that_as_a_file_on_the_lanes_sprite(
+    size: int, escapes: int, relayed: int, filed: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    answer = "drive exited 0\n" + '"' * (escapes - 1) + "x" * (size - len("drive exited 0\n") - escapes + 1)
+    assert len(answer.encode()) == size
+    assert orca.relay_bytes("relay_4ee9b39cd0c6", answer) == relayed
+    placed = []
+    monkeypatch.setattr(orca, "put_on_sprite", lambda workspace, folder, name, text: placed.append(name) or f"/home/sprite/{folder}/{name}")
+    said = orca.sprite_answer(answer, {"route": None, "workspace": "pool-one"}, "relay_4ee9b39cd0c6")
+    assert (said, placed) == ((kept_on_sprite("relay_4ee9b39cd0c6", answer), ["relay_4ee9b39cd0c6.txt"]) if filed else (answer, []))
+
+
+def test_an_answer_past_one_relay_message_its_lanes_sprite_could_not_take_is_written_there_as_the_watch_replies_retried_like_a_refused_reply(
+    remote: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
     with state.edit(remote) as data:
         data["jobs"]["j1"]["workspace"] = "pool-one"
     deliver(monkeypatch, [message("question", LONG_READ, id="relay_long")])
     monkeypatch.setattr(reads, "answer", lambda question, root, drive, job_id: LONG_ANSWER)
-    monkeypatch.setattr(orca, "put_on_sprite", sprite_refuses)
+    refused = "writing .local/state/long-running/answers/relay_long.txt onto pool-one exited 255: ssh: connect to host pool-one port 22: Connection refused"
+    refusing = [True]
+
+    def put(workspace: str, folder: str, name: str, text: bytes) -> str:
+        if refusing[0]:
+            raise orca.Unfit(refused)
+        return f"/home/sprite/{folder}/{name}"
+
+    monkeypatch.setattr(orca, "put_on_sprite", put)
     replies = []
     monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
     watching = watch.Watcher(remote, offset=state.events_end(remote))
-    assert watch.run_pass(watching, T0) == []
-    assert [args for args in replies if args[0] == "reply"] == [("reply", "--id", "relay_long", "--run", RUN, "--body", orca.relayable(LONG_ANSWER, LONG_READ))]
+    assert [watch.run_pass(watching, T0 + timedelta(seconds=s)) for s in (0, 5)] == [[], [f"WATCH the answer to j1's read failed 3 times in a row: {refused}"]]
+    assert state.load(remote)["jobs"]["j1"]["read_answers"] == {"relay_long": [LONG_ANSWER, None]}
+    assert [args for args in replies if args[0] == "reply"] == []
+    refusing[0] = False
+    assert watch.run_pass(watching, T0 + timedelta(seconds=10)) == []
+    assert [args for args in replies if args[0] == "reply"] == [("reply", "--id", "relay_long", "--run", RUN, "--body", kept_on_sprite("relay_long", LONG_ANSWER))]
     assert state.load(remote)["jobs"]["j1"]["reads"] == {}
 
 
 @pytest.mark.parametrize(
-    ("command", "size"),
+    ("command", "size", "filed"),
     [
-        ("cc-slack thread --url https://demo.slack.com/archives/D0DEMO00001/p1794033848123456 --raw", 13_040),
-        ("cc-slack history --channel D0DEMO00001 --limit 20 --raw", 109_486),
+        ("cc-slack thread --url https://demo.slack.com/archives/D0DEMO00001/p1794033848123456 --raw", 13_040, False),
+        ("cc-slack history --channel D0DEMO00001 --limit 20 --raw", 109_486, True),
     ],
-    ids=["a question card with its blocks", "a DM's newest 20 posts with their blocks"],
+    ids=["a question card with its blocks, in the reply", "a DM's newest 20 posts with their blocks, as a file"],
 )
 def test_a_slack_read_a_sprite_lane_asks_runs_this_macs_cc_slack_and_reaches_its_sprite_whole_past_the_read_budget(
-    command: str, size: int, remote: str, monkeypatch: pytest.MonkeyPatch
+    command: str, size: int, filed: bool, remote: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     printed = '{"blocks": "' + "b" * (size - 14) + '"}'
     ran, placed, replies = [], [], []
@@ -3480,31 +3501,10 @@ def test_a_slack_read_a_sprite_lane_asks_runs_this_macs_cc_slack_and_reaches_its
     assert watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote)), T0) == []
     assert ran == [["cc-slack", *command.split()[1:]]]
     assert len(printed.encode()) == size > reads.BUDGET
-    assert placed == [("pool-one", printed.encode())]
+    assert placed == ([("pool-one", printed.encode())] if filed else [])
     kept = f"{orca.KEPT_ANSWER}/home/sprite/{orca.SPRITE_ANSWERS}/relay_slack.txt ({size} bytes, SHA-256 {hashlib.sha256(printed.encode()).hexdigest()}); read it in full\n"
-    assert [args for args in replies if args[0] == "reply"] == [("reply", "--id", "relay_slack", "--run", RUN, "--body", kept)]
+    assert [args for args in replies if args[0] == "reply"] == [("reply", "--id", "relay_slack", "--run", RUN, "--body", kept if filed else printed)]
     assert state.load(remote)["jobs"]["j1"]["reads"] == {}
-
-
-def test_a_read_whose_answer_orca_kept_too_big_to_relay_gets_it_cut_by_message_and_says_so_once(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    with state.edit(remote) as data:
-        data["jobs"]["j1"]["workspace"] = "pool-one"
-    deliver(monkeypatch, [message("question", LONG_READ, id="relay_long")])
-    monkeypatch.setattr(reads, "answer", lambda question, root, drive, job_id: LONG_ANSWER)
-    monkeypatch.setattr(orca, "put_on_sprite", sprite_refuses)
-    calls = []
-    monkeypatch.setattr(orca, "call", answered_elsewhere(calls))
-    watching = watch.Watcher(remote, offset=state.events_end(remote))
-    assert watch.run_pass(watching, T0) == [
-        f"JOB j1 o1 READ answered by message, since Orca kept its {len(LONG_ANSWER):,}-byte answer as its question's and never relayed it: sent to dispatch {DISPATCH}"
-    ]
-    cut = orca.relayable(LONG_ANSWER, LONG_READ)
-    assert [args for args in calls if args[0] in ("reply", "send")] == [
-        ("reply", "--id", "relay_long", "--run", RUN, "--body", cut),
-        ("send", "--to", f"dispatch:{DISPATCH}", "--run", RUN, "--subject", "The answer to your DRIVE job replies j1", "--body", cut),
-    ]
-    assert state.load(remote)["jobs"]["j1"]["reads"] == {}
-    assert watch.run_pass(watching, T0 + timedelta(seconds=70)) == []
 
 
 @pytest.mark.parametrize(
@@ -4702,7 +4702,7 @@ def test_putting_a_file_on_a_sprite_sends_it_through_ssh_stdin_and_returns_the_p
         orca.put_on_sprite("pool-one", orca.SPRITE_ANSWERS, "msg_1.txt", text)
 
 
-def test_a_long_answer_to_a_sprite_lane_goes_as_the_file_it_was_kept_in_there_after_its_exit_line_and_a_short_or_mac_one_goes_whole(
+def test_an_answer_past_one_relay_message_goes_as_the_file_it_was_kept_in_on_the_lanes_sprite_after_its_exit_line_and_a_mac_one_goes_whole(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     placed = []
@@ -4711,22 +4711,27 @@ def test_a_long_answer_to_a_sprite_lane_goes_as_the_file_it_was_kept_in_there_af
         placed.append((workspace, folder, name, text))
         if workspace == "pool-gone":
             raise orca.Unfit("no Sprite")
+        if workspace == "pool-unrecorded":
+            raise FileNotFoundError(2, "No such file or directory")
         return f"/home/sprite/{folder}/{name}"
 
     monkeypatch.setattr(orca, "put_on_sprite", put)
     sprite = {"route": None, "workspace": "pool-one"}
-    long = "drive exited 3\n" + "x" * orca.ANSWER_BYTES
+    long = "drive exited 3\n" + "x" * orca.RELAY_BYTES
     digest = hashlib.sha256(long.encode()).hexdigest()
     assert orca.sprite_answer(long, sprite, "msg_1") == (
         "drive exited 3\ndrive answer kept on this Sprite: /home/sprite/.local/state/long-running/answers/msg_1.txt"
         f" ({len(long)} bytes, SHA-256 {digest}); read it in full\n"
     )
     assert placed == [("pool-one", ".local/state/long-running/answers", "msg_1.txt", long.encode())]
-    assert orca.sprite_answer("LOG x: " + "y" * orca.ANSWER_BYTES, sprite, "msg_2").startswith("drive answer kept on this Sprite: ")
+    assert orca.sprite_answer("LOG x: " + "y" * orca.RELAY_BYTES, sprite, "msg_2").startswith("drive answer kept on this Sprite: ")
     assert orca.sprite_answer("drive exited 0\nshort", sprite, "msg_3") == "drive exited 0\nshort"
     assert orca.sprite_answer(long, {"route": state.LOCAL_ROUTE, "workspace": None}, "msg_4") == long
-    assert orca.sprite_answer(long, {"route": None, "workspace": "pool-gone"}, "msg_5") == long
-    assert len(placed) == 3
+    with pytest.raises(orca.Unfit, match="^no Sprite$"):
+        orca.sprite_answer(long, {"route": None, "workspace": "pool-gone"}, "msg_5")
+    with pytest.raises(orca.OrcaError, match="^writing .local/state/long-running/answers/msg_6.txt onto pool-unrecorded: "):
+        orca.sprite_answer(long, {"route": None, "workspace": "pool-unrecorded"}, "msg_6")
+    assert len(placed) == 4
 
 
 def test_launch_local_records_a_lane_on_this_mac_that_reads_as_starting_while_it_launches(
