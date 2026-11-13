@@ -1963,13 +1963,13 @@ def job_launch(args: argparse.Namespace) -> int:
 
 
 def job_resume(args: argparse.Namespace) -> int:
-    """Send a job its next event by the one relaunch launch and resume share: to its lane while its worker takes messages, an answer to an open question that names `LOG <url>`s carrying those logs ahead of the text, read here as the watch reads them; else in the handoff of its next worker. With no text, send the texts a resume Orca could not deliver holds on the job, as the watch does once Orca reads its lane alive again."""
+    """Send a job its next event by the one relaunch launch and resume share: to its lane while its worker takes messages, else in the handoff of its next worker. With no text, send the texts a resume Orca could not deliver holds on the job, as the watch does once Orca reads its lane alive again."""
     name = state.resolve(args.drive)
     if args.text is not None:
         return relaunch(args, name, args.text)
     with state.job_locked(name, args.id, orca.LAUNCH_SECONDS):
         started_job(state.load(name), args.id)
-        return deliver(args, name, "")
+        return deliver(args, name)
 
 
 def relaunch(args: argparse.Namespace, name: str, text: str | None) -> int:
@@ -1982,7 +1982,8 @@ def relaunch(args: argparse.Namespace, name: str, text: str | None) -> int:
             return hand_over(args, name, data, taker)
         if job.get("where") == "remote" and (dispatch := job.get("dispatch")):
             if text is not None:
-                return deliver(args, name, hold(name, data, args.id, text))
+                hold(name, args.id, text)
+                return deliver(args, name)
             try:
                 end = orca.lane_end(job)
             except orca.OrcaError as error:
@@ -2008,24 +2009,15 @@ def relaunch(args: argparse.Namespace, name: str, text: str | None) -> int:
     return emit(args, line, started)
 
 
-def hold(name: str, data: dict, job_id: str, text: str) -> str:
-    """Keep the text on the job's undelivered list under a fresh Orca request id before any Orca call, so an outage delays it and never drops it, unless the job already holds it; an open question's `LOG <url>`s are read here ahead of it, so every try sends one body under that id, since Orca refuses an id reused with other input as request_mismatch. What it read ahead, as the resume's line names it."""
-    job = data["jobs"][job_id]
-    asked = reads.logs(job["report"] or "") if job.get("ask") else None
-    if asked:
-        try:
-            said = reads.answer(asked, Path(data["roles"]["coordinator"]["cwd"]), name, job_id)
-        except reads.ReadError as error:
-            said = f"{asked}: {error}"
-        text = f"{said}\n\n{text}"
+def hold(name: str, job_id: str, text: str) -> None:
+    """Keep the text on the job's undelivered list under a fresh Orca request id before any Orca call, so an outage delays it and never drops it, unless the job already holds it."""
     with state.edit(name) as data:
         kept = data["jobs"][job_id]["undelivered"]
         if all(held["words"] != text for held in state.held(data["jobs"][job_id])):
             kept.append({"seq": None, "words": text, "at": state.stamp(), "said": None, "request": str(uuid.uuid4())})
-    return f", with {asked} read ahead of your text" if asked else ""
 
 
-def deliver(args: argparse.Namespace, name: str, ahead: str) -> int:
+def deliver(args: argparse.Namespace, name: str) -> int:
     """Deliver every text the job holds, oldest first, once Orca shows its lane: sent to a worker that takes messages, else carried in the handoff of its next worker; while Orca cannot tell, each stays held for the watch to send once it reads the lane alive."""
     job = state.load(name)["jobs"][args.id]
     held = state.held(job)
@@ -2037,10 +2029,10 @@ def deliver(args: argparse.Namespace, name: str, ahead: str) -> int:
         return unsent(args, job, held, error)
     if end:
         return restart(args, name, job["dispatch"], end, None)
-    return messaged(args, name, job, held, ahead)
+    return messaged(args, name, job, held)
 
 
-def messaged(args: argparse.Namespace, name: str, job: dict, held: list[dict], ahead: str) -> int:
+def messaged(args: argparse.Namespace, name: str, job: dict, held: list[dict]) -> int:
     """Send each held text to a lane whose worker takes messages, each under its own request id, dropping each from the job once Orca takes it with each answer of his kept before it, which it carries, and mark the job sent each answer of his the text carries; first put on its Sprite the tools a launch puts there, the drive forwarder among them, when no start this drive recorded put them on that Sprite, as for a lane started before the forwarder existed or recorded by hand."""
     unfit, workspace = None, job.get("workspace")
     if job.get("tools_on") != workspace:
@@ -2066,7 +2058,7 @@ def messaged(args: argparse.Namespace, name: str, job: dict, held: list[dict], a
                 fresh["tools_on"] = workspace
             superseded.hear(data, args.id, kept["words"])
         job = {**job, "ask": None}
-    how = "; ".join(hows) + ahead + (f"; its Sprite still lacks the drive forwarder: {unfit}" if unfit else "")
+    how = "; ".join(hows) + (f"; its Sprite still lacks the drive forwarder: {unfit}" if unfit else "")
     return emit(args, f"{args.id}: {how}", {"id": args.id, "how": how})
 
 
@@ -4079,7 +4071,7 @@ def parser() -> argparse.ArgumentParser:
     verb = job.add_parser(
         "read",
         parents=both,
-        help="what the watch starts on a remote lane's LOG, READ or DRIVE question: answer it here, keeping first the answer its own end leaves so it never runs twice, then the one the watch sends",
+        help="what the watch starts on a remote lane's READ or DRIVE question: answer it here, keeping first the answer its own end leaves so it never runs twice, then the one the watch sends",
     )
     verb.add_argument("id")
     verb.add_argument("message", help="the question's Orca message id")

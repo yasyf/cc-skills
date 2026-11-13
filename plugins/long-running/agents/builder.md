@@ -316,22 +316,27 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 - No Sprite lane runs `drive break-glass`, whose command would run on this Mac as its user, by his
   pick "No Sprite lane runs break-glass: a step needing a grant moves to a lane on this Mac": a step that needs a grant returns `BLOCKED` naming the step and its command, and
   the coordinator moves it to a lane on this Mac.
-- The Sprite holds no Buildkite or AWS credentials and no copy of the drive's records, so
-  `tools/ci bk`, `ccx`'s log reads, `cci` and `ccn` refuse or are missing. Every drive file your
+- Read a red check's whole log here, by his pick "Give Sprites a scoped AWS read role, so every
+  step runs where its lane runs": write it to a file under your scratch directory and search it
+  with `grep` or `awk`, never print it whole. A Buildkite job's log is
+  `tools/ci bk log <pipeline> <build> <job>`, its build's jobs and states
+  `tools/ci bk api /pipelines/<pipeline>/builds/<build>`, and its artifacts
+  `tools/ci bk api /pipelines/<pipeline>/builds/<build>/artifacts` and
+  `…/jobs/<job>/artifacts/<id>/download`, each through the sprite door under the Sprite's
+  four-hour AWS session. A GitHub Actions job's log is
+  `ccx vcs job-log <job> -R <owner/repo> --budget 1000000`, since its default budget keeps only the
+  log's tail.
+- The Sprite holds no copy of the drive's records, so `cci` and `ccn` are missing. Every drive file your
   brief names comes whole above your brief: the report of each job its `Researched:` and `Plan:`
   lines name under `# Report of <job>`, and each file under the drive's `reports/`, `asks/`,
   `repro/`, `scratch/` and `jobs/` folders it names, by its path on the coordinator's Mac or from the
   drive's folder, under `# Drive file <its path from the drive's folder>`. Read through the
   coordinator's Mac with one blocking question that prints the answer within about a minute,
   `orca orchestration ask --question "<read>" --wait --timeout-ms 600000`, and keep working: it is a
-  read, not a report. Open the question with its read: a `LOG` question reads every `LOG <url>` it
-  names, splitting the 12,000 characters across them, and a `READ` question runs its first line
-  alone. A question for the coordinator that names a `LOG <url>` gets that log ahead
-  of its answer.
+  read, not a report. Open the question with its read, which runs its first line alone.
 
 | Read | What it returns |
 | --- | --- |
-| `LOG <url>` | For the failing check's Buildkite build or job URL, or its GitHub Actions job URL: the failing jobs' own command output, 12,000 characters split across them, each Buildkite job's opening with its failure lines (Go `--- FAIL:` anywhere in a line and `FAIL` package lines, nextest `FAIL [`, Rust `panicked at`, tsc `error TS`, vitest and jest `✕`, `✖` and `●`), a repeated one listed once with its count, then each failure's own output (a Go test's lines from its `=== RUN`, else the failure line and the lines indented under it, kept past its share as its failure lines, the two after each and its `cause:` or `Caused by:` lines), then its last characters; a job URL reads that one job. |
 | `READ <path> [<path>…]` | For a file under the drive's `reports/`, `asks/`, `repro/`, `scratch/` or `jobs/` folder, such as a proof's saved output `reports/<job>.proof.txt`, a question file under `asks/` or a brief `jobs/<job>.brief.md`, by its path on the coordinator's Mac or from the drive's folder: each file whole under `# Drive file <its path>`, `reports/<job>.md` that job's report, and a path missing or resolving outside the folder answered as none. |
 | `READ <command>` | For one of `cci show\|grep\|find\|digest\|state` with `--drive <the brief's drive>`, `ccn search\|show\|relevant`, `ccn answer\|note\|doc search\|show` or `ccn answer list`, a show naming several IDs in one read: its output's first 12,000 characters, for his recorded words and the records a brief or PR cites. |
 

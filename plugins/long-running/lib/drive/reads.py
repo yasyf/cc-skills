@@ -12,7 +12,6 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections import Counter
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -21,7 +20,6 @@ from pathlib import Path
 from drive import procs, state
 from drive.render import clock
 
-LOG = re.compile(r"LOG\s+(https?://\S+)")
 READ = re.compile(r"READ\s+(.+)")
 DRIVE = re.compile(r"DRIVE\s+(.+)")
 DRIVE_BIN = Path(__file__).resolve().parents[2] / "bin" / "drive"
@@ -59,7 +57,6 @@ CLOUD = re.compile(r"^cloud:\n((?:[ \t]+\S.*(?:\n|$))+)", re.MULTILINE)
 CLOUD_KEY = re.compile(r"^[ \t]+(account|namespace):[ \t]*(\S+)", re.MULTILINE)
 AWS_CONFIG = "~/.aws/config"
 JOB_ID = re.compile(r"^j\d+[\s:,]+")
-READ_MARK = re.compile(r"^READ\b[\s:,]*")
 READ_WORD = re.compile(r"""(?:"([^"]*)"|'(.*?)'|(\S+))(?=\s|$)""")
 READ_VERBS = (
     ("cci", "show"),
@@ -81,21 +78,7 @@ READ_VERBS = (
 QUERY_VERBS = ("search", "grep")
 PLAN_HEADING = re.compile(r"^(#{1,6})[ \t]+(.+?)[ \t#]*$")
 PLANS = 5
-BUILDKITE_BUILD = re.compile(r"buildkite\.com/[^/\s]+/([^/\s]+)/builds/(\d+)")
-BUILDKITE_JOB = re.compile(r"(?:#|jid=|/jobs/)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")
-ACTIONS_JOB = re.compile(r"github\.com/([^/\s]+/[^/\s]+)/actions/runs/\d+/jobs?/(\d+)")
-MARKUP = re.compile(r"\x1b_[^\x07]*\x07|\x1b\[[0-9;]*[A-Za-z]|\r")
-FAILURE = re.compile(r"--- FAIL: |^\s*(?:FAIL\s|[✖✕●] )|panicked at |error TS\d+")
-GO_FAIL = re.compile(r"--- FAIL: (\S+)|^FAIL\t")
-GO_START = re.compile(r"=== (?:RUN|CONT|NAME)\s+(\S+)")
-CAUSE = re.compile(r"^\s*(?:\[cause\]|cause|Caused by)\s*:")
-DURATION = re.compile(r"\s*\(\d[\d.]*\s?m?s\)$")
-FAILURE_AFTER = 2
-COMMAND_START = "~~~ Running commands"
-COMMAND_END = "~~~ Running repository post-command hook"
-FAILED = ("failed", "timed_out")
 BUDGET = 12000
-CHARS_PER_TOKEN = 4
 READ_SECONDS = 120
 
 
@@ -119,12 +102,10 @@ class Grant:
 
 
 def request(body: str) -> str | None:
-    """The read a remote lane's question asks for: a `DRIVE` question whole, else, when its first line, past the lane's job id, opens with one, every `LOG <url>` the question names, with `READ:` before the first and any other text aside, or `READ <command>`; None for a report or a question only the coordinator can answer."""
+    """The read a remote lane's question asks for: a `DRIVE` question whole, else its first line, past the lane's job id, when it opens with `READ <command>`; None for a report or a question only the coordinator can answer."""
     if DRIVE.match(body.strip()):
         return body.strip()
     line = opening(body)
-    if LOG.match(READ_MARK.sub("", line, count=1)):
-        return logs(body)
     return line if READ.match(line) else None
 
 
@@ -138,22 +119,11 @@ def opening(body: str) -> str:
     return JOB_ID.sub("", body.strip().partition("\n")[0], count=1)
 
 
-def logs(body: str) -> str | None:
-    """Every `LOG <url>` a question names, wherever it names them, as one read; None when it names none."""
-    urls = dict.fromkeys(LOG.findall(body))
-    return f"LOG {' '.join(urls)}" if urls else None
-
-
 def answer(question: str, checkout: Path, drive: str, job_id: str) -> str:
-    """Answer a read question with this Mac's credentials and records, never with nothing, a `LOG` read splitting the budget across its URLs, a `READ` naming files of the drive's folder reading them and a `DRIVE` question running its verb for the asking lane's job; ReadError says why a `LOG` or `READ` could not."""
+    """Answer a read question with this Mac's records, never with nothing, a `READ` naming files of the drive's folder reading them and a `DRIVE` question running its verb for the asking lane's job; ReadError says why a `READ` could not."""
     if question.startswith("DRIVE"):
         return lane_drive(question, checkout, drive, job_id)
-    if question.startswith("LOG "):
-        urls = question.split()[1:]
-        said = "\n\n".join(read_log(url, checkout, BUDGET // len(urls)) for url in urls)
-    else:
-        said = read_records(READ.fullmatch(question)[1], checkout, drive)
-    return said or f"{question}: empty, the read printed nothing"
+    return read_records(READ.fullmatch(question)[1], checkout, drive) or f"{question}: empty, the read printed nothing"
 
 
 def lane_drive(question: str, checkout: Path, drive: str, job_id: str) -> str:
@@ -218,15 +188,6 @@ def lane_refusal(args: argparse.Namespace, parse: Callable[[list[str]], argparse
 
 def lane_exit(status: int, printed: str) -> str:
     return f"{DRIVE_EXIT} {status}\n{printed}"
-
-
-def read_log(url: str, checkout: Path, budget: int) -> str:
-    if build := BUILDKITE_BUILD.search(url):
-        job = BUILDKITE_JOB.search(url)
-        return buildkite(build[1], build[2], job[1] if job else None, checkout, budget)
-    if job := ACTIONS_JOB.search(url):
-        return run(["ccx", "vcs", "job-log", job[2], "-R", job[1], "--budget", str(budget // CHARS_PER_TOKEN)], checkout)
-    raise ReadError("not a Buildkite build or job URL, or a GitHub Actions job URL")
 
 
 def read_records(command: str, checkout: Path, drive: str) -> str:
@@ -495,104 +456,6 @@ def sections(body: str) -> list[dict]:
         else:
             parts[-1]["lines"].append(line)
     return [{"heading": part["heading"], "text": text} for part in parts if (text := "\n".join(part["lines"]).strip())]
-
-
-def buildkite(pipeline: str, number: str, job_id: str | None, checkout: Path, budget: int) -> str:
-    ci = str(checkout / "tools" / "ci")
-    build = json.loads(run([ci, "bk", "api", f"/pipelines/{pipeline}/builds/{number}"], checkout))
-    jobs = [
-        job
-        for job in build["jobs"]
-        if job["type"] == "script" and (job["id"] == job_id if job_id else job["state"] in FAILED)
-    ]
-    if not jobs:
-        missing = f"no job {job_id}" if job_id else "no failed job"
-        return f"{build['web_url']} is {build['state']} with {missing}"
-    share = budget // len(jobs)
-    return "\n\n".join(
-        f"== {job['name']}: {job['state']}, exit {job['exit_status']}, {job['web_url']}\n"
-        + excerpt(run([ci, "bk", "log", pipeline, number, job["id"]], checkout), share)
-        for job in jobs
-    )
-
-
-def excerpt(log: str, limit: int) -> str:
-    """The job's own command output, without Buildkite's hooks and markup, whole when it fits in `limit` characters, else its failure lines, a repeated one once, then each failure's own output folded to an even share of what they leave, then its last characters in the rest."""
-    output = MARKUP.sub("", log).split(COMMAND_START, 1)[-1].split(COMMAND_END, 1)[0].strip()
-    if len(output) <= limit:
-        return output
-    found, matched, own = failures(output)
-    if not found:
-        return f"[no failure lines matched]\n[last {limit} of {len(output)} characters]\n{output[-limit:]}"
-    named = "\n".join(found)
-    if len(named) >= limit:
-        return f"[first {limit} of {len(named)} characters of the {len(found)} failure lines]\n{named[:limit]}"
-    share = (limit - len(named)) // len(own)
-    kept = [fold(block, go, share) for block, go in own]
-    said = (
-        f"[failure lines, {matched} matched]\n{named}\n"
-        f"[each failure's own output, a repeated one's longest: a Go test's lines from its === RUN, cut to its last {share} characters,"
-        f" else the failure line through the lines indented under it, past {share} characters folded to its failure lines, the {FAILURE_AFTER} after each and its cause lines]\n"
-        + "\n--\n".join(kept)
-    )
-    rest = limit - len(named) - sum(map(len, kept))
-    return f"{said}\n[last {rest} of {len(output)} characters]\n{output[-rest:]}" if rest else said
-
-
-def failures(output: str) -> tuple[list[str], int, list[tuple[list[str], bool]]]:
-    """The output's non-blank lines that match FAILURE, matched anywhere in a `--- FAIL:` line, each listed once as first printed, with its count when lines alike but for a trailing duration repeat it; how many matched; and each one's own output, a repeated one's longest, overlapping ones joined and marked when one is Go's: a Go test's lines from its last `=== RUN`, `=== CONT` or `=== NAME` line, else a Go package's `FAIL` line, through the FAILURE_AFTER lines after it, and anything else's failure line through each line after it indented deeper, never fewer than FAILURE_AFTER."""
-    lines = [line for line in output.splitlines() if line.strip()]
-    began: dict[str, int] = {}
-    first: dict[str, str] = {}
-    times: Counter[str] = Counter()
-    spans: dict[str, tuple[int, int, bool]] = {}
-    for at, line in enumerate(lines):
-        if test := GO_START.search(line):
-            began[test[1]] = at
-        if not FAILURE.search(line):
-            continue
-        key = DURATION.sub("", line.strip())
-        first.setdefault(key, line)
-        times[key] += 1
-        if test := GO_FAIL.search(line):
-            span = (began.get(test[1], at), at + FAILURE_AFTER, True)
-        else:
-            span = (at, max(indented(lines, at), at + FAILURE_AFTER), False)
-        if key not in spans or span[1] - span[0] > spans[key][1] - spans[key][0]:
-            spans[key] = span
-    joined: list[list] = []
-    for start, end, go in sorted(spans.values()):
-        if joined and start <= joined[-1][1] + 1:
-            joined[-1][1:] = [max(joined[-1][1], end), joined[-1][2] or go]
-        else:
-            joined.append([start, end, go])
-    found = [line if times[key] == 1 else f"{line} (x{times[key]})" for key, line in first.items()]
-    return found, times.total(), [(lines[start : end + 1], go) for start, end, go in joined]
-
-
-def indented(lines: list[str], at: int) -> int:
-    """The index of the last line in the run right after the line at `at` indented deeper than it, `at` when the next line is not."""
-    depth = len(lines[at]) - len(lines[at].lstrip())
-    end = at
-    while end + 1 < len(lines) and len(lines[end + 1]) - len(lines[end + 1].lstrip()) > depth:
-        end += 1
-    return end
-
-
-def fold(block: list[str], go: bool, share: int) -> str:
-    """A failure's own output whole when it fits in `share` characters; else a Go test's last `share`, since Go prints a test's message just above its `--- FAIL`, and anything else's failure lines, the FAILURE_AFTER lines after each and its CAUSE lines, each run of lines between them said as its count, cut to its first `share`."""
-    text = "\n".join(block)
-    if len(text) <= share:
-        return text
-    if go:
-        return text[len(text) - share :]
-    kept = {after for at, line in enumerate(block) if FAILURE.search(line) for after in range(at, at + FAILURE_AFTER + 1)}
-    kept |= {at for at, line in enumerate(block) if CAUSE.match(line)}
-    parts: list[str] = []
-    for keep, group in itertools.groupby(range(len(block)), kept.__contains__):
-        ats = list(group)
-        parts += [block[at] for at in ats] if keep else [f"[{len(ats)} lines]"]
-    return "\n".join(parts)[:share]
 
 
 def run(argv: list[str], checkout: Path, env: dict[str, str] | None = None, bounded: bool = True, stdin: str | None = None) -> str:

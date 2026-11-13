@@ -58,8 +58,8 @@ Contents:
   at any load, and `drive job launch <j>` refuses its Sprite start, naming the step: start it with
   the Agent tool, or with `--local` when it reads no Datadog, since a `--local` Orca worker starts
   with no plugin MCP servers. A refused builder starts on its own Sprite with `drive job launch <j>`,
-  which also starts one waiting its turn there at once. A Sprite holds no AWS credentials, Buildkite
-  token or Datadog sign-in, and `ci mac-box` and `ci devbox` run on this Mac's machine profile
+  which also starts one waiting its turn there at once. A Sprite holds no Buildkite token or Datadog
+  sign-in, its AWS session reads Buildkite only through the sprite door, and `ci mac-box` and `ci devbox` run on this Mac's machine profile
   through `DEVBOX_AWS_PROFILE`, with no sign-in. Readers, codex jobs and any job that touches this
   Mac's processes always run here.
 
@@ -209,39 +209,32 @@ nothing it said before. `drive job report <j>` prints every result the lane sent
 `drive job report <j> -` kept, oldest first with its time, for a line that points at an earlier
 reply.
 
-**Reads.** A Sprite holds no Buildkite or AWS credentials, by his least-privilege ruling, and no
-copy of the drive's cci or cc-notes records, so a lane reads through this Mac with a blocking
-question.
+**Reads.** A lane on a Sprite reads a red check's whole log itself, by his pick "Give Sprites a
+scoped AWS read role, so every step runs where its lane runs": a Buildkite job's with
+`tools/ci bk log` through the sprite door under the Sprite's AWS session, and a GitHub Actions
+job's with `ccx vcs job-log`. A Sprite holds no copy of the drive's cci or cc-notes records, so a
+lane reads those through this Mac with a blocking question.
 
-- Its first line opens with the read, after the lane's job id when it writes one: `LOG <url>` for a
-  red Buildkite or GitHub Actions check, `READ <command>` for a `cci` or `ccn` read the builder
-  agent lists, or `READ <path>` for a file under the drive's `reports/`, `asks/`, `repro/`,
-  `scratch/` or `jobs/` folder, which `orca.drive_files` reads whole as it carries one a brief
-  names, refusing a path that resolves outside the folder. `READ: LOG <url>` reads as `LOG <url>`. A `LOG` question reads every `LOG <url>` it
-  names, each in an even share of the 12,000 characters, and a `READ` question runs its first line
-  alone.
+- Its first line opens with the read, after the lane's job id when it writes one: `READ <command>`
+  for a `cci` or `ccn` read the builder agent lists, or `READ <path>` for a file under the drive's
+  `reports/`, `asks/`, `repro/`, `scratch/` or `jobs/` folder, which `orca.drive_files` reads whole
+  as it carries one a brief names, refusing a path that resolves outside the folder. A `READ`
+  question runs its first line alone.
 - The watch answers it itself, with no event, as it answers a `DRIVE` question: `drive job read`,
-  which it starts as a process of its own, runs `tools/ci bk`, `ccx vcs job-log`, `cci` or `ccn` in
+  which it starts as a process of its own, runs `cci` or `ccn` in
   the directory the coordinator started the drive from, or reads the drive files, and the watch
   replies with the output, a command's cut to 12,000 characters, once that reader ends, so a read that runs for minutes holds up no pass. The
   reader keeps first the answer its own end leaves, then the one it finishes with, under its
   question's message id, so a refused reply sends the same answer again and a read stopped mid-run
-  is answered as stopped, never run twice. A `LOG` answer leads each failed job's share with its failure lines, such as a
-  Go `--- FAIL:` line or a Rust `panicked at`, a repeated one listed once with its count, then each
-  failure's own output, a Go test's lines from its `=== RUN` and anything else's failure line with
-  the lines indented under it, kept past its share as its failure lines, the two after each and its
-  `cause:` or `Caused by:` lines, so a database error printed far below a failed query still reaches
-  the builder, then fills the rest with the output's last characters. A test's failure often sits far before the end of its
-  log, and a passing Go test's own log lines never come ahead of a failing one's. A read that fails, such as a command off that list or a tool that exits
+  is answered as stopped, never run twice. A read that fails, such as a command off that list or a tool that exits
   non-zero, replies with why and arrives as a `JOB <j> <o> READ unanswered` line.
 - A question that opens any other way, such as `READ: please send <file>`, is a `JOB` line for you
   to answer, its first line, whose record carries the whole question as its body, which cci's read
-  tool prints; one opening with another result word is a report, by **Reports**. One that names a `LOG <url>` past its first line says so on its line, and
-  `drive job resume` reads each such log ahead of your text, so start no reader for it. One
+  tool prints; one opening with another result word is a report, by **Reports**. One
   no resume answered for 30 minutes makes its parts `ORPHAN`s every 30 minutes, whatever card or PR
   the job has, since a card drawn before the question asks him something else; when he answered
   its card since, the line leads with his answer and the `drive job resume` that carries it.
-- A question kept for you that reads as a `LOG` or `READ`, such as one kept before the watch read it
+- A question kept for you that reads as a `READ`, such as one kept before the watch read it
   that way, the watch answers on its next pass, and the lane runs again.
 - A lane whose wait ends waits again on the same question, so the watch keeps each question queued
   until the answer goes through, past a refused reply or a watch restart, or until Orca says it
@@ -316,8 +309,7 @@ before it sends or starts.
   text as a process of its own, which sends each held text under the id it was held with, so Orca
   replays a retry and never applies one twice; a relaunch meanwhile carries every held text in its
   handoff, oldest first. A relaunch Orca refuses exits 2 with Orca's refusal, the text still held;
-  `drive job resume <j>` delivers it once Orca reads the lane. An open question's `LOG <url>`s are
-  read ahead of the text once, when it is held, since Orca refuses an id reused with other input.
+  `drive job resume <j>` delivers it once Orca reads the lane.
 - The `bash_guard` hook runs it in the foreground with `timeout: 20000` however it is called: a
   message to a live lane returns in about five seconds, and a relaunch, which takes minutes, moves itself to the background at 20 seconds and
   notifies you when it ends.
