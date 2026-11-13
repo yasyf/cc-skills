@@ -7935,6 +7935,52 @@ def test_a_verb_a_newer_installs_save_refused_before_it_changed_anything_runs_ag
     assert reopened == [(["tool", "status"], None)]
 
 
+@pytest.mark.parametrize(
+    ("argv", "again"),
+    [
+        (["job", "resume", "j1", watch.UNREACHED], True),
+        (["job", "launch", "j1"], True),
+        (["status"], False),
+    ],
+)
+def test_a_launch_or_resume_a_newer_installs_save_refused_after_it_woke_a_sprite_runs_again_on_the_newest_install(
+    asking: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, argv: list[str], again: bool
+) -> None:
+    state.store("demo", state.stored("demo") | {"saved_by": "9.9.9"})
+    argv = [*argv, "--drive", "demo"]
+    reopened: list[tuple[list[str], str | None]] = []
+    monkeypatch.setattr(install, "upgraded", lambda: tmp_path / "cache" / "9.9.9" / "bin" / "drive")
+    monkeypatch.setattr(install, "reopen", lambda argv, stdin=None: reopened.append((argv, os.environ.get(state.DETACHED_ENV))))
+    monkeypatch.setattr(cli.sys, "argv", ["drive", *argv])
+    monkeypatch.setattr(cli, "STDIN", [])
+    monkeypatch.setattr(state, "WROTE", {"orca-reclaim.py"})
+    monkeypatch.setenv(state.DETACHED_ENV, watch.RELAUNCHES_LOG)
+    assert cli.main() == 2
+    assert reopened == [(argv, watch.RELAUNCHES_LOG)] * (2 if again else 1)
+
+
+def test_a_resume_the_watch_ran_says_the_refusal_it_still_meets_in_the_watchs_line_for_its_order_and_a_hand_run_only_prints_it(
+    run: Run, asking: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with state.edit("demo") as data:
+        cli.bind_subcoordinator(data, "The drive", {"session": "drive-1", "terminal": None, "cwd": "/work", "started": state.stamp()})
+    start = state.events_end("demo")
+    state.store("demo", state.stored("demo") | {"saved_by": "9.9.9"})
+    monkeypatch.setattr(install, "upgraded", lambda: None)
+    monkeypatch.setattr(cli.sys, "argv", ["drive", "job", "resume", asking, watch.UNREACHED, "--drive", "demo"])
+    assert cli.main() == 2
+    assert state.events_end("demo") == start
+    monkeypatch.setenv(state.DETACHED_ENV, watch.RELAUNCHES_LOG)
+    assert cli.main() == 2
+    refusal = f"the demo drive was saved by long-running 9.9.9, newer than this {state.VERSION}, which may misread it: run the newest install's drive"
+    assert capsys.readouterr().err == f"drive: {refusal}\n" * 2
+    state.store("demo", state.stored("demo") | {"saved_by": state.VERSION})
+    assert watch.event_lines(watch.Watcher("demo", offset=start)) == []
+    assert watch.event_lines(watch.Watcher("demo", offset=start, project="The drive")) == [
+        f"EVENT relaunch_refused drive job resume j1, which the watch ran, refused: {refusal}; its output is in the drive's relaunches.log [o1 j1]"
+    ]
+
+
 def test_a_parse_never_hands_a_verb_the_list_its_parser_keeps_as_a_default() -> None:
     first = cli.parsed(["job", "set", "j1"])
     first.waits.append("job j2")

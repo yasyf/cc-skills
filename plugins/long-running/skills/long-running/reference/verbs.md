@@ -11,10 +11,16 @@ and refuses its save when a newer install saved the drive since it read it. So n
 `drive.json` saved by code newer than its own, and none saves past one. A launch, a
 resume, an end, a proof, a check and a read refused that way mid-verb hand what they did to the newest
 install's `drive job started`, `drive job sent`, `drive job ended`, `drive job proved`,
-`drive pr checked` or `drive job answered`, which keeps it, so nothing they did runs twice. Any other
-verb or MCP call refused that way before it changed anything, a drive row, an event, a post, a send or
-any command but a read, runs again whole on the newest install, given the stdin it read; one that
-changed something prints the refusal. A write waits up to five minutes for the drive's own
+`drive pr checked` or `drive job answered`, which keeps it, so nothing they did runs twice. A
+`drive job launch` or `drive job resume` command refused that way before its worker started runs
+again whole on the newest install whatever it changed, such as the wake of an unreachable lane's
+Sprite, since it keeps each step once: a lane's death once per dispatch, a held text once under its
+Orca request id, and a worker an earlier run started adopted from the receipt its attempt keeps. Any
+other verb or MCP call refused that way before it changed anything, a drive row, an event, a post, a
+send or any command but a read, runs again whole on the newest install, given the stdin it read; one
+that changed something prints the refusal and exits 2. A launch or resume the watch ran as a process
+of its own that still refuses, for any reason, also says it in the watch's `EVENT relaunch_refused …`
+line, beside its output in the drive's `relaunches.log`. A write waits up to five minutes for the drive's own
 lock, then refuses and changes nothing, naming the process that holds it. A `drive` started from an older install than the
 newest, such as a launch's bind prefix, hands itself to the newest install's `drive` before any verb
 acts, so `drive --root`, which prints the folder of the install it runs, names the newest one, where a

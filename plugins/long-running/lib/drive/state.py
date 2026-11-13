@@ -106,6 +106,7 @@ DRIVE_ENV = "CLAUDE_LONG_RUNNING_DRIVE"
 OWN_JOB_ENV = "LONG_RUNNING_OWN_JOB"
 REMOTE_LANE_ENV = "LONG_RUNNING_REMOTE_LANE"
 WATCHDOG_ENV = "LONG_RUNNING_WATCHDOG"
+DETACHED_ENV = "LONG_RUNNING_DETACHED"
 LANE_ROLES = {"communicator": "communicator", "root": "coordinator", "meta": "meta"}
 DRIVE_LANES = ("root", "communicator", "coordinator", "meta", "handler", "builder", "reader", "designer", "root-tooling", "root-skill", "root-dashboard", "watch")
 NUMBERED_LANE = re.compile(r"(?P<stem>.+)-\d+")
@@ -227,8 +228,8 @@ def alive(pid: int) -> bool:
 
 
 def detach(name: str, args: list[str], log: str) -> int:
-    """Run the drive CLI with args on the drive as its own process, outliving the watch pass or tap that started it, its output appended to the drive's log of that name; its environment names the drive, which lets the drive's sessions end it unasked once it outlives its use."""
-    env = {variable: value for variable, value in os.environ.items() if variable != "CLAUDE_CODE_SESSION_ID"} | {DRIVE_ENV: name}
+    """Run the drive CLI with args on the drive as its own process, outliving the watch pass or tap that started it, its output appended to the drive's log of that name; its environment names the drive, which lets the drive's sessions end it unasked once it outlives its use, and that log, under DETACHED_ENV, which a launch or resume that still refuses names on the event it writes for the watch."""
+    env = {variable: value for variable, value in os.environ.items() if variable != "CLAUDE_CODE_SESSION_ID"} | {DRIVE_ENV: name, DETACHED_ENV: log}
     with (drive_dir(name) / log).open("a") as out:
         return subprocess.Popen(
             [str(Path(__file__).resolve().parents[2] / "bin" / "drive"), *args, "--drive", name],

@@ -792,7 +792,7 @@ def test_a_part_an_older_install_saved_with_a_kind_loads_without_it(state_root: 
     assert state.load("demo")["orders"]["o1"]["parts"] == {"why": state.new_part(), "fix": state.new_part()}
 
 
-def test_a_detached_verb_names_its_drive_and_no_session_in_its_environment(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_detached_verb_names_its_drive_its_log_and_no_session_in_its_environment(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     make("demo")
     started = []
 
@@ -807,7 +807,7 @@ def test_a_detached_verb_names_its_drive_and_no_session_in_its_environment(state
     assert state.detach("demo", ["pr", "land", "https://github.com/yasyf/cc-skills/pull/7"], "landings.log") == 4242
     [(argv, options)] = started
     assert argv[1:] == ["pr", "land", "https://github.com/yasyf/cc-skills/pull/7", "--drive", "demo"]
-    assert options["env"][state.DRIVE_ENV] == "demo" and "CLAUDE_CODE_SESSION_ID" not in options["env"]
+    assert options["env"][state.DRIVE_ENV] == "demo" and options["env"][state.DETACHED_ENV] == "landings.log" and "CLAUDE_CODE_SESSION_ID" not in options["env"]
 
 
 def test_projection_indexes_pr_jobs_once_preserving_order_and_scope() -> None:
