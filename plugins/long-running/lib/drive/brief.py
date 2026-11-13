@@ -7,7 +7,7 @@ from drive.render import cut
 from drive.shell import simple_commands
 
 BRIEF_JOB = re.compile(r"^Drive:[^\n]*?\bjob (j\d+)\b", re.MULTILINE)
-BRIEF_FILE = re.compile(r"/\S+/jobs/j\d+\.(?:brief|handoff)\.md\b|/\S+/orca/tasks/[^/\s]+/brief\.md\b")
+BRIEF_FILE = re.compile(r"^Read your brief first:[ \t]*(\S+)|(/\S+/orca/tasks/[^/\s]+/brief\.md)\b", re.MULTILINE)
 HANDOFF = re.compile(r"^Handoff:", re.MULTILINE)
 SERVES_TOOLING = re.compile(r"^Serves:[ \t]*drive tooling\b", re.MULTILINE | re.IGNORECASE)
 PLANNED = re.compile(r"^(Goal|Done when|Where|Runs as|Native|Interactions|Would he ask|Plan|Incident):[ \t]*(.+)$", re.MULTILINE)
@@ -95,9 +95,9 @@ NAMES = re.compile(r"[,\s]+")
 
 
 def carried(prompt: str) -> str:
-    """An agent's prompt with the brief file drive job brief wrote read in after it, when the prompt names one."""
+    """An agent's prompt with its brief file read in after it: the one its `Read your brief first:` line names, wherever it is kept, or the Orca task brief a Sprite lane's first message names."""
     named = BRIEF_FILE.search(prompt)
-    return f"{prompt}\n{Path(named[0]).read_text()}" if named else prompt
+    return f"{prompt}\n{Path(named[1] or named[2]).expanduser().read_text()}" if named else prompt
 
 
 def fields(text: str) -> list[tuple[str, str]]:
@@ -196,13 +196,20 @@ def filled(block: dict[str, str]) -> bool:
     return all(block.get(key) for key in KEYS)
 
 
-def research(name: str, data: dict, order_id: str) -> tuple[str, str] | None:
-    """The newest reader of the order whose kept report carries a filled Researched: block, with that report."""
-    for job_id in reversed(data["orders"][order_id]["jobs"]):
-        job = data["jobs"][job_id]
-        if job["kind"] == "reader" and job["order"] == order_id and filled(researched(text := state.report_text(name, job_id))):
+def research(name: str, data: dict, order_id: str, parts: list[str]) -> tuple[str, str] | None:
+    """The newest reader of these parts of the order whose kept report carries a filled Researched: block, with that report."""
+    for job_id in reversed(readers(data, order_id, parts)):
+        if filled(researched(text := state.report_text(name, job_id))):
             return job_id, text
     return None
+
+
+def readers(data: dict, order_id: str, parts: list[str]) -> list[str]:
+    """The order's readers, oldest first, that read one of these parts, a change a design listed counting as that design's own parts."""
+    order = data["orders"][order_id]
+    designs = {held["design"] for part, held in order["parts"].items() if part in parts and held["design"]}
+    read = {*parts, *(part for design in designs for part in data["jobs"][design]["parts"])}
+    return [job_id for job_id in order["jobs"] if (job := data["jobs"][job_id])["kind"] == "reader" and job["order"] == order_id and read & set(job["parts"])]
 
 
 def waits_on_research(order: dict, kind: str, parts: list[str], lands: bool = False) -> bool:
@@ -217,7 +224,7 @@ def waits_on_research(order: dict, kind: str, parts: list[str], lands: bool = Fa
 
 
 def job_refusal(name: str, data: dict, order_id: str, kind: str, parts: list[str], lands: bool = False, waits: list[str] | None = None) -> str | None:
-    """Why a job of this kind may not start on the order: an order he limited to options gets no builder or codex job until he picks, an answer order is one reader's, and a build order's builder, designer or codex lane waits on its reader's research, added at once waiting on a reader of the order still at work when --waits names it, so no part sits in no job while it reads,. A job of any kind may wait on his card, a drive PR or a release, which check_waits reads, and on any job still at work, a reader that just started included, which state.job_wait_refusal reads, a builder or codex job's first PR taking the wait's place. The immediate fix of a bug hurting someone now, a red default branch's fix-forward among them, and a builder landing PRs he approved start at once past each of those, by his words: "always do the immediate fix (or rollback if prudent) in parallel to giving me options for the proper fix". A follow-up he orders to a PR gets its design job at once, doing its own research and waiting on nothing, beside landing that PR, by his words "start deisgnng the follow p right awya motherfucker dont wait"."""
+    """Why a job of this kind may not start on the order: an order he limited to options gets no builder or codex job until he picks, an answer order is one reader's, and a build order's builder, designer or codex lane waits on the research of a reader of its own part, a change a design listed counting as that design's part, added at once waiting on such a reader still at work when --waits names it, so no part sits in no job while it reads,. A job of any kind may wait on his card, a drive PR or a release, which check_waits reads, and on any job still at work, a reader that just started included, which state.job_wait_refusal reads, a builder or codex job's first PR taking the wait's place. The immediate fix of a bug hurting someone now, a red default branch's fix-forward among them, and a builder landing PRs he approved start at once past each of those, by his words: "always do the immediate fix (or rollback if prudent) in parallel to giving me options for the proper fix". A follow-up he orders to a PR gets its design job at once, doing its own research and waiting on nothing, beside landing that PR, by his words "start deisgnng the follow p right awya motherfucker dont wait"."""
     order = data["orders"][order_id]
     at_once = state.IMMEDIATE_FIX in parts or lands
     listed = " ".join(f'"{part}"' for part in dict.fromkeys([*order["parts"], state.IMMEDIATE_FIX]))
@@ -242,20 +249,21 @@ def job_refusal(name: str, data: dict, order_id: str, kind: str, parts: list[str
         )
     if not waits_on_research(order, kind, parts, lands):
         return None
-    if research(name, data, order_id) is None:
-        jobs = data["jobs"]
-        readers = [job_id for job_id in order["jobs"] if jobs[job_id]["order"] == order_id and jobs[job_id]["kind"] == "reader" and jobs[job_id]["state"] not in state.FINISHED_JOB_STATES]
-        if set(readers) & set(waits or []):
+    if research(name, data, order_id, parts) is None:
+        reading = [job_id for job_id in readers(data, order_id, parts) if data["jobs"][job_id]["state"] not in state.FINISHED_JOB_STATES]
+        if set(reading) & set(waits or []):
             return None
         meanwhile = (
-            f"; while {readers[0]} reads, add this {kind} now waiting on it with --waits {readers[0]}, so the part is never in no job,"
+            f"; while {reading[0]} reads, add this {kind} now waiting on it with --waits {reading[0]}, so the part is never in no job,"
             " and start its agent on the watch's FREE line once the reader returns"
-            if readers
+            if reading
             else ""
         )
+        named = " ".join(f'--part "{part}"' for part in parts)
         return (
-            f"{order_id} is a build order, so its {kind} starts only once an Opus reader has kept {BLOCK} in its report:"
-            f' drive job add reader --order {order_id} --goal "research: <what>", then a long-running:reader whose brief'
+            f"{order_id} is a build order, so its {kind} starts only once an Opus reader of its part, a change a design listed counting"
+            f" as that design's part, has kept {BLOCK} in its report: drive job add reader --order {order_id} {named}"
+            ' --goal "research: <what>", then a long-running:reader whose brief'
             " asks for that block; its rulings line holds his recorded answers on the order's words and area, its exists"
             f" line what already does part of it, and its open line each question the order implies{meanwhile}; {immediate}"
         )
@@ -263,7 +271,7 @@ def job_refusal(name: str, data: dict, order_id: str, kind: str, parts: list[str
 
 
 def brief_refusal(name: str, data: dict, job_id: str, brief: str) -> str | None:
-    """Why this brief may not start its job's agent: the lines its writer plans the job with ask him for a sign-in, Touch ID or cc-sudo on an AWS action this Mac's machine profile runs, a drive tooling brief aside, whose lines name the sign-ins the drive's checks refuse; an incident's codex lane or builder needs its kind's rule on a choice, by incident_refusal; a build order's builder, designer or codex lane needs the Researched: line naming its reader, unless it ships the immediate fix or designs a follow-up he ordered, which starts at once doing its own research, and an answer order's one lane does its own research."""
+    """Why this brief may not start its job's agent: the lines its writer plans the job with ask him for a sign-in, Touch ID or cc-sudo on an AWS action this Mac's machine profile runs, a drive tooling brief aside, whose lines name the sign-ins the drive's checks refuse; an incident's codex lane or builder needs its kind's rule on a choice, by incident_refusal; a build order's builder, designer or codex lane needs the Researched: line naming a reader of its own part, unless it ships the immediate fix or designs a follow-up he ordered, which starts at once doing its own research, and an answer order's one lane does its own research."""
     if not SERVES_TOOLING.search(brief) and (asked := limits.sign_in_problems([(f"its {found[1]} line", found[2]) for found in PLANNED.finditer(brief)])):
         return f"{job_id}'s brief plans a sign-in of his: {asked[0]}"
     job = data["jobs"][job_id]
@@ -290,9 +298,8 @@ def brief_refusal(name: str, data: dict, job_id: str, brief: str) -> str | None:
             f"{job_id} builds on {order_id}, a build order: its brief carries the line Researched: <its reader's job>,"
             " naming the reader whose kept report holds the order's rulings, what exists and its open questions"
         )
-    reader = data["jobs"].get(named[1])
-    if not (reader and reader["kind"] == "reader" and reader["order"] == order_id and filled(researched(state.report_text(name, named[1])))):
-        return f"Researched: {named[1]} names no reader of {order_id} that kept {BLOCK} in its report"
+    if not (named[1] in readers(data, order_id, job["parts"]) and filled(researched(state.report_text(name, named[1])))):
+        return f"Researched: {named[1]} names no reader of {job_id}'s part of {order_id} that kept {BLOCK} in its report"
     return None
 
 
@@ -344,7 +351,7 @@ def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
             " defect happen, or none: <why no defect is behind it>), Settled:, Native:, Exists:, a Change: line per PR its"
             " builders open, a Fork: line per fork and Facts:"
         )
-    if job["kind"] == "design" and opening == "DESIGN" and (unowned := unowned_exists(name, data, job["order"], text)):
+    if job["kind"] == "design" and opening == "DESIGN" and (unowned := unowned_exists(name, data, job["order"], job["parts"], text)):
         return unowned
     if job["kind"] == "design" and opening == "DESIGN" and (unkeyed := unquotable_change(text)):
         return (
@@ -371,7 +378,7 @@ def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
             return f"{', '.join(reworked)}: being reworked to his words, so its {opening} says in a CHANGE: line how they are met, which its fresh card shows him"
     if not (job["kind"] == "builder" and opening in READY_OPENINGS and order["kind"] == "build") or order["incident"]:
         return None
-    found = research(name, data, job["order"])
+    found = research(name, data, job["order"], job["parts"])
     exists = researched(found[1])["exists"] if found else "none"
     if exists.casefold().rstrip(".") == "none" or REUSES.search(text):
         return None
@@ -414,8 +421,8 @@ def design_missing(lines: list[str]) -> list[str]:
     return missing + [f"{'an' if label[0] in 'AEIOU' else 'a'} {label} line" for label in DESIGN_LINES if not any(line.startswith(label) for line in lines)]
 
 
-def unowned_exists(name: str, data: dict, order_id: str, text: str) -> str | None:
-    """Why a design's Exists: line does not show what already does or holds what it touches, so it would add a second owner of one fact beside the first: an entry citing no path:line or link, or not naming the change of its list that extends, reuses or deletes it; or none, naming no search that found nothing, or while its order's reader found something."""
+def unowned_exists(name: str, data: dict, order_id: str, parts: list[str], text: str) -> str | None:
+    """Why a design's Exists: line does not show what already does or holds what it touches, so it would add a second owner of one fact beside the first: an entry citing no path:line or link, or not naming the change of its list that extends, reuses or deletes it; or none, naming no search that found nothing, or while a reader of its part found something."""
     listed = EXISTS.search(text)[1].strip()
     shape = (
         "a design names, before it adds any table, column, store, file, process, mechanism, check or verb, each thing that"
@@ -424,7 +431,7 @@ def unowned_exists(name: str, data: dict, order_id: str, text: str) -> str | Non
         f' owns each fact; or none: <each search that found nothing, such as ccx code search "<words>">. His words: {DUPLICATION_RULING}'
     )
     if listed.casefold().startswith("none"):
-        found = research(name, data, order_id)
+        found = research(name, data, order_id, parts)
         exists = researched(found[1])["exists"] if found else "none"
         if found and exists.casefold().rstrip(".") != "none":
             return f'its Exists: line says none, but {found[0]}\'s research found what already does part of this: "{cut(exists, 200)}"; {shape}'

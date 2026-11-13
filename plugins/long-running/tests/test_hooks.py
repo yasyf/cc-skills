@@ -757,7 +757,7 @@ def test_a_build_orders_builder_starts_only_on_a_brief_naming_its_readers_resear
     )
     assert not folder.exists()
     assert scratch_folder.deny_reason(drive_agent("long-running:builder", f"Researched: j3\n{bare}")) == (
-        "refused, no agent started: Researched: j3 names no reader of o1 that kept a Researched: line and under it rulings:, exists: and open: lines in its report"
+        "refused, no agent started: Researched: j3 names no reader of j3's part of o1 that kept a Researched: line and under it rulings:, exists: and open: lines in its report"
     )
     assert scratch_folder.deny_reason(drive_agent("long-running:builder", f"Researched: j1\n{bare}", "sonnet")) is None
     assert "model" not in agents.shaped(drive_agent("long-running:builder", f"Researched: j1\n{bare}", "sonnet"))
@@ -810,7 +810,7 @@ def test_a_build_orders_codex_lane_is_added_and_started_only_on_its_readers_rese
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build", "--parts", "the copy", "immediate fix")
     assert cli.main(["job", "add", "codex", "--order", "o1", "--part", "the copy", "--goal", "build it"]) == 2
-    assert "o1 is a build order, so its codex starts only once an Opus reader has kept" in capsys.readouterr().err
+    assert "o1 is a build order, so its codex starts only once an Opus reader of its part" in capsys.readouterr().err
     assert run("job", "add", "codex", "--order", "o1", "--part", "immediate fix", "--goal", "stop it") == (0, "j1")
     run("job", "add", "reader", "--order", "o1", "--part", "the copy", "--goal", "research: the copy")
     assert run("job", "add", "codex", "--order", "o1", "--part", "the copy", "--goal", "build it", "--waits", "j2") == (

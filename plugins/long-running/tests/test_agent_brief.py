@@ -2,6 +2,7 @@ import io
 import os
 from collections.abc import Callable
 from datetime import timedelta
+from pathlib import Path
 
 import agent_brief
 import pytest
@@ -35,6 +36,17 @@ def test_a_builders_serves_line_names_one_of_the_three(demo: str) -> None:
     assert refused.startswith("refused: `Serves: cleanup I noticed` names none of `port of #N`, `drive tooling` or `his order`")
     for serves in ("his order o284", "port of #4203", '"fix the watch"'):
         assert agent_brief.deny_reason(started("long-running:builder", f"{order}Serves: {serves}\nGoal: fix it")) is None
+
+
+def test_a_builders_brief_kept_outside_the_jobs_folder_is_read_from_its_read_your_brief_first_line(demo: str, tmp_path: Path) -> None:
+    kept = tmp_path / "scratch" / "coordinator" / "j3.brief.md"
+    kept.parent.mkdir(parents=True)
+    kept.write_text("Order (his words): fix the watch\nServes: his order\nGoal: fix it\n")
+    assert agent_brief.deny_reason(started("long-running:builder", f"Read your brief first: {kept}")) is None
+    kept.write_text("Order (his words): fix the watch\nGoal: fix it\n")
+    assert agent_brief.deny_reason(started("long-running:builder", f"Read your brief first: {kept}")).startswith(
+        "refused: a builder's brief, in its prompt or the brief file the prompt names, carries a `Serves:` line"
+    )
 
 
 def test_a_builder_passing_over_a_teams_data_names_what_it_runs_as(demo: str) -> None:
