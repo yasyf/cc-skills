@@ -104,7 +104,7 @@ def check(name: str, key: str, bound: list[str]) -> dict:
 
 
 def verdict(name: str, key: str) -> str:
-    """Judge one PR his card waits on at its head against his words, the one place a PR is judged, with the answers kept on it for its design and each answer of his binding its job, by brief.bound, and keep the outcome on the PR: CHECKED and NOT READY also as a check event, which the watch says on the PR's line, and a refusal is a line on his card that wakes its builder through drive pr wake unless he approved the PR, holding neither his Approve nor its landing; then redraw his open card in place, so it shows the verdict. A judge or GitHub read that failed is kept alone, and the watch tries it again RETRY on."""
+    """Judge one PR his card waits on at its head against his words, the one place a PR is judged, with the answers kept on it for its design and each answer of his binding its job, by brief.bound, and keep the outcome on the PR: CHECKED, and NOT READY once a head, also as a check event, which the watch says on the PR's line, and a refusal is a line on his card that wakes its builder through drive pr wake unless he approved the PR, holding neither his Approve nor its landing; then redraw his open card in place, so it shows the verdict. A judge or GitHub read that failed is kept alone, and the watch tries it again RETRY on."""
     data = state.load(name)
     pr = data["prs"][key]
     head, at, named, checked = pr["head"], state.stamp(), "", None
@@ -122,7 +122,7 @@ def verdict(name: str, key: str) -> str:
 
 
 def kept(name: str, key: str, result: dict) -> str:
-    """Keep a check's outcome on its PR, with the head it checked, and redraw his open card for it, as verdict describes, unless another check of it started after this one, whose outcome is the one kept; when a newer install saved the drive while the check judged, the newest install's `drive pr checked` keeps it, so no judgment runs twice."""
+    """Keep a check's outcome on its PR, with the head it checked, and redraw his open card for it, as verdict describes, unless another check of it started after this one, whose outcome is the one kept; a NOT READY at a head an earlier check already objected to redraws his card with its objection but makes no check event, so its builder is woken once a head however often a return of its builder reruns the judge; when a newer install saved the drive while the check judged, the newest install's `drive pr checked` keeps it, so no judgment runs twice."""
     outcome = result["outcome"]
     try:
         with state.edit(name) as data:
@@ -131,8 +131,10 @@ def kept(name: str, key: str, result: dict) -> str:
                 return f"{outcome}; not kept, since another check of {key} started while this one judged"
             if result["checked"]:
                 pr["checked"] = result["checked"]
-            pr["checker"] = {"head": result["head"], "pid": result["pid"], "at": result["at"], "outcome": outcome, "against": result["against"]}
-            if not outcome.startswith(FAILED):
+            objected = checker and checker["objected"]
+            refused = outcome.startswith(NOT_READY)
+            pr["checker"] = {"head": result["head"], "pid": result["pid"], "at": result["at"], "outcome": outcome, "against": result["against"], "objected": result["head"] if refused else objected}
+            if not outcome.startswith(FAILED) and not (refused and objected == result["head"]):
                 repo, number = key.split("#")
                 state.append_event(name, "check", repo=repo, number=int(number), change=outcome, lane=state.heard_lane(data, pr["order"]))
     except state.NewerDrive:
@@ -170,12 +172,12 @@ def tried(pr: dict, returned: str | None, moment: datetime) -> bool:
 
 
 def start(name: str, keys: list[str]) -> None:
-    """Start a check of each PR in keys as its own process, marking it under the drive's lock with that process and its head, so no second check starts on that head while it runs."""
+    """Start a check of each PR in keys as its own process, marking it under the drive's lock with that process and its head, so no second check starts on that head while it runs, and the head the last NOT READY objected to, so kept wakes its builder once a head."""
     with state.edit(name) as data:
         for key in keys:
             pr = data["prs"][key]
             if not (pr["checker"] and pr["checker"]["outcome"] is None and state.alive(pr["checker"]["pid"])):
-                pr["checker"] = {"head": pr["head"], "pid": spawn(name, key), "at": state.stamp(), "outcome": None, "against": ""}
+                pr["checker"] = {"head": pr["head"], "pid": spawn(name, key), "at": state.stamp(), "outcome": None, "against": "", "objected": pr["checker"] and pr["checker"]["objected"]}
 
 
 def spawn(name: str, key: str) -> int:
