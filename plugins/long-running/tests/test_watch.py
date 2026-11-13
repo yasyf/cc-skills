@@ -8,6 +8,7 @@ import subprocess
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from conftest import DRIVE_TERMINAL, SHORT_ASK, CodexAsk, Draws, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, staged
@@ -555,7 +556,7 @@ def run_watch(name: str, monkeypatch: pytest.MonkeyPatch, project: str | None = 
         raise KeyboardInterrupt
 
     launched(monkeypatch, name, project)
-    monkeypatch.setattr(watch.time, "sleep", stop)
+    monkeypatch.setattr(watch, "time", SimpleNamespace(sleep=stop))
     with pytest.raises(KeyboardInterrupt):
         watch.main(name, project)
 
@@ -4330,6 +4331,7 @@ def test_a_landing_whose_worktree_checkout_could_not_fetch_a_blob_is_said_once_t
     origin, blobless = tmp_path / "origin", tmp_path / "blobless"
     git_in(origin, "config", "uploadpack.allowFilter", "true")
     git_in(tmp_path, "clone", "-q", "--filter=blob:none", f"file://{origin}", str(blobless))
+    git_in(blobless, "config", "remote.origin.uploadpack", "git-upload-pack 2>/dev/null")
     with state.edit(demo) as data:
         data["roles"]["coordinator"]["cwd"] = str(blobless)
     commit_files(origin, "admin", {"admin.rs": "fn admin() {}\n"})

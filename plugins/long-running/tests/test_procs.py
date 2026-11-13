@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 
 from drive import procs
@@ -19,4 +20,4 @@ def test_a_process_start_is_read_in_whole_seconds_and_printed_as_ps_lstart_print
 
 
 def test_a_process_command_is_its_arguments_joined_by_spaces() -> None:
-    assert "pytest" in procs.command(os.getpid())
+    assert procs.command(os.getpid()) == " ".join(sys.orig_argv)

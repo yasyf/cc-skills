@@ -32,9 +32,9 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-      - run: pip install pytest "spawnllm>=0.17.7"
+      - run: pip install pytest pytest-xdist "spawnllm>=0.17.7"
       - name: pytest
-        run: python -m pytest plugins/long-running/tests -q
+        run: python -m pytest plugins/long-running/tests -q -n auto --durations=25
       - uses: astral-sh/setup-uv@v8.2.0
       - name: capt-hook pack test
         env:
