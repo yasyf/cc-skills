@@ -455,8 +455,21 @@ def checked(payload: dict) -> tuple[str | None, dict]:
         claims = tools.parsed("claims", payload["tool_input"].get("claims") or [], mcp.CLAIMS)
     except DriveError as error:
         return agents.Unjudged(str(error)), payload["tool_input"]
-    sent = payload["tool_input"] | ({"text": refs.slack(said, found, talk.shown_in(drive["name"], payload["tool_input"])), "written": said} if found else {}) | ({"claims": claims} if claims else {})
+    titled = bare(said, found)
+    sent = payload["tool_input"] | ({"text": refs.slack(said, found, talk.shown_in(drive["name"], payload["tool_input"])), "written": refs.REF.sub(lambda match: titled.get(match[0], match[0]), said)} if found else {}) | ({"claims": [claim | {"claim": claimed(claim["claim"], titled)} for claim in claims]} if claims else {})
     return found_in(payload | {"tool_input": sent}, drive, said, found), sent
+
+
+def bare(said: str, found: dict[str, dict]) -> dict[str, str]:
+    """Each {pr:…} or {card:…} of the post whose words after its | quote that PR's title or that card's question, word for word with … where they skip some, beside it written bare, since those words name it as the title say draws for a bare one does: the written field Jev reads holds it bare."""
+    return {match[0]: f"{{{match[1]}:{match[2]}}}" for match in refs.REF.finditer(said) if match[3] and found[match[0]]["kind"] in ("pr", "card") and not unsaid(quotes(match[3]), found[match[0]]["own"])}
+
+
+def claimed(claim: str, titled: dict[str, str]) -> str:
+    """A claim's words as Jev reads them, each reference of titled and each copy of its words there written bare, so a claim that a PR merged, in the words of its title, names that PR and says nothing of its code."""
+    for reference, written in titled.items():
+        claim = claim.replace(reference, written).replace(refs.REF.fullmatch(reference)[3], written)
+    return claim
 
 
 def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> str | None:

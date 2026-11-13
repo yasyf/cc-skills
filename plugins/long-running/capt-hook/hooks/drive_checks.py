@@ -86,7 +86,7 @@ QUOTING = re.compile(r"[\"'\\]")
 EXPANSION = re.compile(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?")
 LANDING_WORDS = re.compile(r"(?<![\w.-])(?:gh|ccx|ci|cci|stack-enqueue)(?![\w.-])")
 HELPER_WORDS = re.compile(r"(?<![\w.-])(?:helper|brew)(?![\w.-])")
-SENT = re.compile(r"\b(?:POSTED|EDITED) (https://[^\s'\"\\]+)")
+SENT = re.compile(r"\b(?:POSTED|EDITED) (https://[^\s'\"\\;]+)")
 BATCHES_KEPT = 64
 SAYS_KEPT = 64
 RUNNER = """
@@ -178,8 +178,12 @@ POST_RULES = """
     number or state, beside the read behind it: calls of its own, which <evidence> holds under that read's words with
     their whole results, or a record, held whole; a claim standing on several reads is listed once beside each. The
     post's written field holds its words as the handler wrote them, where a bare {pr:<n>} or {card:<id>} is a link say
-    draws under that PR's title or that card's question: those drawn words name the PR or card and are no line of the
-    post, so they need no read and never hold it back, while words the handler wrote after a | are its own. Check
+    draws under that PR's title or that card's question, and say writes one bare there when the words after its |
+    quote that title or question, and in each claim copying them: those drawn words name the PR or card and are no
+    line of the post, so they need no read and never hold it back, and a claim such as "{pr:<n>} merged" claims only
+    that PR's state, while any other words the handler wrote after a | are its own. The written field only
+    says which words are the handler's: a finding that counts the post's words counts the post as Slack draws it,
+    each reference's drawn words included, so a count of the written field never lifts that finding. Check
     each claim against the reads listed beside it, together, by the kind of read its line needs:
     - A line about code, where it lives, what it does or why, stands only on a read of that code: its file's lines, a
       grep of it, or the diff of a PR changing it. A doc, a job's report, the project's loaded instructions, the brief,
@@ -740,7 +744,7 @@ def message_limits(evt: BaseHookEvent) -> HookResult | None:
         Input(
             tool=SAY,
             tool_input={"text": RESUMED},
-            output=f"POSTED {SAID_LINK}",
+            output=f"POSTED {SAID_LINK}; o1 progress line, no part delivered: {SAID_LINK}",
             tool_use_id=SAID_CALL,
             state=sent_found(refused_post(RESUMED, "refused: a line telling him the drive failed names no {order:} or {pr:} carrying how that is prevented")),
             session_id=HANDLER_SESSION,
@@ -748,7 +752,7 @@ def message_limits(evt: BaseHookEvent) -> HookResult | None:
             transcript=HANDLER_TURN,
             decide=JEV_UNSURE,
             llm={"reason": "the user said to post it at his DM root", "allow": True, "relied_on": [RELAYED_ORDER]},
-        ): Warn(pattern=f"(?s)Jev weighed this post by the drive's rules and holds it.*say\\(edit={SAID_LINK}"),
+        ): Warn(pattern=f"(?s)Jev weighed this post by the drive's rules and holds it.*say\\(edit={SAID_LINK}, text=…\\)"),
         Input(
             tool=SAY,
             tool_input={"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS},

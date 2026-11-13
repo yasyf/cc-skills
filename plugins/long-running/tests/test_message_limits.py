@@ -541,12 +541,21 @@ def test_jev_reads_a_refused_say_post_as_slack_gets_it_and_a_reference_nested_in
     release = "https://buildkite.com/acme/release/builds/14765"
     long = call("slack_dm_status", transcript, text=said(60) + " {pr:7}", thread_ts="1.2") | {"tool_name": message_limits.SAY}
     nested = call("slack_dm_status", transcript, text=f"<{release}|The release carrying {{pr:7|the fix}}> is failing.", thread_ts="1.2") | {"tool_name": message_limits.SAY}
+    titled = call(
+        "slack_dm_status",
+        transcript,
+        text=said(60) + " {pr:7|the run page … history}, {pr:7|the run page fix} and {pr:acme/tool#9|the run page}",
+        thread_ts="1.2",
+        claims=[{"claim": "the run page … history merged", "read": "gh pr view 7"}, {"claim": "the run page fix loads faster", "read": "gh pr view 7"}],
+    ) | {"tool_name": message_limits.SAY}
     printed = []
-    for payload in (long, nested):
+    for payload in (long, nested, titled):
         monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))
         message_limits.main()
         printed.append(json.loads(capsys.readouterr().out))
     assert printed[0]["post"] == {"text": said(60) + " <https://github.com/yasyf/cc-skills/pull/7|the run page shows its history>", "written": said(60) + " {pr:7}", "thread_ts": "1.2"}
+    assert printed[2]["post"]["written"] == said(60) + " {pr:7}, {pr:7|the run page fix} and {pr:acme/tool#9|the run page}"
+    assert printed[2]["post"]["claims"] == [{"claim": "{pr:7} merged", "read": "gh pr view 7"}, {"claim": "the run page fix loads faster", "read": "gh pr view 7"}]
     assert printed[1]["judged"] is False
     assert "his_words" not in printed[1]
     assert printed[1]["hookSpecificOutput"]["permissionDecisionReason"].startswith(f"{{pr:7|the fix}} sits inside the words of the link to {release}")

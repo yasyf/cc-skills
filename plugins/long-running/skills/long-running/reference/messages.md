@@ -636,7 +636,9 @@ restating it.
   behind it: `record:<seq>`, or words copied from a call of its own, such as a path, command or query,
   a claim standing on several reads listed once beside each. A bare `{pr:<number>}` or `{card:<waits id>}`
   is no claim, since `say` draws it under the PR's title or the card's question, and Jev reads the post's
-  words as written beside it, so it needs no read; words after its `|` are the handler's own claim. The say hook hands Jev every call those
+  words as written beside it, so it needs no read, and so is one whose words after its `|` quote that title or question word for
+  word, with … where they skip words, and a claim copying those words, such as a claim that the PR merged, claims only that
+  PR's state; any other words after its `|` are the handler's own claim. The say hook hands Jev every call those
   words name with its whole result, and each record the post cites or carries, whole, and Jev holds
   the post for a claim its reads do not back, a read matching no call, or such a line left out, by his
   pick "The handler names the read behind each claim; Jev
