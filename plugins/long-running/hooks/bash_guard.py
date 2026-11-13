@@ -3,6 +3,8 @@ import os
 import re
 import subprocess
 import sys
+from collections.abc import Iterator
+from dataclasses import dataclass, field
 from itertools import pairwise
 from pathlib import Path
 
@@ -10,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
 from drive import agents, github, install, land, orca, state, view
 from drive.orca import OrcaError
-from drive.shell import runnable, simple_commands
+from drive.shell import expanded, runnable, simple_commands, templates
 
 AGENTS = "long-running:"
 DESIGNER = "long-running:designer"
@@ -35,6 +37,43 @@ UNSEEN_PROMPT = (
     " your brief's Scratch folder, with the Write tool or a quoted heredoc `cat > <scratch>/<name>.sh <<'EOF'` … `EOF`,"
     " and run it as `zsh <scratch>/<name>.sh`. When the command removes files outside your worktree or Scratch folder,"
     " run nothing and return BLOCKED naming it"
+)
+FORGE_BUCKETS = frozenset({
+    "frg-core-usw2-artifacts-internal-release-artifacts",
+    "frg-core-usw2-root-pulumi-state",
+    "frg-core-usw2-audit-datadog-log-archive",
+})
+COPIES = {"cp", "mv", "sync", "rsync", "copy", "copyto", "move", "moveto"}
+LISTS = {
+    "ls", "cat", "du", "head", "stat", "hash", "presign", "signurl", "sign-url", "objects", "lsd", "lsf", "lsl", "lsjson",
+    "ncdu", "size", "tree", "mount", "serve", "md5sum", "sha1sum", "hashsum", "check", "list", "download", "download-batch", "show",
+}
+SERVICES = {"aws": ("s3",), "gcloud": ("storage",), "az": ("storage", "blob")}
+S3API_READS = re.compile(r"(?:get|head|select)-object|list-object")
+BUCKET_URI = re.compile(r"(?:s3|gs)://([^\s]*)")
+AZURE_URL = re.compile(r"https://([^/.\s]+)\.(?:blob|dfs)\.core\.windows\.net/([^?\s]*)")
+RCLONE_PATH = re.compile(r"[\w.-]*:(?!//)([^\s]*)")
+KEYWORDS = {"!", "{", "if", "then", "elif", "else", "do", "while", "until"}
+OPTIONED = {
+    "env": {"-u", "--unset", "-C", "--chdir", "-S", "--split-string"},
+    "nice": {"-n", "--adjustment"},
+    "exec": {"-a"},
+    "timeout": {"-s", "--signal", "-k", "--kill-after"},
+    "xargs": {"-P", "-n", "-I", "-L", "-d", "-s", "-a", "-E", "--max-procs", "--max-args", "--replace", "--max-lines", "--delimiter", "--max-chars", "--arg-file", "--eof"},
+}
+SOURCES = {"source", "."}
+FOLLOWED_DEPTH = 4
+TEAM_READ = (
+    "refused: this reads `{location}` where the job runs, and a drive job reads a team's data, its Iris blobs and run journals"
+    " included, only on a pass box as the runs-reader service account, never on this Mac, a Sprite or after"
+    ' `drive break-glass`, by his words "it shouldnt be reading iris blobs at all locally only with a service account on'
+    ' a pass box". Launch a box with `AWS_PROFILE=plat-prod tools/ci pass-box launch --purpose <job> --type <instance'
+    " type> --delete-after <YYYY-MM-DD>`, then run the read and the work that needs it there with"
+    " `AWS_PROFILE=plat-prod aws ssm send-command --region us-west-2 --instance-ids <id> --document-name"
+    " AWS-RunShellScript --parameters file://<scratch>/<name>.json`, whose commands load the team's read grant as the"
+    ' runs reader first, `eval "$(./ci runs-reader grant --team <team id>)"`, and copy no team data back;'
+    " docs/pass-boxes.md in Forge-AI/monorepo has each step. A team on its own bucket is read only in its own cluster,"
+    " with `tools/ci cluster-job`. Only {forge} read where a job runs, since they hold no team's data"
 )
 
 
@@ -206,6 +245,143 @@ def helper_install(found: list[list[str]], drives: list[str]) -> str | None:
     )
 
 
+@dataclass
+class Place:
+    """Where a script's commands run: the folder it is in, the variables it set, the script file being read and those read on the way to it."""
+
+    cwd: Path
+    env: dict[str, str] = field(default_factory=dict)
+    script: Path | None = None
+    seen: frozenset[Path] = frozenset()
+
+
+def reached(text: str, place: Place, depth: int = 0) -> Iterator[list[str]]:
+    """The words of each command shell text runs and of each command it starts: an `sh -c` script, a script file a shell, `source` or its own path runs, the command after `drive break-glass … --` and the one `xargs` runs, each word expanded with the variables set before it."""
+    for written in parsed(text):
+        yield from started([expanded(word, place.env) for word in written], place, depth)
+
+
+def parsed(text: str) -> list[list[str]]:
+    """The commands of shell text, line by line where the whole text does not parse, so one unclosed quote hides no other line."""
+    try:
+        return templates(runnable(text))
+    except ValueError:
+        return [group for line in text.splitlines() if line.strip() != text.strip() for group in parsed(line)]
+
+
+def started(words: list[str], place: Place, depth: int) -> Iterator[list[str]]:
+    words = unwrapped(words, place)
+    if not words:
+        return
+    if words[0] == "cd":
+        place.cwd = place.cwd / Path(words[1]).expanduser() if words[1:] else Path.home()
+        return
+    if words[0] == "export":
+        place.env |= dict(word.split("=", 1) for word in words[1:] if ASSIGNMENT.fullmatch(word))
+        return
+    yield words
+    if Path(words[0]).name in SHELLS and "-c" in words[:-1]:
+        yield from reached(words[words.index("-c") + 1], Place(place.cwd, dict(place.env), place.script, place.seen), depth + 1)
+    elif depth < FOLLOWED_DEPTH and (script := script_file(words, place)):
+        yield from reached(script.read_text(errors="replace"), Place(place.cwd, dict(place.env), script, place.seen | {script}), depth + 1)
+
+
+def unwrapped(words: list[str], place: Place) -> list[str]:
+    """A command's own words, past the assignments it makes, shell keywords, wrappers and their options, and `drive break-glass` up to its `--`."""
+    while words:
+        head = Path(words[0]).name
+        if ASSIGNMENT.fullmatch(words[0]):
+            name, value = words[0].split("=", 1)
+            place.env[name] = value
+            words = words[1:]
+        elif words[0] in KEYWORDS:
+            words = words[1:]
+        elif head in WRAPPERS or head in OPTIONED:
+            words = past_options(words[1:], OPTIONED.get(head, set()))
+            words = words[1:] if head == "timeout" else words
+        elif verb(words)[:2] == ["drive", "break-glass"] and "--" in words:
+            words = words[words.index("--") + 1 :]
+        else:
+            break
+    return words
+
+
+def past_options(words: list[str], valued: set[str]) -> list[str]:
+    rest = iter(words)
+    for word in rest:
+        if word == "--":
+            return list(rest)
+        if word == "-" or not word.startswith("-"):
+            return [word, *rest]
+        if word in valued:
+            next(rest, None)
+    return []
+
+
+def script_file(words: list[str], place: Place) -> Path | None:
+    """The shell script file a command runs, by a shell, `source` or its own path, found from the folder it runs in or, inside a script, beside that script; None when it runs none, it is not on disk or was read on the way here."""
+    name = Path(words[0]).name
+    if name in SHELLS:
+        named = next(iter(past_options(words[1:], {"-o"})), None)
+    elif name in SOURCES:
+        named = words[1] if words[1:] else None
+    else:
+        named = words[0] if "/" in words[0] else None
+    if named is None:
+        return None
+    path = Path(named).expanduser()
+    found = next((candidate for candidate in (place.cwd / path, place.script and place.script.parent / path.name) if candidate and candidate.is_file()), None)
+    if found is None or found in place.seen or (name not in SHELLS | SOURCES and not shell_shebang(found)):
+        return None
+    return found
+
+
+def shell_shebang(path: Path) -> bool:
+    with path.open(errors="replace") as file:
+        first = file.readline()
+    return first.startswith("#!") and any(Path(word).name in SHELLS for word in first[2:].split())
+
+
+def bucket_reads(words: list[str]) -> list[str]:
+    """The bucket or blob locations a command reads, as `<bucket>/<key>`: each it lists, prints, presigns or downloads and each source it copies from, through the AWS, Google Cloud or Azure CLI, s5cmd, gsutil, rclone or azcopy."""
+    tool = Path(words[0]).name
+    if tool == "aws" and "s3api" in words:
+        operation = next((word for word in words[words.index("s3api") + 1 :] if not word.startswith("-")), "")
+        named = "--copy-source" if operation in {"copy-object", "upload-part-copy"} else "--bucket" if S3API_READS.match(operation) else None
+        return [location for location in [named and option(words, named)] if location]
+    service = SERVICES.get(tool, ())
+    if tool not in {"aws", "s5cmd", "gsutil", "gcloud", "rclone", "azcopy", "az"} or any(name not in words for name in service):
+        return []
+    after = words[words.index(service[-1]) + 1 :] if service else words[1:]
+    action = next((word for word in after if word in COPIES | LISTS), None)
+    if action is None:
+        return []
+    if tool == "az":
+        return [f"{option(words, '--account-name') or 'azure'}/{option(words, '--container-name') or option(words, '-c') or ''}"]
+    named = [(index, location) for index, word in enumerate(after) if (location := remote_location(tool, word))]
+    if action in COPIES:
+        named = [(index, location) for index, location in named if any(word == "-" or not word.startswith("-") for word in after[index + 1 :])]
+    return [location for _, location in named]
+
+
+def remote_location(tool: str, word: str) -> str | None:
+    if word.startswith("-"):
+        return None
+    if tool == "azcopy":
+        return "/".join(found.groups()) if (found := AZURE_URL.fullmatch(word)) else None
+    found = (RCLONE_PATH if tool == "rclone" else BUCKET_URI).fullmatch(word)
+    return found[1] if found and found[1] else None
+
+
+def team_read(command: str, cwd: str) -> str | None:
+    """Why a drive job's call must not run: it, a script it runs, or a command it starts through `drive break-glass` or `xargs`, reads a bucket or blob other than a Forge build, state or log bucket, so a team's data, a customer's own bucket included, whose name no list here holds."""
+    for words in reached(command, Place(Path(cwd))):
+        if location := next((found for found in bucket_reads(words) if found.split("/", 1)[0] not in FORGE_BUCKETS), None):
+            forge = sorted(f"`{bucket}`" for bucket in FORGE_BUCKETS)
+            return TEAM_READ.format(location=location, forge=f"{', '.join(forge[:-1])} and {forge[-1]}")
+    return None
+
+
 def role_of(session: str | None = None, terminal: str | None = None) -> tuple[dict, str] | None:
     """The drive and role whose recorded session or terminal this is."""
     for name in state.names():
@@ -271,7 +447,7 @@ def mid_incident(found: list[list[str]]) -> str | None:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive session's or drive agent's call must not run: a designer pushes, a builder, on this Mac or a Sprite, opens its PR while his open cards hold its job, a read takes a stale version's cached skill page, or a session is resumed while it runs, from a shell-ending command, or ended mid-incident, a call retries past a failing check; why any session's call restarts the hook helper he never approved on a card; and why Claude Code's permission prompt on a drive agent's command gets a refusal rather than an answer nobody gives."""
+    """Why a drive session's or drive agent's call must not run: it, or an Orca lane's, reads a team's bucket or blobs where it runs, a designer pushes, a builder, on this Mac or a Sprite, opens its PR while his open cards hold its job, a read takes a stale version's cached skill page, or a session is resumed while it runs, from a shell-ending command, or ended mid-incident, a call retries past a failing check; why any session's call restarts the hook helper he never approved on a card; and why Claude Code's permission prompt on a drive agent's command gets a refusal rather than an answer nobody gives."""
     call = payload["tool_input"]
     session = payload.get("session_id") or ""
     drives = state.session_drives(session)
@@ -281,6 +457,8 @@ def deny_reason(payload: dict) -> str | None:
     if payload["tool_name"] != "Bash":
         return cached_page(call.get("file_path") or call.get("path") or "") if drives else None
     found = commands(runnable(call["command"]))
+    if (drives or kind.startswith(AGENTS) or os.environ.get(state.REMOTE_LANE_ENV)) and (read := team_read(call["command"], payload.get("cwd") or os.getcwd())):
+        return read
     if not drives and os.environ.get(state.REMOTE_LANE_ENV):
         return lane_held(found)
     if not drives and not kind.startswith(AGENTS):
