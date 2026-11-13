@@ -57,7 +57,7 @@ Do not show raw record lines or wrap arbitrary blocks inside a kit component cla
   - `page`, its `page.json`
   - `features`, its matched orders as Now shows them
   - `prs`, the open PRs of its matched orders and the PRs it names
-  - `questions`, open decisions on its matched orders
+  - `questions`, open decisions on its matched orders, each with `href`, the queue route that focuses it
   - `story`, the newest moments naming its matched orders
   - `asked`, the state of its last ask
   - `at`
@@ -65,7 +65,7 @@ Do not show raw record lines or wrap arbitrary blocks inside a kit component cla
 - The page acts only through parent messages validated by the dashboard host:
   - Single and group answers (`answer(card, label)` and `answers([{card, label}])`) require a fresh user activation inside the page and validate that every `{card, label}` matches a visible scoped PR or question and one of its option labels. The parent sends each answer at once, exactly as the queue sends one, and a group shows one toast whose Undo takes back every answer in it. A page can never approve anything on its own.
   - `ask(text)` posts `{type: "drive:ask", text}`, reaching Slack direct messages through `/api/say` under the page's title.
-  - `open(feature)` navigates the parent dashboard to a scoped `#/feature` route.
+  - `open(route)` navigates the parent dashboard to a scoped `#/feature` route or a shown question's `href`; given an `https` URL, the parent opens it in a new tab. The kit sends every `https` link a page draws through `open`, on a click or a middle-click, since the sandbox lets the page open no tab itself.
   - `model(messages, onToken)` streams text from the parent's `/api/complete` endpoint using fixed Cerebras `gpt-oss-120b` with owner and origin checks. `messages` accepts `1..20` entries with roles `user` or `assistant` and `1..64000` characters each. No API key is present in the slice or client; if the host lacks a key, the call yields a visible error.
 
 ## The kit
@@ -130,8 +130,8 @@ Do not show raw record lines or wrap arbitrary blocks inside a kit component cla
 | `ring(done, total, label)` | Renders a progress ring |
 | `counter(element, n)` | Animates `element`'s numeric value to `n` |
 | `prLane(prs)` | Renders each PR with checks, review and landing status, and Approve / Hold buttons |
-| `prGroups(prs, by)` | Renders grouped PR approval sections with batch approval wired to `answers([{card, label}])` |
-| `decision(question)` | Renders a decision card with context and a button per option (recommended option filled) |
+| `prGroups(prs, by)` | Renders grouped PR approval sections, each PR named by its repository and number such as `litestream#20`, with batch approval wired to `answers([{card, label}])` |
+| `decision(question)` | Renders a decision card with context, a button per option (recommended option filled), and Answer it in your queue opening its `href` |
 | `decisionGroups(questions, by)` | Renders grouped decision sections with group recommendations and per-option review |
 | `timeline(moments)` | Renders each `{at, text}` moment with its Pacific time |
 | `diagram(host, archDoc, options)` | Mounts `arch-map` once in `host` and performs keyed updates preserving camera and focus; node IDs must be stable, unique, lowercase, and `<= 40` chars; `options` accepts optional `onState` and `onNode`; scrolling zooms and zooming out steps up the architecture |
@@ -140,7 +140,7 @@ Do not show raw record lines or wrap arbitrary blocks inside a kit component cla
 | `answer(card, label)` | Sends a single scoped PR or decision answer |
 | `answers(items)` | Sends `[{card, label}]` as one grouped answer with a single Undo toast |
 | `ask(text)` | Sends a question to Slack direct messages under the page's title |
-| `open(feature)` | Navigates the parent dashboard to a scoped `#/feature` route |
+| `open(route)` | Navigates the parent dashboard to a scoped `#/feature` route or a question's `href`, or opens an `https` URL in a new tab |
 | `model(messages, onToken)` | Returns a `Promise<string>` streaming a completion from parent `/api/complete` (`gpt-oss-120b`) |
 | `esc(text)`, `time(at)` | HTML escaping and Pacific clock time formatting |
 

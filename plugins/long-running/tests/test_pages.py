@@ -169,6 +169,51 @@ done({ sandbox: frame.getAttribute('sandbox'), slice: heard[0], counts: [unpromp
     }
 
 
+def test_a_page_opens_its_github_links_through_the_dashboard_names_each_pr_by_its_repo_and_opens_a_question_focused_in_the_queue(run: Run, ordered: str, tmp_path: Path) -> None:
+    clicking = """<script type="module">
+import { live, decision, prGroups } from '/kit/kit.js';
+live((slice) => {
+  document.body.innerHTML = prGroups(slice.prs) + slice.questions.map(decision).join('');
+  parent.postMessage({ type: 'seen', labels: [...document.querySelectorAll('.kit-selection label span')].map((span) => span.textContent) }, '*');
+});
+addEventListener('message', (event) => {
+  if (event.source !== parent || event.data.type !== 'click') return;
+  const target = document.querySelectorAll(event.data.at)[event.data.nth];
+  parent.postMessage({ type: 'clicked', framed: target.dispatchEvent(new MouseEvent(event.data.kind, { bubbles: true, cancelable: true, button: event.data.button })) }, '*');
+});
+</script>"""
+    run("page", "add", "run-lane", "--order", "o1", "--dir", str(folder(tmp_path, PAGE | {"index.html": clicking})))
+    prs = [
+        RAIL | {"key": f"demo-org/{repo}#{n}", "title": f"change {n}", "url": f"https://github.com/demo-org/{repo}/pull/{n}", "head": "abc", "card": None, "feature": "o1", "checks": "pass", "review": "approved", "stage": {"name": "card", "why": ""}}
+        for repo, n in (("shop", 20), ("ledger", 41))
+    ]
+    questions = [QUESTION | {"answer": f"https://x.slack.com/archives/D1/p179438245385920{n}", "title": f"Question {n}", "tasks": ["o1"]} for n in (1, 2)]
+    seen = browse(tmp_path, """
+const opened = [];
+window.open = (...args) => { opened.push(args); return null; };
+Object.defineProperty(navigator, 'userActivation', { value: { isActive: true } });
+let seen = null;
+const framed = [];
+addEventListener('message', (event) => event.data?.type === 'seen' ? seen = event.data : event.data?.type === 'clicked' && framed.push(event.data.framed));
+location.hash = '#/pages/run-lane';
+await until(() => seen);
+const frame = document.querySelector('iframe.page-frame');
+const click = async (at, nth, kind, button) => { const before = framed.length; frame.contentWindow.postMessage({ type: 'click', at, nth, kind, button }, '*'); await until(() => framed.length > before); await wait(50); };
+await click('.pr-card .type-label a', 0, 'click', 0);
+await click('.pr-card .type-label a', 1, 'auxclick', 1);
+await click('[data-kit-open^="#/queue/"]', 1, 'click', 0);
+await until(() => document.querySelector('#main .qrow-main[aria-current="true"]'));
+done({ labels: seen.labels, opened, framed, hash: location.hash, focused: document.querySelector('#main .qrow-main[aria-current="true"] .qrow-title').textContent });
+""", board(review=prs, queue=questions, pages=pages.shown(state.load(ordered), pages.listed(ordered))))
+    assert seen == {
+        "labels": ["shop#20 · change 20", "ledger#41 · change 41"],
+        "opened": [["https://github.com/demo-org/shop/pull/20", "_blank", "noopener"], ["https://github.com/demo-org/ledger/pull/41", "_blank", "noopener"]],
+        "framed": [False, False, True],
+        "hash": "#/queue/all/1794382453.859202",
+        "focused": "Question 2",
+    }
+
+
 def test_a_render_refusal_keeps_the_previous_page(run: Run, ordered: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     built = folder(tmp_path, PAGE)
     pages.add(ordered, 'run-lane', 'o1', built)

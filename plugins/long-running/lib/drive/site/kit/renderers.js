@@ -6,9 +6,10 @@ const WORD_FENCES = new Set(['', 'text', 'txt', 'plain']);
 export const fenceKind = (language) => VISUAL_KINDS.has(language) ? language : `code:${WORD_FENCES.has(language) ? 'text' : language}`;
 export const refusedVisual = (kind, source, failure) => `<p class="refused">This ${esc(kind.split(':')[0])} did not draw (${esc(failure.message)}), so here is what it is drawn from.</p><pre><code>${esc(source)}</code></pre>`;
 export const link = (text, url) => (url && !SLACK.test(url) ? `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(text)}</a>` : esc(text));
+export const prName = (key) => key.replace(/^[\w.-]+\//, '');
 const URL_TEXT = /https?:\/\/[^\s<>|]*[^\s<>|.,;:!?)\]'"`]/g;
 const URL_NAMES = [
-  [/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/(\d+)/, (number) => `#${number}`],
+  [/^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)/, (repo, number) => prName(`${repo}#${number}`)],
   [/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/commit\/(\w{7})/, (sha) => `commit ${sha}`],
   [/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/releases\/tag\/(?:[\w-]+\/)*([\w.-]+)/, (tag) => `release ${tag}`],
   [/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/actions\/runs\//, () => 'Actions run'],
