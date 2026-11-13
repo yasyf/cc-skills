@@ -26,7 +26,7 @@ READ_EVERY = timedelta(seconds=60)
 FAILURES_BEFORE_SAYING = 3
 FAILURE_EVERY = timedelta(minutes=10)
 DUE_EVERY = timedelta(minutes=10)
-QUIET_INCIDENT = timedelta(minutes=5)
+QUIET_THREAD = timedelta(minutes=5)
 FREED_AGAIN = timedelta(minutes=30)
 TELL_AFTER = timedelta(minutes=10)
 WAKES = ("TAP ", "DUE ", "TELL ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "STUCK ", "STAGE ", "FREE ", "EVENT stop ", "WATCH stopped")
@@ -1011,7 +1011,7 @@ def line_facts(data: dict, group: list[str], registered: dict[str, list[str]]) -
 
 
 def quiet_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Owe him a line in the thread of each open order with news the watch hears, by his pick "A handler posts each step, started by the watch on news", and in each thread of open incidents whose users are not unblocked yet, its fix not recorded live and no order of it keeping a proof, that had none in five minutes and has news, while he is away too, by his pick "Watch-owned clock: no 10-minute silence again, a line every five quiet minutes from a handler reading the jobs; costs one handler session each" and "Proof ends the line: none once users are unblocked; the incident stays open until its root fix is live." and "Owe a line only on news: while a job works or something it names changed; silent while all waits.". News is an order, job or PR of it whose facts moved since the thread's last line, which the watch keeps on each order at the first pass after that line: a job returning, a PR going up with his card, changing stage or taking his tap, a card of his opening or closing; on an incident, a job of it at work too. An order owes its line at the next pass, never while he is away, since his catch-up carries it then, nor once a report closing it is kept or posted, since that report's post is its line. Each such thread gets one report naming every order and incident in it with its jobs and what moved, written once, and one handler the watch starts on it, which reads the jobs and posts what changed in that thread, so orders sharing a thread get one line, not one each. A handler already at work in that thread takes the report at its next step. Only a post keeps the facts, so a handler that cannot post owes him the same news five minutes after it got the report; a failed write or start is said as a failed read is and tried again next pass with the same report."""
+    """Owe him a line in the thread of each open order with news the watch hears, by his pick "A handler posts each step, started by the watch on news", and in each thread of open incidents whose users are not unblocked yet, its fix not recorded live and no order of it keeping a proof, that had none in five minutes and has news, while he is away too, by his pick "Watch-owned clock: no 10-minute silence again, a line every five quiet minutes from a handler reading the jobs; costs one handler session each" and "Proof ends the line: none once users are unblocked; the incident stays open until its root fix is live." and "Owe a line only on news: while a job works or something it names changed; silent while all waits.". News is an order, job or PR of it whose facts moved since the thread's last line, which the watch keeps on each order at the first pass after that line: a job returning, a PR going up with his card, changing stage or taking his tap, a card of his opening or closing; on an incident, a job of it at work too. An order owes its line once five minutes passed since its thread's last line or the watch's last report on it, as an incident does, so a thread lined minutes before waits out that window and its line carries every step in it; never while he is away, since his catch-up carries it then, nor once a report closing it is kept or posted, since that report's post is its line. Each such thread gets one report naming every order and incident in it with its jobs and what moved, written once, and one handler the watch starts on it, which reads the jobs and posts what changed in that thread, so orders sharing a thread get one line, not one each. A handler already at work in that thread takes the report at its next step. Only a post keeps the facts, so a handler that cannot post owes him the same news five minutes after it got the report; a failed write or start is said as a failed read is and tried again next pass with the same report."""
     data = state.load(watcher.name)
     away = state.owner_away(data, moment)
     threads: dict[tuple[str, str] | str, list[str]] = {}
@@ -1039,7 +1039,7 @@ def quiet_lines(watcher: Watcher, moment: datetime) -> list[str]:
         since = max(quiet_since(data, groups[head]) for head in heads)
         moved = [key for head in heads for key, fact in facts[head].items() if data["orders"][head]["quiet"]["facts"].get(key) != fact]
         working = [job_id for head in heads for order_id in groups[head] for job_id in data["orders"][order_id]["jobs"] if data["jobs"][job_id]["state"] == "running"]
-        if moment - since < (QUIET_INCIDENT if incident or since > state.parse_time(heard[heads[0]]) else timedelta(0)) or not moved and not (incident and working):
+        if moment - since < QUIET_THREAD or not moved and not (incident and working):
             continue
         source = f"quiet {heads[0]}"
         owed = data["orders"][heads[0]]["quiet"]

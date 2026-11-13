@@ -1132,7 +1132,7 @@ def threaded(demo: str) -> None:
         data["orders"]["o1"]["thread"] = ["D123", INCIDENT_THREAD]
 
 
-def test_an_order_with_a_thread_owes_a_line_there_the_pass_after_each_step_none_while_its_jobs_run_and_again_five_minutes_on_from_a_handler_that_never_posts(
+def test_an_order_with_a_thread_owes_a_line_there_after_each_step_none_while_its_jobs_run_none_within_five_minutes_of_its_last_line_and_again_five_minutes_on_from_a_handler_that_never_posts(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     threaded(demo)
@@ -1166,6 +1166,9 @@ def test_an_order_with_a_thread_owes_a_line_there_the_pass_after_each_step_none_
     with state.edit(demo) as data:
         stage.stamp(data["prs"][KEY], stage.Stage("unlanded", stage.ORDER, "Trunk ejected it from the merge queue"), posted)
     assert watch.quiet_lines(watching, posted + timedelta(seconds=5)) == []
+    assert watch.quiet_lines(watching, posted + timedelta(minutes=4, seconds=59)) == []
+    assert len(calls) == 4
+    assert watch.quiet_lines(watching, posted + timedelta(minutes=5)) == []
     assert len(calls) == 6
     assert f"Moved since the thread's last line: {KEY}. At work: j1." in calls[-2][1].splitlines()
 
@@ -1205,7 +1208,7 @@ def test_the_first_pass_over_any_number_of_threaded_orders_saves_the_drive_once_
     assert (saves, calls) == ([demo], [])
     with state.edit(demo) as data:
         data["jobs"][f"j{many}"].update(state="done", said="DONE the watch reads each PR once a pass")
-    assert watch.quiet_lines(watching, T0 + timedelta(minutes=2)) == []
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=5)) == []
     [(report, body), _] = calls
     assert report["attr"] == {"order": f"o{many}", "progress": "true", "quiet": "true", "thread": f"1794494004.{many:06d}"}
     assert f"Moved since the thread's last line: j{many}. At work: no job." in body.splitlines()
