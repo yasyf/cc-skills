@@ -46,7 +46,7 @@ def test_a_verb_is_asked_of_the_mac_with_its_stdin_and_files_and_exits_with_the_
     done, asked = drive(tmp_path, [{"answer": "drive exited 3\nrefused: x"}], "job", "report", "j7", "-", "--repro", str(proof), stdin="DONE proven\n")
     assert (done.returncode, done.stdout) == (3, "refused: x\n")
     [words] = asked
-    assert (words[:3], words[4:]) == (["orchestration", "ask", "--question"], ["--wait", "--timeout-ms", "600000", "--json"])
+    assert (words[:3], words[4:]) == (["orchestration", "ask", "--question"], ["--wait", "--timeout-ms", "30000", "--json"])
     line, _, sent = words[3].partition("\n")
     assert line == f"DRIVE {shlex.join(['job', 'report', 'j7', '-', '--repro', str(proof)])}"
     assert json.loads(sent) == {"stdin": "DONE proven\n", "files": {str(proof): {"text": "#!/bin/sh\nexit 0\n", "executable": True}}}
@@ -64,6 +64,19 @@ def test_a_wait_that_times_out_resumes_the_same_question_until_it_is_answered(tm
     done, asked = drive(tmp_path, [{"timedOut": True, "messageId": "msg_1"}, {"timedOut": True, "messageId": "msg_1"}, {"answer": "drive exited 0\nkept"}], "status")
     assert (done.returncode, done.stdout) == (0, "kept\n")
     assert [words[2:4] for words in asked] == [["--question", "DRIVE status\n" + json.dumps({"files": {}})], ["--resume", "msg_1"], ["--resume", "msg_1"]]
+    assert done.stderr.splitlines() == [
+        f"drive: no answer yet from the coordinator's Mac to `drive status`, Orca question msg_1, {seconds} s in; still waiting" for seconds in (30, 60)
+    ]
+
+
+def test_a_question_unanswered_for_ten_minutes_is_given_up_on_naming_it_and_exits_1(tmp_path: Path) -> None:
+    done, asked = drive(tmp_path, [{"timedOut": True, "messageId": "msg_1"}] * 20, "job", "report", "j7")
+    assert (done.returncode, len(asked)) == (1, 20)
+    assert done.stderr.splitlines()[-2:] == [
+        "drive: no answer yet from the coordinator's Mac to `drive job report j7`, Orca question msg_1, 570 s in; still waiting",
+        "drive: no answer in 10 minutes from the coordinator's Mac to `drive job report j7`, Orca question msg_1:"
+        " its watch may still run it, so read what it would change before asking again",
+    ]
 
 
 def test_an_ask_orca_fails_without_a_timeout_exits_1_naming_why(tmp_path: Path) -> None:

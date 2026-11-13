@@ -4,7 +4,8 @@
 It asks the verb as one blocking Orca question, `DRIVE <its words>` over the JSON of what goes with it: stdin when a word
 is `-`, and the text of each file a word names. The drive's watch runs it there for this lane's job and answers
 `drive exited <status>` over what it printed, which this prints, exiting with that status. A long answer comes as a line naming
-the file the coordinator wrote it to on this Sprite, which this reads in its place once its size and SHA-256 match.
+the file the coordinator wrote it to on this Sprite, which this reads in its place once its size and SHA-256 match. While no
+answer comes it says so on stderr every 30 s, naming the question, and at 10 minutes it gives up on it, exiting 1.
 """
 
 import hashlib
@@ -19,7 +20,8 @@ from pathlib import Path
 ANSWER = re.compile(r"drive exited (\d+)\n?")
 KEPT = re.compile(r"drive answer kept on this Sprite: (\S+) \((\d+) bytes, SHA-256 ([0-9a-f]{64})\); read it in full\n?")
 QUESTION_BYTES = 120_000
-WAIT_MS = 600_000
+WAIT_MS = 30_000
+STOP_MS = 600_000
 
 
 def main(argv: list[str]) -> int:
@@ -35,8 +37,16 @@ def main(argv: list[str]) -> int:
         )
         return 2
     asked = ask("--question", question)
-    while asked.get("timedOut"):
+    for waited in range(WAIT_MS, STOP_MS, WAIT_MS):
+        if not asked.get("timedOut"):
+            break
+        print(f"drive: no answer yet from the coordinator's Mac to `drive {shlex.join(argv)}`, Orca question {asked['messageId']}, {waited // 1000} s in; still waiting", file=sys.stderr)
         asked = ask("--resume", asked["messageId"])
+    if asked.get("timedOut"):
+        raise SystemExit(
+            f"drive: no answer in {STOP_MS // 60_000} minutes from the coordinator's Mac to `drive {shlex.join(argv)}`, Orca question {asked['messageId']}:"
+            " its watch may still run it, so read what it would change before asking again"
+        )
     answer = asked.get("answer") or ""
     status = ANSWER.match(answer)
     if kept := KEPT.fullmatch(answer[status.end() :] if status else answer):

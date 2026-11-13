@@ -361,7 +361,9 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 - Type each `drive` verb this file names as on this Mac: your Sprite's `drive` asks it of the
   coordinator's Mac as one blocking Orca question, carrying stdin, each file a word names and each
   picture those show by its path on your Sprite, then
-  prints all it printed there and exits with its status. It runs `job report`, `job ask`,
+  prints all it printed there and exits with its status. While it waits it prints a line to stderr
+  every 30 s naming the question, and at 10 minutes it gives up and exits 1; the Mac may still run
+  it, so read what it would change before you type it again. It runs `job report`, `job ask`,
   `job set --repro`, `job replies`, `job held`, `pr add`, `pr set --flaky`, `plan search`, `manual` and `status` on your own
   drive, and refuses, running nothing, any other verb or drive. Its reads read any job as on this
   Mac, such as `drive job report <job>` and `drive job replies <job>` for a job your brief names,

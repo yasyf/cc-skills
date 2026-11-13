@@ -193,7 +193,8 @@ as one blocking Orca question, `DRIVE <its words>` over the JSON of its stdin an
 word names, and the watch queues it as a read. `drive job read` runs it in the coordinator's
 checkout with no session of this Mac's, as the lane's own job on its own drive, and answers
 all it printed under a first line naming its exit status, each file named by the lane's own path,
-which the lane's `drive` prints and exits with. It runs `job report`, `job ask`, `job set --repro`,
+which the lane's `drive` prints and exits with. While no answer comes, that `drive` says so on
+stderr every 30 s, naming the question, and gives up at 10 minutes, exiting 1. It runs `job report`, `job ask`, `job set --repro`,
 `job replies`, `job held`, `pr add`, `pr set --flaky` on a PR its own job carries, `plan search`, `manual` and `status`, its reads on any job as a Mac lane's,
 so a lane reads the `job report` or `job replies` of any job its brief names, and a bare `status`
 on its own job. It refuses, running nothing, any other verb, such as `pr set --tap` or an order
