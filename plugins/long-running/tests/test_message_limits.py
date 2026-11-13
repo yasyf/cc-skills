@@ -1447,9 +1447,9 @@ def test_a_card_asking_only_when_a_merged_fix_ships_names_the_structure_it_remov
         ("Root cause: both builds share one chat folder on his Mac, so the old build's own server writes chats there\n", "found"),
     ],
 )
-def test_jev_weighs_a_card_by_the_rule_for_the_form_of_its_root_cause_line_and_by_his_words_that_each_decision_tells_its_story(cause: str, form: str) -> None:
+def test_jev_weighs_a_card_by_the_rule_for_the_form_of_its_root_cause_line(cause: str, form: str) -> None:
     stray = "Root cause: both builds share one chat folder on his Mac, so the old build's own server writes chats there\n"
-    assert limits.rule_words(STRAY_CHATS_ASK.replace(stray, cause)) == [limits.ROOT_CAUSE_WORDS | {"rule": limits.ROOT_CAUSE_RULES[form]}, limits.STORY_WORDS]
+    assert limits.rule_words(STRAY_CHATS_ASK.replace(stray, cause)) == [limits.ROOT_CAUSE_WORDS | {"rule": limits.ROOT_CAUSE_RULES[form]}]
 
 
 def test_the_case_jev_reads_carries_the_show_me_each_option_with_its_description_and_the_root_cause_lines(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1500,9 +1500,9 @@ def test_jev_reads_the_words_each_page_a_card_links_shows_or_why_chrome_could_no
 
 
 def test_jev_weighs_a_page_line_by_his_words_on_a_link_that_opened_another_view() -> None:
-    [ruling, story] = limits.rule_words(STRAY_CHATS_ASK)
+    [ruling] = limits.rule_words(STRAY_CHATS_ASK)
     paged = f"{STRAY_CHATS_ASK}\nPage https://prototype.example.com/index.html shows: Priority queue Decision 1 of 72"
-    assert limits.rule_words(paged) == [ruling, story, limits.LINK_VIEW_WORDS]
+    assert limits.rule_words(paged) == [ruling, limits.LINK_VIEW_WORDS]
 
 
 def options_ask(*options: str) -> str:

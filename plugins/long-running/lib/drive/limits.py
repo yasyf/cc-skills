@@ -145,18 +145,6 @@ ROOT_CAUSE_RULES = {
     ),
 }
 ROOT_CAUSE_WORDS = {"id": "ruling:0c59046", "asked": "his ruling on root causes", "said": ROOT_CAUSE_QUOTE}
-STORY_WORDS = {
-    "id": "ruling:a99b78b",
-    "asked": "his words Nov 13 2026 12:02 AM on what each decision view needs for it to work",
-    "said": "its almost like each one needs to tell a story, and you need to put a lot of effort into each story, so you need 1) the primitives for it and 2) the effort in to tell those stories",
-    "rule": (
-        "The card tells the story of its decision before anything else: its question, in full words and never a headline cut"
-        " short, says what is being decided; its summary says why it is asked now and what his pick changes for him; each"
-        " option says what it does and what it changes downstream, for whom. No raw link, URL, path, id or markup stands in for"
-        " those words. A card that leaves out the why, the what or the downstream impact, or opens on a raw link or a cut-off"
-        " headline, breaks this."
-    ),
-}
 PAGE_LINK = re.compile(r"https?://[^\s<>|]+")
 LINK_END = ".,;:!?)"
 SIGNED_IN = re.compile(r"https://(?:[\w-]+\.)*(?:slack|github)\.com/")
@@ -897,10 +885,10 @@ def ask_case(text: str, asked: Question) -> str:
 
 
 def rule_words(case: str) -> list[dict[str, str]]:
-    """His rulings Jev weighs a card's case by beside his words, each with the rule it sets: his ruling on root causes, by the form of the case's `Root cause:` line, a cause named, one fixed by a merged PR or none behind the question, his words that each decision tells its story, and, when the case reads a page the card links, his words on a link that opened another view than its card described."""
+    """His rulings Jev weighs a card's case by beside his words, each with the rule it sets: his ruling on root causes, by the form of the case's `Root cause:` line, a cause named, one fixed by a merged PR or none behind the question, and, when the case reads a page the card links, his words on a link that opened another view than its card described."""
     cause = ROOT_CAUSE.findall(case)[-1]
     form = "none" if NONE_WHY.match(cause) else "fixed" if FIXED.match(cause) else "found"
-    return [ROOT_CAUSE_WORDS | {"rule": ROOT_CAUSE_RULES[form]}, STORY_WORDS, *([LINK_VIEW_WORDS] if PAGE_LINE.search(case) else [])]
+    return [ROOT_CAUSE_WORDS | {"rule": ROOT_CAUSE_RULES[form]}, *([LINK_VIEW_WORDS] if PAGE_LINE.search(case) else [])]
 
 
 def linked_pages(asked: Question) -> list[str]:

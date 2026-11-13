@@ -6310,10 +6310,10 @@ def test_jev_reads_every_option_of_a_card_in_one_call_against_his_words_and_ruli
     [request] = jev.asked
     questions = request["questions"]
     assert list(questions) == ["breaks1", "breaks2", "breaks3", "untapped", "card"]
-    assert list(questions["breaks2"]["label"]["options"]) == ["none", NOT_SPECIAL["id"], "ruling:0c59046", "ruling:a99b78b"]
+    assert list(questions["breaks2"]["label"]["options"]) == ["none", NOT_SPECIAL["id"], "ruling:0c59046"]
     assert '"One api start: no runner on any host" (recommended)' in questions["breaks1"]["label"]["instructions"]
     assert "Option 1 (recommended): One api start: no runner on any host -- agent::start in" in request["state"]["card"]
-    assert request["state"]["his_words"] == [NOT_SPECIAL, limits.ROOT_CAUSE_WORDS | {"rule": limits.ROOT_CAUSE_RULES["found"]}, limits.STORY_WORDS]
+    assert request["state"]["his_words"] == [NOT_SPECIAL, limits.ROOT_CAUSE_WORDS | {"rule": limits.ROOT_CAUSE_RULES["found"]}]
     jev.picks("none")
     jev.breaks("breaks2", NOT_SPECIAL["id"])
     assert settled.judged(case, asked, [NOT_SPECIAL]) == [{"part": f'option "{asked.options[1]}"', **NOT_SPECIAL}]
@@ -6321,16 +6321,54 @@ def test_jev_reads_every_option_of_a_card_in_one_call_against_his_words_and_ruli
     assert list(jev.asked[-1]["questions"]) == ["breaks1", "breaks2", "breaks3", "card"]
 
 
-def test_a_card_jev_reads_as_telling_no_story_of_its_decision_is_refused_naming_his_words(jev: Jev) -> None:
-    asked = limits.question(AGENT_START, kept=True)
-    case = limits.ask_case(AGENT_START, asked)
-    assert "or it fails to tell its decision's story, the why, the what or the downstream impact?" in settled.CARD_QUESTION
-    jev.breaks("card", limits.STORY_WORDS["id"])
-    broken = settled.judged(case, asked, [])
-    assert broken == [{"part": "the card", **limits.STORY_WORDS}]
-    refused = settled.broken_refusal(broken, None)
-    assert '- the card breaks ruling:a99b78b: asked "his words Nov 13 2026 12:02 AM on what each decision view needs for it to work", he said "its almost like each one needs to tell a story' in refused
-    assert settled.broken_refusal(broken, "ruling:a99b78b: the card asks only which of two names a flag takes") is None
+PROOF_IDENTITY = """ASK Which identity should start the cloud agent of a production proof that a release build runs?
+Drive tooling: your pick decides whose name starts each production proof's cloud agent, and what is built before a production cloud agent can prove a fix.
+I recommend the existing smoke session in a new release-build mode: no new principal or permission. Meanwhile nothing is built.
+Show me:
+What the production API records as each proof's starter, and what must be built first
+| Option | Starter the API records | Built first |
+|---|---|---|
+| Smoke session, new mode | the smoke team owner, its session minted by the release build | a release-build mode |
+| Smoke Workflow | the Workflow run, as its Env | agent::start and its cloud-runner driver |
+- Smoke owner's session in a new release-build proof mode: ready once the mode ships; the starter reads the smoke owner (recommended)
+  A new release-build mode mints the smoke team owner's session through the existing smoke-session route, starts the cloud agent with the given first message, reads its chat back and archives it.
+- A smoke Workflow starts the agent as its Env: the agent names no person; waits for the unbuilt agent::start Sand call
+  The same mode invokes a smoke project Workflow that calls agent::start, so the run is the agent's starter and it runs as its Env; that call and its driver ship first.
+Findings:
+Root cause: startCloudAgent admits only a signed-in person's session, the only one a machine can get in production is the smoke team owner's, and no release mode starts a cloud agent, so every proof fell back to a person's sign-in
+First principles: Smoke owner's session in a new release-build proof mode
+Holds: none: no option changes code any job builds
+"""
+PROOF_IDENTITY_REDRAWN = """ASK Which identity should start the cloud agent of a production proof that a release build runs?
+Drive tooling: your pick decides whose session each production proof's cloud agent and page pictures run under, and what is built before a production cloud agent can prove a fix.
+A customer team's page is shown on a smoke-team run instead. I recommend a test account. Meanwhile nothing is built.
+Show me:
+Which session each proof holds, whom the audit rows name, and how a page in a customer team is proven
+| Option | Session the proof holds | Starter the API records | Page in a customer team |
+|---|---|---|---|
+| Test account | a smoke team test member's, minted by the release build | the test account | the same page on a smoke-team run |
+| Owner session | the smoke owner's, a platform admin's | the smoke owner | the same stand-in |
+- A dedicated smoke test account in a new release-build proof mode: neither a person nor an admin (recommended)
+  Each production smoke team gains a test member, which releases create through the existing members route; the mode mints its session, starts the cloud agent, reads its chat, pictures its pages and archives the agent.
+- The smoke owner's pipeline-minted session: no env change, but each proof holds a platform admin's session
+  The same mode mints the smoke owner session the release smoke already uses, a platform admin who may act as any user of any team, so proof code holds that power.
+Findings:
+Root cause: startCloudAgent admits only a signed-in person's session, the only one a machine can get in production is the smoke team owner's, a platform admin, and no release mode starts a cloud agent or pictures a page, so every proof fell back to a person's sign-in
+First principles: A dedicated smoke test account in a new release-build proof mode
+Holds: none: no option changes code any job builds
+"""
+
+
+def test_a_redrawn_card_is_judged_against_the_rulings_its_first_draft_was_never_his_words_on_another_area(jev: Jev) -> None:
+    jev.breaks("card", "ruling:a99b78b")
+    offered = []
+    for text in (PROOF_IDENTITY, PROOF_IDENTITY_REDRAWN):
+        asked = limits.question(text, kept=True)
+        assert settled.broken_refusal(settled.judged(limits.ask_case(text, asked), asked, []), None) is None
+        request = jev.asked[-1]
+        offered.append((list(request["questions"]["card"]["label"]["options"]), request["state"]["his_words"]))
+    assert offered == [(["none", "ruling:0c59046"], [limits.ROOT_CAUSE_WORDS | {"rule": limits.ROOT_CAUSE_RULES["found"]}])] * 2
+    assert "story" not in settled.CARD_QUESTION
 
 
 def test_job_ask_says_on_stderr_that_jev_gave_no_answer_and_sends_the_question_to_him(

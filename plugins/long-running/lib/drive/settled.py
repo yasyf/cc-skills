@@ -46,9 +46,8 @@ UNTAPPED_QUESTION = (
 )
 CARD_QUESTION = (
     "Does the card itself, apart from what any one option builds, break one of his rulings below by the rule it carries: a Page"
-    " line shows a page the card links lacking what the card's words say that page shows, its Root cause line breaks his"
-    " ruling on root causes, or it fails to tell its decision's story, the why, the what or the downstream impact? Pick the"
-    " ruling it breaks, or none."
+    " line shows a page the card links lacking what the card's words say that page shows, or its Root cause line breaks his"
+    " ruling on root causes? Pick the ruling it breaks, or none."
 )
 UNBROKEN = "His words do not rule it out."
 CHANGES = 0.15
