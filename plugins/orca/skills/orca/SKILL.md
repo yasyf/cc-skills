@@ -491,7 +491,9 @@ reads nothing.
 cc-remote records under that workspace name holds that a fresh Sprite would not
 get, or nothing: each worktree with uncommitted changes and how many files, each
 branch or stash with commits on no remote, and an unpushed HEAD, all by name, or
-why the read failed. A branch whose first-parent history begins at a root commit
+why the read failed. Each ssh it opens to a Sprite, here and in `--save`,
+`--destroy` and `--done`, gives up after a 30-second connect, so a Sprite whose
+sshd never sends its banner fails the read in 30 seconds. A branch whose first-parent history begins at a root commit
 GitHub's default branch shares no history with, such as the
 `cc-notes-source-live-v2` branch cc-notes pins its own records on, is no lane's
 work: `--held`, `--save`, `--destroy` and `--done` all pass over it. It reads through cc-remote alone, so a Sprite whose Dispatch

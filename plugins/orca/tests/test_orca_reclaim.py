@@ -4,6 +4,7 @@ import importlib.util
 import io
 import json
 import os
+import socket
 import subprocess
 import sys
 import tempfile
@@ -1594,8 +1595,19 @@ class OrcaArgvTest(unittest.TestCase):
         finally:
             orca_gc.subprocess.run = original
         self.assertEqual(found, orca_gc.Checkout(SPRITE.root, True, None, "a" * 40, True, "acme/repo"))
-        self.assertEqual(argv[0][:6], ["ssh", "-F", "/s/ssh/pool-abc.ssh", "-o", "BatchMode=yes", "pool-abc"])
+        self.assertEqual(argv[0][:8], ["ssh", "-F", "/s/ssh/pool-abc.ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=30", "pool-abc"])
         self.assertEqual(argv[1:], [["gh", "api", "repos/acme/repo"], ["gh", "api", f"repos/acme/repo/compare/dev...{'a' * 40}?per_page=1"]])
+
+    def test_a_save_from_a_sprite_that_never_sends_its_ssh_banner_fails_at_the_connect_bound(self):
+        with tempfile.TemporaryDirectory() as state, socket.create_server(("127.0.0.1", 0)) as mute:
+            config = Path(state) / "pool-mute.ssh"
+            config.write_text(f"Host pool-mute\n  HostName 127.0.0.1\n  Port {mute.getsockname()[1]}\n  StrictHostKeyChecking no\n  UserKnownHostsFile /dev/null\n")
+            task = {"schemaVersion": 1, "provider": "sprites", "workspace": "pool-mute", "projectRoot": SPRITE.root, "environmentId": "env_mute", "forward": {"host": "pool-mute", "config": str(config)}, "worktreeId": SPRITE_WT, "terminal": "term_mute"}
+            for kind in ("orca", "workspaces"):
+                (Path(state) / kind).mkdir()
+                (Path(state) / kind / "pool-mute.json").write_text(json.dumps(task))
+            with mock.patch.object(orca_gc, "SSH_CONNECT_S", 1), self.assertRaisesRegex(orca_gc.Unsaved, r"^ssh to pool-mute could not read /home/sprite/repo: .*timed out"):
+                orca_gc.save("pool-mute", "demo-j1", orca_gc.CcRemote(Path(state)))
 
     def test_a_sprite_without_a_github_origin_is_kept_by_name(self):
         original = orca_gc.subprocess.run
