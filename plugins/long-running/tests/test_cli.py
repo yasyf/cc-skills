@@ -6889,6 +6889,33 @@ def test_an_answer_under_a_card_lists_only_its_job_and_orders_cards_and_prs_and_
     assert state.load("demo")["answers"]["a1"]["cards"]["Forge-AI/monorepo#44"] == {"mark": "stands"}
 
 
+def test_his_ruling_under_a_pr_card_lists_the_pr_waiting_on_his_tap_there_so_drive_answer_drops_it_and_closes_it_on_github(
+    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], closed: list[str]
+) -> None:
+    settled = cards_asking(monkeypatch, PR)
+    under_tap = "https://acme.slack.com/archives/D123/p1794300000000400?thread_ts=1794300000.000200"
+    assert cli.main(["answer", "a1", "--words", WORDS, "--link", under_tap]) == 2
+    listed = capsys.readouterr().err
+    assert "; 1 card and 1 PR have no mark:" in listed
+    assert f"  {designing}  tap  j1 o1  land it  {TAP_CARD}" in listed
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["agent"] = "agent-1"
+    assert cli.main(["answer", "a1", "--dropped", designing, "--stands", "demo:j2-7"]) == 2
+    dropping = capsys.readouterr().err
+    for line in (
+        f"{designing}: its card {TAP_CARD} now shows his words and a link to them, with no buttons, its question withdrawn",
+        f"{designing} no longer waits on his tap",
+        f"{designing} closed on GitHub",
+        "  j1 waits on o1 and has not heard a1: SendMessage it his words verbatim",
+    ):
+        assert line in dropping
+    assert run("answer", "a1", "--sent", "j1") == (0, "his answer a1 recorded: 1 standing, 1 dropped, 0 superseded, 0 reopened by it; 1 waiting job sent his words, 0 untouched")
+    assert (settled, closed) == ([("card-answer", "--card", TAP_CARD, "--label", WORDS, "--withdrawn", "--via", under_tap)], [PR])
+    data = state.load("demo")
+    assert (data["prs"][designing]["state"], data["prs"][designing]["wants_tap"]) == ("closed", False)
+    assert data["answers"]["a1"]["cards"][designing] == {"mark": "dropped", "job": "j1", "card": TAP_CARD}
+
+
 def test_an_answer_stays_unfinished_until_each_job_waiting_on_an_order_it_touches_is_sent_his_words_or_marked_untouched(
     run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
