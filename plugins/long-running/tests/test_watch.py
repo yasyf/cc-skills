@@ -1878,19 +1878,33 @@ def test_a_done_design_leaves_its_own_part_with_the_builder_carrying_one_of_its_
     ]
 
 
-def test_a_text_held_on_a_job_is_said_undelivered_ten_minutes_on_and_every_ten_minutes_after(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    serve(monkeypatch, {})
+def test_a_text_held_on_a_lane_is_said_undelivered_ten_minutes_on_and_every_ten_minutes_after(demo: str) -> None:
     with state.edit(demo) as data:
+        data["jobs"]["j1"].update(where="remote", dispatch="ctx_lane1")
         data["jobs"]["j1"]["undelivered"] = [{"seq": "665156", "words": "ship the narrower fix", "at": state.stamp(T0), "said": None, "request": "req-held"}]
     watching = watcher(demo)
     line = (
         f'ANSWER undelivered j1: "ship the narrower fix", held at {render.when(state.stamp(T0))}, has not reached j1; the watch sends it to a worker that'
         " takes messages, hands it to the next worker of one that returned and launches a builder never started with it, and drive job resume j1 delivers it now [o1 j1]"
     )
-    assert watch.run_pass(watching, T0 + timedelta(minutes=9)) == []
-    assert watch.run_pass(watching, T0 + timedelta(minutes=10)) == [line]
-    assert watch.run_pass(watching, T0 + timedelta(minutes=15)) == []
-    assert watch.run_pass(watching, T0 + timedelta(minutes=20)) == [line]
+    assert watch.undelivered_lines(watching, T0 + timedelta(minutes=9)) == []
+    assert watch.undelivered_lines(watching, T0 + timedelta(minutes=10)) == [line]
+    assert watch.undelivered_lines(watching, T0 + timedelta(minutes=15)) == []
+    assert watch.undelivered_lines(watching, T0 + timedelta(minutes=20)) == [line]
+
+
+def test_a_text_held_on_an_agent_on_this_mac_names_its_sessions_sendmessage_and_none_is_said_on_a_builder_its_launch_carries_it_to(demo: str) -> None:
+    held = [{"seq": "699075", "words": "drift only in a window you pick", "at": state.stamp(T0), "said": None, "request": "req-held"}]
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["jobs"] += ["j2", "j3"]
+        data["jobs"]["j1"].update(agent="agent-j1", where="local", session="session-under-test", undelivered=held)
+        data["jobs"]["j2"] = job(state="waiting", waits=["demo:j1-7"], undelivered=held)
+        data["jobs"]["j3"] = job(state="waiting", waits=["demo:j1-7", "j2"], undelivered=held)
+    assert watch.undelivered_lines(watcher(demo), T0 + timedelta(minutes=10)) == [
+        f'ANSWER undelivered j1: "drift only in a window you pick", held at {render.when(state.stamp(T0))}, has not reached j1; the watch sends it to a worker that'
+        " takes messages, hands it to the next worker of one that returned and launches a builder never started with it; SendMessage it his words verbatim from"
+        " root@demo, the session session-under-test that started its agent agent-j1 [o1 j1]"
+    ]
 
 
 def test_the_watch_carries_held_texts_to_a_lane_that_returned_and_launches_a_builder_never_started_once_its_waits_end(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1934,13 +1948,11 @@ def test_his_tap_on_a_lane_questions_card_leads_its_orphan_line_until_his_undo_r
     watching = watcher(demo)
     tap = (
         f'"{render.cut(f"His answer on card {CARD}, verbatim: \"Ring\"", 80)}", held at {render.when(state.stamp(tapped))}, has not reached j1; the watch sends it'
-        " to a worker that takes messages, hands it to the next worker of one that returned and launches a builder never started with it, and drive job resume j1 delivers it now"
+        " to a worker that takes messages, hands it to the next worker of one that returned and launches a builder never started with it; drive job launch j1 on its FREE line,"
+        " which carries his words to its first worker"
     )
-    assert watch.run_pass(watching, T0 + timedelta(minutes=15)) == [f"ANSWER undelivered j1: {tap} [o1 j1]"]
-    assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [
-        f"ANSWER undelivered j1: {tap} [o1 j1]",
-        f'ORPHAN o1 "ship the watch": {tap}, answering its lane\'s question "{asked}" 30 minutes ago',
-    ]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=15)) == []
+    assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [f'ORPHAN o1 "ship the watch": {tap}, answering its lane\'s question "{asked}" 30 minutes ago']
     with monkeypatch.context() as clock:
         clock.setattr(state, "now", lambda: T0 + timedelta(minutes=31))
         card.question_answered({"waits": "demo:j1-7", "label": "Ring", "url": CARD, "undone": True})

@@ -1180,7 +1180,7 @@ def test_his_answer_settling_a_finished_readers_question_is_held_on_each_builder
     tools.run("record", demo, {"records": [{"kind": "answer", "text": "the thread's own card", "waits": "demo:j1-673190"}]})
     drive = state.load(demo)
     assert ([kept["seq"] for kept in drive["jobs"]["j2"]["undelivered"]], drive["jobs"]["j1"]["undelivered"]) == (["673125", "673200"], [])
-    assert [line.split(":")[0] for line in watch.undelivered_lines(watching, state.now() + timedelta(minutes=11))] == ["ANSWER undelivered j2", "ANSWER undelivered j2"]
+    assert watch.undelivered_lines(watching, state.now() + timedelta(minutes=11)) == []
 
 
 def test_his_owner_words_under_a_pr_card_leave_it_up_since_only_his_order_on_its_thread_withdraws_it(
