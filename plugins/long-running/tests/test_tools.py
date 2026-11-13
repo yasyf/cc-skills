@@ -819,10 +819,10 @@ def test_a_report_he_shares_into_an_open_order_as_records_686882_and_686891_did_
     assert tools.run("record", demo, {"records": [shared]}).splitlines() == ["1 owner #2"]
     orders, carries = state.load(demo)["orders"], state.load(demo)["jobs"]["j1"]["carries"]
     own = orders["o2"]
-    assert (own["text"], own["title"], own["project"], own["workstream"], own["owner"], own["from"], own["reporter"]["link"]) == (
-        shared["text"], "Browser views on run details", "Iris", "Run page", "coordinator", "slack:D123/1794548764.374189", first_report
+    assert (own["text"], own["title"], own["project"], own["workstream"], own["owner"], own["from"], [held["link"] for held in own["reporters"]]) == (
+        shared["text"], "Browser views on run details", "Iris", "Run page", "coordinator", "slack:D123/1794548764.374189", [first_report]
     )
-    assert (list(orders), list(orders["o1"]["parts"]), orders["o1"]["reporter"], carries) == (["o1", "o2"], [fixing], None, {"o2": [state.whole_order(shared["text"])]})
+    assert (list(orders), list(orders["o1"]["parts"]), orders["o1"]["reporters"], carries) == (["o1", "o2"], [fixing], [], {"o2": [state.whole_order(shared["text"])]})
     assert [(record["to"], record["attr"]["order"], record["attr"].get("part"), record["attr"]["reporter"]) for record in posted] == [(["root@demo"], "o2", None, first_report)] * 2
     second = shared | {
         "text": f"<{second_report}> Shared in <#C0TEAM>: the run page shows no screenshots either",
@@ -833,7 +833,7 @@ def test_a_report_he_shares_into_an_open_order_as_records_686882_and_686891_did_
     with state.edit(demo) as data:
         data["orders"]["o2"]["proof"] = "https://github.com/acme/app/pull/1 live on the run page"
     orders = state.load(demo)["orders"]
-    assert [(orders[order_id]["reporter"]["link"], state.may_tell(orders[order_id])) for order_id in ("o2", "o3")] == [(first_report, True), (second_report, False)]
+    assert [([held["link"] for held in orders[order_id]["reporters"]], state.may_tell(orders[order_id])) for order_id in ("o2", "o3")] == [([first_report], True), ([second_report], False)]
     assert list(state.load(demo)["jobs"]["j1"]["carries"]) == ["o2", "o3"]
 
 
@@ -848,7 +848,11 @@ def test_a_report_he_shares_in_the_message_an_open_order_came_from_gives_that_or
     said = tools.run("record", demo, {"records": [shared]}).splitlines()
     assert (said[0].startswith("1 order set: "), said[-1]) == (True, "1 owner #1")
     orders = state.load(demo)["orders"]
-    assert (list(orders), list(orders["o1"]["parts"]), orders["o1"]["reporter"]["link"], posted[0]["attr"]["order"]) == (["o1"], [state.whole_order(words)], report, "o1")
+    assert (list(orders), list(orders["o1"]["parts"]), [held["link"] for held in orders["o1"]["reporters"]], posted[0]["attr"]["order"]) == (["o1"], [state.whole_order(words)], [report], "o1")
+    another = "https://acme.slack.com/archives/C0TEAM/p1794533400000100"
+    tools.run("record", demo, {"records": [shared | {"attrs": shared["attrs"] | {"reporter": another}}]})
+    orders = state.load(demo)["orders"]
+    assert (list(orders), [held["link"] for held in orders["o1"]["reporters"]]) == (["o1"], [report, another])
 
 
 def test_the_communicators_owner_or_answer_record_goes_to_the_session_hearing_its_jobs_or_threads_order_whatever_lane_it_names(

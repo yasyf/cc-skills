@@ -336,9 +336,11 @@ def order_line(order_id: str, order: dict, limit: int = 120, thread: tuple[str, 
 
 
 def reporter_said(order: dict) -> str:
-    """Where the bug the order fixes was reported, or the question it answers asked, and whether that thread heard it, is owed it now, or hears it once its fix is proven live or its answer posted."""
-    if (reporter := order["reporter"]) is None:
-        return ""
+    """Each place the bug the order fixes was reported, or the question it answers asked, and whether that thread heard it, is owed it now, or hears it once its fix is proven live or its answer posted."""
+    return "".join(reporter_heard(order, reporter) for reporter in order["reporters"])
+
+
+def reporter_heard(order: dict, reporter: dict) -> str:
     if order["kind"] == "answer" and reporter["told"]:
         return f", asked in {reporter['link']}, told the answer in {reporter['told']}"
     if order["kind"] == "answer":

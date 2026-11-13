@@ -467,14 +467,15 @@ merged and installed, listing each rule now in the skill.
   the fix is live. His words, the day a hand repair went live and the reporter never heard: "Did you
   let him know it's fixed? … I told him since you never did, fix that". The order keeps that thread
   from the share or link in his words, `drive order add --reporter`, or by itself when he gives the
-  order in that thread, whose lines then go to his DM, and `drive status` says on the order's line
-  whether that thread heard.
+  order in that thread, whose lines then go to his DM. A second report of the same bug, such as
+  another teammate's, joins it with `drive order set --reporter`, beside the first, so each thread
+  hears its own note, and `drive status` says on the order's line whether each thread heard.
 - A question someone asked that a `--kind answer` order answers, kept the same way, gets the answer
   there once every part of it is posted to him, with no proof asked, since an answer has no fix to
   go live. His share of the question orders it: the handler writes the answer again for that person
   in the same step as his own line, and no card asks him and no line says it waits on him to
   forward, by his words "we were supposed to send that whas left for cloud update to … and never did".
-- Post it once per bug, once the coordinator keeps the proof the fix is live with `--proof`, never
+- Post it once per thread, once the coordinator keeps the proof the fix is live with `--proof`, never
   before: one or two plain sentences saying what is fixed and since when, with the link. The handler
   of the report on that order posts it with `slack_reply` in the same step as his own line, then
   records it with `drive order told`. When the bot cannot post in that thread, as in a person's 1:1
@@ -483,9 +484,9 @@ merged and installed, listing each rule now in the skill.
   and no `thread_ts`, and records it with `drive order told --group-dm <that user id>`. His words: "Dm him in group
   with bot then as usual".
 - The drive holds it to once and to after the fix: `drive order set --state done` refuses an order
-  with a reporter until the note is recorded, the watch says `TELL` once when the proof sat 10 minutes
+  with a reporter until each note is recorded, the watch says `TELL` once when the proof sat 10 minutes
   with no note, and the post hook refuses a second note in that thread and one before the proof.
-  The dashboard's top strip counts each bug report until its note is recorded, and its list says
+  The dashboard's top strip counts each bug report until every note is recorded, and its list says
   the stage each reached: reported, being fixed, merged, live and not told, or told. His words: "we
   should have an equivalent bade gfor bug reports that tracks all teh way trhough to letting the
   user know its live and fixed".

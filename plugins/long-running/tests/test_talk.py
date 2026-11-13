@@ -379,7 +379,7 @@ def test_the_watchs_ask_again_on_a_stack_card_says_why_it_asks_where_it_posted_a
     building(demo)
     stack = ["yasyf/cc-skills#7", "yasyf/cc-skills#8", "yasyf/cc-skills#9"]
     with state.edit(demo) as data:
-        data["orders"]["o2"]["reporter"] = state.reporter("https://acme.slack.com/archives/C0REPORTS01/p1794400100000200")
+        data["orders"]["o2"]["reporters"] = [state.reporter("https://acme.slack.com/archives/C0REPORTS01/p1794400100000200")]
         state.carry(data, "j1", "o2", list(data["orders"]["o2"]["parts"]))
         for key in stack[1:]:
             data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1")

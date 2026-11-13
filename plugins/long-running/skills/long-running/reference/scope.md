@@ -49,7 +49,9 @@ summary line about it, because work stopped before it starts wastes nothing.
   and `landing_guard` refuse landing it. Another lane's PR or bug report goes back to that lane in a
   `handoff` record. A sweep's finding, a teammate's report, or a job's own
   finding he has not ordered becomes a question card saying what was found, and nothing is built
-  before his pick, because he decides what the drive takes on. A test that flaked is never that
+  before his pick, because he decides what the drive takes on. A teammate's report a reader reads as
+  the bug an open order already fixes adds no work: `drive order set <o> --reporter <its permalink>`
+  keeps it on that order with no card, so that thread hears the fix too. A test that flaked is never that
   finding: his ruling 532cd3d already ordered its fix. When a job's report, an incident's
   included, names a limit, a capacity, or an architecture question, take it to him that turn,
   unasked, as a diagnosis with option cards.

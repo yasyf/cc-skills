@@ -34,7 +34,7 @@ STARTS_OUTSIDE = {"pr": "pr add starts the lander", "incident": "open and freeze
 LEADS = {
     "order": (
         "His orders: add records one from his words, set changes one, posted records the communicator's post on one, told records"
-        " the one note its reporter gets, a bug's fix-live note or a question's answer, in the thread of their message, or in their"
+        " the one note each of its reporters gets, a bug's fix-live note or a question's answer, in the thread of their message, or in their"
         " group DM with him and the bot."
     ),
     "job": "The drive's jobs: add starts one on an order's parts, none when its inline order joins an open order, set changes one, brief writes its brief.",
@@ -627,12 +627,12 @@ def carried(name: str, said: list[str], index: int, item: dict, attrs: dict, dry
 
 
 def reporters_order(name: str, said: list[str], index: int, item: dict, attrs: dict, data: dict, served: str, dry_run: bool) -> str:
-    """The order keeping the reporter of a report his words share into the open order they serve, so that person hears once its own fix is live, never at the proof of another fix the served order holds: an open order holding that reporter already, then the served order when his same message added it and it holds none, else a new order of his words filed, owned and kinded like the served one, titled by attr title and carried by the job attr job names while that job is at work on his feature work."""
+    """The order keeping the reporter of a report his words share into the open order they serve, so that person hears once its own fix is live, never at the proof of another fix the served order holds: an open order holding that reporter already, then the served order when his same message added it, beside any reporter it holds, else a new order of his words filed, owned and kinded like the served one, titled by attr title and carried by the job attr job names while that job is at work on his feature work."""
     link, order = attrs["reporter"], data["orders"][served]
-    if holder := next((order_id for order_id, held in state.open_orders(data).items() if (held["reporter"] or {}).get("link") == link), None):
+    if holder := next((order_id for order_id, held in state.open_orders(data).items() if any(kept["link"] == link for kept in held["reporters"])), None):
         return holder
     message = state.slack_message(item.get("url") or "")
-    if message and order["from"] == cli.slack_key(item["url"], message) and not order["reporter"]:
+    if message and order["from"] == cli.slack_key(item["url"], message):
         ran(name, said, index, ("order", "set"), {"id": served, "reporter": link}, dry_run)
         return served
     if not attrs.get("title"):

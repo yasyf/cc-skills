@@ -32,7 +32,7 @@ def order(text: str, jobs: list[str], **overrides: object) -> dict:
         "jobs": jobs,
         "incident": False,
         "recovered": None,
-        "reporter": None,
+        "reporters": [],
         "kind": "build",
         "proof": None,
         "note": None,
@@ -585,9 +585,9 @@ def test_history_lists_every_day_newest_first_with_his_taps_answers_and_undos_ea
     data = drive_of(
         {
             "o1": order("ship the page", ["j1"], created=at(-30), state="done", updated=at(-10), proof="installed 1.0.21"),
-            "o2": order("WTF, fix the damn thing. Hello, shell", [], created=state.stamp(T0 - timedelta(days=2)), state="waiting", **{"from": "slack:D123/1794200000.000100"}, reporter=None),
+            "o2": order("WTF, fix the damn thing. Hello, shell", [], created=state.stamp(T0 - timedelta(days=2)), state="waiting", **{"from": "slack:D123/1794200000.000100"}, reporters=[]),
             "o3": order("Drive tooling: the shit the lanes say", [], created=at(-40)),
-            "o4": order("damn, the build is down", [], created=at(-50), **{"from": "slack:C9/1794200000.000200"}, reporter=state.reporter("https://acme.slack.com/archives/C9/p1794200000000200")),
+            "o4": order("damn, the build is down", [], created=at(-50), **{"from": "slack:C9/1794200000.000200"}, reporters=[state.reporter("https://acme.slack.com/archives/C9/p1794200000000200")]),
         },
         {"j1": job("o1", "failed", "CI red (m12)", updated=-20)},
         [pr(1, "o1", state="merged", updated=at(-15))],
@@ -865,15 +865,16 @@ def test_bug_reports_list_each_shown_reported_order_oldest_first_at_the_stage_it
     note = "https://acme.slack.com/archives/C1/p1794200000000900"
     data = drive_of(
         {
-            "o1": order("runs page errors", [], reporter=reported(), created=at(-50)),
-            "o2": order("questions stopped showing", ["j2"], reporter=reported(), created=at(-40)),
-            "o3": order("GET /api/runs fails", ["j3"], reporter=reported(), created=at(-30)),
-            "o4": order("recording the run fails", ["j4"], reporter=reported(), proof="runs record on plat", created=at(-20)),
-            "o5": order("ids read wrong", ["j5"], reporter=reported(note), proof="ids read right on plat", state="done", created=at(-10), updated=at(-5)),
+            "o1": order("runs page errors", [], reporters=[reported()], created=at(-50)),
+            "o2": order("questions stopped showing", ["j2"], reporters=[reported()], created=at(-40)),
+            "o3": order("GET /api/runs fails", ["j3"], reporters=[reported()], created=at(-30)),
+            "o4": order("recording the run fails", ["j4"], reporters=[reported()], proof="runs record on plat", created=at(-20)),
+            "o10": order("staging deploys hang", [], reporters=[reported(note), reported()], proof="deploys finish on plat", created=at(-15)),
+            "o5": order("ids read wrong", ["j5"], reporters=[reported(note)], proof="ids read right on plat", state="done", created=at(-10), updated=at(-5)),
             "o6": order("ship the dashboard", ["j6"], created=at(-60)),
-            "o7": order("an old bug", [], reporter=reported(note), proof="fixed", state="done", created=at(-3000), updated=at(-2000)),
-            "o8": order("a dropped bug", [], reporter=reported(), state="dropped", created=at(-70)),
-            "o9": order("what is left for cloud Iris", [], reporter=reported(), kind="answer", created=at(-80)),
+            "o7": order("an old bug", [], reporters=[reported(note)], proof="fixed", state="done", created=at(-3000), updated=at(-2000)),
+            "o8": order("a dropped bug", [], reporters=[reported()], state="dropped", created=at(-70)),
+            "o9": order("what is left for cloud Iris", [], reporters=[reported()], kind="answer", created=at(-80)),
         },
         {f"j{n}": job(f"o{n}", "done") for n in (2, 3, 4, 5, 6)},
         [pr(1, "o2", job="j2"), pr(2, "o3", state="merged"), pr(3, "o3", state="closed"), pr(4, "o4", state="merged"), pr(5, "o5", state="merged")],
@@ -883,6 +884,7 @@ def test_bug_reports_list_each_shown_reported_order_oldest_first_at_the_stage_it
         ("o2", "fixing"),
         ("o3", "merged"),
         ("o4", "live"),
+        ("o10", "live"),
         ("o5", "told"),
     ]
 

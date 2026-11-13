@@ -1525,8 +1525,8 @@ def his_words(order: dict) -> str:
 
 
 def from_his_message(order: dict) -> bool:
-    """Whether an order's text is his own Slack message: added from it, with no reporter but one whose thread he gave it in, and not a "Drive tooling:" order the drive wrote."""
-    return order["from"].startswith("slack:") and (not order["reporter"] or in_reporter_thread(order)) and not order["text"].startswith(TOOLING)
+    """Whether an order's text is his own Slack message: added from it, with no reporter but those whose thread he gave it in, and not a "Drive tooling:" order the drive wrote."""
+    return order["from"].startswith("slack:") and (not order["reporters"] or in_reporter_thread(order)) and not order["text"].startswith(TOOLING)
 
 
 def kind_words(data: dict, pr: dict) -> str:

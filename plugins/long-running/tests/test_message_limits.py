@@ -453,6 +453,9 @@ def test_a_bug_reports_thread_gets_its_fix_live_note_only_once_the_fix_is_proven
     )
     assert message_limits.deny_reason(call("slack_reply", transcript, url=told, text=note["text"])).startswith("Refused on purpose: this thread already heard")
     assert message_limits.deny_reason(call("slack_reply", transcript, **note | {"thread_ts": "1794400000.000100"})) is None
+    run("order", "set", "o1", "--reporter", "https://acme.slack.com/archives/C0REPORTS02/p1794593225751189")
+    assert message_limits.deny_reason(call("slack_reply", transcript, **note)).startswith("Refused on purpose: this thread already heard")
+    assert message_limits.deny_reason(call("slack_reply", transcript, **note | {"channel_id": "C0REPORTS02", "thread_ts": "1794593225.751189"})) is None
 
 
 def test_a_bug_reports_thread_its_order_came_in_hears_none_of_its_lines_but_a_reply_he_ordered_there_goes_out_on_its_first_try(
