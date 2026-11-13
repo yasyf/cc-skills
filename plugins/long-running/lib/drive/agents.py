@@ -584,9 +584,7 @@ def resume(payload: dict) -> str | None:
     if not names and not os.environ.get(state.REMOTE_LANE_ENV):
         return None
     transcript = Path(payload["transcript_path"])
-    rows = tail(transcript)
-    calm = max((at for at, row in enumerate(rows) if ended(row) and not died(row)), default=-1)
-    tries = sum(row["type"] == "user" and RESUMED in str(row["message"]["content"]) for row in rows[calm + 1 :])
+    tries = resumes(tail(transcript))
     handler = seen(payload)
     if tries >= len(OUTAGE_WAITS):
         if "handler_session" in handler:
@@ -602,6 +600,12 @@ def resume(payload: dict) -> str | None:
     if any(state.parse_time(row["timestamp"]) > since for row in tail(transcript) if row["type"] in ("user", "assistant")):
         return None
     return RESUMED
+
+
+def resumes(rows: list[dict]) -> int:
+    """How many RESUMED prompts a transcript's rows hold since its last response that ended its turn whole, one for each resume an API error met again."""
+    calm = max((at for at, row in enumerate(rows) if ended(row) and not died(row)), default=-1)
+    return sum(row["type"] == "user" and RESUMED in str(row["message"]["content"]) for row in rows[calm + 1 :])
 
 
 def restart_handler(name: str, payload: dict) -> None:

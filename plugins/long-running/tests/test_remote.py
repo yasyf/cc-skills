@@ -34,7 +34,7 @@ from conftest import (
     git_in,
     staged,
 )
-from drive import artifacts, cli, github, install, orca, place, reads, render, state, tools, watch
+from drive import agents, artifacts, cli, github, install, orca, place, reads, render, state, tools, watch
 
 pytestmark = pytest.mark.usefixtures("ccx_worktrees")
 
@@ -1051,6 +1051,75 @@ def test_the_watch_holds_a_stopped_agents_job_until_the_session_holding_it_has_a
 ) -> None:
     watching = stopped_agent_watched(run, demo, tmp_path, monkeypatch, session)
     assert (lane_lines(watching, T0), relaunches, state.load(demo)["jobs"]["j1"].get("deaths", [])) == ([], [], [])
+
+
+ON_THIS_MAC = {"route": state.LOCAL_ROUTE, "workspace": None, "environment": None}
+QUIET_LANE = {
+    "worker": {"state": "ready", "agentTerminalHandle": "term_lane"},
+    "dispatch": {"runId": RUN, "taskId": "task_lane"},
+    "projection": {"liveness": {"verdict": "unverifiable", "reason": "restored_unconfirmed"}, "outcome": "in_progress", "attention": {"categories": []}},
+    "observation": {"status": "live", "exactWorker": True},
+    "terminal": {"handle": "term_lane", "connected": True, "writable": True, "worktreePath": "/Users/me/orca/workspaces/demo-j1", "lastOutputAt": None},
+}
+LATER = {**ANSWERED, "timestamp": "2026-11-12T20:45:00.000Z"}
+RESUMED_ROW = {"type": "user", "timestamp": "2026-11-12T20:44:00.000Z", "message": {"content": agents.RESUMED}}
+FORBIDDEN_STOP = f'its last response ended on stop_sequence at {watch.when(FORBIDDEN["timestamp"])}: "{render.cut(FORBIDDEN_TEXT, 100)}"'
+
+
+def terminal_sends(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, ...]]:
+    """Each `orca terminal send` the drive makes, which Orca takes as made."""
+    sends: list[tuple[str, ...]] = []
+    real = orca.request
+    monkeypatch.setattr(orca, "request", lambda *args, **kwargs: sends.append(args) or {} if args[:2] == ("terminal", "send") else real(*args, **kwargs))
+    return sends
+
+
+def typed_into(text: str) -> list[tuple[str, ...]]:
+    return [("terminal", "send", "--terminal", "term_lane", "--text", text), ("terminal", "send", "--terminal", "term_lane", "--enter")]
+
+
+def quiet_lane_watched(remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, lane: list[dict], session: list[dict]) -> watch.Watcher:
+    """A running builder's lane on this Mac that Orca shows in a terminal it can write to but cannot tell is live, as j3141's after an Orca restart, whose transcript ends on lane, beside the coordinator's, which ends on session."""
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setattr(orca, "worker", lambda dispatch: QUIET_LANE)
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(ON_THIS_MAC, state="running")
+    data = state.load(remote)
+    projects = tmp_path / "config" / "projects"
+    for path, rows in ((projects / watch.NOT_SLUG.sub("-", QUIET_LANE["terminal"]["worktreePath"]) / "lane.jsonl", lane), (watch.session_transcript(data["roles"]["coordinator"]), session)):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    return watch.Watcher(remote, offset=state.events_end(remote))
+
+
+def test_the_watch_types_the_resume_once_into_a_lane_on_this_mac_that_stopped_on_an_api_error_once_a_drive_session_answered_since(
+    remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relaunches: list[str]
+) -> None:
+    sends = terminal_sends(monkeypatch)
+    watching = quiet_lane_watched(remote, tmp_path, monkeypatch, [CALLED, CALL_RESULT, FORBIDDEN], [FORBIDDEN, LATER])
+    assert lane_lines(watching, T0) == [f"LANE j1 o1 stopped on this Mac: {FORBIDDEN_STOP}. The watch typed the resume prompt into its terminal term_lane"]
+    assert lane_lines(watching, T0 + timedelta(seconds=5)) == []
+    assert (sends, relaunches) == (typed_into(agents.RESUMED), [])
+
+
+@pytest.mark.parametrize("session", [[FORBIDDEN], [EARLIER]], ids=["refused-since", "nothing-since"])
+def test_the_watch_types_nothing_into_a_stopped_lane_on_this_mac_until_a_drive_session_has_a_response_answered(
+    remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, session: list[dict]
+) -> None:
+    sends = terminal_sends(monkeypatch)
+    watching = quiet_lane_watched(remote, tmp_path, monkeypatch, [CALLED, CALL_RESULT, FORBIDDEN], session)
+    assert (lane_lines(watching, T0), sends) == ([], [])
+
+
+def test_the_watch_says_once_and_types_nothing_into_a_lane_on_this_mac_whose_four_resumes_met_the_same_stop(
+    remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sends = terminal_sends(monkeypatch)
+    watching = quiet_lane_watched(remote, tmp_path, monkeypatch, [CALLED, CALL_RESULT, *[RESUMED_ROW, FORBIDDEN] * 4], [LATER])
+    assert lane_lines(watching, T0) == [
+        f"LANE j1 o1 stopped on this Mac: {FORBIDDEN_STOP}, after 4 resumes met the same stop. The watch types no more into it; drive job resume j1 <the event> sends it one"
+    ]
+    assert (lane_lines(watching, T0 + timedelta(seconds=5)), sends) == ([], [])
 
 
 def test_a_launch_hands_the_job_of_an_agent_that_returned_holding_his_answer_to_a_lane_whose_brief_carries_it(
@@ -2556,6 +2625,40 @@ def test_resume_holds_the_text_and_sends_nothing_while_orca_cannot_tell_whether_
     assert (code, sent, out.startswith("j1: held, not sent yet: ")) == (0, [], True)
     job = state.load(remote)["jobs"]["j1"]
     assert ("deaths" in job, [kept["words"] for kept in job["undelivered"]]) == (False, ["PR checks failed"])
+
+
+@pytest.mark.parametrize(
+    ("placed", "shown"),
+    [
+        ({}, QUIET_LANE),
+        (ON_THIS_MAC, {**QUIET_LANE, "terminal": {**QUIET_LANE["terminal"], "writable": False}}),
+        (ON_THIS_MAC, {**QUIET_LANE, "observation": {"status": "live", "exactWorker": False}}),
+    ],
+    ids=["on-its-sprite", "unwritable", "another-worker"],
+)
+def test_resume_holds_the_text_for_a_lane_orca_cannot_tell_is_live_whose_terminal_the_drive_cannot_type_into(
+    run: Run, remote: str, monkeypatch: pytest.MonkeyPatch, placed: dict, shown: dict
+) -> None:
+    sent, sends = [], terminal_sends(monkeypatch)
+    monkeypatch.setattr(orca, "call", lambda *args: sent.append(args) or {})
+    monkeypatch.setattr(orca, "worker", lambda dispatch: shown)
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(placed)
+    code, out = run("job", "resume", "j1", "PR checks failed")
+    assert (code, sent, sends, out.startswith("j1: held, not sent yet: ")) == (0, [], [], True)
+
+
+def test_resume_sends_to_a_lane_on_this_mac_orca_cannot_tell_is_live_and_types_into_its_terminal_that_it_has_mail(
+    run: Run, remote: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sent, sends = [], terminal_sends(monkeypatch)
+    monkeypatch.setattr(orca, "call", lambda *args: sent.append(args) or {})
+    monkeypatch.setattr(orca, "worker", lambda dispatch: QUIET_LANE)
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(ON_THIS_MAC)
+    assert run("job", "resume", "j1", "PR checks failed") == (0, f"j1: sent to dispatch {DISPATCH}, and typed into its terminal term_lane that it has mail")
+    assert ([args[:10] for args in sent], sends) == ([("send", "--to", f"dispatch:{DISPATCH}", "--run", RUN, "--subject", "From the coordinator", "--body", "PR checks failed", "--retry-request")], typed_into(orca.MAIL))
+    assert state.load(remote)["jobs"]["j1"]["undelivered"] == []
 
 
 def test_a_held_text_goes_once_under_its_request_id_when_a_bare_resume_finds_the_lane_alive(
@@ -4761,7 +4864,7 @@ def test_every_lane_call_speaks_as_the_drives_own_terminal_whatever_terminal_ran
     with pytest.raises(orca.OrcaError):
         orca.reply(remote, RUN, "msg_1", "an answer")
     monkeypatch.setenv("ORCA_TERMINAL_HANDLE", "term_coordinator")
-    orca.send(remote, {"dispatch": "ctx_1", "run": RUN}, "From the coordinator", "a message")
+    orca.send(remote, {"dispatch": "ctx_1", "run": RUN, "route": None}, "From the coordinator", "a message")
     assert calls == [
         (DRIVE_TERMINAL, "run-create", "--objective", "a lane"),
         (DRIVE_TERMINAL, "run-use", "--id", RUN),

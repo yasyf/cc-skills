@@ -94,6 +94,7 @@ class Watcher:
     released: set[str] = field(default_factory=set)
     release_marks: dict[str, str | None] = field(default_factory=dict)
     sending: dict[str, int] = field(default_factory=dict)
+    resumed: dict[str, str] = field(default_factory=dict)
     carried: dict[str, tuple[set[str], datetime]] = field(default_factory=dict)
 
     @property
@@ -1574,13 +1575,16 @@ def agent_death(job: dict, data: dict) -> str | None:
 
 def agent_stop(job: dict, data: dict) -> str | None:
     """Why the watch hands a running local job to a fresh worker: its agent's last response ended on an API error or a refusal, and the session holding it has had a response answered since, so the fresh worker does not start inside the outage that stopped it; None until then, and for an agent that ended with its session."""
-    if not job.get("agent") or (holder := session_of(job, data)) is None or not (turn := stopped_turn(holder, job, data)):
-        return None
-    main = session_transcript(holder)
-    answered = main.exists() and last_turn(main, ("assistant",))
-    if not answered or agents.died(answered) or state.parse_time(answered["timestamp"]) <= state.parse_time(turn["timestamp"]):
+    if not job.get("agent") or (holder := session_of(job, data)) is None or not (turn := stopped_turn(holder, job, data)) or not answered_since(holder, turn):
         return None
     return stopped_on(turn)
+
+
+def answered_since(holder: dict, turn: dict) -> bool:
+    """Whether the bound session has had a response answered after the turn, so whatever starts after it does not land inside the outage that stopped that turn."""
+    main = session_transcript(holder)
+    answered = main.exists() and last_turn(main, ("assistant",))
+    return bool(answered) and not agents.died(answered) and state.parse_time(answered["timestamp"]) > state.parse_time(turn["timestamp"])
 
 
 def stopped_turn(holder: dict, job: dict, data: dict) -> dict | None:
@@ -1591,6 +1595,34 @@ def stopped_turn(holder: dict, job: dict, data: dict) -> dict | None:
 
 def stopped_on(turn: dict) -> str:
     return f'its last response ended on {turn["message"]["stop_reason"]} at {when(turn["timestamp"])}: "{cut(said_last(turn), 100)}"'
+
+
+def lane_stop(worker: dict, data: dict) -> tuple[dict, Path] | None:
+    """The last row of the newest transcript in the worktree of a lane on this Mac, and that transcript, when that response ended on an API error or a refusal and a session bound to the drive has had a response answered since; None until then."""
+    sessions = config_dir() / "projects" / NOT_SLUG.sub("-", worker["terminal"]["worktreePath"])
+    path = max(sessions.glob("*.jsonl"), key=lambda found: found.stat().st_mtime, default=None)
+    if not path or not (turn := last_turn(path)) or not agents.died(turn):
+        return None
+    return (turn, path) if any(answered_since(held, turn) for held in state.bound_sessions(data).values()) else None
+
+
+def resume_lane(watcher: Watcher, job_id: str, job: dict, terminal: str, stop: tuple[dict, Path], moment: datetime) -> list[str]:
+    """Type agents.RESUMED into the terminal of a lane on this Mac that stopped, once for each stop, as the StopFailure hook resumes a lane on a Sprite, whose RESUMED prompts count toward the same four; once four resumes met the stop again, say so once and type no more."""
+    turn, path = stop
+    if watcher.resumed.get(job_id) == turn["timestamp"]:
+        return []
+    head = f'LANE {job_id} {job["order"]} stopped {orca.ON_MAC}: {stopped_on(turn)}'
+    if (tries := agents.resumes(agents.tail(path))) >= len(agents.OUTAGE_WAITS):
+        watcher.resumed[job_id] = turn["timestamp"]
+        return [f"{head}, after {tries} resumes met the same stop. The watch types no more into it; drive job resume {job_id} <the event> sends it one"]
+    source = f"resume of {job_id}"
+    try:
+        orca.type_prompt(terminal, agents.RESUMED)
+    except orca.OrcaError as error:
+        return failed(watcher, source, f"typing the resume into {job_id}'s terminal {terminal}", error, moment)
+    watcher.failures.pop(source, None)
+    watcher.resumed[job_id] = turn["timestamp"]
+    return [f"{head}. The watch typed the resume prompt into its terminal {terminal}"]
 
 
 def agent_transcript(holder: dict, job: dict, data: dict) -> Path:
@@ -1637,7 +1669,7 @@ def launching(job: dict, moment: datetime) -> bool:
 
 
 def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each running job's gap from its agent or lane, with each PR it has open, a remote lane, running or waiting, whose worker died, and a running job's lane Orca could not reach three reads running, which wake hands to drive job resume; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness, and a lane filed on this Mac whose worker-show names a Sprite is filed on that Sprite. A local agent that ended its turn on a result line its job never took is a gap, since only `drive job report` sets a job's state from its return; a codex job no agent holds has its codex-ask run taken once that run ended, and an incident fix job's taken run names the builder that ships its fix."""
+    """Each running job's gap from its agent or lane, with each PR it has open, a remote lane, running or waiting, whose worker died, and a running job's lane Orca could not reach three reads running, which wake hands to drive job resume, and a running lane on this Mac whose last response ended on an API error or a refusal, which resume_lane resumes through its terminal; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness, and a lane filed on this Mac whose worker-show names a Sprite is filed on that Sprite. A local agent that ended its turn on a result line its job never took is a gap, since only `drive job report` sets a job's state from its return; a codex job no agent holds has its codex-ask run taken once that run ended, and an incident fix job's taken run names the builder that ships its fix."""
     data = state.load(watcher.name)
     gaps, deaths, heads, found, taken, shippers, lines = {}, {}, {}, {}, {}, {}, []
     for order_id, order in heard_orders(watcher, data).items():
@@ -1695,12 +1727,14 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 lane |= orca.run_of(worker)
             if any(job.get(field) != value for field, value in lane.items()):
                 found[job_id] = lane
-            if job["undelivered"] and orca.takes_messages(worker) and not ((pid := watcher.sending.get(job_id)) and state.alive(pid)):
+            if job["undelivered"] and orca.takes_messages(job, worker) and not ((pid := watcher.sending.get(job_id)) and state.alive(pid)):
                 watcher.sending[job_id] = send_held(watcher.name, job_id)
             if why := orca.death(worker):
                 deaths[job_id] = (job["dispatch"], why)
             elif running:
                 gaps[job_id] = remote_gap(job_id, worker, moment)
+                if (terminal := orca.typed(job, worker)) and (stop := lane_stop(worker, data)):
+                    lines += resume_lane(watcher, job_id, job, terminal, stop, moment)
                 if branch := ((worker.get("terminal") or {}).get("branch") or "").removeprefix("refs/heads/"):
                     heads.setdefault(job_id, set()).add((job.get("repo"), branch))
     if found or taken:
