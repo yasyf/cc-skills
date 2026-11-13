@@ -4938,7 +4938,8 @@ def parser() -> argparse.ArgumentParser:
             " beside the job's report, take DONE on exit 0 and BLOCKED quoting its last FAIL line otherwise or when an install fails, no release will carry a merge,"
             " or the dashboard still runs an older install at the timeout, and keep the close report of an order the DONE finishes for the"
             " watch to post, but a nonzero exit ending on a WAIT line with no FAIL line takes no result and runs again at his next word;"
-            " refused, naming who proves it instead, for a merge outside yasyf/* or a job keeping no proof file"
+            " refused, naming who proves it instead, for a merge outside yasyf/* or a job keeping no proof file; on a builder that took BLOCKED,"
+            " its own proof's among them, it first takes back the newest READY or PUSHED the job's history keeps, so a failed proof runs again on its own job"
         ),
     )
     verb.add_argument("id")

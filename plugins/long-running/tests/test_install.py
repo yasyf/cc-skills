@@ -1,4 +1,5 @@
 import json
+import os
 import plistlib
 import re
 import subprocess
@@ -12,7 +13,7 @@ from pathlib import Path, PurePosixPath
 
 import pytest
 from conftest import commit_files, git_in
-from drive import card, cli, dashboard, github, install, reads, receiver, settled, state
+from drive import card, cli, dashboard, github, install, reads, receiver, settled, state, watch
 
 SHA = "abc123def4567890"
 REPO = "yasyf/cc-skills"
@@ -1685,6 +1686,43 @@ def test_a_proof_is_refused_naming_who_proves_it_for_a_job_with_no_proof_file_on
     with pytest.raises(state.DriveError, match=re.escape(refusal)):
         install.prove("demo", "j1", 900)
     assert (state.load("demo")["jobs"]["j1"]["state"], proof_events()) == ("waiting", [])
+
+
+def test_a_proof_that_failed_runs_again_on_the_job_that_owns_it_once_its_cause_is_fixed_while_no_watch_starts_a_second(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    script = proving(config, tmp_path, fake([BUILD], {BUILD}), 1)
+    state.keep_report("demo", "j1", f"PUSHED {URL}", f"PUSHED {URL}\nPR: {URL}\n")
+    install.prove("demo", "j1", 900)
+    assert state.load("demo")["jobs"]["j1"]["state"] == "failed"
+    script.write_text("#!/bin/sh\necho 'ok the fixed tool runs'\n")
+    run, due = install.proof_run, []
+    monkeypatch.setattr(install, "proof_run", lambda *args: due.append(watch.proof_due(state.load("demo"), "j1")) or run(*args))
+    install.prove("demo", "j1", 900)
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["state"], job["said"], job["proof"]["pid"], due) == ("done", f"DONE {URL} live: {script} exits 0 on long-running@skills 1.0.3", os.getpid(), [False])
+    assert [change.startswith(install.PROVEN) for _, change in proof_events()] == [False, True]
+
+
+@pytest.mark.parametrize(
+    ("taken", "kept", "repro", "refusal"),
+    [
+        ("stopped", f"PUSHED {URL}", True, "j1 waits on no READY or PUSHED whose PRs all merged, so there is nothing to prove"),
+        ("failed", "BLOCKED no PR opened", True, "j1 waits on no READY or PUSHED whose PRs all merged, so there is nothing to prove"),
+        ("failed", f"PUSHED {URL}", False, "j1 keeps no proof file to run: keep one with drive job set j1 --repro <file>, written from its PROVE: line, then drive job prove j1"),
+    ],
+)
+def test_a_proof_refused_on_a_job_that_took_blocked_leaves_it_as_it_was(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], taken: str, kept: str, repro: bool, refusal: str
+) -> None:
+    proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
+    state.keep_report("demo", "j1", kept, kept)
+    with state.edit("demo") as data:
+        data["jobs"]["j1"].update(state=taken, said="BLOCKED no PR opened", **({} if repro else {"repro": None}))
+    before = state.load("demo")["jobs"]["j1"]
+    with pytest.raises(state.DriveError, match=re.escape(refusal)):
+        install.prove("demo", "j1", 900)
+    assert (state.load("demo")["jobs"]["j1"], proof_events()) == (before, [])
 
 
 def test_an_install_holding_a_merged_jobs_fix_proves_nothing_since_the_watch_does(config: Path, tmp_path: Path, fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:

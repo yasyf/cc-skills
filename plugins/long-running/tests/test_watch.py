@@ -5446,7 +5446,7 @@ def test_a_merged_ready_tooling_job_keeping_no_proof_file_takes_blocked_at_its_m
     assert watch.run_pass(watching, T0) == []
     blocked = (
         f"BLOCKED {state.pr_url(YASYF)} merged, and j1 keeps no proof file to run, so nothing proves it live:"
-        " a fresh builder with a merge handoff, added with drive job add builder --builds-nothing, proves it from its INSTALL: and PROVE: lines"
+        " keep one with drive job set j1 --repro <file>, written from its PROVE: line, then drive job prove j1 proves it on j1"
     )
     assert (state.load(demo)["jobs"]["j1"]["state"], state.load(demo)["jobs"]["j1"]["said"]) == ("failed", blocked)
     assert watch.run_pass(watching, T0 + timedelta(minutes=3)) == ['ORPHAN o1 "ship the watch": j1 failed']
