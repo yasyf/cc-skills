@@ -74,7 +74,7 @@ DUPLICATION_RULING = '"how _agents was allowed to get creted in the irst place s
 UNDESIGNED = ("HANDOFF", "BLOCKED")
 BLOCK = "a Researched: line and under it rulings:, exists: and open: lines"
 CHOICE_WORDS = r"\b(?:options?|choices?|choose|lost|picks?|decisions?|forks?)\b"
-STOPS_ON_CHOICE = re.compile(rf"[^.;]*(?:\bBLOCKED\b[^.;]*{CHOICE_WORDS}|{CHOICE_WORDS}[^.;]*\bBLOCKED\b)[^.;]*")
+STOPS_ON_CHOICE = re.compile(rf"[^.;]*(?:(?<!never )\bBLOCKED\b[^.;]*{CHOICE_WORDS}|{CHOICE_WORDS}[^.;]*(?<!never )\bBLOCKED\b)[^.;]*")
 STOPPED_RULING = '"fix ur tooling if it stopped on that it shoukd. have brought a design question card to me asap not just stopped int eh middle of the incident"'
 RELEASE = re.compile(r"^Release:[ \t]*(.+)$", re.MULTILINE)
 MAC = re.compile(r"^Mac:[ \t]*(.+)$", re.MULTILINE)
@@ -307,7 +307,7 @@ def incident_refusal(job_id: str, order_id: str, brief: str, rule: str) -> str |
     """Why an incident lane's brief may not start it: a choice never stops an incident, so its brief carries the rule its kind follows on one, word for word, and no line of it orders a BLOCKED return on a loss or a choice."""
     if rule not in " ".join(brief.split()):
         return f'{job_id} works on {order_id}, an incident, which a choice never stops, by his words {STOPPED_RULING}: its brief\'s Incident: line carries, word for word, "{rule}"'
-    if stops := next((found for line in brief.splitlines() if (found := STOPS_ON_CHOICE.search(" ".join(line.split()).replace(rule, "")))), None):
+    if stops := next((found for line in brief.splitlines() if (found := STOPS_ON_CHOICE.search(" ".join(line.split())))), None):
         return f'{job_id}\'s brief stops it on a choice, "{cut(stops[0].strip(), 160)}", and an incident never stops on one, by his words {STOPPED_RULING}: drop that line, since its Incident: line says what it does instead'
     return None
 
