@@ -9,13 +9,13 @@ A drive is three Claude Code sessions, the communicator, coordinator and meta se
 
 The communicator is the only session he talks to: its turn on his message is a one-sentence ack alone inside 5 to 10 seconds, then `drive handler`, which starts `long-running:handler` as its own session, so his next message never waits. The handler does every read, card and post through `say` and ends on one line, sent back as one cci record. Each `owner` record names its `about`: his words on the drive, rulings included, reach the meta session alone, and those on his work the coordinator. He reads only Slack; no session has AskUserQuestion (`communicator`).
 
-The coordinator turns his messages into orders and gives each to a job owning one deliverable end to end: code, PR, CI, merge, install, check. It routes its watch's events, lands, installs, and sends the communicator what to post.
+The coordinator turns his messages into orders and gives each to the one job owning that deliverable end to end: code, PR, CI, merge, install, check, its only owner (`jobs`). It routes its watch's events, lands, installs, and sends the communicator what to post.
 
 The drive's state is one file only the `drive` CLI writes, and his rulings are cc-notes answers. The sessions talk only through cci records, or SendMessage while cci is down (`records`). An agent answers only to the session that started it.
 
 ## Rules
 
-This file holds the fundamental rules; one firing on one input is a tested refusal in the verb or hook seeing it. Do what a refusal says, never route around it; a wrong one, or one holding back his work, is a tool defect (Tooling). The role rules `render.py` prints as each session's SessionStart block bind every turn; a rule for one record, event, result or verb lives only in its `drive manual` row, read before that step, so a ruling on a step rewrites its row, never the block. The communicator reads no page, so its block holds its whole turn. A rule is live once installed, and changing one edits every place stating it: this file, a row, `agents/*.md`, a role rule, a tool description.
+This file holds the fundamental rules; one firing on one input is a tested refusal in the verb or hook seeing it. Do what a refusal says, never route around it; a wrong one, or one holding back his work, is a tool defect (Tooling). The role rules `render.py` prints at SessionStart bind every turn; a rule for one step lives only in its `drive manual` row, read before that step, so a ruling on a step rewrites its row, never the block. The communicator reads no page, so its block holds its whole turn. A rule is live once installed, and changing one edits every place stating it: this file, a row, `agents/*.md`, a role rule, a tool description.
 
 ### Jobs
 
@@ -42,14 +42,13 @@ This file holds the fundamental rules; one firing on one input is a tested refus
 ### Fixes and landing
 
 - A bug hurting someone now gets its immediate fix or a prudent rollback at once, beside his card on the fix of its cause, which replaces it. A bad state is designed out under one owner. A revert lands only on his tap (`incidents`).
-- Before a fix, search cc-notes papercuts for the symptom. A third fix for one symptom is a class fix that deletes the earlier patches.
+- Before a fix, find the order or PR owning its class, then papercuts: a recurrence joins it (`--joins`); a third fix deletes earlier patches. PRs on one file land in turn (`landing`).
 - Hold, freeze or reorder work only on his word, except freezing a service a release broke (`incidents`). A build or release he started is his alone, and no release starts while it runs (`jobs`). One of ours that must stop gets a `report` to the communicator first.
 - Run no tests locally: CI grades.
 
 ### Truth and posts
 
-- Read state from `drive status`, GitHub, CI logs, transcripts, and a release's commit and build, never from memory.
-- Done is proven where he sees it: a recording of the click, the live post, the installed command's output. Fetched data proves no screen.
+- Read, never recall: a state told him cites a read that turn, else says unverified (`messages`). Done is proven where he sees it: a recording of the click, the live post, the installed command's output, not fetched data.
 - Promise him something, or tell him the drive failed him, only naming the order, due time, job or PR doing or preventing it (`messages`).
 - Cards and posts name each thing by its proper technical term, never a stand-in (`messages`). Plain words drop only drive ids he cannot open: job, order and waits ids, record seqs.
 - Events and job results reach him in the watch's line on news, never a post each (`messages`).

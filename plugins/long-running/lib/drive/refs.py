@@ -19,6 +19,13 @@ CAUSE = re.compile(
     r"|\bcause(?:\s+(?:is|was)|:)\s+(?!(?:yes|still|being|unknown|unclear|pending|tbd|not yet|under (?:way|investigation|review))\b|an?\s+(?:read|reader|lane|agent)\s+(?:is|has)\b)",
     re.IGNORECASE,
 )
+STATE = re.compile(
+    r"\b(?:cover(?:s|ed)\s+(?:it|this|that|the|his|your|both|each|every|by)|fixed|merged|landed|(?:en)?queued|shipped|deployed|resolved|rolled (?:out|back))\b"
+    r"|\b(?:is|are|was|were|went|now|already)\s+live\b",
+    re.IGNORECASE,
+)
+UNVERIFIED = re.compile(r"\bunverified\b", re.IGNORECASE)
+UNSTATED = re.compile(r"\b(?:once|when|after|until|unless|if|whether|not|never|yet|will|would|to be)\b|n['\u2019]t\b", re.IGNORECASE)
 FAILURE = re.compile(
     r"\b(?:refused|failed to|missed|disconnected|dropped (?:its|the|their) connection|forgot(?:ten)?|lost track|fell through|went unchecked|slipped"
     r"|(?:nobody|no one) (?:\w+ed|ran|saw|read|took|got|drew|caught|knew)"
@@ -93,6 +100,24 @@ def unbacked(text: str) -> list[str]:
         for line in picture.FENCE.sub("", text).splitlines()
         if not line.lstrip().startswith(">") and CAUSE.search(QUOTED.sub("", line)) and "{record:" not in line
     ]
+
+
+def unread_states(text: str) -> list[str]:
+    """Each line of the text, outside a fence, a quote and a quoted line, that tells him a state of work as true now with no {record:…} on it: fixed, covering his case, merged, landed, queued, shipped, deployed, resolved, rolled out or back, or live, never in a reference's own words, a line saying it is unverified, a question, or a clause hedging it before the word as future, conditional or negated."""
+    return [
+        line.strip()
+        for line in picture.FENCE.sub("", text).splitlines()
+        if not line.lstrip().startswith(">") and "{record:" not in line and not UNVERIFIED.search(line) and stated(QUOTED.sub("", REF.sub("", line)))
+    ]
+
+
+def stated(line: str) -> bool:
+    for found in STATE.finditer(line):
+        clause = max((end.end() for end in CLAUSE_END.finditer(line, 0, found.start())), default=0)
+        closing = CLAUSE_END.search(line, found.end())
+        if not UNSTATED.search(line, clause, found.start()) and not (closing and closing[0] == "?"):
+            return True
+    return False
 
 
 def unprevented(text: str, found: dict[str, dict]) -> list[str]:

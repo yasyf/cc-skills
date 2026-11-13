@@ -328,11 +328,15 @@ def thread_words(messages: list[dict], here: bool = True) -> list[dict]:
 
 
 def unbacked(payload: dict, said: str) -> str | None:
-    """Why a line of say's post names a cause with no {record:} of the record that measured it, on any post but a handler's listing claims, whose every cause line Jev checks against the read its claims name beside it."""
-    if payload["tool_name"] != SAY or payload.get("agent_id") and payload["tool_input"].get("claims") or not (lines := refs.unbacked(said)):
+    """Why a line of a post to him names a cause, or tells him a state of work, with no {record:} of the read that measured it: a cause on any say post but a handler's listing claims, whose every cause line Jev checks against the read its claims name beside it, and a state, such as fixed, covers it, merged, queued or live, on any post but a handler's, since Jev holds a handler's post for each state line its claims leave out, while no read stands behind the line of a session posting on its own."""
+    handler = payload.get("agent_id")
+    causes = refs.unbacked(said) if payload["tool_name"] == SAY and not (handler and payload["tool_input"].get("claims")) else []
+    states = [] if handler else [line for line in refs.unread_states(said) if line not in causes]
+    if not (lines := [*causes, *states]):
         return None
     return agents.Ruled(
-        f"refused: a line naming a cause carries {{record:<seq>}} of the record that measured it, on that line, or, in a handler's post, sits in claims beside the read behind it: {' | '.join(lines)}",
+        "refused: a line naming a cause or telling him a state of work carries {record:<seq>} of the read that measured it, on that line, or, in a"
+        f" handler's post, sits in claims beside the read behind it; a state no read of this turn measured says unverified: {' | '.join(lines)}",
         CAUSE_RULE,
     )
 
@@ -478,7 +482,7 @@ def claimed(claim: str, titled: dict[str, str]) -> str:
 
 
 def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> str | None:
-    """What the drive's checks find in a post, which the say hook hands Jev to judge against his words: a bug report's thread gets one fix-live note once the fix is proven live, a question's thread one answer once it is posted to him, an edit of his question card redraws it, an edit of a post say made goes through say, a post in his DM goes through say, a thread outside his DM, such as an alert's, is named with its channel_id, a handler's line in his thread waits for its read of that thread, and then, every finding at once, the post keeps its length, links what it names, asks no tap that is not owed, backs each cause with its record, answers his order by no plan, record or answer of his that is missing, calls nothing by a word he corrected, tells him no coordinator is down that was not restarted, calls no job stuck or silent before its poster read that job's transcript, says no work sits with no one on it while it names no job on it now, types no clock time for work already done, says in a summary what a PR it names serves, which a PR card's line above its card already quotes, and `cc-slack check-post` passes its exact words; a line naming a failure of the drive's with no word on how it is prevented only warns the session, and the post goes out."""
+    """What the drive's checks find in a post, which the say hook hands Jev to judge against his words: a bug report's thread gets one fix-live note once the fix is proven live, a question's thread one answer once it is posted to him, an edit of his question card redraws it, an edit of a post say made goes through say, a post in his DM goes through say, a thread outside his DM, such as an alert's, is named with its channel_id, a handler's line in his thread waits for its read of that thread, and then, every finding at once, the post keeps its length, links what it names, asks no tap that is not owed, backs each cause, and each state of work a session posting on its own tells him, with the record of the read that measured it, answers his order by no plan, record or answer of his that is missing, calls nothing by a word he corrected, tells him no coordinator is down that was not restarted, calls no job stuck or silent before its poster read that job's transcript, says no work sits with no one on it while it names no job on it now, types no clock time for work already done, says in a summary what a PR it names serves, which a PR card's line above its card already quotes, and `cc-slack check-post` passes its exact words; a line naming a failure of the drive's with no word on how it is prevented only warns the session, and the post goes out."""
     dm = slack.dm()
     tool_input = payload["tool_input"]
     if PLACEHOLDER.fullmatch(text := (tool_input.get("text") or "").strip()):
