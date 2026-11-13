@@ -131,23 +131,27 @@ for its repository says, then return `DONE <proof>`.
 
 ## yasyf/* repositories
 
-No tap and no green gate: by his standing rule a `yasyf/*` PR merges without asking, and by his words
-"can merge past CI on personal repos and fix reds after the fact" it merges without waiting on CI.
+No tap: by his standing rule a `yasyf/*` PR merges without asking, and by his words "can merge past CI
+on personal repos and fix reds after the fact" it merges without waiting on CI, but never while a check
+fails at its head, by his words "tooling fixes merge early only when no check is failing on their own
+change".
 
 1. Ship with `ccx vcs ship` (jj in colocated repositories); the `open-pr` skill writes the body.
 2. Register it with `drive pr add <url> --job <j>`. Taking the builder's `READY` or `PUSHED`, which
-   needs its proof file kept with `drive job set <j> --repro <file>`, starts the drive's lander on it:
-   a process of its own, outliving your turn, that merges it with `gh pr merge <n> -R <repo> --squash --admin`,
-   whatever its checks show, records the merge sha on the PR, then runs `drive install` from it for
+   needs its proof file kept with `drive job set <j> --repro <file>`, makes its stage read `ready` while
+   its checks run or pass and `red` once one fails, and the watch starts the drive's lander on it within
+   one GitHub read of `ready`: a process of its own, outliving your turn, that reads its checks from GitHub
+   again and merges it with `gh pr merge <n> -R <repo> --squash --admin --match-head-commit <head>` at the
+   head that read found no check failing on, records the merge sha on the PR, then runs `drive install` from it for
    each plugin installed on this Mac whose folder the merge changes, or that is its marketplace's only
    plugin. When GitHub refuses the merge with `Base branch was modified`, which another merge into
    `main` while this one ran causes, the lander merges again on the new base, as GitHub's own refusal
    asks, and never touches the PR's branch. When `gh pr merge` refuses a PR of a native GitHub stack,
    saying it must be merged using the asynchronous merge REST API, the lander merges it through
    GitHub's `merge-async` endpoint past its rules, which GitHub allows only for a stack's bottom PR,
-   the one the lander lands, and reads its result until GitHub ends it. After any other refusal the watch starts the lander again
-   on the head its builder pushes, once GitHub reads it free of conflicts, so nobody registers a
-   rebased PR again. Once every PR the job's `READY` or `PUSHED` names merged and no lander still
+   the one the lander lands, and reads its result until GitHub ends it. After any other refusal, a failing check included, the watch
+   starts the lander again on the head its builder pushes once its stage reads `ready` there, free of
+   conflicts and failing checks, so nobody registers a rebased PR again. Once every PR the job's `READY` or `PUSHED` names merged and no lander still
    runs on one, the watch starts `drive job prove <j>`, which installs each plugin a `yasyf/*` merge
    changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, its other merges taken at once, waits until each workflow a `yasyf/*` merge ran on the default branch completed its first run from the merge on that was not cancelled, then runs the job's proof file with those plugins' `bin/` first on
    `PATH`, keeps its output beside the job's report, takes `DONE` on exit 0 with output or `BLOCKED` otherwise,
@@ -157,10 +161,11 @@ No tap and no green gate: by his standing rule a `yasyf/*` PR merges without ask
    job's holder as `PR … merged at <sha>; <each install's version line or no release: line>` or
    `PR … not landed: gh pr merge --squash --admin refused it: <its answer>`, such as a conflict git
    cannot merge, and the proof's as `PR … proven live by drive job prove …` or
-   `PR … drive job prove failed: …`. The report's output, or `drive pr add` again, prints why
-   it started none: a draft, the `hold` label, a lander already running on it, or a base other than
-   the default branch, so a stacked PR is registered again once the PR below it merges.
-   Read the checks once they finish and fix a red one forward in a follow-up PR.
+   `PR … drive job prove failed: …`. Its stage in `drive status` says why no lander started: a
+   failing check, a draft, the `hold` label, a conflict, an open card of his, or a lander already
+   running on it; a stacked PR reads `behind` until the PR below it merges, and the lander refuses one
+   on a base other than the default branch. Read the checks once they finish and fix one that fails
+   after the merge forward in a follow-up PR.
 3. Install by hand only what the lander does not, from the merge sha
    (`gh pr view <n> -R <repo> --json mergeCommit`):
    - A Claude Code plugin: `drive install <plugin>@<marketplace> --sha <merge sha>` (such as

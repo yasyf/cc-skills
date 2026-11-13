@@ -5182,10 +5182,16 @@ def test_a_stacked_pr_githubs_merge_async_ends_failed_is_not_landed_with_githubs
     assert land.merged(demo, "Forge-AI/litestream#12", ["--match-head-commit", head]) == f'not landed: GitHub\'s {land.MERGE_ASYNC} ended it failed: Required status check "test" is expected.'
 
 
-def test_a_yasyf_pr_whose_head_moved_past_its_landers_merges_at_the_next_read_free_of_conflicts_with_no_builder_registering_it(
+def pushed(name: str, *keys: str) -> None:
+    with state.edit(name) as data:
+        state.take_result(data, "j1", f"PUSHED {' '.join(map(state.pr_url, keys))}")
+
+
+def test_a_reported_yasyf_pr_whose_head_moved_past_its_landers_merges_at_the_next_read_free_of_conflicts_with_no_builder_registering_it(
     demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
 ) -> None:
     tried(demo, f"not landed: gh pr merge --squash --admin refused it: {DIRTY}")
+    pushed(demo, YASYF)
     reads = {KEY: read(), YASYF: read()}
     serve(monkeypatch, reads)
     watching = watcher(demo)
@@ -5198,6 +5204,57 @@ def test_a_yasyf_pr_whose_head_moved_past_its_landers_merges_at_the_next_read_fr
     assert landers == [(YASYF,)]
     lander = state.load(demo)["prs"][YASYF]["lander"]
     assert (lander["head"], lander["outcome"]) == ("bbbbbbb222", None)
+
+
+REPLAYED_4745_4756 = {"yasyf/cc-skills#4745": ("aa8d008", "FAILURE"), "yasyf/cc-skills#4756": ("ed25f62", "FAILURE"), "yasyf/cc-skills#4755": ("1120acd", None)}
+SOCKET = {"name": "Socket Security: Pull Request Alerts", "conclusion": "SUCCESS"}
+
+
+def replayed(demo: str, monkeypatch: pytest.MonkeyPatch, conclusions: dict[str, str | None]) -> None:
+    with state.edit(demo) as data:
+        for key in REPLAYED_4745_4756:
+            data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"wants_tap": False}
+    pushed(demo, *REPLAYED_4745_4756)
+    serve(
+        monkeypatch,
+        {
+            key: read(headRefOid=head, checks=[{"name": "test", "conclusion": conclusions.get(key, conclusion)}, SOCKET], required_checks=[], required_reviews=0)
+            for key, (head, conclusion) in REPLAYED_4745_4756.items()
+        },
+    )
+
+
+def test_reported_yasyf_prs_failing_their_own_checks_never_merge_as_4745_and_4756_did_while_4755_merges_as_its_checks_run(
+    demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
+) -> None:
+    replayed(demo, monkeypatch, {})
+    watching = watcher(demo)
+    for minute in (0, 1, 9):
+        watch.run_pass(watching, T0 + timedelta(minutes=minute))
+    data = state.load(demo)
+    assert [(now := stage.of(data, key, NO_CARDS)).name + ": " + now.why for key in REPLAYED_4745_4756] == [
+        "red: its checks fail at aa8d008: test",
+        "red: its checks fail at ed25f62: test",
+        "landing: lander pid " + str(os.getpid()) + " lands 1120acd, started " + data["prs"]["yasyf/cc-skills#4755"]["lander"]["at"],
+    ]
+    assert landers == [("yasyf/cc-skills#4755",)]
+
+
+@pytest.mark.parametrize(("conclusion", "merges"), [(None, True), ("FAILURE", False)])
+def test_a_yasyf_lander_rereads_its_checks_and_merges_with_admin_at_that_head_only_while_none_fails(
+    demo: str, monkeypatch: pytest.MonkeyPatch, conclusion: str | None, merges: bool
+) -> None:
+    replayed(demo, monkeypatch, {"yasyf/cc-skills#4755": conclusion})
+    runs: list[list[str]] = []
+    monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: runs.append(argv) or land.subprocess.CompletedProcess(argv, 0, "", ""))
+    monkeypatch.setattr(github, "run", lambda cmd, **_: "390c80f416be\n" if cmd[2] == "view" else "plugins/long-running/hooks/message_limits.py\n")
+    monkeypatch.setattr(install, "touched", lambda repo, files: [])
+    outcome = land.run(demo, ["yasyf/cc-skills#4755"])
+    assert (outcome, runs) == (
+        ("merged at 390c80f416be; it changes no plugin installed on this Mac", [["gh", "pr", "merge", "4755", "-R", "yasyf/cc-skills", "--squash", "--admin", "--match-head-commit", "1120acd"]])
+        if merges
+        else ("not landed: its checks fail at 1120acd: test", [])
+    )
 
 
 def test_a_line_the_coordinator_did_not_get_goes_again_and_says_so_from_the_third_failure(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

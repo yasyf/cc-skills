@@ -4597,28 +4597,25 @@ def test_pr_add_refuses_a_pr_another_projects_job_holds_from_a_sub_coordinator_o
     assert state.load("demo")["prs"][key]["job"] == "j3"
 
 
-def test_a_yasyf_pr_starts_one_lander_once_its_builders_ready_is_taken_with_its_proof_file_kept(
-    run: Run, meta: str, tmp_path: Path, on_github: dict, landers: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
+def test_a_yasyf_pr_reads_ready_for_the_lander_once_its_builders_ready_is_taken_and_red_once_a_check_fails_and_no_report_or_pr_add_starts_one(
+    run: Run, meta: str, tmp_path: Path, landers: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: land it")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
-    url = "https://github.com/yasyf/cc-skills/pull/7"
-    assert run("pr", "add", url, "--job", "j1", *LEAD) == (0, "yasyf/cc-skills#7")
-    assert landers == []
+    key, url = "yasyf/cc-skills#7", "https://github.com/yasyf/cc-skills/pull/7"
+    assert run("pr", "add", url, "--job", "j1", *LEAD) == (0, key)
+    with state.edit("demo") as data:
+        data["prs"][key]["head"] = "abc1234"
+    assert stage.of(state.load("demo"), key, view.NO_CARDS).name == "grading"
     kept_proof(tmp_path, "j1")
     monkeypatch.setattr("sys.stdin", io.StringIO(f"READY {url}\n"))
-    code, out = run("job", "report", "j1", "-")
-    assert (code, out.splitlines()[1].startswith("yasyf/cc-skills#7: merging it with gh pr merge --squash --admin, then installing")) == (0, True)
-    assert landers == [("yasyf/cc-skills#7",)]
-    assert state.load("demo")["prs"]["yasyf/cc-skills#7"]["lander"]["head"] == "abc"
-    assert run("pr", "add", url, "--job", "j1", *LEAD)[1] == f"yasyf/cc-skills#7: not merging it: lander pid {os.getpid()} already merges it"
-    on_github["baseRefName"] = "j1-below"
-    with state.edit("demo") as data:
-        data["prs"]["yasyf/cc-skills#7"]["lander"]["outcome"] = "not landed: gh pr merge --squash --admin refused it: conflict"
-    assert run("pr", "add", url, "--job", "j1", *LEAD)[1] == (
-        "yasyf/cc-skills#7: not merging it: it sits on j1-below, not main; register it again once the PR below it merges"
+    assert (run("job", "report", "j1", "-")[0], run("pr", "add", url, "--job", "j1", *LEAD), landers) == (0, (0, key), [])
+    assert stage.of(state.load("demo"), key, view.NO_CARDS) == stage.Stage(
+        "ready", stage.LANDER, "its builder reported it and no check fails at abc1234, so the lander merges it with --admin while any still run"
     )
-    assert landers == [("yasyf/cc-skills#7",)]
+    with state.edit("demo") as data:
+        data["prs"][key].update(checks="fail", failed_checks=["test"])
+    assert stage.of(state.load("demo"), key, view.NO_CARDS) == stage.Stage("red", stage.BUILDER, "its checks fail at abc1234: test")
 
 
 def test_pr_add_of_a_port_takes_the_pure_port_exemption_and_no_tap(run: Run, demo: str, on_github: dict) -> None:

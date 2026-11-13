@@ -4231,7 +4231,7 @@ def test_the_exit_of_a_lane_drive_job_end_ended_while_it_waited_on_its_question_
     assert (state.load(remote)["jobs"]["j1"]["state"], state.load(remote)["jobs"]["j1"]["said"]) == ("waiting", "ASK which npm name?")
 
 
-def test_a_lanes_ready_on_a_yasyf_pr_it_added_with_its_proof_file_kept_starts_the_lander_once_the_watch_takes_it(
+def test_a_lanes_ready_on_a_yasyf_pr_it_added_with_its_proof_file_kept_ships_it_untapped_once_the_watch_takes_it(
     run: Run, remote: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]], tmp_path: Path
 ) -> None:
     with state.edit(remote) as data:
@@ -4246,7 +4246,7 @@ def test_a_lanes_ready_on_a_yasyf_pr_it_added_with_its_proof_file_kept_starts_th
     assert staged(watch.lane_lines, watch.Watcher(remote, offset=state.events_end(remote)), T0) == []
     data = state.load(remote)
     pr, job = data["prs"]["yasyf/cc-skills#7"], data["jobs"]["j1"]
-    assert (landers, pr["job"], pr["wants_tap"], pr["lander"]["head"]) == ([("yasyf/cc-skills#7",)], "j1", False, "abc")
+    assert (landers, pr["job"], pr["wants_tap"], state.ships_untapped(data, "yasyf/cc-skills#7")) == ([], "j1", False, True)
     assert (job["said"], job["prs"], job["waits"]) == (f"PUSHED {url}", [url], ["yasyf/cc-skills#7"])
 
 
