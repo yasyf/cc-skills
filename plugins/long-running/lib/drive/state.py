@@ -637,6 +637,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         pr.setdefault("review_asked", None)
         pr.setdefault("author", None)
         pr.setdefault("checked", None)
+        pr.setdefault("undrawn", None)
         if stamp := pr["checked"]:
             stamp.pop("patch", None)
             stamp.setdefault("lines", {})
@@ -2362,6 +2363,7 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "rework": None,
         "author": None,
         "checked": None,
+        "undrawn": None,
         "parts": [],
         "updated": stamp(),
     }

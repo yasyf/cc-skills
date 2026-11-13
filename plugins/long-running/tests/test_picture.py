@@ -117,12 +117,12 @@ def test_a_picture_is_drawn_once_and_again_when_the_renderer_changes(tmp_path, m
 
     monkeypatch.setattr(picture, "visual_png", draw)
     show_me = "```arch\n" + json.dumps(DOC) + "\n```\n"
-    first = picture.pictures(tmp_path / "pictures", "app PR 7", show_me, set())
-    assert picture.pictures(tmp_path / "pictures", "app PR 7", show_me, set()) == first
+    first = picture.pictures(tmp_path / "pictures", show_me, set())
+    assert picture.pictures(tmp_path / "pictures", show_me, set()) == first
     renderer = tmp_path / "visuals.js"
     renderer.write_text("export async function draw() {}")
     monkeypatch.setattr(picture, "VISUALS", renderer)
-    assert picture.pictures(tmp_path / "pictures", "app PR 7", show_me, set()) != first
+    assert picture.pictures(tmp_path / "pictures", show_me, set()) != first
     assert drawn == ["arch", "arch"]
     assert json.loads((tmp_path / "pictures").glob("*/source.json").__next__().read_text())["kind"] == "arch"
 
@@ -142,14 +142,14 @@ def test_a_picture_drawn_before_pictures_kept_their_source_gets_it_from_the_kept
     assert (tmp_path / picture.SOURCED).exists()
 
 
-def test_a_local_image_is_copied_in_under_its_caption_and_a_missing_one_refuses_the_card_naming_it(tmp_path) -> None:
+def test_a_local_image_is_copied_in_under_its_caption_and_a_missing_one_is_left_out_naming_it(tmp_path) -> None:
     shot = tmp_path / "shot.png"
     shot.write_bytes(b"\x89PNG\r\n")
-    [copied] = picture.pictures(tmp_path / "pictures", "app PR 7", f"![The card after his tap]({shot})\n", set())
+    [copied], [] = picture.pictures(tmp_path / "pictures", f"![The card after his tap]({shot})\n", set())
     assert Path(copied).name == "The card after his tap"
     assert Path(copied).read_bytes() == shot.read_bytes()
-    with pytest.raises(state.DriveError, match="^app PR 7: its Show me image: /nowhere/gone.png is neither a link nor a file here$"):
-        picture.pictures(tmp_path / "pictures", "app PR 7", f"![The card after his tap]({shot})\n![gone](/nowhere/gone.png)\n", set())
+    drawn, undrawn = picture.pictures(tmp_path / "pictures", f"![The card after his tap]({shot})\n![gone](/nowhere/gone.png)\n", set())
+    assert ([Path(path).name for path in drawn], undrawn) == (["The card after his tap"], ['the Show me picture "gone": /nowhere/gone.png is neither a link nor a file here'])
 
 
 def test_a_github_hosted_image_downloads_on_the_gh_token_a_repository_file_through_the_contents_api_and_an_attachment_from_its_signed_address(tmp_path, monkeypatch) -> None:
@@ -170,7 +170,7 @@ def test_a_github_hosted_image_downloads_on_the_gh_token_a_repository_file_throu
     raw = "https://raw.githubusercontent.com/acme/app/4b825dc6/shots/after%20light.png"
     attached = "https://github.com/user-attachments/assets/0f8e7a4c-1b2d-4e3f-9a8b-7c6d5e4f3a2b"
     show_me = f"![1 · Before, dev]({blob})\n![2 · After, this PR]({raw})\n![Pasted into the PR]({attached})\n"
-    drawn = picture.pictures(tmp_path / "pictures", "app PR 7", show_me, set())
+    drawn, _ = picture.pictures(tmp_path / "pictures", show_me, set())
     assert [(Path(path).name, Path(path).read_bytes()) for path in drawn] == [
         ("1 · Before, dev", b"the bytes of repos/acme/app/contents/before.png?ref=4b825dc642cb6eb9a060e54bf8d69288fbee4904"),
         ("2 · After, this PR", b"the bytes of repos/acme/app/contents/shots/after%20light.png?ref=4b825dc6"),
@@ -179,21 +179,35 @@ def test_a_github_hosted_image_downloads_on_the_gh_token_a_repository_file_throu
     assert sent[0][:3] == ["-H", "Accept: application/vnd.github.raw", "repos/acme/app/contents/before.png?ref=4b825dc642cb6eb9a060e54bf8d69288fbee4904"]
     assert sent[2] == ["markdown", "-f", f"text=![]({attached})", "-f", "mode=gfm", "-f", f"context={picture.SIGNING_CONTEXT}"]
     gone = "https://github.com/acme/app/blob/gone/before.png?raw=true"
-    with pytest.raises(
-        state.DriveError,
-        match=re.escape(f"app PR 7: its Show me image does not draw: {gone} did not download: could not read acme/app's before.png at gone from GitHub: gh: Not Found (HTTP 404)"),
-    ):
-        picture.pictures(tmp_path / "pictures", "app PR 7", f"![Before]({gone})\n", set())
+    assert picture.pictures(tmp_path / "pictures", f"![Before]({gone})\n", set()) == (
+        [],
+        [f"the Show me picture \"Before\" does not draw: {gone} did not download: could not read acme/app's before.png at gone from GitHub: gh: Not Found (HTTP 404)"],
+    )
 
 
-def test_a_pr_cards_diagram_that_does_not_draw_raises_mermaids_words_naming_the_pr_instead_of_leaving_the_card(tmp_path, monkeypatch) -> None:
+def test_a_pr_cards_diagram_that_does_not_draw_is_left_out_with_mermaids_words_and_the_one_beside_it_still_draws(tmp_path, monkeypatch) -> None:
     def draw(kind: str, source: str, out) -> None:
-        raise picture.PictureError("Parse error on line 7: Expecting 'SOLID_OPEN_ARROW', got 'NEWLINE'")
+        if source == NOTED:
+            raise picture.PictureError("Parse error on line 7: Expecting 'SOLID_OPEN_ARROW', got 'NEWLINE'")
+        out.write_bytes(b"\x89PNG\r\n")
 
     monkeypatch.setattr(picture, "visual_png", draw)
-    with pytest.raises(state.DriveError, match="^cc-skills PR 12: its Show me mermaid does not draw: Parse error on line 7: Expecting 'SOLID_OPEN_ARROW', got 'NEWLINE'$"):
-        picture.pictures(tmp_path / "pictures", "cc-skills PR 12", f"```mermaid\n{NOTED}```\n", set())
-    assert not list((tmp_path / "pictures").rglob("*.png"))
+    drawn, undrawn = picture.pictures(tmp_path / "pictures", f"How a block is asked:\n```mermaid\n{NOTED}```\n\n```mermaid\nflowchart TD\n  a --> b\n```\n", set())
+    assert [Path(path).name for path in drawn] == ["Diagram"]
+    assert undrawn == ["the Show me picture \"How a block is asked\" does not draw: Parse error on line 7: Expecting 'SOLID_OPEN_ARROW', got 'NEWLINE'"]
+
+
+def test_a_pr_cards_arch_whose_store_node_names_a_medium_the_drawing_does_not_know_is_left_out_naming_the_node_and_the_rest_still_draws(tmp_path, monkeypatch) -> None:
+    headless = picture.headless
+    monkeypatch.setattr(picture, "headless", lambda url, profile, *args: headless(url, profile, "--no-sandbox", *args))
+    queued = DOC | {
+        "nodes": [*DOC["nodes"], {"id": "stream", "kind": "store", "medium": "queue", "name": "Valkey stream", "role": "carries each fork"}],
+        "path": {"title": "A fence reaches the card", "steps": [{"from": "body", "to": "drive", "say": "the card reads the fence"}]},
+    }
+    show_me = f"The fork snapshot share:\n```arch\n{json.dumps(queued)}\n```\n\nThe share, step by step:\n```mermaid\nflowchart TD\n  fork --> share\n```\n"
+    drawn, undrawn = picture.pictures(tmp_path / "pictures", show_me, set())
+    assert [Path(path).name for path in drawn] == ["The share, step by step"]
+    assert undrawn == ['the Show me picture "The fork snapshot share" does not draw: node "stream": a store node needs "medium", one of memory, disk, bucket, keys, pages']
 
 
 def test_a_home_relative_image_is_used_from_home(tmp_path, monkeypatch) -> None:
@@ -201,7 +215,7 @@ def test_a_home_relative_image_is_used_from_home(tmp_path, monkeypatch) -> None:
     shot = tmp_path / "shots" / "s106.png"
     shot.parent.mkdir()
     shot.write_bytes(b"\x89PNG\r\n")
-    [copied] = picture.pictures(tmp_path / "pictures", "monorepo PR 53064", "![the api](~/shots/s106.png)\n", set())
+    [copied], [] = picture.pictures(tmp_path / "pictures", "![the api](~/shots/s106.png)\n", set())
     assert (Path(copied).name, Path(copied).read_bytes()) == ("the api", shot.read_bytes())
 
 
@@ -220,17 +234,17 @@ def test_a_pr_cards_pictures_are_each_named_exactly_their_caption_which_slack_ti
         "```go\nfunc wake() {\n\tread()\n}\n```\n"
         f"{long}\n```sand\nlet diff = lane::diff(@tree)\nlane::post(diff)\n```\n"
     )
-    named = [Path(path).name for path in picture.pictures(tmp_path / "pictures", "monorepo PR 54043", show_me, set())]
+    named = [Path(path).name for path in picture.pictures(tmp_path / "pictures", show_me, set())[0]]
     assert named == ["1 · Feed first then read today", "go code", " ".join(long.split())[: picture.TITLE_CHARS].rstrip()]
     assert drawn == ["mermaid", "code:go", "code:sand"]
-    assert picture.pictures(tmp_path / "pictures", "monorepo PR 54043", show_me, set())[0].endswith("/1 · Feed first then read today")
+    assert picture.pictures(tmp_path / "pictures", show_me, set())[0][0].endswith("/1 · Feed first then read today")
     assert drawn == ["mermaid", "code:go", "code:sand"]
 
 
 def test_a_caption_naming_the_source_a_picture_keeps_still_draws_the_picture(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
     show_me = "source:\n```mermaid\nflowchart TD\n  a --> b\n```\nsource.json\n```mermaid\nflowchart TD\n  c --> d\n```\n"
-    drawn = picture.pictures(tmp_path / "pictures", "app PR 7", show_me, set())
+    drawn, _ = picture.pictures(tmp_path / "pictures", show_me, set())
     assert [(Path(path).name, Path(path).read_bytes()) for path in drawn] == [("source", b"\x89PNG\r\n"), ("source.json (2)", b"\x89PNG\r\n")]
     assert picture.cached(tmp_path / "pictures", "source", "mermaid", "flowchart TD\n  a --> b\n").read_bytes() == b"\x89PNG\r\n"
 
@@ -244,8 +258,8 @@ def test_pictures_titled_alike_on_one_card_are_numbered_apart_and_drawn_once(tmp
 
     monkeypatch.setattr(picture, "visual_png", draw)
     taken: set[str] = set()
-    first = picture.pictures(tmp_path / "pictures", "app PR 7", "```mermaid\nflowchart TD\n  a --> b\n```\n", taken)
-    second = picture.pictures(tmp_path / "pictures", "app PR 8", "```mermaid\nflowchart TD\n  c --> d\n```\n```mermaid\nflowchart TD\n  a --> b\n```\n", taken)
+    first, _ = picture.pictures(tmp_path / "pictures", "```mermaid\nflowchart TD\n  a --> b\n```\n", taken)
+    second, _ = picture.pictures(tmp_path / "pictures", "```mermaid\nflowchart TD\n  c --> d\n```\n```mermaid\nflowchart TD\n  a --> b\n```\n", taken)
     assert [Path(path).name for path in [*first, *second]] == ["Diagram", "Diagram (2)", "Diagram (3)"]
     assert drawn == ["mermaid", "mermaid"]
 
@@ -437,7 +451,7 @@ def test_a_pr_cards_one_line_fence_value_flip_and_dropped_argument_show_as_code_
     drawn = []
     monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: drawn.append(source) or out.write_bytes(b"\x89PNG\r\n"))
     jev.plain = {FLAG_FLIP, ARGUMENT_DROPPED}
-    named = [Path(path).name for path in picture.pictures(tmp_path / "pictures", "monorepo PR 54962", MIGRATION_SHOW_ME, set())]
+    named = [Path(path).name for path in picture.pictures(tmp_path / "pictures", MIGRATION_SHOW_ME, set())[0]]
     assert (named, drawn) == (["The claim it keeps"], [CLAIM])
     assert jev.illustrated == [FLAG_FLIP, ARGUMENT_DROPPED, CLAIM]
     assert card.show_me_words(MIGRATION_SHOW_ME, True, 2) == (
@@ -451,7 +465,7 @@ def test_a_pr_cards_one_line_fence_value_flip_and_dropped_argument_show_as_code_
 def test_a_pr_card_of_two_one_line_commands_and_a_map_entry_before_and_after_draws_no_picture(tmp_path, monkeypatch, jev) -> None:
     monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: pytest.fail(f"drew a {kind} picture"))
     jev.plain = {ENTRY_BEFORE, ENTRY_AFTER}
-    assert picture.pictures(tmp_path / "pictures", "monorepo PR 54809", TOKEN_SHOW_ME, set()) == []
+    assert picture.pictures(tmp_path / "pictures", TOKEN_SHOW_ME, set()) == ([], [])
     assert card.show_me_words(TOKEN_SHOW_ME, False, 2).split("\n\n") == [
         "A session step's command before this PR",
         "```\nexec bun run tools/oncall/session.ts --role responder\n```",
