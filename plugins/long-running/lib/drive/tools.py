@@ -617,7 +617,7 @@ def unheard(data: dict, found: dict, made: dict) -> str | None:
     """Why a record keeping words as his answer or ruling, one closing his card, settling a question or naming a ruling, is not his: its text, or the ruling's recorded words above its notes, is not what he said at its url."""
     ruling = (made.get("attr") or {}).get("ruling")
     said = [made["text"], *([settled.his(settled.shown(ruling, data["roles"]["coordinator"]["cwd"])["body"])] if ruling else [])]
-    return next((unsaid for words in said if (unsaid := settled.unsaid(words, made.get("url"), found, data))), None)
+    return settled.unsaid(said, made.get("url"), found, data)
 
 
 def superseded_by_answer(data: dict, made: dict, questions: list[tuple[str, dict]], found: dict) -> list[tuple[str, dict, dict]]:

@@ -1661,7 +1661,7 @@ def cards_withdraw(args: argparse.Namespace) -> int:
     from drive import superseded, view
 
     name = state.resolve(args.drive)
-    if unsaid := settled.unsaid(args.words, args.via, view.live_cards(name), state.load(name)):
+    if unsaid := settled.unsaid([args.words], args.via, view.live_cards(name), state.load(name)):
         raise DriveError(f"{args.card}: refused, not withdrawn: {unsaid}")
     with state.edit(name) as data:
         closed = state.new_close("withdrawn", args.words, args.via)
@@ -2965,7 +2965,7 @@ def answer(args: argparse.Namespace) -> int:
     if args.id is None:
         if not (args.title and args.words and args.link):
             raise DriveError('name his answer\'s cc-notes id, or pass --title "<the question, verbatim>" with --words and --link to record it in cc-notes first')
-        if unsaid := settled.unsaid(args.words, args.link, found, data):
+        if unsaid := settled.unsaid([args.words], args.link, found, data):
             raise DriveError(f"refused, nothing recorded: {unsaid}")
         changes = settled.changed(args.title, args.words, asked)
         labels = ["scope:durable", f"drive:{name}", *settled.kind(args.words), *args.label]
@@ -2981,7 +2981,7 @@ def answer(args: argparse.Namespace) -> int:
             raise DriveError(f'{args.id} is not recorded yet: pass --words "<his words, verbatim>" and --link <the permalink of his message or the card he tapped>')
         if cited:
             shown = settled.shown(cited, data["roles"]["coordinator"]["cwd"])
-            if unsaid := settled.unsaid(args.words, args.link, found, data) or settled.unsaid(settled.his(shown["body"]), args.link, found, data):
+            if unsaid := settled.unsaid([args.words, settled.his(shown["body"])], args.link, found, data):
                 raise DriveError(f"{cited}: refused, nothing recorded: {unsaid}")
             changes = settled.changed(shown["title"], args.words, asked)
         with state.edit(name) as data:
