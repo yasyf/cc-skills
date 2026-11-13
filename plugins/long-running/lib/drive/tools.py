@@ -79,9 +79,10 @@ RECORD = {
                 " whatever thread the record names, ends the job's question that card asks as answered, and owner words"
                 " under it about that card's work end it as withdrawn, and the card follows, showing his words with no"
                 " buttons; his feedback on the drive under a product card leaves it asking, and only the coordinator's"
-                " --rework naming its PR, on his order or the job carrying it, withdraws a PR card. A record that ends a"
-                " question or names a ruling is refused unless his message or card answer here holds its text, and the"
-                " ruling's words above Notes:"
+                " --rework naming its PR, on his order or the job carrying it, withdraws a PR card. A ruling the record names"
+                " is kept as his drive answer at this link, listing each other card, part and PR it could change. A record"
+                " that ends a question or names a ruling is refused unless his message or card answer here holds its text,"
+                " and the ruling's words above Notes:"
             ),
         },
         "thread": {"type": "string", "description": "the thread it is about, kept as attr thread"},
@@ -101,11 +102,20 @@ RECORD = {
                 "the waits id his message's thread_card names, given on every record of his words under a question card:"
                 " kept as attr thread_card; his owner words about that card's work, such as a rework or a correction, end the"
                 " job's question as withdrawn in the same call, and the card follows, showing his words, while his feedback"
-                " on the drive under a product card leaves it asking"
+                " on the drive under a product card leaves it asking. Only that card ends: a sibling card, part or PR his"
+                " ruling removes is marked --dropped on the drive answer the call keeps for the ruling"
             ),
         },
         "undone": {"type": "boolean", "description": "an Undo tap: attr undone=<text> and the text undone: <text>"},
-        "ruling": {"type": "string", "description": "a ruling's cc-notes answer id, as attr ruling, whose words above Notes: his message at url must hold"},
+        "ruling": {
+            "type": "string",
+            "description": (
+                "a ruling's cc-notes answer id, as attr ruling, whose words above Notes: his message at url must hold; on an owner or"
+                " answer record with url, his owner ruling on his work included, the call keeps it as a drive answer listing each card"
+                " asking him, part undelivered and PR not yet live it could change, which the watch's ANSWER line chases until drive"
+                " answer <id> marks each, --dropped for each his words remove"
+            ),
+        },
         "about": {
             "enum": list(state.ABOUTS),
             "description": (
@@ -189,8 +199,10 @@ def verb_tools() -> list[dict]:
                 " answer answers settles showing his words, and one his owner words under it change is withdrawn showing them;"
                 " a PR card stays up, since only the coordinator's --rework naming its PR withdraws it; an answer"
                 " whose waits names a card no longer waiting on him is refused, since his answer there is"
-                " recorded already. A defect's or handoff's text past one 120-character line goes as that line cut at a word,"
-                " the whole text atop its body. Returns each record's seq, then each card closed."
+                " recorded already. A ruling an owner or answer record names with url is kept as his drive answer in the same"
+                " call, listing each card, part and PR it could change for drive answer <id> to mark. A defect's or handoff's"
+                " text past one 120-character line goes as that line cut at a word, the whole text atop its body. Returns each"
+                " record's seq, then each card closed, then each ruling kept with its listing."
             ),
             "inputSchema": {
                 "type": "object",
@@ -540,6 +552,11 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
             for index, (made, questions, settling) in enumerate(zip(posts, closes, settles, strict=True), start=1)
             for job_id, question in questions
         ]
+        said += [
+            f"{index} would keep his ruling {ruling} as a drive answer listing each card, part and PR it could change"
+            for index, made in enumerate(posts, start=1)
+            if (ruling := (made.get("attr") or {}).get("ruling")) and made.get("url") and ruling not in data["answers"]
+        ]
         return "\n".join(said)
     try:
         seqs = sent(name, lane, posts)
@@ -550,7 +567,30 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
     ended = keep_closed(name, posts, seqs, closes, [superseded_by_answer(data, made, questions, found) for made, questions in zip(posts, closes, strict=True)])
     said += [f"{index} {job_id}'s question \"{render.cut(question['title'] or '', 80)}\" ended {question['closed']['how']} by {seqs[index - 1]}" for index, job_id, question in ended]
     said += superseded.follow(name, [(job_id, question) for _, job_id, question in ended])
+    said += keep_rulings(name, posts, found)
     return "\n".join(said)
+
+
+def keep_rulings(name: str, posts: list[dict], found: dict) -> list[str]:
+    """Keep each ruling an owner or answer record of his words names with its link as his drive answer, beside each card asking him, part undelivered and PR not yet live it could change, as drive answer records one, so the watch's ANSWER line chases each until drive answer marks it; a ruling kept already is left as it is. Its listing each, or why Jev's reading is missing from it."""
+    said = []
+    for made in posts:
+        data = state.load(name)
+        if not ((ruling := (made.get("attr") or {}).get("ruling")) and made.get("url")) or ruling in data["answers"]:
+            continue
+        asked = superseded.asking(data, found)
+        try:
+            changes = settled.changed(settled.shown(ruling, data["roles"]["coordinator"]["cwd"])["title"], made["text"], asked)
+        except DriveError:
+            changes = set()
+            said.append(
+                f"his ruling {ruling}: Jev gave no reading of it against his other open cards, so it lists only what its card's job and order"
+                f" hold and its words name: mark any other card it changes on drive answer {ruling}"
+            )
+        with state.edit(name) as data:
+            kept = data["answers"][ruling] = superseded.record(data, made["text"], made["url"], asked, changes, state.stamp())
+        said.append(superseded.listing(ruling, kept, superseded.unmarked(kept, asked), asked, data) or f"his ruling {ruling} kept as a drive answer: nothing it could change asks him or waits on it")
+    return said
 
 
 def ordered_first(name: str, records: list[dict], posts: list[dict], ordering: list[bool], dry_run: bool) -> list[str]:

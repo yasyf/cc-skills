@@ -4491,7 +4491,7 @@ def test_an_answer_leaving_a_card_unmarked_or_a_job_unsent_his_words_says_so_eve
     def said(minutes: int) -> list[str]:
         return [line for line in watch.run_pass(watching, T0 + timedelta(minutes=minutes)) if line.startswith("ANSWER")]
 
-    line = 'ANSWER a1 "one new tool": 1 card with no mark, standing, settled, superseded or reopened by it; drive answer a1 lists them'
+    line = 'ANSWER a1 "one new tool": 1 card with no mark, standing, settled, dropped, superseded or reopened by it; drive answer a1 lists them'
     assert (said(5), said(10), said(15), said(20)) == ([], [line], [], [line])
     assert watch.wakes(line, state.load(demo))
     with state.edit(demo) as data:
