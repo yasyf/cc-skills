@@ -5,7 +5,8 @@ from collections.abc import Callable
 
 import pytest
 from conftest import Answers, Judge
-from drive import github, served, stage, state
+from drive import github, refs, served, settled, slack, stage, state
+from drive.state import DriveError
 
 KEY = "Forge-AI/monorepo#42"
 URL = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -259,3 +260,71 @@ def test_the_judge_passes_each_flake_fix_the_drive_turned_away_against_his_rulin
     said = served.words({"orders": {}}, {"order": "o1", "parts": [], "carries": {}}, [], [], [FLAKE_RULING], [])
     found = JUDGE(demo, said, {key: read or READ_CHANGE(key)})
     assert {item["file"] for item in found} == {"dashboard/e2e/irisServe.e2e.ts"} if read else found == [], found
+
+
+PICK = "demo:j2274-679400"
+WHOLE_STACK = "https://acme.slack.com/archives/D123/p1794523024098799"
+STACK_UNDER = "https://acme.slack.com/archives/D123/p1794520332007829"
+WHOLE_STACK_WORDS = "Land whole stacks and read the gate: no schema change merges without its writer; a stack's bottom waits for its top"
+ASKED = "What must a drive release prove before production, now that each is the regular release and never cancelled?"
+RECORDS = {
+    "679494": {"kind": "answer", "text": "Land it with the stack under it", "refs": {"url": STACK_UNDER}, "at": "2026-11-12T13:52:40-08:00"},
+    "679500": {"kind": "answer", "text": WHOLE_STACK_WORDS, "refs": {"url": WHOLE_STACK}, "at": "2026-11-12T14:42:20-08:00"},
+    "679510": {"kind": "measure", "text": "37 of 91 DESIGN: lines give the check no answer", "refs": {}, "at": "2026-11-12T15:00:00-08:00"},
+}
+
+
+def drive_holding(closed: dict | None, card: str | None = WHOLE_STACK) -> dict:
+    question = state.new_question(None, ASKED, "2026-11-12T14:37:04-08:00", card=card, closed=closed) | {"waits": PICK}
+    return {"name": "demo", "roles": {"coordinator": {"cwd": "/tmp"}}, "jobs": {"j2274": {"questions": [question]}}}
+
+
+@pytest.fixture
+def slack_and_cci(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    read: list[str] = []
+    monkeypatch.setattr(refs, "shown", lambda name, kind, seq: read.append(seq) or RECORDS[seq])
+    monkeypatch.setattr(settled, "heard", lambda link, found: read.append(link) or "his")
+    monkeypatch.setattr(slack, "message", lambda link: {"text": "Land it with the stack under it", "ts": f"{link[-16:-6]}.{link[-6:]}"})
+    return read
+
+
+def at(stamp: str) -> str:
+    return state.parse_time(stamp).astimezone().isoformat(timespec="seconds")
+
+
+def test_a_design_line_reads_his_whole_stack_pick_by_its_waits_id_and_each_answer_once_however_many_ways_it_is_named(slack_and_cci: list[str]) -> None:
+    line = f"DESIGN: landing the stack whole, by his answer {{at:679494}} at {STACK_UNDER} and his pick {{at:679500}} on card {PICK}, measured in {{record:679510}}"
+    closed = state.new_close("answered", WHOLE_STACK_WORDS, WHOLE_STACK, seq="679500", at="2026-11-12T14:42:12-08:00")
+    assert served.answers(drive_holding(closed), [line], None) == [
+        f'{STACK_UNDER}, {slack.sent_at({"ts": "1794520332.007829"}).isoformat(timespec="seconds")}: "Land it with the stack under it"',
+        f'{PICK}, {at("2026-11-12T14:42:12-08:00")}, asked "{ASKED}": "{WHOLE_STACK_WORDS}"',
+    ]
+    assert slack_and_cci == [STACK_UNDER, "679494", "679500", "679510"]
+
+
+def test_a_braced_answer_id_reads_as_cc_notes_keeps_it_and_a_card_answered_with_no_words_kept_reads_as_its_permalink(slack_and_cci: list[str]) -> None:
+    assert served.named("asked:{answer:3da552e}; {card:demo:j2274-679400|the stack card}") == [("answer", "3da552e"), ("card", PICK)]
+    assert served.answers(drive_holding(None), ["by {answer:3da552e}"], None) == [f'3da552e, {at("2026-11-12T11:33:00Z")}, asked "": ""']
+    closed = state.new_close("answered", None, None, at="2026-11-12T14:42:12-08:00")
+    assert served.answers(drive_holding(closed), [f"by {PICK}"], None) == [
+        f'{WHOLE_STACK}, {slack.sent_at({"ts": "1794523024.098799"}).isoformat(timespec="seconds")}: "Land it with the stack under it"'
+    ]
+
+
+@pytest.mark.parametrize(
+    ("closed", "refused"),
+    [
+        (None, "its card still asks him"),
+        (state.new_close("withdrawn", "not now", None), "its card was withdrawn"),
+        (state.new_close("superseded", None, None), "its card was superseded"),
+    ],
+)
+def test_a_waits_id_of_a_card_he_has_not_answered_is_no_answer_of_his(slack_and_cci: list[str], closed: dict | None, refused: str) -> None:
+    with pytest.raises(DriveError, match=f"^{PICK} is not his answer: {refused}; "):
+        served.answers(drive_holding(closed), [f"by {PICK}"], None)
+    with pytest.raises(DriveError, match="^demo:j9-1 is not his answer: it names no card the drive asked him; "):
+        served.answers(drive_holding(closed), ["by demo:j9-1"], None)
+
+
+def test_words_naming_no_answer_of_his_name_none() -> None:
+    assert served.named("asked:Also start stopped boxes, as built (his pick, 3:24 AM Nov 10)") == []
