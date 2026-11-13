@@ -147,7 +147,11 @@ A codex job runs no agent. `drive job launch <j>` starts its codex-ask run on th
 session's folder, `codex-ask --dispatch -s <the job's scratch>/codex --schema <the job's
 scratch>/codex-result.json` on the job's brief, with `-m <model>` on a job added with `--model`, the
 model his order names, and `--incident` on an incident, after the checks the Agent hooks run on
-every other job's brief, and records the run folder on the job. The `scratch_folder` hook refuses a
+every other job's brief, and records the run folder on the job. Its brief carries each text the job
+holds and each answer of his it has not heard under `His answers since:`, as a first launch does,
+and the launch drops those texts off the job and marks it sent those answers. A text held while
+the run goes waits for its end: the watch starts no launch while it goes, and its next launch
+carries the text. The `scratch_folder` hook refuses a
 `codex:` agent started on a codex job's brief. The schema holds codex's final message to three
 required fields: `state`, a result word of the table above, `line`, the rest of the result line, and
 `report`, the return below it, so no reply lacks its state.

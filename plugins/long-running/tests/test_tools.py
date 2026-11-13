@@ -1164,7 +1164,7 @@ def test_an_answer_his_recorded_rules_give_by_the_waits_id_of_a_question_whose_c
     assert ((closed["how"], closed["words"], closed["seq"], closed["ruling"]), view.open_questions(job)) == (("answered", "one subject has one card", "672342", ruling), [])
 
 
-def test_his_answer_settling_a_finished_readers_question_is_held_on_each_builder_of_its_order_and_never_the_reader(
+def test_his_answer_settling_a_finished_readers_question_is_held_on_the_builder_waiting_on_it_never_the_reader_or_a_builder_of_its_order_waiting_on_another_card(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, recorded: Answers
 ) -> None:
     recorded.shown["73060f0"] = ANSWER
@@ -1175,6 +1175,8 @@ def test_his_answer_settling_a_finished_readers_question_is_held_on_each_builder
     with state.edit(demo) as data:
         data["jobs"]["j1"].update(state="done", questions=[state.new_question(first, "Which card keeps the subject?", state.stamp()) | {"waits": "demo:j1-673100"}])
         data["jobs"]["j1"]["undelivered"] = [{"seq": "673013", "words": "one card", "at": state.stamp(), "said": None}]
+        data["jobs"]["j3"] = state.new_job("o1", "builder", "build the bulk write", [], state.stamp()) | {"state": "waiting", "waits": ["demo:j9-672900"]}
+        data["orders"]["o1"]["jobs"].append("j3")
     assert state.load(demo)["jobs"]["j1"]["undelivered"] == []
     shown = {"seq": "673125"}
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0, json.dumps(shown) + "\n", ""))
@@ -1192,7 +1194,7 @@ def test_his_answer_settling_a_finished_readers_question_is_held_on_each_builder
     shown["seq"] = "673200"
     tools.run("record", demo, {"records": [{"kind": "answer", "text": "the thread's own card", "waits": "demo:j1-673190"}]})
     drive = state.load(demo)
-    assert ([kept["seq"] for kept in drive["jobs"]["j2"]["undelivered"]], drive["jobs"]["j1"]["undelivered"]) == (["673125", "673200"], [])
+    assert ([kept["seq"] for kept in drive["jobs"]["j2"]["undelivered"]], drive["jobs"]["j1"]["undelivered"], drive["jobs"]["j3"]["undelivered"]) == (["673125", "673200"], [], [])
     assert watch.undelivered_lines(watching, state.now() + timedelta(minutes=11)) == []
 
 
