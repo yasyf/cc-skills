@@ -16,6 +16,7 @@ from drive import (
     cli,
     dashboard,
     github,
+    install,
     land,
     launchd,
     limits,
@@ -54,6 +55,7 @@ REAL_SESSION_OF = orca.session_of
 REAL_KEEP_TRANSCRIPTS = orca.keep_transcripts
 REAL_REGISTER = agents.register
 REAL_SPRITE_CONFIG = orca.sprite_config
+REAL_PLUGIN_COPIES_FIRST = install.plugin_copies_first
 SPRITE_CONFIG = "4b925c205080" + "0" * 52
 LANE_SPEC = Path(__file__).resolve().parents[2] / "orca" / "lib" / "lane.json"
 SETTLED_NOTE = cli.settled_note
@@ -319,6 +321,12 @@ def provers(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     started: list[str] = []
     monkeypatch.setattr(watch, "prove", lambda name, job_id: started.append(job_id) or os.getpid())
     return started
+
+
+@pytest.fixture(autouse=True)
+def plugin_copies(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every process the drive detaches keeps the test's own PATH, never one led by this Mac's plugin installs."""
+    monkeypatch.setattr(install, "plugin_copies_first", lambda: os.environ["PATH"])
 
 
 @pytest.fixture(autouse=True)

@@ -466,7 +466,7 @@ def enqueued(name: str, clone: Path, keys: list[str], prs: dict, asked: dict[str
 
 
 def unfinished(name: str, mode: str, keys: list[str], done: subprocess.CompletedProcess) -> str:
-    """The lander's own failure when stack-enqueue exits ENQUEUE_FAILED, its FAILED, which says nothing of the PRs, such as a binary it runs that a Homebrew upgrade unlinked for a moment or a GitHub read that timed out, so the watch's next pass tries the same head again."""
+    """The lander's own failure when stack-enqueue exits ENQUEUE_FAILED, its FAILED, which says nothing of the PRs, such as a GitHub read that timed out, so the watch's next pass tries the same head again."""
     return f"{NO_ENQUEUE} {mode} on {', '.join(keys)}, which exited {ENQUEUE_FAILED} on a failure of its own: {said(done.stdout + done.stderr)}; its whole output is in {state.drive_dir(name) / LOG}"
 
 

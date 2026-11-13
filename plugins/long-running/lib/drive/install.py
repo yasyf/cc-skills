@@ -380,7 +380,8 @@ def bare_lacking(clone: str, binary: str, sha: str, deadline: float) -> str | No
 
 
 def bare_release(binary: str, deadline: float) -> str:
-    printed = run([binary, "--version"], deadline).strip()
+    """The release the Homebrew copy of binary prints with --version, the copy a session runs bare, read from Homebrew's own bin folder, since a process the drive starts runs the plugin's copy first."""
+    printed = run([str(Path(run(["brew", "--prefix"], deadline).strip()) / "bin" / binary), "--version"], deadline).strip()
     if not (version := RELEASE_VERSION.search(printed)):
         raise InstallError(f"bare {binary} --version printed {printed!r}, which names no release")
     return version.group()
@@ -677,6 +678,12 @@ def newest_builds(plugins: list[str]) -> tuple[str, str]:
     builds = {plugin: installed(plugin) for plugin in plugins}
     versions = ", ".join(f"{plugin} {build['version']}" for plugin, build in builds.items()) or "no plugin of this Mac"
     return versions, os.pathsep.join([*(str(Path(build["installPath"]) / "bin") for build in builds.values()), os.environ.get("PATH", "")])
+
+
+def plugin_copies_first() -> str:
+    """The PATH with the bin folder of the newest install of each plugin with a Homebrew twin ahead of it, so a process the drive starts runs that plugin's versioned copy, which no upgrade removes, rather than the Homebrew copy brew upgrade unlinks until it links the new keg."""
+    plugins = json.loads((config_dir() / "plugins" / "installed_plugins.json").read_text())["plugins"]
+    return os.pathsep.join([*(str(Path(newest(entries)["installPath"]) / "bin") for key, entries in plugins.items() if key.partition("@")[0] in HOMEBREW), os.environ.get("PATH", "")])
 
 
 def await_ci(merges: dict[str, str]) -> bool:

@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from drive import stage, state
+from drive import install, stage, state
 from drive.state import DriveError
 
 REFERENCE = datetime(2026, 11, 9, 14, 0).astimezone()
@@ -864,10 +864,12 @@ def test_a_detached_verb_names_its_drive_its_log_and_no_session_in_its_environme
 
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "s1")
     monkeypatch.setattr(state.subprocess, "Popen", Started)
+    monkeypatch.setattr(install, "plugin_copies_first", lambda: "/cache/cc-context/0.96.10/bin:/opt/homebrew/bin")
     assert state.detach("demo", ["pr", "land", "https://github.com/yasyf/cc-skills/pull/7"], "landings.log") == 4242
     [(argv, options)] = started
     assert argv[1:] == ["pr", "land", "https://github.com/yasyf/cc-skills/pull/7", "--drive", "demo"]
     assert options["env"][state.DRIVE_ENV] == "demo" and options["env"][state.DETACHED_ENV] == "landings.log" and "CLAUDE_CODE_SESSION_ID" not in options["env"]
+    assert options["env"]["PATH"] == "/cache/cc-context/0.96.10/bin:/opt/homebrew/bin"
 
 
 def test_projection_indexes_pr_jobs_once_preserving_order_and_scope() -> None:

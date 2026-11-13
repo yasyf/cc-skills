@@ -2,6 +2,7 @@ import json
 import os
 import plistlib
 import re
+import shutil
 import subprocess
 import threading
 import time
@@ -12,7 +13,7 @@ from itertools import chain, repeat
 from pathlib import Path, PurePosixPath
 
 import pytest
-from conftest import commit_files, git_in
+from conftest import REAL_PLUGIN_COPIES_FIRST, commit_files, git_in
 from drive import card, cli, dashboard, github, install, reads, receiver, settled, state, watch
 
 SHA = "abc123def4567890"
@@ -64,6 +65,7 @@ BUSY = {"ok": False, "error": {"code": "timeout", "message": "timeout"}}
 SENT = {"ok": True, "result": {"send": {"accepted": True}}}
 TAP_DIR = "/opt/homebrew/Library/Taps/yasyf/homebrew-tap"
 BREW_TAP = ["brew", "--repository", "yasyf/tap"]
+BREW_PREFIX = ["brew", "--prefix"]
 TAP_PULL = ["git", "-C", TAP_DIR, "pull", "--ff-only", "--quiet"]
 SEEDED = ("long-running@skills", "cc-context@skills", "cc-inbox@skills", "codex@skills")
 OLD_COMMIT = "0ld0c0mm1t0ld"
@@ -221,6 +223,8 @@ class FakeGit:
             return self.next_bare() + "\n"
         if cmd == BREW_TAP:
             return TAP_DIR + "\n"
+        if cmd == BREW_PREFIX:
+            return "/opt/homebrew\n"
         if verb[:1] == ["diff-tree"]:
             return self.changed + "\n"
         if verb[:2] == ["rev-list", "--count"]:
@@ -663,7 +667,7 @@ def test_a_homebrew_twin_is_upgraded_until_the_bare_binary_runs_a_release_holdin
     git = fake(["cc-context--v1.0.3"], {"cc-context--v1.0.3", "v0.95.70"})
     git.bare = ["v0.95.69", "v0.95.70"]
     assert install.main("cc-context@skills", SHA, None, 900, None) == 0
-    each_pass = [TAP_PULL, upgrade("ccx"), ["ccx", "--version"]]
+    each_pass = [TAP_PULL, upgrade("ccx"), BREW_PREFIX, ["/opt/homebrew/bin/ccx", "--version"]]
     assert git.homebrew_calls() == [BREW_TAP, *each_pass, *each_pass]
     assert holds(SHA, "v0.95.69") in git.git_calls()
     assert git.sleeps == [20]
@@ -690,9 +694,29 @@ def test_a_homebrew_pass_fetches_only_the_yasyf_tap_so_another_taps_fetch_cannot
     git = fake(["cc-context--v1.0.3"], {"cc-context--v1.0.3", "v0.95.70"})
     git.bare = ["v0.95.70"]
     assert install.main("cc-context@skills", SHA, None, 900, None) == 0
-    assert git.homebrew_calls() == [BREW_TAP, TAP_PULL, upgrade("ccx"), ["ccx", "--version"]]
+    assert git.homebrew_calls() == [BREW_TAP, TAP_PULL, upgrade("ccx"), BREW_PREFIX, ["/opt/homebrew/bin/ccx", "--version"]]
     assert not [call for call in git.calls if call[:2] == ["brew", "update"]]
     assert capsys.readouterr().out.strip() == "installed cc-context@skills 1.0.3"
+
+
+def test_a_process_the_drive_starts_runs_the_newest_plugin_copy_of_each_homebrew_twin_before_homebrews(config: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    homebrew, older, newer = tmp_path / "homebrew" / "bin", tmp_path / "cc-context" / "0.96.6", tmp_path / "cc-context" / "0.96.10"
+    for folder in (homebrew, older / "bin", newer / "bin"):
+        folder.mkdir(parents=True)
+        (folder / "ccx").write_text("#!/bin/sh\n")
+        (folder / "ccx").chmod(0o755)
+    plugins = {
+        "cc-context@cc-context": [
+            {"scope": "user", "installPath": str(older), "lastUpdated": "2026-11-12T10:00:00.000Z"},
+            {"scope": "project", "projectPath": "/gone/worktree", "installPath": str(newer), "lastUpdated": "2026-11-13T20:15:00.000Z"},
+        ],
+        "long-running@skills": [{"scope": "user", "installPath": str(tmp_path / "long-running" / "1.0.893"), "lastUpdated": "2026-11-13T20:15:00.000Z"}],
+    }
+    (config / "plugins" / "installed_plugins.json").write_text(json.dumps({"version": 2, "plugins": plugins}))
+    monkeypatch.setenv("PATH", str(homebrew))
+    path = REAL_PLUGIN_COPIES_FIRST()
+    assert path.split(os.pathsep) == [str(newer / "bin"), str(homebrew)]
+    assert shutil.which("ccx", path=path) == str(newer / "bin" / "ccx")
 
 
 def test_other_plugins_run_nothing_after_the_update(fake: Callable[..., FakeGit]) -> None:
@@ -1030,7 +1054,7 @@ def test_a_sibling_below_the_release_a_plugin_needs_installs_before_it(fake: Cal
         ["claude", "plugin", "marketplace", "update", "skills"],
         ["claude", "plugin", "update", "long-running@skills", "--scope", "user"],
     ]
-    assert git.homebrew_calls() == [BREW_TAP, TAP_PULL, upgrade("cc-slack"), ["cc-slack", "--version"]]
+    assert git.homebrew_calls() == [BREW_TAP, TAP_PULL, upgrade("cc-slack"), BREW_PREFIX, ["/opt/homebrew/bin/cc-slack", "--version"]]
     assert capsys.readouterr().out.splitlines()[0] == "installed long-running@skills 1.0.3"
 
 

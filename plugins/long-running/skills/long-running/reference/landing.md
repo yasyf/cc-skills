@@ -210,7 +210,9 @@ change".
      such job releases, as Autobump releases `long-running`, waits as before. A plugin whose binary also has a Homebrew
      copy from `yasyf/tap` (cc-context's `ccx`, cc-inbox's `cci`, `cc-notes`, cc-orchestrate's `cco`,
      `cc-present`, `cc-review`, `cc-slack` and codex's `codex-ask`) then gets that copy upgraded. Claude Code appends plugin bin
-     directories after `/opt/homebrew/bin` on PATH, so a session's bare `ccx` runs Homebrew's copy.
+     directories after `/opt/homebrew/bin` on PATH, so a session's bare `ccx` runs Homebrew's copy. A process the drive
+     starts, a lander or checker included, runs each such plugin's newest installed copy first, which no `brew upgrade`
+     unlinks, and the install reads the Homebrew copy's `--version` from Homebrew's own `bin` folder.
      The install fast-forwards the `yasyf/tap` clone alone with `git pull --ff-only`, then runs
      `brew upgrade yasyf/tap/<binary>`, `yasyf/tap/cc-orchestrate` for `cco`, with `HOMEBREW_NO_AUTO_UPDATE=1`, a few seconds, never
      `brew update`, which fetches every tap on the Mac and fails when any one of them cannot be
@@ -354,8 +356,8 @@ line goes to the builder answering for the PR through `drive pr wake`, once a he
 PR he approved it wakes nobody, so no builder changes what he approved. His order to merge a PR as it
 stands is his Approve. Each head gets one try, but a try that fails on the lander's own step says nothing of
 the PR: one that could make no fresh worktree of the default branch, such as when GitHub did not send a blob its
-checkout fetched, or whose `stack-enqueue --check` or `--watch` exited 5, its own failure, such as a `ccx` that a
-Homebrew upgrade unlinked for a moment or a GitHub read that timed out. The watch says it once to the meta session
+checkout fetched, or whose `stack-enqueue --check` or `--watch` exited 5, its own failure, such as a
+GitHub read that timed out. The watch says it once to the meta session
 as the lander's own `LANDER the lander could not …` defect, never as the PR's not landed line, and the lander tries
 again at the watch's next pass with no new tap. So does a try that ended on a failed GitHub read before it
 queued or merged anything, such as a TLS handshake timeout on its diff read, said on the PR's line and named by

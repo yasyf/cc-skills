@@ -243,8 +243,10 @@ def alive(pid: int) -> bool:
 
 
 def detach(name: str, args: list[str], log: str) -> int:
-    """Run the drive CLI with args on the drive as its own process, outliving the watch pass or tap that started it, its output appended to the drive's log of that name; its environment names the drive, which lets the drive's sessions end it unasked once it outlives its use, and that log, under DETACHED_ENV, which a launch or resume that still refuses names on the event it writes for the watch."""
-    env = {variable: value for variable, value in os.environ.items() if variable != "CLAUDE_CODE_SESSION_ID"} | {DRIVE_ENV: name, DETACHED_ENV: log}
+    """Run the drive CLI with args on the drive as its own process, outliving the watch pass or tap that started it, its output appended to the drive's log of that name; its environment names the drive, which lets the drive's sessions end it unasked once it outlives its use, and that log, under DETACHED_ENV, which a launch or resume that still refuses names on the event it writes for the watch, and its PATH leads with install.plugin_copies_first, so a drive install's brew upgrade never unlinks a ccx or cci it runs."""
+    from drive import install
+
+    env = {variable: value for variable, value in os.environ.items() if variable != "CLAUDE_CODE_SESSION_ID"} | {"PATH": install.plugin_copies_first(), DRIVE_ENV: name, DETACHED_ENV: log}
     with (drive_dir(name) / log).open("a") as out:
         return subprocess.Popen(
             [str(Path(__file__).resolve().parents[2] / "bin" / "drive"), *args, "--drive", name],
