@@ -445,16 +445,17 @@ def stored(name: str, fields: tuple[str, ...] | None = None) -> dict:
     return rows_read(path, fields)
 
 
-def whole(path: Path, shape: Callable[[dict], dict]) -> dict:
-    """The drive's whole saved state as shape brings it up to this install's fields, read and shaped again only once another connection committed since this process last read it, as PRAGMA data_version on a connection of this process's own that never writes says, else a fresh copy of what it shaped last, so a verb's many loads parse and shape the drive's rows once. Shaping runs outside the lock, since it may read the drive itself."""
+def whole(path: Path, shape: Callable[[dict], tuple[dict, bool]]) -> dict:
+    """The drive's whole saved state as shape brings it up to this install's fields, read and shaped again only once another connection committed since this process last read it, as PRAGMA data_version on a connection of this process's own that never writes says, else a fresh copy of what it shaped last, so a verb's many loads parse and shape the drive's rows once; a shape that says it read something outside the database that may change with no commit is never kept. Shaping runs outside the lock, since it may read the drive itself."""
     key = (path, path.stat().st_ino)
     with READING:
         watcher, version, kept = WHOLE_READS.get(key) or (sqlite3.connect(path, check_same_thread=False, isolation_level=None), None, b"")
         if (now := watcher.execute("PRAGMA data_version").fetchone()[0]) == version:
             return marshal.loads(kept)
-    data = shape(rows_read(path, None))
-    with READING:
-        WHOLE_READS[key] = (watcher, now, marshal.dumps(data))
+    data, keep = shape(rows_read(path, None))
+    if keep:
+        with READING:
+            WHOLE_READS[key] = (watcher, now, marshal.dumps(data))
     return data
 
 
@@ -525,7 +526,7 @@ def load(name: str) -> dict:
     if name in BATCHED:
         return marshal.loads(BATCHED[name])
     if not (path := database_path(name)).exists():
-        return shaped(name, stored_json(name))
+        return shaped(name, stored_json(name))[0]
     return refuse_newer(name, whole(path, lambda saved: shaped(name, saved)))
 
 
@@ -535,8 +536,8 @@ def refuse_newer(name: str, data: dict) -> dict:
     return data
 
 
-def shaped(name: str, saved: dict) -> dict:
-    """The drive as saved brought up to the fields this install reads, refused when a newer install saved it."""
+def shaped(name: str, saved: dict) -> tuple[dict, bool]:
+    """The drive as saved brought up to the fields this install reads, refused when a newer install saved it, and whether shaping it read only the database: true once every once-only pass over files on this Mac had run before this shaping, the cards closed included."""
     data = refuse_newer(name, bound(saved))
     for order in data["orders"].values():
         if "parts" not in order:
@@ -645,6 +646,8 @@ def shaped(name: str, saved: dict) -> dict:
     data.setdefault("carried", {})
     if "catch_up" not in data:
         data["catch_up"] = new_catch_up(min(mark["at"] for mark in data["held"].values()), [mark["order"] for mark in data["held"].values() if mark["order"]]) if data["held"] else None
+    passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)
+    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards"))
     if (pictures := drive_dir(name) / "pictures").is_dir() and not (pictures / picture.SOURCED).exists():
         picture.fill(pictures, [*map(Path.read_text, sorted((drive_dir(name) / "asks").glob("*.md"))), *pr_bodies(name)])
     if cards_path(name).exists() and not (drive_dir(name) / "asks" / REBUILT_ASKS).exists():
@@ -668,7 +671,7 @@ def shaped(name: str, saved: dict) -> dict:
     if not data.get("closed_from_cards"):
         finish_asked_readers(name, data)
         close_from_cards(name, data)
-    return data
+    return data, keep
 
 
 def finish_asked_readers(name: str, data: dict) -> None:
