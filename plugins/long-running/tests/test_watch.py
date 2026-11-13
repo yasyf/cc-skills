@@ -1739,7 +1739,7 @@ def test_a_stranded_jobs_orphans_name_once_the_pr_its_line_names_moved_to_anothe
     assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == []
 
 
-def test_each_change_a_design_lists_is_an_orphan_with_no_builder_once_each_change_it_waits_on_is_delivered(
+def test_each_change_a_design_lists_with_no_job_is_an_orphan_whatever_earlier_change_it_waits_on_but_while_he_picks_an_option(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     serve(monkeypatch, {})
@@ -1753,22 +1753,15 @@ def test_each_change_a_design_lists_is_an_orphan_with_no_builder_once_each_chang
         data["orders"]["o2"]["parts"] = {"moved-table abstraction": state.new_part()}
         data["jobs"]["j2"] = job(order="o2", kind="design", parts=["moved-table abstraction"], updated=before)
         data["jobs"]["j3"] = job(order="o2", parts=["moved-table abstraction", "the moved-table interface"], updated=before)
-        state.add_changes(data, "j2", stack)
+    with state.edit(demo) as data:
+        assert state.add_changes(demo, data, "j2", stack) == []
         data["orders"]["o2"]["updated"] = before
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == []
     with state.edit(demo) as data:
         data["orders"]["o2"]["options_only"] = False
-    unbuilt = "j2's design lists this change and no builder carries it: start one with drive job add builder --part, or add it to its builder with drive job set --part"
-    assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == [f'ORPHAN o2 "the reads through it": {unbuilt}']
-    with state.edit(demo) as data:
-        data["orders"]["o2"]["jobs"].append("j4")
-        data["jobs"]["j4"] = job(order="o2", parts=["the reads through it"], state="done", updated=before)
-    assert watch.run_pass(watching, T0 + timedelta(seconds=10)) == [f'ORPHAN o2 "the writes through it": {unbuilt}']
-    with state.edit(demo) as data:
-        data["orders"]["o2"]["jobs"].append("j5")
-        data["jobs"]["j5"] = job(order="o2", parts=["the writes through it"], state="done", updated=before)
-    assert watch.run_pass(watching, T0 + timedelta(seconds=15)) == [f'ORPHAN o2 "the old tables dropped": {unbuilt}']
+    unbuilt = ("the reads through it", "the writes through it", "the old tables dropped")
+    assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == [f'ORPHAN o2 "{change}": no job' for change in unbuilt]
 
 
 def test_a_done_design_leaves_its_own_part_with_the_builder_carrying_one_of_its_changes(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

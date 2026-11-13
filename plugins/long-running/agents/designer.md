@@ -245,7 +245,8 @@ no change of its list, an `Exists: none` naming no search or while the order's r
 line names something, and a
 `Change:` line past 80 characters or holding a backtick, double quote, `$` or backslash. Each
 `Change:` line of a design of several becomes a part of the order under its words before
-`(waits on …)`, which the coordinator types as `--part "<the change>"`, so each gets its own builder. A `HANDOFF <path>`, when
+`(waits on …)`, and the drive gives each change its own builder as your design returns, waiting on
+the builder of each earlier change it waits on. A `HANDOFF <path>`, when
 the session that started you stops you before you are done, or a `BLOCKED`, carries no design and
 skips that check.
 

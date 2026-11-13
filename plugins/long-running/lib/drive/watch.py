@@ -652,7 +652,7 @@ def first_line(text: str) -> str:
 
 
 def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetime, kept: str | None, taken: bool) -> str | None:
-    """Record one message from a remote lane on its job, a final report ending any question the lane asked before it and setting its state unless state.result_refusal refuses it or it types a clock time for work already done, which the event line names, and a question opening with a result other than ASK being that result; the event line it wakes the coordinator with, if any, which for an `ASK <file> [<file>…]` naming the blocks `drive job ask` kept is that line, as a job's own return is, and for any other `ASK` says that `drive job ask` keeps it. The message ending the turn of a report `drive job report` already took, a worker_done or Orca's escalation for a worker that exited, whatever its body, or any such message from a lane `drive job end` ended, only ends that question, since its line went with that command's answer; a report the watch takes itself names each PR it links that the drive does not track, since only `drive pr add` registers one."""
+    """Record one message from a remote lane on its job, a final report ending any question the lane asked before it and setting its state unless state.result_refusal refuses it or it types a clock time for work already done, which the event line names, and a question opening with a result other than ASK being that result; the event line it wakes the coordinator with, if any, naming when to start each builder a design's DESIGN added, which for an `ASK <file> [<file>…]` naming the blocks `drive job ask` kept is that line, as a job's own return is, and for any other `ASK` says that `drive job ask` keeps it. The message ending the turn of a report `drive job report` already took, a worker_done or Orca's escalation for a worker that exited, whatever its body, or any such message from a lane `drive job end` ended, only ends that question, since its line went with that command's answer; a report the watch takes itself names each PR it links that the drive does not track, since only `drive pr add` registers one."""
     job = data["jobs"][job_id]
     kind = message["type"]
     body = message["body"] or ""
@@ -668,6 +668,7 @@ def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetim
     if kind == "status":
         return None
     job["report"] = body
+    added = []
     if kind == "question" and (kept or not state.reported(job["said"])):
         job.update(ask=message["id"], ask_at=job["updated"], state="waiting")
     elif kind in ("question", "worker_done"):
@@ -678,14 +679,14 @@ def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetim
         if refused := state.result_refusal(data, job_id, job["said"], body):
             return f'JOB {job_id} {job["order"]} {job["said"]}; refused, its state unset: {refused}; drive job resume {job_id} "<the refusal>" sends it back'
         state.take_result(data, job_id, job["said"], body)
-        state.add_changes(data, job_id, body)
+        added = state.add_changes(name, data, job_id, body)
         if untracked := [url for url in dict.fromkeys(found[0] for line in body.splitlines() if PR_LINE.match(line) for found in state.PR_URL.finditer(line)) if state.pr_key(url) not in data["prs"]]:
             return f"JOB {job_id} {job['order']} {job['said']}; the drive tracks no {', '.join(untracked)}: drive pr add <url> --job {job_id} registers each"
         if state.PUSHED_LINE.match(job["said"]):
             return None
     if kept:
         return f"JOB {job_id} {job['order']} ASK {kept}"
-    line = f"JOB {job_id} {job['order']} {job['said']}"
+    line = "; ".join([f"JOB {job_id} {job['order']} {job['said']}", *render.builder_lines(data, added)])
     if job.get("ask") != message["id"]:
         return line
     return f"{line}; {UNKEPT_ASK.format(job=job_id)}" if reads.asks(body) else line
@@ -1996,7 +1997,7 @@ def unstarted(job: dict) -> bool:
 
 
 def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: datetime) -> str | None:
-    """Why a part of the order has no one carrying it, None when it is carried, delivered or waits on something named: work he ordered, every part of a build order or an incident and a part of an order of no kind that a builder, codex or design job holds or held or a design lists, unless drive order set --kind answer --part sorted it as an answer, is carried only by a builder, codex or design job, never by research, his card or a post, so it has no one the moment none is on it past its handover, and the gap names the builder to start; a change a design lists waits on each earlier change it builds on, and on his pick while the order asks for options only; a builder, codex or design job on the order's immediate fix part carries the order's other parts too until it is done; an open incident's fix is carried only by a live job, an open PR of a job on it or its fix recorded live, a builder's DONE or the release that shipped it, never by a post, so once its jobs end otherwise the gap says it has no fix job and names the second one to start at once."""
+    """Why a part of the order has no one carrying it, None when it is carried, delivered or waits on something named: work he ordered, every part of a build order or an incident and a part of an order of no kind that a builder, codex or design job holds or held or a design lists, unless drive order set --kind answer --part sorted it as an answer, is carried only by a builder, codex or design job, never by research, his card or a post, so it has no one the moment none is on it past its handover, and the gap names the builder to start; a change a design lists has no job only while the order asks for options only, waiting on his pick, which adds its builder, since drive job report adds one for each change as the design returns; a builder, codex or design job on the order's immediate fix part carries the order's other parts too until it is done; an open incident's fix is carried only by a live job, an open PR of a job on it or its fix recorded live, a builder's DONE or the release that shipped it, never by a post, so once its jobs end otherwise the gap says it has no fix job and names the second one to start at once."""
     order = data["orders"][order_id]
     jobs = state.part_jobs(data, order_id, part)
     gaps = {job_id: job_gap(watcher, job_id, job, data, moment) for job_id, job in jobs}
@@ -2022,13 +2023,9 @@ def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: dat
         return None if None in carried else SETTLING if SETTLING in carried else carried[-1]
     if jobs:
         return SETTLING if SETTLING in gaps.values() else unbuilt(data, order_id, part, jobs)
-    if moment - state.parse_time(order["updated"]) < UNSTAFFED_FOR:
+    if moment - state.parse_time(order["updated"]) < UNSTAFFED_FOR or order["options_only"] and order["parts"][part]["design"]:
         return None
-    if not (design := order["parts"][part]["design"]):
-        return "no job"
-    if order["options_only"] or any(after in order["parts"] and not state.delivered(data, order_id, after) for after in order["parts"][part]["after"]):
-        return None
-    return f"{design}'s design lists this change and no builder carries it: start one with drive job add builder --part, or add it to its builder with drive job set --part"
+    return "no job"
 
 
 def unbuilt(data: dict, order_id: str, part: str, jobs: list[tuple[str, dict]]) -> str:

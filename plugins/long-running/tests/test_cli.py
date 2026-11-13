@@ -3309,13 +3309,13 @@ def test_a_build_jobs_research_is_a_reader_of_its_own_part_a_designs_change_coun
     assert run("job", "add", "design", "--order", "o1", "--part", "the breaker", "--goal", "cards: the breaker")[1].splitlines()[0] == "j5"
     owned = DESIGNED_IN_CHANGES.replace('none: ccx code search "store copy" and rg store_copy found nothing', "supervisor/copies.rs:40 store_copy_at, extended by change 1")
     assert keep(monkeypatch, capsys, "j5", owned) == (0, "")
-    assert run("job", "add", "builder", "--order", "o1", "--part", "the reads through it", "--goal", "build the reads")[1].splitlines()[0] == "j6"
-    code, out = run("job", "brief", "j6", "--serves", "drive tooling", "--done-when", "merged", "--where", "yasyf/cc-skills main")
+    assert state.load("demo")["jobs"]["j7"]["parts"] == ["the reads through it"]
+    code, out = run("job", "brief", "j7", "--serves", "drive tooling", "--done-when", "merged", "--where", "yasyf/cc-skills main")
     assert (code, "\nResearched: j1\n" in Path(out.splitlines()[0].removeprefix("Read your brief first: ")).read_text()) == (0, True)
     data = state.load("demo")
-    assert brief.brief_refusal("demo", data, "j6", "Researched: j1\nDrive: demo, order o1, job j6") is None
-    assert brief.brief_refusal("demo", data, "j6", "Researched: j3\nDrive: demo, order o1, job j6") == (
-        "Researched: j3 names no reader of j6's part of o1 that kept a Researched: line and under it rulings:, exists: and open: lines in its report"
+    assert brief.brief_refusal("demo", data, "j7", "Researched: j1\nDrive: demo, order o1, job j7") is None
+    assert brief.brief_refusal("demo", data, "j7", "Researched: j3\nDrive: demo, order o1, job j7") == (
+        "Researched: j3 names no reader of j7's part of o1 that kept a Researched: line and under it rulings:, exists: and open: lines in its report"
     )
 
 
@@ -3635,7 +3635,8 @@ def test_a_design_lanes_design_names_on_each_fork_line_a_question_it_kept(
     block.write_text(SHORT_ASK)
     asked = run("job", "ask", "j1", str(block))[1].splitlines()[0]
     assert keep(monkeypatch, capsys, "j1", DESIGNED.replace("Fork: none: one layout fits", f"Fork: {asked}")) == (0, "")
-    assert state.load("demo")["jobs"]["j1"]["state"] == "waiting"
+    jobs = state.load("demo")["jobs"]
+    assert (jobs["j1"]["said"], jobs["j2"]["state"], jobs["j2"]["waits"]) == ("carried by builder j2", "waiting", [jobs["j1"]["questions"][0]["waits"]])
 
 
 def test_a_builders_ready_says_how_it_reuses_what_its_research_found(
@@ -3707,13 +3708,13 @@ def test_a_design_lanes_report_is_the_design_in_its_shape_unless_it_stops_short(
     ) in err
     assert "this one lacks a Fork: line: DESIGN <the part" in keep(monkeypatch, capsys, "j1", DESIGNED.replace("Fork: none: one layout fits\n", ""))[1]
     assert keep(monkeypatch, capsys, "j1", DESIGNED) == (0, "")
-    assert state.load("demo")["jobs"]["j1"]["state"] == "waiting"
+    assert (state.load("demo")["jobs"]["j1"]["state"], state.load("demo")["jobs"]["j1"]["said"]) == ("done", "carried by builder j2")
     run("job", "add", "design", "--order", "o1", "--goal", "cards: the store copy again")
     run("job", "add", "design", "--order", "o1", "--goal", "cards: the store list")
-    assert keep(monkeypatch, capsys, "j2", "HANDOFF /scratch/j2/left.md\n") == (0, "")
-    assert keep(monkeypatch, capsys, "j3", "BLOCKED the store list is unreadable\n") == (0, "")
+    assert keep(monkeypatch, capsys, "j3", "HANDOFF /scratch/j3/left.md\n") == (0, "")
+    assert keep(monkeypatch, capsys, "j4", "BLOCKED the store list is unreadable\n") == (0, "")
     jobs = state.load("demo")["jobs"]
-    assert (jobs["j2"]["state"], jobs["j3"]["state"]) == ("stopped", "failed")
+    assert (jobs["j3"]["state"], jobs["j4"]["state"]) == ("stopped", "failed")
 
 
 @pytest.mark.parametrize(
@@ -3752,7 +3753,7 @@ def test_a_design_saying_nothing_exists_is_refused_while_its_orders_reader_found
     assert keep(monkeypatch, capsys, "j3", owned) == (0, "")
 
 
-def test_a_design_of_several_changes_makes_each_a_part_of_its_order_waiting_on_each_earlier_change_its_line_names(
+def test_a_design_of_several_changes_makes_each_a_part_of_its_order_with_a_builder_waiting_on_the_builder_of_each_earlier_change_its_line_names(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store", "--parts", "copy one store", "the reads through it")
@@ -3760,13 +3761,24 @@ def test_a_design_of_several_changes_makes_each_a_part_of_its_order_waiting_on_e
     code, err = keep(monkeypatch, capsys, "j1", DESIGNED_IN_CHANGES.replace("(waits on change 2)", "(waits on change 1 and change 3)"))
     assert code == 2
     assert 'its Change: line "Change: the writes through it (waits on change 1 and change 3)" waits on a change its list does not hold' in err
-    assert keep(monkeypatch, capsys, "j1", DESIGNED_IN_CHANGES.replace("(waits on change 2)", "(waits on change 1 and change 2 live on every cluster)")) == (0, "")
-    parts = state.load("demo")["orders"]["o1"]["parts"]
-    assert {part: (held["design"], held["after"]) for part, held in parts.items()} == {
-        "copy one store": (None, []),
-        "the reads through it": ("j1", []),
-        "the moved-table interface": ("j1", []),
-        "the writes through it": ("j1", ["the moved-table interface", "the reads through it"]),
+    monkeypatch.setattr("sys.stdin", io.StringIO(DESIGNED_IN_CHANGES.replace("(waits on change 2)", "(waits on change 1 and change 2 live on every cluster)")))
+    assert cli.main(["job", "report", "j1", "-"]) == 0
+    assert capsys.readouterr().out.splitlines()[-3:] == [
+        'j2 builder on "the moved-table interface": start its agent now, the design as its brief\'s Plan:',
+        'j3 builder on "the reads through it": start its agent now, the design as its brief\'s Plan:',
+        'j4 builder on "the writes through it" waits on j2, j3: start no agent for it until the watch\'s FREE line says its last wait ended',
+    ]
+    data = state.load("demo")
+    assert {part: held["design"] for part, held in data["orders"]["o1"]["parts"].items()} == {
+        "copy one store": None,
+        "the reads through it": "j1",
+        "the moved-table interface": "j1",
+        "the writes through it": "j1",
+    }
+    assert {job_id: (job["parts"], job["state"], job["waits"]) for job_id, job in data["jobs"].items() if job["kind"] == "builder"} == {
+        "j2": (["the moved-table interface"], "running", []),
+        "j3": (["the reads through it"], "running", []),
+        "j4": (["the writes through it"], "waiting", ["j2", "j3"]),
     }
 
 
@@ -3788,7 +3800,7 @@ def test_a_design_names_each_change_in_words_the_coordinator_types_as_its_part(
     assert code == 2
     assert f'its Change: line names its change as "{change}": a change is named in at most 80 characters with no backtick' in err
     assert keep(monkeypatch, capsys, "j1", DESIGNED_IN_CHANGES.replace("Change: the reads through it", "Change: the reads through ssql-blobstore")) == (0, "")
-    assert run("job", "add", "builder", "--order", "o1", "--part", "the reads through ssql-blobstore", "--goal", "build the reads")[1] == "j2"
+    assert state.load("demo")["jobs"]["j3"]["parts"] == ["the reads through ssql-blobstore"]
 
 
 def test_order_set_parts_keeps_a_designs_changes_and_refuses_a_list_renaming_one_no_builder_delivered(
@@ -4205,28 +4217,26 @@ def test_job_set_refuses_any_state_but_stopped_changing_nothing(run: Run, demo: 
     assert state.load("demo")["jobs"]["j1"]["state"] == "stopped"
 
 
-def test_a_design_job_ends_once_a_builder_takes_its_part_or_one_of_its_changes(
+def test_a_design_job_ends_once_the_builder_its_return_or_his_pick_adds_takes_its_part_or_one_of_its_changes(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store", "--options-only")
     run("job", "add", "design", "--order", "o1", "--goal", "cards: the store copy")
     assert keep(monkeypatch, capsys, "j1", DESIGNED) == (0, "")
     assert cli.main(["job", "set", "j1", "--state", "done"]) == 2
     assert "drive: j1: refused, nothing changed: --state sets only stopped" in capsys.readouterr().err
-    run("job", "add", "builder", "--order", "o1", "--goal", "build the copy")
+    assert run("order", "set", "o1", "--no-options-only")[1].splitlines()[-1] == 'j2 builder on "copy one store": start its agent now, the design as its brief\'s Plan:'
     run("job", "add", "design", "--order", "o1", "--goal", "cards: the store list")
     assert keep(monkeypatch, capsys, "j3", DESIGNED) == (0, "")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "move the tables", "--parts", "move the tables", "the old copy")
     run("job", "add", "design", "--order", "o2", "--part", "move the tables", "--goal", "cards: the moved tables")
     run("job", "add", "builder", "--order", "o2", "--part", "the old copy", "--goal", "drop the old copy")
     assert keep(monkeypatch, capsys, "j4", DESIGNED_IN_CHANGES) == (0, "")
-    assert state.load("demo")["jobs"]["j4"]["state"] == "waiting"
-    run("job", "set", "j5", "--part", "the reads through it")
     jobs = state.load("demo")["jobs"]
     assert {job_id: (jobs[job_id]["state"], jobs[job_id]["said"]) for job_id in ("j1", "j3", "j4")} == {
         "j1": ("done", "carried by builder j2"),
         "j3": ("done", "carried by builder j2"),
-        "j4": ("done", "carried by builder j5"),
+        "j4": ("done", "carried by builder j6"),
     }
     assert run("job", "set", "j4", "--state", "done")[1].splitlines()[0] == "j4 is already done"
 

@@ -609,7 +609,7 @@ def apart_from_filing(order: dict) -> str:
 
 
 def refuse_a_renamed_change(data: dict, order_id: str, parts: list[str]) -> None:
-    """A --parts list that adds a name refuses to leave out a change a design listed and no builder delivered, since the part under the new name would lose the design and the waits that tie it to its builder; a list that only drops parts, delivered or withdrawn by him, passes."""
+    """A --parts list that adds a name refuses to leave out a change a design listed and no builder delivered, since the part under the new name would lose the design and the builder its name ties it to; a list that only drops parts, delivered or withdrawn by him, passes."""
     held = data["orders"][order_id]["parts"]
     added = [part for part in parts if part not in held]
     left = [f'"{part}" of {kept["design"]}\'s design' for part, kept in held.items() if part not in parts and kept["design"] and not state.delivered(data, order_id, part)]
@@ -622,7 +622,7 @@ def refuse_a_renamed_change(data: dict, order_id: str, parts: list[str]) -> None
 
 
 def order_set(args: argparse.Namespace) -> int:
-    """Change an order, reworking only the PRs --rework names and naming each open PR card of his in a thread it moves into or is sorted again in, which it leaves up; closing one that owes him a promised line reads its thread and refuses until the line is there or he withdrew the time, and closing one done refuses while the bug report it fixes has not heard it is fixed."""
+    """Change an order, reworking only the PRs --rework names and naming each open PR card of his in a thread it moves into or is sorted again in, which it leaves up; closing one that owes him a promised line reads its thread and refuses until the line is there or he withdrew the time, closing one done refuses while the bug report it fixes has not heard it is fixed, and --no-options-only, his pick, adds the builder of each change a design on it listed that no builder is on, as drive job report does once a design returns."""
     name = state.resolve(args.drive)
     withdrawn = his_words(args.withdrawn, "withdraw a promised line") if args.withdrawn else None
     unreported = his_words(args.no_reporter, "take the reporter off an order") if args.no_reporter else None
@@ -683,7 +683,10 @@ def order_set(args: argparse.Namespace) -> int:
         order = data["orders"][args.id]
         before = apart_from_filing(order)
         aimed = (order["kind"], order["thread"])
+        limited = order["options_only"]
         order.update({field: value for field, value in changes.items() if value is not None})
+        designs = [job_id for job_id in order["jobs"] if data["jobs"][job_id]["kind"] == "design" and data["jobs"][job_id]["order"] == args.id] if limited and not order["options_only"] else []
+        added = [builder for job_id in designs for builder in state.add_changes(name, data, job_id, next(iter(state.returns(name, job_id)), {"body": ""})["body"])]
         if due and not (where := state.promise_thread(order)):
             state.remind(order, state.stamp(due), moment)
             promised = (
@@ -749,7 +752,7 @@ def order_set(args: argparse.Namespace) -> int:
     cards = thread_cards(name, order) if args.rework or (order["kind"], order["thread"]) != aimed else []
     reworked = rework_named_prs(name, args.id, args.rework, cards, f"drive order set {args.id} --rework <PR>")
     parts = [f"{args.id} {render.part_line(data, args.id, part)}" for part in sorted_parts]
-    return emit(args, render.order_line(args.id, order) + promised + "".join(f"\n{line}" for line in [*parts, *reworked]), {"id": args.id, **order})
+    return emit(args, render.order_line(args.id, order) + promised + "".join(f"\n{line}" for line in [*parts, *render.builder_lines(data, added), *reworked]), {"id": args.id, **order})
 
 
 def sorted_as(data: dict, order_id: str, kind: str | None, named: list[str]) -> list[str]:
@@ -1137,9 +1140,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         with_cards(name, data)
     history = [line for key in named for line in render.pr_history(data, key, job_id)]
     waiting = [f"{job_id} {job['said']}: start no agent for it until the watch's FREE line says its last wait ended"] if args.waits else []
-    if builder_id:
-        parts_named = ", ".join(json.dumps(part, ensure_ascii=False) for part in data["jobs"][builder_id]["parts"])
-        waiting.append(f"{builder_id} builder on {parts_named} {data['jobs'][builder_id]['said']}: start no agent for it until the watch's FREE line says its last wait ended")
+    waiting += render.builder_lines(data, [builder_id] if builder_id else [])
     if crowd:
         waiting.append(
             f"{job_id} starts on a Sprite at once, since {crowd}: drive job launch {job_id} <brief>; one whose brief declares a step only this Mac runs, on {place.MAC_LINES}, waits its turn for a slot here once its agent starts"
@@ -1893,7 +1894,7 @@ def folded(data: dict, file: str) -> list[dict]:
 
 
 def job_report(args: argparse.Namespace) -> int:
-    """Keep a job's whole return from stdin in its history, which is its report, and print where, or to a Sprite lane, which opens no path of this Mac's, that it was kept with its first line, that line setting the job's state, or refuse it with nothing kept, naming the fix, when that line would set none; a reader's DESIGN is kept as its ASK in the same call, which draws his card on it and prints the file and the card, and each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links is registered on the job before the take, which joins its order to the bug, or kept untracked with the reason drive pr add refused it; a reader's DONE or DESIGN writes, as drive job brief does, the brief of each builder waiting on it that no agent or lane started and none briefed, serving drive tooling on a tooling order and his order on any other, and prints its `Read your brief first:` line. With no stdin, print every return the job took, newest first."""
+    """Keep a job's whole return from stdin in its history, which is its report, and print where, or to a Sprite lane, which opens no path of this Mac's, that it was kept with its first line, that line setting the job's state, or refuse it with nothing kept, naming the fix, when that line would set none; a reader's DESIGN is kept as its ASK in the same call, which draws his card on it and prints the file and the card, and each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links is registered on the job before the take, which joins its order to the bug, or kept untracked with the reason drive pr add refused it; a reader's DONE or DESIGN writes, as drive job brief does, the brief of each builder waiting on it that no agent or lane started and none briefed, serving drive tooling on a tooling order and his order on any other, and prints its `Read your brief first:` line; a design lane's DESIGN adds a builder for each change it lists that no builder or codex job is on, by state.add_changes, and prints when to start each. With no stdin, print every return the job took, newest first."""
     name = state.resolve(args.drive)
     data = state.load(name)
     job = find(data["jobs"], args.id, "job")
@@ -1930,7 +1931,7 @@ def job_report(args: argparse.Namespace) -> int:
                 fixes.append(f"FIX kept, {error}")
         with state.edit(name) as data:
             state.take_result(data, args.id, line, whole)
-            state.add_changes(data, args.id, whole)
+            added = state.add_changes(name, data, args.id, whole)
         order = data["orders"][job["order"]]
         briefed = [
             f"{builder_id}: {write_brief(name, builder_id, {'serves': 'drive tooling' if tooling(order) else 'his order'})[0]}"
@@ -1941,8 +1942,8 @@ def job_report(args: argparse.Namespace) -> int:
         merging = merge_reported(name, args.id)
         where = f"kept {args.id}'s report: {line}" if os.environ.get(state.OWN_JOB_ENV) else kept
         shown = f"{where}\n{said}" if said else where
-        shown = "\n".join([shown, *registered, *fixes, *briefed, *(f"{key}: {said}" for key, said in merging)])
-        return emit(args, shown, {"id": args.id, "report": kept, "ask": asked and str(asked), "merging": dict(merging), "fixes": fixes})
+        shown = "\n".join([shown, *registered, *fixes, *briefed, *render.builder_lines(data, added), *(f"{key}: {said}" for key, said in merging)])
+        return emit(args, shown, {"id": args.id, "report": kept, "ask": asked and str(asked), "merging": dict(merging), "fixes": fixes, "builders": added})
     text = state.report_text(name, args.id)
     if not text and not job["said"]:
         raise DriveError(f"{args.id} kept no report and has returned nothing yet")
@@ -4056,7 +4057,7 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("--complex", action=argparse.BooleanOptionalAction, help="mark or unmark it as more than a one-fact lookup")
     verb.add_argument(
-        "--options-only", action=argparse.BooleanOptionalAction, help="limit it to options, so no builder or codex job starts on it, or lift that once he picks"
+        "--options-only", action=argparse.BooleanOptionalAction, help="limit it to options, so no builder or codex job starts on it, or lift that once he picks, adding the builder of each change a design on it listed"
     )
     verb.add_argument("--once", action=argparse.BooleanOptionalAction, help="mark or unmark it as a repair he asked to run once, which puts up no PR")
     verb.add_argument("--project", metavar="NAME", help="the project the dashboard's Now screen files this order under; an empty name takes it out")
