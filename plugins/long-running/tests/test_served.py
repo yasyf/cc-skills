@@ -68,6 +68,23 @@ def test_a_restack_carries_a_check_kept_on_the_text_of_gh_pr_diff_to_the_compare
     assert state.load(demo)["prs"][KEY]["checked"] is None
 
 
+def test_a_moved_check_carries_beside_his_approve_on_a_head_never_read_which_keeps_no_patch_and_stays_on_its_head(
+    run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    run("pr", "add", URL, "--job", "j1")
+    kept = subprocess.run(["git", "patch-id", "--stable"], input=SMALL.decode(), capture_output=True, text=True, check=True).stdout.split(" ")[0]
+    tap = {"label": "Approve", "at": state.stamp(), "head": "head0", "source": "pressed the card"}
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= {"head": "head2", "checked": {"head": "head1", "orders": ["o1"], "patch": kept}, "tap": tap}
+    monkeypatch.setattr(served, "change", lambda key: {"title": "Fix: run", "head": "head2", "diff": SMALL})
+    assert served.carry(demo, [KEY]) == [KEY]
+    pr = state.load(demo)["prs"][KEY]
+    assert (pr["checked"]["head"], pr["tap"]) == ("head2", tap)
+    assert not served.unread(pr)
+
+
 GAPS = (
     'b3cbd28, 2026-11-12T02:15:56-08:00, asked "Do you accept the two wrong-id gaps the reviewer bot is holding the UUIDv7 row ids change on?":'
     ' "Accept both: keeps the id-less answer, so these two rare wrong-id gaps stay; your pick here becomes my owner ruling, no code change."'
