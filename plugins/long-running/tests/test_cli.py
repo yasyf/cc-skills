@@ -925,7 +925,7 @@ def test_an_order_becomes_an_incident_only_once_a_job_owns_its_fix(run: Run, dem
     assert cli.main(["order", "set", "o1", "--incident"]) == 2
     assert 'o1: refused, an incident order starts its fix job at the alert, beside diagnosis: give it a "fix" part' in capsys.readouterr().err
     assert state.load("demo")["orders"]["o1"]["incident"] is False
-    run("order", "set", "o1", "--parts", "first check", "fix")
+    run("order", "set", "o1", "--add-part", "fix")
     run("job", "add", "codex", "--order", "o1", "--goal", "fix: runs fail", "--part", "fix", "--agent", "a-1")
     assert run("order", "set", "o1", "--incident")[0] == 0
     assert state.load("demo")["orders"]["o1"]["incident"] is True
@@ -3632,7 +3632,7 @@ def test_the_immediate_fix_starts_at_once_past_the_research_the_design_and_optio
     assert run("job", "add", "builder", "--order", "o1", "--part", "immediate fix", "--goal", "stop the harm") == (0, "j1")
     run("order", "set", "o1", "--no-options-only")
     assert cli.main(["job", "add", "builder", "--order", "o1", "--part", "the copy", "--goal", "build it"]) == 2
-    assert 'starts at once on its own "immediate fix" part, added with drive order set o1 --parts "the copy" "immediate fix"' in capsys.readouterr().err
+    assert 'starts at once on its own "immediate fix" part, added with drive order set o1 --add-part "immediate fix"' in capsys.readouterr().err
     run("job", "add", "reader", "--order", "o1", "--part", "the copy", "--goal", "research: the copy")
     assert keep(monkeypatch, capsys, "j2", DESIGN_RESEARCH) == (0, "")
     assert cli.main(["job", "add", "codex", "--order", "o1", "--part", "immediate fix", "--goal", "stop it another way"]) == 2
@@ -4035,7 +4035,7 @@ def test_a_design_names_each_change_in_words_the_coordinator_types_as_its_part(
     assert state.load("demo")["jobs"]["j3"]["parts"] == ["the reads through ssql-blobstore"]
 
 
-def test_order_set_parts_keeps_a_designs_changes_and_refuses_a_list_renaming_one_no_builder_delivered(
+def test_order_set_adds_and_drops_one_part_by_name_and_every_other_part_keeps_its_design_and_jobs(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store")
@@ -4043,15 +4043,19 @@ def test_order_set_parts_keeps_a_designs_changes_and_refuses_a_list_renaming_one
     assert keep(monkeypatch, capsys, "j1", DESIGNED_IN_CHANGES) == (0, "")
     designed = state.load("demo")["orders"]["o1"]["parts"]
     names = list(designed)
-    assert cli.main(["order", "set", "o1", "--parts", "copy one store", "the interface", "the reads through it", "the writes through it"]) == 2
-    assert (
-        'o1: refused, its parts stay as they are: --parts adds "the interface" and leaves out "the moved-table interface" of j1\'s design,'
-        " which no builder delivered"
-    ) in capsys.readouterr().err
-    run("order", "set", "o1", "--parts", *names)
+    assert cli.main(["order", "set", "o1", "--add-part", "the reads through it"]) == 2
+    assert 'o1: refused, its parts stay as they are: it holds "the reads through it" already, so --add-part adds none' in capsys.readouterr().err
+    assert cli.main(["order", "set", "o1", "--drop-part", "the interface", "--add-part", "the new interface"]) == 2
+    assert 'o1 has no part "the interface"; its parts are "copy one store", "the moved-table interface"' in capsys.readouterr().err
+    assert cli.main(["order", "set", "o1", "--drop-part", "the moved-table interface", "--add-part", "the interface"]) == 2
+    assert '--drop-part takes off "the moved-table interface" of j1\'s design, which no builder delivered' in capsys.readouterr().err
+    assert cli.main(["order", "set", "o1", *(flag for name in names for flag in ("--drop-part", name))]) == 2
+    assert "--drop-part takes off its every part, which closes it: drive order set o1 --state done or dropped" in capsys.readouterr().err
     assert state.load("demo")["orders"]["o1"]["parts"] == designed
-    run("order", "set", "o1", "--parts", *names[:-1])
-    assert list(state.load("demo")["orders"]["o1"]["parts"]) == names[:-1]
+    run("order", "set", "o1", "--add-part", "the interface ", "--add-part", "the interface")
+    assert state.load("demo")["orders"]["o1"]["parts"] == designed | {"the interface": state.new_part()}
+    run("order", "set", "o1", "--drop-part", "the interface")
+    assert state.load("demo")["orders"]["o1"]["parts"] == designed
 
 
 def test_a_research_readers_report_carries_its_filled_researched_block(
@@ -5904,7 +5908,7 @@ def test_setting_parts_keeps_what_a_kept_part_recorded(
     answer = slack_thread.post(state.now(), from_claude=True)
     report_records(monkeypatch, {"661300": {"part": "why"}})
     assert run("order", "posted", "o1", answer, "--record", "661300")[0] == 0
-    run("order", "set", "o1", "--parts", "why", "what")
+    run("order", "set", "o1", "--drop-part", "how", "--add-part", "what")
     parts = state.load("demo")["orders"]["o1"]["parts"]
     assert parts == {"why": state.new_part() | {"posted": answer}, "what": state.new_part()}
 
@@ -5931,7 +5935,7 @@ def test_a_post_naming_no_part_of_an_order_of_several_is_a_progress_line_that_ke
     marks = {part: kept["posted"] for part, kept in state.load("demo")["orders"]["o1"]["parts"].items()}
     assert marks == {"stop the harm": None, "rollback": line, "cause": None}
     assert cli.main(["order", "posted", "o1", line, "--record", "661301"]) == 2
-    assert 'o1 has no part fix; its parts are "stop the harm", "rollback", "cause"' in capsys.readouterr().err
+    assert 'o1 has no part "fix"; its parts are "stop the harm", "rollback", "cause": name one as it stands, or add a new one first with drive order set o1 --add-part fix' in capsys.readouterr().err
 
 
 def test_the_communicator_takes_back_a_parts_delivered_mark(run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch) -> None:

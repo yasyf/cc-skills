@@ -818,7 +818,7 @@ def test_the_communicators_owner_or_answer_record_goes_to_the_session_hearing_it
     ]
     open_cards(monkeypatch, "demo:j1-7")
     said = tools.run("record", demo, {"records": records, "dry_run": True}).splitlines()
-    assert said[:2] == ["1 drive order set o1 --parts 'ship the run page' 'also the logs page'", "2 drive order set o2 --parts 'fix the alert' 'and the alert'"]
+    assert said[:2] == ["1 drive order set o1 '--add-part=also the logs page'", "2 drive order set o2 '--add-part=and the alert'"]
     assert [(json.loads(line.split(": ", 1)[1])["kind"], json.loads(line.split(": ", 1)[1])["to"]) for line in said[2:6]] == [
         ("owner", ["iris@demo"]),
         ("owner", ["root@demo"]),

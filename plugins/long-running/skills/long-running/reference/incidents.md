@@ -72,7 +72,7 @@ changed and when, its findings the suspects, and its root cause the verdict.
 - **A later alert or question** about a service whose incident is open joins it, with no job of
   its own: `drive order add "<his words, or the alert text>" --from <its permalink> --joins
   <o> --alert <its link> --project "<o's project>" --workstream "<o's workstream>" --title "<a few words>"`. It takes the
-  parts his words ask for with `drive order set <new> --parts "<part>"`, and the owner carries it with
+  parts his words ask for with `--parts "<part>"` on that add, and the owner carries it with
   `drive job set <owner> --carries <new> --part "<part>"`. `--joins` refuses an order that is
   closed, and with `--incident` one that is no incident. The order keeps what it joins, and the incident and each alert joined to it
   share their threads both ways, so `say` and `drive order posted` take a line on any of them in any
@@ -178,7 +178,7 @@ changed and when, its findings the suspects, and its root cause the verdict.
 
   No hotfix is built on the live build's commit, and no rollback or cause hunt starts. The
   commits the first check found past the live one are the cause, and the record's verdict says so.
-- **It fails too:** `drive order set <o> --parts fix "first check" rollback cause`, the first
+- **It fails too:** `drive order set <o> --add-part rollback --add-part cause`, the first
   check's job resumed as the cause job with `drive job set <j> --part cause`, and a rollback job
   started in that turn, added first with
   `drive job add codex --order <o> --part rollback --goal "rollback: <incident>"`. The fix job

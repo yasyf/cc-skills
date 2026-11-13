@@ -8,7 +8,7 @@ import sys
 import tempfile
 import textwrap
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from functools import cache
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
@@ -583,32 +583,45 @@ def drive_post_at(link: str, data: dict, order_id: str, sent: str | None = None)
 
 
 def pick_parts(order_id: str, order: dict, named: list[str]) -> list[str]:
-    listed = ", ".join(f'"{part}"' for part in order["parts"])
+    listed = quoted_parts(order["parts"])
     if not named:
         if len(order["parts"]) != 1:
             raise DriveError(f"{order_id} has parts {listed}; name the one this covers with --part")
         return list(order["parts"])
     if unknown := [part for part in named if part not in order["parts"]]:
-        raise DriveError(f"{order_id} has no part {', '.join(unknown)}; its parts are {listed}")
+        adds = " ".join(f"--add-part {shlex.quote(part)}" for part in dict.fromkeys(unknown))
+        raise DriveError(f"{order_id} has no part {quoted_parts(unknown)}; its parts are {listed}: name one as it stands, or add a new one first with drive order set {order_id} {adds}")
     return list(dict.fromkeys(named))
+
+
+def quoted_parts(parts: Iterable[str]) -> str:
+    """Part names as JSON strings, so a name holding a quote, a comma or a semicolon reads apart from the next."""
+    return ", ".join(json.dumps(part, ensure_ascii=False) for part in parts)
+
+
+def change_parts(data: dict, order_id: str, added: list[str], dropped: list[str]) -> None:
+    """Add and take off an order's parts one name a flag, so no call retypes a part it leaves alone, and each part it keeps keeps its posted mark, design and the jobs naming it: an add is refused for a name the order holds, a drop for a name it does not hold, for its every part, which a close takes off, and for a change a design listed that no builder delivered, which only his answer drops."""
+    parts = data["orders"][order_id]["parts"]
+    if held := [part for part in added if part in parts]:
+        raise DriveError(f"{order_id}: refused, its parts stay as they are: it holds {quoted_parts(held)} already, so --add-part adds none; name it as it stands with --part")
+    if dropped:
+        pick_parts(order_id, data["orders"][order_id], dropped)
+    if not added and set(parts) <= set(dropped):
+        raise DriveError(f"{order_id}: refused, its parts stay as they are: --drop-part takes off its every part, which closes it: drive order set {order_id} --state done or dropped")
+    if designed := [f'{json.dumps(part, ensure_ascii=False)} of {parts[part]["design"]}\'s design' for part in dropped if parts[part]["design"] and not state.delivered(data, order_id, part)]:
+        raise DriveError(
+            f"{order_id}: refused, its parts stay as they are: --drop-part takes off {', '.join(designed)}, which no builder delivered;"
+            f" a design's change leaves once its builder delivers it, or by his answer, drive answer <his answer> --dropped {order_id}:<the part>,"
+            " which takes it off every job and PR too"
+        )
+    for part in dropped:
+        del parts[part]
+    parts |= {part: state.new_part() for part in added}
 
 
 def apart_from_filing(order: dict) -> str:
     """The order apart from its project, workstream and title, so filing or titling it alone leaves the time it last moved, which the dashboard reads as when a done order went live."""
     return json.dumps({field: value for field, value in order.items() if field not in FILING}, sort_keys=True)
-
-
-def refuse_a_renamed_change(data: dict, order_id: str, parts: list[str]) -> None:
-    """A --parts list that adds a name refuses to leave out a change a design listed and no builder delivered, since the part under the new name would lose the design and the builder its name ties it to; a list that only drops parts, delivered or withdrawn by him, passes."""
-    held = data["orders"][order_id]["parts"]
-    added = [part for part in parts if part not in held]
-    left = [f'"{part}" of {kept["design"]}\'s design' for part, kept in held.items() if part not in parts and kept["design"] and not state.delivered(data, order_id, part)]
-    if added and left:
-        raise DriveError(
-            f"{order_id}: refused, its parts stay as they are: --parts adds {', '.join(json.dumps(part, ensure_ascii=False) for part in added)}"
-            f" and leaves out {', '.join(left)}, which no builder delivered; name each change by its part, as drive job add builder"
-            ' --part "<the part>" takes it, and leave a change out only once it is delivered or he withdrew it'
-        )
 
 
 def order_set(args: argparse.Namespace) -> int:
@@ -707,13 +720,11 @@ def order_set(args: argparse.Namespace) -> int:
         if args.state:
             order["state"] = args.state
         order["alerts"] = list(dict.fromkeys([*order["alerts"], *alerts]))
-        if args.parts:
-            refuse_a_renamed_change(data, args.id, args.parts)
-            order["parts"] = {part: order["parts"].get(part, state.new_part()) for part in args.parts}
+        change_parts(data, args.id, list(dict.fromkeys(args.add_part)), list(dict.fromkeys(args.drop_part)))
         if args.incident and not order["incident"] and not any(state.INCIDENT_FIX in state.job_parts(data["jobs"][job_id], args.id) for job_id in order["jobs"]):
             raise DriveError(
                 f'{args.id}: refused, an incident order starts its fix job at the alert, beside diagnosis: give it a "{state.INCIDENT_FIX}"'
-                f" part with --parts and record its job with drive job add codex --order {args.id} --part {state.INCIDENT_FIX} first, then start it with drive job launch <its job>"
+                f" part with drive order set {args.id} --add-part {state.INCIDENT_FIX} and record its job with drive job add codex --order {args.id} --part {state.INCIDENT_FIX} first, then start it with drive job launch <its job>"
             )
         if args.incident is not None:
             order["incident"] = args.incident
@@ -4248,7 +4259,22 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument(
         "--withdrawn", metavar="LINK", help="his Slack message calling off the promised time; the order then owes no line for it"
     )
-    verb.add_argument("--parts", nargs="+", type=str.strip, metavar="PART", help="the order's parts, replacing its list")
+    verb.add_argument(
+        "--add-part",
+        action="append",
+        default=[],
+        type=str.strip,
+        metavar="PART",
+        help="a part to add, one name a flag, each other part staying as it is; refused for a name the order holds",
+    )
+    verb.add_argument(
+        "--drop-part",
+        action="append",
+        default=[],
+        type=str.strip,
+        metavar="PART",
+        help="a part to take off, one name a flag, each other part staying as it is; refused for a name the order does not hold, for its every part, which a close takes off, and for a change a design listed that no builder delivered, which only his answer's --dropped takes off",
+    )
     reported = verb.add_mutually_exclusive_group()
     reported.add_argument("--reporter", metavar="LINK", help=REPORTER_HELP)
     reported.add_argument("--no-reporter", metavar="LINK", help="his Slack message saying not to tell the reporter; the order then closes done with no note to them")
