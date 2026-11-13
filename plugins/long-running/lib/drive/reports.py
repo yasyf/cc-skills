@@ -103,6 +103,7 @@ def report_refusals(payload: dict, drive: dict, records: list[dict], index: int)
     if thread and state.session_role(drive, payload.get("session_id")) in ("coordinator", "meta") and not payload.get("agent_id") and not state.open_incidents(drive, state.report_orders(drive, attrs(record))):
         yield second_report(payload, records, index, thread)
     yield agents.unread_job(payload, text)
+    yield agents.unowned_work(text)
 
 
 def unprevented(drive: dict, record: dict) -> str | None:

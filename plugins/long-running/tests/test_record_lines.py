@@ -420,6 +420,12 @@ def test_a_job_is_called_stuck_only_after_a_read_of_its_transcript(demo: str, tu
     assert record_lines.decision(coordinator(turn, **stuck)) is None
 
 
+def test_a_report_saying_work_has_no_one_on_it_names_the_job_put_on_it(demo: str) -> None:
+    unowned = "POST auto partitioning on the same abstraction has no one working on it"
+    assert '"no one working" says work has no one on it' in refusal(record_lines.decision(post(kind="report", text=unowned, to=TO, attrs=PROGRESS)))
+    assert record_lines.decision(post(kind="report", text=f"{unowned}, so j3101 builds it from now", to=TO, attrs=PROGRESS)) is None
+
+
 STALL = (
     "POST The builder for your pick on the 3:27 AM replica stall started at 4:55 AM, about 25 minutes late: the workflow_runs"
     " export moves to its own read replica and the api replica replays at once, cancelling a conflicting read."
