@@ -34,6 +34,7 @@ from drive import (
     slack,
     stage,
     state,
+    superseded,
     tools,
     view,
     watch,
@@ -5935,6 +5936,31 @@ def test_an_answer_stays_unfinished_until_each_job_waiting_on_an_order_it_touche
     assert cli.main(["answer", "a1", "--sent", "j4"]) == 2
     assert "j4: not a job waiting on an order a1 touches that is unmarked" in capsys.readouterr().err
     assert run("answer", "a1", "--sent", "j3") == (
+        0,
+        "his answer a1 recorded: 1 standing, 0 superseded, 0 reopened by it; 1 waiting job sent his words, 0 untouched",
+    )
+    assert state.load("demo")["answers"]["a1"]["jobs"] == {"j3": {"mark": "sent"}}
+
+
+def test_a_remote_lane_waiting_on_an_order_his_answer_touches_is_marked_sent_only_once_a_resume_delivered_his_words(
+    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cards_asking(monkeypatch, PR)
+    run("job", "add", "builder", "--order", "o1", "--goal", "build the store", "--remote")
+    with state.edit("demo") as data:
+        data["jobs"]["j3"].update(state="waiting", dispatch="ctx_lane0003")
+    assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
+    assert "  j3 waits on o1 and has not heard a1: drive job resume j3 with his words verbatim, or mark it untouched" in capsys.readouterr().err
+    assert cli.main(["answer", "a1", "--stands", designing, "--sent", "j3"]) == 2
+    assert capsys.readouterr().err == (
+        "drive: j3: refused, nothing marked: a remote lane is marked sent only by the drive job resume that delivers his words verbatim"
+        " to its worker, and none has since a1 listed it, so his answer has not reached it: mark the rest without it, then drive job"
+        " resume <j> with his words\n"
+    )
+    assert state.load("demo")["answers"]["a1"]["jobs"] == {"j3": None}
+    with state.edit("demo") as data:
+        superseded.hear(data, "j3", f"His answer, verbatim:\n\n{WORDS}\n\nAct on it.")
+    assert run("answer", "a1", "--stands", designing, "--sent", "j3") == (
         0,
         "his answer a1 recorded: 1 standing, 0 superseded, 0 reopened by it; 1 waiting job sent his words, 0 untouched",
     )

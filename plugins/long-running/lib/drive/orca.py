@@ -53,6 +53,7 @@ TIMEOUT = "timeout"
 ANSWERED_ELSEWHERE = "answer_conflict"
 DISPATCH_CLOSED = "dispatch_inactive"
 UNSTARTED = 75
+UNFIT = 76
 CC_REMOTE = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "cc-remote"
 CC_REMOTE_WORKSPACES = CC_REMOTE / "workspaces"
 CC_REMOTE_TASKS = CC_REMOTE / "orca"
@@ -419,6 +420,8 @@ def launch(drive: str, lane: str, brief: Path, checkout: Path, run: str, route: 
         said = done.stderr.strip().splitlines()
         reason = said[-1] if said else "no output"
         attempt = brief.with_suffix(".worker")
+        if done.returncode == UNFIT:
+            raise Unfit(reason)
         if unsent(brief):
             raise Unstarted(reason)
         if (attempt / "worker-start.status").exists():
@@ -544,7 +547,7 @@ def gone(error: OrcaError) -> str | None:
 
 
 def lane_end(job: dict) -> LaneEnd | None:
-    """None while the lane's worker takes messages; else why it does not, the branch its terminal was on, and, for a worker that finished while Orca holds its terminal, on its Sprite or on this Mac, the worktree, terminal and Run its next worker starts on, read from Orca, since a dispatch recorded by hand records neither. OrcaError when Orca cannot tell either way."""
+    """None while the lane's worker takes messages; else why it does not, the branch its terminal was on, and, for a worker that finished while Orca holds its terminal connected, on its Sprite or on this Mac, the worktree, terminal and Run its next worker starts on, read from Orca, since a dispatch recorded by hand records neither. A finished worker is read before its liveness, which Orca cannot always tell once the worker is done, and one whose terminal is no longer connected ends as a dead one does. OrcaError when Orca cannot tell either way."""
     try:
         shown = worker(job["dispatch"])
     except OrcaError as error:
@@ -554,11 +557,13 @@ def lane_end(job: dict) -> LaneEnd | None:
     branch = ((shown.get("terminal") or {}).get("branch") or "").removeprefix("refs/heads/") or None
     if why := death(shown):
         return LaneEnd(why, branch, None)
-    if (verdict := shown["projection"]["liveness"]["verdict"]) != "live":
-        raise OrcaError(f"orca orchestration worker-show: its worker's liveness is {verdict}")
     if (finished := shown["worker"]["state"]) in FINISHED:
+        if not shown["terminal"]["connected"]:
+            return LaneEnd(f"its worker {finished}, and its terminal {shown['terminal']['handle']} is no longer connected", branch, None)
         why = f"its worker {finished}, and Orca sends nothing to a finished worker {ON_MAC if state.on_mac(job) else 'on a Sprite'}"
         return LaneEnd(why, branch, shown["worker"]["startOptions"]["worktree"], shown["terminal"]["handle"], shown["dispatch"]["runId"])
+    if (verdict := shown["projection"]["liveness"]["verdict"]) != "live":
+        raise OrcaError(f"orca orchestration worker-show: its worker's liveness is {verdict}")
     return None
 
 
@@ -608,7 +613,7 @@ def start_after(drive: str, lane: str, brief: Path, job: dict, end: LaneEnd) -> 
 
 
 def place_tools(workspace: str) -> None:
-    """Put on the workspace's Sprite the tools a launch puts there, through the orca plugin's own step on the task cc-remote keeps for that Sprite: the released ccx and cc-notes, and each WORKER_TOOLS file, this plugin's `drive` that asks each verb of this Mac; Unfit naming the step's refusal, since no worker starts without them."""
+    """Put on the workspace's Sprite the tools a launch puts there, through the orca plugin's own step on the task cc-remote keeps for that Sprite: the released ccx and cc-notes, and each WORKER_TOOLS file, this plugin's `drive` that asks each verb of this Mac; Unfit naming the step's refusal, since no worker starts without them and a live one lacks them."""
     done = subprocess.run(
         [tool(TOOLS), str(CC_REMOTE_TASKS / f"{workspace}.json")],
         env={**os.environ, "WORKER_TOOLS": SPRITE_TOOLS},
@@ -619,7 +624,7 @@ def place_tools(workspace: str) -> None:
     )
     if done.returncode:
         said = done.stderr.strip().splitlines()
-        raise Unfit(f"{TOOLS} exited {done.returncode} on {workspace}, so no worker started: {said[-1] if said else 'no output'}")
+        raise Unfit(f"{TOOLS} exited {done.returncode} on {workspace}: {said[-1] if said else 'no output'}")
 
 
 def place_brief(workspace: str, lane: str, text: bytes) -> str:

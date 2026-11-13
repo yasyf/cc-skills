@@ -14,8 +14,9 @@ import json, pathlib, sys
 here = pathlib.Path(__file__).parent
 with (here / "asked.jsonl").open("a") as log:
     log.write(json.dumps(sys.argv[1:]) + "\\n")
-answers = json.loads((here / "answers.json").read_text())
-print(json.dumps({"result": answers[len((here / "asked.jsonl").read_text().splitlines()) - 1]}))
+answer = json.loads((here / "answers.json").read_text())[len((here / "asked.jsonl").read_text().splitlines()) - 1]
+print(json.dumps({"ok": "answer" in answer, "result": answer}))
+sys.exit(0 if "answer" in answer else 1)
 """
 
 
@@ -55,6 +56,12 @@ def test_a_wait_that_times_out_resumes_the_same_question_until_it_is_answered(tm
     done, asked = drive(tmp_path, [{"timedOut": True, "messageId": "msg_1"}, {"timedOut": True, "messageId": "msg_1"}, {"answer": "drive exited 0\nkept"}], "status")
     assert (done.returncode, done.stdout) == (0, "kept\n")
     assert [words[2:4] for words in asked] == [["--question", "DRIVE status\n" + json.dumps({"files": {}})], ["--resume", "msg_1"], ["--resume", "msg_1"]]
+
+
+def test_an_ask_orca_fails_without_a_timeout_exits_1_naming_why(tmp_path: Path) -> None:
+    done, asked = drive(tmp_path, [{"messageId": "msg_1"}], "status")
+    assert (done.returncode, len(asked)) == (1, 1)
+    assert done.stderr.startswith("drive: orca orchestration ask exited 1: ")
 
 
 @pytest.mark.parametrize("answer", ["", "no exit line"])

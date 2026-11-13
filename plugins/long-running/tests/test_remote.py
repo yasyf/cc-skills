@@ -20,13 +20,14 @@ RUN = "run_drive0001"
 FRESH_RUN = "run_relaunch1"
 DRIVE_RUN = "run_coordinator1"
 DISPATCH = "ctx_lane0001"
+PLACE_TOOLS = orca.place_tools
 BREAK_GLASS_READ = 'DRIVE break-glass j1 --stack sandsql/plat-usw2-prod --reason "drop the stranded copies" -- psql -c "drop table copy_1"'
 ENDED_READER = 99_999_999
 SEQUENCE = itertools.count(1)
 FINISHED_WORKER = {
     "worker": {"state": "succeeded", "startOptions": {"worktree": "id:repo-1::/home/sprite/monorepo"}},
     "projection": {"liveness": {"verdict": "live"}, "outcome": "succeeded", "attention": {"categories": ["root_completion"]}},
-    "terminal": {"handle": "term_lane", "branch": "refs/heads/ci-mac-box-prove"},
+    "terminal": {"handle": "term_lane", "branch": "refs/heads/ci-mac-box-prove", "connected": True},
     "dispatch": {"runId": RUN, "taskId": "task_1", "completedAt": state.stamp(T0 - timedelta(minutes=10))},
 }
 ROOT_DISPATCH = "ctx_ab821100f80b"
@@ -34,7 +35,7 @@ ROOT_WORKER = {
     "worker": {"state": "ready", "startOptions": {"worktree": "path:/work/root-tooling"}},
     "dispatch": {"runId": RUN, "taskId": "task_root"},
     "projection": {"liveness": {"verdict": "live"}, "outcome": "in_progress", "attention": {"categories": []}},
-    "terminal": {"handle": "term_root", "lastOutputAt": None},
+    "terminal": {"handle": "term_root", "lastOutputAt": None, "connected": True},
 }
 SPRITE_DISPATCH = "ctx_sprite0001"
 SPRITE_WORKER = {
@@ -783,7 +784,7 @@ def test_resume_answers_an_open_question_naming_logs_with_those_logs_ahead_of_it
 
 
 def dead(verdict: str = "exited") -> dict:
-    return {"projection": {"liveness": {"verdict": verdict}, "outcome": "in_progress", "attention": {"categories": []}}}
+    return {"worker": {"state": "ready"}, "projection": {"liveness": {"verdict": verdict}, "outcome": "in_progress", "attention": {"categories": []}}}
 
 
 def test_resume_to_a_dead_worker_relaunches_the_job_with_the_message_in_its_handoff(
@@ -1083,6 +1084,144 @@ def test_resume_to_a_finished_worker_whose_terminal_orca_no_longer_finds_relaunc
     assert brief.endswith("which you act on now:\n\nThe review: one medium finding, fix it")
     job = state.load(remote)["jobs"]["j1"]
     assert (job["dispatch"], job["workspace"], [death["dispatch"] for death in job["deaths"]]) == ("dispatch-2", "workspace-2", [DISPATCH])
+
+
+def test_a_finished_worker_whose_terminal_is_no_longer_connected_relaunches_the_job_whatever_its_liveness_reads(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cloned(tmp_path, remote)
+    first = tmp_path / "first.md"
+    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): prove it\nDrive: demo, order o1, job j1", None))
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(brief=str(first), terminal="term_lane", workspace="pool-one", environment="pool-one", state="waiting")
+    shown = {
+        **FINISHED_WORKER,
+        "projection": {"liveness": {"verdict": "unverifiable", "reason": "missing_status"}, "outcome": "succeeded", "attention": {"categories": []}},
+        "terminal": {**FINISHED_WORKER["terminal"], "connected": False},
+    }
+    monkeypatch.setattr(orca, "worker", lambda dispatch: shown)
+    monkeypatch.setattr(orca, "bound_command", lambda *args: pytest.fail("no worker starts in a terminal that is no longer connected"))
+    monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing is sent to a finished worker: {args}"))
+    monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: None)
+    monkeypatch.setattr(orca, "new_run", lambda objective: FRESH_RUN)
+    launched = {}
+
+    def fake_launch(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None, workspace: str | None) -> dict:
+        launched.update(lane=lane, run=run_id, workspace=workspace)
+        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane")}
+
+    monkeypatch.setattr(orca, "launch", fake_launch)
+    assert run("job", "resume", "j1", "TAP Approve") == (
+        0,
+        "j1: the message went to the job's next worker, relaunched on Sprite workspace-2 as dispatch dispatch-2 in a handoff"
+        " carrying its brief, its branch, its last line, its report and its PRs; its lane on Sprite pool-one was dead (its worker"
+        " succeeded, and its terminal term_lane is no longer connected), and work not pushed from pool-one is not carried over",
+    )
+    assert (launched["lane"], launched["run"], launched["workspace"]) == ("demo-j1-2", FRESH_RUN, None)
+    assert state.load(remote)["jobs"]["j1"]["dispatch"] == "dispatch-2"
+
+
+REFUSED = "install: error writing '/home/sprite/.local/bin/ccx': No space left on device"
+UNFIT = f"demo-j1-2.worker.1 keeps the earlier attempt, whose Sprite pool-two refused the tools a worker needs: {REFUSED}, and its Sprite pool-two is destroyed; launching this brief again prepares a fresh Sprite"
+UNFIT_KEPT = (
+    f"demo-j1-2.worker.1 keeps the earlier attempt, whose Sprite sprite-old refused the tools a worker needs: {REFUSED}, and its Sprite"
+    " sprite-old is kept, since this launch continues the lane on it; launching this brief again prepares a fresh Sprite once WORKER_WORKSPACE is unset"
+)
+
+
+def answered_dead_lane(remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, save: Callable[..., str | None], refusals: int) -> list[tuple[str, str, str | None]]:
+    cloned(tmp_path, remote)
+    first = tmp_path / "first.md"
+    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(brief=str(first), workspace="sprite-old", state="waiting")
+        data["answers"]["a1"] = {"words": "Approve", "link": "https://acme.slack.com/archives/D123/p1794300000000300", "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {"j1": None}}
+    monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing is sent to a dead lane: {args}"))
+    monkeypatch.setattr(orca, "worker", lambda dispatch: dead())
+    monkeypatch.setattr(orca, "save", save)
+    monkeypatch.setattr(orca, "new_run", lambda objective: FRESH_RUN)
+    launched = []
+
+    def fake_launch(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None, workspace: str | None) -> dict:
+        launched.append((lane, run_id, workspace))
+        if len(launched) <= refusals:
+            raise orca.Unfit(UNFIT_KEPT if workspace else UNFIT)
+        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane")}
+
+    monkeypatch.setattr(orca, "launch", fake_launch)
+    return launched
+
+
+def test_a_resume_whose_fresh_sprite_refuses_the_tools_launches_once_more_on_another_and_marks_his_answer_sent_once_it_started(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    launched = answered_dead_lane(remote, tmp_path, monkeypatch, lambda drive, job_id, job, root: None, 1)
+    assert run("job", "resume", "j1", "His answer, verbatim: Approve") == (
+        0,
+        "j1: the message went to the job's next worker, relaunched on Sprite workspace-2 as dispatch dispatch-2 in a handoff"
+        " carrying its brief, its branch, its last line, its report and its PRs; its lane on Sprite sprite-old was dead (its"
+        " worker exited), and work not pushed from sprite-old is not carried over",
+    )
+    assert launched == [("demo-j1-2", FRESH_RUN, None), ("demo-j1-2", FRESH_RUN, None)]
+    assert state.load(remote)["answers"]["a1"]["jobs"] == {"j1": {"mark": "sent"}}
+
+
+def test_a_resume_whose_fresh_sprites_both_refuse_the_tools_exits_2_and_leaves_his_answer_unsent(
+    remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    launched = answered_dead_lane(remote, tmp_path, monkeypatch, lambda drive, job_id, job, root: None, 2)
+    assert cli.main(["job", "resume", "j1", "His answer, verbatim: Approve"]) == 2
+    assert capsys.readouterr().err == f"drive: {UNFIT}\n"
+    assert launched == [("demo-j1-2", FRESH_RUN, None), ("demo-j1-2", FRESH_RUN, None)]
+    data = state.load(remote)
+    assert (data["jobs"]["j1"]["dispatch"], data["answers"]["a1"]["jobs"]) == (DISPATCH, {"j1": None})
+
+
+def test_a_resume_continuing_on_a_dead_lanes_sprite_that_refuses_the_tools_keeps_it_and_relaunches_on_a_fresh_one(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    launched = answered_dead_lane(remote, tmp_path, monkeypatch, unsaveable(UNREAD), 1)
+    assert run("job", "resume", "j1", "His answer, verbatim: Approve") == (
+        0,
+        "j1: the message went to the job's next worker, relaunched on Sprite workspace-2 as dispatch dispatch-2 in a handoff"
+        " carrying its brief, its branch, its last line, its report and its PRs; its lane on Sprite sprite-old was dead (its"
+        f" worker exited, and {UNFIT_KEPT}), and sprite-old is kept, since what it holds on no remote could not be saved: {UNREAD}",
+    )
+    assert launched == [("demo-j1-2", FRESH_RUN, "sprite-old"), ("demo-j1-2", FRESH_RUN, None)]
+    assert state.load(remote)["answers"]["a1"]["jobs"] == {"j1": {"mark": "sent"}}
+
+
+def test_a_message_to_a_live_sprite_lane_no_recorded_start_put_the_tools_on_places_them_first_and_only_once(
+    run: Run, remote: str, tooled: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(workspace="pool-1895", environment="pool-1895")
+    sent = []
+    monkeypatch.setattr(orca, "call", lambda *args: sent.append(args) or {})
+    assert run("job", "resume", "j1", "DRIVE status works again") == (0, f"j1: sent to dispatch {DISPATCH}")
+    assert run("job", "resume", "j1", "PR #7 merged") == (0, f"j1: sent to dispatch {DISPATCH}")
+    assert (tooled, len(sent)) == (["pool-1895"], 2)
+    assert state.load(remote)["jobs"]["j1"]["tools_on"] == "pool-1895"
+
+
+def test_a_live_sprite_lane_whose_sprite_refuses_the_tools_still_gets_its_message_and_the_next_one_places_them_again(
+    run: Run, remote: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(workspace="pool-1895", environment="pool-1895")
+    refusal = f"orca-sprite-tools.sh exited 76 on pool-1895: {REFUSED}"
+    tried = []
+
+    def refused(workspace: str) -> None:
+        tried.append(workspace)
+        raise orca.Unfit(refusal)
+
+    monkeypatch.setattr(orca, "place_tools", refused)
+    monkeypatch.setattr(orca, "call", lambda *args: {})
+    assert run("job", "resume", "j1", "PR #7 merged") == (0, f"j1: sent to dispatch {DISPATCH}; its Sprite still lacks the drive forwarder: {refusal}")
+    assert run("job", "resume", "j1", "PR #8 merged")[0] == 0
+    assert tried == ["pool-1895", "pool-1895"]
+    assert "tools_on" not in state.load(remote)["jobs"]["j1"]
 
 
 NO_SPACE = "orca-worker-tools exited 1 on pool-one, so no worker started: write /home/sprite/.local/bin/ccx: no space left on device"
@@ -2660,10 +2799,10 @@ def test_placing_tools_on_a_sprite_runs_the_orca_step_on_its_cc_remote_task_with
         return subprocess.CompletedProcess(argv, int(failed), stdout="drive placed\n", stderr="a login shell runs drive from nothing\n" if failed else "")
 
     monkeypatch.setattr(orca.subprocess, "run", step)
-    orca.place_tools("pool-one")
+    PLACE_TOOLS("pool-one")
     assert ran == [(["orca-sprite-tools.sh", str(tmp_path / "pool-one.json")], f"drive={orca.PLUGIN / 'lib' / 'sprite' / 'drive'}")]
-    with pytest.raises(orca.Unstarted, match="^orca-sprite-tools.sh exited 1 on pool-one, so no worker started: a login shell runs drive from nothing$"):
-        orca.place_tools("pool-one")
+    with pytest.raises(orca.Unstarted, match="^orca-sprite-tools.sh exited 1 on pool-one: a login shell runs drive from nothing$"):
+        PLACE_TOOLS("pool-one")
 
 
 def test_placing_a_brief_on_a_sprite_sends_it_through_ssh_stdin_and_returns_the_path_only_when_the_sprite_kept_those_bytes(

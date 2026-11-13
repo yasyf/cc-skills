@@ -7,6 +7,7 @@ if [ $# -ne 1 ]; then
 fi
 task=$1
 released=("ccx yasyf/cc-context" "cc-notes yasyf/cc-notes ccn")
+unfit=76
 
 die() {
   echo "$*" >&2
@@ -39,7 +40,8 @@ for pair in ${tools[@]+"${tools[@]}"}; do
 done
 
 printf -v args ' %q' "$((${#placed[@]} / 2))" ${placed[@]+"${placed[@]}"} "${words[@]}"
-ssh -F "$config" -o BatchMode=yes -o ConnectTimeout=30 "$host" "bash -s --$args" <<'SPRITE'
+status=0
+ssh -F "$config" -o BatchMode=yes -o ConnectTimeout=30 "$host" "bash -s --$args" <<'SPRITE' || status=$?
 set -eu
 dest=$HOME/.local/bin
 staged=$(mktemp -d)
@@ -89,3 +91,5 @@ if [ "$("$dest/zig" version 2>/dev/null)" != 0.14.0 ]; then
 fi
 echo "zig $("$dest/zig" version)"
 SPRITE
+[ "$status" -eq 0 ] || [ "$status" -eq 255 ] || exit "$unfit"
+exit "$status"

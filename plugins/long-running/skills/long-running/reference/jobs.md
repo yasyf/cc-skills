@@ -257,14 +257,25 @@ before it sends or starts.
   this Mac with `drive job launch <j> --local`, on a handoff carrying the job's brief, branch, last
   line, report, PRs and the message.
 - A live worker gets the message: the answer to its open question, or a new message to its Dispatch
-  when it asked none or Orca already holds another answer to it. On a finished worker whose Sprite is still up, it starts the job's
-  next worker in its terminal, on the Run and terminal Orca shows for that worker; when Orca no
-  longer finds that terminal or worktree, the worker counts as dead, and when its Sprite refuses
-  the tools a worker needs, that Sprite is passed over as a dead one's. A dead worker, or one whose
+  when it asked none or Orca already holds another answer to it. A live Sprite lane no start this
+  drive recorded put the tools on, as one started before the drive forwarder existed or recorded by
+  hand, first gets the tools a launch puts there, `drive` among them; a refusal is named after the
+  send, and the next message tries again. On a finished worker whose Sprite is still up, it starts the job's
+  next worker in its terminal, on the Run and terminal Orca shows for that worker, read before
+  its liveness, which Orca cannot always tell once a worker is done; when Orca no longer finds
+  that terminal or worktree, or no longer holds that terminal connected, the worker counts as
+  dead, and when its Sprite refuses the tools a worker needs, that Sprite is passed over as a dead
+  one's. A dead worker, or one whose
   Sprite's Orca environment is gone, as `drive job end` leaves it, is relaunched on a fresh Sprite
   on a Run this terminal makes, since Orca binds a Run only to the terminal that made it. A
   relaunch whose earlier try prepared a Sprite and started no worker on it reuses that Sprite, and
-  the launcher copies the new handoff onto it.
+  the launcher copies the new handoff onto it, unless that Sprite's own install refused the tools
+  a worker needs, a full disk or a toolchain directory it cannot write: the launcher then destroys
+  it and exits 76, and the relaunch prepares one fresh Sprite, failing with his answer unsent when
+  that one refuses them too.
+- A delivered message, sent to a live worker or carried in a started worker's handoff, marks the
+  job sent each answer of his whose words it holds verbatim; nothing else marks a remote lane
+  sent, so `drive answer --sent` on one only confirms that mark.
 - Either new worker gets a handoff carrying the job's brief, branch, last line, report, PRs and the
   message, and the output says which ran.
 - Before a relaunch on a fresh Sprite it saves the dead lane's Sprite, found by the job's workspace
