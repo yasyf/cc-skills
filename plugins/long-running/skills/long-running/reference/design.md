@@ -77,7 +77,8 @@ background process. When you cannot tell, it counts, because a wrong shape costs
      always you can optimistically build the recommended option on a branch)".
 3. **Built is a state, not a PR.** That builder returns `BUILT <branch>, waits on <cards>` and
    opens no PR. The line sets its job built on that branch, waiting on each card's waits id or
-   Slack link it names.
+   Slack link it names and on each open card of his a job on its parts asked, its reader's
+   included whatever words the line names it in.
    - `drive status`, `drive view`, the dashboard and his Slack status page show it built, with its
      branch and each card. Outside an incident, the `bash_guard` hook refuses the `ccx vcs ship` that
      would open its PR while one of its cards is open. An immediate fix's job is never held: its PR goes up at once.

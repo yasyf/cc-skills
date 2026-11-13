@@ -124,7 +124,7 @@ the PR merges or closes or the release is out; a release wait whose service `too
 | `READY`, `PUSHED` or `DESIGN` from any job but a reader, `WAITING`, `ASK` | waiting; an `ASK` keeps as its said line the question's title `drive job ask` set |
 | `BLOCKED` | failed |
 | `HANDOFF <path>`, a job its session stopped before done | stopped |
-| `BUILT <branch>, waits on <cards>` | built on that branch, waiting on each card it names |
+| `BUILT <branch>, waits on <cards>` | built on that branch, waiting on each card it names and each open card of his a job on its parts asked |
 
 A codex job's state comes from the codex-ask run its relay asked, never from the relay's line. At the
 relay's stop, and on each watch pass once its turn ended, the drive runs `codex-ask --collect` on the
