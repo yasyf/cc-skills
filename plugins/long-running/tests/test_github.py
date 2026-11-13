@@ -326,9 +326,12 @@ def test_live_reads_the_hold_label_the_drive_holds_its_own_pr_with() -> None:
     assert github.live(pr_read(GREEN, labels=["holdover"]), stored())["hold_label"] is False
 
 
-@pytest.mark.parametrize(("mergeable", "conflict"), [("CONFLICTING", True), ("MERGEABLE", False), ("UNKNOWN", False)])
-def test_live_reads_a_conflict_only_while_github_answers_conflicting_whatever_it_answered_before(mergeable: str, conflict: bool) -> None:
-    assert github.live(pr_read(GREEN, mergeable=mergeable), stored() | {"conflict": True})["conflict"] is conflict
+@pytest.mark.parametrize(
+    ("mergeable", "head", "was", "conflict"),
+    [("CONFLICTING", "abc", True, True), ("MERGEABLE", "abc", True, False), ("UNKNOWN", "abc", True, True), ("UNKNOWN", "abc", False, False), ("UNKNOWN", "def", True, False), ("CONFLICTING", "def", False, True)],
+)
+def test_live_keeps_a_conflict_through_unknown_at_its_head_and_reads_none_at_a_new_head_until_github_answers_conflicting(mergeable: str, head: str, was: bool, conflict: bool) -> None:
+    assert github.live(pr_read(GREEN, mergeable=mergeable, headRefOid=head), stored() | {"conflict": was})["conflict"] is conflict
 
 
 @pytest.mark.parametrize(

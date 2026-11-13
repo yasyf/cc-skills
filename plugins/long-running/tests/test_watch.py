@@ -202,7 +202,7 @@ def test_a_prs_moves_are_said_whatever_its_jobs_state_and_wake_no_one_while_the_
     assert (draws.keys, pr["card"], pr["stage"]["name"]) == ([[KEY]] * wants_tap, draws.link if wants_tap else None, "uncarded" if wants_tap else "author")
 
 
-def test_a_pr_that_starts_to_conflict_with_its_base_is_said_once_per_conflict(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_pr_that_starts_to_conflict_with_its_base_is_said_once_per_conflict_through_githubs_unknown_at_its_head(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     reads = {KEY: read(mergeable="CONFLICTING")}
     serve(monkeypatch, reads)
     watching = watcher(demo)
@@ -211,7 +211,7 @@ def test_a_pr_that_starts_to_conflict_with_its_base_is_said_once_per_conflict(de
         reads[KEY] = read(mergeable=mergeable)
         said.append(watch.run_pass(watching, T0 + timedelta(minutes=2 * minute)))
     conflict = [f"PR {KEY}: conflicts with its base [o1 j1]"]
-    assert said == [conflict, [], [], conflict, [], conflict]
+    assert said == [conflict, [], [], [], [], conflict]
 
 
 REPLAYED_55220 = "Forge-AI/monorepo#55220"
@@ -3983,6 +3983,62 @@ def test_a_red_prs_builder_whose_waiting_names_only_its_own_prs_is_woken_every_t
         state.take_result(data, "j1", f"WAITING readers-first on {KEY}")
     watch.run_pass(watching, T0 + timedelta(minutes=30))
     assert (state.load(demo)["prs"][KEY]["stage"]["name"], len(woken)) == ("red", 2)
+
+
+def test_replayed_55571_a_red_pr_whose_builder_waits_on_its_own_open_question_wakes_it_once_per_red_and_once_his_answer_closes_the_question(
+    demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]]
+) -> None:
+    red_pr, card_link, waits = "Forge-AI/monorepo#55571", "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794577515737969", "demo:j2268-1794577515737"
+    url = state.pr_url(red_pr)
+    asked = state.new_question(None, "What writes a workflow run that has no agent?", state.stamp(T0), card=card_link, holds=url) | {"waits": waits}
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["jobs"].append("j2268")
+        data["jobs"]["j2268"] = job(prs=[url], state="waiting", said=asked["title"], questions=[asked])
+        data["prs"][red_pr] = state.new_pr(url, "j2268", "o1") | {"head": "a2d5a98aaa", "wants_tap": True, "card": CARD, "checked": CHECKED | {"head": "a2d5a98aaa"}}
+    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question(waits) | {"url": card_link}], "closed": [], "pr_cards": []})
+    reads: dict[str, dict] = {}
+    serve(monkeypatch, reads)
+    watching = watcher(demo)
+    waiting = f"WAITING {red_pr} waits on {card_link}"
+    passes = []
+
+    def at(minutes: int, **fetched: object) -> None:
+        reads[red_pr] = read(**{"headRefOid": "a2d5a98aaa", "baseRefName": "dev", "mergeable": "CONFLICTING"} | fetched)
+        watch.run_pass(watching, T0 + timedelta(minutes=minutes))
+        kept = state.load(demo)["prs"][red_pr]["stage"]
+        passes.append((minutes, kept["name"], kept["owner"], [key for key, _ in woken]))
+        woken.clear()
+
+    at(0)
+    with state.edit(demo) as data:
+        state.take_result(data, "j2268", waiting)
+    at(2)
+    blocked_why = state.load(demo)["prs"][red_pr]["stage"]["why"]
+    at(4, mergeable="UNKNOWN")
+    at(6)
+    at(40)
+    at(42, headRefOid="f222db8aaa", mergeable="UNKNOWN")
+    at(44, headRefOid="f222db8aaa")
+    at(46, headRefOid="f222db8aaa", checks=RED)
+    with state.edit(demo) as data:
+        state.take_result(data, "j2268", waiting)
+    at(48, headRefOid="f222db8aaa", checks=RED)
+    with state.edit(demo) as data:
+        data["jobs"]["j2268"]["questions"][-1]["closed"] = state.new_close("answered", "option 1", None, seq="#9")
+    at(50, headRefOid="f222db8aaa", checks=RED)
+    assert blocked_why == f"it conflicts with its base dev, and its builder waits on his answer on [his question card]({card_link})"
+    assert passes == [
+        (0, "red", stage.BUILDER, [red_pr]),
+        (2, "blocked", stage.HIM, []),
+        (4, "blocked", stage.HIM, []),
+        (6, "blocked", stage.HIM, []),
+        (40, "blocked", stage.HIM, []),
+        (42, "held", stage.HIM, []),
+        (44, "blocked", stage.HIM, []),
+        (46, "red", stage.BUILDER, [red_pr]),
+        (48, "blocked", stage.HIM, []),
+        (50, "red", stage.BUILDER, [red_pr]),
+    ]
 
 
 def test_running_build_reads_the_newest_request_shape_and_model(tmp_path: Path) -> None:

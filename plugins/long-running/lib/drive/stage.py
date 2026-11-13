@@ -182,17 +182,18 @@ def red(key: str, pr: dict) -> str:
 
 
 def waited(data: dict, job_id: str, line: str) -> dict:
-    """What a builder's WAITING line answers, kept on its job as the drive takes it: the red of each open PR the job carries, and each PR of another job's and each release the line names that holds then."""
+    """What a builder's WAITING line answers, kept on its job as the drive takes it: the red of each open PR the job carries, and each PR of another job's, each release and each question card of his the line names that holds then, the builder's own question included, so a red only his answer fixes wakes that builder once per red until he answers."""
     job = data["jobs"][job_id]
     own = [key for key, pr in data["prs"].items() if pr["url"] in job["prs"]]
+    asked = [card for card in view.stored_waits(data, state.BUILT_CARD.findall(line)) if view.drawn_on(data, card)]
     return {
         "red": {key: failing for key in own if data["prs"][key]["state"] == "open" and (failing := red(key, data["prs"][key]))},
-        "waits": [wait for wait in state.named_waits(data, job["order"], line) if wait not in own and view.holds(data, wait, None)],
+        "waits": [wait for wait in [*state.named_waits(data, job["order"], line), *asked] if wait not in own and view.holds(data, wait, None)],
     }
 
 
 def answered(data: dict, key: str, failing: str) -> list[str]:
-    """What the builder answering for a red PR waits on by its last WAITING, while that line answered this same red and each PR and release it named still holds, so the PR wakes that builder again only once one of them ends or the red changes."""
+    """What the builder answering for a red PR waits on by its last WAITING, while that line answered this same red and each PR, release and card of his it named still holds, so the PR wakes that builder again only once one of them ends, his answer closing the card, or the red changes."""
     if not (owner := owner_job(data, key)):
         return []
     job = data["jobs"][owner]
@@ -203,12 +204,15 @@ def answered(data: dict, key: str, failing: str) -> list[str]:
 
 
 def blocked(data: dict, failing: str, waits: list[str], cards: dict | None) -> Stage:
-    """A red PR whose builder waits on the PRs and releases that fix it: each PR named by its link, owed by him while one of them waits on his Approve on its drawn card, which it links, else by what it waits on, whose own stage wakes its owner."""
-    asks = any(wait in data["prs"] and view.tap_card(data["prs"][wait], cards) for wait in waits)
+    """A red PR whose builder waits on the PRs, releases and question cards of his that fix it: each PR and card named by its link, owed by him while one of them is his question card or waits on his Approve on its drawn card, which it links, else by what it waits on, whose own stage wakes its owner."""
+    asks = any(state.card_wait(data, wait) or wait in data["prs"] and view.tap_card(data["prs"][wait], cards) for wait in waits)
     return Stage("blocked", HIM if asks else WAITED, f"{failing}, and its builder waits on {', '.join(fix_words(data, wait, cards) for wait in waits)}")
 
 
 def fix_words(data: dict, wait: str, cards: dict | None) -> str:
+    if state.card_wait(data, wait):
+        drawn = next((question["card"] for _, question in view.drawn_on(data, wait) if question["card"]), None)
+        return f"his answer on {view.link('his question card', drawn) if drawn else 'his question card'}"
     if wait not in data["prs"]:
         return wait
     pr = data["prs"][wait]

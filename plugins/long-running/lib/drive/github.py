@@ -218,7 +218,7 @@ def rule_reviews(repository: dict) -> int:
 
 
 def live(read: dict, stored: dict) -> dict:
-    """The drive's stored fields (state, checks, the checks that failed on its head, the required checks' verdict, review, head, its base and head branches, title, author, whether it carries the hold label, the PRs of its native GitHub stack that are not closed, the approving reviews its repository's rules require, conflict) of one fetched PR against its stored row; conflict only while GitHub answers CONFLICTING, since its UNKNOWN after a push or a base move is no answer for the head it reads."""
+    """The drive's stored fields (state, checks, the checks that failed on its head, the required checks' verdict, review, head, its base and head branches, title, author, whether it carries the hold label, the PRs of its native GitHub stack that are not closed, the approving reviews its repository's rules require, conflict) of one fetched PR against its stored row; conflict while GitHub answers CONFLICTING, and through its UNKNOWN at the stored head, which is no answer while it works mergeability out again after a base move, so a conflict GitHub has not cleared never flips its stage; a new head reads no conflict until GitHub answers for it."""
     failed = sorted({*failed_before(stored, read["headRefOid"]), *failing(read["checks"])})
     fields = {
         "state": PR_STATES[read["state"]],
@@ -234,7 +234,7 @@ def live(read: dict, stored: dict) -> dict:
         "hold_label": HOLD_LABEL in read["labels"],
         "native": [member for member, status in read["native"] if status != "closed"],
         "reviews_required": read["required_reviews"],
-        "conflict": read["mergeable"] == "CONFLICTING",
+        "conflict": read["mergeable"] == "CONFLICTING" or read["mergeable"] == "UNKNOWN" and read["headRefOid"] == stored["head"] and stored["conflict"],
     }
     return fields
 
