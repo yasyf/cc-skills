@@ -2050,7 +2050,7 @@ def test_work_he_ordered_is_carried_only_by_a_builder_never_by_research_his_card
     card = {"question": "Which inbox lands first?", "options": ["First", "Last"], "recommended": "First", "asked": state.stamp(T0), "url": f"{CARD}?thread_ts=1.2", "card": {"title": "Which inbox lands first?", "waits": "demo:j2-7-a"}}
     monkeypatch.setattr(watch.view, "cards", lambda name: {"team_url": "", "questions": [card], "closed": [], "pr_cards": []})
     with state.edit(demo) as data:
-        data["jobs"]["j2"].update(kind="design", state="done", questions=[state.new_question(None, None, state.stamp(T0), card=CARD)])
+        data["jobs"]["j2"].update(kind="design", state="done", questions=[state.new_question(None, None, state.stamp(T0), card=CARD, holds=None)])
         data["orders"]["o2"]["parts"][merge]["orphan_said"] = None
     assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == [f'ORPHAN o2 "{merge}": {ANSWERED}design j2 done, his card {CARD} open: {unbuilt.format(waits=f" --waits {CARD}")}']
     with state.edit(demo) as data:
@@ -2265,9 +2265,9 @@ def test_a_builder_built_beside_its_readers_open_card_waits_on_that_card_whateve
     with state.edit(demo) as data:
         data["prs"].pop(KEY)
         parts = data["jobs"].pop("j1")["parts"]
-        asked = state.new_question(f"/drive/asks/{reader}-ab.md", "Which shape?", state.stamp(T0)) | {"waits": card, "card": drawn_card(1)}
+        asked = state.new_question(f"/drive/asks/{reader}-ab.md", "Which shape?", state.stamp(T0), holds=None) | {"waits": card, "card": drawn_card(1)}
         data["jobs"][reader] = job(kind="reader", state="done", parts=parts, questions=[asked])
-        data["jobs"][builder] = job(parts=parts)
+        data["jobs"][builder] = job(parts=parts, researched=[reader])
         data["orders"]["o1"]["jobs"] = [reader, builder]
     with state.edit(demo) as data:
         state.take_result(data, builder, said)
@@ -2282,9 +2282,9 @@ def test_a_builder_waiting_on_its_readers_card_that_drive_job_card_refused_is_sa
     with state.edit(demo) as data:
         data["prs"].pop(KEY)
         parts = data["jobs"].pop("j1")["parts"]
-        asked = state.new_question("/drive/asks/j2612-ab.md", "Which shape?", state.stamp(T0), refused=refused) | {"waits": "durable-agents:j2612-684681"}
+        asked = state.new_question("/drive/asks/j2612-ab.md", "Which shape?", state.stamp(T0), refused=refused, holds=None) | {"waits": "durable-agents:j2612-684681"}
         data["jobs"]["j2612"] = job(kind="reader", state="done", parts=parts, questions=[asked])
-        data["jobs"]["j2649"] = job(parts=parts)
+        data["jobs"]["j2649"] = job(parts=parts, researched=["j2612"])
         data["orders"]["o1"]["jobs"] = ["j2612", "j2649"]
     with state.edit(demo) as data:
         state.take_result(data, "j2649", "BUILT j2649-sparse-replace, waits on j2612's card")
@@ -3279,8 +3279,8 @@ def test_a_card_a_built_job_names_by_its_link_and_by_its_waits_id_is_one_wait_an
     with state.edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["orders"]["o1"] |= {"jobs": ["j1", "j2"], "parts": {"ship the watch": state.new_part()}}
-        data["jobs"]["j1"]["parts"] = ["ship the watch"]
-        asked = state.new_question("/asks/j2.md", "Pick?", state.stamp(T0), card=link) | {"waits": "demo:j2-7"}
+        data["jobs"]["j1"] |= {"parts": ["ship the watch"], "researched": ["j2"]}
+        asked = state.new_question("/asks/j2.md", "Pick?", state.stamp(T0), card=link, holds=None) | {"waits": "demo:j2-7"}
         data["jobs"]["j2"] = job(kind="reader", state="waiting", parts=["ship the watch"], questions=[asked])
         state.take_result(data, "j1", "BUILT lane/built, waits on c096bde8")
     assert state.load(demo)["jobs"]["j1"]["waits"] == ["demo:j2-7"]
