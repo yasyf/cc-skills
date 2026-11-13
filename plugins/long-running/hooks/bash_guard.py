@@ -4,6 +4,7 @@ import re
 import sys
 from collections.abc import Iterator
 from dataclasses import dataclass, field
+from functools import reduce
 from itertools import pairwise
 from pathlib import Path
 
@@ -38,6 +39,7 @@ UNSEEN_PROMPT = (
     " no answer either: reach what it does another way, or return BLOCKED naming the call"
 )
 FORGE_LOCATIONS = (
+    "frg-ci-cache/",
     "frg-core-usw2-artifacts-internal-release-artifacts/",
     "frg-core-usw2-audit-datadog-log-archive/",
     "frg-core-usw2-root-pulumi-state/",
@@ -60,6 +62,8 @@ OPTIONED = {
 }
 SOURCES = {"source", "."}
 FOLLOWED_DEPTH = 4
+SCRIPT_FOLDER = re.compile(r'\$\(cd "\$\(dirname "(?:\$0|\$\{BASH_SOURCE\[0\]\})"\)([^"]*)" && pwd\)')
+JSON_FIELD = re.compile(r"\$\(jq -r '?((?:\.\w+)+)'? (\S+)\)")
 TEAM_AREA = re.compile(r"iris/teams/([^/\s]+)/([^/\s]+)")
 NO_WRITER = (
     "No service account writes or deletes a team's data from a pass box yet, since the pass box role and every reader's"
@@ -324,7 +328,23 @@ def started(words: list[str], place: Place, depth: int) -> Iterator[list[str]]:
     if Path(words[0]).name in SHELLS and "-c" in words[:-1]:
         yield from reached(words[words.index("-c") + 1], Place(place.cwd, dict(place.env), place.script, place.seen), depth + 1)
     elif depth < FOLLOWED_DEPTH and (script := script_file(words, place)):
-        yield from reached(script.read_text(errors="replace"), Place(place.cwd, dict(place.env), script, place.seen | {script}), depth + 1)
+        yield from reached(located(script), Place(place.cwd, dict(place.env), script, place.seen | {script}), depth + 1)
+
+
+def located(script: Path) -> str:
+    """A script's text with each `$(cd "$(dirname "$0")/<path>" && pwd)` written as the folder it names, since the shell words split a substitution nested in quotes at its parentheses."""
+    return SCRIPT_FOLDER.sub(lambda found: str((script.parent / found[1].lstrip("/")).resolve()), script.read_text(errors="replace"))
+
+
+def json_field(value: str, place: Place) -> str:
+    """The string a `$(jq -r '.<field>' <file>)` value reads from that JSON file, such as `tools/artifact.sh`'s bucket from `tools/artifacts.json`; any other value, or one the file holds no string for, as written."""
+    if not (found := JSON_FIELD.fullmatch(value)) or not (path := place.cwd / found[2]).is_file():
+        return value
+    try:
+        read = reduce(lambda node, key: node[key], found[1].split(".")[1:], json.loads(path.read_text()))
+    except (ValueError, KeyError, TypeError):
+        return value
+    return read if isinstance(read, str) else value
 
 
 def unwrapped(words: list[str], place: Place) -> list[str]:
@@ -333,7 +353,7 @@ def unwrapped(words: list[str], place: Place) -> list[str]:
         head = Path(words[0]).name
         if ASSIGNMENT.fullmatch(words[0]):
             name, value = words[0].split("=", 1)
-            place.env[name] = value
+            place.env[name] = json_field(value, place)
             words = words[1:]
         elif words[0] in KEYWORDS:
             words = words[1:]
