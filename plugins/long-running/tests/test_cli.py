@@ -1940,6 +1940,17 @@ def test_job_ask_on_an_open_incident_posts_its_ask_record_in_the_incidents_threa
     assert [(sent["lane"], sent["attr"]) for sent in asks_sent] == [("root", {"job": "j1", "ask": kept, "thread": "1794200000.000100", "incident": "true"})]
 
 
+def test_job_ask_posts_its_ask_record_naming_its_orders_thread_by_its_ts_as_cci_takes_an_attr(
+    run: Run, demo: str, tmp_path: Path, asks_sent: list[dict]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "design the run page", "--thread", "1794200000.000100")
+    run("job", "add", "builder", "--order", "o1", "--goal", "design it")
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    kept = run("job", "ask", "j1", str(block))[1]
+    assert [(sent["lane"], sent["attr"]) for sent in asks_sent] == [("root", {"job": "j1", "ask": kept, "thread": "1794200000.000100"})]
+
+
 def test_job_ask_redraws_asks_an_open_card_of_the_job_again_in_new_words_under_its_waits_id_and_refuses_any_other(
     run: Run, asking: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], asks_sent: list[dict]
 ) -> None:

@@ -1399,18 +1399,18 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: 
 
 
 def send_ask(name: str, job_id: str, kept: Path, waits: str | None) -> str:
-    """Post the ask record of the job's question kept in this file to the communicator, from the lane of the session holding its order, and return its seq: its handler draws the card from that file, under this waits id or else one ending in this seq, and an ask of a job on an open incident order is marked incident=true in the incident's thread, so its handler says there the moment the card is up that the card blocks the incident."""
+    """Post the ask record of the job's question kept in this file to the communicator, from the lane of the session holding its order, and return its seq, without the # cci prints it with: its handler draws the card from that file, under this waits id or else one ending in this seq, and an ask of a job on an open incident order is marked incident=true in the incident's thread, so its handler says there the moment the card is up that the card blocks the incident."""
     from drive import tools
 
     data = state.load(name)
     job = data["jobs"][job_id]
     order = data["orders"][job["order"]]
     incidents = state.open_incidents(data, [job["order"], *job["carries"]])
-    thread = next(iter(state.incident_threads(data, incidents)), None) if incidents else order["thread"]
+    thread = next(iter(state.incident_threads(data, incidents)), None) if incidents else order["thread"] and order["thread"][1]
     attrs = {"job": job_id, "ask": str(kept), "thread": thread, "incident": "true" if incidents else None, "waits": waits}
     record = {"kind": "ask", "text": state.kept_in(job, kept)["title"], "to": [f"communicator@{name}"], "attr": {key: value for key, value in attrs.items() if value}}
     try:
-        return tools.sent(name, state.holder_lane(order) or state.order_lane(data, order), [record])[0]
+        return tools.sent(name, state.holder_lane(order) or state.order_lane(data, order), [record])[0].removeprefix("#")
     except DriveError as error:
         raise DriveError(f"{kept} keeps {job_id}'s question, but its ask record did not go out, so no card draws for it: {error}; once cci answers, run drive job ask {job_id} {kept} again, which sends it") from None
 
