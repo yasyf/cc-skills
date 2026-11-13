@@ -333,9 +333,11 @@ def test_an_undo_cc_slack_refuses_says_why(monkeypatch: pytest.MonkeyPatch) -> N
 WEB_RUNNER = """
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
+import { dirname, join } from "node:path";
 const quiet = { addEventListener() {} };
 const context = vm.createContext({ document: quiet, window: quiet, components: JSON.parse(readFileSync(0, "utf8")) });
-console.log(vm.runInContext(readFileSync(process.argv[2], "utf8") + "\\n" + process.argv[3], context));
+const kit = readFileSync(join(dirname(process.argv[2]), "kit", "decisions.js"), "utf8");
+console.log(vm.runInContext(kit + "\\n" + readFileSync(process.argv[2], "utf8") + "\\n" + process.argv[3], context));
 """
 WEB_RENDER = r"""
 model = { repo: "", review: [] };
@@ -365,6 +367,53 @@ def web(tmp_path: Path, script: str, given: object = None) -> object:
     runner.write_text(WEB_RUNNER)
     app = Path(dashboard.__file__).parent / "site" / "app.js"
     return json.loads(subprocess.run(["node", str(runner), str(app), script], input=json.dumps(given), capture_output=True, text=True, check=True).stdout)
+
+
+def test_table_cells_preserve_slack_link_labels_code_pipes_and_escaped_pipes(tmp_path: Path) -> None:
+    line = r"| PR | <https://github.com/acme/app/pull/41|Use a separate process> | `left|right` | left\|right |"
+    cells = web(tmp_path, f"JSON.stringify(decisionCells({json.dumps(line)}))")
+    assert cells == ["PR", "<https://github.com/acme/app/pull/41|Use a separate process>", "`left|right`", "left|right"]
+    shown = web(tmp_path, f"model = {{ repo: '', review: [] }}; JSON.stringify(prose({json.dumps('[table block]' + chr(10) + '| PR | Change |' + chr(10) + '| --- | --- |' + chr(10) + '| <https://github.com/acme/app/pull/41|Use a separate process> | Isolate memory |')}))")
+    assert '[table block]' not in shown
+    assert shown.count('<th>') == 2
+    assert shown.count('<td>') == 2
+    assert '<a href="https://github.com/acme/app/pull/41" target="_blank" rel="noopener">Use a separate process</a>' in shown
+
+
+COMPARED = "\n".join(
+    [
+        "A run's memory decides which scripts can stop their neighbours.",
+        "*Show me*",
+        "| Path | Pods lost a day | Code changed |",
+        "| --- | --- | --- |",
+        "| Isolate it | 0 | 2 files |",
+        "| Keep it shared | 8 | none |",
+    ]
+)
+
+
+@pytest.mark.parametrize(
+    ("options", "body", "format"),
+    [
+        (["Isolate the script: add a process", "Keep shared memory: no new work"], COMPARED, "lab"),
+        (["Isolate the script: add a process", "Keep shared memory: no new work"], "A run's memory decides which scripts can stop their neighbours.", "cockpit"),
+        (["Isolate it", "Keep it shared", "Cap it", "Retire it"], COMPARED, "interview"),
+    ],
+)
+def test_a_question_opens_in_the_format_its_card_carries(tmp_path: Path, options: list[str], body: str, format: str) -> None:
+    card = {"title": "*Where* may a large script fail?", "options": options, "body": body}
+    shown = web(tmp_path, f"JSON.stringify(decisionStory({json.dumps(card)}))")
+    assert (shown["format"], shown["headline"], shown["context"]) == (format, "Where may a large script fail?", "A run's memory decides which scripts can stop their neighbours.")
+    assert [option["label"] for option in shown["options"]] == options
+
+
+def test_a_lab_reads_each_options_measured_values_from_its_cards_comparison_table(tmp_path: Path) -> None:
+    card = {"title": "Where may a large script fail?", "options": ["Isolate the script: add a process", "Keep shared memory: no new work"], "body": COMPARED}
+    shown = web(tmp_path, f"JSON.stringify(decisionStory({json.dumps(card)}).options)")
+    assert shown == [
+        {"label": card["options"][0], "title": "Isolate the script", "consequence": "Add a process", "metrics": [{"label": "Pods lost a day", "value": "0"}, {"label": "Code changed", "value": "2 files"}]},
+        {"label": card["options"][1], "title": "Keep shared memory", "consequence": "No new work", "metrics": [{"label": "Pods lost a day", "value": "8"}, {"label": "Code changed", "value": "none"}]},
+    ]
 
 
 def test_every_address_in_a_line_shows_as_what_it_names_and_never_as_raw_text(tmp_path: Path) -> None:
@@ -412,7 +461,7 @@ def test_a_markdown_table_on_a_card_draws_as_a_table_wherever_it_sits_in_its_par
     shown = web(tmp_path, f"model = {{ repo: '', review: [] }}; JSON.stringify(prose({json.dumps(body)}))")
     assert shown == (
         '<h4 class="hd">Show me</h4><p>Where each home keeps the pin</p>'
-        '<div class="tablewrap"><table><thead><tr><th></th><th>Local table</th><th>Server table</th></tr></thead><tbody>'
+        '<div class="table-scroll-hint">Scroll to see every column ↔</div><div class="tablewrap" tabindex="0" role="region" aria-label="Comparison table; scroll for all columns"><table><thead><tr><th></th><th>Local table</th><th>Server table</th></tr></thead><tbody>'
         "<tr><td>Written to</td><td><code>_pinned_chats</code></td><td><code>chat_favorites</code></td></tr>"
         "<tr><td>With no network</td><td>works</td><td>fails</td></tr>"
         "</tbody></table></div>"
@@ -836,44 +885,33 @@ done({ open: document.querySelector('#lightbox').open, kind: host.dataset.visual
     assert seen == {"open": True, "kind": "mermaid", "source": "flowchart LR\n  run --> server", "caption": "the flow"}
 
 
-def test_moving_focus_into_a_folded_summary_opens_it_and_its_picture_opens_in_the_lightbox(tmp_path: Path) -> None:
-    body = "\n\n".join(f"Reason {n} for the pick." for n in range(12)) + "\n\n![the lookup](/lookup.png)"
-    item = {
-        "kind": "question", "tasks": [], "answer": "https://x.slack.com/archives/D1/p1794382453859209", "title": "Pick one", "since": None, "holds": 0, "blocks": [], "thread": None,
-        "card": {"title": "Pick one", "body": body, "options": ["Keep it", "Drop it"], "recommended": "Keep it"},
-    }
+def test_a_picture_in_disclosed_evidence_opens_in_the_lightbox_and_returns_to_the_question(tmp_path: Path) -> None:
+    body = "Why it matters.\n\n![the lookup](/lookup.png)"
     seen = browse(tmp_path, """
 location.hash = '#/queue/all';
-await wait(100);
-const fold = document.querySelector('#main .fold');
-const before = { long: fold.classList.contains('long'), open: fold.classList.contains('open') };
-fold.querySelector('[data-shot]').focus();
-await wait(50);
-const after = { open: document.querySelector('#main .fold').classList.contains('open'), focused: document.activeElement.matches('[data-shot]') };
+await wait(150);
+const evidence = document.querySelector('[data-story-evidence]');
+const before = evidence.open;
+evidence.querySelector('summary').click();
+evidence.querySelector('[data-shot]').focus();
 document.activeElement.click();
 await wait(50);
-done({ before, after, lightbox: document.querySelector('#lightbox').open, hash: location.hash });
-""", board(queue=[item]))
-    assert seen == {"before": {"long": True, "open": False}, "after": {"open": True, "focused": True}, "lightbox": True, "hash": "#/queue/all/1794382453.859209"}
+done({ before, evidence: evidence.open, lightbox: document.querySelector('#lightbox').open, hash: location.hash });
+""", board(queue=[QUESTION | {"card": QUESTION["card"] | {"body": body}}]))
+    assert seen == {"before": False, "evidence": True, "lightbox": True, "hash": "#/queue/all/1794382453.859209"}
 
 
-def test_a_click_on_a_picture_inside_a_folded_summary_opens_the_lightbox_and_leaves_the_fold_as_it_was(tmp_path: Path) -> None:
-    body = "\n\n".join(f"Reason {n} for the pick." for n in range(12)) + "\n\n![the lookup](/lookup.png)"
-    item = {
-        "kind": "question", "tasks": [], "answer": "https://x.slack.com/archives/D1/p1794382453859209", "title": "Pick one", "since": None, "holds": 0, "blocks": [], "thread": None,
-        "card": {"title": "Pick one", "body": body, "options": ["Keep it", "Drop it"], "recommended": "Keep it"},
-    }
+def test_closing_evidence_keeps_the_question_and_the_selected_path(tmp_path: Path) -> None:
     seen = browse(tmp_path, """
 location.hash = '#/queue/all';
-await wait(100);
-const shot = document.querySelector('#main .fold [data-shot]');
-shot.focus({ focusVisible: false });
-await wait(50);
-shot.click();
-await wait(50);
-done({ open: document.querySelector('#main .fold').classList.contains('open'), lightbox: document.querySelector('#lightbox').open });
-""", board(queue=[item]))
-    assert seen == {"open": False, "lightbox": True}
+await wait(150);
+document.querySelector('[data-story-pick="1"]').click();
+const evidence = document.querySelector('[data-story-evidence]');
+evidence.querySelector('summary').click();
+evidence.querySelector('summary').click();
+done({ open: evidence.open, selected: document.querySelector('[data-story-pick][aria-pressed="true"]').dataset.storyPick, title: document.querySelector('#item-title').textContent });
+""", board(queue=[QUESTION]))
+    assert seen == {"open": False, "selected": "1", "title": "Raise the limit?"}
 
 
 def test_the_top_strip_counts_open_incidents_and_lists_them_waiting_on_him_first(tmp_path: Path) -> None:
@@ -1243,36 +1281,50 @@ done({ opened, moved: { title: document.querySelector('#item-title').textContent
     }
 
 
-def test_a_choice_he_only_hovered_lets_go_when_the_pointer_leaves(tmp_path: Path) -> None:
+def test_the_lab_compares_every_path_against_its_cards_measured_columns(tmp_path: Path) -> None:
+    question = QUESTION | {"card": QUESTION["card"] | {"options": ["Raise it: one setting", "Shard it: 16 prefixes"], "recommended": "Raise it: one setting", "body": COMPARED.replace("Isolate it", "Raise it").replace("Keep it shared", "Shard it")}}
     seen = browse(tmp_path, """
 location.hash = '#/queue/all';
-await wait(100);
-const second = document.querySelectorAll('#main .choice')[1];
-second.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+await until(() => document.querySelector('[data-story-compare]'));
+const label = document.querySelector('.decision-story .type-label').textContent;
+document.querySelector('[data-story-compare]').click();
+const table = document.querySelector('.story-lab table');
+done({ label, rows: table.querySelectorAll('tbody tr').length, headers: [...table.querySelectorAll('th')].map((cell) => cell.textContent), first: [...table.querySelectorAll('tbody tr:first-child td')].map((cell) => cell.textContent) });
+""", board(queue=[question]))
+    assert seen == {"label": "Tradeoff lab", "rows": 2, "headers": ["Path", "What changes", "Pods lost a day", "Code changed"], "first": ["Raise it", "One setting", "0", "2 files"]}
+
+
+def test_a_selected_path_stays_selected_when_the_pointer_leaves_and_does_not_send(tmp_path: Path) -> None:
+    seen = browse(tmp_path, """
+location.hash = '#/queue/all';
+await wait(150);
+const sent = [];
+const original = fetch;
+window.fetch = (url, options) => url === '/api/answer' ? (sent.push(JSON.parse(options.body)), new Promise(() => {})) : original(url, options);
+document.querySelector('[data-story-pick="1"]').click();
+document.body.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
 await wait(50);
-const hovered = { on: document.querySelector('#main .choice.on').textContent.trim().split(/\\s+/)[0], rail: document.querySelector('#main [data-means] .eyebrow').textContent };
-document.querySelectorAll('#main .choice')[1].dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body }));
-await wait(50);
-done({ hovered, left: { on: document.querySelectorAll('#main .choice.on').length, rail: document.querySelector('#main [data-means] .eyebrow').textContent } });
+done({ selected: document.querySelector('[data-story-pick][aria-pressed="true"]').dataset.storyPick, outcome: document.querySelector('.story-outcome h3').textContent, sent });
 """, board(queue=[QUESTION]))
-    assert seen == {"hovered": {"on": "2", "rail": "Choice 2 of 2"}, "left": {"on": 0, "rail": "Recommended"}}
+    assert seen == {"selected": "1", "outcome": "Shard it", "sent": []}
 
 
-def test_the_rail_draws_the_description_of_the_choice_he_hovers_or_focuses(tmp_path: Path) -> None:
+def test_a_selected_choice_shows_its_description_and_keyboard_selection_stays_on_the_question(tmp_path: Path) -> None:
     hints = {"Raise it": "The bucket's per-prefix cap goes to 5,500 writes a second.", "Shard it": "Each team's journal writes under 16 prefixes."}
     seen = browse(tmp_path, """
 location.hash = '#/queue/all';
-const said = () => [...document.querySelectorAll('#main [data-means] p')].map((line) => line.textContent);
-await until(() => said().length);
+await wait(150);
+const said = () => document.querySelector('.story-outcome').textContent;
 const first = said();
-document.querySelectorAll('#main .choice')[1].dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+const choice = document.querySelector('[data-story-pick="0"]');
+choice.focus();
+choice.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
 await wait(50);
-const hovered = said();
-document.querySelectorAll('#main .choice')[0].focus();
-await wait(50);
-done({ first, hovered, focused: said() });
+done({ first, after: said(), focused: document.activeElement.dataset.storyPick, title: document.querySelector('#item-title').textContent });
 """, board(queue=[QUESTION | {"card": QUESTION["card"] | {"hints": hints}}]))
-    assert seen == {"first": [hints["Raise it"]], "hovered": [hints["Shard it"]], "focused": [hints["Raise it"]]}
+    assert hints["Raise it"] in seen["first"]
+    assert hints["Shard it"] in seen["after"]
+    assert (seen["focused"], seen["title"]) == ("1", "Raise the limit?")
 
 
 def test_arrow_keys_on_a_pr_cards_tabs_switch_tabs_and_leave_the_queue_where_it_is(tmp_path: Path) -> None:
@@ -1388,10 +1440,12 @@ const measured = [];
 for (const tab of ['show', 'change', 'context']) {
   document.querySelector(`#main [data-prtab="${tab}"]`).click();
   await wait(100);
-  const bar = document.querySelector('#main .pr-actions').getBoundingClientRect();
+  const actions = document.querySelector('#main .pr-decision-actions');
+  actions.scrollIntoView({ block: 'center' });
+  const bar = actions.getBoundingClientRect();
   const hit = document.elementFromPoint(bar.left + 30, bar.top + bar.height / 2);
   const frame = document.querySelector('#frames iframe');
-  measured.push({ tab, card: Math.round(card.getBoundingClientRect().height), bar: Math.round(bar.top), shown: bar.bottom <= innerHeight && Boolean(hit.closest('.pr-actions')), frame: !frame.hidden });
+  measured.push({ tab, card: Math.round(card.getBoundingClientRect().height), bar: Math.round(bar.top), shown: bar.bottom <= innerHeight && Boolean(hit.closest('.pr-decision-actions')), frame: !frame.hidden });
 }
 done(measured);
 """, board(queue=[STACK], review=OPEN), size, before=STAND_IN)
@@ -1437,6 +1491,7 @@ def test_the_pr_rail_jumps_into_show_me_and_the_change_and_adds_a_question_or_li
 location.hash = '#/queue/all';
 await wait(600);
 const rail = document.querySelector('#main .pr-rail');
+for (const details of rail.querySelectorAll('details')) details.open = true;
 const texts = (selector) => [...rail.querySelectorAll(selector)].map((el) => el.textContent.trim());
 const tab = () => document.querySelector('#main [data-prtab][aria-selected="true"]').dataset.prtab;
 const drawn = { heads: texts('.eyebrow'), facts: texts('.rail-block:first-child .fact'), lands: texts('.rail-list li'), spots: texts('[data-spot]'), cites: texts('[data-point][data-line]'), files: texts('[data-point]:not([data-line])') };
@@ -1468,7 +1523,7 @@ done({ drawn, jumped, pointed, commented, refused, asked, heard: HEARD.map(({ id
     shown = {"pr": 41, "embed": "1"}
     assert seen == {
         "drawn": {
-            "heads": ["Attached to this change bbbbbbb", "Jump to a point in the change", "Question or line comment", "Tell the drive what to change"],
+            "heads": ["Attached to this change bbbbbbb", "Question or line comment", "Tell the drive what to change"],
             "facts": ["Tests pass", "Review approved"],
             "lands": ["demo-org/demo-app#40 Landed", "demo-org/demo-app#41 lands once you approve", "demo-org/demo-app#42 does not land on Approve: CI failed; the agent is fixing it"],
             "spots": ["Before", "After"],
@@ -1505,7 +1560,7 @@ const drawer = document.querySelector('#drawer');
 const card = drawer.querySelector('.pr-card');
 const opened = {
   open: drawer.open, hash: location.hash, parts: [...card.children].map((part) => part.className), rail: Boolean(drawer.querySelector('.pr-rail')),
-  title: card.querySelector('.card-title').textContent, counter: Boolean(card.querySelector('.counter')), actions: card.querySelector('.pr-actions').textContent.trim(),
+  title: card.querySelector('.card-title').textContent, counter: Boolean(card.querySelector('.counter')), actions: card.querySelector('.pr-decision-actions').textContent.trim() + card.querySelector('.pr-actions').textContent.trim(),
   focus: document.activeElement.matches('#drawer [data-prtab][aria-selected="true"]'),
 };
 drawer.querySelector('[data-prtab="change"]').click();
@@ -1518,8 +1573,8 @@ done({ opened, changed, closed: !drawer.open, back: document.activeElement === o
 """, board(review=[entry], status=[{"state": "running", "features": [FEATURE | {"prs": [tapped]}]}]), size, before=STAND_IN)
     assert seen == {
         "opened": {
-            "open": True, "hash": "#/feature/o1", "parts": ["card-content", "pr-tabs", "pr-pane show", "pr-pane change", "pr-pane context", "pr-actions"], "rail": True,
-            "title": "Fix: retry the upload", "counter": False, "actions": "ApproveHoldYou tapped Approve; green, approved.", "focus": True,
+            "open": True, "hash": "#/feature/o1", "parts": ["card-content", "pr-decision-actions", "pr-tabs", "pr-pane show", "pr-pane change", "pr-pane context", "pr-actions"], "rail": True,
+            "title": "Time out the lock", "counter": False, "actions": "ApproveHoldYou tapped Approve; green, approved.", "focus": True,
         },
         "changed": {"embed": "?embed=1", "visible": "visible", "overlays": 0, "files": ["lib/lock.py", "lib/queue.py"]},
         "closed": True,
@@ -1556,6 +1611,7 @@ def test_a_decisions_rail_lists_each_held_task_once_with_its_place_and_state_the
 location.hash = '#/queue/all';
 await wait(150);
 const rail = document.querySelector('#main .context-rail');
+for (const details of rail.querySelectorAll('details')) details.open = true;
 const rows = [...rail.querySelectorAll('.held')].map((row) => ({
   where: row.querySelector('.crumbs').textContent.replace(/\\s+/g, ''),
   title: row.querySelector('.held-title').textContent,
@@ -1589,85 +1645,55 @@ done({ rows, job, words, hovered, badge, focused: document.querySelector('#srcti
 LONG_BODY = "\n\n".join(f"Reason {n}: the shard map keeps every journal on one node, so a restart replays all of them before the first read answers." for n in range(14))
 
 
-def test_the_rail_stays_beside_a_long_decision_as_he_scrolls_and_folds_into_the_card_under_1100_px(tmp_path: Path) -> None:
+@pytest.mark.parametrize("size", ["1440,900", "390,844"])
+def test_the_sidebar_discloses_evidence_without_page_overflow_and_preserves_a_draft_on_live_updates(tmp_path: Path, size: str) -> None:
     item = QUESTION | {"card": QUESTION["card"] | {"body": LONG_BODY}}
-    steps = """
-location.hash = '#/queue/all';
-await wait(150);
-document.querySelector('#main [data-more]').click();
-await wait(50);
-scrollTo(0, 400);
-await wait(50);
-const layout = getComputedStyle(document.querySelector('#main .queue-layout'));
-const rail = document.querySelector('#main .context-rail').getBoundingClientRect();
-const card = document.querySelector('#main .focus-card');
-done({ scrolled: scrollY, railTop: Math.round(rail.top), beside: rail.left >= card.getBoundingClientRect().right, under: Math.round(rail.top) === Math.round(card.getBoundingClientRect().bottom), frame: layout.borderTopWidth, cardFrame: getComputedStyle(card).borderTopWidth });
-"""
-    wide = browse(tmp_path / "wide", steps, board(queue=[item]), "1440,600")
-    narrow = browse(tmp_path / "narrow", steps, board(queue=[item]), "1000,600")
-    assert wide == {"scrolled": 400, "railTop": 92, "beside": True, "under": False, "frame": "0px", "cardFrame": "1px"}
-    assert {key: narrow[key] for key in ("beside", "under", "frame", "cardFrame")} == {"beside": False, "under": True, "frame": "1px", "cardFrame": "0px"}
-
-
-def test_the_rail_tells_a_mouse_to_hover_a_choice_and_a_touch_screen_to_tap_one(tmp_path: Path) -> None:
-    steps = """
-location.hash = '#/queue/all';
-await wait(100);
-done(document.querySelector('#main .rail-note').innerText);
-"""
-    mouse = browse(tmp_path / "mouse", steps, board(queue=[QUESTION]), "1200,600", "--blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4")
-    touch = browse(tmp_path / "touch", steps, board(queue=[QUESTION]), "390,844", "--blink-settings=primaryHoverType=1,availableHoverTypes=1,primaryPointerType=2,availablePointerTypes=2")
-    assert mouse == "Hover or focus a choice to read it here. An answer is sent as you pick it. While its Undo shows, Undo or ⌘Z takes it back and asks it again."
-    assert touch == "Tap a choice to answer it. An answer is sent as you pick it. While its Undo shows, Undo takes it back and asks it again."
-
-
-def test_explain_more_is_a_button_that_cuts_the_summary_on_a_whole_line_and_shows_less_once_open(tmp_path: Path) -> None:
-    long = QUESTION | {"card": QUESTION["card"] | {"body": f"| Shard | Nodes |\n| --- | --- |\n| a | 3 |\n| b | 4 |\n\n{LONG_BODY}"}}
-    short = QUESTION | {"answer": "https://x.slack.com/archives/D1/p1794382999000100", "card": QUESTION["card"] | {"body": "One line."}}
     seen = browse(tmp_path, """
 location.hash = '#/queue/all';
 await wait(150);
-const button = () => document.querySelector('#main [data-more]');
-const fold = () => document.querySelector('#main .fold');
-const state = () => ({ text: button().textContent, expanded: button().getAttribute('aria-expanded'), open: fold().classList.contains('open') });
-const straddling = () => {
-  const top = fold().getBoundingClientRect().top;
-  const edge = fold().clientHeight;
-  const boxes = [...fold().querySelectorAll('tr')].map((row) => row.getBoundingClientRect());
-  const text = document.createTreeWalker(fold(), NodeFilter.SHOW_TEXT);
-  for (let node = text.nextNode(); node; node = text.nextNode()) {
-    const line = document.createRange();
-    line.selectNodeContents(node);
-    boxes.push(...line.getClientRects());
-  }
-  return boxes.filter((box) => box.top - top < edge - 0.5 && box.bottom - top > edge + 0.5).length;
-};
-const closed = { ...state(), controls: button().getAttribute('aria-controls') === fold().id, straddling: straddling() };
-button().focus();
-button().click();
-await wait(50);
-const opened = { ...state(), focused: document.activeElement === button() };
-button().click();
-await wait(50);
-const again = state();
-document.querySelector('#main [data-move="1"]').click();
+const details = document.querySelector('[data-story-evidence]');
+details.querySelector('summary').click();
+const input = document.querySelector('.decision-sidebar textarea');
+input.value = 'What changes for the writer?';
+input.dispatchEvent(new Event('input', { bubbles: true }));
+await push(MODEL);
+done({ open: document.querySelector('[data-story-evidence]').open, draft: document.querySelector('.decision-sidebar textarea').value, overflow: document.documentElement.scrollWidth > innerWidth, title: document.querySelector('#item-title').textContent });
+""", board(queue=[item]), size)
+    assert seen == {"open": True, "draft": "What changes for the writer?", "overflow": False, "title": "Raise the limit?"}
+
+
+@pytest.mark.parametrize("size", ["1440,900", "390,844"])
+def test_selecting_a_decision_always_explains_that_review_precedes_sending(tmp_path: Path, size: str) -> None:
+    seen = browse(tmp_path, """
+location.hash = '#/queue/all';
 await wait(150);
-done({ closed, opened, again, shortShown: getComputedStyle(button()).display !== 'none' });
-""", board(queue=[long, short]))
-    assert seen == {
-        "closed": {"text": "Explain more", "expanded": "false", "open": False, "controls": True, "straddling": 0},
-        "opened": {"text": "Show less", "expanded": "true", "open": True, "focused": True},
-        "again": {"text": "Explain more", "expanded": "false", "open": False},
-        "shortShown": False,
-    }
+done({ guidance: document.querySelector('.story-action small').textContent, send: document.querySelectorAll('#main [data-card]').length, review: document.querySelector('[data-story-review]').textContent });
+""", board(queue=[QUESTION]), size)
+    assert seen == {"guidance": "Choose first. Review before sending.", "send": 0, "review": "Review this choice ↵"}
 
 
-def test_j_and_k_step_through_the_queue_a_question_mark_shows_every_key_and_a_number_answers_at_once_from_anywhere_on_the_page(tmp_path: Path) -> None:
+def test_evidence_folds_in_full_without_clipping_a_table_or_losing_the_selected_path(tmp_path: Path) -> None:
+    body = f"One sentence.\n\n| Shard | Nodes |\n| --- | --- |\n| a | 3 |\n| b | 4 |\n\n{LONG_BODY}"
+    seen = browse(tmp_path, """
+location.hash = '#/queue/all';
+await wait(150);
+document.querySelector('[data-story-pick="1"]').click();
+const evidence = document.querySelector('[data-story-evidence]');
+const before = evidence.open;
+evidence.querySelector('summary').click();
+const opened = { open: evidence.open, rows: evidence.querySelectorAll('tr').length, headers: [...evidence.querySelectorAll('th')].map((cell) => cell.textContent) };
+evidence.querySelector('summary').click();
+done({ before, opened, closed: !evidence.open, selected: document.querySelector('[data-story-pick][aria-pressed="true"]').dataset.storyPick });
+""", board(queue=[QUESTION | {"card": QUESTION["card"] | {"body": body}}]))
+    assert seen == {"before": False, "opened": {"open": True, "rows": 3, "headers": ["Shard", "Nodes"]}, "closed": True, "selected": "1"}
+
+
+def test_numbers_select_then_enter_reviews_and_only_an_explicit_send_submits_the_canonical_answer(tmp_path: Path) -> None:
     second = QUESTION | {"answer": "https://x.slack.com/archives/D1/p1794382453859300", "title": "Shard it?", "card": QUESTION["card"] | {"title": "Shard it?"}}
     seen = browse(tmp_path, """
 location.hash = '#/queue/all';
-await wait(100);
-const press = (key, at = document.body) => at.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+await wait(150);
+const press = (key) => document.body.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
 const title = () => document.querySelector('#item-title').textContent;
 press('j');
 await wait(50);
@@ -1676,31 +1702,18 @@ press('k');
 await wait(50);
 stepped.push(title());
 const sent = [];
-const real = window.fetch;
-window.fetch = (url, options) => (url === '/api/answer' ? (sent.push(JSON.parse(options.body).label), new Promise(() => {})) : real(url, options));
-const choices = () => [...document.querySelectorAll('#main .focus-card button[data-card]')];
+const original = fetch;
+window.fetch = (url, options) => url === '/api/answer' ? (sent.push(JSON.parse(options.body).label), new Promise(() => {})) : original(url, options);
 press('2');
+const selected = { title: title(), sent: [...sent] };
+press('Enter');
+const dialog = document.querySelector('#decision-review');
+const reviewed = { open: dialog.open, exact: dialog.querySelector('[data-label]').dataset.label, sent: [...sent], focused: document.activeElement.textContent };
+dialog.querySelector('[data-label]').click();
 await wait(50);
-const first = { sent: [...sent], title: title() };
-press('?', document.activeElement);
-await wait(50);
-const sheet = document.querySelector('#keys');
-const keys = { open: sheet.open, title: sheet.querySelector('h2').textContent, groups: [...sheet.querySelectorAll('h3')].map((group) => group.textContent) };
-sheet.close();
-document.querySelector('#main [data-keys]').click();
-await wait(50);
-keys.footer = sheet.open;
-sheet.close();
-press('1', choices()[1]);
-await wait(50);
-done({ stepped, first, keys, then: sent });
+done({ stepped, selected, reviewed, sent });
 """, board(queue=[QUESTION, second]))
-    assert seen == {
-        "stepped": ["Shard it?", "Raise the limit?"],
-        "first": {"sent": ["Shard it"], "title": "Shard it?"},
-        "keys": {"open": True, "title": "Keyboard shortcuts", "groups": ["Anywhere", "Your queue", "Now", "A pull request card", "Writing to Claude", "Jump", "An enlarged picture"], "footer": True},
-        "then": ["Shard it", "Raise it"],
-    }
+    assert seen == {"stepped": ["Shard it?", "Raise the limit?"], "selected": {"title": "Raise the limit?", "sent": []}, "reviewed": {"open": True, "exact": "Shard it", "sent": [], "focused": "Keep thinking"}, "sent": ["Shard it"]}
 
 
 def test_a_pr_with_no_card_takes_approve_from_its_key_and_the_queue_lists_by_rank_and_steps_to_one_project(tmp_path: Path) -> None:
@@ -2211,6 +2224,7 @@ def test_every_diagram_pans_zooms_by_wheel_and_pinch_fits_and_goes_full_screen_o
     seen = browse(tmp_path, f"location.hash = '#/queue/all';\n{ALL_DRAWN}\n" + """
 const k = (view) => Number(view.firstElementChild.style.getPropertyValue('--k'));
 const press = (view, type, id, x, y) => { const r = view.getBoundingClientRect(); view.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: id, pointerType: 'touch', button: type === 'pointermove' ? -1 : 0, clientX: r.left + x, clientY: r.top + y })); };
+document.querySelector('[data-story-evidence]').open = true;
 const kinds = ['mermaid', 'dot', 'chart', 'compare'];
 const seen = {};
 for (const kind of kinds) {
@@ -2235,6 +2249,7 @@ for (const kind of kinds) {
   const refit = k(view);
   seen[kind] = { zooms: wheeled > fit, pinches: pinched > wheeled, panned, fits: refit === fit, tools: [...host.querySelectorAll('.frame-tools button')].map((button) => button.getAttribute('aria-label')) };
 }
+document.querySelector('[data-story-evidence]').open = true;
 const first = document.querySelector('#main .visual-host[data-visual="mermaid"] .frame');
 press(first, 'pointerdown', 4, 20, 20);
 press(first, 'pointerup', 4, 20, 20);
@@ -2297,6 +2312,8 @@ def test_a_cards_slack_picture_and_its_web_embed_are_drawn_from_one_source(tmp_p
     item = QUESTION | {"card": QUESTION["card"] | {"body": body}}
     seen = browse(tmp_path, """
 location.hash = '#/queue/all';
+await until(() => document.querySelector('[data-story-evidence]'));
+document.querySelector('[data-story-evidence]').open = true;
 await until(() => document.querySelector('#main .visual-host svg'));
 const host = document.querySelector('#main .visual-host');
 done({ kind: host.dataset.visual, source: host.dataset.source, nodes: [...host.querySelectorAll('.nodeLabel')].map((label) => label.textContent) });
@@ -2578,12 +2595,14 @@ const last = () => {
   const shown = [...document.querySelectorAll('#toasts .toast')].at(-1);
   return { about: shown.querySelector('span').textContent, said: shown.querySelector('.meta').textContent, acts: [...shown.querySelectorAll('a, button')].map((act) => act.textContent) };
 };
-document.querySelector('#main button[data-label="Shard it"]').click();
+document.querySelector('[data-story-pick="1"]').click();
+document.querySelector('[data-story-review]').click();
+document.querySelector('#decision-review [data-label]').click();
 await wait(300);
-const sent = { ...last(), choices: document.querySelectorAll('#main button[data-card]').length };
+const sent = { ...last(), choices: document.querySelectorAll('#main [data-story-pick]').length };
 document.querySelector('#toasts [data-undo]').click();
 await wait(300);
-const restored = { ...last(), banner: document.querySelector('#main .restored')?.textContent, choices: document.querySelectorAll('#main button[data-card]').length, hash: location.hash };
+const restored = { ...last(), banner: document.querySelector('#main .restored')?.textContent, choices: document.querySelectorAll('#main [data-story-pick]').length, hash: location.hash };
 location.hash = '#/history';
 await wait(100);
 document.querySelector('#main .happened[data-kind="answered"] [data-undo]').click();
