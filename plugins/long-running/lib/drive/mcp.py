@@ -123,8 +123,12 @@ SAY = {
         " a line saying when a release, build or deploy started takes the time its build or tool printed, in backticks or its"
         " link's words, on the line linking it, and is refused with either stamp in a clause naming no job or record. Returns POSTED"
         " <permalink>, CARD <permalink> for a card, the question card's own link first, recorded as the card of the"
-        " question asked under its waits id, and with order"
-        " the line recording the post on it. A refusal posts nothing and names its fix: a reference that names nothing,"
+        " question asked under its waits id, and the line recording the post on the one order say decides, which no caller names:"
+        " a post carrying a record goes on the order its report is about, a handler's post with none on the order of the message"
+        " of his or the record it holds, and an edit, a card, a PR card, his catch-up and an answer in a teammate's watched thread"
+        " on none; it is recorded wherever it goes, a thread the order holds not yet becoming one of its threads, and a clock time"
+        " its words promise his next line by, such as \"Next line by 9:45\", becomes the order's due, but on an incident, whose"
+        " next line the watch owes five quiet minutes after this one once it has news. A refusal posts nothing and names its fix: a reference that names nothing,"
         " an order or job id such as j1700, or a post over its length, to him while he is away, or out of turn in the thread"
         " a bug report or question came from, that Jev does not lift: make the fix and call again. Jev judges every other post once say has posted it, and"
         " a post Jev holds stays in his DM as written beside its POSTED line, with Jev's reason and the fix: a handler's claim"
@@ -173,14 +177,11 @@ SAY = {
             },
             "about": {"type": "string", "description": "The waits id of the card this reply is about"},
             "visuals": {"type": "array", "items": VISUAL},
-            "order": {
-                "type": "string",
-                "description": "The order this post is on, which records it there, a clock time its words promise his next line by, such as \"Next line by 9:45\", becoming the order's due, but on an incident, whose next line the watch owes five quiet minutes after this one once it has news; it is recorded wherever it goes, and a thread the order holds not yet becomes one of its threads",
-            },
             "close": {
                 "type": "boolean",
                 "description": (
-                    "With order and no record: this post is the answer that finishes the order, so say writes its report from the"
+                    "With no record: this post is the answer that finishes the order of the message of his or the record your handler"
+                    " holds, so say writes its report from the"
                     " communicator's lane with the post's words, closes the order done on it, and keeps POSTED <permalink> as the return"
                     " of the reader job your handler holds on it, the line you end on; one call in place of a report, a say and drive"
                     " order set"
@@ -189,8 +190,9 @@ SAY = {
             "record": {
                 "type": "string",
                 "description": (
-                    "The seq of the report record this post carries. With order, the post delivers each part its part attr names,"
-                    " `<o>:<part>` items separated by `;`, on this order and every other order an item names, or every part when its"
+                    "The seq of the report record this post carries, which puts the post on the order the report is about, where it"
+                    " delivers each part its part attr names,"
+                    " `<o>:<part>` items separated by `;`, on that order and every other order an item names, or every part when its"
                     " close attr names the order, but no work he ordered, every part of a build order or an incident and a part of an order of no"
                     " kind that a builder, codex or design job holds or held or a design lists, unless drive order set --kind answer --part sorted"
                     " it as an answer, which only a builder or codex job's DONE or a merged PR"

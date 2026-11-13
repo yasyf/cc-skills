@@ -407,6 +407,14 @@ def link(ts: str) -> str:
     return f"https://acme.slack.com/archives/{DM}/p{ts.replace('.', '')}"
 
 
+def reported(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        message_limits.cli.reads,
+        "run",
+        lambda argv, checkout: json.dumps({"seq": argv[2], "kind": "report", "lane": "root", "at": state.stamp(), "fields": {"attrs": {"order": f"o{argv[2]}"}}}),
+    )
+
+
 def holds_pr(order: str) -> None:
     with state.edit("demo") as data:
         data["prs"]["Forge-AI/monorepo#53618"] = state.new_pr("https://github.com/Forge-AI/monorepo/pull/53618", "j1", order)
@@ -791,7 +799,8 @@ def test_a_post_under_an_orders_pr_card_hands_jev_his_answer_on_its_question_car
         card: [{"ts": card, "from_bot": True, "text": "Approve lands PR 7\n✓ *Approve* · answered 3:28pm"}],
     }
     monkeypatch.setattr(slack, "thread", lambda *where: list(threads[where[where.index("--thread") + 1]]))
-    words = message_limits.his_words(call("slack_dm_status", transcript, text="PR 7 merged.", thread_ts=card, order="o1") | {"tool_name": message_limits.SAY})
+    reported(monkeypatch)
+    words = message_limits.his_words(call("slack_dm_status", transcript, text="PR 7 merged.", thread_ts=card, record="1") | {"tool_name": message_limits.SAY})
     assert [(word["quote"], word["detail"]) for word in words] == [
         ("*Approve* · answered 3:28pm", message_limits.CARD_ANSWERED),
         ("*give the sprite what it needs* · answered 2:03pm", message_limits.ORDER_CARD),
@@ -918,7 +927,11 @@ def test_a_record_a_claim_names_or_the_post_cites_and_the_report_it_carries_reac
     talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], records: dict[str, str]
 ) -> None:
     records |= {"673870": "DONE a pack deletes the run's values in its range", "675192": " ".join(["measured"] * 400), "675300": "DONE lower.rs:300 reads"}
-    monkeypatch.setattr(refs.reads, "run", lambda argv, checkout: json.dumps({"kind": "report", "text": records[argv[2]], "refs": {}}))
+    monkeypatch.setattr(
+        refs.reads,
+        "run",
+        lambda argv, checkout: json.dumps({"kind": "report", "lane": "root", "at": state.stamp(), "text": records[argv[2]], "refs": {}, "fields": {"attrs": {}}}),
+    )
     text = "A pack deletes the run's values in its range ({record:675192})."
     claims = [{"claim": "A pack deletes the run's values in its range", "read": "record:675300"}]
     reads = evidence(transcript, monkeypatch, capsys, text=text, thread_ts="1.2", record="673870", claims=claims)
@@ -1208,14 +1221,19 @@ def test_a_cards_title_and_options_name_only_what_its_summary_links(talker: str,
     assert "in the question or an option" in posted(transcript, card=card | {"body": JOSHS_PR.replace("PR>", "change>")})
 
 
-def test_a_plain_noun_needs_no_link_and_a_pr_the_drive_holds_on_the_posts_order_does(talker: str, transcript: Path) -> None:
+def test_a_plain_noun_needs_no_link_and_a_pr_the_drive_holds_on_the_order_say_records_the_post_on_does(
+    run: Run, talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for words in ("ship the fix", "unblock the users"):
+        run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", words)
+    reported(monkeypatch)
     for plain in ("the thread", "that write thread", "that fix"):
-        assert say(transcript, text=f"The server stalled while {plain} held its lock.", order="o1") is None
+        assert say(transcript, text=f"The server stalled while {plain} held its lock.", record="1") is None
     first = "Once the first PR lands, the alerts stop."
-    assert say(transcript, text=first, order="o1") is None
+    assert say(transcript, text=first, record="1") is None
     holds_pr("o2")
-    assert say(transcript, text=first, order="o1") is None
-    assert say(transcript, text=first, order="o2").startswith(
+    assert say(transcript, text=first, record="1") is None
+    assert say(transcript, text=first, record="2").startswith(
         'refused: "the first PR" names something he could open with no link there, in "Once the first PR lands"; put those words'
         " in its link, <url|the first PR>"
     )
@@ -1253,9 +1271,9 @@ def test_a_phrase_said_twice_is_refused_at_each_clause_and_once_across_a_cards_o
 def test_a_pr_that_exists_keeps_its_link_whatever_its_state_and_one_not_opened_yet_needs_none(talker: str, transcript: Path) -> None:
     holds_pr("o1")
     for standing in ("The first PR waits on your tap.", "The first PR has not merged."):
-        assert say(transcript, text=standing, order="o1").startswith('refused: "The first PR" names something he could open with no link there')
+        assert say(transcript, text=standing).startswith('refused: "The first PR" names something he could open with no link there')
     for unopened in ("No PR yet.", "A PR goes up next.", "The first PR is next."):
-        assert say(transcript, text=unopened, order="o1") is None
+        assert say(transcript, text=unopened) is None
 
 
 def test_a_post_refused_several_ways_hears_every_way_at_once_after_its_thread_read(talker: str, transcript: Path, checked: Checked) -> None:
@@ -2168,8 +2186,8 @@ def test_a_say_naming_an_alert_orders_thread_with_no_channel_id_is_told_its_chan
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the release failed", "--from", f"slack:C0822AHFY3G/{alert}")
     assert state.promise_thread(state.load("demo")["orders"]["o1"]) == ("C0822AHFY3G", alert)
     assert say(transcript, text="The fix merged.", thread_ts=alert) == f"nothing posted: thread {alert} is in channel C0822AHFY3G, not his DM, so pass channel_id C0822AHFY3G with it"
-    assert message_limits.posted_order(state.load("demo"), {"channel_id": "C0822AHFY3G", "thread_ts": alert})[0] == "o1"
-    assert message_limits.posted_order(state.load("demo"), {"thread_ts": alert}) is None
+    assert message_limits.posted_order(state.load("demo"), {"channel_id": "C0822AHFY3G", "thread_ts": alert}, None) == "o1"
+    assert message_limits.posted_order(state.load("demo"), {"thread_ts": alert}, None) is None
 
 
 def test_while_he_is_away_only_cards_incident_lines_and_answers_go_out(run: Run, talker: str, transcript: Path) -> None:

@@ -710,7 +710,7 @@ def order_set(args: argparse.Namespace) -> int:
                 state.keep(order, posts, announced=False)
             if state.owed(order):
                 why = f" ({unread})" if unread else ""
-                say = f" with say(order={args.id}, record={args.record})" if report else ""
+                say = f" with say(record={args.record})" if report else ""
                 raise DriveError(
                     f"{args.id} owes him the line promised for {render.when(state.owed_at(order))}, and no drive post is in"
                     f" its thread since {render.when(order['promised'], seconds=True)}{why}: post it there first{say}, or pass"
@@ -987,6 +987,20 @@ def report_refusal(data: dict, order_id: str, report: dict) -> str | None:
         else f"pass the {state.title(holder)}'s own report on {order_id}"
     )
     return f"refused, the report is the {state.title(writer)}'s and {order_id} is the {state.title(holder)}'s order, so it delivers nothing there: {carried}, or post with no record, a progress line"
+
+
+def post_order(data: dict, session: str | None, post: dict, report: dict) -> str | None:
+    """The one order a say post is recorded on, which say decides and no caller names: a post carrying a record goes on the order its report is about; a handler's post with none goes on the order of what the handler holds, the order its record is about, else the order of his message; an edit, a card, a PR card, his catch-up, an answer in a teammate's watched thread and a post from a session that is no handler go on none."""
+    if post.get("edit") or post.get("card") or post.get("tap_prs") or report.get("catch_up") or report.get("watch"):
+        return None
+    if post.get("record"):
+        return state.report_order(data, report)
+    if not (handler := state.handler_id(data, session)):
+        return None
+    held = data["handlers"][handler]["holds"] or {}
+    return (held.get("record") and state.report_order(data, agents.shown(held["record"])["fields"].get("attrs", {}))) or (
+        held.get("message") and state.message_order(data, state.slack_message(held["link"])[0], held["thread"], held["message"])
+    ) or None
 
 
 def claim_close(name: str, report: dict) -> list[str]:
@@ -4891,7 +4905,7 @@ def parser() -> argparse.ArgumentParser:
             "his read-only question's title, a few words naming it: the call adds his answer order from the brief's words and Link,"
             " filed under no project or workstream, and the handler's reader job on it, and writes both into the brief with the"
             " pairs in use and every open order in his thread, its jobs, questions and PRs, so the handler reads no drive status,"
-            " files the order with drive order set <o> --project --workstream and closes it with say(order=<o>, close=true)"
+            " files the order with drive order set <o> --project --workstream and closes it with say(close=true)"
         ),
     )
     verb.set_defaults(run=handler)

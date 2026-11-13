@@ -99,7 +99,7 @@ reading of his words "your messages need to be way shorter rewrite this for a hu
 - Only cards have buttons, so anything that asks for his action or decision is a card: "Anything that
   says waiting on me you always need to embed the card with the buttons".
 - When a post in an order's thread promises him his next line by a clock time, such as "Next line
-  by 9:45", the post's record (`say(order=<o>)` or `drive order posted`) makes that time the order's
+  by 9:45", the post's record (`say` or `drive order posted`) makes that time the order's
   due from the words Slack holds for the post, a time with no AM or PM read as the one nearest the
   post, and any other time in it, such as "due by 2:37", sets nothing, so the
   watch holds the drive to it from Slack's own record, not a session's memory, and no `--due` follows
@@ -109,7 +109,7 @@ reading of his words "your messages need to be way shorter rewrite this for a hu
   incident keeps no such time: the watch owes its next line five quiet minutes after its last once it has news, by
   [Clocks](incidents.md#clocks).
 - The handler records each post on an order through the post itself,
-  `say(order=<o>, record=<the report's seq>)`, in whatever thread it goes, which delivers each part
+  `say(record=<the report's seq>)`, on the order the report is about, in whatever thread it goes, which delivers each part
   the report's `part` attr names, or each part of an order its `close` attr names, whatever the
   post's words say, and makes a thread the order holds not yet one of its threads. No post delivers
   work he ordered, every part of a build order or an incident and a part of an order of no kind
@@ -564,7 +564,7 @@ restating it.
 - His read-only question gets its answer in seconds from a handler, by his words "things liek this
   should be egtting almost immediate reponses but they are not": the handler reads the source that
   owns the fact through whatever access opens it, a staff route included, never answers that it
-  could not read it, and posts with one `say(order=<o>, close=true)`. The communicator reads nothing
+  could not read it, and posts with one `say(close=true)`. The communicator reads nothing
   itself.
 
 ## What goes in
