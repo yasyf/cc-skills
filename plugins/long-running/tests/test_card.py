@@ -706,10 +706,11 @@ def test_an_answer_on_a_drives_question_card_is_posted_as_its_one_answer_record_
     batch = ["cci", "post", "--drive", drive, "--lane", "communicator", "--batch", "-"]
     answer = {"kind": "answer", "to": [f"root@{drive}"], "url": url, "json": True}
     asked = {"job": "j3", "waits": f"{drive}:j3-661440"}
+    paired = answer | {"topic": f"{drive}:j3-661440"}
     assert posted == [
-        (batch, [answer | {"text": "Ring", "attr": asked, "id": f"tap:{drive}:j3-661440:1794200001.000100"}]),
-        (batch, [answer | {"text": "neither, keep both", "attr": {"maps": "none"} | asked, "id": f"tap:{drive}:j3-661440:1794200002.000100"}]),
-        (batch, [answer | {"text": "undone: Ring", "attr": asked | {"undone": "Ring"}, "id": f"tap:{drive}:j3-661440:1794200003.000100:undone"}]),
+        (batch, [paired | {"text": "Ring", "attr": asked, "id": f"tap:{drive}:j3-661440:1794200001.000100"}]),
+        (batch, [paired | {"text": "neither, keep both", "attr": {"maps": "none"} | asked, "id": f"tap:{drive}:j3-661440:1794200002.000100"}]),
+        (batch, [paired | {"text": "undone: Ring", "attr": asked | {"undone": "Ring"}, "id": f"tap:{drive}:j3-661440:1794200003.000100:undone"}]),
         (
             batch,
             [

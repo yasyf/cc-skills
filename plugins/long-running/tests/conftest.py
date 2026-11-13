@@ -500,6 +500,25 @@ def images(monkeypatch: pytest.MonkeyPatch) -> Images:
 
 
 @dataclass
+class Cci:
+    """cci post as cci answers it: each batch sent, refused whole while refusal is set or when an answer names no re, resolves or topic, as cci refuses one, else a seq for each record from next_seq on."""
+
+    posted: list[list[dict]] = field(default_factory=list)
+    refusal: str | None = None
+    next_seq: int = 51
+
+    def run(self, argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        records = json.loads(str(kwargs["input"]))
+        self.posted.append(records)
+        unreferenced = any(record["kind"] == "answer" and not (record.get("re") or record.get("resolves") or record.get("topic")) for record in records)
+        if why := self.refusal or (unreferenced and "cci: kind answer requires --re, --resolves or --topic"):
+            return subprocess.CompletedProcess(argv, 1, "", why)
+        seqs = range(self.next_seq, self.next_seq + len(records))
+        self.next_seq += len(records)
+        return subprocess.CompletedProcess(argv, 0, "".join(json.dumps({"seq": seq}) + "\n" for seq in seqs), "")
+
+
+@dataclass
 class Withdrawals:
     cards: list[str] = field(default_factory=list)
     asked: list[tuple[str, str]] = field(default_factory=list)

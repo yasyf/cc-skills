@@ -87,7 +87,7 @@ RECORD = {
         "waits": {
             "type": "string",
             "description": (
-                "the waits id, <drive>:<j>-<n>, of the question card his tap or words answer: attrs waits and job=<j>,"
+                "the waits id, <drive>:<j>-<n>, of the question card his tap or words answer: attrs waits and job=<j>, topic card:<its card's thread_ts>, else the waits id,"
                 " ending the job's question as answered in the same call, and the card follows, showing his words with no"
                 " buttons; a question his recorded words settle before its card drew is answered by its waits id the same"
                 " way, so no card draws"
@@ -794,6 +794,9 @@ def post(item: dict, data: dict, other: str, session: str | None) -> dict:
         if named[1] != drive:
             raise DriveError(f"{waits} is a card of drive {named[1]}, not {drive}: record its answer in that drive")
         attrs |= {"job": state.waits_job(data, waits), "waits": waits}
+    if waits := attrs.get("waits"):
+        card = next((question["card"] for _, question in view.drawn_on(data, waits) if question["card"]), None)
+        made.setdefault("topic", f"card:{view.card_thread(card)}" if card else waits)
     for attr in ("thread", "ruling", "thread_card", "about"):
         if item.get(attr):
             attrs[attr] = item[attr]
