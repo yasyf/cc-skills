@@ -3188,6 +3188,28 @@ def test_j2643s_card_citing_320b7a7_draws_already_answered_with_his_words_and_th
     assert jev.asked == []
 
 
+def test_j3659s_card_citing_an_agents_provisional_pick_naming_option_1_draws_with_no_already_answered(run: Run, asking: str, recorded: Answers, jev: Jev) -> None:
+    kept = state.drive_dir("demo") / "asks" / f"j1-{state.ask_hash(ADVISORY_ASK)}.md"
+    kept.parent.mkdir(exist_ok=True)
+    kept.write_text(ADVISORY_ASK)
+    recorded.shown["320b7a7"] = {
+        "id": "320b7a7",
+        "title": "How should a stacked change be checked?",
+        "body": "PROVISIONAL by recommendation (owner awake, every pick still provisional): option 1. A workflow run with no agent is a session of its own",
+        "tags": ["provisional", "scope:durable"],
+    }
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"] = [state.new_question(str(kept), ADVISORY_ASK.splitlines()[0].removeprefix("ASK "), state.stamp()) | {"waits": "demo:j1-7"}]
+    code, printed = run("job", "card", "j1")
+    drawn = json.loads(printed)
+    assert (code, drawn["options"], limits.ALREADY_ANSWERED in drawn["hints"]) == (
+        0,
+        ["Jev refuses a card, never skips it", "Jev only advises; fix the misreads", "Merge the one-judge fix as built"],
+        False,
+    )
+    assert state.load("demo")["jobs"]["j1"]["questions"][-1]["recorded"] == []
+
+
 def tapped_already_answered(run: Run, recorded: Answers, monkeypatch: pytest.MonkeyPatch, text: str, answer_id: str, title: str, words: str) -> tuple[dict, dict, list[dict]]:
     """j1's card drawn from this ASK, kept as the drive kept it and asking him under demo:j1-7, with his answer recorded under its id, and his tap on its Already answered option: the card, j1 after the tap, and the records the tap posted."""
     kept = state.drive_dir("demo") / "asks" / f"j1-{state.ask_hash(text)}.md"

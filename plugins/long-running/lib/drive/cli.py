@@ -1833,7 +1833,7 @@ def kept_ask(path: Path, question: dict | None, cards: dict) -> limits.Question:
 
 
 def recorded_answers(data: dict, job: dict, text: str) -> list[dict]:
-    """Each recorded answer of his that the job's brief binds by --ruling or its ASK block cites by its id outside a link, with his words and the link where he gave them: the one `drive answer` kept, else the card of the question asked in its words; an id ccn keeps no answer of his under, such as a commit's, is none."""
+    """Each recorded answer of his that the job's brief binds by --ruling or its ASK block cites by its id outside a link, with his words and the link where he gave them, as the drive proved them his: the words and link `drive answer` kept, else his words closing the card of the question asked in its words; an answer whose words the drive never proved his, such as a note an agent wrote with `ccn answer add`, and an id ccn keeps no answer under, such as a commit's, are none."""
     cwd = data["roles"]["coordinator"]["cwd"]
     found = {}
     for answer_id in dict.fromkeys([*((job.get("brief_flags") or {}).get("ruling") or []), *CITED_ANSWER.findall(limits.URL.sub(" ", text))]):
@@ -1841,10 +1841,11 @@ def recorded_answers(data: dict, job: dict, text: str) -> list[dict]:
             answer = settled.shown(answer_id, cwd)
         except DriveError:
             continue
-        if words := settled.his(answer["body"]):
-            asked = settled.answered(data, answer["title"])
-            kept = next((entry["link"] for key, entry in data["answers"].items() if answer["id"].startswith(key)), None)
-            found[answer["id"]] = {"answer": answer["id"][:7], "words": words, "link": kept or (asked and (asked["card"] or asked["closed"]["link"]))}
+        kept = next((entry for key, entry in data["answers"].items() if answer["id"].startswith(key)), None)
+        asked = settled.answered(data, answer["title"])
+        if kept or (asked and asked["closed"]["words"]):
+            words, link = (kept["words"], kept["link"]) if kept else (asked["closed"]["words"], asked["card"] or asked["closed"]["link"])
+            found[answer["id"]] = {"answer": answer["id"][:7], "words": words, "link": link}
     return list(found.values())
 
 

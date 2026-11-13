@@ -121,7 +121,10 @@ card never posted until the job asks it again, in its words or others sharing th
 
 Cite by its id under `Findings:` each recorded answer of his you find that bears on the question.
 When the job's brief binds one with `--ruling`, or the block cites one, his card adds an `Already
-answered` option described by his words, linked to where he gave them. His tap on it closes the
+answered` option described by his words, linked to where he gave them, once the drive proved them
+his: the words and link `drive answer` kept, or his words closing a card asked in that answer's
+words. A cited answer whose words it never proved, such as a note an agent wrote with
+`ccn answer add`, adds nothing, so citing it never stops a card drawing. His tap on it closes the
 card on those words, which reach the job to build as any answer of his does.
 Such a block keeps at most three options of its own, since a card draws four.
 
