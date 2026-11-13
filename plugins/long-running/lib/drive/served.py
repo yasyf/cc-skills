@@ -5,7 +5,8 @@ import re
 import subprocess
 from datetime import datetime, timedelta
 
-from drive import github, install, settled, slack, state, view
+from drive import github, install, refs, settled, slack, state, view
+from drive.limits import REF
 from drive.render import cut
 from drive.state import DriveError
 
@@ -19,6 +20,10 @@ FILE_DIFF = re.compile(r"^diff --git a/(\S+) ", re.MULTILINE)
 TESTS = re.compile(r"(?:^|/)(?:tests?|e2e|__tests__|fixtures|testdata)/|[._-](?:test|spec)\.\w+$|_test\.\w+$")
 CITATION_BREAK = re.compile(r"[\s,;()\"']+")
 ANSWER_ID = re.compile(r"(?=[0-9a-f]*\d)[0-9a-f]{7,40}")
+CITED_REFS = {"card": "card", "answer": "answer", "record": "record", "at": "record"}
+READ_FIRST = ("card", "answer", "link", "record")
+NAMES = "his card's waits id, its permalink, the answer record as {record:<seq>} or the cc-notes answer id"
+NAMELESS = f"DESIGN: names no answer of his: beside each decision cite {NAMES}, or say DESIGN: none"
 PORT = re.compile(r"^SERVES:[ \t]*port of #\d+", re.MULTILINE | re.IGNORECASE)
 LOG = "checks.log"
 CHECKED = "CHECKED"
@@ -247,26 +252,60 @@ def words(data: dict, job: dict, orders: list[str], named: list[str], answered: 
 
 
 def answers(data: dict, cited: list[str], found: dict | None) -> list[str]:
-    """Each answer of his the citations name, oldest first, as the judge reads it: an answer id as cc-notes keeps it, the question he was asked and his words above its notes, and a Slack permalink as the message there, which on a card he answered shows the question and the option he tapped; other words of a citation name no answer. A permalink to a card he has not answered, or to a message he did not write, is refused, since a question of his becomes a ruling only with his own answer."""
-    tokens = dict.fromkeys(token.rstrip(".:") for text in cited for token in CITATION_BREAK.split(text.replace("asked:", " ")) if token)
+    """Each answer of his the citations name, oldest first, as the judge reads it, once for each card however many ways it is named: a card's waits id as the drive keeps his answer on its question, the question and his words, else as the cc-notes answer or card permalink it keeps; an answer id as cc-notes keeps it, the question he was asked and his words above its notes; a Slack permalink as the message there, which on a card he answered shows the question and the option he tapped; and an answer record as cci keeps his words, any other record naming no answer. A card he has not answered, or a message he did not write, is refused, since a question of his becomes a ruling only with his own answer."""
     read: dict[str, tuple[datetime, str]] = {}
-    for token in tokens:
-        if token.startswith("http") and slack.MESSAGE_LINK.search(token):
+    for kind, name in sorted(dict.fromkeys(each for text in cited for each in named(text)), key=lambda each: READ_FIRST.index(each[0])):
+        if kind == "card":
+            question = answered(data, name)
+            if not question["closed"]["words"]:
+                kind, name = ("answer", question["closed"]["answer"]) if question["closed"]["answer"] else ("link", question["card"])
+            elif (key := question["card"] or name) not in read:
+                at = state.parse_time(question["closed"]["at"]).astimezone()
+                read[key] = (at, f'{name}, {at.isoformat(timespec="seconds")}, asked "{question["title"]}": "{question["closed"]["words"]}"')
+        if kind == "link" and name not in read:
             try:
-                said = settled.heard(token, found)
-                message = slack.message(token)
+                said = settled.heard(name, found)
+                message = slack.message(name)
             except slack.SlackError as error:
-                raise DriveError(f"could not read his answer at {token}: {error}; run this again") from None
+                raise DriveError(f"could not read his answer at {name}: {error}; run this again") from None
             if said is None:
-                raise DriveError(f"{token} is not his answer: it is neither his own message nor a card he answered; {settled.HIS_ANSWER}")
+                raise DriveError(f"{name} is not his answer: it is neither his own message nor a card he answered; {settled.HIS_ANSWER}")
             at = slack.sent_at(message)
-            read[token] = (at, f'{token}, {at.isoformat(timespec="seconds")}: "{message["text"]}"')
-        elif ANSWER_ID.fullmatch(token):
-            answer = settled.shown(token, data["roles"]["coordinator"]["cwd"])
+            read[name] = (at, f'{name}, {at.isoformat(timespec="seconds")}: "{message["text"]}"')
+        elif kind == "answer":
+            answer = settled.shown(name, data["roles"]["coordinator"]["cwd"])
             at = datetime.fromisoformat(answer["created_at"]).astimezone()
             said = settled.his(answer["body"])
             read[answer["id"]] = (at, f'{answer["id"][:7]}, {at.isoformat(timespec="seconds")}, asked "{answer["title"]}": "{said}"')
+        elif kind == "record" and (record := refs.shown(data["name"], "record", name))["kind"] == "answer" and (key := record["refs"].get("url") or name) not in read:
+            at = state.parse_time(record["at"]).astimezone()
+            read[key] = (at, f'{key}, {at.isoformat(timespec="seconds")}: "{record["text"]}"')
     return [line for _, line in sorted(read.values())]
+
+
+def named(text: str) -> list[tuple[str, str]]:
+    """Each name of an answer of his a citation holds, by its kind: a Slack permalink as a link, a cc-notes id bare or as {answer:<id>}, a card's waits id bare or as {card:<waits id>}, and a cci record as {record:<seq>} or {at:<seq>}; its other words name none."""
+    found = [(CITED_REFS[match[1]], match[2]) for match in REF.finditer(text) if match[1] in CITED_REFS]
+    for token in CITATION_BREAK.split(REF.sub(" ", text).replace("asked:", " ")):
+        token = token.rstrip(".:")
+        if token.startswith("http") and slack.MESSAGE_LINK.search(token):
+            found.append(("link", token))
+        elif ANSWER_ID.fullmatch(token):
+            found.append(("answer", token))
+        elif state.WAITS_ID.fullmatch(token):
+            found.append(("card", token))
+    return list(dict.fromkeys(found))
+
+
+def answered(data: dict, waits: str) -> dict:
+    """The question a card's waits id names, once he answered it; one the drive never asked, or whose card still asks him or ended otherwise, is refused as no answer of his."""
+    job_id = state.named_job(data, {"waits": waits})
+    question = next((question for question in reversed(data["jobs"][job_id]["questions"]) if question["waits"] == waits), None) if job_id else None
+    if question is None:
+        raise DriveError(f"{waits} is not his answer: it names no card the drive asked him; {settled.HIS_ANSWER}")
+    if (closed := question["closed"]) is None or closed["how"] != "answered":
+        raise DriveError(f"{waits} is not his answer: its card {'was ' + closed['how'] if closed else 'still asks him'}; {settled.HIS_ANSWER}")
+    return question
 
 
 def shown(changes: dict[str, dict]) -> str:

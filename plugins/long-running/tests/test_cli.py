@@ -3768,6 +3768,20 @@ def test_a_ready_is_judged_by_the_watchs_check_against_the_answers_its_design_li
     assert said.startswith('o1, ') and f'asked "{DOORS["title"]}": "Close every door once Env::file_of reads env_id (recommended)' in said
 
 
+def test_a_ready_or_pushed_whose_design_line_names_no_answer_of_his_keeps_nothing_and_pr_set_refuses_such_a_design(
+    run: Run, with_pr: str, on_github: dict, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    for first in ("READY", "PUSHED"):
+        code, err = keep(monkeypatch, capsys, "j1", f"{first} {PR}\nDESIGN: also start stopped boxes, as built (his pick, 3:24 AM Nov 10)\n")
+        assert (code, f"j1: refused, nothing kept: {served.NAMELESS}" in err) == (2, True)
+    assert state.report_text("demo", "j1") == ""
+    assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\nDESIGN: none: it makes no design decision\n") == (0, "")
+    with pytest.raises(SystemExit):
+        cli.main(["pr", "set", PR, "--serves", "o1", "--design", "asked:his pick, 3:24 AM Nov 10"])
+    assert served.NAMES in capsys.readouterr().err
+    assert state.load("demo")["prs"][with_pr].get("serves") is None
+
+
 def test_order_set_sorts_an_order_again(run: Run, demo: str) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why did the copy stall?", "--kind", "answer")
     assert run("order", "set", "o1", "--kind", "build", "--complex")[0] == 0

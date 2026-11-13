@@ -1749,6 +1749,10 @@ def job_report(args: argparse.Namespace) -> int:
         line = whole.strip().splitlines()[0].strip()
         if refused := brief.report_refusal(name, data, args.id, whole) or state.result_refusal(data, args.id, line, whole) or unreached(name, data, state.result_waits(data, job["order"], line, whole)):
             raise DriveError(f"{args.id}: refused, nothing kept: {refused}")
+        if job["kind"] == "builder" and state.REPORTED_LINE.match(line) and any(
+            cited.removeprefix("DESIGN:").partition(":")[0].strip() != "none" and not served.named(cited) for cited in whole.splitlines() if cited.startswith("DESIGN:")
+        ):
+            raise DriveError(f"{args.id}: refused, nothing kept: {served.NAMELESS}")
         try:
             registered = register_named(name, args.id, line)
         except DriveError as error:
@@ -2595,9 +2599,9 @@ def merge_reported(name: str, job_id: str) -> list[tuple[str, str]]:
 
 
 def design_basis(text: str) -> str:
-    if text == "none" or (text.startswith("asked:") and text.removeprefix("asked:").strip()):
+    if text == "none" or (text.startswith("asked:") and served.named(text)):
         return text
-    raise argparse.ArgumentTypeError("say asked:<his answer id or card permalink>, or none")
+    raise argparse.ArgumentTypeError(f"say asked:<{served.NAMES}>, or none")
 
 
 def his_link(text: str) -> str:
@@ -2656,7 +2660,7 @@ def pr_set(args: argparse.Namespace) -> int:
         served.answers(known, [args.design or ""], view.live_cards(name))
     if args.serves and not args.design and (known["prs"][key]["wants_tap"] if args.tap is None else args.tap):
         raise DriveError(
-            "--serves on a PR waiting on his tap needs --design asked:<his answer id or card permalink> for each design decision"
+            f"--serves on a PR waiting on his tap needs --design asked:<{served.NAMES}> for each design decision"
             " the PR makes, or --design none: a design he never answered goes back as a question, never on a card"
         )
     if (cards := [wait for wait in args.waits if state.card_wait(known, wait)]) and state.open_incidents(known, [order]):
@@ -4348,7 +4352,7 @@ def parser() -> argparse.ArgumentParser:
         "--design",
         type=design_basis,
         metavar="asked:<answer>|none",
-        help="his answer or card that settled each design decision the PR makes, or none; --serves needs it, the watch's check reads each answer whole as his words, and a card he has not answered or a message he did not write is refused",
+        help=f"{served.NAMES} that settled each design decision the PR makes, or none; --serves needs it, the watch's check reads each answer whole as his words, and a citation naming none of these, a card he has not answered or a message he did not write is refused",
     )
     verb.add_argument(
         "--part",
