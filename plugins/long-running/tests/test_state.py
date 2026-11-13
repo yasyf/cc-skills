@@ -132,6 +132,7 @@ def test_a_first_save_waits_for_an_older_installs_verb_however_long_it_runs_neve
     saving.join(10)
     saved = json.loads(path.read_text())
     assert (saving.is_alive(), saved["saved_by"], saved["slack"]["page_stale"]) == (False, state.VERSION, "the newer install's save")
+    assert "for long-running 0.0.1's verbs before its first save: drive " in (state.drive_dir("demo") / "locks.log").read_text()
 
 
 def test_a_write_waiting_past_the_drive_lock_wait_changes_nothing_and_names_the_lock_held(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:

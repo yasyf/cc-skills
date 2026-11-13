@@ -3128,11 +3128,12 @@ def plan_search(args: argparse.Namespace) -> int:
 
 
 def break_glass(args: argparse.Namespace) -> int:
-    """Run one command under the forge/break-glass grant for a stack, started in the job's or order's name with its reason, holding only the stack's env's admin credentials, minted on this Mac's machine profile to end no later than the grant, and stopped with every process left in its group by the grant's end or when drive is stopped: its output and exit status are the verb's, and nobody signs in."""
+    """Run one command under the forge/break-glass grant for a stack, started in the job's or order's name with its reason, holding only the stack's env's admin credentials, minted on this Mac's machine profile to end no later than the grant, and stopped with every process left in its group by the grant's end or when drive is stopped: its output and exit status are the verb's, and nobody signs in. It saves nothing to the drive, so it lets go of its install's lock once it has read it, and a newer install's first save never waits out its grant."""
     name = state.resolve(args.drive)
     data = state.load(name)
     records, label = (data["jobs"], "job") if JOB_ID.fullmatch(args.id) else (data["orders"], "order")
     find(records, args.id, label)
+    state.let_go_install()
     try:
         with reads.break_glass(args.stack, args.reason, f"{name} {args.id}", Path(data["roles"]["coordinator"]["cwd"])) as granted:
             print(f"break-glass grant {granted.link} passed; running {args.command[0]} {reads.held(granted)}", file=sys.stderr, flush=True)
