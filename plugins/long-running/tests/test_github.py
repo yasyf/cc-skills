@@ -9,6 +9,7 @@ OPEN_ON = github.open_on
 VISIBILITY = github.visibility
 FETCH = github.fetch
 BELOW = github.below
+SAVED_BRANCHES = github.saved_branches
 GREEN = [{"name": "Lint", "conclusion": "SUCCESS"}, {"context": "buildkite/test", "state": "SUCCESS"}]
 RULED = {
     "rules": {
@@ -224,6 +225,16 @@ def test_run_sends_a_gh_command_through_ccx_gateway_under_the_drive_caller_and_a
         (["ccx", "vcs", "gh", "--max-age", "0s", "--", "pr", "close", "https://github.com/a/one/pull/1"], github.CALLER),
         (["git", "remote", "get-url", "origin"], None),
     ]
+
+
+def test_saved_branches_names_each_branch_github_holds_under_the_lanes_own_prefix_from_one_matching_refs_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    refs = [{"ref": "refs/heads/saved/durable-agents-j2363/sandsql-iris-none-reads", "object": {"sha": "241f7a761105034c55d68ad9ab5903ddf3492bf3", "type": "commit"}}]
+    ran = []
+    monkeypatch.setattr(github, "run", lambda cmd, **_: ran.append(cmd) or json.dumps(refs))
+    assert SAVED_BRANCHES("Forge-AI/monorepo", "durable-agents-j2363") == ["saved/durable-agents-j2363/sandsql-iris-none-reads at 241f7a7611"]
+    assert ran == [["gh", "api", "repos/Forge-AI/monorepo/git/matching-refs/heads/saved/durable-agents-j2363/"]]
+    monkeypatch.setattr(github, "run", lambda cmd, **_: "[]")
+    assert SAVED_BRANCHES("Forge-AI/monorepo", "durable-agents-j2363-2") == []
 
 
 def test_run_raises_when_gh_is_missing(monkeypatch: pytest.MonkeyPatch) -> None:

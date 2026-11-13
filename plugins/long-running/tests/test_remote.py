@@ -12,7 +12,7 @@ from pathlib import Path
 from unittest.mock import ANY
 
 import pytest
-from conftest import DRIVE_TERMINAL, LIVE_WORKER, REAL_DRIVE_TERMINAL, REAL_KEEP_LOGS, RESEARCH, Drawing, cloned, git_in, staged
+from conftest import DRIVE_TERMINAL, LIVE_WORKER, REAL_DRIVE_TERMINAL, REAL_KEEP_LOGS, REAL_SAVED_BRANCHES, RESEARCH, Drawing, cloned, git_in, staged
 from drive import cli, github, orca, place, reads, render, state, watch
 
 pytestmark = pytest.mark.usefixtures("ccx_worktrees")
@@ -1029,9 +1029,11 @@ def test_a_resume_retried_after_its_bind_refused_relaunches_the_same_attempt_wit
 
 SAVED = (
     "uncommitted changes in /home/sprite/monorepo/.worktrees/conflict-tallies (8 files); commits on no remote on tallies-final, stash,"
-    " now on Forge-AI/monorepo as saved/demo-j1/conflict-tallies at 1a2b3c4d5e, saved/demo-j1/stash at 2b3c4d5e6f,"
-    " saved/demo-j1/tallies-final at 3c4d5e6f70"
+    " saved to Forge-AI/monorepo under saved/demo-j1/"
 )
+SAVED_BRANCHES = ["saved/demo-j1/conflict-tallies at 1a2b3c4d5e", "saved/demo-j1/stash at 2b3c4d5e6f", "saved/demo-j1/tallies-final at 3c4d5e6f70"]
+ON_GITHUB = ", ".join(SAVED_BRANCHES)
+RESTACK = "commits on no remote on restack, saved to Forge-AI/monorepo under saved/demo-j1/"
 UNREAD = "orca-reclaim.py exited 1: ssh to pool-sleeping could not read /home/sprite/monorepo: i/o timeout"
 
 
@@ -1062,20 +1064,21 @@ def dead_lane_holding(remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPat
 
 
 def test_resume_saves_what_a_dead_lanes_sprite_holds_to_github_and_hands_the_saved_branches_to_the_next_lane(
-    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, saved_on_github: dict[str, list[str]]
 ) -> None:
     cloned(tmp_path, remote)
+    saved_on_github["demo-j1"] = SAVED_BRANCHES
     saves = []
     launched = dead_lane_holding(remote, tmp_path, monkeypatch, lambda drive, job_id, job, root: saves.append((drive, job_id, job["workspace"])) or SAVED)
     assert run("job", "resume", "j1", "Build #4412 failed: fix the lint") == (
         0,
         "j1: the message went to the job's next worker, relaunched on Sprite workspace-2 as dispatch dispatch-2 in a handoff"
         " carrying its brief, its branch, its last line, its report and its PRs; its lane on Sprite pool-sleeping was"
-        f" dead (Orca no longer holds its Sprite's environment), and what pool-sleeping held on no remote is saved: {SAVED}",
+        f" dead (Orca no longer holds its Sprite's environment), and what pool-sleeping held on no remote is saved on GitHub as {ON_GITHUB}",
     )
     assert saves == [(remote, "j1", "pool-sleeping")]
     assert (
-        f"You take the job over on a fresh Sprite from its pushed branches; what it held on no remote was saved for you: {SAVED}."
+        f"You take the job over on a fresh Sprite from its pushed branches; what it held on no remote was saved for you on GitHub as {ON_GITHUB}."
         " Fetch each saved branch and carry its work on. Commit and push before any long build."
     ) in orca.brief_of(launched["brief"])
     job = state.load(remote)["jobs"]["j1"]
@@ -1454,18 +1457,26 @@ NO_SPACE = "orca-worker-tools exited 1 on pool-one, so no worker started: write 
 
 
 @pytest.mark.parametrize(
-    ("save", "kept"),
+    ("save", "branches", "kept"),
     [
-        (lambda drive, job_id, job, root: None, "work not pushed from pool-one is not carried over"),
-        (lambda drive, job_id, job, root: SAVED, f"what pool-one held on no remote is saved: {SAVED}"),
-        (unsaveable(UNREAD), f"pool-one is kept, since what it holds on no remote could not be saved: {UNREAD}"),
+        (lambda drive, job_id, job, root: None, [], "work not pushed from pool-one is not carried over"),
+        (lambda drive, job_id, job, root: SAVED, SAVED_BRANCHES, f"what pool-one held on no remote is saved on GitHub as {ON_GITHUB}"),
+        (unsaveable(UNREAD), [], f"pool-one is kept, since what it holds on no remote could not be saved: {UNREAD}"),
     ],
     ids=["nothing to save", "saved", "save failed"],
 )
 def test_a_finished_worker_whose_sprite_refuses_its_tools_starts_the_next_on_a_fresh_sprite(
-    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, save: Callable[..., str | None], kept: str
+    run: Run,
+    remote: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    saved_on_github: dict[str, list[str]],
+    save: Callable[..., str | None],
+    branches: list[str],
+    kept: str,
 ) -> None:
     cloned(tmp_path, remote)
+    saved_on_github["demo-j1"] = branches
     first = tmp_path / "first.md"
     first.write_text(orca.vm_brief(remote, "j1", "Order (his words): prove it\nDrive: demo, order o1, job j1", None))
     with state.edit(remote) as data:
@@ -1534,9 +1545,10 @@ def test_a_launch_of_a_lane_whose_worker_finished_starts_its_next_in_its_termina
 
 
 def test_a_launch_local_of_a_job_whose_sprite_worker_finished_saves_that_sprite_and_starts_its_next_in_a_fresh_worktree_on_this_mac(
-    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], saved_on_github: dict[str, list[str]]
 ) -> None:
     cloned(tmp_path, remote)
+    saved_on_github["demo-j1"] = ["saved/demo-j1/wip at 1a2b3c4d5e"]
     first = tmp_path / "first.md"
     first.write_text(orca.vm_brief(remote, "j1", "Order (his words): prove it\nDrive: demo, order o1, job j1", None))
     with state.edit(remote) as data:
@@ -1559,7 +1571,7 @@ def test_a_launch_local_of_a_job_whose_sprite_worker_finished_saves_that_sprite_
     job = state.load(remote)["jobs"]["j1"]
     assert (job["route"], job["dispatch"], "deaths" in job) == (None, DISPATCH, False)
     saves, launched = [], {}
-    monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: saves.append(job["workspace"]) or "demo-j1-wip")
+    monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: saves.append(job["workspace"]) or "uncommitted changes in /home/sprite/monorepo (1 file), saved to Forge-AI/monorepo under saved/demo-j1/")
 
     def fake_launch(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None, workspace: str | None) -> dict:
         launched.update(lane=lane, brief=brief.read_text(), route=route, workspace=workspace)
@@ -1570,12 +1582,12 @@ def test_a_launch_local_of_a_job_whose_sprite_worker_finished_saves_that_sprite_
         0,
         "j1: the job's next worker, relaunched in a fresh worktree on this Mac as dispatch dispatch-2 in a handoff carrying its"
         " brief, its branch, its last line, its report and its PRs; its lane on Sprite pool-one had finished (its worker succeeded,"
-        " and Orca sends nothing to a finished worker on a Sprite), and what pool-one held on no remote is saved: demo-j1-wip",
+        " and Orca sends nothing to a finished worker on a Sprite), and what pool-one held on no remote is saved on GitHub as saved/demo-j1/wip at 1a2b3c4d5e",
     )
     assert (saves, launched["lane"], launched["route"], launched["workspace"]) == (["pool-one"], "demo-j1-2", state.LOCAL_ROUTE, None)
     brief = orca.brief_of(launched["brief"])
     assert "## Taking over from a lane that finished\n\nThe lane that held this job finished on Sprite pool-one at " in brief
-    assert "You take the job over in a fresh worktree on this Mac from its pushed branches; what it held on no remote was saved for you: demo-j1-wip." in brief
+    assert "You take the job over in a fresh worktree on this Mac from its pushed branches; what it held on no remote was saved for you on GitHub as saved/demo-j1/wip at 1a2b3c4d5e." in brief
     job = state.load(remote)["jobs"]["j1"]
     assert (job["route"], job["dispatch"], [death["workspace"] for death in job["deaths"]]) == (state.LOCAL_ROUTE, "dispatch-2", ["pool-one"])
 
@@ -2139,9 +2151,10 @@ def test_end_frees_a_waiting_lane_and_the_job_keeps_waiting_with_its_waits_prs_a
 
 
 def test_an_end_holds_no_install_lock_while_it_saves_and_releases_and_hands_its_end_to_the_newer_install_that_saved_meanwhile(
-    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], saved_on_github: dict[str, list[str]]
 ) -> None:
     cloned(tmp_path, remote)
+    saved_on_github["demo-j1"] = ["saved/demo-j1/restack at 1a2b3c4d5e"]
     carrying(run, remote)
     run("job", "add", "builder", "--order", "o1", "--goal", "restack onto the fix", "--remote")
     with state.edit(remote) as data:
@@ -2152,7 +2165,7 @@ def test_an_end_holds_no_install_lock_while_it_saves_and_releases_and_hands_its_
     def saved(drive: str, job_id: str, job: dict, root: Path) -> str:
         held.append(dict(state.HELD_INSTALL))
         monkeypatch.setattr(state, "VERSION", "0.0.1")
-        return "saved/j1/restack"
+        return RESTACK
 
     real = subprocess.run
 
@@ -2169,11 +2182,11 @@ def test_an_end_holds_no_install_lock_while_it_saves_and_releases_and_hands_its_
     monkeypatch.setattr(cli.install, "upgraded", lambda: newest)
     monkeypatch.setattr(cli.install.subprocess, "run", newer)
     state.hold_install()
-    assert run("job", "end", "j1")[1].endswith("j1's lane ended; j1 stays waiting, and what its Sprite held on no remote is saved: saved/j1/restack")
+    assert run("job", "end", "j1")[1].endswith("j1's lane ended; j1 stays waiting, and what its Sprite held on no remote is saved on GitHub as saved/demo-j1/restack at 1a2b3c4d5e")
     [argv] = handed
     assert (held, argv[:3], argv[4:], Path(argv[3]).exists()) == ([{}], ["job", "ended", "j1"], ["--drive", remote, "--json"], False)
     job = state.load(remote)["jobs"]["j1"]
-    assert (job["ask"], job["deaths"][-1]["saved"], job["deaths"][-1]["why"]) == (None, "saved/j1/restack", "ended by drive job end")
+    assert (job["ask"], job["deaths"][-1]["saved"], job["deaths"][-1]["why"]) == (None, RESTACK, "ended by drive job end")
 
 
 def test_end_refuses_while_the_sprite_of_a_job_still_at_work_cannot_be_saved(
@@ -2228,9 +2241,10 @@ def test_end_refuses_a_running_job_whose_lane_stopped_without_its_line_naming_re
 
 
 def test_end_saves_what_the_sprite_of_a_job_still_at_work_holds_and_its_next_lane_gets_the_saved_branches(
-    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, saved_on_github: dict[str, list[str]]
 ) -> None:
     cloned(tmp_path, remote)
+    saved_on_github["demo-j1"] = SAVED_BRANCHES
     first = tmp_path / "first.md"
     first.write_text(orca.vm_brief(remote, "j1", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
     with state.edit(remote) as data:
@@ -2240,7 +2254,7 @@ def test_end_saves_what_the_sprite_of_a_job_still_at_work_holds_and_its_next_lan
     monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: "destroyed pool-ie7ugrhamhjtmnwa dispatch ctx_lane0001")
     assert run("job", "end", "j1") == (
         0,
-        f"destroyed pool-ie7ugrhamhjtmnwa dispatch ctx_lane0001\nj1's lane ended; j1 stays waiting, and what its Sprite held on no remote is saved: {SAVED}",
+        f"destroyed pool-ie7ugrhamhjtmnwa dispatch ctx_lane0001\nj1's lane ended; j1 stays waiting, and what its Sprite held on no remote is saved on GitHub as {ON_GITHUB}",
     )
     monkeypatch.setattr(orca, "worker", refused("invalid_argument", "Unknown environment: f0b7755c-d270-48fa-88c3-8ad678a1c2e4"))
     monkeypatch.setattr(orca, "new_run", lambda drive, objective: FRESH_RUN)
@@ -2252,8 +2266,8 @@ def test_end_saves_what_the_sprite_of_a_job_still_at_work_holds_and_its_next_lan
 
     monkeypatch.setattr(orca, "launch", fake_launch)
     code, out = run("job", "resume", "j1", "Build #4412 failed: fix the lint")
-    assert (code, out.endswith(f"and what pool-ie7ugrhamhjtmnwa held on no remote is saved: {SAVED}")) == (0, True)
-    assert f"what it held on no remote was saved for you: {SAVED}." in orca.brief_of(launched["brief"])
+    assert (code, out.endswith(f"and what pool-ie7ugrhamhjtmnwa held on no remote is saved on GitHub as {ON_GITHUB}")) == (0, True)
+    assert f"what it held on no remote was saved for you on GitHub as {ON_GITHUB}." in orca.brief_of(launched["brief"])
     assert [(death["why"], death["saved"]) for death in state.load(remote)["jobs"]["j1"]["deaths"]] == [("ended by drive job end", SAVED)]
 
 
@@ -2408,6 +2422,61 @@ def test_resume_after_end_relaunches_the_job_on_a_fresh_sprite_with_the_message_
     job = state.load(remote)["jobs"]["j1"]
     assert (job["dispatch"], job["workspace"], job["state"]) == ("dispatch-2", "workspace-2", "running")
     assert [(death["dispatch"], death["why"]) for death in job["deaths"]] == [(DISPATCH, "ended by drive job end")]
+
+
+J2363_SAVE = (
+    "uncommitted changes in /home/sprite/monorepo (1 file), now on Forge-AI/monorepo as Uploading at LFS at objects: at 100% at (13/13),"
+    " at 87 at MB at | at 0 at B/s, at done., saved/durable-agents-j2363/sandsql-iris-none-reads at 241f7a7611"
+)
+J2363_REFS = [
+    {
+        "ref": "refs/heads/saved/durable-agents-j2363/sandsql-iris-none-reads",
+        "object": {"sha": "241f7a761105034c55d68ad9ab5903ddf3492bf3", "type": "commit"},
+    }
+]
+
+
+def test_a_resume_names_the_saved_branches_github_holds_never_the_garbled_save_an_end_kept(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cloned(tmp_path, remote)
+    first = tmp_path / "first.md"
+    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
+    kept = {
+        "dispatch": DISPATCH,
+        "workspace": "pool-fhbxfis6temcixty",
+        "why": "ended by drive job end",
+        "at": "2026-11-12T18:19:01-08:00",
+        "ended": {"pid": ENDED_READER, "at": "2026-11-12T18:19:01-08:00"},
+        "saved": J2363_SAVE,
+    }
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(brief=str(first), state="waiting", lane="durable-agents-j2363", workspace="pool-fhbxfis6temcixty", deaths=[kept])
+    asked = []
+
+    def matching_refs(what: str, cmd: list[str], max_age: str = "0s", text: bool = True) -> str:
+        asked.append(cmd[2].partition("/git/")[2])
+        return json.dumps(J2363_REFS)
+
+    monkeypatch.setattr(github, "saved_branches", REAL_SAVED_BRANCHES)
+    monkeypatch.setattr(github, "read", matching_refs)
+    monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: None)
+    monkeypatch.setattr(orca, "worker", refused("invalid_argument", "Unknown environment: f0b7755c-d270-48fa-88c3-8ad678a1c2e4"))
+    monkeypatch.setattr(orca, "new_run", lambda drive, objective: FRESH_RUN)
+    launched = {}
+
+    def fake_launch(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None, workspace: str | None) -> dict:
+        launched.update(brief=brief.read_text())
+        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane")}
+
+    monkeypatch.setattr(orca, "launch", fake_launch)
+    code, out = run("job", "resume", "j1", "the stale reads fix merged: carry it on")
+    saved = "saved/durable-agents-j2363/sandsql-iris-none-reads at 241f7a7611"
+    brief = orca.brief_of(launched["brief"])
+    assert (code, out.endswith(f"and what pool-fhbxfis6temcixty held on no remote is saved on GitHub as {saved}")) == (0, True)
+    assert f"what it held on no remote was saved for you on GitHub as {saved}. Fetch each saved branch and carry its work on." in brief
+    assert ("Uploading" in out, "Uploading" in brief, asked) == (False, False, ["matching-refs/heads/saved/durable-agents-j2363/"])
+    assert state.load(remote)["jobs"]["j1"]["deaths"] == [kept]
 
 
 def test_lane_mail_becomes_job_events_and_records_the_question(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:

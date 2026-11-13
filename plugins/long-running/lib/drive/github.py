@@ -382,6 +382,12 @@ def checkout_repo(checkout: str) -> str:
     return repo_name(run(["git", "-C", checkout, "remote", "get-url", "origin"]))
 
 
+def saved_branches(repo: str, lane: str) -> list[str]:
+    """Each branch repo holds on GitHub under saved/<lane>/, as `saved/<lane>/<name> at <its short sha>`, by one matching-refs read."""
+    refs = json.loads(read(f"{repo}'s saved/{lane}/ branches", ["gh", "api", f"repos/{repo}/git/matching-refs/heads/saved/{lane}/"]))
+    return [f"{ref['ref'].removeprefix('refs/heads/')} at {ref['object']['sha'][:10]}" for ref in refs]
+
+
 def fetched(clone: str, branch: str) -> str:
     """The sha of branch's head as origin holds it now, fetched with one call into the clone's refs/remotes/origin/<branch>."""
     git = ["git", "-C", clone]

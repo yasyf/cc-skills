@@ -349,8 +349,8 @@ def brief_of(vm_brief: str) -> str:
     return vm_brief.rsplit(BRIEF_HEADING, 1)[-1].strip()
 
 
-def handoff(brief: str, ended: dict, job: dict, text: str | None, end: LaneEnd, left: str | None, here: bool = False) -> str:
-    """The brief of a lane taking over from one that died or finished: the job's brief, then what that lane left, what its Sprite holds that the new lane continues on, and the message it never read, when a resume brought one. Here, a move of a job on a Sprite to this Mac, takes it over in a fresh worktree on this Mac however its lane ended."""
+def handoff(brief: str, ended: dict, saved: list[str], job: dict, text: str | None, end: LaneEnd, left: str | None, here: bool = False) -> str:
+    """The brief of a lane taking over from one that died or finished: the job's brief, then what that lane left, what its Sprite holds that the new lane continues on, each branch GitHub holds of what that lane's saves pushed, and the message it never read, when a resume brought one. Here, a move of a job on a Sprite to this Mac, takes it over in a fresh worktree on this Mac however its lane ended."""
     local = here or state.on_mac(job)
     how = "finished" if end.worktree else "died"
     if end.worktree and not here:
@@ -360,7 +360,7 @@ def handoff(brief: str, ended: dict, job: dict, text: str | None, end: LaneEnd, 
     else:
         where = (
             f"You take the job over {'in a fresh worktree ' + ON_MAC if local else 'on a fresh Sprite'} from its pushed branches; "
-            + (f"what it held on no remote was saved for you: {ended['saved']}. Fetch each saved branch and carry its work on. {PUSH_FIRST}" if ended.get("saved") else UNPUSHED)
+            + (f"what it held on no remote was saved for you on GitHub as {', '.join(saved)}. Fetch each saved branch and carry its work on. {PUSH_FIRST}" if saved else UNPUSHED)
         )
     held = f"The lane that held this job {how} {place(job)} at {render.when(ended['at'])}: {ended['why']}. {where}"
     return taking_over(brief, f"a lane that {how}", held, end.branch, job, text and f"The coordinator's message it never read, which you act on now:\n\n{text.strip()}\n")
@@ -497,8 +497,13 @@ def holds_sprite(job: dict) -> bool:
 
 
 def save(drive: str, job_id: str, job: dict, checkout: Path) -> str | None:
-    """Take what the job's Sprite holds that a fresh Sprite would not get to GitHub, by the reclaimer's own read of the checkout it keeps a Sprite for, found by the job's workspace so a Sprite Orca forgot is saved too: it commits each worktree's uncommitted changes on the Sprite and pushes each commit GitHub holds nowhere as saved/<the dead lane's name>/<its branch>, on a GitHub token lent to that one push. What it saved and the branches it is on now; None when the Sprite holds nothing, or the lane runs on this Mac; OrcaError naming why the Sprite could not be read or the save failed, such as a Sprite that never woke."""
+    """Take what the job's Sprite holds that a fresh Sprite would not get to GitHub, by the reclaimer's own read of the checkout it keeps a Sprite for, found by the job's workspace so a Sprite Orca forgot is saved too: it commits each worktree's uncommitted changes on the Sprite and pushes each commit GitHub holds nowhere as saved/<the dead lane's name>/<its branch>, on a GitHub token lent to that one push. What the Sprite held and where it went, naming no branch, which saved reads from GitHub; None when the Sprite holds nothing, or the lane runs on this Mac; OrcaError naming why the Sprite could not be read or the save failed, such as a Sprite that never woke."""
     return None if state.on_mac(job) else reclaimer(checkout, "--save", job["workspace"], lane_of(drive, job_id, job)) or None
+
+
+def saved(drive: str, job_id: str, job: dict, checkout: Path) -> list[str]:
+    """Each branch every save of the job's lane pushed, as GitHub holds it now under saved/<that lane>/ in the repository the drive's checkout and its Sprite lanes clone, by one read, so no text a save printed ever names a branch that is missing; none for a lane on this Mac, which saves nothing."""
+    return [] if state.on_mac(job) else github.saved_branches(github.checkout_repo(str(checkout)), lane_of(drive, job_id, job))
 
 
 def lane_of(drive: str, job_id: str, job: dict) -> str:

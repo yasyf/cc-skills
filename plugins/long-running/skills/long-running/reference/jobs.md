@@ -172,7 +172,8 @@ minutes is said with the remedy, a `SendMessage` to wake it.
    holds on no remote to GitHub as `saved/<lane>/<branch>`, uncommitted changes included, before it
    destroys the Sprite, and keeps the Sprite, naming why, when the save fails. While the job is not
    finished, end saves before it ends the lane, since the next lane starts on a fresh Sprite, and
-   that lane's handoff names each saved branch. When the Sprite does not answer or the save fails,
+   end's output and that lane's handoff name each branch GitHub holds under `saved/<lane>/`, read
+   from its refs, never from what a save printed. When the Sprite does not answer or the save fails,
    end refuses, ending nothing and naming why: end it again once the Sprite answers.
 
 ## Remote lanes
@@ -305,10 +306,12 @@ before it sends or starts.
   changes there and pushes each commit, branch or stash GitHub holds nowhere as
   `saved/<the dead lane>/<its branch>`, on the token `gh auth token` prints, lent to that one push
   through the ssh session's stdin, so it never reaches the Sprite's disk. The output and the new
-  worker's handoff name each saved branch. When that Sprite does not answer or the save fails, the
-  relaunch runs on that Sprite instead, through `cc-remote orca prepare --existing`, in the checkout
-  the dead lane left, and the handoff and the output name why the save failed. A Sprite that refused
-  a worker's tools is never run on again: it is kept, and the relaunch runs on a fresh Sprite.
+  worker's handoff name each branch GitHub then holds under `saved/<the dead lane>/`, by one read
+  of its refs, never from text a save printed, so neither names a branch that is missing. When
+  that Sprite does not answer or the save fails, the relaunch runs on that Sprite instead, through
+  `cc-remote orca prepare --existing`, in the checkout the dead lane left, and the handoff and the
+  output name why the save failed. A Sprite that refused a worker's tools is never run on again: it
+  is kept, and the relaunch runs on a fresh Sprite.
 - A remote lane's text is held on the job's undelivered list under one Orca request id before any
   Orca call, so an outage delays it and never drops it. When Orca cannot reach the lane, as while
   its Orca remote runtime is down, or refuses the send, the resume exits 0 saying the text is held.

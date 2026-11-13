@@ -1159,8 +1159,7 @@ class DestroyTest(unittest.TestCase):
         self.assertEqual(git_in(github, "rev-parse", "saved/durable-agents-j2622/port-next-direct"), head)
         self.assertEqual(
             said,
-            f"commits on no remote on port-next-direct, now on acme/repo as saved/durable-agents-j2622/port-next-direct at {head[:10]};"
-            " destroyed pool-v5enaxpcuapy7bcm",
+            "commits on no remote on port-next-direct, saved to acme/repo under saved/durable-agents-j2622/; destroyed pool-v5enaxpcuapy7bcm",
         )
         self.assertEqual(cc_remote.destroyed, ["pool-v5enaxpcuapy7bcm"])
 
@@ -1227,8 +1226,7 @@ class SaveTest(unittest.TestCase):
             ["changed", "new", "scratch"],
         )
         self.assertEqual((git_in(root, "status", "--porcelain"), git_in(loose, "status", "--porcelain")), ("", ""))
-        branches = ", ".join(f"{name} at {sha[:10]}" for name, sha in sorted(saved.items()))
-        self.assertEqual(said, f"uncommitted changes in {root} (2 files), {loose} (1 file); commits on no remote on other, lane, now on acme/repo as {branches}")
+        self.assertEqual(said, f"uncommitted changes in {root} (2 files), {loose} (1 file); commits on no remote on other, lane, saved to acme/repo under saved/demo-j1/")
         [(script, given)] = cc_remote.sent
         self.assertEqual(given, "ghs_lent\n")
         self.assertNotIn("ghs_lent", script)
@@ -1245,10 +1243,9 @@ class SaveTest(unittest.TestCase):
         loose_head = git_in(loose, "rev-parse", "HEAD")
         saved = dict(line.split() for line in git_in(github, "for-each-ref", "--format=%(refname:lstrip=2) %(objectname)", "refs/heads/saved/").splitlines())
         self.assertEqual(sorted(saved), sorted(["saved/demo-j1/lane", "saved/demo-j1/other", f"saved/demo-j1/{loose_head[:10]}"]))
-        branches = ", ".join(f"{name} at {sha[:10]}" for name, sha in sorted(saved.items()))
         self.assertEqual(
             said,
-            f"uncommitted changes in {root} (2 files), {loose} (1 file); commits on no remote on other, lane, now on acme/repo as {branches};"
+            f"uncommitted changes in {root} (2 files), {loose} (1 file); commits on no remote on other, lane, saved to acme/repo under saved/demo-j1/;"
             f" {broken} left on pool-abc, as git cannot read it",
         )
         self.assertEqual(orca_gc.unsaved(held, REMOTE), f"uncommitted changes in {root} (2 files), {loose} (1 file), {broken} (git cannot read it)")
@@ -1288,9 +1285,11 @@ class SaveTest(unittest.TestCase):
         git_in(base / "repo", "config", "core.hooksPath", str(hook.parent))
         with mock.patch.object(orca_gc, "github_token", return_value="ghs_lent"):
             said = orca_gc.save("pool-abc", "demo-j1", SavingCcRemote(sprite, held, base / "github.git"))
-        saved = dict(line.split() for line in git_in(base / "github.git", "for-each-ref", "--format=%(refname:lstrip=2) %(objectname)", "refs/heads/saved/").splitlines())
-        self.assertEqual(said.partition(", now on acme/repo as ")[2], ", ".join(f"{name} at {sha[:10]}" for name, sha in sorted(saved.items())))
-        self.assertNotIn("Uploading", said)
+        saved = git_in(base / "github.git", "for-each-ref", "--format=%(refname:lstrip=2)", "refs/heads/saved/").split()
+        self.assertEqual(
+            (said, len(saved)),
+            (f"uncommitted changes in {base / 'repo'} (2 files), {base / 'loose'} (1 file); commits on no remote on other, lane, saved to acme/repo under saved/demo-j1/", 3),
+        )
 
     def test_a_head_a_merged_stacked_pr_holds_is_saved_nowhere(self):
         head = "fd6b58c7d1" + "e" * 30

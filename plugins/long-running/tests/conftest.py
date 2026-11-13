@@ -36,6 +36,7 @@ SESSION = "session-under-test"
 DRIVE_TERMINAL = "term_drive"
 REAL_DRIVE_TERMINAL = orca.drive_terminal
 REAL_KEEP_LOGS = orca.keep_logs
+REAL_SAVED_BRANCHES = github.saved_branches
 LANE_SPEC = Path(__file__).resolve().parents[2] / "orca" / "lib" / "lane.json"
 SETTLED_NOTE = cli.settled_note
 TEAM = [
@@ -480,6 +481,14 @@ def tooled(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     placed: list[str] = []
     monkeypatch.setattr(orca, "place_tools", placed.append)
     return placed
+
+
+@pytest.fixture(autouse=True)
+def saved_on_github(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[str]]:
+    """The branches GitHub holds under saved/<lane>/, by lane, as its one matching-refs read names them; none until a test saves some."""
+    held: dict[str, list[str]] = {}
+    monkeypatch.setattr(github, "saved_branches", lambda repo, lane: list(held.get(lane, [])))
+    return held
 
 
 @pytest.fixture(autouse=True)
