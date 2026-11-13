@@ -5286,6 +5286,7 @@ def test_an_incident_closes_once_its_monitor_reads_ok_and_a_release_shipped_its_
     monkeypatch.setattr(watch.agents, "handle", lambda name, brief: ("h1", False))
     assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=1)) if line.startswith("RECOVERED")]
     assert ready_records[1:] == []
+    serve(monkeypatch, {OTHER: read(headRefOid="bbbbbbb222")})
     watch.run_pass(watching, T0 + watch.QUIET_THREAD)
     assert ([argv[0] for argv in calls], [records[0]["attr"] for records in ready_records[1:]]) == (["pup"], [{"order": "o3", "progress": "true", "quiet": "true", "thread": "1794200000.000100"}])
 
