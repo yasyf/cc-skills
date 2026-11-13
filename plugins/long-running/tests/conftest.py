@@ -454,6 +454,7 @@ def redraws(monkeypatch: pytest.MonkeyPatch) -> Redraws:
 @dataclass
 class Draws:
     keys: list[list[str]] = field(default_factory=list)
+    again: list[bool] = field(default_factory=list)
     failure: str | None = None
     link: str = "https://forge.slack.com/archives/D123/p1794379200123456"
 
@@ -462,8 +463,9 @@ class Draws:
 def draws(monkeypatch: pytest.MonkeyPatch) -> Draws:
     drew = Draws()
 
-    def draw(name: str, keys: list[str]) -> str:
+    def draw(name: str, keys: list[str], again: bool = False) -> str:
         drew.keys.append(list(keys))
+        drew.again.append(again)
         if drew.failure:
             raise slack.SlackError(drew.failure)
         with state.edit(name) as data:

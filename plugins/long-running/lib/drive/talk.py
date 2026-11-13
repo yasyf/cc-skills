@@ -4,6 +4,7 @@ import io
 import json
 import os
 import re
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -22,6 +23,11 @@ RECENT_POSTS = 50
 RECORD_WAIT_SECONDS = 1.0
 RECORD_POLL_SECONDS = 0.05
 WORD = re.compile(r"\w+")
+BREAKS = "breaks"
+PLAIN_QUESTION = (
+    "The drive posts this line over his PR card, written from the PR's title, and `cc-slack check-post` found each of these in it. Does the rule"
+    " any finding stands for hold against the line, a finding matching words its rule never meant included? The rule: {rule}"
+)
 
 
 def say(name: str, post: dict) -> str:
@@ -444,19 +450,19 @@ def status(name: str, post: dict, stack: list[str], pictures: list[str], sent: s
     return [*argv, "--", sent] if sent else argv
 
 
-def draw(name: str, keys: list[str]) -> str:
-    """Post his card on the PRs at his DM root and in no order's thread, under the line `carried_out` writes, which cc-slack dm-status needs beside its --tap-pr, as drive pr add draws it on the row it makes and the watch on a PR still uncarded or waiting on him while it fixes a live bug, keep it as a said event, and keep its link on each PR it carries; that link. A card drive card refuses for every one of them posts nothing and says why."""
+def draw(name: str, keys: list[str], again: bool = False) -> str:
+    """Post his card on the PRs at his DM root and in no order's thread, under the line `waits_line` writes from their records, as drive pr add draws it on the row it makes and the watch on a PR still uncarded, or `again` on PRs that wait on him while they fix a live bug, keep it as a said event, and keep its link on each PR it carries; that link. A card drive card refuses for every one of them, or a line `plain` refuses, posts nothing and says why."""
     from drive import card, stage
 
     drawn = card.cards([{"repo": key.split("#")[0], "number": int(key.split("#")[1])} for key in keys])
     if not drawn["cards"]:
         raise DriveError("; ".join(f"{skip['repo']}#{skip['number']}: {skip['reason']}" for skip in drawn["skipped"]) or f"drive card drew no card on {', '.join(keys)}")
-    line = carried_out(state.load(name), keys)
-    found = refs.resolved(name, line)
-    reply = slack.cc_slack(*status(name, {}, keys, [], refs.slack(line, found, None)))
+    line = waits_line(state.load(name), keys, [row["title"] for each in drawn["cards"] for row in each["card"]["prs"]], again)
+    plain(line)
+    reply = slack.cc_slack(*status(name, {}, keys, [], line))
     link = (reply.get("card_permalink") or reply["permalink"]).split()[0]
     state.append_event(
-        name, "said", text=refs.board(line, found), channel=None, thread=reply.get("thread_ts"), url=reply["permalink"], card=reply.get("card_permalink"), order=None, visuals=[], prs=keys, edited=False
+        name, "said", text=line, channel=None, thread=reply.get("thread_ts"), url=reply["permalink"], card=reply.get("card_permalink"), order=None, visuals=[], prs=keys, edited=False
     )
     view.refresh_cards(name)
     found = view.live_cards(name)
@@ -468,12 +474,30 @@ def draw(name: str, keys: list[str]) -> str:
     return link
 
 
-def carried_out(data: dict, keys: list[str]) -> str:
-    """The line above the drive's own draw of his card, one line per order its PRs carry out, each linked to that order's thread: his words quoted, or a drive tooling order's own "Drive tooling: …" words; a flake fix carries out his ruling FLAKE_RULING instead, its words quoted."""
-    flakes = [key for key in keys if data["prs"][key].get("exempt") == state.FLAKE_FIX]
-    orders = dict.fromkeys(state.order_served(data["prs"][key]) for key in keys if key not in flakes)
-    lines = [f"{{order:{order_id}}}" if data["orders"][order_id]["text"].startswith(state.TOOLING) else f'Carries out your "{{order:{order_id}}}"' for order_id in orders]
-    return "\n".join([*lines, *([f'Fixes a flaking test at its cause, by your ruling "{state.FLAKE_WORDS}"'] if flakes else [])])
+def waits_line(data: dict, keys: list[str], titles: list[str], again: bool) -> str:
+    """The line over the drive's own draw of his card, with no link, so Slack draws no other card: what the PRs on it do, by their titles, under "Waits on your Approve", or asked again, why it asks, the open incident or reported bug they fix; a flake fix adds that it fixes a flaking test at its cause, by his ruling FLAKE_RULING, its words quoted."""
+    opening = "Waits on your Approve"
+    if again:
+        incident = any(data["orders"][order_id]["incident"] for key in keys for order_id in state.served_orders(data, data["prs"][key]))
+        opening = f"Asking again, since it fixes {'an open incident' if incident else 'a reported bug'}"
+    flaky = any(data["prs"][key].get("exempt") == state.FLAKE_FIX for key in keys)
+    return "\n".join([f"{opening}: {'; '.join(titles)}", *([f'Fixes a flaking test at its cause, by your ruling "{state.FLAKE_WORDS}"'] if flaky else [])])
+
+
+def plain(line: str) -> None:
+    """Refuse a line over his card that `cc-slack check-post` finds something in and Jev, in one call, reads as breaking the plain-words rule; a line Jev gives no reading of goes out, said on stderr, as a say post does when its judge cannot finish."""
+    from drive import settled
+
+    if not (findings := slack.post_findings(line, True)):
+        return
+    question = {"label": {"instructions": PLAIN_QUESTION.format(rule=agents.PLAIN_WORDS_RULE), "options": {settled.UNDECIDED: "No finding's rule holds against the line.", BREAKS: "A finding's rule holds against the line."}}}
+    try:
+        read = settled.jev({"state": {"line": line, "findings": findings}, "questions": {BREAKS: question}})[BREAKS]
+    except settled.Unheard as failure:
+        print(f"drive: Jev gave no reading of the line over his card, so it goes out with what check-post found in it, {'; '.join(findings)}: {failure}", file=sys.stderr)
+        return
+    if read["choice"] == BREAKS and read["probabilities"][BREAKS] >= settled.DECIDES:
+        raise DriveError(f"nothing was posted: the line over his card breaks the plain-words rule, as `cc-slack check-post` finds and Jev reads it: {'; '.join(findings)}. Line: {line}")
 
 
 def withdraw(name: str, key: str) -> list[str]:

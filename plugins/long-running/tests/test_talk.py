@@ -340,8 +340,8 @@ def test_a_stack_card_names_each_pr_by_its_url_and_the_dashboard_keeps_the_stack
     assert said(demo)[0]["prs"] == ["yasyf/cc-skills#7"]
 
 
-def test_the_drives_own_draw_of_his_card_goes_at_his_dm_root_under_a_line_linking_each_order_its_prs_carry_out(
-    demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+def test_the_drives_own_draw_of_his_card_goes_at_his_dm_root_under_a_line_saying_it_waits_on_his_approve_and_what_its_prs_do(
+    demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, checked: Checked
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "show a run's history", "--thread", "1794200000.000100")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: the watch draws the PR card")
@@ -350,17 +350,56 @@ def test_the_drives_own_draw_of_his_card_goes_at_his_dm_root_under_a_line_linkin
     with state.edit(demo) as data:
         data["prs"]["yasyf/cc-skills#8"] = state.new_pr(tooling, "j1", "o2") | {"title": "Fix: \U0001f41b the watch draws the PR card"}
     view.refresh_cards(demo)
-    monkeypatch.setattr("drive.card.cards", lambda asked: {"cards": [{"repo": "yasyf/cc-skills", "number": 7, "card": {"title": "New: approve the run page shows its history?"}}], "skipped": []})
+    rows = [{"title": "the run page shows its history"}, {"title": "the watch draws the PR card"}]
+    monkeypatch.setattr("drive.card.cards", lambda asked: {"cards": [{"repo": "yasyf/cc-skills", "number": 7, "card": {"title": "New: approve 2 PRs?", "prs": rows}}], "skipped": []})
     assert DRAW(demo, ["yasyf/cc-skills#7", "yasyf/cc-skills#8"]) == POSTED
-    assert posts == [
-        (
-            "dm-status", "--agent", "claude", "--tap-pr", PR_URL, "--tap-pr", tooling, "--",
-            'Carries out your "<https://acme.slack.com/archives/D123/p1794200000000100|show a run\'s history>"'
-            f"\n<{dashboard.link(demo)}#/feature/o2|Drive tooling: the watch draws the PR card>",
-        )
-    ]
-    assert said(demo)[0]["text"] == 'Carries out your "[show a run\'s history](#/feature/o1)"\n[Drive tooling: the watch draws the PR card](#/feature/o2)'
+    line = "Waits on your Approve: the run page shows its history; the watch draws the PR card"
+    assert posts == [("dm-status", "--agent", "claude", "--tap-pr", PR_URL, "--tap-pr", tooling, "--", line)]
+    assert (said(demo)[0]["text"], checked.texts[-1]) == (line, line)
     assert [state.load(demo)["prs"][key]["card"] for key in ("yasyf/cc-skills#7", "yasyf/cc-skills#8")] == [POSTED, POSTED]
+
+
+def test_the_watchs_ask_again_on_a_stack_card_says_why_it_asks_where_it_posted_a_carries_out_line_quoting_another_order(
+    demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run(
+        "order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Agents",
+        "so basicaltyl `ask_user_question` should do a normal agent-to-agent message to the root", "--thread", "1794200000.000100",
+    )
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Agents", "a subagent's question never reaches the operator")
+    building(demo)
+    stack = ["yasyf/cc-skills#7", "yasyf/cc-skills#8", "yasyf/cc-skills#9"]
+    with state.edit(demo) as data:
+        data["orders"]["o2"]["reporter"] = state.reporter("https://acme.slack.com/archives/C0REPORTS01/p1794400100000200")
+        state.carry(data, "j1", "o2", list(data["orders"]["o2"]["parts"]))
+        for key in stack[1:]:
+            data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1")
+        for key in stack:
+            data["prs"][key]["card"] = "https://acme.slack.com/archives/D123/p1794539626054419"
+    view.refresh_cards(demo)
+    rows = [{"title": "only the root agent has tools that ask the operator"}, {"title": "every other agent mails the root"}, {"title": "the root asks for each mail it gets"}]
+    monkeypatch.setattr("drive.card.cards", lambda asked: {"cards": [{"repo": "yasyf/cc-skills", "number": 7, "card": {"title": "New: approve 3 PRs?", "prs": rows}}], "skipped": []})
+    assert DRAW(demo, stack, again=True) == POSTED
+    line = "Asking again, since it fixes a reported bug: only the root agent has tools that ask the operator; every other agent mails the root; the root asks for each mail it gets"
+    assert posts == [("dm-status", "--agent", "claude", *(flag for key in stack for flag in ("--tap-pr", state.pr_url(key))), "--", line)]
+    assert said(demo)[0]["text"] == line
+
+
+def test_a_line_over_his_card_that_check_post_flags_and_jev_reads_as_shorthand_posts_nothing_and_one_jev_cannot_read_goes_out(
+    demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, checked: Checked, jev: Jev
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "show a run's history")
+    building(demo)
+    monkeypatch.setattr("drive.card.cards", lambda asked: {"cards": [{"repo": "yasyf/cc-skills", "number": 7, "card": {"title": "Fix: approve the desk?", "prs": [{"title": "the desk sheds j12"}]}}], "skipped": []})
+    checked.findings = ["1:28 drive-term 'desk': name the role by what it does"]
+    jev.picks(talk.BREAKS)
+    with pytest.raises(DriveError, match="nothing was posted: the line over his card breaks the plain-words rule"):
+        DRAW(demo, ["yasyf/cc-skills#7"])
+    assert (posts, said(demo), state.load(demo)["prs"]["yasyf/cc-skills#7"]["card"]) == ([], [], None)
+    assert jev.asked[-1]["state"] == {"line": "Waits on your Approve: the desk sheds j12", "findings": checked.findings}
+    jev.answer = None
+    assert DRAW(demo, ["yasyf/cc-skills#7"]) == POSTED
+    assert posts == [("dm-status", "--agent", "claude", "--tap-pr", PR_URL, "--", "Waits on your Approve: the desk sheds j12")]
 
 
 def test_a_pr_card_goes_in_the_thread_of_each_open_order_its_pr_carries_out_so_the_one_he_reads_carries_its_link(

@@ -69,6 +69,12 @@ TYPED_TIME_RULE = (
     " come, a time quoted as a tool printed it and a linked time pass, a release's, build's or deploy's start only on the line"
     " linking the build or tool it was quoted from."
 )
+PLAIN_WORDS_RULE = (
+    "Write every post for the person reading the thread, in plain words: no internal shorthand such as tracking ids, agent"
+    " lane names, raw commit shas or object ULIDs, and code, files, products and alerts by their proper names. A multi-agent"
+    " term such as desk, walker, parity or fence is shorthand, but never inside a function, file, path, product or"
+    " alert name or in a code span, and one the reader used in the message the post answers passes in the answer."
+)
 
 
 class Ruled(str):

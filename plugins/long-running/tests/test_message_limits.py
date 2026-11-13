@@ -1271,7 +1271,7 @@ def test_jev_judges_each_finding_by_the_rule_it_names_and_an_order_or_job_id_ref
     assert say(transcript, text=cause).rule == message_limits.CAUSE_RULE
     checked.findings = ["1:14 drive-term 'the drive': say what happens to the reader's work instead"]
     both = say(transcript, text=f"Looking into the drive dashboard.\n{cause}")
-    assert both.rule == f"1. {message_limits.PLAIN_WORDS_RULE}\n2. {message_limits.CAUSE_RULE}"
+    assert both.rule == f"1. {agents.PLAIN_WORDS_RULE}\n2. {message_limits.CAUSE_RULE}"
     checked.findings.append("2:10 drive-term 'j1608': say what happens to the reader's work instead")
     unjudged = say(transcript, text=f"Looking into the drive dashboard.\nChecking j1608: {cause}")
     assert isinstance(unjudged, agents.Unjudged)
