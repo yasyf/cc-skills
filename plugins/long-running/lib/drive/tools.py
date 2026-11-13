@@ -557,24 +557,16 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
 
 
 def keep_rulings(name: str, posts: list[dict], found: dict) -> list[str]:
-    """Keep each ruling an owner or answer record of his words names with its link as his drive answer, beside each card asking him, part undelivered and PR not yet live it could change, as drive answer records one, so the watch's ANSWER line chases each until drive answer marks it; a ruling kept already is left as it is. Its listing each, or why Jev's reading is missing from it."""
+    """Keep each ruling an owner or answer record of his words names with its link as his drive answer, beside each card asking him, part undelivered and PR not yet live it could change, as drive answer records one, so the watch's ANSWER line chases each until drive answer marks it; a ruling kept already is left as it is. Its listing each."""
     said = []
     for made in posts:
         data = state.load(name)
         if not ((ruling := (made.get("attr") or {}).get("ruling")) and made.get("url")) or ruling in data["answers"]:
             continue
         asked = superseded.asking(data, found)
-        try:
-            changes = settled.changed(settled.shown(ruling, data["roles"]["coordinator"]["cwd"])["title"], made["text"], asked)
-        except DriveError:
-            changes = set()
-            said.append(
-                f"his ruling {ruling}: Jev gave no reading of it against his other open cards, so it lists only what its card's job and order"
-                f" hold and its words name: mark any other card it changes on drive answer {ruling}"
-            )
         bound = superseded.binding(data, made["url"], asked, data["roles"]["coordinator"]["cwd"])
         with state.edit(name) as data:
-            kept = data["answers"][ruling] = superseded.record(data, made["text"], made["url"], asked, changes, bound, state.stamp())
+            kept = data["answers"][ruling] = superseded.record(data, made["text"], made["url"], asked, bound, state.stamp())
         said.append(superseded.listing(ruling, kept, superseded.unmarked(kept, asked), asked, data) or f"his ruling {ruling} kept as a drive answer: nothing it could change asks him or waits on it")
     return said
 

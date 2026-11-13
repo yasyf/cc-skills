@@ -350,9 +350,10 @@ When it is answered, replaced or redone:
   included, which X answers: the card closes showing them, and the work goes ahead on them. Only a
   question asking for facts or options is answered in its thread while the card waits. `drive job card` refuses to redraw that card with another question, so put a question his
   words leave open on a new card.
-- When an answer or ruling he gave elsewhere decides a card, `drive answer` lists it, Jev reading
-  his answer against every open card in one call, and `--settled` shows his words and a link to them
-  in place where its buttons were, so a late tap records nothing. A card it decides only in part is
+- When an answer or ruling he gave elsewhere decides a card, mark it on that answer's `drive answer`,
+  which lists only the cards of the answered card's job and order and those his words name but marks
+  any card still asking him, and `--settled` shows his words and a link to them in place where its
+  buttons were, so a late tap records nothing. A card it decides only in part is
   redrawn under its `waits` id to the ASK its job keeps asking only what is left, linking his answer,
   by `drive job ask <j> <file> --redraws <key>`, then marked with `--settled <key>=<file>`. His words, on a card a later decision of his had settled: "didnt we
   alrady say to move all those to lazy? we need to update tehse old cards based on future desicions".

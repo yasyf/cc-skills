@@ -3621,7 +3621,7 @@ def pr_checked(args: argparse.Namespace) -> int:
 
 
 def answer(args: argparse.Namespace) -> int:
-    """Record an answer or ruling of his against the cards asking him, orders and parts undelivered and PRs not yet live that it could change, those of the job and order of the card it answers, those its words name, each other question card Jev reads it as changing, and those of each open order a pick of his binds that the card asked him to lift, and the jobs waiting on their orders: refuse until each card, order, part and PR is marked standing, settled, dropped, superseded or reopened by it and each job sent his words or untouched, show his answer on each card it settles, redraw each it settles in part to the ASK its job keeps for what is left, withdraw each card it drops without stopping its job, drop each order it drops, or whose every part it drops, stopping the live jobs whose order it is and marking in cc-notes each pick binding it superseded by his answer, take each other part it drops off its order, jobs and PRs, close on GitHub each open PR it drops, settle each superseded card in place, withdraw each card carrying a reopened PR until its builder's READY says how his words are met, and close on GitHub an open PR superseded outright; any other card, part or PR still asking him may be marked too."""
+    """Record an answer or ruling of his against the cards asking him, orders and parts undelivered and PRs not yet live that it could change, those of the job and order of the card it answers, those its words name, and those of each open order a pick of his binds that the card asked him to lift, and the jobs waiting on their orders: refuse until each card, order, part and PR is marked standing, settled, dropped, superseded or reopened by it and each job sent his words or untouched, show his answer on each card it settles, redraw each it settles in part to the ASK its job keeps for what is left, withdraw each card it drops without stopping its job, drop each order it drops, or whose every part it drops, stopping the live jobs whose order it is and marking in cc-notes each pick binding it superseded by his answer, take each other part it drops off its order, jobs and PRs, close on GitHub each open PR it drops, settle each superseded card in place, withdraw each card carrying a reopened PR until its builder's READY says how his words are met, and close on GitHub an open PR superseded outright; any other card, part or PR still asking him may be marked too."""
     from drive import view
 
     name = state.resolve(args.drive)
@@ -3638,7 +3638,6 @@ def answer(args: argparse.Namespace) -> int:
             raise DriveError('name his answer\'s cc-notes id, or pass --title "<the question, verbatim>" with --words and --link to record it in cc-notes first')
         if unsaid := settled.unsaid([args.words], args.link, found, data):
             raise DriveError(f"refused, nothing recorded: {unsaid}")
-        changes = settled.changed(args.title, args.words, asked)
         labels = ["scope:durable", f"drive:{name}", *settled.kind(args.words), *args.label]
         args.id = settled.recorded(args.title, args.words, labels, data["roles"]["coordinator"]["cwd"])
     marking = args.stands or args.settled or args.dropped or args.superseded or args.reopened or args.others_stand or args.sent or args.untouched
@@ -3650,14 +3649,11 @@ def answer(args: argparse.Namespace) -> int:
             )
         if not (args.words and args.link):
             raise DriveError(f'{args.id} is not recorded yet: pass --words "<his words, verbatim>" and --link <the permalink of his message or the card he tapped>')
-        if cited:
-            shown = settled.shown(cited, data["roles"]["coordinator"]["cwd"])
-            if unsaid := settled.unsaid([args.words, settled.his(shown["body"])], args.link, found, data):
-                raise DriveError(f"{cited}: refused, nothing recorded: {unsaid}")
-            changes = settled.changed(shown["title"], args.words, asked)
+        if cited and (unsaid := settled.unsaid([args.words, settled.his(settled.shown(cited, data["roles"]["coordinator"]["cwd"])["body"])], args.link, found, data)):
+            raise DriveError(f"{cited}: refused, nothing recorded: {unsaid}")
         bound = superseded.binding(data, args.link, asked, data["roles"]["coordinator"]["cwd"])
         with state.edit(name) as data:
-            data["answers"][args.id] = superseded.record(data, args.words, args.link, asked, changes, bound, state.stamp())
+            data["answers"][args.id] = superseded.record(data, args.words, args.link, asked, bound, state.stamp())
     done = []
     if not marking:
         with state.edit(name) as data:

@@ -66,14 +66,6 @@ WORKED_QUESTION = (
 )
 WORKED_OUT = "The card works it out, or offers no design."
 UNBROKEN = "His words do not rule it out."
-CHANGES = 0.15
-CHANGES_QUESTION = (
-    "His answer below was given to another question. Which of these open questions he has not answered does it decide, rule out"
-    " options of, or make moot, so that card must change or stop asking him? His answer may be a standing rule for a kind of work,"
-    " worded with always, every or never, such as how every bug, landing or release is handled: it changes each open question about"
-    " work of that kind whatever its subject, when the rule rules out an option or decides part of what it asks. Pick none when it"
-    " changes none of them."
-)
 SUPERSEDES_QUESTION = (
     "His answer below was given to a newer question of the same job. Which of these older open questions does it decide or make"
     " moot, so that card asks him nothing his answer leaves open? Pick none when each of them still asks something his answer"
@@ -286,21 +278,12 @@ def judged(case: str, asked: limits.Question, words: list[dict]) -> None:
             print(ADVISED.format(part=parts[key], id=item["id"], asked=cut(item["asked"], 200), said=cut(item["said"], QUOTED_CHARS), rule=rule), file=sys.stderr)
 
 
-def changed(title: str, words: str, asked: dict[str, dict], instructions: str = CHANGES_QUESTION, bar: float = CHANGES) -> set[str]:
-    """The question cards still asking him that a new answer of his decides, rules options out of or makes moot, as Jev reads it against all of them in one call, so each card is weighed beside the others: each Jev gives at least CHANGES, since a card held wrongly costs one --stands mark and one missed keeps asking him what he already decided; asked instead which older questions of the job an answer decides, each at the bar given."""
-    cards = {key.rpartition(":")[2]: key for key, entry in asked.items() if entry["kind"] == "question"}
-    if not cards:
-        return set()
-    options = {short: f'{asked[key]["title"]} Options: {" | ".join(asked[key]["options"])}' for short, key in cards.items()}
-    label = {"instructions": instructions, "options": {UNDECIDED: "It changes none of them.", **options}}
-    try:
-        read = jev({"state": {"answer": {"asked": title, "said": words[:BODY_CHARS]}}, "questions": {"changes": {"label": label}}})["changes"]
-    except Unheard as failure:
-        raise DriveError(
-            f"nothing recorded in the drive: Jev did not read his answer against his {len(cards)} open {'card' if len(cards) == 1 else 'cards'} ({failure}), so each"
-            " card it settles would keep asking him; run this drive answer again"
-        ) from None
-    return {cards[short] for short, probability in read["probabilities"].items() if short in cards and probability >= bar}
+def decided(title: str, words: str, older: dict[str, dict]) -> set[str]:
+    """The older questions of a job that his answer to its newer one decides or makes moot, as Jev reads it against all of them in one call, so each is weighed beside the others, each at the DECIDES bar; Unheard when Jev gave no reading."""
+    options = {key.rpartition(":")[2]: f'{entry["title"]} Options: {" | ".join(entry["options"])}' for key, entry in older.items()}
+    label = {"instructions": SUPERSEDES_QUESTION, "options": {UNDECIDED: "It decides none of them.", **options}}
+    read = jev({"state": {"answer": {"asked": title, "said": words[:BODY_CHARS]}}, "questions": {"supersedes": {"label": label}}})["supersedes"]
+    return {key for key in older if read["probabilities"].get(key.rpartition(":")[2], 0) >= DECIDES}
 
 
 def repeats(data: dict, words: str) -> str | None:
