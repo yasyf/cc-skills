@@ -42,14 +42,18 @@ class GithubError(Exception):
 
 
 def run(cmd: list[str], cwd: str | None = None, timeout: int = 120, max_age: str = "0s", text: bool = True, stdin: str | None = None) -> str | bytes:
-    """Run a command, given stdin when named, its output as text or, with text off, as the bytes it wrote; a gh one goes through ccx's GitHub gateway, which charges it to this drive verb or hook in the machine-wide ledger, refuses it under the rate-limit floor, and answers a read from its cache when the same read was answered within max_age."""
+    """Run a command, given stdin when named, its output as text or, with text off, as the bytes it wrote; a gh one goes through ccx's GitHub gateway, which charges it to this drive verb or hook in the machine-wide ledger, refuses it under the rate-limit floor, retries a read that failed on a transient network error, and answers a read from its cache when the same read was answered within max_age. One still running at timeout is killed, its failure naming it by its words up to its first flag, never its arguments such as a GraphQL query, with what it wrote to stderr by then."""
+    named = " ".join(takewhile(lambda word: not word.startswith("-"), cmd))
     env = None
     if cmd[0] == "gh":
         cmd, env = ["ccx", "vcs", "gh", "--max-age", max_age, "--", *cmd[1:]], os.environ | {"CCX_CALLER": CALLER}
     try:
         result = subprocess.run(cmd, cwd=cwd, env=env, input=stdin, check=False, capture_output=True, text=text, timeout=timeout)
-    except (OSError, subprocess.TimeoutExpired) as error:
+    except OSError as error:
         raise GithubError(str(error)) from None
+    except subprocess.TimeoutExpired as error:
+        said = " ".join((error.stderr or b"").decode(errors="replace").split())
+        raise GithubError(f"{named} timed out after {timeout} s" + (f": {said}" if said else "")) from None
     if result.returncode:
         stderr = result.stderr if text else result.stderr.decode(errors="replace")
         raise GithubError(" ".join(stderr.split()) or f"{cmd[0]} exited {result.returncode}")

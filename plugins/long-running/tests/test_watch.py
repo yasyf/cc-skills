@@ -4442,9 +4442,9 @@ def test_an_approval_on_an_older_head_reads_approved_on_an_older_head_yet_his_ap
     assert landers == [(KEY,)]
 
 
-def enqueue_checking(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str, check: str) -> Path:
-    """A stack-enqueue whose --check prints check and exits 1, and whose --watch queues, beside a gh that records each call; the file gh writes."""
-    on_main(tmp_path, name, f'#!/bin/sh\nif [ "$1" = --check ]; then printf "%s\\n" {shlex.quote(check)}; exit 1; fi\necho "trunk said $*"\n')
+def enqueue_checking(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str, check: str, watch: str = 'echo "trunk said $*"') -> Path:
+    """A stack-enqueue whose --check prints check and exits 1, and whose --watch runs watch, which queues by default, beside a gh that records each call; the file gh writes."""
+    on_main(tmp_path, name, f'#!/bin/sh\nif [ "$1" = --check ]; then printf "%s\\n" {shlex.quote(check)}; exit 1; fi\n{watch}\n')
     return gh_recording(tmp_path, monkeypatch)
 
 
@@ -4532,12 +4532,24 @@ def test_a_lander_whose_only_gaps_are_waits_to_retarget_once_the_pr_under_them_l
     assert not calls.exists()
 
 
-def test_a_lander_stops_on_any_other_gap_with_stack_enqueues_blocked_line_and_never_watches(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_lander_whose_check_reads_github_still_computing_mergeability_waits_it_out_in_watch_and_queues(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     approve(demo, KEY)
-    blocked = "#42 BLOCKED 34087d1264 awaiting approval on head from poetic-svc (approved 316c682c69, on an older head); required check test is FAILURE"
-    calls = enqueue_checking(tmp_path, monkeypatch, demo, blocked)
-    assert land.run(demo, [KEY]) == f"not landed: {blocked}; its whole output is in {state.drive_dir(demo) / land.LOG}"
+    calls = enqueue_checking(tmp_path, monkeypatch, demo, "#42 BLOCKED 34087d1264 GitHub still computing mergeability; GitHub merge state UNKNOWN")
+    assert land.run(demo, [KEY]) == land.QUEUED
     assert not calls.exists()
+
+
+def test_a_lander_whose_watch_stops_on_a_fix_says_its_blocked_line_having_asked_a_review_of_the_head_approved_only_on_an_older_one(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    approve(demo, KEY)
+    blocked = "#42 BLOCKED 34087d1264 awaiting approval on head from poetic-svc (approved 316c682c69, on an older head); GitHub mergeability CONFLICTING; run ccx vcs stack submit for conflicts"
+    stops = "watch stops: a PR needs a fix, not a wait"
+    calls = enqueue_checking(tmp_path, monkeypatch, demo, blocked, f'printf "%s\\n" "{stops}" {shlex.quote(blocked)}; exit 1')
+    assert land.run(demo, [KEY]) == f"not landed: stack-enqueue --watch exited 1: {stops}; {blocked}; its whole output is in {state.drive_dir(demo) / land.LOG}"
+    assert calls.read_text() == "pr comment 42 -R Forge-AI/monorepo --body @forge-pr-reviewer review\n"
 
 
 def test_a_lander_queues_nothing_while_a_pr_below_it_in_its_native_stack_lacks_his_approve_and_tries_again_once_he_approves_it(

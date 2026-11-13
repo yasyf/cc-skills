@@ -302,11 +302,12 @@ the next landing at once:
 
 The drive counts a review approval only on the PR's current head, as stack-enqueue does: an
 approval GitHub still counts from an older head reads `approved on an older head`, never approved,
-and draws no card. Its `--check` runs first, and a `BLOCKED` line it prints ends the landing as
-`PR … not landed: <that line>`, unless each gap it names is an approval on an older head, which
-stack-enqueue names only once `ai-review` finished on that head without approving it. Then the
-lander posts `@forge-pr-reviewer review` on that PR, once a head, and `--watch` waits for the
-approvals and queues it. His card tap starts it when the PR is already green, approved by the
+and draws no card. Its `--check` runs first, and on each head its `BLOCKED` lines name approved only
+on an older head, which stack-enqueue names only once `ai-review` finished on that head without
+approving it, the lander posts `@forge-pr-reviewer review`, once a head. Then `--watch`, which alone
+tells a wait from a fix, waits out each wait in the lander's own process, such as that approval or
+GitHub still computing mergeability after a push to the default branch, and queues it, or ends the
+landing as `PR … not landed: <its last lines>` on the first gap that needs a fix, such as a conflict. His card tap starts it when the PR is already green, approved by the
 reviewer bot, on its head or an older one, and free of conflicts, and the watch starts it within
 60 seconds of reading the PR there, which it does as GitHub delivers the change. It
 walks each stack his Approve touches, a native GitHub stack or PRs each on the one below's head
