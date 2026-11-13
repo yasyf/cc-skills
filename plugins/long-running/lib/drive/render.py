@@ -22,7 +22,7 @@ REACHING = (
     "Post, read and close records with the cci MCP tools while that server is up, `cci post` only while it is gone;"
     " while cci is down, SendMessage `<drive>-<role>` after ListAgents: a disconnect never excuses a message."
 )
-PREVENTED = "A line telling him the drive failed says on that line how that is prevented: the tool change and its order or PR."
+PREVENTED = "A post telling him the drive failed says how that is prevented: the tool change and its order or PR."
 HANDLER_LABELS = ("Record", "Message (his words)", "Link", "Thread", "Drive", "Paths", "Scratch", "Deliverable", "Context", "Waits")
 COMMUNICATOR_RULES = (
     (

@@ -1071,6 +1071,7 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
 
 
 def new_part() -> dict:
+    """A part of an order, undelivered."""
     return {"posted": None, "orphan_said": None, "design": None, "after": []}
 
 
@@ -1530,7 +1531,7 @@ def incident_orders(data: dict, order_id: str) -> list[str]:
 
 
 def thread_order(data: dict, thread: str | None, until: datetime | None = None) -> str | None:
-    """The order that came last into a thread of his, by until when given: added with it as its own thread or the thread of a card its jobs drew, or joined to it by a post answering his message there, the newer order winning a tie; None when no order is in it."""
+    """The order that came last into a thread of his, by until when given: added with it as its own thread or the thread of a card its jobs drew, or joined to it by a drive post naming it there, the newer order winning a tie; None when no order is in it."""
     if not thread:
         return None
     came = [

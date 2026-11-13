@@ -98,21 +98,8 @@ def redraw_pr_cards(url: str) -> int:
     return cc_slack("redraw-pr-cards", "--pr", url)["redrawing"]
 
 
-def names_order_pr(data: dict, order_id: str, root: dict | None) -> bool:
-    """Whether a thread hangs from the drive's own post naming a PR whose change is checked against the order's words, the one it serves, its job's own or one its job carries, as that PR's card does in every state, tapped or not, a stack's card for each PR on it."""
-    if not root or not root.get("from_claude"):
-        return False
-    named = {f"{owner}/{name}#{number}".casefold() for owner, name, number in state.PR_URL.findall(root.get("text") or "")}
-    return any(key.casefold() in named for key, pr in data["prs"].items() if order_id in state.served_orders(data, pr))
-
-
-def his_thread(data: dict, order_id: str, report: dict, root: dict | None) -> bool:
-    """Whether a line carrying the report answers him in a thread his own message started, such as his question or an alert he shared, which takes a line about every order the report is about, whichever order holds the thread, and joins it to each one's threads once the line is posted."""
-    return bool(root and root.get("from_user")) and order_id in state.report_orders(data, report)
-
-
 def order_threads(data: dict, order_id: str, order: dict) -> list[tuple[str, str]]:
-    """The threads a line for an order goes in: its own, then on an incident the own thread of each other order of it, the incident an alert's order joined and every alert joined to it, both ways, then each thread of his where a report on one of them answered his message, then each of their cards'."""
+    """The threads of an order: its own, then on an incident the own thread of each other order of it, the incident an alert's order joined and every alert joined to it, both ways, then each thread a post on one of them went in, then each of their cards'."""
     others = [data["orders"][other] for other in state.incident_orders(data, order_id) if other != order_id]
     own = filter(None, (state.promise_thread(each) for each in [order, *others]))
     asked = ((channel, ts) for each in [order, *others] for channel, ts, _ in each["asked_in"])
@@ -122,12 +109,6 @@ def order_threads(data: dict, order_id: str, order: dict) -> list[tuple[str, str
 def incident_cards(data: dict, order_id: str) -> list[tuple[str, str]]:
     """The thread of each card the jobs of every order of the order's incident drew, the order alone when it is in none."""
     return list(dict.fromkeys(where for other in state.incident_orders(data, order_id) for where in state.card_threads(data, data["orders"][other])))
-
-
-def keeps_dm_root(data: dict, order_id: str, order: dict) -> bool:
-    """Whether a line for an order still goes at his DM root: it holds no thread but those he asked about it in, as a drive tooling order the drive added with no words of his, whose lines went there before."""
-    asked = {(channel, ts) for channel, ts, _ in order["asked_in"]}
-    return set(order_threads(data, order_id, order)) <= asked
 
 
 def order_posts(data: dict, order_id: str, order: dict) -> tuple[list[datetime], str | None]:
@@ -187,14 +168,13 @@ def message_and_root(link: str) -> tuple[dict, dict | None]:
     return found, next((message for message in messages if message["ts"] == parent), None) or root(match[1], parent)
 
 
-def posted_and_root(link: str, text: str) -> tuple[dict, dict | None]:
-    """The drive's own post at a permalink as message_and_root reads it, from the words it was sent with, and the message its thread hangs from, read only for a reply: a post just made needs no read of itself."""
+def posted(link: str, text: str) -> dict:
+    """The drive's own post at a permalink as message reads it, from the words it was sent with: a post just made needs no read of itself."""
     match = state.CARD_LINK.search(link)
     if not match:
         raise SlackError(f"not a Slack message link: {link}")
     ts, parent = f"{match[2]}.{match[3]}", match[4]
-    posted = {"ts": ts, "text": text, "from_claude": True} | ({"thread_ts": parent} if parent else {})
-    return posted, root(match[1], parent) if parent and parent != ts else None
+    return {"ts": ts, "text": text, "from_claude": True} | ({"thread_ts": parent} if parent else {})
 
 
 def message_at(ts: str, *where: str) -> dict:

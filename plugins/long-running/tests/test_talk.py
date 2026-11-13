@@ -392,23 +392,6 @@ def test_a_pr_card_goes_in_the_thread_of_each_open_order_its_pr_carries_out_so_t
     assert [(event.get("channel"), event["prs"]) for event in said(demo)] == [(None, ["yasyf/cc-skills#7"])] * 2 + [("C9TEAM", ["yasyf/cc-skills#7"])]
 
 
-def test_a_stack_cards_thread_is_the_card_thread_of_each_order_its_prs_carry_out_not_only_the_order_that_opened_them(
-    demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], slack_thread: Thread
-) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "show a run's history", "--thread", "1794200000.000100")
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "the list fix", "--thread", "1794400000.000100")
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "an unrelated page", "--thread", "1794450000.000100")
-    building(demo)
-    with state.edit(demo) as data:
-        state.carry(data, "j1", "o2", list(data["orders"]["o2"]["parts"]))
-    stack = "1794493484.938019"
-    slack_thread.messages.append({"ts": stack, "thread_ts": stack, "from_claude": True, "text": f"Approve lands <{PR_URL}|the run page shows its history>"})
-    assert talk.say(demo, {"text": "It landed.", "thread_ts": stack, "order": "o2"}).startswith(f"POSTED {POSTED}")
-    with pytest.raises(DriveError, match=f"^nothing posted: refused, thread {stack} is none of o3's threads"):
-        talk.say(demo, {"text": "It landed.", "thread_ts": stack, "order": "o3"})
-    assert posts == [("dm-status", "--agent", "claude", "--thread", stack, "--", "It landed.")]
-
-
 def test_a_pr_cards_line_that_fails_in_a_later_thread_says_the_card_went_out_so_none_is_posted_again(
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -495,47 +478,33 @@ def test_a_handlers_post_in_its_orders_thread_is_recorded_on_that_order_though_t
     assert state.load(demo)["orders"]["o1"]["last_line"] is not None
 
 
-def test_a_post_on_an_order_in_none_of_its_threads_posts_nothing_and_says_where_it_goes(
-    demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], slack_thread: Thread
-) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why the copy stalls", "--thread", "1794200000.000100")
-    building(demo)
-    with pytest.raises(DriveError) as refused:
-        talk.say(demo, {"text": "The copy stalls on the lock.", "thread_ts": "1794200090.000700", "order": "o1"})
-    assert str(refused.value) == (
-        "nothing posted: refused, thread 1794200090.000700 is none of o1's threads, its own, those he asked about it in, its cards' or its PRs' cards':"
-        " 1794200000.000100; post it in one of them, or post it with no order and record the part it delivers with drive order"
-        " posted o1 <its permalink> --record <the report's seq>"
-    )
-    with pytest.raises(DriveError, match="nothing posted: refused, his DM root is none of o1's threads"):
-        talk.say(demo, {"text": "The copy stalls on the lock.", "order": "o1"})
-    assert (posts, said(demo)) == ([], [])
-    assert talk.say(demo, {"text": "The copy stalls on the lock.", "thread_ts": "1794200000.000100", "order": "o1"}).startswith(f"POSTED {POSTED}")
-    slack_thread.messages.append({"ts": "1794300000.000500", "from_claude": True, "text": f"<{PR_URL}|the run page shows its history>"})
-    assert talk.say(demo, {"text": "It is green.", "thread_ts": "1794300000.000500", "order": "o1"}).startswith(f"POSTED {POSTED}")
-    assert len(posts) == 2
-
-
-def test_a_post_on_an_incident_goes_in_each_joined_alerts_thread_both_ways_and_one_elsewhere_names_whose_thread_it_is(
-    demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]]
+def test_a_post_on_an_order_goes_out_in_any_thread_and_a_thread_the_order_holds_not_yet_joins_its_threads(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL errors on plat", "--thread", "1794200000.000100", "--incident", "--parts", "fix", "first check")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL error log count", "--from", "slack:D123/1794300000.000100", "--thread", "1794300000.000100", "--joins", "o1")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why the copy stalls", "--thread", "1794400000.000100")
-    assert talk.say(demo, {"text": "The fix is merged.", "thread_ts": "1794300000.000100", "order": "o1"}).startswith(f"POSTED {POSTED}")
-    assert talk.say(demo, {"text": "The fix is merged.", "thread_ts": "1794200000.000100", "order": "o2"}).startswith(f"POSTED {POSTED}")
-    with pytest.raises(DriveError) as refused:
-        talk.say(demo, {"text": "The fix is merged.", "thread_ts": "1794400000.000100", "order": "o1", "dry_run": True})
-    assert str(refused.value) == (
-        "nothing posted: refused, thread 1794400000.000100 is o3's thread and none of o1's threads, its own, those he asked about it in, its cards' or its PRs' cards':"
-        " 1794200000.000100, 1794300000.000100; post it in one of them, post it with order o3 when the line is about o3, or post it with no"
-        " order and record the part it delivers with drive order posted o1 <its permalink> --record <the report's seq>"
-    )
-    assert len(posts) == 2
+    run("start", "demo", "--role", "communicator")
+    with state.edit(demo) as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+
+    def say(thread: str | None, order: str) -> str:
+        line = slack_thread.post(state.now() + timedelta(minutes=len(slack_thread.messages) + 1), from_claude=True, thread_ts=thread)
+        monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": line, "thread_ts": thread})
+        return talk.say(demo, {"text": "The copy stalls on the lock.", "thread_ts": thread, "order": order}).removeprefix(f"POSTED {line}; {order} progress line, no part delivered: {line}")
+
+    assert [say(thread, order) for thread, order in [("1794300000.000100", "o1"), ("1794200000.000100", "o2"), (None, "o3")]] == ["", "", ""]
+    assert say("1794400000.000100", "o1") == ", in thread 1794400000.000100, now one of its threads"
+    assert say("1794400000.000100", "o2") == ""
+    assert say("1794200000.000100", "o3") == ", in thread 1794200000.000100, now one of its threads"
+    data = state.load(demo)
+    assert [[thread for _, thread, _ in data["orders"][order]["asked_in"]] for order in ("o1", "o2", "o3")] == [["1794400000.000100"], [], ["1794200000.000100"]]
+    assert (state.thread_order(data, "1794400000.000100"), state.thread_order(data, "1794200000.000100")) == ("o1", "o3")
 
 
-def report(monkeypatch: pytest.MonkeyPatch, attrs: dict[str, str], lane: str = "root", answers: int | None = None) -> None:
-    record = {"kind": "report", "lane": lane, "at": "2026-11-11T09:08:16.896Z", "fields": {"attrs": attrs}} | ({"re": answers} if answers else {})
+def report(monkeypatch: pytest.MonkeyPatch, attrs: dict[str, str], lane: str = "root") -> None:
+    record = {"kind": "report", "lane": lane, "at": "2026-11-11T09:08:16.896Z", "fields": {"attrs": attrs}}
     monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], **record}))
 
 
@@ -609,6 +578,7 @@ def test_a_report_delivers_each_part_its_part_attr_names_with_no_judge_of_its_wo
     assert {part: kept["posted"] for part, kept in state.load(demo)["orders"]["o1"]["parts"].items()} == {"first check": None, "fix": None, "cause": answer}
     assert jev.asked == []
 
+
 @pytest.mark.parametrize(
     ("text", "due"),
     [
@@ -651,8 +621,6 @@ def test_a_time_a_post_promises_becomes_its_orders_due_once_slack_has_the_post_a
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": line, "thread_ts": thread})
     before = state.load(demo)["orders"]["o1"]
     talk.say(demo, {"text": text, "thread_ts": thread, "order": "o1", "dry_run": True})
-    with pytest.raises(DriveError, match="nothing posted: refused, thread 1794200090.000700 is none of o1's threads"):
-        talk.say(demo, {"text": text, "thread_ts": "1794200090.000700", "order": "o1"})
     assert state.load(demo)["orders"]["o1"] == before
     due = state.stamp(at.replace(minute=45, second=0, microsecond=0))
     assert talk.say(demo, {"text": text, "thread_ts": thread, "order": "o1"}) == (
@@ -949,7 +917,7 @@ def alert_order(run: Callable[..., tuple[int, str]], slack_thread: Thread) -> No
 
 
 def test_a_line_in_an_alerts_thread_goes_out_through_cc_slack_reply_with_the_ticket_its_hook_named(
-    demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], slack_thread: Thread, monkeypatch: pytest.MonkeyPatch
+    demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], slack_thread: Thread
 ) -> None:
     alert_order(run, slack_thread)
     line = {"text": "The release failed on the migration.", "channel_id": "C0ALERT1", "thread_ts": ALERT, "order": "o1"}
@@ -962,20 +930,8 @@ def test_a_line_in_an_alerts_thread_goes_out_through_cc_slack_reply_with_the_tic
         )
     ]
     assert said(demo)[0]["channel"] == "C0ALERT1"
-
-    def unreadable(*where: str) -> list[dict]:
-        raise slack.SlackError("cc-slack can't read this thread (thread_not_found)")
-
-    with monkeypatch.context() as unread:
-        unread.setattr(slack, "thread", unreadable)
-        with pytest.raises(DriveError, match=f"^nothing posted: refused, o1's thread {ALERT} is in channel C0ALERT1, so pass channel_id C0ALERT1$"):
-            talk.say(demo, {"text": "The release failed on the migration.", "thread_ts": ALERT, "order": "o1"})
-    with pytest.raises(DriveError) as refused:
-        talk.say(demo, {"text": "The release failed on the migration.", "thread_ts": "1794200090.000700", "order": "o1"})
-    assert str(refused.value).startswith(
-        "nothing posted: refused, thread 1794200090.000700 is none of o1's threads, its own, those he asked about it in, its cards' or its PRs' cards':"
-        f" {ALERT} with channel_id C0ALERT1; post it in one of them"
-    )
+    with pytest.raises(DriveError, match=f"^nothing posted: thread {ALERT} is in channel C0ALERT1, not his DM, so pass channel_id C0ALERT1 with it$"):
+        talk.say(demo, {"text": "The release failed on the migration.", "thread_ts": ALERT, "order": "o1"})
     assert len(posts) == 1
 
 
@@ -1046,74 +1002,6 @@ def test_a_note_to_a_person_with_no_thread_goes_out_through_cc_slack_send_into_t
     assert said(demo)[0]["channel"] == "U0REPORTER"
 
 
-def test_a_post_whose_report_is_about_its_order_in_another_orders_thread_is_told_to_post_in_its_own_never_with_the_other(
-    demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why the copy stalls", "--thread", "1794200000.000100", "--parts", "cause")
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the run page", "--thread", "1794400000.000100")
-    listed = "nothing posted: refused, thread 1794400000.000100 is o2's thread and none of o1's threads, its own, those he asked about it in, its cards' or its PRs' cards': 1794200000.000100;"
-    report(monkeypatch, {"close": "o1"})
-    with pytest.raises(DriveError) as refused:
-        talk.say(demo, {"text": "The copy stalls on the lock.", "thread_ts": "1794400000.000100", "order": "o1", "record": "666938"})
-    assert str(refused.value) == f"{listed} its report is about o1, so post it in one of them"
-    report(monkeypatch, {"order": "o1", "part": "cause"})
-    with pytest.raises(DriveError) as refused:
-        talk.say(demo, {"text": "The copy stalls on the lock.", "thread_ts": "1794400000.000100", "order": "o1", "record": "666939"})
-    assert str(refused.value) == (
-        f'{listed} its report is about o1, so post it in one of them, or post it with no order and record "cause" with drive order posted o1'
-        " <its permalink> --record <the report's seq>"
-    )
-    assert posts == []
-
-
-def test_a_report_answering_his_message_records_on_the_order_it_names_in_the_thread_he_asked_and_another_thread_still_refuses(
-    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread, cci_records: dict[str, dict]
-) -> None:
-    asked, own, other, stray = "1794200000.000100", "1794100000.000100", "1794150000.000100", "1794170000.000100"
-    asked_orders(run, demo, cci_records, own, asked, other)
-    report(monkeypatch, {"progress": "true", "order": "o1"}, answers=671734)
-    answer = slack_thread.post(state.now() + timedelta(minutes=1), from_claude=True)
-    monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": answer, "thread_ts": asked})
-    line = {"text": "Rendering and the zoomed-out view are live.", "thread_ts": asked, "order": "o1", "record": "671739"}
-    assert talk.say(demo, line | {"dry_run": True}) == f"DRY thread {asked}, 0 pictures: {line['text']}; o1 progress line, no part delivered"
-    assert talk.say(demo, line) == (
-        f"POSTED {answer}; o1 progress line, no part delivered: {answer}, in thread {asked}, where he asked about it, now one of its threads"
-    )
-    assert [where[:2] for where in state.load(demo)["orders"]["o1"]["asked_in"]] == [["D123", asked]]
-    later = slack_thread.post(state.now() + timedelta(minutes=5), from_claude=True)
-    assert run("order", "posted", "o1", later) == (0, f"o1 progress line, no part delivered: {later}")
-    with pytest.raises(DriveError) as refused:
-        talk.say(demo, {"text": "Rendering is live.", "thread_ts": stray, "order": "o1", "record": "671739"})
-    assert str(refused.value) == (
-        f"nothing posted: refused, thread {stray} is none of o1's threads, its own, those he asked about it in, its cards' or its PRs' cards': {own}, {asked};"
-        " its report is about o1, so post it in one of them"
-    )
-    cci_records["672619"] = {"seq": 672619, "kind": "owner", "lane": "communicator", "refs": {"url": f"https://acme.slack.com/archives/D123/p1794150000000500?thread_ts={other}&cid=D123"}, "fields": {"attrs": {}}}
-    report(monkeypatch, {"progress": "true", "order": "o1", "thread": other}, answers=672619)
-    ts = f"{(state.now() + timedelta(minutes=15)).timestamp():.6f}"
-    slack_thread.messages.append({"ts": ts, "thread_ts": other, "from_claude": True})
-    reply = f"https://acme.slack.com/archives/D123/p{ts.replace('.', '')}?thread_ts={other}"
-    monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": reply, "thread_ts": other})
-    assert talk.say(demo, {"text": "#54775 merged into dev.", "thread_ts": other, "order": "o1", "record": "672794"}) == (
-        f"POSTED {reply}; o1 progress line, no part delivered: {reply}, in thread {other}, where he asked about it, now one of its threads"
-    )
-    assert [where[:2] for where in state.load(demo)["orders"]["o1"]["asked_in"]] == [["D123", asked], ["D123", other]]
-
-
-def test_a_report_answering_his_message_joins_his_thread_only_to_the_order_it_is_about(
-    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread, cci_records: dict[str, dict]
-) -> None:
-    asked, own, other = "1794200000.000100", "1794100000.000100", "1794150000.000100"
-    asked_orders(run, demo, cci_records, own, asked, other)
-    report(monkeypatch, {"progress": "true", "order": "o1"}, answers=671734)
-    with pytest.raises(DriveError, match=re.escape(f"refused, thread {asked} is o2's thread and none of o3's threads")):
-        talk.say(demo, {"text": "The zoomed-out view is live.", "thread_ts": asked, "order": "o3", "record": "671739"})
-    line = slack_thread.post(state.now() + timedelta(minutes=1), from_claude=True)
-    with pytest.raises(DriveError, match=re.escape(f"{line} is in none of the order's threads, its own, those he asked about it in, its cards' or its PRs' cards': {other};")):
-        cli.record_post(demo, "o3", line, cli.report_attrs("671739"))
-    assert state.load(demo)["orders"]["o3"]["asked_in"] == []
-
-
 def test_a_report_closing_its_order_in_another_orders_thread_his_message_started_records_there_and_joins_it(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
 ) -> None:
@@ -1127,16 +1015,12 @@ def test_a_report_closing_its_order_in_another_orders_thread_his_message_started
         data["roles"]["coordinator"]["session"] = "elsewhere"
     slack_thread.messages.append({"ts": his, "thread_ts": his, "from_user": True, "text": "how is the dashboard looking"})
     report(monkeypatch, {"close": "o1"})
-    assert cli.thread_refusal(state.load(demo), "o1", ("D123", his), cli.report_attrs("677110")) is None
     answer = slack_thread.post(state.now() + timedelta(minutes=1), from_claude=True, text="The incident badge counts only live incidents: 3 right now.")
     assert run("order", "posted", "o1", answer, "--record", "677110") == (
-        0, f'o1 "the incident badge counts only live incidents": posted {answer}, in thread {his}, where he asked about it, now one of its threads'
+        0, f'o1 "the incident badge counts only live incidents": posted {answer}, in thread {his}, now one of its threads'
     )
     data = state.load(demo)
     assert [where[:2] for where in data["orders"]["o1"]["asked_in"]] == [["D123", his]] and state.thread_order(data, his) == "o1"
-    with pytest.raises(DriveError, match=re.escape(f"{answer} is in none of the order's threads")):
-        cli.record_post(demo, "o3", answer, cli.report_attrs("677110"))
-    assert data["orders"]["o3"]["asked_in"] == []
 
 
 def test_a_report_about_its_order_goes_out_through_say_in_a_thread_his_message_started_and_joins_it(
@@ -1155,11 +1039,9 @@ def test_a_report_about_its_order_goes_out_through_say_in_a_thread_his_message_s
     answer = slack_thread.post(state.now() + timedelta(minutes=1), from_claude=True)
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": answer, "thread_ts": his})
     assert talk.say(demo, {"text": "The fix is building.", "thread_ts": his, "order": "o1", "record": "677158"}) == (
-        f"POSTED {answer}; o1 progress line, no part delivered: {answer}, in thread {his}, where he asked about it, now one of its threads"
+        f"POSTED {answer}; o1 progress line, no part delivered: {answer}, in thread {his}, now one of its threads"
     )
     assert [where[:2] for where in state.load(demo)["orders"]["o1"]["asked_in"]] == [["D123", his]]
-    with pytest.raises(DriveError, match=re.escape(f"refused, thread {his} is o1's thread and none of o2's threads")):
-        talk.say(demo, {"text": "The fix is building.", "thread_ts": his, "order": "o2", "record": "677158"})
 
 
 def test_his_later_words_in_a_thread_go_to_the_order_that_came_into_it_last(demo: str, run: Callable[..., tuple[int, str]]) -> None:
@@ -1176,40 +1058,3 @@ def test_his_later_words_in_a_thread_go_to_the_order_that_came_into_it_last(demo
         data["orders"]["o2"]["created"] = state.stamp(created + timedelta(minutes=5))
     assert state.thread_order(state.load(demo), thread) == "o2"
     assert state.thread_order(state.load(demo), "1794100000.000100") is None
-
-
-def test_an_order_holding_no_thread_but_his_keeps_his_dm_root_and_refuses_any_other_thread(
-    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread, cci_records: dict[str, dict]
-) -> None:
-    asked, stray = "1794200000.000100", "1794170000.000100"
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the dashboard looks good")
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "how many incidents are open", "--from", f"slack:D123/{asked}", "--thread", asked)
-    run("start", "demo", "--role", "communicator")
-    with state.edit(demo) as data:
-        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
-        data["roles"]["coordinator"]["session"] = "elsewhere"
-    cci_records["671734"] = {"seq": 671734, "kind": "owner", "lane": "communicator", "refs": {"url": f"https://acme.slack.com/archives/D123/p{asked.replace('.', '')}"}, "fields": {"attrs": {}}}
-    report(monkeypatch, {"progress": "true", "order": "o1"}, answers=671734)
-    answer = slack_thread.post(state.now() + timedelta(minutes=1), from_claude=True)
-    assert run("order", "posted", "o1", answer, "--record", "671739") == (0, f"o1 progress line, no part delivered: {answer}, in thread {asked}, where he asked about it, now one of its threads")
-    data = state.load(demo)
-    assert cli.thread_refusal(data, "o1", ("D123", None), {}) is None
-    assert cli.thread_refusal(data, "o1", ("D123", stray), {}) == (
-        f"refused, thread {stray} is none of o1's threads, its own, those he asked about it in, its cards' or its PRs' cards': {asked};"
-        " post it in one of them, or post it with no order and record the part it delivers with drive order posted o1 <its permalink> --record <the report's seq>"
-    )
-    ts = f"{(state.now() + timedelta(minutes=5)).timestamp():.6f}"
-    slack_thread.messages.append({"ts": ts, "from_claude": True})
-    root = f"https://acme.slack.com/archives/D123/p{ts.replace('.', '')}"
-    assert run("order", "posted", "o1", root) == (0, f"o1 progress line, no part delivered: {root}")
-
-
-def asked_orders(run: Callable[..., tuple[int, str]], demo: str, cci_records: dict[str, dict], own: str, asked: str, other: str) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the 50 dashboard improvements", "--thread", own)
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "how many incidents are open", "--from", f"slack:D123/{asked}", "--thread", asked)
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the zoomed-out view", "--thread", other)
-    run("start", "demo", "--role", "communicator")
-    with state.edit(demo) as data:
-        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
-        data["roles"]["coordinator"]["session"] = "elsewhere"
-    cci_records["671734"] = {"seq": 671734, "kind": "owner", "lane": "communicator", "refs": {"url": f"https://acme.slack.com/archives/D123/p{asked.replace('.', '')}"}, "fields": {"attrs": {}}}

@@ -2,7 +2,7 @@ import json
 import re
 from collections.abc import Iterator
 
-from drive import agents, limits, refs, slack, state
+from drive import agents, limits, refs, state
 
 CALL_FIELDS = ("records", "lane", "drive", "id")
 OPENING = re.compile(r"(?:POST|FYI)\b")
@@ -25,10 +25,6 @@ UNKNOWN_PART = 'refused: {order} has no part "{part}", so this post would delive
 UNLIVE_PART = (
     'refused: {unlive}; drop "{order}:{part}" from the part attr, adding `--attr progress=true` when the post delivers nothing else,'
     " or close the incident with `--attr close={order}` once the fix runs where it hurt"
-)
-OFF_THREAD = (
-    "refused: this report is about {orders}, and thread {thread} is none of its threads: {threads}, nor one his message started."
-    " Name one of those threads, or pass re naming the record of his message in this thread that the report answers, and its post adds this thread to them"
 )
 THREAD_TS = re.compile(r"\d{10}\.\d{6}")
 NOT_THREAD = "refused: thread {thread} is no Slack thread, which is named by its root message's ts, such as 1794478810.620779; leave thread out for a post at his DM root"
@@ -92,7 +88,7 @@ def report_refusals(payload: dict, drive: dict, records: list[dict], index: int)
     yield dm_url(drive, record)
     yield misnamed_part(drive, record)
     yield unfinished(drive, record) if posting else None
-    yield off_thread(drive, record)
+    yield not_thread(record)
     yield UNCARDED if WAITS_ON_HIM.search(text) and not attrs(record).get("waits") and not CARD_NAMED.search(f"{text}\n{record.get('body') or ''}") else None
     yield VAGUE_WAIT if WAITS_ON_OTHER.search(text) and not (WAITED.search(text) and RUNNING.search(text)) else None
     if thread and state.session_role(drive, payload.get("session_id")) in ("coordinator", "meta") and not payload.get("agent_id") and not state.open_incidents(drive, state.report_orders(drive, attrs(record))):
@@ -167,23 +163,11 @@ def unfinished(drive: dict, record: dict) -> str | None:
     return None
 
 
-def off_thread(drive: dict, record: dict) -> str | None:
-    """Why a report names a thread that is no Slack thread, refused by its shape alone, so every time, or none of the threads of an order it is about, finishes or delivers a part of, nor the thread of the message of his it answers through re or one his own message started, nor one under a card of a PR such an order holds: `say` would refuse its post there, and only its writer can name the message it answers."""
-    named = attrs(record)
-    if not (thread := named.get("thread")):
-        return None
-    if not THREAD_TS.fullmatch(thread):
+def not_thread(record: dict) -> str | None:
+    """Why a report names a thread that is no Slack thread, refused by its shape alone, so every time."""
+    if (thread := attrs(record).get("thread")) and not THREAD_TS.fullmatch(thread):
         return agents.Unjudged(NOT_THREAD.format(thread=thread))
-    held = {order: own for order in state.report_orders(drive, named) if (own := [ts for _, ts in slack.order_threads(drive, order, drive["orders"][order])])}
-    threads = list(dict.fromkeys(ts for own in held.values() for ts in own))
-    if not held or thread in threads:
-        return None
-    if (asked := agents.asked_thread(listed(record.get("re")))) and asked[1] == thread:
-        return None
-    root = slack.root(drive["slack"]["channel"], thread)
-    if any(slack.his_thread(drive, order, named, root) or slack.names_order_pr(drive, order, root) for order in held):
-        return None
-    return OFF_THREAD.format(orders=", ".join(held), thread=thread, threads=", ".join(threads))
+    return None
 
 
 def report_threads(tool_input: dict) -> set[str]:

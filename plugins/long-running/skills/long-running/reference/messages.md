@@ -108,15 +108,15 @@ reading of his words "your messages need to be way shorter rewrite this for a hu
   minutes until a drive post is in that thread, and the order cannot close before one is. An open
   incident keeps no such time: the watch owes its next line five quiet minutes after its last, by
   [Clocks](incidents.md#clocks).
-- The handler records each post in an order's thread through the post itself,
-  `say(order=<o>, record=<the report's seq>)`, which delivers each part the report's `part` attr
-  names, or each part of an order its `close` attr names. A progress line's report names neither,
-  whatever job it names, and carries `progress=true`, since `record_lines` refuses a `POST` naming
-  none of the three: it keeps the time and delivers no part, on an order of one part as on one
-  of several. An incident and every alert's order joined to it with `--joins` share their threads both
-  ways, so a post on any of them in any of their threads counts, whichever job carries the alert.
-  `drive order posted <o> <link> --record <the report's seq>` records a part delivered anywhere
-  else. Only the communicator's side records a post, except that the session holding the order marks a part a post
+- The handler records each post on an order through the post itself,
+  `say(order=<o>, record=<the report's seq>)`, in whatever thread it goes, which delivers each part
+  the report's `part` attr names, or each part of an order its `close` attr names, whatever the
+  post's words say, and makes a thread the order holds not yet one of its threads. A progress
+  line's report names neither, whatever job it names, and carries `progress=true`, since
+  `record_lines` refuses a `POST` naming none of the three: it keeps the time and delivers no part,
+  on an order of one part as on one of several. An incident and every alert's order joined to it
+  with `--joins` share their threads both ways, whichever job carries the alert.
+  `drive order posted <o> <link> --record <the report's seq>` records a post already made. Only the communicator's side records a post, except that the session holding the order marks a part a post
   of the drive already answered with `drive order posted <o> <that post's link> --part "<part>"`, with or without
   `--record`, posting nothing.
 
@@ -641,15 +641,15 @@ restating it.
 
 - The machinery: pins, packs, installs-as-process, who handed what to whom. A failure of the drive's
   that reaches him anyway, such as a card refused, a check nobody ran, a message that never arrived or
-  a hook refusing a post he ordered, says on that same line how it is prevented: the tool change, the
+  a hook refusing a post he ordered, says in that post how it is prevented: the tool change, the
   `{order:}` or `{pr:}` carrying it, and when it is live, so that fix starts before the line goes out.
   His words of Nov 12, 12:44 AM, under "Its card was refused because nobody checked that PR against
   your words": "thats not acceptable to dsay without telling me how you will prevent it". A disconnect
   is never the reason, since a session reaches another through SendMessage while cci is down, by
   [records.md](records.md). When he asks why, give the mechanism in one or two sentences and quote
   back the instruction he gave, then the fix and when it is live. The post hook and `record_lines`
-  find a line naming such a failure, or citing the defect record the drive filed for one, with no
-  order or PR on it, and only warn the session sending it, which posts as written: the same words
+  find a line naming such a failure, or citing the defect record the drive filed for one, in a
+  post naming no order or PR and drawing no PR card, and only warn the session sending it, which posts as written: the same words
   tell the product's own refusals too, such as a pod its check refused, by his pick "1 and then if
   we kepe getting false rejects move to 3", whose third option reads "Cause and plain-words findings
   only warn the session". On that warning, a line that does tell a failure of the drive's is
