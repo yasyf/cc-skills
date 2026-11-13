@@ -1,3 +1,4 @@
+import hashlib
 import itertools
 import json
 import os
@@ -902,15 +903,22 @@ def test_resume_to_a_worker_that_finished_starts_the_next_one_in_its_terminal_wi
     steps = []
     monkeypatch.setattr(orca, "place_tools", lambda workspace: steps.append(f"tools on {workspace}"))
 
+    def place_brief(workspace: str, lane: str, text: bytes) -> str:
+        steps.append(f"brief on {workspace}")
+        started.update(spec=text.decode(), sha=hashlib.sha256(text).hexdigest(), bytes=len(text))
+        return f"/home/sprite/.local/state/long-running/briefs/{lane}.md"
+
+    monkeypatch.setattr(orca, "place_brief", place_brief)
+
     def worker_start(drive: str, run_id: str, argv: list[str]) -> subprocess.CompletedProcess:
         steps.append("worker-start")
-        started.update(run=run_id, argv=argv, spec=Path(argv[argv.index("--spec-file") + 1]).read_text())
+        started.update(run=run_id, argv=argv)
         receipt = {"ok": True, "result": {"state": "ready", "runId": run_id, "taskId": "task_2", "dispatchId": "ctx_lane0002"}}
         return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(receipt), stderr="")
 
     monkeypatch.setattr(orca, "bound_command", worker_start)
     code, out = run("job", "resume", "j1", "The review: one medium finding, fix it")
-    assert steps == ["tools on pool-one", "worker-start"]
+    assert steps == ["tools on pool-one", "brief on pool-one", "worker-start"]
     assert (code, out) == (
         0,
         "j1: the message went to the job's next worker, started in its terminal on the same Sprite as dispatch ctx_lane0002 in"
@@ -920,12 +928,16 @@ def test_resume_to_a_worker_that_finished_starts_the_next_one_in_its_terminal_wi
     argv = started["argv"]
     options = {argv[index]: argv[index + 1] for index in range(3, len(argv) - 2, 2)}
     assert (started["run"], argv[:3], argv[-2:]) == (RUN, ["orca", "orchestration", "worker-start"], ["--full", "--json"])
-    assert {key: value for key, value in options.items() if key != "--spec-file"} == {
+    assert options == {
         "--run": RUN,
         "--on": "pool-one",
         "--worktree": "id:repo-1::/home/sprite/monorepo",
         "--terminal": "term_lane",
         "--task-title": "demo-j1-2",
+        "--spec": (
+            "Lane demo-j1-2: read the whole brief at /home/sprite/.local/state/long-running/briefs/demo-j1-2.md, verify its"
+            f" SHA-256 is {started['sha']} and its size is {started['bytes']} bytes, then follow it exactly."
+        ),
         "--timeout-ms": "600000",
     }
     assert started["spec"].startswith("Remote lane: drive demo, job j1.")
@@ -962,6 +974,7 @@ def test_resume_to_a_finished_worker_whose_terminal_orca_no_longer_finds_relaunc
     monkeypatch.setattr(orca, "bound_command", lambda drive, run_id, argv: subprocess.CompletedProcess(argv, 1, stdout=json.dumps(reply), stderr=""))
     monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing is sent to a finished worker: {args}"))
     monkeypatch.setattr(orca, "place_tools", lambda workspace: None)
+    monkeypatch.setattr(orca, "place_brief", lambda workspace, lane, text: f"/home/sprite/{lane}.md")
     monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: None)
     monkeypatch.setattr(orca, "new_run", lambda objective: FRESH_RUN)
     launched = {}
@@ -1049,9 +1062,9 @@ def test_a_launch_of_a_lane_whose_worker_finished_starts_its_next_in_its_termina
     monkeypatch.setattr(orca, "place_tools", lambda workspace: None)
     monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing is sent to a finished worker: {args}"))
     started = {}
+    monkeypatch.setattr(orca, "place_brief", lambda workspace, lane, text: started.update(spec=text.decode()) or f"/home/sprite/{lane}.md")
 
     def worker_start(drive: str, run_id: str, argv: list[str]) -> subprocess.CompletedProcess:
-        started.update(spec=Path(argv[argv.index("--spec-file") + 1]).read_text())
         receipt = {"ok": True, "result": {"state": "ready", "runId": run_id, "taskId": "task_2", "dispatchId": "ctx_lane0002"}}
         return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(receipt), stderr="")
 
@@ -1143,6 +1156,7 @@ def test_a_resume_orca_refuses_exits_2_with_the_refusal_verbatim(
     monkeypatch.setattr(orca.subprocess, "run", lambda argv, **kwargs: done)
     monkeypatch.setattr(orca, "bound_command", lambda drive, run_id, argv: done)
     monkeypatch.setattr(orca, "place_tools", lambda workspace: None)
+    monkeypatch.setattr(orca, "place_brief", lambda workspace, lane, text: f"/home/sprite/{lane}.md")
     assert cli.main(["job", "resume", "j1", "the review"]) == 2
     assert capsys.readouterr().err == f"drive: {refusal}\n"
     assert state.load(remote)["jobs"]["j1"]["dispatch"] == DISPATCH
@@ -2520,6 +2534,27 @@ def test_placing_tools_on_a_sprite_runs_the_orca_step_on_its_cc_remote_task_with
         orca.place_tools("pool-one")
 
 
+def test_placing_a_brief_on_a_sprite_sends_it_through_ssh_stdin_and_returns_the_path_only_when_the_sprite_kept_those_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(orca, "CC_REMOTE_TASKS", tmp_path)
+    (tmp_path / "pool-one.json").write_text(json.dumps({"forward": {"host": "pool-one", "config": "/ssh/pool-one.ssh"}}))
+    text = b"Remote lane: drive demo, job j1.\n" * 4096
+    path = "/home/sprite/.local/state/long-running/briefs/demo-j1-2.md"
+    kept = [hashlib.sha256(text).hexdigest(), hashlib.sha256(b"torn").hexdigest()]
+    ran = []
+
+    def ssh(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        ran.append((argv[:3], argv[-2], kwargs["input"]))
+        return subprocess.CompletedProcess(argv, 0, stdout=f"{kept[len(ran) - 1]}  {path}\n".encode(), stderr=b"")
+
+    monkeypatch.setattr(orca.subprocess, "run", ssh)
+    assert orca.place_brief("pool-one", "demo-j1-2", text) == path
+    assert ran == [(["ssh", "-F", "/ssh/pool-one.ssh"], "pool-one", text)]
+    with pytest.raises(orca.Unfit, match="^writing the brief onto pool-one exited 0, so no worker started: "):
+        orca.place_brief("pool-one", "demo-j1-2", text)
+
+
 def test_launch_local_records_a_lane_on_this_mac_that_reads_as_starting_while_it_launches(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2615,7 +2650,7 @@ def test_resume_to_a_local_lane_that_finished_starts_the_next_worker_in_its_work
     started = {}
 
     def worker_start(drive: str, run_id: str, argv: list[str]) -> subprocess.CompletedProcess:
-        started.update(argv=argv, spec=Path(argv[argv.index("--spec-file") + 1]).read_text())
+        started.update(argv=argv)
         receipt = {"ok": True, "result": {"state": "ready", "runId": run_id, "taskId": "task_2", "dispatchId": "ctx_lane0002"}}
         return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(receipt), stderr="")
 
@@ -2628,14 +2663,16 @@ def test_resume_to_a_local_lane_that_finished_starts_the_next_worker_in_its_work
     )
     argv = started["argv"]
     options = {argv[index]: argv[index + 1] for index in range(3, len(argv) - 2, 2)}
-    assert {key: value for key, value in options.items() if key != "--spec-file"} == {
+    kept = state.drive_dir(rooted) / "jobs" / "j1-2.md"
+    assert options == {
         "--run": RUN,
         "--worktree": "path:/work/root-tooling",
         "--terminal": "term_root",
         "--task-title": "demo-j1-2",
+        "--spec": f"Lane 'demo-j1-2'. Your full brief is the file {kept}: read it in full with the Read tool before anything else and execute it exactly.",
         "--timeout-ms": "600000",
     }
-    assert "You continue the job in its terminal and checkout on this Mac, as it left them." in orca.brief_of(started["spec"])
+    assert "You continue the job in its terminal and checkout on this Mac, as it left them." in orca.brief_of(kept.read_text())
     job = state.load(rooted)["jobs"]["j1"]
     assert (job["run"], job["dispatch"], job["route"], job["terminal"], job["workspace"], job["state"]) == (RUN, "ctx_lane0002", "local", "term_root", None, "running")
     assert [(ended["dispatch"], ended["workspace"]) for ended in job["deaths"]] == [(ROOT_DISPATCH, None)]
