@@ -154,7 +154,7 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    job carries, for the parts the PR carries, those `drive pr set --part` names or else your job's,
    and each answer of his your `DESIGN:` line names by id or card permalink, read whole, after
    listing each change the diff makes to what already exists, before and after. Its `NOT READY`
-   comes back to you through `drive pr wake` naming each of his words the change goes against, and each change to what
+   on a PR he has not approved comes back to you through `drive pr wake` naming each of his words the change goes against, and each change to what
    exists they do not need: change the PRs to his words, put back what they did not ask to change,
    push and return `PUSHED` again, or `ASK` for a reading his words leave open. His card, up
    since `drive pr add`, shows the PR's stage whatever its body says, and while it is red the watch

@@ -612,6 +612,10 @@ def load(name: str) -> dict:
         pr.setdefault("review_asked", None)
         pr.setdefault("author", None)
         pr.setdefault("checked", None)
+        if stamp := pr["checked"]:
+            stamp.pop("patch", None)
+            stamp.setdefault("lines", {})
+            stamp.setdefault("read", stamp["head"])
         pr["parts"] = [part.strip() for part in pr.get("parts", [])]
         pr.setdefault("required", None)
         if (verdict := pr.pop("verdict", None)) and verdict.get("answer") and not verdict["ready"]:

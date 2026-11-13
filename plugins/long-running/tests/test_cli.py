@@ -3485,7 +3485,7 @@ def test_a_builders_ready_counts_only_on_a_green_required_check_and_one_still_ru
 def test_a_builders_ready_and_a_serves_are_kept_unjudged_and_only_the_watchs_check_judges_the_pr_once_at_its_head(
     run: Run, with_pr: str, on_github: dict, judge: Judge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    judge.against = [{"order": "o1", "words": "land it", "change": "api/run.ts keeps the staff flag"}]
+    judge.against = [{"order": "o1", "words": "land it", "file": "api/run.ts", "change": "api/run.ts keeps the staff flag"}]
     assert keep(monkeypatch, capsys, "j1", f"READY {PR}\n") == (0, "")
     assert run("pr", "set", PR, "--serves", "o1", "--design", "none")[0] == 0
     pr = state.load("demo")["prs"][with_pr]
@@ -3541,7 +3541,7 @@ def test_a_pr_whose_job_carries_one_part_of_its_order_passes_on_that_part_while_
     run("job", "add", "builder", "--order", "o1", "--part", purpose, "--goal", "move purpose")
     run("pr", "add", PR, "--job", "j1")
     run("pr", "add", STACKED, "--job", "j2")
-    refused = {"order": "o1", "words": purpose, "change": "Agent.purpose still reads the agents table"}
+    refused = {"order": "o1", "words": purpose, "file": "", "change": "Agent.purpose still reads the agents table"}
     monkeypatch.setattr(served, "judged", lambda name, said, changes: judge.asked.append((said, changes)) or ([] if f"other changes deliver: {purpose}" in said else [refused]))
     assert cli.main(["pr", "check", PR, "--drive", demo]) == 0
     said, changes = judge.asked[-1]
@@ -3557,7 +3557,7 @@ def test_a_pr_set_to_serve_an_order_its_job_carries_is_judged_against_that_order
     with state.edit("demo") as data:
         state.carry(data, "j1", "o2", [grant])
     recorded.shown["3185177"] = DOORS | {"id": "3185177", "title": "How does a grant reach the guards?", "body": f"{grant}; the guards admit it then, never otherwise. One PR"}
-    judge.against = [{"order": "o1", "words": "land it", "change": "no moved table"}]
+    judge.against = [{"order": "o1", "words": "land it", "file": "", "change": "no moved table"}]
     monkeypatch.setattr(served, "judged", lambda name, said, changes: judge.asked.append((said, changes)) or (list(judge.against) if '"land it"' in said else []))
     assert run("pr", "set", PR, "--serves", "o2", "--design", "asked:3185177")[0] == 0
     assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\n") == (0, "")

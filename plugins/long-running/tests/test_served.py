@@ -4,6 +4,7 @@ import subprocess
 from collections.abc import Callable
 
 import pytest
+from conftest import Judge
 from drive import github, served, state
 
 KEY = "Forge-AI/monorepo#42"
@@ -48,24 +49,61 @@ def test_the_judge_sees_source_before_fixtures_a_byte_utf8_cannot_read_and_a_cap
     assert len(left_out) < served.LEFT_OUT_CHARS + 100 and len(prompt) < served.CHANGE_CHARS + served.LEFT_OUT_CHARS + 1_000
 
 
-def test_a_restack_carries_a_check_kept_on_the_text_of_gh_pr_diff_to_the_compare_bytes_of_the_same_change(
+def test_a_restack_that_moves_the_hunks_and_the_lines_around_them_carries_the_check_and_one_that_changes_a_line_keeps_it_on_the_head_it_passed(
     run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     run("pr", "add", URL, "--job", "j1")
-    kept = subprocess.run(["git", "patch-id", "--stable"], input=SMALL.decode(), capture_output=True, text=True, check=True).stdout.split(" ")[0]
+    stamp = {"head": "head1", "read": "head1", "orders": ["o1"], "lines": served.digests(SMALL)}
     with state.edit(demo) as data:
-        data["prs"][KEY] |= {"head": "head2", "checked": {"head": "head1", "orders": ["o1"], "patch": kept}}
-    restacked = SMALL.replace(b"@@ -10,3 +10,3 @@", b"@@ -14,3 +14,3 @@").replace(b"1111111111aa", b"3333333333cc")
-    monkeypatch.setattr(served, "change", lambda key: {"title": "Fix: run", "head": "head2", "diff": restacked})
+        data["prs"][KEY] |= {"head": "head2", "checked": stamp}
+    restacked = SMALL.replace(b"@@ -10,3 +10,3 @@ export function run() {", b"@@ -14,3 +14,3 @@ export function start() {").replace(b"1111111111aa", b"3333333333cc")
+    monkeypatch.setattr(served, "change", lambda key: {"title": "Fix: run", "head": "head2", "diff": restacked.replace(b"   const flag = staff();", b"   const flag = isStaff();")})
     assert served.carry(demo, [KEY]) == [KEY]
-    assert state.load(demo)["prs"][KEY]["checked"] == {"head": "head2", "orders": ["o1"], "patch": kept}
+    assert state.load(demo)["prs"][KEY]["checked"] == stamp | {"head": "head2", "read": "head2"}
     with state.edit(demo) as data:
         data["prs"][KEY] |= {"head": "head3"}
     monkeypatch.setattr(served, "change", lambda key: {"title": "Fix: run", "head": "head3", "diff": SMALL.replace(b"+  return !flag;", b"+  return flag && !staff();")})
     assert served.carry(demo, [KEY]) == []
-    assert state.load(demo)["prs"][KEY]["checked"] is None
+    pr = state.load(demo)["prs"][KEY]
+    assert (pr["checked"], served.unread(pr), state.checked(state.load(demo), pr)) == (stamp | {"head": "head2", "read": "head3"}, False, False)
+
+
+LAPSE = b"diff --git a/watch/lapse.go b/watch/lapse.go\nindex 4444444444dd..5555555555ee 100644\n--- a/watch/lapse.go\n+++ b/watch/lapse.go\n@@ -40,3 +40,6 @@ func (w *Watch) Checked() {\n \tw.mu.Lock()\n+\tif time.Since(w.changed) > w.limit {\n+\t\tw.cancel()\n+\t}\n \tdefer w.mu.Unlock()\n }\n"
+WAKES = b"diff --git a/serve/wakes.go b/serve/wakes.go\nindex 6666666666ff..7777777777aa 100644\n--- a/serve/wakes.go\n+++ b/serve/wakes.go\n@@ -12,3 +12,4 @@ func wake() {\n \tw := next()\n+\ttext := description()\n \tsend(w)\n }\n"
+
+
+def test_a_restack_keeps_the_checks_pass_on_each_file_whose_added_and_removed_lines_it_passed_and_judges_the_files_whose_lines_changed(
+    run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch, judge: Judge
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "gets an inbox message when it changes")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    run("pr", "add", URL, "--job", "j1")
+    reads = {"head": "head1", "diff": LAPSE + WAKES}
+    monkeypatch.setattr(served, "change", lambda key: {"title": "Fix: watches wake their agent", "body": ""} | reads)
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= {"head": "head1", "checked": None}
+    assert served.verdict(demo, KEY).startswith(served.CHECKED)
+    restacked = LAPSE.replace(b"@@ -40,3 +40,6 @@", b"@@ -52,3 +52,6 @@").replace(b" \tdefer w.mu.Unlock()", b" \tdefer w.unlock()").replace(b"4444444444dd", b"8888888888bb")
+    reads |= {"head": "head2", "diff": restacked + WAKES.replace(b"description()", b"description(ctx)")}
+    with state.edit(demo) as data:
+        data["prs"][KEY]["head"] = "head2"
+    assert served.carry(demo, [KEY]) == []
+    lapsed = {"order": "o1", "words": "gets an inbox message when it changes", "file": "watch/lapse.go", "change": "watch/lapse.go cancels a watch that lapsed, which he asked for no such lapse"}
+    woke = {"order": "o1", "words": "gets an inbox message when it changes", "file": "serve/wakes.go", "change": "serve/wakes.go drops its context"}
+    judge.against = [lapsed, woke]
+    refused = served.verdict(demo, KEY)
+    assert refused.startswith(served.NOT_READY) and "serve/wakes.go drops its context" in refused and "lapse" not in refused
+    judge.against = [lapsed]
+    assert served.verdict(demo, KEY).startswith(f"{served.CHECKED} against the words of o1 at head2")
+    run("order", "add", "--title", "Second", "--project", "The drive", "--workstream", "Drive tooling", "suspend a chat past its limit")
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["carries"]["o2"] = []
+        data["prs"][KEY]["head"] = "head3"
+    reads |= {"head": "head3"}
+    assert served.carry(demo, [KEY]) == [KEY]
+    assert served.verdict(demo, KEY).startswith(served.NOT_READY)
 
 
 STORED_TAPS = {
@@ -80,9 +118,8 @@ def moved_check(run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pyt
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     run("pr", "add", URL, "--job", "j1")
-    kept = subprocess.run(["git", "patch-id", "--stable"], input=SMALL.decode(), capture_output=True, text=True, check=True).stdout.split(" ")[0]
     monkeypatch.setattr(served, "change", lambda key: {"title": "Fix: run", "head": "head2", "diff": SMALL})
-    return {"head": "head2", "checked": {"head": "head1", "orders": ["o1"], "patch": kept}}
+    return {"head": "head2", "checked": {"head": "head1", "read": "head1", "orders": ["o1"], "lines": served.digests(SMALL)}}
 
 
 @pytest.mark.parametrize("stored", list(STORED_TAPS))
