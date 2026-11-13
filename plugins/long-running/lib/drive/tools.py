@@ -469,7 +469,7 @@ def parsed_args(name: str, words: tuple[str, ...], given: dict) -> argparse.Name
     out = io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
         try:
-            return cli.parser().parse_args([*argv(words, given), "--drive", name])
+            return cli.parsed([*argv(words, given), "--drive", name])
         except SystemExit:
             pass
     raise DriveError(out.getvalue().strip().splitlines()[-1])

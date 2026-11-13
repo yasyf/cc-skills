@@ -397,10 +397,11 @@ def kept(tool: str) -> str:
 
 
 def warm() -> int:
-    """Fork one process for each call read from stdin, each running its tool as `drive tool` would, kill one a kill line names while it runs, and say on stdout each one's exit code once reaped; end once stdin closes and every call it forked has. It holds no install's lock itself, since it runs no verb."""
+    """Fork one process for each call read from stdin, each running its tool as `drive tool` would, kill one a kill line names while it runs, and say on stdout each one's exit code once reaped; end once stdin closes and every call it forked has. It holds no install's lock itself, since it runs no verb, and builds the parser before its first fork, so no call pays for it."""
     state.let_go_install()
     for module in pkgutil.iter_modules(drive.__path__):
         importlib.import_module(f"drive.{module.name}")
+    cli.parser()
     woken, wake = os.pipe()
     os.set_blocking(woken, False)
     os.set_blocking(wake, False)
