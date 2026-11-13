@@ -2205,7 +2205,7 @@ def test_job_ask_redraws_the_card_redraws_names_and_settles_a_duplicate_card_of_
     reworded = SHORT_ASK.replace("Meanwhile nothing is built on either layout.", "Meanwhile the reader adds one more finding.")
     monkeypatch.setattr("sys.stdin", io.StringIO(reworded))
     assert cli.main(["job", "ask", asking, "-", "--redraws", "demo:j1-9"]) == 2
-    assert "--redraws demo:j1-9: no open card of j1 asks him under that waits id" in capsys.readouterr().err
+    assert "--redraws demo:j1-9: no question of o1 holds that card, so j1 takes over none" in capsys.readouterr().err
     monkeypatch.setattr("sys.stdin", io.StringIO(reworded))
     again = state.drive_dir("demo") / "asks" / f"j1-{state.ask_hash(reworded)}.md"
     assert run("job", "ask", asking, "-", "--redraws", "demo:j1-685522") == (
@@ -2222,6 +2222,42 @@ def test_job_ask_redraws_the_card_redraws_names_and_settles_a_duplicate_card_of_
     ]
     assert (job["waits"], [question["waits"] for question in view.open_questions(job)]) == (["demo:j1-685522"], ["demo:j1-685522"])
 
+
+def test_a_job_carrying_on_another_jobs_work_on_its_order_takes_over_that_jobs_open_card_with_redraws_and_his_answer_there_is_its_alone(
+    run: Run, asking: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], slack_calls: list[tuple[str, ...]]
+) -> None:
+    title = SHORT_ASK.splitlines()[0].removeprefix("ASK ")
+    kept = state.drive_dir("demo") / "asks" / f"j1-{state.ask_hash(SHORT_ASK)}.md"
+    kept.parent.mkdir(exist_ok=True)
+    kept.write_text(SHORT_ASK)
+    with state.edit("demo") as data:
+        data["jobs"]["j1"].update(state="stopped", questions=[state.new_question(str(kept), title, state.stamp(), card=slack_card(1)) | {"waits": "demo:j1-685522"}])
+    run("job", "add", "design", "--order", "o1", "--goal", "design the run page again")
+    run("order", "add", "--title", "Other title", "--project", "The drive", "--workstream", "Drive tooling", "design the status page")
+    run("job", "add", "design", "--order", "o2", "--goal", "design the status page")
+    reworded = SHORT_ASK.replace("Meanwhile nothing is built on either layout.", "Meanwhile the reader adds one more finding.")
+    monkeypatch.setattr("sys.stdin", io.StringIO(reworded))
+    assert cli.main(["job", "ask", "j3", "-", "--redraws", "demo:j1-685522"]) == 2
+    assert "--redraws demo:j1-685522: no question of o2 holds that card, which asks for o1, so j3 takes over none" in capsys.readouterr().err
+    monkeypatch.setattr("sys.stdin", io.StringIO(reworded))
+    again = state.drive_dir("demo") / "asks" / f"j2-{state.ask_hash(reworded)}.md"
+    assert run("job", "ask", "j2", "-", "--redraws", "demo:j1-685522") == (0, f"{again}\nhis card {slack_card(1)} asks it under demo:j1-685522")
+    assert drawn_waits(slack_calls) == ["demo:j1-685522"]
+    data = state.load("demo")
+    assert (data["jobs"]["j1"]["questions"], [(question["file"], question["waits"], question["card"]) for question in data["jobs"]["j2"]["questions"]]) == (
+        [],
+        [(str(again), "demo:j1-685522", slack_card(1))],
+    )
+    assert (state.named_job(data, {"waits": "demo:j1-685522"}), view.asked_by(data, {"questions": [{"url": slack_card(9), "card": {"waits": "demo:j1-685522"}}]})) == (
+        "j2",
+        {slack_card(9): "j2"},
+    )
+    with state.edit("demo") as data:
+        data["jobs"]["j2"]["questions"][0]["closed"] = state.new_close("answered", "One snapshot file", slack_card(1))
+    assert served.answered(state.load("demo"), "demo:j1-685522")["file"] == str(again)
+    monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace("ASK How should", "ASK Where should")))
+    assert cli.main(["job", "ask", "j2", "-", "--redraws", "demo:j1-685522"]) == 2
+    assert "--redraws demo:j1-685522: its question there ended answered" in capsys.readouterr().err
 
 def test_job_ask_on_an_open_incident_draws_his_card_in_its_thread_and_sends_the_line_saying_what_it_blocks_to_the_communicator(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, slack_calls: list[tuple[str, ...]]
@@ -2655,7 +2691,7 @@ def test_a_question_asked_again_after_he_answered_its_card_is_kept_settled_in_th
     ]
 
 
-def test_a_question_asked_again_after_its_card_was_withdrawn_redraws_that_card_under_its_waits_id_on_any_job(
+def test_a_withdrawn_card_asked_again_with_redraws_by_its_job_or_another_of_its_order_redraws_under_its_waits_id_and_leaves_its_job(
     run: Run, asking: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
@@ -2674,7 +2710,7 @@ def test_a_question_asked_again_after_its_card_was_withdrawn_redraws_that_card_u
         data["jobs"]["j1"]["questions"][0]["closed"] = state.new_close("withdrawn", withdrawn["label"], None)
     assert f"card {link} withdrawn at {render.when(withdrawn['at'])}: his order replaced it (demo:j1-7)" in run("status", asking)[1]
     monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace("opens in 3 requests", "opens in 3 calls")))
-    again = json.loads(run("job", "ask", asking, "-", "--json")[1])
+    again = json.loads(run("job", "ask", asking, "-", "--json", "--redraws", "demo:j1-7")[1])
     assert again["waits"] == "demo:j1-7"
     assert json.loads(run("job", "card", again["question"], "--waits", "demo:j1-9")[1])["waits"] == "demo:j1-7"
     assert [(question["file"], question["waits"], question["card"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [(again["question"], "demo:j1-7", drawn_card(2))]
@@ -2682,8 +2718,9 @@ def test_a_question_asked_again_after_its_card_was_withdrawn_redraws_that_card_u
         data["jobs"]["j1"]["questions"][0]["closed"] = state.new_close("withdrawn", withdrawn["label"], None)
     run("job", "add", "reader", "--order", "o1", "--goal", "design it again")
     monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace("opens in 3 requests", "opens in 2 calls")))
-    assert json.loads(run("job", "ask", "j2", "-", "--json")[1])["waits"] == "demo:j1-7"
-    assert [(question["waits"], question["card"]) for question in state.load("demo")["jobs"]["j2"]["questions"]] == [("demo:j1-7", drawn_card(3))]
+    assert json.loads(run("job", "ask", "j2", "-", "--json", "--redraws", "demo:j1-7")[1])["waits"] == "demo:j1-7"
+    jobs = state.load("demo")["jobs"]
+    assert ([(question["waits"], question["card"]) for question in jobs["j2"]["questions"]], jobs["j1"]["questions"]) == ([("demo:j1-7", drawn_card(3))], [])
 
 
 def test_job_card_refuses_a_question_he_answered_under_a_new_waits_id_and_never_swaps_in_the_answered_one(
@@ -7995,7 +8032,7 @@ def test_cards_withdraw_settles_his_open_card_with_his_words_and_refuses_a_card_
     assert line.splitlines() == [
         "withdrew 1 question(s) drawn on his card demo:j1-7",
         f"demo:j1-7: his card {shown['url']} now shows his words with no buttons, its question withdrawn",
-        "j1 asks again under demo:j1-7 once its work is back, which redraws its card",
+        "drive job ask <job> <file> --redraws demo:j1-7 asks it again once its work is back, from j1 or any job of o1, which redraws its card",
     ]
     assert state.load("demo")["jobs"]["j1"]["questions"][-1]["closed"]["how"] == "withdrawn"
     assert cli.main(["cards", "withdraw", "demo:j1-8", "--words", words, "--via", via]) == 2

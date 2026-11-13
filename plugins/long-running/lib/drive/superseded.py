@@ -246,17 +246,29 @@ def said_on(data: dict, card: str | None) -> list[dict]:
     return [answer for answer in data["answers"].values() if card and under(answer["link"], card)]
 
 
-def redrawable(data: dict, title: str) -> list[dict]:
-    """Each job's question asking what this title asks that was withdrawn from a card with no answer of his under it: asking it again on any job redraws that card under its waits id."""
-    return [
-        question
-        for job in data["jobs"].values()
-        for question in job["questions"]
-        if state.same_question(question["title"], title)
-        and (question["card"] or question["waits"])
-        and (question["closed"] or {}).get("how") == "withdrawn"
-        and not said_on(data, question["card"])
-    ]
+def redrawn(data: dict, job_id: str, waits: str) -> list[dict]:
+    """The questions `drive job ask <job> --redraws <waits>` takes the place of: each holding the card under that waits id, of the job or of any other job on one of its orders, but one a `Replaces:` line folded into another, open, or withdrawn with no answer of his under the card, so a job carrying on another's work asks again in new words on that job's card, or on a card his words withdrew, and redraws it where it sits. Refused naming why for a card whose question his answer ended, or any answer of his superseded, and for a waits id no question of those orders holds."""
+    job = data["jobs"][job_id]
+    orders = [job["order"], *job["carries"]]
+    held = [(each["order"], question) for each in data["jobs"].values() for question in each["questions"] if question["waits"] == waits and not question["replaced"]]
+    if not (mine := [question for order_id, question in held if order_id in orders]):
+        other = f", which asks for {', '.join(sorted({order_id for order_id, _ in held}))}" if held else ""
+        raise DriveError(
+            f"--redraws {waits}: no question of {', '.join(orders)} holds that card{other}, so {job_id} takes over none:"
+            f" drive status {orders[0]} lists each question of its jobs with its card's waits id"
+        )
+    if ended := next((question for question in mine if question["closed"] and question["closed"]["how"] != "withdrawn"), None):
+        closed = ended["closed"]
+        raise DriveError(
+            f'--redraws {waits}: its question there ended {closed["how"]} {when(closed["at"])}: "{cut(closed["words"] or "", 200)}" ({closed["link"] or ended["card"]}),'
+            " so that card asks him nothing more: ask what is still open on a card of its own, under its own waits id"
+        )
+    if said := next((answer for question in mine if question["closed"] for answer in said_on(data, question["card"])), None):
+        raise DriveError(
+            f'--redraws {waits}: his words under that card answered it: "{cut(said["words"], 200)}" ({said["link"]}), so that card asks him'
+            " nothing more: ask what they leave open on a card of its own, under its own waits id"
+        )
+    return mine
 
 
 def redraw_refusal(data: dict, job: dict, waits: str, file: str) -> str | None:
