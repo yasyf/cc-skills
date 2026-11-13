@@ -123,7 +123,7 @@ def test_a_handlers_own_session_reads_as_an_agent_of_the_communicators(
     transcript = tmp_path / "h-session.jsonl"
     bind(monkeypatch, handler, "h-session", transcript)
     data = state.load("demo")
-    holds = {"message": None, "link": None, "thread": "1794380463.481959", "record": None}
+    holds = {"message": None, "link": None, "thread": "1794380463.481959", "record": None, "re": []}
     assert data["handlers"][handler] | {"started": None} == {"session": "h-session", "transcript": str(transcript), "started": None, "holds": holds, "handed": [], "posted": []}
     assert state.session_drives("h-session") == ["demo"]
     assert state.session_role(data, "h-session") == "communicator"
@@ -263,6 +263,56 @@ def test_the_watchs_brief_naming_a_record_as_cci_post_prints_it_holds_the_same_r
     with pytest.raises(state.DriveError, match=f"handler {handler} is at work on record 680562.*; this copy needs no handler of its own"):
         tools.run("handler", "demo", {"brief": f"Record: 680562 Drive: demo Scratch: {tmp_path / 'handler'}"})
     assert len([argv for argv in started if argv[:2] == ["claude", "--bg"]]) == 1
+
+
+LIVE_RECORDS = {
+    "678142": {"kind": "report", "attrs": {"order": "o761", "progress": "true", "quiet": "true", "thread": "1794494004.895129"}},
+    "678158": {"kind": "report", "attrs": {"incident": "true", "order": "o761", "progress": "true", "thread": "1794494004.895129"}},
+    "683754": {"kind": "handoff", "attrs": {"order": "o896", "thread": "1794528532.773759"}},
+    "683805": {"kind": "report", "re": 683754, "attrs": {"job": "j2600", "order": "o896", "progress": "true", "thread": "1794528532.773759"}},
+    "683812": {"kind": "correction", "re": 683805, "attrs": {"job": "j2600", "order": "o896", "thread": "1794528532.773759"}},
+    "683922": {"kind": "report", "attrs": {"job": "j2698", "order": "o968", "progress": "true", "thread": "1794536668.729819"}},
+    "683946": {"kind": "report", "re": 683922, "attrs": {"job": "j2698", "order": "o968", "progress": "true", "thread": "1794536668.729819"}},
+    "690001": {"kind": "report", "attrs": {"order": "o9"}},
+    "690002": {"kind": "correction", "re": 690001, "attrs": {}},
+}
+WATCH_QUIET = "Record: #678142 Drive: demo Scratch: {scratch}/quiet-#678142"
+COMMUNICATOR_QUIET = (
+    "Record: 678142\nMessage (his words): none\nLink: none\nThread: 1794494004.895129\nDrive: demo\nPaths: none\nScratch: {scratch}/handler"
+    "\nDeliverable: read incident o761's order and post where it stands now\nContext: watch-quiet report\nWaits: none"
+)
+
+
+def brief_of(seq: str) -> str:
+    return f"Record: {seq} Drive: demo Scratch: {{scratch}}/communicator"
+
+
+@pytest.mark.parametrize(
+    ("first", "then", "met"),
+    [
+        pytest.param(WATCH_QUIET, COMMUNICATOR_QUIET, "copy", id="o761-watch-a4fa7ba2-then-communicator-7aa7631a"),
+        pytest.param(COMMUNICATOR_QUIET, WATCH_QUIET, "copy", id="o761-communicator-then-watch"),
+        pytest.param(WATCH_QUIET, brief_of("678158"), "handed", id="o761-roots-678158-in-the-watch-handlers-thread"),
+        pytest.param(brief_of("683805"), brief_of("683812"), "handed", id="683816-correction-683812-while-8d7559f6-held-683805"),
+        pytest.param(brief_of("683922"), brief_of("683946"), "handed", id="683948-correction-683946-while-e5faab45-held-683922"),
+        pytest.param(brief_of("690001"), brief_of("690002"), "handed", id="a-threadless-correction-whose-re-a-handler-holds"),
+        pytest.param(brief_of("690002"), brief_of("690001"), "handed", id="a-threadless-record-the-held-correction-re-names"),
+        pytest.param(brief_of("683922"), WATCH_QUIET, "started", id="another-thread-and-no-re"),
+    ],
+)
+def test_a_record_in_a_live_handlers_thread_or_on_its_re_chain_is_handed_to_it_whichever_session_briefed_either_and_a_copy_is_refused(
+    communicator: str, tmp_path: Path, started: list[list[str]], cci_records: dict[str, dict], first: str, then: str, met: str
+) -> None:
+    cci_records |= {seq: {"seq": int(seq), "kind": kept["kind"], "lane": "root", "re": kept.get("re"), "fields": {"attrs": kept["attrs"]}} for seq, kept in LIVE_RECORDS.items()}
+    handler = tools.run("handler", "demo", {"brief": first.format(scratch=tmp_path)}).removeprefix("started ")
+    if met == "copy":
+        with pytest.raises(state.DriveError, match=f"handler {handler} is at work on record 678142; this copy needs no handler of its own"):
+            tools.run("handler", "demo", {"brief": then.format(scratch=tmp_path)})
+    else:
+        assert tools.run("handler", "demo", {"brief": then.format(scratch=tmp_path)}).startswith(f"handed to {handler}" if met == "handed" else "started ")
+    handlers = state.load("demo")["handlers"]
+    assert len(handlers) == len([argv for argv in started if argv[:2] == ["claude", "--bg"]]) == (2 if met == "started" else 1)
+    assert handlers[handler]["handed"] == ([then.format(scratch=tmp_path)] if met == "handed" else [])
 
 
 def test_a_handler_is_gone_once_no_running_process_or_unfinished_job_claude_code_keeps_names_its_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
