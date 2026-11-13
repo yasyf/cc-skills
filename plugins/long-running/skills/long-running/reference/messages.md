@@ -713,7 +713,8 @@ restating it.
   4:50 AM said its builder started at 4:55 AM. A SendMessage, a defect, a handoff, any other record
   between sessions and `drive job report` quote times as they stand, by his words "i think that time
   hook its tooa ggessive too". A promise of a time to come, such as "next line by 5:40 AM" or "due 6
-  AM", a time quoted as a tool printed it, in backticks, and a linked time pass. His ruling of Nov 3:
+  AM", a time quoted as a tool printed it, in backticks, a time a tool or query measured, such as an outage window, written in
+  Pacific on the line linking the tool or read that measured it, and a linked time pass. His ruling of Nov 3:
   "the agent should never be passing in a time".
 - A job's or record's stamp as another action's time. `{started:<job>}` draws as the job's start,
   labelled so, as "9:52 AM (job start)", and `{at:<seq>}` as when its record went out; neither is when

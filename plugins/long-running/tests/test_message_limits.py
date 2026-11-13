@@ -1408,6 +1408,19 @@ def test_say_refuses_a_time_typed_for_past_work_and_passes_a_jobs_start_from_its
     assert say(transcript, text="The fix job's log printed `4:55:02 AM` for its first write.") is None
 
 
+def test_say_passes_a_past_window_typed_in_pacific_on_the_line_linking_the_read_that_measured_it(
+    talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    measured = {"kind": "report", "text": "the model API returned 503 to one call in three from 09:35 to 09:55 UTC", "refs": {}}
+    monkeypatch.setattr(refs.reads, "run", lambda argv, checkout: json.dumps(measured))
+    window = "From 1:35 to 1:55 AM, one in three calls to the model API returned 503"
+    assert say(transcript, text=f"{window}, {{record:690223|measured here}}.") is None
+    assert say(transcript, text=f"{window}, as <https://app.datadoghq.com/notebook/1|the Datadog notebook> shows.") is None
+    refused = say(transcript, text=f"{window}.\n<https://app.datadoghq.com/notebook/1|The Datadog notebook> shows each call.")
+    assert refused is not None and refused.startswith('refused: "1:55 AM" is a time typed for work already done')
+    assert "in Pacific on the line linking the tool or read that measured it" in refused
+
+
 def test_say_refuses_a_jobs_start_given_as_when_a_release_started_and_passes_the_builds_own_start_on_the_line_linking_it(
     talker: str, transcript: Path
 ) -> None:

@@ -275,7 +275,9 @@ STAMPED = {
 SENTENCE_END = re.compile(r"[.;!?]+[*_~)\]]*(?=\s|$)")
 BACKTICKED = re.compile(r"`[^`\n]*`")
 SOURCE_LINK = re.compile(r"https?://|\{record:")
+SOURCED_LINE = re.compile(rf"^.*(?:{SOURCE_LINK.pattern}).*$", re.MULTILINE)
 QUOTED_START = "<https://buildkite.com/forge/release/builds/15020|the release build> started `11:30 AM`"
+SOURCED_TIME = "From 1:35 to 1:55 AM, <https://app.datadoghq.com/notebook/1|the Datadog notebook> shows the upstream failures"
 VAGUE = re.compile(
     r"\b(?:the|this|that|these|those|your|our)\s+(?:\w+\s+)?(?:change|fix|pick|copy|thing|work|issue|problem|bug|approach|code|path)s?\b"
     r"|\bthis\b(?=\s*[?:,]|$)",
@@ -1315,8 +1317,8 @@ def masked(line: str) -> str:
 
 
 def typed_time(text: str, data: dict) -> str | None:
-    """Why a write types a clock time for work already done, which the drive's stamps give, naming the stamp of the write and of each job it names, or gives a release, build or deploy a start its build or tool never printed: a time in code, a quote, a link or a catch-up's title, which the drive writes from its stamp, stays as written, and one its words promise, as "next line by 5:40 AM" and "due 6 AM" do, is a time to come."""
-    plain = CATCH_UP_SINCE.sub(lambda found: MASK * len(found[0]), QUOTED_LINE.sub(lambda found: MASK * len(found[0]), masked(text)))
+    """Why a write types a clock time for work already done, which the drive's stamps give, naming the stamp of the write and of each job it names, or gives a release, build or deploy a start its build or tool never printed: a time in code, a quote, a link, a line linking the tool or read that measured it or a catch-up's title, which the drive writes from its stamp, stays as written, and one its words promise, as "next line by 5:40 AM" and "due 6 AM" do, is a time to come."""
+    plain = CATCH_UP_SINCE.sub(lambda found: MASK * len(found[0]), QUOTED_LINE.sub(lambda found: MASK * len(found[0]), masked(SOURCED_LINE.sub(lambda found: MASK * len(found[0]), text))))
     typed = list(dict.fromkeys(found[0] for found in CLOCK_TIME.finditer(plain) if not PROMISED_BEFORE.search(plain, 0, found.start())))
     if not typed:
         return unsourced_start(text)
@@ -1330,9 +1332,10 @@ def typed_time(text: str, data: dict) -> str | None:
         f"{times} {'is a time' if len(typed) == 1 else 'are times'} typed for work already done, and the drive's stamps say when"
         f" it happened: this write is stamped {clock(now(), seconds=True)}{''.join(jobs)}. Name the job or"
         " record and let its stamp give the time, {started:<job>} for when a job started and {at:<seq>} for when a record went out,"
-        " which say fills, never for when anything else started; quote a time a tool printed as it printed it, in backticks,"
-        f" and a release's, build's or deploy's start on the line linking that build or tool, as {QUOTED_START} does; a promise of"
-        f' a time to come, such as "next line by 5:40 AM", passes ({STAMP_RULING})'
+        " which say fills, never for when anything else started; write a time a tool or query measured, such as an outage window,"
+        f" in Pacific on the line linking the tool or read that measured it, as \"{SOURCED_TIME}\" does, or quote it in backticks as"
+        " its tool printed it, and a release's, build's or deploy's start on the line linking that build or tool, as"
+        f' {QUOTED_START} does; a promise of a time to come, such as "next line by 5:40 AM", passes ({STAMP_RULING})'
     )
 
 

@@ -96,9 +96,9 @@ pays, such as SandSQL's write path for every table, by his words "you need to al
 "this does/data/toches is not as helpful as each option just having a plain-text shot concise but clear and comprehensive description of what it is". Written in the ASK block's shape, which
 `drive job ask --check` passes with `ASK` for `DESIGN` and your research under `Findings:`, it is his
 card as it stands: `drive job card <j>` draws it with no file written by hand, and `drive job report` refuses a clock time typed in it
-for work already done, so name a job's start as `{started:<job>}` and a record's as `{at:<seq>}`, and quote a time a tool printed
-in backticks as it printed it; any other report quotes times as it needs. It starts from the root cause your
-evidence finds, the structure that lets the defect happen: a `Root cause:` line names it, and a
+for work already done, so name a job's start as `{started:<job>}` and a record's as `{at:<seq>}`, and write a time a tool or query
+printed in Pacific on the line linking it, or in backticks as it printed it; any other report quotes times as it needs. It starts
+from the root cause your evidence finds, the structure that lets the defect happen: a `Root cause:` line names it, and a
 `First principles:` line names the option that removes it so the defect cannot occur, always offered
 and recommended unless his own pick or order chooses another, and a `Simplest:` line names the option that is the simplest design doing his words, with the
 fewest tables, columns, rows per fact, messages, processes, checks and steps, always offered, by his words "in geernal keeps implifying all this tuff"; or `Root cause: not found: <the job finding it>`, or `Root cause: none: <why no

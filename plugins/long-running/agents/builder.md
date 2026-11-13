@@ -425,10 +425,11 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 - Its first line is exactly one result line below. The lines after it are the inputs a handler writes
   his message from, one fact a line, unpolished, never the write-up itself, plus any exact quote,
   number or path the message needs. Name when a job started as `{started:<job>}` and when a record
-  went out as `{at:<seq>}`, never as when anything else started, and quote a time a tool printed in
-  backticks as it printed it, a release's, build's or deploy's start on the line linking that build or
-  tool, so the handler's post from it passes as copied. A report, a SendMessage and a record between
-  sessions quote any time as it stands: only words he reads are checked for a typed time.
+  went out as `{at:<seq>}`, never as when anything else started, and write a time a tool or query
+  printed in Pacific on the line linking it, or in backticks as it printed it, a release's, build's
+  or deploy's start on the line linking that build or tool, so the handler's post from it passes as
+  copied. A report, a SendMessage and a record between sessions quote any time as it stands: only
+  words he reads are checked for a typed time.
 
 | Line | What it holds |
 | --- | --- |
@@ -597,8 +598,9 @@ Replaces: <only on a question built on another open question of his: the path dr
   such, never the names of what will be measured later.
 - `drive job ask` also refuses each of these, naming the fix:
   - a clock time typed for work already done anywhere his card draws: name the job as
-    `{started:<job>}` or the record as `{at:<seq>}`, or quote a time a tool printed, such as a
-    GitHub check's, in backticks as it printed it; a time to come, such as "by 5:40 AM", passes;
+    `{started:<job>}` or the record as `{at:<seq>}`, or write a time a tool or query printed,
+    such as a GitHub check's, in Pacific on the line linking it, or in backticks as it printed it;
+    a time to come, such as "by 5:40 AM", passes;
   - a drive job or order id in the question, summary or options, an `{order:<o>}` in the summary aside; a link or markdown in the question
     or an option; a question that calls its object by a vague noun such as "the change" while its
     findings name its proper term;
