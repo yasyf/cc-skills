@@ -342,14 +342,11 @@ When it is answered, replaced or redone:
   by `drive job ask <j> <file> --redraws <key>`, then marked with `--settled <key>=<file>`. His words, on a card a later decision of his had settled: "didnt we
   alrady say to move all those to lazy? we need to update tehse old cards based on future desicions".
 - To change the words of a card he has not answered, draw it again under its `waits` id. That one
-  call posts the new version as the live card at the DM root, its link in the thread `thread_ts`
-  names, and edits the old card to the new words with one line linking the new card where its
-  buttons were, as is every older copy, so one card stays answerable. `say` then points the question
-  and every job's or PR's wait on the old card's link at the new card, the old card read from his
-  open cards before the post, so a card no job's question keeps moves its waits too; when his cards
-  cannot be read, nothing is posted. `drive cards redraw` draws
-  the same questions again: it carries `in_place`, so the card is edited where it
-  sits, buttons kept, and nothing is posted. The same words post nothing either way. Never edit a card with
+  call edits the card where it sits to the new words, buttons kept, and posts nothing, and every
+  older copy loses its buttons and reads one line linking the card, so one card stays answerable.
+  `say` points every job's or PR's wait on an older copy at the card, the copies read from his open
+  cards before the post; when his cards cannot be read, nothing is posted. `drive cards redraw`
+  draws the same questions again the same way. Never edit a card with
   `say(edit=…)` or `slack_edit`: an edit with text alone replaces its layout and buttons with plain text, and a hook refuses
   it, naming the redraw.
 - Words of his that supersede a card he has not answered, wherever he writes them, withdraw it the
