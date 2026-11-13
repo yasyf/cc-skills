@@ -202,7 +202,7 @@ def test_drive_break_glass_grants_in_the_jobs_name_holding_no_install_lock_then_
     [
         (
             ["order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "count"],
-            "drive order add: refused, nothing ran: a lane runs only these verbs: job report, job ask, job set, job replies, job held, pr add, plan search, manual, status",
+            "drive order add: refused, nothing ran: a lane runs only these verbs: job report, job ask, job set, job replies, job held, pr add, pr set, plan search, manual, status",
         ),
         (
             ["job", "report", "j8", "-"],
@@ -217,6 +217,11 @@ def test_drive_break_glass_grants_in_the_jobs_name_holding_no_install_lock_then_
             f"drive break-glass: refused, nothing ran: no Sprite lane runs break-glass, by {reads.NO_SPRITE_GRANT}: return BLOCKED naming the step and its command",
         ),
         (["job", "set", "j7", "--sta", "done"], "drive job set: refused, nothing ran: a lane's job set takes only --repro, and it names --state"),
+        (["pr", "set", "Forge-AI/monorepo#42", "--tap"], "drive pr set: refused, nothing ran: a lane's pr set takes only --flaky, and it names --tap"),
+        (
+            ["pr", "set", "Forge-AI/monorepo#42", "--flaky", "TestX", "Forge-AI/monorepo#43"],
+            "drive pr set: refused, nothing ran: a lane's pr set acts on a PR its own job, j7, carries, and Forge-AI/monorepo#42 is none of them",
+        ),
         (["status", "--drive", "other"], "drive status: refused, nothing ran: it names drive other, and a lane acts on its own drive, demo, alone"),
         (["status", "--dri", "other"], "drive status: refused, nothing ran: it names drive other"),
         (["job", "replies", "j7", "--drive=other"], "drive job replies: refused, nothing ran: it names drive other"),
