@@ -433,7 +433,7 @@ def refusals(name: str, group: str, ops: list[dict]) -> list[str]:
 
 
 def refuse(data: dict, name: str, group: str, op: dict, after_add: bool) -> None:
-    """Raise what the op's verb refuses before it writes, read from the drive as the call found it and the adds before it: an op that is not one verb of the tool, a field or flag its verb refuses, an id no record holds or no earlier add makes, an order add added_order refuses, a "Drive tooling:" order's new words check-post finds anything in, and a job add naming no part of its order."""
+    """Raise what the op's verb refuses before it writes, read from the drive as the call found it and the adds before it: an op that is not one verb of the tool, a field or flag its verb refuses, an id no record holds or no earlier add makes, an order add added_order refuses, a "Drive tooling:" order's new words check-post finds anything in, and a job add that check_waits or added_parts refuses, a wait on a job an earlier op adds aside, which check_waits reads only once that op saved it."""
     if len(op) != 1:
         raise DriveError(f"an op names one verb, not {', '.join(op) or 'none'}")
     [(verb, given)] = op.items()
@@ -452,8 +452,11 @@ def refuse(data: dict, name: str, group: str, op: dict, after_add: bool) -> None
     if words == ("order", "set") and (args.words or "").startswith(state.TOOLING):
         cli.check_tooling_words(name, args.words)
     if words == ("job", "add"):
-        cli.pick_parts(args.order, cli.find(data["orders"], args.order, "order"), args.part)
-        data["jobs"][state.next_id(data["jobs"], "j")] = {"order": args.order}
+        cli.check_waits(name, [wait for wait in args.waits if wait not in data["jobs"]])
+        parts = cli.added_parts(name, data, args)
+        job_id = state.next_id(data["jobs"], "j")
+        data["jobs"][job_id] = state.new_job(args.order, args.kind, args.goal, parts, state.stamp()) | {"waits": args.waits}
+        data["orders"][args.order]["jobs"].append(job_id)
 
 
 def ordered(data: dict, name: str, given: dict) -> str:
@@ -467,12 +470,12 @@ def ordered(data: dict, name: str, given: dict) -> str:
     if tooling:
         cli.check_tooling_words(name, args.words)
     order_id = state.next_id(data["orders"], "o")
-    data["orders"][order_id] = {
-        "text": args.words,
-        "state": "open",
+    data["orders"][order_id] = state.new_order(args.words, "", None, {part: state.new_part() for part in args.parts or [state.whole_order(args.words)]}, state.stamp()) | {
+        "incident": bool(args.incident or args.joins),
         "kind": "build" if args.incident or args.joins else args.kind,
+        "complex": args.complex,
+        "options_only": args.options_only,
         "owner": "meta" if tooling else args.owner,
-        "parts": {part: state.new_part() for part in args.parts or [state.whole_order(args.words)]},
         "project": project,
         "workstream": workstream,
         "title": title,

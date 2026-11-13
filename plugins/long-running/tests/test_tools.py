@@ -109,6 +109,28 @@ def test_o1009_a_defects_one_job_call_records_its_builder_waiting_on_the_reader_
     assert state.load(meta)["jobs"]["j2"]["state"] == "stopped"
 
 
+def test_a_dry_run_refuses_each_job_add_the_call_refuses(meta: str) -> None:
+    order = {"words": "Drive tooling: the dashboard feed", "kind": "build", "project": "The drive", "workstream": "Drive tooling", "title": "The dashboard feed"}
+    tools.run("order", meta, {"ops": [{"add": order}]})
+    ops = [
+        {"add": {"kind": "builder", "order": "o1", "goal": "build the feed"}},
+        {"add": {"kind": "reader", "order": "o1", "goal": "read", "lands": ["https://github.com/a/b/pull/1"]}},
+        {"add": {"kind": "reader", "order": "o1", "goal": "research: the feed"}},
+        {"add": {"kind": "builder", "order": "o1", "goal": "build what it finds", "waits": ["j1"]}},
+    ]
+    for dry_run in (True, False):
+        with pytest.raises(DriveError) as refused:
+            tools.run("job", meta, {"dry_run": dry_run, "ops": ops})
+        assert [line.split(": ", 1)[0] for line in str(refused.value).splitlines()[1:]] == ['1 job add "build the feed" refused', '2 job add "read" refused']
+        assert "o1 is a build order, so its builder starts only once an Opus reader of its part" in str(refused.value)
+        assert "--lands names the PRs a builder lands, which only a builder does" in str(refused.value)
+    assert state.load(meta)["orders"]["o1"]["jobs"] == []
+    assert [line.split()[:5] for line in tools.run("job", meta, {"dry_run": True, "ops": ops[2:]}).splitlines()] == [
+        ["1", "drive", "job", "add", "reader"],
+        ["2", "drive", "job", "add", "builder"],
+    ]
+
+
 def test_a_call_with_three_refused_ops_prints_all_three(demo: str) -> None:
     tools.run("order", demo, {"ops": [{"add": {"words": "Ship it", "title": "Short title", "project": "Iris", "workstream": "Run page"}}]})
     with pytest.raises(DriveError) as refused:
@@ -125,10 +147,11 @@ def test_a_call_with_three_refused_ops_prints_all_three(demo: str) -> None:
 
 def test_a_refusal_while_a_job_call_runs_writes_nothing_and_a_passing_call_saves_the_drive_once(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     order = {"words": "Fix the card", "title": "Fix the card", "project": "The drive", "workstream": "Drive tooling"}
-    lands = {"kind": "reader", "order": "o1", "goal": "read", "lands": ["https://github.com/a/b/pull/1"]}
     with pytest.raises(DriveError) as refused:
-        tools.run("job", demo, {"ops": [{"add": {"kind": "builder", "order": order, "goal": "fix it"}}, {"add": lands}]})
-    assert str(refused.value) == "2 job add refused: drive: --lands names the PRs a builder lands, which only a builder does; nothing written: fix it and send the whole call again"
+        tools.run("job", demo, {"ops": [{"add": {"kind": "builder", "order": order, "goal": "fix it"}}, {"set": {"rework": ["https://github.com/a/b/pull/1"]}}]})
+    assert str(refused.value) == (
+        "2 job set refused: drive: --rework names the PRs one carried order reworks: name that order with one --carries <o>; nothing written: fix it and send the whole call again"
+    )
     assert (state.load(demo)["orders"], state.load(demo)["jobs"]) == ({}, {})
     saves: list[str] = []
     save = state.save

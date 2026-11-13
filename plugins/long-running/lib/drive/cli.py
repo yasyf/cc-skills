@@ -1055,25 +1055,11 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
 
     name = state.resolve(args.drive)
     created = state.stamp()
-    if args.waits and args.agent:
-        raise DriveError("--waits records a job whose agent starts on the watch's FREE line once its last wait ends, so it takes no --agent")
-    if args.lands and args.kind != "builder":
-        raise DriveError("--lands names the PRs a builder lands, which only a builder does")
-    lands = list(dict.fromkeys(map(state.pr_key, args.lands)))
     found = check_waits(name, args.waits)
     with state.edit(name) as data:
-        order = find(data["orders"], args.order, "order")
-        parts = pick_parts(args.order, order, args.part)
-        refuse_a_shared_at_once_part(parts)
-        role = state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
-        if refused := (
-            state.held_elsewhere(data, args.order, role)
-            or unlandable(data, lands)
-            or state.job_wait_refusal(data, args.waits)
-            or brief.job_refusal(name, data, args.order, args.kind, parts, bool(lands), args.waits)
-        ):
-            raise DriveError(f"refused, no job added: {refused}")
-        order["owner"] = order["owner"] or role
+        parts = added_parts(name, data, args)
+        order = data["orders"][args.order]
+        order["owner"] = order["owner"] or state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
         beside = [
             f'{other_id} {other["kind"]} {other["state"]} on {", ".join(json.dumps(part, ensure_ascii=False) for part in shared)}: {other["goal"][:60]}'
             for other_id in order["jobs"]
@@ -1109,6 +1095,25 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             f"{job_id} starts on a Sprite at once, since {crowd}: drive job launch {job_id} <brief>; one whose brief declares a step only this Mac runs, on {place.MAC_LINES}, waits its turn for a slot here once its agent starts"
         )
     return job_id, job | {"builder": builder_id, "beside": beside, "history": history}, [*waiting, *beside, *history]
+
+
+def added_parts(name: str, data: dict, args: argparse.Namespace) -> list[str]:
+    """The parts of its order a job add takes, refused as the add refuses them inside its save, so the job tool's dry run refuses what the call does: --waits beside --agent, --lands on a job other than a builder, a part its order lacks, the immediate fix or a follow-up beside another part, an order another session holds, a --lands PR he has not let land, a wait on a job no longer at work, and job_refusal's research gates."""
+    if args.waits and args.agent:
+        raise DriveError("--waits records a job whose agent starts on the watch's FREE line once its last wait ends, so it takes no --agent")
+    if args.lands and args.kind != "builder":
+        raise DriveError("--lands names the PRs a builder lands, which only a builder does")
+    parts = pick_parts(args.order, find(data["orders"], args.order, "order"), args.part)
+    refuse_a_shared_at_once_part(parts)
+    lands = list(dict.fromkeys(map(state.pr_key, args.lands)))
+    if refused := (
+        state.held_elsewhere(data, args.order, state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID")))
+        or unlandable(data, lands)
+        or state.job_wait_refusal(data, args.waits)
+        or brief.job_refusal(name, data, args.order, args.kind, parts, bool(lands), args.waits)
+    ):
+        raise DriveError(f"refused, no job added: {refused}")
+    return parts
 
 
 def waiting_builder(name: str, data: dict, reader_id: str, created: str) -> str | None:

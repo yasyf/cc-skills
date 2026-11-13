@@ -3047,6 +3047,38 @@ def test_a_build_jobs_research_is_a_reader_of_its_own_part_a_designs_change_coun
     )
 
 
+def test_o937_a_builder_on_a_part_added_after_its_orders_research_waits_on_the_reader_at_work_on_that_part(
+    run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    status = "what status of dashboard updates including custom pages?"
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: the dashboard feed", "--kind", "build", "--parts", "the feed")
+    run("job", "add", "reader", "--order", "o1", "--goal", "research: the feed")
+    keep(monkeypatch, capsys, "j1", RESEARCH)
+    run("order", "set", "o1", "--parts", "the feed", status)
+    assert run("job", "add", "reader", "--order", "o1", "--part", status, "--goal", "research: the dashboard's updates")[1].splitlines()[:2] == [
+        "j3",
+        f'j4 builder on "{status}" waits on j3: start no agent for it until the watch\'s FREE line says its last wait ended',
+    ]
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--part", status, "--goal", "x"]) == 2
+    assert "while j3 reads, add this builder now waiting on it with --waits j3" in capsys.readouterr().err
+    assert run("job", "add", "builder", "--order", "o1", "--part", status, "--goal", "build the updates", "--waits", "j3")[1].splitlines()[0] == "j5"
+    assert run("job", "add", "builder", "--order", "o1", "--part", "the feed", "--goal", "build the feed")[1].splitlines()[0] == "j6"
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--part", "the feed", "--part", status, "--goal", "x"]) == 2
+    refused = capsys.readouterr().err
+    assert f'drive job add reader --order o1 --part "{status}" --goal "research: <what>"' in refused
+    assert "while j3 reads, add this builder now waiting on it with --waits j3" in refused
+    bare = "Order: Drive tooling: the dashboard feed\nServes: drive tooling\nDrive: demo, order o1, job {}"
+    assert brief.brief_refusal("demo", state.load("demo"), "j5", f"Researched: j1\n{bare.format('j5')}") == (
+        f'Researched: j1: j5\'s part "{status}" has no reader of o1 that kept a Researched: line and under it rulings:, exists: and open: lines in its report'
+    )
+    keep(monkeypatch, capsys, "j3", RESEARCH)
+    data = state.load("demo")
+    assert brief.brief_refusal("demo", data, "j5", f"Researched: j3\n{bare.format('j5')}") is None
+    assert brief.brief_refusal("demo", data, "j6", f"Researched: j1\n{bare.format('j6')}") is None
+    assert brief.research("demo", data, "o1", ["the feed", status])[0] == "j3"
+    assert run("job", "add", "builder", "--order", "o1", "--part", "the feed", "--part", status, "--goal", "build both")[1].splitlines()[0] == "j7"
+
+
 def test_a_builder_is_added_waiting_on_another_builders_change_until_that_builder_opens_its_pr(
     run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
