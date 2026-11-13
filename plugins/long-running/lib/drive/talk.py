@@ -1,4 +1,6 @@
+import contextlib
 import html
+import io
 import json
 import os
 import re
@@ -24,7 +26,9 @@ WORD = re.compile(r"\w+")
 
 def say(name: str, post: dict) -> str:
     """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or with a person's user id as channel_id and no thread in the group DM of that person, him and the bot, or reword one it made in any of those, and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title and the open cards it closes with its only additions; a post naming an order is recorded on it wherever it goes, delivering the parts its report record names, making the clock time its words promise his next line by the order's due, and adding its thread to the order's threads. A report's post names each correction cci holds re it, which the post may lack, and a correction of a report held for his catch-up or carried by it posts nothing, naming where that report's copy is. A handler's result line is kept on its entry, for its done record to carry whole. What the drive's checks find in its words, the say hook hands Jev to judge against his words before this runs."""
-    report = cli.report_attrs(post["record"]) if post.get("record") else {}
+    if (close := post.get("close")) and (not post.get("order") or post.get("record") or post.get("edit")):
+        raise DriveError("nothing posted: close answers the order the post is on and writes its report itself, so pass order, and no record or edit")
+    report = {"close": post["order"], "writer": "communicator", "written": state.stamp()} if close else cli.report_attrs(post["record"]) if post.get("record") else {}
     known = state.load(name)
     order = post.get("order")
     if refused := (order and cli.report_refusal(known, order, report)) or correction_refusal(known, post.get("record"), report):
@@ -51,16 +55,20 @@ def say(name: str, post: dict) -> str:
     if report.get("catch_up"):
         line += released(name, reply["permalink"], corrected)
     if order:
-        line += "; " + recording(name, {"order": order, "link": reply["permalink"], "record": post.get("record"), "sent": reply.get("sent")})
+        line += "; " + recording(name, {"order": order, "link": reply["permalink"], "record": post.get("record"), "sent": reply.get("sent")}, report if close else None)
+    if close:
+        line += closed(name, order, reply["permalink"], post.get("text") or "")
     return line
 
 
-def recording(name: str, receipt: dict) -> str:
-    """Record the post on its order in its own process, behind a receipt kept in the drive, so a slow Slack read, Jev call or drive lock never holds the say call past RECORD_WAIT_SECONDS: the record's line once it lands within that, else where its receipt keeps the line it ends with. Whether this session may record a post on the order is read in the call, while the session is bound: the process runs as no session, and a handler's binding ends with the handler."""
+def recording(name: str, receipt: dict, closing: dict | None = None) -> str:
+    """Record the post on its order in its own process, behind a receipt kept in the drive, so a slow Slack read, Jev call or drive lock never holds the say call past RECORD_WAIT_SECONDS: the record's line once it lands within that, else where its receipt keeps the line it ends with. Whether this session may record a post on the order is read in the call, while the session is bound: the process runs as no session, and a handler's binding ends with the handler. A post that closes its order records in the call on the report its close writes, closing, so the order takes the post before it is set done."""
     try:
         cli.communicators_order(state.load(name), receipt["order"])
     except DriveError as error:
         return unkept(name, receipt, error, "")
+    if closing is not None:
+        return recorded(name, receipt, closing, "")
     kept = state.drive_dir(name) / "posts" / f"{uuid.uuid4().hex}.json"
     kept.parent.mkdir(parents=True, exist_ok=True)
     kept.write_text(json.dumps(receipt))
@@ -83,21 +91,49 @@ def unrecorded(name: str, text: str) -> None:
 def record_kept(name: str, kept: Path) -> str:
     """Record a say post on its order from the receipt `recording` kept, writing the line it ends with back into the receipt; one that cannot be recorded is sent to the meta session as a defect naming the receipt."""
     receipt = json.loads(kept.read_text())
-    try:
-        report = cli.report_attrs(receipt["record"]) if receipt["record"] else {}
-        line = cli.record_post(name, receipt["order"], receipt["link"], report, receipt["sent"])[0]
-    except (DriveError, slack.SlackError) as error:
-        line = unkept(name, receipt, error, f"; receipt {kept}")
+    line = recorded(name, receipt, None, f"; receipt {kept}")
     tmp = kept.with_suffix(".tmp")
     tmp.write_text(json.dumps(receipt | {"line": line}))
     os.replace(tmp, kept)
     return line
 
 
+def recorded(name: str, receipt: dict, report: dict | None, where: str) -> str:
+    """Record a say post on its order on its report, read from cci by the receipt's record unless given; one that cannot be recorded is sent to the meta session as a defect, `where` naming the receipt when one was kept."""
+    try:
+        report = report if report is not None else cli.report_attrs(receipt["record"]) if receipt["record"] else {}
+        return cli.record_post(name, receipt["order"], receipt["link"], report, receipt["sent"])[0]
+    except (DriveError, slack.SlackError) as error:
+        return unkept(name, receipt, error, where)
+
+
 def unkept(name: str, receipt: dict, error: Exception, where: str) -> str:
     """The line say ends with for a post its order did not take, sent to the meta session as a defect too, `where` naming the receipt when one was kept."""
     line = f"not recorded on {receipt['order']}: {error}"
     unrecorded(name, f"say posted {receipt['link']} but it was {line}{where}")
+    return line
+
+
+def closed(name: str, order_id: str, link: str, text: str) -> str:
+    """Close the order a post answered on the report its words are, written from the communicator's lane, and keep the post as the return of the reader job the posting handler holds on it, the line that handler ends on; a step that fails is named, since the post is already out."""
+    argv = ["cci", "post", "--drive", name, "--lane", "communicator", "--kind", "report", "--attr", f"close={order_id}", "--json", "--text", text]
+    try:
+        seq = str(json.loads(reads.run(argv, Path.cwd()))["seq"])
+    except reads.ReadError as error:
+        return f"; {order_id} not closed, its report could not be written: {error}"
+    with contextlib.redirect_stdout(io.StringIO()):
+        try:
+            cli.order_set(cli.parser().parse_args(["order", "set", order_id, "--state", "done", "--record", seq, "--drive", name]))
+        except DriveError as error:
+            return f"; {order_id} not closed on report {seq}: {error}"
+    line = f"; {order_id} closed on report {seq}"
+    data = state.load(name)
+    if (job_id := state.agent_job(data, state.handler_id(data, os.environ.get("CLAUDE_CODE_SESSION_ID")))) and data["jobs"][job_id]["order"] == order_id:
+        result = f"POSTED {link}"
+        state.keep_report(name, job_id, result, f"{result}\n{text}")
+        with state.edit(name) as data:
+            state.take_result(data, job_id, result)
+        line += f"; {job_id} keeps {result} as its return, the line you end on"
     return line
 
 

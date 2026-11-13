@@ -164,6 +164,15 @@ SAY = {
                 "type": "string",
                 "description": "The order this post is on, which records it there, a clock time its words promise his next line by, such as \"Next line by 9:45\", becoming the order's due, but on an incident, whose next line the watch owes five quiet minutes after this one; it is recorded wherever it goes, and a thread the order holds not yet becomes one of its threads",
             },
+            "close": {
+                "type": "boolean",
+                "description": (
+                    "With order and no record: this post is the answer that finishes the order, so say writes its report from the"
+                    " communicator's lane with the post's words, closes the order done on it, and keeps POSTED <permalink> as the return"
+                    " of the reader job your handler holds on it, the line you end on; one call in place of a report, a say and drive"
+                    " order set"
+                ),
+            },
             "record": {
                 "type": "string",
                 "description": (

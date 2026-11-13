@@ -944,6 +944,11 @@ def promised_due(text: str, at: datetime) -> datetime | None:
 
 
 def job_add(args: argparse.Namespace) -> int:
+    job_id, job, lines = added_job(args)
+    return emit(args, "\n".join([job_id, *lines]), {"id": job_id, **job})
+
+
+def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
     name = state.resolve(args.drive)
     created = state.stamp()
     if args.waits and args.agent:
@@ -991,7 +996,7 @@ def job_add(args: argparse.Namespace) -> int:
         waiting.append(
             f"{job_id} starts on a Sprite at once, since {crowd}: drive job launch {job_id} <brief>; one whose brief names a step only this Mac runs, {place.MAC_ONLY_STEPS}, waits its turn for a slot here once its agent starts"
         )
-    return emit(args, "\n".join([job_id, *waiting, *beside]), {"id": job_id, **job, "beside": beside})
+    return job_id, job | {"beside": beside}, [*waiting, *beside]
 
 
 def unlandable(data: dict, keys: list[str]) -> str | None:
@@ -2860,7 +2865,7 @@ def handler(args: argparse.Namespace) -> int:
         )
     if re.search(rf"^{re.escape(agents.HIS_WORDS)}:", args.brief, re.MULTILINE):
         watch.hear(name, state.now(), args.away)
-    handler_id, handed = agents.handle(name, args.brief, detached=True)
+    handler_id, handed = agents.handle(name, args.brief, detached=True, briefed=answering(name, args) if args.answer else None)
     if handed:
         return emit(args, f"handed to {handler_id}", {"handler": handler_id, "handed": True})
     return emit(args, f"started {handler_id}", {"handler": handler_id})
@@ -2874,6 +2879,44 @@ def say_record(args: argparse.Namespace) -> int:
 
 def handler_start(args: argparse.Namespace) -> int:
     return emit(args, agents.start_kept(state.resolve(args.drive), args.id), {"handler": args.id})
+
+
+def answering(name: str, args: argparse.Namespace) -> Callable[[str], str]:
+    """The brief of his read-only question's handler once its answer order and the handler's reader job on it are added, filed as --answer, --project and --workstream name, naming both and every open order in his thread with its jobs, questions and PRs, read from the drive and its stored cards, so the handler reads no drive status."""
+    held = agents.holds(args.brief)
+    if not held["link"]:
+        raise DriveError("--answer: refused, no handler started: it adds his answer order from his message, so the brief carries his words and the Link of his message")
+
+    def briefed(handler_id: str) -> str:
+        filed = [*(["--project", args.project] if args.project else []), *(["--workstream", args.workstream] if args.workstream else [])]
+        words = agents.his_words(args.brief)
+        order_id = added_order(parser().parse_args(["order", "add", words, "--from", held["link"], "--kind", "answer", "--complex", "--title", args.answer, *filed, "--drive", name]))[0]
+        job_id = added_job(parser().parse_args(["job", "add", "reader", "--order", order_id, "--goal", args.answer, "--agent", handler_id, "--drive", name]))[0]
+        data = with_cards(name, state.load(name))
+        thread = state.promise_thread(data["orders"][order_id])
+        work = [
+            line
+            for other_id, other in state.open_orders(data).items()
+            if other_id != order_id and thread in slack.order_threads(data, other_id, other)
+            for line in render.order_block(data, other_id, other, True)
+        ]
+        return "\n".join([args.brief.strip(), f"{agents.ORDER}: {order_id}, job {job_id}", f"{agents.IN_THREAD}:{'' if work else ' none'}", *work])
+
+    return briefed
+
+
+def with_cards(name: str, data: dict) -> dict:
+    """The drive with each question and open PR marked with the state of its card of his, as the cards were last stored, and each open PR's stage as stage.shown puts it on."""
+    from drive import stage, view
+
+    found, source = view.stored_cards(name)
+    found = found if source == "live" else None
+    for question in (question for job in data["jobs"].values() for question in job["questions"]):
+        question["card_state"] = view.card_words(found, source, question["card"] or question["waits"])
+    for pr in data["prs"].values():
+        pr["card_state"] = view.pr_card_words(found, source, pr["url"]) if pr["state"] == "open" else None
+    stage.shown(data, found)
+    return data
 
 
 def term(args: argparse.Namespace) -> int:
@@ -2964,18 +3007,11 @@ def only(data: dict, ids: list[str]) -> None:
 
 
 def status(args: argparse.Namespace) -> int:
-    from drive import stage, view
+    from drive import view
 
     name = state.resolve(args.drive)
-    data = state.load(name)
     view.refresh_cards(name)
-    found, source = view.stored_cards(name)
-    found = found if source == "live" else None
-    for question in (question for job in data["jobs"].values() for question in job["questions"]):
-        question["card_state"] = view.card_words(found, source, question["card"] or question["waits"])
-    for pr in data["prs"].values():
-        pr["card_state"] = view.pr_card_words(found, source, pr["url"]) if pr["state"] == "open" else None
-    stage.shown(data, found)
+    data = with_cards(name, state.load(name))
     for job_id, in_line in place.positions(data).items():
         data["jobs"][job_id]["in_line"] = in_line
     corrected = agents.corrections(name, data["held"])
@@ -4020,6 +4056,17 @@ def parser() -> argparse.ArgumentParser:
         help=f"the handler's brief: its lines, each opening with one of {', '.join(label + ':' for label in render.HANDLER_LABELS)}",
     )
     verb.add_argument("--away", action="store_true", help="he said he is going to sleep or away, for a brief carrying his words")
+    verb.add_argument(
+        "--answer",
+        metavar="TITLE",
+        help=(
+            "his read-only question's title, a few words naming it: the call adds his answer order from the brief's words and Link"
+            " and the handler's reader job on it, and writes both into the brief with every open order in his thread, its jobs,"
+            " questions and PRs, so the handler reads no drive status and closes the order with say(order=<o>, close=true)"
+        ),
+    )
+    verb.add_argument("--project", help="with --answer, the project in use his question is about")
+    verb.add_argument("--workstream", help="with --answer, that project's workstream in use his question is about")
     verb.set_defaults(run=handler)
     verb = verbs.add_parser(
         "handler-start", parents=both, help="start the handler drive handler kept, as its own claude --bg session; the handler verb runs it detached once it returns"

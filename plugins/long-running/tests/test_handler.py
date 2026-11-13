@@ -11,7 +11,7 @@ import handed_records
 import one_line_result
 import pytest
 import session_start
-from conftest import LANE_SPEC
+from conftest import LANE_SPEC, Thread
 from drive import agents, reads, slack, state, talk, tools
 
 Run = Callable[..., tuple[int, str]]
@@ -114,6 +114,55 @@ def test_a_handler_claude_bg_could_not_start_leaves_nothing_behind_and_tells_the
     [post] = posted
     assert post[:2] == ["cci", "post"] and post[post.index("--to") + 1] == "communicator@demo"
     assert post[-1].startswith(f"BLOCKED handler {handler} did not start: claude --bg: workspace not trusted")
+    code, out = run("handler", QUESTION_BRIEF.format(scratch=tmp_path / "h2"), "--answer", "Copy fix shipped", "--project", "The drive", "--workstream", "Copies")
+    assert code == 0 and posted[-1][-1].startswith(f"BLOCKED handler {out.removeprefix('started ')} did not start: claude --bg: workspace not trusted")
+    assert run("handler", QUESTION_BRIEF.format(scratch=tmp_path / "h3"), "--answer", "Copy fix shipped")[0] == 2
+    assert run("handler", HIS_BRIEF.format(scratch=tmp_path / "h4"), "--answer", "Copy fix shipped", "--project", "The drive", "--workstream", "Copies")[0] == 2
+    data = state.load("demo")
+    assert (data["handlers"], data["orders"], data["jobs"]) == ({}, {}, {})
+
+
+THREAD = "1794200000.000100"
+QUESTION_LINK = f"https://acme.slack.com/archives/D123/p1794200100000100?thread_ts={THREAD}&cid=D123"
+QUESTION_BRIEF = f"Message (his words): did the copy fix ship?\nLink: {QUESTION_LINK}\nThread: D123 {THREAD}\nDrive: demo\nScratch: {{scratch}}"
+
+
+def test_his_read_only_questions_handler_starts_on_its_answer_order_and_one_say_answers_and_closes_it(
+    communicator: str, run: Run, tmp_path: Path, started: list[list[str]], slack_thread: Thread, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Copy fix", "--project", "The drive", "--workstream", "Copies", "fix the copy", "--from", f"https://acme.slack.com/archives/D123/p{THREAD.replace('.', '')}")
+    run("job", "add", "reader", "--order", "o1", "--goal", "trace the copy")
+    run("order", "add", "--title", "Run page", "--project", "The drive", "--workstream", "Runs", "show a run's history", "--from", "https://acme.slack.com/archives/D123/p1794100000000100")
+    brief = QUESTION_BRIEF.format(scratch=tmp_path / "h1")
+    handler = tools.run("handler", "demo", {"brief": brief, "answer": "Copy fix shipped", "project": "The drive", "workstream": "Copies"}).removeprefix("started ")
+    data = state.load("demo")
+    order, job = data["orders"]["o3"], data["jobs"]["j2"]
+    assert (order["text"], order["kind"], order["owner"], order["thread"], order["title"]) == ("did the copy fix ship?", "answer", "communicator", ["D123", THREAD], "Copy fix shipped")
+    assert (job["kind"], job["order"], job["agent"], job["state"]) == ("reader", "o3", handler, "running")
+    [argv] = started
+    prompt = argv[-1]
+    assert prompt.startswith(f"{brief}\nOrder: o3, job j2\nIn his thread:\n- o1 ")
+    assert "  - j1 " in prompt and "o2" not in prompt and agents.beyond_brief(prompt) is None
+
+    transcript = tmp_path / "h-session.jsonl"
+    bind(monkeypatch, handler, "h-session", transcript)
+    answer = slack_thread.post(state.now(), from_claude=True)
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": answer, "thread_ts": THREAD})
+    report = {"seq": 700001, "kind": "report", "lane": "communicator", "at": state.stamp(), "fields": {"attrs": {"close": "o3"}}}
+    replies = {"post": json.dumps({"seq": 700001}), "show": json.dumps(report), "agents": json.dumps([{"id": "b7f2", "sessionId": "h-session"}])}
+    monkeypatch.setattr(reads, "run", lambda argv, checkout, env=None: started.append(argv) or replies.get(argv[1], ""))
+    monkeypatch.setattr(agents.subprocess, "Popen", lambda argv, **kwargs: None)
+    text = "It shipped in 1.0.540."
+    with monkeypatch.context() as scoped:
+        scoped.setenv("CLAUDE_CODE_SESSION_ID", "h-session")
+        line = talk.say("demo", {"text": text, "thread_ts": THREAD, "order": "o3", "close": True})
+    result = f"POSTED {answer}"
+    assert line == f'{result}; o3 "did the copy fix ship?": posted {answer}; o3 closed on report 700001; j2 keeps {result} as its return, the line you end on'
+    assert ["cci", "post", "--drive", "demo", "--lane", "communicator", "--kind", "report", "--attr", "close=o3", "--json", "--text", text] in started
+    data = state.load("demo")
+    assert (data["orders"]["o3"]["state"], data["jobs"]["j2"]["state"], data["jobs"]["j2"]["said"]) == ("done", "done", result)
+    assert stop(monkeypatch, capsys, "h-session", transcript, result) == ""
+    assert not [argv for argv in started if argv[:2] == ["drive", "status"] or argv[0] in ("orca", "cc-slack")]
 
 
 def test_a_handlers_own_session_reads_as_an_agent_of_the_communicators(
