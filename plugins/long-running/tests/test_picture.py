@@ -384,34 +384,14 @@ def test_a_fence_of_sentences_shows_as_a_quote_of_its_text_and_a_bare_fence_draw
     assert picture.sources("\n".join(show_me[6:9])) == []
 
 
-def test_a_visual_chrome_dumped_before_it_finished_drawing_is_measured_again(tmp_path, monkeypatch) -> None:
-    dumps = iter(["<html><body></body></html>", '<html data-print data-drawn="40x20"><body></body></html>'])
-    sizes = []
-
-    def headless(url, profile, *args: str) -> str:
-        sizes.append(next(arg for arg in args if arg.startswith("--window-size=")))
-        if shot := next((arg.removeprefix("--screenshot=") for arg in args if arg.startswith("--screenshot=")), None):
-            Path(shot).write_bytes(b"\x89PNG\r\n")
-            return ""
-        return next(dumps)
-
-    monkeypatch.setattr(picture, "headless", headless)
-    out = tmp_path / "dot.png"
-    picture.visual_png("dot", "digraph { a -> b }", out)
-    assert out.is_file()
-    assert sizes == ["--window-size=1200,1200", "--window-size=1200,1200", "--window-size=40,20"]
-
-
 TEARDOWN = "[1:2:ERROR:ui/display/mac/cv_display_link_mac.mm:188] CVDisplayLinkCreateWithCGDisplay failed. CVReturn: -6670\nTeardown watchdog expired; recording dump and terminating."
 
 
-def test_a_visual_chrome_timed_out_on_or_crashed_leaving_is_judged_by_the_verdict_it_printed_and_the_screenshot_it_wrote(tmp_path, monkeypatch) -> None:
+def test_a_visual_chrome_crashed_leaving_is_judged_by_the_verdict_it_printed_and_the_screenshot_it_wrote(tmp_path, monkeypatch) -> None:
     launched = []
 
     def run(command: list[str], **_) -> subprocess.CompletedProcess:
         launched.append(command)
-        if len(launched) == 1:
-            raise subprocess.TimeoutExpired(command, picture.CHROME_SECONDS)
         if shot := next((arg.removeprefix("--screenshot=") for arg in command if arg.startswith("--screenshot=")), None):
             Path(shot).write_bytes(b"\x89PNG\r\n")
             return subprocess.CompletedProcess(command, 133, "", TEARDOWN)
@@ -422,16 +402,28 @@ def test_a_visual_chrome_timed_out_on_or_crashed_leaving_is_judged_by_the_verdic
     out = tmp_path / "flow.png"
     picture.visual_png("mermaid", "flowchart TD\n  a --> b\n", out)
     assert out.is_file()
-    assert len(launched) == 3
+    assert len(launched) == 2
 
 
-def test_a_visual_chrome_fails_on_every_launch_says_chrome_failed_and_never_that_the_picture_does_not_draw(tmp_path, monkeypatch) -> None:
+def test_a_visual_chrome_fails_on_says_chrome_failed_and_never_that_the_picture_does_not_draw(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("CHROME", "chrome")
     monkeypatch.setattr(subprocess, "run", lambda command, **_: subprocess.CompletedProcess(command, 133, "", TEARDOWN))
-    with pytest.raises(picture.ChromeError, match=rf"^Chrome gave no verdict on the mermaid in {picture.VISUAL_TRIES} launches: .*Teardown watchdog expired"):
+    with pytest.raises(picture.ChromeError, match="Teardown watchdog expired"):
         picture.visual_png("mermaid", "flowchart TD\n  a --> b\n", tmp_path / "flow.png")
-    with pytest.raises(state.DriveError, match=r'^the Show me picture "The wake", a ```mermaid fence, was not judged: headless Chrome failed, not the picture, so keep the picture and run the same command again: Chrome gave no verdict'):
+    with pytest.raises(state.DriveError, match=r'^the Show me picture "The wake", a ```mermaid fence, was not judged: headless Chrome failed, not the picture, so keep the picture and run the same command again: .*Teardown watchdog expired'):
         picture.drawn(tmp_path / "pictures", ["The wake", "```mermaid", "flowchart TD", "  a --> b", "```"])
+    monkeypatch.setattr(subprocess, "run", lambda command, **_: subprocess.CompletedProcess(command, 0, "<html><body></body></html>", ""))
+    with pytest.raises(picture.ChromeError, match="^Chrome gave no verdict on the dot$"):
+        picture.visual_png("dot", "digraph { a -> b }", tmp_path / "dot.png")
+
+
+def test_headless_chrome_runs_its_command_on_every_launch_of_a_profile_set_to_continue_where_it_left_off(tmp_path) -> None:
+    profile = tmp_path / "profile"
+    (profile / "Default").mkdir(parents=True)
+    (profile / "Default" / "Preferences").write_text(json.dumps({"session": {"restore_on_startup": 1}}))
+    page = tmp_path / "page.html"
+    page.write_text("<!doctype html><html><body><p>drawn</p></body></html>")
+    assert ["<p>drawn</p>" in picture.headless(page.as_uri(), profile, "--no-sandbox", "--dump-dom") for _ in range(3)] == [True, True, True]
 
 
 def test_a_card_whose_show_me_leaves_nothing_to_show_has_no_show_me() -> None:

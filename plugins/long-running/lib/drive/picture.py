@@ -13,7 +13,7 @@ import sys
 import tempfile
 import threading
 import urllib.request
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -80,7 +80,6 @@ PROSE_WORDS = 6
 VISUALS = Path(__file__).parent / "site" / "visuals.js"
 VISUAL_WINDOW = 1200
 VISUAL_SCALE = 2
-VISUAL_TRIES = 3
 VISUAL_PAGE = """<!doctype html>
 <html data-print><head><meta charset="utf-8"><style>html,body{margin:0;background:#fff}#visual{display:inline-block}#visual:not([data-kind=code]){padding:8px}#visual[data-kind=arch]{display:block;width:960px}.smap.printing>.smap-canvas{max-height:none!important}.smap-readout:not(:has(> :not(.smap-hint))){display:none}</style></head>
 <body><div id="visual"></div><script type="application/json" id="source">SOURCE</script>
@@ -145,10 +144,10 @@ def chrome() -> str:
 
 
 def headless(url: str, profile: Path, *args: str) -> str:
-    """What Chrome printed opening url, judged by what it printed rather than how it exited, since a Chrome that drew the page can still crash on its way out, as its `Teardown watchdog expired` does under load; one that never ran, timed out, could not load url, or exited non-zero having printed nothing raises ChromeError."""
+    """What Chrome printed opening url in a private window, which keeps no session to restore: a profile whose restore-on-startup reads Continue where you left off, as Chrome 154's default does, otherwise restores url as a plain tab on every launch after a clean exit, so the --dump-dom or --screenshot command never runs and Chrome waits out the timeout. Judged by what it printed rather than how it exited, since a Chrome that drew the page can still crash on its way out, as its `Teardown watchdog expired` does under load; one that never ran, timed out, could not load url, or exited non-zero having printed nothing raises ChromeError."""
     try:
         result = subprocess.run(
-            [chrome(), "--headless=new", "--disable-gpu", "--no-first-run", "--hide-scrollbars", f"--user-data-dir={profile}", "--virtual-time-budget=15000", *args, url],
+            [chrome(), "--headless=new", "--incognito", "--disable-gpu", "--no-first-run", "--hide-scrollbars", f"--user-data-dir={profile}", "--virtual-time-budget=15000", *args, url],
             check=False,
             capture_output=True,
             text=True,
@@ -194,26 +193,16 @@ def page_text(url: str) -> str:
 
 
 def visual_png(kind: str, source: str, out: Path) -> None:
-    """Draw one visual with site/visuals.js, the module the dashboard draws it with live, and the renderers it keeps beside it, served on a loopback port so nothing loads from the network and Chrome's virtual time, which waits on a page's network loads but never on its file loads, waits for them: once to measure it, again while Chrome gave no verdict, as when its time ran out before it finished drawing or it crashed or timed out, then a screenshot of exactly that box, taken again while Chrome wrote none. Only the page's own verdict, the error draw() threw, raises PictureError; Chrome giving no verdict or no screenshot in VISUAL_TRIES launches raises ChromeError."""
+    """Draw one visual with site/visuals.js, the module the dashboard draws it with live, and the renderers it keeps beside it, served on a loopback port so nothing loads from the network and Chrome's virtual time, which waits on a page's network loads but never on its file loads, waits for them: once to measure it, then a screenshot of exactly that box. Only the page's own verdict, the error draw() threw, raises PictureError; Chrome giving no verdict or no screenshot raises ChromeError."""
     shown = json.dumps({"kind": kind, "source": source}).replace("</", "<\\/")
     with tempfile.TemporaryDirectory(prefix="drive-visual-") as scratch, visual_site(Path(scratch), VISUAL_PAGE.replace("SOURCE", shown, 1)) as page:
         profile = Path(scratch) / "profile"
-        drawn = launched(lambda: DRAWN.search(headless(page, profile, f"--window-size={VISUAL_WINDOW},{VISUAL_WINDOW}", "--dump-dom")), f"Chrome gave no verdict on the {kind}")
+        if not (drawn := DRAWN.search(headless(page, profile, f"--window-size={VISUAL_WINDOW},{VISUAL_WINDOW}", "--dump-dom"))):
+            raise ChromeError(f"Chrome gave no verdict on the {kind}")
         if not (size := SIZE.fullmatch(said := html.unescape(drawn[1]))):
             raise PictureError(said)
-        launched(lambda: screenshot(page, profile, size, out), f"Chrome wrote no screenshot of the {kind}")
-
-
-def launched[T](launch: Callable[[], T | None], missing: str) -> T:
-    """launch's first answer in VISUAL_TRIES launches of Chrome, one that raised ChromeError counted as one that gave none; when none gives one, ChromeError saying what was missing and the last failing launch's words."""
-    failure = None
-    for _ in range(VISUAL_TRIES):
-        try:
-            if found := launch():
-                return found
-        except ChromeError as error:
-            failure = error
-    raise ChromeError(f"{missing} in {VISUAL_TRIES} launches" + (f": {failure}" if failure else ""))
+        if not screenshot(page, profile, size, out):
+            raise ChromeError(f"Chrome wrote no screenshot of the {kind}")
 
 
 def screenshot(page: str, profile: Path, size: re.Match[str], out: Path) -> bool:
