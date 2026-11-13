@@ -177,8 +177,19 @@ def research(name: str, data: dict, order_id: str) -> tuple[str, str] | None:
     return None
 
 
+def waits_on_research(order: dict, kind: str, parts: list[str], lands: bool = False) -> bool:
+    """Whether a job of this kind on these parts starts only on its reader's research: a build order's builder, designer or codex lane, but on an incident, on the immediate fix, as a builder landing PRs he approved, or as a follow-up's design, each of which starts at once."""
+    return (
+        order["kind"] == "build"
+        and not order["incident"]
+        and kind in RESEARCHED_KINDS
+        and not (state.IMMEDIATE_FIX in parts or lands)
+        and not (kind == "design" and state.FOLLOW_UP in parts)
+    )
+
+
 def job_refusal(name: str, data: dict, order_id: str, kind: str, parts: list[str], lands: bool = False, waits: list[str] | None = None) -> str | None:
-    """Why a job of this kind may not start on the order: an order he limited to options gets no builder or codex job until he picks, an answer order is one reader's, and a build order's builder, designer or codex lane waits on its reader's research, added at once waiting on a reader of the order still at work when --waits names it, so no part sits in no job while it reads. A job of any kind may wait on his card, a drive PR or a release, which check_waits reads, and on the change a builder or codex job builds, which state.change_wait_refusal reads, until its first PR takes the wait's place; any other job it waits on is the reader whose research it needs. The immediate fix of a bug hurting someone now, a red default branch's fix-forward among them, and a builder landing PRs he approved start at once past each of those, by his words: "always do the immediate fix (or rollback if prudent) in parallel to giving me options for the proper fix". A follow-up he orders to a PR gets its design job at once, doing its own research and waiting on nothing, beside landing that PR, by his words "start deisgnng the follow p right awya motherfucker dont wait"."""
+    """Why a job of this kind may not start on the order: an order he limited to options gets no builder or codex job until he picks, an answer order is one reader's, and a build order's builder, designer or codex lane waits on its reader's research, added at once waiting on a reader of the order still at work when --waits names it, so no part sits in no job while it reads,. A job of any kind may wait on his card, a drive PR or a release, which check_waits reads, and on any job still at work, a reader that just started included, which state.job_wait_refusal reads, a builder or codex job's first PR taking the wait's place. The immediate fix of a bug hurting someone now, a red default branch's fix-forward among them, and a builder landing PRs he approved start at once past each of those, by his words: "always do the immediate fix (or rollback if prudent) in parallel to giving me options for the proper fix". A follow-up he orders to a PR gets its design job at once, doing its own research and waiting on nothing, beside landing that PR, by his words "start deisgnng the follow p right awya motherfucker dont wait"."""
     order = data["orders"][order_id]
     at_once = state.IMMEDIATE_FIX in parts or lands
     listed = " ".join(f'"{part}"' for part in dict.fromkeys([*order["parts"], state.IMMEDIATE_FIX]))
@@ -196,30 +207,18 @@ def job_refusal(name: str, data: dict, order_id: str, kind: str, parts: list[str
             f"{order_id} is an answer order: one reader researches it and answers him, with no {kind} beside it; work its"
             f" answer finds to build is a build order: drive order set {order_id} --kind build"
         )
-    follow_up = kind == "design" and state.FOLLOW_UP in parts
-    if follow_up and waits:
+    if kind == "design" and state.FOLLOW_UP in parts and waits:
         return (
             f'--waits {", ".join(waits)}: a "{state.FOLLOW_UP}" design starts now, beside landing the PR it follows, never once that PR'
             f" lands or a reader returns, by his words {FOLLOW_UP_RULING}: add it with no --waits, and its designer does its own research"
         )
-    researched = order["kind"] == "build" and not order["incident"] and kind in RESEARCHED_KINDS and not at_once and not follow_up
-    on_jobs = [wait for wait in waits or [] if wait in data["jobs"] and data["jobs"][wait]["kind"] not in state.CHANGE_KINDS]
-    if on_jobs and not researched:
-        return (
-            f"--waits {', '.join(on_jobs)}: only a build order's designer, builder or codex lane is added waiting on a reader, so this {kind}"
-            f" waits only on his card, a drive PR, a release or a builder's change: add it with no --waits {', '.join(on_jobs)}"
-        )
-    if not researched:
+    if not waits_on_research(order, kind, parts, lands):
         return None
-    found = research(name, data, order_id)
-    if found is None:
+    if research(name, data, order_id) is None:
         jobs = data["jobs"]
         readers = [job_id for job_id in order["jobs"] if jobs[job_id]["order"] == order_id and jobs[job_id]["kind"] == "reader" and jobs[job_id]["state"] not in state.FINISHED_JOB_STATES]
-        if on_jobs:
-            if not (strays := [wait for wait in on_jobs if wait not in readers]):
-                return None
-            at_work = f"wait on {' or '.join(readers)}" if readers else f'none is, so add one first: drive job add reader --order {order_id} --goal "research: <what>"'
-            return f"--waits {', '.join(strays)}: names no reader of {order_id} still at work; {at_work}"
+        if set(readers) & set(waits or []):
+            return None
         meanwhile = (
             f"; while {readers[0]} reads, add this {kind} now waiting on it with --waits {readers[0]}, so the part is never in no job,"
             " and start its agent on the watch's FREE line once the reader returns"
@@ -232,8 +231,6 @@ def job_refusal(name: str, data: dict, order_id: str, kind: str, parts: list[str
             " asks for that block; its rulings line holds his recorded answers on the order's words and area, its exists"
             f" line what already does part of it, and its open line each question the order implies{meanwhile}; {immediate}"
         )
-    if on_jobs:
-        return f"--waits {', '.join(on_jobs)}: {found[0]} already kept {order_id}'s research, so this {kind} starts now: add it with no --waits {', '.join(on_jobs)}"
     return None
 
 

@@ -3022,23 +3022,30 @@ def test_a_job_on_an_open_incident_puts_up_its_pr_on_the_recommendation_and_the_
     assert cli.main(["pr", "set", url, "--waits", "demo:j1-7-a", "--drive", demo]) == 0
 
 
-def test_job_set_never_waits_on_a_job_and_the_refusal_names_the_card_or_pr_to_wait_on(
+def test_job_set_moves_a_builder_off_a_card_his_words_replaced_onto_a_reader_that_just_started_and_refuses_only_a_finished_job(
     demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     asking(monkeypatch, demo, "demo:j1-7-a")
     with state.edit(demo) as data:
-        data["jobs"]["j2"] = job(goal="root fix", state="waiting")
-        data["jobs"]["j3"] = job(kind="design", goal="asked him", state="waiting", questions=[state.new_question(None, "Pick?", state.stamp(T0)) | {"waits": "demo:j1-7-a"}])
-    assert cli.main(["job", "set", "j2", "--waits", "j3", "--drive", demo]) == 2
-    assert capsys.readouterr().err.strip().endswith(
-        "--waits j3: a job waits on his card, a PR the drive tracks, a release or the change a builder or codex job builds, and on another job only"
-        " as a build order's designer, builder or codex lane added waiting on its reader, drive job add <kind> --order <o> --waits <the reader>;"
-        " open on j3: demo:j1-7-a; wait on the one this job needs, as --waits demo:j1-7-a"
-    )
+        data["jobs"]["j2"] = state.new_job("o1", "builder", "build his pick on the card", [], state.stamp(T0)) | {"waits": ["demo:j1-7-a"]}
+        state.hold_unstarted(data["jobs"]["j2"])
+        data["jobs"]["j3"] = job(kind="reader", goal="research: the audit his later words asked for", agent="a1")
+        data["jobs"]["j4"] = job(kind="design", goal="asked him", state="waiting", questions=[state.new_question(None, "Pick?", state.stamp(T0)) | {"waits": "demo:j1-7-a"}])
+        data["jobs"]["j5"] = job(kind="reader", goal="research: done", state="done")
+    assert (state.load(demo)["jobs"]["j2"]["state"], state.load(demo)["jobs"]["j2"]["said"]) == ("waiting", "waits on demo:j1-7-a")
+    assert cli.main(["job", "set", "j2", "--waits", "j3", "--drive", demo]) == 0
+    added = state.load(demo)["jobs"]["j2"]
+    assert (added["waits"], added["said"]) == (["demo:j1-7-a", "j3"], "waits on demo:j1-7-a, j3")
+    assert cli.main(["job", "set", "j2", "--no-waits", "--waits", "j3", "--drive", demo]) == 0
+    moved = state.load(demo)["jobs"]["j2"]
+    assert (moved["state"], moved["waits"], moved["said"]) == ("waiting", ["j3"], "waits on j3")
+    assert cli.main(["job", "set", "j2", "--waits", "j4", "--drive", demo]) == 0
+    assert state.load(demo)["jobs"]["j2"]["waits"] == ["j3", "j4"]
+    assert cli.main(["job", "set", "j2", "--waits", "j5", "--drive", demo]) == 2
+    assert capsys.readouterr().err.strip().endswith("--waits j5: j5 is done, so nothing of it is left to wait on")
     assert cli.main(["job", "set", "j2", "--waits", "j1", "--drive", demo]) == 2
     assert capsys.readouterr().err.strip().endswith(f"--waits j1: j1 already opened {KEY}, so wait on the PR this job builds on, as --waits {KEY}")
-    assert cli.main(["job", "set", "j2", "--waits", KEY, "--waits", "demo:j1-7-a", "--drive", demo]) == 0
-    assert state.load(demo)["jobs"]["j2"]["waits"] == [KEY, "demo:j1-7-a"]
+    assert state.load(demo)["jobs"]["j2"]["waits"] == ["j3", "j4"]
 
 
 def test_a_pr_whose_head_moved_to_a_change_nobody_judged_gets_its_card_and_its_check_against_his_words_at_that_head_whatever_its_jobs_state(
