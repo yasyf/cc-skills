@@ -3,9 +3,10 @@
 import json
 import re
 import shutil
+import uuid
 from pathlib import Path
 
-from drive import state
+from drive import page_check, state, view
 from drive.state import DriveError
 
 SLUG = re.compile(r"[a-z0-9][a-z0-9-]{0,62}")
@@ -41,6 +42,9 @@ def add(name: str, slug: str, order_id: str, folder: Path) -> dict:
     orders = list(dict.fromkeys([order_id, *said.get("orders", [])]))
     if unknown := [each for each in orders if each not in drive["orders"]] + [each for each in said.get("prs", []) if each not in drive["prs"]]:
         raise DriveError(f"page.json names {', '.join(unknown)}, which the {name} drive does not hold")
+    scope = said.get('scope')
+    if scope is not None and (not isinstance(scope, dict) or set(scope) - {'projects', 'workstreams', 'words'} or any(not isinstance(values, list) or any(not isinstance(word, str) or not word.strip() for word in values) for values in scope.values())):
+        raise DriveError('page.json scope holds projects, workstreams and words as lists of nonempty strings')
     order = drive["orders"][order_id]
     page = {
         "title": said["title"],
@@ -49,10 +53,15 @@ def add(name: str, slug: str, order_id: str, folder: Path) -> dict:
         "prs": said.get("prs", []),
         "project": order["project"],
         "workstream": order["workstream"],
+        "scope": said.get("scope"),
         "source": said.get("source"),
         "job": said.get("job"),
         "created": state.stamp(),
     }
+    found, source = view.stored_cards(name)
+    model = view.board(drive, found, source, [], state.now(), set(), {})
+    evidence = state.drive_dir(name) / 'page-checks' / slug / uuid.uuid4().hex
+    page['screenshots'] = page_check.check(folder, slice_of(model, page | {'slug': slug}), evidence)
     target = pages_dir(name) / slug
     staged, old = target.with_name(f".{slug}.new"), target.with_name(f".{slug}.old")
     for left in (staged, old):
@@ -75,7 +84,7 @@ def listed(name: str) -> list[dict]:
 def shown(drive: dict, pages: list[dict]) -> list[dict]:
     """Each page as Pages lists it: live while any order it shows is open, with its first order's title."""
     return [
-        page | {"live": any(drive["orders"][order_id]["state"] not in state.CLOSED_ORDER_STATES for order_id in page["orders"]), "order_title": drive["orders"][page["orders"][0]]["title"]}
+        page | {"live": any(drive["orders"][order_id]["state"] not in state.CLOSED_ORDER_STATES for order_id in scope_orders([entry | {"id": order_id} for order_id, entry in drive["orders"].items()], page)), "order_title": drive["orders"][page["orders"][0]]["title"]}
         for page in pages
     ]
 
@@ -87,3 +96,30 @@ def file(name: str, slug: str, path: str) -> Path | None:
     home = (pages_dir(name) / slug).resolve()
     found = (home / (path or "index.html")).resolve()
     return found if found.is_relative_to(home) and found.suffix in KINDS and found.is_file() else None
+
+
+def scope_orders(features: list[dict], page: dict) -> set[str]:
+    scope = page.get('scope') or {}
+    return set(page['orders']) | {
+        entry['id'] for entry in features
+        if entry.get('project') in scope.get('projects', [])
+        or entry.get('workstream') in scope.get('workstreams', [])
+        or any(word.casefold() in entry['title'].casefold() for word in scope.get('words', []))
+    }
+
+
+def slice_of(model: dict, page: dict) -> dict:
+    features = [entry for group in model['status'] for entry in group['features']]
+    orders = scope_orders(features, page)
+    def actable(item: dict, answer: str, options: list[str]) -> dict:
+        return item | {'answer': answer, 'options': options, 'answered': None}
+
+    return {
+        'page': page,
+        'at': model['at'],
+        'features': [entry for entry in features if entry['id'] in orders],
+        'prs': [actable(entry, entry.get('answer') or f"tap:{entry['key']}", (entry.get('card') or {}).get('options', ['Approve', 'Hold'])) for entry in model['review'] if entry['feature'] in orders or entry['key'] in page['prs']],
+        'questions': [actable(entry, entry['answer'], entry['card']['options']) for entry in model['queue'] if entry['kind'] == 'question' and orders.intersection(entry['tasks'])],
+        'story': [entry for entry in model.get('history', []) if entry.get('feature') in orders][:30],
+        'asked': None,
+    }

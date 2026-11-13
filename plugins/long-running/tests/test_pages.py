@@ -1,12 +1,13 @@
 import http.client
 import json
+import os
 from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
-from drive import cli, dashboard, pages, state
-from test_dashboard import RAIL, board, browse, post, serving
+from drive import cli, dashboard, page_check, pages, state
+from test_dashboard import FEATURE, QUESTION, RAIL, board, browse, post, serving
 
 Run = Callable[..., tuple[int, str]]
 PAGE = {"index.html": "<main></main>", "page.json": json.dumps({"title": "Run page lane", "goal": "how far the run page is from live"}), "app.js": "export {};"}
@@ -15,6 +16,11 @@ import { live, answer } from '/kit/kit.js';
 live((slice) => parent.postMessage({ type: 'seen', features: slice.features.map((entry) => entry.id), prs: slice.prs.map((entry) => [entry.answer, entry.options]) }, '*'));
 addEventListener('message', (event) => event.source === parent && event.data.type === 'try' && (answer(event.data.answer, event.data.label), parent.postMessage({ type: 'tried' }, '*')));
 </script>"""
+
+
+@pytest.fixture(autouse=True)
+def checked_page(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(page_check, 'check', lambda *args: [])
 
 
 def folder(tmp_path: Path, files: dict[str, str]) -> Path:
@@ -139,3 +145,167 @@ done({ sandbox: frame.getAttribute('sandbox'), slice: heard[0], counts: [unpromp
         "posted": [["/api/tap", {"pr": "a/b#7", "label": "Approve", "head": "abc"}]],
         "toast": "toast sending",
     }
+
+
+def test_a_render_refusal_keeps_the_previous_page(run: Run, ordered: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    built = folder(tmp_path, PAGE)
+    pages.add(ordered, 'run-lane', 'o1', built)
+    home = pages.pages_dir(ordered) / 'run-lane'
+    before = (home / 'page.json').read_bytes()
+    (built / 'index.html').write_text('<pre>POSTED raw record</pre>')
+    def refused(*args: object) -> list[str]:
+        raise state.DriveError('page render check refused plain text')
+    monkeypatch.setattr(page_check, 'check', refused)
+    with pytest.raises(state.DriveError, match='plain text'):
+        pages.add(ordered, 'run-lane', 'o1', built)
+    assert (home / 'page.json').read_bytes() == before
+    assert (home / 'index.html').read_text() == PAGE['index.html']
+
+
+def test_a_model_call_uses_its_registered_frame_without_requiring_an_answer_tap(run: Run, ordered: str, tmp_path: Path) -> None:
+    run('page', 'add', 'run-lane', '--order', 'o1', '--dir', str(folder(tmp_path, PAGE | {'index.html': BRIDGED})))
+    seen = browse(tmp_path, """
+let seen = false, calls = 0;
+addEventListener('message', (event) => { if (event.data?.type === 'seen') seen = true; });
+location.hash = '#/pages/run-lane';
+await until(() => seen);
+const fetched = window.fetch;
+window.fetch = (url, options) => url === '/api/complete' ? (calls++, Promise.resolve(new Response('data: [DONE]' + String.fromCharCode(10, 10)))) : fetched(url, options);
+Object.defineProperty(navigator, 'userActivation', { value: { isActive: false } });
+const data = { type: 'drive:complete', id: 'explain', messages: [{ role: 'user', content: 'What blocks it?' }] };
+await heardPage({ source: window, data });
+const refused = calls;
+await heardPage({ source: document.querySelector('iframe.page-frame').contentWindow, data });
+done({ refused, calls });
+""", board(pages=pages.shown(state.load(ordered), pages.listed(ordered))))
+    assert seen == {'refused': 0, 'calls': 1}
+
+
+def test_a_group_accepts_only_scoped_options_and_one_undo_restores_all_its_answers(run: Run, ordered: str, tmp_path: Path) -> None:
+    bridge = BRIDGED.replace('live, answer', 'live, answer, answers').replace("answer(event.data.answer, event.data.label)", 'answers(event.data.picks)')
+    run('page', 'add', 'run-lane', '--order', 'o1', '--dir', str(folder(tmp_path, PAGE | {'index.html': bridge})))
+    prs = [RAIL | {'key': f'a/b#{n}', 'title': f'change {n}', 'url': f'https://github.com/a/b/pull/{n}', 'head': 'abc', 'card': None, 'feature': feature} for n, feature in ((7, 'o1'), (8, 'o1'), (9, 'o2'))]
+    seen = browse(tmp_path, """
+const posted = [];
+const fetched = window.fetch;
+window.fetch = (url, options) => options?.method === 'POST' ? (posted.push([url, JSON.parse(options.body)]), Promise.resolve({ ok: true, json: async () => ({ restored: true, at: '2026-11-13T00:00:00Z', undo_until: '2099-11-13T00:00:00Z' }) })) : fetched(url, options);
+Object.defineProperty(navigator, 'userActivation', { value: { isActive: true } });
+let seen = false, acks = 0;
+addEventListener('message', (event) => event.data?.type === 'seen' ? seen = true : event.data?.type === 'tried' && acks++);
+location.hash = '#/pages/run-lane';
+await until(() => seen);
+const frame = document.querySelector('iframe.page-frame');
+const send = async (picks) => { const before = acks; frame.contentWindow.postMessage({ type: 'try', picks }, '*'); await until(() => acks > before); };
+await send([{ card: 'tap:a/b#9', label: 'Approve' }]);
+await send([{ card: 'tap:a/b#7', label: 'Merge' }]);
+const refused = posted.length;
+await send([{ card: 'tap:a/b#7', label: 'Approve' }, { card: 'tap:a/b#8', label: 'Approve' }, { card: 'tap:a/b#7', label: 'Approve' }]);
+await until(() => document.querySelector('#toasts .toast.sent'));
+const groups = document.querySelectorAll('#toasts .toast').length;
+document.querySelector('#toasts button[data-undo]').click();
+await until(() => document.querySelector('#toasts .toast.undone'));
+done({ refused, groups, posted: posted.map(([url, body]) => [url, body.card ?? body.pr]), restored: answers.size });
+""", board(review=prs, pages=pages.shown(state.load(ordered), pages.listed(ordered))))
+    assert seen == {'refused': 0, 'groups': 1, 'posted': [['/api/tap', 'a/b#7'], ['/api/tap', 'a/b#8'], ['/api/undo', 'tap:a/b#7'], ['/api/undo', 'tap:a/b#8']], 'restored': 0}
+
+
+def test_a_live_diagram_preserves_focused_node_and_camera_when_reordered_and_removes_deleted_nodes(tmp_path: Path) -> None:
+    seen = browse(tmp_path, """
+const { diagram } = await import('/kit/kit.js');
+const host = document.createElement('div');
+host.style.cssText = 'width:1000px;height:500px';
+document.body.append(host);
+const doc = { arch: 1, name: 'Work', title: 'Writer and reads', nodes: [{ id: 'writer', name: 'Writer', role: 'Running', kind: 'service', nodes: [{ id: 'change', name: 'Change', role: 'Open', kind: 'artifact' }] }, { id: 'reader', name: 'Reader', role: 'Running', kind: 'service' }] };
+const map = await diagram(host, doc);
+const node = host.querySelector('[data-block="writer"]');
+node.focus();
+const svg = host.querySelector('.smap-canvas svg');
+svg.dispatchEvent(new WheelEvent('wheel', { deltaY: 50, bubbles: true, cancelable: true, clientX: 250, clientY: 250 }));
+const camera = svg.getAttribute('viewBox');
+const next = structuredClone(doc); next.nodes.reverse(); next.nodes[1].name = 'Writer landed';
+await diagram(host, next);
+const kept = { identity: node === host.querySelector('[data-block="writer"]'), focus: document.activeElement === node, camera: camera === svg.getAttribute('viewBox'), title: host.textContent.includes('Writer landed') };
+const removed = host.querySelector('[data-block="reader"]');
+next.nodes.shift();
+await diagram(host, next);
+done({ ...kept, removed: !removed.isConnected });
+""", board(), drawn=True)
+    assert seen == {'identity': True, 'focus': True, 'camera': True, 'title': True, 'removed': True}
+
+
+def test_a_partial_group_failure_can_undo_successes_and_retry_only_the_failed_answer(tmp_path: Path) -> None:
+    questions = [QUESTION | {'answer': f'https://x.slack.com/archives/D1/p179438245385920{n}', 'tasks': ['o1']} for n in (1, 2)]
+    seen = browse(tmp_path, """
+let calls = 0;
+const fetched = window.fetch;
+window.fetch = (url, options) => {
+  if (url === '/api/answer') {
+    const failed = ++calls === 1;
+    return Promise.resolve({ ok: !failed, json: async () => failed ? { error: 'Card changed' } : { at: '2026-11-13T00:00:00Z', undo_until: new Date(Date.now() + 10000).toISOString() } });
+  }
+  if (url === '/api/undo') return Promise.resolve({ ok: true, json: async () => ({ restored: true }) });
+  return fetched(url, options);
+};
+const picks = model.queue.map((q) => ({ card: q.answer, label: 'Raise it' }));
+await answerBatch(picks);
+const group = [...toasts].find(([key]) => key.startsWith('group:'))[0];
+const failed = { error: answers.get(picks[0].card).error, done: answers.get(picks[1].card).done, said: document.querySelector('#toasts .toast').textContent };
+await undo(group);
+const undone = { remaining: [...answers.keys()], state: toasts.get(group).state };
+await answerBatch([picks[0]]);
+done({ failed: { error: failed.error, done: failed.done, counted: failed.said.includes('1 sent, 1 failed') }, undone, calls, retried: answers.get(picks[0].card).done });
+""", board(queue=questions))
+    assert seen == {'failed': {'error': 'Card changed', 'done': True, 'counted': True}, 'undone': {'remaining': [questions[0]['answer']], 'state': 'undone'}, 'calls': 3, 'retried': True}
+
+
+@pytest.mark.parametrize('count', [1, 1000 if os.environ.get('FORGE_CI_AT_SCALE') == '1' else 100])
+def test_page_hydration_uses_one_request_for_its_scope_at_any_order_count(count: int, run: Run, ordered: str, tmp_path: Path) -> None:
+    run('page', 'add', 'run-lane', '--order', 'o1', '--dir', str(folder(tmp_path, PAGE | {'index.html': BRIDGED})))
+    registered = pages.shown(state.load(ordered), pages.listed(ordered))
+    registered[0]['scope'] = {'workstreams': ['SandSQL']}
+    features = [FEATURE | {'id': f'o{n + 1}'} for n in range(count)]
+    seen = browse(tmp_path, """
+let slices = 0;
+addEventListener('message', (event) => { if (event.data?.type === 'seen') slices = event.data.features.length; });
+location.hash = '#/pages/run-lane';
+await until(() => slices && hydration.length === 1);
+done({ count: slices, requests: hydration.length });
+""", board(status=[{'state': 'running', 'features': features}], pages=registered), before="""
+const hydration = [];
+const fetchBefore = window.fetch;
+window.fetch = (url, options) => { if (url.startsWith('/api/page?')) hydration.push(url); return fetchBefore(url, options); };
+""")
+    assert seen == {'count': count, 'requests': 1}
+
+
+def test_adjusting_a_group_selection_sends_nothing_and_survives_a_live_patch(tmp_path: Path) -> None:
+    seen = browse(tmp_path, """
+const { patch, prGroups } = await import('/kit/kit.js');
+const posted = [];
+addEventListener('message', (event) => { if (['drive:answer', 'drive:answers'].includes(event.data?.type)) posted.push(event.data); });
+const host = document.createElement('div');document.body.append(host);
+const prs = [1, 2].map((n) => ({ key: 'a/b#' + n, answer: 'tap:a/b#' + n, url: 'https://github.com/a/b/pull/' + n, title: 'Change ' + n, head: 'abc', review: 'approved', options: ['Approve', 'Hold'], stage: { name: 'card' }, checks: 'pass' }));
+patch(host, prGroups(prs));
+const input = host.querySelector('input');input.click();
+await wait(50);
+const unprompted = posted.length;
+patch(host, prGroups(prs));
+const kept = input === host.querySelector('input') && !input.checked;
+const label = host.querySelector('[data-kit-group]').textContent;
+host.querySelector('[data-kit-group]').click();
+await until(() => posted.length);
+done({ unprompted, kept, label, posted });
+""", board())
+    assert seen == {'unprompted': 0, 'kept': True, 'label': 'Approve 1', 'posted': [{'type': 'drive:answers', 'picks': [{'card': 'tap:a/b#2', 'label': 'Approve'}]}]}
+
+
+def test_live_scope_covers_new_matching_orders_beyond_the_project() -> None:
+    page = {'orders': ['o1'], 'scope': {'projects': ['SandSQL'], 'workstreams': ['SandSQL'], 'words': ['sandsql', 'litestream']}}
+    features = [
+        {'id': 'o1', 'title': 'The page'},
+        {'id': 'o2', 'title': 'Other title', 'project': 'SandSQL'},
+        {'id': 'o3', 'title': 'Other title', 'project': 'Platform', 'workstream': 'SandSQL'},
+        {'id': 'o4', 'title': 'SandSQL agent inbox', 'project': 'Iris'},
+        {'id': 'o5', 'title': 'Unrelated task', 'project': 'Iris'},
+    ]
+    assert pages.scope_orders(features, page) == {'o1', 'o2', 'o3', 'o4'}

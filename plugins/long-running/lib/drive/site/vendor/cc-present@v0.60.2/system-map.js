@@ -162,6 +162,7 @@ const CSS = String.raw`
 .smap svg .inside-art.hovering .edge:not(.hov), .smap svg .inside-art.hovering .elab:not(.hov) { opacity: .28; }
 .smap svg .inside-art.picked .edge:not(.on), .smap svg .inside-art.picked .elab:not(.on) { opacity: .4; }
 .smap.still svg, .smap.still svg * { transition: none !important; }
+@media (prefers-reduced-motion: reduce) { .smap svg, .smap svg * { transition: none !important; } }
 @media print {
   .smap-chrome, .smap-hint { display: none !important; }
   .smap-pathline { display: block; }
@@ -929,6 +930,8 @@ class Board {
 
   setModel(model, view) {
     const was = this.view();
+    const step = this.st.step;
+    const camera = !view && this.st.vb;
     this.M = model;
     this.rev += 1;
     this.full = {};
@@ -939,8 +942,9 @@ class Board {
     this.st.sel = null;
     this.st.step = null;
     this.applyView(view || was);
+    if (!view && this.st.story === (was.story || null) && this.P[this.st.story]?.steps[step]) this.st.step = step;
     this.key = null;
-    this.refresh();
+    this.refresh(camera && (!was.block || this.K[was.block]) && (!was.story || this.P[was.story]) && this.st.shape === (was.block && this.K[was.block]?.open ? was.block : null) ? camera : null);
   }
 
   view() {
@@ -1411,14 +1415,55 @@ class Board {
     return false;
   }
 
-  el(tag, attrs, parent) {
-    const e = document.createElementNS(NS, tag);
-    for (const [k, v] of Object.entries(attrs || {})) if (v != null) e.setAttribute(k, v);
-    if (parent) parent.append(e);
+  reconcileElement(node, parent, attrs) {
+    if (!parent) return node;
+    if (!this.pending) { parent.append(node); return node; }
+    let pass = this.pending.get(parent);
+    if (!pass) {
+      const pools = new Map();
+      for (const child of parent.children) {
+        const key = this.nodeKey(child.localName, Object.fromEntries([...child.attributes].map((a) => [a.name, a.value])));
+        if (!pools.has(key)) pools.set(key, []);
+        pools.get(key).push(child);
+      }
+      pass = { pools, used: new Set() };
+      this.pending.set(parent, pass);
+    }
+    const found = pass.pools.get(this.nodeKey(node.localName, attrs))?.shift();
+    if (found) {
+      for (const a of [...found.attributes]) if (attrs[a.name] == null) found.removeAttribute(a.name);
+      for (const [k, v] of Object.entries(attrs)) if (v != null && found.getAttribute(k) !== String(v)) found.setAttribute(k, v);
+      node = found;
+    }
+    const next = parent.children[pass.used.size] || null;
+    if (node !== next) parent.insertBefore(node, next);
+    pass.used.add(node);
+    return node;
+  }
+
+  nodeKey(tag, attrs) {
+    return `${tag}|${["id", "data-block", "data-part", "data-frame"].filter((key) => attrs[key] != null).map((key) => `${key}:${attrs[key]}`).join("|")}`;
+  }
+
+  el(tag, attrs = {}, parent) {
+    let e = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) if (v != null) e.setAttribute(k, v);
+    e = this.reconcileElement(e, parent, attrs);
+    if (this.pending && !this.pending.has(e)) this.pending.set(e, { pools: [...e.children].reduce((pools, child) => {
+      const key = this.nodeKey(child.localName, Object.fromEntries([...child.attributes].map((a) => [a.name, a.value])));
+      if (!pools.has(key)) pools.set(key, []);
+      pools.get(key).push(child);
+      return pools;
+    }, new Map()), used: new Set() });
     return e;
   }
 
-  R(cls, node, parent) { node.setAttribute("class", cls); parent.append(node); return node; }
+  R(cls, node, parent) {
+    node.setAttribute("class", cls);
+    const kept = this.reconcileElement(node, parent, Object.fromEntries([...node.attributes].map((a) => [a.name, a.value])));
+    if (kept !== node) kept.replaceChildren(...node.childNodes);
+    return kept;
+  }
 
   O(extra) { return { roughness: 1.1, bowing: 0.9, strokeWidth: 2, seed: this.seed++, ...extra }; }
 
@@ -1429,10 +1474,11 @@ class Board {
   }
 
   render() {
+    const previous = this.blockEls;
     this.G = this.arrange();
     this.route();
     const G = this.G;
-    this.svg.replaceChildren();
+    this.pending = new Map();
     this.svg.setAttribute("aria-label", this.B.thesis);
     const defs = this.el("defs", {}, this.svg);
     const pid = `smap-dots-${this.id}`;
@@ -1469,7 +1515,21 @@ class Board {
     G.ext = this.extent();
     this.drawPath();
     this.drawInside();
+    for (const [parent, pass] of this.pending) for (const child of [...parent.children]) if (!pass.used.has(child)) child.remove();
+    this.pending = null;
     this.applyFocus();
+    const states = new Map(this.B.blocks.map((b) => [b.id, JSON.stringify(b)]));
+    if (!this.root.classList.contains("still") && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      for (const [id, { g, box }] of Object.entries(this.blockEls)) {
+        const was = previous?.[id];
+        if (!was || was.g !== g) continue;
+        const dx = was.box.x - box.x, dy = was.box.y - box.y;
+        if (!dx && !dy && this.blockStates?.get(id) === states.get(id)) continue;
+        for (const animation of g.getAnimations()) animation.cancel();
+        g.animate([{ transform: `translate(${dx}px, ${dy}px)`, opacity: 0.45 }, { transform: "translate(0px, 0px)", opacity: getComputedStyle(g).opacity }], { duration: 360, easing: "cubic-bezier(.2,.8,.2,1)" });
+      }
+    }
+    this.blockStates = states;
   }
 
   extent() {
@@ -1689,8 +1749,8 @@ class Board {
     const base = { strokeWidth: 2.3, ...(dashed ? { strokeLineDash: [9, 6], roughness: 1.5 } : {}) };
     if (kind === "service" && !tx.strip.length && !tx.heaps.length) this.R("f-blue", this.rc.rectangle(x + 9, y + h - 15, w - 13, 11, this.O({ stroke: "none", fill: "#000", fillStyle: "hachure", hachureGap: 7, hachureAngle: -50, fillWeight: 1 })), g);
     this.outline(kind, g, r, base);
-    g.addEventListener("click", (ev) => { if (this.dragMoved) return; ev.stopPropagation(); this.pickShape(b.id); });
-    g.addEventListener("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); this.pickShape(b.id); } });
+    g.onclick = (ev) => { if (this.dragMoved) return; ev.stopPropagation(); this.pickShape(b.id); };
+    g.onkeydown = (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); this.pickShape(b.id); } };
     this.blockEls[b.id] = { g, box: r };
     if (compact) {
       this.text(g, x + k.l, y + k.t + this.ty.name.size - 3, tx.name, this.ty.name, "");
@@ -2003,9 +2063,9 @@ class Board {
   wireStep(g, n, p) {
     g.classList.add("step");
     g.dataset.step = String(n);
-    g.addEventListener("mouseenter", () => this.hot(n));
-    g.addEventListener("mouseleave", () => this.hot(this.st.step));
-    g.addEventListener("click", (ev) => { if (this.dragMoved) return; ev.stopPropagation(); this.pickStep(n, p ? p.id : null); });
+    g.onmouseenter = () => this.hot(n);
+    g.onmouseleave = () => this.hot(this.st.step);
+    g.onclick = (ev) => { if (this.dragMoved) return; ev.stopPropagation(); this.pickStep(n, p ? p.id : null); };
   }
 
   loose(a, b, steps) {
@@ -2118,11 +2178,11 @@ class Board {
 
   drawPath() {
     const layer = this.layers.path;
-    layer.replaceChildren();
+    if (!this.pending) layer.replaceChildren();
     const p = this.st.story && this.path(this.st.story);
     this.layers.spine.classList.toggle("gone", !!p);
     this.layers.spineRing.classList.toggle("gone", !!p);
-    this.layers.pathRing.replaceChildren();
+    if (!this.pending) this.layers.pathRing.replaceChildren();
     const flows = p ? new Set(p.steps.flatMap((s) => s.flows)) : null;
     this.litLinks = p ? new Set(this.B.links.map((l, i) => (l.flows.some((f) => flows.has(f)) ? i : -1)).filter((i) => i >= 0)) : null;
     for (const e of this.labEls || []) {
@@ -2312,7 +2372,7 @@ class Board {
 
   drawInside() {
     const layer = this.layers.inside;
-    layer.replaceChildren();
+    if (!this.pending) layer.replaceChildren();
     this.inBox = null;
     const sid = this.st.shape;
     if (!sid || !this.K[sid]) return;
@@ -2694,8 +2754,8 @@ class Board {
     }
     this.drawMarks(pg, c.id, marks || []);
     this.hoverEdges(pg, c.id);
-    pg.addEventListener("click", (ev) => { if (this.dragMoved) return; ev.stopPropagation(); this.pickPart(c.id); });
-    pg.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); ev.stopPropagation(); this.pickPart(c.id); } });
+    pg.onclick = (ev) => { if (this.dragMoved) return; ev.stopPropagation(); this.pickPart(c.id); };
+    pg.onkeydown = (ev) => { if (ev.key === "Enter") { ev.preventDefault(); ev.stopPropagation(); this.pickPart(c.id); } };
   }
 
   hoverEdges(pg, m) {
@@ -2703,8 +2763,8 @@ class Board {
       this.svg.querySelector(".inside-art")?.classList.toggle("hovering", on);
       this.svg.querySelectorAll(".edge, .elab").forEach((x) => { if (x.dataset.a === m || x.dataset.b === m) x.classList.toggle("hov", on); });
     };
-    pg.addEventListener("mouseenter", () => set(true));
-    pg.addEventListener("mouseleave", () => set(false));
+    pg.onmouseenter = () => set(true);
+    pg.onmouseleave = () => set(false);
   }
 
   lock(g, x, y, closed) {
@@ -2743,8 +2803,8 @@ class Board {
     if (unbuilt) this.pill(pg, r.x + 62, r.y + r.h - 26, it.status, "warn");
     this.drawMarks(pg, m, marks || []);
     this.hoverEdges(pg, m);
-    pg.addEventListener("click", (ev) => { if (this.dragMoved) return; ev.stopPropagation(); this.pickPart(m); });
-    pg.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); ev.stopPropagation(); this.pickPart(m); } });
+    pg.onclick = (ev) => { if (this.dragMoved) return; ev.stopPropagation(); this.pickPart(m); };
+    pg.onkeydown = (ev) => { if (ev.key === "Enter") { ev.preventDefault(); ev.stopPropagation(); this.pickPart(m); } };
   }
 
   drawHeap(g, m, r, lines, marks) {
@@ -2762,8 +2822,8 @@ class Board {
     this.pill(pg, r.x + r.w - 14 - this.pillW("in memory"), r.y + r.h - 28, "in memory", "");
     this.drawMarks(pg, m, marks || []);
     this.hoverEdges(pg, m);
-    pg.addEventListener("click", (ev) => { if (this.dragMoved) return; ev.stopPropagation(); this.pickPart(m); });
-    pg.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); ev.stopPropagation(); this.pickPart(m); } });
+    pg.onclick = (ev) => { if (this.dragMoved) return; ev.stopPropagation(); this.pickPart(m); };
+    pg.onkeydown = (ev) => { if (ev.key === "Enter") { ev.preventDefault(); ev.stopPropagation(); this.pickPart(m); } };
   }
 
   drawSib(g, o, r, size) {
@@ -2776,8 +2836,8 @@ class Board {
     this.text(gg, r.x + 14, r.y + 14 + this.T.member.size - 2 + (size.name.length - 1) * this.T.member.lh + 4 + this.T.mrole.lh, size.role, this.T.mrole, "t-ink2");
     const parts = blk.members.filter((m) => this.items[m] && this.items[m].type === "component").slice(0, 5);
     parts.forEach((m, i) => this.glyph((this.shapeOf(m) || {}).shape || "module", gg, r.x + 26 + i * 40, r.y + r.h - 22, 26, "k-ink3"));
-    gg.addEventListener("click", (ev) => { if (this.dragMoved) return; ev.stopPropagation(); this.goTo(o); });
-    gg.addEventListener("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); this.goTo(o); } });
+    gg.onclick = (ev) => { if (this.dragMoved) return; ev.stopPropagation(); this.goTo(o); };
+    gg.onkeydown = (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); this.goTo(o); } };
   }
 
   drawGhost(g, o, r, size) {
@@ -2801,11 +2861,11 @@ class Board {
       if (size.sil === "key") D.key(gg, r.x + 14, r.y + r.h / 2, 0.3);
     }
     this.text(gg, r.x + size.lead, r.y + size.top + this.T.link.size - 3, size.name, this.T.link, "t-ink2");
-    gg.addEventListener("click", (ev) => { if (this.dragMoved) return; ev.stopPropagation(); this.goTo(o); });
-    gg.addEventListener("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); this.goTo(o); } });
+    gg.onclick = (ev) => { if (this.dragMoved) return; ev.stopPropagation(); this.goTo(o); };
+    gg.onkeydown = (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); this.goTo(o); } };
   }
 
-  refresh() {
+  refresh(camera) {
     if (this.gone || !this.M) return;
     const cw = this.canvas.getBoundingClientRect().width;
     if (!cw) return;
@@ -2839,7 +2899,7 @@ class Board {
     this.renderReadout();
     if (!this.o.dialog) this.sizeCanvas(print);
     cancelAnimationFrame(this.anim);
-    this.setVB(print ? this.fitBox() : this.st.shape && this.inBox ? this.focusBox() : this.home());
+    this.setVB(print ? this.fitBox() : camera || (this.st.shape && this.inBox ? this.focusBox() : this.home()));
     if (this.settled) this.markReady();
   }
 
@@ -3056,7 +3116,7 @@ class Board {
     svg.addEventListener("pointerup", end);
     svg.addEventListener("pointercancel", end);
     svg.addEventListener("wheel", (e) => {
-      if (!this.st.vb || this.o.compact || !(this.o.dialog || e.ctrlKey || e.metaKey)) return;
+      if (!this.st.vb || this.o.compact || !(this.o.dialog || this.o.fill || e.ctrlKey || e.metaKey)) return;
       e.preventDefault();
       cancelAnimationFrame(this.anim);
       const f = Math.exp(e.deltaY * (e.ctrlKey ? 0.01 : 0.0016));
@@ -3096,6 +3156,8 @@ class Board {
       if (hit) { this.focus(hit[0], null); this.emit(); }
     } else if (this.st.shape && this.inBox && this.st.vb.w > this.focusBox().w * 2.4) {
       this.unfocus();
+    } else if (!this.st.shape && ratio < 0.5 && this.o.nav?.trail().length) {
+      this.o.nav.up(this.o.nav.trail().length - 1);
     }
   }
 

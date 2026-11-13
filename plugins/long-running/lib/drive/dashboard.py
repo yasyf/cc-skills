@@ -27,6 +27,7 @@ from typing import NamedTuple
 from drive import (
     artifacts,
     card,
+    completion,
     github,
     install,
     launchd,
@@ -418,6 +419,12 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 self.answered(200, board.timings)
             elif self.path == "/api/stream":
                 self.stream()
+            elif where.path == "/api/page":
+                found = next((page for page in board.model['pages'] if page['slug'] == asked.get('slug')), None)
+                if found:
+                    self.answered(200, {'slice': pages.slice_of(board.model, found)})
+                else:
+                    self.answered(404, {'error': 'that page is not on this dashboard'})
             elif where.path == "/api/card":
                 self.card(asked["answer"])
             elif where.path == "/api/task":
@@ -443,9 +450,9 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
             elif self.path in FILES:
                 file, kind = FILES[self.path]
                 self.reply((SITE / file).read_bytes(), kind, headers=SHARED)
-            elif self.path.startswith("/vendor/") and (file := (SITE / self.path.lstrip("/")).resolve()).is_relative_to(VENDOR) and file.suffix in VENDOR_KINDS and file.is_file():
+            elif self.path.startswith("/vendor/") and (file := (SITE / where.path.lstrip("/")).resolve()).is_relative_to(VENDOR) and file.suffix in VENDOR_KINDS and file.is_file():
                 self.reply(file.read_bytes(), VENDOR_KINDS[file.suffix], "public, max-age=31536000, immutable", SHARED)
-            elif self.path.startswith("/kit/") and (file := (SITE / self.path.lstrip("/")).resolve()).is_relative_to(KIT) and file.suffix in VENDOR_KINDS and file.is_file():
+            elif self.path.startswith("/kit/") and (file := (SITE / where.path.lstrip("/")).resolve()).is_relative_to(KIT) and file.suffix in VENDOR_KINDS and file.is_file():
                 self.reply(file.read_bytes(), VENDOR_KINDS[file.suffix], headers=SHARED)
             elif (found := PAGE_PATH.fullmatch(where.path)) and (file := pages.file(board.name, found[1], urllib.parse.unquote(found[2]))):
                 self.reply(file.read_bytes(), pages.KINDS[file.suffix], headers=SANDBOXED)
@@ -457,12 +464,14 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
             page = f"{'https' if isinstance(self.connection, ssl.SSLSocket) else 'http'}://{host}"
             if host not in hosts or self.headers.get("Origin") != page:
                 self.send_error(403)
-            elif self.path not in ("/api/answer", "/api/tap", "/api/undo", "/api/say") and not REVIEW_PATH.fullmatch(self.path):
+            elif self.path not in ("/api/answer", "/api/tap", "/api/undo", "/api/say", "/api/complete") and not REVIEW_PATH.fullmatch(self.path):
                 self.send_error(404)
             elif not owner_calling(self.client_address[0], net):
                 self.answered(403, {"error": NOT_OWNER})
             elif found := REVIEW_PATH.fullmatch(self.path):
                 self.review(f"{found[1]}#{found[2]}")
+            elif self.path == "/api/complete":
+                self.complete(json.loads(self.rfile.read(int(self.headers['Content-Length']))))
             elif self.path == "/api/say":
                 self.say(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
             elif self.path == "/api/undo":
@@ -471,6 +480,34 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 self.tap(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
             else:
                 self.answer(json.loads(self.rfile.read(int(self.headers["Content-Length"]))), f"{page}/")
+
+        def complete(self, body: dict) -> None:
+            page = next((page for page in board.model['pages'] if page['slug'] == body.get('page')), None)
+            if not page:
+                self.answered(404, {'error': 'that page is not on this dashboard'})
+                return
+            try:
+                request = completion.request(page, body.get('messages'))
+                upstream = urllib.request.urlopen(request, timeout=60)
+            except DriveError as error:
+                self.answered(400, {'error': str(error)})
+                return
+            except (urllib.error.URLError, TimeoutError):
+                self.answered(502, {'error': 'Cerebras could not start a response'})
+                return
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/event-stream')
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('Connection', 'close')
+            self.end_headers()
+            self.close_connection = True
+            with upstream:
+                try:
+                    while chunk := upstream.read1(8192):
+                        self.wfile.write(chunk)
+                        self.wfile.flush()
+                except (OSError, TimeoutError):
+                    self.wfile.write(b'data: {"error":{"message":"Cerebras response interrupted"}}\n\n')
 
         def card(self, answer: str) -> None:
             found = next((item for item in board.model["queue"] if item.get("answer") == answer), None)
@@ -669,6 +706,7 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
 
 def serve(name: str, port: int, inherited: list[int]) -> None:
     """Serve the dashboard on loopback and this machine's own tailnet addresses, never a wildcard, the tailnet ones over HTTPS when the tailnet issues certificates, on the listening sockets an older install handed over when there are any. Once a newer long-running is installed, its drive takes this process's place on the same sockets, which queue each connection meanwhile, so the port answers throughout. Following the drive's files failing ends the server rather than freezing its page."""
+    os.environ.update(launchd.session_env())
     net = tailnet()
     board = Board(name, links_of(port, net))
     page = handler(port, net, board)
