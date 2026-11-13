@@ -38,7 +38,6 @@ HELD = "not landed while he holds it"
 REVIEW_ASK = "@forge-pr-reviewer review"
 BLOCKED_LINE = re.compile(r"^#(?P<number>\d+) BLOCKED (?P<head>\w+) (?P<gaps>.+)$", re.MULTILINE)
 OLDER_HEAD = re.compile(r"awaiting approval on head from \S+ \(approved [^,]+, (?:on an older head|dismissed by a push)\)")
-RETARGETS = re.compile(r"(?:targets \S+ without a native GitHub stack|sits in a native stack on \S+) and retargets onto \S+ once #\d+ lands")
 REVERT = re.compile(r"^Reverts?\s|⏪|\bThis reverts\b", re.MULTILINE)
 STORED_DATA = re.compile(r"(?:^|/)migrations?/|(?:^|/)[^/]*schema[^/]*$|\.(?:sql|proto)$", re.IGNORECASE)
 CI_FILES = re.compile(r"^(?:\.github|\.buildkite|(?:go|infra)/ci)/|^tools/ci(?:-ts)?(?:/|$)")
@@ -382,6 +381,7 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
             below = uncleared_below(data, keys)
             misfiled = "; ".join(why for key in keys if (why := unexempt(data, key)))
         except (github.GithubError, state.DriveError) as error:
+            print(error, flush=True)
             outcome = f"not landed: {cut(str(error), SAID_CHARS)}"
         else:
             if misfiled:
@@ -433,7 +433,7 @@ def said(output: str) -> str:
 
 
 def enqueued(name: str, clone: Path, keys: list[str], prs: dict, asked: dict[str, str], dry_run: bool = False, flake: bool = False) -> str:
-    """Queue the unit through stack-enqueue as the head of its repository's default branch holds it, run from a fresh() worktree of the coordinator checkout's clone and never from that checkout, with --flake when a PR of it requeues() at the head Trunk ejected it at: --check first, whose exit of ENQUEUE_FAILED ends the landing as the lander's own failure, by unfinished(), as the same exit of --watch does, and whose BLOCKED lines end it, unless each gap is an approval on an older head, which stack-enqueue names only once ai-review finished on the head, or a wait to retarget onto the default branch once the PR under it lands; a dry run stops there, saying what it would queue; then forge-pr-reviewer is asked to review each head approved only on an older one that prs, the drive's PRs as the lander read them at its start, records no ask of, each head it asks added to asked for record() to keep, and --watch waits until Trunk holds every PR of it or one needs a fix rather than a wait, unless halt() ends it first, which dequeues each PR of it; what came of it. It reads and writes no drive state, so an install that saves the drive while it makes the worktree, runs --check or waits on Trunk never ends the landing."""
+    """Queue the unit through stack-enqueue as the head of its repository's default branch holds it, run from a fresh() worktree of the coordinator checkout's clone and never from that checkout, with --flake when a PR of it requeues() at the head Trunk ejected it at: --check first, whose exit of ENQUEUE_FAILED ends the landing as the lander's own failure, by unfinished(), as the same exit of --watch does, and whose BLOCKED lines name each head approved only on an older one, which stack-enqueue names only once ai-review finished on the head; a dry run stops there, saying what it would queue and the BLOCKED lines it read; then forge-pr-reviewer is asked to review each such head that prs, the drive's PRs as the lander read them at its start, records no ask of, each head it asks added to asked for record() to keep, and --watch, which alone tells a wait from a fix, such as GitHub still computing mergeability from a conflict, waits until Trunk holds every PR of it or one needs a fix rather than a wait, unless halt() ends it first, which dequeues each PR of it; what came of it. It reads and writes no drive state, so an install that saves the drive while it makes the worktree, runs --check or waits on Trunk never ends the landing."""
     repo = github.repo_of(keys[0])
     numbers = [key.split("#")[1] for key in keys]
     flags = ["--flake"] if flake else []
@@ -451,10 +451,9 @@ def enqueued(name: str, clone: Path, keys: list[str], prs: dict, asked: dict[str
             if checked.returncode == ENQUEUE_FAILED:
                 return unfinished(name, "--check", keys, checked)
             blocked = list(BLOCKED_LINE.finditer(checked.stdout))
-            if any(not (OLDER_HEAD.fullmatch(gap) or RETARGETS.fullmatch(gap)) for line in blocked for gap in line["gaps"].split("; ")):
-                return f"not landed: {cut('; '.join(line[0] for line in blocked), SAID_CHARS)}; its whole output is in {state.drive_dir(name) / LOG}"
             if dry_run:
-                return f"would queue {', '.join(keys)} through stack-enqueue {' '.join(['--watch', *flags])} from {branch} at {sha[:12]}: every PR below it is merged, approved by him or exempt"
+                read = f"; --watch waits out or stops on what --check read: {cut('; '.join(line[0] for line in blocked), SAID_CHARS)}" if blocked else ""
+                return f"would queue {', '.join(keys)} through stack-enqueue {' '.join(['--watch', *flags])} from {branch} at {sha[:12]}: every PR below it is merged, approved by him or exempt{read}"
             for line in blocked:
                 key = f"{repo}#{line['number']}"
                 if not OLDER_HEAD.search(line["gaps"]) or prs[key]["review_asked"] == line["head"]:

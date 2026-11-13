@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -241,6 +242,19 @@ def test_saved_branches_names_each_branch_github_holds_under_the_lanes_own_prefi
     assert ran == [["gh", "api", "repos/Forge-AI/monorepo/git/matching-refs/heads/saved/durable-agents-j2363/"]]
     monkeypatch.setattr(github, "run", lambda cmd, **_: "[]")
     assert SAVED_BRANCHES("Forge-AI/monorepo", "durable-agents-j2363-2") == []
+
+
+def test_a_read_outliving_its_timeout_names_its_command_never_its_query_with_what_it_wrote_to_stderr_by_then(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ccx = tmp_path / "ccx"
+    ccx.write_text("#!/bin/sh\necho 'ccx: minting the app token' >&2\nexec sleep 5\n")
+    ccx.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
+    query = 'query { repository(owner: "Forge-AI", name: "monorepo") { pullRequest(number: 42) { baseRefName } } }'
+    with pytest.raises(github.GithubError) as raised:
+        github.run(["gh", "api", "graphql", "-f", f"query={query}"], timeout=1)
+    assert str(raised.value) == "gh api graphql timed out after 1 s: ccx: minting the app token"
 
 
 def test_run_raises_when_gh_is_missing(monkeypatch: pytest.MonkeyPatch) -> None:
