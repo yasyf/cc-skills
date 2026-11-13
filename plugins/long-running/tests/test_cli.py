@@ -5282,14 +5282,21 @@ def test_job_brief_carries_the_words_of_each_order_the_job_carries_and_each_ruli
     recorded.shown["bc0da25"] = {"id": "bc0da25e", "title": "Partition strategies", "body": "time, hash by key and spill all ship\nNotes: read as three strategies", "tags": [], "created_at": "2026-11-12T11:33:00Z"}
     recorded.shown["a6a9980"] = {"id": "a6a9980f", "title": "Abstraction first", "body": "build the abstraction first", "tags": [], "created_at": "2026-11-12T11:34:00Z"}
     recorded.unrecorded.add("9f3c2e1")
+    newer = run("job", "add", "reader", "--order", "o2", "--goal", "research: the debug guard")[1].splitlines()[0]
+    assert keep(monkeypatch, capsys, newer, RESEARCH.replace("rulings: none on the copy path", 'rulings: 7f91d2f "use the machine profile"; bc0da25e "time, hash by key and spill all ship"')) == (0, "")
+    recorded.shown["7f91d2f"] = {"id": "7f91d2fa", "title": "Machine profile", "body": "use the machine profile", "tags": [], "created_at": "2026-11-12T11:35:00Z"}
+    recorded.shown["bc0da25e"] = recorded.shown["bc0da25"]
     builder = run("job", "add", "builder", "--order", "o1", "--goal", "partition the tables")[1].splitlines()[0]
     assert run("job", "set", builder, "--carries", "o2")[0] == 0
     code, out = run("job", "brief", builder, "--serves", "drive tooling", "--done-when", "merged", "--where", "yasyf/cc-skills main")
     assert code == 0
-    assert out.splitlines()[1].startswith("his words from o1, o2, rulings: 2,")
+    assert out.splitlines()[1].startswith("his words from o1, o2, rulings: 3,")
     written = Path(out.splitlines()[0].removeprefix("Read your brief first: ")).read_text()
     assert written.startswith("Order (his words): Drive tooling: partition the journal tables\no2, which it also carries: Drive tooling: pick each table's partition by its usage\n")
-    assert "Decisions that bind:\n- Partition strategies (bc0da25)\n  time, hash by key and spill all ship\n- Abstraction first (a6a9980)\n  build the abstraction first\n" in written
+    assert (
+        "Decisions that bind:\n- Machine profile (7f91d2f)\n  use the machine profile\n- Partition strategies (bc0da25)\n  time, hash by key and spill all ship\n"
+        "- Abstraction first (a6a9980)\n  build the abstraction first\n"
+    ) in written
     assert "9f3c2e1" not in written
 
 

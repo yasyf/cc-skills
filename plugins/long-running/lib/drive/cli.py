@@ -2126,7 +2126,7 @@ def rewrite_brief(name: str, job_id: str, flags: dict) -> tuple[str, dict]:
     planned = order["kind"] == "build" and not order["incident"]
     found = brief.research(name, data, job["order"], job["parts"]) if planned and job["kind"] in brief.RESEARCHED_KINDS else None
     ids, heard = brief.bound(name, data, job | {"brief_flags": flags})
-    rulings = [*(ruling_words(answer_id, checkout_dir) for answer_id in ids), *heard]
+    rulings = [*dict.fromkeys(ruling_words(answer_id, checkout_dir) for answer_id in ids), *heard]
     carried = "".join(f"\n{order_id}, which it also carries: {data['orders'][order_id]['text']}" for order_id in job["carries"])
     scratch = Path(flags["scratch"]).expanduser() if flags["scratch"] else state.drive_dir(name) / "scratch" / job_id
     scratch.mkdir(parents=True, exist_ok=True)
