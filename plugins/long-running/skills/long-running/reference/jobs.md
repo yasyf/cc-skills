@@ -177,16 +177,18 @@ minutes is said with the remedy, a `SendMessage` to wake it.
    keeps under `terminal`, so Orca types no "You have N orchestration messages" line into your
    session; the watch turns lane mail into `JOB` events. Leave any `orca orchestration check` such
    a line names unrun.
-6. When a remote lane returns its line, run `drive job end <j>` in the background to free its
-   Sprite, as the coordinator page's event rows say. The job keeps the state its line set, with its
-   waits, PRs and carried parts: a `WAITING` job stays waiting, so nothing waiting on it is freed,
-   and its next event starts its next lane. Whatever the job's state, end saves what its Sprite
-   holds on no remote to GitHub as `saved/<lane>/<branch>`, uncommitted changes included, before it
-   destroys the Sprite, and keeps the Sprite, naming why, when the save fails. While the job is not
-   finished, end saves before it ends the lane, since the next lane starts on a fresh Sprite, and
-   end's output and that lane's handoff name each branch GitHub holds under `saved/<lane>/`, read
-   from its refs, never from what a save printed. When the Sprite does not answer or the save fails,
-   end refuses, ending nothing and naming why: end it again once the Sprite answers.
+6. A remote job that is not running holds no Sprite: two minutes after a lane returns its line,
+   or once its job is stopped, the watch runs `drive job end <j>` on it in a process of its own,
+   ahead of any reclaim, its output in the drive's `relaunches.log`, so no session runs it. The job
+   keeps the state its line set, with its waits, PRs and carried parts: a `WAITING` job stays
+   waiting, so nothing waiting on it is freed, and its next event starts its next lane on a fresh
+   Sprite. Whatever the job's state, end saves what its Sprite holds on no remote to GitHub as
+   `saved/<lane>/<branch>`, uncommitted changes included, before it destroys the Sprite, and keeps
+   the Sprite, naming why, when the save fails. While the job is not finished, end saves before it
+   ends the lane, and end's output and that lane's handoff name each branch GitHub holds under
+   `saved/<lane>/`, read from its refs, never from what a save printed. When the Sprite does not
+   answer or the save fails, end refuses, ending nothing and naming why, and the watch ends it again
+   once it restarts.
 
 ## Remote lanes
 

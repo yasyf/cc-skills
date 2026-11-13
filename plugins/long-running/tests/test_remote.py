@@ -2620,18 +2620,24 @@ def test_the_watch_ends_a_waiting_jobs_dead_lane_on_a_sprite_once(remote: str, m
     monkeypatch.setattr(orca, "worker", lambda dispatch: shown.append(dispatch) or dead())
     watching = watch.Watcher(remote, offset=state.events_end(remote))
     assert watch.run_pass(watching, T0) == [
-        'LANE j1 o1 died on Sprite sprite-old: its worker exited, while it waited on "ASK which npm name?". The watch ran drive job end j1, '
+        'LANE j1 o1 died on Sprite sprite-old: its worker exited, while it waited on "ASK which npm name?". The watch runs drive job end j1, '
         f"which copies its Sprite's Orca runtime and worker logs to {orca.death_logs(remote, 'j1', DISPATCH)}, saves to GitHub what its Sprite holds"
         " on no remote and destroys it, its output in the drive's relaunches.log; "
         'drive job resume j1 "<his answer>" relaunches it on a fresh Sprite with a handoff'
     ]
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
+    monkeypatch.setattr(state, "scratch", lambda: False)
+    monkeypatch.setattr(orca, "holds_sprite", lambda job: job.get("workspace") == "sprite-old")
+    watch.release_lanes(watching, T0 + timedelta(minutes=2))
+    watch.release_lanes(watching, T0 + timedelta(minutes=3))
     assert (shown, ended_lanes) == ([DISPATCH], ["j1"])
     job = state.load(remote)["jobs"]["j1"]
     assert (job["state"], [(death["dispatch"], death.get("ended")) for death in job["deaths"]]) == ("waiting", [(DISPATCH, None)])
 
 
-def test_the_watch_releases_the_sprite_a_lane_died_on_once_no_unfinished_job_runs_on_it(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_watch_ends_a_waiting_jobs_own_lane_and_releases_each_sprite_an_earlier_lane_died_on(
+    remote: str, monkeypatch: pytest.MonkeyPatch, ended_lanes: list[str]
+) -> None:
     released = []
     monkeypatch.setattr(state, "scratch", lambda: False)
     monkeypatch.setattr(orca, "checkout", lambda name, data: Path(remote))
@@ -2643,7 +2649,7 @@ def test_the_watch_releases_the_sprite_a_lane_died_on_once_no_unfinished_job_run
     watching = watch.Watcher(remote, offset=state.events_end(remote))
     watch.release_lanes(watching, T0)
     watch.release_lanes(watching, T0)
-    assert released == ["sprite-old"]
+    assert (released, ended_lanes) == (["sprite-old"], ["j1"])
 
 
 def refused(code: str, message: str) -> Callable[[str], dict]:
@@ -2956,6 +2962,32 @@ def test_end_refuses_a_running_job_whose_lane_stopped_without_its_line_naming_re
     assert (state.load(remote)["jobs"]["j1"]["state"], state.load(remote)["jobs"]["j1"].get("deaths", [])) == ("running", [])
 
 
+def test_end_waits_on_a_relaunch_of_its_job_and_refuses_the_job_that_relaunch_set_running(
+    remote: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(state="waiting", said="READY https://github.com/acme/demo/pull/7", workspace="pool-one")
+    held, asked = threading.Event(), threading.Event()
+
+    def relaunch() -> None:
+        with state.job_locked(remote, "j1", 5):
+            held.set()
+            asked.wait(5)
+            with state.edit(remote) as data:
+                data["jobs"]["j1"]["state"] = "running"
+
+    relauncher = threading.Thread(target=relaunch)
+    relauncher.start()
+    held.wait(5)
+    taken = state.taken
+    monkeypatch.setattr(state, "taken", lambda handle, seconds: asked.set() or taken(handle, seconds))
+    monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: pytest.fail("an end that waited on a relaunch saves nothing"))
+    monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: pytest.fail("an end that waited on a relaunch reclaims nothing"))
+    assert cli.main(["job", "end", "j1"]) == 2
+    relauncher.join()
+    assert "j1: refused, nothing ended: it is running" in capsys.readouterr().err
+
+
 def test_end_saves_what_the_sprite_of_a_job_still_at_work_holds_and_its_next_lane_gets_the_saved_branches(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, saved_on_github: dict[str, list[str]]
 ) -> None:
@@ -3047,6 +3079,48 @@ def test_the_watch_frees_each_finished_lane_once_a_sprite_by_destroy_and_a_quiet
     watch.release_lanes(watcher, T0)
     watch.release_lanes(watcher, T0)
     assert (started, ends) == ([("destroy", "pool-one"), ("done", "run_mac", "ctx_mac")], ["j6"])
+
+
+def test_the_watch_ends_every_lane_on_a_sprite_two_minutes_after_its_line_ahead_of_any_reclaim_two_a_pass(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ended_lanes: list[str]
+) -> None:
+    goals = ("returned built", "returned done", "returned pushed", "still at work", "already ended")
+    run("order", "set", "o1", "--parts", "ship the remote builder", *goals)
+    for goal in goals:
+        run("job", "add", "builder", "--order", "o1", "--part", goal, "--goal", goal, "--remote")
+    earlier = state.stamp(T0 - timedelta(minutes=10))
+    dead_lane = {"dispatch": "ctx_old", "workspace": "pool-old", "why": "its worker exited", "at": earlier}
+    ended = {"dispatch": "ctx_6", "workspace": "pool-6", "why": "ended by drive job end", "at": earlier, "ended": {"pid": 1, "at": earlier}}
+    with state.edit(remote) as data:
+        for job_id, now in (("j1", "waiting"), ("j2", "built"), ("j3", "done"), ("j4", "waiting"), ("j5", "running"), ("j6", "waiting")):
+            data["jobs"][job_id].update(state=now, workspace=f"pool-{job_id[1:]}", dispatch=f"ctx_{job_id[1:]}", returned=earlier)
+        for job_id, minutes in (("j1", 1), ("j2", 30), ("j3", 20), ("j4", 10)):
+            data["jobs"][job_id]["returned"] = state.stamp(T0 - timedelta(minutes=minutes))
+        data["jobs"]["j3"]["deaths"] = [dead_lane]
+        data["jobs"]["j6"]["deaths"] = [ended]
+    workspaces = tmp_path / "cc-remote-workspaces"
+    workspaces.mkdir()
+    for workspace in ("pool-old", *(f"pool-{n}" for n in range(1, 7))):
+        (workspaces / f"{workspace}.json").write_text("{}")
+    monkeypatch.setattr(orca, "CC_REMOTE_WORKSPACES", workspaces)
+    monkeypatch.setattr(state, "scratch", lambda: False)
+    monkeypatch.setattr(orca, "checkout", lambda name, data: tmp_path)
+    started: list[str] = []
+    finished = subprocess.CompletedProcess([], 0)
+    finished.poll = lambda: 0
+    monkeypatch.setattr(orca, "release_detached", lambda drive, job_id, job, root, log: started.append(job["workspace"]) or finished)
+    busy = subprocess.CompletedProcess([], 0)
+    busy.poll = lambda: None
+    watcher = watch.Watcher(remote, offset=state.events_end(remote), releasing={"pool-a": busy, "pool-b": busy})
+    watch.release_lanes(watcher, T0)
+    assert (ended_lanes, started) == (["j4", "j3"], [])
+    watch.release_lanes(watcher, T0)
+    assert (ended_lanes, started) == (["j4", "j3", "j2"], [])
+    watch.release_lanes(watcher, T0 + timedelta(minutes=1))
+    assert ended_lanes == ["j4", "j3", "j2", "j1"]
+    watcher.releasing = {}
+    watch.release_lanes(watcher, T0 + watch.HANDOFF)
+    assert (ended_lanes, started) == (["j4", "j3", "j2", "j1"], ["pool-old"])
 
 
 def test_end_of_a_finished_job_never_reads_its_sprite_and_keeps_the_parts_it_carried(
@@ -4118,6 +4192,12 @@ def test_a_lane_whose_job_carries_the_drives_order_wakes_only_the_watch_hearing_
     monkeypatch.setattr(orca, "worker", lambda dispatch: dead())
     assert staged(watch.agent_lines, top, T0) == []
     assert staged(watch.agent_lines, iris, T0)[0].startswith(f'LANE j1 o1 died on Sprite sprite-old: its worker exited, while it waited on "{ready}"')
+    monkeypatch.setattr(state, "scratch", lambda: False)
+    monkeypatch.setattr(orca, "holds_sprite", lambda job: job.get("workspace") == "sprite-old")
+    settled = state.parse_time(state.load(remote)["jobs"]["j1"]["returned"]) + watch.HANDOFF
+    watch.release_lanes(top, settled)
+    assert ended_lanes == []
+    watch.release_lanes(iris, settled)
     assert ended_lanes == ["j1"]
 
 
