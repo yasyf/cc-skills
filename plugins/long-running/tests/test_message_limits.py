@@ -188,7 +188,7 @@ SHOW_ME = "*Show me*\nToday, the card after a download:\n```\n" + "\n".join(f"li
 BREAK_GLASS = "Use break glass with machine profile then you don't need sso, I tell you this once a day"
 SENTRY_EVENT = "https://forge-rf.sentry.io/issues/SAND-3Z/events/bc99372dd60d40dcb36c07511693ce06/"
 STRAY_CHATS_ASK = explained(f"""ASK Rowan's stray chats likely come from the old build writing into the new app's chat folder on his Mac; how do we stop it?
-Both builds share one chat folder on his Mac. <{SENTRY_EVENT}|The old build> runs its own server there and saves each new chat before setup, which the new app lists Untitled and read-only. A check inside the new app cannot stop that server, so I recommend a separate folder. Unproven until Rowan's files are read.
+Drive tooling: your pick decides how stray chats stop. Both builds share one chat folder; <{SENTRY_EVENT}|The old build> runs its own server there and saves each new chat before setup, which the new app lists Untitled and read-only. A check inside the new app cannot stop that server, so I recommend a separate folder.
 Show me:
 <https://github.com/Forge-AI/monorepo/blob/dev/go/sand/internal/durable/agent.go#L120-L125|The old build> makes a chat file holding only a writer stamp; the chat's setup waits for a first turn that never comes.
 ```go
@@ -211,7 +211,7 @@ Rowan sees Untitled, unstarted chats marked state_missing that must be forked.
 HIS_PICK = "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794239768768559?thread_ts=1794220171.175389&cid=D0C4HQWPLCC"
 WATCHDOG_QUESTION = 'Which "1+2 hybrid" did you pick on Nov 9: an always-on listener that never acts, or a service that also lands and installs?'
 WATCHDOG_SUMMARY = (
-    f"<{HIS_PICK}|Your Nov 9 pick> reads two ways, and only the watcher that saves its place is built.\n"
+    f"Drive tooling: your pick decides what the always-on watcher does. <{HIS_PICK}|Your Nov 9 pick> reads two ways, and only the watcher that saves its place is built.\n"
     "Recommended: one always-on listener that takes GitHub pushes and runs the stuck-work watchdog, and lands nothing."
 )
 WATCHDOG_SHOW_ME = """What each reading builds, beside what runs today.
@@ -234,7 +234,7 @@ WATCHDOG_ASK = explained(
     f"- {WATCHDOG_OPTIONS[1]}\nFindings:\nRoot cause: none: a question about his own pick\nHolds: none: no option changes code any job builds\nOnly the watcher that saves its place is built today.\n"
 )
 FROZEN_COPIES_ASK = explained("""ASK Before the 30 frozen copies from the Oct 13 fleet move are deleted, what must prove each moved copy is whole?
-Removing a frozen copy deletes its database files and its folder in the team's bucket, at once and for good. These moved on Oct 13 under older code, and one team's moved databases later lost bucket history, so "ready on Oct 13" proves nothing today. Nothing is deleted meanwhile.
+Drive tooling: your pick decides what proves a moved copy whole. Removing a frozen copy deletes its database files and its folder in the team's bucket, at once and for good. These moved on Oct 13 under older code, and one team's moved databases later lost bucket history, so "ready on Oct 13" proves nothing today. Nothing is deleted meanwhile.
 Show me:
 The 30 frozen copies, counted by the move's metric. Names and sizes need an in-cluster credential, so most are unread.
 
@@ -280,7 +280,7 @@ WATCH_OPTIONS = [
 ]
 WATCH_QUESTION = "Should a watch be its own watch:: package, or the first source of an event:: subscription API?"
 WATCH_ASK = explained(f"""ASK {WATCH_QUESTION}
-A watch is Sand source with a check function and a period in seconds; its session's host reruns it, and a changed result arrives as one message in that session's inbox.
+Drive tooling: your pick decides the watch API. A watch is Sand source with a check function and a period in seconds; its session's host reruns it, and a changed result arrives as one message in that session's inbox.
 I recommend watch::; a builder may start on it meanwhile.
 - {WATCH_OPTIONS[0]} (recommended)
 - {WATCH_OPTIONS[1]}
@@ -293,7 +293,7 @@ His order settles that a watch reruns code on a period and a change reaches the 
 MACHINE_PROFILE_READ = "Break-glass read: this Mac's machine profile requests the grant and runs one read-only query per SandSQL server (recommended)"
 EXPIRED_SIGN_IN = (
     "ASK The hand repair needs break-glass, and this Mac's AWS sign-in expired. Renew it, or skip the hand repair?\n"
-    'AWS answers "Token has expired and refresh failed", and the renewal, `aws sso login --profile core-root` in a terminal'
+    'Drive tooling: your pick decides the hand repair. AWS answers "Token has expired and refresh failed", and the renewal, `aws sso login --profile core-root` in a terminal'
     " on this Mac, needs your MFA.\n"
     "- I signed in: the repair job takes the grant, proves the change on a copy and repairs the one Env (recommended)\n"
     "- Skip the hand repair: the Env waits for the code fix and its release\n"
@@ -301,7 +301,7 @@ EXPIRED_SIGN_IN = (
 )
 PASS_BOX_TAP = (
     "ASK The hybrid sparse and dense search test needs one Touch ID tap at your Mac: start it when you are back?\n"
-    "The approved searchbench run on a plat-staging pass box stopped before it began. Reading the Anthropic API key needs `cc-sudo`,"
+    "Drive tooling: your pick decides when searchbench runs. The approved searchbench run on a plat-staging pass box stopped before it began. Reading the Anthropic API key needs `cc-sudo`,"
     " which asks for your Touch ID, and you were away. Recommended: start it when you say you are at the Mac. Meanwhile nothing runs"
     " and no box is up.\n"
     "- On your tap here, the job starts the pass box and reads the key; you tap Touch ID once and get a results PR (recommended)\n"
@@ -316,7 +316,7 @@ PASS_BOX_TAP = (
 )
 FIRST_PASS_BOX_TAP = (
     "ASK The hybrid sparse + dense search test needs one Touch ID tap at your Mac: run it now?\n"
-    "The approved searchbench run on a plat-staging pass box stopped at step 2: reading /app/forge/api/anthropic_api_key needs cc-sudo,"
+    "Drive tooling: your pick decides when searchbench runs. The approved searchbench run on a plat-staging pass box stopped at step 2: reading /app/forge/api/anthropic_api_key needs cc-sudo,"
     " and the guard saw you were away. Searchbench never ran; about $0.02 of EC2 was spent and the box was torn down.\n"
     "- I'm at the Mac: start it now and I'll tap Touch ID once\n"
     "- Hold it until I say I'm back\n"
@@ -1437,7 +1437,7 @@ def test_jev_weighs_a_page_line_by_his_words_on_a_link_that_opened_another_view_
 
 def options_ask(*options: str) -> str:
     listed = "".join(f"- {option}\n" for option in options)
-    return explained(f"ASK Which way should this go?\nThe pick below decides it, so the work waits on it.\n{listed}Findings:\nRoot cause: none: a design pick\nHolds: none: no option changes code any job builds\nKept on disk.\n")
+    return explained(f"ASK Which way should this go?\nDrive tooling: your pick decides it, so the work waits on it.\n{listed}Findings:\nRoot cause: none: a design pick\nHolds: none: no option changes code any job builds\nKept on disk.\n")
 
 
 def test_the_recommended_option_comes_first_in_a_new_block_and_a_kept_one_still_redraws() -> None:
@@ -1504,7 +1504,7 @@ def test_a_card_asking_him_to_sign_in_or_tap_touch_id_for_an_aws_action_is_refus
         options_ask(MACHINE_PROFILE_READ, "Close on the fix"),
         options_ask("Break-glass read: no Okta MFA or SSO sign-in, drive break-glass runs it under the machine profile (recommended)", "Close on the fix"),
         options_ask(MACHINE_PROFILE_READ, "Close on the fix").replace(
-            "The pick below decides it,", 'His words "you dont fucking need okta MFA how many times have I told u to use machine profile" settle the grant;'
+            "so the work waits on it.", 'his words "you dont fucking need okta MFA how many times have I told u to use machine profile" settle the grant.'
         ),
         options_ask("Users sign in with Okta on the dashboard as today (recommended)", "Close on the fix"),
         options_ask("The job starts the pass box under the machine profile, reads the key and opens a results PR (recommended)", "Close on the fix"),
@@ -1596,7 +1596,7 @@ def test_a_question_or_option_naming_a_mechanism_by_a_bare_word_is_refused_until
 
 
 DESCRIBED_ASK = """ASK Where does the one manager for SandSQL's helper processes run?
-Every option gives each helper one start spec and one restart rule; held until you pick, so nothing ships meanwhile.
+Drive tooling: your pick decides where helpers restart; every option gives each helper one start spec and one restart rule, and nothing ships meanwhile.
 Sockets only touches clone.rs, clone/child.rs and `local/process.go`, as <https://github.com/acme/app/blob/main/clone.rs|clone.rs> reads today.
 - Inside each parent: each parent starts and restarts its children from one shared spec (recommended)
   A new crate in rust/crates/sandsql-proc gives each parent process one spec to start its helpers from and restarts one that exits, called from clone.rs and local/process.go; each spec lives in code.
@@ -1700,7 +1700,7 @@ def test_a_mechanism_is_bare_only_when_its_clause_says_nothing_else_or_names_a_k
 def test_the_keeper_and_the_hook_count_a_kept_block_alike_and_a_drive_card_carries_no_text_beside_it(talker: str, transcript: Path) -> None:
     asked = limits.question(FROZEN_COPIES_ASK)
     card = asked.card("demo", "demo:j620-660354")
-    assert limits.card_words(card) == limits.card_words({"title": asked.title, "body": "\n".join(asked.summary), "options": asked.options}) == 138
+    assert limits.card_words(card) == limits.card_words({"title": asked.title, "body": "\n".join(asked.summary), "options": asked.options}) == 149
     assert posted(transcript, card=card) is None
     assert posted(transcript, card=card, text="Question: what must prove each moved copy is whole before the 30 frozen copies are deleted?") == (
         "refused: this post's text is 16 words cc-slack draws atop the card, and a drive's question card carries only the words"

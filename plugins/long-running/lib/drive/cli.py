@@ -1303,7 +1303,14 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None) -> tuple[
         title = next(line.strip() for line in text.splitlines() if line.strip()).removeprefix("ASK ").strip()
         unsettled = next((question["unsettled"] for question in job["questions"] if question["unsettled"] and state.same_question(question["title"], title)), None)
     asked = limits.shape(text, name, job_id, state.drive_dir(name) / "pictures", unsettled, any(state.hurts_now(data["orders"][order_id]) for order_id in [job["order"], *job["carries"]]))
-    said = "\n".join([asked.title, *asked.summary]).casefold()
+    found = refs.resolved(name, "\n".join(asked.summary))
+    if (drawn := limits.card_words(replace(asked, summary=[refs.slack(line, found, None) for line in asked.summary]).card(name, ""))) > limits.QUESTION_WORDS:
+        raise DriveError(
+            f"the ASK's question, summary and options are {drawn} words as his card draws them, each reference in the summary drawn as"
+            f" the words that name it, an {{order:<o>}} as the first {view.TITLE_CHARS} characters of his order, and at most"
+            f" {limits.QUESTION_WORDS} in all: give a reference a few words of its own, as {{order:<o>|<a few words>}}, or cut the summary"
+        )
+    said ="\n".join([asked.title, *asked.summary]).casefold()
     if unnamed := [pr["port_of"] for pr in data["prs"].values() if pr["job"] == job_id and pr.get("port_of") and f"port of #{pr['port_of']}" not in said]:
         raise DriveError(
             f'{job_id}\'s PR is a port of #{unnamed[0]}: its ASK\'s summary says "port of #{unnamed[0]}", as the text of that PR\'s link,'
@@ -3540,9 +3547,9 @@ def parser() -> argparse.ArgumentParser:
         parents=both,
         help="keep a job's ASK in the drive beside its other open questions, refused unless it is in the shape he reads, and set the job waiting; --drop throws away one kept with no card",
         description=(
-            "Check a job's ASK block: `ASK <the question>`, one to three summary lines (what was found and what is being"
-            " decided, the recommendation, what happens meanwhile, answering his next question: why, did he already decide"
-            " this, is it a port, what comes after, or why it is held, or `Next question: none: <why>` under `Findings:`),"
+            "Check a job's ASK block: `ASK <the question>`, one to three summary lines (the first naming the work it serves,"
+            " `{order:<o>}`, `port of #N` or Drive tooling, and what your pick changes, as `For {order:<o>}: your pick decides"
+            " <what it changes for you>.`, then the recommendation and what happens meanwhile),"
             " `Show me:` and at least one visual under it, or no Show me"
             " when nothing shows what the words cannot (a mermaid flow, a compare or a table for options, a chart for numbers,"
             " an arch diagram, whose JSON parses, the real call in a fence naming its language for a code or API shape, or a"

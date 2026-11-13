@@ -59,7 +59,7 @@ UNSENT = (
 )
 DESIGN_PICK = "Root cause: none: a design pick, with no defect behind it"
 ASK_IN_SHAPE = f"""ASK Where should the nightly store copy run?
-The nightly store copy reads every store once; it can run on the primary or on its own worker.
+Drive tooling: your pick decides where the nightly store copy runs; it reads every store once, on the primary or on its own worker.
 - On the primary, beside the queries it serves (recommended)
   Each night `supervisor/copies.rs` on the primary copies every store once to the team's bucket between the queries it serves, for a restore to read; each query waits behind a running copy.
 - On a separate worker that reads the bucket

@@ -89,7 +89,7 @@ and names every fix: apply them and run it again. A kept fork you leave out of y
 
 ````
 ASK <the question, one line>
-<one to three lines: the design in a line and what is being decided; the recommendation; what happens meanwhile>
+<one to three lines: first the work it serves and what your pick changes, as "For {order:<o>}: your pick decides <what it changes for you>."; the recommendation; what happens meanwhile>
 Show me:
 <a caption of at most 25 words>
 ```<the kind that fits: mermaid, compare, chart or arch, or a language such as sand, sql or go for the real call>
@@ -132,9 +132,13 @@ Holds: <each change of the order its options alter, in that change's words; or n
   `Holds: none: <why>` holds nothing. `drive job ask` refuses a block without the line, or one
   naming no part of its job's orders, unless they are your coming `Change:` lines. His pick: "Each question names the changes it holds,
   kept with it".
-- The summary answers his next question: why, did he already decide this, is it a port, what comes
-  after, or why it is held. `drive job ask` refuses one that answers none of them unless `Findings:`
-  carries `Next question: none: <why>`.
+- The summary's first line says what the card is: the work it serves, as `{order:<o>}`, which his
+  card draws as his order's own words linked to its thread, `port of #N` as the text of that PR's
+  link, or Drive tooling, and what his pick changes for him, said as "your pick". `drive job ask`
+  refuses a first line missing either, by his words on a card that opened on its findings: "what is
+  this and what the fuck are you talking about". It counts the words his card draws for each
+  reference too: an `{order:<o>}` draws its order's first 100 characters, so on a card near 150
+  words give it a few words of its own, `{order:<o>|<a few words>}`.
 - Each option is one line of what he gets and what it costs, then one plain-text description
   under it, indented two spaces, which his card draws under that option. The description says in
   prose, short but clear and whole, what the option is: what runs and on what trigger, such as "the
@@ -146,8 +150,8 @@ Holds: <each change of the order its options alter, in that change's words; or n
   and how"; and on the `Does:`, `Data:` and `Touches:` lines that first carried it: "this does/data/toches is not as helpful as each option just having a plain-text shot concise but clear and comprehensive description of what it is".
   `drive job ask` refuses an option with no description, more than one line under it, a field label
   such as `Does:` in it, or one over 60 words.
-- The summary's first line says what every option shares, and the question asks only what the
-  options differ on. His words, on a card whose buttons said "Polls only": "That wasn't clear from
+- After its first line, the summary says what every option shares, and the question asks only what
+  the options differ on. His words, on a card whose buttons said "Polls only": "That wasn't clear from
   the card, polling is fine for seeing when the function output changed".
 - The question, summary and options hold at most 150 words; each option's description, like the
   Show me, is drawn whole outside that count. Slack draws a card's title and buttons as plain text, so

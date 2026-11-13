@@ -1,5 +1,5 @@
 ASK Approve this exact search benchmark command on a staging box?
-The benchmark scoring search setups on about 400 labeled queries is built and has never run. Your rule holds every benchmark run for your approval of its exact command, on staging only, so it waits for your word.
+Drive tooling: your pick decides whether the benchmark runs; the benchmark scoring search setups on about 400 labeled queries is built and has never run. Your rule holds every benchmark run for your approval of its exact command, on staging only, so it waits for your word.
 Show me:
 What the staging box runs once you approve, and nothing else.
 ```sh

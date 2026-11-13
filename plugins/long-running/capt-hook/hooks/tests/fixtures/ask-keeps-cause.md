@@ -1,5 +1,5 @@
 ASK How should a finished run's page find each journal file's page map?
-A finished run's page fetches about 180 journal files and guesses where each one's page map starts, so a wrong guess costs a second request.
+Drive tooling: your pick decides how a finished run's page reads its files; it fetches about 180 journal files and guesses where each one's page map starts, so a wrong guess costs a second request.
 Recommended: retry each missed guess with a larger range; meanwhile pages keep guessing.
 - Retry each missed guess with a larger range: no format change, a request per miss (recommended)
   The run page's reader in `site/journal.js` reads each file's last 64 KiB and, on a missed guess, reads again with a larger range; the journal files in the team's bucket stay as they are.
