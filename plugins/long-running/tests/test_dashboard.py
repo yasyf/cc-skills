@@ -2576,12 +2576,10 @@ const open = () => tip.matches(':popover-open');
 const tap = async (el) => {
   for (const kind of ['pointerover', 'pointerdown']) el.dispatchEvent(new PointerEvent(kind, { pointerType: 'touch', bubbles: true }));
   el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-  el.focus();
+  el.focus({ preventScroll: true });
   el.click();
   await wait(50);
 };
-fact().scrollIntoView({ block: 'center' });
-await wait(100);
 await tap(fact());
 const opened = { open: open(), says: tip.textContent.startsWith('Waiting on you for') };
 await tap(fact());
