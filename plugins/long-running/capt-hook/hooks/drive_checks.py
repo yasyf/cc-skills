@@ -135,14 +135,16 @@ POST_FRAME = """
     Cite in relied_on the ids of every evidence item your verdict rests on, copied exactly from the square brackets in
     <evidence>; an allow that cites none of them is refused.
     When you refuse, set refusal to one plain sentence for the agent, under 150 characters, with no quotation marks,
-    ids, dates, or times: which finding, or which claim its reads do not back, holds against which words of the
-    post, and its fix. Reason first, quoting the rule, read or user words you relied on, then set allow.
+    ids, dates, or times: which finding, which claim its reads do not back, or which option it explains without working
+    it out, holds against which words of the post, and its fix. Reason first, quoting the rule, read or user words you relied on, then set allow.
 """
 POST_RULES = """
     The agent is about to post one line to the user in his Slack DM with the app; <action> holds the post and what the
-    drive's fixed checks found in it. Judge two things and nothing else: each finding, and on a handler's post whether
+    drive's fixed checks found in it. Judge three things and nothing else: each finding; on a handler's post whether
     each claim stands on the reads it names: a line stating as fact what code does on a read of that code, and a line
-    telling what a source it names says, such as a job's assignment or a review, on the read of that source.
+    telling what a source it names says, such as a job's assignment or a review, on the read of that source; and, when
+    <evidence> holds his ruling on how far a card's options are worked out, whether each option of the card the post
+    explains is shown worked out.
     Whether he permitted the post is not one of them: cc-slack's Slack permission hook judges every write, so hold no
     post back as unpermitted, nor because a word of his in <evidence> approves something other than this post.
 
@@ -204,6 +206,13 @@ POST_RULES = """
       sets that bucket's policy, and a line ruling one out on those words of his, quoted, needs no read.
     - The handler's account of its own act, the time its next line is due, his words quoted back, and the drive's own
       state the post names through a reference such as {pr:} or {card:} need no read.
+
+    Worked options, by his ruling in <evidence> on how far a card and the answers in its thread work out each option. A
+    post in a question card's thread that explains one or more of the card's options, as an Explain more reply or an
+    answer to his question about an option does, shows each option it explains as it will look once built: its real
+    calls, the rows or bytes it writes, its flow, or the reply or screen a caller gets, in its text or a code or compare
+    visual. Hold it back when it tells such an option only by the files it touches, the callers it reaches or its cost,
+    naming the option and the example it owes. A post there that explains no option, such as a status line, owes none.
 """
 RULE_SOURCE = "the rules the drive's checks stand for, in the installed long-running and cc-slack skills' words"
 @dataclass(frozen=True, slots=True)

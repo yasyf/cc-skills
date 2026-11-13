@@ -65,9 +65,11 @@ words "get codex to design and stop doing the bare minimum", and its builder bui
    above its options, each option's plain-text description under it, and names each function, file, table,
    flag or service by its proper term. A wall
    of findings, a high-level line or a vague stand-in leaves him asking what it is.
-   - A Show me goes on only when it shows what the words cannot, such as each option's real calls
-     in code: "show a sinippet when it makews sense". It counts toward no word limit, so it is never
-     cut; the visual rules are in [Messages](messages.md).
+   - The Show me works each option out to what it will look like once built, such as its real calls
+     in code, the rows it writes or its flow, never only its files and cost: "you need to flesh out what that will look like not just wave your hands, likewise for 2 and 3".
+     `drive job ask` refuses an option Jev reads as left unworked, naming it. Beyond that it shows
+     only what the words cannot: "show a sinippet when it makews sense". It counts toward no word
+     limit, so it is never cut; the visual rules are in [Messages](messages.md).
    - Nothing his words settle is asked. `drive job ask` settles only on his answer to the same
      question and reads only his order and its thread, so also read his answers on the area.
    - Meanwhile the recommended option's builder starts beside the cards and builds it on a pushed

@@ -2757,6 +2757,28 @@ def test_job_ask_refuses_an_option_his_words_rule_out_until_it_is_rewritten_or_u
     assert run("job", "ask", "j1", str(block), "--unsettled", f"{key}: he named no amount this card asks about")[0] == 0
 
 
+def test_job_ask_refuses_an_option_jev_reads_as_never_worked_out_to_what_it_will_look_like_naming_that_option(
+    run: Run, demo: str, slack_thread: Thread, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], jev: Jev
+) -> None:
+    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS | {"team_url": "https://acme.slack.com/"})
+    view.refresh_cards("demo")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "design the run page", "--thread", "1794200000.000100")
+    run("job", "add", "builder", "--order", "o1", "--goal", "design it")
+    unworked = "Map at the start of each file: changes the shared file format and still needs a length read first"
+    jev.breaks("worked3", limits.WORKED_WORDS["id"])
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    assert cli.main(["job", "ask", "j1", str(block)]) == 2
+    refusal = capsys.readouterr().err
+    assert f'- option "{unworked}" breaks ruling:77b577b: asked "{limits.WORKED_WORDS["asked"]}", he said "dontg be lazy flash this out' in refusal
+    assert [line.split(":")[0] for line in refusal.splitlines() if line.startswith("- ")] == [f'- option "{unworked.split(":")[0]}']
+    [request] = jev.asked
+    assert f'The option: "{unworked}".' in request["questions"]["worked3"]["label"]["instructions"]
+    assert limits.WORKED_WORDS in request["state"]["his_words"]
+    jev.ruled.pop("worked3")
+    assert run("job", "ask", "j1", str(block))[0] == 0
+
+
 def test_job_ask_hands_jev_the_words_of_his_an_order_the_drive_wrote_quotes_and_reads_no_answer_he_gave_another_question(
     run: Run, meta: str, slack_thread: Thread, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, jev: Jev
 ) -> None:
@@ -6663,16 +6685,18 @@ def test_jev_reads_every_option_of_a_card_in_one_call_against_his_words_and_ruli
     assert settled.judged(case, asked, [NOT_SPECIAL]) == []
     [request] = jev.asked
     questions = request["questions"]
-    assert list(questions) == ["breaks1", "breaks2", "breaks3", "untapped", "card"]
+    assert list(questions) == ["breaks1", "breaks2", "breaks3", "worked1", "worked2", "worked3", "untapped", "card"]
     assert list(questions["breaks2"]["label"]["options"]) == ["none", NOT_SPECIAL["id"], "ruling:0c59046"]
+    assert list(questions["worked2"]["label"]["options"]) == ["none", limits.WORKED_WORDS["id"]]
     assert '"One api start: no runner on any host" (recommended)' in questions["breaks1"]["label"]["instructions"]
+    assert f'The option: "{asked.options[2]}".' in questions["worked3"]["label"]["instructions"]
     assert "Option 1 (recommended): One api start: no runner on any host -- agent::start in" in request["state"]["card"]
-    assert request["state"]["his_words"] == [NOT_SPECIAL, limits.ROOT_CAUSE_WORDS | {"rule": limits.ROOT_CAUSE_RULES["found"]}]
+    assert request["state"]["his_words"] == [NOT_SPECIAL, limits.ROOT_CAUSE_WORDS | {"rule": limits.ROOT_CAUSE_RULES["found"]}, limits.WORKED_WORDS]
     jev.picks("none")
     jev.breaks("breaks2", NOT_SPECIAL["id"])
     assert settled.judged(case, asked, [NOT_SPECIAL]) == [{"part": f'option "{asked.options[1]}"', **NOT_SPECIAL}]
     settled.judged(case, asked, [])
-    assert list(jev.asked[-1]["questions"]) == ["breaks1", "breaks2", "breaks3", "card"]
+    assert list(jev.asked[-1]["questions"]) == ["breaks1", "breaks2", "breaks3", "worked1", "worked2", "worked3", "card"]
 
 
 PROOF_IDENTITY = """ASK Which identity should start the cloud agent of a production proof that a release build runs?
@@ -6721,7 +6745,7 @@ def test_a_redrawn_card_is_judged_against_the_rulings_its_first_draft_was_never_
         assert settled.broken_refusal(settled.judged(limits.ask_case(text, asked), asked, []), None) is None
         request = jev.asked[-1]
         offered.append((list(request["questions"]["card"]["label"]["options"]), request["state"]["his_words"]))
-    assert offered == [(["none", "ruling:0c59046"], [limits.ROOT_CAUSE_WORDS | {"rule": limits.ROOT_CAUSE_RULES["found"]}])] * 2
+    assert offered == [(["none", "ruling:0c59046"], [limits.ROOT_CAUSE_WORDS | {"rule": limits.ROOT_CAUSE_RULES["found"]}, limits.WORKED_WORDS])] * 2
     assert "story" not in settled.CARD_QUESTION
 
 

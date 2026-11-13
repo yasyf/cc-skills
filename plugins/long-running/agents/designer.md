@@ -172,9 +172,13 @@ Replaces: <only on a question built on another open question of his: the path dr
 - The question, summary and options hold at most 150 words; each option's description, like the
   Show me, is drawn whole outside that count. Slack draws a card's title and buttons as plain text, so
   the question and options name terms bare, with no markdown or link; links go in the summary.
-- Add a Show me only when it shows what the words cannot, never for a name or value they already
-  say: "show a sinippet when it makews sense". It is drawn whole on his card, outside the 150
-  words, so never cut the example to fit.
+- The Show me works each option of the fork out to what it will look like once built, its real
+  calls, the rows or bytes it writes, its flow or what a caller gets, as a `compare` panel named
+  with the option's words, a table, or a diagram captioned with its number, never only its files and
+  cost: "you need to flesh out what that will look like not just wave your hands, likewise for 2 and 3".
+  `drive job ask` refuses an option Jev reads as left unworked, naming it. Beyond that it shows only
+  what the words cannot, never a name or value they already say: "show a sinippet when it makews
+  sense". It is drawn whole on his card, outside the 150 words, so never cut the example to fit.
 - Name each fence's kind, since the card draws it as a picture from its source. Use `mermaid` for
   routing, ownership, steps or a state machine, top to bottom (`flowchart TD`) once a chain runs past
   four nodes; `compare` or a markdown table for the options side by side, with their code, gains and
