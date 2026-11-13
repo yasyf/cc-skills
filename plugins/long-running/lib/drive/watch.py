@@ -29,7 +29,7 @@ DUE_EVERY = timedelta(minutes=10)
 QUIET_THREAD = timedelta(minutes=5)
 FREED_AGAIN = timedelta(minutes=30)
 TELL_AFTER = timedelta(minutes=10)
-WAKES = ("TAP ", "DUE ", "TELL ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "STUCK ", "STAGE ", "FREE ", "WATCH stopped")
+WAKES = ("TAP ", "DUE ", "TELL ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "STAGE ", "FREE ", "WATCH stopped")
 PR_EVENT = re.compile(r"PR (?P<key>\S+): (?P<change>.+) \[(?P<order>o\d+) (?P<job>j\d+)\]$")
 NOT_LANDED = "not landed"
 LANDER = "LANDER "
@@ -59,7 +59,6 @@ UNKEPT_ASK = "keep it with `drive job ask {job}`, which draws his card on it, si
 ASK_FIELD = re.compile(r"^ASK:?[ \t]+([/~]\S*)[ \t]*$", re.MULTILINE)
 PAUSED = "The recommended answer to this question is built and paused on your pick: tap it and the work ships; another pick rebuilds it first."
 QUIET_FOR = timedelta(minutes=30)
-CALL_STUCK_FOR = timedelta(minutes=5)
 UNSTAFFED_FOR = timedelta(minutes=5)
 UNSTARTED_FOR = timedelta(minutes=1)
 RELAUNCH = timedelta(seconds=orca.LAUNCH_SECONDS)
@@ -67,7 +66,7 @@ TAIL_BYTES = 65536
 COMPACT_PAST_TOKENS = 120_000
 COMPACT_WHEN_QUIET = timedelta(minutes=10)
 NOT_SLUG = re.compile(r"[^A-Za-z0-9]")
-ABOUT = re.compile(r"\[(?P<order>o\d+) (?P<job>j\d+)\]$|^(?:FREE (?:\S+ )?j\d+|ORPHAN|DUE(?: j\d+)?|RECOVERED|TELL|JOB j\d+|LANE j\d+|STUCK j\d+) (?P<named>o\d+)\b")
+ABOUT = re.compile(r"\[(?P<order>o\d+) (?P<job>j\d+)\]$|^(?:FREE (?:\S+ )?j\d+|ORPHAN|DUE(?: j\d+)?|RECOVERED|TELL|JOB j\d+|LANE j\d+) (?P<named>o\d+)\b")
 
 
 @dataclass
@@ -1549,23 +1548,6 @@ def session_of(job: dict, data: dict) -> dict | None:
     return next((held for held in state.bound_sessions(data).values() if session and held["session"] == session), None)
 
 
-def held_call(job_id: str, job: dict, data: dict, moment: datetime) -> tuple[str, str] | None:
-    """A running local job's tool call that its transcript ends on with no result five minutes on and the watch has not said yet, with its STUCK line: Claude Code moves a Bash command still running at three minutes to the background, so a call that has no result by five never started, held by a permission prompt in a terminal nobody watches."""
-    holder = session_of(job, data)
-    if holder is None or not job.get("agent") or not (path := transcript(holder, job["agent"])).exists():
-        return None
-    turn = last_turn(path)
-    calls = [block for block in turn["message"]["content"] if block.get("type") == "tool_use"] if turn and turn["type"] == "assistant" else []
-    if not calls or calls[-1]["id"] == job.get("stuck_call") or (held := moment - state.parse_time(turn["timestamp"])) < CALL_STUCK_FOR:
-        return None
-    call = calls[-1]
-    asked = first_line(call["input"].get("command") or call["input"].get("description") or json.dumps(call["input"]))
-    return call["id"], (
-        f'STUCK {job_id} {job["order"]}: its agent\'s {call["name"]} call "{cut(asked, 80)}" has had no result for {minutes(held)} minutes,'
-        f" so a permission prompt nobody sees holds it: TaskStop {job['agent']}, then hand the job to a fresh agent whose brief runs that call as a scratch script"
-    )
-
-
 def local_gap(job_id: str, job: dict, data: dict, moment: datetime) -> str | None:
     holder = session_of(job, data)
     if holder is None:
@@ -1672,7 +1654,7 @@ def launching(job: dict, moment: datetime) -> bool:
 def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Each running job's gap from its agent or lane, with each PR it has open, a remote lane, running or waiting, whose worker died, and a running job's lane Orca could not reach three reads running, which wake hands to drive job resume; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness, and a lane filed on this Mac whose worker-show names a Sprite is filed on that Sprite. A local agent that ended its turn on a result line its job never took is a gap, since only `drive job report` sets a job's state from its return; a codex job no agent holds has its codex-ask run taken once that run ended, and an incident fix job's taken run names the builder that ships its fix."""
     data = state.load(watcher.name)
-    gaps, deaths, heads, found, taken, held, shippers, lines = {}, {}, {}, {}, {}, {}, {}, []
+    gaps, deaths, heads, found, taken, shippers, lines = {}, {}, {}, {}, {}, {}, []
     for order_id, order in heard_orders(watcher, data).items():
         for job_id in order["jobs"]:
             job = data["jobs"][job_id]
@@ -1683,8 +1665,6 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
             if running and job.get("branch") and (job.get("repo") or remote):
                 heads.setdefault(job_id, set()).add((job.get("repo"), job["branch"]))
             if not remote:
-                if running and (call := held_call(job_id, job, data, moment)):
-                    held[job_id] = call
                 if running and (why := agent_stop(job, data)):
                     if ended := state.lane_death(job):
                         gaps[job_id] = ended_gap(job_id, ended, moment)
@@ -1738,16 +1718,13 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 gaps[job_id] = remote_gap(job_id, worker, moment)
                 if branch := ((worker.get("terminal") or {}).get("branch") or "").removeprefix("refs/heads/"):
                     heads.setdefault(job_id, set()).add((job.get("repo"), branch))
-    if found or taken or held:
+    if found or taken:
         with state.edit(watcher.name) as data:
             for job_id, lane in found.items():
                 data["jobs"][job_id].update(lane)
             for job_id, gap in taken.items():
                 if builder_id := gap.take(watcher.name, data, job_id):
                     shippers[job_id] = builder_id
-            for job_id, (call, line) in held.items():
-                data["jobs"][job_id]["stuck_call"] = call
-                lines.append(line)
     lines += [line for job_id in taken for line in codex_asks(watcher.name, job_id)]
     lines += [fix_shipped(watcher.name, job_id, builder_id) for job_id, builder_id in shippers.items()]
     watcher.made += lines

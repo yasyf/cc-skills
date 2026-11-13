@@ -151,6 +151,20 @@ def test_claude_codes_permission_prompt_on_a_drive_agents_command_is_refused(
     assert bash_guard.deny_reason(bash(unreadable, session="ordinary", hook_event_name="PermissionRequest", **elsewhere)) is None
 
 
+def test_claude_codes_permission_prompt_on_a_drive_agents_call_to_any_tool_is_refused(
+    demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    access = {"session_id": SESSION, "tool_name": "mcp__computer-use__request_access", "tool_input": {"apps": ["Slack"]}, "hook_event_name": "PermissionRequest"}
+    builder = {"agent_id": "a-1", "agent_type": "long-running:builder"}
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(access | builder)))
+    bash_guard.main()
+    decided = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
+    assert decided == {"hookEventName": "PermissionRequest", "decision": {"behavior": "deny", "message": bash_guard.UNSEEN_PROMPT}}
+    assert "`request_access`" in bash_guard.UNSEEN_PROMPT
+    assert bash_guard.deny_reason(access) is None
+    assert bash_guard.deny_reason(access | {"session_id": "ordinary", "agent_id": "a-1", "agent_type": "general-purpose"}) is None
+
+
 def test_claude_codes_permission_prompt_in_an_orca_lane_is_refused(demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     """j2871's read-only sqlite3 loop, which Claude Code's dangerous-rm check prompted on in bypass permissions mode because its parser cannot read zsh's `${(s:,:)cols}`."""
     loop = (

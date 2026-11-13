@@ -29,12 +29,13 @@ FLAKE = "--flake"
 BREW_RESTARTS = {"upgrade", "reinstall"}
 RESUME_TIMEOUT = 20000
 UNSEEN_PROMPT = (
-    "refused: Claude Code asked for permission to run this command, and nobody watches a drive agent's terminal, so the"
+    "refused: Claude Code asked for permission to make this call, and nobody watches a drive agent's terminal, so the"
     " prompt would hold your job unseen for hours. Bypass permissions mode still asks when Claude Code's parser cannot"
-    " read a command, such as one with a zsh expansion flag like `${(s:,:)tables}`: write the command to a script in"
+    " read a Bash command, such as one with a zsh expansion flag like `${(s:,:)tables}`: write the command to a script in"
     " your brief's Scratch folder, with the Write tool or a quoted heredoc `cat > <scratch>/<name>.sh <<'EOF'` … `EOF`,"
     " and run it as `zsh <scratch>/<name>.sh`. When the command removes files outside your worktree or Scratch folder,"
-    " run nothing and return BLOCKED naming it"
+    " run nothing and return BLOCKED naming it. Any other tool that asks, such as computer use's `request_access`, gets"
+    " no answer either: reach what it does another way, or return BLOCKED naming the call"
 )
 FORGE_LOCATIONS = (
     "frg-core-usw2-artifacts-internal-release-artifacts/",
@@ -511,7 +512,7 @@ def mid_incident(found: list[list[str]]) -> str | None:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive session's or drive agent's call must not run: it, or an Orca lane's, reads or writes a team's bucket, blobs or SandSQL databases where it runs, it reads Datadog through `pup` rather than the Datadog MCP, a designer pushes, a builder, on this Mac or a Sprite, opens its PR while his open cards hold its job, a read takes a stale version's cached skill page, or a session is resumed while it runs, from a shell-ending command, or ended mid-incident, a call retries past a failing check; why any session's call restarts the hook helper he never approved on a card; and why Claude Code's permission prompt on a drive agent's or an Orca lane's command gets a refusal rather than an answer nobody gives."""
+    """Why a drive session's or drive agent's call must not run: it, or an Orca lane's, reads or writes a team's bucket, blobs or SandSQL databases where it runs, it reads Datadog through `pup` rather than the Datadog MCP, a designer pushes, a builder, on this Mac or a Sprite, opens its PR while his open cards hold its job, a read takes a stale version's cached skill page, or a session is resumed while it runs, from a shell-ending command, or ended mid-incident, a call retries past a failing check; why any session's call restarts the hook helper he never approved on a card; and why Claude Code's permission prompt on a drive agent's or an Orca lane's call to any tool gets a refusal rather than an answer nobody gives."""
     call = payload["tool_input"]
     session = payload.get("session_id") or ""
     drives = state.session_drives(session)

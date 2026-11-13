@@ -427,8 +427,8 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   after an `ASK` ended your run: build his pick where it differs. A wait past 5 minutes also expires your prompt cache, so it costs a full re-read of your
   context on top of the polling.
 - Nobody watches the starting session's terminal, so the `bash_guard` hook refuses each permission
-  prompt Claude Code raises on your Bash call. Bypass permissions mode still asks when Claude Code's
-  parser cannot read a command, such as one with a zsh expansion flag like `${(s:,:)tables}`: write
+  prompt Claude Code raises on any of your calls. Bypass permissions mode still asks when Claude
+  Code's parser cannot read a Bash command, such as one with a zsh expansion flag like `${(s:,:)tables}`: write
   such a command, and any multi-step logic, to a script file under your scratch directory and run
   the file. No question reaches him there either: you have no AskUserQuestion, and a question for him
   is your `ASK`, which reaches him as a card.
