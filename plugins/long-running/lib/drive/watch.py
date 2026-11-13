@@ -711,7 +711,6 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
             continue
         watcher.failures.pop(source, None)
     asks = kept_asks(data, lanes, messages, kept)
-    reported = set()
     if messages:
         with state.edit(watcher.name) as data:
             heard = lane_handles(watcher, data)
@@ -733,10 +732,8 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     job["turn_open"] = False
                 taken = message["type"] in state.TURN_ENDS and (state.lane_ended(job) or message["id"] in state.turn_ends(state.replies(watcher.name, job_id)))
                 lines.append(mail_line(watcher.name, data, job_id, message, moment, asks.get(message["id"]), taken))
-                if message["type"] in ("worker_done", "question") and not taken:
-                    reported.add(job_id)
     watcher.made += [line for line in lines if line]
-    return [line for line in merge_lane_prs(watcher, reported) + read_lines(watcher, data, moment) if line]
+    return [line for line in read_lines(watcher, data, moment) if line]
 
 
 def kept_asks(data: dict, lanes: dict[str, dict[str | None, str]], messages: list[tuple[str, dict]], kept: Callable[[str], set[str]]) -> dict[str, str]:
@@ -807,19 +804,6 @@ def lane_handles(watcher: Watcher, data: dict) -> dict[str, dict[str | None, str
 def sender(lanes: dict[str, dict[str | None, str]], run: str, message: dict) -> str | None:
     handles = lanes.get(run, {})
     return handles.get(None) or handles.get(message["from_handle"])
-
-
-def merge_lane_prs(watcher: Watcher, job_ids: set[str]) -> list[str]:
-    """Start the lander on each yasyf/* PR the reports taken from these lanes name, as `drive job report` does on this Mac, once their proof files are kept; a lander that does not start is the lane's JOB line, naming why."""
-    from drive import cli
-
-    data = state.load(watcher.name)
-    return [
-        f"JOB {job_id} {data['jobs'][job_id]['order']} PR {state.pr_url(key)}: {said}"
-        for job_id in sorted(job_ids)
-        for key, said in cli.merge_reported(watcher.name, job_id)
-        if said.startswith(land.NOT_MERGING)
-    ]
 
 
 def read_lines(watcher: Watcher, data: dict, moment: datetime) -> list[str]:
@@ -2371,12 +2355,11 @@ def acted(watcher: Watcher, key: str, now: stage.Stage, entered: bool, line: str
 
 
 def landed(watcher: Watcher) -> None:
-    """Stop each lander on a PR the watch hears that a hold of his came on since it started, start the drive's lander on each that his Approve or an exempt class clears once it qualifies, within one GitHub read of it going green and approved, and on each yasyf/* one whose head moved past the one its lander tried, so a branch its builder or the lander brought onto its base merges with no builder registering it again."""
+    """Stop each lander on a PR the watch hears that a hold of his came on since it started, and start the drive's lander on each once its stage reads ready, within one GitHub read of it getting there: green and cleared by his Approve or an exempt class, or a yasyf/* one its builder reported with no check failing at its head, which a head its builder pushes since its lander's try reaches again."""
     data = state.load(watcher.name)
     keys = [key for key in state.open_pr_keys(data) if hears(watcher, data, data["prs"][key]["order"])]
     land.halt(watcher.name, keys, watcher.cards)
     land.start(watcher.name, keys, watcher.cards)
-    land.follow(watcher.name, keys)
 
 
 def holder_line(line: str, data: dict) -> str | None:

@@ -1990,11 +1990,10 @@ def job_report(args: argparse.Namespace) -> int:
             if args.id in (builder := data["jobs"][builder_id])["waits"] and state.unstarted_builder(data, builder) and not builder.get("brief")
         ]
         kept = str(state.replies_path(name, args.id))
-        merging = merge_reported(name, args.id)
         where = f"kept {args.id}'s report: {line}" if os.environ.get(state.OWN_JOB_ENV) else kept
         shown = f"{where}\n{said}" if said else where
-        shown = "\n".join([shown, *registered, *fixes, *briefed, *render.builder_lines(data, added), *(f"{key}: {said}" for key, said in merging)])
-        return emit(args, shown, {"id": args.id, "report": kept, "ask": asked and str(asked), "merging": dict(merging), "fixes": fixes, "builders": added})
+        shown = "\n".join([shown, *registered, *fixes, *briefed, *render.builder_lines(data, added)])
+        return emit(args, shown, {"id": args.id, "report": kept, "ask": asked and str(asked), "fixes": fixes, "builders": added})
     text = state.report_text(name, args.id)
     if not text and not job["said"]:
         raise DriveError(f"{args.id} kept no report and has returned nothing yet")
@@ -2786,11 +2785,7 @@ def pr_add(args: argparse.Namespace) -> int:
     kept = state.load(name)["prs"].get(key, {}).get("lead")
     pr = add_pr(name, key, args.job, github_pr(key), args.port_of, args.exempt, args.no_tap, lead)
     drawn = releaded(pr) if pr["card"] and pr["lead"] != kept else drawn_card(name, key, pr)
-    pr = state.load(name)["prs"][key]
-    merging = dict(merge_reported(name, args.job)).get(key)
-    if merging is None:
-        return emit(args, f"{key}{drawn}", {"key": key, **pr})
-    return emit(args, f"{key}{drawn}: {merging}", {"key": key, **pr, "merging": merging})
+    return emit(args, f"{key}{drawn}", {"key": key, **state.load(name)["prs"][key]})
 
 
 def drawn_card(name: str, key: str, pr: dict) -> str:
@@ -2894,23 +2889,6 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
         state.take_pr(data, job_id, key)
     note_third_person(key, read)
     return pr
-
-
-def merge_reported(name: str, job_id: str) -> list[tuple[str, str]]:
-    """Start the lander on each open yasyf/* PR the drive tracks that a builder's taken READY or PUSHED names, so it merges the head its builder means to ship once the proof file the watch runs after it is kept; each PR with what its lander does or why it does not. `drive job report` and the watch run it on a report they take, and `drive pr add` on a PR registered after its report."""
-    data = state.load(name)
-    job = data["jobs"][job_id]
-    if job["kind"] != "builder" or job["state"] != "waiting" or not state.REPORTED_LINE.match(job["said"] or ""):
-        return []
-    started = []
-    for key in state.named_prs(data, job["order"], job["said"]):
-        if not state.merges_untapped(key) or data["prs"][key]["state"] != "open" or data["prs"][key]["merged_sha"]:
-            continue
-        try:
-            started.append((key, land.merge_ready(name, key, github_pr(key))))
-        except DriveError as error:
-            started.append((key, f"{land.NOT_MERGING}: {error}; drive pr add {state.pr_url(key)} --job {job_id} starts its lander again"))
-    return started
 
 
 def design_basis(text: str) -> str:

@@ -2377,6 +2377,13 @@ def merges_untapped(key: str) -> bool:
     return key.split("/")[0] == NO_TAP_OWNER
 
 
+def ships_untapped(data: dict, key: str) -> bool:
+    """Whether a yasyf/* PR lands with no tap: the builder it is registered on waits on a taken READY or PUSHED naming it, so that builder means to ship its head."""
+    job = data["jobs"][data["prs"][key]["job"]]
+    said = job["said"] or ""
+    return merges_untapped(key) and job["kind"] == "builder" and job["state"] == "waiting" and bool(REPORTED_LINE.match(said)) and key in named_prs(data, job["order"], said)
+
+
 def guarded(key: str) -> bool:
     """Whether only his tap or an exempt class lands a PR of this repository, a Forge-AI one, whoever opened it."""
     return key.split("/")[0].lower() == GUARDED_OWNER

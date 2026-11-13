@@ -76,6 +76,8 @@ def alone(data: dict, key: str, cards: dict) -> Stage:
         return Stage("red", BUILDER, failing)
     if holds := held(data, pr, cards):
         return Stage("held", HIM, holds)
+    if state.ships_untapped(data, key):
+        return Stage("ready", LANDER, f"its builder reported it and no check fails at {pr['head'][:7]}, so the lander merges it with --admin while any still run")
     if pending := grading(pr):
         return Stage("grading", GRADERS, pending)
     if (flaky := land.flaked(pr)) and data["prs"][flaky["fix"]]["state"] == "open":

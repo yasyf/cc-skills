@@ -181,6 +181,11 @@ def superseded(run: tuple[str, str] | None, going: set[tuple[str, str]]) -> bool
     return run is not None and any(workflow == run[0] and number != run[1] for workflow, number in going)
 
 
+def failing(rollup: list[dict]) -> list[str]:
+    """The name of each check that speaks for one head and failed there."""
+    return sorted({check_name(check) for check in counted(rollup) if outcome(check) in FAILED})
+
+
 def checks(rollup: list[dict], expected: list[str]) -> str:
     """pass, fail, pending or none for the checks that speak for one head, given the checks expected on it: one queued or running reads pending, and so does an expected one missing now, such as one that failed there before, as a rerun drops it until its new run starts."""
     outcomes = {outcome(check) for check in counted(rollup)}
@@ -214,7 +219,7 @@ def rule_reviews(repository: dict) -> int:
 
 def live(read: dict, stored: dict) -> dict:
     """The drive's stored fields (state, checks, the checks that failed on its head, the required checks' verdict, review, head, its base and head branches, title, author, whether it carries the hold label, the PRs of its native GitHub stack that are not closed, the approving reviews its repository's rules require, conflict) of one fetched PR against its stored row; conflict only while GitHub answers CONFLICTING, since its UNKNOWN after a push or a base move is no answer for the head it reads."""
-    failed = sorted({*failed_before(stored, read["headRefOid"]), *(check_name(check) for check in counted(read["checks"]) if outcome(check) in FAILED)})
+    failed = sorted({*failed_before(stored, read["headRefOid"]), *failing(read["checks"])})
     fields = {
         "state": PR_STATES[read["state"]],
         "checks": checks(read["checks"], failed),

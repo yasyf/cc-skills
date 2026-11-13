@@ -205,8 +205,8 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    `drive job report` refuses one without it.
    - A PR that is not a port and whose brief names no order of his is not his order. Drive tooling
      is such a PR: its his-words section says none rather than borrow his words for the order it
-     unblocks. A `yasyf/*` one lands once its `READY` or `PUSHED` is taken: the lander merges it with
-     `--admin` and installs each plugin it changes, and once every PR your job names merged the watch's
+     unblocks. A `yasyf/*` one lands once its `READY` or `PUSHED` is taken and no check fails at its
+     head: the lander merges it with `--admin`, while checks still run, and installs each plugin it changes, and once every PR your job names merged the watch's
      `drive job prove` runs your job's proof file on the installed build, takes `DONE` or `BLOCKED` on
      your job and sends the close report. Keep that
      file before you return, with `drive job set <your job> --repro <file>`: an executable script
@@ -316,7 +316,7 @@ event needs. The first four events then return as step 7 says.
 | Event | What you do |
 | --- | --- |
 | A failing check | Read its log, fix, push. |
-| A conflict with its base | Rebase onto the base, resolve each conflict by what both sides meant, push. The watch lands a `yasyf/*` PR's pushed head itself once GitHub reads it free of conflicts, so it needs no second `drive pr add`. |
+| A conflict with its base | Rebase onto the base, resolve each conflict by what both sides meant, push. The watch lands a `yasyf/*` PR's pushed head itself once GitHub reads it free of conflicts and failing checks, so it needs no second `drive pr add`. |
 | A review | Answer or fix every finding; a non-critical bot finding you judge wrong gets a one-line reply saying why. |
 | His answers to the design cards a built branch or open PR waited on | Rebuild wherever his pick differs from the option built, and open the PR if none is open. |
 | His tap or order to land | Land it by the landing reference for its repository (`drive manual landing`). While a question card of his on the change is open, land and enqueue nothing, which the `landing_guard` hook refuses, on this Mac and on a Sprite, and return `WAITING` naming the card: neither his order nor its recommended option answers it. |
