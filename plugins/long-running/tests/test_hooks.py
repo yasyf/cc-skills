@@ -81,10 +81,10 @@ def test_session_start_gives_each_role_its_own_context(demo: str, run: Run, monk
     run("start", "demo", "--role", "communicator")
     context = session_start.respond({"session_id": "talker", "source": "compact"})["hookSpecificOutput"]["additionalContext"]
     assert context.startswith("You are the communicator of drive demo: you talk to him.")
-    assert (watch_process.ensured, watch_process.listened) == (["demo"], [("demo", "session-under-test")])
+    assert watch_process.ensured == ["demo"]
 
 
-def test_session_start_gives_a_sub_coordinator_its_projects_context_and_starts_and_subscribes_it_to_its_projects_watch(
+def test_session_start_gives_a_sub_coordinator_its_projects_context_and_starts_its_projects_watch(
     demo: str, run: Run, monkeypatch: pytest.MonkeyPatch, watch_process: WatchProcess
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
@@ -93,8 +93,8 @@ def test_session_start_gives_a_sub_coordinator_its_projects_context_and_starts_a
     watch_process.ensured.clear()
     context = session_start.respond({"session_id": "iris-1", "source": "resume"})["hookSpecificOutput"]["additionalContext"]
     assert context.startswith("You are the sub-coordinator for project Iris of drive demo: ")
-    assert "Subscribe: cci drive use demo, then cci subscribe --reader iris --cursor coordinator-iris --to-kind " in context
-    assert (watch_process.ensured, watch_process.listened) == (["demo --project Iris"], [("demo", "iris-1", "Iris")])
+    assert "cci: run cci drive use demo, and no cci subscribe: your cci alias demo-iris owns your subscription." in context
+    assert watch_process.ensured == ["demo --project Iris"]
 
 
 def test_session_start_names_the_channels_each_role_holds(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:

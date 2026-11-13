@@ -163,10 +163,12 @@ def test_drive_start_starts_the_meta_session_beside_the_others_once_until_it_bin
     run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, meta_launches: MetaLaunches
 ) -> None:
     out = run("start", "demo", "--role", "communicator", "--channel", "D123")[1]
-    assert "\n\nstarted the meta session, which holds drive tooling, in Orca terminal term_meta1\ncommunicator: " in out
+    registered = "demo-communicator registered: cci session run keeps session session-under-test running in tmux"
+    assert f"\n\n{registered}\nstarted the meta session, which holds drive tooling, in Orca terminal term_meta1\ncommunicator: " in out
     assert (meta_launches.started, state.load("demo")["launched"]) == ([("demo", str(tmp_path))], {"meta": "term_meta1"})
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "coordinator-session")
-    assert "\n\nthe meta session starts in Orca terminal term_meta1, which an earlier drive start opened\n" in run("start", "demo", "--role", "coordinator")[1]
+    registered = "demo-coordinator registered: cci session run keeps session coordinator-session running in tmux"
+    assert f"\n\n{registered}\nthe meta session starts in Orca terminal term_meta1, which an earlier drive start opened\n" in run("start", "demo", "--role", "coordinator")[1]
     meta_launches.open.clear()
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "communicator-2")
     assert "in Orca terminal term_meta2\ncommunicator: " in run("start", "demo", "--role", "communicator")[1]
@@ -191,7 +193,7 @@ def test_a_sub_coordinator_binds_beside_the_top_for_a_project_an_order_is_filed_
     assert lines[1:4] == [
         "Your cci lane is iris: post with --lane iris; the watch for Iris and the communicator's records reach you at iris@demo.",
         "Hold no Slack channel: the top coordinator holds the drive's.",
-        f"Subscribe: cci drive use demo, then cci subscribe --reader iris --cursor coordinator-iris {render.COORDINATOR_KINDS}",
+        "cci: run cci drive use demo, and no cci subscribe: your cci alias demo-iris owns your subscription.",
     ]
     assert lines[-2:] == ["the watch runs for demo", "sub-coordinator for Iris: session iris-1, in no Orca terminal"]
     assert watch_process.ensured == ["demo --project Iris"]
@@ -473,7 +475,7 @@ def test_status_with_no_ids_prints_a_coordinator_one_line_per_open_order_it_runs
 
 
 def test_an_orphaned_terminal_gets_the_repository_setting_and_a_shown_one_the_switch_command(
-    run: Run, monkeypatch: pytest.MonkeyPatch
+    run: Run, monkeypatch: pytest.MonkeyPatch, tmux_shown: dict[str, str]
 ) -> None:
     session = os.environ["CLAUDE_CODE_SESSION_ID"]
     shown = {"orphaned": True, "holds": True}
@@ -517,6 +519,9 @@ def test_an_orphaned_terminal_gets_the_repository_setting_and_a_shown_one_the_sw
     run("start", "demo", "--role", "coordinator")
     assert state.load("demo")["roles"]["coordinator"]["terminal"] is None
     assert run("status")[1].splitlines()[2] == f"coordinator: session {session}, in no Orca terminal; Hold no Slack channel."
+    tmux_shown["show-environment"] = "ORCA_TERMINAL_HANDLE=term_attached\n"
+    run("start", "demo", "--role", "coordinator")
+    assert state.load("demo")["roles"]["coordinator"]["terminal"] == "term_attached"
 
 
 def test_a_terminal_holds_a_session_only_when_its_process_tree_does_with_or_without_a_pane_key(
@@ -535,6 +540,23 @@ def test_a_terminal_holds_a_session_only_when_its_process_tree_does_with_or_with
     assert not orca.holds_session({"ptyId": "pty-2"}, "s-comm")
     pane["paneKey"] = None
     assert orca.holds_session({"ptyId": "pty-1"}, "s-comm")
+
+
+def test_a_terminal_holds_a_session_when_it_attaches_the_tmux_session_whose_pane_runs_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tmux_shown: dict[str, str]
+) -> None:
+    sessions = tmp_path / "config" / "sessions"
+    sessions.mkdir(parents=True)
+    (sessions / "8100.json").write_text(json.dumps({"pid": 8100, "sessionId": "s-coord"}))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setattr(orca, "parents", lambda: {5001: 5000, 5000: 1, 8100: 8000, 8000: 7999, 7999: 1})
+    monkeypatch.setattr(orca, "request", lambda *args: {"worktrees": [{"sessions": [{"sessionId": "pty-1", "pid": 5000}]}]})
+    assert not orca.holds_session({"ptyId": "pty-1"}, "s-coord")
+    tmux_shown["list-panes"] = "8000 demo-coordinator\n8200 demo-meta\n"
+    tmux_shown["list-clients"] = "5001 demo-meta\n"
+    assert not orca.holds_session({"ptyId": "pty-1"}, "s-coord")
+    tmux_shown["list-clients"] = "5001 demo-coordinator\n"
+    assert orca.holds_session({"ptyId": "pty-1"}, "s-coord")
 
 
 def test_status_places_a_session_while_claude_code_removes_a_session_file_it_listed(
@@ -5985,12 +6007,14 @@ def test_start_outside_an_orca_terminal_is_refused_naming_the_command_that_start
     assert cli.main(["start", "demo", "--role", "coordinator"]) == 2
     refused = capsys.readouterr().err
     assert "drive start demo --role coordinator: refused, this session runs in no Orca terminal, so he cannot open it from Orca" in refused
-    command = shlex.split(refused.partition("start the session in one with ")[2])
-    assert command[:7] == ["orca", "terminal", "create", "--worktree", f"path:{tmp_path}", "--title", "demo-coordinator"]
-    session = shlex.split(command[command.index("--command") + 1])
+    register, show = (shlex.split(line) for line in refused.partition("start the session under cci and show it in one with ")[2].split(" then "))
+    assert register[:5] == ["cci", "session", "register", "demo-coordinator", "--new"]
+    assert register[register.index("--cwd") + 1] == str(tmp_path)
+    assert register[register.index("--resume-prompt") + 1] == "/long-running demo as the coordinator: run Start or resume for that role"
+    session = shlex.split(register[register.index("--command") + 1])
     assert session[: session.index("claude")] == ["env", *(f"{key}={value}" for key, value in agents.session_settings({})["env"].items())]
     assert json.loads(session[session.index("--settings") + 1]) == agents.session_settings({})
-    assert session[-1] == "/long-running demo as the coordinator: run Start or resume for that role"
+    assert show == ["orca", "terminal", "create", "--worktree", f"path:{tmp_path}", "--title", "demo-coordinator", "--command", "cci session attach demo-coordinator", "--json"]
     assert not state.exists("demo")
     monkeypatch.setenv("ORCA_TERMINAL_HANDLE", "term_outer")
     monkeypatch.setenv("TMUX", "/private/tmp/tmux-501/default,1,0")
@@ -6251,7 +6275,7 @@ def test_drive_move_takes_his_word_records_it_on_the_role_and_prints_steps_two_t
     held = state.load("demo")["roles"]["coordinator"]
     assert (code, held["move_word"]) == (0, his)
     assert out.splitlines() == [
-        f"1. his word {his} recorded on the coordinator",
+        f"1. his word {his} recorded on the coordinator; demo-coordinator registered: cci session run keeps session {held['session']} running in tmux",
         (
             '2. cci post --lane communicator --kind ask --to root@demo --text "Moving you into an Orca terminal on his word: run cc-slack'
             " unfollow for each of your Slack watches, cci unsubscribe, stop your drive watch Monitor if you run one, reply released, and"
@@ -6259,7 +6283,7 @@ def test_drive_move_takes_his_word_records_it_on_the_role_and_prints_steps_two_t
         ),
         "3. orca terminal send --terminal term_coordinator --text /exit --enter",
         "4. wait until ps -p 4242 lists nothing",
-        f"then steps 5 to 7 of drive manual migration, Into an Orca terminal: create the terminal resuming {held['session']} in {held['cwd']}",
+        f"then steps 5 to 7 of drive manual migration, Into an Orca terminal: cci session run resumes {held['session']} in tmux session demo-coordinator; create the terminal that shows it",
     ]
 
 

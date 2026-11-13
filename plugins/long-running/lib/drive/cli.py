@@ -107,7 +107,7 @@ def start(args: argparse.Namespace) -> int:
     if not orca.in_terminal():
         raise DriveError(
             f"drive start {args.name} --role {args.role}: refused, this session runs in no Orca terminal, so he cannot open it from Orca;"
-            f" start the session in one with {start_command(args.name, args.role, args.project, os.getcwd())}"
+            f" start the session under cci and show it in one with {' then '.join(agents.launch(args.name, args.role, args.project, os.getcwd()))}"
         )
     if args.project and args.role != "coordinator":
         raise DriveError(f"--project binds a sub-coordinator, which holds the coordinator role; the {state.title(args.role)} holds no project")
@@ -128,23 +128,13 @@ def start(args: argparse.Namespace) -> int:
         watched_channels = data["slack"].setdefault("watch", [])
         watched_channels.extend(channel for channel in dict.fromkeys(args.watch) if channel not in watched_channels)
     held = fresh["roles"][args.role]
+    registered = "" if state.scratch() else f"{agents.register(args.name, args.role, args.project, held['cwd'], held['session'])}\n"
     seen = orca_place(held, run_show)
     meta = "" if "meta" in data["roles"] else meta_started(args.name, held["cwd"], data["launched"].get("meta"))
     watched = f"{watch.ensure(args.name, args.project)}\n" if args.role == "coordinator" else ""
     seat = f"sub-coordinator for {args.project}" if args.project else args.role
-    text = f"{render.context(data, args.role, args.project)}\n\n{meta}{watched}{seat}: session {held['session']}, {seen}"
+    text = f"{render.context(data, args.role, args.project)}\n\n{registered}{meta}{watched}{seat}: session {held['session']}, {seen}"
     return emit(args, text, {**data, "orca": {seat: seen}})
-
-
-def start_command(name: str, role: str, project: str | None, worktree: str) -> str:
-    """The `orca terminal create` command of Start or resume that opens the role's session, or a project's sub-coordinator, in the worktree, as `drive manual start` fills it."""
-    title = "<lane>" if project else role
-    page = agents.filled((PAGES / "start.md").read_text())
-    command = next(line for line in page.splitlines() if line.startswith(f"orca terminal create --worktree path:<worktree> --title <drive>-{title} "))
-    named = {"<drive>": name, "<worktree>": shlex.quote(worktree), "<lane>": state.project_lane(project or ""), "<project>": project or ""}
-    for hole, value in named.items():
-        command = command.replace(hole, value)
-    return command
 
 
 def meta_started(name: str, worktree: str, earlier: str | None) -> str:
@@ -154,7 +144,7 @@ def meta_started(name: str, worktree: str, earlier: str | None) -> str:
     try:
         handle = orca.start_meta(name, worktree, earlier)
     except orca.OrcaError as error:
-        return f"the meta session, which holds drive tooling, did not start: {error}; drive manual start prints its command\n"
+        return f"the meta session, which holds drive tooling, did not start: {error}; drive manual start prints its commands\n"
     if handle is None:
         return f"the meta session starts in Orca terminal {earlier}, which an earlier drive start opened\n"
     with state.edit(name) as data:
@@ -3617,7 +3607,7 @@ def receive(args: argparse.Namespace) -> int:
 
 
 def watch_events(args: argparse.Namespace) -> int:
-    """Run the watch with --loop; else load its launch agent unless one is loaded, and point the cci channel of the coordinator session it posts to at its records when this is that session. A project's watch starts only from the session of that project's sub-coordinator, and a drive under LONG_RUNNING_STATE gets neither the process nor the channel."""
+    """Run the watch with --loop; else load its launch agent unless one is loaded. A project's watch starts only from the session of that project's sub-coordinator, and a drive under LONG_RUNNING_STATE gets no process."""
     if args.loop:
         return watch.main(args.drive, args.project)
     name = state.resolve(args.drive)
@@ -3631,11 +3621,6 @@ def watch_events(args: argparse.Namespace) -> int:
             f" bind one with drive start {name} --role coordinator --project {shlex.quote(args.project)}"
         )
     print(watch.ensure(name, args.project))
-    if project == args.project and state.session_role(data, session) == "coordinator" and not state.scratch():
-        try:
-            watch.listen(name, session, args.project)
-        except reads.ReadError as error:
-            raise DriveError(f"the watch runs, but the coordinator's cci channel was not pointed at it: {error}") from None
     return 0
 
 
@@ -3713,7 +3698,7 @@ def break_glass(args: argparse.Namespace) -> int:
 
 
 def move(args: argparse.Namespace) -> int:
-    """Step 1 of moving a role's session into a fresh Orca terminal: his word naming the move, recorded on the role; steps 2 to 4 printed, run by hand."""
+    """Step 1 of moving a role's session under cci and into a fresh Orca terminal: his word naming the move, recorded on the role, and the session registered with cci, which resumes it in its tmux session once it exits; steps 2 to 4 printed, run by hand."""
     name = state.resolve(args.drive)
     if not args.his_word:
         raise DriveError(
@@ -3729,6 +3714,7 @@ def move(args: argparse.Namespace) -> int:
     with state.edit(name) as data:
         held = find(data["roles"], args.role, "role")
         held["move_word"] = args.his_word
+    registered = "" if state.scratch() else f"; {agents.register(name, args.role, None, held['cwd'], held['session'])}"
     lanes = {role: lane for lane, role in state.LANE_ROLES.items()}
     mover = lanes[next(role for role in state.ROLES if role != args.role)]
     session, terminal = held["session"], held["terminal"]
@@ -3744,7 +3730,7 @@ def move(args: argparse.Namespace) -> int:
         else f"none: no ~/.claude/sessions/<pid>.json names {session}, so its process has exited"
     )
     steps = [
-        f"1. his word {args.his_word} recorded on the {args.role}",
+        f"1. his word {args.his_word} recorded on the {args.role}{registered}",
         (
             f'2. cci post --lane {mover} --kind ask --to {lanes[args.role]}@{name} --text "Moving you into an Orca terminal on his word:'
             " run cc-slack unfollow for each of your Slack watches, cci unsubscribe, stop your drive watch Monitor if you run one, reply"
@@ -3752,7 +3738,7 @@ def move(args: argparse.Namespace) -> int:
         ),
         f"3. {ended}",
         f"4. wait {gone}",
-        f"then steps 5 to 7 of drive manual migration, Into an Orca terminal: create the terminal resuming {session} in {held['cwd']}",
+        f"then steps 5 to 7 of drive manual migration, Into an Orca terminal: cci session run resumes {session} in tmux session {state.alias(name, args.role)}; create the terminal that shows it",
     ]
     return emit(args, "\n".join(steps), {"role": args.role, "move_word": args.his_word, "steps": steps})
 
@@ -4886,6 +4872,8 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         if args.verb == "status" and not args.ids:
             args.ids = [own]
+    if "TMUX" in os.environ and (attached := orca.own_terminal()):
+        os.environ["ORCA_TERMINAL_HANDLE"] = attached
     try:
         return args.run(args)
     except VERB_ERRORS as error:

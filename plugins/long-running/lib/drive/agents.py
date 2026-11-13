@@ -42,6 +42,7 @@ SESSION_SETTINGS = {
     "enabledPlugins": {DATADOG_PLUGIN: True},
 }
 ORCA = "orca@skills"
+START_PAGE = Path(__file__).resolve().parents[2] / "skills" / "long-running" / "reference" / "start.md"
 SESSION_ENV = "<session env>"
 SESSION_SETTINGS_HOLE = "<session settings>"
 DOUBLE_QUOTED = re.compile(r'[\\"$`]')
@@ -436,7 +437,7 @@ def env_words(settings: dict) -> list[str]:
 
 
 def filled(page: str) -> str:
-    """A skill page with each `orca terminal create` line's `<session env>` and `<session settings>` filled from session_settings, quoted for the double-quoted `--command` they sit in: `env` with every variable a session the drive starts carries, so the `claude daemon` its `claude --bg` starts inherits them too, and the one `--settings` value it runs on."""
+    """A skill page with each `orca terminal create` and `cci session register` line's `<session env>` and `<session settings>` filled from session_settings, quoted for the double-quoted `--command` they sit in: `env` with every variable a session the drive starts carries, so the `claude daemon` its `claude --bg` starts inherits them too, and the one `--settings` value it runs on."""
     settings = session_settings({})
     holes = {
         SESSION_ENV: shlex.join(env_words(settings)),
@@ -445,13 +446,34 @@ def filled(page: str) -> str:
     quoted = {hole: DOUBLE_QUOTED.sub(r"\\\g<0>", words) for hole, words in holes.items()}
 
     def fill(line: str) -> str:
-        if not line.lstrip().startswith("orca terminal create"):
+        if not line.lstrip().startswith(("orca terminal create", "cci session register")):
             return line
         for hole, words in quoted.items():
             line = line.replace(hole, words)
         return line
 
     return "\n".join(fill(line) for line in page.split("\n"))
+
+
+def launch(name: str, role: str, project: str | None, worktree: str) -> list[str]:
+    """The `cci session register` line of Start or resume that starts the role's session, or a project's sub-coordinator's, under its alias in the worktree, and the `orca terminal create` line that shows it in Orca, as `drive manual start` fills them."""
+    lines = filled(START_PAGE.read_text()).splitlines()
+    register = next(line for line in lines if line.startswith(f"cci session register <drive>-{'<lane>' if project else role} "))
+    show = next(line for line in lines if line.startswith("orca terminal create --worktree path:<worktree> --title <alias> "))
+    named = {"<alias>": state.alias(name, role, project), "<drive>": name, "<worktree>": shlex.quote(worktree), "<lane>": state.project_lane(project or ""), "<project>": project or ""}
+    for hole, value in named.items():
+        register, show = register.replace(hole, value), show.replace(hole, value)
+    return [register, show]
+
+
+def register(name: str, role: str, project: str | None, worktree: str, session: str) -> str:
+    """Register the session with cci as the role's, or a project's sub-coordinator's, by its line in Start or resume naming the session in place of `--new`, so its alias owns its cci subscription and cci session run keeps it running in tmux once it exits; cci's line saying where it runs."""
+    words = shlex.split(launch(name, role, project, worktree)[0])
+    words[words.index("--new") : words.index("--new") + 1] = ["--session", session]
+    try:
+        return reads.run(words, Path(worktree)).strip()
+    except reads.ReadError as error:
+        raise state.DriveError(f"cci did not register session {session} as the {role}'s, so nothing keeps it running or hearing its records: {error}") from None
 
 
 def bind_handler(payload: dict, handler: str) -> None:

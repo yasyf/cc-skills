@@ -1,4 +1,3 @@
-import contextlib
 import json
 import os
 import sys
@@ -7,11 +6,11 @@ from pathlib import Path
 PLUGIN = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PLUGIN / "lib"))
 
-from drive import agents, reads, render, state, watch
+from drive import agents, render, state, watch
 
 
 def role_context(session: str) -> str | None:
-    """The role's context for the session holding one; a coordinator's session, or a project's sub-coordinator's, also gets its watch started unless it runs, and its cci channel pointed at that watch's records."""
+    """The role's context for the session holding one; a coordinator's session, or a project's sub-coordinator's, also gets its watch started unless it runs."""
     bound = state.session_drives(session)
     if not bound:
         return None
@@ -20,8 +19,6 @@ def role_context(session: str) -> str | None:
     project = state.session_project(data, session)
     if role == "coordinator":
         watch.ensure(bound[0], project)
-        with contextlib.suppress(reads.ReadError):
-            watch.listen(bound[0], session, project)
     return render.context(data, role, project)
 
 

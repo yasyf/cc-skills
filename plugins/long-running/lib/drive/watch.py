@@ -19,7 +19,7 @@ from typing import Self
 
 from drive import agents, codex, dashboard, github, land, launchd, orca, page, place, procs, reads, receiver, render, served, slack, stage, state, superseded, view
 from drive.install import PROVEN, config_dir, merged_done, merged_ready, product, proof_gap, said_on_prs, upgraded
-from drive.render import cut, subscribe, when
+from drive.render import cut, when
 
 POLL_SECONDS = 5
 READ_EVERY = timedelta(seconds=60)
@@ -1402,8 +1402,9 @@ def down_lines(watcher: Watcher, moment: datetime) -> list[str]:
     role = f"sub-coordinator for {watcher.project}" if watcher.project else "coordinator"
     line = (
         f"DOWN the {role}'s Claude Code process has exited, so nothing hears the drive's records: restart it now, with no word from"
-        f" him, by steps 5 to 7 of drive manual migration, Into an Orca terminal, creating the terminal resuming {held['session']}"
-        f" in {held['cwd']}, and tell him it was restarted, never that it is down"
+        f" him, by steps 5 to 7 of drive manual migration, Into an Orca terminal, creating the terminal that shows tmux session"
+        f" {state.alias(watcher.name, 'coordinator', watcher.project)}, where cci session run resumes {held['session']} in {held['cwd']},"
+        " and tell him it was restarted, never that it is down"
     )
     return sent(watcher, "communicator", [line], moment)
 
@@ -2414,12 +2415,6 @@ def ensure(name: str, project: str | None = None) -> str:
         state.drive_dir(name),
     )
     return f"started {watcher} under {agent}; it posts its lines to {reader} over cci, so arm no Monitor for it"
-
-
-def listen(name: str, session: str, project: str | None = None) -> None:
-    """Point the cci channel of the coordinator session, or a project's sub-coordinator, at its watch's records: a line it acts on now wakes it, and the rest arrive together at most every five minutes."""
-    argv = [*shlex.split(subscribe("coordinator", project)), "--drive", name]
-    reads.run(argv, Path(state.load(name)["roles"]["coordinator"]["cwd"]), os.environ | {"CLAUDE_CODE_SESSION_ID": session})
 
 
 def stopped(watcher: Watcher, error: Exception) -> None:

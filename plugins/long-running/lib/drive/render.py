@@ -3,7 +3,7 @@ import sys
 from collections.abc import Callable, Iterable
 from datetime import datetime
 
-from drive.state import DRIVE_TOOLING, ROLES, SLOT_WAIT, VERSION, agent_gone, carriers, delivered, exempted, lane_death, may_tell, named_prs, now, open_orders, parse_time, pr_key, pr_url, project_lane, promise_thread, resumed, title, work
+from drive.state import DRIVE_TOOLING, ROLES, SLOT_WAIT, VERSION, agent_gone, alias, carriers, delivered, exempted, lane_death, may_tell, named_prs, now, open_orders, parse_time, pr_key, pr_url, project_lane, promise_thread, resumed, title, work
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
@@ -198,15 +198,6 @@ META_RULES = (
     ),
 )
 RULES = {"communicator": COMMUNICATOR_RULES, "coordinator": COORDINATOR_RULES, "meta": META_RULES}
-COORDINATOR_KINDS = (
-    "--to-kind incident,mechanism,fix-live,decide,ask,design,blocker,blocked,urgent,answer,release,correction,owner,refuse,handoff"
-    " --batch-kinds done,evidence"
-)
-SUBSCRIBE = {
-    "communicator": "cci subscribe --reader communicator --cursor communicator",
-    "meta": "cci subscribe --reader meta --cursor meta",
-    "coordinator": f"cci subscribe --reader root --cursor coordinator {COORDINATOR_KINDS}",
-}
 OTHERS = {"communicator": ("coordinator", "meta"), "coordinator": ("communicator", "meta"), "meta": ("communicator", "coordinator")}
 JOB = {
     "communicator": "you talk to him",
@@ -477,14 +468,6 @@ def pr_history(drive: dict, key: str, skip: str) -> list[str]:
     return lines
 
 
-def subscribe(role: str, project: str | None = None) -> str:
-    """The cci subscribe command of a role's session; a project's sub-coordinator's reads its own lane at its own cursor."""
-    if project is None:
-        return SUBSCRIBE[role]
-    lane = project_lane(project)
-    return f"cci subscribe --reader {lane} --cursor coordinator-{lane} {COORDINATOR_KINDS}"
-
-
 def opening(drive: dict, role: str, project: str | None) -> list[str]:
     """Who the session is: its role, or the project it is the sub-coordinator for with its cci lane, and who holds the other sessions."""
     if project is None:
@@ -516,7 +499,7 @@ def context(drive: dict, role: str, project: str | None = None) -> str:
     """The SessionStart block: a session's role, its rules, one line per item that needs it now, and the reads; a sub-coordinator's names its project, its cci lane and its subscription."""
     lines = [
         *opening(drive, role, project),
-        f"Subscribe: cci drive use {drive['name']}, then {subscribe(role, project)}",
+        f"cci: run cci drive use {drive['name']}, and no cci subscribe: your cci alias {alias(drive['name'], role, project)} owns your subscription.",
         f"{title(role).capitalize()} rules:",
         *(f"{number}. {rule}" for number, rule in enumerate(RULES[role], 1)),
         FILED,
