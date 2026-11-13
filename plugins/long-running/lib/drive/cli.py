@@ -794,8 +794,8 @@ def untold(order_id: str, order: dict) -> str:
 
 
 def check_proof(proof: str) -> None:
-    """Refuse a proof that is a claim: one line naming no link and no file that exists, where a check's link, file or pasted output proves it."""
-    if "\n" in proof.strip() or any(found.startswith("http") or Path(found).expanduser().exists() for found in brief.proofs(proof)):
+    """Refuse a proof that is a claim: one line naming no link and no file that exists and is not empty, where a check's link, file or pasted output proves it."""
+    if "\n" in proof.strip() or any(map(brief.held, brief.proofs(proof))):
         return
     raise DriveError(
         f'--proof "{proof}": refused, a proof is the check itself, its link, its saved file or its output, never a claim of what it showed:'
@@ -3915,6 +3915,12 @@ def job_kind(kind: str) -> str:
     return "design" if kind == "designer" else kind
 
 
+class Root(argparse.Action):
+    def __call__(self, parser: argparse.ArgumentParser, namespace: argparse.Namespace, values: object, option_string: str | None = None) -> None:
+        print(Path(__file__).resolve().parents[2])
+        parser.exit()
+
+
 @cache
 def parser() -> argparse.ArgumentParser:
     """The drive's parser, built once a process, since a batch reads it for every op; read it through parsed, which copies the lists a parse shares with its defaults."""
@@ -3945,6 +3951,7 @@ def parser() -> argparse.ArgumentParser:
 
     root = argparse.ArgumentParser(prog="drive", description="State and events of a long-running drive.")
     root.add_argument("--version", action="version", version=f"drive {state.VERSION}")
+    root.add_argument("--root", action=Root, nargs=0, help="print the folder of the long-running install this drive runs, the newest installed, whose hooks/ and lib/ a proof file imports")
     verbs = root.add_subparsers(dest="verb", required=True)
 
     verb = verbs.add_parser("start", parents=[json_opt], help="create the drive or bind one of its two roles to this session")

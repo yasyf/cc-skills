@@ -3109,9 +3109,12 @@ def test_a_builders_done_names_its_proof_and_what_he_sees_is_proven_on_that_surf
     recording = tmp_path / "queue-click.mov"
     recording.write_bytes(b"\0")
     assert keep(monkeypatch, capsys, "j1", "DONE the queue shows one card\nCHECK: it looked right\n")[0] == 2
-    assert keep(monkeypatch, capsys, "j1", "DONE the queue shows one card\nCHECK: /gone/view.json\n")[1].startswith(
-        "drive: j1: refused, nothing kept: a DONE names its proof on a CHECK: line"
-    )
+    empty = tmp_path / "j1.proof.txt"
+    empty.write_text("")
+    for unheld in ("/gone/view.json", empty):
+        assert keep(monkeypatch, capsys, "j1", f"DONE the queue shows one card\nCHECK: {unheld}\n")[1].startswith(
+            "drive: j1: refused, nothing kept: a DONE names its proof on a CHECK: line"
+        )
     seen = "DONE the queue shows one card\nNATIVE: the dashboard's queue view\nCHECK: {}\n"
     code, refused = keep(monkeypatch, capsys, "j1", seen.format(fetched))
     assert code == 2
@@ -6538,6 +6541,13 @@ def test_version_names_the_plugin_version(capsys: pytest.CaptureFixture[str]) ->
         cli.main(["--version"])
     plugin = json.loads((Path(drive.__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json").read_text())
     assert capsys.readouterr().out.strip() == f"drive {plugin['version']}"
+
+
+def test_root_names_the_install_whose_hooks_and_lib_a_proof_file_imports(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit, match="0"):
+        cli.main(["--root"])
+    root = Path(capsys.readouterr().out.strip())
+    assert (root / "hooks" / "bash_guard.py").is_file() and root / "lib" / "drive" == Path(drive.__file__).resolve().parent
 
 
 def test_the_skill_body_stays_a_short_map_of_pages_drive_manual_prints(run: Run) -> None:

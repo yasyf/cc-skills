@@ -1265,7 +1265,7 @@ def test_a_proof_file_runs_once_the_drives_dashboard_runs_the_long_running_just_
     script = proving(config, tmp_path, git, 0)
     newest_in_the_user_scope(config, git)
     shown = tmp_path / "dashboard-code"
-    script.write_text(f"#!/bin/sh\ngrep -qx /cache/long-running/1.0.3/lib/drive {shown} || {{ echo 'the dashboard does not run the installed long-running'; exit 1; }}\n")
+    script.write_text(f"#!/bin/sh\ngrep -qx /cache/long-running/1.0.3/lib/drive {shown} || {{ echo 'the dashboard does not run the installed long-running'; exit 1; }}\necho 'the dashboard runs the installed long-running'\n")
     answers = iter([{"code": "/cache/1.0.2/lib/drive"}, {"code": "/cache/1.0.2/lib/drive"}, {"code": "/cache/long-running/1.0.3/lib/drive"}])
 
     def serving(name: str, port: int) -> dict:
@@ -1356,7 +1356,7 @@ def test_a_proof_reading_main_ci_after_the_merge_runs_once_that_run_completed_an
     guides = ci(43375546815, "Guides", "2026-11-13T05:59:05Z", "completed", "success")
     running = ci(43375546307, "long-running CI", "2026-11-13T05:59:04Z")
     shown = on_actions(monkeypatch, tmp_path, [guides, running], [[guides, running], [guides, running | {"status": "completed", "conclusion": "success"}]])
-    script.write_text(f"#!/bin/sh\ngrep -qx '43375546307 completed success' {shown}\n")
+    script.write_text(f"#!/bin/sh\ngrep -x '43375546307 completed success' {shown}\n")
     install.prove("demo", "j1", 900)
     assert (git.heard, git.sleeps) == ([f"{REPO} ci"], [])
     assert state.load("demo")["jobs"]["j1"]["said"] == f"DONE {URL} live: {script} exits 0 on long-running@skills 1.0.3"
@@ -1370,7 +1370,7 @@ def test_a_merge_whose_own_run_its_concurrency_group_cancelled_waits_on_the_run_
     cancelled = ci(43370495715, "long-running CI", "2026-11-13T05:12:31Z", "completed", "cancelled")
     superseding = ci(43370536229, "long-running CI", "2026-11-13T05:12:53Z")
     shown = on_actions(monkeypatch, tmp_path, [cancelled], [[superseding, cancelled], [superseding | {"status": "completed", "conclusion": "success"}, cancelled]])
-    script.write_text(f"#!/bin/sh\ngrep -qx '43370536229 completed success' {shown}\n")
+    script.write_text(f"#!/bin/sh\ngrep -x '43370536229 completed success' {shown}\n")
     install.prove("demo", "j1", 900)
     assert (git.heard, git.sleeps) == ([f"{REPO} ci"], [])
     assert state.load("demo")["jobs"]["j1"]["said"] == f"DONE {URL} live: {script} exits 0 on long-running@skills 1.0.3"
@@ -1475,6 +1475,16 @@ def test_a_merge_no_release_will_carry_takes_blocked_naming_it_and_runs_no_proof
     blocked = f"BLOCKED {URL}: not installed, so {script} did not run: {reason}"
     assert state.load("demo")["jobs"]["j1"]["said"] == blocked
     assert state.proof_path("demo", "j1").read_text() == reason
+    assert proof_events() == [("yasyf/cc-skills#7", f"{install.PROOF_FAILED}: {blocked.removeprefix('BLOCKED ')}")]
+
+
+def test_a_proof_file_exiting_0_that_prints_nothing_takes_blocked_and_keeps_no_close_report(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
+    script = proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
+    script.write_text("#!/bin/sh\nexit 0\n")
+    install.prove("demo", "j1", 900)
+    blocked = f"BLOCKED {URL}: {script} exits 0 but prints nothing on long-running@skills 1.0.3: a proof file prints a line for each check it passed, so one printing nothing proves nothing"
+    data = state.load("demo")
+    assert (data["jobs"]["j1"]["said"], data["orders"]["o1"]["proof"], data["orders"]["o1"]["close_report"]) == (blocked, None, None)
     assert proof_events() == [("yasyf/cc-skills#7", f"{install.PROOF_FAILED}: {blocked.removeprefix('BLOCKED ')}")]
 
 

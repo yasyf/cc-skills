@@ -526,12 +526,18 @@ def proofs(text: str) -> list[str]:
     return [re.sub(r"[^\w/]+$", "", found) for found in PROOF.findall(text)]
 
 
+def held(proof: str) -> bool:
+    """Whether a proof is a link, or the path of a folder or of a file holding something, since an empty file proves nothing."""
+    path = Path(proof).expanduser()
+    return proof.startswith("http") or path.is_dir() or path.is_file() and path.stat().st_size > 0
+
+
 def unproven(text: str, job_id: str, job: dict) -> str | None:
-    """Why a builder's or codex job's DONE may not be kept: its CHECK: line names no proof that exists, or, for what he sees, by its NATIVE: line or its brief's Native, falls short of story_gap."""
-    real = [proof for line in CHECK.findall(text) for proof in proofs(line) if proof.startswith("http") or Path(proof).expanduser().exists()]
+    """Why a builder's or codex job's DONE may not be kept: its CHECK: line names no link and no file that exists and is not empty, as held reads it, or, for what he sees, by its NATIVE: line or its brief's Native, falls short of story_gap."""
+    real = [proof for line in CHECK.findall(text) for proof in proofs(line) if held(proof)]
     if not real:
         return (
-            "a DONE names its proof on a CHECK: line, a link or the absolute path of a file that exists, such as the"
+            "a DONE names its proof on a CHECK: line, a link or the absolute path of a file that exists and is not empty, such as the"
             " live post, the recording of the click, or the saved output of the installed command"
         )
     if not (he_sees(text) or surface(job)):
