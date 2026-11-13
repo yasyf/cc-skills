@@ -354,6 +354,13 @@ before it sends or starts.
   checkout it left, with a short brief saying why it died, which dispatch it reports on now and
   the message, and nothing is saved, moved or destroyed. A resume that starts no worker falls back
   to the relaunch below, its why naming the refusal.
+- First, a running job's resume reads one cause line from the logs it copied off the dead lane's
+  Sprite: the kernel's lines at error level or worse since it started init, `memory.high` when the
+  lane's cgroup went over it, OOM kills, a full home volume and how long the VM and its init process
+  had run, or why the Sprite did not answer. The death record, the next worker's brief and the
+  resume's output carry it. When another lane of the job died since its last line, this second
+  death starts no worker: the resume records it and refuses, naming both causes and both death
+  files, and `drive job launch <j> --local` moves the job to a fresh worktree on this Mac.
 - Before a relaunch on a fresh Sprite it saves the dead lane's Sprite, found by the job's workspace
   even when Orca dropped its dispatch or environment. Over ssh it commits each worktree's uncommitted
   changes there and pushes each commit, branch or stash GitHub holds nowhere as

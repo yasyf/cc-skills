@@ -1452,18 +1452,75 @@ def test_resume_copies_a_dead_lanes_sprite_logs_and_transcripts_before_it_saves_
     assert steps == [("save", kept, kept), ("destroy", kept, kept)]
 
 
-def test_a_dead_sprites_logs_are_copied_once_and_an_unreadable_sprite_leaves_why(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+QUIET_MEMORY = "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n"
+SPRITE_BOOT = "<3>[    0.204565] PCI: Fatal: No config space access function found\n<6>[    0.389666] Run /sbin/init as init process\n"
+NBD_KERNEL = (
+    SPRITE_BOOT + "<3>[ 2589.855152] I/O error, dev nbd0, sector 186935136 op 0x0:(READ) flags 0x80700 phys_seg 64 prio class 2\n"
+    "<3>[ 2610.318388] block nbd0: Connection timed out, retrying (0/1 alive)\n"
+    "<2>[ 2612.881528] EXT4-fs error (device nbd0): __ext4_find_entry:1647: inode #4456507: comm bash: reading directory lblock 0\n"
+    "<2>[ 2612.887213] EXT4-fs (nbd0): Remounting filesystem read-only\n"
+)
+NBD_CAUSE = (
+    'its Sprite showed: the kernel logged 4 error lines after it started init, the first "I/O error, dev nbd0, sector 186935136 op 0x0:(READ) flags 0x80700'
+    ' phys_seg 64 prio class 2" and the last "EXT4-fs (nbd0): Remounting filesystem read-only"; when read, its VM had been up 44 minutes, its init process 44 minutes'
+)
+REBOOT_CAUSE = "its Sprite showed: the kernel logged no error line after it started init; when read, its VM had been up 0 minutes, its init process 0 minutes"
+REFUSED_CAUSE = "its Sprite did not answer: ssh exited 255: ssh: connect to host pool-asleep port 22: Connection refused"
+
+
+def sprite_read(kernel: str, ages: str, memory: str = QUIET_MEMORY, limits: str = "8053063680\n2147483648\n", used: str = "47%") -> bytes:
+    """What SPRITE_LOGS prints on a Sprite, its kernel's lines at error level or worse, the ages of its VM and init process, its cgroup's memory events and limits and its home volume's use as given."""
+    return (
+        f"== tail -c {orca.SPRITE_LOG_BYTES} ~/.cc-remote/orca/serve.log\nserve: listening on 127.0.0.1:6768\n\n"
+        f"== {orca.HOME_VOLUME}\nFilesystem     1K-blocks    Used Available Use% Mounted on\n/dev/loop0      12281444 5709092   6555968  {used} /home/sprite\n"
+        f"== {orca.MEMORY_EVENTS}\n{memory}== dmesg | tail -n 50\n[ 2622.227362] loop0: detected capacity change from 0 to 25171104\n"
+        f"== {orca.AGES}\n{ages}== {orca.MEMORY_LIMITS}\n{limits}== {orca.KERNEL_ERRORS}\n{kernel}"
+    ).encode()
+
+
+def test_a_dead_sprites_logs_are_copied_once_and_give_one_cause_line_and_an_unreadable_sprite_leaves_why(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
     (state.drive_dir(remote) / "jobs").mkdir(exist_ok=True)
     read = []
-    full = b"== df -k ~\n/dev/loop0 12281444 12208668 72776 100% /home/sprite\n"
-    monkeypatch.setattr(orca, "on_sprite", lambda workspace, command, given, seconds: read.append(workspace) or subprocess.CompletedProcess([], 0, full, b""))
-    REAL_KEEP_LOGS(remote, "j1", {"workspace": "pool-full"}, DISPATCH)
-    REAL_KEEP_LOGS(remote, "j1", {"workspace": "pool-gone"}, DISPATCH)
-    assert (read, orca.death_logs(remote, "j1", DISPATCH).read_text()) == (["pool-full"], full.decode())
+    nbd = sprite_read(NBD_KERNEL, "2643.94 10230.11\n   2643\n")
+    monkeypatch.setattr(orca, "on_sprite", lambda workspace, command, given, seconds: read.append(workspace) or subprocess.CompletedProcess([], 0, nbd, b""))
+    assert REAL_KEEP_LOGS(remote, "j1", {"workspace": "pool-nbd"}, DISPATCH) == NBD_CAUSE
+    assert REAL_KEEP_LOGS(remote, "j1", {"workspace": "pool-gone"}, DISPATCH) == NBD_CAUSE
+    assert (read, orca.death_logs(remote, "j1", DISPATCH).read_text()) == (["pool-nbd"], nbd.decode())
     refused = b"ssh: connect to host pool-asleep port 22: Connection refused\n"
     monkeypatch.setattr(orca, "on_sprite", lambda workspace, command, given, seconds: subprocess.CompletedProcess([], 255, b"", refused))
-    REAL_KEEP_LOGS(remote, "j1", {"workspace": "pool-asleep"}, "ctx_lane0002")
+    assert REAL_KEEP_LOGS(remote, "j1", {"workspace": "pool-asleep"}, "ctx_lane0002") == REFUSED_CAUSE
     assert orca.death_logs(remote, "j1", "ctx_lane0002").read_text() == "ssh exited 255: ssh: connect to host pool-asleep port 22: Connection refused\n"
+
+
+@pytest.mark.parametrize(
+    ("read", "cause"),
+    [
+        (sprite_read(NBD_KERNEL, "2643.94 10230.11\n   2643\n"), NBD_CAUSE),
+        (sprite_read(SPRITE_BOOT, "41.30 160.02\n     22\n"), REBOOT_CAUSE),
+        (
+            sprite_read(SPRITE_BOOT, "564.20 4158.12\n    543\n", QUIET_MEMORY.replace("high 0", "high 6965"), "8053063680\n8590176256\n"),
+            "its Sprite showed: the kernel logged no error line after it started init; its memory went over memory.high, 7.5 GiB, 6965 times and peaked at 8.0 GiB;"
+            " when read, its VM had been up 9 minutes, its init process 9 minutes",
+        ),
+        (
+            sprite_read(
+                SPRITE_BOOT + "<3>[  812.120001] Out of memory: Killed process 4242 (node) total-vm:9123456kB, anon-rss:7340032kB, UID:1000 oom_score_adj:0\n",
+                "900.50 3000.00\n    120\n",
+                QUIET_MEMORY.replace("max 0", "max 12").replace("oom 0", "oom 1").replace("oom_kill 0", "oom_kill 1"),
+                used="100%",
+            ),
+            'its Sprite showed: the kernel logged one error line after it started init, "Out of memory: Killed process 4242 (node) total-vm:9123456kB, anon-rss:7340032kB,'
+            ' UID:1000 oom_score_adj:0"; the OOM killer killed 1 of its processes; its home volume was full; when read, its VM had been up 15 minutes, its init process 2 minutes',
+        ),
+        (b"pool-asleep could not be read: Command 'sh -s' timed out after 120 seconds\n", "its Sprite did not answer: pool-asleep could not be read: Command 'sh -s' timed out after 120 seconds"),
+        (
+            sprite_read(NBD_KERNEL, "2643.94 10230.11\n   2643\n").split(b"== dmesg")[0] + b"ssh exited 255: Connection to pool-nbd closed by remote host.\n",
+            "its Sprite did not answer: ssh exited 255: Connection to pool-nbd closed by remote host.",
+        ),
+    ],
+)
+def test_a_dead_lanes_cause_line_names_what_its_sprite_showed(read: bytes, cause: str) -> None:
+    assert orca.cause(read.decode()) == cause
 
 
 J2504_SESSION = "dadd5ffb-610a-4626-876f-74ac6fba88be"
@@ -1510,27 +1567,62 @@ def restarted_lane(remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 
 
 @pytest.mark.parametrize("workspace", J2504_SPRITES)
-def test_a_lane_whose_sprite_restarted_resumes_its_own_claude_session_there_each_time_with_nothing_saved_or_destroyed(
-    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sessions: dict[str, str], kept_logs: list[tuple[str, str]], workspace: str
+def test_a_lane_whose_sprite_died_resumes_its_own_claude_session_there_with_its_cause_and_a_second_death_since_the_jobs_last_line_starts_no_worker(
+    run: Run,
+    remote: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    sessions: dict[str, str],
+    kept_logs: list[tuple[str, str]],
+    causes: dict[str, str],
+    workspace: str,
 ) -> None:
     cloned(tmp_path, remote)
     launched = restarted_lane(remote, tmp_path, monkeypatch, sessions, workspace)
+    causes.update({J2504_DISPATCH: NBD_CAUSE, "dispatch-2": REBOOT_CAUSE})
     monkeypatch.setattr(orca, "save", lambda *args: pytest.fail("a resumed lane's Sprite holds its work, so nothing is saved off it"))
     monkeypatch.setattr(orca, "release", lambda *args: pytest.fail("a resumed lane's Sprite is never destroyed"))
     assert run("job", "resume", "j1", "Build #4412 failed: fix the lint") == (
         0,
         f"j1: the message went to the job's worker, which resumed its own Claude session {J2504_SESSION} on Sprite {workspace} as dispatch dispatch-2,"
-        " in the checkout its lane left there dead (its worker exited)",
+        f" in the checkout its lane left there dead (its worker exited; {NBD_CAUSE})",
     )
-    assert run("job", "resume", "j1", "carry on")[1].startswith(f"j1: the message went to the job's worker, which resumed its own Claude session {J2504_SESSION} on Sprite {workspace} as dispatch dispatch-3,")
-    assert [(name, on, session) for name, _, on, session in launched] == [("j1-2.resume.md", workspace, J2504_SESSION), ("j1-3.resume.md", workspace, J2504_SESSION)]
     brief = launched[0][1]
-    assert f": its worker exited. This is your own Claude session, resumed on Sprite {workspace} in the checkout you left" in brief
+    assert f": its worker exited; {NBD_CAUSE}. This is your own Claude session, resumed on Sprite {workspace} in the checkout you left" in brief
     assert brief.endswith("which you act on now:\n\nBuild #4412 failed: fix the lint\n")
-    assert kept_logs == [("j1", J2504_DISPATCH), ("j1", "dispatch-2")]
+    assert cli.main(["job", "resume", "j1", "carry on"]) == 2
     job = state.load(remote)["jobs"]["j1"]
-    assert (job["dispatch"], job["workspace"], job["state"], job["brief"]) == ("dispatch-3", workspace, "running", str(tmp_path / "first.md"))
-    assert [(death["dispatch"], death["workspace"], death.get("saved")) for death in job["deaths"]] == [(J2504_DISPATCH, workspace, None), ("dispatch-2", workspace, None)]
+    first, second = job["deaths"]
+    assert capsys.readouterr().err == (
+        f"drive: j1: refused, no worker started: its lane died twice since its last line, on Sprite {workspace} at {render.when(first['at'])} (its worker exited; {NBD_CAUSE})"
+        f" and on Sprite {workspace} at {render.when(second['at'])} (its worker exited; {REBOOT_CAUSE}); their logs are in {orca.death_logs(remote, 'j1', J2504_DISPATCH)}"
+        f" and {orca.death_logs(remote, 'j1', 'dispatch-2')}. drive job launch j1 --local moves it to a fresh worktree on this Mac, and its next worker gets the text the job holds\n"
+    )
+    assert [name for name, *_ in launched] == ["j1-2.resume.md"]
+    assert kept_logs == [("j1", J2504_DISPATCH), ("j1", "dispatch-2")]
+    assert (job["dispatch"], job["workspace"], job["state"], [held["words"] for held in job["undelivered"]]) == ("dispatch-2", workspace, "running", ["carry on"])
+    assert [(death["dispatch"], death["cause"], death.get("saved")) for death in job["deaths"]] == [(J2504_DISPATCH, NBD_CAUSE, None), ("dispatch-2", REBOOT_CAUSE, None)]
+
+
+def test_a_lane_that_dies_after_its_jobs_last_line_resumes_again_with_its_own_cause(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sessions: dict[str, str], causes: dict[str, str]
+) -> None:
+    cloned(tmp_path, remote)
+    workspace = J2504_SPRITES[0]
+    launched = restarted_lane(remote, tmp_path, monkeypatch, sessions, workspace)
+    causes.update({J2504_DISPATCH: NBD_CAUSE, "dispatch-2": REBOOT_CAUSE})
+    assert run("job", "resume", "j1", "Build #4412 failed: fix the lint")[0] == 0
+    with state.edit(remote) as data:
+        job = data["jobs"]["j1"]
+        job["returned"] = state.stamp(state.parse_time(job["deaths"][0]["at"]) + timedelta(seconds=1))
+    assert run("job", "resume", "j1", "carry on") == (
+        0,
+        f"j1: the message went to the job's worker, which resumed its own Claude session {J2504_SESSION} on Sprite {workspace} as dispatch dispatch-3,"
+        f" in the checkout its lane left there dead (its worker exited; {REBOOT_CAUSE})",
+    )
+    assert [name for name, *_ in launched] == ["j1-2.resume.md", "j1-3.resume.md"]
+    assert f"Your lane died at {render.when(state.load(remote)['jobs']['j1']['deaths'][1]['at'])}: its worker exited; {REBOOT_CAUSE}." in launched[1][1]
 
 
 @pytest.mark.parametrize(
@@ -3104,6 +3196,36 @@ def test_a_relaunch_that_ended_without_a_next_lane_is_said_at_once(remote: str, 
     [line] = watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote)), T0)
     assert line.startswith('ORPHAN o1 "ship the remote builder": j1\'s lane ended 2 minutes ago (its worker exited) and the watch\'s drive job resume at ')
     assert line.endswith("started no next lane, its output in the drive's relaunches.log")
+
+
+def test_a_running_jobs_lane_that_died_again_since_its_last_line_is_said_to_start_no_worker(remote: str, monkeypatch: pytest.MonkeyPatch, relaunches: list[str]) -> None:
+    deliver(monkeypatch)
+    earlier = {"dispatch": "ctx_first", "workspace": "sprite-first", "why": "its worker exited", "at": state.stamp(T0 - timedelta(minutes=20)), "cause": NBD_CAUSE}
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(workspace="sprite-old", said="building the tallies", deaths=[earlier])
+    monkeypatch.setattr(orca, "worker", lambda dispatch: dead())
+    assert watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote)), T0) == [
+        'LANE j1 o1 died on Sprite sprite-old: its worker exited, while it worked on "building the tallies". '
+        f"The watch ran drive job resume j1, which copies its Sprite's Orca runtime and worker logs to {orca.death_logs(remote, 'j1', DISPATCH)},"
+        f" reads from them why it died and starts no worker, as its lane on Sprite sprite-first died too since its last line, at {render.when(earlier['at'])}"
+        f" (its worker exited; {NBD_CAUSE}), its output in the drive's relaunches.log"
+    ]
+    assert relaunches == ["j1"]
+
+
+def test_a_lane_whose_resume_refused_a_second_death_since_its_jobs_last_line_is_said_with_both_causes(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    deliver(monkeypatch)
+    monkeypatch.setattr(orca, "worker", lambda dispatch: pytest.fail("a lane already said to have ended is not read again"))
+    first = {"dispatch": "ctx_first", "workspace": "sprite-first", "why": "its worker exited", "at": state.stamp(T0 - timedelta(minutes=20)), "cause": NBD_CAUSE}
+    relaunch = {"pid": ENDED_READER, "at": state.stamp(T0 - timedelta(minutes=2))}
+    second = {"dispatch": DISPATCH, "workspace": "sprite-old", "why": "its worker exited", "at": state.stamp(T0 - timedelta(minutes=2)), "relaunch": relaunch, "cause": REBOOT_CAUSE}
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(workspace="sprite-old", deaths=[first, second], updated=state.stamp(T0 - timedelta(minutes=2)))
+    assert watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote)), T0) == [
+        f'ORPHAN o1 "ship the remote builder": j1\'s lane died twice since its last line, so drive job resume starts no worker for it: on Sprite sprite-first at {render.when(first["at"])}'
+        f" (its worker exited; {NBD_CAUSE}) and on Sprite sprite-old at {render.when(second['at'])} (its worker exited; {REBOOT_CAUSE}); drive job launch j1 --local moves it to a fresh worktree on this Mac"
+    ]
+
 
 
 def branches(monkeypatch: pytest.MonkeyPatch, prs: dict[str, dict]) -> list[list[tuple[str, str]]]:
