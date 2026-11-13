@@ -74,6 +74,7 @@ SHELL_QUIET_MS = 3 * 24 * 60 * 60 * 1000
 SLOW_READ_S = 15.0
 PASS_ORCA_S = 180.0
 CALL_TIMEOUT_S = 60
+SSH_CONNECT_S = 30
 BACKOFF_FIRST_S = 15 * 60
 BACKOFF_MOST_S = 4 * 60 * 60
 MUTATIONS = {("terminal", "close"), ("worktree", "rm"), *(("orchestration", verb) for verb in ("worker-stop", "worker-abandon", "worker-release"))}
@@ -659,7 +660,7 @@ class CcRemote:
         )
 
     def ssh(self, sprite: Sprite, script: str, given: str | None = None) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(["ssh", "-F", sprite.ssh_config, "-o", "BatchMode=yes", sprite.host, script], input=given, capture_output=True, text=True)
+        return subprocess.run(["ssh", "-F", sprite.ssh_config, "-o", "BatchMode=yes", "-o", f"ConnectTimeout={SSH_CONNECT_S}", sprite.host, script], input=given, capture_output=True, text=True)
 
     def remote(self, slug: str) -> Remote:
         return Remote(GitHubTips(slug), GitHubPullHeads(slug), GitHubTrunk(slug))

@@ -2004,6 +2004,28 @@ def test_end_refuses_while_the_sprite_of_a_job_still_at_work_cannot_be_saved(
     assert state.load(remote)["jobs"]["j1"].get("deaths", []) == []
 
 
+def test_end_of_a_job_whose_sprite_never_answers_is_refused_at_the_reclaim_bound_ending_nothing_and_leaving_nothing_running(
+    remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cloned(tmp_path, remote)
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(state="waiting", workspace="pool-mute")
+    group = tmp_path / "group"
+    reclaimer = tmp_path / "orca-reclaim.py"
+    reclaimer.write_text(f"#!/bin/sh\necho $$ >{group}\nsleep 600 &\nwait\n")
+    reclaimer.chmod(0o755)
+    monkeypatch.setattr(orca, "tool", lambda name: str(reclaimer))
+    monkeypatch.setattr(orca, "RECLAIM_SECONDS", 1)
+    monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: pytest.fail("a refused end reclaims nothing"))
+    assert cli.main(["job", "end", "j1"]) == 2
+    assert (
+        "what pool-mute holds on no remote could not be saved to GitHub for its next lane:"
+        " orca-reclaim.py --save ran past 1 s, so it was killed with every process it started. End it again once that Sprite answers"
+    ) in capsys.readouterr().err
+    assert not reads.live(int(group.read_text()))
+    assert state.load(remote)["jobs"]["j1"].get("deaths", []) == []
+
+
 def test_end_refuses_a_running_job_whose_lane_stopped_without_its_line_naming_resume(
     remote: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

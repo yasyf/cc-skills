@@ -4,12 +4,13 @@ import json
 import os
 import re
 import shlex
+import signal
 import subprocess
 import uuid
 from pathlib import Path
 from typing import IO, NamedTuple
 
-from drive import agents, github, procs, render, state
+from drive import agents, github, procs, reads, render, state
 from drive.install import config_dir
 from drive.state import DriveError
 
@@ -25,6 +26,7 @@ BUILDER = PLUGIN / "agents" / "builder.md"
 LANDING = PLUGIN / "skills" / "long-running" / "reference" / "landing.md"
 LANE_ENV = f"CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000 {state.REMOTE_LANE_ENV}=1"
 LAUNCH_SECONDS = 1800
+RECLAIM_SECONDS = 300
 MAIL_LIMIT = 100
 FENCED = "consumer_fenced"
 GONE = {
@@ -491,18 +493,18 @@ def lane_of(drive: str, job_id: str, job: dict) -> str:
 
 
 def reclaimer(checkout: Path, *args: str) -> str:
-    done = subprocess.run(
-        [tool(RECLAIMER), *args],
-        cwd=checkout,
-        capture_output=True,
-        text=True,
-        timeout=LAUNCH_SECONDS,
-        check=False,
-    )
-    if done.returncode:
-        said = done.stderr.strip().splitlines()
-        raise OrcaError(f"{RECLAIMER} exited {done.returncode}: {said[-1] if said else 'no output'}")
-    return done.stdout.strip()
+    """The reclaimer's output, run as a process group of its own; OrcaError naming its last line when it fails, or naming RECLAIM_SECONDS once it runs past them, after every process left in its group, such as an ssh to a Sprite that never answers, is killed."""
+    with subprocess.Popen([tool(RECLAIMER), *args], cwd=checkout, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True) as running:
+        try:
+            out, err = running.communicate(timeout=RECLAIM_SECONDS)
+        except subprocess.TimeoutExpired:
+            reads.signal_group(running.pid, signal.SIGKILL)
+            running.communicate()
+            raise OrcaError(f"{RECLAIMER} {args[0]} ran past {RECLAIM_SECONDS} s, so it was killed with every process it started") from None
+    if running.returncode:
+        said = err.strip().splitlines()
+        raise OrcaError(f"{RECLAIMER} exited {running.returncode}: {said[-1] if said else 'no output'}")
+    return out.strip()
 
 
 def mail(run: str, after: int) -> list[dict]:
