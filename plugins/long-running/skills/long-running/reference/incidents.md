@@ -103,12 +103,11 @@ changed and when, its findings the suspects, and its root cause the verdict.
      `drive order set <o> --incident`, which refuses until a job owns its `fix` part.
 3. In the next message, start every job the verb printed, as [Jobs](#jobs) says, and no freeze,
    which waits until users are unblocked, by [Freeze the broken service](#freeze-the-broken-service).
-   Each job is a `codex:codex-wrapper` running `codex-ask --incident`, never `-m astra`. Its brief
-   carries the answer id from step 1, the record's id, and the brief template's `Incident:` line
-   written out in full, ending in the rule the verb printed, by
-   [His card on an incident](#his-card-on-an-incident). Its `Drive:` line names the job, which
-   records the agent as it starts; until then the watch says on every pass that the job has no
-   agent recorded.
+   Each job starts with `drive job launch <j>`, its codex-ask run on the fast tier with
+   `--incident`, never `-m astra`. Its brief carries the answer id from step 1, the record's id,
+   and the brief template's `Incident:` line written out in full, ending in the rule the verb
+   printed, by [His card on an incident](#his-card-on-an-incident). Until it starts, the watch says
+   on every pass that the job has no codex-ask run.
 4. A `report` to the communicator for his first line: the fix job and the code path it started
    at, and the diagnosis job beside it.
 
@@ -197,7 +196,7 @@ changed and when, its findings the suspects, and its root cause the verdict.
   line ordering a `BLOCKED` return on a loss or a choice, such as "If something is lost, stop and
   return `BLOCKED`".
   - A codex lane writes its `ASK` block to a file in its scratch, builds the recommended option in
-    the same run, and returns its result with an `ASK: <that file>` line. Nothing resumes a codex
+    the same run, and returns its result with an `ASK: <that file>` line in its `report` field. Nothing resumes a codex
     run, so the watch keeps that block as `drive job ask` does in the pass it takes the run, and
     its `JOB <j> <o> …; its ASK is kept` line says its ask record went out, so his card draws.
   - A builder keeps its `ASK` with `drive job ask` the moment the fork shows, which leaves it
@@ -301,15 +300,17 @@ check's verdict, or from the order when none ran.
   in the turn the clock is missed. The first to deliver wins, and both write to the one record. The
   `agent_brief` hook refuses a Fable model for it.
 - His pick for incident speed is Claude's /fast plus the codex fast tier. A codex lane gets the
-  fast tier from `codex-ask --incident`; /fast is a session's setting, which no agent definition or
+  fast tier from `drive job launch`, which runs its codex-ask with `--incident` on an incident; /fast is a session's setting, which no agent definition or
   Agent call sets, so a Claude incident lane runs at the speed of the session that starts it.
 - A missed clock also sends him a line in that turn, before he asks: what is late, and the new
   time.
 
 ## Ship it
 
-- Codex edits and Claude ships. In the turn the fix job has its change, a `long-running:builder`
-  ships it from that worktree, lands it and proves it live.
+- Codex edits and Claude ships. A fix job that changed code returns `HANDOFF`, which stops it with
+  its report on its own job, and in that turn a `long-running:builder` briefed
+  `Handoff: drive job report <the fix job>` ships it from that worktree, lands it and proves it
+  live.
 - An approved and green incident PR lands in the turn the watch reports it: its `checks passed`
   or `approved` event wakes the coordinator, which resumes its job with "land it and start its
   build now".

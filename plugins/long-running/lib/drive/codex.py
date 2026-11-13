@@ -1,6 +1,5 @@
 import json
 import os
-import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,12 +7,43 @@ from pathlib import Path
 from drive import brief, install, state
 
 PLUGIN = "codex@skills"
-REPLY_FILE = re.compile(r"REPLY_FILE: (/\S+)$", re.MULTILINE)
-PRINTED = b"REPLY_FILE: /"
 ENDED = ("completed", "failed", "died")
 SAID_CHARS = 500
 LOG_TAIL = 4096
 COLLECT_SECONDS = 60
+DISPATCH_SECONDS = 120
+SCHEMA_FILE = "codex-result.json"
+RESULT = {
+    "type": "object",
+    "properties": {
+        "state": {
+            "type": "string",
+            "enum": [*state.RESULT_STATES, "BUILT"],
+            "description": (
+                "The result your run ends on: DONE, finished and checked where it is used; READY or PUSHED, a PR is open; WAITING, it waits on a"
+                " release or PR; ASK, a choice his words leave open; DESIGN, a design decision for his card; BUILT, the recommended option built"
+                " on a branch while his card is open; BLOCKED, no route works; HANDOFF, the work is left for a builder to ship, such as edits left uncommitted."
+            ),
+        },
+        "line": {
+            "type": "string",
+            "description": (
+                "The rest of the result line after the state word, never repeating it, at most 400 characters: the proof for DONE, each PR link for"
+                " READY or PUSHED, `<branch>, waits on <cards>` for BUILT, the ASK block's file for ASK, what is in the way for BLOCKED, the worktree"
+                " and branch holding your edits and what is left for HANDOFF."
+            ),
+        },
+        "report": {
+            "type": "string",
+            "description": (
+                "Your whole return below the result line, one fact a line, such as its PR:, CHECK:, CHANGE:, UNPROVEN: and NEXT: lines, an"
+                " `ASK: <file>` line for a choice's block, and the FIX line an Incident: line asks for; the drive keeps it as your job's report."
+            ),
+        },
+    },
+    "required": ["state", "line", "report"],
+    "additionalProperties": False,
+}
 
 
 class CodexError(Exception):
@@ -22,7 +52,7 @@ class CodexError(Exception):
 
 @dataclass(frozen=True)
 class Run:
-    """The newest codex-ask run a codex job's relay asked, in the state codex-ask's own `--collect` record gives it: completed, failed, died, running or pending."""
+    """The codex-ask run `drive job launch` started for a codex job, in the state codex-ask's own `--collect` record gives it: completed, failed, died, running or pending."""
 
     state: str
     reply: Path
@@ -33,59 +63,67 @@ class Run:
         return self.state in ENDED
 
 
-def newest_run(transcript: Path) -> Run | None:
-    """The run of the newest reply file codex-ask printed into the relay's tool results whose folder holds codex-ask's `meta` file, read by `codex-ask --collect` on that run folder; a printed path in any other folder, such as a reply codex wrote into a job's scratch folder and the relay read back, is passed over. None when the relay asked codex nothing, or its `-l` lane folder now holds another relay's later run."""
-    reply = None
-    for row in reversed(transcript.read_bytes().splitlines()):
-        if PRINTED not in row:
-            continue
-        try:
-            entry = json.loads(row)
-        except ValueError:
-            continue
-        if found := [path for path in printed(entry) if (path.parent / "meta").is_file()]:
-            reply = found[-1]
-            break
-    if reply is None or not reply.is_file():
-        return None
-    launcher = Path(install.installed(PLUGIN)["installPath"]) / "bin" / "codex-ask"
+def launcher() -> Path:
+    return Path(install.installed(PLUGIN)["installPath"]) / "bin" / "codex-ask"
+
+
+def ask(name: str, job_id: str, question: str, incident: bool) -> Path:
+    """Start a codex job's codex-ask run on its brief, detached, its final message held by `--schema` to the drive's result, so no reply lacks its state: the run folder under the job's scratch folder, which a finished run's next launch reuses, and codex-ask refuses while a run in it still goes; an incident's run takes codex's fast tier."""
+    scratch = state.drive_dir(name) / "scratch" / job_id
+    scratch.mkdir(parents=True, exist_ok=True)
+    schema = scratch / SCHEMA_FILE
+    schema.write_text(json.dumps(RESULT, indent=2) + "\n")
+    folder = scratch / "codex"
+    argv = [str(launcher()), "--dispatch", "-s", str(folder), "--schema", str(schema), *(["--incident"] if incident else []), "-"]
     try:
-        result = subprocess.run([str(launcher), "--collect", str(reply.parent)], check=False, capture_output=True, text=True, timeout=COLLECT_SECONDS)
+        done = subprocess.run(argv, input=question, check=False, capture_output=True, text=True, timeout=DISPATCH_SECONDS)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise CodexError(str(error)) from None
+    if done.returncode:
+        raise CodexError(" ".join(done.stderr.split()) or f"codex-ask --dispatch exited {done.returncode}")
+    return folder
+
+
+def run_of(job: dict) -> Run:
+    """The codex job's run, read by `codex-ask --collect` on the run folder its launch recorded."""
+    try:
+        result = subprocess.run([str(launcher()), "--collect", job["codex_run"]], check=False, capture_output=True, text=True, timeout=COLLECT_SECONDS)
     except (OSError, subprocess.TimeoutExpired) as error:
         raise CodexError(str(error)) from None
     if result.returncode:
         raise CodexError(" ".join(result.stderr.split()) or f"codex-ask --collect exited {result.returncode}")
     try:
-        records = [json.loads(line) for line in result.stdout.splitlines()]
-    except ValueError:
+        record = json.loads(result.stdout.splitlines()[0])
+    except (IndexError, ValueError):
         raise CodexError(f"codex-ask --collect printed no record: {' '.join(result.stdout.split())[:200]}") from None
-    record = next((record for record in records if record["reply_file"] == str(reply)), None)
-    return Run(record["state"], reply, Path(record["log_file"])) if record else None
-
-
-def printed(entry: dict) -> list[Path]:
-    """The reply file each codex-ask call in a transcript row's tool results names, in their order: codex-ask opens its output with `REPLY_FILE: <path>` as a run starts and as an `--await` ends, so a result opening otherwise, such as a reply read back that quotes one, the relay's own words or a message it was sent, names none."""
-    content = (entry.get("message") or {}).get("content")
-    results = [block.get("content") or "" for block in content if isinstance(block, dict) and block.get("type") == "tool_result"] if isinstance(content, list) else []
-    texts = (result if isinstance(result, str) else "\n".join(part.get("text", "") for part in result) for result in results)
-    return [Path(opened[1]) for text in texts if (opened := REPLY_FILE.match(text))]
+    return Run(record["state"], Path(record["reply_file"]), Path(record["log_file"]))
 
 
 def take(name: str, data: dict, job_id: str, run: Run) -> None:
-    """Set a running codex job from the run its relay asked, once it ended: a completed run's reply opens the job's said line and is kept whole in its history, its report, so `drive job report` shows each codex answer newest first and `drive job replies` each one oldest first, unless state.result_refusal refuses it as `drive job report` refuses any job's return, such as a reply opening with no result or one tracing a live bug's cause that names no fix, or brief.unproven a DONE on a surface he sees that its brief names, whose line is then `BLOCKED codex-ask completed, its reply refused:` and why; a failed or dead run's line is `BLOCKED codex-ask <state>:` and its log's last line."""
+    """Set a running codex job from its run once it ended: a completed run's reply is the JSON its schema requires, whose state and line open the job's said line and whose report is kept under that line in its history, its report, so `drive job report` shows each codex answer newest first and `drive job replies` each one oldest first, unless state.result_refusal refuses it as `drive job report` refuses any job's return, such as one tracing a live bug's cause that names no fix, or brief.unproven a DONE on a surface he sees that its brief names, whose line is then `BLOCKED codex-ask completed, its reply refused:` and why; a reply that is not that JSON is kept whole and refused the same way; a failed or dead run's line is `BLOCKED codex-ask <state>:` and its log's last line."""
     if data["jobs"][job_id]["state"] != "running":
         return
-    reply = ""
+    report = ""
     if run.state == "completed":
-        reply = run.reply.read_text()
-        line = next((line.strip() for line in reply.splitlines() if line.strip()), "")
-        state.keep_report(name, job_id, line, reply)
+        text = run.reply.read_text()
+        try:
+            reply = json.loads(text)
+            line = f"{reply['state']} {reply['line'].strip()}".strip()
+            report = f"{line}\n{reply['report'].strip()}\n"
+        except (ValueError, KeyError, TypeError, AttributeError):
+            line, report = "", text
+        state.keep_report(name, job_id, line or state.opening(text), report)
         job = data["jobs"][job_id]
-        if refused := state.result_refusal(data, job_id, line, reply) or (line.startswith("DONE") and brief.surface(job) and brief.unproven(reply, job_id, job)):
+        refused = (
+            "it is not the JSON its schema requires, a state, line and report"
+            if not line
+            else state.result_refusal(data, job_id, line, report) or (line.startswith("DONE") and brief.surface(job) and brief.unproven(report, job_id, job))
+        )
+        if refused:
             line = f"BLOCKED codex-ask completed, its reply refused: {refused}"
     else:
         line = f"BLOCKED codex-ask {run.state}: {last_line(run.log)}"
-    state.take_result(data, job_id, line[:SAID_CHARS], reply)
+    state.take_result(data, job_id, line[:SAID_CHARS], report)
 
 
 def last_line(log: Path) -> str:

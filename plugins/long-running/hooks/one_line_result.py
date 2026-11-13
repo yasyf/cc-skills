@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, codex, state
+from drive import agents, state
 
 RESULT_CHARS = 500
 HANDLER_FACTS = 3
@@ -21,7 +21,7 @@ STAFF_ROUTES = ("break-glass", "db-read")
 
 
 def block_reason(payload: dict) -> str | None:
-    """Why a drive session's background agent, a handler's own session included, may not stop yet: its final message lands whole in that session's context, a handler's as its cci record, so it is one line, kept first with `drive job report` by every job's agent but a codex relay, whose job's state comes from the codex-ask run it asked."""
+    """Why a drive session's background agent, a handler's own session included, may not stop yet: its final message lands whole in that session's context, a handler's as its cci record, so it is one line, kept first with `drive job report` by every job's agent."""
     if payload.get("stop_hook_active"):
         return None
     session = payload.get("session_id") or ""
@@ -44,7 +44,7 @@ def block_reason(payload: dict) -> str | None:
     keep = (
         f"keep your whole return first, if you have not, by piping it into `drive job report {job_id or '<your job>'} -`"
         " from a quoted heredoc, then end"
-        if (role == "coordinator" or job_id) and not (job_id and data["jobs"][job_id]["kind"] == "codex")
+        if role == "coordinator" or job_id
         else "end"
     )
     return agents.Unjudged(
@@ -56,13 +56,13 @@ def block_reason(payload: dict) -> str | None:
 
 
 def unkept(name: str, data: dict, job_id: str | None, line: str) -> str | None:
-    """Why a job's agent but a codex relay may not end on its one line yet: its whole return, a line per fact, is not kept in the drive, and only `drive job report` sets a job's state from it, so whoever acts on the job reads only that line and the job stays running; a reader's one line on an answer or incident order can be its whole return, and an ASK ends any job but a running builder."""
+    """Why a job's agent may not end on its one line yet: its whole return, a line per fact, is not kept in the drive, and only `drive job report` sets a job's state from it, so whoever acts on the job reads only that line and the job stays running; a reader's one line on an answer or incident order can be its whole return, and an ASK ends any job but a running builder."""
     if not job_id:
         return None
     job = data["jobs"][job_id]
     if line.startswith("ASK "):
         return unbuilt(job_id, job)
-    if job["kind"] == "codex" or job["state"] != "running" and state.kept_return(name, job_id, job, line):
+    if job["state"] != "running" and state.kept_return(name, job_id, job, line):
         return None
     order = data["orders"][job["order"]]
     researched = job["kind"] == "reader" and order["kind"] == "build" and not order["incident"]
@@ -131,23 +131,6 @@ def unread(payload: dict, data: dict, handler: bool, job_id: str | None, line: s
     )
 
 
-def take_codex(payload: dict) -> None:
-    """Set a running codex job its relay holds from the codex-ask run the relay asked once that run ended, whatever the relay ended on, leaving a run codex-ask cannot read to the watch, which names its error; every other job's state comes from `drive job report`, never from the line its agent ends on."""
-    names = state.session_drives(payload.get("session_id") or "")
-    if not names:
-        return
-    data = state.load(names[0])
-    if not (job_id := state.agent_job(data, payload.get("agent_id"))) or data["jobs"][job_id]["kind"] != "codex" or data["jobs"][job_id]["state"] != "running":
-        return
-    try:
-        run = codex.newest_run(agents.transcript(payload))
-    except codex.CodexError:
-        return
-    if run and run.ended:
-        with state.edit(names[0]) as data:
-            codex.take(names[0], data, job_id, run)
-
-
 def main() -> None:
     payload = agents.seen(json.load(sys.stdin))
     if "handler_session" in payload:
@@ -155,7 +138,6 @@ def main() -> None:
     else:
         agents.hold(payload)
         reason = block_reason(payload)
-        take_codex(payload)
     if reason:
         print(json.dumps({"decision": "block", "reason": reason} | agents.ruled(reason)))
 

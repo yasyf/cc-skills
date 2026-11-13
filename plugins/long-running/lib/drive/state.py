@@ -28,7 +28,7 @@ REPORT_REPLY = "report_"
 TURN_ENDS = ("worker_done", "escalation")
 EARLIER_RETURN = "--- an earlier return, kept {at} ---"
 JOB_ID = re.compile(r"j\d+")
-JOB_AGENTS = {"builder": ("long-running:builder",), "reader": ("long-running:reader",), "design": ("long-running:designer",), "codex": ("codex:codex-wrapper", "long-running:builder")}
+JOB_AGENTS = {"builder": ("long-running:builder",), "reader": ("long-running:reader",), "design": ("long-running:designer",), "codex": ("long-running:builder",)}
 JOB_STATES = ("running", "waiting", "built", "done", "failed", "stopped")
 FINISHED_JOB_STATES = ("done", "failed", "stopped")
 CHANGE_KINDS = ("builder", "codex")
@@ -836,7 +836,7 @@ def unstarted_builder(data: dict, job: dict) -> bool:
 
 
 def result_state(job: dict, line: str) -> str | None:
-    """The state a job's returned line moves it to, or None when the line is no result: a reader's answer or its DESIGN to done, since a design lane takes its choice on; `BUILT <branch>, waits on <cards>` to built, and an ASK to waiting on his card. A codex job's line maps as every other job's does, so its HANDOFF stops it, its READY or PUSHED waits on its PR, and a line opening with no result, such as its relay's `REPLY_FILE:` pointer, sets nothing."""
+    """The state a job's returned line moves it to, or None when the line is no result: a reader's answer or its DESIGN to done, since a design lane takes its choice on; `BUILT <branch>, waits on <cards>` to built, and an ASK to waiting on his card. A codex job's line, which its run's state field opens, maps as every other job's does, so its HANDOFF stops it and its READY or PUSHED waits on its PR."""
     opening = re.match(r"[A-Z]*", line)[0]
     reader = job["kind"] == "reader"
     if BUILT_LINE.match(line):
@@ -2050,7 +2050,7 @@ def incident_job(data: dict, name: str, order_id: str, part: str, created: str) 
     job_id = next_id(data["jobs"], "j")
     data["jobs"][job_id] = new_job(order_id, "codex", f"{part}: {whole_order(order['text'])}", [part], created)
     order["jobs"].append(job_id)
-    return f'{job_id} on "{part}": start its agent now, its brief ending Drive: {name}, order {order_id}, job {job_id}'
+    return f'{job_id} on "{part}": start it now with drive job launch {job_id} -, its brief on stdin ending Drive: {name}, order {order_id}, job {job_id}'
 
 
 def promise_thread(order: dict) -> tuple[str, str] | None:
