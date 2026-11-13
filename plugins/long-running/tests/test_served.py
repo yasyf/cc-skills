@@ -242,8 +242,8 @@ def test_a_not_ready_line_carries_each_answer_his_design_line_cites_whole_for_it
     assert run("pr", "add", URL, "--job", "j1")[0] == 0
     with state.edit(demo) as data:
         data["prs"][KEY]["head"] = "head1"
+        state.cite(data["prs"][KEY], "DESIGN: the handoff metric stays, by {answer:11f8cf2}")
     monkeypatch.setattr(served, "change", lambda key: {"title": "Fix: time each handoff", "body": "", "head": "head1", "diff": SMALL})
-    monkeypatch.setattr(state, "report_text", lambda name, job_id: "READY\nDESIGN: the handoff metric stays, by {answer:11f8cf2}\n")
     recorded.shown["11f8cf2"] = {"id": "11f8cf2aa", "title": "Keep the handoff metric?", "body": "Land both", "tags": [], "created_at": "2026-11-13T11:07:37Z"}
     judge.against = [{"order": "o1", "words": "time each handoff", "file": "api/run.ts", "change": "api/run.ts drops the handoff metric"}]
     named = 'o1 "time each handoff": api/run.ts drops the handoff metric'

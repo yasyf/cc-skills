@@ -1924,6 +1924,7 @@ def job_report(args: argparse.Namespace) -> int:
                 fixes.append(f"FIX kept, {error}")
         with state.edit(name) as data:
             state.take_result(data, args.id, line, whole)
+            state.cite_designs(data, args.id, line, whole)
             added = state.add_changes(name, data, args.id, whole)
         order = data["orders"][job["order"]]
         briefed = [
@@ -2915,7 +2916,7 @@ def pr_set(args: argparse.Namespace) -> int:
         raise DriveError(f"{key}: refused, nothing set: {refused}")
     if args.serves:
         refuse_an_unwritten_rule(known, key)
-        served.answers(known, [args.design or ""], view.live_cards(name))
+    answered = served.answers(known, [args.design], view.live_cards(name)) if args.design else None
     if args.serves and not args.design and (known["prs"][key]["wants_tap"] if args.tap is None else args.tap):
         raise DriveError(
             f"--serves on a PR waiting on his tap needs --design asked:<{served.NAMES}> for each design decision"
@@ -2945,12 +2946,12 @@ def pr_set(args: argparse.Namespace) -> int:
             refuse_a_port_storing_data(key, args.port_of)
         if args.exempt == INCIDENT_EXEMPTION:
             refuse_an_exempt_revert(known, key, order, read)
-    serving = ""
+    serving = "".join(f"\nhis answer its design cites, kept: {answer}" for answer in answered or [])
     with state.edit(name) as data:
         pr = find(data["prs"], key, "drive PR")
         if args.serves:
-            serving = f"\nserves {args.serves}, his words: {find(data['orders'], args.serves, 'order')['text']}"
-        set_pr(pr, args)
+            serving += f"\nserves {args.serves}, his words: {find(data['orders'], args.serves, 'order')['text']}"
+        set_pr(pr, args, answered)
         pr["waits"] = merged_waits(data, pr, args, found)
         if args.part:
             serving += f"\ndelivers {'; '.join(pr['parts'])}"
@@ -3119,11 +3120,11 @@ def merged_waits(data: dict, owner: dict, args: argparse.Namespace, found: dict 
     return view.stored_waits(data, [*([] if args.no_waits else owner["waits"]), *args.waits], found)
 
 
-def set_pr(pr: dict, args: argparse.Namespace) -> None:
+def set_pr(pr: dict, args: argparse.Namespace, answered: list[str] | None = None) -> None:
     if args.serves:
         pr["serves"] = args.serves
     if args.design:
-        pr["design"] = args.design
+        state.cite(pr, args.design, answered)
     if args.part:
         pr["parts"] = list(dict.fromkeys(args.part))
     if args.port_of:
