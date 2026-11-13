@@ -605,6 +605,8 @@ def test_a_launch_holds_no_install_lock_while_its_launcher_runs_and_hands_its_re
         ("PROVE: tools/ci db-read \"select count(*) from iris_sessions\"", "db-read"),
         ("INSTALL: tools/ci release start --order 680721", "ci release"),
         ("Goal: read the 500s in Datadog APM", "Datadog"),
+        ("Interactions: he opens the Executor OOM Run Crash Count monitor in Datadog and sees it quiet", "Datadog"),
+        ("Runs as: drive break-glass j1 --stack sandsql/plat-usw2-prod on this Mac's machine profile", "break-glass"),
     ],
 )
 def test_launch_starts_a_brief_naming_a_step_only_this_mac_runs_only_on_this_mac(
@@ -638,7 +640,7 @@ def test_launch_starts_on_a_sprite_a_brief_whose_mac_only_words_sit_only_in_his_
         "Done when: READY: one PR off dev, green, carrying the design's tests\n"
         "Where: Forge-AI/monorepo, one new branch off dev; go/sand/next/internal/vm_run/fork.go\n"
         "Decisions that bind:\n- his answer \"read the OOMs in Datadog first\"\n"
-        "Plan: Design j2810 (drive job report j2810, read it whole first)\n"
+        "Plan: change 1 of the retry design, read whole first\n"
         "Incident: Every release a drive job starts starts the regular way, `tools/ci release start <target> --from <sha>`\n"
         "Transcripts:\n- j2333 builder: read the 500s in Datadog APM, then tools/ci mac-box prove\n"
         "Drive: demo, order o1, job j1\n"
@@ -649,6 +651,36 @@ def test_launch_starts_on_a_sprite_a_brief_whose_mac_only_words_sit_only_in_his_
     fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
     monkeypatch.setattr(orca, "launch", lambda *args: {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH})
     assert run("job", "launch", "j1", "brief.md") == (0, f"j1 started on Sprite workspace-1 as dispatch {DISPATCH}")
+
+
+@pytest.mark.parametrize(
+    "written",
+    [
+        "Order (his words): Drive tooling: one long command of a break-glass job on an older install held every newer verb, so for about ten"
+        " minutes no session could add a job, post a record or start a handler\n"
+        "Serves: drive tooling\n"
+        "Goal: build j2675's recommended option for the install lock that makes newer verbs wait on older ones\n"
+        "Done when: a launch, resume or pr check refused mid-verb finishes on the newest install, then the install lock and its first-save wait"
+        " are deleted from every drive verb; return BUILT <branch>, waits on durable-agents:j2728-684145\n"
+        "Where: yasyf/cc-skills main, plugins/long-running lib/drive install lock and every verb's first-save wait; a new branch\n"
+        "Handoff: Researched: j2675; designed: j2728 (drive job report j2728). Build its recommended option on a pushed branch, no PR until he answers.\n"
+        "Decisions that bind:\n- May the drive end a stuck drive process that jams every command, without asking him first? (8770f47)\n"
+        "Drive: durable-agents, order o966, job j2729\n",
+        "Order (his words): Drive tooling: drive job add refuses a proof-only builder on this Mac for load, yet a Sprite cannot reach a Mac box"
+        " or run ci db-read, so the proof of a merged desktop fix on a Mac box, and of a production read through ci db-read, gets no builder\n"
+        "Serves: drive tooling\n"
+        "Goal: make the proof pass on the installed build\n"
+        "Where: yasyf/cc-skills main, merged PR yasyf/cc-skills#4648\n"
+        "Decisions that bind:\n- his answer \"Decide at start: a brief naming a Mac-only step starts here at any load, others keep the load check\"\n"
+        "Drive: durable-agents, order o860, job j2775\n",
+        "Goal: a monorepo check that pipes each PR's request into tools/ci release select --pr and fails on an unknown target\n"
+        "Done when: tools/ci release select --pr prints the targets the changed files name\n"
+        "Drive: durable-agents, order o900, job j2678\n",
+    ],
+    ids=["j2729", "j2775 order", "j2678 release select"],
+)
+def test_mac_step_reads_only_the_steps_a_brief_runs_never_his_order_words_or_tools_ci_release_select(written: str) -> None:
+    assert place.mac_step(written) is None
 
 
 def test_launch_local_from_a_session_that_did_not_start_the_jobs_agent_starts_its_lane_on_a_handoff_as_that_sessions(

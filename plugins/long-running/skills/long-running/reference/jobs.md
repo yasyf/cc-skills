@@ -46,9 +46,11 @@ Contents:
   with the Agent tool while this Mac's CPU is at or over its load gate's limit, the `remote` that
   `drive place` prints, unless its brief or handoff names a step only this Mac runs: break-glass, a
   Mac box (`ci mac-box`) or test Mac, a devbox (`ci devbox`), `ci db-read`, a `tools/ci release`
-  verb or a Datadog read, matched by `place.mac_step` over the brief's step fields only,
-  `Goal:`, `Done when:`, `Where:`, `Release:`, `Handoff:` and `Plan:`, never his `Order` words (an
-  alert he shared from Datadog), `Decisions that bind`, the `Incident:` rule or the `Transcripts:`
+  verb other than `release select`, which reads only its stdin and the checkout, or a Datadog read,
+  matched by `place.mac_step` over the brief's step fields only, `Goal:`, `Done when:`, `Where:`,
+  `Runs as:`, `Release:`, `Handoff:` with its `PROVE:` and `INSTALL:` lines, `Plan:` and
+  `Interactions:`, never his `Order` words (an alert he shared from Datadog, or a break-glass job
+  he names as a stall's cause), `Decisions that bind`, the `Incident:` rule or the `Transcripts:`
   of earlier jobs. Such a brief starts here
   at any load, and `drive job launch <j>` refuses its Sprite start, naming the step: start it with
   the Agent tool, or with `--local` when it reads no Datadog, since a `--local` Orca worker starts
