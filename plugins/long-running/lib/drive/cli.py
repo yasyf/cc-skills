@@ -4,7 +4,6 @@ import os
 import re
 import shlex
 import shutil
-import subprocess
 import sys
 import tempfile
 import textwrap
@@ -2132,17 +2131,9 @@ def record_start(name: str, job_id: str, started: dict | None, handoff: str | No
         if not (newer := install.upgraded()):
             raise
     receipt = state.drive_dir(name) / "jobs" / f"{job_id}.{started['dispatch'] if started else 'unstarted'}.json"
-    receipt.write_text(json.dumps({"started": started, "handoff": handoff, "text": text}))
-    what = f"its worker started as dispatch {started['dispatch']}" if started else "its launch started no worker"
-    try:
-        done = subprocess.run(
-            [str(newer), "job", "started", job_id, str(receipt), "--drive", name, "--json"], capture_output=True, text=True, check=False, timeout=orca.LAUNCH_SECONDS
-        )
-    except subprocess.TimeoutExpired:
-        raise DriveError(f"{job_id}: {what}, and {newer} did not record it within {orca.LAUNCH_SECONDS}s; its receipt is kept in {receipt}") from None
-    if done.returncode:
-        raise DriveError(f"{job_id}: {what}, and {newer} did not record it: {done.stderr.strip()}; its receipt is kept in {receipt}")
-    return json.loads(done.stdout)
+    what = f"{job_id}: its worker started as dispatch {started['dispatch']}" if started else f"{job_id}: its launch started no worker"
+    kept = {"started": started, "handoff": handoff, "text": text}
+    return json.loads(install.handed(newer, name, ["job", "started", job_id], receipt, kept, what, orca.LAUNCH_SECONDS))
 
 
 def job_started(args: argparse.Namespace) -> int:
@@ -2894,6 +2885,14 @@ def pr_check(args: argparse.Namespace) -> int:
     """Judge one PR against his words as the watch's check."""
     key, name = state.pr_key(args.url), state.resolve(args.drive)
     outcome = served.verdict(name, key)
+    return emit(args, f"{key}: {outcome}", {"key": key, "outcome": outcome})
+
+
+def pr_checked(args: argparse.Namespace) -> int:
+    """Keep the outcome an older install's `drive pr check` reached while this install saved the drive, which served.kept hands here."""
+    key, name, receipt = state.pr_key(args.url), state.resolve(args.drive), Path(args.receipt)
+    outcome = served.kept(name, key, json.loads(receipt.read_text()))
+    receipt.unlink()
     return emit(args, f"{key}: {outcome}", {"key": key, "outcome": outcome})
 
 
@@ -4185,6 +4184,12 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("url", help="the PR's URL")
     verb.set_defaults(run=pr_check)
+    verb = pr.add_parser(
+        "checked", parents=both, help="keep the outcome an older install's pr check reached, from the receipt it kept; that check runs it"
+    )
+    verb.add_argument("url", help="the PR's URL")
+    verb.add_argument("receipt", help="the receipt file the check kept under the drive's prs folder")
+    verb.set_defaults(run=pr_checked)
     verb = pr.add_parser(
         "wake",
         parents=both,

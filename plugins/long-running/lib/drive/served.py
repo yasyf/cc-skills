@@ -4,7 +4,7 @@ import re
 import subprocess
 from datetime import datetime, timedelta
 
-from drive import github, settled, slack, state, view
+from drive import github, install, settled, slack, state, view
 from drive.render import cut
 from drive.state import DriveError
 
@@ -79,39 +79,54 @@ def check(name: str, key: str, cited: list[str]) -> None:
     data = state.load(name)
     pr = data["prs"][key]
     if state.checked(data, pr):
-        return
+        return None
     orders = state.served_orders(data, pr)
+    state.let_go_install()
     read = change(key)
     answered = answers(data, [*cited, pr.get("design") or ""], view.live_cards(name))
     carried = (state.pr_key(url) for job in data["jobs"].values() if pr["url"] in job["prs"] for url in job["prs"])
     others = [other for other in dict.fromkeys(carried) if other != key and data["prs"][other]["state"] != "closed"]
     if found := judged(name, words(data, data["jobs"][pr["job"]], orders, pr["parts"], answered, others), {key: read}):
         raise Against([key], "; ".join(f'{item["order"]} "{item["words"]}": {item["change"]}' for item in found))
-    with state.edit(name) as data:
-        data["prs"][key]["checked"] = {"head": read["head"], "orders": orders, "patch": patch(read["diff"])}
+    return {"head": read["head"], "orders": orders, "patch": patch(read["diff"])}
 
 
 def verdict(name: str, key: str) -> str:
     """Judge one PR his card waits on at its head against his words, the one place a PR is judged, with the answers its builder's DESIGN: line cites, and keep the outcome on the PR: CHECKED and NOT READY also as a check event, which the watch says on the PR's line, and a refusal wakes its builder through drive pr wake and is a line on his card, holding neither his Approve nor its landing; then redraw his open card in place, so it shows the verdict. A judge or GitHub read that failed is kept alone, and the watch tries it again RETRY on."""
     data = state.load(name)
     pr = data["prs"][key]
-    head, at, named = pr["head"], state.stamp(), ""
+    head, at, named, checked = pr["head"], state.stamp(), "", None
     cited = [line for line in state.report_text(name, pr["job"]).splitlines() if line.startswith("DESIGN:")]
     try:
-        check(name, key, cited)
+        checked = check(name, key, cited)
     except Against as error:
         outcome, named = f"{NOT_READY}: {error}", error.named
     except DriveError as error:
         outcome = f"{FAILED}: {error}"
     else:
-        stamp = state.load(name)["prs"][key]["checked"]
+        stamp = checked or pr["checked"]
         outcome = f"{CHECKED} against the words of {', '.join(stamp['orders'])} at {stamp['head'][:10]}, so his Approve lands it once it is green"
-    with state.edit(name) as data:
-        pr = data["prs"][key]
-        pr["checker"] = {"head": head, "pid": os.getpid(), "at": at, "outcome": outcome, "against": named}
-        if not outcome.startswith(FAILED):
-            repo, number = key.split("#")
-            state.append_event(name, "check", repo=repo, number=int(number), change=outcome, lane=state.heard_lane(data, pr["order"]))
+    return kept(name, key, {"head": head, "at": at, "outcome": outcome, "against": named, "checked": checked})
+
+
+def kept(name: str, key: str, result: dict) -> str:
+    """Keep a check's outcome on its PR, with the head it checked, and redraw his open card for it, as verdict describes; when a newer install saved the drive while the check judged holding no install's lock, the newest install's `drive pr checked` keeps it, so no judgment runs twice."""
+    outcome = result["outcome"]
+    try:
+        with state.edit(name) as data:
+            pr = data["prs"][key]
+            if result["checked"]:
+                pr["checked"] = result["checked"]
+            pr["checker"] = {"head": result["head"], "pid": os.getpid(), "at": result["at"], "outcome": outcome, "against": result["against"]}
+            if not outcome.startswith(FAILED):
+                repo, number = key.split("#")
+                state.append_event(name, "check", repo=repo, number=int(number), change=outcome, lane=state.heard_lane(data, pr["order"]))
+    except state.NewerDrive:
+        if not (newer := install.upgraded()):
+            raise
+        receipt = state.drive_dir(name) / "prs" / f"{key.replace('/', '-').replace('#', '-')}.{result['head'][:12]}.json"
+        receipt.parent.mkdir(exist_ok=True)
+        return json.loads(install.handed(newer, name, ["pr", "checked", state.pr_url(key)], receipt, result, f"{key}: {outcome}", JUDGE_SECONDS))["outcome"]
     if outcome.startswith(FAILED):
         return outcome
     try:
