@@ -906,11 +906,11 @@ def quiet_since(data: dict, head: str) -> datetime:
 
 
 def quiet_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Owe him a line in each thread of open incidents the watch hears whose fix is not live yet and that had none in five minutes, whatever its last line said and while he is away too, since he is in incident until it is fixed, by his pick "Watch-owned clock: no 10-minute silence again, a line every five quiet minutes from a handler reading the jobs; costs one handler session each": one report naming every such incident in the thread with its orders and jobs, written once, and one handler the watch starts on it, which reads the jobs and posts where each incident stands in that thread, so incidents sharing a thread get one line, not one each. A handler already at work in that thread takes the report at its next step. The clock restarts once a handler has the report, so one that cannot post owes him the next five minutes on; a failed write or start is said as a failed read is and tried again next pass with the same report."""
+    """Owe him a line in each thread of open incidents the watch hears whose users are not unblocked yet, its fix not recorded live and no order of it keeping a proof, and that had none in five minutes, whatever its last line said and while he is away too, by his pick "Watch-owned clock: no 10-minute silence again, a line every five quiet minutes from a handler reading the jobs; costs one handler session each" and "Proof ends the line: none once users are unblocked; the incident stays open until its root fix is live.": one report naming every such incident in the thread with its orders and jobs, written once, and one handler the watch starts on it, which reads the jobs and posts where each incident stands in that thread, so incidents sharing a thread get one line, not one each. A handler already at work in that thread takes the report at its next step. The clock restarts once a handler has the report, so one that cannot post owes him the next five minutes on; a failed write or start is said as a failed read is and tried again next pass with the same report."""
     data = state.load(watcher.name)
     threads: dict[tuple[str, str] | str, list[str]] = {}
     for head, order in heard_orders(watcher, data).items():
-        if order["incident"] and not order["joins"] and not order["fixed"]:
+        if order["incident"] and not order["joins"] and not order["fixed"] and not any(data["orders"][order_id]["proof"] for order_id in state.incident_orders(data, head)):
             threads.setdefault(state.promise_thread(order) or head, []).append(head)
     lines = []
     for heads in threads.values():

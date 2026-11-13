@@ -719,6 +719,31 @@ def test_a_quiet_incidents_report_names_its_merged_fix_from_the_row_github_refre
     assert [line for line in lines if "waiting on his tap" in line or "green and approved" in line] == []
 
 
+@pytest.mark.parametrize("part", ["stop", "rollback", None])
+def test_a_quiet_incident_whose_users_are_proven_unblocked_owes_no_more_lines_and_stays_open_until_its_fix_is_live(
+    demo: str, monkeypatch: pytest.MonkeyPatch, run: Callable[..., tuple[int, str]], part: str | None
+) -> None:
+    quiet_incident(demo)
+    calls = catching_up(monkeypatch, demo)
+    watching = watcher(demo)
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=7)) == []
+    assert len(calls) == 2
+    build = "https://buildkite.com/forge/release/builds/15020"
+    if part:
+        with state.edit(demo) as data:
+            data["orders"]["o1"]["jobs"].append("j3")
+            data["jobs"]["j3"] = job(parts=[part])
+        with state.edit(demo) as data:
+            state.take_result(data, "j3", f"DONE {build}: production task creation succeeds")
+    else:
+        assert run("order", "set", "o2", "--proof", build)[0] == 0
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=30)) == []
+    assert len(calls) == 2
+    data = state.load(demo)
+    assert [data["orders"][order_id]["proof"] for order_id in ("o1", "o2")] == ([f"{build}: production task creation succeeds", None] if part else [None, build])
+    assert (state.open_incidents(data, ["o1", "o2"]), data["orders"]["o1"]["fixed"]) == (["o1", "o2"], None)
+
+
 def test_incidents_sharing_a_thread_owe_him_one_line_there_through_one_report_and_one_handler_on_the_threads_newest_line(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -489,9 +489,9 @@ restating it.
   next summary of its thread, never a line of its own. The watch's `TICK` comes every 30 minutes and
   names the orders with news; the coordinator sends at most one `report` per thread per tick, then
   `drive order set <o> --lined` for each order it covered.
-- An incident is the exception: until its fix is live he hears each step the moment it happens and
-  a line at least every five minutes, which the watch owes after any five quiet minutes and has a
-  handler post. A report on it goes out even when its thread already had one that turn, by
+- An incident is the exception: until its fix is live he hears each step the moment it happens, and
+  until its users are unblocked a line at least every five minutes, which the watch owes after any
+  five quiet minutes and has a handler post. A report on it goes out even when its thread already had one that turn, by
   [incidents.md](incidents.md).
 - He is away when he says he is going to sleep or stepping out (`drive heard --away`), or when he has
   neither written nor tapped a card for an hour, since each tap on a card records him heard as a

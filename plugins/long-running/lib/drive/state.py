@@ -37,7 +37,8 @@ INCIDENT_FIX = "fix"
 INCIDENT_STOP = "stop"
 INCIDENT_CHECK = "first check"
 INCIDENT_CAUSE = "cause"
-INCIDENT_PARTS = {"release": [INCIDENT_CHECK], "rollback": ["rollback", INCIDENT_CAUSE], "none": [INCIDENT_STOP, INCIDENT_CAUSE]}
+INCIDENT_ROLLBACK = "rollback"
+INCIDENT_PARTS = {"release": [INCIDENT_CHECK], "rollback": [INCIDENT_ROLLBACK, INCIDENT_CAUSE], "none": [INCIDENT_STOP, INCIDENT_CAUSE]}
 FIX_LINE = re.compile(r"^[*_`]*FIX[*_`]*:?[*_`]*[ \t]+(?P<fix>\S.*?)[ \t]*$", re.MULTILINE)
 NO_FIX = "none"
 UNTRACED = ("ASK", "BLOCKED", "HANDOFF")
@@ -847,7 +848,7 @@ def result_waits(data: dict, order_id: str, line: str) -> list[str]:
 
 
 def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
-    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, a builder's DONE on an open incident's fix recording that fix live as the order's fixed, built on its branch and waiting on each card a BUILT line names, waiting on each PR and release a READY, PUSHED or WAITING line names, which the watch frees once the PR merges or closes or the release is out, each PR a `WAITING … waits on` line names waiting on each card it names, keep each verdict a reader's answer gives on the PR it names, join each open order the FIX line of a result tracing a live bug's cause names to that bug's incident, so hurts_now reads it live, end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met, and deliver the parts of a job whose answer reaches him only by a post by the post its POSTED line names; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
+    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, a builder's DONE on an open incident's fix, stop or rollback keeping its proof as the order's proof, which ends the incident's five-minute line, and on its fix also recording that fix live as the order's fixed, built on its branch and waiting on each card a BUILT line names, waiting on each PR and release a READY, PUSHED or WAITING line names, which the watch frees once the PR merges or closes or the release is out, each PR a `WAITING … waits on` line names waiting on each card it names, keep each verdict a reader's answer gives on the PR it names, join each open order the FIX line of a result tracing a live bug's cause names to that bug's incident, so hurts_now reads it live, end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met, and deliver the parts of a job whose answer reaches him only by a post by the post its POSTED line names; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
     job = data["jobs"][job_id]
     taken, moment = result_state(job, line), stamp()
     job.update(state=taken, updated=moment, returned=moment)
@@ -861,9 +862,13 @@ def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
         for key in named_prs(data, job["order"], waiting["prs"]):
             data["prs"][key]["waits"] = list(dict.fromkeys([*data["prs"][key]["waits"], *BUILT_CARD.findall(waiting["cards"])]))
     if taken == "done" and job["kind"] == "builder":
+        proof = line.removeprefix("DONE").strip()
         for order_id in open_incidents(data, [job["order"], *job["carries"]]):
-            if INCIDENT_FIX in job_parts(job, order_id):
-                data["orders"][order_id]["fixed"] = data["orders"][order_id]["fixed"] or f"{job_id} proved it live: {line.removeprefix('DONE').strip()}"
+            order, parts = data["orders"][order_id], job_parts(job, order_id)
+            if {INCIDENT_FIX, INCIDENT_STOP, INCIDENT_ROLLBACK} & set(parts):
+                order["proof"] = order["proof"] or proof
+            if INCIDENT_FIX in parts:
+                order["fixed"] = order["fixed"] or f"{job_id} proved it live: {proof}"
     if (bug := traced(data, job_id, line)) and (fixes := FIX_LINE.findall(report)):
         head = data["orders"][bug]["joins"] or bug
         for order_id in fix_named(data, job["order"], fixes[-1])[0]:
