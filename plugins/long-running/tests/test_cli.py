@@ -2032,8 +2032,8 @@ def test_a_question_asked_twice_before_its_card_is_drawn_draws_its_newest_block_
     assert not Path(kept[0]).exists() and Path(kept[1]).exists()
 
 
-def test_a_question_asked_again_in_other_words_after_he_answered_its_card_goes_on_a_card_of_its_own(
-    run: Run, asking: str, monkeypatch: pytest.MonkeyPatch
+def test_a_question_asked_again_after_he_answered_its_card_is_kept_settled_in_the_same_words_and_goes_on_a_card_of_its_own_in_other_words(
+    run: Run, asking: str, monkeypatch: pytest.MonkeyPatch, settled_notes: list[tuple[str, str]]
 ) -> None:
     monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
     link = "https://acme.slack.com/archives/D123/p1794300000000100"
@@ -2047,12 +2047,21 @@ def test_a_question_asked_again_in_other_words_after_he_answered_its_card_goes_o
     listed.clear()
     with state.edit("demo") as data:
         data["jobs"]["j1"]["questions"][0]["closed"] = state.new_close("answered", "Yes", link)
+    reworded = SHORT_ASK.replace("opens in 3 requests", "opens in 3 calls")
+    monkeypatch.setattr("sys.stdin", io.StringIO(reworded))
+    again = str(state.drive_dir("demo") / "asks" / f"j1-{state.ask_hash(reworded)}.md")
+    assert run("job", "ask", asking, "-") == (
+        0,
+        f'{again} keeps j1\'s question settled, no card: he already answered this same question, asked in the same words, at {link}: "Yes". Go ahead on it; j1 builds it now',
+    )
+    assert settled_notes == [("j1", link)]
     monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace("ASK How should", "ASK When should")))
-    again = run("job", "ask", asking, "-")[1]
-    assert json.loads(run("job", "card", again, "--waits", "demo:j1-9")[1])["waits"] == "demo:j1-9"
-    assert [(question["file"], question["waits"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [
-        (first, "demo:j1-7"),
-        (again, "demo:j1-9"),
+    other = run("job", "ask", asking, "-")[1]
+    assert json.loads(run("job", "card", other, "--waits", "demo:j1-9")[1])["waits"] == "demo:j1-9"
+    assert [(question["file"], question["waits"], question["closed"] and question["closed"]["words"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [
+        (first, "demo:j1-7", "Yes"),
+        (again, None, "Yes"),
+        (other, "demo:j1-9", None),
     ]
 
 
