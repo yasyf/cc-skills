@@ -123,7 +123,8 @@ READ_WORDS = re.compile(r"[^\s:]+")
 DOC_PATH = re.compile(r"[\w.~/-]+\.(?:md|mdx|rst)\b")
 NAMED_SOURCE = (
     "the read the posting handler names as {read} behind its claims {claims}: each call of its own transcript, its posts"
-    " aside, whose tool name and input hold every word of it, case aside, with that call's whole result; a call reading a"
+    " aside, whose tool name and input hold every word of it, case aside, with that call's whole result, all the call read"
+    " however few of its words the handler names it by; a call reading a"
     " doc, report, PR body or brief shows what that source says, never what the code it describes does, whoever wrote it"
 )
 DOC_SOURCE = "; {docs} this read opens is a doc, which backs a line telling what that doc says and no line on what code does, even word for word"
