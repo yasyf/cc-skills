@@ -2048,14 +2048,14 @@ def test_a_builder_waiting_its_turn_for_a_slot_is_no_orphan_and_the_watch_frees_
     assert place.waiting_builders(state.load(demo)) == ["j9"]
 
 
-def release(number: int, published: str, components: str, name: str = "releases") -> dict:
+def release(number: int, published: str, components: str, production: str | None = None, day: str = "2026-11-09") -> dict:
     return {
-        "name": f"{name}/2026-11-09/{number}",
-        "tag_name": f"release/{name}-2026-11-09-{number}",
+        "name": f"releases/{day}/{number}",
+        "tag_name": f"release/releases-{day}-{number}",
         "published_at": published,
         "draft": False,
         "prerelease": False,
-        "body": f"Released from `c{number}` by [its build](https://ci.example/{number}).\n\nComponents: {components}",
+        "body": f"Released from `c{number}` by [its build](https://ci.example/{number}).\n\nComponents: {components}\n\nProduction: {production or components}",
     }
 
 
@@ -2063,7 +2063,7 @@ def test_a_job_waiting_on_a_release_is_freed_once_the_newest_release_shipping_it
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     serve(monkeypatch, {})
-    published = [release(1, "2026-11-09T14:00:00Z", "api, dashboard"), release(9, "2026-11-09T16:00:00Z", "api", name="rc")]
+    published = [release(1, "2026-11-09T14:00:00Z", "api, dashboard"), release(9, "2026-11-09T16:00:00Z", "api", production="none")]
     statuses, calls = ["behind", "ahead"], []
 
     def gh(cmd: list[str], **_: object) -> str:
@@ -2084,6 +2084,30 @@ def test_a_job_waiting_on_a_release_is_freed_once_the_newest_release_shipping_it
     assert state.load(demo)["jobs"]["j1"]["waits"] == []
     assert watch.run_pass(watching, T0 + timedelta(minutes=2)) == []
     assert len(calls) == 4
+
+
+def test_a_staging_only_release_frees_no_release_wait_and_the_next_release_reaching_production_frees_it(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    staged = release(27, "2026-11-12T22:01:54Z", "sandsql, api, dashboard", production="none", day="2026-11-12")
+    as_published = staged | {"body": staged["body"].removesuffix("\n\nProduction: none")}
+    published, calls = [as_published], []
+
+    def gh(cmd: list[str], **_: object) -> str:
+        calls.append(cmd[2])
+        return json.dumps(published) if cmd[2].endswith("/releases?per_page=100") else "ahead\n"
+
+    monkeypatch.setattr(watch.github, "run", gh)
+    with state.edit(demo) as data:
+        data["prs"][KEY].update(state="merged", merged_sha="5273c9b2")
+        data["jobs"]["j1"].update(state="waiting", said="WAITING release of sandsql", waits=[f"release:sandsql:{KEY}"], updated=state.stamp(T0 - timedelta(minutes=10)))
+    watching = watcher(demo, T0 + timedelta(hours=1))
+    assert watch.run_pass(watching, T0) == []
+    published[0] = staged
+    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
+    assert not any("/compare/" in call for call in calls)
+    published.append(release(28, "2026-11-12T22:17:37Z", "sandsql", day="2026-11-12"))
+    assert watch.run_pass(watching, T0 + timedelta(minutes=2)) == [f"FREE j1 o1: release releases/2026-11-12/28 ships {KEY} on sandsql, nothing else holds it"]
+    assert calls[-1] == "repos/Forge-AI/monorepo/compare/5273c9b2...release/releases-2026-11-12-28"
 
 
 def test_a_time_set_on_an_order_with_no_thread_is_said_once_and_kept_by_being_said(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
