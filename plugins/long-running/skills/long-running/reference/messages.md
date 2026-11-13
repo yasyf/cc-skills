@@ -417,6 +417,12 @@ When it is answered, replaced or redone:
   on, but never while one is being reworked to his words. A PR added later gets its own card when posted
   alone. Posted with the rest of its stack, it joins one new card for them all, and cc-slack marks
   each older card of those PRs replaced, with a link to the new one.
+- The card opens with each PR's lead, the four lines its builder gave `drive pr add`, before any
+  code: its headline as the card's title, then why the change is made, what it does and what it
+  changes downstream, on the dashboard's card above the stack's rows too, since his words on a card
+  of facts were "I have no idea why were doing this change, what it does, or what the downstream
+  impacts of it are". A stack card is titled by its `## The stack` line, else its bottom PR's
+  headline, and lists each PR's headline and lead above the stack's summary.
 - Each PR gets its own section: its title, link and Open button, then its Summary of what it
   changes, its Refresher, its biggest surprise and what he will hate most. Where it stands and what it waits on follow only when that is
   not green and his tap, and how it differs from the plan only when it does. A section its body lacks
@@ -427,7 +433,7 @@ When it is answered, replaced or redone:
   his words judges against them keeps Approve and any Approve he gave, the objection drawn whole under
   Where it stands, since his Approve lands it whatever that check says, by his words "why the fuck would you keep eveyhting broken to make it perfect". While a PR
   fixes a bug hurting someone now, a card that waits on him is posted again every 30 minutes until it lands. Its Show me comes last,
-  its pictures inline. The card's title and opening summary come from `## The stack` in its bottom PR.
+  its pictures inline. A stack card's summary comes from `## The stack` in its bottom PR, under its PRs' leads.
 - Once he answers, the card folds to its title, his pick and one line per PR. When an answer or ruling
   of his replaces the work it carries, `drive answer` settles it as it does a question card.
 - His words that rework a PR on it take the card down in the same call once the coordinator, having

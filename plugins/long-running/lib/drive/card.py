@@ -28,6 +28,7 @@ STACK_KINDS = ("New", "Fix", "Port", "Cleanup")
 REFRESHER_HEADINGS = ("refresher", "eli5", "in plain words", "context")
 STACK_HEADING = "the stack"
 STACK_CHARS = 700
+LEAD_LABELS = (("why", "Why this exists"), ("what", "What changes"), ("downstream", "Downstream"))
 HATE_HEADINGS = ("what you'll hate most", "what you will hate most", "what you'll hate the most", "what you will hate the most")
 PLAN_HEADINGS = ("against the plan", "differs from the plan", "plan deviations")
 SHOWN_HEADINGS = ("summary", *REFRESHER_HEADINGS, "biggest surprise", *HATE_HEADINGS, "show me", *PLAN_HEADINGS, "port", STACK_HEADING)
@@ -305,8 +306,19 @@ def body_of(pr: dict) -> str:
     return rest if rest and all(TRAILER.fullmatch(line.strip()) for line in last.splitlines()) else body
 
 
+def headline(entry: dict) -> str:
+    """The line his card on the PR opens with, as its builder gave drive pr add, with no kind word or count, his words on such a title being "useless title, NEW, 2 PRs all useless info, and its cut off"; none for a PR kept without one."""
+    return (entry.get("lead") or {}).get("headline") or ""
+
+
+def lead_words(entry: dict) -> str:
+    """Why the PR is made, what it does and what it changes downstream, one labelled line each, as its builder gave drive pr add; none for a PR kept without them."""
+    lead = entry.get("lead") or {}
+    return "\n".join(f"**{label}:** {lead[key]}" for key, label in LEAD_LABELS if lead.get(key))
+
+
 def render(pr: dict, entry: dict, shown: tuple[str, ...] = (), held: tuple[str, ...] = (), undrawn: tuple[str, ...] = (), charts: int = limits.CHARTS) -> dict:
-    """The cc-slack PR card for a `gh pr view` payload, the drive's entry for that PR, its drawn Show me pictures, what each of its waits that holds waits for, in his card's words, why each Show me picture left off it does not draw, and how many ```chart fences its Show me may still draw on the card."""
+    """The cc-slack PR card for a `gh pr view` payload, the drive's entry for that PR, its drawn Show me pictures, what each of its waits that holds waits for, in his card's words, why each Show me picture left off it does not draw, and how many ```chart fences its Show me may still draw on the card. It opens with the PR's lead, its headline alone as the title and its why, what and downstream as the body above the PR's own sections; a PR kept with no lead is titled from its own title as before."""
     kind, plain = kind_and_title(pr["title"])
     body = body_of(pr)
     found = {heading: without_html(text) for heading, text in sections(body).items()}
@@ -328,12 +340,14 @@ def render(pr: dict, entry: dict, shown: tuple[str, ...] = (), held: tuple[str, 
         "lands": "",
         "description": description(body),
     }
-    card = {"status": "info", "title": framed(f"{kind}: ", plain), "prs": [row]}
+    card = {"status": "info", "title": headline(entry) or framed(f"{kind}: ", plain), "prs": [row]}
+    if lead := lead_words(entry):
+        card["body"] = lead
     if tap_refused(pr, entry) is None:
         row["lands"] = lands_after_tap(pr, entry, held)
         card |= {
             "status": "needs_you",
-            "title": framed(f"{kind}: approve ", plain, "?"),
+            "title": headline(entry) or framed(f"{kind}: approve ", plain, "?"),
             "options": list(TAP_LABELS),
             "recommended": "Approve",
             "waits": merge_waits(pr["url"]),
@@ -360,7 +374,7 @@ def stack_words(pr: dict) -> tuple[str, str]:
 
 
 def render_stack(members: list[Member], siblings: bool) -> dict:
-    """One card for a stack of PRs, bottom first, or for sibling PRs of one request, which never sit on each other: a stack's title and summary from its bottom PR, siblings titled as that many PRs of one request and marked siblings, so cc-slack never words them a stack, a section per PR, and one Approve for the PRs still asking his tap, each other's section saying what holds it, its PRs' Show me charts at most the ones one Slack message draws, since cc-slack posts the whole card as one."""
+    """One card for a stack of PRs, bottom first, or for sibling PRs of one request, which never sit on each other: a stack's title and summary from its bottom PR, siblings titled as that many PRs of one request and marked siblings, so cc-slack never words them a stack, the stack's title alone or else the bottom PR's headline once the bottom PR has a lead, each PR's lead above the summary under its headline, a section per PR, and one Approve for the PRs still asking his tap, each other's section saying what holds it, its PRs' Show me charts at most the ones one Slack message draws, since cc-slack posts the whole card as one."""
     drawn, charts = [], limits.CHARTS
     for member in members:
         drawn.append(one := render(*member, charts=charts))
@@ -369,11 +383,16 @@ def render_stack(members: list[Member], siblings: bool) -> dict:
     kind = next((each for each in STACK_KINDS if any(each == found for found, _ in kinds)), "Change")
     title, summary = ("", "") if siblings else stack_words(members[0][0])
     count = f"{len(members)} PRs of one request" if siblings else f"{len(members)} PRs"
-    card = {"status": "info", "title": framed(f"{kind}: ", title) if title else framed(f"{kind}: {count}: ", kinds[0][1]), "prs": [one["prs"][0] for one in drawn]}
+    if led := headline(members[0][1]):
+        named = framed("", title or led)
+    else:
+        named = framed(f"{kind}: ", title) if title else framed(f"{kind}: {count}: ", kinds[0][1])
+    card = {"status": "info", "title": named, "prs": [one["prs"][0] for one in drawn]}
     if siblings:
         card["siblings"] = True
-    if summary:
-        card["body"] = summary
+    leads = [f"**{headline(entry) or plain}**\n{lead}" for (_, entry, *_), (_, plain) in zip(members, kinds, strict=True) if (lead := lead_words(entry))]
+    if body := "\n\n".join([*leads, *([summary] if summary else [])]):
+        card["body"] = body
     if any(one["status"] == "needs_you" for one in drawn):
         card |= {
             "status": "needs_you",

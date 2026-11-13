@@ -4,7 +4,7 @@ import subprocess
 from collections.abc import Callable
 
 import pytest
-from conftest import Answers, Judge
+from conftest import LEAD, Answers, Judge
 from drive import github, refs, served, settled, slack, stage, state
 from drive.state import DriveError
 
@@ -55,7 +55,7 @@ def test_a_restack_that_moves_the_hunks_and_the_lines_around_them_carries_the_ch
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
-    run("pr", "add", URL, "--job", "j1")
+    run("pr", "add", URL, "--job", "j1", *LEAD)
     stamp = {"head": "head1", "read": "head1", "orders": ["o1"], "lines": served.digests(SMALL)}
     with state.edit(demo) as data:
         data["prs"][KEY] |= {"head": "head2", "checked": stamp}
@@ -80,7 +80,7 @@ def test_a_restack_keeps_the_checks_pass_on_each_file_whose_added_and_removed_li
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "gets an inbox message when it changes")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
-    run("pr", "add", URL, "--job", "j1")
+    run("pr", "add", URL, "--job", "j1", *LEAD)
     reads = {"head": "head1", "diff": LAPSE + WAKES}
     monkeypatch.setattr(served, "change", lambda key: {"title": "Fix: watches wake their agent", "body": ""} | reads)
     with state.edit(demo) as data:
@@ -118,7 +118,7 @@ STORED_TAPS = {
 def moved_check(run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch) -> dict:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
-    run("pr", "add", URL, "--job", "j1")
+    run("pr", "add", URL, "--job", "j1", *LEAD)
     monkeypatch.setattr(served, "change", lambda key: {"title": "Fix: run", "head": "head2", "diff": SMALL})
     return {"head": "head2", "checked": {"head": "head1", "read": "head1", "orders": ["o1"], "lines": served.digests(SMALL)}}
 
@@ -217,7 +217,7 @@ def test_a_flake_fix_at_a_product_code_cause_is_judged_against_his_ruling_alone_
     recorded.shown[state.FLAKE_RULING] = {"id": f"{state.FLAKE_RULING}314b29e4dd77f018524c99590519c91e7", "title": "Flaky tests in CI: retry, skip, or fix?", "body": state.FLAKE_WORDS, "tags": [], "created_at": "2026-11-04T06:04:01Z"}
     files = ["go/sand/cmd/iris_serve_session.go", "dashboard/e2e/irisServe.e2e.ts"]
     monkeypatch.setattr(github, "files", lambda key: files)
-    assert run("pr", "add", URL, "--job", "j1", "--exempt", "flake fix")[0] == 0
+    assert run("pr", "add", URL, "--job", "j1", "--exempt", "flake fix", *LEAD)[0] == 0
     data = state.load(demo)
     pr = data["prs"][KEY]
     assert (pr["exempt"], pr["wants_tap"], stage.carded(pr), state.cleared(pr), state.served_orders(data, pr)) == ("flake fix", True, True, False, [])

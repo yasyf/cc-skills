@@ -55,7 +55,7 @@ for its repository says, then return `DONE <proof>`.
   - `## Summary`: one or two sentences saying what the PR changes, naming each function, table, flag,
     file or service it touches by its proper term, with no background, in his words "a summary of wtf
     the PR is doing, and use exact technical terms rather than being roundabout". It opens the PR's
-    section of his card.
+    section of his card, under the lead `drive pr add` keeps.
   - `## Refresher`: the change explained to an engineer who knows the codebase but has not read this
     code lately: which part of the system it touches, what that part did before, and what it does now.
     It follows the Summary on his card. The card also reads `## ELI5`, and a monorepo body's
@@ -104,8 +104,15 @@ for its repository says, then return `DONE <proof>`.
     times do I have to tell yoiu", beside the `path:line` that fixes the flake's cause. Any other PR that
     is not a port and that no order of his asks for returns `BLOCKED no order of his names this` instead
     of `READY`.
-- Register the PR the moment it opens: `drive pr add <url> --job <j>`, which records it waiting on his
-  tap. Only a port (`--port-of <N>`), an exempt class (`--exempt <class>`), a PR of a `Drive tooling:`
+- Register the PR the moment it opens: `drive pr add <url> --job <j> --headline "<line>" --because
+  "<line>" --does "<line>" --downstream "<line>"`, which records it waiting on his tap and opens his
+  card with that lead: the headline as its title, under 90 characters, then why the change is made,
+  what it does for him or its users and what else it changes once it lands, one plain line each with
+  no function or file named, since the Summary names the code. `drive pr add` refuses a PR waiting on
+  his tap until all four are kept, by his words on a card "has a lot of facts but is compeltely
+  useless for me figuring ut if I want to meg eit or not, I have no idea why were doing this change,
+  what it does, or what the downstream impacts of it are"; a later `drive pr add` with only the
+  lines it changes keeps the rest and redraws his card. Only a port (`--port-of <N>`), an exempt class (`--exempt <class>`), a PR of a `Drive tooling:`
   order outside `Forge-AI`, or one added with `--no-tap --why "<reason>"` waits on none; a `Forge-AI`
   PR waits on his tap whoever opened it and whatever order it serves, unless an exempt class covers
   it, and `drive pr add` and `drive pr set` refuse `--no-tap` on one, since only his tap or an exempt

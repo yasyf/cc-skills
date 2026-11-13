@@ -5,7 +5,7 @@ from pathlib import Path
 
 import landing_guard
 import pytest
-from conftest import SESSION, SHORT_ASK
+from conftest import LEAD, SESSION, SHORT_ASK
 from drive import agents, land, limits, settled, shell, state, view
 
 Run = Callable[..., tuple[int, str]]
@@ -20,7 +20,7 @@ DEMO = "https://github.com/yasyf/cc-skills/blob/3d8111f/pr-shots/demo-hover/x.pn
 def drive_pr(run: Run, demo: str) -> str:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
-    run("pr", "add", PR, "--job", "j1")
+    run("pr", "add", PR, "--job", "j1", *LEAD)
     return state.pr_key(PR)
 
 
@@ -261,7 +261,7 @@ def test_a_word_expands_its_parameters_where_zsh_does_and_keeps_a_quoted_or_unkn
 @pytest.fixture
 def stored_stack(drive_pr: str, run: Run) -> list[str]:
     for url in SIBLINGS:
-        run("pr", "add", url, "--job", "j1")
+        run("pr", "add", url, "--job", "j1", *LEAD)
     keys = [state.pr_key(SIBLINGS[0]), drive_pr, state.pr_key(SIBLINGS[1])]
     for key in keys:
         approve(key)

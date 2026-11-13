@@ -1961,7 +1961,7 @@ def register_named(name: str, job_id: str, line: str) -> list[str]:
     for key in dict.fromkeys(state.pr_key(found[0]) for found in state.PR_URL.finditer(line)):
         if key.casefold() in tracked:
             continue
-        pr = add_pr(name, key, job_id, github_pr(key))
+        pr = add_pr(name, key, job_id, github_pr(key), lead={})
         added.append(f"{key}: registered on {job_id}{drawn_card(name, key, pr)}")
     return added
 
@@ -2686,8 +2686,10 @@ def pr_add(args: argparse.Namespace) -> int:
         raise DriveError("--no-tap needs --why <reason>: every PR waits on his tap unless it is a port, exempt or drive tooling outside Forge-AI")
     if args.no_tap and state.guarded(key):
         raise DriveError(UNLANDABLE.format(key=key, done="added"))
-    pr = add_pr(name, key, args.job, github_pr(key), args.port_of, args.exempt, args.no_tap)
-    drawn = drawn_card(name, key, pr)
+    lead = {line: given for line, flag in limits.LEAD_LINES if (given := getattr(args, flag.removeprefix("--")))}
+    kept = state.load(name)["prs"].get(key, {}).get("lead")
+    pr = add_pr(name, key, args.job, github_pr(key), args.port_of, args.exempt, args.no_tap, lead)
+    drawn = releaded(pr) if pr["card"] and pr["lead"] != kept else drawn_card(name, key, pr)
     pr = state.load(name)["prs"][key]
     merging = dict(merge_reported(name, args.job)).get(key)
     if merging is None:
@@ -2705,6 +2707,15 @@ def drawn_card(name: str, key: str, pr: dict) -> str:
         return f", his card {talk.draw(name, [key])}"
     except (slack.SlackError, DriveError) as error:
         return f", his card not drawn yet, so the watch draws it on its next read: {error}"
+
+
+def releaded(pr: dict) -> str:
+    """Redraw in place his open card on a PR whose lead changed, so it opens with the lead kept now; what came of it."""
+    try:
+        slack.redraw_pr_cards(pr["url"])
+    except slack.SlackError as error:
+        return f", his card still opens with its old lead, since its redraw failed: {error}"
+    return ", his card redrawn with its new lead"
 
 
 def pr_wake(args: argparse.Namespace) -> int:
@@ -2741,8 +2752,10 @@ def pr_wake(args: argparse.Namespace) -> int:
     return emit(args, f"{key}: sent to {lane}@{name} for {job_id or pr['job']}", {"key": key, "job": job_id, "how": f"handoff to {lane}"})
 
 
-def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = None, exempt: str | None = None, no_tap: bool = False) -> dict:
-    """Register a PR on its job from its GitHub read, refused as `drive pr add` refuses, keeping the title it read, so a PR merged and proved before the watch's next read is named by it; the PR as registered, the job's first in place of each wait on its change. `drive pr add` runs it, and `drive job report` for each PR a builder's READY or PUSHED names that no `drive pr add` registered, so every PR a result names lands as one its builder added does, and for each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links. Someone else's PR no order of his names is refused before any check that would have its title or body edited."""
+def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = None, exempt: str | None = None, no_tap: bool = False, lead: dict | None = None) -> dict:
+    """Register a PR on its job from its GitHub read, refused as `drive pr add` refuses, keeping the title it read, so a PR merged and proved before the watch's next read is named by it; the PR as registered, the job's first in place of each wait on its change. `drive pr add` runs it, and `drive job report` for each PR a builder's READY or PUSHED names that no `drive pr add` registered, so every PR a result names lands as one its builder added does, and for each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links. Someone else's PR no order of his names is refused before any check that would have its title or body edited. The lead lines given are kept over those kept before, and a PR his card asks his tap on is refused, nothing written, until its lead tells him why it is made, what it does and what it changes downstream, by limits.lead_problems; a FIX line's PR, given no lead, is someone else's and kept as it reads."""
+    from drive import stage
+
     url = state.pr_url(key)
     known = state.load(name)
     added = find(known["jobs"], job_id, "job")
@@ -2777,6 +2790,11 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
             pr["wants_tap"] = flaky
         if no_tap:
             pr["wants_tap"] = False
+        if lead:
+            pr["lead"] = (pr["lead"] or {}) | lead
+        if lead is not None and stage.carded(pr) and (problems := limits.lead_problems(pr["lead"] or {})):
+            flags = " ".join(f'{flag} "<{line}>"' for line, flag in limits.LEAD_LINES)
+            raise DriveError(f"{key}: refused, nothing added: his card opens with its lead, and {'; '.join(problems)}. Add it with drive pr add {url} --job {job_id} {flags}")
         if url not in job["prs"]:
             if not job["prs"]:
                 state.wait_on_change(data, job_id, key)
@@ -4561,6 +4579,12 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("url", help="the PR's URL")
     verb.add_argument("--job", required=True, help="the job that opened or took it over")
     verb.add_argument("--why", help="with --no-tap, why it lands with no tap of his")
+    verb.add_argument("--headline", help="the line his card opens with, at most 90 characters: what the change gets him, in plain words")
+    verb.add_argument("--because", help="why the change is made, one plain line: the problem it fixes or the words of his it carries out")
+    verb.add_argument("--does", help="what it changes for him or its users once it lands, one plain line")
+    verb.add_argument(
+        "--downstream", help="what else it changes, breaks or holds once it lands, one plain line; a PR waiting on his tap is refused until all four lead lines are kept, naming no function or file"
+    )
     untapped = verb.add_mutually_exclusive_group()
     untapped.add_argument("--port-of", type=int, metavar="PR", help="a pure port of this old-tree PR number: exempt, with no tap card; refused for a PR changing a migration, schema or wire format, whose data model is a design part of his order")
     untapped.add_argument("--exempt", choices=state.EXEMPT_CLASSES)

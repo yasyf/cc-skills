@@ -11,7 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from conftest import DRIVE_TERMINAL, SHORT_ASK, CodexAsk, drawn_card, Draws, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, staged
+from conftest import DRIVE_TERMINAL, LEAD, SHORT_ASK, CodexAsk, drawn_card, Draws, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, staged
 from drive import agents, card, cli, codex, github, install, land, launchd, orca, place, reads, receiver, render, served, slack, stage, state, superseded, talk, view, watch
 
 KEY = "Forge-AI/monorepo#42"
@@ -389,8 +389,8 @@ def test_a_job_waiting_on_a_builders_change_waits_on_its_first_pr_and_the_watch_
     assert (state.load(demo)["jobs"]["j3"]["state"], state.load(demo)["jobs"]["j3"]["said"]) == ("waiting", "waits on j2")
     watching = watcher(demo)
     assert not [line for line in watch.run_pass(watching, T0) if line.startswith("FREE ")]
-    assert cli.main(["pr", "add", state.pr_url(built), "--job", "j2", "--drive", demo]) == 0
-    assert cli.main(["pr", "add", state.pr_url(built), "--job", "j2", "--drive", demo]) == 0
+    assert cli.main(["pr", "add", state.pr_url(built), "--job", "j2", "--drive", demo, *LEAD]) == 0
+    assert cli.main(["pr", "add", state.pr_url(built), "--job", "j2", "--drive", demo, *LEAD]) == 0
     jobs = state.load(demo)["jobs"]
     assert (jobs["j3"]["waits"], jobs["j3"]["said"], jobs["j1"]["waits"]) == ([built], f"waits on {built}", [])
     serve(monkeypatch, {built: read(state="MERGED", mergeCommit="ccc333")})
@@ -3242,7 +3242,7 @@ def test_job_held_names_his_open_cards_holding_a_jobs_pr_until_he_answers_or_it_
     monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
     assert cli.main(["job", "held", "--json", "--drive", demo]) == 0
     assert json.loads(capsys.readouterr().out) == {"id": "j1", "cards": ["demo:j1-7-a"]}
-    assert cli.main(["pr", "add", state.pr_url(KEY), "--job", "j1", "--drive", demo]) == 0
+    assert cli.main(["pr", "add", state.pr_url(KEY), "--job", "j1", "--drive", demo, *LEAD]) == 0
     capsys.readouterr()
     assert cli.main(["job", "held", "j1", "--drive", demo]) == 0
     assert capsys.readouterr().out == "j1: no open card of his holds its PR\n"
@@ -3256,7 +3256,7 @@ def test_a_job_on_an_open_incident_puts_up_its_pr_on_the_recommendation_and_the_
     with state.edit(demo) as data:
         data["orders"]["o1"]["incident"] = True
         state.take_result(data, "j1", "BUILT lane/built, waits on demo:j1-7-a")
-    assert cli.main(["pr", "add", url, "--job", "j1", "--drive", demo]) == 0
+    assert cli.main(["pr", "add", url, "--job", "j1", "--drive", demo, *LEAD]) == 0
     assert cli.main(["pr", "set", url, "--waits", "demo:j1-7-a", "--drive", demo]) == 2
     assert "Forge-AI/monorepo#43 serves incident o1, whose fix lands on the recommended option while his card stays open" in capsys.readouterr().err
     assert cli.main(["pr", "set", url, "--waits", "j1", "--drive", demo]) == 0

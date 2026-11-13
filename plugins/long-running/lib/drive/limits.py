@@ -17,6 +17,10 @@ OPTION_WORDS = 25
 REWORDING_WORDS = 10
 SUMMARY_LINES = 3
 OPTION_COUNT = range(2, 5)
+HEADLINE_CHARS = 90
+LEAD_WORDS = SUMMARY_WORDS // 3
+LEAD_LINES = (("headline", "--headline"), ("why", "--because"), ("what", "--does"), ("downstream", "--downstream"))
+LEAD_RULING = 'his words on a PR card "has a lot of facts but is compeltely useless for me figuring ut if I want to meg eit or not, I have no idea why were doing this change, what it does, or what the downstream impacts of it are"'
 READING = 'the coordinator\'s reading of his Nov 9 9:33 PM words "your messages need to be way shorter rewrite this for a human"'
 LINE_REST = "Say what changed for him and what happens next, in plain words; everything else stays on disk until he asks for it."
 FROM_ASK = (
@@ -88,6 +92,8 @@ WORD = re.compile(r"\S*[^\W_]\S*")
 LABELLED = re.compile(r"<[^<>|]*\|([^<>]*)>")
 TOKEN = re.compile(r"<[^<>]*>")
 URL = re.compile(r"https?://\S+")
+BACKTICKED = re.compile(r"`[^`\n]+`")
+CALLED = re.compile(r"\b(\w+)\(\)")
 CODE_NAME = re.compile(r"(?<![\w.-])(?:[\w.-]+/)*[A-Za-z0-9-]+(?<!-)(?:(?:\.(?=[A-Za-z_])|::|_+)[A-Za-z0-9-]+(?<!-))+")
 FEATURE = re.compile(r"^\*[^*\n]+\*[ \t]*$", re.MULTILINE)
 FINDINGS = re.compile(r"^[ \t]*Findings:[ \t]*$", re.MULTILINE)
@@ -443,6 +449,28 @@ class Question:
 
 def words(text: str) -> int:
     return len(WORD.findall(TOKEN.sub(" link ", LABELLED.sub(r" \1 ", text))))
+
+
+def lead_problems(lead: dict) -> list[str]:
+    """Why a PR's lead, the four lines his card opens with, leaves him unable to judge it: a line missing or spread over several, a headline over 90 characters or another line over 40 words, so the three stay within a card summary's 120, or a line naming a function or file in backticks, a call or a code name such as card.py or add_pr, which the PR's own sections name."""
+    problems = []
+    for key, flag in LEAD_LINES:
+        line = (lead.get(key) or "").strip()
+        if not line:
+            problems.append(f"{flag} is missing")
+            continue
+        if "\n" in line:
+            problems.append(f"{flag} spreads over several lines; say it in one")
+        if key == "headline" and len(line) > HEADLINE_CHARS:
+            problems.append(f"{flag} is {len(line)} characters; say it in at most {HEADLINE_CHARS}")
+        if key != "headline" and (count := words(line)) > LEAD_WORDS:
+            problems.append(f"{flag} is {count} words; say it in at most {LEAD_WORDS}")
+        plain = URL.sub(" ", TOKEN.sub(" ", line))
+        if named := [name for name in dict.fromkeys(found.strip("`") for found in (*BACKTICKED.findall(plain), *CALLED.findall(plain), *CODE_NAME.findall(plain))) if len(name) > 3]:
+            problems.append(f"{flag} names {', '.join(named)}; say what it does for him in plain words, since the PR's Summary names the code")
+    if problems:
+        problems.append(f"{LEAD_RULING}: write each as he would say it to a teammate deciding whether to merge it")
+    return problems
 
 
 def block_text(node: object) -> str:
