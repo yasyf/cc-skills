@@ -923,7 +923,7 @@ def linked_pages(asked: Question) -> list[str]:
 def page_line(url: str) -> str:
     try:
         return f"Page {url} shows: {cut(picture.page_text(url), PAGE_CHARS)}"
-    except picture.PictureError as error:
+    except picture.ChromeError as error:
         return f"Page {url} did not open: {error}"
 
 
