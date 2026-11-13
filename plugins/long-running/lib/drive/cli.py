@@ -5046,7 +5046,12 @@ def parser() -> argparse.ArgumentParser:
         ),
     )
     verb.add_argument("id")
-    verb.add_argument("--timeout", type=int, default=900)
+    verb.add_argument(
+        "--timeout",
+        type=int,
+        default=900,
+        help=f"seconds the installs get, the dashboard's handover gets, and each run of the proof file gets from its own start, its end the Unix second {install.PROOF_DEADLINE_ENV} names to the file",
+    )
     verb.set_defaults(run=job_prove)
     verb = job.add_parser("proved", parents=both, help="keep what an older install's job prove came to, from the receipt it kept; that proof runs it")
     verb.add_argument("id", help="the job")

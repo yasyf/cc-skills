@@ -1121,9 +1121,9 @@ def test_a_proof_hands_its_result_to_the_newer_install_that_saved_meanwhile(
     newest, version = tmp_path / "newest" / "bin" / "drive", state.VERSION
     real, proof_run = subprocess.run, install.proof_run
 
-    def saved_meanwhile(name: str, repro: str, path: str, deadline: float) -> subprocess.CompletedProcess[str]:
+    def saved_meanwhile(name: str, repro: str, path: str, timeout: int) -> subprocess.CompletedProcess[str]:
         monkeypatch.setattr(state, "VERSION", "0.0.1")
-        return proof_run(name, repro, path, deadline)
+        return proof_run(name, repro, path, timeout)
 
     def newer(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         if argv[0] != str(newest):
@@ -1188,6 +1188,26 @@ def test_a_proof_file_cut_off_at_its_deadline_waiting_out_ccxs_rate_limit_floor_
     install.prove("demo", "j1", 2)
     assert 2390 < git.sleeps[-1] <= 2401
     assert state.load("demo")["jobs"]["j1"]["said"] == f"DONE {URL} live: {script} exits 0 on long-running@skills 1.0.2"
+
+
+def test_a_proof_file_gets_its_whole_timeout_however_long_the_install_before_it_took_and_reads_the_unix_second_it_ends_at(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    git = fake([BUILD], {BUILD})
+    script = proving(config, tmp_path, git, 0)
+    script.write_text(f'#!/bin/sh\nsleep 2\necho "ends at ${install.PROOF_DEADLINE_ENV}"\n')
+    merged_plugins = install.merged_plugins
+
+    def slow(merges: dict[str, str], deadline: float, timeout: int, drive: str) -> list[str]:
+        plugins = merged_plugins(merges, deadline, timeout, drive)
+        git.now += timeout - 1
+        return plugins
+
+    monkeypatch.setattr(install, "merged_plugins", slow)
+    started = time.time()
+    install.prove("demo", "j1", 60)
+    assert state.load("demo")["jobs"]["j1"]["said"] == f"DONE {URL} live: {script} exits 0 on long-running@skills 1.0.3"
+    assert started + 59 <= int(state.proof_path("demo", "j1").read_text().removeprefix("ends at ")) <= time.time() + 60
 
 
 def test_a_proof_proves_the_prs_its_ready_names_while_the_job_also_holds_a_pr_closed_as_superseded(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
@@ -1472,7 +1492,7 @@ def test_a_dashboard_still_on_an_older_install_at_the_deadline_takes_blocked_nam
     assert state.load("demo")["orders"]["o1"]["proof"] is None
 
 
-@pytest.mark.parametrize(("lands", "runs"), [("while the dashboard hands over", 1), ("while the proof file fails", 2)])
+@pytest.mark.parametrize(("lands", "runs"), [("while the dashboard hands over", 1), ("while the proof file fails", 2), ("while the proof file fails at the end of its timeout", 2)])
 def test_a_proof_file_runs_on_the_newest_install_read_right_before_it_and_again_on_one_that_landed_while_it_failed(
     config: Path, tmp_path: Path, fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch, lands: str, runs: int
 ) -> None:
@@ -1490,11 +1510,13 @@ def test_a_proof_file_runs_on_the_newest_install_read_right_before_it_and_again_
         newer = {"scope": "user", "version": "1.0.4", "lastUpdated": "2026-11-10T10:00:00.000Z", "installPath": "/cache/long-running/1.0.4", "gitCommitSha": BUILD}
         git.write_installed(plugins | {"long-running@skills": [newer]})
 
-    def run(name: str, repro: str, path: str, deadline: float) -> subprocess.CompletedProcess[str]:
-        done = proof_run(name, repro, path, deadline)
+    def run(name: str, repro: str, path: str, timeout: int) -> subprocess.CompletedProcess[str]:
+        done = proof_run(name, repro, path, timeout)
         ran.append(done.stdout)
-        if lands == "while the proof file fails":
+        if lands.startswith("while the proof file fails"):
             land()
+        if lands.endswith("at the end of its timeout"):
+            git.now += timeout
         return done
 
     monkeypatch.setattr(install, "proof_run", run)

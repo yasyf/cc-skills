@@ -46,6 +46,7 @@ HELPER_OPTIONS = f"{INSTALL_NOW} (recommended), {EVERY_INSTALL} and Not now"
 PROVEN = "proven live by drive job prove"
 PROOF_FAILED = "drive job prove failed"
 PROOF_WAITS = "drive job prove waits on his next word"
+PROOF_DEADLINE_ENV = "CLAUDE_LONG_RUNNING_PROOF_DEADLINE"
 MERGED_DONE = "done at its merge"
 SAID_CHARS = 300
 NO_JOB = "j0"
@@ -843,10 +844,9 @@ def merge_commits(merges: dict[str, str]) -> list[str]:
 
 
 def prove(name: str, job_id: str, timeout: int) -> str:
-    """Prove live a builder's READY or PUSHED whose PRs all merged, the step the watch starts, on a builder that took BLOCKED, its own proof's among them, the newest READY or PUSHED its history keeps, which take_back puts it back on, so a failed proof runs again on the job that owns it: install each plugin a yasyf/* merge changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, its other merges taken at once, wait until the drive's dashboard runs the newest long-running installed, then run the job's proof file with the bin folders of those plugins' newest installs, read right before it runs, first on PATH and the drive named, as proof_run does, with no wait for CI, since no install reads a CI run; when it fails while a workflow a yasyf/* merge ran on its default branch has not completed its first run from the merge on that was not cancelled, the run drive pr ci judges the merge by, follow that run to its end with no deadline, as await_ci does, and run the file once more within a fresh deadline, as it does once ccx's GitHub rate-limit floor lifts for a run the deadline cut off while it waited that floor out, and run it again on the newer installs within the deadline when it fails while a newer install of any of them landed, keep the last run's output in reports/<j>.proof.txt, take DONE on exit 0 with output, since a proof file printing nothing proves nothing, each Slack post or picture link it names opening, as brief.unopened reads it, so a stand-in permalink proves nothing either, that output proving each user story the job's brief names on his surface, as brief.story_gap reads it, and BLOCKED otherwise, its line naming that file and quoting the run's last line opening FAIL, else saying it printed none, and a nonzero exit ending on a WAIT line with no FAIL line taking no result, an install that fails, a merge no release will carry, or a dashboard still on an older install at the deadline taking BLOCKED naming it, and keep the close report on its order for the watch to post when DONE leaves the order nothing to do, but an open incident's, which the watch closes once DONE records its fix live, each said on its PRs' lines; refused for a job waiting on no such READY or PUSHED, or one proof_gap names, the job left as it was; nothing after another proof took the job's result first. When a newer install saved the drive while it installed, waited on CI or ran the proof file, that install's `drive job proved` keeps the result, which proof_kept hands it."""
+    """Prove live a builder's READY or PUSHED whose PRs all merged, the step the watch starts, on a builder that took BLOCKED, its own proof's among them, the newest READY or PUSHED its history keeps, which take_back puts it back on, so a failed proof runs again on the job that owns it: install each plugin a yasyf/* merge changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, its other merges taken at once, wait until the drive's dashboard runs the newest long-running installed, then run the job's proof file with the bin folders of those plugins' newest installs, read right before it runs, first on PATH and the drive named, as proof_run does, with no wait for CI, since no install reads a CI run; when it fails while a workflow a yasyf/* merge ran on its default branch has not completed its first run from the merge on that was not cancelled, the run drive pr ci judges the merge by, follow that run to its end with no deadline, as await_ci does, and run the file once more, as it does once ccx's GitHub rate-limit floor lifts for a run its timeout cut off while it waited that floor out, and run it again on the newer installs when it fails while a newer install of any of them landed, each run of the file given the whole timeout from its own start, as proof_run gives it, so neither the installs, the dashboard's handover, a wait on CI nor an earlier run shortens it, keep the last run's output in reports/<j>.proof.txt, take DONE on exit 0 with output, since a proof file printing nothing proves nothing, each Slack post or picture link it names opening, as brief.unopened reads it, so a stand-in permalink proves nothing either, that output proving each user story the job's brief names on his surface, as brief.story_gap reads it, and BLOCKED otherwise, its line naming that file and quoting the run's last line opening FAIL, else saying it printed none, and a nonzero exit ending on a WAIT line with no FAIL line taking no result, an install that fails, a merge no release will carry, or a dashboard still on an older install at the deadline taking BLOCKED naming it, and keep the close report on its order for the watch to post when DONE leaves the order nothing to do, but an open incident's, which the watch closes once DONE records its fix live, each said on its PRs' lines; refused for a job waiting on no such READY or PUSHED, or one proof_gap names, the job left as it was; nothing after another proof took the job's result first. When a newer install saved the drive while it installed, waited on CI or ran the proof file, that install's `drive job proved` keeps the result, which proof_kept hands it."""
     from drive import brief, dashboard
 
-    deadline = clock() + timeout
     with state.edit(name) as data:
         take_back(name, data, job_id)
         if not merged_ready(data, job_id):
@@ -858,7 +858,7 @@ def prove(name: str, job_id: str, timeout: int) -> str:
     urls = " ".join(map(state.pr_url, merges))
     untapped = {key: sha for key, sha in merges.items() if state.merges_untapped(key)}
     try:
-        plugins = merged_plugins(untapped, deadline, timeout, name)
+        plugins = merged_plugins(untapped, clock() + timeout, timeout, name)
     except (InstallError, NoRelease) as error:
         code, output, versions = "unrun", str(error), "no install holding it"
         line = f"BLOCKED {urls}: not installed, so {job['repro']} did not run: {str(error)[:SAID_CHARS]}"
@@ -867,16 +867,15 @@ def prove(name: str, job_id: str, timeout: int) -> str:
         try:
             followed = False
             while True:
-                dashboard.await_newest(name, deadline)
+                dashboard.await_newest(name, clock() + timeout)
                 versions, path = newest_builds(plugins)
                 try:
-                    done = proof_run(name, job["repro"], path, deadline)
+                    done = proof_run(name, job["repro"], path, timeout)
                 except subprocess.TimeoutExpired as expired:
                     if (wait := github.floor_lifts_in(expired.stderr or "")) is None:
                         raise
                     print(f"drive job prove: {job['repro']} reached its deadline waiting for ccx's GitHub rate-limit floor to lift: running it again in {round(wait)} s, once it has", file=sys.stderr, flush=True)
                     sleep(wait)
-                    deadline = clock() + timeout
                     continue
                 code, output = done.returncode, done.stdout + done.stderr
                 if not code:
@@ -885,9 +884,8 @@ def prove(name: str, job_id: str, timeout: int) -> str:
                     followed = True
                     if await_ci(untapped):
                         print(f"drive job prove: {job['repro']} exits {code} on {versions} while its merge's CI ran: running it again now that CI completed", file=sys.stderr, flush=True)
-                        deadline = clock() + timeout
                         continue
-                if clock() >= deadline or newest_builds(plugins)[0] == versions:
+                if newest_builds(plugins)[0] == versions:
                     break
                 print(f"drive job prove: {job['repro']} exits {code} on {versions}, and a newer install landed while it ran: running it again on that", file=sys.stderr, flush=True)
         except state.DriveError as error:
@@ -927,13 +925,13 @@ def waited(code: int | str, output: str) -> str | None:
     return quote if isinstance(code, int) and code and quote.startswith("WAIT") else None
 
 
-def proof_run(name: str, repro: str, path: str, deadline: float) -> subprocess.CompletedProcess:
-    """Run the proof file as subprocess.run would, its output read as text, PATH set to `path` and DRIVE_ENV naming the drive it proves, so each drive call in it that names no drive acts on that one whatever session or drives this Mac holds, but as a process group of its own, which reads.end ends at the deadline with SIGINT, the signal that unwinds a Python proof, one run with -I included, so it writes what it printed before it exits, and SIGKILL reads.STOP_GRACE seconds on; the TimeoutExpired raised then holds everything the group wrote."""
+def proof_run(name: str, repro: str, path: str, timeout: int) -> subprocess.CompletedProcess:
+    """Run the proof file as subprocess.run would, its output read as text, PATH set to `path`, DRIVE_ENV naming the drive it proves, so each drive call in it that names no drive acts on that one whatever session or drives this Mac holds, and PROOF_DEADLINE_ENV the Unix second its deadline, `timeout` seconds from its start, falls at, so a proof that waits prints its WAIT line before it, but as a process group of its own, which reads.end ends at that deadline with SIGINT, the signal that unwinds a Python proof, one run with -I included, so it writes what it printed before it exits, and SIGKILL reads.STOP_GRACE seconds on; the TimeoutExpired raised then holds everything the group wrote."""
     from drive import reads
 
-    with subprocess.Popen([repro], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=os.environ | {"PATH": path, state.DRIVE_ENV: name}, start_new_session=True) as running:
+    with subprocess.Popen([repro], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=os.environ | {"PATH": path, state.DRIVE_ENV: name, PROOF_DEADLINE_ENV: str(int(time.time() + timeout))}, start_new_session=True) as running:
         try:
-            out, err = running.communicate(timeout=max(deadline - clock(), 0.001))
+            out, err = running.communicate(timeout=timeout)
         except subprocess.TimeoutExpired as expired:
             raise subprocess.TimeoutExpired(expired.cmd, expired.timeout, *reads.end(running, time.monotonic() + reads.STOP_GRACE, signal.SIGINT)) from None
     return subprocess.CompletedProcess([repro], running.returncode, out, err)

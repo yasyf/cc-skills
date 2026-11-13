@@ -235,7 +235,8 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      picture link does not open, such as a stand-in permalink. When only his next word can
      let it pass, such as a reply of his it reads, it exits nonzero with `WAIT <what he does next>` as
      its last line and no `FAIL` line, which keeps your job waiting and runs the file again once he is
-     next heard; a check that needs time after his word waits for it inside the run. It reaches the installed
+     next heard; a check that needs time after his word waits for it inside the run and prints its `WAIT` line before
+     `$CLAUDE_LONG_RUNNING_PROOF_DEADLINE`, the Unix second the run gets SIGINT at, 900 seconds after it starts. It reaches the installed
      plugin's code only through `$(drive --root)`, such as `$(drive --root)/hooks`, never a `readlink`
      of a command, which on a reader's shell finds the `~/.local/bin/drive` launcher, nor a pinned
      cache version's path, and reads the drive through that install's `drive.state`, such as
