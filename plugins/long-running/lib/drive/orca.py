@@ -444,9 +444,15 @@ def release(workspace: str, checkout: Path) -> str:
 
 
 def release_detached(workspace: str, checkout: Path, log: IO[str]) -> subprocess.Popen:
-    return subprocess.Popen(
-        [tool(RECLAIMER), "--destroy", workspace], cwd=checkout, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True
-    )
+    return reclaimer_detached(checkout, log, "--destroy", workspace)
+
+
+def reclaim_detached(run: str, dispatch: str, checkout: Path, log: IO[str]) -> subprocess.Popen:
+    return reclaimer_detached(checkout, log, "--run", run, "--done", dispatch)
+
+
+def reclaimer_detached(checkout: Path, log: IO[str], *args: str) -> subprocess.Popen:
+    return subprocess.Popen([tool(RECLAIMER), *args], cwd=checkout, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
 
 
 def holds_sprite(job: dict) -> bool:
