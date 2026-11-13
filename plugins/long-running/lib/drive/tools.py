@@ -413,7 +413,7 @@ def listed(value: object) -> list[str]:
 
 
 def batch(name: str, group: str, ops: list[dict], dry_run: bool) -> str:
-    """Check every op first, then run them in order, the order and job tools under one save of the drive; a job add whose inline order joins an open order adds no job, since a job of that order carries it."""
+    """Check every op first, then run them in order, the order and job tools under one save of the drive; a job add whose inline order joins an open order adds no job while a job of that order carries it, or its owner job does on an order hurting someone now, and is added on the new order otherwise."""
     if refused := refusals(name, group, ops):
         raise DriveError("\n".join([f"refused, nothing written: {len(refused)} of {len(ops)} ops refused; fix each and send the whole call again", *refused]))
     said: list[str] = []
@@ -426,8 +426,9 @@ def batch(name: str, group: str, ops: list[dict], dry_run: bool) -> str:
                 words = (group, verb)
                 if words == ("job", "add") and isinstance(given.get("order"), dict):
                     given = given | {"order": first(ran(name, said, index, ("order", "add"), given["order"], dry_run))}
-                    if not dry_run and (joins := state.load(name)["orders"][given["order"]]["joins"]):
-                        said.append(f"{index} job add: none, since {given['order']} joins {joins}")
+                    data = None if dry_run else state.load(name)
+                    if data and (joined := data["orders"][given["order"]])["joins"] and (joined["jobs"] or state.hurts_now(data, joined)):
+                        said.append(f"{index} job add: none, since {given['order']} joins {joined['joins']}")
                         made = None
                         continue
                 if verb != "add" and "id" in fields(leaf(*words)) and "id" not in given:

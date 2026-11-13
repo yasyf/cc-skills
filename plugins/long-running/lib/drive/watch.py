@@ -2254,7 +2254,7 @@ def unbuilt(data: dict, order_id: str, part: str, jobs: list[tuple[str, dict]]) 
         if merged
         else f"when it asks only for an answer, drive order set {order_id} --kind answer --part {named}; when a merged PR delivered it, drive order posted {order_id} <its link> --part {named}"
     )
-    return f"no builder carries this work, only {held}{open_cards}: start one with {start}, or add it to a builder with drive job set <builder> --part {named}; {done}"
+    return f"no builder carries this work, only {held}{open_cards}: start one with {start}, or add it to a builder with drive job set <builder> --part {named}, adding --carries {order_id} for another order's builder; {done}"
 
 
 def part_gaps(watcher: Watcher, data: dict, moment: datetime) -> dict[tuple[str, str], str | None]:

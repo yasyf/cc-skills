@@ -251,11 +251,11 @@ def bound(name: str, data: dict, job: dict) -> tuple[list[str], list[str]]:
 
 
 def readers(data: dict, order_id: str, parts: list[str]) -> list[str]:
-    """The order's readers, oldest first, that read one of these parts, a change a design listed counting as that design's own parts."""
+    """The order's readers, oldest first, that read one of these parts, on the order or carrying it, a change a design listed counting as that design's own parts."""
     order = data["orders"][order_id]
     designs = {held["design"] for part, held in order["parts"].items() if part in parts and held["design"]}
     read = {*parts, *(part for design in designs for part in data["jobs"][design]["parts"])}
-    return [job_id for job_id in order["jobs"] if (job := data["jobs"][job_id])["kind"] == "reader" and job["order"] == order_id and read & set(job["parts"])]
+    return [job_id for job_id in order["jobs"] if (job := data["jobs"][job_id])["kind"] == "reader" and read & set(state.job_parts(job, order_id))]
 
 
 def waits_on_research(order: dict, kind: str, parts: list[str], lands: bool = False) -> bool:

@@ -902,7 +902,7 @@ def test_a_tooling_order_jev_reads_as_repeating_an_open_one_joins_it_and_rides_o
     gaps = [watch.part_gap(watching, data, order_id, state.whole_order(words), state.now()) for order_id, words in (("o1", LOCK_STALL), ("o2", LOCK_STALL_AGAIN))]
     assert gaps == [watch.SETTLING, watch.SETTLING]
     assert run("job", "add", "reader", "--order", "o1", "--goal", "research: who holds the lock")[0] == 0
-    assert [job["carries"] for job in state.load("demo")["jobs"].values()] == [carried] * len(state.load("demo")["jobs"])
+    assert [job["carries"] for job in state.load("demo")["jobs"].values()] == [carried, carried, {}]
     jev.picks("o1", 0.6)
     assert run(*filed, "Drive tooling: cards say why") == (0, "o3")
     assert state.load("demo")["orders"]["o3"]["joins"] is None
@@ -3613,6 +3613,19 @@ def test_a_build_orders_design_job_waits_on_its_readers_research(
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
     keep(monkeypatch, capsys, "j1", RESEARCH)
     assert run("job", "add", "design", "--order", "o1", "--goal", "cards: where the copy runs")[0] == 0
+
+
+def test_a_reader_carrying_another_orders_part_is_that_parts_reader_so_its_builder_is_added_waiting_on_it(
+    run: Run, meta: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    filed = ("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "--kind", "build")
+    run(*filed, "Drive tooling: copy one store")
+    run(*filed, "Drive tooling: copy every store")
+    run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
+    assert run("job", "set", "j1", "--carries", "o2")[0] == 0
+    assert cli.main(["job", "add", "builder", "--order", "o2", "--goal", "build it"]) == 2
+    assert "while j1 reads, add this builder now waiting on it with --waits j1" in capsys.readouterr().err
+    assert run("job", "add", "builder", "--order", "o2", "--goal", "build it", "--waits", "j1")[1].splitlines()[0] == "j3"
 
 
 def test_a_build_orders_designer_and_builder_are_added_waiting_on_its_reader_still_at_work(
