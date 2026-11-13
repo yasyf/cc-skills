@@ -662,11 +662,11 @@ class Receiver:
 
 
 @pytest.fixture(autouse=True)
-def registered(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    sessions: list[str] = []
+def registered(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, str]]:
+    sessions: list[tuple[str, str, str]] = []
 
     def register(name: str, role: str, project: str | None, worktree: str, session: str) -> str:
-        sessions.append(session)
+        sessions.append((state.alias(name, role, project), worktree, session))
         return f"{state.alias(name, role, project)} registered: cci session run keeps session {session} running in tmux"
 
     monkeypatch.setattr(agents, "register", register)

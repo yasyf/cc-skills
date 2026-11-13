@@ -69,32 +69,53 @@ def hook_output(module: object, monkeypatch: pytest.MonkeyPatch, capsys: pytest.
     return capsys.readouterr().out
 
 
-def test_session_start_gives_each_role_its_own_context(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch, watch_process: WatchProcess) -> None:
+def test_session_start_gives_each_role_its_own_context(
+    demo: str, run: Run, monkeypatch: pytest.MonkeyPatch, watch_process: WatchProcess, registered: list[tuple[str, str, str]]
+) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     watch_process.ensured.clear()
-    output = session_start.respond({"session_id": os.environ["CLAUDE_CODE_SESSION_ID"], "source": "resume"})
+    registered.clear()
+    coordinator = os.environ["CLAUDE_CODE_SESSION_ID"]
+    output = session_start.respond({"session_id": coordinator, "source": "resume"})
     assert output["hookSpecificOutput"]["hookEventName"] == "SessionStart"
     context = output["hookSpecificOutput"]["additionalContext"]
     assert context.startswith("You are the coordinator of drive demo: ")
     assert "ship the fix" not in context
+    assert registered == [("demo-coordinator", state.load("demo")["roles"]["coordinator"]["cwd"], coordinator)]
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
     run("start", "demo", "--role", "communicator")
+    registered.clear()
     context = session_start.respond({"session_id": "talker", "source": "compact"})["hookSpecificOutput"]["additionalContext"]
     assert context.startswith("You are the communicator of drive demo: you talk to him.")
     assert watch_process.ensured == ["demo"]
+    assert registered == []
 
 
 def test_session_start_gives_a_sub_coordinator_its_projects_context_and_starts_its_projects_watch(
-    demo: str, run: Run, monkeypatch: pytest.MonkeyPatch, watch_process: WatchProcess
+    demo: str, run: Run, monkeypatch: pytest.MonkeyPatch, watch_process: WatchProcess, registered: list[tuple[str, str, str]]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
     run("start", "demo", "--role", "coordinator", "--project", "Iris")
     watch_process.ensured.clear()
+    registered.clear()
     context = session_start.respond({"session_id": "iris-1", "source": "resume"})["hookSpecificOutput"]["additionalContext"]
     assert context.startswith("You are the sub-coordinator for project Iris of drive demo: ")
     assert "cci: run cci drive use demo, and no cci subscribe: your cci alias demo-iris owns your subscription." in context
     assert watch_process.ensured == ["demo --project Iris"]
+    assert registered == [("demo-iris", state.load("demo")["subcoordinators"]["Iris"]["cwd"], "iris-1")]
+
+
+def test_session_start_keeps_a_coordinators_block_and_ends_it_with_cci_refusing_to_register_the_session(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    refusal = "cci did not register session session-under-test as the coordinator's, so nothing keeps it running or hearing its records: cci session register exited 1: no drive demo"
+
+    def refuse(name: str, role: str, project: str | None, worktree: str, session: str) -> str:
+        raise state.DriveError(refusal)
+
+    monkeypatch.setattr(agents, "register", refuse)
+    context = session_start.respond({"session_id": os.environ["CLAUDE_CODE_SESSION_ID"], "source": "compact"})["hookSpecificOutput"]["additionalContext"]
+    assert context.startswith("You are the coordinator of drive demo: ")
+    assert context.endswith(f"\n\n{refusal}")
 
 
 def test_session_start_names_the_channels_each_role_holds(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
