@@ -435,6 +435,12 @@ def holder(clone: str, branch: str) -> Path | None:
     return next((Path(lines[0].removeprefix("worktree ")) for lines in entries if f"branch refs/heads/{branch}" in lines), None)
 
 
+def sprite_config(checkout: Path) -> str:
+    """The SHA-256 of the cc-remote config a Sprite launched from the checkout is made from, which pins the payload its pool mounts and the keys a launch exports into its terminal, read where the launcher reads it: CC_REMOTE_CONFIG, else ccRemoteConfig in the checkout's .orca.json."""
+    config = os.environ.get("CC_REMOTE_CONFIG") or json.loads((checkout / ".orca.json").read_text())["ccRemoteConfig"]
+    return hashlib.sha256((checkout / config).read_bytes()).hexdigest()
+
+
 def launch(drive: str, lane: str, brief: Path, checkout: Path, run: str, route: str | None, workspace: str | None, session: str | None) -> dict:
     """Start one builder through the orca plugin's launcher, on a fresh Sprite or on the workspace's own Sprite in the checkout it holds, there resuming the Claude session given, either way giving its `~/.local/bin` the `drive` that asks each verb of this Mac, or, on the local route, in a fresh worktree of the checkout's Orca repository on this Mac; its success line, with the Sprite's prepared server."""
     env = {**os.environ, "WORKER_RUN": run, "WORKER_ENV": LANE_ENV, "WORKER_BIND": f"{DRIVE} bound --drive {drive} {run} --"}
@@ -569,10 +575,10 @@ def task_title(run: str, task: str) -> str:
 
 
 def receipt(dispatch: str) -> dict:
-    """What a job records of the worker on a dispatch, as Orca shows it: the dispatch, its Run, task and terminal, the lane its task is titled after, and where it runs."""
+    """What a job records of the worker on a dispatch, as Orca shows it: the dispatch, its Run, task and terminal, the lane its task is titled after, and where it runs, with no cc-remote config, which Orca does not show, so a finished worker's next starts on a fresh Sprite."""
     shown = worker(dispatch)
     held = run_of(shown)
-    return {"dispatch": dispatch, **held, "lane": task_title(held["run"], held["task"]), **placement(shown)}
+    return {"dispatch": dispatch, **held, "lane": task_title(held["run"], held["task"]), **placement(shown), "sprite_config": None}
 
 
 def adopted(brief: Path) -> dict | None:
@@ -679,6 +685,7 @@ def start_after(drive: str, lane: str, brief: Path, end: LaneEnd) -> dict:
         "dispatch": receipt["dispatchId"],
         "task": receipt["taskId"],
         "lane": lane,
+        "sprite_config": None,
     }
 
 

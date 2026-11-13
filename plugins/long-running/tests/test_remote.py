@@ -13,7 +13,23 @@ from pathlib import Path
 from unittest.mock import ANY
 
 import pytest
-from conftest import DRIVE_TERMINAL, LIVE_WORKER, REAL_DRIVE_TERMINAL, REAL_KEEP_LOGS, REAL_KEEP_TRANSCRIPTS, REAL_SAVED_BRANCHES, REAL_SESSION_OF, RESEARCH, Drawing, Jev, cloned, git_in, staged
+from conftest import (
+    DRIVE_TERMINAL,
+    LIVE_WORKER,
+    REAL_DRIVE_TERMINAL,
+    REAL_KEEP_LOGS,
+    REAL_KEEP_TRANSCRIPTS,
+    REAL_SAVED_BRANCHES,
+    REAL_SESSION_OF,
+    REAL_SPRITE_CONFIG,
+    RESEARCH,
+    SPRITE_CONFIG,
+    Drawing,
+    Jev,
+    cloned,
+    git_in,
+    staged,
+)
 from drive import artifacts, cli, github, orca, place, reads, render, state, watch
 
 pytestmark = pytest.mark.usefixtures("ccx_worktrees")
@@ -31,6 +47,7 @@ PLACE_TOOLS = orca.place_tools
 LAUNCH = orca.launch
 REPREPARED = "it continues in the checkout it left on pool-one, which cc-remote prepared again with the tools and keys a fresh Sprite gets"
 RUNTIME_LISTENING = orca.runtime_listening
+OLDER_CONFIG = "9ad4feea61a0" + "0" * 52
 BREAK_GLASS_READ = 'DRIVE break-glass j1 --stack sandsql/plat-usw2-prod --reason "drop the stranded copies" -- psql -c "drop table copy_1"'
 ENDED_READER = 99_999_999
 SEQUENCE = itertools.count(1)
@@ -1377,6 +1394,8 @@ def test_resume_continues_a_dead_lane_on_its_own_sprite_when_what_that_sprite_ho
 ) -> None:
     cloned(tmp_path, remote)
     launched = dead_lane_holding(remote, tmp_path, monkeypatch, unsaveable(why))
+    with state.edit(remote) as data:
+        data["jobs"]["j1"]["sprite_config"] = OLDER_CONFIG
     assert run("job", "resume", "j1", "Build #4412 failed: fix the lint") == (
         0,
         "j1: the message went to the job's next worker, relaunched on Sprite pool-sleeping as dispatch dispatch-2 in a handoff"
@@ -1392,9 +1411,10 @@ def test_resume_continues_a_dead_lane_on_its_own_sprite_when_what_that_sprite_ho
     )
     assert orca.UNPUSHED not in brief
     job = state.load(remote)["jobs"]["j1"]
-    assert (job["dispatch"], job["workspace"], [(death["dispatch"], death["workspace"]) for death in job["deaths"]]) == (
+    assert (job["dispatch"], job["workspace"], job["sprite_config"], [(death["dispatch"], death["workspace"]) for death in job["deaths"]]) == (
         "dispatch-2",
         "pool-sleeping",
+        OLDER_CONFIG,
         [(DISPATCH, "pool-sleeping")],
     )
 
@@ -1587,7 +1607,8 @@ def test_resume_to_a_worker_that_finished_on_a_sprite_prepares_that_sprite_again
     cloned(tmp_path, remote)
     first = tmp_path / "first.md"
     first.write_text(orca.vm_brief(remote, "j1", "Order (his words): prove it\nDrive: demo, order o1, job j1", None))
-    lane = {"terminal": "term_lane", "workspace": "pool-one", "environment": "pool-one", "lane": "demo-j1"}
+    lane = {"terminal": "term_lane", "workspace": "pool-one", "environment": "pool-one", "lane": "demo-j1", "sprite_config": SPRITE_CONFIG}
+    monkeypatch.setattr(orca, "checkout", lambda name, data: tmp_path)
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(
             lane,
@@ -1630,13 +1651,14 @@ def test_resume_to_a_worker_that_finished_on_a_sprite_prepares_that_sprite_again
     assert "Its last report:\n\nWAITING security review of #7\nPR: https://github.com/Forge-AI/monorepo/pull/7\n" in brief
     assert brief.endswith("which you act on now:\n\nThe review: one medium finding, fix it")
     job = state.load(remote)["jobs"]["j1"]
-    assert {field: job[field] for field in ("run", "dispatch", "task", "terminal", "workspace", "environment", "lane", "state", "report", "reads")} == {
+    assert {field: job[field] for field in ("run", "dispatch", "task", "terminal", "workspace", "environment", "sprite_config", "lane", "state", "report", "reads")} == {
         "run": FRESH_RUN,
         "dispatch": "ctx_lane0002",
         "task": "task_2",
         "terminal": "term_fresh",
         "workspace": "pool-one",
         "environment": "pool-one",
+        "sprite_config": SPRITE_CONFIG,
         "lane": "demo-j1-2",
         "state": "running",
         "report": None,
@@ -1917,7 +1939,7 @@ def test_a_finished_worker_whose_sprite_refuses_its_tools_starts_the_next_on_a_f
     first = tmp_path / "first.md"
     first.write_text(orca.vm_brief(remote, "j1", "Order (his words): prove it\nDrive: demo, order o1, job j1", None))
     with state.edit(remote) as data:
-        data["jobs"]["j1"].update(brief=str(first), terminal="term_lane", workspace="pool-one", environment="pool-one")
+        data["jobs"]["j1"].update(brief=str(first), terminal="term_lane", workspace="pool-one", environment="pool-one", sprite_config=SPRITE_CONFIG)
     reprepared(monkeypatch)
     monkeypatch.setattr(orca, "save", save)
     refusal = UNFIT_KEPT.replace("sprite-old", "pool-one")
@@ -1944,6 +1966,42 @@ def test_a_finished_worker_whose_sprite_refuses_its_tools_starts_the_next_on_a_f
     assert (job["dispatch"], job["workspace"], [(death["dispatch"], death["workspace"]) for death in job["deaths"]]) == ("dispatch-2", "workspace-2", [(DISPATCH, "pool-one")])
 
 
+@pytest.mark.parametrize(
+    ("made", "was"),
+    [(OLDER_CONFIG, "the cc-remote config with SHA-256 9ad4feea61a0"), (None, "a cc-remote config the drive never recorded")],
+    ids=["an older config", "no recorded config"],
+)
+def test_a_finished_worker_whose_sprite_was_made_from_another_cc_remote_config_starts_the_next_on_a_fresh_sprite_made_from_the_default_branchs(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tooled: list[str], made: str | None, was: str
+) -> None:
+    cloned(tmp_path, remote)
+    first = tmp_path / "first.md"
+    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): prove it\nDrive: demo, order o1, job j1", None))
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(brief=str(first), terminal="term_lane", workspace="pool-one", environment="pool-one", sprite_config=made)
+    monkeypatch.setattr(orca, "worker", lambda dispatch: FINISHED_WORKER)
+    monkeypatch.setattr(orca, "bound_command", lambda *args: pytest.fail("no worker starts on a Sprite made from another cc-remote config"))
+    monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing is sent to a finished worker: {args}"))
+    monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: None)
+    monkeypatch.setattr(orca, "new_run", lambda drive, objective: FRESH_RUN)
+    launched = []
+
+    def fake_launch(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None, workspace: str | None, session: str | None) -> dict:
+        launched.append(workspace)
+        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane")}
+
+    monkeypatch.setattr(orca, "launch", fake_launch)
+    assert run("job", "launch", "j1") == (
+        0,
+        "j1: the job's next worker, relaunched on Sprite workspace-2 as dispatch dispatch-2 in a handoff carrying its brief, its"
+        " branch, its last line, its report and its PRs; its lane on Sprite pool-one was dead (its worker succeeded, and Orca sends"
+        f" nothing to a finished worker on a Sprite, and its Sprite pool-one was made from {was}, and the one the default branch"
+        " holds now has SHA-256 4b925c205080), and work not pushed from pool-one is not carried over",
+    )
+    job = state.load(remote)["jobs"]["j1"]
+    assert (launched, tooled, job["workspace"], job["sprite_config"]) == ([None], [], "workspace-2", SPRITE_CONFIG)
+
+
 def test_a_launch_of_a_lane_whose_worker_finished_prepares_its_sprite_again_with_no_message_and_one_that_works_is_refused(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -1954,6 +2012,8 @@ def test_a_launch_of_a_lane_whose_worker_finished_prepares_its_sprite_again_with
         data["jobs"]["j1"].update(brief=str(first), terminal="term_lane", workspace="pool-one", environment="pool-one", lane="demo-j1")
     assert cli.main(["job", "launch", "j1"]) == 2
     assert capsys.readouterr().err == f"drive: j1 already started as dispatch {DISPATCH}, whose worker takes messages: drive job resume j1 <the event> sends it one\n"
+    with state.edit(remote) as data:
+        data["jobs"]["j1"]["sprite_config"] = SPRITE_CONFIG
     launched = reprepared(monkeypatch)
     assert run("job", "launch", "j1") == (
         0,
@@ -2078,6 +2138,7 @@ def test_a_relaunch_orca_refuses_exits_2_with_the_refusal_verbatim_and_keeps_the
         data["jobs"]["j1"].update(brief=str(first), route=state.LOCAL_ROUTE, terminal="term_lane", workspace=None, environment=None)
     refusal = "orca orchestration worker-start: terminal_busy: The terminal is running another worker."
     orca_refuses(monkeypatch, refusal)
+    monkeypatch.setattr(orca, "checkout", lambda name, data: tmp_path)
     monkeypatch.setattr(orca, "worker", lambda dispatch: FINISHED_WORKER)
     assert cli.main(["job", "resume", "j1", "the review"]) == 2
     assert capsys.readouterr().err == f"drive: {refusal}\n"
@@ -2289,7 +2350,7 @@ def test_a_pr_wake_to_a_finished_lane_prepares_its_sprite_again_and_starts_its_j
     ready = f"READY {url} {above}"
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(
-            {"terminal": "term_lane", "workspace": "pool-one", "environment": "pool-one", "lane": "demo-j1"},
+            {"terminal": "term_lane", "workspace": "pool-one", "environment": "pool-one", "lane": "demo-j1", "sprite_config": SPRITE_CONFIG},
             brief=str(first),
             state="waiting",
             said=ready,
@@ -4341,6 +4402,19 @@ def test_a_sprite_launch_gives_the_sprite_the_drive_that_asks_each_verb_of_this_
     assert ran["env"]["WORKER_TOOLS"] == f"drive={orca.PLUGIN / 'lib' / 'sprite' / 'drive'}"
     assert (orca.PLUGIN / "lib" / "sprite" / "drive").stat().st_mode & 0o111
     assert "WORKER_LOCAL" not in ran["env"]
+
+
+def test_a_sprites_cc_remote_config_is_the_sha256_of_the_file_the_launcher_reads_from_the_checkout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    config = tmp_path / "tools" / "cc-remote" / "config.yaml"
+    config.parent.mkdir(parents=True)
+    config.write_text("ref: dev\n")
+    (tmp_path / ".orca.json").write_text(json.dumps({"ccRemoteConfig": "tools/cc-remote/config.yaml"}))
+    named = tmp_path / "named.yaml"
+    named.write_text("ref: main\n")
+    monkeypatch.delenv("CC_REMOTE_CONFIG", raising=False)
+    pinned = REAL_SPRITE_CONFIG(tmp_path)
+    monkeypatch.setenv("CC_REMOTE_CONFIG", str(named))
+    assert (pinned, REAL_SPRITE_CONFIG(tmp_path)) == (hashlib.sha256(b"ref: dev\n").hexdigest(), hashlib.sha256(b"ref: main\n").hexdigest())
 
 
 def test_placing_tools_on_a_sprite_runs_the_orca_step_on_its_cc_remote_task_with_the_drive_a_launch_gives_it(
