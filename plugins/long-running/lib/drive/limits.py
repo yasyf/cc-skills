@@ -770,8 +770,9 @@ def option_problems(options: list[str], unsettled: str | None) -> list[str]:
         return problems
     return problems + [
         f'option "{option}" cleans up a bad state with "{found[0]}", a sweeper, time rule or reclaim loop: design the state out so it'
-        f' cannot exist, such as one owner holding it until it ends, or keep the option with --unsettled "{NO_SWEEPERS}: <why the'
-        f' state cannot be designed out>" (his ruling {NO_SWEEPERS}, "No sweepers")'
+        f' cannot exist, such as one owner holding it until it ends, or keep the option with `drive job ask <j> <the file holding this block>'
+        f' --unsettled "{NO_SWEEPERS}: <why the state cannot be designed out>"`, the one verb taking --unsettled, and for a reader\'s DESIGN'
+        f" run `drive job report <j> -` again after it, which keeps that --unsettled (his ruling {NO_SWEEPERS}, \"No sweepers\")"
         for option in options
         if (found := proposed(SWEEPER, option))
     ]
@@ -933,7 +934,7 @@ def names_option(words: str, options: list[str]) -> bool:
 
 
 def ask_case(text: str, asked: Question) -> str:
-    """A kept card as Jev reads it against his words: its question, summary and Show me, each option numbered with its description and the recommended one marked, the root cause its findings name with the option they say removes it, and a Page line for each web page it links, holding the words that page shows once Chrome opens it, every page read at once."""
+    """A kept card as Jev reads it against his words: its question, summary and Show me, each option numbered with its description and the recommended one marked, the root cause its findings name with the option they say removes it and the one they name the simplest, which every card offers, and a Page line for each web page it links, holding the words that page shows once Chrome opens it, every page read at once."""
     findings = FINDINGS.split(text, maxsplit=1)[1]
     with ThreadPoolExecutor() as pool:
         pages = list(pool.map(page_line, linked_pages(asked)))
@@ -946,7 +947,7 @@ def ask_case(text: str, asked: Question) -> str:
                 f"Option {number}{' (recommended)' if option == asked.recommended else ''}: {option}" + (f" -- {asked.hints[option]}" if option in asked.hints else "")
                 for number, option in enumerate(asked.options, 1)
             ),
-            *(found[0].strip() for pattern in (ROOT_CAUSE, FIRST_PRINCIPLES) if (found := pattern.search(findings))),
+            *(found[0].strip() for pattern in (ROOT_CAUSE, FIRST_PRINCIPLES, SIMPLEST) if (found := pattern.search(findings))),
             *pages,
         ]
     )

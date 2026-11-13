@@ -1704,7 +1704,9 @@ def test_an_option_that_cleans_up_a_bad_state_is_refused_unless_unsettled_names_
     assert (
         'option "sweep orphaned leases every 10 min" cleans up a bad state with "sweep orphaned", a sweeper, time rule or reclaim'
         ' loop: design the state out so it cannot exist, such as one owner holding it until it ends, or keep the option with'
-        ' --unsettled "b89209a: <why the state cannot be designed out>" (his ruling b89209a, "No sweepers")'
+        ' `drive job ask <j> <the file holding this block> --unsettled "b89209a: <why the state cannot be designed out>"`, the one'
+        " verb taking --unsettled, and for a reader's DESIGN run `drive job report <j> -` again after it, which keeps that"
+        ' --unsettled (his ruling b89209a, "No sweepers")'
     ) in str(refused.value)
     with pytest.raises(DriveError, match='cleans up a bad state with "older than a minute"'):
         limits.question(options_ask("a placed row older than a minute counts as waiting (recommended)", "one owner holds the lease until it ends"))

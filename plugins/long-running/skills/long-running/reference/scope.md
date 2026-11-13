@@ -109,10 +109,11 @@ An answer he gives later still settles the older cards it decides, through `driv
 
 Every other question Jev reads, in one call, against his words on the order and his messages about
 it in its thread, without the lines he quoted from an alert or another's message. It refuses each
-option they rule out, his pick or order beating the root-cause preference, and a card offering no
-tap for an amount or choice they name, by his words "You didn't give me a tap for 30 day bonding how
-many times do I have to say this". The refusal names each part and the words it breaks: rewrite it,
-or ask again with `--unsettled` naming each id and why those words do not reach it. A tap approving a PR settles only that PR's landing. A block a refusal stops
+option they rule out and a card offering no tap for an amount or choice they name, by his words
+"You didn't give me a tap for 30 day bonding how many times do I have to say this". The refusal names
+each part and the words it breaks: rewrite it, or keep it with the
+`drive job ask <j> <file> --unsettled "<id>: <why those words do not reach it>"` the refusal prints, the one
+verb taking `--unsettled`, then a reader's `drive job report <j> -` again, which keeps it. A tap approving a PR settles only that PR's landing. A block a refusal stops
 stays kept under `asks/` as the job's pending question with its refusal. No card draws from it,
 and `drive status` lists it refused. The watch says its job waits on a
 card never posted until the job asks it again, in its words or others sharing three rare words, or
@@ -153,11 +154,15 @@ principles:` that option, or `Root cause:` reads `fixed: <that structure>, remov
 PR's link>` on a card asking only whether to release that PR, `not found: <the job finding it>`, or
 `none: <why no defect is behind it>`, as on a pick between his designs or his approval of an action
 his rules hold for him, such as a benchmark run; `drive job ask` refuses a block without them. In the
-call that reads his words, Jev weighs each option and the card by the part of this rule its `Root cause:`
-form names, his words, and the words each page it links shows once Chrome opens it against what the card
-says that page shows; each option or part Jev is at least 0.8 sure breaks them refuses the card, naming
-the part and the words it breaks, until it is rewritten or `--unsettled` names each id with why those
-words do not reach it, by his words "They should all use jev for judgement rather than hard coding thighs". His ruling: "Update your skill to not just brush over the root cause ever". On a bug hurting
+call that reads his words, Jev weighs each option by his words, and the card, its recommended option
+and its `Root cause:`, `First principles:` and `Simplest:` lines, by the part of this rule its `Root cause:`
+form names and by the words each page it links shows once Chrome opens it against what the card says
+that page shows. This rule speaks only to the recommended option, never one offered beside it such as
+the `Simplest:` one every card offers, and Jev's finding on it is printed to the agent and refuses no
+card, by his pick 320b7a7 "drive job ask keeps every well-shaped card and prints Jev's finding to the
+agent"; each other option or part Jev is at least 0.8 sure breaks his words or a page's refuses the
+card, naming the part and the words it breaks, until it is rewritten or the `drive job ask` the
+refusal prints names each id in `--unsettled` with why those words do not reach it, by his words "They should all use jev for judgement rather than hard coding thighs". His ruling: "Update your skill to not just brush over the root cause ever". On a bug hurting
 someone now, an incident's or one a reporter shared, the findings' `Interim fix:` line links the
 immediate fix shipping while he picks (its PR, release, rollback, repair, or the job building it),
 or reads `Interim fix: none: <why nobody is hurt now>`; `drive job ask` and a reader's `DESIGN` are
