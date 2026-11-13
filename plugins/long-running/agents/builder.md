@@ -258,6 +258,11 @@ event needs. The first four events then return as step 7 says.
 
 ## Releases
 
+- Start only the release your brief's `Release:` line names, its targets and `--env` as written, and,
+  outside an incident, only after a `tools/ci release plan` at the same flags passed earlier in your
+  job, a hotfix's pull requests given to it as `--hotfix <n>`: the `landing_guard` hook refuses any
+  other `tools/ci release start` or `hotfix`. A brief naming no release, or another one, gets a
+  `BLOCKED` naming the release you would start and why.
 - His order or pick on a card to release, or the coordinator's record of either, approves starting
   that release, never the migrations, deletes and replaces its approve hold holds: pass `--order <his
   answer id>` to `tools/ci release start` with no `ASK` or question first, since nobody asks him

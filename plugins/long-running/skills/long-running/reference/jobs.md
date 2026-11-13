@@ -282,7 +282,7 @@ before it sends or starts.
 ## The brief
 
 The brief is the job's whole context, the same here and on a Sprite. The `brief` op writes each line
-below from what the drive holds, `Runs as`, `Handoff`, `Plan` and `Incident` from the call's fields
+below from what the drive holds, `Runs as`, `Release`, `Handoff`, `Plan` and `Incident` from the call's fields
 when given, and prints `Read your brief first: <path>`. It has no field for `Native` or
 `Would he ask`: for a job whose result he sees or uses, add those two lines to the prompt below the
 line it printed.
@@ -294,6 +294,7 @@ Goal: <the deliverable, one sentence>
 Done when: <the check that proves it where he will see or use it, such as the installed command's output, the live post or a recording of each click, since data fetched from an API proves no screen>
 Where: <repo, base branch, existing branch or PR to adopt>
 Runs as: <only for a pass, migration, backfill, conversion or bulk repair over a team's data: the service account in that team's cluster it runs as, and how it starts with no person's role, such as a pipeline or an in-cluster schedule; `none: <why>` when the hook reads a pass in a Goal that runs none>
+Release: <only for a job that starts a release: the one `tools/ci release start` or `tools/ci release hotfix` it may run, its targets and `--env` as it runs them, a start always naming `--env`; the `landing_guard` hook refuses a job's start or hotfix of any other targets or envs, and, outside an incident, one no `tools/ci release plan` at the same flags passed before in that job>
 Handoff: <a PR event or a built branch freed only: the PR URLs or the built branch, its head, the event line verbatim, and the INSTALL: and PROVE: lines the first builder returned>
 Decisions that bind: <each ruling the call's ruling field names and each that settled a question of the reader Researched names, its answer's title and body word for word, and every other ruling of his on the whole area this touches, found with answer_search; "none named; search his answers on the area" when the call names none>
 Research: <a build order's reader only: the Researched: block this build needs>

@@ -322,8 +322,8 @@ def died(row: dict) -> bool:
 
 
 def brief(payload: dict) -> str:
-    """The prompt the session started the agent whose step fired a hook with, the brief file it names and the cci record its Record: line names read in; empty for the session's own steps."""
-    if not payload.get("agent_id") or not (path := transcript(payload)).is_file():
+    """The prompt that started whoever made the call that fired a hook, an agent of the session or an Orca lane's session itself, the brief file it names and the cci record its Record: line names read in."""
+    if not (path := transcript_of(payload)).is_file():
         return ""
     with path.open() as handle:
         content = next(row for line in handle if (row := json.loads(line)).get("type") == "user")["message"]["content"]

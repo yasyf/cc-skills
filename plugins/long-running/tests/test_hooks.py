@@ -907,6 +907,58 @@ def test_a_drive_job_cancels_no_release_it_started_and_returns_it_held_for_the_c
     assert landing_guard.deny_reason(bash(cancel) | {"session_id": "session-under-test"}) is None
 
 
+
+BRIEFED_HOTFIX = "tools/ci release hotfix 55225 --only cloudrunner-next,executor"
+UNENVED_START = "tools/ci release start cloudrunner-next executor"
+J2508_START = "go/ci/.build/ci.dev release start cloudrunner-next executor --from ad20b74ee450e78db034ebde0be3f97bbb4ed7e8 --order 6f774730eb87"
+PRIMARY_MOVE = "tools/ci release start --hotfix 55115 --without plat-usw2-staging,plat-gbl-staging,tnt-usw2-0ddq7rb,tnt-usw2-1frg9c7,rt-usw2-fwd,plat-usw2-sandbox,platy"
+
+
+def ran(step: dict, *calls: tuple[str, bool]) -> dict:
+    lane = agents.transcript_of(step)
+    for command, failed in calls:
+        call = f"toolu_{len(lane.read_text().splitlines())}"
+        rows = ({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": call, "name": "Bash", "input": {"command": command}}]}}, {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": call, "is_error": failed}]}})
+        with lane.open("a") as handle:
+            handle.writelines(json.dumps(row) + "\n" for row in rows)
+    return step
+
+
+def test_a_drive_job_starts_only_its_briefs_release_and_only_after_a_plan_at_its_flags_passed(
+    demo: str, run: Run, tmp_path: Path, no_calls: list[list[str]], capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("job", "add", "builder", "--order", "o1", "--goal", "hotfix only the cloud runner and executor images")
+    where = ("--serves", "his order", "--done-when", "live", "--where", "Forge-AI/monorepo dev")
+    assert cli.main(["job", "brief", "j1", *where, "--release", UNENVED_START]) == 2
+    assert capsys.readouterr().err.strip() == "drive: j1: --release names a start with no --env, which ships to every env its targets reach: name its --env"
+    code, out = run("job", "brief", "j1", *where, "--release", BRIEFED_HOTFIX)
+    assert code == 0
+    step = stepped(tmp_path, out)
+    unbriefed = [landing_guard.deny_reason(bash(command) | step) for command in (f"env -u AWS_CONFIG_FILE -u AWS_PROFILE {J2508_START}", PRIMARY_MOVE)]
+    assert unbriefed == [landing_guard.RELEASE_UNBRIEFED.format(job="j1", named=f"`{BRIEFED_HOTFIX}`", command=command) for command in (J2508_START, PRIMARY_MOVE)]
+    unplanned = landing_guard.RELEASE_UNPLANNED.format(command=BRIEFED_HOTFIX, flags="--hotfix 55225 --only cloudrunner-next,executor")
+    assert landing_guard.deny_reason(bash(BRIEFED_HOTFIX) | step) == unplanned
+    ran(step, ("tools/ci release plan --hotfix 55225 --only executor", False), ("tools/ci release plan --hotfix 55225 --only cloudrunner-next,executor", True))
+    assert landing_guard.deny_reason(bash(BRIEFED_HOTFIX) | step) == unplanned
+    ran(step, ("cd /work && go/ci/.build/ci.dev release plan --hotfix 55225 --only executor,cloudrunner-next --json", False))
+    assert landing_guard.deny_reason(bash(BRIEFED_HOTFIX) | step) is None
+    assert landing_guard.deny_reason(bash(f"{BRIEFED_HOTFIX} --from 4aca314") | step).startswith("Refused on purpose: a drive job starts a release only after")
+    unnamed = stepped(tmp_path, "Goal: fix it\nDrive: demo, order o1, job j1")
+    assert landing_guard.deny_reason(bash(BRIEFED_HOTFIX) | unnamed) == landing_guard.RELEASE_UNBRIEFED.format(job="j1", named="no release", command=BRIEFED_HOTFIX)
+    incident = stepped(tmp_path, f"Release: {BRIEFED_HOTFIX}\nIncident: record 5f6b2b5\nDrive: demo, order o1, job j1")
+    assert landing_guard.deny_reason(bash(BRIEFED_HOTFIX) | incident) is None
+    assert landing_guard.deny_reason(bash(J2508_START) | incident) == landing_guard.RELEASE_UNBRIEFED.format(job="j1", named=f"`{BRIEFED_HOTFIX}`", command=J2508_START)
+    vm_brief = tmp_path / "orca" / "tasks" / "pool-x" / "brief.md"
+    vm_brief.parent.mkdir(parents=True)
+    vm_brief.write_text(f"Remote lane: durable-agents-j1\n\n# Brief\n\nRelease: {BRIEFED_HOTFIX}\nDrive: demo, order o1, job j1\n")
+    lane = tmp_path / "lane.jsonl"
+    lane.write_text(json.dumps({"type": "user", "message": {"content": f"Read the whole brief at {vm_brief}, then follow it exactly."}}) + "\n")
+    remote = {"session_id": "a-lane-of-its-own", "agent_type": "long-running:builder", "transcript_path": str(lane)}
+    assert landing_guard.deny_reason(bash(UNENVED_START) | remote) == landing_guard.RELEASE_UNBRIEFED.format(job="j1", named=f"`{BRIEFED_HOTFIX}`", command=UNENVED_START)
+    assert landing_guard.deny_reason(bash("go/ci/.build/ci.dev release cancel dazzling-kools") | remote) == landing_guard.RELEASE_CANCEL
+    assert landing_guard.deny_reason(bash(BRIEFED_HOTFIX) | {"session_id": "session-under-test"}) is None
+
 RELEASE_PICK = {"id": "5d0c4a1" + "0" * 33, "title": "Release the memory fix to production now?", "body": "Release now (Recommended)", "tags": ["scope:durable"]}
 INCIDENT_ORDER = {"id": "9e1f2b3" + "0" * 33, "title": "sand runs fail on core-usw2", "body": "runs are failing, fix it", "tags": ["scope:durable", "drive:demo", "incident"]}
 PR_TAP = {"id": "ac61348" + "0" * 33, "title": "Tap: #50203, canary diagnostics on the search", "body": "Approve at 4aca314", "tags": ["scope:durable"]}
