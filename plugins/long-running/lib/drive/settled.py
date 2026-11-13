@@ -322,13 +322,13 @@ def own_words(data: dict, order_id: str, question: str) -> list[dict]:
 
 
 def thread_words(data: dict, order_id: str, team_url: str, question: str) -> list[dict]:
-    """His messages about the order in its own thread past its root, as state.message_order reads each, never one about another order sharing that thread, sharing a rare word with the question, each with its permalink and the words shared."""
+    """His messages about the order in its own thread past its root, as state.message_order reads each, never one about another order sharing that thread, sharing a rare word with the question, each with its permalink and the words shared; a thread that cannot be read fails as a Slack error, never as a refusal of the question."""
     if not (where := state.promise_thread(data["orders"][order_id])):
         return []
     try:
         messages = slack.thread("--channel", where[0], "--thread", where[1], "--limit", str(slack.WHOLE_THREAD))
     except slack.SlackError as error:
-        raise DriveError(f"could not read the order's thread {where[1]} for his words that may settle this question: {error}") from None
+        raise slack.SlackError(f"could not read the order's thread {where[1]} for his words that may settle this question, so nothing is kept; run it again: {error}") from None
     asked = rare(question)
     return [
         {"link": f"{team_url}archives/{where[0]}/p{key}?thread_ts={where[1]}", "key": key, "text": message["text"], "shared": shared}
