@@ -1706,7 +1706,7 @@ function sysdMermaid(){
   let pz;
   try{pz=await panzoomLib()}catch(e){pzFail(e,box);return}
   const boxLive=()=>box.isConnected&&box.clientWidth>0&&box.clientHeight>0;
-  const nodeBoxes=()=>[...svg.querySelectorAll("g.node,g.cluster")].map(n=>{
+  const nodeBoxes=()=>[...svg.querySelectorAll("g.node,g.cluster")].filter(n=>getComputedStyle(n).display!=="none").map(n=>{
    const b=n.getBBox(),t=n.transform.baseVal.consolidate();
    const dx=t?t.matrix.e:0,dy=t?t.matrix.f:0;
    return {x:b.x+dx,y:b.y+dy,w:b.width,h:b.height};
