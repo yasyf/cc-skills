@@ -2311,8 +2311,11 @@ def acted(watcher: Watcher, key: str, now: stage.Stage, entered: bool, line: str
         repo, number = key.split("#")
         if pr["review_asked"] == pr["head"]:
             stage.wake(watcher.name, key, line)
-        elif refused := land.ask_review(watcher.name, repo, {number: pr["head"]}):
+        elif refused := land.ask_review(repo, number, pr["head"]):
             said.append(f"STAGE {refused} {ids(pr)}")
+        else:
+            with state.edit(watcher.name) as data:
+                data["prs"][key]["review_asked"] = pr["head"]
     elif now.owner == stage.ORDER or now.name in ("landing", "ready") and not entered:
         said.append(f"STAGE {line}")
     return said

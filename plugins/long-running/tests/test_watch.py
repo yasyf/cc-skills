@@ -4397,8 +4397,8 @@ def test_a_lander_that_outlived_an_install_reopens_on_the_newest_drive_which_rec
     newer = tmp_path / "cache" / "9.9.9" / "bin" / "drive"
     queued = land.enqueued
 
-    def queued_then_installed(name: str, clone: Path, keys: list[str], dry_run: bool = False, flake: bool = False) -> str:
-        outcome = queued(name, clone, keys, dry_run, flake)
+    def queued_then_installed(name: str, clone: Path, keys: list[str], prs: dict, asked: dict[str, str], dry_run: bool = False, flake: bool = False) -> str:
+        outcome = queued(name, clone, keys, prs, asked, dry_run, flake)
         state.store(demo, state.stored(demo) | {"saved_by": "9.9.9"})
         return outcome
 
@@ -4443,6 +4443,11 @@ def test_an_approval_on_an_older_head_reads_approved_on_an_older_head_yet_his_ap
 def enqueue_checking(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str, check: str) -> Path:
     """A stack-enqueue whose --check prints check and exits 1, and whose --watch queues, beside a gh that records each call; the file gh writes."""
     on_main(tmp_path, name, f'#!/bin/sh\nif [ "$1" = --check ]; then printf "%s\\n" {shlex.quote(check)}; exit 1; fi\necho "trunk said $*"\n')
+    return gh_recording(tmp_path, monkeypatch)
+
+
+def gh_recording(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A gh first on PATH that records each call and answers with a comment's link; the file it writes."""
     calls = tmp_path / "gh-calls"
     gh = tmp_path / "bin" / "gh"
     gh.parent.mkdir()
@@ -4462,6 +4467,54 @@ def test_a_lander_whose_only_gap_is_an_approval_on_an_older_head_asks_forge_pr_r
     assert land.run(demo, [KEY]) == land.QUEUED
     assert calls.read_text() == "pr comment 42 -R Forge-AI/monorepo --body @forge-pr-reviewer review\n"
     assert state.load(demo)["prs"][KEY]["review_asked"] == "34087d1264"
+
+
+def test_an_install_that_saves_the_drive_while_the_lander_checks_a_pr_ends_no_landing_and_the_newest_install_records_its_outcome_and_the_head_it_asked_reviewed(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    approve(demo, KEY)
+    calls = enqueue_checking(tmp_path, monkeypatch, demo, "#42 BLOCKED 34087d1264 awaiting approval on head from forge-pr-reviewer[bot] (approved 316c682c69, on an older head)")
+    newer = tmp_path / "cache" / "9.9.9" / "bin" / "drive"
+    fetched = github.fetched
+
+    def installed_while_checking(clone: str, branch: str) -> str:
+        state.store(demo, state.stored(demo) | {"saved_by": "9.9.9"})
+        return fetched(clone, branch)
+
+    class Execed(Exception):
+        pass
+
+    def execv(drive: Path, argv: list[str]) -> None:
+        raise Execed(drive, argv)
+
+    monkeypatch.setattr(github, "fetched", installed_while_checking)
+    monkeypatch.setattr(install, "upgraded", lambda: newer)
+    monkeypatch.setattr(install.os, "execv", execv)
+    with pytest.raises(Execed) as execed:
+        land.run(demo, [KEY])
+    reopened = [str(newer), "pr", "land", state.pr_url(KEY), "--drive", demo, "--outcome", land.QUEUED, "--asked", KEY, "34087d1264"]
+    assert execed.value.args == (newer, reopened)
+    assert calls.read_text() == "pr comment 42 -R Forge-AI/monorepo --body @forge-pr-reviewer review\n"
+    state.store(demo, state.stored(demo) | {"saved_by": state.VERSION})
+    monkeypatch.setattr(install, "upgraded", lambda: None)
+    assert cli.main(reopened[1:]) == 0
+    pr = state.load(demo)["prs"][KEY]
+    assert (pr["lander"]["outcome"], pr["review_asked"]) == (land.QUEUED, "34087d1264")
+
+
+def test_a_head_grading_an_hour_gets_one_review_ask_from_the_watch_which_records_it_so_its_next_deadline_wakes_its_builder(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="waiting", said=f"PUSHED {state.pr_url(KEY)}")
+    serve(monkeypatch, {KEY: read(checks=[*RUNNING, {**REQUIRED, "state": "SUCCESS"}])})
+    calls = gh_recording(tmp_path, monkeypatch)
+    watching = watcher(demo)
+    watch.run_pass(watching, T0)
+    watch.run_pass(watching, T0 + timedelta(minutes=61))
+    watch.run_pass(watching, T0 + timedelta(minutes=122))
+    pr = state.load(demo)["prs"][KEY]
+    assert (calls.read_text(), pr["review_asked"]) == ("pr comment 42 -R Forge-AI/monorepo --body @forge-pr-reviewer review\n", pr["head"])
 
 
 def test_a_lander_whose_only_gaps_are_waits_to_retarget_once_the_pr_under_them_lands_asks_no_review_and_watches(
