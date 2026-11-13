@@ -1124,7 +1124,7 @@ def owed_answers(watcher: Watcher, data: dict, moment: datetime) -> list[tuple[s
 
 
 def answer_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each answer of his that leaves a card still asking him or a PR not yet live with no mark, standing, settled, superseded or reopened by it, or a live job it touches not yet sent his words, again every ten minutes until each has one."""
+    """Each answer of his that leaves a card still asking him, a part undelivered or a PR not yet live with no mark, standing, settled, dropped, superseded or reopened by it, or a live job it touches not yet sent his words, again every ten minutes until each has one."""
     if watcher.cards is None or watcher.project:
         return []
     data = state.load(watcher.name)
@@ -1144,7 +1144,7 @@ def answer_lines(watcher: Watcher, moment: datetime) -> list[str]:
         f'ANSWER {answer_id} "{cut(data["answers"][answer_id]["words"], 80)}": '
         + "; ".join(
             [
-                *([f"{superseded.counted(keys, asked)} with no mark, standing, settled, superseded or reopened by it"] if keys else []),
+                *([f"{superseded.counted(keys, asked)} with no mark, standing, settled, dropped, superseded or reopened by it"] if keys else []),
                 *([f"{', '.join(jobs)} not sent his words"] if jobs else []),
             ]
         )

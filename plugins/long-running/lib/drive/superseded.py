@@ -1,4 +1,4 @@
-"""What each answer or ruling of his leaves standing: the cards open and PRs not yet live when it was recorded that it could change, until each is marked standing, settled, superseded or reopened by it, and the jobs waiting on the orders it touches, until each has heard it or is marked untouched."""
+"""What each answer or ruling of his leaves standing: the cards open, parts of orders undelivered and PRs not yet live when it was recorded that it could change, until each is marked standing, settled, dropped, superseded or reopened by it, and the jobs waiting on the orders it touches, until each has heard it or is marked untouched."""
 
 import re
 import sys
@@ -16,7 +16,7 @@ GENERIC_TITLES = 10
 
 
 def asking(data: dict, found: dict) -> dict[str, dict]:
-    """Every card asking him and every PR not yet live, by the key a mark names it with: the card of each job's open question by its waits id, then each open question card cc-slack shows that no job asked, each PR waiting on his tap, then each other open PR and each merged one whose job is still at work, by its PR key."""
+    """Every card asking him, part undelivered and PR not yet live, by the key a mark names it with: the card of each job's open question by its waits id, then each open question card cc-slack shows that no job asked, each undelivered part of an open order holding more than one by `<order>:<part>`, since an order's only part goes with the order, each PR waiting on his tap, then each other open PR and each merged one whose job is still at work, by its PR key."""
     shown = {view.message_key(card["url"]): card for card in found["questions"]}
     asked = {}
     for job_id, job in data["jobs"].items():
@@ -44,6 +44,18 @@ def asking(data: dict, found: dict) -> dict[str, dict]:
                 "url": card["url"],
                 "card": card["url"],
             }
+    for order_id, order in data["orders"].items():
+        undelivered = [] if order["state"] in state.CLOSED_ORDER_STATES else [part for part in order["parts"] if not state.delivered(data, order_id, part)]
+        for part in undelivered if len(undelivered) > 1 else []:
+            asked[f"{order_id}:{part}"] = {
+                "kind": "part",
+                "title": part,
+                "job": None,
+                "jobs": [job_id for job_id, job in state.part_jobs(data, order_id, part) if job["state"] not in state.FINISHED_JOB_STATES],
+                "order": order_id,
+                "url": "",
+                "card": None,
+            }
     for key, pr in data["prs"].items():
         card = view.card_for(found["pr_cards"], pr["url"])
         if view.waits_on_tap(pr):
@@ -63,7 +75,7 @@ def asking(data: dict, found: dict) -> dict[str, dict]:
 
 
 def record(data: dict, words: str, link: str, asked: dict[str, dict], changes: set[str], moment: str) -> dict:
-    """A new answer of his beside the cards asking him and PRs not yet live that it could change, none marked yet: those of the job and order of the card it answers, the one he tapped or wrote under, still open or not, those its words name, and each other question card in changes, which Jev read it as deciding, ruling options out of or making moot, whatever job, order or words it shares with the card he answered; and beside each job waiting on an order any of those belongs to, and each running builder whose own card he answered, which builds that card's recommended option while he decides, none marked heard yet."""
+    """A new answer of his beside the cards asking him, parts undelivered and PRs not yet live that it could change, none marked yet: those of the job and order of the card it answers, each part a job of the card it answers delivers, the one he tapped or wrote under, still open or not, those its words name, and each other question card in changes, which Jev read it as deciding, ruling options out of or making moot, whatever job, order or words it shares with the card he answered; and beside each job waiting on an order any of those belongs to, and each running builder whose own card he answered, which builds that card's recommended option while he decides, none marked heard yet."""
     answered = [entry for entry in asked.values() if entry["card"] and under(link, entry["card"])]
     drawn = {job_id: job["order"] for job_id, job in data["jobs"].items() for question in job["questions"] if question["card"] and under(link, question["card"])}
     jobs = {entry["job"] for entry in answered if entry["job"]} | drawn.keys()
@@ -71,7 +83,8 @@ def record(data: dict, words: str, link: str, asked: dict[str, dict], changes: s
     cards = {
         key: None
         for key, entry in asked.items()
-        if not (entry["card"] and under(link, entry["card"])) and (entry["job"] in jobs or entry["order"] in orders or named(words, key, entry) or key in changes)
+        if not (entry["card"] and under(link, entry["card"]))
+        and (entry["job"] in jobs or jobs & set(entry.get("jobs", ())) or entry["order"] in orders or named(words, key, entry) or key in changes)
     }
     touched = orders | {asked[key]["order"] for key in cards if asked[key]["order"]}
     return {
@@ -107,7 +120,7 @@ def named(words: str, key: str, entry: dict) -> bool:
 
 
 def markable(kept: dict, asked: dict[str, dict]) -> list[str]:
-    """What an answer may still mark: each card or PR still asking him that it has not marked, but the card it answers."""
+    """What an answer may still mark: each card, part or PR still asking him that it has not marked, but the card it answers."""
     return [key for key, entry in asked.items() if kept["cards"].get(key) is None and not (entry["card"] and under(kept["link"], entry["card"]))]
 
 
@@ -246,7 +259,7 @@ def redraw_refusal(data: dict, job: dict, waits: str, file: str) -> str | None:
 
 
 def unmarked(kept: dict, asked: dict[str, dict]) -> list[str]:
-    """The cards and PRs an answer has not marked that still ask him or are not yet live."""
+    """The cards, parts and PRs an answer has not marked that still ask him, are undelivered or are not yet live."""
     return [key for key, mark in kept["cards"].items() if mark is None and key in asked]
 
 
@@ -275,31 +288,32 @@ def hear(data: dict, job_id: str, text: str) -> None:
 
 
 def counted(keys: list[str], asked: dict[str, dict]) -> str:
-    """How many cards and PRs these keys name, as `2 cards and 3 PRs`."""
-    cards = sum(asked[key]["kind"] == "question" for key in keys)
-    prs = len(keys) - cards
-    named = [f"{count} {word if count == 1 else word + 's'}" for count, word in ((cards, "card"), (prs, "PR")) if count]
-    return " and ".join(named)
+    """How many cards, parts and PRs these keys name, as `2 cards and 3 PRs` or `1 card, 2 parts and 3 PRs`."""
+    kinds = Counter("card" if asked[key]["kind"] == "question" else asked[key]["kind"] if asked[key]["kind"] == "part" else "PR" for key in keys)
+    named = [f"{count} {word if count == 1 else word + 's'}" for word in ("card", "part", "PR") if (count := kinds[word])]
+    return f"{', '.join(named[:-1])} and {named[-1]}" if len(named) > 1 else "".join(named)
 
 
 def listing(answer_id: str, kept: dict, keys: list[str], asked: dict[str, dict], data: dict) -> str:
     rows = [
-        f"  {key}  {entry['kind']}  {entry['job'] or 'no job'} {entry['order'] or 'no order'}  {cut(entry['title'], 100)}  {entry['url']}"
+        f"  {key}  {entry['kind']}  {entry['job'] or ', '.join(entry.get('jobs', ())) or 'no job'} {entry['order'] or 'no order'}  {cut(entry['title'], 100)}  {entry['url']}".rstrip()
         for key in keys
         for entry in [asked[key]]
     ]
     cards = [
         (
-            f'his answer {answer_id} "{cut(kept["words"], 80)}" stays unfinished until each card asking him and each PR not yet'
-            f" live when it came is marked standing, settled, superseded or reopened by it; {counted(keys, asked)}"
+            f'his answer {answer_id} "{cut(kept["words"], 80)}" stays unfinished until each card asking him, part undelivered and PR not yet'
+            f" live when it came is marked standing, settled, dropped, superseded or reopened by it; {counted(keys, asked)}"
             f" {'has' if len(keys) == 1 else 'have'} no mark:"
         ),
         *rows,
         (
-            f"mark each: drive answer {answer_id} --stands <key>... --settled <card key>... for a card it decides, or <card key>=<the"
-            " ASK its job keeps with drive job ask --redraws <card key> asking only what it leaves open>... for one it decides in part, --superseded"
+            f"mark each: drive answer {answer_id} --stands <key>... --dropped <key>... for a card, part or open PR his words remove, which"
+            " withdraws a card without stopping its job, takes a part off its order and jobs, and closes a PR, --settled <card key>... for a card it"
+            " decides, or <card key>=<the ASK its job keeps with drive job ask --redraws <card key> asking only what it leaves open>... for one"
+            " it decides in part, --superseded"
             " <key>=stop|<key>=<live job to fold it into>... --reopened <PR key>=<live job that reworks it to his words>..., or"
-            f" --others-stand once each it settles, supersedes or reopens is marked and at most {OTHERS_STAND} are left"
+            f" --others-stand once each it drops, settles, supersedes or reopens is marked and at most {OTHERS_STAND} are left"
         ),
     ]
     jobs = [
@@ -327,8 +341,8 @@ def others_refusal(answer_id: str, kept: dict, asked: dict[str, dict], named: li
         return None
     return (
         f"--others-stand would mark {counted(rest, asked)} standing at once, unread; it marks at most {OTHERS_STAND}. Read each"
-        " card's question and each PR's body against his words and mark each by its key: --stands <key>... for one his words"
-        " leave as it is, --superseded or --reopened for one they replace or change\n"
+        " card's question, part and PR's body against his words and mark each by its key: --stands <key>... for one his words"
+        " leave as it is, --dropped for one they remove, --superseded or --reopened for one they replace or change\n"
         f"{listing(answer_id, kept, rest, asked, data)}"
     )
 
@@ -361,12 +375,33 @@ def settled_refusal(data: dict, kept: dict, key: str, entry: dict, file: Path | 
 
 
 def stack_refusal(asked: dict[str, dict], keys: list[str]) -> str | None:
-    """Why superseding these cards would settle a stack card under a PR left out of them."""
+    """Why superseding or dropping these cards would settle a stack card under a PR left out of them."""
     for key in keys:
         if not (card := asked[key]["card"]):
             continue
         if left := [other for other, entry in asked.items() if entry["card"] == card and other not in keys]:
-            return f"{key} shares its card {card} with {', '.join(left)}, and settling it settles theirs: mark them superseded together"
+            return f"{key} shares its card {card} with {', '.join(left)}, and settling it settles theirs: mark them superseded or dropped together"
+    return None
+
+
+def dropped_refusal(data: dict, asked: dict[str, dict], keys: list[str]) -> str | None:
+    """Why his answer may not drop these, before anything is dropped: a merged PR comes out only by a revert, which lands on his tap alone, and dropping every part of an order drops the order itself."""
+    if merged := [key for key in keys if asked[key]["kind"] == "merged"]:
+        return (
+            f"{', '.join(merged)} merged, so taking it out is a revert, which lands only on his tap on a card stating the bug in it:"
+            " mark it --stands, or --reopened <key>=<the live job that reworks it>"
+        )
+    parts = [asked[key] for key in keys if asked[key]["kind"] == "part"]
+    for order_id in dict.fromkeys(entry["order"] for entry in parts):
+        if set(data["orders"][order_id]["parts"]) <= {entry["title"] for entry in parts if entry["order"] == order_id}:
+            return f"--dropped takes every part off {order_id}, which drops the order: drive order set {order_id} --state dropped takes its parts off this list"
+    return None
+
+
+def part_refusal(asked: dict[str, dict], keys: list[str]) -> str | None:
+    """Why a part may not be superseded or reopened: a part stands or is dropped."""
+    if parts := [key for key in keys if asked[key]["kind"] == "part"]:
+        return f"{', '.join(parts)}: a part stands or is dropped, so mark it --stands or --dropped"
     return None
 
 
@@ -395,6 +430,32 @@ def stops_open_pr(data: dict, key: str, into: str | None) -> bool:
     return not into and key in data["prs"] and data["prs"][key]["state"] == "open"
 
 
+def drop(data: dict, answer_id: str, order_id: str, part: str) -> list[str]:
+    """Take a part his answer removes off its order, every job delivering it and every PR naming it, stopping each live job it leaves with no part and keeping each other live job it trims waiting to hear his words; what was done, a line each."""
+    del data["orders"][order_id]["parts"][part]
+    data["orders"][order_id]["updated"] = state.stamp()
+    trimmed, stopped = [], []
+    for job_id, job in data["jobs"].items():
+        if part not in (held := state.job_parts(job, order_id)):
+            continue
+        held.remove(part)
+        if job["order"] != order_id and not held:
+            del job["carries"][order_id]
+        job["updated"] = state.stamp()
+        trimmed.append(job_id)
+        if job["state"] in state.FINISHED_JOB_STATES:
+            continue
+        if job["parts"] or job["carries"]:
+            data["answers"][answer_id]["jobs"].setdefault(job_id, None)
+            continue
+        job.update(state="stopped", said=f"his answer {answer_id} dropped every part it delivered")
+        stopped.append(f"{job_id} stopped, left with no part: end its agent, or its lane with drive job end {job_id}")
+    for pr in data["prs"].values():
+        if pr["order"] == order_id and part in pr["parts"]:
+            pr["parts"].remove(part)
+    return [f"{order_id}:{part} dropped from {order_id}" + (f" and {', '.join(trimmed)}" if trimmed else ""), *stopped]
+
+
 def close(key: str) -> None:
     """Close on GitHub a PR his answer superseded outright."""
     try:
@@ -403,8 +464,8 @@ def close(key: str) -> None:
         raise DriveError(f"{key}: could not close it on GitHub, so it is not marked superseded yet: {error}") from None
 
 
-def supersede(data: dict, answer_id: str, key: str, entry: dict, into: str | None) -> list[str]:
-    """Stop the superseded card's job, or fold what it carries into a live job, drop its PR's tap ask, and keep an open PR stopped outright as closed, once closed on GitHub; what was done, a line each."""
+def unasked(data: dict, key: str, entry: dict, into: str | None = None) -> list[str]:
+    """Drop a superseded or dropped PR's tap ask, and keep an open PR stopped outright as closed, once closed on GitHub; what was done, a line each."""
     done = []
     if entry["kind"] == "tap":
         data["prs"][key].update(wants_tap=False, updated=state.stamp())
@@ -412,6 +473,12 @@ def supersede(data: dict, answer_id: str, key: str, entry: dict, into: str | Non
     if stops_open_pr(data, key, into):
         data["prs"][key].update(state="closed", updated=state.stamp())
         done.append(f"{key} closed on GitHub")
+    return done
+
+
+def supersede(data: dict, answer_id: str, key: str, entry: dict, into: str | None) -> list[str]:
+    """Stop the superseded card's job, or fold what it carries into a live job, drop its PR's tap ask, and keep an open PR stopped outright as closed, once closed on GitHub; what was done, a line each."""
+    done = unasked(data, key, entry, into)
     if not (job_id := entry["job"]):
         return done
     job = data["jobs"][job_id]

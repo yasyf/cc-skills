@@ -6077,7 +6077,7 @@ def test_an_answer_stays_unfinished_until_each_card_asking_him_is_marked_and_a_s
     assert f"  {designing}  tap  j1 o1  land it  {TAP_CARD}" in listed
     assert cli.main(["answer", "a1", "--stands", "demo:j2-7"]) == 2
     refusal = capsys.readouterr().err
-    assert "demo:j2-7: not a card or PR that a1 has not marked" in refusal
+    assert "demo:j2-7: not a card, part or PR that a1 has not marked" in refusal
     assert refusal.split("no mark:")[1].split("\n")[1].startswith(f"  {designing}  tap")
     code, out = run("answer", "a1", "--superseded", f"{designing}=stop")
     assert out.splitlines() == [
@@ -6635,7 +6635,7 @@ def test_superseding_a_card_he_already_answered_refuses_and_stops_no_job(
     with state.edit("demo") as data:
         data["jobs"]["j2"]["questions"][-1]["closed"] = state.new_close("answered", "Tree", DESIGN_CARD)
     assert cli.main(["answer", "a1", "--superseded", "demo:j2-7=stop"]) == 2
-    assert "demo:j2-7: not a card or PR that a1 has not marked" in capsys.readouterr().err
+    assert "demo:j2-7: not a card, part or PR that a1 has not marked" in capsys.readouterr().err
     data = state.load("demo")
     assert (data["answers"]["a1"]["cards"]["demo:j2-7"], data["jobs"]["j2"]["state"]) == (None, "running")
 

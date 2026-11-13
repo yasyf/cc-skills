@@ -977,6 +977,97 @@ def test_his_owner_words_under_a_pr_card_leave_it_up_since_only_his_order_on_its
     assert (pr_entry["wants_tap"], pr_entry["rework"]) == (True, None)
 
 
+SANDSQL_PARTS = ("sandsql-proc supervises every sandsql-server it starts", "sandsql-proc owns each sandsql socket")
+ELECTRON = "Electron starts sand iris serve through sandsql-proc"
+MONTY = "sand-monty, devhost and the node executor start through sandsql-proc"
+RULED = "ssql-proc should be the supervisor for all ssql processes ad their sockets etc, dont use it for non-ssql stuff"
+DROPPED = "oks o tehreore close this oen and the one about electron, and get rid of relevant Prs to those too I shouldnt have to tell u"
+
+
+def test_his_rulings_are_kept_as_drive_answers_listing_each_card_part_and_pr_they_touch_and_one_drive_answer_drops_them_all(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, closed: list[str]
+) -> None:
+    parts = (*SANDSQL_PARTS, ELECTRON, MONTY)
+    run("order", "add", "--title", "SandSQL supervisor", "--project", "Iris", "--workstream", "Durable agents", "move every helper under sandsql-proc", "--parts", *parts)
+    run("job", "add", "builder", "--order", "o1", "--goal", "build it", *(flag for part in parts for flag in ("--part", part)))
+    supervisor, electron = (f"https://github.com/Forge-AI/monorepo/pull/{number}" for number in (54101, 54102))
+    for url in (supervisor, electron):
+        run("pr", "add", url, "--job", "j1")
+    sibling = f"{CARD[:-2]}01"
+    titles = {"demo:j1-684776": "Which socket formats does sandsql-proc own?", "demo:j1-684682": "Should Electron start sand iris serve through sandsql-proc?"}
+    drawn = list(zip(titles.items(), (CARD, sibling), strict=True))
+    with state.edit(demo) as data:
+        data["prs"]["Forge-AI/monorepo#54101"]["parts"] = list(SANDSQL_PARTS)
+        data["prs"]["Forge-AI/monorepo#54102"]["parts"] = [ELECTRON]
+        for (waits, title), url in drawn:
+            data["jobs"]["j1"]["questions"].append(state.new_question(None, title, state.stamp(), card=url) | {"waits": waits})
+    found = {
+        "team_url": "",
+        "questions": [{"card": {"waits": waits, "title": title, "options": ["Yes", "No"]}, "url": url, "question": title, "options": ["Yes", "No"]} for (waits, title), url in drawn],
+        "closed": [],
+        "pr_cards": [],
+    }
+    monkeypatch.setattr(view, "cards", lambda name: found)
+    view.refresh_cards(demo)
+    answered: list[tuple[str, ...]] = []
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: answered.append(argv) or {})
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, "#684800\n#684801\n", ""))
+    records = [{"kind": "owner", "text": text, "url": UNDER_CARD, "thread_card": "demo:j1-684776", "about": "his work", "ruling": ruling} for text, ruling in ((RULED, "8427b3c"), (DROPPED, "cabb099"))]
+    said = tools.run("record", demo, {"records": records})
+    assert said.splitlines()[:4] == [
+        "1 owner #684800",
+        "2 owner #684801",
+        f'1 j1\'s question "{titles["demo:j1-684776"]}" ended withdrawn by #684800',
+        f"demo:j1-684776: his card {CARD} now shows his words with no buttons, its question withdrawn",
+    ]
+    keys = ["demo:j1-684682", *(f"o1:{part}" for part in parts), "Forge-AI/monorepo#54101", "Forge-AI/monorepo#54102"]
+    assert [line[2:].split("  ")[0] for line in said.splitlines() if line.startswith("  ") and " waits on " not in line] == keys * 2
+    assert said.count("1 card, 4 parts and 2 PRs have no mark:") == 2
+    watching = watch.Watcher(demo, offset=state.events_end(demo), ticked_at=state.now())
+    watching.cards = found
+    assert [line.split('": ', 1)[1] for line in watch.answer_lines(watching, state.now() + timedelta(minutes=11))] == [
+        f"1 card, 4 parts and 2 PRs with no mark, standing, settled, dropped, superseded or reopened by it; j1 not sent his words; drive answer {ruling} lists them"
+        for ruling in ("8427b3c", "cabb099")
+    ]
+    dropped = ["demo:j1-684682", f"o1:{ELECTRON}", f"o1:{MONTY}", "Forge-AI/monorepo#54102"]
+    code, out = run("answer", "8427b3c", "--dropped", *dropped, "--stands", *(f"o1:{part}" for part in SANDSQL_PARTS), "Forge-AI/monorepo#54101", "--sent", "j1")
+    assert (code, out.splitlines()) == (
+        0,
+        [
+            "his answer 8427b3c recorded: 3 standing, 4 dropped, 0 superseded, 0 reopened by it; 1 waiting job sent his words, 0 untouched",
+            f"demo:j1-684682: its card {sibling} now shows his words and a link to them, with no buttons, its question withdrawn",
+            f"o1:{ELECTRON} dropped from o1 and j1",
+            f"o1:{MONTY} dropped from o1 and j1",
+            "Forge-AI/monorepo#54102 closed on GitHub",
+        ],
+    )
+    assert run("answer", "cabb099", "--others-stand", "--sent", "j1") == (0, "his answer cabb099 recorded: 3 standing, 0 superseded, 0 reopened by it; 1 waiting job sent his words, 0 untouched")
+    assert answered == [("card-answer", "--card", card, "--label", RULED, "--withdrawn", "--via", UNDER_CARD) for card in (CARD, sibling)]
+    assert closed == [electron]
+    drive = state.load(demo)
+    assert (list(drive["orders"]["o1"]["parts"]), drive["jobs"]["j1"]["parts"], drive["jobs"]["j1"]["state"]) == (list(SANDSQL_PARTS), list(SANDSQL_PARTS), "running")
+    assert [(pr["state"], pr["parts"]) for pr in drive["prs"].values()] == [("open", list(SANDSQL_PARTS)), ("closed", [])]
+    assert [question["closed"]["how"] for question in drive["jobs"]["j1"]["questions"]] == ["withdrawn", "withdrawn"]
+    assert watch.answer_lines(watching, state.now() + timedelta(minutes=30)) == []
+
+
+def test_drive_answer_refuses_to_drop_a_merged_pr_or_every_part_of_an_order_and_to_supersede_a_part(demo: str, run: Callable[..., tuple[int, str]], capsys: pytest.CaptureFixture[str]) -> None:
+    run("order", "add", "--title", "SandSQL supervisor", "--project", "Iris", "--workstream", "Durable agents", "move every helper under sandsql-proc", "--parts", *SANDSQL_PARTS)
+    run("job", "add", "builder", "--order", "o1", "--goal", "build it", *(flag for part in SANDSQL_PARTS for flag in ("--part", part)))
+    run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/54101", "--job", "j1")
+    with state.edit(demo) as data:
+        data["prs"]["Forge-AI/monorepo#54101"]["state"] = "merged"
+    assert run("answer", "8427b3c", "--words", RULED, "--link", UNDER_CARD)[0] == 0
+    for marks, refusal in (
+        (["--dropped", "Forge-AI/monorepo#54101"], "Forge-AI/monorepo#54101 merged, so taking it out is a revert"),
+        (["--dropped", *(f"o1:{part}" for part in SANDSQL_PARTS)], "--dropped takes every part off o1, which drops the order: drive order set o1 --state dropped"),
+        (["--superseded", f"o1:{SANDSQL_PARTS[0]}=stop"], f"o1:{SANDSQL_PARTS[0]}: a part stands or is dropped, so mark it --stands or --dropped"),
+    ):
+        assert cli.main(["answer", "8427b3c", *marks]) == 2
+        assert refusal in capsys.readouterr().err
+    assert list(state.load(demo)["orders"]["o1"]["parts"]) == list(SANDSQL_PARTS)
+
+
 def test_a_brief_carries_his_order_and_each_rulings_words_without_the_drives_notes(demo: str, run: Callable[..., tuple[int, str]], recorded: Answers) -> None:
     recorded.shown["73060f0"] = ANSWER
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "do a pass on the tools", "--from", f"slack:D123/{THREAD}")
