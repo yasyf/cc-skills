@@ -853,7 +853,6 @@ def test_an_order_becomes_an_incident_only_once_a_job_owns_its_fix(run: Run, dem
     assert state.load("demo")["orders"]["o1"]["incident"] is True
 
 
-RECORD = "sandsql on plat: release 60 cannot restore databases, since 9:16 PM"
 FILED = ("--project", "Platform", "--workstream", "SandSQL", "--title", "SandSQL incident")
 
 
@@ -871,7 +870,7 @@ def test_incident_open_files_the_order_a_job_on_each_part_and_its_evidence_recor
     calls: list[list[str]] = []
     monkeypatch.setattr(cli.reads, "run", recorded(calls))
     words = "SandSQL release 60 failed on plat"
-    assert run("incident", "open", words, "--release", "--record", RECORD, *FILED) == (
+    assert run("incident", "open", words, "--release", *FILED) == (
         0,
         (
             "o1 record 5f6b2b5\n"
@@ -880,9 +879,9 @@ def test_incident_open_files_the_order_a_job_on_each_part_and_its_evidence_recor
             f"{state.INCIDENT_BRIEF}"
         ),
     )
-    assert calls == [["ccn", "investigation", "open", RECORD, "--body", f"{words}\n\nFrom terminal", "--label", "drive:demo", "--label", "incident", "--json"]]
-    run("incident", "open", "runs fail for one team", "--record", RECORD, *FILED)
-    run("incident", "open", "table moves rerun on every write", "--no-rollback", "--record", RECORD, *FILED)
+    assert calls == [["ccn", "investigation", "open", "SandSQL incident", "--body", f"{words}\n\nFrom terminal", "--label", "drive:demo", "--label", "incident", "--json"]]
+    run("incident", "open", "runs fail for one team", *FILED)
+    run("incident", "open", "table moves rerun on every write", "--no-rollback", *FILED)
     orders = state.load("demo")["orders"]
     assert [(order["incident"], order["kind"], list(order["parts"]), order["note"]) for order in orders.values()] == [
         (True, "build", ["fix", "first check"], "record 5f6b2b5"),
@@ -891,18 +890,27 @@ def test_incident_open_files_the_order_a_job_on_each_part_and_its_evidence_recor
     ]
 
 
-def test_incident_open_names_the_jobs_to_start_when_its_record_does_not_open(
+def test_incident_open_writes_nothing_when_its_record_does_not_open(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    long = "sandsql on plat: release 60 cannot restore databases; " * 5
+    assert len(long.encode()) == 270
+
+    refusal = "ccn investigation open exited 2: usage: title is 270 bytes (max 256) — a title is a short handle; put the content in --body (- reads stdin)"
+
     def refused(argv: list[str], checkout: Path) -> str:
-        raise cli.reads.ReadError("ccn investigation open exited 1: no repository")
+        raise cli.reads.ReadError(refusal)
 
     monkeypatch.setattr(cli.reads, "run", refused)
-    assert cli.main(["incident", "open", "SandSQL release 60 failed on plat", "--release", "--record", RECORD, *FILED]) == 2
-    err = capsys.readouterr().err
-    assert "o1 and its jobs are added, but its evidence record did not open: ccn investigation open exited 1: no repository" in err
-    assert 'j1 on "fix": start its agent now, its brief ending Drive: demo, order o1, job j1' in err
-    assert state.load("demo")["orders"]["o1"]["note"] is None
+    words = "SandSQL release 60 failed on plat"
+    with pytest.raises(SystemExit):
+        cli.main(["incident", "open", words, "--release", "--record", long, *FILED])
+    assert "unrecognized arguments: --record" in capsys.readouterr().err
+    assert cli.main(["incident", "open", words, "--release", *FILED[:-1], long]) == 2
+    assert f"refused, a title is a few words on one line, at most {cli.TITLE_CHARS} characters" in capsys.readouterr().err
+    assert cli.main(["incident", "open", words, "--release", *FILED]) == 2
+    assert f"refused, nothing written: its evidence record did not open: {refusal}" in capsys.readouterr().err
+    assert (state.load("demo")["orders"], state.load("demo")["jobs"]) == ({}, {})
 
 
 def test_an_incident_records_the_monitor_or_sentry_issue_by_number_or_short_id_of_each_alert_and_refuses_any_other_link(
@@ -911,7 +919,7 @@ def test_an_incident_records_the_monitor_or_sentry_issue_by_number_or_short_id_o
     monkeypatch.setattr(cli.reads, "run", recorded([]))
     monitor, lag, sentry = "https://app.datadoghq.com/monitors/315028134?group=forge_cluster%3Aplat", "https://us5.datadoghq.com/monitors/330850820", "https://forge-ai.sentry.io/issues/6012345678/"
     short = "https://forge-rf.sentry.io/issues/API-1NNF"
-    run("incident", "open", "SandSQL error logs on plat", "--alert", monitor, "--alert", short, "--record", RECORD, *FILED)
+    run("incident", "open", "SandSQL error logs on plat", "--alert", monitor, "--alert", short, *FILED)
     run("order", "add", "--title", "Short title", *FILED, "SandSQL replication lag on plat", "--joins", "o1", "--alert", sentry)
     run("order", "set", "o1", "--alert", lag, "--alert", monitor)
     assert cli.main(["order", "set", "o1", "--alert", "https://app.datadoghq.com/dashboard/abc-123"]) == 2
@@ -924,7 +932,7 @@ def test_incident_stop_gives_an_open_incident_one_running_stop_job(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(cli.reads, "run", recorded([]))
-    run("incident", "open", "table moves rerun on every write", "--record", RECORD, *FILED)
+    run("incident", "open", "table moves rerun on every write", *FILED)
     assert run("incident", "stop", "o1") == (0, f'j4 on "stop": start its agent now, its brief ending Drive: demo, order o1, job j4\n{state.INCIDENT_BRIEF}')
     data = state.load("demo")
     assert (list(data["orders"]["o1"]["parts"]), data["jobs"]["j4"]["kind"]) == (["fix", "rollback", "cause", "stop"], "codex")
@@ -937,7 +945,7 @@ def test_incident_stop_gives_an_open_incident_one_running_stop_job(
 
 def test_an_incident_jobs_brief_carries_the_rule_its_kind_follows_on_a_choice_on_its_incident_line_once(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cli.reads, "run", recorded([]))
-    run("incident", "open", "table moves rerun on every write", "--record", RECORD, *FILED)
+    run("incident", "open", "table moves rerun on every write", *FILED)
     run("job", "add", "builder", "--order", "o1", "--part", "fix", "--goal", "ship the fix the codex lane built")
     where = ("--serves", "his order", "--done-when", "fixed", "--where", "Forge-AI/monorepo dev")
     run("job", "brief", "j1", *where, "--incident", "record 5f6b2b5")
@@ -955,7 +963,7 @@ def test_incident_freeze_freezes_the_service_for_twelve_hours_and_notes_the_free
 ) -> None:
     calls: list[list[str]] = []
     monkeypatch.setattr(cli.reads, "run", recorded(calls))
-    run("incident", "open", "SandSQL release 60 failed on plat", "--release", "--record", RECORD, *FILED)
+    run("incident", "open", "SandSQL release 60 failed on plat", "--release", *FILED)
     code, said = run("incident", "freeze", "o1", "sandsql")
     freeze = calls[-1]
     assert (code, Path(freeze[0]).parts[-2:], freeze[1:6]) == (
@@ -978,8 +986,8 @@ def test_a_named_release_failing_a_step_reopens_its_incidents_stop_once_with_a_j
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(cli.reads, "run", recorded([]))
-    run("incident", "open", "SandSQL release 60 failed on plat", "--release", "--record", RECORD, *FILED)
-    run("incident", "open", "table moves rerun on every write", "--no-rollback", "--record", RECORD, *FILED)
+    run("incident", "open", "SandSQL release 60 failed on plat", "--release", *FILED)
+    run("incident", "open", "table moves rerun on every write", "--no-rollback", *FILED)
     assert cli.main(["incident", "release", "o1", "release 60"]) == 2
     assert "release 60: refused, name the release as its post in the releases channel does, such as stark-maclean" in capsys.readouterr().err
     assert run("incident", "release", "o1", "sanguine-neruda") == (0, "o1: sanguine-neruda named; the turn it fails a step, o1's stop reopens")
@@ -1004,7 +1012,7 @@ def test_no_stop_ends_the_last_running_job_on_an_open_incidents_fix(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(cli.reads, "run", recorded([]))
-    run("incident", "open", "SandSQL mint endpoint failing", "--release", "--record", RECORD, *FILED)
+    run("incident", "open", "SandSQL mint endpoint failing", "--release", *FILED)
     assert cli.main(["job", "set", "j1", "--state", "stopped"]) == 2
     assert "j1 is the last running job on incident o1's fix, and nothing stops an open incident's fix" in capsys.readouterr().err
     assert state.load("demo")["jobs"]["j1"]["state"] == "running"
@@ -3208,7 +3216,7 @@ def test_a_cause_report_names_its_fix_whose_order_reads_live_from_it(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(cli.reads, "run", recorded([]))
-    run("incident", "open", "SandSQL mint endpoint failing", "--record", RECORD, *FILED)
+    run("incident", "open", "SandSQL mint endpoint failing", *FILED)
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "fix the handover", "--kind", "build")
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "fix the restores", "--kind", "build")
     where = ("--serves", "his order", "--done-when", "fixed", "--where", "Forge-AI/monorepo dev")
@@ -3247,7 +3255,7 @@ def test_a_cause_reports_fix_linking_a_pr_the_drive_does_not_track_is_kept_and_r
     tracked: tuple[str, str] | None,
 ) -> None:
     monkeypatch.setattr(cli.reads, "run", recorded([]))
-    run("incident", "open", "SandSQL mint endpoint failing", "--record", RECORD, *FILED)
+    run("incident", "open", "SandSQL mint endpoint failing", *FILED)
     on_github["author"]["login"] = author
     monkeypatch.setattr("sys.stdin", io.StringIO(f"DONE the predecessor's handover delays each mint\nFIX {fix}\n"))
     assert cli.main(["job", "report", "j3", "-", "--json"]) == 0
@@ -4293,7 +4301,7 @@ def test_an_incidents_stop_is_its_immediate_fix_and_lands_at_once_as_an_incident
     run: Run, demo: str, on_github: dict, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(cli.reads, "run", recorded([]))
-    run("incident", "open", "table moves rerun on every write", "--no-rollback", "--record", RECORD, *FILED)
+    run("incident", "open", "table moves rerun on every write", "--no-rollback", *FILED)
     run("job", "add", "builder", "--order", "o1", "--part", "stop", "--goal", "ship the stop")
     run("pr", "add", PR, "--job", "j4")
     on_github.update(title="Fix: table moves stop rerunning on every write", body=CARD_BODY)

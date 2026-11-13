@@ -349,21 +349,18 @@ def alert_links(links: list[str]) -> list[str]:
 
 
 def incident_open(args: argparse.Namespace) -> int:
-    """Open an incident in one call: his order, a job on its fix beside a job on each diagnosis part, and the evidence record its note names."""
+    """Open an incident in one save: his order, a job on its fix beside a job on each diagnosis part, and the evidence record its note names, titled by the order's --title, so a record cc-notes refuses leaves the drive as it was."""
     name = state.resolve(args.drive)
     args.parts = [state.INCIDENT_FIX, *state.INCIDENT_PARTS["release" if args.release else "none" if args.no_rollback else "rollback"]]
-    order_id, order, started, incidents = added_order(args)
-    data = state.load(name)
-    argv = ["ccn", "investigation", "open", args.record, "--body", f"{args.words}\n\nFrom {args.source}", "--label", f"drive:{name}", "--label", "incident", "--json"]
-    try:
-        record = json.loads(reads.run(argv, Path(data["roles"]["coordinator"]["cwd"])))["id"][:7]
-    except reads.ReadError as error:
-        raise DriveError(
-            f"{order_id} and its jobs are added, but its evidence record did not open: {error}; open it with ccn investigation open, then"
-            f' drive order set {order_id} --note "record <id>"\n' + "\n".join(started)
-        ) from None
-    with state.edit(name) as data:
-        data["orders"][order_id]["note"] = order["note"] = f"record {record}"
+    with state.batch(name):
+        order_id, order, started, incidents = added_order(args)
+        argv = ["ccn", "investigation", "open", order["title"], "--body", f"{args.words}\n\nFrom {args.source}", "--label", f"drive:{name}", "--label", "incident", "--json"]
+        try:
+            record = json.loads(reads.run(argv, Path(state.load(name)["roles"]["coordinator"]["cwd"])))["id"][:7]
+        except reads.ReadError as error:
+            raise DriveError(f"refused, nothing written: its evidence record did not open: {error}; fix that and run drive incident open again") from None
+        with state.edit(name) as data:
+            data["orders"][order_id]["note"] = order["note"] = f"record {record}"
     return emit(args, "\n".join([f"{order_id} record {record}", *started, *incidents]), {"id": order_id, **order, "incidents": incidents})
 
 
@@ -3911,7 +3908,6 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--from", dest="source", default="terminal", help=FROM_HELP.replace("he wrote it", "it came from"))
     verb.add_argument("--thread", help=f"{THREAD_HELP}; default: the thread the --from message is in")
     verb.set_defaults(due=None)
-    verb.add_argument("--record", required=True, metavar="TITLE", help="the evidence record's title: <service> on <cluster>: <symptom>, since <time>")
     verb.add_argument("--reporter", metavar="LINK", help=REPORTER_HELP)
     verb.add_argument("--alert", dest="alerts", action="append", default=[], metavar="LINK", help=ALERT_HELP)
     before = verb.add_mutually_exclusive_group()
@@ -3927,7 +3923,7 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("--project", metavar="NAME", required=True, help="the project the dashboard's Now screen files it under")
     verb.add_argument("--workstream", metavar="NAME", required=True, help="the workstream inside its project the Now screen files it under")
-    verb.add_argument("--title", metavar="WORDS", required=True, help=f"the few words, at most {TITLE_CHARS} characters and no link, the dashboard names it by")
+    verb.add_argument("--title", metavar="WORDS", required=True, help=f"the few words, at most {TITLE_CHARS} characters and no link, the dashboard names it by and its evidence record is titled by")
     verb.set_defaults(run=incident_open, incident=True, joins=None, kind=None, complex=False, options_only=False, once=False, owner=None, watch=None)
     verb = incident.add_parser(
         "stop",
