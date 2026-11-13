@@ -605,12 +605,12 @@ def receiving(monkeypatch: pytest.MonkeyPatch) -> Receiver:
 
 @pytest.fixture(autouse=True)
 def delivered_each_minute(monkeypatch: pytest.MonkeyPatch) -> None:
-    """GitHub delivering a change of every PR the watch hears before each pass that runs its 60-second block, so a test reads them all there; a test of what deliveries owe runs the real pass."""
+    """GitHub delivering a change of every PR the watch hears and of every release before each pass that runs its 60-second block, so a test reads them all there; a test of what deliveries owe runs the real pass."""
     passed = watch.run_pass
 
     def run_pass(watching: watch.Watcher, moment: datetime) -> list[str]:
         if watching.read_at is None or moment - watching.read_at >= watch.READ_EVERY:
-            watching.owed = None
+            watching.owed, watching.release_marks = None, {}
         return passed(watching, moment)
 
     monkeypatch.setattr(watch, "run_pass", run_pass)

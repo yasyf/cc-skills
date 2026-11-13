@@ -28,6 +28,7 @@ REPORTED = "https://acme.slack.com/archives/C0REPORTS01/p1794400100000200"
 UNRECORDED = 'ORPHAN o1 "ship the watch": j1\'s agent finished and its result is not recorded: "'
 REPORT_IT = "; only drive job report j1 - sets it, or names why it refuses, so SendMessage from the session that started it wakes it to pipe its return there"
 CHECKED = {"head": "aaaaaaa111", "read": "aaaaaaa111", "orders": ["o1"], "lines": {}}
+REAL_PASS = watch.run_pass
 BUILD = "https://buildkite.com/forge/monorepo/builds/7"
 REQUIRED = {"context": "buildkite/test", "targetUrl": BUILD}
 INCIDENT_THREAD = "1794494004.895129"
@@ -2868,6 +2869,25 @@ def test_while_no_release_carries_a_production_line_a_wait_frees_on_the_newest_r
     assert watch.run_pass(watching, T0 + timedelta(minutes=2)) == [f"FREE j1 o1: release releases/2026-11-12/30 ships {KEY} on sandsql, nothing else holds it"]
     assert calls[-1] == "repos/Forge-AI/monorepo/compare/5273c9b2...release/releases-2026-11-12-30"
     assert [call for call in calls if call.startswith("bk ")] == ["bk build view 27", "bk build view 28", "bk build view 30"]
+
+
+def test_tonights_cc_slack_release_wait_reads_cc_slacks_releases_once_per_release_delivered_not_each_minute(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    calls: list[str] = []
+    monkeypatch.setattr(watch.github, "run", release_reads([{"name": "v0.20.2", "tag_name": "v0.20.2", "published_at": "2026-11-13T07:16:37Z", "draft": False, "prerelease": False, "body": "## Changelog"}], {}, [], calls))
+    start, waited = state.parse_time("2026-11-13T07:52:17Z"), "yasyf/cc-slack#355"
+    published = [state.parse_time(f"2026-11-13T{at}Z") for at in ("07:55:54", "08:11:11", "08:16:46", "08:37:29", "08:48:56")]
+    with state.edit(demo) as data:
+        data["prs"][waited] = state.new_pr(state.pr_url(waited), "j1", "o1") | {"state": "merged", "merged_sha": "c355"}
+        data["jobs"]["j1"].update(state="waiting", said="WAITING release of cc-slack", waits=[f"release:cc-slack:{waited}"], updated=state.stamp(start - timedelta(minutes=10)))
+    watching = watcher(demo, start)
+    for minute in range(60):
+        moment = start + timedelta(minutes=minute)
+        for number, at in enumerate(published):
+            if moment - timedelta(minutes=1) < at <= moment:
+                receiver.took("yasyf/cc-slack", 11, f"g{number}", "release", {"action": "published"})
+        REAL_PASS(watching, moment)
+    assert (calls.count("repos/yasyf/cc-slack/releases?per_page=100"), state.load(demo)["jobs"]["j1"]["waits"]) == (1 + len(published), [f"release:cc-slack:{waited}"])
 
 
 def test_a_time_set_on_an_order_with_no_thread_is_said_once_and_kept_by_being_said(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -294,7 +294,7 @@ def stacks(keys: list[str]) -> dict[str, list[tuple[str, str]]]:
 def release_of(key: str, service: str, commit: str) -> str | None:
     """The name of the newest published release that ships the service to production, when it holds the commit: by ships once any release read carries a Production line, and by ships_by_components while none does, as go/ci's finish step writes none until Forge-AI/monorepo#55247 lands."""
     repo = repo_of(key)
-    published = sorted((release for release in json.loads(read(f"{repo}'s releases", ["gh", "api", f"repos/{repo}/releases?per_page=100"], max_age="60s")) if not release["draft"]), key=lambda release: release["published_at"], reverse=True)
+    published = sorted((release for release in json.loads(read(f"{repo}'s releases", ["gh", "api", f"repos/{repo}/releases?per_page=100"])) if not release["draft"]), key=lambda release: release["published_at"], reverse=True)
     lined = any(PRODUCTION.search(release["body"] or "") for release in published)
     if not (newest := next((release for release in published if (ships(release, service) if lined else ships_by_components(repo, release, service))), None)):
         return None
