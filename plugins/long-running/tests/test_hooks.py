@@ -396,7 +396,7 @@ def test_a_builder_asking_his_card_builds_its_recommended_option_in_the_same_run
         data["orders"]["o1"]["jobs"] = ["j2776"]
     block = tmp_path / "ask.md"
     block.write_text(
-        SHORT_ASK.replace(SHORT_ASK.splitlines()[0], f"ASK {J2776_QUESTION}").replace("Holds: none: no option changes code any job builds", "Holds: Short title")
+        SHORT_ASK.replace(SHORT_ASK.splitlines()[0], f"ASK {J2776_QUESTION}").replace("Holds: none: no option changes code any job builds", "Holds: Short title, built on `j2776-delete-agent`")
     )
     asked = run("job", "ask", "j2776", str(block))[1].splitlines()[0]
     job = state.load("durable-agents")["jobs"]["j2776"]

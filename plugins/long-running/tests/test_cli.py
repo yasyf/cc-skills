@@ -3363,7 +3363,7 @@ def test_job_ask_reads_his_recorded_answers_ccn_ranks_nearest_and_a_card_asking_
     run("job", "add", "builder", "--order", "o1", "--part", "fix", "--goal", "move js_func into its own helper process")
     recorded.matched = [WAIT_RULING]
     jev.breaks("breaks1", WAIT_RULING["id"])
-    asked = SHORT_ASK.replace("Holds: none: no option changes code any job builds", "Holds: fix") + "Interim fix: j1 restarts the pods that ran out of memory\n"
+    asked = SHORT_ASK.replace("Holds: none: no option changes code any job builds", "Holds: fix, built on `land-it`") + "Interim fix: j1 restarts the pods that ran out of memory\n"
     block = tmp_path / "ask.md"
     block.write_text(asked)
     assert cli.main(["job", "ask", "j3", str(block)]) == 0
@@ -3383,7 +3383,7 @@ def test_job_ask_reads_his_recorded_answers_ccn_ranks_nearest_and_a_card_asking_
     block.write_text(unlinked)
     assert cli.main(["job", "ask", "j3", str(block)]) == 2
     assert f"\n- j3 has {url} open, which its ASK's summary does not link" in capsys.readouterr().err
-    block.write_text(unlinked.replace("on a branch, no PR.", f"in <{url}|the helper process PR>, held until you answer."))
+    block.write_text(unlinked.replace("on a branch, no PR.", f"in <{url}|the helper process PR>, held until you answer.").replace("Holds: fix, built on `land-it`", "Holds: fix, in #43"))
     assert run("job", "ask", "j3", str(block))[0] == 0
     data = state.load("demo")
     assert land.pr_cards(data, data["prs"]["Forge-AI/monorepo#43"]) == [data["jobs"]["j3"]["questions"][-1]["card"]]
@@ -3420,7 +3420,7 @@ def test_job_ask_keeps_unsettled_a_card_that_says_its_recommended_option_replace
     run("job", "add", "builder", "--order", "o1", "--part", "fix", "--goal", "run each team's export")
     recorded.shown = {NIGHTLY_EXPORT["id"]: NIGHTLY_EXPORT}
     block = tmp_path / "ask.md"
-    block.write_text(SHORT_ASK.replace("Holds: none: no option changes code any job builds", f"Holds: fix\n{DEPARTS}") + "Interim fix: j1 restarts the stalled exports\n")
+    block.write_text(SHORT_ASK.replace("Holds: none: no option changes code any job builds", f"Holds: fix, built on `j3-team-export`\n{DEPARTS}") + "Interim fix: j1 restarts the stalled exports\n")
     assert cli.main(["job", "ask", "j3", str(block)]) == 0
     assert "kept the card unsettled" not in capsys.readouterr().err
     request = jev.asked[-1]
@@ -3441,7 +3441,7 @@ def test_job_ask_keeps_unsettled_a_card_whose_other_option_breaks_his_ruling_so_
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "chat turns run out of memory on plat", "--incident", "--parts", "fix", "first check")
     run("job", "add", "builder", "--order", "o1", "--part", "fix", "--goal", "move js_func into its own helper process")
     recorded.matched = [WAIT_RULING]
-    asked = SHORT_ASK.replace("Holds: none: no option changes code any job builds", "Holds: fix") + "Interim fix: j1 restarts the pods that ran out of memory\n"
+    asked = SHORT_ASK.replace("Holds: none: no option changes code any job builds", "Holds: fix, built on `j3-helper-process`") + "Interim fix: j1 restarts the pods that ran out of memory\n"
     other = f'option "{limits.question(asked, kept=True).options[1]}"'
     jev.breaks("breaks2", WAIT_RULING["id"], 0.7)
     block = tmp_path / "ask.md"
@@ -4070,6 +4070,35 @@ def test_an_answer_order_is_one_readers_and_a_build_orders_builder_waits_on_its_
     assert state.load("demo")["orders"]["o4"]["kind"] == "build"
     for order_id, part in (("o3", []), ("o4", ["--part", "fix"])):
         assert run("job", "add", "builder", "--order", order_id, "--goal", "fix it", *part)[0] == 0
+
+
+def test_replayed_o1324_a_part_split_off_a_read_part_keeps_its_readers_research_so_its_own_builder_starts_with_no_card_waits(
+    run: Run, communicator: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    smoke, memory = "tenant smoke: one cloud agent per release", "cluster agent: bounded memory"
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", smoke, "--kind", "build", "--parts", smoke)
+    run("job", "add", "reader", "--order", "o1", "--goal", "research: the smoke")
+    assert keep(monkeypatch, capsys, "j1", RESEARCH) == (0, "")
+    assert run("order", "set", "o1", "--parts", smoke, memory)[0] == 0
+    assert state.load("demo")["jobs"]["j1"]["parts"] == [smoke, memory]
+    code, out = run("job", "add", "builder", "--order", "o1", "--part", memory, "--goal", "bound the memory")
+    builder = state.load("demo")["jobs"][out.splitlines()[0]]
+    assert (code, builder["parts"], builder["waits"]) == (0, [memory], [])
+
+
+def test_a_builders_card_whose_holds_line_names_no_pr_the_drive_tracks_or_branch_is_refused_since_it_would_hold_none_of_its_work(
+    run: Run, demo: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store")
+    run("job", "add", "builder", "--order", "o1", "--goal", "copy it")
+    block = tmp_path / "ask.md"
+    for holds in ("copy one store", "copy one store, in #4127"):
+        block.write_text(SHORT_ASK.replace("Holds: none: no option changes code any job builds", f"Holds: {holds}"))
+        assert cli.main(["job", "ask", "j1", str(block)]) == 2
+        assert f"`Holds: {holds}` names no PR the drive tracks on j1's orders and no branch" in capsys.readouterr().err
+    block.write_text(SHORT_ASK.replace("Holds: none: no option changes code any job builds", "Holds: copy one store, built on `j1-copy-store`"))
+    assert run("job", "ask", "j1", str(block))[0] == 0
+    assert state.load("demo")["jobs"]["j1"]["questions"][-1]["holds"] == "copy one store, built on `j1-copy-store`"
 
 
 def test_a_build_orders_design_job_waits_on_its_readers_research(

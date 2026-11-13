@@ -267,7 +267,7 @@ def test_replayed_54026_every_pr_above_the_lowest_pr_of_its_stack_conflicting_wi
         for key in REPLAYED_STACK_55221:
             data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"wants_tap": True, "checked": CHECKED}
         data["prs"][REPLAYED_54026]["parts"] = ["the inbox wake"]
-        data["jobs"]["j1"]["questions"] = [state.new_question(None, "Does the inbox wake it?", state.stamp(T0), holds="the inbox wake") | {"waits": REPLAYED_HOLDING_CARD}]
+        data["jobs"]["j1"]["questions"] = [state.new_question(None, "Does the inbox wake it?", state.stamp(T0), holds="the inbox wake, on #54026") | {"waits": REPLAYED_HOLDING_CARD}]
     native = [(key, "open") for key in REPLAYED_STACK_55221]
     branches = ["durable-agents-j850", "durable-agents-j1389-a", STACKED_BASE, "durable-agents-j2279-a", "durable-agents-j2279-b", "durable-agents-j2279-c"]
     stacked = {
@@ -3185,7 +3185,7 @@ def test_a_pr_his_open_cards_hold_is_held_by_him_its_card_redrawn_as_each_closes
     asking(monkeypatch, demo, "demo:j1-7-a", "demo:j1-7-b", taps=[pr_card(KEY)])
     with state.edit(demo) as data:
         data["prs"][KEY]["wants_tap"] = True
-        data["jobs"]["j1"]["questions"] = [state.new_question(None, f"Pick {waits}?", state.stamp(T0), holds=None) | {"waits": waits} for waits in ("demo:j1-7-a", "demo:j1-7-b")]
+        data["jobs"]["j1"]["questions"] = [state.new_question(None, f"Pick {waits}?", state.stamp(T0), holds="the windowed open, on #42") | {"waits": waits} for waits in ("demo:j1-7-a", "demo:j1-7-b")]
     serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
     watching = watcher(demo)
     watch.run_pass(watching, T0)
@@ -4229,7 +4229,7 @@ def test_a_red_pr_his_card_holds_wakes_its_builder_at_once_and_every_thirty_minu
     waiting_job(demo)
     asking(monkeypatch, demo, HOLDING_CARD, taps=[pr_card(KEY)])
     holding_job(demo, HOLDING_CARD)
-    holding_asks(demo, BUSY_WAIT)
+    holding_asks(demo, "pause and resume, which #42 carries")
     with state.edit(demo) as data:
         data["prs"][KEY]["wants_tap"] = True
     serve(monkeypatch, {KEY: read(checks=RED)})
@@ -4571,7 +4571,7 @@ def test_a_lander_queues_the_prs_his_card_drew_whole_with_those_below_them_never
     cards = NO_CARDS
     if card:
         with state.edit(demo) as data:
-            data["jobs"]["j1"]["questions"] = [state.new_question(None, "Which store?", state.stamp(T0), holds=None) | {"waits": card}]
+            data["jobs"]["j1"]["questions"] = [state.new_question(None, "Which store?", state.stamp(T0), holds="the store, on #42 and #43") | {"waits": card}]
         cards = NO_CARDS | {"questions": [question(card)]}
     assert land.start(demo, [KEY, OTHER], cards) == ([unit] if unit else [])
     assert landers == ([unit] if unit else [])
@@ -4582,12 +4582,16 @@ def test_a_lander_queues_the_prs_his_card_drew_whole_with_those_below_them_never
     ("asker", "holds", "held"),
     [
         ("j1", "", False),
-        ("j1", None, True),
+        ("j1", None, False),
+        ("j1", "ship the watch, on #42", True),
+        ("j1", "ship the watch, on `j1-watch`", True),
+        ("j1", "ship the watch, on `j1-watch-store`", False),
         ("j2", "", False),
         ("j2", None, False),
         ("j2", "the dashboard", False),
-        ("j1", "ship the watch", True),
+        ("j1", "ship the watch", False),
         ("j2", "Ship  the WATCH, once its store is picked", False),
+        ("j2", "the dashboard, on `j1-watch`", True),
         ("j2", "ship the watch, which builder j1 builds", True),
         ("j2", "ship the watch, where #42 lands", True),
         ("j3", "ship the watch", True),
@@ -4599,7 +4603,7 @@ def test_a_lander_queues_the_prs_his_card_drew_whole_with_those_below_them_never
         ("j5", None, False),
     ],
 )
-def test_an_open_question_holds_a_stack_from_landing_only_while_its_holds_line_names_a_change_the_stacks_job_builds_or_it_has_none_and_that_job_asked_builds_the_design_or_research_of_or_is_named_by(
+def test_an_open_question_holds_a_stack_from_landing_while_its_holds_line_names_a_pr_of_it_by_number_or_whole_branch_or_another_jobs_names_a_change_the_stacks_job_builds_the_design_or_research_of_or_is_named_by(
     demo: str, landers: list[tuple[str, ...]], asker: str, holds: str | None, held: bool
 ) -> None:
     stacked(demo)
@@ -4613,6 +4617,7 @@ def test_an_open_question_holds_a_stack_from_landing_only_while_its_holds_line_n
         data["jobs"]["j4"] = job(kind="reader", parts=["ship the watch"], carries={}, state="done")
         data["jobs"]["j5"] = job(kind="reader", parts=["ship the watch"], carries={}, state="done")
         data["jobs"]["j1"]["researched"] = ["j4"]
+        data["prs"][KEY]["branch"] = "j1-watch"
         data["jobs"][asker]["questions"].append(state.new_question(None, "Which OpenAI endpoint?", state.stamp(T0), holds=holds) | {"waits": waits})
     cards = NO_CARDS | {"questions": [question(waits)]}
     drive = state.load(demo)
@@ -4623,17 +4628,15 @@ def test_an_open_question_holds_a_stack_from_landing_only_while_its_holds_line_n
     assert land.start(demo, [KEY, OTHER], cards) == ([(KEY, OTHER)] if held else [])
 
 
-def test_a_question_kept_before_holds_lines_holds_every_change_of_its_own_job_so_its_approved_pr_lands_once_he_answers(demo: str, landers: list[tuple[str, ...]]) -> None:
+def test_a_question_kept_before_holds_lines_holds_its_own_jobs_unbuilt_work_and_none_of_its_prs_so_its_approved_pr_lands_while_his_card_is_open(demo: str, landers: list[tuple[str, ...]]) -> None:
     approve(demo, KEY)
     with state.edit(demo) as data:
         data["prs"][KEY] |= {"checks": "pass", "review": "approved"}
         data["jobs"]["j1"] |= {"waits": [KEY], "questions": [{"file": None, "title": "Which OpenAI endpoint?", "asked": state.stamp(T0), "unsettled": None, "waits": "demo:j1-1-a", "card": None}]}
     cards = NO_CARDS | {"questions": [question("demo:j1-1-a")]}
-    assert state.load(demo)["jobs"]["j1"]["questions"][0]["holds"] is None
-    assert land.unready(state.load(demo), KEY, cards) == "held: his cards demo:j1-1-a on its work are open"
-    assert land.start(demo, [KEY], cards) == []
-    with state.edit(demo) as data:
-        data["jobs"]["j1"]["questions"][0]["closed"] = state.new_close("answered", "Team", None, seq="9")
+    drive = state.load(demo)
+    assert drive["jobs"]["j1"]["questions"][0]["holds"] is None
+    assert (land.open_cards(drive, "j1", None), land.unready(drive, KEY, cards)) == (["demo:j1-1-a"], None)
     assert land.start(demo, [KEY], cards) == [(KEY,)]
 
 
@@ -4654,8 +4657,8 @@ def test_a_built_line_waits_on_the_cards_holding_its_work_by_the_landers_rule_ne
     assert (state.part_cards(built, "j1"), land.open_cards(built, "j1", built["prs"][KEY])) == (["demo:j2-1-a"], ["demo:j2-1-a"])
 
 
-@pytest.mark.parametrize(("holds", "held"), [("", False), (None, True)])
-def test_a_builder_whose_built_line_names_its_own_holds_none_card_leaves_its_approved_green_pr_at_stage_ready_and_one_kept_before_holds_lines_holds_it(
+@pytest.mark.parametrize(("holds", "held"), [("", False), (None, False), ("the windowed open, on #42", True)])
+def test_a_builder_whose_built_line_names_its_own_card_leaves_its_approved_green_pr_at_stage_ready_unless_the_cards_holds_line_names_that_pr(
     demo: str, landers: list[tuple[str, ...]], holds: str | None, held: bool
 ) -> None:
     approve(demo, KEY)
@@ -4670,11 +4673,41 @@ def test_a_builder_whose_built_line_names_its_own_holds_none_card_leaves_its_app
     assert land.start(demo, [KEY], cards) == ([] if held else [(KEY,)])
 
 
+def test_replayed_56082_a_builders_own_card_its_built_line_waits_on_holds_only_the_pr_of_the_branch_its_holds_line_names_so_its_other_approved_pr_lands(
+    demo: str, landers: list[tuple[str, ...]]
+) -> None:
+    approve(demo, KEY)
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= {"checks": "pass", "review": "approved", "branch": "j1-datadog-cannot-block"}
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"branch": "j1-datadog-cannot-block-remote-config"}
+        data["jobs"]["j1"]["prs"].append(state.pr_url(OTHER))
+        asked = state.new_question(None, "Which Remote Config?", state.stamp(T0), holds="`j1-datadog-cannot-block-remote-config`, building the recommended option")
+        data["jobs"]["j1"]["questions"] = [asked | {"waits": "demo:j1-1-a"}]
+        state.take_result(data, "j1", "BUILT j1-datadog-cannot-block-remote-config, waits on demo:j1-1-a")
+    cards = NO_CARDS | {"questions": [question("demo:j1-1-a")]}
+    built = state.load(demo)
+    assert built["jobs"]["j1"]["waits"] == ["demo:j1-1-a"]
+    assert [land.open_cards(built, "j1", built["prs"][key]) for key in (KEY, OTHER)] == [[], ["demo:j1-1-a"]]
+    assert land.start(demo, [KEY], cards) == [(KEY,)]
+
+
+def test_replayed_cc_slack_422_a_test_only_fix_of_a_job_whose_own_card_names_only_the_orders_one_part_is_held_by_no_card_while_the_card_holds_its_unbuilt_work(
+    demo: str,
+) -> None:
+    fix = "yasyf/cc-slack#422"
+    with state.edit(demo) as data:
+        data["prs"][fix] = state.new_pr(state.pr_url(fix), "j1", "o1") | {"checks": "pass", "branch": "j4362-reply-test"}
+        data["jobs"]["j1"]["prs"].append(state.pr_url(fix))
+        data["jobs"]["j1"]["questions"] = [state.new_question(None, "Which reply path?", state.stamp(T0), holds="ship the watch") | {"waits": "demo:j1-1-a"}]
+    drive = state.load(demo)
+    assert (land.pr_cards(drive, drive["prs"][fix]), stage.held(drive, drive["prs"][fix]), state.part_cards(drive, "j1")) == ([], "", ["demo:j1-1-a"])
+
+
 def test_a_flake_fix_goes_up_and_lands_while_his_card_holds_its_jobs_design_work(demo: str, landers: list[tuple[str, ...]]) -> None:
     approve(demo, KEY)
     with state.edit(demo) as data:
         data["prs"][KEY] |= {"checks": "pass", "review": "approved", "exempt": state.FLAKE_FIX}
-        data["jobs"]["j1"]["questions"] = [state.new_question(None, "Which store?", state.stamp(T0), holds="ship the watch") | {"waits": "demo:j1-1-a"}]
+        data["jobs"]["j1"]["questions"] = [state.new_question(None, "Which store?", state.stamp(T0), holds="ship the watch, on #42") | {"waits": "demo:j1-1-a"}]
     cards = NO_CARDS | {"questions": [question("demo:j1-1-a")]}
     drive = state.load(demo)
     assert (land.open_cards(drive, "j1", drive["prs"][KEY]), land.open_cards(drive, "j1", drive["prs"][KEY] | {"exempt": None})) == ([], ["demo:j1-1-a"])
@@ -4725,13 +4758,15 @@ def holding_answered(name: str) -> None:
 @pytest.mark.parametrize(
     ("waits", "holds", "held"),
     [
-        ((HOLDING_CARD,), None, True),
+        ((HOLDING_CARD,), None, False),
         ((HOLDING_CARD,), "", False),
+        ((HOLDING_CARD,), BUSY_WAIT, False),
+        ((HOLDING_CARD,), f"{BUSY_WAIT}, which #42 carries", True),
         ((), f'"land #42 once #43 is in": each option changes what #42 carries when it lands; {BUSY_WAIT}', True),
         ((), "the dashboard", False),
     ],
 )
-def test_his_open_card_holds_a_pr_from_landing_only_while_its_holds_line_names_the_change_of_a_job_carrying_it_whichever_job_waits_on_that_card(
+def test_his_open_card_on_a_job_carrying_a_pr_holds_it_from_landing_only_while_its_holds_line_names_it_whichever_job_waits_on_that_card(
     demo: str, landers: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch, waits: tuple[str, ...], holds: str | None, held: bool
 ) -> None:
     approve(demo, KEY)
@@ -4760,7 +4795,7 @@ def test_the_watch_stops_a_lander_when_a_card_opens_on_the_work_of_a_job_holding
     watching.cards = view.live_cards(demo)
     watch.landed(watching)
     assert (lander.poll(), stage.of(state.load(demo), KEY, watching.cards).name) == (None, "landing")
-    holding_asks(demo, BUSY_WAIT)
+    holding_asks(demo, f"{BUSY_WAIT}, which #42 carries")
     asking(monkeypatch, demo, HOLDING_CARD)
     watching.cards = view.live_cards(demo)
     watch.landed(watching)
