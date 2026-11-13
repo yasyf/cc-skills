@@ -350,7 +350,7 @@ def drive_holding(closed: dict | None, card: str | None = WHOLE_STACK) -> dict:
 def slack_and_cci(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     read: list[str] = []
     monkeypatch.setattr(refs, "shown", lambda name, kind, seq: read.append(seq) or RECORDS[seq])
-    monkeypatch.setattr(settled, "heard", lambda link, found: read.append(link) or "his")
+    monkeypatch.setattr(settled, "heard", lambda link, found, data: read.append(link) or "his")
     monkeypatch.setattr(slack, "message", lambda link: {"text": "Land it with the stack under it", "ts": f"{link[-16:-6]}.{link[-6:]}"})
     return read
 

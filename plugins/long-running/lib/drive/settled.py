@@ -173,8 +173,10 @@ def his(body: str) -> str:
     return body.partition(NOTES)[0].strip()
 
 
-def heard(link: str, found: dict | None) -> str | None:
-    """His words at a Slack link: his answer on the card there, tapped or typed, or else the message there when a person wrote it; None for a card still asking him or one withdrawn, and for a message the drive or a bot posted."""
+def heard(link: str, found: dict | None, data: dict) -> str | None:
+    """His words at a Slack link: his answer on the card there, tapped or typed, as the drive's question drawn on it ended on them or else as cc-slack keeps it, or else the message there when a person wrote it; None for a card still asking him or one withdrawn, and for a message the drive or a bot posted."""
+    if said := next((closed["words"] for _, question in view.drawn_on(data, link) if (closed := question["closed"]) and closed["how"] == "answered" and closed["words"]), None):
+        return said
     if found and (closed := view.closed_card(found, link)) and closed["answer"] and not closed["answer"].get("withdrawn"):
         return closed["answer"]["label"]
     message = slack.message(link)
@@ -195,7 +197,7 @@ def unsaid(kept: list[str], link: str | None, found: dict | None, data: dict) ->
             return f'no prompt he typed into a terminal of the drive\'s sessions says "{cut(words, 200)}"; {HIS_ANSWER}'
         if not read:
             try:
-                read.append(heard(link, found))
+                read.append(heard(link, found, data))
             except slack.SlackError as error:
                 return f"{link} could not be read for his words ({error}); {HIS_ANSWER}"
         if read[0] is None:

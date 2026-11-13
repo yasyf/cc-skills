@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Self
 
-from drive import agents, codex, dashboard, github, install, land, launchd, orca, page, place, procs, reads, receiver, render, served, slack, stage, stall, state, superseded, view
+from drive import agents, codex, dashboard, github, install, land, launchd, orca, page, place, procs, reads, receiver, render, served, settled, slack, stage, stall, state, superseded, view
 from drive.install import MERGED_DONE, PROOF_FAILED, config_dir, merged_done, merged_ready, merged_said, product, proof_gap, proofless, reported_prs, said_on_prs, upgraded
 from drive.render import cut, when
 
@@ -2534,21 +2534,24 @@ def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def draw_questions(watcher: Watcher, moment: datetime) -> None:
-    """Draw his card on each open question of a heard job, kept in its file with no card drawn and no refusal, as drive job ask draws it, so a draw that failed in that call goes up on this read; a job that failed or stopped asks him nothing new. A draw that fails again is said to the meta session from its third failure in a row, and a card drive job card refuses leaves its question refused, which the job's line then says."""
+    """Draw his card on each open question of a heard job, kept in its file with no card drawn and no refusal, as drive job ask draws it, so a draw that failed in that call goes up on this read; a job that failed or stopped asks him nothing new, and one his answer to the same question settled since it was kept is kept settled by `keep_settled` and draws none. A draw that fails again is said to the meta session from its third failure in a row, and a card drive job card refuses leaves its question refused, which the job's line then says."""
     if watcher.cards is None:
         return
     from drive import cli
 
     data = state.load(watcher.name)
     undrawn = [
-        (job_id, Path(question["file"]))
+        (job_id, question, Path(question["file"]))
         for job_id, job in data["jobs"].items()
         if job["state"] not in ("failed", "stopped") and heard_job(watcher, data, job)
         for question in view.open_questions(job)
         if question["file"] and not (question["card"] or question["refused"])
     ]
-    for job_id, file in undrawn:
+    for job_id, question, file in undrawn:
         try:
+            if answer := settled.answered(data, question["title"]):
+                cli.keep_settled(watcher.name, job_id, file.read_text(), file, question["title"], question["unsettled"], answer)
+                continue
             cli.post_ask(watcher.name, job_id, file, cli.ask_card(watcher.name, job_id, file))
         except (slack.SlackError, state.DriveError) as error:
             watcher.unsent.setdefault("meta", []).extend(failed(watcher, "question draw", f"draw of {job_id}'s card on {file}", error, moment))
