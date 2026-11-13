@@ -436,6 +436,14 @@ def lane_spec() -> dict:
     return json.loads((Path(install.installed(ORCA)["installPath"]) / "lib" / "lane.json").read_text())
 
 
+def datadog_servers() -> dict:
+    """The `--mcp-config` an Orca lane on this Mac starts with, since the launcher's `--strict-mcp-config` loads no plugin's servers: the newest installed Datadog plugin's servers, each under the name Claude Code gives a plugin's server, `plugin:<plugin>:<server>`, under which this Mac's Datadog sign-in is kept, so the lane gets the `mcp__plugin_datadog_mcp__*` tools a drive session's Datadog read names and starts no other server."""
+    root = Path(install.installed(DATADOG_PLUGIN)["installPath"])
+    manifest = json.loads((root / ".claude-plugin" / "plugin.json").read_text())
+    servers = json.loads((root / manifest["mcpServers"]).read_text())["mcpServers"]
+    return {"mcpServers": {f"plugin:{manifest['name']}:{key}": server for key, server in servers.items()}}
+
+
 def env_words(settings: dict) -> list[str]:
     """The `env` words a root session's command starts with: every variable its settings carry, so the `claude daemon` its `claude --bg` starts, and each spare that daemon forks, inherits them."""
     return ["env", *(f"{key}={value}" for key, value in settings["env"].items())]

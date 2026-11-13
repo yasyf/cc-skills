@@ -4517,11 +4517,20 @@ def test_the_watch_files_a_lane_recorded_on_this_mac_on_the_sprite_its_worker_sh
     assert place.local_builders(data, state.now()) == {}
 
 
-def test_a_local_launch_runs_the_launcher_on_its_local_route_in_the_checkouts_orca_repo_and_reads_no_prepared_server(
+def test_a_local_launch_runs_the_launcher_in_the_checkouts_orca_repo_with_the_datadog_servers_and_cci_parent_session_j738_7_lacked_and_reads_no_prepared_server(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     brief = tmp_path / "j1.md"
     brief.write_text("brief")
+    datadog = tmp_path / "datadog"
+    (datadog / ".claude-plugin").mkdir(parents=True)
+    (datadog / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": "datadog", "mcpServers": "./.dd_claude-code_mcp.json"}))
+    server = {"type": "http", "url": "https://${DD_MCP_DOMAIN:-mcp.datadoghq.com}/v1/mcp?referrer_ide=claude-code-plugin"}
+    (datadog / ".dd_claude-code_mcp.json").write_text(json.dumps({"mcpServers": {"mcp": server}}))
+    (tmp_path / "config" / "plugins").mkdir(parents=True)
+    installs = {"datadog@claude-plugins-official": [{"installPath": str(datadog), "lastUpdated": "2026-08-19T01:29:52.417Z"}]}
+    (tmp_path / "config" / "plugins" / "installed_plugins.json").write_text(json.dumps({"version": 2, "plugins": installs}))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
     monkeypatch.setattr(orca, "tool", lambda name: name)
     monkeypatch.setattr(orca, "main_checkout", lambda worktree: Path("/code/monorepo"))
     asked = []
@@ -4537,12 +4546,14 @@ def test_a_local_launch_runs_the_launcher_on_its_local_route_in_the_checkouts_or
     launched = orca.launch("demo", "demo-j1", brief, tmp_path, RUN, state.LOCAL_ROUTE, None, None)
     assert launched == {**receipt, "lane": "demo-j1", "workspace": None, "environment": None}
     assert (ran["argv"], ran["cwd"]) == (["orca-worker-launch.sh", "demo-j1", orca.MODEL, orca.EFFORT, str(brief)], tmp_path)
-    assert {key: ran["env"][key] for key in ("WORKER_LOCAL", "WORKER_REPO", "WORKER_RUN", "WORKER_ENV")} == {
+    assert {key: ran["env"][key] for key in ("WORKER_LOCAL", "WORKER_REPO", "WORKER_RUN", "WORKER_ENV", "WORKER_MCP_CONFIG")} == {
         "WORKER_LOCAL": "1",
         "WORKER_REPO": "repo-local",
         "WORKER_RUN": RUN,
-        "WORKER_ENV": orca.LANE_ENV,
+        "WORKER_ENV": f"{orca.LANE_ENV} CCI_PARENT_SESSION=demo",
+        "WORKER_MCP_CONFIG": str(tmp_path / "j1.mcp.json"),
     }
+    assert json.loads((tmp_path / "j1.mcp.json").read_text()) == {"mcpServers": {"plugin:datadog:mcp": server}}
     assert asked == [("repo", "show", "--repo", "path:/code/monorepo")]
     assert "WORKER_TOOLS" not in ran["env"]
 
