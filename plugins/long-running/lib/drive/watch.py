@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Self
 
-from drive import agents, codex, dashboard, github, land, limits, orca, page, place, reads, render, served, slack, stage, state, superseded, view
+from drive import agents, codex, dashboard, github, land, limits, orca, page, place, procs, reads, render, served, slack, stage, state, superseded, view
 from drive.install import MERGED_DONE, PROVEN, config_dir, merged_done, merged_ready, product, proof_gap, said_on_prs, upgraded
 from drive.render import cut, subscribe, when
 
@@ -534,8 +534,8 @@ def unsaid_waits(watcher: Watcher, data: dict) -> list[dict]:
 
 
 def started(pid: int) -> str | None:
-    """When the process holding pid started, as ps prints it, which a pid the system hands to another process changes; None when no process holds it."""
-    return subprocess.run(["ps", "-o", "lstart=", "-p", str(pid)], capture_output=True, text=True, check=False).stdout.strip() or None
+    """When the process holding pid started, as `ps -o lstart=` prints it, which a pid the system hands to another process changes; None when no process holds it."""
+    return procs.lstart(seconds) if (seconds := procs.started(pid)) is not None else None
 
 
 def shipped(watcher: Watcher, data: dict, moment: datetime) -> tuple[dict[str, str], list[str]]:
