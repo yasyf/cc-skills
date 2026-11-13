@@ -84,6 +84,8 @@ DEFERRED_REMOVAL = "this pass spent its removals or another reclaim holds the re
 DEFERRED_CLOSE = "this pass spent its closes; a later pass takes it"
 REMOVING_HERE = threading.Lock()
 CC_REMOTE_TASK_SCHEMA = 1
+FULL_HOME_KIB = 65536
+FREE_FULL_HOME = f'[ "$(df -Pk "$HOME" | awk \'NR == 2 {{ print $4 }}\')" -ge {FULL_HOME_KIB} ] || rm -rf "$HOME/.cache"'
 
 
 @dataclass(frozen=True)
@@ -796,7 +798,7 @@ def save_script(sprite: Sprite, slug: str, lane: str, refs: dict[str, str], tree
     prefix = f"saved/{lane}/"
     message = f"wip: what {lane} left uncommitted on Sprite {sprite.workspace}, saved for its next lane"
     helper = '!f() { echo username=x-access-token; echo "password=$SAVE_TOKEN"; }; f'
-    lines = ["set -e", "IFS= read -r SAVE_TOKEN", "export SAVE_TOKEN GIT_TERMINAL_PROMPT=0", f"cd {shlex.quote(sprite.root)}"]
+    lines = ["set -e", "IFS= read -r SAVE_TOKEN", "export SAVE_TOKEN GIT_TERMINAL_PROMPT=0", FREE_FULL_HOME, f"cd {shlex.quote(sprite.root)}"]
     lines += [f"git update-ref {shlex.quote('refs/heads/' + (name if name.startswith(prefix) else prefix + name))} {tip}" for name, tip in refs.items()]
     for tree in map(shlex.quote, trees):
         lines += [
@@ -1186,7 +1188,8 @@ def main() -> int:
         "or stash with commits on no remote, and an unpushed HEAD; or the reason the read failed, or nothing. A branch whose first-parent history begins at a root commit "
         "GitHub's default branch shares no history with, such as the cc-notes-source-live-v2 branch cc-notes pins its own records on, is no lane's work and counts for nothing. It needs no Orca, so it reads a Sprite whose dispatch "
         "or environment Orca has dropped. "
-        "--save WORKSPACE LANE takes what --held would name to GitHub, so a fresh Sprite gets it: one ssh to that Sprite commits each worktree's "
+        "--save WORKSPACE LANE takes what --held would name to GitHub, so a fresh Sprite gets it: one ssh to that Sprite first deletes ~/.cache when its home has "
+        f"under {FULL_HOME_KIB // 1024} MiB free, the line cc-remote's runtime names out of disk space at, since git can write no commit on a full disk, then commits each worktree's "
         "uncommitted changes there with --no-verify and no hooks, names each commit, branch or stash GitHub holds nowhere, by a branch head, an open or merged PR's "
         "head or its default branch, as the local branch saved/LANE/<its name>, a worktree's commit by its own branch or short sha, and pushes "
         "refs/heads/saved/LANE/* to github.com over https on the token gh auth token prints, which it reads from stdin into that one shell's "

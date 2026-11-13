@@ -338,7 +338,12 @@ before it sends or starts.
 - When Orca cannot reach the lane's Sprite, its worker-show refused as `remote_runtime_unavailable`,
   the resume, a launch and `drive pr wake` first wake that Sprite with `orca-reclaim.py --wake`,
   which runs `cc-remote orca reconnect`, then read the lane again. A worker that takes messages gets
-  the text. Any other lane resumes its own Claude session there, as a dead lane above does, else
+  the text. A lane Orca still cannot reach is asked of its Sprite over cc-remote's ssh: with nothing
+  listening on the port its cc-remote task runs Orca's runtime on, as when a full disk crash-loops
+  that runtime while the lane's Claude works on, the lane is saved as above and relaunched on a
+  fresh Sprite with its held texts, the save first deleting `~/.cache` on a home under 64 MiB free;
+  with that runtime listening, the text is held and nothing restarts, since Orca on this Mac is what
+  fails. Any other lane resumes its own Claude session there, as a dead lane above does, else
   relaunches on that Sprite through `cc-remote orca prepare --existing`, in the checkout it left,
   with no save. When that Sprite starts no worker, the relaunch runs on a
   fresh Sprite from the job's pushed branches, after the save above, and the old Sprite is kept when

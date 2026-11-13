@@ -1104,12 +1104,15 @@ class SavingCcRemote(FakeCcRemote):
     def __init__(self, sprite: orca_gc.Sprite, held: orca_gc.Checkout | str, github: Path):
         super().__init__({(SPRITE_WT, "term_sprite"): sprite}, {sprite.workspace: held})
         self.github = github
+        self.home = github.parent / "home"
+        self.home.mkdir(exist_ok=True)
+        self.env = {"HOME": str(self.home)}
         self.sent: list[tuple[str, str | None]] = []
 
     def ssh(self, sprite: orca_gc.Sprite, script: str, given: str | None = None) -> subprocess.CompletedProcess[str]:
         self.sent.append((script, given))
         github = {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": f"url.{self.github}.insteadOf", "GIT_CONFIG_VALUE_0": "https://github.com/acme/repo.git"}
-        return subprocess.run(["sh", "-c", script], input=given, capture_output=True, text=True, env={**os.environ, **github})
+        return subprocess.run(["sh", "-c", script], input=given, capture_output=True, text=True, env={**os.environ, **github, **self.env})
 
 
 class GitHubCcRemote(SavingCcRemote):
@@ -1231,6 +1234,21 @@ class SaveTest(unittest.TestCase):
         self.assertEqual(given, "ghs_lent\n")
         self.assertNotIn("ghs_lent", script)
         self.assertIn("push --quiet https://github.com/acme/repo.git 'refs/heads/saved/demo-j1/*:refs/heads/saved/demo-j1/*'", script)
+
+    def test_save_first_deletes_the_cache_of_a_sprite_whose_home_has_under_64_mib_free_and_still_pushes(self):
+        for free_kib, kept in ((0, False), (orca_gc.FULL_HOME_KIB - 1, False), (orca_gc.FULL_HOME_KIB, True)):
+            with self.subTest(free_kib=free_kib):
+                sprite, base, held, _ = self.sprite_holding_work()
+                cc_remote = SavingCcRemote(sprite, held, base / "github.git")
+                (cc_remote.home / ".cache" / "uv").mkdir(parents=True)
+                (base / "bin").mkdir()
+                (base / "bin" / "df").write_text(f"#!/bin/sh\necho 'Filesystem 1024-blocks Used Available Capacity Mounted on'\necho '/dev/vdb 8000000 8000000 {free_kib} 100% {cc_remote.home}'\n")
+                (base / "bin" / "df").chmod(0o755)
+                cc_remote.env["PATH"] = f"{base / 'bin'}:{os.environ['PATH']}"
+                with mock.patch.object(orca_gc, "github_token", return_value="ghs_lent"):
+                    orca_gc.save("pool-abc", "demo-j1", cc_remote)
+                self.assertEqual((cc_remote.home / ".cache").exists(), kept)
+                self.assertIn("saved/demo-j1/lane", git_in(base / "github.git", "for-each-ref", "--format=%(refname:lstrip=2)", "refs/heads/saved/").split())
 
     def test_save_skips_a_worktree_git_cannot_read_saves_the_rest_and_names_it(self):
         sprite, base, held, tips = self.sprite_holding_work()

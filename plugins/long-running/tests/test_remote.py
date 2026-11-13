@@ -30,6 +30,7 @@ J2914_NEXT_WORKER = "ctx_0f1e1c8feccb"
 PLACE_TOOLS = orca.place_tools
 LAUNCH = orca.launch
 REPREPARED = "it continues in the checkout it left on pool-one, which cc-remote prepared again with the tools and keys a fresh Sprite gets"
+RUNTIME_LISTENING = orca.runtime_listening
 BREAK_GLASS_READ = 'DRIVE break-glass j1 --stack sandsql/plat-usw2-prod --reason "drop the stranded copies" -- psql -c "drop table copy_1"'
 ENDED_READER = 99_999_999
 SEQUENCE = itertools.count(1)
@@ -1398,6 +1399,7 @@ J1409_LANES = {
     "j290": ("pool-2ga7fnjkv5qghs7b", "ctx_7ce8b24fa959", 52522),
 }
 J2504_LANE = ("pool-k2iqtr6xv3wolr6f", "ctx_0afc9f8512dd", 59582)
+J982_10 = ("durable-agents-j982-10", "ctx_d345002d9b07", 63715)
 NO_WAKE = "failed to start sprite command: failed to connect: read tcp [2600:1700:2f71:844f:98cd:4e66:a709:7381]:49893->[2a09:8280:1::99:d7b3:0]:443: i/o timeout"
 
 
@@ -1505,6 +1507,53 @@ def test_a_lane_that_takes_messages_once_its_sprite_wakes_gets_the_text_and_noth
     assert run("job", "resume", "j1", watch.UNREACHED) == (0, f"j1: sent to dispatch {DISPATCH}")
     assert (wakes, launches) == ([("--wake", "pool-ochwykolpjebecve")], [])
     assert sent == [("send", "--to", f"dispatch:{DISPATCH}", "--run", RUN, "--subject", "From the coordinator", "--body", watch.UNREACHED, "--retry-request", ANY)]
+
+
+@pytest.mark.parametrize("saved", [SAVED, None], ids=["saved", "unsaveable"])
+def test_j982s_full_disk_sprite_whose_claude_lives_while_nothing_listens_where_orcas_runtime_serves_restarts_on_a_fresh_sprite_with_its_branches_saved_and_its_held_texts(
+    run: Run,
+    remote: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    runtimes_listening: dict[str, bool],
+    sessions: dict[str, str],
+    saved_on_github: dict[str, list[str]],
+    saved: str | None,
+) -> None:
+    workspace, dispatch, port = J982_10
+    wakes, launches = unreachable_lane(remote, tmp_path, monkeypatch, J982_10, lambda: refused("remote_runtime_unavailable", f"Could not connect to the remote Orca runtime at ws://127.0.0.1:{port}")(dispatch))
+    runtimes_listening[workspace] = False
+    sessions[workspace] = "5a1f0c3e-7d2b-4e8a-9c61-0b2d4f6e8a1c"
+    saved_on_github["demo-j1"] = SAVED_BRANCHES if saved else []
+    monkeypatch.setattr(orca, "save", (lambda drive, job_id, job, root: saved) if saved else unsaveable(UNREAD))
+    monkeypatch.setattr(orca, "holds_sprite", lambda job: True)
+    released = []
+    monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root: released.append(job["workspace"]) or f"destroyed {job['workspace']}")
+    held = "Next event for builder j982, from the coordinator. TAP Approve #12"
+    with state.edit(remote) as data:
+        data["jobs"]["j1"]["undelivered"] = [{"seq": None, "words": held, "at": state.stamp(T0), "said": None, "request": "req-held"}]
+    code, out = run("job", "resume", "j1", watch.UNREACHED)
+    assert (code, out.startswith("j1: the message went to the job's next worker, relaunched on Sprite workspace-2 as dispatch dispatch-2")) == (0, True)
+    assert f"was dead ({unreachable(port)}, and its wake read {unreachable(port).removeprefix('Orca could not reach its Sprite: ')}, and its Sprite has nothing listening on the port Orca's runtime serves on there)" in out
+    assert out.endswith(f"what {workspace} held on no remote is saved on GitHub as {ON_GITHUB}; destroyed {workspace}" if saved else f"{workspace} is kept, since what it holds on no remote could not be saved: {UNREAD}")
+    assert (wakes, [(launched["workspace"], launched["session"]) for launched in launches], released) == ([("--wake", workspace)], [(None, None)], [workspace] if saved else [])
+    assert orca.brief_of(launches[0]["brief"]).endswith(f"which you act on now:\n\n{held}\n\n{watch.UNREACHED}")
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["dispatch"], job["workspace"], job["undelivered"], [(death["workspace"], death.get("saved")) for death in job["deaths"]]) == ("dispatch-2", "workspace-2", [], [(workspace, saved)])
+
+
+def test_a_lane_orca_could_not_reach_whose_woken_sprite_says_orcas_runtime_listens_holds_the_text_and_restarts_nothing(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, runtimes_listening: dict[str, bool]
+) -> None:
+    workspace, dispatch, port = J982_10
+    wakes, launches = unreachable_lane(remote, tmp_path, monkeypatch, J982_10, lambda: refused("remote_runtime_unavailable", f"Could not connect to the remote Orca runtime at ws://127.0.0.1:{port}")(dispatch))
+    runtimes_listening[workspace] = True
+    monkeypatch.setattr(orca, "save", lambda *args: pytest.fail("a lane whose Sprite's runtime listens is never saved"))
+    code, out = run("job", "resume", "j1", watch.UNREACHED)
+    assert (code, out.startswith(f"j1: held, not sent yet: orca orchestration worker-show: remote_runtime_unavailable: Could not connect to the remote Orca runtime at ws://127.0.0.1:{port}")) == (0, True)
+    assert (wakes, launches) == ([("--wake", workspace)], [])
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["dispatch"], "deaths" in job, [kept["words"] for kept in state.held(job)]) == (dispatch, False, [watch.UNREACHED])
 
 
 def reprepared(monkeypatch: pytest.MonkeyPatch, dispatch: str = "dispatch-2") -> list[tuple[str, str | None]]:
@@ -4283,6 +4332,27 @@ def test_placing_tools_on_a_sprite_runs_the_orca_step_on_its_cc_remote_task_with
     assert ran == [(["orca-sprite-tools.sh", str(tmp_path / "pool-one.json")], f"drive={orca.PLUGIN / 'lib' / 'sprite' / 'drive'}")]
     with pytest.raises(orca.Unstarted, match="^orca-sprite-tools.sh exited 1 on pool-one: a login shell runs drive from nothing$"):
         PLACE_TOOLS("pool-one")
+
+
+def test_a_sprite_says_whether_anything_listens_on_the_port_its_cc_remote_task_runs_orcas_runtime_on_and_nothing_when_it_does_not_answer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace, dispatch, port = J982_10
+    monkeypatch.setattr(orca, "CC_REMOTE_TASKS", tmp_path)
+    (tmp_path / f"{workspace}.json").write_text(json.dumps({"port": port, "forward": {"host": workspace, "config": "/ssh/j982-10.ssh"}}))
+    answers = [(0, b""), (0, f"LISTEN 0 4096 127.0.0.1:{port} 0.0.0.0:*\n".encode()), (255, b""), None]
+    ran = []
+
+    def ssh(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        ran.append((argv[:3], argv[-2:]))
+        if not (answer := answers[len(ran) - 1]):
+            raise subprocess.TimeoutExpired(argv, orca.CALL_SECONDS)
+        return subprocess.CompletedProcess(argv, answer[0], stdout=answer[1], stderr=b"")
+
+    monkeypatch.setattr(orca.subprocess, "run", ssh)
+    assert [RUNTIME_LISTENING(workspace) for _ in answers] == [False, True, None, None]
+    assert ran == [(["ssh", "-F", "/ssh/j982-10.ssh"], [workspace, f"ss -Hltn 'sport = :{port}'"])] * 4
+    assert RUNTIME_LISTENING("pool-unrecorded") is None
 
 
 def test_putting_a_file_on_a_sprite_sends_it_through_ssh_stdin_and_returns_the_path_only_when_the_sprite_kept_those_bytes(

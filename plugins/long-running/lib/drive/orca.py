@@ -609,12 +609,18 @@ def lane_end(drive: str, job: dict) -> LaneEnd | None:
 
 
 def woken(drive: str, job: dict, unreached: str) -> LaneEnd | None:
-    """Wake the Sprite of a lane Orca cannot reach with the reclaimer's --wake from the drive's checkout, which reopens its forward and adopts the Orca runtime a cold boot started, then read the lane again: None when its worker takes messages again, its end when its worker finished with its terminal held, and else an end marked unreached, which restarts the lane on that Sprite in the checkout it left, where the launcher's prepare --existing wakes it when this wake did not."""
+    """Wake the Sprite of a lane Orca cannot reach with the reclaimer's --wake from the drive's checkout, which reopens its forward and adopts the Orca runtime a cold boot started, then read the lane again: None when its worker takes messages again, its end when its worker finished with its terminal held, and else what its Sprite says over cc-remote's ssh: an unfit end when it answers with nothing listening on the port Orca's runtime serves on there, as when a full disk crash-loops that runtime, which saves the lane and restarts it on a fresh Sprite; the refusal again when something listens there, since Orca then fails on this Mac and no lane restarts for it; and when it does not answer, an end marked unreached, which restarts the lane on that Sprite in the checkout it left, where the launcher's prepare --existing wakes it when this wake did not."""
     try:
         reclaimer(checkout(drive, state.load(drive)), "--wake", job["workspace"])
         end = shown_end(job, worker(job["dispatch"]))
     except OrcaError as error:
-        return LaneEnd(f"{unreached}, and its wake read {error}", None, None, unreached=True)
+        unreached = f"{unreached}, and its wake read {error}"
+        match runtime_listening(job["workspace"]):
+            case True:
+                raise
+            case False:
+                return LaneEnd(f"{unreached}, and its Sprite has nothing listening on the port Orca's runtime serves on there", None, None, unfit=True)
+        return LaneEnd(unreached, None, None, unreached=True)
     if end is None or end.worktree:
         return end
     return end._replace(why=f"{unreached}, and once it woke {end.why}", unreached=True)
@@ -735,6 +741,16 @@ def take_off_sprite(workspace: str, paths: list[str], into: Path) -> None:
         raise Unfit(f"copying {', '.join(paths)} off {workspace} exited {done.returncode}: {why[0] if why else 'no output'}")
     with tarfile.open(fileobj=io.BytesIO(done.stdout)) as held:
         held.extractall(into, filter="data")
+
+
+def runtime_listening(workspace: str) -> bool | None:
+    """Whether anything on the workspace's Sprite listens on the port its cc-remote task runs Orca's runtime on, asked over cc-remote's ssh forward, never through that runtime; None when cc-remote records no task for it or the Sprite does not answer."""
+    try:
+        port = json.loads((CC_REMOTE_TASKS / f"{workspace}.json").read_text())["port"]
+        done = on_sprite(workspace, f"ss -Hltn 'sport = :{port}'", b"", CALL_SECONDS)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return None if done.returncode else bool(done.stdout.strip())
 
 
 def on_sprite(workspace: str, command: str, given: bytes, seconds: float) -> subprocess.CompletedProcess[bytes]:
