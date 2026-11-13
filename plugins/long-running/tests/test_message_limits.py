@@ -1592,7 +1592,7 @@ def test_jev_reads_the_words_each_page_a_card_links_shows_or_why_chrome_could_no
     def page_text(url: str) -> str:
         if url == SENTRY_EVENT:
             return shown
-        raise picture.PictureError(f"Chrome could not load {url}: net::ERR_NAME_NOT_RESOLVED")
+        raise picture.ChromeError(f"Chrome could not load {url}: net::ERR_NAME_NOT_RESOLVED")
 
     monkeypatch.setattr(picture, "page_text", page_text)
     [line] = [line for line in limits.ask_case(STRAY_CHATS_ASK, limits.question(STRAY_CHATS_ASK)).splitlines() if line.startswith("Page ")]

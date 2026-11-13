@@ -13,7 +13,7 @@ import sys
 import tempfile
 import threading
 import urllib.request
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -129,7 +129,11 @@ JUDGED = "illustrative"
 
 
 class PictureError(Exception):
-    pass
+    """A picture's own verdict on itself, such as the error visuals.js threw drawing it or an image link that does not download."""
+
+
+class ChromeError(Exception):
+    """Headless Chrome failing to run, load a page or finish with it, which says nothing of the page it was opening."""
 
 
 def chrome() -> str:
@@ -137,10 +141,11 @@ def chrome() -> str:
         return found
     if found := next((app for app in CHROME_APPS if Path(app).exists()), None) or next(filter(None, map(shutil.which, CHROME_NAMES)), None):
         return found
-    raise PictureError("no Chrome or Chromium here; install Google Chrome or set CHROME to one")
+    raise ChromeError("no Chrome or Chromium here; install Google Chrome or set CHROME to one")
 
 
 def headless(url: str, profile: Path, *args: str) -> str:
+    """What Chrome printed opening url, judged by what it printed rather than how it exited, since a Chrome that drew the page can still crash on its way out, as its `Teardown watchdog expired` does under load; one that never ran, timed out, could not load url, or exited non-zero having printed nothing raises ChromeError."""
     try:
         result = subprocess.run(
             [chrome(), "--headless=new", "--disable-gpu", "--no-first-run", "--hide-scrollbars", f"--user-data-dir={profile}", "--virtual-time-budget=15000", *args, url],
@@ -150,11 +155,11 @@ def headless(url: str, profile: Path, *args: str) -> str:
             timeout=CHROME_SECONDS,
         )
     except (OSError, subprocess.TimeoutExpired) as error:
-        raise PictureError(f"Chrome did not run: {error}") from None
-    if result.returncode:
-        raise PictureError(" ".join(result.stderr.split()) or f"Chrome exited {result.returncode}")
+        raise ChromeError(f"Chrome did not run: {error}") from None
     if failed := LOAD_FAILED.search(result.stderr):
-        raise PictureError(f"Chrome could not load {url}: {failed[1]}")
+        raise ChromeError(f"Chrome could not load {url}: {failed[1]}")
+    if result.returncode and not result.stdout:
+        raise ChromeError(" ".join(result.stderr.split()) or f"Chrome exited {result.returncode}")
     return result.stdout
 
 
@@ -189,18 +194,36 @@ def page_text(url: str) -> str:
 
 
 def visual_png(kind: str, source: str, out: Path) -> None:
-    """Draw one visual with site/visuals.js, the module the dashboard draws it with live, and the renderers it keeps beside it, served on a loopback port so nothing loads from the network and Chrome's virtual time, which waits on a page's network loads but never on its file loads, waits for them: once to measure it, again while Chrome's time ran out before it finished drawing, then a screenshot of exactly that box."""
+    """Draw one visual with site/visuals.js, the module the dashboard draws it with live, and the renderers it keeps beside it, served on a loopback port so nothing loads from the network and Chrome's virtual time, which waits on a page's network loads but never on its file loads, waits for them: once to measure it, again while Chrome gave no verdict, as when its time ran out before it finished drawing or it crashed or timed out, then a screenshot of exactly that box, taken again while Chrome wrote none. Only the page's own verdict, the error draw() threw, raises PictureError; Chrome giving no verdict or no screenshot in VISUAL_TRIES launches raises ChromeError."""
     shown = json.dumps({"kind": kind, "source": source}).replace("</", "<\\/")
     with tempfile.TemporaryDirectory(prefix="drive-visual-") as scratch, visual_site(Path(scratch), VISUAL_PAGE.replace("SOURCE", shown, 1)) as page:
         profile = Path(scratch) / "profile"
-        measured = (DRAWN.search(headless(page, profile, f"--window-size={VISUAL_WINDOW},{VISUAL_WINDOW}", "--dump-dom")) for _ in range(VISUAL_TRIES))
-        if not (drawn := next(filter(None, measured), None)):
-            raise PictureError(f"the {kind} did not finish drawing in {VISUAL_TRIES} tries")
+        drawn = launched(lambda: DRAWN.search(headless(page, profile, f"--window-size={VISUAL_WINDOW},{VISUAL_WINDOW}", "--dump-dom")), f"Chrome gave no verdict on the {kind}")
         if not (size := SIZE.fullmatch(said := html.unescape(drawn[1]))):
             raise PictureError(said)
+        launched(lambda: screenshot(page, profile, size, out), f"Chrome wrote no screenshot of the {kind}")
+
+
+def launched[T](launch: Callable[[], T | None], missing: str) -> T:
+    """launch's first answer in VISUAL_TRIES launches of Chrome, one that raised ChromeError counted as one that gave none; when none gives one, ChromeError saying what was missing and the last failing launch's words."""
+    failure = None
+    for _ in range(VISUAL_TRIES):
+        try:
+            if found := launch():
+                return found
+        except ChromeError as error:
+            failure = error
+    raise ChromeError(f"{missing} in {VISUAL_TRIES} launches" + (f": {failure}" if failure else ""))
+
+
+def screenshot(page: str, profile: Path, size: re.Match[str], out: Path) -> bool:
+    """Whether Chrome wrote its screenshot of page at size to out, judged by the file, since Chrome can crash on its way out after writing it."""
+    try:
         headless(page, profile, f"--window-size={size[1]},{size[2]}", f"--force-device-scale-factor={VISUAL_SCALE}", f"--screenshot={out}")
-    if not out.is_file():
-        raise PictureError("Chrome wrote no screenshot")
+    except ChromeError:
+        if not out.is_file():
+            raise
+    return out.is_file()
 
 
 @contextlib.contextmanager
@@ -400,7 +423,7 @@ def fill(folder: Path, kept: list[str]) -> None:
 
 
 def shot(folder: Path, name: str, kind: str, source: str, which: str) -> Path:
-    """The picture of one source as `cached` draws it under folder, a local image by its file URL; one that does not draw, such as a Mermaid diagram Mermaid cannot parse, raises a DriveError naming which picture and why, since a question card or post that leaves it out shows him a Show me with nothing in it."""
+    """The picture of one source as `cached` draws it under folder, a local image by its file URL; one that does not draw, such as a Mermaid diagram Mermaid cannot parse, raises a DriveError naming which picture and why, since a question card or post that leaves it out shows him a Show me with nothing in it, and one headless Chrome failed on raises a DriveError saying Chrome failed, not the picture, so nobody rewrites a picture that draws."""
     from drive.state import DriveError
 
     if kind == "image" and not source.startswith(("http://", "https://")):
@@ -411,6 +434,8 @@ def shot(folder: Path, name: str, kind: str, source: str, which: str) -> Path:
         return cached(folder, name, kind, source)
     except (PictureError, ValueError) as error:
         raise DriveError(f"{which} does not draw: {error}") from None
+    except ChromeError as error:
+        raise DriveError(f"{which} was not judged: headless Chrome failed, not the picture, so keep the picture and run the same command again: {error}") from None
 
 
 def pictures(folder: Path, show_me: str, taken: set[str]) -> tuple[list[str], list[str]]:

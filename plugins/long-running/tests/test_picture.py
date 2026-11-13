@@ -2,6 +2,7 @@ import html
 import io
 import json
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -401,6 +402,38 @@ def test_a_visual_chrome_dumped_before_it_finished_drawing_is_measured_again(tmp
     assert sizes == ["--window-size=1200,1200", "--window-size=1200,1200", "--window-size=40,20"]
 
 
+TEARDOWN = "[1:2:ERROR:ui/display/mac/cv_display_link_mac.mm:188] CVDisplayLinkCreateWithCGDisplay failed. CVReturn: -6670\nTeardown watchdog expired; recording dump and terminating."
+
+
+def test_a_visual_chrome_timed_out_on_or_crashed_leaving_is_judged_by_the_verdict_it_printed_and_the_screenshot_it_wrote(tmp_path, monkeypatch) -> None:
+    launched = []
+
+    def run(command: list[str], **_) -> subprocess.CompletedProcess:
+        launched.append(command)
+        if len(launched) == 1:
+            raise subprocess.TimeoutExpired(command, picture.CHROME_SECONDS)
+        if shot := next((arg.removeprefix("--screenshot=") for arg in command if arg.startswith("--screenshot=")), None):
+            Path(shot).write_bytes(b"\x89PNG\r\n")
+            return subprocess.CompletedProcess(command, 133, "", TEARDOWN)
+        return subprocess.CompletedProcess(command, 133, '<html data-print data-drawn="40x20"><body></body></html>', TEARDOWN)
+
+    monkeypatch.setenv("CHROME", "chrome")
+    monkeypatch.setattr(subprocess, "run", run)
+    out = tmp_path / "flow.png"
+    picture.visual_png("mermaid", "flowchart TD\n  a --> b\n", out)
+    assert out.is_file()
+    assert len(launched) == 3
+
+
+def test_a_visual_chrome_fails_on_every_launch_says_chrome_failed_and_never_that_the_picture_does_not_draw(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("CHROME", "chrome")
+    monkeypatch.setattr(subprocess, "run", lambda command, **_: subprocess.CompletedProcess(command, 133, "", TEARDOWN))
+    with pytest.raises(picture.ChromeError, match=rf"^Chrome gave no verdict on the mermaid in {picture.VISUAL_TRIES} launches: .*Teardown watchdog expired"):
+        picture.visual_png("mermaid", "flowchart TD\n  a --> b\n", tmp_path / "flow.png")
+    with pytest.raises(state.DriveError, match=r'^the Show me picture "The wake", a ```mermaid fence, was not judged: headless Chrome failed, not the picture, so keep the picture and run the same command again: Chrome gave no verdict'):
+        picture.drawn(tmp_path / "pictures", ["The wake", "```mermaid", "flowchart TD", "  a --> b", "```"])
+
+
 def test_a_card_whose_show_me_leaves_nothing_to_show_has_no_show_me() -> None:
     assert limits.card_body(["One snapshot file per run."], ["", ""]) == "One snapshot file per run."
     assert limits.card_body(["One snapshot file per run."], ["![Show me](/p.png)"]) == "One snapshot file per run.\n*Show me*\n![Show me](/p.png)"
@@ -421,7 +454,7 @@ def test_a_pages_text_is_the_words_the_view_its_address_names_shows_once_its_scr
     page.write_text(VIEWS_PAGE)
     assert picture.page_text(page.as_uri()) == "Priority queue Decision 1 of 72"
     assert picture.page_text(f"{page.as_uri()}?slack=pr") == "Local Block Kit preview Approve Hold"
-    with pytest.raises(picture.PictureError, match="could not load .*missing.html: net::ERR_FILE_NOT_FOUND"):
+    with pytest.raises(picture.ChromeError, match="could not load .*missing.html: net::ERR_FILE_NOT_FOUND"):
         picture.page_text((tmp_path / "missing.html").as_uri())
 
 
