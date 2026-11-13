@@ -251,7 +251,10 @@ if [ "$route" = sprite ]; then
   opening=("$lane" --warm)
   [ -z "$continued" ] || opening=("$continued" --existing)
   prepare=(orca prepare "${opening[@]}" --provider sprites --profile agents --agent "$kind" --model "$model_id" --effort "$effort" --brief-file "$brief")
-  [ "$kind" != claude ] || for pair in "${lane_pairs[@]}"; do prepare+=(--env "$pair"); done
+  if [ "$kind" = claude ]; then
+    for pair in "${lane_pairs[@]}"; do prepare+=(--env "$pair"); done
+    prepare+=(--settings "$(jq -c '.settings + {permissions: {deny: .deniedTools}}' "$lane_spec")")
+  fi
   [ -z "$ref" ] || prepare+=(--ref "$ref")
   [ -z "$tier" ] || prepare+=(--service-tier "$tier")
   [ -z "${WORKER_MCP_CONFIG:-}" ] || prepare+=(--mcp-config "$WORKER_MCP_CONFIG")
