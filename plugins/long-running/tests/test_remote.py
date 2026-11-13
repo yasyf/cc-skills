@@ -2161,6 +2161,8 @@ def test_end_destroys_the_sprite_cc_remote_still_records_or_names_what_keeps_it(
         raise orca.OrcaError("orca-reclaim.py exited 1: uncommitted changes")
 
     monkeypatch.setattr(orca, "release", kept)
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(dispatch="ctx_lane0002", workspace="pool-one")
     assert run("job", "end", "j1") == (0, "nothing to reclaim\npool-one is kept: orca-reclaim.py exited 1: uncommitted changes\nj1's lane ended; j1 stays done")
 
 
@@ -2998,6 +3000,7 @@ def test_a_lane_whose_job_carries_the_drives_order_wakes_only_the_watch_hearing_
         monkeypatch,
         [message("question", f"DRIVE job report j1 -\n{json.dumps({'stdin': ready})}", id="relay_report")],
         [message("escalation", stopped, subject="Worker stopped without reporting")],
+        [message("escalation", stopped, subject="Worker stopped without reporting", id="msg_stop")],
     )
 
     def report(question: str, root: Path, drive: str, job_id: str) -> str:
@@ -3011,6 +3014,7 @@ def test_a_lane_whose_job_carries_the_drives_order_wakes_only_the_watch_hearing_
     top = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
     iris = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0, project="Iris")
     assert (staged(watch.lane_lines, top, T0), staged(watch.lane_lines, iris, T0)) == ([], [f"JOB j1 o1 {ready}"])
+    assert (staged(watch.lane_lines, top, T0), staged(watch.lane_lines, iris, T0)) == ([], [])
     assert (staged(watch.lane_lines, top, T0), staged(watch.lane_lines, iris, T0)) == ([], ["JOB j1 o1 STOPPED without a report, last output: kept j1's report"])
     monkeypatch.setattr(orca, "worker", lambda dispatch: dead())
     assert staged(watch.agent_lines, top, T0) == []
