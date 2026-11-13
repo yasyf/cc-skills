@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import shlex
 import subprocess
 import uuid
 from collections.abc import Iterable
@@ -31,6 +32,9 @@ SESSION_SETTINGS = {
     "permissions": {"deny": ["AskUserQuestion"]},
 }
 ORCA = "orca@skills"
+SESSION_ENV = "<session env>"
+SESSION_SETTINGS_HOLE = "<session settings>"
+DOUBLE_QUOTED = re.compile(r'[\\"$`]')
 STUCK = re.compile(r"\b(j\d+)\b[^.;\n]*?\b(?:stuck|silent|stalled|hung)\b", re.IGNORECASE)
 READ_WINDOW = timedelta(minutes=10)
 TRANSCRIPT_READ = ("cc-transcript", ".jsonl")
@@ -298,6 +302,25 @@ def session_settings(env: dict[str, str]) -> dict:
 def lane_spec() -> dict:
     """The newest installed orca plugin's lib/lane.json: the env, settings and denied tools every Orca lane starts with."""
     return json.loads((Path(install.installed(ORCA)["installPath"]) / "lib" / "lane.json").read_text())
+
+
+def filled(page: str) -> str:
+    """A skill page with each `orca terminal create` line's `<session env>` and `<session settings>` filled from session_settings, quoted for the double-quoted `--command` they sit in: `env` with every variable a session the drive starts carries, so the `claude daemon` its `claude --bg` starts inherits them too, and the one `--settings` value it runs on."""
+    settings = session_settings({})
+    holes = {
+        SESSION_ENV: shlex.join(["env", *(f"{key}={value}" for key, value in settings["env"].items())]),
+        SESSION_SETTINGS_HOLE: shlex.quote(json.dumps(settings, separators=(",", ":"))),
+    }
+    quoted = {hole: DOUBLE_QUOTED.sub(r"\\\g<0>", words) for hole, words in holes.items()}
+
+    def fill(line: str) -> str:
+        if not line.lstrip().startswith("orca terminal create"):
+            return line
+        for hole, words in quoted.items():
+            line = line.replace(hole, words)
+        return line
+
+    return "\n".join(fill(line) for line in page.split("\n"))
 
 
 def bind_handler(payload: dict, handler: str) -> None:

@@ -101,9 +101,7 @@ def start(args: argparse.Namespace) -> int:
     if not orca.in_terminal():
         raise DriveError(
             f"drive start {args.name} --role {args.role}: refused, this session runs in no Orca terminal, so he cannot open it from Orca;"
-            f" start the session in one with orca terminal create --worktree path:{os.getcwd()} --title {args.name}-{args.role}"
-            f" --command \"claude … -- '/long-running {args.name} as the {args.role}: run Start or resume for that role'\" --json,"
-            " whose whole command drive manual start prints"
+            f" start the session in one with {start_command(args.name, args.role, args.project, os.getcwd())}"
         )
     if args.project and args.role != "coordinator":
         raise DriveError(f"--project binds a sub-coordinator, which holds the coordinator role; the {state.title(args.role)} holds no project")
@@ -130,6 +128,17 @@ def start(args: argparse.Namespace) -> int:
     seat = f"sub-coordinator for {args.project}" if args.project else args.role
     text = f"{render.context(data, args.role, args.project)}\n\n{meta}{watched}{seat}: session {held['session']}, {seen}"
     return emit(args, text, {**data, "orca": {seat: seen}})
+
+
+def start_command(name: str, role: str, project: str | None, worktree: str) -> str:
+    """The `orca terminal create` command of Start or resume that opens the role's session, or a project's sub-coordinator, in the worktree, as `drive manual start` fills it."""
+    title = "<lane>" if project else role
+    page = agents.filled((PAGES / "start.md").read_text())
+    command = next(line for line in page.splitlines() if line.startswith(f"orca terminal create --worktree path:<worktree> --title <drive>-{title} "))
+    named = {"<drive>": name, "<worktree>": shlex.quote(worktree), "<lane>": state.project_lane(project or ""), "<project>": project or ""}
+    for hole, value in named.items():
+        command = command.replace(hole, value)
+    return command
 
 
 def meta_started(name: str, worktree: str, earlier: str | None) -> str:
@@ -2999,7 +3008,7 @@ def manual(args: argparse.Namespace) -> int:
     if not args.page:
         print("\n".join(["drive manual <page> prints one of these pages:", *(f"- {page}" for page in manual_pages())]))
         return 0
-    text = (PAGES / f"{args.page}.md").read_text()
+    text = agents.filled((PAGES / f"{args.page}.md").read_text())
     if not args.row:
         sys.stdout.write(text)
         return 0

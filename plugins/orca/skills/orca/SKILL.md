@@ -236,11 +236,24 @@ An unset or empty `WORKER_LOCAL` selects Sprite; any other nonempty value
 refuses. The local route starts Claude only and refuses Codex models. Remote
 Fable refuses before prepare; it never turns into a local launch or a different
 model. Local Claude keeps the machine's existing interactive authentication and
-task-scoped bypass behavior. It starts stripped under `lane_env` and
-`lane_settings`, with no auto-update, native `~/.claude` watcher, animation,
-telemetry or status line, and `lane_denied_tools` keeps it from parking on a human.
-Interactive sessions and `claude plugin update` still update the plugin cache. Set
+task-scoped bypass behavior. It starts stripped under the `env`, `settings`
+and `deniedTools` of this plugin's `lib/lane.json`, with no auto-update,
+native `~/.claude` watcher, animation, telemetry or status line, and no tool
+that parks on a human. A Sprite Claude lane gets the same `env` as one of
+prepare's `--env` flags per variable, since prepare takes no settings. Change
+what a lane runs without in `lane.json`, never in a launch command: the
+long-running drive reads that file too for each session it starts. Interactive
+sessions and `claude plugin update` still update the plugin cache. Set
 `CLAUDE_LANE_SETTINGS` to a JSON object to add local settings.
+
+Every Claude lane starts through `orca-worker-launch.sh`. A hand-run
+`cc-remote orca prepare` for Claude, as in
+[Prepare and attach separately](#prepare-and-attach-separately), passes the
+lane variables itself, and a Claude session started some other way, such as
+`orca terminal create --command "claude …"`, starts with
+`env <each NAME=VALUE in lane.json's env> claude` and one `--settings` holding
+lane.json's `settings` and its `deniedTools` under `permissions.deny`, since
+Claude Code keeps only the last `--settings` and drops an invalid one whole.
 
 Start only the Model Context Protocol servers named in the task's allowlist.
 On Sprite, `WORKER_MCP_CONFIG` passes an inline JSON object for Claude or an
@@ -302,12 +315,15 @@ and retains the attempt without retry or cleanup.
 
 Use the selected CLI and config described above when preparation and
 first-task attachment need separate inspection. This explicit
-fresh Sprite agents example returns a plain prepared task:
+fresh Sprite agents example returns a plain prepared task. `<lane.json>` is this
+plugin's `lib/lane.json`, `"$(dirname "$(readlink -f "$(command -v orca-worker-launch.sh)")")/../lib/lane.json"`,
+whose `env` a Claude lane exports, one `--env` flag per variable:
 
 ```sh
 "<selected-cc-remote>" orca prepare "<lane>" --config "<configured-yaml>" \
   --provider sprites --profile agents --agent claude \
   --model claude-opus-5-5 --effort xhigh --ref "<branch-or-tag>" \
+  $(jq -r '.env | to_entries[] | "--env=\(.key)=\(.value)"' "<lane.json>") \
   --brief-file "<complete-brief.md>" >"<new-prepared.json>"
 ```
 
@@ -354,6 +370,7 @@ checkout:
 "<selected-cc-remote>" orca prepare "<recorded-workspace>" --existing \
   --config "<same-config>" --provider sprites --profile agents --agent claude \
   --model claude-opus-5-5 --effort xhigh \
+  $(jq -r '.env | to_entries[] | "--env=\(.key)=\(.value)"' "<lane.json>") \
   --brief-file "<complete-brief.md>" >"<new-prepared.json>"
 ```
 

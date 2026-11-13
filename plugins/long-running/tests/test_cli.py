@@ -16,6 +16,7 @@ import drive
 import pytest
 from conftest import CARD_BODY, RESEARCH, SETTLED_NOTE, SHORT_ASK, Answers, explained, Chrome, Draws, Drawing, Heard, Jev, Judge, MetaLaunches, Thread, WatchProcess, Withdrawals
 from drive import (
+    agents,
     brief,
     card,
     cli,
@@ -5141,7 +5142,12 @@ def test_start_outside_an_orca_terminal_is_refused_naming_the_command_that_start
     assert cli.main(["start", "demo", "--role", "coordinator"]) == 2
     refused = capsys.readouterr().err
     assert "drive start demo --role coordinator: refused, this session runs in no Orca terminal, so he cannot open it from Orca" in refused
-    assert f"orca terminal create --worktree path:{tmp_path} --title demo-coordinator" in refused
+    command = shlex.split(refused.partition("start the session in one with ")[2])
+    assert command[:7] == ["orca", "terminal", "create", "--worktree", f"path:{tmp_path}", "--title", "demo-coordinator"]
+    session = shlex.split(command[command.index("--command") + 1])
+    assert session[: session.index("claude")] == ["env", *(f"{key}={value}" for key, value in agents.session_settings({})["env"].items())]
+    assert json.loads(session[session.index("--settings") + 1]) == agents.session_settings({})
+    assert session[-1] == "/long-running demo as the coordinator: run Start or resume for that role"
     assert not state.exists("demo")
     monkeypatch.setenv("ORCA_TERMINAL_HANDLE", "term_outer")
     monkeypatch.setenv("TMUX", "/private/tmp/tmux-501/default,1,0")

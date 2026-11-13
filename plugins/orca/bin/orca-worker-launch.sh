@@ -14,6 +14,7 @@ continued=${WORKER_WORKSPACE:-}
 tier=${WORKER_SERVICE_TIER:-}
 lane_spec=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib/lane.json
 lane_env=$(jq -r '.env | to_entries | map("\(.key)=\(.value)") | join(" ")' "$lane_spec")
+read -ra lane_pairs <<<"$lane_env"
 lane_settings=$(jq -c .settings "$lane_spec")
 lane_denied_tools=$(jq -r '.deniedTools | join(",")' "$lane_spec")
 
@@ -250,6 +251,7 @@ if [ "$route" = sprite ]; then
   opening=("$lane" --warm)
   [ -z "$continued" ] || opening=("$continued" --existing)
   prepare=(orca prepare "${opening[@]}" --provider sprites --profile agents --agent "$kind" --model "$model_id" --effort "$effort" --brief-file "$brief")
+  [ "$kind" != claude ] || for pair in "${lane_pairs[@]}"; do prepare+=(--env "$pair"); done
   [ -z "$ref" ] || prepare+=(--ref "$ref")
   [ -z "$tier" ] || prepare+=(--service-tier "$tier")
   [ -z "${WORKER_MCP_CONFIG:-}" ] || prepare+=(--mcp-config "$WORKER_MCP_CONFIG")
