@@ -5363,22 +5363,62 @@ def test_a_merged_ready_tooling_job_keeping_no_proof_file_takes_blocked_at_its_m
     assert provers == []
 
 
-def test_a_merged_ready_product_job_takes_done_at_its_merge_keeping_no_proof_and_its_line_wakes_the_coordinator_to_prove_it_on_its_release(
+def test_a_merged_ready_product_job_takes_done_at_its_merge_and_the_watch_adds_the_builder_proving_it_live_waiting_on_each_release_its_paths_reach(
     demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], tmp_path: Path, ready_records: list[list[dict]]
 ) -> None:
     serve(monkeypatch, {})
+    calls, asked = [], []
+    monkeypatch.setattr(watch.github, "run", release_reads([], {}, [], calls))
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: asked.append(keys) or {OTHER: {"components": ["api", "web"], "touched": ["api"]}})
     merged_ready(demo, OTHER, proof_file(tmp_path))
     watching = watcher(demo)
     merged = f"{OTHER} at ccc333ddd444"
     lines = watch.run_pass(watching, T0)
     said = [line for line in lines if line.startswith(f"PR {OTHER}: {install.MERGED_DONE}: {merged}; no proof kept, since only a release holding ccc333ddd444 puts it live")]
-    assert len(said) == 1 and f"--waits release:<service>:{OTHER} adds the builder" in said[0] and watch.wakes(said[0], state.load(demo), NO_CARDS)
+    assert len(said) == 1 and watch.wakes(said[0], state.load(demo), NO_CARDS)
+    assert f"waits on j2, the builder the drive added with a merge handoff to prove it there, its DONE giving o1 its proof: it waits on release:api:{OTHER}, so start its agent on the watch's FREE once the last is out" in said[0]
+    assert asked == [[OTHER]]
     assert not [line for line in lines if line.startswith(("FREE ", "ORPHAN "))]
     data = state.load(demo)
+    builder = data["jobs"]["j2"]
+    assert (builder["kind"], builder["state"], builder["waits"], builder["parts"], "j2" in data["orders"]["o1"]["jobs"]) == ("builder", "waiting", [f"release:api:{OTHER}"], data["jobs"]["j1"]["parts"], True)
+    assert f"Handoff: {merged} merged: install it and prove it live by the INSTALL: and PROVE: lines of j1's return before its DONE, in reports/j1.md" in Path(builder["brief"]).read_text()
     assert (data["jobs"]["j1"]["said"], data["orders"]["o1"]["proof"], data["orders"]["o1"]["close_report"]) == (f"DONE {state.pr_url(OTHER)} merged: {merged}", None, None)
     assert not [record for records in ready_records for record in records if (record.get("attr") or {}).get("close") == "o1"]
     assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=31)) if line.startswith(("FREE ", "ORPHAN "))]
     assert provers == []
+
+
+def test_a_merged_ready_product_job_whose_paths_reach_no_release_has_its_builder_briefed_to_start_in_the_turn_its_line_wakes(
+    demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], tmp_path: Path
+) -> None:
+    serve(monkeypatch, {})
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {})
+    merged_ready(demo, OTHER, proof_file(tmp_path))
+    said = [line for line in watch.run_pass(watcher(demo), T0) if line.startswith(f"PR {OTHER}: {install.MERGED_DONE}")]
+    data = state.load(demo)
+    assert (data["jobs"]["j2"]["state"], data["jobs"]["j2"]["waits"]) == ("running", [])
+    assert len(said) == 1 and f'it waits on no release go/ci makes, so start its agent now, run_in_background, on the prompt "Read your brief first: {data["jobs"]["j2"]["brief"]}"' in said[0]
+    assert provers == []
+
+
+@pytest.mark.parametrize("proved", [False, True])
+def test_a_merged_ready_product_job_on_a_done_order_or_whose_pr_a_job_proved_live_takes_no_done_at_its_merge_and_gets_no_second_prover(
+    demo: str, monkeypatch: pytest.MonkeyPatch, proved: bool
+) -> None:
+    serve(monkeypatch, {})
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {})
+    merged_ready(demo, OTHER, None)
+    with state.edit(demo) as data:
+        if proved:
+            data["orders"]["o1"]["jobs"].append("j9")
+            data["jobs"]["j9"] = state.new_job("o1", "builder", "prove it", data["jobs"]["j1"]["parts"], state.stamp()) | {"state": "done", "said": f"DONE {OTHER} live on release jubilant-heaney"}
+        else:
+            data["orders"]["o1"]["state"] = "done"
+    lines = watch.run_pass(watcher(demo), T0)
+    data = state.load(demo)
+    assert not [line for line in lines if install.MERGED_DONE in line]
+    assert (data["jobs"]["j1"]["state"], list(data["jobs"])) == ("waiting", ["j1", "j9"] if proved else ["j1"])
 
 
 @pytest.mark.parametrize(("fix", "sha"), [("Forge-AI/monorepo#55420", "485f9f408150"), ("Forge-AI/monorepo#55448", "6ec574a4f779")])

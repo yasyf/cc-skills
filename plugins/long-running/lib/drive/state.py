@@ -1318,6 +1318,21 @@ def merge_proven(order: dict) -> bool:
     return bool(commits) and all(commit and not merges_untapped(commit["repo"]) for commit in commits) and order["state"] not in CLOSED_ORDER_STATES
 
 
+def prover(data: dict, order_id: str, keys: list[str], job_id: str | None = None) -> str | None:
+    """The done builder on the order, other than job_id, whose DONE or merge handoff names one of the PRs keys: the job that proved it live."""
+    return next(
+        (
+            other
+            for other in data["orders"][order_id]["jobs"]
+            if other != job_id
+            and (job := data["jobs"][other])["kind"] == "builder"
+            and job["state"] == "done"
+            and set(keys) & set(named_prs(data, order_id, f"{job['said'] or ''} {(job.get('brief_flags') or {}).get('handoff') or ''}"))
+        ),
+        None,
+    )
+
+
 def may_tell(order: dict) -> bool:
     """Whether the thread an order's reporter asked in may hear from it now: an answer order's once every part of its answer is posted, any other's once the order keeps the proof its fix is live."""
     return all(held["posted"] for held in order["parts"].values()) if order["kind"] == "answer" else bool(order["proof"])
