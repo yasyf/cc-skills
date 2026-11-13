@@ -163,7 +163,7 @@ def posts_to(payload: dict, dm: str) -> bool:
 
 
 def last_read(path: Path, dm: str, where: tuple[str, str]) -> tuple[datetime | None, dict[str, datetime], bool]:
-    """When this handler last read the thread, by its own transcript's timestamped turns, never a row such as an API request's copy that carries none: a slack_thread call on its channel and thread that did not fail, a call leaving channel_id out reading his DM; when the tool saved a long thread to a file, only once a later call of this handler opened that file. Also the saved files it never opened, and whether a call on it failed."""
+    """When this handler last read the thread, by its own transcript's timestamped turns, never a row such as an API request's copy that carries none: a slack_thread call that did not fail on the channel and thread read_thread resolves it to; when the tool saved a long thread to a file, only once a later call of this handler opened that file. Also the saved files it never opened, and whether a call on it failed."""
     calls: dict[str, datetime] = {}
     others: dict[str, str] = {}
     saved: dict[str, datetime] = {}
@@ -176,7 +176,7 @@ def last_read(path: Path, dm: str, where: tuple[str, str]) -> tuple[datetime | N
                 continue
             content = (row.get("message") or {}).get("content")
             for part in content if isinstance(content, list) else []:
-                if part.get("type") == "tool_use" and part.get("name") == THREAD_READ and (part["input"].get("channel_id") or dm, part["input"].get("thread_ts")) == where:
+                if part.get("type") == "tool_use" and part.get("name") == THREAD_READ and read_thread(part["input"], dm) == where:
                     calls[part["id"]] = datetime.fromisoformat(row["timestamp"])
                 elif part.get("type") == "tool_use":
                     others[part["id"]] = json.dumps(part.get("input"))
@@ -193,6 +193,12 @@ def last_read(path: Path, dm: str, where: tuple[str, str]) -> tuple[datetime | N
                 elif opened := [file for file in saved if Path(file).name in others.get(part.get("tool_use_id"), "")]:
                     read = max([saved.pop(file) for file in opened] + ([read] if read else []))
     return read, saved, failed
+
+
+def read_thread(tool_input: dict, dm: str) -> tuple[str, str | None]:
+    """The channel and thread a slack_thread call reads, resolved as cc-slack fills a call's blanks from its url: channel_id, else the url's channel, else his DM; thread_ts, else the url's thread."""
+    link = state.link_thread(tool_input.get("url") or "") or (None, None)
+    return tool_input.get("channel_id") or link[0] or dm, tool_input.get("thread_ts") or link[1]
 
 
 def result_text(part: dict) -> str:
