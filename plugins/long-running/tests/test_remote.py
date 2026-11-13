@@ -1543,7 +1543,7 @@ def test_the_watch_releases_the_sprite_a_lane_died_on_once_no_unfinished_job_run
     monkeypatch.setattr(state, "scratch", lambda: False)
     monkeypatch.setattr(orca, "checkout", lambda name, data: Path(remote))
     monkeypatch.setattr(orca, "holds_sprite", lambda job: job["workspace"] != "sprite-gone")
-    monkeypatch.setattr(orca, "release_detached", lambda workspace, checkout, log: released.append(workspace) or subprocess.Popen(["true"]))
+    monkeypatch.setattr(orca, "release_detached", lambda drive, job_id, job, checkout, log: released.append(job["workspace"]) or subprocess.Popen(["true"]))
     with state.edit(remote) as data:
         old = [{"dispatch": f"ctx_old{n}", "workspace": workspace, "why": "its worker exited", "at": state.stamp(T0)} for n, workspace in enumerate(["sprite-old", "sprite-gone", "sprite-now"])]
         data["jobs"]["j1"].update(state="waiting", workspace="sprite-now", deaths=old)
@@ -1833,11 +1833,11 @@ def test_end_destroys_the_sprite_cc_remote_still_records_or_names_what_keeps_it(
     monkeypatch.setattr(orca, "CC_REMOTE_WORKSPACES", workspaces)
     monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: "nothing to reclaim")
     released = []
-    monkeypatch.setattr(orca, "release", lambda workspace, root: released.append(workspace) or "destroyed pool-one")
+    monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root: released.append(job["workspace"]) or "destroyed pool-one")
     assert run("job", "end", "j1") == (0, "nothing to reclaim\ndestroyed pool-one\nj1's lane ended; j1 stays done")
     assert released == ["pool-one"]
 
-    def kept(workspace: str, root: Path) -> str:
+    def kept(drive: str, job_id: str, job: dict, root: Path) -> str:
         raise orca.OrcaError("orca-reclaim.py exited 1: uncommitted changes")
 
     monkeypatch.setattr(orca, "release", kept)
@@ -1865,7 +1865,7 @@ def test_the_watch_frees_each_finished_lane_once_a_sprite_by_destroy_and_a_quiet
     started: list[tuple[str, ...]] = []
     finished = subprocess.CompletedProcess([], 0)
     finished.poll = lambda: 0
-    monkeypatch.setattr(orca, "release_detached", lambda workspace, root, log: started.append(("destroy", workspace)) or finished)
+    monkeypatch.setattr(orca, "release_detached", lambda drive, job_id, job, root, log: started.append(("destroy", job["workspace"])) or finished)
     monkeypatch.setattr(orca, "reclaim_detached", lambda run_id, dispatch, root, log: started.append(("done", run_id, dispatch)) or finished)
     watcher = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
     watch.release_lanes(watcher, T0)

@@ -454,13 +454,13 @@ def reclaim(run: str, dispatch: str, checkout: Path) -> str:
     return reclaimer(checkout, "--run", run, "--done", dispatch)
 
 
-def release(workspace: str, checkout: Path) -> str:
-    """Destroy the Sprite a finished lane ran on, with its Orca environment and forward, through the reclaimer's own guard: OrcaError naming what it holds on no remote, why its checkout could not be read, or cc-remote's refusal, which keeps it."""
-    return reclaimer(checkout, "--destroy", workspace)
+def release(drive: str, job_id: str, job: dict, checkout: Path) -> str:
+    """Destroy the Sprite at the job's workspace, with its Orca environment and forward, once the reclaimer's --destroy has saved what it holds on no remote to GitHub as save does: what it saved and destroyed; OrcaError naming why its checkout could not be read, the save failed, what it still holds, or cc-remote's refusal, which keeps it."""
+    return reclaimer(checkout, "--destroy", job["workspace"], lane_of(drive, job_id, job))
 
 
-def release_detached(workspace: str, checkout: Path, log: IO[str]) -> subprocess.Popen:
-    return reclaimer_detached(checkout, log, "--destroy", workspace)
+def release_detached(drive: str, job_id: str, job: dict, checkout: Path, log: IO[str]) -> subprocess.Popen:
+    return reclaimer_detached(checkout, log, "--destroy", job["workspace"], lane_of(drive, job_id, job))
 
 
 def reclaim_detached(run: str, dispatch: str, checkout: Path, log: IO[str]) -> subprocess.Popen:
@@ -478,7 +478,11 @@ def holds_sprite(job: dict) -> bool:
 
 def save(drive: str, job_id: str, job: dict, checkout: Path) -> str | None:
     """Take what the job's Sprite holds that a fresh Sprite would not get to GitHub, by the reclaimer's own read of the checkout it keeps a Sprite for, found by the job's workspace so a Sprite Orca forgot is saved too: it commits each worktree's uncommitted changes on the Sprite and pushes each commit GitHub holds nowhere as saved/<the dead lane's name>/<its branch>, on a GitHub token lent to that one push. What it saved and the branches it is on now; None when the Sprite holds nothing, or the lane runs on this Mac; OrcaError naming why the Sprite could not be read or the save failed, such as a Sprite that never woke."""
-    return None if state.on_mac(job) else reclaimer(checkout, "--save", job["workspace"], job.get("lane") or lane_name(drive, job_id)) or None
+    return None if state.on_mac(job) else reclaimer(checkout, "--save", job["workspace"], lane_of(drive, job_id, job)) or None
+
+
+def lane_of(drive: str, job_id: str, job: dict) -> str:
+    return job.get("lane") or lane_name(drive, job_id)
 
 
 def reclaimer(checkout: Path, *args: str) -> str:

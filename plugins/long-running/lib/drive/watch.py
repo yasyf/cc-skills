@@ -1491,13 +1491,13 @@ def stranded(job_id: str, data: dict, gap: str | None, unlisted: dict[str, dict]
 
 
 def release_lanes(watcher: Watcher, moment: datetime) -> None:
-    """Free what each job it hears is done with still holds, never what an unfinished job holds: each Sprite cc-remote still records that a done, failed or stopped job ran on, or that an earlier lane of any job died on, such as the Sprite a relaunch moved off, destroyed with its Orca environment by --destroy once it holds nothing on no remote; and the dispatch of a done, failed or stopped lane on this Mac once its job has been quiet for QUIET_LANE, as lr's gc --done waited after a lane's last word, whose terminal --run --done closes and whose worktree it removes once clean and pushed, the reclaimer skipping whatever its pauses hold. Each goes with the reclaimer in a process of its own run from the drive's checkout, moved to its default branch's head first, at most two at once and each once a watch; what each run printed goes to the watch log, and a pass whose move fails frees nothing, saying why there."""
+    """Free what each job it hears is done with still holds, never what an unfinished job holds: each Sprite cc-remote still records that a done, failed or stopped job ran on, or that an earlier lane of any job died on, such as the Sprite a relaunch moved off, destroyed with its Orca environment by --destroy once what it holds on no remote is saved to GitHub as saved/<the job's lane>/<branch>; and the dispatch of a done, failed or stopped lane on this Mac once its job has been quiet for QUIET_LANE, as lr's gc --done waited after a lane's last word, whose terminal --run --done closes and whose worktree it removes once clean and pushed, the reclaimer skipping whatever its pauses hold. Each goes with the reclaimer in a process of its own run from the drive's checkout, moved to its default branch's head first, at most two at once and each once a watch; what each run printed goes to the watch log, and a pass whose move fails frees nothing, saying why there."""
     if state.scratch():
         return
     watcher.releasing = {held: run for held, run in watcher.releasing.items() if run.poll() is None}
     data = state.load(watcher.name)
     live = {job.get(key) for job in data["jobs"].values() if job["state"] not in state.FINISHED_JOB_STATES for key in ("workspace", "run", "dispatch")} - {None}
-    for job in data["jobs"].values():
+    for job_id, job in data["jobs"].items():
         if not heard_job(watcher, data, job):
             continue
         for held in sorted(lane_holds(job, moment, live) - watcher.released - live):
@@ -1510,7 +1510,7 @@ def release_lanes(watcher: Watcher, moment: datetime) -> None:
                     log.write(f"{held} is kept until a later pass: {error}\n")
                     return
                 watcher.released.add(held)
-                watcher.releasing[held] = orca.reclaim_detached(job["run"], held, checkout, log) if state.on_mac(job) else orca.release_detached(held, checkout, log)
+                watcher.releasing[held] = orca.reclaim_detached(job["run"], held, checkout, log) if state.on_mac(job) else orca.release_detached(watcher.name, job_id, {**job, "workspace": held}, checkout, log)
 
 
 def lane_holds(job: dict, moment: datetime, live: set[str]) -> set[str]:
