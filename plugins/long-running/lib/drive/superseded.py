@@ -17,7 +17,7 @@ PICK = re.compile(r"\b([0-9a-f]{7})[0-9a-f]*:")
 
 
 def asking(data: dict, found: dict) -> dict[str, dict]:
-    """Every card asking him, order and part undelivered and PR not yet live, by the key a mark names it with: the card of each job's open question by its waits id, then each open question card cc-slack shows that no job asked, each undelivered part of an open order holding more than one by `<order>:<part>`, else the open order itself by its id, since an order's only part goes with the order, each PR waiting on his tap, then each other open PR and each merged one whose job is still at work, by its PR key."""
+    """Every card asking him, order and part undelivered and PR not yet live, by the key a mark names it with: the card of each job's open question by its waits id, and each unrefused open question no card draws yet by its waits id, so his answer settles it before the watch draws it, then each open question card cc-slack shows that no job asked, each undelivered part of an open order holding more than one by `<order>:<part>`, else the open order itself by its id, since an order's only part goes with the order, each PR waiting on his tap, then each other open PR and each merged one whose job is still at work, by its PR key."""
     shown = {view.message_key(card["url"]): card for card in found["questions"]}
     asked = {}
     for job_id, job in data["jobs"].items():
@@ -33,6 +33,8 @@ def asking(data: dict, found: dict) -> dict[str, dict]:
                     "url": drawn,
                     "card": drawn,
                 }
+            elif question["waits"] and not question["refused"]:
+                asked[question["waits"]] = {"kind": "question", "title": question["title"], "options": [], "job": job_id, "order": job["order"], "url": "", "card": None}
     asker = view.asked_by(data, found)
     for card in found["questions"]:
         if asker[card["url"]] is None:

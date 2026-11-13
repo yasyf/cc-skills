@@ -284,7 +284,7 @@ def answers(data: dict, cited: list[str], found: dict | None) -> list[str]:
                 read[key] = (at, f'{name}, {at.isoformat(timespec="seconds")}, asked "{question["title"]}": "{question["closed"]["words"]}"')
         if kind == "link" and name not in read:
             try:
-                said = settled.heard(name, found)
+                said = settled.heard(name, found, data)
                 message = slack.message(name)
             except slack.SlackError as error:
                 raise DriveError(f"could not read his answer at {name}: {error}; run this again") from None

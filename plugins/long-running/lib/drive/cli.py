@@ -3717,7 +3717,7 @@ def answer(args: argparse.Namespace) -> int:
                     data["answers"][args.id]["cards"][key] = {"mark": "dropped", "job": None, "card": None}
                     done += superseded.drop(data, args.id, entry["order"], entry["title"])
                 continue
-            if (card := entry["card"]) and card not in cleared:
+            if (card := entry["card"]) and card not in cleared or entry["kind"] == "question" and not card:
                 ended_on(name, args.id, kept, key, card, "withdrawn")
                 cleared.add(card)
             if superseded.stops_open_pr(data, key, None):
@@ -3734,7 +3734,7 @@ def answer(args: argparse.Namespace) -> int:
                     data["answers"][args.id]["cards"][key] = {"mark": mark, "job": job_id, "card": card}
                 done += [*rework_prs(name, [state.pr_url(key)], args.id, kept["words"]), f"{key} reopened by his answer {args.id}: {job_id} reworks it to his words, so brief {job_id} with them"]
                 continue
-            if card and card not in cleared:
+            if card and card not in cleared or asked[key]["kind"] == "question" and not card:
                 ended_on(name, args.id, kept, key, card, "superseded")
                 cleared.add(card)
             if superseded.stops_open_pr(data, key, job_id):
@@ -3762,13 +3762,13 @@ def answer(args: argparse.Namespace) -> int:
     return emit(args, "\n".join([line, *done]), {"id": args.id, **kept})
 
 
-def ended_on(name: str, answer_id: str, kept: dict, key: str, card: str, how: str) -> None:
-    """End, answered, withdrawn or superseded by his answer, each open question drawn on the card a mark names, and its card follows, showing his words with no buttons; a card no question of the drive is drawn on, one asked outside any job, is closed in place."""
+def ended_on(name: str, answer_id: str, kept: dict, key: str, card: str | None, how: str) -> None:
+    """End, answered, withdrawn or superseded by his answer, each open question drawn on the card a mark names, or kept under its waits id with no card drawn yet, which then never draws, and its card follows, showing his words with no buttons; a card no question of the drive is drawn on, one asked outside any job, is closed in place."""
     from drive import superseded, view
 
     with state.edit(name) as data:
         closed = state.new_close(how, kept["words"], kept["link"], answer=answer_id)
-        drawn = view.drawn_on(data, key, card)
+        drawn = view.drawn_on(data, key, *filter(None, [card]))
         ended = [each for job_id, question in drawn if question["closed"] is None for each in superseded.end(data, job_id, question, closed)]
     if drawn:
         superseded.follow(name, ended)
@@ -3788,7 +3788,8 @@ def settle_card(name: str, answer_id: str, kept: dict, key: str, entry: dict, fi
             data["answers"][answer_id]["jobs"].setdefault(job_id, None)
     if file:
         return f"{key}: its card {card} is redrawn in place to {file}, asking only what his answer {answer_id} leaves open, as drive job ask {job_id} --redraws {key} drew it"
-    return f"{key}: its card {card} now shows his answer {answer_id} with no buttons, settling {job_id}'s question, so {job_id} builds on his words"
+    shown = f"its card {card} now shows his answer {answer_id} with no buttons" if card else f"no card draws for it, his answer {answer_id} ending its question"
+    return f"{key}: {shown}, settling {job_id}'s question, so {job_id} builds on his words"
 
 
 def rewrite_refusal(data: dict, args: argparse.Namespace) -> str | None:

@@ -2808,6 +2808,31 @@ def test_j3668_a_card_the_watch_cannot_draw_keeps_one_refusal_under_the_waits_id
     assert cards_drawn == []
 
 
+def test_a_kept_question_his_answer_to_the_same_question_settles_before_the_watch_draws_it_draws_no_card(
+    run: Run, asking: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, settled_notes: list[tuple[str, str]], cards_drawn: list[dict]
+) -> None:
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    draw = cli.post_ask
+
+    def locked(name: str, job_id: str, file: Path, card: dict) -> str:
+        raise slack.SlackError("dm-status: database is locked")
+
+    monkeypatch.setattr(cli, "post_ask", locked)
+    kept = run("job", "ask", asking, str(block))[1].splitlines()[0]
+    monkeypatch.setattr(cli, "post_ask", draw)
+    card = "https://acme.slack.com/archives/D123/p1794300000000100"
+    words = "One snapshot file per finished run"
+    run("job", "add", "reader", "--order", "o1", "--goal", "lay out the files")
+    with state.edit("demo") as data:
+        data["jobs"]["j2"]["questions"] = [state.new_question(None, SHORT_ASK.splitlines()[0].removeprefix("ASK "), state.stamp(), card=card, closed=state.new_close("answered", words, card))]
+    watch.draw_questions(watch.Watcher("demo", offset=state.events_end("demo"), cards=view.NO_CARDS), state.now())
+    assert [(question["file"], question["card"], question["closed"]["how"], question["closed"]["words"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [
+        (kept, None, "answered", words)
+    ]
+    assert (settled_notes, cards_drawn) == ([("j1", card)], [])
+
+
 def test_job_ask_drop_throws_away_a_near_copy_whose_card_did_not_draw_so_nothing_counts_it(
     run: Run, asking: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -4579,7 +4604,7 @@ def test_pr_set_design_replaces_what_a_returns_design_line_cited_and_the_check_r
     pr = state.load("demo")["prs"][with_pr]
     assert (pr["design"], [answer.partition(", ")[0] for answer in pr["answers"]], pr["checker"]) == ("asked:953a8c8", ["953a8c8"], None)
     monkeypatch.setattr(settled, "shown", lambda answer_id, cwd: pytest.fail(f"read {answer_id} again"))
-    monkeypatch.setattr(settled, "heard", lambda link, found: pytest.fail(f"read {link}"))
+    monkeypatch.setattr(settled, "heard", lambda link, found, data: pytest.fail(f"read {link}"))
     judge.against = [{"order": "o1", "words": "land it", "change": "api/run.ts keeps the staff flag", "file": "api/run.ts"}]
     assert cli.main(["pr", "check", PR, "--drive", "demo"]) == 0
     judge.against = []
@@ -7507,8 +7532,16 @@ def test_words_count_as_his_answer_only_when_his_message_or_card_answer_at_the_l
         {"ts": "1794300000.000100", "text": "Which topology?", "from_user": False},
         {"ts": "1794300000.000300", "thread_ts": "1794300000.000100", "text": said or "a line the drive posted", "from_user": said is not None},
     ]
-    unsaid = UNSAID([words], link, found, {})
+    unsaid = UNSAID([words], link, found, {"jobs": {}})
     assert (unsaid is None) if refusal is None else (unsaid.startswith(refusal) and unsaid.endswith(f"; {settled.HIS_ANSWER}"))
+
+
+@pytest.mark.parametrize(("how", "refusal"), [("answered", None), ("withdrawn", f"{DESIGN_CARD} is neither his own message nor a card he answered")])
+def test_his_words_on_a_card_cc_slack_forgot_are_read_from_the_question_the_drive_ended_on_them(slack_thread: Thread, how: str, refusal: str | None) -> None:
+    slack_thread.messages.append({"ts": "1794300000.000100", "text": "Which topology?", "from_user": False})
+    question = {"waits": "demo:j2-7", "card": DESIGN_CARD, "closed": state.new_close(how, "Tree", DESIGN_CARD)}
+    unsaid = UNSAID(["Tree"], DESIGN_CARD, view.NO_CARDS, {"jobs": {"j2": {"questions": [question]}}})
+    assert (unsaid is None) if refusal is None else unsaid.startswith(refusal)
 
 
 def test_an_answer_tapped_on_a_pr_card_is_recorded_as_an_approval_and_his_words_are_not(
@@ -8120,6 +8153,26 @@ def test_settled_shows_his_answer_on_a_card_it_decides_settles_its_jobs_question
     data = state.load("demo")
     assert data["answers"]["a1"]["cards"]["demo:j3-9"] == {"mark": "settled", "job": "j3", "card": LAYOUT_CARD}
     assert [question["closed"] and (question["closed"]["how"], question["closed"]["answer"]) for question in data["jobs"]["j3"]["questions"]] == [("answered", "a1")]
+
+
+def test_an_answer_lists_a_question_kept_with_no_card_drawn_yet_and_settling_it_ends_it_so_no_card_ever_draws(
+    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], jev: Jev
+) -> None:
+    settled = cards_asking(monkeypatch, PR)
+    with state.edit("demo") as data:
+        data["jobs"]["j2"]["questions"].append(state.new_question("/tmp/j2-journal.md", "Which journal?", state.stamp()) | {"waits": "demo:j2-8"})
+    assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
+    assert "  demo:j2-8  question  j2 o1  Which journal?\n" in capsys.readouterr().err
+    code, out = run("answer", "a1", "--stands", designing, "--settled", "demo:j2-8")
+    assert (code, out.splitlines()[:2]) == (
+        0,
+        [
+            "his answer a1 recorded: 1 standing, 1 settled, 0 superseded, 0 reopened by it",
+            "demo:j2-8: no card draws for it, his answer a1 ending its question, settling j2's question, so j2 builds on his words",
+        ],
+    )
+    [journal] = [question for question in state.load("demo")["jobs"]["j2"]["questions"] if question["waits"] == "demo:j2-8"]
+    assert (journal["card"], journal["closed"]["how"], journal["closed"]["answer"], settled) == (None, "answered", "a1", [ANSWERED])
 
 
 def test_settled_redraws_a_card_it_decides_in_part_to_the_ask_its_job_keeps_for_what_is_left_and_refuses_one_unkept_or_not_linking_his_answer(
