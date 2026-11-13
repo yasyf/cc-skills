@@ -1622,13 +1622,24 @@ def routed(drives: dict[str, dict], session: str | None, kind: str, attrs: dict,
 
 def meta_alone(role: str | None, kind: str, attrs: dict) -> bool:
     """Whether a record is the communicator's owner record about the drive, his ruling or feedback on it included, which reaches the meta session alone and goes out only through the drive's record tool, which adds the "Drive tooling:" order it carries in the same call."""
-    return role == "communicator" and kind == "owner" and attrs.get("about") == ABOUT_DRIVE
+    return his_words(role, kind) and attrs.get("about") == ABOUT_DRIVE
+
+
+def his_words(role: str | None, kind: str) -> bool:
+    """Whether a record is the communicator's owner record of his words, which goes out only through the drive's record tool, which keeps them as a part of the open order they carry on in the same call."""
+    return role == "communicator" and kind == "owner"
 
 
 def unrecorded(role: str | None, kind: str, attrs: dict) -> str | None:
-    """Why a record cannot go out on cci post: it is the communicator's owner record about the drive, which only the drive's record tool sends, adding its order first."""
-    if not meta_alone(role, kind, attrs):
+    """Why a record cannot go out on cci post: it is the communicator's owner record of his words, which only the drive's record tool sends, adding its order or part first."""
+    if not his_words(role, kind):
         return None
+    if attrs.get("about") != ABOUT_DRIVE:
+        return (
+            f'refused, nothing posted: his words go out on the drive\'s `record` tool, kind owner, about "{ABOUT_HIS_WORK}", which keeps'
+            " them as a new part of the open order its attrs or thread serve in the same call, so the watch names that part until a job"
+            " or card carries it"
+        )
     return (
         f'refused, nothing posted: his words about the drive go out on the drive\'s `record` tool, kind owner, about "{ABOUT_DRIVE}", whose'
         f' order field adds the "{TOOLING} <what they ask for>" order, or his words as a part of the open one they carry on, in the same'

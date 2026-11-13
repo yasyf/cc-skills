@@ -50,7 +50,7 @@ This file holds the fundamental rules; one firing on one input is a tested refus
 
 - Read state from `drive status`, GitHub, CI logs, transcripts, and a release's commit and build, never from memory.
 - Done is proven where he sees it: a recording of the click, the live post, the installed command's output. Fetched data proves no screen.
-- Promise him something, or tell him the drive failed him, only naming the order, due time, job or PR doing or preventing it; a hook refuses a bare one (`messages`).
+- Promise him something, or tell him the drive failed him, only naming the order, due time, job or PR doing or preventing it (`messages`). His words adding work to an open order are a part of it, which the watch names until a job or card carries it.
 - Cards and posts name each thing by its proper technical term, never a stand-in (`messages`). Plain words drop only drive ids he cannot open: job, order and waits ids, record seqs.
 - Events and job results feed the next summary, never a record or post each (`messages`).
 

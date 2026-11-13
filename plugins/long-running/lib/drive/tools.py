@@ -112,7 +112,8 @@ RECORD = {
                 " his ruling or feedback on any of it included, which reaches the meta session alone whatever lane to names,"
                 " holding the order its order field adds or carries on;"
                 f' "{state.ABOUT_HIS_WORK}" for everything else, his product orders and the code they change, which reaches'
-                " the coordinator session hearing its order"
+                " the coordinator session hearing its order, his words kept first as a new part of the open order its attrs or"
+                " thread serve, which the watch names until a job or card carries it"
             ),
         },
         "re": {
@@ -526,7 +527,7 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
     for made, settling in zip(posts, settles, strict=True):
         if settling:
             made["resolves"] = list(dict.fromkeys([*made.get("resolves", []), settling]))
-    said = ordered_first(name, records, posts, ordering, dry_run)
+    said = ordered_first(name, records, posts, [state.his_words(role, made["kind"]) for made in posts], dry_run)
     if dry_run:
         said += [f"{index} {lane}: {json.dumps(item, ensure_ascii=False)}" for index, item in enumerate(posts, start=1)]
         said += [
@@ -549,7 +550,7 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
 
 
 def ordered_first(name: str, records: list[dict], posts: list[dict], ordering: list[bool], dry_run: bool) -> list[str]:
-    """Write, under one save of the drive and before any record goes out, the order each communicator's owner record about the drive goes to, so the order stands even when cci is down and a resent call adds none twice; a refusal writes none and posts nothing. What each write did, a line each."""
+    """Write, under one save of the drive and before any record goes out, the order or part each communicator's owner record makes, so it stands even when cci is down and a resent call adds none twice; a refusal writes none and posts nothing. What each write did, a line each."""
     said: list[str] = []
     if not any(ordering):
         return said
@@ -564,7 +565,7 @@ def ordered_first(name: str, records: list[dict], posts: list[dict], ordering: l
 
 
 def carried(name: str, said: list[str], index: int, item: dict, attrs: dict, dry_run: bool) -> None:
-    """Write the order the communicator's owner record about the drive goes to before it goes out, so no word of his about the drive reaches the meta session without one: the new order the meta session holds that its order field's fields make, else his words as a new part of the open order the meta session holds that its order field names or its attrs or thread serve, whatever its words open with, refused when it serves none. The record names the order as attr order, and a part it added as attr part."""
+    """Write the order or part the communicator's owner record makes before it goes out, so no word of his adding work goes unchased: about the drive, the new order the meta session holds that its order field's fields make, else his words as a new part of the open order the meta session holds that its order field names or its attrs or thread serve, whatever its words open with, refused when it serves none; about his work, his words as a new part of the open order a coordinator holds that its attrs or thread serve, and none when it serves none, since the coordinator files his new order. The record names the order as attr order, and a part it added as attr part."""
     named = item.get("order")
     if isinstance(named, dict):
         fields = new_order_fields(item) | named
@@ -575,7 +576,11 @@ def carried(name: str, said: list[str], index: int, item: dict, attrs: dict, dry
     data = state.load(name)
     order_id = named or state.served_order(data, attrs)
     order = data["orders"].get(order_id or "")
-    if not order or order["state"] in state.CLOSED_ORDER_STATES or order["owner"] != "meta":
+    tooling = attrs["about"] == state.ABOUT_DRIVE
+    held = bool(order) and order["state"] not in state.CLOSED_ORDER_STATES and (order["owner"] == "meta") == tooling
+    if not held and not tooling:
+        return
+    if not held:
         raise DriveError(
             f"{index}: refused, his words about the drive reach the meta session holding an order, and"
             f' {f"{order_id} is no open order the meta session holds" if order_id else "no order holds this record or its thread"}:'

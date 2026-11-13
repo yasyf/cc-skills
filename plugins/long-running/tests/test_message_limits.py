@@ -1958,15 +1958,6 @@ def test_the_communicators_ack_is_one_sentence_and_the_rest_goes_in_the_handlers
     assert posted(transcript, text="Got it. The fix merged.") is None
 
 
-def test_a_promise_names_the_order_job_or_time_that_carries_it(talker: str, transcript: Path) -> None:
-    reason = posted(transcript, text="From now on cards redraw in place.")
-    assert reason.startswith('refused: "From now on" promises him something, and this post names no order, job or due time')
-    assert "or drop the promise" in reason
-    assert posted(transcript, text="From now on cards redraw in place (o291, due 1:00 AM).") is None
-    assert posted(transcript, text="From now on cards redraw in place.", order="o1") is None
-    assert posted(transcript, text='He wrote "I will tap it after lunch".') is None
-
-
 def test_a_say_naming_an_alert_orders_thread_with_no_channel_id_is_told_its_channel_since_his_dm_holds_no_such_thread(run: Run, talker: str, transcript: Path) -> None:
     alert = "1794493064.110609"
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the release failed", "--from", f"slack:C0822AHFY3G/{alert}")

@@ -577,23 +577,21 @@ def test_the_communicators_record_for_a_coordinator_goes_to_the_session_hearing_
     run("start", demo, "--role", "communicator")
     root = ["root@demo"]
     records = [
-        {"kind": "owner", "text": "also the logs page", "to": root, "attrs": {"thread": THREAD, "about": "his work"}},
         {"kind": "answer", "text": "Ring", "to": root, "re": ["7"], "attrs": {"job": "j1", "maps": "none"}},
         {"kind": "posted", "text": "card up demo:j1-8", "to": root, "resolves": ["8"], "attrs": {"waits": "demo:j1-8"}},
         {"kind": "refused", "text": "cc-slack refused the card", "to": root, "resolves": ["9"], "attrs": {"job": "j1"}},
-        {"kind": "owner", "text": "and the alert", "to": ["iris@demo"], "attrs": {"thread": OTHER, "about": "his work"}},
-        {"kind": "owner", "text": "a new order", "to": root, "attrs": {"about": "his work"}},
         {"kind": "report", "text": "FYI j1 merged", "attrs": {"close": "o1"}},
     ]
     made = record_lines.decision(post("talker", records=records))["updatedInput"]["records"]
-    assert [record.get("to") for record in made] == [["iris@demo"]] * 4 + [root, root, None]
+    assert [record.get("to") for record in made] == [["iris@demo"]] * 3 + [None]
     about_drive = {"kind": "owner", "text": "the dashboard drops my cards", "to": ["meta@demo"], "attrs": {"thread": THREAD, "about": "drive"}}
     unordered = refusal(record_lines.decision(post("talker", **about_drive)))
     assert isinstance(unordered, agents.Unjudged) and "his words about the drive go out on the drive's `record` tool" in unordered
     assert record_lines.decision(post("iris-1", **about_drive)) is None
-    assert record_lines.decision(post("talker", **records[0]))["updatedInput"] == records[0] | {"to": ["iris@demo"]}
-    assert record_lines.decision(post("talker", **records[5])) is None
-    assert record_lines.decision(post("iris-1", **records[0])) is None
+    for words in ({"text": "also the logs page", "attrs": {"thread": THREAD, "about": "his work"}}, {"text": "a new order", "attrs": {"about": "his work"}}):
+        unparted = refusal(record_lines.decision(post("talker", kind="owner", to=root, **words)))
+        assert isinstance(unparted, agents.Unjudged) and "keeps them as a new part of the open order its attrs or thread serve" in unparted
+        assert record_lines.decision(post("iris-1", kind="owner", to=root, **words)) is None
     unsaid = {"kind": "owner", "text": "a new order", "to": root}
     assert 'an owner record names what his words are about, about "drive" for drive tooling' in refusal(record_lines.decision(post("talker", **unsaid)))
 
