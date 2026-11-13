@@ -99,7 +99,7 @@ Its `Show me:` works each option out to what it will look like once built, its r
 it writes, its flow or what a caller gets, as a `compare` panel named with the option's words or a
 picture captioned with its number, never only its files and cost, by his words "you need to flesh out what that will look like not just wave your hands, likewise for 2 and 3"; `drive job ask`
 refuses an option Jev reads as left unworked, naming it. Written in the ASK block's shape, which
-`drive job ask --check` passes with `ASK` for `DESIGN` and your research under `Findings:`, it is his
+`drive job ask <your job> --check` passes with `ASK` for `DESIGN` and your research under `Findings:`, it is his
 card as it stands: `drive job card <j>` draws it with no file written by hand, and `drive job report` refuses a clock time typed in it
 for work already done, so name a job's start as `{started:<job>}` and a record's as `{at:<seq>}`, and write a time a tool or query
 printed in Pacific on the line linking it, or in backticks as it printed it; any other report quotes times as it needs. It starts

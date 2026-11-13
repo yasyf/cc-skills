@@ -7,7 +7,7 @@ from datetime import datetime
 from itertools import groupby, pairwise, permutations
 from pathlib import Path
 
-from drive import picture, slack
+from drive import picture
 from drive.render import clock, cut, when
 from drive.state import DAY, KEPT_ASK, PR_KEY, PR_URL, TOOLING, DriveError, ask_hash, exempted, in_reporter_thread, named_prs, nearest, now, root, same_question
 
@@ -216,16 +216,17 @@ WORKED_WORDS = {
         ' 3". A card asking only whether or when to release, land, run or hold something offers no design and breaks nothing here.'
     ),
 }
+OPTION_NAMED = "its words, whole or up to the colon that ends its first part"
 ROOT_CAUSE_SHAPE = (
     "`Root cause: <the structure that lets the defect happen, by its proper terms>` with `First principles: <the option"
-    " that removes it>`, `Root cause: fixed: <that structure>, removed by <the merged PR's link>` on a card asking only"
+    f" that removes it, by {OPTION_NAMED}>`, `Root cause: fixed: <that structure>, removed by <the merged PR's link>` on a card asking only"
     " when that PR ships, `Root cause: not found: <the job finding it>`, or `Root cause: none: <why no defect is behind"
     " this question, such as a pick between his designs or his approval of an action his rules hold for him>`"
 )
 SIMPLEST_RULING = 'his ruling badce22, "in geernal keeps implifying all this tuff"'
 SIMPLEST_SHAPE = (
     "`Simplest: <the option that is the simplest design doing his words, with the fewest tables, columns, rows per fact,"
-    " messages, processes, checks and steps, by its words>`, each other option saying what it adds over it; a simpler"
+    f" messages, processes, checks and steps, by {OPTION_NAMED}>`, each other option saying what it adds over it; a simpler"
     " design his words or an answer of his the findings quote name is that option even when an older pick set it aside,"
     " and when the fork exists only because of an earlier pick of the drive's own recommendation, the option undoing that"
     " pick is"
@@ -637,7 +638,19 @@ def ask_block(text: str) -> str:
 
 
 def question(text: str, kept: bool = False, unsettled: str | None = None, hurting: bool = False) -> Question:
-    """The one question a job's ASK block puts to him, refused with every way it is out of shape; a block `drive job ask` already kept is read with no second check of its Show me's visuals or its options' content, so a card it kept under older rules still redraws, an option that cleans up a bad state passes only when `unsettled` names his ruling against it and why, a question on a bug hurting someone now names the immediate fix shipping while he picks, and each new one names on its `Holds:` line the changes its options alter, which his open card holds from landing, or none and why; a `Replaces:` line among its findings names the ASK file of the open question it builds on."""
+    """The one question a job's ASK block puts to him, refused with every way its words are out of shape, by `question_problems`."""
+    asked, problems = question_problems(text, kept, unsettled, hurting)
+    if problems:
+        raise DriveError(out_of_shape(problems))
+    return asked
+
+
+def out_of_shape(problems: list[str]) -> str:
+    return "the ASK is out of shape, " + READING + ":\n- " + "\n- ".join(problems)
+
+
+def question_problems(text: str, kept: bool = False, unsettled: str | None = None, hurting: bool = False) -> tuple[Question, list[str]]:
+    """The one question a job's ASK block puts to him, as far as its words read, and every way they are out of shape, each rule one entry of the list; a block `drive job ask` already kept is read with no second check of its Show me's visuals or its options' content, so a card it kept under older rules still redraws, an option that cleans up a bad state passes only when `unsettled` names his ruling against it and why, a question on a bug hurting someone now names the immediate fix shipping while he picks, and each new one names on its `Holds:` line the changes its options alter, which his open card holds from landing, or none and why; a `Replaces:` line among its findings names the ASK file of the open question it builds on. Its length is counted on the card it draws, each reference filled, which `cli.checked_ask` counts once."""
     asked, *findings = FINDINGS.split(text, maxsplit=1)
     head, *example = SHOW_ME.split(asked, maxsplit=1)
     lines = [line.strip() for line in head.splitlines() if line.strip()]
@@ -679,8 +692,6 @@ def question(text: str, kept: bool = False, unsettled: str | None = None, hurtin
         if words(option) > OPTION_WORDS
     ]
     shown = [title, *summary, *options, *(line for _, line in prose)]
-    if (count := card_words({"title": title, "body": card_body(summary, show_me), "options": options})) > QUESTION_WORDS:
-        problems.append(f"the question, summary and options are {count} words; at most {QUESTION_WORDS} in all, the Show me not counted")
     ordered = [REF.sub(lambda found: f" {found[3] or ''} " if found[1] == "order" else found[0], line) for line in summary]
     plain = URL.sub(" ", TOKEN.sub(" ", "\n".join([title, *ordered, *options, *(line for _, line in prose)])))
     problems += [
@@ -728,22 +739,10 @@ def question(text: str, kept: bool = False, unsettled: str | None = None, hurtin
         problems.append(f"no `Holds:` line under `Findings:` naming what his open card holds: write {HOLDS_SHAPE} ({HOLDS_RULING})")
     if hurting and not kept:
         problems += interim_fix_problems("".join(findings[:1]))
-    if problems:
-        raise DriveError("the ASK is out of shape, " + READING + ":\n- " + "\n- ".join(problems))
     hints = {option: "\n".join(lines) for option, lines in zip(options, described, strict=True) if lines}
-    replaces = REPLACES.search(findings[0])
-    return Question(title, summary, show_me, options, RECOMMENDED.sub("", marked[0]), hints, "" if held is None or NONE_WHY.match(held[1]) else held[1], replaces[1] if replaces else "")
-
-
-def shape(text: str, drive: str, job_id: str, pictures: Path, unsettled: str | None = None, hurting: bool = False) -> Question:
-    """The question a job's ASK block puts to him once its four checks pass: its words, then a real screenshot of each option when they differ in how a screen looks, then the card it draws, which cc-slack refuses in its own words, then each picture of its Show me, drawn under pictures, where its card finds them, and refused with why one does not draw, such as Mermaid's parse error. `drive job ask <j>`, `drive job ask --check` and the watch on a remote lane's ASK check here alike; `drive job ask <j>`, which the watch then runs on that ASK, also checks it against his recorded answers."""
-    asked = question(text, unsettled=unsettled, hurting=hurting)
-    if unshown := unshot(asked):
-        raise DriveError(unshown)
-    if refused := slack.draw_refusal(asked.card(drive, f"{drive}:{job_id}-0")):
-        raise DriveError(f"the ASK's card is out of shape, so cc-slack would not draw it: {refused}")
-    picture.drawn(pictures, asked.show_me)
-    return asked
+    replaces = REPLACES.search(findings[0]) if findings else None
+    recommended = RECOMMENDED.sub("", marked[0]) if len(marked) == 1 else ""
+    return Question(title, summary, show_me, options, recommended, hints, "" if held is None or NONE_WHY.match(held[1]) else held[1], replaces[1] if replaces else ""), problems
 
 
 def unshot(asked: Question) -> str | None:
@@ -902,42 +901,45 @@ def captions(show_me: list[str]) -> list[str]:
 
 
 def root_cause_problems(findings: str, options: list[str]) -> list[str]:
-    """Whether the findings name the option that is the simplest design doing his words, and start from the root cause, the structure that lets the defect happen, and name the option that removes it so the defect cannot occur; or name that structure as fixed, linking the merged PR that removed it, on a card asking only when that PR ships; or say the cause is not found yet, naming the job finding it; or say no defect is behind the question. Which option the card recommends, whether that option or PR truly removes the structure, and whether his words choose another, Jev weighs when `drive job ask` keeps it, his own pick or order beating the root-cause preference. A block rebuilt from his posted card has only the line saying so, and nothing to check."""
+    """Every way the findings fail to name the option that is the simplest design doing his words, and to start from the root cause, the structure that lets the defect happen, and name the option that removes it so the defect cannot occur; or to name that structure as fixed, linking the merged PR that removed it, on a card asking only when that PR ships; or to say the cause is not found yet, naming the job finding it; or to say no defect is behind the question. Which option the card recommends, whether that option or PR truly removes the structure, and whether his words choose another, Jev weighs when `drive job ask` keeps it, his own pick or order beating the root-cause preference. A block rebuilt from his posted card has only the line saying so, and nothing to check."""
     if findings.strip() == REBUILT:
         return []
+    problems = []
     simplest = SIMPLEST.search(findings)
     if not simplest:
-        return [f"no `Simplest:` line under `Findings:`: write {SIMPLEST_SHAPE} ({SIMPLEST_RULING})"]
-    if not names_option(simplest[1], options):
-        return [
+        problems.append(f"no `Simplest:` line under `Findings:`: write {SIMPLEST_SHAPE} ({SIMPLEST_RULING})")
+    elif not names_option(simplest[1], options):
+        problems.append(
             f"`Simplest: {simplest[1]}` names no option: the simplest design doing his words is always one, so add it, or"
-            f" repeat the words of the option it is, whole or up to the colon that ends its first part ({SIMPLEST_RULING})"
-        ]
+            f" repeat the option it is by {OPTION_NAMED} ({SIMPLEST_RULING})"
+        )
     cause = ROOT_CAUSE.search(findings)
     if not cause:
-        return [f"no `Root cause:` line under `Findings:`: write {ROOT_CAUSE_SHAPE} ({ROOT_CAUSE_RULING})"]
+        return [*problems, f"no `Root cause:` line under `Findings:`: write {ROOT_CAUSE_SHAPE} ({ROOT_CAUSE_RULING})"]
     if NONE_WHY.match(cause[1]):
-        return []
+        return problems
     if fixed := FIXED.match(cause[1]):
         if PR_URL.search(fixed[1]):
-            return []
-        return [f"`Root cause: {cause[1]}` links no merged PR: write `Root cause: fixed: <the structure>, removed by <the merged PR's link>` ({ROOT_CAUSE_RULING})"]
+            return problems
+        return [*problems, f"`Root cause: {cause[1]}` links no merged PR: write `Root cause: fixed: <the structure>, removed by <the merged PR's link>` ({ROOT_CAUSE_RULING})"]
     if unfound := NOT_FOUND.match(cause[1]):
         if FINDING_JOB.search(unfound[1]):
-            return []
-        return [f"`Root cause: {cause[1]}` names no job finding it: say which job is finding it, as `Root cause: not found: j<n> <what it reads>` ({ROOT_CAUSE_RULING})"]
+            return problems
+        return [*problems, f"`Root cause: {cause[1]}` names no job finding it: say which job is finding it, as `Root cause: not found: j<n> <what it reads>` ({ROOT_CAUSE_RULING})"]
     principled = FIRST_PRINCIPLES.search(findings)
     if not principled:
         return [
+            *problems,
             f"`Root cause: {cause[1]}` has no `First principles:` line: name the option that removes that structure, so the defect"
-            f" cannot occur, through one abstraction every caller goes through ({ROOT_CAUSE_RULING})"
+            f" cannot occur, through one abstraction every caller goes through, by {OPTION_NAMED} ({ROOT_CAUSE_RULING})",
         ]
     if not names_option(principled[1], options):
         return [
+            *problems,
             f"`First principles: {principled[1]}` names no option: the option that removes the root cause is always one, so add"
-            " it, or repeat the words of the option it is, whole or up to the colon that ends its first part"
+            f" it, or repeat the option it is by {OPTION_NAMED}",
         ]
-    return []
+    return problems
 
 
 def names_option(words: str, options: list[str]) -> bool:
@@ -1019,7 +1021,8 @@ def opening_problems(summary: list[str]) -> list[str]:
     unopened = (
         f'the summary\'s first line never says {" or ".join(missing)}, so he reads findings with no idea what'
         ' they are for: open it on both, as "For {order:<its order>}: your pick decides <what it changes for you>.", with `port of #N`'
-        f" as the text of that PR's link on a port and Drive tooling on drive tooling ({OPENING_RULING})"
+        f" as the text of that PR's link on a port and Drive tooling on drive tooling; his card draws a bare {{order:<o>}} as the opening"
+        f" of his order's words, counted in the {QUESTION_WORDS}, and {{order:<o>|<a few words>}} as those words ({OPENING_RULING})"
     )
     return [unopened]
 
