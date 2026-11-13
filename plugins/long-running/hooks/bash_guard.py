@@ -1,7 +1,6 @@
 import json
 import os
 import re
-import subprocess
 import sys
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -24,7 +23,6 @@ ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*")
 SHIP = ("ccx", "vcs", "ship")
 PUSHES = (("gh", "pr", "create"), ("git", "push"), ("jj", "git", "push"), SHIP, ("gt", "submit"))
 PUSH_ONLY = {"--no-pr", "--dry-run"}
-LANE_HELD_SECONDS = 540
 CACHED_PAGE = re.compile(r"plugins/cache/([^/\s'\"]+)/long-running/([^/\s'\"]+)/skills/long-running/reference/")
 RERUNS = (("ci", "bk", "rerun"), ("bk", "job", "retry"), ("bk", "build", "rebuild"), ("gh", "run", "rerun"))
 FLAKE = "--flake"
@@ -185,12 +183,9 @@ def lane_held(found: list[list[str]]) -> str | None:
     if not opens_pr(found):
         return None
     try:
-        done = subprocess.run(["drive", "job", "held", "--json"], capture_output=True, text=True, timeout=LANE_HELD_SECONDS, check=False)
-    except (OSError, subprocess.TimeoutExpired) as error:
+        answer = land.lane_held()
+    except state.DriveError as error:
         return f"refused: `drive job held` could not say whether his open cards hold this lane's PR: {error}; ship again once it answers"
-    if done.returncode:
-        return f"refused: `drive job held` could not say whether his open cards hold this lane's PR: {(done.stderr or done.stdout).strip()}; ship again once it answers"
-    answer = json.loads(done.stdout)
     return held(answer["id"], answer["cards"]) if answer["cards"] else None
 
 

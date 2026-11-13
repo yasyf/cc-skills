@@ -2479,7 +2479,13 @@ def job_held(args: argparse.Namespace) -> int:
         raise DriveError("job held needs the job: name it, or run it from a Sprite lane, whose own job it reads")
     data = state.load(name)
     find(data["jobs"], job_id, "job")
-    cards = land.ship_held(data, job_id, view.live_cards(name))
+    live = view.live_cards(name)
+    if args.pr:
+        tracked = {stored.lower(): pr for stored, pr in data["prs"].items()}
+        held = {key: land.pr_cards(data, pr, live) if (pr := tracked.get(key.lower())) else [] for key in map(state.pr_key, args.pr)}
+        line = "\n".join(f"{key}: {', '.join(cards)}" for key, cards in held.items() if cards)
+        return emit(args, line or f"no open card of his holds {', '.join(held)}", {"id": job_id, "prs": held})
+    cards = land.ship_held(data, job_id, live)
     return emit(args, "\n".join(cards) or f"{job_id}: no open card of his holds its PR", {"id": job_id, "cards": cards})
 
 def release_sprite(drive: str, job_id: str, job: dict, root: Path) -> str | None:
@@ -4403,6 +4409,12 @@ def parser() -> argparse.ArgumentParser:
         help="his open cards holding the job's PR from going up, one waits id a line, which the bash_guard hook asks before a ccx vcs ship opens it; none once the job has an open PR",
     )
     verb.add_argument("id", nargs="?", help="the job; a Sprite lane's own job when left out")
+    verb.add_argument(
+        "--pr",
+        action="append",
+        default=[],
+        help="instead, his open cards holding this PR from landing, a PR url or owner/name#N, repeatable; the landing_guard hook on a Sprite lane asks it before the lane lands a Forge-AI PR, as it holds one here",
+    )
     verb.set_defaults(run=job_held)
     verb = job.add_parser(
         "end",

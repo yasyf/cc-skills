@@ -1,11 +1,12 @@
 import json
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
 import landing_guard
 import pytest
 from conftest import SESSION, SHORT_ASK
-from drive import agents, limits, settled, shell, state, view
+from drive import agents, land, limits, settled, shell, state, view
 
 Run = Callable[..., tuple[int, str]]
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -121,6 +122,52 @@ def test_landing_once_he_answered_the_card_passes(drive_pr: str, no_calls: None)
         data["prs"][drive_pr]["waits"] = [CARD]
     state.cards_path("demo").write_text(json.dumps({"source": "live", **view.NO_CARDS}))
     assert landing_guard.deny_reason(bash("stack-enqueue 42")) is None
+
+
+@pytest.fixture
+def sprite(run: Run, monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
+    """A Sprite lane of job j1, whose `drive` asks each verb of the coordinator's Mac, played here by this drive's own `drive job held` for the lane's job."""
+    asked: list[list[str]] = []
+
+    def mac(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        assert argv[:3] == ["drive", "job", "held"], argv
+        asked.append(argv)
+        code, out = run(*argv[1:])
+        return subprocess.CompletedProcess(argv, code, stdout=out, stderr="")
+
+    monkeypatch.setattr(land.subprocess, "run", mac)
+    monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
+    monkeypatch.setenv(state.REMOTE_LANE_ENV, "1")
+    return asked
+
+
+def test_a_sprite_lanes_landing_asks_the_coordinators_mac_and_is_refused_while_his_card_on_it_is_open(
+    drive_pr: str, sprite: list[list[str]], run: Run, no_calls: None
+) -> None:
+    approve(drive_pr)
+    with state.edit("demo") as data:
+        data["prs"][drive_pr]["waits"] = [CARD]
+    lane = bash("stack-enqueue 41 42", session_id="sprite")
+    assert landing_guard.deny_reason(lane) == landing_guard.CARD_REASON.format(key=drive_pr, cards=CARD)
+    assert sprite == [["drive", "job", "held", "--json", "--pr=Forge-AI/monorepo#41", "--pr=Forge-AI/monorepo#42"]]
+    assert run("job", "held", "--pr", PR, "--pr", SIBLINGS[0]) == (0, f"{drive_pr}: {CARD}")
+    assert landing_guard.deny_reason(bash("stack-enqueue --check 41 42", session_id="sprite")) is None
+    assert landing_guard.deny_reason(bash("gh pr merge 9 -R yasyf/cc-skills --squash", session_id="sprite")) is None
+    assert len(sprite) == 1
+    state.cards_path("demo").write_text(json.dumps({"source": "live", **view.NO_CARDS}))
+    assert landing_guard.deny_reason(lane) is None
+    assert run("job", "held", "--pr", PR) == (0, f"no open card of his holds {drive_pr}")
+
+
+def test_a_sprite_lanes_landing_is_refused_while_the_coordinators_mac_does_not_answer(drive_pr: str, monkeypatch: pytest.MonkeyPatch, no_calls: None) -> None:
+    approve(drive_pr)
+    monkeypatch.setenv(state.REMOTE_LANE_ENV, "1")
+    answer = {"code": 1, "out": "", "err": "drive: orca orchestration ask exited 1: no run"}
+    monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess(argv, answer["code"], stdout=answer["out"], stderr=answer["err"]))
+    lane = bash("stack-enqueue 42", session_id="sprite")
+    assert landing_guard.deny_reason(lane) == landing_guard.UNASKED.format(keys=drive_pr, error=answer["err"])
+    answer.update(code=0, out="drive exited 0")
+    assert landing_guard.deny_reason(lane) == landing_guard.UNASKED.format(keys=drive_pr, error="it printed no JSON: drive exited 0")
 
 
 @pytest.mark.parametrize(

@@ -45,6 +45,11 @@ CARD_REASON = (
     "Refused on purpose: {key} waits on his open card {cards}, and its recommended option never stands in for his answer."
     " Land and enqueue nothing: return `WAITING {cards}`; the watch says FREE once he answers"
 )
+UNASKED = (
+    "Refused on purpose: this Sprite holds no copy of the drive, so it asked the coordinator's Mac with `drive job held --pr`"
+    " whether his open cards hold {keys}, and the Mac did not say: {error}. Land and enqueue nothing until it answers, then"
+    " run this again"
+)
 STACK_REASON = (
     "Refused on purpose: {named} leaves out {left} below it in its stack, which stack-enqueue queues with it."
     " Name every PR it queues: `stack-enqueue {every}`"
@@ -406,6 +411,8 @@ def landing_reason(landing: Landing, refs: list[str], options: dict[str, list[st
         return ADMIN_REASON
     selected = selected_repo(landing, options, shell)
     keys = [resolve_key(ref, repo, selected, shell.cwd) for ref in named]
+    if os.environ.get(state.REMOTE_LANE_ENV):
+        return lane_reason(keys)
     if shell.driving and (foreign := next(filter(None, (foreign_reason(key, shell) for key in keys)), None)):
         return foreign
     if landing.every_pr and shell.driving:
@@ -415,6 +422,15 @@ def landing_reason(landing: Landing, refs: list[str], options: dict[str, list[st
             numbers = " ".join(member.split("#")[1] for member in every)
             return STACK_REASON.format(named=", ".join(keys), left=", ".join(left), every=numbers)
     return next(filter(None, (pr_reason(landing, key, shell) for key in keys)), None)
+
+
+def lane_reason(keys: list[str]) -> str | None:
+    """Why a Sprite lane may not land these PRs, which no drive here can judge: `drive job held --pr`, which the lane's `drive` asks of the coordinator's Mac, names his open cards holding one, as pr_reason() reads them there, or the Mac did not answer."""
+    try:
+        held = land.lane_held(*(f"--pr={key}" for key in keys))["prs"]
+    except state.DriveError as error:
+        return UNASKED.format(keys=", ".join(keys), error=error)
+    return next((CARD_REASON.format(key=key, cards=", ".join(cards)) for key, cards in held.items() if cards), None)
 
 
 def cut_reason(words: list[str], shell: Shell) -> str | None:
@@ -661,7 +677,7 @@ def unprevented_reports(payload: dict) -> str | None:
 
 
 def guarded_reason(payload: dict) -> str | None:
-    """Why a Bash call must not run, a refusal capt-hook's Jev never weighs again: it lands a Forge-AI drive PR without his tap or merges with --admin there, in a drive session or agent lands a Forge-AI PR someone else opened that no order of his names, starts, approves or rolls back a production cut from a sub-coordinator's session, cancels a release from a drive job or starts one other than its brief's Release line names, --order included, or before a plan at its flags outside an incident, or in a drive session's own call starts one on `--order` naming an answer of his that is no incident's and that Jev does not read as his order or pick to release, and in a drive session or agent lands a Forge-AI PR while his card on it is open, around the monorepo's queue or apart from its stack, puts up a drive's public PR body showing what only a private place may, or posts with `cci post` an owner or answer record of his words on an open card of his, which only the drive's `record` tool closes in the same call, or an owner record naming no about, which picks the session it reaches."""
+    """Why a Bash call must not run, a refusal capt-hook's Jev never weighs again: it lands a Forge-AI drive PR without his tap or merges with --admin there, in a drive session or agent lands a Forge-AI PR someone else opened that no order of his names, starts, approves or rolls back a production cut from a sub-coordinator's session, cancels a release from a drive job or starts one other than its brief's Release line names, --order included, or before a plan at its flags outside an incident, or in a drive session's own call starts one on `--order` naming an answer of his that is no incident's and that Jev does not read as his order or pick to release, and in a drive session or agent lands a Forge-AI PR while his card on it is open, around the monorepo's queue or apart from its stack, or on a Sprite lane lands one while `drive job held --pr` on the coordinator's Mac names his card on it open or does not answer, puts up a drive's public PR body showing what only a private place may, or posts with `cci post` an owner or answer record of his words on an open card of his, which only the drive's `record` tool closes in the same call, or an owner record naming no about, which picks the session it reaches."""
     names, shell = shell_of(payload)
     command = payload["tool_input"]["command"]
     if shell.driving and (exposed := body_reason(command, shell)):
