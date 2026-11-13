@@ -209,7 +209,11 @@ POST_RULES = """
       line about the behavior it names. The read must reach the code that does it, such as the statement deleting the
       ids, not the panic saying a pack deletes them.
     - A line about every case, with each, every, all, always, never, by default or only, needs a read of what decides
-      it, not of one case: a read of one table's history shadow backs nothing about each table.
+      it, not of one case: a read of one table's history shadow backs nothing about each table. A line of an absence,
+      such as no calls, zero rows or nothing since, is such a line, and one read from a single metric, span or log
+      series stands only beside a second source with no shared emitter showing the same absence, since one series can
+      be sampled or dropped before it is stored: a server's trace metric with no fork series backs no line that no
+      forks ran, while the callers' client spans beside it showing none would.
     - A mechanism the line proposes, or a step it says needs no code, stands only on a read or his words showing
       whether the system owns and controls that piece where it would run, by his words "we cant do that since we dont
       control the poloices on customer bucket": a lifecycle rule on a prefix of a team's bucket needs a read of who

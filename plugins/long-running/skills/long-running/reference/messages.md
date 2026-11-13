@@ -642,7 +642,11 @@ restating it.
   granted critically evakuate them". A code comment, a panic, error or log message, a doc, a PR body,
   the brief, a record's words or an earlier answer is a claim to test against that code, never a
   line to repeat, and the post says whether each claim it relies on holds. A line about every case
-  stands on a read of what decides it, and a mechanism it proposes on a read or his words showing
+  stands on a read of what decides it, a line of an absence read from one metric, span or log
+  series, such as no calls, zero rows or nothing since, stands also on a second source with no
+  shared emitter showing the same absence, such as the caller's client spans beside the server's
+  trace metric, since one series can be sampled or dropped before it is stored, and a mechanism it
+  proposes on a read or his words showing
   whether the system controls that piece where it would run, by his words "we cant do that since we dont control the
   poloices on customer bucket". A handler passes `say` each such line in `claims`, beside the read
   behind it: `record:<seq>`, or words copied from a call of its own, such as a path, command or query,
@@ -682,7 +686,8 @@ restating it.
 - Say what was observed, and never list what is not proven, under any label: "unproven", "not proven
   yet", "not seen working yet", "unverified", "untested". Each unknown gets a job, and he gets its
   result or nothing. `cc-slack check-post` refuses a line listing what is not proven, and a job's
-  `UNPROVEN:` list is the coordinator's input, never copy for him.
+  `UNPROVEN:` list is the coordinator's input, never a fact its records state and never copy for
+  him.
 - An incident line follows [incidents.md](incidents.md) and carries no side facts about a release.
   Its alert's Slack message and Sentry or Datadog issue stay bare so Slack unfurls them: the say hook
   lets them through on a post whose order, or the record it posts, is an incident's.
