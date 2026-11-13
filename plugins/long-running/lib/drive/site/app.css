@@ -102,6 +102,28 @@ button.al.warn::before { background: #c98a4b; }
 
 .page-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 24px; margin-bottom: 30px; }
 .page-head .h1, .page-head .subtabs { margin: 0; }
+.page-head:has(> .queue-tools) { position: relative; z-index: 4; }
+.queue-tools { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; max-width: 100%; }
+.queue-scope { min-width: 0; max-width: 100%; }
+.queue-scope summary { display: flex; align-items: center; gap: 9px; min-height: 38px; max-width: 360px; padding: 8px 11px; border: 1px solid var(--line-2); border-radius: 9px; background: var(--paper); color: var(--ink); font-size: 12px; font-weight: 550; cursor: pointer; list-style: none; }
+.queue-scope summary::-webkit-details-marker { display: none; }
+.queue-scope summary:hover, .queue-scope[open] summary { border-color: var(--accent); background: var(--panel-2); }
+.queue-scope svg { flex: none; width: 16px; height: 16px; fill: none; stroke: var(--accent); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.scope-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scope-divider { padding: 0 7px; color: var(--line-2); }
+.queue-scope .n { flex: none; min-width: 24px; padding: 1px 6px; border-radius: 5px; background: var(--panel-3); color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; text-align: center; }
+.queue-scope[open] .scope-chevron { rotate: 180deg; }
+.scope-panel { position: absolute; top: calc(100% + 8px); right: 0; display: grid; width: 260px; max-width: calc(100vw - 32px); padding: 6px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); box-shadow: 0 12px 40px #263e2b26; }
+.scope-panel.has-project { width: 480px; grid-template-columns: 1fr 1.15fr; }
+.scope-panel nav { min-width: 0; max-height: min(480px, 60dvh); overflow-y: auto; padding: 4px; }
+.scope-panel h2 { margin: 4px 8px 10px; color: var(--muted); font: var(--caps); letter-spacing: 1px; overflow-wrap: anywhere; }
+.scope-panel h2 span { display: block; margin-top: 3px; font-weight: 450; letter-spacing: 0; }
+.scope-streams { border-left: 1px solid var(--line); }
+.scope-panel a { display: flex; align-items: center; gap: 8px; min-height: 38px; padding: 7px 8px; border-radius: 7px; color: var(--ink-2); font-size: 12px; }
+.scope-panel a > span:first-child { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.scope-panel a:hover, .scope-panel a:focus-visible { background: var(--panel-3); text-decoration: none; }
+.scope-panel a.on { background: var(--soft); color: var(--accent); font-weight: 600; }
+.scope-panel .on .n { background: var(--paper); color: var(--accent); }
 .queue-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 28px; align-items: start; }
 .pr-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 22px; align-items: start; }
 .page-head .scopes { flex-basis: 100%; width: max-content; max-width: 100%; }
@@ -770,6 +792,7 @@ button.task-row { cursor: pointer; }
   .counter span { margin-right: 4px; white-space: nowrap; }
   .counter button { min-width: 44px; min-height: 44px; }
   .subtabs :is(a, button) { min-height: 44px; padding: 0 14px; font-size: 12px; }
+  .queue-scope summary, .scope-panel a { min-height: 44px; }
   .al { padding-block: 0; line-height: 44px; }
   .pr-tabs button { min-width: 44px; min-height: 44px; }
   .btn, .toast-x, .map-btn, .pr-picks button { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; }
@@ -799,6 +822,7 @@ button.task-row { cursor: pointer; }
   .lb-stage { padding: 16px; }
   .lb-step { top: auto; bottom: 14px; translate: none; }
   .page-head { flex-direction: column; align-items: flex-start; }
+  .scope-panel { right: auto; left: 0; }
   .canvas { --sw: 340px; --sh: 520px; height: 64vh; }
   #main:has(> .now-head) { display: block; height: auto; padding: 25px 16px calc(98px + env(safe-area-inset-bottom)); }
   .now-head { flex-wrap: wrap; }

@@ -557,16 +557,16 @@ function scopeKeys(filter, project = null) {
   return [...new Set([...(chosen === null ? [] : [chosen]), ...keys])].sort((a, b) => byName([a], [b]));
 }
 
-function scopeChips(filter) {
+function queueScope(filter) {
   const project = route().query.get('project');
   const stream = route().query.get('stream');
-  const chip = (label, href, on, n) => `<a href="${esc(href)}" class="${on ? 'on' : ''}"${on ? ' aria-current="true"' : ''}>${esc(label)}<span class="n">${n}</span></a>`;
-  const projects = scopeKeys(filter);
-  if (projects.length < 2 && project === null) return '';
-  const streams = project === null ? [] : scopeKeys(filter, project);
-  const rows = [chip('All projects', `#/queue/${filter}`, project === null, shownQueue(filter, null, null).length), ...projects.map((key) => chip(fileName(key), `#/queue/${filter}${scopeQuery(key, null)}`, key === project && stream === null, shownQueue(filter, key, null).length))];
-  const inner = streams.length > 1 ? streams.map((key) => chip(fileName(key), `#/queue/${filter}${scopeQuery(project, key)}`, key === stream, shownQueue(filter, project, key).length)) : [];
-  return `<nav class="subtabs scopes" aria-label="Project">${rows.join('')}</nav>${inner.length ? `<nav class="subtabs scopes" aria-label="Workstream">${inner.join('')}</nav>` : ''}`;
+  const choice = (label, href, on, n, parent = false) => `<a href="${esc(href)}"${on ? ' class="on" aria-current="true"' : ''}${parent ? ' data-scope-project' : ''}><span>${esc(label)}</span><span class="n">${n}</span></a>`;
+  const rows = [choice('All projects', `#/queue/${filter}`, project === null, shownQueue(filter, null, null).length), ...scopeKeys(filter).map((key) => choice(fileName(key), `#/queue/${filter}${scopeQuery(key, null)}`, key === project, shownQueue(filter, key, null).length, true))];
+  const streams = project === null ? '' : `<nav class="scope-streams" aria-label="Workstream"><h2>${esc(fileName(project))} <span>workstreams</span></h2>${choice('All workstreams', `#/queue/${filter}${scopeQuery(project, null)}`, stream === null, shownQueue(filter, project, null).length)}${scopeKeys(filter, project).map((key) => choice(fileName(key), `#/queue/${filter}${scopeQuery(project, key)}`, key === stream, shownQueue(filter, project, key).length)).join('')}</nav>`;
+  return `<details class="queue-scope" id="queue-scope">
+    <summary aria-label="Filter by project and workstream: ${esc(project === null ? 'All projects' : fileName(project))}${stream === null ? '' : ` / ${esc(fileName(stream))}`}, ${counted(shownQueue(filter).length, 'item')}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M7 12h10M10 17h4"/></svg><span class="scope-label">${project === null ? 'All projects' : `${esc(fileName(project))}${stream === null ? '' : `<span class="scope-divider">/</span>${esc(fileName(stream))}`}`}</span><span class="n">${shownQueue(filter).length}</span><svg class="scope-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 10 4 4 4-4"/></svg></summary>
+    <div class="scope-panel${project === null ? '' : ' has-project'}"><nav class="scope-projects" aria-label="Project"><h2>Projects</h2>${rows.join('')}</nav>${streams}</div>
+  </details>`;
 }
 
 function current(list) {
@@ -877,8 +877,7 @@ function queueScreen(id) {
   const shown = item ? { question: decisionCard, tap: prCard, late: lateCard }[item.kind](opened(item), at, list.length) : done;
   return `<div class="page-head">
       <h1 class="h1">${list.length ? `${list.length} ${list.length === 1 ? 'thing waits' : 'things wait'} on you` : 'Your queue'}</h1>
-      <nav class="subtabs" aria-label="Show">${filters}</nav>
-      ${scopeChips(filter)}
+      <div class="queue-tools">${queueScope(filter)}<nav class="subtabs" aria-label="Show">${filters}</nav></div>
     </div>
     ${unread}
     <div class="queue-shell${list.length > 1 ? '' : ' alone'}">${list.length > 1 ? queueList(list, at, filter) : ''}${shown}</div>
@@ -2602,6 +2601,8 @@ document.addEventListener('submit', (event) => {
   say(form.dataset.say, form.dataset.under, drafts.get(form.dataset.say) ?? '', form.dataset.about, form.dataset.thread);
 });
 document.addEventListener('click', (event) => {
+  const scope = $('#queue-scope');
+  if (scope?.open && !scope.contains(event.target)) scope.open = false;
   if (touched) {
     const tipped = !event.target.closest('a, button') && event.target.closest('[data-tip]');
     if (tipped) return $('#srctip').dataset.shows === `tip:${tipped.dataset.tip}` ? hideSource() : showTip(tipped);
@@ -2645,6 +2646,14 @@ document.addEventListener('click', (event) => {
   const jumped = event.target.closest('#jumplist [data-jump]');
   if (jumped) return goJump(jumped);
   if (event.target.id === 'jump') return $('#jump').close();
+  const scoped = event.target.closest('.queue-scope a');
+  if (scoped && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey && event.button === 0) {
+    event.preventDefault();
+    history.pushState(null, '', scoped.getAttribute('href'));
+    render();
+    $('#queue-scope').open = scoped.hasAttribute('data-scope-project');
+    return $('#queue-scope').querySelector(scoped.hasAttribute('data-scope-project') ? '.scope-streams a' : 'summary').focus();
+  }
   event.target.closest('.incidents a')?.closest('[popover]').hidePopover();
   if (event.target.closest('[data-reload]')) return reloadPage();
   const tool = event.target.closest('[data-cam]');
@@ -2827,6 +2836,12 @@ window.addEventListener('scroll', () => {
 document.addEventListener('click', keepPlace, true);
 document.addEventListener('keydown', (event) => {
   touched = false;
+  const scope = $('#queue-scope');
+  if (scope?.open && event.key === 'Escape') {
+    event.preventDefault();
+    scope.open = false;
+    return scope.querySelector('summary').focus();
+  }
   const box = event.target.closest?.('textarea[data-draft]');
   if (box && event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
     event.preventDefault();
@@ -2834,6 +2849,7 @@ document.addEventListener('keydown', (event) => {
   }
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
     event.preventDefault();
+    if (scope) scope.open = false;
     return openJump();
   }
   const tab = event.target.closest?.('[data-prtab]');
@@ -2851,7 +2867,7 @@ document.addEventListener('keydown', (event) => {
     event.preventDefault();
     return undo(held[0]);
   }
-  const free = !event.metaKey && !event.ctrlKey && !event.altKey && !writing && !document.querySelector('dialog[open]');
+  const free = !event.metaKey && !event.ctrlKey && !event.altKey && !writing && !scope?.open && !document.querySelector('dialog[open]');
   const { screen } = route();
   if (free && event.key === 'Escape' && up()) {
     event.preventDefault();
