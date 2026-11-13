@@ -222,30 +222,30 @@ TAKEN = "file its orders under a project whose lane no one else takes"
 def test_start_refuses_a_project_whose_lane_another_sub_coordinator_the_drive_its_records_or_a_numbered_name_takes(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], posted_lanes: set[str]
 ) -> None:
-    for project in ("A/B", "A B", "Root", "Iris 2", "Handler", "Memory"):
+    for project in ("A.B", "A B", "Root", "Iris 2", "Handler", "Memory"):
         run("order", "add", "--title", "Short title", "--project", project, "--workstream", "W", f"work for {project}")
     posted_lanes.add("memory")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "ab-1")
-    assert run("start", "demo", "--role", "coordinator", "--project", "A/B")[0] == 0
+    assert run("start", "demo", "--role", "coordinator", "--project", "A.B")[0] == 0
     refusals = {}
     for number, project in enumerate(("A B", "Root", "Iris 2", "Handler", "Memory")):
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", f"other-{number}")
         assert cli.main(["start", "demo", "--role", "coordinator", "--project", project]) == 2
         refusals[project] = capsys.readouterr().err.strip()
     assert refusals == {
-        "A B": f"drive: --project A B: its lane a-b is the lane of the sub-coordinator for A/B; {TAKEN}",
+        "A B": f"drive: --project A B: its lane a-b is the lane of the sub-coordinator for A.B; {TAKEN}",
         "Root": f"drive: --project Root: its lane root is the drive's own root lane; {TAKEN}",
         "Iris 2": f"drive: --project Iris 2: its lane iris-2 ends in -<digits>, which cci reads as a numbered copy of lane iris; {TAKEN}",
         "Handler": f"drive: --project Handler: its lane handler is the drive's own handler lane; {TAKEN}",
         "Memory": f"drive: --project Memory: its lane memory is a lane cci records of drive demo were posted as; {TAKEN}",
     }
-    first = state.load("demo")["subcoordinators"]["A/B"]["from"]
-    run("order", "add", "--title", "Short title", "--project", "A/B", "--workstream", "W", "more work")
+    first = state.load("demo")["subcoordinators"]["A.B"]["from"]
+    run("order", "add", "--title", "Short title", "--project", "A.B", "--workstream", "W", "more work")
     posted_lanes.add("a-b")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "ab-2")
-    assert run("start", "demo", "--role", "coordinator", "--project", "A/B")[0] == 0
+    assert run("start", "demo", "--role", "coordinator", "--project", "A.B")[0] == 0
     bound = state.load("demo")["subcoordinators"]
-    assert ({project: held["session"] for project, held in bound.items()}, bound["A/B"]["from"]) == ({"A/B": "ab-2"}, first)
+    assert ({project: held["session"] for project, held in bound.items()}, bound["A.B"]["from"]) == ({"A.B": "ab-2"}, first)
 
 
 def test_a_session_holding_a_role_binds_no_sub_coordinator_and_a_sub_coordinators_session_takes_no_role(
@@ -1115,6 +1115,52 @@ def test_filing_an_order_keeps_the_time_it_last_moved_and_any_other_change_moves
     assert (order["project"], order["workstream"], order["title"], order["updated"]) == ("Iris", "Chats and agents", "Ship the composer fix", went_live)
     run("order", "set", "o1", "--project", "Platform", "--note", "moved back")
     assert state.load("demo")["orders"]["o1"]["updated"] != went_live
+
+
+def test_a_subject_keeps_one_home_refusing_a_name_other_orders_file_only_as_the_other_of_project_and_workstream_or_spell_otherwise(
+    run: Run, demo: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "partition the tables", "--project", "SandSQL", "--workstream", "Storage")
+    run("order", "add", "--title", "Short title", "keep the chat scroll", "--project", "Iris", "--workstream", "Chats")
+    for project, workstream, refused, home in (
+        ("Platform", "SandSQL", "--workstream SandSQL", "--project SandSQL"),
+        ("sandsql", "Row ids", "--project sandsql", "--project SandSQL"),
+        ("Platform", "Iris", "--workstream Iris", "--project Iris"),
+        ("Iris", "chats", "--workstream chats", "--project Iris --workstream Chats"),
+    ):
+        assert cli.main(["order", "add", "--title", "Short title", "move the rows", "--project", project, "--workstream", workstream]) == 2
+        assert capsys.readouterr().err.startswith(f"drive: {refused}: refused, nothing filed: other orders file this subject as {home}, and a subject keeps one home")
+    assert cli.main(["order", "add", "--title", "Short title", "move the rows", "--project", "SandSQL", "--workstream", "Platform/SandSQL"]) == 2
+    assert "a project or workstream is one name, never a pair written with / › or >" in capsys.readouterr().err
+    assert list(state.load("demo")["orders"]) == ["o1", "o2"]
+    assert run("order", "add", "--title", "Short title", "split the row ids", "--project", "SandSQL", "--workstream", "Row ids") == (0, "o3")
+    assert run("order", "add", "--title", "Short title", "store the chats", "--project", "Iris", "--workstream", "Storage") == (0, "o4")
+    with state.edit("demo") as data:
+        data["orders"]["o5"] = data["orders"]["o1"] | {"text": "partition by time", "project": "Platform", "workstream": "SandSQL"}
+    run("order", "set", "o5", "--project", "SandSQL", "--workstream", "Auto-partitioning")
+    assert cli.main(["order", "set", "o2", "--workstream", "SandSQL"]) == 2
+    assert "other orders file this subject as --project SandSQL," in capsys.readouterr().err
+    assert (state.load("demo")["orders"]["o2"]["project"], state.load("demo")["orders"]["o2"]["workstream"]) == ("Iris", "Chats")
+
+
+def test_view_of_a_project_lists_every_order_filed_there_and_refuses_a_name_filed_elsewhere_naming_its_home(
+    run: Run, demo: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    for n in range(12):
+        run("order", "add", "--title", f"Partition table {n}", f"partition table {n}", "--project", "SandSQL", "--workstream", "Row ids" if n % 2 else "Auto-partitioning")
+    run("order", "add", "--title", "Release notes", "write the release notes", "--project", "Platform", "--workstream", "Releases")
+    run("order", "add", "--title", "Chat scroll", "keep the chat scroll", "--project", "Iris", "--workstream", "Chats")
+    code, out = run("view", "--project", "SandSQL")
+    assert code == 0
+    assert [n for n in range(12) if f"Partition table {n}" not in out] == []
+    assert ("Release notes" in out, "Chat scroll" in out, "more on the [dashboard]" in out) == (False, False, False)
+    model = json.loads(run("view", "--project", "SandSQL", "--workstream", "Row ids", "--json")[1])
+    assert sorted(entry["title"] for group in model["status"] for entry in group["features"]) == sorted(f"Partition table {n}" for n in range(1, 12, 2))
+    assert "more on the [dashboard]" in run("view")[1]
+    assert cli.main(["view", "--project", "Platform", "--workstream", "SandSQL"]) == 2
+    assert capsys.readouterr().err.strip() == "drive: --project Platform --workstream SandSQL: no order is filed there; name --project SandSQL"
+    assert cli.main(["view", "--project", "Search"]) == 2
+    assert capsys.readouterr().err.strip() == "drive: --project Search: no order is filed there; name a project in use: Iris, Platform, SandSQL"
 
 
 def test_a_drive_stored_with_milestones_loads_without_them(run: Run, demo: str) -> None:
@@ -6625,6 +6671,21 @@ def test_an_answer_stays_unfinished_until_each_job_waiting_on_an_order_it_touche
         "his answer a1 recorded: 1 standing, 0 superseded, 0 reopened by it; 1 waiting job sent his words, 0 untouched",
     )
     assert state.load("demo")["answers"]["a1"]["jobs"] == {"j3": {"mark": "sent"}}
+
+
+def test_an_agent_the_top_started_on_an_order_a_sub_coordinator_now_hears_takes_his_answer_through_drive_job_resume_never_sent(
+    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cards_asking(monkeypatch, PR)
+    run("job", "add", "builder", "--order", "o1", "--goal", "build the store")
+    with state.edit("demo") as data:
+        data["jobs"]["j3"].update(state="waiting", agent="agent-3")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "drive-1")
+    assert run("start", "demo", "--role", "coordinator", "--project", "The drive")[0] == 0
+    assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
+    assert "  j3 waits on o1 and has not heard a1: drive job resume j3 with his words verbatim, or mark it untouched" in capsys.readouterr().err
+    assert cli.main(["answer", "a1", "--stands", designing, "--sent", "j3"]) == 2
+    assert "j3: drive job resume j3 with his words verbatim" in capsys.readouterr().err
 
 
 def test_a_remote_lane_waiting_on_an_order_his_answer_touches_is_marked_sent_only_once_a_resume_delivered_his_words(

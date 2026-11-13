@@ -31,6 +31,7 @@ UNLANDABLE = (
 PORT_DATA_RULING = 'his Nov 12 words "port his visuals but always do it the fundamentally right way when it comes to modelng the data"'
 FILING = ("project", "workstream", "title")
 TITLE_CHARS = 60
+PAIR_MARK = re.compile(r"[/›>]")
 TOOLING_FILING = ("The drive", "Drive tooling")
 JOB_ID = re.compile(r"j\d+")
 SLACK_USER = re.compile(r"[UW][A-Z0-9]{2,}")
@@ -481,14 +482,39 @@ def check_tooling_words(name: str, words: str) -> None:
 
 
 def filing(data: dict, words: str, project: str | None, workstream: str | None) -> tuple[str, str]:
-    """The project and workstream the dashboard's Now screen files an order under: on a "Drive tooling:" order The drive and Drive tooling unless a flag names another, and on his order both named, refused naming the pairs in use."""
+    """The project and workstream the dashboard's Now screen files an order under: on a "Drive tooling:" order The drive and Drive tooling unless a flag names another, and on his order both named, refused naming the pairs in use, and refused by `one_home` for a name filing its subject elsewhere."""
     if words.startswith(state.TOOLING):
-        return project or TOOLING_FILING[0], workstream or TOOLING_FILING[1]
+        project, workstream = project or TOOLING_FILING[0], workstream or TOOLING_FILING[1]
     if project and workstream:
+        one_home(data, project, workstream)
         return project, workstream
     missing = " and ".join(f"--{field}" for field, value in (("project", project), ("workstream", workstream)) if not value)
     pairs = "; ".join(f"{named} / {stream}" for named, stream in filing_pairs(data)) or "none yet"
     raise DriveError(f"refused, no order added: name {missing}, which file his order on the dashboard's Now screen, reusing a pair in use where it fits: {pairs}")
+
+
+def one_home(data: dict, project: str, workstream: str, but: str | None = None) -> None:
+    """Refuse a project or workstream naming a subject that other orders file only elsewhere, as the other of the two or in another spelling, ignoring case, since the dashboard's filters and Now tree and the coordinator session an order's project routes it to each match the two names exactly, so a subject with two homes shows whole under neither; a name other orders use in the same place passes, so a refile moves orders into the home it keeps, and a name written as a pair is refused."""
+    for flag, name, place in (("--project", project, 0), ("--workstream", workstream, 1)):
+        if PAIR_MARK.search(name):
+            raise DriveError(f"{flag} {name}: refused, nothing filed: a project or workstream is one name, never a pair written with / › or >; name each with --project and --workstream")
+        found = homes(data, name, but)
+        if found and all(pair[place] != name for pair in found):
+            raise DriveError(
+                f"{flag} {name}: refused, nothing filed: other orders file this subject as {'; '.join(offers(found, name))},"
+                " and a subject keeps one home, which the dashboard's filters, its Now tree and the coordinator an order's project routes it"
+                " to each match exactly; name the subject as they do, or use names no other order uses"
+            )
+
+
+def homes(data: dict, name: str, but: str | None = None) -> list[tuple[str, str]]:
+    """Each pair in use, but the named order's, that files the subject a name calls, as its project or its workstream, ignoring case."""
+    return [pair for pair in filing_pairs(data, but) if name.casefold() in (pair[0].casefold(), pair[1].casefold())]
+
+
+def offers(pairs: list[tuple[str, str]], name: str) -> list[str]:
+    """The flags filing a subject as these pairs do: its project alone where the name is the project, else the pair."""
+    return list(dict.fromkeys(f"--project {project}" if project.casefold() == name.casefold() else f"--project {project} --workstream {stream}" for project, stream in pairs))
 
 
 def titled(title: str) -> str:
@@ -684,6 +710,8 @@ def order_set(args: argparse.Namespace) -> int:
         filed = [field for field in FILING if getattr(args, field) is not None]
         for field in filed:
             order[field] = (getattr(args, field) or "").strip() or None
+        if {"project", "workstream"} & set(filed) and order["project"] and order["workstream"]:
+            one_home(data, order["project"], order["workstream"], args.id)
         if not filed or args.lined or apart_from_filing(order) != before:
             order["updated"] = state.stamp(moment)
         if args.lined:
@@ -743,8 +771,8 @@ def check_proof(proof: str) -> None:
     )
 
 
-def filing_pairs(data: dict) -> list[tuple[str, str]]:
-    return sorted({(order["project"], order["workstream"]) for order in data["orders"].values() if order["project"] and order["workstream"]})
+def filing_pairs(data: dict, but: str | None = None) -> list[tuple[str, str]]:
+    return sorted({(order["project"], order["workstream"]) for order_id, order in data["orders"].items() if order["project"] and order["workstream"] and order_id != but})
 
 
 def order_surface(data: dict, order: dict) -> str | None:
@@ -3412,9 +3440,22 @@ def view_command(args: argparse.Namespace) -> int:
     from drive import dashboard, page, view
 
     name = state.resolve(args.drive)
+    if args.workstream and not args.project:
+        raise DriveError(f"--workstream {args.workstream}: name its project with --project, as drive order add files it")
+    if args.project:
+        refuse_no_home(state.load(name), args.project, args.workstream)
     view.refresh_cards(name)
-    model = view.read(name, state.now())
-    return emit(args, page.render(model, dashboard.link(name)), model)
+    model = view.read(name, state.now(), args.project, args.workstream)
+    return emit(args, page.render(model, dashboard.link(name), None if args.project else page.ROWS), model)
+
+
+def refuse_no_home(data: dict, project: str, workstream: str | None) -> None:
+    """Refuse a project, or a workstream of it, no order is filed under, naming each pair that files the subject the name calls, else the projects in use."""
+    if any(pair[0] == project and workstream in (None, pair[1]) for pair in filing_pairs(data)):
+        return
+    named = "; ".join(offers(homes(data, workstream or project), workstream or project))
+    projects = ", ".join(state.projects(data)) or "none"
+    raise DriveError(f"--project {project}{f' --workstream {workstream}' if workstream else ''}: no order is filed there; name {named or f'a project in use: {projects}'}")
 
 
 def dashboard_command(args: argparse.Namespace) -> int:
@@ -4536,9 +4577,10 @@ def parser() -> argparse.ArgumentParser:
     verb = verbs.add_parser("context", parents=[drive_opt])
     verb.add_argument("--role", choices=state.ROLES, help="default: the role this session holds")
     verb.set_defaults(run=context)
-    verbs.add_parser("view", parents=both, help="what waits on him and where each feature stands").set_defaults(
-        run=view_command
-    )
+    verb = verbs.add_parser("view", parents=both, help="what waits on him and where each feature stands")
+    verb.add_argument("--project", metavar="NAME", help="only the orders filed under this project and what waits on him for them, each one listed")
+    verb.add_argument("--workstream", metavar="NAME", help="with --project, only the orders filed under this workstream of it")
+    verb.set_defaults(run=view_command)
     verb = verbs.add_parser("dashboard", parents=[drive_opt], help="start the drive's dashboard and print its link")
     verb.add_argument("--port", type=int, help="serve on this port instead of the drive's own")
     verb.add_argument("--serve", action="store_true", help="serve in the foreground")

@@ -753,10 +753,10 @@ def test_a_handlers_handoff_goes_to_the_session_holding_the_order_its_order_attr
     ]
 
 
-def test_an_answer_or_handoff_naming_a_job_goes_to_the_session_whose_agent_runs_it_whatever_project_its_order_is_filed_under(
+def test_an_answer_or_handoff_naming_a_job_goes_to_the_session_hearing_its_order_whichever_session_started_its_agent(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Records 688417, his answer on j2801's card, and 688576, a handler's handoff naming j2666 and o922, reached iris although the top coordinator's session ran both agents, so iris relayed to agents it could not SendMessage."""
+    """His words on binding SandSQL's own sub-coordinator, "dont kill any existing handlers or workers just reparent them": the top's agent on an order a sub-coordinator now hears is that session's, which drive job resume hands to a fresh agent of its own."""
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     run("job", "add", "builder", "--order", "o1", "--goal", "build it", "--agent", "agent-1")
     run("job", "add", "builder", "--order", "o1", "--goal", "build the page")
@@ -769,17 +769,15 @@ def test_an_answer_or_handoff_naming_a_job_goes_to_the_session_whose_agent_runs_
     open_cards(monkeypatch, "demo:j1-7")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "handler-1")
     records = [
-        {"kind": "answer", "text": "Yes: the normal release hands each primary over on its own node", "url": UNDER_CARD, "to": "iris", "waits": "demo:j1-7"},
-        {"kind": "handoff", "text": "Resume j1 now: plan, then start, the clock release", "to": "iris", "attrs": {"job": "j1", "order": "o1"}},
-        {"kind": "handoff", "text": "Resume j2 now: its gate is met", "to": "iris", "attrs": {"job": "j2", "order": "o1"}},
-        {"kind": "owner", "text": "also the logs page", "to": "iris", "attrs": {"job": "j1"}, "about": "his work"},
+        {"kind": "answer", "text": "Yes: the normal release hands each primary over on its own node", "url": UNDER_CARD, "to": "root", "waits": "demo:j1-7"},
+        {"kind": "handoff", "text": "Resume j1 now: plan, then start, the clock release", "to": "root", "attrs": {"job": "j1", "order": "o1"}},
+        {"kind": "handoff", "text": "Resume j2 now: its gate is met", "to": "root", "attrs": {"job": "j2", "order": "o1"}},
     ]
     said = tools.run("record", demo, {"records": records, "dry_run": True}).splitlines()
     assert [(json.loads(line.split(": ", 1)[1])["kind"], json.loads(line.split(": ", 1)[1])["to"]) for line in said if ": {" in line] == [
-        ("answer", ["root@demo"]),
-        ("handoff", ["root@demo"]),
+        ("answer", ["iris@demo"]),
         ("handoff", ["iris@demo"]),
-        ("owner", ["iris@demo"]),
+        ("handoff", ["iris@demo"]),
     ]
 
 
