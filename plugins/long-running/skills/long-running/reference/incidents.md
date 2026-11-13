@@ -289,10 +289,11 @@ check's verdict, or from the order when none ran.
     the facts, so a handler that cannot post leaves the same news owed five minutes on.
   - It stops once an order of the incident keeps proof that users are unblocked, by his pick "Proof
     ends the line: none once users are unblocked; the incident stays open until its root fix is
-    live.": a builder's `DONE` on its `fix`, `stop` or `rollback` part keeps its proof as the
-    order's, and after a hand repair `drive order set <o> --proof <that run>` keeps it. Its fix
-    recorded live stops it too. The incident stays open until that fix is live, by his words "werte
-    still in incident until its fixed".
+    live.": a builder's `DONE` on its `stop` or `rollback` part keeps its proof as the order's,
+    and after a hand repair `drive order set <o> --proof <that run>` keeps it. One on its `fix` part
+    keeps none, since a merged fix is not yet running where users are. The watch closing the
+    incident stops it too, and it closes the incident only once every merged fix PR of it runs in
+    production, by his words "werte still in incident until its fixed".
   - An incident keeps no promised time: "Next line by" in its line sets no due, `drive incident
     open` takes no `--due`, and no `DUE o<n>` comes for it.
 - A job's clock is its own, set with `drive job set <j> --due <time>`: the watch says `DUE j<n>` once
@@ -392,7 +393,7 @@ check's verdict, or from the order when none ran.
 
 Each line is a `report` to the communicator with `--attr progress=true`, or `--attr close=<o>` on the one closing the incident. Every
 part of an incident, its first check, its cause and its `fix`, is work he ordered, which only its builder or codex job returning `DONE` delivers, so
-`record_lines` refuses a report naming one in its `part` attr and `say` marks none on a post; the incident lasts until its fix runs where it hurt, by his words "werte still in incident until its fixed". The communicator posts it in his thread or
+`record_lines` refuses a report naming one in its `part` attr and `say` marks none on a post; the incident lasts until every merged fix PR of it runs in production, by his words "werte still in incident until its fixed". The communicator posts it in his thread or
 the alert's thread, the alert's with `say(channel_id=<the alert's channel>, thread_ts=<its ts>)`, while he is away too. A report on an open incident goes out the moment it is written: the one
 report per thread per turn that `record_lines` holds the coordinator and the meta session to never holds one, by his words "this is incident so uyou should be faster and communicating more with
 me". These rules bind the communicator, its handlers and any reader that posts for it.
@@ -436,18 +437,26 @@ Step 8's `report` carries `--attr close=<o>`, and its handler closes the order o
 the thread and its reporter, if any, has heard, which takes it off the dashboard's top strip, since
 the strip counts only open incidents and bug reports whose reporter has not heard.
 
-The watch sends step 8 itself once the incident's fix is live: the release shipping the last release
-wait of a job or PR on its `fix` part is out, or a builder on that part returned `DONE`. Every Datadog
-monitor recorded on the incident must read OK too, all of them read in one search a minute; an
-incident with none, a Sentry issue's or his words', closes on its fix alone. Then it:
+The watch sends step 8 itself once the incident's fix is live, read fresh each pass and never
+latched. Live means no job on a `fix` part of its orders still works, no PR of one is open, and
+each merged one, at least one, runs on every production stack, all of them read in one
+`tools/ci release pull <pr>... --json` run in the drive's checkout, the `drive-<drive>` worktree
+the watch moves to the default branch's head before the read, as each lane's launch does. A
+builder's `DONE`, its own read of a monitor, or one fix
+PR's release never stands for the rest. Every Datadog monitor recorded on the incident
+must read OK too, all of them read in one search a minute; an incident with none, a Sentry issue's
+or his words', closes on its fix alone. Then it:
 
 - moves each open PR of its orders, each part of any of its orders beyond the incident's own not
   yet delivered, a joined order's included, and each live job on one, to a plain build order in the
   same thread;
-- keeps the monitors, when it has any, and the fix's release or the builder's proof as each order's
-  proof, and takes the incident off the strip;
+- keeps the monitors, when it has any, and the fix PRs live in production as each order's proof,
+  and takes the incident off the strip;
 - sends the communicator the step 8 `report`, closing each order of the incident, and tells you
   `RECOVERED o<n>`.
 
-A monitor that recovers alone, a rollback, or a stop's release never closes it. Your step 8 closes
-only an incident that ends with no fix recorded live, such as one a rollback or a hand repair ended.
+A monitor that recovers alone, a rollback, or a stop's release never closes it: while its monitors
+read OK and a merged fix PR is not live, it stays open on the strip, its five-minute line owed
+until an order of it keeps proof that users are unblocked.
+Your step 8 closes only an incident the watch has no read for: one that ends with no fix PR, such
+as one a rollback or a hand repair ended, or whose fix PR is outside `Forge-AI/monorepo`.
