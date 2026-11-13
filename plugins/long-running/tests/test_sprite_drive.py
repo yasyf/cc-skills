@@ -52,6 +52,14 @@ def test_a_verb_is_asked_of_the_mac_with_its_stdin_and_files_and_exits_with_the_
     assert json.loads(sent) == {"stdin": "DONE proven\n", "files": {str(proof): {"text": "#!/bin/sh\nexit 0\n", "executable": True}}}
 
 
+def test_a_word_past_the_255_bytes_a_file_name_holds_is_sent_as_a_word_not_a_file(tmp_path: Path) -> None:
+    reason = "x" * 300
+    done, asked = drive(tmp_path, [{"answer": "drive exited 0\n"}], "job", "ask", "j7", "--unsettled", reason)
+    assert done.returncode == 0, done.stderr
+    [words] = asked
+    assert words[3] == f"DRIVE {shlex.join(['job', 'ask', 'j7', '--unsettled', reason])}\n" + json.dumps({"files": {}})
+
+
 def test_a_wait_that_times_out_resumes_the_same_question_until_it_is_answered(tmp_path: Path) -> None:
     done, asked = drive(tmp_path, [{"timedOut": True, "messageId": "msg_1"}, {"timedOut": True, "messageId": "msg_1"}, {"answer": "drive exited 0\nkept"}], "status")
     assert (done.returncode, done.stdout) == (0, "kept\n")
