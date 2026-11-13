@@ -10,6 +10,7 @@ from drive import brief, install, state
 PLUGIN = "codex@skills"
 REPLY_FILE = re.compile(r"REPLY_FILE: (/\S+)$", re.MULTILINE)
 PRINTED = b"REPLY_FILE: /"
+POINTER = re.compile(r"^REPLY_FILE: (?:\[[^\]]*\]\()?(/[^\s)]+)", re.MULTILINE)
 ENDED = ("completed", "failed", "died")
 SAID_CHARS = 500
 LOG_TAIL = 4096
@@ -72,20 +73,38 @@ def printed(entry: dict) -> list[Path]:
 
 
 def take(name: str, data: dict, job_id: str, run: Run) -> None:
-    """Set a running codex job from the run its relay asked, once it ended: a completed run's reply opens the job's said line and is kept whole in its history, its report, so `drive job report` shows each codex answer newest first and `drive job replies` each one oldest first, unless state.result_refusal refuses it as `drive job report` refuses any job's return, such as a reply opening with no result or one tracing a live bug's cause that names no fix, or brief.unproven a DONE on a surface he sees that its brief names, whose line is then `BLOCKED codex-ask completed, its reply refused:` and why; a failed or dead run's line is `BLOCKED codex-ask <state>:` and its log's last line."""
-    if data["jobs"][job_id]["state"] != "running":
+    """Set a running codex job from the run its relay asked, once it ended: a completed run's result line, by returned, is the job's said line and its reply, with the file its pointer names, is kept whole in its history, its report, so `drive job report` shows each codex answer newest first and `drive job replies` each one oldest first, unless state.result_refusal refuses it as `drive job report` refuses any job's return, such as a reply with no line opening with a result or one tracing a live bug's cause that names no fix, or brief.unproven a DONE on a surface he sees that its brief names, whose line is then `BLOCKED codex-ask completed, its reply refused:` and why; a failed or dead run's line is `BLOCKED codex-ask <state>:` and its log's last line."""
+    job = data["jobs"][job_id]
+    if job["state"] != "running":
         return
     reply = ""
     if run.state == "completed":
-        reply = run.reply.read_text()
-        line = next((line.strip() for line in reply.splitlines() if line.strip()), "")
+        line, reply = returned(job, run.reply.read_text())
         state.keep_report(name, job_id, line, reply)
-        job = data["jobs"][job_id]
         if refused := state.result_refusal(data, job_id, line, reply) or (line.startswith("DONE") and brief.surface(job) and brief.unproven(reply, job_id, job)):
             line = f"BLOCKED codex-ask completed, its reply refused: {refused}"
     else:
         line = f"BLOCKED codex-ask {run.state}: {last_line(run.log)}"
     state.take_result(data, job_id, line[:SAID_CHARS], reply)
+
+
+def returned(job: dict, reply: str) -> tuple[str, str]:
+    """The line that sets a codex job's state from its completed reply, and the report kept for it: the first line opening with a result in the reply or, below it, in the file its own `REPLY_FILE:` pointer names, which codex leads its reply with and can leave its whole return in, so that file is kept under the reply, or that file's JSON `result` field; else the reply's first line that is not blank, which state.result_refusal refuses."""
+    pointed = POINTER.search(reply)
+    named = Path(pointed[1]) if pointed else None
+    text = named.read_text() if named and named.is_file() else ""
+    whole = f"{reply.rstrip()}\n\n{text}" if text else reply
+    lines = [*(line.strip() for line in whole.splitlines()), result_field(text)]
+    return next((line for line in lines if line and state.result_state(job, line)), state.opening(reply)), whole
+
+
+def result_field(text: str) -> str:
+    """The `result` field of a JSON object codex wrote as its return, such as `{"result": "DONE", …}`; empty for any other text."""
+    try:
+        found = json.loads(text)
+    except ValueError:
+        return ""
+    return found["result"] if isinstance(found, dict) and isinstance(found.get("result"), str) else ""
 
 
 def last_line(log: Path) -> str:

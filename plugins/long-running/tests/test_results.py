@@ -168,6 +168,13 @@ def codex_job(run: Run) -> None:
             " `BUILT <branch>, waits on <cards>`, WAITING, ASK, BLOCKED, DESIGN or HANDOFF",
         ),
         ("completed", "\nBLOCKED codex edits, Claude ships\n", "", "failed", "BLOCKED codex edits, Claude ships"),
+        (
+            "completed",
+            "REPLY_FILE: /runs/codex-ask.1/codex-r-1\n\nDONE rolled back to the build before the gateway change\nCHECK: the error rate\n",
+            "",
+            "done",
+            "DONE rolled back to the build before the gateway change",
+        ),
         ("completed", "ASK Should the fix drop the column?\n", "", "waiting", None),
         ("completed", "HANDOFF unfinished: the scope needs his pick\n", "", "stopped", "HANDOFF unfinished: the scope needs his pick"),
         ("completed", "DONE reviewed: no findings\n", "", "done", "DONE reviewed: no findings"),
@@ -206,6 +213,31 @@ def test_a_codex_cause_reply_naming_no_fix_is_taken_blocked_and_one_naming_it_re
     assert (job["state"], data["orders"]["o2"]["joins"], state.report_text(demo, "j2").strip()) == (taken, joins, reply.strip())
     if taken == "failed":
         assert job["said"].startswith(f"BLOCKED codex-ask completed, its reply refused: j2 traces the cause of o1's live bug, so {state.FIX_RULE}"[:200])
+
+
+@pytest.mark.parametrize(
+    ("file", "written", "pointer", "taken", "said"),
+    [
+        (
+            "reply.md",
+            "HANDOFF unfinished: the renderer needs his pick\n\nThe options follow.\n",
+            "REPLY_FILE: [reply.md]({named}) — SLUG: `sandsql`",
+            "stopped",
+            "HANDOFF unfinished: the renderer needs his pick",
+        ),
+        ("result.json", json.dumps({"job": "j1", "result": "DONE", "monitor": {"state": "OK"}}, indent=2) + "\n", "REPLY_FILE: {named}", "done", "DONE"),
+    ],
+)
+def test_a_codex_reply_whose_pointer_names_its_own_file_takes_its_state_from_that_file_and_keeps_it(
+    demo: str, run: Run, tmp_path: Path, codex_ask: CodexAsk, file: str, written: str, pointer: str, taken: str, said: str
+) -> None:
+    codex_job(run)
+    named = tmp_path / file
+    named.write_text(written)
+    reply = f"{pointer.format(named=named)}\n\nThe monitor recovered and codex stopped there.\n"
+    one_line_result.take_codex(agent_stop("Codex answered.", tmp_path, *relay_ran(codex_ask.run("completed", reply))))
+    job = state.load(demo)["jobs"]["j1"]
+    assert (job["state"], job["said"], state.report_text(demo, "j1")) == (taken, said, f"{reply.rstrip()}\n\n{written}")
 
 
 def test_a_codex_relays_reply_file_pointer_sets_no_state_on_its_job(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:

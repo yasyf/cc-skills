@@ -129,11 +129,12 @@ the PR merges or closes or the release is out; a release wait whose service `too
 A codex job's state comes from the codex-ask run its relay asked, never from the relay's line. At the
 relay's stop, and on each watch pass once its turn ended, the drive runs `codex-ask --collect` on the
 run folder of the newest `REPLY_FILE:` line codex-ask printed into the relay's tool results. A
-completed run's reply sets the state its first line opens with by the table above, as every job's
-line does, so a `HANDOFF` stops the job and a `READY` waits on its PR, with that line as the said
-line and the whole reply kept as the job's report; a reply `drive job report` would refuse, such as
-one opening with no result, sets failed on `BLOCKED codex-ask completed, its reply refused:` and
-why; a failed or dead run sets failed on `BLOCKED codex-ask <state>:` and its log's last line; a run
+completed run's reply sets the state its first line opening with a result opens with by the table
+above, wherever codex put it: under its own `REPLY_FILE:` pointer, in the file that pointer names,
+or as that file's JSON `result` field. So a `HANDOFF` stops the job and a `READY` waits on its PR,
+with that line as the said line and the whole reply, the named file below it, kept as the job's
+report; a reply `drive job report` would refuse, such as one with no line opening with a result,
+sets failed on `BLOCKED codex-ask completed, its reply refused:` and why; a failed or dead run sets failed on `BLOCKED codex-ask <state>:` and its log's last line; a run
 still going sets nothing and raises no gap, whatever the relay ended on. The relay keeps no report:
 its own `REPLY_FILE:` line opens with no result, which `drive job report` refuses. A relay that
 asked codex nothing is parked like any agent below.
