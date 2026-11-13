@@ -4,7 +4,7 @@ from collections import Counter
 from datetime import timedelta
 
 import pytest
-from drive import page, stage, state, view, watch
+from drive import land, page, stage, state, view, watch
 from drive.render import when
 
 T0 = state.parse_time("2026-11-09T10:00:00-08:00")
@@ -116,6 +116,31 @@ def test_board_reuses_unchanged_text_and_redraws_changed_words(monkeypatch: pyte
     finally:
         plain.cache_clear()
         said.cache_clear()
+
+
+def test_bulk_stages_build_the_stack_graph_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    data = drive_of(
+        {f"o{n}": order(f"Ship feature {n}", [f"j{n}"]) for n in range(1, 65)},
+        {f"j{n}": job(f"o{n}", "waiting") for n in range(1, 65)},
+        [pr(n, f"o{n}", job=f"j{n}", branch=f"change/{n}", base=f"change/{n-1}", checks="pending") for n in range(1, 65)],
+    )
+    keys = list(data["prs"])
+    expected = {key: stage.of(data, key, found()) for key in keys}
+    unders = land.unders
+    scans = 0
+
+    def counted(data: dict) -> dict[str, str | None]:
+        nonlocal scans
+        scans += 1
+        return unders(data)
+
+    monkeypatch.setattr(land, "unders", counted)
+    stage.shown(data, found(), keys)
+    assert scans == 1
+    assert {key: (value["stage"]["name"], value["stage"]["owner"], value["stage"]["why"]) for key, value in data["prs"].items()} == {key: (value.name, value.owner, value.why) for key, value in expected.items()}
+    data["prs"][keys[1]]["base"] = "main"
+    stage.shown(data, found(), keys)
+    assert scans == 2
 
 
 def test_pr_job_index_preserves_the_complete_board() -> None:
