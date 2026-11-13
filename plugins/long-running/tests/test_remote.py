@@ -21,6 +21,10 @@ T0 = state.parse_time("2026-11-09T07:30:00-08:00")
 RUN = "run_drive0001"
 FRESH_RUN = "run_relaunch1"
 DISPATCH = "ctx_lane0001"
+J2914_BUILT = "BUILT sprite-volume-leaves-image-agents-and-mise, waits on c096bde8"
+J2914_REPORT = f"{J2914_BUILT}\nNATIVE: none: he never sees it\nUNPROVEN: the screenshot half\n"
+J2914_WORKER = "ctx_1f4d4c929c48"
+J2914_NEXT_WORKER = "ctx_0f1e1c8feccb"
 PLACE_TOOLS = orca.place_tools
 BREAK_GLASS_READ = 'DRIVE break-glass j1 --stack sandsql/plat-usw2-prod --reason "drop the stranded copies" -- psql -c "drop table copy_1"'
 ENDED_READER = 99_999_999
@@ -2828,7 +2832,7 @@ def test_drive_job_ask_with_no_file_keeps_each_block_its_lanes_pointer_names_and
     assert capsys.readouterr().err == "drive: no ASK block file at /home/sprite/scratch/j1/ask.md\n"
 
 
-def test_every_worker_on_a_jobs_own_run_is_heard_the_one_it_replaced_and_one_it_never_recorded_included(
+def test_every_worker_on_a_jobs_own_run_is_heard_one_it_never_recorded_included_and_one_it_replaced_only_kept(
     run: Run, remote: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with state.edit(remote) as data:
@@ -2843,15 +2847,105 @@ def test_every_worker_on_a_jobs_own_run_is_heard_the_one_it_replaced_and_one_it_
             message("worker_done", f"READY {pr}\nThis rewrote Show me", id="msg_newest", from_handle="dispatch:ctx_lane0003"),
         ],
     )
-    monkeypatch.setattr(reads, "answer", lambda question, root, drive, job_id: "x")
+    monkeypatch.setattr(reads, "answer", lambda question, root, drive, job_id: pytest.fail(f"a replaced worker's read is never run: {question}"))
     calls = []
     monkeypatch.setattr(orca, "call", lambda *args: calls.append(args) or {})
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
     assert staged(watch.lane_lines, watching, T0) == []
-    assert [args[:3] for args in calls if args[0] == "reply"] == [("reply", "--id", "msg_read")]
+    assert [args for args in calls if args[0] == "reply"] == []
     job = state.load(remote)["jobs"]["j1"]
     assert (job["state"], job["said"], job["report"], job["prs"]) == ("waiting", f"PUSHED {pr}", f"READY {pr}\nThis rewrote Show me", [pr])
     assert [reply["id"] for reply in state.replies(remote, "j1")] == ["msg_read", "msg_unrecorded", "msg_newest"]
+
+
+def j2914_mail() -> list[dict]:
+    """j2914's worker's mail from its first `drive job report j2914 -` to its worker_done, with the ids, times and order Orca kept, its job here j1."""
+    sent = f"dispatch:{J2914_WORKER}"
+    defect = f"{J2914_REPORT}DEFECT: a line it added after reading its report back\n"
+    return [
+        message("question", f"DRIVE job report j1 -\n{json.dumps({'files': {}, 'stdin': J2914_REPORT})}", id="relay_50e96f85384c", from_handle=sent, sequence=87362, created_at="2026-11-13T07:14:38Z"),
+        message("question", f"DRIVE job report j1\n{json.dumps({'files': {}})}", id="relay_552a38613472", from_handle=sent, sequence=87389, created_at="2026-11-13T07:16:41Z"),
+        message("question", f"DRIVE job report j1 -\n{json.dumps({'files': {}, 'stdin': defect})}", id="relay_228e13948c40", from_handle=sent, sequence=87419, created_at="2026-11-13T07:19:46Z"),
+        message("worker_done", defect, subject=J2914_BUILT, id="relay_ede94f1bfec2", from_handle=sent, sequence=87432, created_at="2026-11-13T07:21:24Z"),
+    ]
+
+
+def j2914_reads(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Answer j2914's reads as the drive does: `drive job report j1 -` keeps its stdin as the job's report and takes its BUILT line, a bare `drive job report j1` prints the report, and `drive pr add` prints the PR; the first line of each read run, in order."""
+    ran = []
+
+    def answer(question: str, root: Path, drive: str, job_id: str) -> str:
+        line, _, sent = question.partition("\n")
+        ran.append(line)
+        if line == "DRIVE job report j1 -":
+            whole = json.loads(sent)["stdin"]
+            state.keep_report(drive, job_id, J2914_BUILT, whole)
+            with state.edit(drive) as data:
+                state.take_result(data, job_id, J2914_BUILT, whole)
+            return reads.lane_exit(0, f"kept {job_id}'s report: {J2914_BUILT}")
+        if line == "DRIVE job report j1":
+            return reads.lane_exit(0, state.report_text(drive, job_id))
+        return reads.lane_exit(0, "yasyf/demo#162")
+
+    monkeypatch.setattr(reads, "answer", answer)
+    return ran
+
+
+def test_a_lane_whose_own_report_took_its_job_built_is_heard_until_its_worker_ends_its_turn(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(dispatch=J2914_WORKER, turn_open=True)
+    mail = j2914_mail()
+    calls = deliver(monkeypatch, *([sent] for sent in mail))
+    ran = j2914_reads(monkeypatch)
+    replies = []
+    monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    woken = [staged(watch.lane_lines, watching, T0 + timedelta(seconds=5 * n)) for n in range(len(mail) + 1)]
+    assert woken == [[f"JOB j1 o1 {J2914_BUILT}"], [], [f"JOB j1 o1 {J2914_BUILT}"], [], []]
+    assert ran == ["DRIVE job report j1 -", "DRIVE job report j1", "DRIVE job report j1 -"]
+    assert [args[2] for args in replies if args[0] == "reply"] == [sent["id"] for sent in mail[:3]]
+    assert calls == [RUN] * len(mail)
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["state"], job["turn_open"]) == ("built", False)
+
+
+def test_a_built_job_relaunched_on_his_answer_runs_none_of_the_mail_its_finished_worker_left_unread_and_answers_its_next_worker(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = tmp_path / "first.md"
+    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): prove it\nDrive: demo, order o1, job j1", None))
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(brief=str(first), dispatch=J2914_WORKER, turn_open=True, terminal="term_lane", workspace="pool-one", environment="pool-one", lane="demo-j1")
+    kept, *unread = j2914_mail()
+    added = message(
+        "question",
+        f"DRIVE pr add https://github.com/yasyf/demo/pull/162 --job j1\n{json.dumps({'files': {}})}",
+        id="relay_66f02d393ede",
+        from_handle=f"dispatch:{J2914_NEXT_WORKER}",
+        sequence=87622,
+        created_at="2026-11-13T07:49:40Z",
+    )
+    deliver(monkeypatch, [kept], [*unread, added])
+    ran = j2914_reads(monkeypatch)
+    replies = []
+    monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    assert staged(watch.lane_lines, watching, T0) == [f"JOB j1 o1 {J2914_BUILT}"]
+    monkeypatch.setattr(orca, "worker", lambda dispatch: FINISHED_WORKER)
+    monkeypatch.setattr(orca, "place_tools", lambda workspace: None)
+    monkeypatch.setattr(orca, "place_brief", lambda workspace, lane, text: f"/home/sprite/.local/state/long-running/briefs/{lane}.md")
+    receipt = {"ok": True, "result": {"state": "ready", "runId": RUN, "taskId": "task_2", "dispatchId": J2914_NEXT_WORKER}}
+    monkeypatch.setattr(orca, "bound_command", lambda drive, run_id, argv: subprocess.CompletedProcess(argv, 0, stdout=json.dumps(receipt), stderr=""))
+    code, out = run("job", "resume", "j1", "His answer: CI shoots both builds: dev and the change")
+    assert (code, out.startswith(f"j1: the message went to the job's next worker, started in its terminal on the same Sprite as dispatch {J2914_NEXT_WORKER}")) == (0, True)
+    assert staged(watch.lane_lines, watching, T0 + timedelta(minutes=27)) == []
+    assert ran == ["DRIVE job report j1 -", "DRIVE pr add https://github.com/yasyf/demo/pull/162 --job j1"]
+    assert [args[2] for args in replies if args[0] == "reply"] == [kept["id"], added["id"]]
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["state"], job["dispatch"], job["turn_open"], [death["dispatch"] for death in job["deaths"]]) == ("running", J2914_NEXT_WORKER, True, [J2914_WORKER])
+    history = state.replies(remote, "j1")
+    assert [reply["id"] for reply in history if not reply["id"].startswith(state.REPORT_REPLY)] == [kept["id"], *(sent["id"] for sent in unread), added["id"]]
+    assert [reply["body"] for reply in history if reply["id"].startswith(state.REPORT_REPLY)] == [J2914_REPORT]
 
 
 def test_a_watch_whose_mail_mark_another_install_lost_takes_none_of_the_mail_its_job_kept(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:

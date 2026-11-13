@@ -650,7 +650,7 @@ def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetim
 
 
 def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each live remote lane's mail, from every worker of its job and not only the newest, read from its own Run and kept in its job's history: reports become JOB lines, read and `DRIVE` questions queue on their job to be answered here, an open question kept before the watch read it as a read included. Each job keeps the sequence of the newest of its messages taken, judged and moved under the lock, so a watch reads a Run back to the oldest mark of the jobs it hears there, takes only their mail and passes over the rest, and a job's mail no watch has taken waits for whichever watch hears it next. A message its job's history already keeps is never taken again, so a watch whose mark another install's save lost replays nothing."""
+    """Each live remote lane's mail, from every worker of its job and not only the newest, read from its own Run and kept in its job's history, where the mail of a worker a relaunch replaced only stays: reports become JOB lines, read and `DRIVE` questions queue on their job to be answered here, an open question kept before the watch read it as a read included. Each job keeps the sequence of the newest of its messages taken, judged and moved under the lock, so a watch reads a Run back to the oldest mark of the jobs it hears there, takes only their mail and passes over the rest, and a job's mail no watch has taken waits for whichever watch hears it next. A message its job's history already keeps is never taken again, so a watch whose mark another install's save lost replays nothing."""
     queue_kept_reads(watcher)
     data = state.load(watcher.name)
     lanes = lane_handles(watcher, data)
@@ -677,10 +677,15 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 if message["type"] == "heartbeat" or message["id"] in kept(job_id):
                     continue
                 state.keep_reply(watcher.name, job_id, message)
-                if message["type"] == "question" and (question := reads.request(message["body"] or "")):
-                    data["jobs"][job_id].setdefault("reads", {})[message["id"]] = question
+                job = data["jobs"][job_id]
+                if message["from_handle"] in replaced(job):
                     continue
-                taken = message["type"] in state.TURN_ENDS and (state.lane_ended(data["jobs"][job_id]) or message["id"] in state.turn_ends(state.replies(watcher.name, job_id)))
+                if message["type"] == "question" and (question := reads.request(message["body"] or "")):
+                    job.setdefault("reads", {})[message["id"]] = question
+                    continue
+                if message["type"] in state.TURN_ENDS and message["from_handle"] == f"dispatch:{job['dispatch']}":
+                    job["turn_open"] = False
+                taken = message["type"] in state.TURN_ENDS and (state.lane_ended(job) or message["id"] in state.turn_ends(state.replies(watcher.name, job_id)))
                 lines.append(mail_line(watcher.name, data, job_id, message, moment, asks.get(message["id"]), taken))
                 if message["type"] in ("worker_done", "question") and not taken:
                     reported.add(job_id)
@@ -723,11 +728,21 @@ def kept_read(job: dict) -> str | None:
 
 
 def live_lanes(watcher: Watcher, data: dict) -> dict[str, dict]:
+    """Each remote job whose lane the watch reads: one running or waiting, and one built while the turn of the worker that built it is open, so the reads it asks after its BUILT report are answered."""
     return {
         job_id: job
         for job_id, job in data["jobs"].items()
-        if job.get("where") == "remote" and job.get("dispatch") and job.get("run") and job["state"] in LIVE_JOB_STATES and heard_job(watcher, data, job)
+        if job.get("where") == "remote"
+        and job.get("dispatch")
+        and job.get("run")
+        and (job["state"] in LIVE_JOB_STATES or (job["state"] == "built" and job["turn_open"]))
+        and heard_job(watcher, data, job)
     }
+
+
+def replaced(job: dict) -> set[str]:
+    """The handle of each worker a relaunch moved the job off, whose turn ended before its next worker started: its history keeps that worker's mail, but no read it asked is run and no result it sent is the job's."""
+    return {f"dispatch:{death['dispatch']}" for death in job.get("deaths", []) if death["dispatch"] != job["dispatch"]}
 
 
 def lane_handles(watcher: Watcher, data: dict) -> dict[str, dict[str | None, str]]:

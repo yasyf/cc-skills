@@ -1211,6 +1211,7 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
         "waiting_said": [],
         "waiting_claims": {},
         "mail_seen": 0,
+        "turn_open": False,
         "undelivered": [],
         "state": "running",
         "said": None,
