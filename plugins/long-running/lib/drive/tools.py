@@ -11,7 +11,7 @@ from drive import cli, limits, reads, render, settled, state, superseded, talk, 
 from drive.state import DriveError
 
 UNTYPED = {"help", "drive", "json"}
-OPS = {"order": ("add", "set", "posted", "told"), "job": ("add", "set", "brief"), "pr": ("add", "set"), "incident": ("open", "stop", "freeze", "release")}
+OPS = {"order": ("add", "set", "posted", "told"), "job": ("add", "set", "brief"), "pr": ("add", "set"), "incident": ("open", "stop", "freeze")}
 ONE_VERB = {"heard": ("heard",), "handler": ("handler",), "status": ("status",), "search_plan": ("plan", "search")}
 POST_SECONDS = 60
 UNSENT = (
@@ -44,7 +44,7 @@ LEADS = {
     "incident": (
         "Incidents: open adds his order as one, with its fix and diagnosis jobs and its evidence record; stop adds the"
         " immediate fix that turns the failing path off and lands at once as an incident fix until the root fix replaces"
-        " it; freeze holds the service's other releases; release reopens the stop when a release starts."
+        " it; freeze holds the service's other releases."
     ),
 }
 TEXT = {"type": "string"}

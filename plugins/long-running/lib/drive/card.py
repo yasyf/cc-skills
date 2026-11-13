@@ -17,7 +17,6 @@ READ_AGE = "60s"
 KEPT_READS = "pr-reads"
 REVIEW_DECISIONS = {"approved": "APPROVED", "stale": "REVIEW_REQUIRED", "changes": "CHANGES_REQUESTED", "none": ""}
 TAP_LABELS = ("Approve", "Hold")
-RELEASE_FAILED = (" failed", " went red", " partly released", " stopped")
 TITLE_CHARS = 140
 FIELD_CHARS = 400
 CAPTION_CHARS = 160
@@ -795,36 +794,6 @@ def hear_tap(name: str) -> None:
     watch.hear(name, state.now())
 
 
-def home_drive() -> str:
-    try:
-        return state.resolve()
-    except state.DriveError:
-        if not (drives := state.names()):
-            raise
-        return max(drives, key=lambda name: state.last_started(state.load(name)))
-
-
-def released(release: dict) -> dict:
-    """Reopen the stop of each open incident whose job named this release, the first time cc-slack hands it failing a step, with a job to get it live or the running stop job to resume."""
-    if not any(part.endswith(RELEASE_FAILED) for part in release["line"].split(" · ")):
-        return {"reopened": []}
-    name, created, reopened = home_drive(), state.stamp(), {}
-    with state.edit(name) as data:
-        for order_id in state.open_incidents(data, list(data["orders"])):
-            order = data["orders"][order_id]
-            if (named := order["releases"].get(release["name"])) is None or named["failed"]:
-                continue
-            named["failed"] = created
-            order["parts"][state.INCIDENT_STOP] = state.new_part()
-            order["updated"] = created
-            running = state.running_stops(data, order_id)
-            reopened[order_id] = {"resume": running[0]} if running else {"job": state.incident_job(data, name, order_id, state.INCIDENT_STOP, created).split()[0]}
-            reopened[order_id]["lane"] = state.heard_lane(data, order_id)
-    for order_id, owner in reopened.items():
-        state.append_event(name, "stop", order=order_id, release=release["name"], link=release["link"], **owner)
-    return {"reopened": list(reopened)}
-
-
 def respond(request: dict) -> dict:
     match request:
         case {"prs": asked}:
@@ -837,8 +806,6 @@ def respond(request: dict) -> dict:
             return refused(asks)
         case {"answer": ask}:
             return answered(ask)
-        case {"release": release}:
-            return released(release)
     raise state.DriveError(f"not a card request: {', '.join(request) or 'empty'}")
 
 

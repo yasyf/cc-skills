@@ -21,7 +21,6 @@ from drive.state import DriveError
 DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 ROLE_NAMES = {"coordinator": "top coordinator", "communicator": "communicator", "meta": "meta session"}
 FREEZE_FOR = timedelta(hours=12)
-RELEASE_NAME = re.compile(r"[a-z]+-[a-z]+")
 INCIDENT_EXEMPTION = "incident fix"
 UNLANDABLE = (
     "{key}: refused, nothing {done}: only his tap or an exempt class lands a Forge-AI PR, and this leaves it with neither, so no card"
@@ -410,20 +409,6 @@ def incident_freeze(args: argparse.Namespace) -> int:
         f" with tools/ci release unfreeze {freeze} before the fix's build starts",
         {"id": args.id, "freeze": freeze, "until": until},
     )
-
-
-def incident_release(args: argparse.Namespace) -> int:
-    """Name a release an incident's job started, so the turn cc-slack hands the drive that release failing a step, its stop reopens with a job to get it live."""
-    if not RELEASE_NAME.fullmatch(args.release):
-        raise DriveError(f"{args.release}: refused, name the release as its post in the releases channel does, such as stark-maclean")
-    name = state.resolve(args.drive)
-    with state.edit(name) as data:
-        order = find(data["orders"], args.id, "order")
-        if not state.open_incidents(data, [args.id]):
-            raise DriveError(f"{args.id}: refused, it is no open incident order")
-        order["releases"][args.release] = {"named": state.stamp(), "failed": None}
-        order["updated"] = state.stamp()
-    return emit(args, f"{args.id}: {args.release} named; the turn it fails a step, {args.id}'s stop reopens", {"id": args.id, "release": args.release})
 
 
 def his_message(source: str) -> tuple[str, str, str | None] | None:
@@ -4223,17 +4208,6 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("id", help="the open incident order")
     verb.add_argument("components", nargs="+", metavar="COMPONENT", help="the broken service's release component, such as sandsql, covering every stack it deploys")
     verb.set_defaults(run=incident_freeze)
-    verb = incident.add_parser(
-        "release",
-        parents=both,
-        help=(
-            "in the turn a job of an open incident starts a release, its fix's, rollback's, stop's or the default branch's: the"
-            " watch reopens the incident's stop, with a job to get it live, the turn cc-slack hands the drive that release failing a step"
-        ),
-    )
-    verb.add_argument("id", help="the open incident order")
-    verb.add_argument("release", help="the release's name as tools/ci release start prints it and its post shows it, such as stark-maclean")
-    verb.set_defaults(run=incident_release)
 
     job = verbs.add_parser("job", help="background agents").add_subparsers(dest="action", required=True)
     verb = job.add_parser(

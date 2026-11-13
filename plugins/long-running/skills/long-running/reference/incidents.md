@@ -328,12 +328,10 @@ check's verdict, or from the order when none ran.
   lifts the service's freeze, starts the build at the fix commit, and reports its link. The
   release's own approve hold, which the job reads as [landing.md](landing.md#after-merge) says, is the
   only check, and every other read runs while it builds.
-- Every release a job of an open incident starts, its fix's, rollback's, stop's or the default
-  branch's, is named to the drive in that turn with `drive incident release <o> <name>`, the
-  name `tools/ci release start` prints. The turn its post in the releases channel says a step
-  failed, cc-slack hands the drive that line, the incident's stop reopens, and the watch says
-  `EVENT stop` with the job to start, or the running stop job to resume, since a stuck release
-  nobody follows leaves his users broken.
+- No stop reopens by itself. The job that starts a release for an open incident, its fix's,
+  rollback's, stop's or the default branch's, follows each step and records what failed and what
+  it blocks, and the coordinator runs `drive incident stop <o>` only for a failure blocking the
+  incident, by his pick "Delete the automatic stop reopen".
 - An incident filed under a project with a sub-coordinator is that session's to fix and land, and
   the top coordinator starts, approves and rolls back its cuts, one at a time, by his pick "the top
   starts, approves and rolls back production cuts": the sub-coordinator sends the top a `release`
