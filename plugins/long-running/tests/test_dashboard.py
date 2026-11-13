@@ -484,8 +484,8 @@ def test_a_pr_the_drive_dropped_after_his_stack_card_shows_its_link_as_dropped_f
     assert shown == '<li><a href="https://github.com/Forge-AI/monorepo/pull/53080" target="_blank" rel="noopener"><i class="sq dropped"></i>https://github.com/Forge-AI/monorepo/pull/53080</a><em>dropped from the drive</em></li>'
 
 
-def test_the_screens_are_the_four_he_kept(tmp_path: Path) -> None:
-    assert web(tmp_path, "JSON.stringify(SCREENS.map(([name]) => name))") == ["queue", "now", "work", "history"]
+def test_the_screens_are_the_four_he_kept_and_pages(tmp_path: Path) -> None:
+    assert web(tmp_path, "JSON.stringify(SCREENS.map(([name]) => name))") == ["queue", "now", "work", "history", "pages"]
 
 
 DIAGRAM_CLASSES = {
@@ -627,7 +627,7 @@ def board(**changed: object) -> dict:
     counts = {"queue": 0, "blocked": 0, "running": 1, "built": 0, "waiting": 0, "merged": 0, "live": 0, "not started": 0}
     return {
         "drive": "demo", "at": "2026-11-11T00:00:00-08:00", "counts": counts, "queue": [], "status": [{"state": "running", "features": [FEATURE]}], "cards": "live",
-        "review": [], "work": lanes, "history": moments, "incidents": [], "bug_reports": [], "repo": "", "undo_seconds": 10, "links": [], "channel": "D1",
+        "review": [], "work": lanes, "history": moments, "incidents": [], "bug_reports": [], "repo": "", "undo_seconds": 10, "links": [], "channel": "D1", "pages": [],
     } | changed
 
 
@@ -654,7 +654,7 @@ const done = (result) => {{ document.documentElement.dataset.result = JSON.strin
     site.mkdir(parents=True)
     page = (SITE / "index.html").read_text().replace('<script src="/app.js"></script>', f'{harness}<script>{before}</script><script src="/app.js"></script><script type="module">await wait(100);\n{steps}</script>')
     (site / "index.html").write_text(page)
-    for name in ("app.js", "app.css"):
+    for name in ("app.js", "app.css", "kit"):
         (site / name).symlink_to(SITE / name)
     if drawn:
         for name in ("visuals.js", "vendor"):
@@ -1879,7 +1879,7 @@ await wait(200);
 const nodes = [...document.querySelectorAll('#main .stage.here > .topo-node')];
 const tones = (selector) => [...new Set(nodes.flatMap((node) => [...node.querySelectorAll(selector)].map((each) => each.className)))].sort();
 done({ names: nodes.map((node) => node.querySelector('.face b').textContent), doing: nodes.map((node) => [...node.querySelectorAll('.doing span')].map((part) => part.textContent)), words: tones('.doing span'), dashes: tones('.satellites i'), raw: nodes.some((node) => /DONE|BUILT/.test(node.textContent)) });
-""", shown | {"code": "", "pid": 1, "links": [], "undo_seconds": 10, "repo": ""})
+""", shown | {"code": "", "pid": 1, "links": [], "undo_seconds": 10, "repo": "", "pages": []})
     assert seen == {
         "names": ["jobs ›"],
         "doing": [["1 working", "1 quiet", "1 waiting", "1 built"]],
@@ -2432,7 +2432,7 @@ done({
     phone = browse(tmp_path / "phone", looked, model, "390,844")
     desk = browse(tmp_path / "desk", looked, model, "1440,900")
     assert phone == {"bar": {"bottom": True, "across": True, "row": 1}, "small": [], "strip": 1, "gutter": 32, "clear": {"page": True, "toast": True}}
-    assert desk["bar"] == {"bottom": True, "across": False, "row": 4}
+    assert desk["bar"] == {"bottom": True, "across": False, "row": 5}
 
 
 def test_an_answer_he_sent_comes_back_from_its_toast_or_its_history_line_while_cc_slack_shows_its_undo(state_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2515,7 +2515,7 @@ def aged(n: int) -> dict:
         events.append({"kind": "said", "at": "2026-11-09T04:00:00-08:00", "text": f"old order {number} is live", "url": said, "order": f"o{number}", "visuals": []})
         events.append({"kind": "tap", "at": "2026-11-09T04:30:00-08:00", "repo": "yasyf/cc-skills", "number": number, "label": "Approve"})
     shown = view.board(drive_of(orders, jobs, prs), found([asked]), "live", events, state.parse_time("2026-11-11T10:00:00-08:00"), set(), {})
-    return shown | {"code": "", "pid": 1, "links": [], "undo_seconds": 10, "repo": ""}
+    return shown | {"code": "", "pid": 1, "links": [], "undo_seconds": 10, "repo": "", "pages": []}
 
 
 def test_each_screen_reads_the_same_requests_of_the_same_size_however_old_the_drive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, state_root: Path) -> None:

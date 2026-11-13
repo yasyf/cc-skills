@@ -848,3 +848,12 @@ button.task-row { cursor: pointer; }
   .history-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 22px; }
   .history-stats b { font-size: 26px; }
 }
+.page-list { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.page-row { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--paper); color: var(--ink); }
+.page-row:hover { text-decoration: none; box-shadow: var(--shadow); }
+.page-title { font-weight: 700; }
+.page-goal, .page-row .meta { grid-column: 1 / -1; color: var(--muted); }
+.page-row .state-pill { align-self: start; padding: 2px 9px; border-radius: 99px; font-size: 11px; font-weight: 700; }
+.page-row .state-pill.live { background: var(--soft); color: var(--accent); }
+.page-row .state-pill.done { background: #e9ece7; color: var(--muted); }
+.page-frame { display: block; width: 100%; height: calc(100dvh - 250px); min-height: 420px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--paper); }

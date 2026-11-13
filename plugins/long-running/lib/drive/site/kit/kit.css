@@ -1,0 +1,19 @@
+:root { --kit-ink: #1d2420; --kit-muted: #66706a; --kit-line: #dfe3dd; --kit-accent: #2f6b4f; --kit-soft: #e6f0ea; --kit-paper: #fff; font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--kit-ink); }
+body { margin: 0; padding: 20px; background: #f6f7f4; }
+.kit-card { display: grid; align-content: start; gap: 6px; padding: 12px 14px; border: 1px solid var(--kit-line); border-radius: 12px; background: var(--kit-paper); }
+.kit-card h3 { margin: 0; font-size: 15px; }
+.kit-card a { color: var(--kit-ink); font-weight: 600; text-decoration: none; }
+.kit-card a:hover { text-decoration: underline; }
+.kit-meta { color: var(--kit-muted); font-size: 12px; }
+.kit-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.kit-btn { padding: 5px 12px; border: 1px solid var(--kit-line); border-radius: 8px; background: var(--kit-paper); color: var(--kit-ink); font: inherit; font-weight: 600; cursor: pointer; }
+.kit-btn.primary { border-color: var(--kit-accent); background: var(--kit-accent); color: #fff; }
+.kit-lane, .kit-timeline { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.kit-timeline li { display: flex; gap: 10px; }
+.kit-timeline time { flex: none; width: 64px; color: var(--kit-muted); font-size: 12px; }
+.kit-ring { display: inline-grid; justify-items: center; gap: 4px; margin: 0; }
+.kit-ring svg { width: 72px; height: 72px; transform: rotate(-90deg); }
+.kit-ring circle { fill: none; stroke: var(--kit-line); stroke-width: 7; }
+.kit-ring circle.done { stroke: var(--kit-accent); stroke-linecap: round; transition: stroke-dasharray .6s ease; }
+.kit-ring figcaption { color: var(--kit-muted); font-size: 12px; }
+.kit-ring b { color: var(--kit-ink); font-size: 16px; }

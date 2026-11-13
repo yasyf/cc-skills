@@ -26,6 +26,11 @@ const HISTORY_FILTERS = [
   ['you', 'Your asks and answers'],
   ['said', 'Sent to you'],
 ];
+const PAGE_FILTERS = [
+  ['live', 'Live'],
+  ['done', 'Done'],
+  ['all', 'All'],
+];
 const NONE = '~';
 const UNFILED = 'Unfiled';
 const RANK = ['blocked', 'built', 'running', 'waiting', 'not started', 'merged', 'live'];
@@ -114,12 +119,14 @@ const SCREENS = [
   ['now', '#/now', 'Now'],
   ['work', '#/work', 'Work'],
   ['history', '#/history', 'History'],
+  ['pages', '#/pages', 'Pages'],
 ];
 const ICONS = {
   queue: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
   now: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
   work: '<path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/>',
   history: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5M12 7v5l4 2"/>',
+  pages: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 9v11"/>',
   enlarge: '<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>',
 };
 
@@ -931,6 +938,77 @@ function scopeWork(scope, project, stream) {
   </section>`;
 }
 
+function pagesScreen(slug) {
+  if (slug) return pageScreen(model.pages.find((page) => page.slug === slug));
+  const { query } = route();
+  const show = PAGE_FILTERS.some(([id]) => id === query.get('show')) ? query.get('show') : 'live';
+  const project = query.get('project');
+  const stream = query.get('stream');
+  const href = (changes) => `#/pages?${new URLSearchParams(Object.entries({ show, project, stream, ...changes }).filter(([, value]) => value !== null))}`;
+  const chip = (label, to, on, n) => `<a href="${esc(to)}" class="${on ? 'on' : ''}"${on ? ' aria-current="true"' : ''}>${esc(label)}${n === undefined ? '' : `<span class="n">${n}</span>`}</a>`;
+  const shows = (page) => show === 'all' || page.live === (show === 'live');
+  const inScope = (page, key = project, sub = stream) => (key === null || fileKey(page.project) === key) && (sub === null || fileKey(page.workstream) === sub);
+  const projects = [...new Set(model.pages.filter(shows).map((page) => fileKey(page.project)))].sort((a, b) => byName([a], [b]));
+  const streams = project === null ? [] : [...new Set(model.pages.filter((page) => shows(page) && inScope(page, project, null)).map((page) => fileKey(page.workstream)))].sort((a, b) => byName([a], [b]));
+  const count = (key, sub) => model.pages.filter((page) => shows(page) && inScope(page, key, sub)).length;
+  const scopes = projects.length > 1 ? `<nav class="subtabs scopes" aria-label="Project">${[chip('All projects', href({ project: null, stream: null }), project === null, count(null, null)), ...projects.map((key) => chip(fileName(key), href({ project: key, stream: null }), key === project && stream === null, count(key, null)))].join('')}</nav>` : '';
+  const subs = streams.length > 1 ? `<nav class="subtabs scopes" aria-label="Workstream">${streams.map((key) => chip(fileName(key), href({ stream: key }), key === stream, count(project, key))).join('')}</nav>` : '';
+  const listed = model.pages.filter((page) => shows(page) && inScope(page));
+  const rows = listed.map((page) => `<li><a class="page-row" href="#/pages/${encodeURIComponent(page.slug)}" data-tip="${esc([page.title, page.goal, `For ${page.order_title}`].join('\n'))}">
+      <span class="page-title">${esc(page.title)}</span><span class="state-pill ${page.live ? 'live' : 'done'}">${page.live ? 'Live' : 'Done'}</span>
+      <span class="page-goal">${esc(page.goal)}</span>
+      <small class="meta">${esc([fileName(fileKey(page.project)), fileName(fileKey(page.workstream)), page.order_title].join(' · '))} · made ${esc(clock(page.created))}</small>
+    </a></li>`);
+  return `<div class="page-head">
+      <div><div class="eyebrow">Pages</div><h1 class="h1">Live pages built for your orders</h1><p class="lead">Each page shows its tasks as they move, and anything you answer or approve on one waits ${model.undo_seconds}s for your Undo.</p></div>
+      <nav class="subtabs" aria-label="Show">${PAGE_FILTERS.map(([id, label]) => chip(label, href({ show: id }), id === show)).join('')}</nav>
+    </div>
+    ${scopes}${subs}
+    ${rows.length ? `<ol class="page-list">${rows.join('')}</ol>` : `<p class="empty">${model.pages.length ? 'No page here.' : 'No page yet. A page job puts one here with <code>drive page add</code>.'}</p>`}`;
+}
+
+function pageScreen(page) {
+  if (!page) return gone('This page', 'pages');
+  return `<div class="page-head">
+      <div><div class="eyebrow">Page · ${esc([fileName(fileKey(page.project)), fileName(fileKey(page.workstream))].join(' / '))}</div><h1 class="h1">${esc(page.title)}</h1><p class="lead">${esc(page.goal)}</p></div>
+      <a class="map-btn" href="#/feature/${esc(page.orders[0])}">Open its task ›</a>
+    </div>
+    <iframe class="page-frame" data-page="${esc(page.slug)}" sandbox="allow-scripts" src="/pages/${encodeURIComponent(page.slug)}/" title="${esc(page.title)}"></iframe>`;
+}
+
+function pageSlice(page) {
+  const orders = new Set(page.orders);
+  const prs = new Set(page.prs);
+  const actable = (item, card, options) => ({ ...item, answer: card, options, answered: answers.get(card) ?? null });
+  return {
+    page,
+    at: model.at,
+    undo_seconds: model.undo_seconds,
+    features: model.status.flatMap((group) => group.features).filter((entry) => orders.has(entry.id)),
+    prs: model.review.filter((entry) => orders.has(entry.feature) || prs.has(entry.key)).map((entry) => actable(entry, entry.answer ?? `tap:${entry.key}`, entry.card?.options ?? ['Approve', 'Hold'])),
+    questions: model.queue.filter((item) => item.kind === 'question' && item.tasks.some((id) => orders.has(id))).map((item) => actable(item, item.answer, item.card.options)),
+    story: slice(`/api/story?${new URLSearchParams({ ids: page.orders.join(',') })}`)?.moments ?? [],
+    asked: sent.get(`page:${page.slug}`) ?? null,
+  };
+}
+
+function feedPages() {
+  for (const frame of document.querySelectorAll('#main iframe.page-frame')) {
+    const page = model.pages.find((each) => each.slug === frame.dataset.page);
+    if (page) frame.contentWindow?.postMessage({ type: 'drive:model', slice: pageSlice(page) }, '*');
+  }
+}
+
+function heardPage(event) {
+  const frame = [...document.querySelectorAll('iframe.page-frame')].find((each) => each.contentWindow === event.source);
+  const page = frame && model.pages.find((each) => each.slug === frame.dataset.page);
+  if (!page || !navigator.userActivation.isActive) return;
+  const { type, answer: card, label, text } = event.data;
+  const shown = pageSlice(page);
+  if (type === 'drive:answer' && [...shown.prs, ...shown.questions].some((item) => item.answer === card && item.options.includes(label))) return answer(card, label);
+  if (type === 'drive:ask' && typeof text === 'string') say(`page:${page.slug}`, null, text, page.title);
+}
+
 function nowHeadline() {
   const { counts } = model;
   const { picks, taps, late, oldest } = waiting();
@@ -964,6 +1042,7 @@ function trail() {
   if (entry) steps.push([entry.title, location.hash]);
   if (screen === 'work' && path[2]) steps.push([path[2], location.hash]);
   if (screen === 'history' && path[0]) steps.push([dayName(path[0]), historyHref(path[0])]);
+  if (screen === 'pages' && path[0]) steps.push([model.pages.find((page) => page.slug === path[0])?.title ?? path[0], location.hash]);
   if (screen === 'file') steps.push([`${path[0]} ${(FILE_WORDS[path[1]] ?? 'file').toLowerCase()}`, location.hash]);
   return steps.map(([name, to], i) => (i === steps.length - 1 ? `<strong aria-current="page">${esc(name)}</strong>` : `<a href="${esc(to)}">${esc(name)}</a>`)).join('<span aria-hidden="true">/</span>');
 }
@@ -2268,8 +2347,8 @@ function render() {
   const { screen, id } = route();
   document.title = `${model.drive}: ${model.counts.queue} waiting on you`;
   const at = { feature: 'now', file: 'work' }[screen] ?? (SCREENS.some(([name]) => name === screen) ? screen : 'queue');
-  const counts = { queue: model.counts.queue, now: model.counts.jobs, work: model.counts.lanes, history: model.counts.merged_today };
-  const said = { queue: 'waiting on you', now: 'jobs running', work: 'lanes at work', history: 'merged today' };
+  const counts = { queue: model.counts.queue, now: model.counts.jobs, work: model.counts.lanes, history: model.counts.merged_today, pages: model.pages.filter((page) => page.live).length };
+  const said = { queue: 'waiting on you', now: 'jobs running', work: 'lanes at work', history: 'merged today', pages: 'live' };
   $('#tabs').innerHTML = SCREENS.map(([name, href, label]) => `<a class="tab${name === at ? ' on' : ''}" href="${href}"${name === at ? ' aria-current="page"' : ''} data-tip="${esc([label, counts[name] ? `${counts[name]} ${said[name]}` : '', name === 'now' && model.incidents.length ? `${counted(model.incidents.length, 'incident')} open` : ''].filter(Boolean).join('\n'))}">${icon(name)}<span>${label}</span>${counts[name] ? `<b class="count${name === 'queue' ? '' : ' soft'}" aria-label="${counts[name]} ${said[name]}">${counts[name]}</b>` : ''}${name === 'now' && model.incidents.length ? `<i class="alarm" aria-label="${counted(model.incidents.length, 'incident')} open"></i>` : ''}</a>`).join('');
   morphChildren($('#crumb'), Object.assign(document.createElement('nav'), { innerHTML: trail() }));
   const raised = strip();
@@ -2277,7 +2356,7 @@ function render() {
   $('#alerts').hidden = !raised;
   morphChildren($('#incidents'), Object.assign(document.createElement('div'), { innerHTML: incidentList() }));
   morphChildren($('#bug-reports'), Object.assign(document.createElement('div'), { innerHTML: bugReportList() }));
-  const screens = { queue: () => queueScreen(id), now: nowScreen, work: workScreen, history: historyScreen, feature: () => featureScreen(id), file: () => fileScreen(route().path) };
+  const screens = { queue: () => queueScreen(id), now: nowScreen, work: workScreen, history: historyScreen, pages: () => pagesScreen(id), feature: () => featureScreen(id), file: () => fileScreen(route().path) };
   const open = new Set(model.review.map((entry) => entry.key));
   for (const [key, frame] of slotted) {
     if (open.has(key)) continue;
@@ -2295,6 +2374,7 @@ function render() {
   settleCamera(arrived, held);
   if (reviewing) drawDrawer();
   sendPackets();
+  feedPages();
   if ($('#jump').open) drawJump();
   for (const url of [...slices.keys()].slice(0, -SLICES_KEPT)) slices.delete(url);
   measure();
@@ -2673,6 +2753,8 @@ document.addEventListener('focusout', (event) => {
   if (event.target.closest('a[data-src], [data-tip]')) hideSource();
 });
 window.addEventListener('message', heardReview);
+window.addEventListener('message', heardPage);
+document.addEventListener('load', (event) => event.target.matches?.('iframe.page-frame') && feedPages(), true);
 document.addEventListener('load', (event) => {
   const frame = event.target;
   const review = frame.matches?.('iframe.review-frame') && reviews.get(frame.dataset.review);

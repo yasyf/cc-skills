@@ -28,6 +28,7 @@ from drive import (
     github,
     install,
     launchd,
+    pages,
     picture,
     review,
     slack,
@@ -51,6 +52,9 @@ FILES = {
     "/visuals.js": ("visuals.js", "text/javascript; charset=utf-8"),
 }
 VENDOR = SITE / "vendor"
+KIT = SITE / "kit"
+SHARED = (("Access-Control-Allow-Origin", "*"),)
+SANDBOXED = (("Content-Security-Policy", "sandbox allow-scripts"),)
 VENDOR_KINDS = {".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8"}
 LOOPBACK = "127.0.0.1"
 LOCAL_CALLERS = {LOOPBACK, "::1", "::ffff:127.0.0.1"}
@@ -66,6 +70,7 @@ THREAD_MESSAGES = "200"
 PR_PATH = re.compile(r"/api/pr/([\w.-]+/[\w.-]+)/(\d+)")
 REVIEW_PATH = re.compile(r"/api/review/([\w.-]+/[\w.-]+)/(\d+)")
 FILE_PATH = re.compile(r"/api/file/(j[\w-]+)/(\w+)")
+PAGE_PATH = re.compile(r"/pages/([^/]+)/(.*)")
 REPO_FILE = re.compile(r"[\w.@-]+(?:/[\w.@-]+)+")
 NOT_OWNER = "only the drive's owner can do this, and this device is not signed in to the tailnet as him"
 GONE = "this card no longer waits on that answer"
@@ -293,6 +298,7 @@ class Board:
         self.database: sqlite3.Connection | None = None
         self.heard: dict[str, list[dict]] = {}
         self.records = 0
+        self.pages: tuple[int, list[dict]] = (0, [])
 
     def stamp(self) -> tuple[int, ...]:
         """What the board is built from, as it stands: the database's data_version on this board's own connection, which changes with each commit another connection makes, the time drive.json and his stored cards last changed, and how many events of the board's history the events log holds, each new one read here, so an event the board never shows rebuilds nothing."""
@@ -300,7 +306,7 @@ class Board:
             self.database = state.connect(state.database_path(self.name))
         committed = self.database.execute("PRAGMA data_version").fetchone()[0] if self.database else 0
         self.read_history()
-        paths = (state.state_path(self.name), state.cards_path(self.name))
+        paths = (state.state_path(self.name), state.cards_path(self.name), pages.pages_dir(self.name))
         return (committed, *(path.stat().st_mtime_ns if path.exists() else 0 for path in paths), len(self.events), self.records)
 
     def read_history(self) -> None:
@@ -318,7 +324,17 @@ class Board:
         repo = home_repo(drive["roles"]["coordinator"]["cwd"])
         with self.changed:
             heard = dict(self.heard)
-        model = view.board(drive, found, source, self.events, state.now(), reports, heard) | {"code": CODE, "pid": os.getpid(), "links": self.links, "undo_seconds": UNDO_SECONDS, "repo": repo}
+        folder = pages.pages_dir(self.name)
+        if (listed_at := folder.stat().st_mtime_ns if folder.exists() else 0) != self.pages[0]:
+            self.pages = (listed_at, pages.listed(self.name))
+        model = view.board(drive, found, source, self.events, state.now(), reports, heard) | {
+            "code": CODE,
+            "pid": os.getpid(),
+            "links": self.links,
+            "undo_seconds": UNDO_SECONDS,
+            "repo": repo,
+            "pages": pages.shown(drive, self.pages[1]),
+        }
         self.reports = reports
         self.show(model)
         self.assistant.warm((entry["key"], entry["head"]) for entry in model["review"] if entry["group"] == "you")
@@ -417,9 +433,13 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 self.file(found[1], found[2])
             elif self.path in FILES:
                 file, kind = FILES[self.path]
-                self.reply((SITE / file).read_bytes(), kind)
+                self.reply((SITE / file).read_bytes(), kind, headers=SHARED)
             elif self.path.startswith("/vendor/") and (file := (SITE / self.path.lstrip("/")).resolve()).is_relative_to(VENDOR) and file.suffix in VENDOR_KINDS and file.is_file():
-                self.reply(file.read_bytes(), VENDOR_KINDS[file.suffix], "public, max-age=31536000, immutable")
+                self.reply(file.read_bytes(), VENDOR_KINDS[file.suffix], "public, max-age=31536000, immutable", SHARED)
+            elif self.path.startswith("/kit/") and (file := (SITE / self.path.lstrip("/")).resolve()).is_relative_to(KIT) and file.suffix in VENDOR_KINDS and file.is_file():
+                self.reply(file.read_bytes(), VENDOR_KINDS[file.suffix], headers=SHARED)
+            elif (found := PAGE_PATH.fullmatch(where.path)) and (file := pages.file(board.name, found[1], urllib.parse.unquote(found[2]))):
+                self.reply(file.read_bytes(), pages.KINDS[file.suffix], headers=SANDBOXED)
             else:
                 self.send_error(404)
 
@@ -646,10 +666,12 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 except (BrokenPipeError, ConnectionResetError):
                     return
 
-        def reply(self, body: bytes, kind: str, cache: str = "no-store") -> None:
+        def reply(self, body: bytes, kind: str, cache: str = "no-store", headers: tuple[tuple[str, str], ...] = ()) -> None:
             self.send_response(200)
             self.send_header("Content-Type", kind)
             self.send_header("Cache-Control", cache)
+            for header, value in headers:
+                self.send_header(header, value)
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)

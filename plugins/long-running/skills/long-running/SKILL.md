@@ -68,6 +68,7 @@ Read a page, or its rows naming `<row>`, with `drive manual <page> [<row>]`, nev
 | `jobs` | starting, resuming or ending a job |
 | `scope` | what may be built or carded |
 | `design` | a part has a tricky design |
+| `pages` | you build a page |
 | `messages` | writing anything he reads |
 | `concepts` | a term or status is unclear |
 | `landing` | opening or landing a PR |
