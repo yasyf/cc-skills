@@ -565,6 +565,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         order.setdefault("releases", {})
         order.pop("shipped", None)
         order.setdefault("fixed", None)
+        order.setdefault("proof", None)
         order.setdefault("close_report", None)
         order.setdefault("closed_on", None)
         order.setdefault("alerts", [])
