@@ -7357,6 +7357,35 @@ def test_a_superseded_card_folds_its_job_into_a_live_one_and_the_card_he_tapped_
     assert "j3" in data["orders"]["o1"]["jobs"]
 
 
+def test_folding_a_superseded_prs_job_into_a_live_one_moves_its_open_pr_so_its_wakes_reach_that_job_alone(
+    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, closed: list[str]
+) -> None:
+    cards_asking(monkeypatch, PR)
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the new tool")
+    run("job", "add", "builder", "--order", "o2", "--goal", "build the tool")
+    assert run("answer", "a1", "--words", WORDS, "--link", PICK)[0] == 2
+    code, out = run("answer", "a1", "--superseded", f"{designing}=j3")
+    assert (code, f"{designing} now answers to j3, which its wakes, checks and lander reach" in out.splitlines()) == (0, True)
+    data = state.load("demo")
+    assert (data["prs"][designing]["job"], data["jobs"]["j3"]["prs"], data["jobs"]["j1"]["state"]) == ("j3", [PR], "stopped")
+    assert (stage.owner_job(data, designing), closed) == ("j3", [])
+
+
+def test_job_set_carries_refuses_a_part_a_running_builder_carries_so_one_change_has_one_builder(
+    run: Run, demo: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the new tool")
+    run("job", "add", "builder", "--order", "o2", "--goal", "build the tool")
+    assert cli.main(["job", "set", "j2", "--carries", "o1"]) == 2
+    assert 'drive: j2: refused, nothing changed: j1 builder running carries "land it" already, so a second builder would race it on one change' in capsys.readouterr().err
+    assert state.load("demo")["jobs"]["j2"]["carries"] == {}
+    assert run("job", "set", "j1", "--state", "stopped")[0] == 0
+    assert run("job", "set", "j2", "--carries", "o1")[0] == 0
+    assert state.load("demo")["jobs"]["j2"]["carries"] == {"o1": ["land it"]}
+
+
 LAYOUT_CARD = "https://acme.slack.com/archives/D123/p1794300000000500"
 LAYOUT = "Which layout does the run page read?"
 

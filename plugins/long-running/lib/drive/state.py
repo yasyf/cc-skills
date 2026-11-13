@@ -2298,6 +2298,16 @@ def job_wait_refusal(data: dict, waits: list[str]) -> str | None:
     return None
 
 
+def take_pr(data: dict, job_id: str, key: str) -> None:
+    """Make a job the one answering for a PR the drive tracks: the PR's row names it, which every wake, check and lander reads, and its own PRs list the PR, the first in place of each wait on its change."""
+    pr, job = data["prs"][key], data["jobs"][job_id]
+    pr["job"] = job_id
+    if pr["url"] not in job["prs"]:
+        if not job["prs"]:
+            wait_on_change(data, job_id, key)
+        job["prs"].append(pr["url"])
+
+
 def wait_on_change(data: dict, job_id: str, key: str) -> None:
     """Each unfinished job waiting on the change job_id builds waits on its first PR, key, in that wait's place, so it is free once that PR merges or closes, and the waits line an unstarted job was given names the PR."""
     for waiting in data["jobs"].values():
