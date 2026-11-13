@@ -1383,6 +1383,12 @@ SAVED_BRANCHES = ["saved/demo-j1/conflict-tallies at 1a2b3c4d5e", "saved/demo-j1
 ON_GITHUB = ", ".join(SAVED_BRANCHES)
 RESTACK = "commits on no remote on restack, saved to Forge-AI/monorepo under saved/demo-j1/"
 UNREAD = "orca-reclaim.py exited 1: ssh to pool-sleeping could not read /home/sprite/monorepo: i/o timeout"
+NOTHING = "{} held nothing unpushed or uncommitted, so nothing was saved"
+UNRECORDED = "cc-remote records no Sprite {}, so nothing on it was read or saved"
+
+
+def found(outcome: str) -> Callable[..., str]:
+    return lambda drive, job_id, job, root: outcome.format(job["workspace"])
 
 
 def unsaveable(why: str) -> Callable[..., str]:
@@ -2140,11 +2146,12 @@ def test_a_live_sprite_lane_whose_sprite_refuses_the_tools_still_gets_its_messag
 @pytest.mark.parametrize(
     ("save", "branches", "kept"),
     [
-        (lambda drive, job_id, job, root: None, [], "work not pushed from pool-one is not carried over"),
+        (found(NOTHING), [], NOTHING.format("pool-one")),
+        (found(UNRECORDED), [], UNRECORDED.format("pool-one")),
         (lambda drive, job_id, job, root: SAVED, SAVED_BRANCHES, f"what pool-one held on no remote is saved on GitHub as {ON_GITHUB}"),
         (unsaveable(UNREAD), [], f"pool-one is kept, since what it holds on no remote could not be saved: {UNREAD}"),
     ],
-    ids=["nothing to save", "saved", "save failed"],
+    ids=["nothing to save", "no Sprite recorded", "saved", "save failed"],
 )
 def test_a_finished_worker_whose_sprite_refuses_its_tools_starts_the_next_on_a_fresh_sprite(
     run: Run,
@@ -2204,7 +2211,7 @@ def test_a_finished_worker_whose_sprite_was_made_from_another_cc_remote_config_s
     monkeypatch.setattr(orca, "worker", lambda dispatch: FINISHED_WORKER)
     monkeypatch.setattr(orca, "bound_command", lambda *args: pytest.fail("no worker starts on a Sprite made from another cc-remote config"))
     monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing is sent to a finished worker: {args}"))
-    monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: None)
+    monkeypatch.setattr(orca, "save", found(NOTHING))
     monkeypatch.setattr(orca, "new_run", lambda drive, objective: FRESH_RUN)
     launched = []
 
@@ -2218,7 +2225,7 @@ def test_a_finished_worker_whose_sprite_was_made_from_another_cc_remote_config_s
         "j1: the job's next worker, relaunched on Sprite workspace-2 as dispatch dispatch-2 in a handoff carrying its brief, its"
         " branch, its last line, its report and its PRs; its lane on Sprite pool-one was dead (its worker succeeded, and Orca sends"
         f" nothing to a finished worker on a Sprite, and its Sprite pool-one was made from {was}, and the one the default branch"
-        " holds now has SHA-256 4b925c205080), and work not pushed from pool-one is not carried over",
+        " holds now has SHA-256 4b925c205080), and pool-one held nothing unpushed or uncommitted, so nothing was saved",
     )
     job = state.load(remote)["jobs"]["j1"]
     assert (launched, tooled, job["workspace"], job["sprite_config"]) == ([None], [], "workspace-2", SPRITE_CONFIG)
@@ -3601,9 +3608,11 @@ def test_resume_or_launch_after_end_relaunches_the_job_on_a_fresh_sprite_with_an
     url = "https://github.com/Forge-AI/monorepo/pull/53935"
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(brief=str(first), state="waiting", said=f"WAITING CI on {url}", prs=[url], workspace="pool-rxo7catmn6cw4efb")
-    monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: None)
+    monkeypatch.setattr(orca, "save", found(NOTHING))
     monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: "")
-    assert run("job", "end", "j1") == (0, "j1's lane ended; j1 stays waiting")
+    nothing = NOTHING.format("pool-rxo7catmn6cw4efb")
+    assert run("job", "end", "j1") == (0, f"j1's lane ended; j1 stays waiting, and {nothing}")
+    monkeypatch.setattr(orca, "save", lambda *args: pytest.fail("the end already saved this lane's Sprite and recorded what it found"))
     monkeypatch.setattr(orca, "worker", refused(code, message))
     monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing is sent to a lane whose Sprite is gone: {args}"))
     monkeypatch.setattr(orca, "new_run", lambda drive, objective: FRESH_RUN)
@@ -3620,11 +3629,11 @@ def test_resume_or_launch_after_end_relaunches_the_job_on_a_fresh_sprite_with_an
         0,
         f"j1: {went}, relaunched on Sprite workspace-2 as dispatch dispatch-2 in a handoff"
         " carrying its brief, its branch, its last line, its report and its PRs; its lane on Sprite pool-rxo7catmn6cw4efb was"
-        f" dead ({why}), and work not pushed from pool-rxo7catmn6cw4efb is not carried over",
+        f" dead ({why}), and {nothing}",
     )
     assert (launched["lane"], launched["run"]) == ("demo-j1-2", FRESH_RUN)
     brief = orca.brief_of(launched["brief"])
-    assert ": ended by drive job end. You take the job over on a fresh Sprite from its pushed branches;" in brief
+    assert f": ended by drive job end. You take the job over on a fresh Sprite from its pushed branches; {nothing}. Commit and push before any long build." in brief
     assert f"Its last line: WAITING CI on {url}\nIts PRs: {url}\n" in brief
     if words:
         assert brief.endswith(f"which you act on now:\n\n{words}")
