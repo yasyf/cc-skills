@@ -26,6 +26,7 @@ QUOTED_CHARS = 400
 UNDECIDED = "none"
 DECIDES = 0.8
 DECIDE_SECONDS = 20
+REPEATS_ASKED = 30
 UNSAID_HERE = (
     " A bare option number, such as \"1\" or \"move to 3\", answers the card it was typed on and says nothing about this one;"
     ' a question he asked says nothing unless it proposes a way, as "why not just X?" orders X.'
@@ -299,20 +300,22 @@ def changed(title: str, words: str, asked: dict[str, dict], instructions: str = 
 
 
 def repeats(data: dict, words: str) -> str | None:
-    """The open drive tooling order these new tooling words ask for again, as Jev reads them against every open tooling order in one call, each order's title and words an option, picked at the DECIDES bar; None when no tooling order is open or Jev picks none, refused when Jev gives no answer."""
-    orders = {order_id: order for order_id, order in state.open_orders(data).items() if order["text"].startswith(state.TOOLING)}
-    if not orders:
+    """The open drive tooling order these new tooling words ask for again, as Jev reads them in one call against the REPEATS_ASKED open tooling orders whose title and words share the most rare words with them, each order's title and words an option, picked at the DECIDES bar, since one label question takes at most 255 options however many tooling orders are open; None when no tooling order is open or Jev picks none, refused when Jev gives no answer."""
+    said = rare(words)
+    orders = [(order_id, order) for order_id, order in state.open_orders(data).items() if order["text"].startswith(state.TOOLING)]
+    closest = sorted(orders, key=lambda item: len(said & rare(f'{item[1]["title"] or ""} {item[1]["text"]}')), reverse=True)[:REPEATS_ASKED]
+    if not closest:
         return None
-    options = {order_id: " — ".join(filter(None, [order["title"], cut(order["text"], QUOTED_CHARS)])) for order_id, order in orders.items()}
+    options = {order_id: " — ".join(filter(None, [order["title"], cut(order["text"], QUOTED_CHARS)])) for order_id, order in closest}
     label = {"instructions": REPEATS_QUESTION, "options": {UNDECIDED: "It repeats none of them.", **options}}
     try:
         pick = jev({"state": {"order": words[:BODY_CHARS]}, "questions": {"repeats": {"label": label}}})["repeats"]
     except Unheard as failure:
         raise DriveError(
-            f"no order added: Jev did not read these words against the {len(orders)} open drive tooling orders ({failure}), so a repeat of"
-            " one would start a second order, builder and card on it; run it again, or name the order it repeats with --joins <o>"
+            f"no order added: Jev did not read these words against the {len(options)} open drive tooling orders sharing the most words with them ({failure}),"
+            " so a repeat of one would start a second order, builder and card on it; run it again, or name the order it repeats with --joins <o>"
         ) from None
-    return pick["choice"] if pick["choice"] in orders and pick["probabilities"][pick["choice"]] >= DECIDES else None
+    return pick["choice"] if pick["choice"] in options and pick["probabilities"][pick["choice"]] >= DECIDES else None
 
 
 def approving(action: str, answer: dict) -> bool:
