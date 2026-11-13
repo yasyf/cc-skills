@@ -149,7 +149,13 @@ def take_codex(payload: dict) -> None:
 
 
 def main() -> None:
-    payload = agents.seen(json.load(sys.stdin))
+    payload = json.load(sys.stdin)
+    if payload["hook_event_name"] == "StopFailure":
+        if wake := agents.resume(payload):
+            print(wake, file=sys.stderr)
+            sys.exit(2)
+        return
+    payload = agents.seen(payload)
     if "handler_session" in payload:
         reason = agents.end_handler(payload, block_reason)
     else:

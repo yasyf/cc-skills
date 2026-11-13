@@ -24,7 +24,7 @@
     "StopFailure": [
       {
         "hooks": [
-          { "type": "command", "command": "[ -z \"$LONG_RUNNING_HANDLER\" ] || . \"${CLAUDE_PLUGIN_ROOT}/hooks/python.sh\"; [ -z \"$LONG_RUNNING_HANDLER\" ] || exec \"$python\" -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" one_line_result.py" }
+          { "type": "command", "asyncRewake": true, "timeout": 600, "command": ". \"${CLAUDE_PLUGIN_ROOT}/hooks/python.sh\" && exec \"$python\" -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" one_line_result.py" }
         ]
       }
     ],
