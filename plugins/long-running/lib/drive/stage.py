@@ -177,7 +177,7 @@ def adopt(data: dict) -> list[str]:
         if not taps:
             continue
         member, tap = max(taps, key=lambda found: state.parse_time(found[1]["at"]))
-        pr["tap"] = {field: value for field, value in tap.items() if field not in ("patch", "read")} | {"head": pr["head"], "via": tap.get("via") or member}
+        pr["tap"] = state.new_tap(tap["label"], pr["head"], tap["source"], tap["action_ts"], tap["via"] or member, tap["at"])
         pr["card"] = pr["card"] or data["prs"][member]["card"]
         given.append(key)
     return given

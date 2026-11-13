@@ -670,7 +670,7 @@ def answered(ask: dict) -> dict:
             entry = data["prs"][member]
             if entry["state"] != "open" or len(members) > 1 and entry["tap"] or ask["action_ts"] and (entry["tap"] or {}).get("action_ts") == ask["action_ts"]:
                 continue
-            entry["tap"] = {"label": ask["label"], "at": state.stamp(), "head": ask["heads"].get(member, entry["head"]), "source": ask["source"], "action_ts": ask["action_ts"]}
+            entry["tap"] = state.new_tap(ask["label"], ask["heads"].get(member, entry["head"]), ask["source"], ask["action_ts"])
             entry["fundamental"] = None
             entry["updated"] = entry["tap"]["at"]
             repo, number = member.split("#")

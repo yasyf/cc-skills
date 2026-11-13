@@ -2531,7 +2531,7 @@ def set_pr(pr: dict, args: argparse.Namespace) -> None:
     if args.no_exempt:
         pr["exempt"] = None
     if args.tapped:
-        pr["tap"] = {"label": args.tapped, "at": state.stamp(), "head": pr["head"], "source": args.tap_source}
+        pr["tap"] = state.new_tap(args.tapped, pr["head"], args.tap_source)
         pr["fundamental"] = None
     if args.no_tapped:
         pr["tap"] = None
