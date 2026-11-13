@@ -180,7 +180,8 @@ SAY = {
                 "items": TEXT,
                 "description": (
                     "The PRs on his tap, bottom of the stack first, each as its URL or owner/repo#number, drawn as one stack"
-                    " card at his DM root, its line and link posted in the thread of each open order they carry out, one outside"
+                    " card in the first thread its line goes in when they have none yet, else redrawn where it sits, its line"
+                    " posted in the thread of each open order they carry out and its link under it in each other thread, one outside"
                     " his DM, such as an alert's, named with channel_id and thread_ts; refused while text leaves out the words of"
                     " a drive tooling order one of them serves"
                 ),
