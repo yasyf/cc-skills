@@ -115,7 +115,6 @@ ASKED = (
     " needs nothing from you; I will post here when it finishes and the counts match."
 )
 DRIVE_POST = "drive.post"
-JUDGED_TURNS = 12
 JUDGE_SECONDS = 5
 POST_FRAME = """
     You decide whether one pending post to the user goes out. <rules> are the hook's own rules for this kind of post;
@@ -201,7 +200,7 @@ class Weighed(Decide):
         return None
 
 
-JUDGE = Weighed(POST_RULES, frame=POST_FRAME, model="medium", second_opinion=False, deadline=JUDGE_SECONDS, transcript=JUDGED_TURNS, root_transcript=JUDGED_TURNS, tool_results=True)
+JUDGE = Weighed(POST_RULES, frame=POST_FRAME, model="medium", second_opinion=False, deadline=JUDGE_SECONDS)
 HANDLER_JUDGE = replace(JUDGE, over=(UserAnswered(approved=False),))
 JEV_UNSURE = {"permits": LabelAnswer(UNPERMITTED, {UNPERMITTED: 1.0}, 0.9)}
 SAID_AT = datetime(2026, 11, 11, 17, 40, tzinfo=UTC)
