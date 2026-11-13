@@ -62,7 +62,7 @@ def resolved(name: str, text: str) -> dict[str, dict]:
         data = data or state.load(name)
         match match[1]:
             case "card":
-                cards = cards or open_cards(name)
+                cards = cards or drawn_cards(name)
                 found[match[0]] = card(cards, data, match[2])
             case "pr":
                 found[match[0]] = pr(data["prs"], match[2], label)
@@ -154,17 +154,16 @@ def record_excuses(text: str) -> list[str]:
     ]
 
 
-def open_cards(name: str) -> list[dict]:
+def drawn_cards(name: str) -> dict:
     try:
-        listed = view.cards(name)
+        return view.cards(name)
     except view.CardsError as error:
         raise DriveError(f"a {{card:…}} reference needs the drive's cards, which cc-slack could not list: {error}") from None
-    return [*listed["questions"], *listed["pr_cards"]]
 
 
-def card(cards: list[dict], data: dict, waits: str) -> dict:
-    """A card by its waits id: Slack draws it under a link naming it, and the dashboard opens that card in the queue it waits in. A question card he answered or the drive withdrew keeps its permalink, so it is found among the questions the drive drew, and the dashboard opens the task it was asked for."""
-    for entry in reversed(cards):
+def card(cards: dict, data: dict, waits: str) -> dict:
+    """A card by its waits id: Slack draws it under a link naming it, and the dashboard opens that card in the queue it waits in. A question card he answered or the drive withdrew keeps its permalink, so it is found among the questions the drive drew, and the dashboard opens the task it was asked for; any other card he answered or cc-slack closed is found among the closed cards cc-slack keeps, and the dashboard opens it in Slack."""
+    for entry in reversed([*cards["questions"], *cards["pr_cards"]]):
         if entry["card"].get("waits") == waits:
             queue = "tap" if waits.startswith("merge:") else "question"
             ts = view.message_key(entry["url"])
@@ -173,6 +172,8 @@ def card(cards: list[dict], data: dict, waits: str) -> dict:
         for question in reversed(job["questions"]):
             if question["waits"] == waits and question["card"]:
                 return {"kind": "card", "title": question["title"] or "his question card", "url": question["card"], "board": f"#/feature/{job['order']}"}
+    if closed := view.closed_card(cards, waits):
+        return {"kind": "card", "title": closed["title"], "url": closed["url"], "board": closed["url"]}
     raise DriveError(f"{{card:{waits}}} names no card the drive drew, open or settled; `cc-slack drive-cards --drive <drive>` lists each open card's waits id")
 
 

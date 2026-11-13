@@ -401,12 +401,22 @@ def landed(name: str, post: dict, began: float, sent: str, error: slack.SlackErr
 def places(data: dict, post: dict, stack: list[str]) -> list[tuple[str, str | None]]:
     """Each channel and thread the post goes in, (his DM, None) for his DM root and (a person's user id, None) for the group DM of that person, him and the bot: the one it names; for a card, which cc-slack dm-status draws in his DM alone, first each place in his DM, the one it names, then for a PR card each thread of the orders its PRs carry out, else his DM root, then the one outside his DM it names, such as an alert's thread, which takes the card's line, since cc-slack's Slack permission hook judges a say for the place it names alone."""
     dm = slack.dm()
-    named = (post.get("channel_id") or dm, post.get("thread_ts"))
+    named = place(post)
     if not (post.get("card") or stack):
         return [named]
     linked = [where for where in state.pr_threads(data, stack) if where[0] == dm or where == named]
     spots = list(dict.fromkeys([named, *linked] if named != (dm, None) else linked))
     return [*([where for where in spots if where[0] == dm] or [(dm, None)]), *(where for where in spots if where[0] != dm)]
+
+
+def place(post: dict) -> tuple[str, str | None]:
+    """The channel and thread a say post is in, None at the channel's root: an edit's are those of the message it rewords, read from its permalink, which an edit naming no Slack message refuses, and a new post's the ones it names, his DM for none."""
+    if not post.get("edit"):
+        return post.get("channel_id") or slack.dm(), post.get("thread_ts")
+    if (message := state.slack_message(post["edit"])) is None:
+        raise DriveError(f"nothing edited: edit {post['edit']} is no Slack permalink; pass the link the post's POSTED line gave")
+    channel, ts, thread = message
+    return channel, None if thread == ts else thread
 
 
 def shown_at(place: tuple[str, str | None]) -> str:
@@ -416,11 +426,9 @@ def shown_at(place: tuple[str, str | None]) -> str:
 
 
 def shown_in(name: str, post: dict) -> str | None:
-    """The thread a post goes in first, the thread of the card its `about` names, where cc-slack puts that reply, or the thread an edit's post is in, None for his DM root: a card named in its own thread reads there as words."""
-    if post.get("edit"):
-        return view.card_thread(post["edit"])
+    """The thread a post goes in first, the thread of the card its `about` names, where cc-slack puts that reply, None for his DM root: a card named in its own thread reads there as words."""
     if post.get("about"):
-        return view.card_thread(refs.card(refs.open_cards(name), state.load(name), post["about"])["url"])
+        return view.card_thread(refs.card(refs.drawn_cards(name), state.load(name), post["about"])["url"])
     return places(state.load(name), post, [state.pr_key(each) for each in post.get("tap_prs") or []])[0][1]
 
 

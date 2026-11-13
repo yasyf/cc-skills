@@ -157,6 +157,19 @@ def test_a_card_he_answered_or_the_drive_withdrew_still_links_by_its_waits_id(de
         talk.say(demo, {"text": "see {card:demo:j1-5}"})
 
 
+def test_a_pr_card_he_tapped_links_by_its_waits_id_from_cc_slacks_closed_cards_in_a_post_and_its_edit(
+    demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tapped = "https://acme.slack.com/archives/D123/p1794300000000300"
+    closed = {"waits": "merge:yasyf:cc-skills:7", "title": "New: approve the run page history?", "prs": [PR_URL], "asked": ASKED, "url": tapped, "answer": {"label": "Approve", "at": AWAY}, "tapped": "", "replaced_by": None}
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "https://acme.slack.com/", "questions": [], "pr_cards": [], "closed": [closed]})
+    talk.say(demo, {"text": "You approved {card:merge:yasyf:cc-skills:7}.", "thread_ts": "1794200000.000100"})
+    talk.say(demo, {"edit": POSTED, "text": "You approved {card:merge:yasyf:cc-skills:7}; it lands next."})
+    linked = f"<{tapped}|New: approve the run page history?>"
+    assert [argv[-1] for argv in posts] == [f"You approved {linked}.", f"You approved {linked}; it lands next."]
+    assert said(demo)[0]["text"] == f"You approved [New: approve the run page history?]({tapped})."
+
+
 def test_an_order_links_its_thread_in_slack_or_else_its_dashboard_page_under_his_words(
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]]
 ) -> None:

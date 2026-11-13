@@ -572,6 +572,19 @@ def test_jev_reads_a_refused_say_post_as_slack_gets_it_and_a_reference_nested_in
     assert printed[1]["hookSpecificOutput"]["permissionDecisionReason"].startswith(f"{{pr:7|the fix}} sits inside the words of the link to {release}")
 
 
+def test_jev_judges_an_edit_in_the_thread_of_the_post_it_rewords_read_from_its_permalink(
+    talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    thread = "1794288700.000001"
+    printed = []
+    for edit in (f"{link(EDITED)}?thread_ts={thread}&cid={DM}", link(EDITED)):
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(call("slack_dm_status", transcript, edit=edit, text=said(61)) | {"tool_name": message_limits.SAY})))
+        message_limits.main()
+        printed.append(json.loads(capsys.readouterr().out)["post"])
+    assert printed == [{"edit": f"{link(EDITED)}?thread_ts={thread}&cid={DM}", "text": said(61), "thread_ts": thread}, {"edit": link(EDITED), "text": said(61)}]
+    assert say(transcript, edit="the post above", text="Fixed.") == "nothing edited: edit the post above is no Slack permalink; pass the link the post's POSTED line gave"
+
+
 def test_a_question_card_holds_150_words_and_options_of_25_whatever_it_quotes(talker: str, transcript: Path) -> None:
     card = {"title": said(10), "body": said(40), "options": [said(25), said(25), said(25)], "waits": "demo:j1-7"}
     assert posted(transcript, card=card) is None
@@ -2258,6 +2271,8 @@ def test_a_say_naming_an_alert_orders_thread_with_no_channel_id_is_told_its_chan
     assert say(transcript, text="The fix merged.", thread_ts=alert) == f"nothing posted: thread {alert} is in channel C0822AHFY3G, not his DM, so pass channel_id C0822AHFY3G with it"
     assert message_limits.posted_order(state.load("demo"), {"channel_id": "C0822AHFY3G", "thread_ts": alert}, None) == "o1"
     assert message_limits.posted_order(state.load("demo"), {"thread_ts": alert}, None) is None
+    reply = f"https://acme.slack.com/archives/C0822AHFY3G/p1794493100000200?thread_ts={alert}&cid=C0822AHFY3G"
+    assert message_limits.posted_order(state.load("demo"), {"edit": reply, "text": "The fix is live."}, None) == "o1"
 
 
 def test_while_he_is_away_only_cards_incident_lines_and_answers_go_out(run: Run, talker: str, transcript: Path) -> None:
