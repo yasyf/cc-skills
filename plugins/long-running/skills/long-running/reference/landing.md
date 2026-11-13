@@ -247,7 +247,9 @@ fixture files for `test-only` and `flake fix`, only CI files for `ci-only`, and 
   design part of its order, by his words "port his visuals but always do it the fundamentally right
   way when it comes to modelng the data", and `drive pr add` and `drive pr set` refuse it `--port-of`.
 - `test-only`: only test and fixture files.
-- `ci-only`: only CI configuration and CI tooling.
+- `ci-only`: only CI configuration and CI tooling: files under `.github/`, `.buildkite/`, `go/ci/` and
+  `infra/ci/`, whose Buildkite pipeline definitions are CI configuration, and the `tools/ci` and
+  `tools/ci-ts` shims.
 - `flake fix`: the whole change fixes one named flaking test, in test or fixture code, and adds no
   timeout.
 - `incident fix`: the immediate fix, such as the stop, or the root fix an incident's order ships, by [incidents.md](incidents.md). A revert is
