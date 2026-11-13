@@ -457,6 +457,26 @@ def chrome(monkeypatch: pytest.MonkeyPatch) -> Chrome:
 
 
 @dataclass
+class Images:
+    refusals: dict[str, str] = field(default_factory=dict)
+    fetched: list[str] = field(default_factory=list)
+
+
+@pytest.fixture
+def images(monkeypatch: pytest.MonkeyPatch) -> Images:
+    hosted = Images()
+
+    def fetched(url: str) -> bytes:
+        if url in hosted.refusals:
+            raise OSError(hosted.refusals[url])
+        hosted.fetched.append(url)
+        return b"\x89PNG\r\n"
+
+    monkeypatch.setattr(picture, "fetched", fetched)
+    return hosted
+
+
+@dataclass
 class Withdrawals:
     cards: list[str] = field(default_factory=list)
     asked: list[tuple[str, str]] = field(default_factory=list)

@@ -15,7 +15,7 @@ from pathlib import Path
 import drive
 import pytest
 import spawnllm
-from conftest import CARD_BODY, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SETTLED_MATCHED, SETTLED_NOTE, SHORT_ASK, WRITTEN_AT, drawn_card, Answers, explained, Chrome, Draws, Drawing, Heard, Jev, Judge, MetaLaunches, Redraws, Thread, WatchProcess, Withdrawals
+from conftest import CARD_BODY, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SETTLED_MATCHED, SETTLED_NOTE, SHORT_ASK, WRITTEN_AT, drawn_card, Answers, explained, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, MetaLaunches, Redraws, Thread, WatchProcess, Withdrawals
 from drive import (
     agents,
     brief,
@@ -4820,7 +4820,9 @@ def test_pr_add_of_a_port_takes_the_pure_port_exemption_and_no_tap(run: Run, dem
     assert (pr["port_of"], pr["exempt"], pr["wants_tap"], stage.carded(pr)) == (51234, "pure port", False, False)
 
 
-def test_pr_add_on_a_public_repo_takes_demo_pictures_and_draws_his_card_in_the_same_call(run: Run, demo: str, on_github: dict, visibilities: dict, draws: Draws) -> None:
+def test_pr_add_on_a_public_repo_takes_demo_pictures_and_draws_his_card_in_the_same_call(
+    run: Run, demo: str, on_github: dict, visibilities: dict, draws: Draws, images: Images
+) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     visibilities.update({"Forge-AI/monorepo": "public", "yasyf/cc-skills": "public"})
@@ -5288,7 +5290,7 @@ def test_pr_add_adds_a_body_whose_shown_sections_speak_of_him_as_he_or_his_with_
     assert "may speak of him" not in capsys.readouterr().err
 
 
-def test_pr_add_reads_a_capitalised_he_a_word_precedes_as_a_name(run: Run, demo: str, on_github: dict, capsys: pytest.CaptureFixture[str]) -> None:
+def test_pr_add_reads_a_capitalised_he_a_word_precedes_as_a_name(run: Run, demo: str, on_github: dict, images: Images, capsys: pytest.CaptureFixture[str]) -> None:
     run("order", "add", "--title", "Show the timeline", "--project", "The drive", "--workstream", "Releases", "show the timeline")
     run("job", "add", "builder", "--order", "o1", "--goal", "show it")
     on_github["body"] = CARD_BODY + (
@@ -5306,7 +5308,9 @@ def test_pr_add_reads_a_capitalised_he_a_word_precedes_as_a_name(run: Run, demo:
         assert limits.third_person({"show me": pronoun}), pronoun
 
 
-def test_pr_add_refuses_a_show_me_fence_that_does_not_draw_and_adds_it_once_it_draws(run: Run, demo: str, on_github: dict, chrome: Chrome, capsys: pytest.CaptureFixture[str]) -> None:
+def test_pr_add_refuses_a_show_me_fence_that_does_not_draw_and_adds_it_once_it_draws(
+    run: Run, demo: str, on_github: dict, chrome: Chrome, images: Images, capsys: pytest.CaptureFixture[str]
+) -> None:
     run("order", "add", "--title", "Move the strip", "--project", "The drive", "--workstream", "Releases", "move the strip")
     run("job", "add", "builder", "--order", "o1", "--goal", "move it")
     on_github["body"] = CARD_BODY + '\n## Show me\nThe map\n```arch\n{"arch": 1}\n```\n\n![before](https://example.com/before.png)\n'
@@ -5317,6 +5321,23 @@ def test_pr_add_refuses_a_show_me_fence_that_does_not_draw_and_adds_it_once_it_d
     chrome.refusal = None
     assert run("pr", "add", PR, "--job", "j1", *LEAD)[0] == 0
     assert [kind for kind, _ in chrome.drawn] == ["arch"]
+
+
+def test_pr_add_refuses_a_show_me_image_his_card_cannot_download_and_adds_it_once_it_links_one_that_downloads(
+    run: Run, demo: str, on_github: dict, images: Images, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Fill the tree", "--project", "The drive", "--workstream", "Releases", "fill the tree")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fill it")
+    artifact = "https://buildkite.com/organizations/acme/pipelines/test/builds/7/jobs/01a1ca2b/artifacts/01a1ca2e"
+    attached = "https://github.com/user-attachments/assets/0f8e7a4c-1b2d-4e3f-9a8b-7c6d5e4f3a2b"
+    images.refusals[artifact] = "HTTP Error 403: Forbidden"
+    on_github["body"] = CARD_BODY + f"\n## Show me\n![1 · Before, dev]({artifact})\n"
+    assert cli.main(["pr", "add", PR, "--job", "j1", *LEAD]) == 2
+    assert capsys.readouterr().err.strip() == f"drive: Forge-AI/monorepo#42: refused, nothing added: its Show me image does not draw: {artifact} did not download: HTTP Error 403: Forbidden"
+    assert state.load("demo")["prs"] == {}
+    on_github["body"] = CARD_BODY + f"\n## Show me\n![1 · Before, dev]({attached})\n"
+    assert run("pr", "add", PR, "--job", "j1", *LEAD)[0] == 0
+    assert images.fetched == [attached]
 
 
 def test_pr_set_tap_refuses_a_title_retitled_since_drive_pr_add_read_it(

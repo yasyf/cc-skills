@@ -77,7 +77,11 @@ for its repository says, then return `DONE <proof>`.
     have shown before and after screenshots". In Forge-AI/monorepo CI shoots both for an Iris view
     the body's `iris-evidence` block names: its `product-dashboard-iris-evidence` job uploads the last
     dev build's shot as `iris-evidence/dev/<shot>.png` and the change's as `iris-evidence/<shot>.png`,
-    so a builder takes both from that job's artifacts rather than building the app. A fence holds code, never prose, JSON,
+    so a builder links the two images of the PR's `<!-- iris-evidence -->` comment when that job posted
+    one, or else downloads both from its artifacts with `tools/ci bk api` into the drive's pictures
+    folder and links their paths, rather than building the app. A `buildkite.com` artifact link draws
+    nowhere, since his card's download and GitHub's page both get HTTP 403 for it, and `drive pr add`
+    refuses a Show me image that does not download. A fence holds code, never prose, JSON,
     YAML, logs, terminal output, an HTTP exchange, or a stack trace: a request alone is the call, and
     what it answered goes in a markdown table or a `mermaid` sequenceDiagram. Put a caption line just
     above each fence and alt text on each image, since Slack titles each picture
