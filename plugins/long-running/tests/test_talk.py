@@ -32,6 +32,7 @@ QUESTION = "Lock each chat's database, or the whole table?"
 ASKED = "2026-11-10T20:59:00-08:00"
 OPEN_CARDS = f"\n\n*Your open cards: 1 question*\n<{CARD_URL}|{QUESTION}>"
 CORRECTIONS = agents.corrections
+DRAW = talk.draw
 SSQL = "are we doing the ssql release foe it"
 FOOTERS = "why didnt our release footers whatever catch this and bring ssql along with API"
 
@@ -40,7 +41,14 @@ FOOTERS = "why didnt our release footers whatever catch this and bring ssql alon
 def posts(demo: str, monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, ...]]:
     sent: list[tuple[str, ...]] = []
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "https://acme.slack.com/", "questions": [question_card(CARD_URL, QUESTION, WAITS)], "pr_cards": [], "closed": []})
-    monkeypatch.setattr(slack, "cc_slack", lambda *argv: sent.append(argv) or {"permalink": POSTED, "thread_ts": "1794300000.000900"})
+
+    def cc_slack(*argv: str) -> dict:
+        if argv[0] == "dm-status" and not {"--", "--card", "--file"} & set(argv):
+            raise slack.SlackError("dm-status needs a card, text, or files")
+        sent.append(argv)
+        return {"permalink": POSTED, "thread_ts": "1794300000.000900"}
+
+    monkeypatch.setattr(slack, "cc_slack", cc_slack)
     with state.edit(demo) as data:
         data["prs"]["yasyf/cc-skills#7"] = state.new_pr(PR_URL, "j1", "o1") | {"title": "New: \U0001f680 the run page shows its history"}
     return sent
@@ -330,6 +338,29 @@ def test_a_stack_card_names_each_pr_by_its_url_and_the_dashboard_keeps_the_stack
     talk.say(demo, {"text": "land these", "tap_prs": ["yasyf/cc-skills#7"]})
     assert posts[0] == ("dm-status", "--agent", "claude", "--tap-pr", PR_URL, "--", "land these")
     assert said(demo)[0]["prs"] == ["yasyf/cc-skills#7"]
+
+
+def test_the_drives_own_draw_of_his_card_goes_at_his_dm_root_under_a_line_linking_each_order_its_prs_carry_out(
+    demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "show a run's history", "--thread", "1794200000.000100")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: the watch draws the PR card")
+    building(demo)
+    tooling = "https://github.com/yasyf/cc-skills/pull/8"
+    with state.edit(demo) as data:
+        data["prs"]["yasyf/cc-skills#8"] = state.new_pr(tooling, "j1", "o2") | {"title": "Fix: \U0001f41b the watch draws the PR card"}
+    view.refresh_cards(demo)
+    monkeypatch.setattr("drive.card.cards", lambda asked: {"cards": [{"repo": "yasyf/cc-skills", "number": 7, "card": {"title": "New: approve the run page shows its history?"}}], "skipped": []})
+    assert DRAW(demo, ["yasyf/cc-skills#7", "yasyf/cc-skills#8"]) == POSTED
+    assert posts == [
+        (
+            "dm-status", "--agent", "claude", "--tap-pr", PR_URL, "--tap-pr", tooling, "--",
+            'Carries out your "<https://acme.slack.com/archives/D123/p1794200000000100|show a run\'s history>"'
+            f"\n<{dashboard.link(demo)}#/feature/o2|Drive tooling: the watch draws the PR card>",
+        )
+    ]
+    assert said(demo)[0]["text"] == 'Carries out your "[show a run\'s history](#/feature/o1)"\n[Drive tooling: the watch draws the PR card](#/feature/o2)'
+    assert [state.load(demo)["prs"][key]["card"] for key in ("yasyf/cc-skills#7", "yasyf/cc-skills#8")] == [POSTED, POSTED]
 
 
 def test_a_pr_card_goes_in_the_thread_of_each_open_order_its_pr_carries_out_so_the_one_he_reads_carries_its_link(
