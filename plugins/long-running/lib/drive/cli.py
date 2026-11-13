@@ -2406,7 +2406,6 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
     if why := state.foreign(key, author, [known["orders"][added["order"]]]):
         raise DriveError(f"{key}: refused, nothing added: {why}")
     refuse_an_unkinded_title(key, read, port_of)
-    refuse_third_person(key, read)
     refuse_an_undrawn_show_me(name, key, read)
     if port_of:
         refuse_a_port_storing_data(key, port_of)
@@ -2429,6 +2428,7 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
             if not job["prs"]:
                 state.wait_on_change(data, job_id, key)
             job["prs"].append(url)
+    note_third_person(key, read)
     return pr
 
 
@@ -2782,17 +2782,19 @@ def refuse_an_unkinded_title(key: str, read: dict, port_of: int | None) -> None:
     )
 
 
-def refuse_third_person(key: str, read: dict) -> None:
-    """The sections of a PR's body his card and dashboard show him speak to him as you, never of him as he or his."""
+def note_third_person(key: str, read: dict) -> None:
+    """Print, never refuse, the sections of a PR's body his card and dashboard show him that may speak of him as he or his, since they speak to him as you and only their writer knows whose a he, him or his is."""
     from drive import card
 
     shown = {heading: text for heading, text in card.sections(card.body_of(read)).items() if heading in card.SHOWN_HEADINGS}
     if not (found := limits.third_person(shown)):
         return
     repo, number = key.split("#")
-    raise DriveError(
-        f"{key}: refused, nothing added: its card shows him these sections, which speak of him as he or his: {'; '.join(found)}."
-        f' Say you and your instead, as in "Your Nov 11 words narrowed it", edit the body with gh pr edit {number} -R {repo} --body-file <file>, then run this again'
+    print(
+        f"{key}: note, added all the same: its card shows him these sections, which may speak of him as he or his: {'; '.join(found)}."
+        f' Where these mean him, say you and your, as in "Your Nov 11 words narrowed it", and edit the body with gh pr edit {number} -R {repo} --body-file <file>;'
+        " where they mean someone else, leave them",
+        file=sys.stderr,
     )
 
 
