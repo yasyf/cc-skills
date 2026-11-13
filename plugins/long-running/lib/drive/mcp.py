@@ -1,16 +1,20 @@
 import contextlib
-import functools
-import io
+import importlib
 import json
 import os
+import pkgutil
+import select
+import signal
 import subprocess
 import sys
 import tempfile
 import threading
 import traceback
+import uuid
 from pathlib import Path
 from typing import TextIO
 
+import drive
 from drive import cli, reads, state, tools
 from drive.install import config_dir, installed
 
@@ -19,8 +23,9 @@ PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 CALL_SECONDS = 180
 OWN_DRIVE = str(PLUGIN_ROOT / "bin" / "drive")
 LISTED: dict[str, str] = {}
-CALLS: dict[int | str, subprocess.Popen | threading.Thread] = {}
-INLINE = threading.Lock()
+CALLS: dict[int | str, "subprocess.Popen | WarmCall"] = {}
+WARM: dict[str, "Warm"] = {}
+WARMING = threading.Lock()
 LIST_CHANGED = {"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}
 INSTRUCTIONS = (
     "Every message to him goes through say: one call posts it to his Slack DM and shows it on the drive's dashboard."
@@ -165,7 +170,6 @@ SAY = {
 }
 
 
-@functools.cache
 def tool_list() -> list[dict]:
     return [SAY, *tools.verb_tools()]
 
@@ -175,7 +179,7 @@ def tool_named(name: str) -> dict:
 
 
 def serve(stdin: TextIO, stdout: TextIO) -> int:
-    """Answer MCP requests read from stdin, each in its own thread, so a slow post never holds the next call, holding no install's lock between calls, since each call runs as a verb of the newest installed drive: in this process while it is that drive and no other call runs here, else as its own `drive tool`."""
+    """Answer MCP requests read from stdin, each in its own thread, so a slow post never holds the next call, holding no install's lock for the session's life, since each call runs as its own process of the newest installed drive."""
     state.let_go_install()
     writing = threading.Lock()
     for line in stdin:
@@ -186,7 +190,7 @@ def serve(stdin: TextIO, stdout: TextIO) -> int:
 
 def respond(request: dict, stdout: TextIO, writing: threading.Lock) -> None:
     if "id" not in request:
-        if request["method"] == "notifications/cancelled" and isinstance(child := CALLS.pop(request["params"]["requestId"], None), subprocess.Popen):
+        if request["method"] == "notifications/cancelled" and (child := CALLS.pop(request["params"]["requestId"], None)):
             child.kill()
         return
     reply = {"jsonrpc": "2.0", "id": request["id"]}
@@ -227,17 +231,9 @@ def listed(drive: str) -> list[dict]:
 
 def call(request_id: int | str, tool: str, arguments: dict) -> dict | None:
     """Run the tool in the newest installed drive, so a live session's call runs the plugin installed now, as its hooks do; a refusal names every op the check refused, or the op that refused while the call ran.
-    While this server is that drive and runs no other call itself, the call runs here, paying for no process, import or parser; otherwise, as when a newer install landed or a slow call runs here, it runs as its own `drive tool`.
-    Its arguments go in a file rather than a pipe the server writes, so a child that fails before reading them cannot hold the call past CALL_SECONDS; a call Claude Code cancels has its child killed and gets no reply."""
-    if newest_drive() == OWN_DRIVE and not os.environ.get(reads.SPRITE_LANE) and INLINE.acquire(blocking=False):
-        CALLS[request_id] = threading.current_thread()
-        try:
-            said, failed = inline(tool, arguments)
-        finally:
-            INLINE.release()
-        if CALLS.pop(request_id, None) is None:
-            return None
-        return {"content": [{"type": "text", "text": said.strip()}], "isError": failed}
+    The call is its own process either way: forked by that drive's warm process, which has the drive imported already, so it pays for no exec, import or parser, or on a Sprite lane its own `drive tool`, whose arguments go in a file rather than a pipe the server writes, so a child that fails before reading them cannot hold the call past CALL_SECONDS. A call Claude Code cancels has its process killed and gets no reply."""
+    if not os.environ.get(reads.SPRITE_LANE):
+        return warm_call(request_id, tool, arguments)
     with tempfile.TemporaryFile("w+") as given:
         json.dump(arguments, given)
         given.seek(0)
@@ -254,24 +250,180 @@ def call(request_id: int | str, tool: str, arguments: dict) -> dict | None:
     return {"content": [{"type": "text", "text": said.strip()}], "isError": bool(child.returncode)}
 
 
-def inline(tool: str, arguments: dict) -> tuple[str, bool]:
-    """What `drive tool` would print for the call, run in this process under this install's lock, as its own process holds it, and whether it failed: its lines on success, and with its warnings and the refusal or traceback on failure."""
-    out, err = io.StringIO(), io.StringIO()
-    state.hold_install()
+def warm_call(request_id: int | str, tool: str, arguments: dict) -> dict | None:
+    run = WarmCall(tool, arguments)
+    CALLS[request_id] = run
     try:
-        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            try:
-                print(cli.run_tool(tool, arguments))
-                failed = False
-            except cli.VERB_ERRORS as error:
-                print(f"drive: {error}", file=sys.stderr)
-                failed = True
-            except (Exception, SystemExit):
-                traceback.print_exc()
-                failed = True
+        warmed(newest_drive(), run)
+        if not run.done.wait(CALL_SECONDS):
+            run.timed_out = True
+            run.kill()
+            run.done.wait()
+        out, err = Path(run.out).read_text(), Path(run.err).read_text()
     finally:
-        state.let_go_install()
-    return out.getvalue() + err.getvalue() if failed else out.getvalue(), failed
+        os.unlink(run.out)
+        os.unlink(run.err)
+    if CALLS.pop(request_id, None) is None:
+        return None
+    if run.timed_out:
+        return {"content": [{"type": "text", "text": f"{out}{err}drive tool {tool} did not finish in {CALL_SECONDS} seconds".strip()}], "isError": True}
+    if run.code is None:
+        return {"content": [{"type": "text", "text": f"{out}{err}drive tool {tool}: the drive's warm process ended before the call did".strip()}], "isError": True}
+    said = out + err if run.code else out
+    return {"content": [{"type": "text", "text": said.strip()}], "isError": bool(run.code)}
+
+
+class WarmCall:
+    """One call a warm process forks: its files for stdout and stderr, its pid once forked, and its exit code once reaped, None when the warm process ended first."""
+
+    def __init__(self, tool: str, arguments: dict) -> None:
+        self.key = uuid.uuid4().hex
+        self.tool, self.arguments = tool, arguments
+        self.out, self.err = (kept(tool) for _ in range(2))
+        self.done = threading.Event()
+        self.guard = threading.Lock()
+        self.pid: int | None = None
+        self.code: int | None = None
+        self.killed = self.timed_out = False
+
+    def started(self, pid: int) -> None:
+        with self.guard:
+            self.pid = pid
+            if self.killed and not self.done.is_set():
+                os.kill(pid, signal.SIGKILL)
+
+    def ended(self, code: int | None) -> None:
+        with self.guard:
+            self.code = code
+            self.done.set()
+
+    def kill(self) -> None:
+        with self.guard:
+            self.killed = True
+            if self.pid and not self.done.is_set():
+                os.kill(self.pid, signal.SIGKILL)
+
+
+class Warm:
+    """One install's `drive mcp --warm`, single-threaded so it may fork, and the calls it runs, each told its pid and then its exit code on its stdout."""
+
+    def __init__(self, drive_path: str) -> None:
+        self.process = subprocess.Popen([drive_path, "mcp", "--warm"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)
+        self.guard = threading.Lock()
+        self.running: dict[str, WarmCall] = {}
+        threading.Thread(target=self.heard, daemon=True).start()
+
+    def start(self, run: WarmCall) -> None:
+        with self.guard:
+            self.running[run.key] = run
+            try:
+                self.process.stdin.write(json.dumps({"key": run.key, "tool": run.tool, "arguments": run.arguments, "out": run.out, "err": run.err}) + "\n")
+                self.process.stdin.flush()
+            except BrokenPipeError:
+                del self.running[run.key]
+                run.ended(None)
+
+    def heard(self) -> None:
+        for line in self.process.stdout:
+            said = json.loads(line)
+            with self.guard:
+                run = self.running[said["key"]] if "pid" in said else self.running.pop(said["key"])
+            if "pid" in said:
+                run.started(said["pid"])
+            else:
+                run.ended(said["code"])
+        with self.guard:
+            left, self.running = list(self.running.values()), {}
+        for run in left:
+            run.ended(None)
+
+    def retire(self) -> None:
+        with self.guard:
+            self.process.stdin.close()
+
+
+def warmed(drive_path: str, run: WarmCall) -> None:
+    """Start the call in the warm process of this install, started now when it has none or its last one ended; an older install's is retired, finishing the calls it runs."""
+    with WARMING:
+        for older in [path for path in WARM if path != drive_path]:
+            WARM.pop(older).retire()
+        if (held := WARM.get(drive_path)) is None or held.process.poll() is not None:
+            WARM[drive_path] = held = Warm(drive_path)
+        held.start(run)
+
+
+def kept(tool: str) -> str:
+    handle, path = tempfile.mkstemp(prefix=f"drive-{tool}-")
+    os.close(handle)
+    return path
+
+
+def warm() -> int:
+    """Fork one process for each call read from stdin, each running its tool as `drive tool` would, and say on stdout each one's pid once forked and its exit code once reaped; end once stdin closes and every call it forked has."""
+    for module in pkgutil.iter_modules(drive.__path__):
+        importlib.import_module(f"drive.{module.name}")
+    woken, wake = os.pipe()
+    os.set_blocking(woken, False)
+    os.set_blocking(wake, False)
+    signal.set_wakeup_fd(wake)
+    signal.signal(signal.SIGCHLD, lambda *_: None)
+    running: dict[int, str] = {}
+    pending, reading = b"", True
+    while reading or running:
+        ready, _, _ = select.select([0, woken] if reading else [woken], [], [])
+        with contextlib.suppress(BlockingIOError):
+            while os.read(woken, 512):
+                pass
+        while running and (reaped := os.waitpid(-1, os.WNOHANG))[0]:
+            told(running.pop(reaped[0]), code=os.waitstatus_to_exitcode(reaped[1]))
+        if 0 not in ready:
+            continue
+        if not (chunk := os.read(0, 1 << 16)):
+            reading = False
+            continue
+        pending += chunk
+        while b"\n" in pending:
+            line, pending = pending.split(b"\n", 1)
+            request = json.loads(line)
+            if (pid := os.fork()) == 0:
+                forked(request, woken, wake)
+            running[pid] = request["key"]
+            told(request["key"], pid=pid)
+    return 0
+
+
+def told(key: str, **fields: int) -> None:
+    os.write(1, (json.dumps({"key": key, **fields}) + "\n").encode())
+
+
+def forked(request: dict, woken: int, wake: int) -> None:
+    """The forked call: its tool run as `drive tool` runs it, holding this install's lock, its lines and warnings written to the files the server reads, then exit with its code."""
+    signal.set_wakeup_fd(-1)
+    signal.signal(signal.SIGCHLD, signal.SIG_DFL)
+    os.close(woken)
+    os.close(wake)
+    os.dup2(os.open(os.devnull, os.O_RDONLY), 0)
+    os.dup2(os.open(request["out"], os.O_WRONLY | os.O_TRUNC), 1)
+    os.dup2(os.open(request["err"], os.O_WRONLY | os.O_TRUNC), 2)
+    code = 1
+    try:
+        state.hold_install()
+        print(cli.run_tool(request["tool"], request["arguments"]))
+        code = 0
+    except cli.VERB_ERRORS as error:
+        print(f"drive: {error}", file=sys.stderr)
+        code = 2
+    except SystemExit as stop:
+        code = stop.code if isinstance(stop.code, int) else 1
+    except BaseException:
+        traceback.print_exc()
+    finally:
+        for thread in threading.enumerate():
+            if thread is not threading.main_thread() and not thread.daemon:
+                thread.join()
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(code)
 
 
 def newest_drive() -> str:

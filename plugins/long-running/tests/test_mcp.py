@@ -5,10 +5,11 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
-from drive import cli, mcp
+from drive import cli, mcp, reads
 
 
 def answered(request: dict) -> str:
@@ -69,6 +70,31 @@ def newest_drive_runs(body: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     drive.chmod(0o755)
     monkeypatch.setattr(mcp, "LISTED", {})
     monkeypatch.setattr(mcp, "newest_drive", lambda: str(drive))
+    monkeypatch.setenv(reads.SPRITE_LANE, "1")
+
+
+@pytest.fixture
+def warm_drive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Callable[[str], None]]:
+    """A newest drive whose `mcp --warm` is the real warm process, forking calls whose tool runs body in place of the drive's."""
+    drive = tmp_path / "drive"
+    monkeypatch.setattr(mcp, "LISTED", {})
+    monkeypatch.setattr(mcp, "WARM", {})
+    monkeypatch.setattr(mcp, "newest_drive", lambda: str(drive))
+    monkeypatch.delenv(reads.SPRITE_LANE, raising=False)
+
+    def runs(body: str) -> None:
+        drive.write_text(
+            f"#!{sys.executable}\nimport json, sys, time\nsys.path.insert(0, {str(mcp.PLUGIN_ROOT / 'lib')!r})\n"
+            "from drive import cli, mcp, state\n"
+            f"def run_tool(tool, arguments):\n    {body}\n"
+            "cli.run_tool = run_tool\nraise SystemExit(mcp.warm())\n"
+        )
+        drive.chmod(0o755)
+
+    yield runs
+    for warm in mcp.WARM.values():
+        warm.retire()
+        warm.process.wait(10)
 
 
 def tool_call(request_id: int, tool: str, arguments: dict) -> dict:
@@ -107,3 +133,44 @@ def test_a_cancelled_call_kills_its_child_and_gets_no_reply(tmp_path: Path, monk
     assert answered({"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 7, "reason": "aborted"}}) == ""
     calling.join(10)
     assert (calling.is_alive(), child.returncode, out.getvalue()) == (False, -signal.SIGKILL, "")
+
+
+def test_a_call_forks_from_the_newest_drives_warm_process_and_its_refusal_comes_back_as_the_tools_error(warm_drive: Callable[[str], None]) -> None:
+    warm_drive('raise state.DriveError(f"{tool} read {json.dumps(arguments)}")')
+    called = json.loads(answered(tool_call(4, "say", {"text": "{card:x}"})))
+    assert called["result"] == {"content": [{"type": "text", "text": 'drive: say read {"text": "{card:x}"}'}], "isError": True}
+    assert [*mcp.WARM] == [mcp.newest_drive()]
+
+
+def test_two_calls_at_once_each_fork_their_own_process(warm_drive: Callable[[str], None]) -> None:
+    warm_drive('time.sleep(1); return f"{tool} ran"')
+    out = [io.StringIO(), io.StringIO()]
+    started = time.monotonic()
+    calls = [threading.Thread(target=mcp.respond, args=(tool_call(8 + index, "heard", {}), out[index], threading.Lock())) for index in range(2)]
+    for each in calls:
+        each.start()
+    for each in calls:
+        each.join(10)
+    assert [json.loads(each.getvalue())["result"] for each in out] == [{"content": [{"type": "text", "text": "heard ran"}], "isError": False}] * 2
+    assert time.monotonic() - started < 1.9
+
+
+def test_a_warm_call_past_its_time_is_killed_and_says_so(warm_drive: Callable[[str], None], monkeypatch: pytest.MonkeyPatch) -> None:
+    warm_drive("time.sleep(60)")
+    monkeypatch.setattr(mcp, "CALL_SECONDS", 0.5)
+    called = json.loads(answered(tool_call(6, "status", {})))
+    assert called["result"] == {"content": [{"type": "text", "text": "drive tool status did not finish in 0.5 seconds"}], "isError": True}
+
+
+def test_a_cancelled_warm_call_is_killed_and_gets_no_reply(warm_drive: Callable[[str], None]) -> None:
+    warm_drive("time.sleep(60)")
+    out = io.StringIO()
+    calling = threading.Thread(target=mcp.respond, args=(tool_call(7, "order", {}), out, threading.Lock()))
+    calling.start()
+    started = time.monotonic()
+    while (7 not in mcp.CALLS or mcp.CALLS[7].pid is None) and time.monotonic() - started < 10:
+        time.sleep(0.01)
+    run = mcp.CALLS[7]
+    assert answered({"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 7, "reason": "aborted"}}) == ""
+    calling.join(10)
+    assert (calling.is_alive(), run.code, out.getvalue()) == (False, -signal.SIGKILL, "")

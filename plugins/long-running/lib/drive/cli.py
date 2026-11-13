@@ -1,5 +1,4 @@
 import argparse
-import functools
 import json
 import os
 import re
@@ -3060,6 +3059,8 @@ def mcp_command(args: argparse.Namespace) -> int:
     if args.list:
         print(json.dumps(mcp.tool_list()))
         return 0
+    if args.warm:
+        return mcp.warm()
     return mcp.serve(sys.stdin, sys.stdout)
 
 
@@ -3191,7 +3192,6 @@ def job_kind(kind: str) -> str:
     return "design" if kind == "designer" else kind
 
 
-@functools.cache
 def parser() -> argparse.ArgumentParser:
     drive_opt = argparse.ArgumentParser(add_help=False)
     drive_opt.add_argument("--drive", help="the drive to act on")
@@ -4061,6 +4061,7 @@ def parser() -> argparse.ArgumentParser:
     verbs.add_parser("card", help=card_help, description=card_help).set_defaults(run=card_command)
     verb = verbs.add_parser("mcp", help="serve say and the drive's verbs as MCP tools to a Claude Code session over stdio")
     verb.add_argument("--list", action="store_true", help="print the tools as JSON and serve nothing")
+    verb.add_argument("--warm", action="store_true", help="fork one process per call the MCP server sends on stdin, from this one with the drive already imported")
     verb.set_defaults(run=mcp_command)
     plan = verbs.add_parser("plan", help="the plans the coordinator's checkout keeps in cc-notes").add_subparsers(dest="action", required=True)
     verb = plan.add_parser(
