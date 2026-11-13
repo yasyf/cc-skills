@@ -687,7 +687,9 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         pr.setdefault("checker", None)
         if pr["checker"]:
             pr["checker"].setdefault("against", "")
-            pr["checker"].setdefault("objected", None)
+            pr["checker"].pop("objected", None)
+            pr["checker"].setdefault("orders", None)
+            pr["checker"].setdefault("answers", None)
         pr.setdefault("ejected", False)
         pr.setdefault("flaky", None)
         pr.setdefault("review_asked", None)

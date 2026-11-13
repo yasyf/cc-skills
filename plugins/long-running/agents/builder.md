@@ -189,7 +189,7 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    back as `PR … READY refused, its required <check> failed at <head>
    (<build>)`, and `drive job report` refuses a `READY` while one is pending or red. It keeps your
    report whatever the change holds: the watch's check alone judges each PR his card waits on, at
-   each new head whatever your job's state, its title and diff and never its body, against the words of the
+   each new head whatever your job's state, its title and diff and the code at that head, never its body, against the words of the
    order it serves, the one `drive pr set --serves` names or else your order and every order your
    job carries, for the parts the PR carries, those `drive pr set --part` names or else your job's,
    and each answer of his your newest `DESIGN:` lines name by its card's waits id or permalink, its answer record or its cc-notes id, read whole once and kept on the PR,

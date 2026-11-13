@@ -44,7 +44,7 @@ def test_a_pr_past_githubs_300_file_diff_reads_whole_as_bytes_from_the_compare_o
 
 
 def test_the_judge_sees_source_before_fixtures_a_byte_utf8_cannot_read_and_a_capped_count_of_the_files_left_out() -> None:
-    prompt = served.shown({KEY: {"title": "Cleanup: move the fixtures", "diff": MOVE}})
+    prompt = served.shown({KEY: {"title": "Cleanup: move the fixtures", "head": "head1", "diff": MOVE}})
     left_out = prompt.rpartition("\n")[2]
     assert all(f"+++ b/{path}" in prompt for path in SOURCE) and "+\ufffdxxx" in prompt
     assert left_out.startswith(f"{1_571 - prompt.count('diff --git a/')} files left out for length: {KEY} app/testdata/fixtures/")

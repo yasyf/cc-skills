@@ -227,15 +227,22 @@ def research(name: str, data: dict, order_id: str, parts: list[str]) -> tuple[st
 
 def bound(name: str, data: dict, job: dict) -> tuple[list[str], list[str]]:
     """What binds the job beside his words on its orders: the id of each answer of his its brief's rulings name, each answer of his the rulings: line of every reader of its parts of its order and of each order it carries names by id, since a newer reader on another question of the same part holds none of an older one's, read as served.named reads a citation whatever words and punctuation surround it, each id cc-notes keeps no answer under, such as a commit or a session, left out, and each that settled a question of such a reader; then his words on each other question of theirs he answered with no answer recorded."""
-    from drive import refs, served
+    from drive import refs
+
+    ruled, cited, heard = binding(name, data, job)
+    return list(dict.fromkeys([*ruled, *(answer_id for answer_id in cited if refs.answered(answer_id, data))])), heard
+
+
+def binding(name: str, data: dict, job: dict) -> tuple[list[str], list[str], list[str]]:
+    """What bound reads before it asks cc-notes which ids keep an answer, so a watch pass reads it with no subprocess: the ids the job's brief's rulings and its readers' settled questions name, the ids their rulings: lines cite, and his words on each question of theirs he answered with no answer recorded."""
+    from drive import served
 
     found = [held for order_id in [job["order"], *job["carries"]] for held in researches(name, data, order_id, state.job_parts(job, order_id))]
     closed = [answer for reader_id, _ in found for question in data["jobs"][reader_id]["questions"] if (answer := question["closed"]) and answer["how"] != "withdrawn"]
-    cited = dict.fromkeys(answer_id for _, text in found for kind, answer_id in served.named(researched(text)["rulings"]) if kind == "answer")
-    named = [answer_id for answer_id in cited if refs.answered(answer_id, data)]
-    ids = [*((job.get("brief_flags") or {}).get("ruling") or []), *(answer["ruling"] for answer in closed if answer["ruling"]), *named]
+    cited = list(dict.fromkeys(answer_id for _, text in found for kind, answer_id in served.named(researched(text)["rulings"]) if kind == "answer"))
+    ruled = [*((job.get("brief_flags") or {}).get("ruling") or []), *(answer["ruling"] for answer in closed if answer["ruling"])]
     heard = [f'his answer "{answer["words"]}"' + (f" ({answer['link']})" if answer["link"] else "") for answer in closed if not answer["ruling"] and answer["words"]]
-    return list(dict.fromkeys(ids)), list(dict.fromkeys(heard))
+    return ruled, cited, list(dict.fromkeys(heard))
 
 
 def readers(data: dict, order_id: str, parts: list[str]) -> list[str]:
