@@ -769,7 +769,7 @@ def merged_done(name: str, data: dict, job_id: str) -> str:
     merges = merges_of(data, job_id)
     order_id, urls = job["order"], " ".join(map(state.pr_url, merges))
     merged = ", ".join(f"{key} at {sha[:12]}" for key, sha in merges.items())
-    commits = " ".join(f"https://github.com/{key.partition('#')[0]}/commit/{sha}" for key, sha in merges.items())
+    commits = " ".join(merge_commits(merges))
     line = f"DONE {urls} merged: {merged}"
     whole = f"{line}\nPR: {urls}\nCHECK: {commits}\n"
     state.keep_report(name, job_id, line, whole)
@@ -783,6 +783,19 @@ def merged_done(name: str, data: dict, job_id: str) -> str:
         f" once the watch's FREE says that release is out, its DONE giving {order_id} its proof; <service> is a component `tools/ci release select --pr` finds its paths reach,"
         " and paths reaching none take no --waits"
     )
+
+
+def proofless(name: str, data: dict, job_id: str) -> None:
+    """Take BLOCKED on a builder whose READY or PUSHED's PRs all merged, a yasyf/* one among them, keeping no executable proof file, its merge commits its CHECK:, since nothing then proves it live but a fresh builder with a merge handoff."""
+    line = (
+        f"BLOCKED {' '.join(map(state.pr_url, reported_prs(data, job_id)))} merged, and {job_id} keeps no proof file to run, so nothing proves it live:"
+        " a fresh builder with a merge handoff, added with drive job add builder --builds-nothing, proves it from its INSTALL: and PROVE: lines"
+    )
+    finish(name, data, job_id, line, merge_commits(merges_of(data, job_id)), True, "", "")
+
+
+def merge_commits(merges: dict[str, str]) -> list[str]:
+    return [f"https://github.com/{key.partition('#')[0]}/commit/{sha}" for key, sha in merges.items()]
 
 
 def prove(name: str, job_id: str, timeout: int) -> str:

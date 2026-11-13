@@ -457,7 +457,7 @@ def test_status_with_no_ids_prints_a_coordinator_one_line_per_open_order_it_runs
 
     orders, agentless, text = shown()
     assert (orders, agentless) == (["o1"], ["j1"])
-    assert "Open orders you run: 1, a line each; drive status <id> prints one whole, with its jobs, PRs and questions:" in text
+    assert "Open orders you run: 1, a line each and one under it for each part an ORPHAN named until it heals; drive status <id> prints one whole, with its jobs, PRs and questions:" in text
     assert "build o1" not in text and "fix the invoice" not in text
     assert "fix the invoice" in run("status", "o2")[1]
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", top)
