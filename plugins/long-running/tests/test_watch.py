@@ -1113,20 +1113,20 @@ def test_a_quiet_incident_owes_a_line_while_a_job_works_then_one_when_it_returns
         return [line for line in calls[-2][1].splitlines() if line.startswith("Moved since")]
 
     assert watch.quiet_lines(watching, T0 + timedelta(minutes=7)) == []
-    assert moved(2) == ["Moved since the thread's last line: nothing. At work: j2."]
+    assert moved(2) == ["Moved since the thread's last line or the watch's last report on it: nothing. At work: j2."]
     posted(T0 + timedelta(minutes=8))
     with state.edit(demo) as data:
         data["jobs"]["j2"].update(state="done", said="DONE first check: the newest dev build fails the same way")
     assert watch.quiet_lines(watching, T0 + timedelta(minutes=12, seconds=59)) == []
     assert watch.quiet_lines(watching, T0 + timedelta(minutes=13)) == []
-    assert moved(4) == ["Moved since the thread's last line: j2. At work: no job."]
+    assert moved(4) == ["Moved since the thread's last line or the watch's last report on it: j2. At work: no job."]
     posted(T0 + timedelta(minutes=14))
     assert watch.quiet_lines(watching, T0 + timedelta(hours=3)) == []
     assert len(calls) == 4
     with state.edit(demo) as data:
         data["jobs"]["j1"]["questions"][0]["closed"] = state.new_close("tap", "the first option", card)
     assert watch.quiet_lines(watching, T0 + timedelta(hours=3, seconds=5)) == []
-    assert moved(6) == ["Moved since the thread's last line: j1. At work: no job."]
+    assert moved(6) == ["Moved since the thread's last line or the watch's last report on it: j1. At work: no job."]
 
 
 O836_FIX = "Forge-AI/monorepo#55152"
@@ -1182,7 +1182,7 @@ def test_replaying_o836_from_its_first_line_after_his_card_owes_one_line_when_j2
     assert lines == [state.parse_time("2026-11-12T23:25:04-08:00")]
     [(report, body), _] = calls
     assert report["topic"] == "watch-quiet-o836"
-    assert "Moved since the thread's last line: j2266. At work: no job." in body.splitlines()
+    assert "Moved since the thread's last line or the watch's last report on it: j2266. At work: no job." in body.splitlines()
 
 
 def threaded(demo: str) -> None:
@@ -1190,7 +1190,7 @@ def threaded(demo: str) -> None:
         data["orders"]["o1"]["thread"] = ["D123", INCIDENT_THREAD]
 
 
-def test_an_order_with_a_thread_owes_a_line_there_after_each_step_none_while_its_jobs_run_none_within_five_minutes_of_its_last_line_none_for_a_stage_relabel_and_again_five_minutes_on_from_a_handler_that_never_posts(
+def test_an_order_with_a_thread_owes_a_line_there_after_each_step_none_while_its_jobs_run_none_within_five_minutes_of_its_last_line_none_for_a_stage_relabel_and_none_for_news_a_handler_got_and_never_posted(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     threaded(demo)
@@ -1208,14 +1208,15 @@ def test_an_order_with_a_thread_owes_a_line_there_after_each_step_none_while_its
     assert watch.quiet_lines(watching, hour + timedelta(seconds=5)) == []
     [(report, body), (start, _)] = calls
     assert (report["text"], report["attr"]) == ("POST order o1 has news since the thread's last line: post what changed there", {"order": "o1", "progress": "true", "quiet": "true", "thread": INCIDENT_THREAD})
-    assert "Moved since the thread's last line: j2. At work: j1." in body.splitlines()
+    assert "Moved since the thread's last line or the watch's last report on it: j2. At work: j1." in body.splitlines()
     assert start[-1] == f"Record: 901 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'quiet-901'}"
     assert watch.quiet_lines(watching, hour + timedelta(minutes=5, seconds=4)) == []
     assert len(calls) == 2
     with state.edit(demo) as data:
         data["handlers"].clear()
     assert watch.quiet_lines(watching, hour + timedelta(minutes=5, seconds=5)) == []
-    assert len(calls) == 4
+    assert watch.quiet_lines(watching, hour + timedelta(minutes=5, seconds=50)) == []
+    assert len(calls) == 2
     posted = hour + timedelta(minutes=6)
     with state.edit(demo) as data:
         data["orders"]["o1"]["last_line"] = state.stamp(posted)
@@ -1226,11 +1227,19 @@ def test_an_order_with_a_thread_owes_a_line_there_after_each_step_none_while_its
         stage.stamp(data["prs"][KEY], stage.Stage("unlanded", stage.ORDER, "Trunk ejected it from the merge queue"), posted)
     assert watch.quiet_lines(watching, posted + timedelta(seconds=5)) == []
     assert watch.quiet_lines(watching, posted + timedelta(minutes=4, seconds=59)) == []
-    assert len(calls) == 4
+    assert len(calls) == 2
     assert watch.quiet_lines(watching, posted + timedelta(minutes=5)) == []
+    assert len(calls) == 4
+    assert f"Moved since the thread's last line or the watch's last report on it: {KEY}. At work: j1." in calls[-2][1].splitlines()
+    with state.edit(demo) as data:
+        data["handlers"].clear()
+        data["jobs"]["j1"].update(state="done", said="DONE the watch keeps what each report carried")
+    assert watch.quiet_lines(watching, posted + timedelta(minutes=9, seconds=59)) == []
+    assert len(calls) == 4
+    assert watch.quiet_lines(watching, posted + timedelta(minutes=10)) == []
     assert len(calls) == 6
-    assert f"Moved since the thread's last line: {KEY}. At work: j1." in calls[-2][1].splitlines()
-    relined = posted + timedelta(minutes=6)
+    assert "Moved since the thread's last line or the watch's last report on it: j1. At work: no job." in calls[-2][1].splitlines()
+    relined = posted + timedelta(minutes=11)
     with state.edit(demo) as data:
         data["orders"]["o1"]["last_line"] = state.stamp(relined)
         data["handlers"].clear()
@@ -1279,7 +1288,7 @@ def test_the_first_pass_over_any_number_of_threaded_orders_saves_the_drive_once_
     assert watch.quiet_lines(watching, T0 + timedelta(minutes=5)) == []
     [(report, body), _] = calls
     assert report["attr"] == {"order": f"o{many}", "progress": "true", "quiet": "true", "thread": f"1794494004.{many:06d}"}
-    assert f"Moved since the thread's last line: j{many}. At work: no job." in body.splitlines()
+    assert f"Moved since the thread's last line or the watch's last report on it: j{many}. At work: no job." in body.splitlines()
 
 
 BACK = T0 + timedelta(minutes=95)
