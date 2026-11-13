@@ -6365,6 +6365,47 @@ def test_an_answer_lists_every_pr_of_its_order_not_yet_live_and_a_reopened_one_g
     assert data["answers"]["a1"]["cards"]["Forge-AI/monorepo#45"] == {"mark": "reopened", "job": "j1", "card": None}
 
 
+def test_his_answer_reopening_the_top_pr_of_a_two_pr_stack_card_cards_the_pr_it_leaves_standing_alone_and_never_hands_his_tap_on_it_to_the_reworked_one(
+    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, withdrawals: Withdrawals, native_stacks: dict[str, list[tuple[str, str]]]
+) -> None:
+    top, top_url = "Forge-AI/monorepo#44", "https://github.com/Forge-AI/monorepo/pull/44"
+    run("job", "add", "builder", "--order", "o1", "--goal", "rework the top")
+    run("pr", "add", top_url, "--job", "j3")
+    cards_asking(monkeypatch, PR, top_url)
+    stack = [designing, top]
+    with state.edit("demo") as data:
+        for key in stack:
+            data["prs"][key] |= {"native": stack, "stack": stack, "card": TAP_CARD, "head": "abc", "checks": "pass", "review": "approved"}
+    for key in stack:
+        native_stacks[key] = [(member, "open") for member in stack]
+    withdrawals.cards = [TAP_CARD]
+    assert cli.main(["answer", "8213afb", "--words", WORDS, "--link", PICK]) == 2
+    code, out = run("answer", "8213afb", "--stands", designing, "--reopened", f"{top}=j3")
+    assert (code, withdrawals.asked) == (0, [(top_url, state.rework_reason(state.load("demo")["prs"][top]))]), out
+    assert [state.load("demo")["prs"][key]["card"] for key in stack] == [TAP_CARD, None]
+    gone = {"waits": "merge:Forge-AI:monorepo:42-44", "title": "New: land it?", "prs": [PR, top_url], "asked": state.stamp(), "url": TAP_CARD, "tapped": "", "replaced_by": ""}
+    gone["answer"] = {"at": state.stamp(), "label": state.rework_reason(state.load("demo")["prs"][top]), "withdrawn": True}
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [], "closed": [gone]})
+    view.refresh_cards("demo")
+    found = view.live_cards("demo")
+    with state.edit("demo") as data:
+        stage.settle(data, found)
+        data["prs"][designing]["tap"] = state.new_tap("Approve", "abc", PICK)
+        assert stage.adopt(data) == []
+        data["prs"][designing]["tap"] = None
+    assert (state.load("demo")["prs"][designing]["card"], stage.of(state.load("demo"), designing, found).name) == (None, "uncarded")
+    read = {"title": "Fix: land it", "body": CARD_BODY, "state": "OPEN", "isDraft": False, "headRefOid": "abc", "baseRefName": "main", "headRefName": "land-it", "reviewDecision": "APPROVED", "labels": []}
+    monkeypatch.setattr(card, "run", lambda cmd, **_: "[]" if cmd[1] == "api" else json.dumps(read | {"url": f"https://github.com/Forge-AI/monorepo/pull/{cmd[3]}"}))
+    drawn = card.cards([{"repo": "Forge-AI/monorepo", "number": 42}])
+    assert [([row["url"] for row in each["card"]["prs"]], each["card"]["waits"], each["card"]["options"]) for each in drawn["cards"]] == [([PR], "merge:Forge-AI:monorepo:42", ["Approve", "Hold"])]
+    assert [skipped["number"] for skipped in drawn["skipped"]] == [44]
+    with state.edit("demo") as data:
+        data["prs"][designing]["tap"] = state.new_tap("Approve", "abc", PICK)
+        data["prs"][top]["rework"] = None
+        assert stage.adopt(data) == []
+    assert [state.load("demo")["prs"][key]["stack"] for key in stack] == [[designing], stack]
+
+
 def test_an_answer_under_a_card_lists_only_its_job_and_orders_cards_and_prs_and_those_its_words_name(
     run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

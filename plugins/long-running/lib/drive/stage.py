@@ -189,16 +189,19 @@ def live(data: dict, pr: dict) -> bool:
 
 
 def adopt(data: dict) -> list[str]:
-    """Give each open PR waiting on his tap that holds none the newest tap of his on another PR of its landing stack, made once its row was added, at its own head, since his card draws one landing unit and his Approve or Hold lands or holds it whole; the PRs given one."""
+    """Give each open PR waiting on his tap that holds none, and is not being reworked to his words, the newest tap of his on another PR of its landing stack whose card was last drawn with it, made once its row was added, at its own head, since his Approve or Hold on a card lands or holds the PRs it carries; the PRs given one."""
     given = []
     for key, members in land.landing_stacks(data).items():
         pr = data["prs"][key]
-        if pr["tap"] or not carded(pr):
+        if pr["tap"] or pr["rework"] or not carded(pr):
             continue
         taps = [
             (member, tap)
             for member in members
-            if member != key and (tap := data["prs"][member]["tap"]) and (not pr["added"] or state.parse_time(pr["added"]) <= state.parse_time(tap["at"]))
+            if member != key
+            and key in (data["prs"][member].get("stack") or [])
+            and (tap := data["prs"][member]["tap"])
+            and (not pr["added"] or state.parse_time(pr["added"]) <= state.parse_time(tap["at"]))
         ]
         if not taps:
             continue
@@ -266,9 +269,13 @@ def line(key: str, pr: dict, now: Stage) -> str:
 
 
 def settle(data: dict, cards: dict) -> None:
-    """Keep on each open PR waiting on his tap the link of the card of his drawn on it, read from his cards as cc-slack lists them, and give each the tap his card on its landing unit holds."""
+    """Keep on each open PR waiting on his tap the link of the card of his drawn on it, read from his cards as cc-slack lists them, dropping a link to a card cc-slack lists withdrawn so the PR reads uncarded and its card draws again, and give each the tap his card on its landing unit holds."""
     for pr in data["prs"].values():
-        if pr["state"] == "open" and carded(pr) and not pr["card"] and (drawn := view.card_for(cards["pr_cards"], pr["url"])):
+        if pr["state"] != "open" or not carded(pr):
+            continue
+        if pr["card"] and ((view.closed_card(cards, pr["card"]) or {}).get("answer") or {}).get("withdrawn"):
+            pr["card"] = None
+        if not pr["card"] and (drawn := view.card_for(cards["pr_cards"], pr["url"])):
             pr["card"] = drawn["url"]
     adopt(data)
 
