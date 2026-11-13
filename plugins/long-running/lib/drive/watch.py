@@ -745,7 +745,7 @@ def merge_lane_prs(watcher: Watcher, job_ids: set[str]) -> list[str]:
 
 
 def read_lines(watcher: Watcher, data: dict, moment: datetime) -> list[str]:
-    """Send each `LOG`, `READ` or `DRIVE` question a lane queued the answer `drive job read` keeps for it here, since a Sprite holds no CI credentials or drive records, starting that read as its own process for a live lane's question with neither an answer nor a reader still running, so a drive command that runs for minutes holds up no pass; one the read cannot answer gets why as its answer and a `JOB` line saying so. A lane's `drive job report` that took its return wakes the coordinator with its `JOB` line as its answer goes, as a job's own return does on this Mac, a `PUSHED` aside, which waits on its checks; its job may have left the live states by then, so a kept answer goes whatever its job's state. An answer goes, and a reader starts, only on what drive.json held once its reader was seen ended, so the cut-off answer a reader keeps before it runs never goes ahead of the one it finishes with, no reader that finished since the watch last read drive.json starts again, and a refused reply sends the kept answer again and never reruns the read. A question leaves its job's queue only once its answer goes through; with no line since nothing is owed on it, once Orca says it already holds another answer, since a lane whose wait ends waits again on the same question; or with one `JOB` line once Orca says the question's dispatch closed, since no lane waits on it then: any other refused reply only delays it."""
+    """Send each `LOG`, `READ` or `DRIVE` question a lane queued the answer `drive job read` keeps for it here, since a Sprite holds no CI credentials or drive records, starting that read as its own process for a live lane's question with neither an answer nor a reader still running, so a drive command that runs for minutes holds up no pass; one the read cannot answer gets why as its answer and a `JOB` line saying so. A lane's `drive job report` that took its return wakes the coordinator with its `JOB` line as its answer goes, as a job's own return does on this Mac, a `PUSHED` aside, which waits on its checks; its job may have left the live states by then, so a kept answer goes whatever its job's state. An answer goes, and a reader starts, only on what drive.json held once its reader was seen ended, so the cut-off answer a reader keeps before it runs never goes ahead of the one it finishes with, no reader that finished since the watch last read drive.json starts again, and a refused reply sends the kept answer again and never reruns the read. A question leaves its job's queue only once its answer goes through, or with no line since nothing is owed on it once Orca says it already holds another answer, since a lane whose wait ends waits again on the same question, or that the question's dispatch closed, since no lane waits on it then, as when `drive job end` ended its lane while its read ran: any other refused reply only delays it."""
     running, data = ended_reads(watcher.name, data)
     for job_id, job in live_lanes(watcher, data).items():
         for message_id in job.get("reads", {}):
@@ -764,9 +764,7 @@ def read_lines(watcher: Watcher, data: dict, moment: datetime) -> list[str]:
             try:
                 orca.reply(watcher.name, job["run"], message_id, said)
             except orca.OrcaError as error:
-                if error.code == orca.DISPATCH_CLOSED:
-                    lines.append(f"JOB {job_id} {job['order']} READ dropped, its dispatch closed before its answer went: {error}")
-                elif error.code != orca.ANSWERED_ELSEWHERE:
+                if error.code not in (orca.ANSWERED_ELSEWHERE, orca.DISPATCH_CLOSED):
                     lines += read_failed(watcher, source, error, moment)
                     continue
             else:

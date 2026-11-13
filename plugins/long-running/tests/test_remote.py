@@ -2087,20 +2087,24 @@ def test_a_read_someone_already_answered_is_dropped_with_no_line(remote: str, mo
     ]
 
 
-def test_a_read_whose_dispatch_closed_is_dropped_and_said_once(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_read_still_running_when_job_end_ended_its_lane_is_dropped_with_no_line(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cloned(tmp_path, remote)
     deliver(monkeypatch, [message("question", "LOG https://buildkite.com/forge/test/builds/124676", id="relay_4d6bfb09372e")])
+    monkeypatch.setattr(watch, "spawn_reader", lambda name, job_id, message_id: os.getpid())
     monkeypatch.setattr(reads, "answer", lambda question, root, drive, job_id: "log")
     replies = []
     closed = f"Dispatch {DISPATCH} finished on pool-one, which cannot take follow-ups for finished workers yet."
     monkeypatch.setattr(orca, "call", reply_refused(replies, "dispatch_inactive", closed))
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
-    passes = [watch.run_pass(watching, T0 + timedelta(seconds=s)) for s in (0, 5, 10, 70)]
-    assert passes == [
-        [f"JOB j1 o1 READ dropped, its dispatch closed before its answer went: orca orchestration reply: dispatch_inactive: {closed}"],
-        [],
-        [],
-        [],
-    ]
+    assert staged(watch.lane_lines, watching, T0) == []
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(state="done", workspace="pool-one")
+    monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: "")
+    assert run("job", "end", "j1") == (0, "j1's lane ended; j1 stays done")
+    watch.answer_read(remote, "j1", "relay_4d6bfb09372e")
+    assert [staged(watch.lane_lines, watching, T0 + timedelta(seconds=s)) for s in (5, 10, 70)] == [[], [], []]
     assert state.load(remote)["jobs"]["j1"]["reads"] == {}
     assert [args for args in replies if args[0] == "reply"] == [("reply", "--id", "relay_4d6bfb09372e", "--run", RUN, "--body", "log")]
 
