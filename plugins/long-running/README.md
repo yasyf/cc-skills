@@ -11,7 +11,7 @@ A drive that spans a night of orders loses track the moment one session tries to
 
 Prerequisites:
 
-- `cc-inbox` (`>=0.54.10`), `cc-notes` (`>=0.76.0`) and `orca` (`>=0.1.12`) plugins, installed as dependencies
+- `cc-inbox` (`>=0.54.10`), `cc-notes` (`>=0.76.24`) and `orca` (`>=0.1.12`) plugins, installed as dependencies
 - `cc-slack` plugin, for the messages and PR cards in your Slack direct message (DM)
 - The GitHub CLI `gh` and the `claude` CLI on `PATH`
 - Google Chrome or Chromium, to draw each Show me visual (code, an arch map, a Mermaid or Graphviz diagram, a chart, a compare) as the picture on its Slack card, with the same module the dashboard draws it with live; set `CHROME` to one outside the usual places
