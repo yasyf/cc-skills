@@ -87,17 +87,18 @@ changed and when, its findings the suspects, and its root cause the verdict.
 2. Read the open incident orders on the dashboard's top strip. One on the same failing service
    makes this a join, by [One incident, one record](#one-incident-one-record), and nothing below
    starts. Otherwise, open it in one call, filed under the area it hit: `drive incident open "<his
-   words, or the alert text>" --from <its permalink> --record "<service> on <cluster>:
-   <symptom>, since <time>" --alert <link> --release --project "<p>" --workstream "<w>" --title "<a few words>"`.
+   words, or the alert text>" --from <its permalink> --alert <link> --release --project "<p>"
+   --workstream "<w>" --title "<a few words>"`.
    - `--alert`, once for each alert, is its Datadog monitor or Sentry issue link, from the alert's
      post; `drive order set <o> --alert <link>` adds one later. An incident from his words alone
      has none.
    - `--release`, when a release or new build came before the break, gives it the parts `fix` and
      `first check`. With neither flag they are `fix`, `rollback` and `cause`, and with
      `--no-rollback`, when no build lacks the failing path, `fix`, `stop` and `cause`.
-   - It records a codex job on each part, opens the evidence record and names it on the order's
-     note, and prints each job's start line, the rule each brief's `Incident:` line carries word for
-     word, then each other open incident order with its note.
+   - It records a codex job on each part, opens the evidence record titled by `--title` and names
+     it on the order's note, all in one save, so a record cc-notes refuses writes nothing, and
+     prints each job's start line, the rule each brief's `Incident:` line carries word for word,
+     then each other open incident order with its note.
    - The order sits on the dashboard's top strip until it closes. An order made another way gets
      `drive order set <o> --incident`, which refuses until a job owns its `fix` part.
 3. In the next message, start every job the verb printed, as [Jobs](#jobs) says, and no freeze,
