@@ -2,6 +2,7 @@ import json
 import os
 import plistlib
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -32,6 +33,7 @@ DRIVE = Path(__file__).resolve().parents[2] / "bin" / "drive"
 MANIFEST = ".claude-plugin/plugin.json"
 FLOOR = re.compile(r">=(\d+\.\d+\.\d+)")
 HOOKS = "captain-hook"
+LONG_RUNNING = "long-running"
 HELPER = "capt-hook"
 HELPER_REPO = "yasyf/captain-hook"
 APP_PLIST = Path.home() / "Applications" / "Captain Hook.app" / "Contents" / "Info.plist"
@@ -461,7 +463,7 @@ def meet_sibling(key: str, floor: str, deadline: float, timeout: int, drive: str
 def newest_drive() -> Path:
     """The drive of the newest long-running installed, which each drive process running an older one hands its place to."""
     plugins = json.loads((config_dir() / "plugins" / "installed_plugins.json").read_text())["plugins"]
-    return Path(newest([entry for key, entries in plugins.items() if key.partition("@")[0] == "long-running" for entry in entries])["installPath"]) / "bin" / "drive"
+    return Path(newest([entry for key, entries in plugins.items() if key.partition("@")[0] == LONG_RUNNING for entry in entries])["installPath"]) / "bin" / "drive"
 
 
 def upgraded() -> Path | None:
@@ -495,6 +497,24 @@ def installed(key: str) -> dict:
     return newest(installs(key))
 
 
+def try_drives(clone: str, ref: str, folder: str, deadline: float) -> None:
+    """Run the release's own drive status on a copy of each drive on this Mac before any scope switches to it, refusing a release that cannot read one, since every drive verb, tool, watch and hook runs the newest install."""
+    if not (names := state.names()):
+        return
+    with tempfile.TemporaryDirectory(prefix="drive-try-") as scratch:
+        tree, copies = Path(scratch) / "release", Path(scratch) / "state"
+        tree.mkdir()
+        git(clone, f"--work-tree={tree}", "checkout", ref, "--", folder, deadline=deadline)
+        for name in names:
+            (copies / name).mkdir(parents=True)
+            shutil.copyfile(state.state_path(name), copies / name / "drive.json")
+        for name in names:
+            try:
+                run(["env", f"LONG_RUNNING_STATE={copies}", str(tree / folder / "bin" / "drive"), "status", "--drive", name], deadline)
+            except InstallError as error:
+                raise InstallError(f"refused {ref}, keeping the release installed now: its own drive status failed on a copy of the {name} drive: {error}") from None
+
+
 def install(key: str, sha: str | None, repo: str | None, deadline: float, timeout: int, drive: str | None) -> str:
     plugin, _, marketplace = key.partition("@")
     repo = repo or marketplace_repo(marketplace)
@@ -515,6 +535,8 @@ def install(key: str, sha: str | None, repo: str | None, deadline: float, timeou
             if each["name"] == HOOKS:
                 meet_helper(key, floor[1], deadline, drive)
             meet_sibling(f"{each['name']}@{each['marketplace']}", floor[1], deadline, timeout, drive)
+        if plugin == LONG_RUNNING:
+            try_drives(clone, *named, deadline)
         with update_lock(deadline):
             state.hold_install()
             run(["claude", "plugin", "marketplace", "update", marketplace], deadline)
