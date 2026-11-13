@@ -72,7 +72,10 @@ for its repository says, then return `DONE <proof>`.
     the drive's pictures folder included, `![1 · Before, dev](<path>)` then
     `![2 · After, this PR](<path>)`, each build named in words rather than a sha, which Slack shows
     side by side as one gallery, in his words "This is a visual change so it should
-    have shown before and after screenshots". A fence holds code, never prose, JSON,
+    have shown before and after screenshots". In Forge-AI/monorepo CI shoots both for an Iris view
+    the body's `iris-evidence` block names: its `product-dashboard-iris-evidence` job uploads the last
+    dev build's shot as `iris-evidence/dev/<shot>.png` and the change's as `iris-evidence/<shot>.png`,
+    so a builder takes both from that job's artifacts rather than building the app. A fence holds code, never prose, JSON,
     YAML, logs, terminal output, an HTTP exchange, or a stack trace: a request alone is the call, and
     what it answered goes in a markdown table or a `mermaid` sequenceDiagram. Put a caption line just
     above each fence and alt text on each image, since Slack titles each picture
