@@ -803,7 +803,7 @@ def merge_commits(merges: dict[str, str]) -> list[str]:
 
 
 def prove(name: str, job_id: str, timeout: int) -> str:
-    """Prove live a builder's READY or PUSHED whose PRs all merged, the step the watch starts: install each plugin a yasyf/* merge changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, its other merges taken at once, wait until the drive's dashboard runs the newest long-running installed, then run the job's proof file with the bin folders of those plugins' newest installs, read right before it runs, first on PATH, with no wait for CI, since no install reads a CI run; when it fails while a workflow a yasyf/* merge ran on its default branch has not completed its first run from the merge on that was not cancelled, the run drive pr ci judges the merge by, follow that run to its end with no deadline, as await_ci does, and run the file once more within a fresh deadline, and run it again on the newer installs within the deadline when it fails while a newer install of any of them landed, keep the last run's output in reports/<j>.proof.txt, take DONE on exit 0 with output, since a proof file printing nothing proves nothing, that output proving each user story the job's brief names on his surface, as brief.story_gap reads it, and BLOCKED otherwise, its line naming that file and quoting the run's last line opening FAIL, else its last line, and a nonzero exit ending on a WAIT line with no FAIL line taking no result, an install that fails, a merge no release will carry, or a dashboard still on an older install at the deadline taking BLOCKED naming it, and keep the close report on its order for the watch to post when DONE leaves the order nothing to do, but an open incident's, which the watch closes once DONE records its fix live, each said on its PRs' lines; refused for a job waiting on no such READY or PUSHED, or one proof_gap names; nothing after another proof took the job's result first. When a newer install saved the drive while it installed, waited on CI or ran the proof file, that install's `drive job proved` keeps the result, which proof_kept hands it."""
+    """Prove live a builder's READY or PUSHED whose PRs all merged, the step the watch starts: install each plugin a yasyf/* merge changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, its other merges taken at once, wait until the drive's dashboard runs the newest long-running installed, then run the job's proof file with the bin folders of those plugins' newest installs, read right before it runs, first on PATH, with no wait for CI, since no install reads a CI run; when it fails while a workflow a yasyf/* merge ran on its default branch has not completed its first run from the merge on that was not cancelled, the run drive pr ci judges the merge by, follow that run to its end with no deadline, as await_ci does, and run the file once more within a fresh deadline, and run it again on the newer installs within the deadline when it fails while a newer install of any of them landed, keep the last run's output in reports/<j>.proof.txt, take DONE on exit 0 with output, since a proof file printing nothing proves nothing, that output proving each user story the job's brief names on his surface, as brief.story_gap reads it, and BLOCKED otherwise, its line naming that file and quoting the run's last line opening FAIL, else saying it printed none, and a nonzero exit ending on a WAIT line with no FAIL line taking no result, an install that fails, a merge no release will carry, or a dashboard still on an older install at the deadline taking BLOCKED naming it, and keep the close report on its order for the watch to post when DONE leaves the order nothing to do, but an open incident's, which the watch closes once DONE records its fix live, each said on its PRs' lines; refused for a job waiting on no such READY or PUSHED, or one proof_gap names; nothing after another proof took the job's result first. When a newer install saved the drive while it installed, waited on CI or ran the proof file, that install's `drive job proved` keeps the result, which proof_kept hands it."""
     from drive import brief, dashboard
 
     deadline = clock() + timeout
@@ -847,7 +847,7 @@ def prove(name: str, job_id: str, timeout: int) -> str:
             code, output = "past drive job prove's deadline", f"{expired.stdout or ''}{expired.stderr or ''}"
         except OSError as error:
             code, output = f"unrun ({error})", ""
-        tail = quoted(output)
+        tail = output if code == "unrun" else quoted(output)
         if code == 0 and not output.strip():
             code, tail = "0 but prints nothing", "a proof file prints a line for each check it passed, so one printing nothing proves nothing"
         elif code == 0 and brief.surface(job) and (gap := brief.story_gap(job_id, job, brief.proofs(output), output)):
@@ -861,9 +861,13 @@ def prove(name: str, job_id: str, timeout: int) -> str:
 
 
 def quoted(output: str) -> str:
-    """The line a proof's run is said by: its last line opening FAIL, the check that failed, since a proof stopped by a failing step can print lines after it that read as passing, else its last line."""
+    """The line a proof's run is said by: its last line opening FAIL, the check that failed, since a proof stopped by a failing step can print lines after it that read as passing; else its last line when it opens WAIT; else that it printed no FAIL line, never a line of its own, which can be a shell's report of a killed step quoting its whole command line."""
     lines = [line.strip() for line in output.splitlines() if line.strip()]
-    return next((line for line in reversed(lines) if line.startswith("FAIL")), lines[-1] if lines else "no output")
+    if fail := next((line for line in reversed(lines) if line.startswith("FAIL")), None):
+        return fail
+    if lines and lines[-1].startswith("WAIT"):
+        return lines[-1]
+    return "it printed no FAIL line" if lines else "no output"
 
 
 def waited(code: int | str, output: str) -> str | None:

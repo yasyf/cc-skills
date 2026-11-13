@@ -5638,6 +5638,14 @@ def test_a_line_the_coordinator_did_not_get_goes_again_and_says_so_from_the_thir
     assert [argv[-1] for argv in sent] == [line]
 
 
+def test_a_line_holding_a_credential_posts_once_with_it_withheld_rather_than_being_refused_on_every_pass(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    sent = posts(monkeypatch)
+    watching = watcher(demo)
+    line = f"EVENT j1's proof was killed running env ANTHROPIC_API_KEY=sk-ant-{'a1' * 12} probe --live"
+    assert (watch.sent(watching, "root", [line], T0), watch.sent(watching, "root", [], T0 + timedelta(seconds=5))) == ([], [])
+    assert posted(sent) == [("evidence", f"root@{demo}", "EVENT j1's proof was killed running env ANTHROPIC_API_KEY=<an sk- API key withheld> probe --live")]
+
+
 def test_an_answer_leaving_a_card_unmarked_or_a_job_unsent_his_words_says_so_every_ten_minutes_until_each_is_marked(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     asking(monkeypatch, demo, "demo:j1-7-a")

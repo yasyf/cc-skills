@@ -1273,7 +1273,7 @@ def test_a_proof_file_that_fails_takes_blocked_and_closes_nothing(config: Path, 
     git = fake([BUILD], {BUILD})
     script = proving(config, tmp_path, git, 1)
     install.prove("demo", "j1", 900)
-    blocked = f"BLOCKED {URL}: {script} exits 1 on long-running@skills 1.0.3, its output {state.proof_path('demo', 'j1')}: ran on /cache/long-running/1.0.3/bin"
+    blocked = f"BLOCKED {URL}: {script} exits 1 on long-running@skills 1.0.3, its output {state.proof_path('demo', 'j1')}: it printed no FAIL line"
     job = state.load("demo")["jobs"]["j1"]
     assert (job["state"], job["said"]) == ("failed", blocked)
     assert state.load("demo")["orders"]["o1"]["proof"] is None
@@ -1282,19 +1282,24 @@ def test_a_proof_file_that_fails_takes_blocked_and_closes_nothing(config: Path, 
 
 
 @pytest.mark.parametrize(
-    "printed",
+    ("printed", "said"),
     [
-        "drive pr ci exits 1\\nFAIL long-running CI https://github.com/yasyf/cc-skills/actions/runs/1 completed failure\\ncodex release tag https://github.com/yasyf/cc-skills/actions/runs/2 completed success",
-        "FAIL: the live dashboard runs 1.0.2\\n[agent-browser] launched browser",
-        "FAIL: the live dashboard runs 1.0.2\\nWAIT S1 no exchange since the install: reply in a DM thread, then run this again",
+        (
+            "drive pr ci exits 1\\nFAIL long-running CI https://github.com/yasyf/cc-skills/actions/runs/1 completed failure\\ncodex release tag https://github.com/yasyf/cc-skills/actions/runs/2 completed success",
+            "FAIL long-running CI https://github.com/yasyf/cc-skills/actions/runs/1 completed failure",
+        ),
+        ("FAIL: the live dashboard runs 1.0.2\\n[agent-browser] launched browser", "FAIL: the live dashboard runs 1.0.2"),
+        ("FAIL: the live dashboard runs 1.0.2\\nWAIT S1 no exchange since the install: reply in a DM thread, then run this again", "FAIL: the live dashboard runs 1.0.2"),
+        ("ok A1 the probe runs\\n/p.sh: line 3: 4242 Killed: 9 env ANTHROPIC_API_KEY=sk-ant-demo probe --live", "it printed no FAIL line"),
     ],
 )
-def test_a_failed_proof_is_said_by_its_last_fail_line_whatever_it_printed_after_it(config: Path, tmp_path: Path, fake: Callable[..., FakeGit], printed: str) -> None:
+def test_a_failed_proof_is_said_by_its_last_fail_line_whatever_it_printed_after_it_and_never_by_a_line_of_the_shells(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], printed: str, said: str
+) -> None:
     script = proving(config, tmp_path, fake([BUILD], {BUILD}), 1)
     script.write_text(f"#!/bin/sh\nprintf '{printed}\\n'\nexit 1\n")
     install.prove("demo", "j1", 900)
-    fail = next(line for line in reversed(printed.split("\\n")) if line.startswith("FAIL"))
-    blocked = f"BLOCKED {URL}: {script} exits 1 on long-running@skills 1.0.3, its output {state.proof_path('demo', 'j1')}: {fail}"
+    blocked = f"BLOCKED {URL}: {script} exits 1 on long-running@skills 1.0.3, its output {state.proof_path('demo', 'j1')}: {said}"
     assert state.load("demo")["jobs"]["j1"]["said"] == blocked
     assert proof_events() == [("yasyf/cc-skills#7", f"{install.PROOF_FAILED}: {blocked.removeprefix('BLOCKED ')}")]
 
@@ -1313,7 +1318,7 @@ def test_a_proof_ending_on_wait_with_no_fail_line_takes_no_result_and_marks_its_
     assert install.prove("demo", "j1", 900) == f"j1: {waits}"
     data = state.load("demo")
     job = data["jobs"]["j1"]
-    assert (job["state"], job["said"], job["proof"], job["report"]) == ("waiting", f"PUSHED {URL}", marker | {"waits": wait}, None)
+    assert (job["state"], job["said"], job["proof"]) == ("waiting", f"PUSHED {URL}", marker | {"waits": wait})
     assert (data["orders"]["o1"]["proof"], data["orders"]["o1"]["close_report"]) == (None, None)
     assert kept.read_text() == f"ok A1 cc-slack dm-status takes --drive\n{wait}\n"
     assert proof_events() == [("yasyf/cc-skills#7", waits)]
