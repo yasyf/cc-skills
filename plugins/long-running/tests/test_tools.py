@@ -1003,7 +1003,10 @@ def test_his_rulings_are_kept_as_drive_answers_listing_each_card_part_and_pr_the
             data["jobs"]["j1"]["questions"].append(state.new_question(None, title, state.stamp(), card=url) | {"waits": waits})
     found = {
         "team_url": "",
-        "questions": [{"card": {"waits": waits, "title": title, "options": ["Yes", "No"]}, "url": url, "question": title, "options": ["Yes", "No"]} for (waits, title), url in drawn],
+        "questions": [
+            {"card": {"waits": waits, "title": title, "body": title, "options": ["Yes", "No"], "recommended": "Yes"}, "url": url, "question": title, "options": ["Yes", "No"]}
+            for (waits, title), url in drawn
+        ],
         "closed": [],
         "pr_cards": [],
     }
@@ -1057,6 +1060,7 @@ def test_drive_answer_refuses_to_drop_a_merged_pr_or_every_part_of_an_order_and_
     run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/54101", "--job", "j1")
     with state.edit(demo) as data:
         data["prs"]["Forge-AI/monorepo#54101"]["state"] = "merged"
+    view.refresh_cards(demo)
     assert run("answer", "8427b3c", "--words", RULED, "--link", UNDER_CARD)[0] == 0
     for marks, refusal in (
         (["--dropped", "Forge-AI/monorepo#54101"], "Forge-AI/monorepo#54101 merged, so taking it out is a revert"),
