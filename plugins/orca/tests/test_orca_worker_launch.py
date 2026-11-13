@@ -106,18 +106,30 @@ sys.stderr.write(reply.get("err", ""))
 sys.exit(reply.get("rc", 0))
 """
 
-BIND_PREFIX = """#!/usr/bin/env python3
+BIND_REFUSAL = "drive: orca orchestration run-use: run_not_found: no such Run"
+BIND_CRASH = "NameError: name 'unsent' is not defined"
+TASK_LIST = ["orca", "orchestration", "task-list", "--run", RUN, "--json"]
+
+
+def first_bind(code: int, said: str) -> str:
+    """A WORKER_BIND whose first run exits code saying said, before it runs worker-start, and whose later runs run it."""
+    return f"""#!/usr/bin/env python3
 import json, os, sys
 state = os.environ["FAKE_STATE"]
 with open(os.path.join(state, "calls"), "a") as calls:
-    calls.write(json.dumps({"argv": ["bound", *sys.argv[1:]]}) + "\\n")
+    calls.write(json.dumps({{"argv": ["bound", *sys.argv[1:]]}}) + "\\n")
 refused = os.path.join(state, "bound_refused")
 if not os.path.exists(refused):
     open(refused, "w").close()
-    sys.stderr.write("drive: orca orchestration run-use: run_not_found: no such Run\\n")
-    sys.exit(75)
+    sys.stderr.write({said + chr(10)!r})
+    sys.exit({code})
 os.execvp(sys.argv[2], sys.argv[2:])
 """
+
+
+def tasks(*titles: str) -> dict:
+    return {"out": {"ok": True, "result": {"tasks": [{"id": f"task_{n}", "title": title} for n, title in enumerate(titles)]}}}
+
 
 def download(repo: str, tag: str, bin: str) -> str:
     return f"https://github.com/{repo}/releases/download/{tag}/{bin}_linux_amd64"
@@ -780,12 +792,15 @@ class SpriteTest(LaunchTest):
         self.assertEqual(self.launch.calls(), [*first, VERSION, CURRENT, self.launch.copy(), *self.launch.tools(), self.launch.start(retry=REQUEST)])
         self.assertEqual(self.launch.kept(), SPRITE_KEPT)
 
-    def test_a_bind_that_refuses_before_worker_start_fails_in_one_line_and_a_relaunch_retries_it_on_the_same_sprite(self):
-        bound = self.launch.bin / "bound"
-        bound.write_text(BIND_PREFIX)
+    def bound(self, launch: Launch, code: int, said: str) -> None:
+        bound = launch.bin / "bound"
+        bound.write_text(first_bind(code, said))
         bound.chmod(0o755)
+
+    def test_a_bind_that_refuses_before_worker_start_fails_in_one_line_and_a_relaunch_retries_it_on_the_same_sprite(self):
+        self.bound(self.launch, 75, BIND_REFUSAL)
         self.launch.sprite()
-        line = f"no worker started on Sprite {WORKSPACE}: WORKER_BIND refused before worker-start ran: drive: orca orchestration run-use: run_not_found: no such Run; its terminal {TERMINAL} waits idle, and launching this brief again retries worker-start in it"
+        line = f"no worker started on Sprite {WORKSPACE}: WORKER_BIND refused before worker-start ran: {BIND_REFUSAL}; its terminal {TERMINAL} waits idle, and launching this brief again retries worker-start in it"
         first = [VERSION, self.launch.prepare(), *self.launch.tools(), ["bound", "--", *self.launch.start()]]
         self.assert_failed(self.launch, self.launch.run(WORKER_BIND="bound --"), line, first)
         self.assertEqual(self.launch.receipt("worker-start.status"), "75\n")
@@ -796,6 +811,42 @@ class SpriteTest(LaunchTest):
         self.assertEqual(json.loads(relaunched.stdout)["dispatch"], "ctx_a")
         self.assertEqual(self.launch.calls(), [*first, VERSION, self.launch.copy(), *self.launch.tools(), ["bound", "--", *self.launch.start()], self.launch.start()])
         self.assertEqual(self.launch.kept(), SPRITE_KEPT)
+
+    def test_a_bind_that_crashes_before_orca_records_a_task_fails_in_one_line_and_a_relaunch_retries_it_on_the_same_sprite(self):
+        self.bound(self.launch, 1, BIND_CRASH)
+        self.launch.sprite()
+        self.launch.reply("orca orchestration task-list", tasks("lane-other"))
+        line = f"no worker started on Sprite {WORKSPACE}: worker-start exited 1 before Orca answered: {BIND_CRASH}, and Run {RUN} holds no task for {LANE}; its terminal {TERMINAL} waits idle, and launching this brief again retries worker-start in it"
+        first = [VERSION, self.launch.prepare(), *self.launch.tools(), ["bound", "--", *self.launch.start()], TASK_LIST]
+        self.assert_failed(self.launch, self.launch.run(WORKER_BIND="bound --"), line, first)
+        self.assertEqual((self.launch.receipt("worker-start.status"), self.launch.receipt("worker-start.json")), ("1\n", ""))
+        self.assertEqual(self.launch.receipt("worker-start.unsent"), "\n")
+        self.launch.sprite(copied={})
+        relaunched = self.launch.run(WORKER_BIND="bound --")
+        self.assertEqual(relaunched.returncode, 0, relaunched.stderr)
+        self.assertEqual(json.loads(relaunched.stdout)["dispatch"], "ctx_a")
+        self.assertEqual(self.launch.calls(), [*first, VERSION, self.launch.copy(), *self.launch.tools(), ["bound", "--", *self.launch.start()], self.launch.start()])
+        self.assertEqual(self.launch.kept(), SPRITE_KEPT)
+
+    def test_an_earlier_attempt_whose_worker_start_never_answered_is_reused_only_while_its_run_holds_no_task_for_the_lane(self):
+        for shown, reused in ((tasks(), True), (tasks(LANE), False)):
+            with self.subTest(reused=reused):
+                launch = self.fresh()
+                self.bound(launch, 1, BIND_CRASH)
+                launch.sprite()
+                kept = f"orca orchestration worker-start exited 1; kept terminal {TERMINAL}, worktree {ROOT}, and the receipt in {launch.attempt}"
+                first = [VERSION, launch.prepare(), *launch.tools(), ["bound", "--", *launch.start()], TASK_LIST]
+                self.assert_failed(launch, launch.run(WORKER_BIND="bound --"), kept, first)
+                self.assertFalse((launch.attempt / "worker-start.unsent").exists())
+                launch.sprite(copied={})
+                launch.reply("orca orchestration task-list", shown)
+                relaunched = launch.run(WORKER_BIND="bound --")
+                if reused:
+                    self.assertEqual(relaunched.returncode, 0, relaunched.stderr)
+                    self.assertEqual(json.loads(relaunched.stdout)["dispatch"], "ctx_a")
+                    self.assertEqual(launch.calls(), [*first, VERSION, TASK_LIST, launch.copy(), *launch.tools(), ["bound", "--", *launch.start()], launch.start()])
+                else:
+                    self.assert_failed(launch, relaunched, f"{launch.attempt} holds an earlier attempt of this brief, and a brief gets one attempt; inspect it instead", [*first, VERSION, TASK_LIST])
 
     def test_a_relaunch_copies_a_rewritten_brief_to_the_prepared_sprite_and_starts_its_worker_on_it(self):
         rewritten = {**PREPARED, "brief": {**PREPARED["brief"], "sha256": hashlib.sha256(REWRITTEN.encode()).hexdigest(), "bytes": len(REWRITTEN.encode())}}

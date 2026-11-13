@@ -222,9 +222,9 @@ def test_a_red_required_check_ends_a_pushed_with_its_build_and_goes_back_to_a_la
     with state.edit(demo) as data:
         data["jobs"]["j1"].update(where="remote", dispatch="d-1")
     resumed = []
-    monkeypatch.setattr(watch.reads, "run", lambda argv, checkout: resumed.append(argv) or "")
+    monkeypatch.setattr(watch.state, "detach", lambda name, args, log: resumed.append((name, args, log)) or 0)
     assert watch.handed(watching, [refused], T0) == []
-    assert resumed == [[str(watch.DRIVE), "job", "resume", "j1", refused, "--drive", demo]]
+    assert resumed == [(demo, ["job", "resume", "j1", refused, "--handed"], watch.RELAUNCHES_LOG)]
 
 
 def test_a_ready_waits_on_the_pr_it_names_and_its_job_takes_done_once_that_product_pr_merges_with_no_free_or_wake(
@@ -1538,6 +1538,12 @@ FINISHED = {"type": "assistant", "message": {"stop_reason": "end_turn", "content
 PARKED = {"type": "assistant", "message": {"stop_reason": "end_turn", "content": [{"type": "text", "text": "Codex is still running. I'll wait for the notification."}]}}
 CALLING = {"type": "assistant", "message": {"stop_reason": "tool_use", "content": [{"type": "tool_use", "name": "Bash"}]}}
 RESULT = {"type": "user", "message": {"content": [{"type": "tool_result"}]}}
+REFUSED_TEXT = "API Error: Opus 5.5's safeguards flagged this message (https://www.anthropic.com/legal/aup). This sometimes happens with safe, normal conversations."
+REFUSED = {
+    "type": "assistant",
+    "timestamp": "2026-11-12T20:44:05.907Z",
+    "message": {"model": "<synthetic>", "stop_reason": "refusal", "content": [{"type": "text", "text": REFUSED_TEXT}]},
+}
 
 
 @pytest.mark.parametrize(
@@ -1549,6 +1555,13 @@ RESULT = {"type": "user", "message": {"content": [{"type": "tool_result"}]}}
         ([CALLING, RESULT], timedelta(minutes=45), "j1's agent has written nothing for 45 minutes"),
         ([CALLING, FINISHED], timedelta(seconds=30), None),
         ([CALLING, PARKED], timedelta(minutes=10), None),
+        ([CALLING, RESULT, REFUSED], timedelta(minutes=10), None),
+        (
+            [CALLING, RESULT, REFUSED],
+            timedelta(minutes=45),
+            'j1\'s agent stopped 45 minutes ago on refusal: "API Error: Opus 5.5\'s safeguards flagged this message (https://www.anthropic.com/legal/aup). This…";'
+            " drive job resume j1 <the event> relaunches it on a Sprite with a handoff",
+        ),
         (
             [CALLING, PARKED],
             timedelta(minutes=45),
@@ -3412,29 +3425,33 @@ def test_a_line_the_coordinator_did_not_get_goes_again_and_says_so_from_the_thir
     assert [argv[-1] for argv in sent] == [line]
 
 
-def test_a_prs_move_resumes_the_remote_lane_waiting_on_it_and_reaches_the_coordinator_when_the_resume_fails(
+def test_a_prs_move_resumes_the_remote_lane_waiting_on_it_as_its_own_process_and_a_refused_resume_wakes_the_coordinator_with_its_lines(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with state.edit(demo) as data:
         data["jobs"]["j1"].update(where="remote", dispatch="d-1", state="waiting")
-    calls, outcomes = [], [True, False]
-
-    def resume(argv: list[str], checkout: Path) -> str:
-        calls.append(argv)
-        if not outcomes.pop(0):
-            raise reads.ReadError("orca exited 1")
-        return ""
-
-    monkeypatch.setattr(watch.reads, "run", resume)
+    detached = []
+    monkeypatch.setattr(watch.state, "detach", lambda name, args, log: detached.append((name, args, log)) or 0)
     watching = watcher(demo)
     red, approved, merged = (f"PR {KEY}: {move} [o1 j1]" for move in ("checks failed", "approved", "merged"))
     assert watch.handed(watching, [red, approved], T0) == [approved]
-    assert calls == [[str(watch.DRIVE), "job", "resume", "j1", red, "--drive", demo]]
-    assert watch.handed(watching, [merged], T0) == [f"{merged}; drive job resume j1 failed: orca exited 1"]
+    assert watch.handed(watching, [merged], T0) == []
+    assert detached == [(demo, ["job", "resume", "j1", line, "--handed"], watch.RELAUNCHES_LOG) for line in (red, merged)]
+    refusal = "j1 cannot be checked, so nothing was sent: orca exited 1"
+
+    def refused(args, name: str, text: str | None) -> int:
+        raise state.DriveError(refusal)
+
+    monkeypatch.setattr(cli, "relaunch", refused)
+    assert cli.main(["job", "resume", "j1", merged, "--handed", "--drive", demo]) == 2
+    assert cli.main(["job", "resume", "j1", merged, "--drive", demo]) == 2
+    said = watch.event_lines(watching)
+    assert said == [f"JOB j1 o1 the watch's drive job resume j1 failed: {refusal}; the lines it carried: {merged}"]
+    assert watch.wakes(said[0], state.load(demo))
     with state.edit(demo) as data:
         data["jobs"]["j1"]["state"] = "running"
     assert watch.handed(watching, [merged], T0) == [merged]
-    assert len(calls) == 2
+    assert len(detached) == 2
 
 
 def test_an_answer_leaving_a_card_unmarked_or_a_job_unsent_his_words_says_so_every_ten_minutes_until_each_is_marked(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

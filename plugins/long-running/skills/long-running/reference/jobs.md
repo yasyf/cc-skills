@@ -126,9 +126,10 @@ minutes is said with the remedy, a `SendMessage` to wake it.
    started or why it could not.
 3. When no worker started, start the job here with the Agent tool on its brief and say so in the
    order's next report, never silently. When the failure came after worker-start ran, the lane may
-   be live, so a reader checks that attempt before anything starts the job again. A launch whose
-   worker started and was never recorded needs no reader: `drive job launch <j>` again records it
-   from the ready receipt its attempt keeps.
+   be live, so a reader checks that attempt before anything starts the job again, unless Orca's
+   Run holds no task for its lane, when the attempt counts as one that sent nothing and the next
+   launch reuses its Sprite. A launch whose worker started and was never recorded needs no reader:
+   `drive job launch <j>` again records it from the ready receipt its attempt keeps.
 4. Send a handoff or message to a lane on stdin, `drive job resume <j> -` from a quoted heredoc,
    never in a file you write: Claude Code reads the files a session wrote back into its context
    after every compaction.
@@ -223,17 +224,29 @@ question.
   waiting, is one `LANE … died` line.
 - A running job's dead lane is relaunched in the pass that finds it: the watch runs
   `drive job resume <j>` as a process of its own, its output in the drive's `relaunches.log`, and
-  its `LANE … died` line says so. While its job stays `running`, a lane that finished, or ended with
+  its `LANE … died` line says so. A PR's move to a waiting remote lane goes the same way, as
+  `drive job resume <j> "<the lines>" --handed`, whose refusal comes back as a `JOB` line carrying
+  the lines. While its job stays `running`, a lane that finished, or ended with
   no next lane started within 30 minutes, or whose relaunch ended without one, makes its parts
   `ORPHAN`s even when another job or a posted answer carries them. So does an open PR from GitHub on
   the job's branch or its lane's that the drive does not track.
 
-**Resume.** `drive job resume` checks the worker before it sends.
+**Resume and launch.** `drive job resume` and `drive job launch` are one relaunch under the job's
+own lock: a second one waits for the first, about 150 s, then acts on the worker it started, so a
+resume that arrives while a worker starts reaches that worker as a message. Each checks the worker
+before it sends or starts.
 
+- A launch of a job whose lane's worker ended starts its next worker as a resume does, with no
+  message; one whose worker takes messages is refused, naming the resume that sends it one.
+- An agent on this Mac whose last response ended on an API error or a refusal, with its transcript
+  quiet two minutes, takes no `SendMessage`: either verb hands its job to a lane on a Sprite, or on
+  this Mac with `drive job launch <j> --local`, on a handoff carrying the job's brief, branch, last
+  line, report, PRs and the message.
 - A live worker gets the message: the answer to its open question, or a new message to its Dispatch
   when it asked none or Orca already holds another answer to it. On a finished worker whose Sprite is still up, it starts the job's
   next worker in its terminal, on the Run and terminal Orca shows for that worker; when Orca no
-  longer finds that terminal or worktree, the worker counts as dead. A dead worker, or one whose
+  longer finds that terminal or worktree, the worker counts as dead, and when its Sprite refuses
+  the tools a worker needs, that Sprite is passed over as a dead one's. A dead worker, or one whose
   Sprite's Orca environment is gone, as `drive job end` leaves it, is relaunched on a fresh Sprite
   on a Run this terminal makes, since Orca binds a Run only to the terminal that made it. A
   relaunch whose earlier try prepared a Sprite and started no worker on it reuses that Sprite, and
@@ -247,7 +260,8 @@ question.
   through the ssh session's stdin, so it never reaches the Sprite's disk. The output and the new
   worker's handoff name each saved branch. When that Sprite does not answer or the save fails, the
   relaunch runs on that Sprite instead, through `cc-remote orca prepare --existing`, in the checkout
-  the dead lane left, and the handoff and the output name why the save failed.
+  the dead lane left, and the handoff and the output name why the save failed. A Sprite that refused
+  a worker's tools is never run on again: it is kept, and the relaunch runs on a fresh Sprite.
 - When Orca cannot reach the lane's Sprite, or refuses the send or the start, nothing is delivered
   and it exits 2 with Orca's refusal; resume again once the watch reads the lane.
 - The `bash_guard` hook runs it in the foreground with `timeout: 20000` however it is called: a

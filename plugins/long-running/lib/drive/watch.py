@@ -1020,6 +1020,8 @@ def event_line(event: dict, prs: dict) -> str:
         return f"TAP {event['label']} {key}{suffix}"
     if event["kind"] in ("landing", "check", "proof"):
         return f"PR {key}: {event['change']}{suffix}"
+    if event["kind"] == "resume":
+        return f"JOB {event['job']} {event['order']} the watch's drive job resume {event['job']} failed: {event['error']}; the lines it carried: {event['text']}"
     details = " ".join(f"{name}={value}" for name, value in event.items() if name not in ("kind", "at", "lane"))
     return f"EVENT {event['kind']} {details}".rstrip() + suffix
 
@@ -1448,6 +1450,8 @@ def local_gap(job_id: str, job: dict, data: dict, moment: datetime) -> str | Non
                 f'{job_id}\'s agent finished and its result is not recorded: "{cut(line, 100)}"; only drive job report {job_id} - sets it,'
                 " or names why it refuses, so SendMessage from the session that started it wakes it to pipe its return there"
             )
+        if quiet >= QUIET_FOR and agents.died(turn):
+            return f'{job_id}\'s agent stopped {minutes(quiet)} minutes ago on {turn["message"]["stop_reason"]}: "{cut(line, 100)}"; drive job resume {job_id} <the event> relaunches it on a Sprite with a handoff'
         if quiet >= QUIET_FOR:
             missing = "codex-ask run" if job["kind"] == "codex" else "result line"
             return f'{job_id}\'s agent ended its turn {minutes(quiet)} minutes ago on "{cut(line, 100)}" with no {missing}: SendMessage from the session that started it wakes it, and drive job resume {job_id} <the event> from any other'
@@ -1455,6 +1459,16 @@ def local_gap(job_id: str, job: dict, data: dict, moment: datetime) -> str | Non
     if quiet >= QUIET_FOR:
         return f"{job_id}'s agent has written nothing for {minutes(quiet)} minutes"
     return None
+
+
+def agent_death(job: dict, data: dict, moment: datetime) -> str | None:
+    """Why a local job's agent takes no message: its last response ended on an API error or a refusal, and its transcript has been quiet the time a handoff takes; None while it works, after a turn it ended itself, or with no transcript to read."""
+    holder = session_of(job, data)
+    if holder is None or not job.get("agent") or not (path := agent_transcript(holder, job, data)).exists():
+        return None
+    if moment - datetime.fromtimestamp(path.stat().st_mtime).astimezone() < HANDOFF or not (turn := last_turn(path)) or not agents.died(turn):
+        return None
+    return f'its last response ended on {turn["message"]["stop_reason"]} at {when(turn["timestamp"])}: "{cut(said_last(turn), 100)}"'
 
 
 def agent_transcript(holder: dict, job: dict, data: dict) -> Path:
@@ -2061,7 +2075,7 @@ def wakes(line: str, data: dict) -> bool:
 
 
 def handed(watcher: Watcher, lines: list[str], moment: datetime) -> list[str]:
-    """Hand each line to the one who acts on it: an order's the communicator or the meta session holds to that session, a PR's move to its job's remote lane waiting for it, and the rest, returned, to the coordinator, with a lane's lines when its resume fails. Until it is handed, each line stays on the watcher, the coordinator's among its made lines and a holder's among its unsent, so a newer install that takes the watch over meanwhile gets it."""
+    """Hand each line to the one who acts on it: an order's the communicator or the meta session holds to that session, a PR's move to its job's remote lane waiting for it, through a `drive job resume` run as its own process, since it waits on the job's lock while another start of its next worker runs and a failure comes back as its own event, and the rest, returned, to the coordinator. Until it is handed, each line stays on the watcher, the coordinator's among its made lines and a holder's among its unsent, so a newer install that takes the watch over meanwhile gets it."""
     lines = [LINE_BREAKS.sub(" ", line) for line in lines]
     if not lines and not any(watcher.unsent.get(lane) for lane in state.HOLDERS):
         return []
@@ -2079,10 +2093,7 @@ def handed(watcher: Watcher, lines: list[str], moment: datetime) -> list[str]:
             kept.append(line)
     watcher.made = kept
     for job_id, said in moves.items():
-        try:
-            reads.run([str(DRIVE), "job", "resume", job_id, "\n".join(said), "--drive", watcher.name], Path(data["roles"]["coordinator"]["cwd"]))
-        except reads.ReadError as error:
-            kept += [f"{line}; drive job resume {job_id} failed: {error}" for line in said]
+        state.detach(watcher.name, ["job", "resume", job_id, "\n".join(said), "--handed"], RELAUNCHES_LOG)
     failures = [failure for lane in state.HOLDERS for failure in sent(watcher, lane, [], moment)]
     watcher.made = []
     return kept + failures
