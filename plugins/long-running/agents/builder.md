@@ -124,7 +124,14 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      from a lane on this Mac. Nobody signs in, taps Touch ID or approves cc-sudo for
      it, so no card, brief or `WAITING` asks him to, by his words "1 but you could have used machine
      profile for this" and "Use break glass with machine profile then you don't need sso, I tell
-     you this once a day".
+     you this once a day". A team's data is the exception: its SandSQL rows, bucket objects, Iris
+     blobs and run and session journals are read or written only as a service account, on a pass box
+     or in the team's own cluster, never on this Mac, a Sprite or under `drive break-glass`, by his
+     words "4, it is never ok to write from local or not use a service agent or any things like
+     this" and "it shouldnt be reading iris blobs at all locally only with a service account on a
+     pass box". The `bash_guard` hook refuses each such read or write and prints its route; a write
+     no service account can make yet returns `BLOCKED` naming it and the grant it needs, and no
+     card offers another way to make it.
    - A Datadog read, for research or a `PROVE:` line, goes through the Datadog MCP's tools, whose
      `execute_code` reaches any Datadog API, never the `pup` command, whose OAuth grant keeps the
      scopes its `pup auth login` was granted while later pup releases add commands needing more,
@@ -134,11 +141,12 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      schedule, in an incident too. Never run one under a person's role, SSO sign-in or admin
      `kubectl`, or from another cluster with copied credentials: a `kubectl exec` or
      `kubectl create job` a person types runs as that person. A brief with no `Runs as:` line for such work, or one saying `none`, gets an `ASK`.
-     An urgent hand repair of the records a bug left stuck is the immediate fix, not a pass: run it at
-     once through this Mac's machine-profile break-glass,
-     `drive break-glass <job> --stack <domain>/<env> --reason "<why>" -- <command>`, from a lane on
-     this Mac, by his words "manually repair his stuck ones with machine
-     profile break glass asap".
+     An urgent hand repair of the records a bug left stuck is the immediate fix and starts at once,
+     as a service account too: a Job in the team's cluster, started from its suspended CronJob with
+     `tools/ci cluster-job --cluster <release env> --cronjob <name> --reason "<why>"`, never
+     `drive break-glass` from this Mac, by his words "4, it is never ok to write from local or not
+     use a service agent or any things like this". With no service account that can make it, return
+     `BLOCKED` naming the repair and the grant it needs.
    - Before you push, compile the Go or Rust you touched and run nothing else: tests, typechecks
      (TypeScript included), linters and review bots are CI's, and a local run only repeats them. When
      this Mac's load gate refuses a Rust or Go check in Forge-AI/monorepo, run it on the remote
@@ -528,7 +536,7 @@ Replaces: <only on a question built on another open question of his: the path dr
   defect behind it, a pick between designs that are his or his approval of an action his rules hold for
   him such as a benchmark run, reads `Root cause: none: <why>`. When the card quotes words of his as
   settled, the recommended option is the one they choose. His ruling: "Update your skill to not just brush over the root cause ever". `drive job ask` refuses a block whose lines are out of this shape, and
-  one with an option or part Jev reads as breaking his words, this ruling or what a page it links shows once Chrome opens it, naming each part and the words it breaks: rewrite that part, or ask again with `--unsettled` naming each id and why those words do not reach it, by his words "They should all use jev for judgement rather than hard coding thighs". On an incident or a bug a reporter shared,
+  one with an option or part Jev reads as breaking his words, this ruling, his ruling that a team's data is read or written only as a service account, or what a page it links shows once Chrome opens it, naming each part and the words it breaks: rewrite that part, or ask again with `--unsettled` naming each id and why those words do not reach it, by his words "They should all use jev for judgement rather than hard coding thighs". On an incident or a bug a reporter shared,
   `Interim fix:` links the immediate fix shipping while he picks, which his pick replaces, and the
   summary names it; `drive job ask` refuses the block without it.
 - `Holds:` names, in each change's own words, every change of the order the options alter: a part

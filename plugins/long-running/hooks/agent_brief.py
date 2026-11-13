@@ -22,7 +22,7 @@ DATA_PASS = re.compile(
     re.IGNORECASE,
 )
 RUNS_AS = re.compile(r"^Runs as:[ \t]*\S", re.MULTILINE)
-DATA_PASS_RULE = "A builder whose Goal itself runs a pass, migration, backfill or bulk repair over a team's data, rather than building a PR or check named for one."
+DATA_PASS_RULE = "A builder whose Goal itself runs a pass, migration, backfill, bulk or hand repair or any other write over a team's data, rather than building a PR or check named for one."
 
 
 def builder_refusal(text: str) -> str | None:
@@ -48,9 +48,9 @@ def builder_refusal(text: str) -> str | None:
     job = brief.BRIEF_JOB.search(text)
     return agents.Ruled(
         f"refused: this builder's Goal reads as a pass over a team's data (`{found[0].strip()}`) and its brief has no `Runs as:`"
-        " line; a pass runs in the team's cluster, never as a person:"
+        " line; a write of a team's data runs as a service account in the team's cluster, never as a person or from this Mac:"
         f" `drive job brief {job[1] if job else '<j>'} --runs-as \"<service account, how it starts>\"`, or"
-        " `--runs-as \"none: <why>\"` when the job runs no pass",
+        " `--runs-as \"none: <why>\"` when the job writes no team's data",
         DATA_PASS_RULE,
     )
 

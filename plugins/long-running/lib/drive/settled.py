@@ -46,8 +46,9 @@ UNTAPPED_QUESTION = (
 )
 CARD_QUESTION = (
     "Does the card itself, apart from what any one option builds, break one of his rulings below by the rule it carries: a Page"
-    " line shows a page the card links lacking what the card's words say that page shows, or its Root cause line breaks his"
-    " ruling on root causes? Pick the ruling it breaks, or none."
+    " line shows a page the card links lacking what the card's words say that page shows, its Root cause line breaks his"
+    " ruling on root causes, or what it says runs meanwhile reads or writes a team's data the way his ruling on a team's"
+    " data rules out? Pick the ruling it breaks, or none."
 )
 WORKED_QUESTION = (
     'Is this option worked out on the card to what it will look like once built, by his ruling below? The option: "{option}".'

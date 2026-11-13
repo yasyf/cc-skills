@@ -8,7 +8,7 @@ from pathlib import Path
 import bash_guard
 import pytest
 from conftest import SESSION
-from drive import github, install, land, orca, settled, state, view
+from drive import agents, github, install, land, limits, orca, settled, state, view
 from drive.orca import OrcaError
 
 Run = Callable[..., tuple[int, str]]
@@ -332,7 +332,7 @@ def test_a_drive_job_reads_no_teams_blobs_where_it_runs_even_through_break_glass
     builder = {"agent_id": "ad4fdaae757fd3b72", "agent_type": "long-running:builder"}
     replay = 'drive break-glass j2386 --stack sandsql/plat-usw2-prod --reason "read-only: fetch the OOM run\'s blobs" -- zsh ./bucket-read5.sh'
     reason = bash_guard.deny_reason(bash(replay, cwd=str(root), **builder))
-    assert reason.startswith("refused: this reads `artifacts-prod/iris/teams/team_01demo/runs/blobs/$1` where the job runs")
+    assert reason.startswith("refused: this reads or writes `artifacts-prod/iris/teams/team_01demo/runs/blobs/$1` where the job runs")
     assert '"it shouldnt be reading iris blobs at all locally only with a service account on a pass box"' in reason
     assert "`AWS_PROFILE=plat-prod tools/ci pass-box launch --purpose <job>" in reason
     assert '`eval "$(./ci runs-reader grant --team team_01demo)"`' in reason
@@ -358,14 +358,13 @@ def test_a_bucket_read_is_refused_by_what_it_reads_and_a_forge_bucket_or_a_pass_
     }
     builder = {"agent_id": "a-1", "agent_type": "long-running:builder"}
     for command, location in refused.items():
-        assert bash_guard.deny_reason(bash(command, **builder)).startswith(f"refused: this reads `{location}` where the job runs"), command
+        assert bash_guard.deny_reason(bash(command, **builder)).startswith(f"refused: this reads or writes `{location}` where the job runs"), command
     passed = [
         "aws s3 cp s3://frg-core-usw2-artifacts-internal-release-artifacts/sand/latest.json -",
         "aws s3 ls s3://frg-core-usw2-root-pulumi-state/pulumi/.pulumi/stacks/api/",
         "AWS_PROFILE=plat-staging aws s3 presign s3://frg-plat-usw2-staging-microvm-artifacts/pass-box/searchbench/searchbench.gz --expires-in 1800 --region us-west-2",
         "AWS_PROFILE=plat-prod aws s3 cp s3://frg-plat-usw2-prod-microvm-artifacts/pass-box/j2386-oom/ci-linux.gz -",
-        "aws s3 cp ./ci-linux s3://artifacts-prod/iris/teams/t/upload",
-        "aws s3 rm s3://artifacts-prod/iris/teams/t/runs/stuck.json",
+        "AWS_PROFILE=plat-prod aws s3 cp ./ci-linux.gz s3://frg-plat-usw2-prod-microvm-artifacts/pass-box/j2386-oom/ci-linux.gz",
         "aws s3 ls",
         "aws s3api get-bucket-notification-configuration --bucket $B",
         "AWS_PROFILE=plat-prod tools/ci pass-box launch --purpose j2386-oom --type r7i.4xlarge --delete-after 2026-11-14",
@@ -387,7 +386,7 @@ def test_a_refused_team_read_names_the_runs_reader_for_a_teams_runs_and_blocked_
     assert "The one such read is `iris/teams/<team>/runs/` of a team the plat-prod cluster serves" in runs
     assert '`eval "$(./ci runs-reader grant --team team_01demo)"`' in runs
     assert "A team another cluster serves, a staging read, or a `./ci runs-reader grant` that refuses" in runs
-    assert "Forge-AI/monorepo#55460 and #55533 are live, has no route: return `BLOCKED`" in runs
+    assert "`./ci runs-reader grant` that refuses has no route: return `BLOCKED`" in runs
     blocked = {
         "aws s3 ls s3://artifacts-prod/iris/teams/team_01demo/sessions/": "iris/teams/team_01demo/sessions/",
         "aws s3 cp s3://artifacts-prod/iris/teams/team_01demo/blobs/team_01demo/x -": "iris/teams/team_01demo/blobs/",
@@ -401,6 +400,68 @@ def test_a_refused_team_read_names_the_runs_reader_for_a_teams_runs_and_blocked_
         assert "return `BLOCKED` naming the prefix and the team" in reason, command
         assert "never a person's grant such as `tools/ci pass-box-creds`" in reason, command
         assert "runs-reader grant" not in reason and "pass-box launch" not in reason, command
+
+
+TEAM_WRITES = [
+    "aws s3 cp ./a.ltx s3://artifacts-prod/iris/teams/team_x/runs/a.ltx",
+    "aws s3 sync ./dir s3://artifacts-prod/iris/teams/team_x/runs/",
+    "aws s3 mv ./a.ltx s3://artifacts-prod/iris/teams/team_x/runs/a.ltx",
+    "aws s3 rm s3://artifacts-prod/iris/teams/team_x/runs/a.ltx",
+    "aws s3 rm --recursive s3://artifacts-prod/iris/teams/team_x/runs/",
+    "aws s3api put-object --bucket artifacts-prod --key iris/teams/team_x/runs/a.ltx --body a.ltx",
+    "aws s3api delete-object --bucket artifacts-prod --key iris/teams/team_x/runs/a.ltx",
+    "rclone copy ./dir r2:artifacts-staging/iris/teams/team_x/runs/",
+    "rclone delete r2:artifacts-staging/iris/teams/team_x/runs/",
+    "gsutil rm gs://customer-bucket/iris/teams/team_x/runs/a.ltx",
+    "azcopy copy ./a.ltx https://acct.blob.core.windows.net/iris/teams/team_x/runs/a.ltx",
+    "az storage container delete --account-name acct --name iris",
+    "drive break-glass j1 --stack sandsql/plat-usw2-staging --reason x -- aws s3 cp ./a.ltx s3://artifacts-staging/iris/teams/team_x/runs/a.ltx",
+]
+SANDSQL_STEPS = {
+    "drive break-glass j1 --stack sandsql/plat-usw2-staging --reason x -- kubectl -n sandsql port-forward svc/sandsql-primary 7690:7690": ("kubectl port-forward", "sandsql"),
+    "drive break-glass j1 --stack sandsql/plat-usw2-staging --reason x -- kubectl -n sandsql-system get secret ssql-blobstore-config -o yaml": ("kubectl get secret", "sandsql-system"),
+    "drive break-glass j1 --stack sandsql/plat-usw2-staging --reason x -- kubectl -n sandsql exec sandsql-primary-0 -- sandsql-cli exec 'DELETE FROM files'": ("kubectl exec", "sandsql"),
+    "kubectl --context staging --namespace=sandsql-inbox cp ./rows.sql sandsql-primary-0:/tmp/rows.sql": ("kubectl cp", "sandsql-inbox"),
+}
+
+
+def test_a_drive_job_writes_or_deletes_no_teams_data_where_it_runs_and_reaches_no_sandsql_database(demo: str) -> None:
+    reader = {"agent_id": "a-1", "agent_type": "long-running:reader"}
+    for command in TEAM_WRITES:
+        reason = bash_guard.deny_reason(bash(command, **reader))
+        assert isinstance(reason, agents.Unjudged), command
+        assert reason.startswith("refused: this reads or writes `"), command
+        assert f'"{limits.TEAM_DATA_QUOTE}"' in reason and f'"{limits.IRIS_BLOBS_QUOTE}"' in reason, command
+        assert "No service account writes or deletes a team's data from a pass box yet" in reason, command
+        assert "`tools/ci cluster-job --cluster <release env> --cronjob <name>" in reason, command
+    for command, (step, namespace) in SANDSQL_STEPS.items():
+        reason = bash_guard.deny_reason(bash(command, **reader))
+        assert isinstance(reason, agents.Unjudged), command
+        assert reason.startswith(f"refused: `{step}` in the `{namespace}` namespace opens a team's SandSQL databases where the job runs"), command
+        assert f'"{limits.TEAM_DATA_QUOTE}"' in reason, command
+    passed = [
+        "kubectl -n sandsql get pods",
+        "kubectl -n sandsql logs sandsql-primary-0 --tail 50",
+        "kubectl -n forge exec api-0 -- env",
+        "kubectl -n sandsql-system describe configmap ssql-blobstore",
+        "aws s3api get-bucket-notification-configuration --bucket artifacts-prod",
+        "AWS_PROFILE=plat-prod tools/ci pass-box run --purpose j3060 job.sh",
+        "tools/ci cluster-job --cluster plat-usw2-prod --cronjob journal-repair --reason 'repair the stuck rows'",
+    ]
+    assert [bash_guard.deny_reason(bash(command, **reader)) for command in passed] == [None] * len(passed)
+    assert bash_guard.deny_reason(bash(TEAM_WRITES[0], session="ordinary")) is None
+
+
+def test_a_refused_team_data_call_blocks_outright_since_jev_never_weighs_it(demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    reader = {"agent_id": "a-1", "agent_type": "long-running:reader", "hook_event_name": "PreToolUse"}
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(bash(TEAM_WRITES[-1], **reader))))
+    bash_guard.main()
+    output = json.loads(capsys.readouterr().out)
+    assert output["judged"] is False
+    assert output["hookSpecificOutput"]["permissionDecisionReason"].startswith("refused: this reads or writes `artifacts-staging/iris/teams/team_x/runs/a.ltx`")
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(bash("gh pr create --title X", **(reader | {"agent_type": "long-running:builder"})))))
+    bash_guard.main()
+    assert "judged" not in json.loads(capsys.readouterr().out)
 
 
 HANDLER_SESSION = "5e48f8c7-ad54-49d0-bf4e-bbc509e11035"
