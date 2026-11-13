@@ -5383,6 +5383,22 @@ def test_a_line_held_for_the_meta_session_is_judged_as_it_posts_so_a_pr_that_mer
     assert (posted(sent), watching.unsent["meta"]) == ([("handoff", f"meta@{demo}", failed)], [])
 
 
+@pytest.mark.parametrize(("key", "mergeable", "handed"), [(YASYF, "CONFLICTING", False), (YASYF, "MERGEABLE", True), (KEY, "CONFLICTING", True)])
+def test_a_ready_on_a_yasyf_pr_whose_builder_owes_its_fix_wakes_that_builder_and_hands_the_meta_session_no_second_one(
+    demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]], key: str, mergeable: str, handed: bool
+) -> None:
+    url = state.pr_url(key)
+    tooling_order(demo, "waiting")
+    with state.edit(demo) as data:
+        data["prs"][key] = state.new_pr(url, "j1", "o1") | {"head": "aaaaaaa111", "wants_tap": False, "checked": CHECKED}
+        data["jobs"]["j1"].update(said=f"PUSHED {url}", prs=[url])
+    serve(monkeypatch, {key: read(required_checks=[], mergeable=mergeable)})
+    sent = posts(monkeypatch)
+    watch.run_pass(watcher(demo), T0 + timedelta(minutes=1))
+    readies = [text for _, to, text in posted(sent) if to == f"meta@{demo}" and text.startswith(f"JOB j1 o1 READY {url}")]
+    assert (len(readies), [woke for woke, _ in woken]) == (int(handed), [key] if mergeable == "CONFLICTING" else [])
+
+
 def merged_ready(name: str, key: str, repro: str | None) -> None:
     with state.edit(name) as data:
         data["prs"][KEY]["state"] = "merged"
