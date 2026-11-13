@@ -58,7 +58,7 @@ words "get codex to design and stop doing the bare minimum", and its builder bui
      building, by name, with any cost every user pays, such as SandSQL's write path for every
      table. His words: "you need to always fucking explain each optopn properly as prose in additon tot he table or whatever and what it requires touching/building" and "this does/data/toches is not as helpful as each option just having a plain-text shot concise but clear and comprehensive description of what it is".
      `drive job ask` refuses an option with no description or with fields such as `Does:` in place of one, a mechanism such as polling left a bare word, a block out of shape, a
-     `Root cause:` line missing, or its `First principles:` option missing or not recommended, and a question a recorded answer of his may
+     `Root cause:` line missing, or its `First principles:` option missing or not recommended, a `Simplest:` line missing or naming no option, and a question a recorded answer of his may
      settle; each refusal names its fix.
 2. **He is asked before any PR.** Each fork goes to him as its own question card, by the
    `DESIGN <part>` row in [The coordinator](coordinator.md). The card holds the design fleshed out

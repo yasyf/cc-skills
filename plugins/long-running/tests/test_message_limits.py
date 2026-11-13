@@ -206,6 +206,7 @@ Findings:
 Root cause: both builds share one chat folder on his Mac, so the old build's own server writes chats there
 Holds: none: no option changes code any job builds
 First principles: New app moves its chats once into a folder of its own and lists unloaded chats as loading; the old build cannot reach them.
+Simplest: New app moves its chats once into a folder of its own and lists unloaded chats as loading; the old build cannot reach them.
 Rowan sees Untitled, unstarted chats marked state_missing that must be forked.
 """)
 HIS_PICK = "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794239768768559?thread_ts=1794220171.175389&cid=D0C4HQWPLCC"
@@ -231,7 +232,7 @@ WATCHDOG_OPTIONS = [
 ]
 WATCHDOG_ASK = explained(
     f"ASK {WATCHDOG_QUESTION}\n{WATCHDOG_SUMMARY}\nShow me:\n{WATCHDOG_SHOW_ME}\n- {WATCHDOG_OPTIONS[0]} (recommended)\n"
-    f"- {WATCHDOG_OPTIONS[1]}\nFindings:\nRoot cause: none: a question about his own pick\nHolds: none: no option changes code any job builds\nOnly the watcher that saves its place is built today.\n"
+    f"- {WATCHDOG_OPTIONS[1]}\nFindings:\nRoot cause: none: a question about his own pick\nSimplest: An always-on listener that feeds pushes and runs the watchdog but never lands or installs\nHolds: none: no option changes code any job builds\nOnly the watcher that saves its place is built today.\n"
 )
 FROZEN_COPIES_ASK = explained("""ASK Before the 30 frozen copies from the Oct 13 fleet move are deleted, what must prove each moved copy is whole?
 Drive tooling: your pick decides what proves a moved copy whole. Removing a frozen copy deletes its database files and its folder in the team's bucket, at once and for good. These moved on Oct 13 under older code, and one team's moved databases later lost bucket history, so "ready on Oct 13" proves nothing today. Nothing is deleted meanwhile.
@@ -266,6 +267,7 @@ source.remove(db, id)
 - Keep all 30; a read-only pipeline run prints each one's name, size and positions, and you pick from that table.
 Findings:
 Root cause: none: a proof before a delete, with no defect behind it
+Simplest: Delete each only after its live copy uploads a fresh full snapshot at or past the frozen position; unproven ones stay and are named.
 Holds: none: no option changes code any job builds
 - Removal unlinks the local files, then deletes the bucket folder in the same request, with no waiting period.
 - A bucket that denies deletes keeps its folder; the team's blobs are not removed with the database.
@@ -287,6 +289,7 @@ I recommend watch::; a builder may start on it meanwhile.
 - {WATCH_OPTIONS[2]}
 Findings:
 Root cause: none: this names a new feature's API; no defect is being diagnosed.
+Simplest: self::alarm gains a check and rings only on a change. Smallest surface; no period under a minute, and alarms move to the central inbox
 Holds: none: no option changes code any job builds
 His order settles that a watch reruns code on a period and a change reaches the central inbox.
 """)
@@ -297,7 +300,7 @@ EXPIRED_SIGN_IN = (
     " on this Mac, needs your MFA.\n"
     "- I signed in: the repair job takes the grant, proves the change on a copy and repairs the one Env (recommended)\n"
     "- Skip the hand repair: the Env waits for the code fix and its release\n"
-    "Findings:\nRoot cause: none: a design pick\nHolds: none: no option changes code any job builds\nKept on disk.\n"
+    "Findings:\nRoot cause: none: a design pick\nSimplest: Skip the hand repair\nHolds: none: no option changes code any job builds\nKept on disk.\n"
 )
 PASS_BOX_TAP = (
     "ASK The hybrid sparse and dense search test needs one Touch ID tap at your Mac: start it when you are back?\n"
@@ -308,6 +311,7 @@ PASS_BOX_TAP = (
     "- Drop the run: the job ends, and the hybrid search question keeps only the earlier reads, with no measured comparison\n"
     "Findings:\n"
     "Root cause: none: the key read is gated on your Touch ID by design, and the guard stops the prompt while you are away.\n"
+    "Simplest: Drop the run\n"
     "Holds: none: no option changes code any job builds\n"
     "First principles: none: nothing to remove; the run needs the one tap.\n"
     "Next question: none: after the tap the job runs the command you approved and returns the results PR.\n"
@@ -1476,7 +1480,7 @@ def test_jev_weighs_a_page_line_by_his_words_on_a_link_that_opened_another_view(
 
 def options_ask(*options: str) -> str:
     listed = "".join(f"- {option}\n" for option in options)
-    return explained(f"ASK Which way should this go?\nDrive tooling: your pick decides it, so the work waits on it.\n{listed}Findings:\nRoot cause: none: a design pick\nHolds: none: no option changes code any job builds\nKept on disk.\n")
+    return explained(f"ASK Which way should this go?\nDrive tooling: your pick decides it, so the work waits on it.\n{listed}Findings:\nRoot cause: none: a design pick\nSimplest: {limits.RECOMMENDED.sub('', options[0])}\nHolds: none: no option changes code any job builds\nKept on disk.\n")
 
 
 def test_the_recommended_option_comes_first_in_a_new_block_and_a_kept_one_still_redraws() -> None:
@@ -1606,7 +1610,7 @@ def test_first_principles_names_an_option_whose_first_part_holds_a_double_colon(
         "Also write the legacy content field as a blob::Blob: old readers keep working, one more write each save",
         "Drop the legacy field: no extra write, and old readers break",
     ]
-    findings = "Root cause: old readers still open the legacy field\nFirst principles: Also write the legacy content field as a blob::Blob\n"
+    findings = "Root cause: old readers still open the legacy field\nFirst principles: Also write the legacy content field as a blob::Blob\nSimplest: Drop the legacy field\n"
     assert limits.root_cause_problems(findings, options) == []
     assert limits.option_head("Read https://example.com/a: the page says so") == "Read https://example.com/a"
 
@@ -1643,6 +1647,7 @@ Sockets only touches clone.rs, clone/child.rs and `local/process.go`, as <https:
   Each helper listens on a Unix socket its parent hands it, changing clone.rs, clone/child.rs and local/process.go, while each parent keeps its own start and restart code.
 Findings:
 Root cause: none: a design pick, with no defect behind it
+Simplest: Sockets only
 Holds: none: no option changes code any job builds
 Five parents hand-write their own start and restart code today.
 """

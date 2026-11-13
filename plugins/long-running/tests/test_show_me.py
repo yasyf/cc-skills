@@ -99,6 +99,19 @@ proj_42 deletes the row too                  -> no names left -> 9f86.. "unnamed
 BLOB_NAMES_OPTIONS = r'''- One SandSQL database per team, written only by the service; a namer is a whole database or a build (recommended)
 - One table in the main Postgres database for all teams: easy to query, but it holds a row per file and namer for every team
 - A small marker in the bucket per file and namer: no database, but every delete must list the bucket first'''
+BLOB_NAMES_FINDINGS = """Root cause: none: a pick between designs of his for the blob service's record
+Holds: none: nothing is built meanwhile
+His Oct 15 pick of "no team-wide reference count" (answer f6a03b3) is replaced by the 9:46 PM pick, which asks for exactly that record.
+Each SandSQL database already counts its own references, row by row, and the cleaner already hears when a database's count for a file drops to zero.
+"""
+BLOB_NAMES_ASK = f"""ASK Where does the blob service keep its record of who names each file, and what counts as a name?
+The service deletes a file once nothing names it, so it needs a lasting list, per team, of what names each file. I recommend one SandSQL database per team, written only by the service, with a database or a build as the namer. Nothing is built meanwhile.
+Show me:
+{BLOB_NAMES_SHOW_ME}
+{BLOB_NAMES_OPTIONS}
+Findings:
+{BLOB_NAMES_FINDINGS}"""
+BLOB_COUNT = "One row per file holding its sha and a count of what holds it; the service deletes the file at zero"
 
 RESTORE_PARKED_SHOW_ME = r'''What a failed restore copy does now; the dashed exits exist only if a reset, a removal or 7 days also clear it.
 ```mermaid
@@ -245,7 +258,7 @@ UPGRADING_CHAT_SHOTS = r'''![1 · Before, dev at de31bf9]({root}/durable-agents/
 def ask(show_me: str, options: str) -> str:
     shown = show_me.replace("{root}", str(state.root()))
     return explained(
-        f"ASK Which way should this go?\nDrive tooling: your pick decides it, so the work waits on it; the recommended option is marked.\nShow me:\n{shown}\n{options}\nFindings:\nRoot cause: none: a design pick\nHolds: none: no option changes code any job builds\nKept on disk.\n"
+        f"ASK Which way should this go?\nDrive tooling: your pick decides it, so the work waits on it; the recommended option is marked.\nShow me:\n{shown}\n{options}\nFindings:\nRoot cause: none: a design pick\nSimplest: {limits.RECOMMENDED.sub('', options.splitlines()[0].removeprefix('- '))}\nHolds: none: no option changes code any job builds\nKept on disk.\n"
     )
 
 
@@ -292,6 +305,18 @@ def test_a_show_me_he_called_useless_is_refused_naming_its_rule_and_what_to_carr
     for refusal in refusals:
         assert refusal in str(refused.value)
     assert re.search(r"his Nov 10 1[01]:\d\d PM words", str(refused.value))
+
+
+def test_the_blob_record_card_whose_every_option_keeps_a_row_per_file_and_namer_is_refused_until_it_offers_a_count_per_file_and_names_it_simplest() -> None:
+    options = [limits.RECOMMENDED.sub("", line.removeprefix("- ")) for line in BLOB_NAMES_OPTIONS.splitlines()]
+    with pytest.raises(DriveError, match=re.escape("no `Simplest:` line under `Findings:`")):
+        limits.question(BLOB_NAMES_ASK)
+    [unnamed] = limits.root_cause_problems(BLOB_NAMES_FINDINGS, options)
+    assert unnamed.startswith("no `Simplest:` line under `Findings:`")
+    assert limits.SIMPLEST_RULING in unnamed
+    counted = f"Simplest: {BLOB_COUNT}\n{BLOB_NAMES_FINDINGS}"
+    assert limits.root_cause_problems(counted, options)[0].startswith(f"`Simplest: {BLOB_COUNT}` names no option")
+    assert limits.root_cause_problems(counted, [BLOB_COUNT, *options]) == []
 
 
 @pytest.mark.parametrize(
@@ -459,7 +484,7 @@ def partitioned(show_me: str, summary: str = "Drive tooling: your pick decides h
         f"{summary}\nShow me:\n{show_me}\n"
         "- Insertion order: no copying at the line; old parts go quiet for restores (recommended)\n"
         "- Hash by key: every update reaches one part; all parts stay busy\n"
-        "Findings:\nRoot cause: none: a design pick\nHolds: none: no option changes code any job builds\nKept on disk.\n"
+        "Findings:\nRoot cause: none: a design pick\nSimplest: Insertion order\nHolds: none: no option changes code any job builds\nKept on disk.\n"
     )
 
 

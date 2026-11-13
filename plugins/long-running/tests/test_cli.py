@@ -66,7 +66,7 @@ DESIGN_RESEARCH = (
     "- store_copy_at runs on the primary, beside the queries it serves, copying each store in list order (recommended)\n"
     "  The primary calls store_copy_at in `supervisor/copies.rs` for each store in list order between the queries it serves, writing"
     " each copy to the team's bucket for a restore to read; each query waits behind a running copy.\n"
-    f"{SECOND_OPTION}Findings:\n{ROOT_CAUSE}{HOLDS}{RESEARCH.removeprefix('DONE researched the store copy\n')}"
+    f"{SECOND_OPTION}Findings:\n{ROOT_CAUSE}Simplest: store_copy_at runs on the primary, beside the queries it serves, copying each store in list order\n{HOLDS}{RESEARCH.removeprefix('DONE researched the store copy\n')}"
 )
 DESIGNED = f"""DESIGN the store copy
 Design: one copy per store, in the order the stores list
@@ -122,6 +122,7 @@ Findings:
 Root cause: none: the split is new work; it moves four tables into a second database while every reader today opens one database per run.
 Holds: none: no option changes code any job builds
 First principles: The journal engine attaches the record
+Simplest: The journal engine attaches the record
 Interim fix: none: no runner writes format 16 yet, so no reader meets a split journal.
 - The card behind answer 0507794 says, in every option: "Readers attach the record only when a step, value or binding opens." No answer says how a reader attaches it.
 - Some statements read both databases. `meteredSQL` at `runpkg.go:783` reads `lifecycle_events` from the page and `call_traces` from the record. `LoadSeal` at `runread/nodes.go:45` joins `progress` to `nodes`, and `views/src/lib.rs:2166` reads `call_traces` beside page tables.
@@ -1327,6 +1328,7 @@ The sidebar from the top down under each option, with a pinned Unichat and one p
 - Chat pins join today's Pinned section of projects and apps, and that section moves from below the chat lists to the top
 Findings:
 Root cause: none: a new feature a user asked for, not a defect
+Simplest: Pinned rows rise to the top of their own section
 Holds: none: no option changes code any job builds
 The sidebar draws New Chat, Search, New Agent, then the session list, then the Pinned section of projects and apps.
 """)
@@ -1436,7 +1438,7 @@ RESTORE_ASK = explained(
     'Every option runs the one-off break-glass link now; Your "Just do it with break glass now" covers tables moved so far.\n'
     "Held until you pick, so nothing ships meanwhile.\n"
     "- The restore relinks each moved table it brings back (recommended)\n- An operator relinks moved tables by hand after a restore\n"
-    "Findings:\nRoot cause: none: a design pick\nHolds: none: no option changes code any job builds\nKept on disk.\n"
+    "Findings:\nRoot cause: none: a design pick\nSimplest: The restore relinks each moved table it brings back\nHolds: none: no option changes code any job builds\nKept on disk.\n"
 )
 RESTORE_OPENING = RESTORE_ASK.splitlines()[1]
 
@@ -1528,7 +1530,7 @@ def test_job_ask_keeps_an_option_his_no_sweepers_ruling_refuses_only_when_unsett
         explained(
             "ASK How do leases stop leaking?\nDrive tooling: your pick decides how a lease ends; one outlives the run that took it, so the next run waits on it.\n"
             "- reclaim orphaned leases every 10 minutes (recommended)\n- one owner holds the lease until it ends\n"
-            "Findings:\nRoot cause: none: a design pick\nHolds: none: no option changes code any job builds\nTwo runs held one lease.\n"
+            "Findings:\nRoot cause: none: a design pick\nSimplest: one owner holds the lease until it ends\nHolds: none: no option changes code any job builds\nTwo runs held one lease.\n"
         )
     )
     assert cli.main(["job", "ask", "--check", str(block)]) == 2
@@ -1604,6 +1606,7 @@ Drive tooling: your pick decides which update button ships. A teammate's PR land
 - Replace theirs with ours: the button appears once downloaded, terminal steps when a download fails; it undoes a teammate's landed PR.
 Findings:
 Root cause: none: two landed designs of one button, a pick between them with no defect behind it
+Simplest: Keep theirs, close ours
 Holds: none: no option changes code any job builds
 - Theirs merged Nov 10; ours now conflicts with dev.
 """)
@@ -1716,6 +1719,7 @@ I recommend landing both together, run history first; meanwhile both stay open.
 
 Findings:
 Root cause: none: landing two PRs, with no defect behind it
+Simplest: Land both now, run history first
 Holds: none: no option changes code any job builds
 The run page change's base branch is the run history change's branch, so the merge queue cannot take it alone.
 """)
@@ -3406,7 +3410,7 @@ def test_a_readers_design_starts_from_the_root_cause_and_counts_only_its_options
     assert run("job", "report", "j1")[0] == 2
     code, err = keep(monkeypatch, capsys, "j1", DESIGN_RESEARCH.replace(ROOT_CAUSE, ""))
     assert code == 2
-    assert "j1: refused, nothing kept: a reader's DESIGN starts from the root cause and names the option that removes it: no `Root cause:` line" in err
+    assert "j1: refused, nothing kept: a reader's DESIGN names its simplest option, starts from the root cause and names the option that removes it: no `Root cause:` line" in err
     bulleted = DESIGN_RESEARCH.replace("\nrulings:", "\n- rulings:").replace("\nexists:", "\n- exists:").replace("\nopen:", "\n- open:")
     assert keep(monkeypatch, capsys, "j1", bulleted) == (0, "")
 

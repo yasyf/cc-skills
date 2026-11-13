@@ -105,6 +105,7 @@ PICTURE = re.compile(r"!\[([^\]\n]*)\]\(\s*(?:<[^<>\n]+>|[^\s()<>]+)\s*\)")
 RECOMMENDED = re.compile(r"\s*\(recommended\)\s*$", re.IGNORECASE)
 ROOT_CAUSE = re.compile(r"^[ \t]*Root cause:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
 FIRST_PRINCIPLES = re.compile(r"^[ \t]*First principles:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
+SIMPLEST = re.compile(r"^[ \t]*Simplest:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
 NONE_WHY = re.compile(r"none[ \t]*:[ \t]*\S", re.IGNORECASE)
 INTERIM_FIX = re.compile(r"^[ \t]*Interim fix:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
 HOLDS = re.compile(r"^[ \t]*Holds:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
@@ -178,6 +179,14 @@ ROOT_CAUSE_SHAPE = (
     " that removes it>`, `Root cause: fixed: <that structure>, removed by <the merged PR's link>` on a card asking only"
     " when that PR ships, `Root cause: not found: <the job finding it>`, or `Root cause: none: <why no defect is behind"
     " this question, such as a pick between his designs or his approval of an action his rules hold for him>`"
+)
+SIMPLEST_RULING = 'his ruling badce22, "in geernal keeps implifying all this tuff"'
+SIMPLEST_SHAPE = (
+    "`Simplest: <the option that is the simplest design doing his words, with the fewest tables, columns, rows per fact,"
+    " messages, processes, checks and steps, by its words>`, each other option saying what it adds over it; a simpler"
+    " design his words or an answer of his the findings quote name is that option even when an older pick set it aside,"
+    " and when the fork exists only because of an earlier pick of the drive's own recommendation, the option undoing that"
+    " pick is"
 )
 PICK = re.compile(r"\byour?\s+pick\b", re.IGNORECASE)
 OPENING_RULING = 'his ruling ebdb6aa, "what is this and what the fuck are you talking about"'
@@ -825,7 +834,17 @@ def captions(show_me: list[str]) -> list[str]:
 
 
 def root_cause_problems(findings: str, options: list[str]) -> list[str]:
-    """Whether the findings start from the root cause, the structure that lets the defect happen, and name the option that removes it so the defect cannot occur; or name that structure as fixed, linking the merged PR that removed it, on a card asking only when that PR ships; or say the cause is not found yet, naming the job finding it; or say no defect is behind the question. Which option the card recommends, whether that option or PR truly removes the structure, and whether his words choose another, Jev weighs when `drive job ask` keeps it, his own pick or order beating the root-cause preference."""
+    """Whether the findings name the option that is the simplest design doing his words, and start from the root cause, the structure that lets the defect happen, and name the option that removes it so the defect cannot occur; or name that structure as fixed, linking the merged PR that removed it, on a card asking only when that PR ships; or say the cause is not found yet, naming the job finding it; or say no defect is behind the question. Which option the card recommends, whether that option or PR truly removes the structure, and whether his words choose another, Jev weighs when `drive job ask` keeps it, his own pick or order beating the root-cause preference. A block rebuilt from his posted card has only the line saying so, and nothing to check."""
+    if findings.strip() == REBUILT:
+        return []
+    simplest = SIMPLEST.search(findings)
+    if not simplest:
+        return [f"no `Simplest:` line under `Findings:`: write {SIMPLEST_SHAPE} ({SIMPLEST_RULING})"]
+    if not names_option(simplest[1], options):
+        return [
+            f"`Simplest: {simplest[1]}` names no option: the simplest design doing his words is always one, so add it, or"
+            f" repeat the words of the option it is, whole or up to the colon that ends its first part ({SIMPLEST_RULING})"
+        ]
     cause = ROOT_CAUSE.search(findings)
     if not cause:
         return [f"no `Root cause:` line under `Findings:`: write {ROOT_CAUSE_SHAPE} ({ROOT_CAUSE_RULING})"]
@@ -845,13 +864,16 @@ def root_cause_problems(findings: str, options: list[str]) -> list[str]:
             f"`Root cause: {cause[1]}` has no `First principles:` line: name the option that removes that structure, so the defect"
             f" cannot occur, through one abstraction every caller goes through ({ROOT_CAUSE_RULING})"
         ]
-    fix = principled[1].casefold()
-    if not any(fix in (option.strip().casefold(), option_head(option).casefold()) for option in options):
+    if not names_option(principled[1], options):
         return [
             f"`First principles: {principled[1]}` names no option: the option that removes the root cause is always one, so add"
             " it, or repeat the words of the option it is, whole or up to the colon that ends its first part"
         ]
     return []
+
+
+def names_option(words: str, options: list[str]) -> bool:
+    return any(words.casefold() in (option.strip().casefold(), option_head(option).casefold()) for option in options)
 
 
 def ask_case(text: str, asked: Question) -> str:

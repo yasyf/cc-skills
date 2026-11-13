@@ -93,6 +93,7 @@ GET journal/0001.ltx  one page range
 
 Findings:
 Root cause: none: a design choice, with no defect behind it
+Simplest: One snapshot file per finished run, written when it ends, old runs backfilled
 Holds: none: no option changes code any job builds
 (1) What a journal file is: a run's journal is a SQLite database, copied to the team's bucket as LTX files.
 (2) Each LTX file ends with a page map; its length sits in the last 24 bytes.

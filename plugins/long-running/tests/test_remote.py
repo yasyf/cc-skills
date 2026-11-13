@@ -78,6 +78,7 @@ Drive tooling: your pick decides where the nightly store copy runs; it reads eve
   Each night a new worker in `supervisor/worker.rs` reads every store from the team's bucket and copies it there, so the primary serves only queries; each cluster runs one more process.
 Findings:
 {DESIGN_PICK}
+Simplest: On the primary, beside the queries it serves
 Holds: none: no option changes code any job builds
 One copy took 40 minutes on the primary.
 """
