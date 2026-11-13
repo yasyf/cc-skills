@@ -154,10 +154,12 @@ the proper fix replaces it.
 
 A question card is the job's `ASK` as `drive job ask` kept it. Its question names each thing by its
 proper technical term, the function, flag, file, service, or table, by [messages.md](messages.md).
-One to three summary lines say what was found, what is being decided, the recommendation, and what
-happens meanwhile, with each thing he could open linked at the exact view they describe: a screen a
+One to three summary lines say what was found, what is being decided, and the recommendation, with
+each thing he could open linked at the exact view they describe: a screen a
 route, tab, anchor or query string reaches is linked at that address, never the page's root, and a
-view not built yet is called unbuilt, by his words "I dont see tthe slack tab on that link what are you talking abit?". A Show me, when a picture, flow, table, or
+view not built yet is called unbuilt, by his words "I dont see tthe slack tab on that link what are you talking abit?".
+What is built meanwhile is the card's line above its buttons, which the drive reads from its jobs
+at each draw, never a summary line. A Show me, when a picture, flow, table, or
 the real code shows what words cannot, is drawn whole with real contents in every row and cell. Two
 to four one-line options close it, each saying what he gets and what it costs, with one plain-text
 description drawn under it saying what the option is: what runs and when, where its data lives, and

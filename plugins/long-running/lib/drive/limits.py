@@ -23,6 +23,9 @@ LEAD_WORDS = SUMMARY_WORDS // 3
 LEAD_LINES = (("headline", "--headline"), ("why", "--because"), ("what", "--does"), ("downstream", "--downstream"))
 LEAD_RULING = 'his words on a PR card "has a lot of facts but is compeltely useless for me figuring ut if I want to meg eit or not, I have no idea why were doing this change, what it does, or what the downstream impacts of it are"'
 ALREADY_ANSWERED = "Already answered"
+BUILT_PAUSED = "Being built on a branch while you decide, paused on your pick."
+BUILT_LANDING = "Being built while you decide, and it lands on the recommended option; another pick is a follow-up."
+NOTHING_BUILT = "Nothing is built until you pick."
 READING = 'the coordinator\'s reading of his Nov 9 9:33 PM words "your messages need to be way shorter rewrite this for a human"'
 LINE_REST = "Say what changed for him and what happens next, in plain words; everything else stays on disk until he asks for it."
 FROM_ASK = (
@@ -455,11 +458,12 @@ class Question:
     holds: str | None
     replaces: str = ""
 
-    def card(self, drive: str, waits: str) -> dict:
-        """The question card a handler draws from this block, each option's description as the hint cc-slack draws under it, and each file name and path in its body and hints in code formatting."""
+    def card(self, drive: str, waits: str, meanwhile: str = "") -> dict:
+        """The question card a handler draws from this block, each option's description as the hint cc-slack draws under it, each file name and path in its body and hints in code formatting, and the line the drive reads from its jobs saying what is built while he decides, which cc-slack draws above the buttons in place of its line saying the asking lane is stopped."""
         body = coded(card_body(self.summary, self.show_me))
         hinted = {"hints": {option: coded(hint) for option, hint in self.hints.items()}} if self.hints else {}
-        return {"title": self.title, "body": body, "options": self.options, "recommended": self.recommended, **hinted, "waits": waits, "drive": drive}
+        built = {"meanwhile": meanwhile} if meanwhile else {}
+        return {"title": self.title, "body": body, "options": self.options, "recommended": self.recommended, **hinted, "waits": waits, "drive": drive, **built}
 
 
 def words(text: str) -> int:
@@ -678,7 +682,7 @@ def question_problems(text: str, kept: bool = False, unsettled: str | None = Non
     if not 1 <= len(summary) <= SUMMARY_LINES:
         problems.append(
             f"the summary is {len(summary)} lines; it is one to three: the work it serves and what your pick changes,"
-            " the recommendation, what happens meanwhile"
+            " then the recommendation"
         )
     problems += show_me_problems(show_me, bool(example and above), kept, len(options))
     if headings and not kept:

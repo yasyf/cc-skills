@@ -1984,8 +1984,46 @@ def test_job_card_draws_the_show_me_code_as_pictures_on_lines_of_their_own(
     assert "```" not in card["body"]
     assert drawn == ["code:http", "code:http"]
     assert (card["waits"], card["recommended"]) == ("demo:j1-7", "One snapshot file per finished run, written when it ends, old runs backfilled: opens in 3 requests")
+    assert card["meanwhile"] == limits.BUILT_PAUSED
     assert run("job", "card", str(block), "--waits", "demo:j1-7") == (0, printed)
     assert drawn == ["code:http", "code:http"]
+
+
+def test_his_cards_meanwhile_line_says_a_build_only_where_the_drive_builds_its_recommended_option(run: Run, asking: str) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "should a finished run keep its files")
+    run("job", "add", "reader", "--order", "o2", "--goal", "research: keeping a run's files")
+    data = state.load("demo")
+    part = next(iter(data["orders"]["o2"]["parts"]))
+    reader = next(job_id for job_id, job in data["jobs"].items() if job["order"] == "o2")
+    assert cli.meanwhile(data, asking, "", None) == limits.BUILT_PAUSED
+    assert cli.meanwhile(data, reader, part, None) == limits.NOTHING_BUILT
+    assert cli.meanwhile(data, reader, "", None) == limits.NOTHING_BUILT
+    with state.edit("demo") as data:
+        data["orders"]["o2"]["kind"] = "build"
+    assert cli.meanwhile(state.load("demo"), reader, part, None) == limits.BUILT_PAUSED
+    assert cli.meanwhile(state.load("demo"), reader, "", None) == limits.BUILT_PAUSED
+    with state.edit("demo") as data:
+        data["orders"]["o2"]["options_only"] = True
+    assert cli.meanwhile(state.load("demo"), reader, part, None) == limits.NOTHING_BUILT
+    with state.edit("demo") as data:
+        data["orders"]["o2"].update(options_only=False, incident=True)
+    assert cli.meanwhile(state.load("demo"), reader, part, None) == limits.BUILT_LANDING
+    assert cli.meanwhile(state.load("demo"), reader, part, "his ruling on one store: this card asks him to lift it") == limits.BUILT_PAUSED
+    with state.edit("demo") as data:
+        data["orders"]["o2"].update(incident=False, kind="answer")
+        data["orders"]["o1"]["options_only"] = True
+    assert cli.meanwhile(state.load("demo"), reader, part, None) == limits.NOTHING_BUILT
+    assert cli.meanwhile(state.load("demo"), asking, "", None) == limits.NOTHING_BUILT
+
+
+def test_a_designs_card_holding_changes_not_yet_parts_says_its_own_part_is_built(run: Run, demo: str) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "lay out a finished run's files")
+    run("job", "add", "design", "--order", "o1", "--goal", "design the run files")
+    data = state.load("demo")
+    assert cli.meanwhile(data, "j1", "the snapshot writer; the run page reader", None) == limits.BUILT_PAUSED
+    with state.edit("demo") as data:
+        data["orders"]["o1"]["options_only"] = True
+    assert cli.meanwhile(state.load("demo"), "j1", "the snapshot writer; the run page reader", None) == limits.NOTHING_BUILT
 
 
 def test_job_ask_check_keep_and_card_refuse_a_show_me_picture_that_does_not_draw_with_why_and_keep_it_once_it_draws(
@@ -2528,6 +2566,7 @@ def test_cards_redraw_prints_each_open_cards_card_in_one_pass_and_names_each_it_
         kept.append(run("job", "ask", asking, "-")[1].splitlines()[0])
     printed = [run("job", "card", path, "--waits", f"demo:j1-{n}")[1] for n, path in enumerate(kept, 7)]
     unasked = json.loads(printed[0]) | {"waits": "demo:hier-1"}
+    del unasked["meanwhile"]
     unanswerable = {"title": "Which way?", "body": "One line.", "options": [], "recommended": "", "waits": "demo:hier-2", "drive": "demo"}
     reordered = unasked | {"waits": "demo:hier-3", "options": unasked["options"][::-1]}
     shown = [open_card(n, card) for n, card in enumerate([*map(json.loads, printed), unasked, unanswerable, reordered])]

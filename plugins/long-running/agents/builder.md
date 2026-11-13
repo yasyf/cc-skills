@@ -572,7 +572,7 @@ throws it away. On a Sprite, ask with the path it prints as On a Sprite says.
 
 ````
 ASK <the question, one line>
-<one to three lines: first the work it serves and what your pick changes, as "For {order:<o>}: your pick decides <what it changes for you>."; the recommendation; what happens meanwhile>
+<one to three lines: first the work it serves and what your pick changes, as "For {order:<o>}: your pick decides <what it changes for you>."; the recommendation>
 Show me:
 <a caption of at most 25 words>
 ```<the kind that fits: mermaid, compare, chart or arch, or a language such as sand, sql or go for the real call>

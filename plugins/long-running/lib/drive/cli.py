@@ -2049,7 +2049,7 @@ def card_source(name: str, args: argparse.Namespace) -> tuple[Path, str]:
 
 
 def question_card(name: str, path: Path, waits: str) -> dict:
-    """The card a job's question draws: its newest kept ASK block, under the waits id the question already holds, so every ask of one question redraws its one card; the waits id given names the card of a question holding none yet, or one of the job's cards drawn again on purpose. A question that ended, that `drive job ask` refused, or that a `Replaces:` line folded into another job's or its own later question, draws none under any waits id, by `settled.card_refusal`. The card is the job's whose question holds the waits id, by `state.waits_job`, so a card another job took over with --redraws draws for that job; a waits id naming no job of the drive, a card asked outside any job, only draws the block. Each reference in its summary, Show me and option descriptions, such as {at:<seq>} in a Show me table, is filled as say fills a post's, through `refs.resolved` and `refs.slack`, before its file names are drawn as code."""
+    """The card a job's question draws: its newest kept ASK block, under the waits id the question already holds, so every ask of one question redraws its one card; the waits id given names the card of a question holding none yet, or one of the job's cards drawn again on purpose. A question that ended, that `drive job ask` refused, or that a `Replaces:` line folded into another job's or its own later question, draws none under any waits id, by `settled.card_refusal`. The card is the job's whose question holds the waits id, by `state.waits_job`, so a card another job took over with --redraws draws for that job; a waits id naming no job of the drive, a card asked outside any job, only draws the block. Each reference in its summary, Show me and option descriptions, such as {at:<seq>} in a Show me table, is filled as say fills a post's, through `refs.resolved` and `refs.slack`, before its file names are drawn as code. A job's card says above its buttons what is built while he decides, as `meanwhile` reads it from the drive's jobs at each draw."""
     from drive import superseded, view
 
     data = state.load(name)
@@ -2077,18 +2077,34 @@ def question_card(name: str, path: Path, waits: str) -> dict:
     asked = already_answered(asked, recorded)
     show_me = picture.drawn(state.drive_dir(name) / "pictures", asked.show_me)
     found = refs.resolved(name, "\n".join([*asked.summary, *show_me, *asked.hints.values()]))
+    holds = question["holds"] if question else job and asked.holds and state.held_words(data, asked.holds, [job["order"], *job["carries"]])
     card = replace(
         asked,
         summary=[refs.slack(line, found, None) for line in asked.summary],
         show_me=[refs.slack(line, found, None) for line in show_me],
         hints={option: refs.slack(hint, found, None) for option, hint in asked.hints.items()},
-    ).card(name, waits)
+    ).card(name, waits, meanwhile(data, job_id, holds or "", question and question["unsettled"]) if job else "")
     if job_id in data["jobs"]:
         with state.edit(name) as data:
             keep_waits(data, job_id, path, waits)
             if question := state.kept_in(data["jobs"][job_id], path):
                 question["recorded"] = recorded
     return card
+
+
+def meanwhile(data: dict, job_id: str, holds: str, unsettled: str | None) -> str:
+    """What the drive builds while he decides, read from its jobs for his card's line above its buttons, so no agent writes it: being built when the card holds a part `state.work` says only a builder carries, every part of a build order or an incident among them, whose builder starts beside the card, or when the asking job is a builder, which keeps running on its own parts to build the recommended option; that build lands on the recommendation on an open incident, unless the card asks him to lift a ruling of his, and waits on his pick otherwise; nothing is built until he picks on an order he limited to options, an answer order, or a part only research held. `Holds:` words naming no part of its orders, `none` and a design's changes not yet parts among them, leave the asking job's own parts to count, which a builder's always do."""
+    job = data["jobs"][job_id]
+    orders = [job["order"], *job["carries"]]
+    own = job["kind"] == "builder" or not state.names_part(holds, (part for order_id in orders for part in data["orders"][order_id]["parts"]))
+    if not any(
+        state.work(data, order_id, part)
+        for order_id in orders
+        for part in data["orders"][order_id]["parts"]
+        if state.names_part(holds, [part]) or own and part in state.worked(data, job_id, order_id)
+    ):
+        return limits.NOTHING_BUILT
+    return limits.BUILT_LANDING if state.open_incidents(data, orders) and not unsettled else limits.BUILT_PAUSED
 
 
 def kept_ask(path: Path, question: dict | None, cards: dict) -> limits.Question:
@@ -4981,7 +4997,8 @@ def parser() -> argparse.ArgumentParser:
         description=(
             "Check a job's ASK block: `ASK <the question>`, one to three summary lines (the first naming the work it serves,"
             " `{order:<o>}`, `port of #N` or Drive tooling, and what your pick changes, as `For {order:<o>}: your pick decides"
-            " <what it changes for you>.`, then the recommendation and what happens meanwhile),"
+            " <what it changes for you>.`, then the recommendation; his card's line above its buttons, read from the drive's jobs,"
+            " says what is built while he decides, so the summary says none of it),"
             " `Show me:` working each option of a design out to what it will look like once built, its real calls, rows,"
             " flow or what a caller gets, as a compare panel named for it or a picture captioned with its number, which Jev"
             " reads option by option, and on any other card a Show me only"
