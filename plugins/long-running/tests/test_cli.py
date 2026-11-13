@@ -3526,7 +3526,7 @@ def test_a_build_jobs_research_is_a_reader_of_its_own_part_a_designs_change_coun
     )
 
 
-def test_a_builder_is_added_waiting_on_another_builders_change_until_that_builder_opens_its_pr(
+def test_a_builder_is_added_waiting_on_another_builders_change_which_names_that_builders_open_pr_once_it_opens_one(
     run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     built = "Forge-AI/monorepo#7"
@@ -3544,15 +3544,11 @@ def test_a_builder_is_added_waiting_on_another_builders_change_until_that_builde
         " the brief it starts on, drive job launch j3 <brief>, or stop it with drive job set j3 --state stopped before adding the job that replaces it"
     )
     assert run("job", "add", "reader", "--order", "o1", "--goal", "dropped")[0] == 0
-    refusals = {
-        "j1": "--waits j1: j1 is done, so nothing of it is left to wait on",
-        "j3": f"--waits j3: j3 already opened {built}, so wait on the PR this job builds on, as --waits {built}",
-    }
-    for waits, refusal in refusals.items():
-        assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "x", "--waits", waits]) == 2
-        assert capsys.readouterr().err.strip().endswith(f"refused, no job added: {refusal}")
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "x", "--waits", "j1"]) == 2
+    assert capsys.readouterr().err.strip().endswith("refused, no job added: --waits j1: j1 is done, so nothing of it is left to wait on")
     assert run("job", "add", "design", "--order", "o1", "--goal", "x", "--waits", "j5")[1].splitlines()[0] == "j6"
-    assert state.load("demo")["jobs"]["j6"]["waits"] == ["j5"]
+    assert run("job", "add", "design", "--order", "o1", "--goal", "y", "--waits", "j3")[1].splitlines()[0] == "j7"
+    assert [state.load("demo")["jobs"][job_id]["waits"] for job_id in ("j6", "j7")] == [["j5"], [built]]
 
 
 def test_a_jobs_clock_is_a_time_to_come(run: Run, meta: str, capsys: pytest.CaptureFixture[str]) -> None:
@@ -4003,6 +3999,24 @@ def test_a_design_of_several_changes_makes_each_a_part_of_its_order_with_a_build
         "j2": (["the moved-table interface"], "running", []),
         "j3": (["the reads through it"], "running", []),
         "j4": (["the writes through it"], "waiting", ["j2", "j3"]),
+    }
+
+
+def test_a_designs_change_waits_on_the_builder_of_the_earlier_change_its_line_names_once_that_builders_pr_closed_unmerged(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    closed = "Forge-AI/monorepo#43"
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store", "--parts", "copy one store", "the reads through it")
+    run("job", "add", "design", "--order", "o1", "--part", "copy one store", "--goal", "cards: the store copy")
+    with state.edit("demo") as data:
+        data["jobs"]["j2"] = state.new_job("o1", "builder", "build the reads", ["the reads through it"], state.stamp()) | {"state": "built", "prs": [state.pr_url(closed)]}
+        data["orders"]["o1"]["jobs"].append("j2")
+        data["prs"][closed] = state.new_pr(state.pr_url(closed), "j2", "o1") | {"state": "closed"}
+    assert keep(monkeypatch, capsys, "j1", DESIGNED_IN_CHANGES)[0] == 0
+    jobs = state.load("demo")["jobs"]
+    assert {job["parts"][0]: job["waits"] for job_id, job in jobs.items() if job["kind"] == "builder" and job_id != "j2"} == {
+        "the moved-table interface": [],
+        "the writes through it": ["j2"],
     }
 
 

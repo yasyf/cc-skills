@@ -299,7 +299,7 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
             if not heard_job(watcher, data, job) or view.open_cards(job):
                 continue
             turn = job_id in turned and job["state"] == "waiting" and state.SLOT_WAIT in job["waits"]
-            if (ended := released(data, job, watcher.cards, out | slot if turn else out)) and job["state"] not in state.FINISHED_JOB_STATES and not merged_ready(data, job_id):
+            if (ended := released(data, job, job_id, watcher.cards, out | slot if turn else out)) and job["state"] not in state.FINISHED_JOB_STATES and not merged_ready(data, job_id):
                 job["updated"] = state.stamp(moment)
                 if turn:
                     job["slot"] = state.stamp(moment)
@@ -318,7 +318,7 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
             if not hears(watcher, data, pr["order"]):
                 continue
             waited = pr["waits"]
-            if (ended := released(data, pr, watcher.cards, out)) and pr["state"] == "open":
+            if (ended := released(data, pr, pr["job"], watcher.cards, out)) and pr["state"] == "open":
                 lines.append(f"FREE {key} {pr['job']} {pr['order']}: {ended}, nothing else holds it")
             if pr["waits"] != waited and pr["state"] == "open":
                 redraws.append(pr["url"])
@@ -640,10 +640,11 @@ def release_owners(data: dict) -> list[tuple[str, dict]]:
     ]
 
 
-def released(data: dict, owner: dict, cards: dict | None, out: dict[str, str]) -> str:
-    """Drop the waits of a job or PR that ended; what ended, when nothing else holds it."""
-    holds = [wait for wait in view.holding(data, owner["waits"], cards) if wait not in out]
-    ended = [wait for wait in owner["waits"] if wait not in holds]
+def released(data: dict, owner: dict, own: str, cards: dict | None, out: dict[str, str]) -> str:
+    """Drop the waits of a job or PR that ended, a wait on a PR of a job other than own that closed unmerged taking that job's change in its place by state.change_wait; what ended, when nothing else holds it."""
+    waits = list(dict.fromkeys(state.change_wait(data, pr["job"]) if (pr := data["prs"].get(wait)) and pr["state"] == "closed" and pr["job"] != own else wait for wait in owner["waits"]))
+    holds = [wait for wait in view.holding(data, waits, cards) if wait not in out]
+    ended = [wait for wait in waits if wait not in holds]
     state.rewait(owner, holds)
     if holds or not ended:
         return ""
