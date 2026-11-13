@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 from drive import agents, card, cli, limits, mcp, reads, settled, slack, state, superseded, tools, view, watch
-from conftest import LEAD, LOCK_STALL, LOCK_STALL_AGAIN, RESEARCH, Answers, Heard, Jev, Withdrawals
+from conftest import LEAD, LOCK_STALL, LOCK_STALL_AGAIN, RESEARCH, STANDING_FREEZE, Answers, Heard, Jev, Withdrawals
 from drive.state import DriveError
 
 THREAD = "1794200000.000100"
@@ -428,6 +428,16 @@ def test_tool_help_prints_each_field_of_its_input_with_its_type_whether_it_is_re
     goal, words = tools.schema(tools.leaf("job", "add"))["properties"]["goal"], tools.schema(tools.leaf("order", "add"))["properties"]["words"]
     assert f"ops[].add.goal (string, required): {goal['description']}" in lines
     assert f"ops[].add.order.words (string, required): {words['description']}" in lines
+
+
+def test_no_record_of_a_batch_posts_when_one_not_in_his_words_says_a_freeze_lifted_while_a_freeze_it_leaves_out_stands(demo: str, freezes: list[dict], monkeypatch: pytest.MonkeyPatch) -> None:
+    freezes.append(STANDING_FREEZE)
+    posted: list[list[str]] = []
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append(argv))
+    records = [{"kind": "answer", "text": "releases can go again", "waits": "demo:j2-7"}, {"kind": "defect", "text": "the freeze lifted at 11:06 AM, so the api cut can start"}]
+    with pytest.raises(DriveError, match="^2: refused, nothing posted: these words say a release freeze lifted or a release may start, and these stand now: freeze 45ab54019c: "):
+        tools.run("record", demo, {"records": records})
+    assert posted == []
 
 
 def test_a_record_goes_to_the_other_session_and_a_tap_takes_its_job_and_waits_from_the_waits_id(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

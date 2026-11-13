@@ -48,6 +48,11 @@ answer order, filed under no project or workstream, and your reader job on it, `
 project and workstream pair the drive's orders are filed under, and `In his thread:`, every open order
 in his thread with its jobs, their questions and PRs as `drive status` prints them, or `none`.
 
+Every handler's prompt closes on `Release freezes:`, each release freeze and his hold on every release
+as they stood when you started. Before saying a freeze lifted or a release may start, read
+`tools/ci release freezes` again and name each freeze and hold that stands by its id: `say` refuses
+words that leave one out.
+
 Start from his words. The `Deliverable`, or a record's line, names what he asked for but never all
 of it.
 

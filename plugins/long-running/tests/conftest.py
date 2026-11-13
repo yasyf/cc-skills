@@ -35,6 +35,18 @@ from drive import (
 )
 
 SESSION = "session-under-test"
+UNFROZEN = "\nRelease freezes: no release freeze or release hold of his stands"
+STANDING_FREEZE = {
+    "freeze": {"id": "45ab54019c"},
+    "text": "freeze 45ab54019c: everything until Nov 13, 5:00 PM for incident, set by Yasyf Mohamedali (to end it sooner, ask Yasyf Mohamedali, its owner, to lift it from its #releases post). Staging still ships.",
+}
+HELD_RELEASES = {
+    "id": "15c4de1" + "0" * 33,
+    "title": "Are releases frozen now that a teammate set a freeze in #releases?",
+    "body": "no releases until I say we can again",
+    "tags": ["scope:durable", "release-hold"],
+    "created_at": "2026-11-13T19:09:39Z",
+}
 WRITTEN_AT = datetime(2026, 11, 10, 5, 0).astimezone()
 LEAD = (
     "--headline",
@@ -839,6 +851,14 @@ def backfilled(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     checkouts: list[str] = []
     monkeypatch.setattr(settled, "backfill", checkouts.append)
     return checkouts
+
+
+@pytest.fixture(autouse=True)
+def freezes(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
+    """The release freezes `tools/ci release freezes --json` reads as standing: none until a test adds one."""
+    standing: list[dict] = []
+    monkeypatch.setattr(brief, "freezes", lambda cwd: standing)
+    return standing
 
 
 @pytest.fixture(autouse=True)

@@ -6,9 +6,10 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import Checked, Jev, Thread
+from conftest import HELD_RELEASES, STANDING_FREEZE, Answers, Checked, Jev, Thread
 from drive import (
     agents,
+    brief,
     cli,
     dashboard,
     picture,
@@ -287,6 +288,27 @@ def test_a_card_no_question_keeps_moves_each_wait_on_it_to_its_waits_id_when_ask
     talk.say(demo, {"card": {"title": QUESTION, "waits": WAITS}})
     data = state.load(demo)
     assert (data["jobs"]["j2"]["waits"], data["prs"]["yasyf/cc-skills#7"]["waits"]) == ([WAITS], [WAITS])
+
+
+def test_say_posts_no_word_that_a_freeze_lifted_or_a_release_may_start_unless_it_names_each_freeze_and_hold_standing_now(
+    demo: str, posts: list[tuple[str, ...]], freezes: list[dict], recorded: Answers, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    freezes.append(STANDING_FREEZE)
+    recorded.listed = [HELD_RELEASES]
+    stands = f'{STANDING_FREEZE["text"]}; his hold 15c4de1 on every release stands: "no releases until I say we can again"'
+    with pytest.raises(DriveError) as refused:
+        talk.say(demo, {"text": "Platy shows the release freeze lifted at 11:06 AM, so the api cut can start now.", "dry_run": True})
+    assert str(refused.value) == f"nothing posted: these words say a release freeze lifted or a release may start, and these stand now: {stands}. Name each by its id and what it holds, or leave the claim out"
+    named = "Freeze 45ab54019c and his hold 15c4de1 still stand, so no release can start until each lifts."
+    talk.say(demo, {"text": named})
+
+    def unread(cwd: str) -> list[dict]:
+        raise reads.ReadError("tools/ci: exit 1")
+
+    monkeypatch.setattr(brief, "freezes", unread)
+    with pytest.raises(DriveError, match=r"these stand now: the release ledger could not be read \(tools/ci: exit 1\)"):
+        talk.say(demo, {"text": named})
+    assert [argv[-1] for argv in posts] == [named]
 
 
 def test_say_posts_the_words_its_hook_judged_and_checks_none_of_them_again(demo: str, posts: list[tuple[str, ...]], checked: Checked) -> None:

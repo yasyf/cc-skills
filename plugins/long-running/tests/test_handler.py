@@ -12,7 +12,7 @@ import handed_records
 import one_line_result
 import pytest
 import session_start
-from conftest import LANE_SPEC, Thread
+from conftest import LANE_SPEC, UNFROZEN, Thread
 from drive import agents, reads, slack, state, talk, tools
 
 Run = Callable[..., tuple[int, str]]
@@ -85,7 +85,7 @@ def test_drive_handler_starts_its_own_claude_bg_session_and_records_that_he_wrot
     assert argv[:4] == ["claude", "--bg", "--agent", agents.HANDLER]
     env = json.loads(argv[argv.index("--settings") + 1])["env"]
     assert (env[state.HANDLER_ENV], env["CCI_PARENT_SESSION"], env["CLAUDE_LONG_RUNNING_DRIVE"]) == (f"demo/{handler}", os.environ["CLAUDE_CODE_SESSION_ID"], "demo")
-    assert argv[-1] == HIS_BRIEF.format(scratch=tmp_path / "scratch" / "h1")
+    assert argv[-1] == HIS_BRIEF.format(scratch=tmp_path / "scratch" / "h1") + UNFROZEN
     assert tools.run("handler", "demo", {"brief": f"Record: 663488 Drive: demo Scratch: {tmp_path / 'h2'}"}).startswith("started ")
     assert state.load("demo")["owner"] == data["owner"]
 
@@ -575,7 +575,7 @@ def test_a_handler_whose_four_resumes_an_api_error_ended_too_starts_again_as_its
             posts.append(said(monkeypatch, session, f"{HIS_DM}/p1794565600000200?thread_ts={ANSWER_THREAD}&cid=D0C4HQWPLCC"))
         assert stop(monkeypatch, capsys, session, transcript, API_ERROR, brief, "StopFailure", outage(len(agents.OUTAGE_WAITS))) == ""
         starts = [argv for argv in started if argv[:2] == ["claude", "--bg"]]
-        assert [argv[-1] for argv in starts] == [brief] * (attempt + 1)
+        assert [argv[-1] for argv in starts] == [brief.strip() + UNFROZEN] * (attempt + 1)
         assert json.loads(starts[-1][starts[-1].index("--settings") + 1])["env"][state.HANDLER_ENV] == f"demo/{handler}"
         entry = state.load("demo")["handlers"][handler]
         assert (entry["session"], entry["holds"], entry["posted"]) == (None, held, posts)

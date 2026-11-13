@@ -7,7 +7,7 @@ import shlex
 import subprocess
 import uuid
 
-from drive import cli, limits, reads, render, settled, state, superseded, talk, view
+from drive import brief, cli, limits, reads, render, settled, state, superseded, talk, view
 from drive.state import DriveError
 
 UNTYPED = {"help", "drive", "json"}
@@ -506,7 +506,7 @@ def ran(name: str, said: list[str], index: int, words: tuple[str, ...], given: d
 
 
 def record(name: str, records: list[dict], dry_run: bool) -> str:
-    """Post the records as one cci batch from this session's lane, a sub-coordinator's its project's, to the lane each names, else the communicator, the coordinator's for the communicator, each sent where the drive routes it."""
+    """Post the records as one cci batch from this session's lane, a sub-coordinator's its project's, to the lane each names, else the communicator, the coordinator's for the communicator, each sent where the drive routes it; none posts when one not in his words says a release freeze lifted or a release may start while a freeze or his release hold it does not name stands."""
     data = state.load(name)
     session = os.environ.get("CLAUDE_CODE_SESSION_ID")
     role = state.session_role(data, session)
@@ -520,6 +520,9 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
     project = state.session_project(data, session)
     lane, other = {"communicator": ("communicator", "root"), "meta": ("meta", "communicator")}.get(role) or (state.project_lane(project) if project else "root", "communicator")
     posts = [post(item, data, other, session) for item in records]
+    for index, made in enumerate(posts, start=1):
+        if made["kind"] != "answer" and not state.his_words(role, made["kind"]) and (refused := brief.claim_refusal(f"{made['text']}\n{made.get('body') or ''}", data)):
+            raise DriveError(f"{index}: refused, nothing posted: {refused}")
     found = his_cards(name) if any(made["kind"] in ("owner", "answer") for made in posts) else view.NO_CARDS
     closes = [closed_by(data, index, made, item.get("order")) for index, (item, made) in enumerate(zip(records, posts, strict=True), start=1)]
     for index, (made, questions) in enumerate(zip(posts, closes, strict=True), start=1):

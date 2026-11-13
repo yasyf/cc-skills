@@ -11,7 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from conftest import DRIVE_TERMINAL, LEAD, SHORT_ASK, CodexAsk, drawn_card, Draws, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, staged
+from conftest import DRIVE_TERMINAL, LEAD, SHORT_ASK, UNFROZEN, CodexAsk, drawn_card, Draws, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, staged
 from drive import agents, card, cli, codex, github, install, land, launchd, orca, place, reads, receiver, render, served, slack, stage, stall, state, superseded, talk, view, watch
 
 KEY = "Forge-AI/monorepo#42"
@@ -929,7 +929,7 @@ def test_an_open_incident_with_no_line_for_five_minutes_owes_him_one_through_a_r
     assert report["attr"] == {"order": "o1", "progress": "true", "quiet": "true", "thread": INCIDENT_THREAD}
     assert {f"- {render.job_line('j2', state.load(demo)['jobs']['j2'])}", "PRs, as the watch last read them from GitHub: 1", shown_pr(demo, KEY)} <= set(body.splitlines())
     assert "674295" not in body
-    assert start[-1] == f"Record: 901 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'quiet-901'}"
+    assert start[-1] == f"Record: 901 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'quiet-901'}" + UNFROZEN
     quiet = state.load(demo)["orders"]["o1"]["quiet"]
     assert (quiet["record"], quiet["at"], quiet["handler"] in state.load(demo)["handlers"]) == ("901", state.stamp(T0 + timedelta(minutes=7)), True)
     assert watch.quiet_lines(watching, T0 + timedelta(minutes=11, seconds=59)) == []
@@ -937,7 +937,7 @@ def test_an_open_incident_with_no_line_for_five_minutes_owes_him_one_through_a_r
     with state.edit(demo) as data:
         data["handlers"].clear()
     assert watch.quiet_lines(watching, T0 + timedelta(minutes=12)) == []
-    assert (len(calls), calls[3][0][-1]) == (4, f"Record: 903 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'quiet-903'}")
+    assert (len(calls), calls[3][0][-1]) == (4, f"Record: 903 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'quiet-903'}" + UNFROZEN)
 
 
 def test_a_quiet_incident_whose_thread_a_handler_holds_restarts_its_clock_with_no_second_handler_its_promised_time_says_no_due_and_its_live_fix_ends_it(
@@ -986,7 +986,7 @@ def test_a_thread_his_open_order_watches_starts_a_handler_on_each_new_teammate_m
     assert (report["text"], report["topic"], report["to"]) == ("POST 1 new in the thread o1 watches: answer it there", "watch-o1", [f"communicator@{demo}"])
     assert report["attr"] == {"order": "o1", "progress": "true", "watch": "true", "thread": TEAMMATE_THREAD}
     assert body.splitlines()[-2:] == ["New there from anyone but him, the drive and a bot: 1", f"- {slack_thread.messages[1]['ts']} Dana: can we run it again tonight?"]
-    assert start[-1] == f"Record: 901 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'watch-901'}"
+    assert start[-1] == f"Record: 901 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'watch-901'}" + UNFROZEN
     assert slack_thread.reads == [("--channel", "C0TEAM0001", "--thread", TEAMMATE_THREAD, "--since-ts", f"{T0.timestamp():.6f}", "--limit", "1000")]
     assert (state.load(demo)["orders"]["o1"]["watch"]["seen"], state.load(demo)["orders"]["o1"]["watch"]["record"]) == (slack_thread.messages[3]["ts"], None)
     assert not [key for key in watch.part_gaps(watching, state.load(demo), T0 + timedelta(hours=1)) if key[0] == "o1"]
@@ -1082,7 +1082,7 @@ def test_incidents_sharing_a_thread_owe_him_one_line_there_through_one_report_an
         "PRs, as the watch last read them from GitHub: 0",
     ]
     assert f"- {render.job_line('j3', state.load(demo)['jobs']['j3'])}" in lines
-    assert start[-1] == f"Record: 901 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'quiet-901'}"
+    assert start[-1] == f"Record: 901 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'quiet-901'}" + UNFROZEN
     orders = state.load(demo)["orders"]
     assert [{key: orders[head]["quiet"][key] for key in ("record", "at", "handler")} for head in ("o1", "o3")] == 2 * [{"record": "901", "at": state.stamp(T0 + timedelta(minutes=7)), "handler": orders["o1"]["quiet"]["handler"]}]
     assert watch.quiet_lines(watching, T0 + timedelta(minutes=11, seconds=59)) == []
@@ -1206,7 +1206,7 @@ def test_an_order_with_a_thread_owes_a_line_there_after_each_step_none_while_its
     [(report, body), (start, _)] = calls
     assert (report["text"], report["attr"]) == ("POST order o1 has news since the thread's last line: post what changed there", {"order": "o1", "progress": "true", "quiet": "true", "thread": INCIDENT_THREAD})
     assert "Moved since the thread's last line: j2. At work: j1." in body.splitlines()
-    assert start[-1] == f"Record: 901 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'quiet-901'}"
+    assert start[-1] == f"Record: 901 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'quiet-901'}" + UNFROZEN
     assert watch.quiet_lines(watching, hour + timedelta(minutes=5, seconds=4)) == []
     assert len(calls) == 2
     with state.edit(demo) as data:
@@ -1328,7 +1328,7 @@ def test_his_next_message_after_away_owes_his_catch_up_which_the_watch_posts_thr
     assert (report["to"], report["kind"], report["attr"]) == ([f"communicator@{demo}"], "report", {"catch_up": "true"})
     assert f"- {render.order_line('o1', state.load(demo)['orders']['o1'])}" in body.splitlines()
     assert start[:4] == ["claude", "--bg", "--agent", "long-running:handler"]
-    assert start[-1] == f"Record: 901 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'catch-up-901'}"
+    assert start[-1] == f"Record: 901 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'catch-up-901'}" + UNFROZEN
     owed = state.load(demo)["catch_up"]
     assert (owed["tried"], state.load(demo)["handlers"][owed["handler"]]["holds"]["record"]) == (state.stamp(BACK), "901")
     assert watch.catch_up_lines(watching, BACK) == []
@@ -6533,7 +6533,7 @@ def test_a_stall_on_a_drive_started_from_a_terminal_with_no_communicator_starts_
     [(argv, checkout)] = ran
     assert (argv[:4], checkout) == (["claude", "--bg", "--agent", "long-running:handler"], Path(coordinator["cwd"]))
     assert json.loads(argv[argv.index("--settings") + 1])["env"]["CCI_PARENT_SESSION"] == coordinator["session"]
-    assert argv[-1] == f"Record: 9 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'stall-9'}"
+    assert argv[-1] == f"Record: 9 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'stall-9'}" + UNFROZEN
     data = state.load(demo)
     assert ([entry["holds"]["record"] for entry in data["handlers"].values()], data["prs"][KEY]["stall"]["told"]) == (["9"], state.stamp(told_at))
     posts_to_communicator.append("9")
@@ -6560,7 +6560,7 @@ def test_the_watch_starts_a_handler_on_each_post_report_to_a_communicator_its_dr
     watching = watcher(demo)
     posts_to_communicator += ["697061", "697102", "697160"]
     assert watch.post_lines(watching, T0) == []
-    assert ([argv[-1] for argv in ran], unread) == ([f"Record: 697061 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'post-697061'}"], ["697102"])
+    assert ([argv[-1] for argv in ran], unread) == ([f"Record: 697061 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'post-697061'}" + UNFROZEN], ["697102"])
     refused.clear()
     posts_to_communicator += ["697102", "697160"]
     assert watch.post_lines(watching, T0 + timedelta(seconds=5)) == []

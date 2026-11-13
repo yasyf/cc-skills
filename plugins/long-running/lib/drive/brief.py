@@ -1,4 +1,5 @@
 import functools
+import json
 import os
 import re
 import sys
@@ -6,7 +7,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from urllib.parse import urlparse
 
-from drive import limits, settled, state
+from drive import limits, reads, settled, state
 from drive.render import cut
 from drive.shell import simple_commands
 
@@ -107,6 +108,11 @@ RELEASE_HELD = (
     " so `{release}` runs only on an answer of his recorded since that approves it: {why}. Ask him with `drive job ask`"
     " whether to release it, record his answer with `drive answer`, and name it in the release's `--order`. Once he says"
     " releases can go again, his answer saying so supersedes the hold: `ccn answer supersede {hold} --by <id>`"
+)
+RELEASE_CLAIM = re.compile(
+    r"\bfreeze\b[^.;\n]{0,60}?\b(?:lifted|lifts now|ended|is over|is gone|came off)\b|\bunfrozen\b|\bno longer frozen\b"
+    r"|\b(?:releases?|cut)\b[^.;\n]{0,60}?\bcan (?:start|go|run|ship)\b|\breleases? (?:start|go) (?:as usual|again)\b",
+    re.IGNORECASE,
 )
 PULL_WORDS = re.compile(r"(?:#?\d+,?)+")
 NAMES = re.compile(r"[,\s]+")
@@ -228,6 +234,34 @@ def hold_refusal(release: str, data: dict, hold: dict) -> str | None:
     except settled.Unheard as failure:
         why = f"Jev did not say whether an answer of his approves it ({failure}); run it again once Jev answers"
     return RELEASE_HELD.format(said=said, where=where, hold=hold["id"][:7], release=release, why=why)
+
+
+def freezes(cwd: str) -> list[dict]:
+    """Each release freeze standing now, as `tools/ci release freezes --json` reads the release ledger from the coordinator's checkout: its ledger row under freeze and its line under text."""
+    return json.loads(reads.run([str(Path(cwd) / "tools" / "ci"), "release", "freezes", "--json"], Path(cwd)))
+
+
+def standing(cwd: str) -> list[tuple[str | None, str]]:
+    """Each release freeze the release ledger holds standing now and his hold on every release, by id with its line, read at each use and never kept, so no brief, wait or post states a freeze that lifted or misses one set since; a ledger that could not be read stands under no id, which no words name."""
+    held = [(hold["id"][:7], f'his hold {hold["id"][:7]} on every release stands: "{cut(settled.his(hold["body"]), settled.QUOTED_CHARS)}"')] if (hold := settled.hold(cwd)) else []
+    try:
+        return [*((each["freeze"]["id"], each["text"]) for each in freezes(cwd)), *held]
+    except reads.ReadError as error:
+        return [(None, f"the release ledger could not be read ({error}), so read `tools/ci release freezes` before saying a release is frozen or may start"), *held]
+
+
+def releases(cwd: str) -> str:
+    """What stands on releases now, as the one line a job's brief, a handler's prompt and drive status carry."""
+    return "; ".join(line for _, line in standing(cwd)) or "no release freeze or release hold of his stands"
+
+
+def claim_refusal(text: str, data: dict) -> str | None:
+    """Why words saying a release freeze lifted or a release may start may not go out: they leave out, by its id, a freeze or his hold standing now; None for words claiming neither, or naming each that stands."""
+    if not RELEASE_CLAIM.search(text):
+        return None
+    if unnamed := [line for name, line in standing(data["roles"]["coordinator"]["cwd"]) if name is None or name not in text]:
+        return f"these words say a release freeze lifted or a release may start, and these stand now: {'; '.join(unnamed)}. Name each by its id and what it holds, or leave the claim out"
+    return None
 
 
 def gives_tooling(job_id: str, order_id: str) -> str:

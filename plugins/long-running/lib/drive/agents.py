@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Self
 
 from drive import install, limits, procs, reads, render, slack, state, superseded
-from drive.brief import BRIEF_JOB, carried, heavier
+from drive.brief import BRIEF_JOB, carried, heavier, releases
 
 RECORD = re.compile(r"^Record: (\d+)\b", re.MULTILINE)
 LINK = re.compile(r"^Link:\s*(\S+)", re.MULTILINE)
@@ -53,8 +53,9 @@ HIS_WORDS = "Message (his words)"
 ORDER = "Order"
 PAIRS = "Pairs in use"
 IN_THREAD = "In his thread"
+RELEASES = "Release freezes"
 SCRATCH = re.compile(r"Scratch:\s*(\S+)")
-LABEL = re.compile(rf"^({'|'.join(re.escape(label) for label in (*render.HANDLER_LABELS, ORDER, PAIRS, IN_THREAD))}):")
+LABEL = re.compile(rf"^({'|'.join(re.escape(label) for label in (*render.HANDLER_LABELS, ORDER, PAIRS, IN_THREAD, RELEASES))}):")
 DATADOG_PLUGIN = "datadog@claude-plugins-official"
 SESSION_SETTINGS = {
     "bashOutputMaxChars": 6000,
@@ -450,7 +451,7 @@ def start_kept(name: str, handler: str) -> str:
     kept = brief_path(name, handler)
     try:
         start_handler(name, handler, kept.read_text())
-    except reads.ReadError as error:
+    except (reads.ReadError, state.DriveError) as error:
         unstarted(name, handler)
         line = f"BLOCKED handler {handler} did not start: {error}; its brief is kept in {kept}: start it again with the handler tool"
         reads.run(["cci", "post", "--drive", name, "--lane", "handler", "--kind", "done", "--to", f"{beside(state.saved(name))[0]}@{name}", "--id", f"handler-start-{handler}", "--text", line], Path.cwd(), reads.posting())
@@ -464,8 +465,11 @@ def beside(data: dict) -> tuple[str, dict]:
 
 
 def start_handler(name: str, handler: str, prompt: str) -> None:
-    """Start a handler as its own `claude --bg` session on its agent definition, which sets its model, in the checkout of the session it runs beside, the communicator's or on a drive with none the coordinator's, whether that session or the drive's watch starts it, its SessionStart hook binding it to the drive by the id in its environment, `CCI_PARENT_SESSION` naming that session, so cci binds the handler's session to no lane and it posts as the communicator's lanes, and `CLAUDE_LONG_RUNNING_DRIVE` naming the drive, so each cci call that names no drive resolves this one, and `CAPT_HOOK_CLIENT_TIMEOUT` at Claude Code's own hook timeout, so Jev's check of a say post Slack already has runs as long as that check needs rather than capt-hook's 30 s; the watch's own lane stays out of its environment."""
-    _, held = beside(state.saved(name))
+    """Start a handler as its own `claude --bg` session on its agent definition, which sets its model, in the checkout of the session it runs beside, the communicator's or on a drive with none the coordinator's, whether that session or the drive's watch starts it, its SessionStart hook binding it to the drive by the id in its environment, `CCI_PARENT_SESSION` naming that session, so cci binds the handler's session to no lane and it posts as the communicator's lanes, and `CLAUDE_LONG_RUNNING_DRIVE` naming the drive, so each cci call that names no drive resolves this one, and `CAPT_HOOK_CLIENT_TIMEOUT` at Claude Code's own hook timeout, so Jev's check of a say post Slack already has runs as long as that check needs rather than capt-hook's 30 s; the watch's own lane stays out of its environment. Its prompt closes on the release freezes and his release hold as they stand at this start, in place of the line an earlier start of it carried."""
+    data = state.saved(name)
+    _, held = beside(data)
+    lines = [line for line in prompt.strip().splitlines() if not line.startswith(f"{RELEASES}:")]
+    prompt = "\n".join([*lines, f"{RELEASES}: {releases(data['roles']['coordinator']['cwd'])}"])
     env = {state.HANDLER_ENV: f"{name}/{handler}", "CCI_PARENT_SESSION": held["session"], state.DRIVE_ENV: name, "CAPT_HOOK_CLIENT_TIMEOUT": CLAUDE_HOOK_SECONDS}
     settings = session_settings(env)
     argv = ["claude", "--bg", "--agent", HANDLER, "--permission-mode", "bypassPermissions", "--settings", json.dumps(settings), "-n", f"{name} handler {handler}", prompt]

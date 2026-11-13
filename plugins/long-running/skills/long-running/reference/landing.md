@@ -450,6 +450,11 @@ the patch.
   him with `drive job ask` and record his answer with `drive answer`. Once he says releases can go
   again, supersede the hold with that answer: `ccn answer supersede <hold> --by <id>`. Record a new
   hold of his with `drive answer --label release-hold`.
+- `tools/ci release freezes` reads each freeze the release ledger holds standing now. A job's brief and
+  a handler's prompt carry those freezes and his hold on a `Release freezes:` line, as they stood when
+  written, and `drive status` adds the line when a shown job or PR waits on a release. `say` and
+  `record` refuse words saying a freeze lifted or a release may start that leave out, by its id,
+  a freeze or his hold standing when they post.
 - A sub-coordinator, the coordinator session for one project, lands and installs its project's
   changes; the top coordinator alone starts, approves and rolls back production cuts, one at a time,
   since one cut carries every project's changes. The `landing_guard` hook refuses `ci release start`,
