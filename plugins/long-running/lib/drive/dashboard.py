@@ -293,6 +293,7 @@ class Board:
         self.pictures: set[str] = set()
         self.threads: set[str] = set()
         self.reports: set[str] = set()
+        self.reports_at = 0
         self.repo: str | None = None
         self.channel = ""
         self.assistant = review.Assistant(name)
@@ -320,7 +321,10 @@ class Board:
     def rebuild(self) -> None:
         self.read_history()
         found, source = view.stored_cards(self.name)
-        reports = {path.name.removesuffix(".replies.jsonl") for path in (state.drive_dir(self.name) / "jobs").glob("*.replies.jsonl")}
+        folder = state.drive_dir(self.name) / "jobs"
+        if (listed_at := folder.stat().st_mtime_ns if folder.exists() else 0) != self.reports_at:
+            self.reports = {path.name.removesuffix(".replies.jsonl") for path in folder.glob("*.replies.jsonl")}
+            self.reports_at = listed_at
         drive = state.load(self.name)
         repo = home_repo(drive["roles"]["coordinator"]["cwd"])
         with self.changed:
@@ -328,7 +332,7 @@ class Board:
         folder = pages.pages_dir(self.name)
         if (listed_at := folder.stat().st_mtime_ns if folder.exists() else 0) != self.pages[0]:
             self.pages = (listed_at, pages.listed(self.name))
-        model = view.board(drive, found, source, self.events, state.now(), reports, heard) | {
+        model = view.board(drive, found, source, self.events, state.now(), self.reports, heard) | {
             "code": CODE,
             "site": site_stamp(),
             "pid": os.getpid(),
@@ -336,7 +340,6 @@ class Board:
             "repo": repo,
             "pages": pages.shown(drive, self.pages[1]),
         }
-        self.reports = reports
         self.show(model)
         self.assistant.warm((entry["key"], entry["head"]) for entry in model["review"] if entry["group"] == "you")
 
