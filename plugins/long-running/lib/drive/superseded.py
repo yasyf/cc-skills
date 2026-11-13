@@ -208,8 +208,8 @@ def follow(name: str, ended: list[tuple[str, dict]]) -> list[str]:
 
 
 def closing(data: dict, kind: str, attrs: dict, topic: str | None, answered: list[str], link: str | None) -> list[tuple[str, dict]]:
-    """The job questions an owner or answer record of his words is on, open or ended: each its `waits` or `thread_card` names, the ask seq it answers names or its `card:<thread_ts>` topic is drawn in, and each whose card his message sits under, whatever thread the record names: his answer is on each, and his owner words only on a question whose work they are about, the drive's for a drive tooling order and his work for any other, so his feedback on the drive under a product card leaves it asking; an Undo, which reopens its card, is on none. His words never close a PR card: only his order on its thread, or a job carrying one, withdraws it."""
-    if kind not in ("owner", "answer") or "undone" in attrs:
+    """The job questions an owner or answer record of his words is on, open or ended: each its `waits` or `thread_card` names, the ask seq it answers names or its `card:<thread_ts>` topic is drawn in, and each whose card his message sits under, whatever thread the record names: his answer is on each, and his owner words only on a question whose work they are about, the drive's for a drive tooling order and his work for any other, so his feedback on the drive under a product card leaves it asking; his feedback on a post or card the drive made, a `Drive tooling: post feedback:` order, and an Undo, which reopens its card, are on none. His words never close a PR card: only his order on its thread, or a job carrying one, withdraws it."""
+    if kind not in ("owner", "answer") or "undone" in attrs or feedback(data, attrs.get("order")):
         return []
     return [
         (job_id, question)
@@ -220,6 +220,13 @@ def closing(data: dict, kind: str, attrs: dict, topic: str | None, answered: lis
         or (card := question["card"]) and (topic == f"card:{view.card_thread(card)}" or link and under(link, card))
     ]
 
+
+
+def feedback(data: dict, order: str | dict | None) -> bool:
+    """Whether a record's order, the id of an order or the fields of the new one it adds, is his feedback on a post or card the drive made, which faults how the drive asked and never ends what it asked."""
+    if isinstance(order, dict):
+        return order.get("words", "").startswith(state.POST_FEEDBACK)
+    return order in data["orders"] and data["orders"][order]["text"].startswith(state.POST_FEEDBACK)
 
 def unclosed_refusal(names: list[str], kind: str, attrs: dict, topic: str | None, answered: list[str], link: str | None) -> str | None:
     """Why an owner or answer record goes only through the drive's `record` tool: his words in it end an open question of his, and only that tool ends it, and its card, in the call that sends them."""

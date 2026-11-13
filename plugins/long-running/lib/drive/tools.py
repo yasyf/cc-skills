@@ -102,7 +102,7 @@ RECORD = {
                 "the waits id his message's thread_card names, given on every record of his words under a question card:"
                 " kept as attr thread_card; his owner words about that card's work, such as a rework or a correction, end the"
                 " job's question as withdrawn in the same call, and the card follows, showing his words, while his feedback"
-                " on the drive under a product card leaves it asking. Only that card ends: a sibling card, part or PR his"
+                " on the drive under a product card, and his feedback on a post or card under any card, leave it asking. Only that card ends: a sibling card, part or PR his"
                 " ruling removes is marked --dropped on the drive answer the call keeps for the ruling"
             ),
         },
@@ -548,7 +548,7 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
     lane, other = {"communicator": ("communicator", "root"), "meta": ("meta", "communicator")}.get(role) or (state.project_lane(project) if project else "root", "communicator")
     posts = [post(item, data, other, session) for item in records]
     found = his_cards(name) if any(made["kind"] in ("owner", "answer") for made in posts) else view.NO_CARDS
-    closed = [closed_by(name, data, index, made) for index, made in enumerate(posts, start=1)]
+    closed = [closed_by(name, data, index, made, item.get("order")) for index, (item, made) in enumerate(zip(records, posts, strict=True), start=1)]
     closes, settles = [questions for questions, _ in closed], [settling for _, settling in closed]
     for index, (made, questions) in enumerate(zip(posts, closes, strict=True), start=1):
         if (questions or (made.get("attr") or {}).get("ruling")) and (unsaid := unheard(data, found, made)):
@@ -768,10 +768,10 @@ def his_cards(name: str) -> dict:
     return found
 
 
-def closed_by(name: str, data: dict, index: int, made: dict) -> tuple[list[tuple[str, dict]], str | None]:
+def closed_by(name: str, data: dict, index: int, made: dict, order: str | dict | None) -> tuple[list[tuple[str, dict]], str | None]:
     """The open job questions this record's words end, each by its job: each its waits id, ask seq, `thread_card` or `card:<thread_ts>` topic names or whose card his message sits under, whatever thread the record names, and else the question an answer settles that its job keeps with no card drawn, with the ask seq it closes; an answer naming only questions that already ended is refused, posting nothing, since his answer on each is recorded already."""
     attrs = made.get("attr") or {}
-    named = superseded.closing(data, made["kind"], attrs, made.get("topic"), made.get("re") or [], made.get("url"))
+    named = superseded.closing(data, made["kind"], attrs | {"order": order or attrs.get("order")}, made.get("topic"), made.get("re") or [], made.get("url"))
     if questions := [(job_id, question) for job_id, question in named if question["closed"] is None]:
         return questions, None
     if made["kind"] != "answer" or "undone" in attrs or not (attrs.get("job") or attrs.get("thread_card")):

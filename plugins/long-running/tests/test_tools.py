@@ -962,6 +962,28 @@ def test_his_owner_words_under_a_question_card_end_its_question_when_about_its_w
     ]
 
 
+def test_his_feedback_on_a_card_leaves_its_question_asking_even_under_a_drive_tooling_card(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: cards say why")
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, "#61\n", ""))
+    with monkeypatch.context() as tooler:
+        tooler.setenv("CLAUDE_CODE_SESSION_ID", "tooler")
+        run("start", demo, "--role", "meta")
+        run("job", "add", "builder", "--order", "o1", "--goal", "build the cards")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", demo, "--role", "communicator")
+    answered = open_cards(monkeypatch, "demo:j1-7")
+    words = "I clciked undo and nothign happened"
+    feedback = {"kind": "owner", "text": words, "thread_card": "demo:j1-7", "about": "drive", "order": {"words": f'{state.POST_FEEDBACK} "{words}"', "title": "Undo drew nothing"}}
+    assert tools.run("record", demo, {"records": [feedback]}).splitlines()[-1] == "1 owner #61"
+    data = state.load(demo)
+    assert (answered, view.open_questions(data["jobs"]["j1"]) != [], data["orders"]["o2"]["text"]) == ([], True, feedback["order"]["words"])
+    rework = {"kind": "owner", "text": "this card should say why", "thread_card": "demo:j1-7", "about": "drive", "order": "o1"}
+    tools.run("record", demo, {"records": [rework]})
+    assert answered == [("card-answer", "--card", CARD, "--label", rework["text"], "--withdrawn", "--via", CARD)]
+
+
 def test_an_answer_naming_his_open_card_by_its_waits_attr_settles_that_card_in_the_same_call(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
