@@ -114,7 +114,8 @@ opening with no result, a `WAITING` naming nothing the watch frees it on, a desi
 that Jev reads as building less or later than his words or answers name with no fork asking him, or a strategy before the
 abstraction it shares, and a reader's `DESIGN` that `drive job ask` refuses as his card. Each drive PR and `release:<service>:<owner>/<repo>#<n>` a
 `READY`, `PUSHED` or `WAITING` line names becomes a wait, which the watch's `FREE` line ends once
-the PR merges or closes or the release is out; a release wait whose service `tools/ci release select
+the PR merges, the job's own PR closes or the release is out, while another job's PR closing unmerged
+moves the wait to that job's newest open PR, else to that job until its work is done; a release wait whose service `tools/ci release select
 --pr` finds the PR's changed paths never reach is refused, naming the components they reach:
 
 | First line | The job's state |

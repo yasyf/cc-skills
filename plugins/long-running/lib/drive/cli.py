@@ -1120,7 +1120,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             "repo": args.repo,
             "branch": args.branch,
             "worktree": args.worktree,
-            "waits": view.stored_waits(data, args.waits, found),
+            "waits": view.stored_waits(data, [state.change_wait(data, wait) for wait in args.waits], found),
         }
         state.hold_unstarted(job)
         if crowd := args.kind == "builder" and not args.remote and not args.agent and not args.waits and place.crowded(data, job_id, state.now()):
@@ -1246,7 +1246,7 @@ def job_set(args: argparse.Namespace) -> int:
         if args.card:
             hold_card(job, args.card, shown)
             state.join_card(data, args.id, args.card)
-        state.rewait(job, merged_waits(data, job, args, found))
+        state.rewait(job, merged_waits(data, job, [state.change_wait(data, wait) for wait in args.waits], args.no_waits, found))
         state.hold_unstarted(job)
         held = {order_id: set(state.job_parts(job, order_id)) for order_id in [job["order"], *args.carries]}
         if args.carries:
@@ -3018,7 +3018,7 @@ def pr_set(args: argparse.Namespace) -> int:
         if args.serves:
             serving += f"\nserves {args.serves}, his words: {find(data['orders'], args.serves, 'order')['text']}"
         set_pr(pr, args, answered)
-        pr["waits"] = merged_waits(data, pr, args, found)
+        pr["waits"] = merged_waits(data, pr, args.waits, args.no_waits, found)
         if args.part:
             serving += f"\ndelivers {'; '.join(pr['parts'])}"
         for part in args.part if delivers else []:
@@ -3146,7 +3146,7 @@ def check_waits(name: str, waits: list[str]) -> dict | None:
             raise DriveError(
                 f"--waits {wait}: name a job of this drive, the Slack link or waits id of a card of his still open, a question"
                 " card or a PR card still waiting on his tap, whose waits id is merge:<owner>:<repo>:<n>, a PR of this drive as"
-                " <owner>/<repo>#<n>, held until it merges or closes, or release:<service>:<owner>/<repo>#<n>, the release of"
+                " <owner>/<repo>#<n>, held until it merges, or once it closes unmerged on the job that opened it, or release:<service>:<owner>/<repo>#<n>, the release of"
                 " that service carrying that PR"
             )
     if refused := unreached(name, data, waits):
@@ -3180,10 +3180,10 @@ def unreached(name: str, data: dict, waits: list[str]) -> str | None:
     return None
 
 
-def merged_waits(data: dict, owner: dict, args: argparse.Namespace, found: dict | None) -> list[str]:
+def merged_waits(data: dict, owner: dict, waits: list[str], no_waits: bool, found: dict | None) -> list[str]:
     from drive import view
 
-    return view.stored_waits(data, [*([] if args.no_waits else owner["waits"]), *args.waits], found)
+    return view.stored_waits(data, [*([] if no_waits else owner["waits"]), *waits], found)
 
 
 def set_pr(pr: dict, args: argparse.Namespace, answered: list[str] | None = None) -> None:
@@ -4070,7 +4070,7 @@ def parser() -> argparse.ArgumentParser:
             " release:<service>:<owner>/<repo>#<n>, the next release of that service carrying that PR, refused, naming the components"
             " they reach, when go/ci's own map, tools/ci release select --pr, finds the PR's changed paths reach components and that"
             " service is none of them or is no component at all, or a job of this drive still at work, of any kind, it waits on;"
-            " repeat for each. The watch drops each as he answers or taps it, the PR merges or closes, the job returns DONE, or, once it"
+            " repeat for each, a job's wait on a job stored as that job's newest open PR. The watch drops each as he answers or taps it, the PR merges, the job returns DONE, or, once it"
             " stops or fails, each part it carries is delivered, or GitHub shows the"
             " newest release of that service holds the PR's merge commit, and says FREE once when the last is gone, which wakes the"
             " coordinator. On a PR it never withdraws his open card: the card is redrawn in place, Approve and Hold kept, to say"

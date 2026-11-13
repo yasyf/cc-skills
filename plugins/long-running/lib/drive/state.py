@@ -1026,7 +1026,7 @@ def result_waits(data: dict, order_id: str, line: str, report: str = "") -> list
 
 
 def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
-    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, a builder's DONE on an open incident's stop or rollback keeping its proof as the order's proof, which ends the incident's five-minute line, built on its branch and waiting on each card a BUILT line names and each open card of his a job on its parts asked, whatever words the line names it in, each card once under its waits id, waiting on each PR and release a READY or PUSHED line or a WAITING's whole report names, which the watch frees once the PR merges or closes or the release is out, each PR a `WAITING … waits on` line names waiting on each card it names, keep on a job its WAITING line answers as stage.waited reads it, waiting on each card of his it names, and on each red PR it answers each PR, release and card it names, which his card on that PR then names and links, keep each verdict a reader's answer gives on the PR it names, join each open order the FIX line of a result tracing a live bug's cause names to that bug's incident, so hurts_now reads it live, end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met, dropping his tap on it so a fresh card asks it for the reworked change, and deliver the parts of a job whose answer reaches him only by a post by the post its POSTED line names; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
+    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, a builder's DONE on an open incident's stop or rollback keeping its proof as the order's proof, which ends the incident's five-minute line, built on its branch and waiting on each card a BUILT line names and each open card of his a job on its parts asked, whatever words the line names it in, each card once under its waits id, waiting on each PR and release a READY or PUSHED line or a WAITING's whole report names, which the watch frees once the PR merges, its own PR closes or the release is out, another job's PR closing unmerged moving the wait onto that job's change, each PR a `WAITING … waits on` line names waiting on each card it names, keep on a job its WAITING line answers as stage.waited reads it, waiting on each card of his it names, and on each red PR it answers each PR, release and card it names, which his card on that PR then names and links, keep each verdict a reader's answer gives on the PR it names, join each open order the FIX line of a result tracing a live bug's cause names to that bug's incident, so hurts_now reads it live, end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met, dropping his tap on it so a fresh card asks it for the reworked change, and deliver the parts of a job whose answer reaches him only by a post by the post its POSTED line names; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
     from drive import stage, view
 
     job = data["jobs"][job_id]
@@ -1116,7 +1116,7 @@ def add_changes(name: str, data: dict, job_id: str, report: str) -> list[str]:
 
 
 def change_builders(name: str, data: dict, design_id: str, changes: list[tuple[list[str], list[int]]]) -> list[str]:
-    """Add a builder for each change of a design, its parts and the number of each earlier change it waits on, that no builder or codex job is on, in its list's order, waiting on each open card of his on the design's parts and on each job building an earlier change it waits on, or that job's first PR once it opened one, by his pick "A builder for every listed change, added the moment the design returns: no change can sit unbuilt; idle jobs appear early"; none where brief.job_refusal refuses a builder, as on an order limited to options until drive order set --no-options-only records his pick."""
+    """Add a builder for each change of a design, its parts and the number of each earlier change it waits on, that no builder or codex job is on, in its list's order, waiting on each open card of his on the design's parts and on each job building an earlier change it waits on, or that job's newest open PR, by his pick "A builder for every listed change, added the moment the design returns: no change can sit unbuilt; idle jobs appear early"; none where brief.job_refusal refuses a builder, as on an order limited to options until drive order set --no-options-only records his pick."""
     from drive import brief, view
 
     order_id = data["jobs"][design_id]["order"]
@@ -1127,7 +1127,7 @@ def change_builders(name: str, data: dict, design_id: str, changes: list[tuple[l
         if not (uncarried := [part for part in parts if not any(job["kind"] in CHANGE_KINDS for _, job in part_jobs(data, order_id, part))]):
             continue
         earlier = [part for number in numbers for part in changes[number - 1][0] if not delivered(data, order_id, part)]
-        building = [pr_key(job["prs"][0]) if job["prs"] else job_id for part in earlier for job_id, job in part_jobs(data, order_id, part) if job["kind"] in CHANGE_KINDS]
+        building = [change_wait(data, job_id) for part in earlier for job_id, job in part_jobs(data, order_id, part) if job["kind"] in CHANGE_KINDS]
         waits = list(dict.fromkeys([*cards, *(wait for wait in building if view.holds(data, wait, None))]))
         if brief.job_refusal(name, data, order_id, "builder", uncarried, False, waits):
             continue
@@ -2339,33 +2339,33 @@ def card_wait(data: dict, wait: str) -> bool:
 
 
 def job_wait_refusal(data: dict, waits: list[str]) -> str | None:
-    """Why a job may not wait on another job: a builder or codex job that already opened its PR is waited on by that PR instead, since a job waits on a change only until its first PR is registered, which then takes the wait's place, and a job view.holds no longer holds on leaves nothing to wait on. Any other job of any kind may be waited on, a reader that just started included."""
+    """Why a job may not wait on another job: a job view.holds no longer holds on leaves nothing to wait on. Any other job of any kind may be waited on, a reader that just started included, the wait stored as change_wait names it."""
     from drive import view
 
     for wait in waits:
-        if wait not in data["jobs"]:
-            continue
-        waited = data["jobs"][wait]
-        if waited["kind"] in CHANGE_KINDS and waited["prs"]:
-            keys = [pr_key(url) for url in waited["prs"]]
-            return f"--waits {wait}: {wait} already opened {', '.join(keys)}, so wait on the PR this job builds on, as --waits {keys[0]}"
-        if not view.holds(data, wait, None):
-            return f"--waits {wait}: {wait} is {waited['state']}, so nothing of it is left to wait on"
+        if wait in data["jobs"] and not view.holds(data, wait, None):
+            return f"--waits {wait}: {wait} is {data['jobs'][wait]['state']}, so nothing of it is left to wait on"
     return None
 
 
+def change_wait(data: dict, wait: str) -> str:
+    """What a job's wait on the change another job builds names: that job's newest open PR, free once it merges, else the job, which view.coming holds on while its work is still to come, so a PR of it closing unmerged frees nobody waiting on its change; a wait naming no job as given."""
+    if wait not in data["jobs"]:
+        return wait
+    return next((key for url in reversed(data["jobs"][wait]["prs"]) if (key := pr_key(url)) in data["prs"] and data["prs"][key]["state"] == "open"), wait)
+
+
 def take_pr(data: dict, job_id: str, key: str) -> None:
-    """Make a job the one answering for a PR the drive tracks: the PR's row names it, which every wake, check and lander reads, and its own PRs list the PR, the first in place of each wait on its change."""
+    """Make a job the one answering for a PR the drive tracks: the PR's row names it, which every wake, check and lander reads, and its own PRs list the PR, each in place of each wait naming the job."""
     pr, job = data["prs"][key], data["jobs"][job_id]
     pr["job"] = job_id
     if pr["url"] not in job["prs"]:
-        if not job["prs"]:
-            wait_on_change(data, job_id, key)
+        wait_on_change(data, job_id, key)
         job["prs"].append(pr["url"])
 
 
 def wait_on_change(data: dict, job_id: str, key: str) -> None:
-    """Each unfinished job waiting on the change job_id builds waits on its first PR, key, in that wait's place, so it is free once that PR merges or closes, and the waits line an unstarted job was given names the PR."""
+    """Each unfinished job waiting on the change job_id builds waits on its PR, key, in that wait's place, so it is free once that PR merges, and the waits line an unstarted job was given names the PR."""
     for waiting in data["jobs"].values():
         if job_id in waiting["waits"] and waiting["state"] not in FINISHED_JOB_STATES:
             rewait(waiting, list(dict.fromkeys(key if wait == job_id else wait for wait in waiting["waits"])))

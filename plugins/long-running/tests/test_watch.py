@@ -401,6 +401,32 @@ def test_a_job_waiting_on_a_builders_change_waits_on_its_first_pr_and_the_watch_
     assert (state.load(demo)["jobs"]["j3"]["waits"], state.load(demo)["jobs"]["j3"]["said"]) == ([], None)
 
 
+def test_a_wait_on_another_builders_pr_closed_unmerged_moves_to_that_builder_then_its_next_pr_while_its_own_pr_closing_frees_it(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    closed, rebuilt = "Forge-AI/monorepo#43", "Forge-AI/monorepo#44"
+    serve(monkeypatch, {})
+    with state.edit(demo) as data:
+        data["jobs"]["j2"] = job(goal="build the store", state="built", branch="blobstore-refcounts")
+        data["jobs"]["j3"] = job(goal="build on the store")
+    assert cli.main(["pr", "add", state.pr_url(closed), "--job", "j2", "--drive", demo, *LEAD]) == 0
+    assert cli.main(["job", "set", "j3", "--waits", "j2", "--drive", demo]) == 0
+    with state.edit(demo) as data:
+        data["jobs"]["j2"]["waits"] = [closed]
+    assert state.load(demo)["jobs"]["j3"]["waits"] == [closed]
+    serve(monkeypatch, {closed: read(state="CLOSED")})
+    watching = watcher(demo)
+    said = watch.run_pass(watching, T0) + watch.run_pass(watching, T0 + timedelta(seconds=61))
+    assert [line for line in said if line.startswith("FREE ")] == [f"FREE j2 o1: {closed} answered or done, nothing else holds it, built on blobstore-refcounts"]
+    jobs = state.load(demo)["jobs"]
+    assert (jobs["j2"]["waits"], jobs["j3"]["waits"], jobs["j3"]["said"]) == ([], ["j2"], "waits on j2")
+    assert cli.main(["pr", "add", state.pr_url(rebuilt), "--job", "j2", "--drive", demo, *LEAD]) == 0
+    assert (state.load(demo)["jobs"]["j3"]["waits"], state.load(demo)["jobs"]["j3"]["said"]) == ([rebuilt], f"waits on {rebuilt}")
+    serve(monkeypatch, {rebuilt: read(state="MERGED", mergeCommit="ccc333")})
+    said = watch.run_pass(watching, T0 + timedelta(seconds=122)) + watch.run_pass(watching, T0 + timedelta(seconds=183))
+    assert [line for line in said if line.startswith("FREE ")] == [f"FREE j3 o1: {rebuilt} answered or done, nothing else holds it"]
+
+
 def test_unchanged_pr_emits_nothing(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {KEY: read()})
     assert watch.run_pass(watcher(demo), T0) == []
@@ -3379,9 +3405,8 @@ def test_job_set_moves_a_builder_off_a_card_his_words_replaced_onto_a_reader_tha
     assert state.load(demo)["jobs"]["j2"]["waits"] == ["j3", "j4"]
     assert cli.main(["job", "set", "j2", "--waits", "j5", "--drive", demo]) == 2
     assert capsys.readouterr().err.strip().endswith("--waits j5: j5 is done, so nothing of it is left to wait on")
-    assert cli.main(["job", "set", "j2", "--waits", "j1", "--drive", demo]) == 2
-    assert capsys.readouterr().err.strip().endswith(f"--waits j1: j1 already opened {KEY}, so wait on the PR this job builds on, as --waits {KEY}")
-    assert state.load(demo)["jobs"]["j2"]["waits"] == ["j3", "j4"]
+    assert cli.main(["job", "set", "j2", "--waits", "j1", "--drive", demo]) == 0
+    assert state.load(demo)["jobs"]["j2"]["waits"] == ["j3", "j4", KEY]
 
 
 def test_a_pr_whose_head_moved_to_a_change_nobody_judged_gets_its_card_and_its_check_against_his_words_at_that_head_whatever_its_jobs_state(
