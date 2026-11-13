@@ -264,27 +264,38 @@ def unmarked(kept: dict, asked: dict[str, dict]) -> list[str]:
 
 
 def unheard(data: dict, kept: dict) -> list[str]:
-    """The jobs waiting on an order this answer touches when it came, still live, that are not marked sent his words or untouched by them."""
-    return [job_id for job_id, mark in kept["jobs"].items() if mark is None and data["jobs"][job_id]["state"] not in state.FINISHED_JOB_STATES]
+    """The jobs waiting on an order this answer touches when it came, still live, that are not marked sent his words or untouched by them, nor wait for a first worker on a brief holding them, which that worker hears them in as it starts."""
+    return [
+        job_id
+        for job_id, mark in kept["jobs"].items()
+        if mark is None and (job := data["jobs"][job_id])["state"] not in state.FINISHED_JOB_STATES and not briefed(job, kept["words"])
+    ]
 
 
-def resumed(job: dict) -> bool:
-    """Whether drive job resume carries a message to the job, a remote lane with a dispatch, so only its delivery marks the job sent his words."""
-    return job.get("where") == "remote" and bool(job.get("dispatch"))
+def briefed(job: dict, words: str) -> bool:
+    """Whether no worker runs the job yet and the brief its first worker starts on holds his words verbatim."""
+    return not (job.get("agent") or job.get("dispatch")) and bool(job.get("brief")) and carries(Path(job["brief"]).read_text(), words)
 
 
-def sender(data: dict, job: dict) -> str:
-    """The session whose SendMessage alone reaches the job's agent, as a listing names it after its SendMessage step: the coordinator session's that started that agent, by its lane and session id; none for a job no bound coordinator session's agent runs."""
-    lane = state.agent_lane(data, job)
-    return f" from {lane}@{data['name']}, the session {job['session']} that started its agent {job['agent']}" if lane else ""
+def delivery(data: dict, job_id: str, job: dict) -> str:
+    """How his words reach the job by a delivery that marks it sent them: a SendMessage from the coordinator session whose agent runs it on this Mac, which drive answer --sent records since the drive cannot see it; drive job resume for a job any other worker runs or ran, which carries them to its lane or its next worker; the brief its first worker starts on for a job no worker runs yet."""
+    if lane := state.agent_lane(data, job):
+        return f"SendMessage it his words verbatim from {lane}@{data['name']}, the session {job['session']} that started its agent {job['agent']}"
+    if job.get("agent") or job.get("dispatch"):
+        return f"drive job resume {job_id} with his words verbatim"
+    return "put his words verbatim in its brief, which its first worker starts on"
 
 
 def hear(data: dict, job_id: str, text: str) -> None:
-    """Mark the job sent his words on each answer of his it has not heard whose words the text a resume delivered to its worker holds verbatim, spacing aside."""
-    carried = " ".join(text.split())
+    """Mark the job sent his words on each answer of his it has not heard whose words the text delivered to its worker holds: a message sent to it, or the brief or handoff it started on."""
     for kept in data["answers"].values():
-        if job_id in kept["jobs"] and kept["jobs"][job_id] is None and " ".join(kept["words"].split()) in carried:
+        if job_id in kept["jobs"] and kept["jobs"][job_id] is None and carries(text, kept["words"]):
             kept["jobs"][job_id] = {"mark": "sent"}
+
+
+def carries(text: str, words: str) -> bool:
+    """Whether the text holds his words verbatim, spacing aside."""
+    return " ".join(words.split()) in " ".join(text.split())
 
 
 def counted(keys: list[str], asked: dict[str, dict]) -> str:
@@ -318,7 +329,7 @@ def listing(answer_id: str, kept: dict, keys: list[str], asked: dict[str, dict],
     ]
     jobs = [
         f"  {job_id} waits on {', '.join([job['order'], *job['carries']])} and has not heard {answer_id}: "
-        + (f"drive job resume {job_id} with his words verbatim" if resumed(job) else f"SendMessage it his words verbatim{sender(data, job)}")
+        + delivery(data, job_id, job)
         + ", or mark it untouched"
         for job_id in unheard(data, kept)
         for job in [data["jobs"][job_id]]
@@ -328,8 +339,8 @@ def listing(answer_id: str, kept: dict, keys: list[str], asked: dict[str, dict],
         *jobs,
         (
             f"mark each: drive answer {answer_id} --sent <job>... once SendMessage gave it his words verbatim, or --untouched"
-            " <job>... for one his words leave as it is; a remote lane is marked sent by the drive job resume that delivers his words"
-            " verbatim to its worker, and by nothing else"
+            " <job>... for one his words leave as it is; any other job is marked sent by the drive job resume, brief or handoff that"
+            " carries his words verbatim to its worker, and by nothing else"
         ),
     ]
     return "\n".join([*(cards if keys else []), *(told if jobs else [])])

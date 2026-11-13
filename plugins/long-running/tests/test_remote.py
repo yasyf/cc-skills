@@ -378,6 +378,26 @@ def test_launch_composes_the_vm_brief_and_records_the_lane(
     assert run("job", "launch", "j1", "brief.md")[0] == 2
 
 
+def test_a_first_launch_whose_brief_carries_his_answer_marks_its_job_sent_it_and_leaves_an_answer_the_brief_lacks_unheard(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cloned(tmp_path, demo)
+    heard, unsaid = "keep the one snapshot file", "move the copy to the pool"
+    (tmp_path / "brief.md").write_text(f"Order (his words): ship it\nDrive: demo, order o1, job j1\n\nHis answer, verbatim:\n\n{heard}\n")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship it", "--remote")
+    link = "https://acme.slack.com/archives/D123/p1794300000000300"
+    with state.edit(demo) as data:
+        for answer_id, words in (("a1", heard), ("a2", unsaid)):
+            data["answers"][answer_id] = {"words": words, "link": link, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {"j1": None}}
+    monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
+    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+    monkeypatch.setattr(orca, "launch", lambda drive, lane, brief, checkout, run_id, route, workspace: {field: f"{field}-1" for field in fields})
+    assert run("job", "launch", "j1", "brief.md")[0] == 0
+    answers = state.load(demo)["answers"]
+    assert (answers["a1"]["jobs"], answers["a2"]["jobs"]) == ({"j1": {"mark": "sent"}}, {"j1": None})
+
+
 def test_launch_runs_from_the_drives_own_worktree_made_once_with_ccx_and_moved_with_one_fetch_to_the_default_branchs_head_never_the_coordinators_working_tree(
     run: Run, demo: str, tmp_path: Path, ccx_worktrees: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -1768,6 +1788,50 @@ def test_a_pr_wake_to_a_dead_lane_relaunches_its_job_with_the_line_in_its_handof
     assert (code, out.startswith("j1: the message went to the job's next worker, relaunched on Sprite workspace-2")) == (0, True)
     [brief] = launched
     assert orca.brief_of(brief).endswith("which you act on now:\n\nPR #7 is red: fix it")
+
+
+@pytest.mark.parametrize(
+    ("pr_state", "line", "stops_while_waiting"),
+    [
+        ("open", "Forge-AI/monorepo#7 red, owed by its builder: its required checks failed", False),
+        ("closed", "PR Forge-AI/monorepo#7: NOT READY: Forge-AI/monorepo#7 go against his words [o1 j1]", False),
+        ("open", "Forge-AI/monorepo#7 red, owed by its builder: its required checks failed", True),
+    ],
+    ids=["j2076-red-pr-of-a-stopped-job", "j1989-closed-pr-of-a-stopped-job", "stopped-while-the-wake-waited-on-its-lock"],
+)
+def test_a_pr_wake_for_a_job_his_answer_stopped_starts_no_worker_and_hands_the_line_to_the_session_holding_its_order(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, pr_state: str, line: str, stops_while_waiting: bool
+) -> None:
+    first = tmp_path / "first.md"
+    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
+    url = "https://github.com/Forge-AI/monorepo/pull/7"
+    key = state.pr_key(url)
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(brief=str(first), workspace="sprite-old", prs=[url], state="running" if stops_while_waiting else "stopped")
+        data["prs"][key] = state.new_pr(url, "j1", "o1") | {"state": pr_state}
+    locked = state.job_locked
+
+    def stopped_on_the_way(name: str, job_id: str, seconds: float):
+        with state.edit(name) as data:
+            data["jobs"][job_id]["state"] = "stopped"
+        return locked(name, job_id, seconds)
+
+    if stops_while_waiting:
+        monkeypatch.setattr(state, "job_locked", stopped_on_the_way)
+    monkeypatch.setattr(orca, "worker", lambda dispatch: dead())
+    monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"a stopped job is sent nothing: {args}"))
+    monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a stopped job takes no worker start from a PR wake"))
+    posted = []
+    monkeypatch.setattr(reads, "run", lambda argv, checkout: posted.append(argv) or "")
+    assert run("pr", "wake", url, "--text", line) == (0, f"{key}: sent to root@{remote} for j1")
+    [argv] = posted
+    assert argv[argv.index("--to") + 1] == f"root@{remote}"
+    assert argv[argv.index("--text") + 1] == (
+        f"STAGE {line}; no live job answers for it and its job j1 is stopped, so no wake starts it: close it, or move it to a live job with"
+        f" drive pr add {url} --job <j>"
+    )
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["state"], job["dispatch"], bool(job.get("deaths"))) == ("stopped", DISPATCH, False)
 
 
 def test_a_second_pr_wake_arriving_while_the_first_relaunches_the_dead_lane_waits_for_it_and_sends_that_worker_its_line(

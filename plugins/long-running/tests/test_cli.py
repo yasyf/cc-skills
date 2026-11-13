@@ -2426,9 +2426,12 @@ def test_his_words_under_a_card_answer_it_so_its_job_never_redraws_it_with_a_new
         kept.append(run("job", "ask", asking, "-")[1])
     run("job", "card", kept[0], "--waits", "demo:j1-7")
     run("job", "set", asking, "--card", link)
+    with state.edit("demo") as data:
+        data["jobs"][asking]["agent"] = "agent-1"
     reply = "https://acme.slack.com/archives/D123/p1794300000000400?thread_ts=1794300000.000100"
+    sender = "from root@demo, the session session-under-test that started its agent agent-1"
     assert cli.main(["answer", "a1", "--words", "its one snapshot file, just wait for the copy", "--link", reply]) == 2
-    assert "  j1 waits on o1 and has not heard a1: SendMessage it his words verbatim, or mark it untouched" in capsys.readouterr().err
+    assert f"  j1 waits on o1 and has not heard a1: SendMessage it his words verbatim {sender}, or mark it untouched" in capsys.readouterr().err
     assert run("answer", "a1", "--sent", "j1") == (
         0,
         "his answer a1 recorded: 0 standing, 0 superseded, 0 reopened by it; 1 waiting job sent his words, 0 untouched",
@@ -2439,7 +2442,7 @@ def test_his_words_under_a_card_answer_it_so_its_job_never_redraws_it_with_a_new
     assert '"its one snapshot file, just wait for the copy"' in refusal
     assert [question["file"] for question in state.load("demo")["jobs"]["j1"]["questions"] if question["waits"] == "demo:j1-7"] == [kept[0]]
     assert cli.main(["answer", "a2", "--words", "One snapshot file", "--link", link]) == 2
-    assert "  j1 waits on o1 and has not heard a2: SendMessage it his words verbatim, or mark it untouched" in capsys.readouterr().err
+    assert f"  j1 waits on o1 and has not heard a2: SendMessage it his words verbatim {sender}, or mark it untouched" in capsys.readouterr().err
     assert run("answer", "a2", "--sent", "j1")[0] == 0
     when = SHORT_ASK.replace("ASK How should", "ASK When should")
     monkeypatch.setattr("sys.stdin", io.StringIO(when))
@@ -6530,9 +6533,9 @@ def test_a_remote_lane_waiting_on_an_order_his_answer_touches_is_marked_sent_onl
     assert "  j3 waits on o1 and has not heard a1: drive job resume j3 with his words verbatim, or mark it untouched" in capsys.readouterr().err
     assert cli.main(["answer", "a1", "--stands", designing, "--sent", "j3"]) == 2
     assert capsys.readouterr().err == (
-        "drive: j3: refused, nothing marked: a remote lane is marked sent only by the drive job resume that delivers his words verbatim"
-        " to its worker, and none has since a1 listed it, so his answer has not reached it: mark the rest without it, then drive job"
-        " resume <j> with his words\n"
+        "drive: j3: refused, nothing marked: --sent records only a SendMessage to an agent a coordinator session on this Mac runs, the one"
+        " delivery the drive cannot see, and no such agent runs it, so his answer has not reached it: mark the rest without it, then j3:"
+        " drive job resume j3 with his words verbatim\n"
     )
     assert state.load("demo")["answers"]["a1"]["jobs"] == {"j3": None}
     with state.edit("demo") as data:
@@ -6544,6 +6547,30 @@ def test_a_remote_lane_waiting_on_an_order_his_answer_touches_is_marked_sent_onl
     assert state.load("demo")["answers"]["a1"]["jobs"] == {"j3": {"mark": "sent"}}
 
 
+def test_sent_on_a_job_no_worker_runs_is_refused_and_its_brief_carrying_his_words_is_what_hears_them(
+    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    cards_asking(monkeypatch, PR)
+    run("job", "add", "builder", "--order", "o1", "--goal", "build the store")
+    with state.edit("demo") as data:
+        data["jobs"]["j3"]["state"] = "waiting"
+    assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
+    assert "  j3 waits on o1 and has not heard a1: put his words verbatim in its brief, which its first worker starts on, or mark it untouched" in capsys.readouterr().err
+    assert cli.main(["answer", "a1", "--stands", designing, "--sent", "j3"]) == 2
+    assert capsys.readouterr().err == (
+        "drive: j3: refused, nothing marked: --sent records only a SendMessage to an agent a coordinator session on this Mac runs, the one"
+        " delivery the drive cannot see, and no such agent runs it, so his answer has not reached it: mark the rest without it, then j3:"
+        " put his words verbatim in its brief, which its first worker starts on\n"
+    )
+    assert state.load("demo")["answers"]["a1"]["jobs"] == {"j3": None}
+    brief = tmp_path / "j3.md"
+    brief.write_text(f"Build the store.\n\nHis answer, verbatim:\n\n{WORDS}\n")
+    with state.edit("demo") as data:
+        data["jobs"]["j3"]["brief"] = str(brief)
+    assert run("answer", "a1", "--stands", designing) == (0, "his answer a1 recorded: 1 standing, 0 superseded, 0 reopened by it")
+    assert state.load("demo")["answers"]["a1"]["jobs"] == {"j3": None}
+
+
 def test_an_answer_under_a_card_no_longer_open_still_waits_on_each_job_waiting_on_that_cards_order(
     run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -6551,11 +6578,12 @@ def test_an_answer_under_a_card_no_longer_open_still_waits_on_each_job_waiting_o
     view.refresh_cards("demo")
     run("job", "add", "builder", "--order", "o1", "--goal", "build the store")
     with state.edit("demo") as data:
-        data["jobs"]["j3"]["state"] = "waiting"
+        data["jobs"]["j3"].update(state="waiting", agent="agent-3")
     assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
     listed = capsys.readouterr().err
     assert f"  {designing}  open  j1 o1  " in listed
-    assert "  j3 waits on o1 and has not heard a1: SendMessage it his words verbatim, or mark it untouched" in listed
+    sender = "from root@demo, the session session-under-test that started its agent agent-3"
+    assert f"  j3 waits on o1 and has not heard a1: SendMessage it his words verbatim {sender}, or mark it untouched" in listed
     assert run("answer", "a1", "--stands", designing, "--sent", "j3") == (
         0,
         "his answer a1 recorded: 1 standing, 0 superseded, 0 reopened by it; 1 waiting job sent his words, 0 untouched",
@@ -6656,13 +6684,16 @@ def test_settled_shows_his_answer_on_a_card_it_decides_settles_its_jobs_question
     run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], jev: Jev
 ) -> None:
     settled = another_order_asking(run, monkeypatch)
+    with state.edit("demo") as data:
+        data["jobs"]["j3"]["agent"] = "agent-3"
     jev.changes = {"j3-9": 0.9}
     assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
     capsys.readouterr()
     assert cli.main(["answer", "a1", "--stands", designing, "--settled", "demo:j3-9"]) == 2
     told = capsys.readouterr().err
     assert f"demo:j3-9: its card {LAYOUT_CARD} now shows his answer a1 with no buttons, settling j3's question, so j3 builds on his words" in told
-    assert "  j3 waits on o2 and has not heard a1: SendMessage it his words verbatim, or mark it untouched" in told
+    sender = "from root@demo, the session session-under-test that started its agent agent-3"
+    assert f"  j3 waits on o2 and has not heard a1: SendMessage it his words verbatim {sender}, or mark it untouched" in told
     assert run("answer", "a1", "--sent", "j3") == (
         0,
         "his answer a1 recorded: 1 standing, 1 settled, 0 superseded, 0 reopened by it; 1 waiting job sent his words, 0 untouched",

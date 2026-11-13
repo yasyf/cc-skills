@@ -169,7 +169,9 @@ def waited(data: dict, job_id: str, line: str) -> dict:
 
 def answered(data: dict, key: str, failing: str) -> list[str]:
     """What the builder answering for a red PR waits on by its last WAITING, while that line answered this same red and each PR and release it named still holds, so the PR wakes that builder again only once one of them ends or the red changes."""
-    job = data["jobs"][owner_job(data, key)]
+    if not (owner := owner_job(data, key)):
+        return []
+    job = data["jobs"][owner]
     if job["state"] != "waiting" or not (job["said"] or "").startswith("WAITING") or not job["waited"] or job["waited"]["red"].get(key) != failing:
         return []
     waits = job["waited"]["waits"]
@@ -235,14 +237,14 @@ def adopt(data: dict) -> list[str]:
     return given
 
 
-def owner_job(data: dict, key: str) -> str:
-    """The job that answers for the PR now: the newest live one carrying it, a builder that took it over included, else the newest live one carrying a PR of its landing stack, else its own job, whose finished or dead lane drive pr wake replaces with a fresh builder."""
+def owner_job(data: dict, key: str) -> str | None:
+    """The job that answers for the PR now: the newest live one carrying it, a builder that took it over included, else the newest live one carrying a PR of its landing stack, else its own job, whose finished or dead lane drive pr wake replaces with a fresh builder; None when its own job is stopped, so no wake starts work he called off and the session holding its order closes the PR or moves it to a live job."""
     pr = data["prs"][key]
     stack = land.landing_stacks(data).get(key, (key,))
     for urls in ({pr["url"]}, {data["prs"][member]["url"] for member in stack}):
         if found := [job_id for job_id, job in data["jobs"].items() if job["kind"] == "builder" and job["state"] in LIVE and urls & set(job["prs"])]:
             return max(found, key=lambda job_id: state.parse_time(data["jobs"][job_id]["created"]))
-    return pr["job"]
+    return None if data["jobs"][pr["job"]]["state"] == "stopped" else pr["job"]
 
 
 def entered(kept: dict | None, now: Stage) -> bool:
