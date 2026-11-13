@@ -217,6 +217,14 @@ def test_status_text_lists_each_jobs_pr_urls_and_registered_prs_once() -> None:
     ]
 
 
+def test_a_pr_line_names_the_stage_its_row_keeps_only_while_the_pr_is_open() -> None:
+    unlanded = {"name": "unlanded", "owner": "the session holding its order", "why": "its lander's try at 987c0fe ended not landed", "since": state.stamp(), "woke": None}
+    pr = state.new_pr("https://github.com/yasyf/cc-skills/pull/4998", "j1", "o1") | {"stage": unlanded}
+    lines = [render.pr_line("yasyf/cc-skills#4998", pr | {"state": now}, None) for now in ("open", "merged", "closed")]
+    assert ["owed by" in line for line in lines] == [True, False, False]
+    assert lines[1].startswith("yasyf/cc-skills#4998 merged, checks pending")
+
+
 def test_status_text_counts_open_orders() -> None:
     text = render.status_text(sample(), {"coordinator": "in no Orca terminal"})
     assert text.splitlines()[:3] == [
