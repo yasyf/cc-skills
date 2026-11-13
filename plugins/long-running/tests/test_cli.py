@@ -3980,7 +3980,7 @@ def test_a_design_that_kept_a_question_is_kept_with_no_fork_line_and_its_builder
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store")
     run("job", "add", "design", "--order", "o1", "--goal", "cards: the store copy")
     block = tmp_path / "fork.md"
-    block.write_text(SHORT_ASK)
+    block.write_text(SHORT_ASK.replace("Holds: none: no option changes code any job builds", "Holds: copy one store"))
     run("job", "ask", "j1", str(block))
     assert keep(monkeypatch, capsys, "j1", DESIGNED) == (0, "")
     jobs = state.load("demo")["jobs"]
