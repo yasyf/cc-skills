@@ -50,7 +50,6 @@ LINE_BREAKS = re.compile(r"[\r\n]+")
 HANDOFF = timedelta(minutes=2)
 SETTLING = ""
 PR_LINE = re.compile(r"\s*(?:READY|PUSHED|PR:)")
-LANE_REPORT = re.compile(r"DRIVE job report\b")
 UNKEPT_ASK = "keep it with `drive job ask {job}`, which posts its ask record, since no card draws for it until then"
 ASK_FIELD = re.compile(r"^ASK:?[ \t]+([/~]\S*)[ \t]*$", re.MULTILINE)
 PAUSED = "The recommended answer to this question is built and paused on your pick: tap it and the work ships; another pick rebuilds it first."
@@ -772,7 +771,7 @@ def read_lines(watcher: Watcher, data: dict, moment: datetime) -> list[str]:
                     continue
             else:
                 lines += [f"JOB {job_id} {job['order']} READ unanswered, its lane was told why: {why}"] if why else []
-            if LANE_REPORT.match(question) and said.startswith(f"{reads.DRIVE_EXIT} 0\n") and job["said"] and not state.PUSHED_LINE.match(job["said"]):
+            if said.startswith(f"{reads.DRIVE_EXIT} 0\n") and job["said"] and not state.PUSHED_LINE.match(job["said"]) and kept_return(watcher.name, job_id, json.loads(question.partition("\n")[2] or "{}").get("stdin") or ""):
                 lines.append(f"JOB {job_id} {job['order']} {job['said']}")
             watcher.failures.pop(source, None)
             with state.edit(watcher.name) as fresh:

@@ -2442,6 +2442,7 @@ def test_a_lanes_drive_job_report_wakes_the_coordinator_with_its_line_as_its_ans
     deliver(monkeypatch, [message("question", f"DRIVE job report j1 -\n{json.dumps({'stdin': line})}", id="relay_report")])
 
     def report(question: str, root: Path, drive: str, job_id: str) -> str:
+        state.keep_report(drive, job_id, line, line)
         with state.edit(drive) as data:
             state.take_result(data, job_id, line, line)
         return reads.lane_exit(0, str(state.replies_path(drive, job_id)))
@@ -2452,6 +2453,20 @@ def test_a_lanes_drive_job_report_wakes_the_coordinator_with_its_line_as_its_ans
     assert staged(watch.lane_lines, watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0), T0) == woken
     assert [args[:3] for args in replies if args[0] == "reply"] == [("reply", "--id", "relay_report")]
     assert state.load(remote)["jobs"]["j1"]["reads"] == {}
+
+
+def test_a_lane_that_reads_its_own_report_wakes_nobody_and_its_relaunched_job_stays_running(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    waiting = "WAITING https://github.com/Forge-AI/monorepo/pull/8 lands first"
+    state.keep_report(remote, "j1", waiting, f"{waiting}\nWAITS: the PR below\n")
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(said=waiting, state="running")
+    deliver(monkeypatch, [message("question", f"DRIVE job report j1\n{json.dumps({'files': {}})}", id="relay_read")])
+    monkeypatch.setattr(reads, "answer", lambda question, root, drive, job_id: reads.lane_exit(0, state.report_text(drive, job_id)))
+    replies = []
+    monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
+    assert staged(watch.lane_lines, watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0), T0) == []
+    assert [args[:3] for args in replies if args[0] == "reply"] == [("reply", "--id", "relay_read")]
+    assert state.load(remote)["jobs"]["j1"]["state"] == "running"
 
 
 def test_a_lanes_drive_job_report_that_left_its_job_no_line_wakes_nobody_and_its_answer_goes(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
