@@ -403,6 +403,16 @@ def head_card(pr: dict, pr_cards: list[dict]) -> dict | None:
     return next((card for card in reversed(pr_cards) if pr["url"] in card["prs"] and pr["head"] in card_heads(card, pr["url"])), None)
 
 
+def apart(data: dict, key: str, pr_cards: list[dict]) -> list[str]:
+    """The PRs of the PR's native GitHub stack that drive card draws on one card with it, open and asking his tap, but that his newest open card on it leaves off, such as one registered after that card went up; none at or above the lowest one reworked to his words, which with every PR above it drive card leaves off the card."""
+    pr = data["prs"][key]
+    if not (card := card_for(pr_cards, pr["url"])):
+        return []
+    native = [mate for mate in pr["native"] if mate in data["prs"] and data["prs"][mate]["state"] == "open"]
+    drawn = native[: next((index for index, mate in enumerate(native) if data["prs"][mate]["rework"]), len(native))]
+    return [mate for mate in drawn if state.asks_tap(data["prs"][mate]) and data["prs"][mate]["url"] not in card["prs"]] if key in drawn else []
+
+
 def shown_heads(card: dict, pr: dict) -> str:
     return ", ".join(head[:7] or "no head" for head in card_heads(card, pr["url"])) or "no head"
 

@@ -471,15 +471,16 @@ def pictured(name: str, pr: dict, taken: set[str]) -> tuple[tuple[str, ...], tup
     return tuple(shown), tuple(undrawn)
 
 
-def groups(known: dict[str, tuple[str, dict]], keys: list[str], reads: dict[str, dict]) -> list[list[str]]:
-    """The cards the asked PRs draw on, bottom PR first. A PR in a native GitHub stack, the one stack-enqueue and his Approve land, draws with every PR of it the drives track that is not closed, split by the card each was last drawn on, so a PR added to the stack later gets its own card. Any other read PR draws on its loose_cards() card, the rule state.card_unit names: its chain by base branch among them, else the PRs among them of its repository serving its order, keeping the card it was drawn on, closed and natively stacked PRs left out, until they group into a longer card around it."""
+def groups(known: dict[str, tuple[str, dict]], keys: list[str], reads: dict[str, dict], redraw: bool = False) -> list[list[str]]:
+    """The cards the asked PRs draw on, bottom PR first. A PR in a native GitHub stack, the one stack-enqueue and his Approve land, draws with every PR of it the drives track that is not closed, so a PR added to the stack later joins its stack's card, but a redraw keeps the card each was last drawn on, since cc-slack redraws only the one card in place and the fresh card the watch draws for a stack split across cards replaces the rest. Any other read PR draws on its loose_cards() card, the rule state.card_unit names: its chain by base branch among them, else the PRs among them of its repository serving its order, keeping the card it was drawn on, closed and natively stacked PRs left out, until they group into a longer card around it."""
     native = github.stacks(list(dict.fromkeys([*keys, *(mate for key in keys for mate in known[key][1].get("stack") or [] if mate in known)])))
     stacked = {member for stack in native.values() for member, _ in stack}
     units = dict.fromkeys(tuple(member for member, status in native[key] if status != "closed" and member in known) for key in keys if key in native)
     by_card: dict[tuple, list[str]] = {}
     for unit in units:
         for member in unit:
-            by_card.setdefault((unit, tuple(mate for mate in known[member][1].get("stack") or [] if mate in unit)), []).append(member)
+            drawn_on = tuple(mate for mate in known[member][1].get("stack") or [] if mate in unit) if redraw else ()
+            by_card.setdefault((unit, drawn_on), []).append(member)
     loose = [key for key in reads if key not in stacked]
     stored = list({tuple(stack): stack for key in loose if (stack := [mate for mate in known[key][1].get("stack") or [] if mate in known and mate not in stacked and known[mate][1]["state"] != "closed"])}.values())
     grown = [group for group in loose_cards(known, loose, reads) if grows(group, stored)]
@@ -497,12 +498,6 @@ def loose_cards(known: dict[str, tuple[str, dict]], keys: list[str], reads: dict
         for key in chain:
             units.setdefault((known[key][0], state.card_unit(key, stack, known[key][1])), []).append(key)
     return list(units.values())
-
-
-def group_of(known: dict[str, tuple[str, dict]], key: str) -> list[str]:
-    """The PRs his card on the PR draws it with, bottom first."""
-    reads = {key: pr} if (pr := read(key, known[key][1]) or watched(known[key][1])) else {}
-    return next((group for group in groups(known, [key], reads) if key in group), [key])
 
 
 def chains(keys: list[str], reads: dict[str, dict]) -> list[list[str]]:
@@ -624,7 +619,7 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
     reads = {key: pr for key in keys if (pr := read(key, known[key][1]) or watched(known[key][1]))}
     skipped = [skip(key, "drive card could not read it from GitHub") for key in keys if key not in reads]
     try:
-        stacks = groups(known, list(reads), reads)
+        stacks = groups(known, list(reads), reads, redraw)
     except GithubError as error:
         return {"cards": [], "skipped": skipped + [skip(key, str(error)) for key in reads]}
     found = []

@@ -3702,7 +3702,7 @@ def stacked_read(head: str, **overrides: object) -> dict:
     return read(**{"headRefOid": head, "checks": GREEN, "reviewDecision": "APPROVED", "native": [(key, "open") for key in STACKED]} | overrides)
 
 
-def test_the_prs_of_one_native_stack_waiting_on_his_tap_draw_one_card_and_one_reworked_to_his_words_draws_its_own_once_its_rework_ends(
+def test_the_prs_of_one_native_stack_waiting_on_his_tap_draw_one_card_and_one_reworked_to_his_words_joins_them_on_one_fresh_card_once_its_rework_ends(
     demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws
 ) -> None:
     three_stacked(demo, monkeypatch)
@@ -3710,11 +3710,31 @@ def test_the_prs_of_one_native_stack_waiting_on_his_tap_draw_one_card_and_one_re
         state.rework(data["prs"][THIRD], "o2", "Split the stack by its native GitHub stack")
     watching = watcher(demo)
     watch.run_pass(watching, T0)
+    watch.run_pass(watching, T0 + timedelta(minutes=10))
     assert draws.keys == [[KEY, OTHER]]
     with state.edit(demo) as data:
         data["prs"][THIRD]["rework"] = None
-    watch.run_pass(watching, T0 + timedelta(minutes=10))
-    assert draws.keys == [[KEY, OTHER], [THIRD]]
+    watch.run_pass(watching, T0 + timedelta(minutes=20))
+    watch.run_pass(watching, T0 + timedelta(minutes=30))
+    assert draws.keys == [[KEY, OTHER], list(STACKED)]
+
+
+def test_a_native_stack_whose_prs_each_sit_on_a_card_of_their_own_draws_one_fresh_card_for_the_stack_once(demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws) -> None:
+    reads = three_stacked(demo, monkeypatch)
+    alone = [
+        {
+            "prs": [state.pr_url(key)],
+            "asked": state.stamp(T0),
+            "url": f"https://acme.slack.com/archives/D123/p179459540534553{index}",
+            "card": {"title": "Fix: approve it?", "waits": f"merge:{key}", "prs": [{"url": state.pr_url(key), "head": reads[key]["headRefOid"]}]},
+        }
+        for index, key in enumerate(STACKED)
+    ]
+    monkeypatch.setattr(watch.view, "cards", lambda drive: watch.view.NO_CARDS | {"pr_cards": alone})
+    watching = watcher(demo)
+    for minutes in (0, 10, 20, 30):
+        watch.run_pass(watching, T0 + timedelta(minutes=minutes))
+    assert draws.keys == [list(STACKED)]
 
 
 def test_a_restack_moving_a_head_under_his_card_draws_no_other_card(demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws) -> None:

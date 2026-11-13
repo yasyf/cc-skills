@@ -1358,7 +1358,7 @@ def test_a_pr_in_a_native_stack_draws_its_native_stack_and_the_rest_of_the_chain
     assert state.load("demo")["prs"][keys[44]]["stack"] == [keys[41], keys[42], keys[44]]
 
 
-def test_a_pr_added_to_its_native_stack_after_the_stack_card_was_drawn_gets_its_own_card(
+def test_a_pr_added_to_its_native_stack_after_the_stack_card_was_drawn_joins_one_fresh_card_whose_approve_taps_each_while_a_redraw_keeps_each_card_as_drawn(
     stacked: list[list[str]], native_stacks: dict[str, list[tuple[str, str]]]
 ) -> None:
     keys = [f"Forge-AI/monorepo#{n}" for n in (41, 42, 43, 44)]
@@ -1367,10 +1367,15 @@ def test_a_pr_added_to_its_native_stack_after_the_stack_card_was_drawn_gets_its_
     ask(asks(41, 42, 43))
     for key in keys:
         native_stacks[key] = [(member, "open") for member in keys]
+    [kept] = ask(asks(42) | {"redraw": True})["cards"]
+    assert kept["card"]["waits"] == "merge:Forge-AI:monorepo:41-43"
     [drawn] = ask(asks(44))["cards"]
-    assert [row["url"] for row in drawn["card"]["prs"]] == [stack_url(44)]
+    assert ([row["url"] for row in drawn["card"]["prs"]], drawn["card"]["waits"]) == ([stack_url(n) for n in (41, 42, 43, 44)], "merge:Forge-AI:monorepo:41-44")
+    assert all(state.load("demo")["prs"][key]["stack"] == keys for key in keys)
     [again] = ask(asks(42) | {"redraw": True})["cards"]
-    assert again["card"]["waits"] == "merge:Forge-AI:monorepo:41-43"
+    assert again["card"]["waits"] == "merge:Forge-AI:monorepo:41-44"
+    ask({"answer": {"repo": "Forge-AI/monorepo", "number": 41, "waits": drawn["card"]["waits"], "label": "Approve", "heads": {}, "action_ts": "", "source": "slack"}})
+    assert [state.load("demo")["prs"][key]["tap"]["label"] for key in keys] == ["Approve"] * 4
 
 
 TITLE_55405 = "sandsql: 🐛 Fix: a stopping SandSQL primary leaves an applying migration attached for its final writer drain"

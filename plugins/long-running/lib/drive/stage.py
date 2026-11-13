@@ -49,14 +49,17 @@ def on_card(data: dict, key: str, cards: dict) -> Stage:
 
 
 def own(data: dict, key: str, cards: dict | None) -> Stage:
-    """The PR's stage by its own row, whatever the rest of its landing stack reads: uncarded, owed by the watch, only while state.asks_tap finds his card would offer Approve, the check every draw of his card makes, so the watch owes no draw the draw refuses, and no card of his offers it at its head, by view.tap_card, the one read of his card every line naming it makes: none is drawn, the one open on it shows an older head, or cc-slack keeps the one drawn closed in place, either of which the watch redraws in place, so no stage names a card as his to tap that the say hook finds not open at its head; with his cards unread, whatever rule comes next."""
+    """The PR's stage by its own row, whatever the rest of its landing stack reads: uncarded, owed by the watch, only while state.asks_tap finds his card would offer Approve, the check every draw of his card makes, so the watch owes no draw the draw refuses, and no card of his offers it at its head, by view.tap_card, the one read of his card every line naming it makes, whole: none is drawn, the one open on it shows an older head, or cc-slack keeps the one drawn closed in place, either of which the watch redraws in place, or the one open on it leaves off a PR of its native stack, by view.apart, which the watch replaces with one card for the stack, so no stage names a card as his to tap that the say hook finds not open at its head; with his cards unread, whatever rule comes next."""
     pr = data["prs"][key]
-    if not pr["rework"] and cards is not None and state.asks_tap(pr) and not view.tap_card(pr, cards):
-        return Stage("uncarded", WATCH, uncarded(pr, cards))
+    if not pr["rework"] and cards is not None and state.asks_tap(pr) and (not view.tap_card(pr, cards) or view.apart(data, key, cards["pr_cards"])):
+        return Stage("uncarded", WATCH, uncarded(data, key, cards))
     return alone(data, key, cards)
 
 
-def uncarded(pr: dict, cards: dict) -> str:
+def uncarded(data: dict, key: str, cards: dict) -> str:
+    pr = data["prs"][key]
+    if left := view.apart(data, key, cards["pr_cards"]):
+        return f"his card on it leaves off {', '.join(left)} of its native GitHub stack, so the watch draws one card for the whole stack in its place"
     if shown := view.card_for(cards["pr_cards"], pr["url"]):
         return f"his card on it shows {view.shown_heads(shown, pr)} rather than its head {pr['head'][:7]}, so the watch redraws it in place"
     if view.standing_card(pr, cards):

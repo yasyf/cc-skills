@@ -420,9 +420,11 @@ When it is answered, replaced or redone:
   naming a PR the drive does not hold is refused: `drive pr add` records it first.
 - His Approve lands exactly those PRs still asking his tap, bottom first. His Hold holds them all. A
   card posts once a PR on it asks his tap, and shows what holds it, such as a card of his it waits
-  on, but never while one is being reworked to his words. A PR added later gets its own card when posted
-  alone. Posted with the rest of its stack, it joins one new card for them all, and cc-slack marks
-  each older card of those PRs replaced, with a link to the new one.
+  on, but never while one is being reworked to his words. A PR added later to its native GitHub stack
+  joins one new card for the whole stack, posted alone or with the rest of it, and cc-slack marks each
+  older card of those PRs replaced, with a link to the new one; the watch draws that card for any
+  native stack it finds split across cards. A PR chained only by its base branch gets its own card
+  when posted alone and joins one new card for them all when posted with the rest of its stack.
 - The card opens with each PR's lead, the four lines its builder gave `drive pr add`, before any
   code: its headline as the card's title, then why the change is made, what it does and what it
   changes downstream, on the dashboard's card above the stack's rows too, since his words on a card

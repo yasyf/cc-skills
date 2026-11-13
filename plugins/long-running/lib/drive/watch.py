@@ -2485,7 +2485,7 @@ def carried_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Keep each heard unmerged PR's stage, as stage.of names it from the approval, checks and head GitHub last answered for it, and act once on each open one that entered a stage or passed its deadline, leaving a PR never read, or whose last read failed, as it stands until a read answers for it: draw his card on each uncarded PR, one card for the PRs of one card unit as drive card draws them, or redraw in place the card cc-slack keeps closed on one, so it offers Approve again and no second card shares its waits id, redraw his card in place on every other change of stage so its line shows it, wake the builder answering for a PR rework or red owe, ask forge-pr-reviewer once for a review of a head grading an hour and then wake its builder, wake the session holding its order on one unlanded, or landing or ready past its deadline, and post his card again, once per card unit, on the PRs that wait on him while they fix a live bug, under a line saying why it asks. A draw that fails keeps the PR uncarded for the next read, and is said to the meta session from its third failure in a row."""
+    """Keep each heard unmerged PR's stage, as stage.of names it from the approval, checks and head GitHub last answered for it, and act once on each open one that entered a stage or passed its deadline, leaving a PR never read, or whose last read failed, as it stands until a read answers for it: draw his card on each uncarded PR, one card for the PRs of one card unit as drive card draws them, or redraw in place the card cc-slack keeps closed on one, so it offers Approve again and no second card shares its waits id, or, once a card of the unit leaves off a PR of its native stack, draw one fresh card for the unit and those PRs, which cc-slack marks each older card of theirs replaced by, redraw his card in place on every other change of stage so its line shows it, wake the builder answering for a PR rework or red owe, ask forge-pr-reviewer once for a review of a head grading an hour and then wake its builder, wake the session holding its order on one unlanded, or landing or ready past its deadline, and post his card again, once per card unit, on the PRs that wait on him while they fix a live bug, under a line saying why it asks. A draw that fails keeps the PR uncarded for the next read, and is said to the meta session from its third failure in a row."""
     if watcher.cards is None:
         return []
     with state.edit(watcher.name) as data:
@@ -2522,11 +2522,15 @@ def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
     for keys in uncarded.values():
         standing = [key for key in keys if view.standing_card(data["prs"][key], watcher.cards)]
+        left = [mate for key in standing for mate in view.apart(data, key, watcher.cards["pr_cards"])]
         try:
-            for key in standing:
-                slack.redraw_pr_cards(state.pr_url(key))
-            if undrawn := [key for key in keys if key not in standing]:
-                talk.draw(watcher.name, undrawn)
+            if left:
+                talk.draw(watcher.name, list(dict.fromkeys([*keys, *left])))
+            else:
+                for key in standing:
+                    slack.redraw_pr_cards(state.pr_url(key))
+                if undrawn := [key for key in keys if key not in standing]:
+                    talk.draw(watcher.name, undrawn)
         except (slack.SlackError, state.DriveError) as error:
             if said := failed(watcher, "card draw", f"draw of his card on {', '.join(keys)}", error, moment):
                 lines += sent(watcher, "meta", said, moment)
