@@ -5365,7 +5365,7 @@ def main(argv: list[str] | None = None) -> int:
     detached = os.environ.pop(state.DETACHED_ENV, None)
     if lane := os.environ.pop(reads.SPRITE_LANE, None):
         own = os.environ[state.OWN_JOB_ENV]
-        if refusal := reads.lane_refusal(args, parsed, os.environ["LONG_RUNNING_DRIVE"], own):
+        if refusal := reads.lane_refusal(args, parsed, os.environ[state.DRIVE_ENV], own):
             print(refusal, file=sys.stderr)
             return 2
         if args.verb == "status" and not args.ids:

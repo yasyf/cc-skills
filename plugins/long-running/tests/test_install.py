@@ -1094,6 +1094,23 @@ def test_a_proof_installs_a_merge_its_plugin_lacks_runs_the_jobs_proof_file_on_i
     assert proof_events() == [("yasyf/cc-skills#7", proven)]
 
 
+@pytest.mark.parametrize("session", [None, "other-coordinator"])
+def test_a_proof_files_drive_calls_naming_no_drive_act_on_the_drive_it_proves_whatever_drives_and_session_this_mac_holds(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch, session: str | None
+) -> None:
+    git = fake([BUILD], {BUILD})
+    script = proving(config, tmp_path, git, 0)
+    start_drive("other", coordinator=None)
+    if session:
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", session)
+    else:
+        monkeypatch.delenv("CLAUDE_CODE_SESSION_ID")
+    resolving = 'import sys; sys.path.insert(0, sys.argv[1]); from drive import state; print("resolves", state.resolve())'
+    script.write_text(f"#!/bin/sh\nexec python3 -I -c '{resolving}' {Path(state.__file__).parents[1]}\n")
+    install.prove("demo", "j1", 900)
+    assert state.proof_path("demo", "j1").read_text() == "resolves demo\n"
+
+
 def test_a_proof_hands_its_result_to_the_newer_install_that_saved_meanwhile(
     config: Path, tmp_path: Path, fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -1103,9 +1120,9 @@ def test_a_proof_hands_its_result_to_the_newer_install_that_saved_meanwhile(
     newest, version = tmp_path / "newest" / "bin" / "drive", state.VERSION
     real, proof_run = subprocess.run, install.proof_run
 
-    def saved_meanwhile(repro: str, path: str, deadline: float) -> subprocess.CompletedProcess[str]:
+    def saved_meanwhile(name: str, repro: str, path: str, deadline: float) -> subprocess.CompletedProcess[str]:
         monkeypatch.setattr(state, "VERSION", "0.0.1")
-        return proof_run(repro, path, deadline)
+        return proof_run(name, repro, path, deadline)
 
     def newer(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         if argv[0] != str(newest):
@@ -1458,8 +1475,8 @@ def test_a_proof_file_runs_on_the_newest_install_read_right_before_it_and_again_
         newer = {"scope": "user", "version": "1.0.4", "lastUpdated": "2026-11-10T10:00:00.000Z", "installPath": "/cache/long-running/1.0.4", "gitCommitSha": BUILD}
         git.write_installed(plugins | {"long-running@skills": [newer]})
 
-    def run(repro: str, path: str, deadline: float) -> subprocess.CompletedProcess[str]:
-        done = proof_run(repro, path, deadline)
+    def run(name: str, repro: str, path: str, deadline: float) -> subprocess.CompletedProcess[str]:
+        done = proof_run(name, repro, path, deadline)
         ran.append(done.stdout)
         if lands == "while the proof file fails":
             land()

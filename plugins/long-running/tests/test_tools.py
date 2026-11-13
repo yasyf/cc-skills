@@ -284,7 +284,7 @@ def test_a_sprite_lanes_verb_acting_on_another_job_or_drive_however_it_is_spelle
 ) -> None:
     monkeypatch.setenv(reads.SPRITE_LANE, "1")
     monkeypatch.setenv(state.OWN_JOB_ENV, "j7")
-    monkeypatch.setenv("LONG_RUNNING_DRIVE", demo)
+    monkeypatch.setenv(state.DRIVE_ENV, demo)
     monkeypatch.setattr(reads, "break_glass", lambda *args: pytest.fail("a refused break-glass started a grant"))
     capsys.readouterr()
     assert cli.main(words) == 2
@@ -302,7 +302,7 @@ def test_a_sprite_lane_reads_another_job_as_a_mac_lane_does_its_bare_status_read
     run("job", "report", "j1", "-")
     on_mac = {words: run(*words) for words in (("job", "report", "j1"), ("job", "replies", "j1"), ("status", "j1"), ("status", "j2"), ("status",))}
     monkeypatch.setenv(state.OWN_JOB_ENV, "j2")
-    monkeypatch.setenv("LONG_RUNNING_DRIVE", demo)
+    monkeypatch.setenv(state.DRIVE_ENV, demo)
 
     def lane(*words: str) -> tuple[int, str]:
         monkeypatch.setenv(reads.SPRITE_LANE, "1")
@@ -322,7 +322,7 @@ def test_a_sprite_lanes_kept_report_answers_that_it_was_kept_with_its_first_line
     run("job", "add", "reader", "--order", "o1", "--goal", "count them")
     monkeypatch.setenv(reads.SPRITE_LANE, "1")
     monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
-    monkeypatch.setenv("LONG_RUNNING_DRIVE", demo)
+    monkeypatch.setenv(state.DRIVE_ENV, demo)
     monkeypatch.setattr("sys.stdin", io.StringIO(RESEARCH))
     assert run("job", "report", "j1", "-") == (0, "kept j1's report: DONE researched the store copy")
 
@@ -336,7 +336,7 @@ def test_a_verb_that_refuses_itself_prints_its_refusal_and_exits_2_on_a_sprite_l
     if lane:
         monkeypatch.setenv(reads.SPRITE_LANE, "1")
         monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
-        monkeypatch.setenv("LONG_RUNNING_DRIVE", demo)
+        monkeypatch.setenv(state.DRIVE_ENV, demo)
     capsys.readouterr()
     assert cli.main(["job", "set", "j1", "--repro", str(tmp_path / "missing.sh")]) == 2
     assert capsys.readouterr().err == f"drive: no reproduction file at {tmp_path / 'missing.sh'}\n"

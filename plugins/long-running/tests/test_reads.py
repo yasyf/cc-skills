@@ -493,7 +493,7 @@ def test_a_mac_whose_machine_break_glass_profile_cannot_mint_the_window_posts_no
 
 FAKE_DRIVE = """#!/bin/sh
 printf '%s\\n' "$@"
-printf 'drive=%s session=%s cwd=%s\\n' "$LONG_RUNNING_DRIVE" "${CLAUDE_CODE_SESSION_ID:-none}" "$(pwd)"
+printf 'drive=%s session=%s cwd=%s\\n' "$CLAUDE_LONG_RUNNING_DRIVE" "${CLAUDE_CODE_SESSION_ID:-none}" "$(pwd)"
 for word in "$@"; do [ -f "$word" ] && { [ -x "$word" ] && echo executable; cat "$word"; }; done
 cat
 echo failed >&2
