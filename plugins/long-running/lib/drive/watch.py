@@ -609,7 +609,7 @@ def first_line(text: str) -> str:
 
 
 def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetime, kept: str | None, taken: bool) -> str | None:
-    """Record one message from a remote lane on its job, a final report ending any question the lane asked before it and setting its state unless state.result_refusal refuses it or it types a clock time for work already done, which the event line names, and a question opening with a result other than ASK being that result; the event line it wakes the coordinator with, if any, which for a question naming `LOG <url>`s says drive job resume reads them ahead of the answer, for an `ASK <file> [<file>…]` naming the blocks `drive job ask` kept is that line, as a job's own return is, and for any other `ASK` says that `drive job ask` keeps it. The message ending the turn of a report `drive job report` already took, a worker_done or Orca's escalation for a worker that exited, whatever its body, or any such message from a lane `drive job end` ended, only ends that question, since its line went with that command's answer; a report the watch takes itself names each PR it links that the drive does not track, since only `drive pr add` registers one."""
+    """Record one message from a remote lane on its job, a final report ending any question the lane asked before it and setting its state unless state.result_refusal refuses it or it types a clock time for work already done, which the event line names, and a question opening with a result other than ASK being that result; the event line it wakes the coordinator with, if any, which for an `ASK <file> [<file>…]` naming the blocks `drive job ask` kept is that line, as a job's own return is, and for any other `ASK` says that `drive job ask` keeps it. The message ending the turn of a report `drive job report` already took, a worker_done or Orca's escalation for a worker that exited, whatever its body, or any such message from a lane `drive job end` ended, only ends that question, since its line went with that command's answer; a report the watch takes itself names each PR it links that the drive does not track, since only `drive pr add` registers one."""
     job = data["jobs"][job_id]
     kind = message["type"]
     body = message["body"] or ""
@@ -645,8 +645,6 @@ def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetim
     line = f"JOB {job_id} {job['order']} {job['said']}"
     if job.get("ask") != message["id"]:
         return line
-    if asked := reads.logs(body):
-        return f"{line}; drive job resume reads {asked} ahead of your answer"
     return f"{line}; {UNKEPT_ASK.format(job=job_id)}" if reads.asks(body) else line
 
 
@@ -708,7 +706,7 @@ def kept_return(name: str, job_id: str, body: str) -> bool:
 
 
 def queue_kept_reads(watcher: Watcher) -> None:
-    """Queue each live lane's open question that asks a read, so a question kept as the coordinator's, such as one the watch read before it took a `LOG` with words after its URL, is answered here and its lane runs again."""
+    """Queue each live lane's open question that asks a read, so a question kept as the coordinator's, such as one kept before the watch read it as a read, is answered here and its lane runs again."""
     data = state.load(watcher.name)
     if not any(kept_read(job) for job in live_lanes(watcher, data).values()):
         return
@@ -763,7 +761,7 @@ def merge_lane_prs(watcher: Watcher, job_ids: set[str]) -> list[str]:
 
 
 def read_lines(watcher: Watcher, data: dict, moment: datetime) -> list[str]:
-    """Send each `LOG`, `READ` or `DRIVE` question a lane queued the answer `drive job read` keeps for it here, since a Sprite holds no CI credentials or drive records, starting that read as its own process for a live lane's question with neither an answer nor a reader still running, so a drive command that runs for minutes holds up no pass; one the read cannot answer gets why as its answer and a `JOB` line saying so. A lane's `drive job report` that took its return wakes the coordinator with its `JOB` line as its answer goes, as a job's own return does on this Mac, a `PUSHED` aside, which waits on its checks; its job may have left the live states by then, so a kept answer goes whatever its job's state. An answer goes, and a reader starts, only on what drive.json held once its reader was seen ended, so the cut-off answer a reader keeps before it runs never goes ahead of the one it finishes with, no reader that finished since the watch last read drive.json starts again, and a refused reply sends the kept answer again and never reruns the read. A question leaves its job's queue only once its answer goes through, or with no line since nothing is owed on it once Orca says it already holds another answer, since a lane whose wait ends waits again on the same question, or that the question's dispatch closed, since no lane waits on it then, as when `drive job end` ended its lane while its read ran: any other refused reply only delays it. An answer past what one Orca relay message carries goes cut, as reply_read sends it."""
+    """Send each `READ` or `DRIVE` question a lane queued the answer `drive job read` keeps for it here, since a Sprite holds no copy of the drive's records, starting that read as its own process for a live lane's question with neither an answer nor a reader still running, so a drive command that runs for minutes holds up no pass; one the read cannot answer gets why as its answer and a `JOB` line saying so. A lane's `drive job report` that took its return wakes the coordinator with its `JOB` line as its answer goes, as a job's own return does on this Mac, a `PUSHED` aside, which waits on its checks; its job may have left the live states by then, so a kept answer goes whatever its job's state. An answer goes, and a reader starts, only on what drive.json held once its reader was seen ended, so the cut-off answer a reader keeps before it runs never goes ahead of the one it finishes with, no reader that finished since the watch last read drive.json starts again, and a refused reply sends the kept answer again and never reruns the read. A question leaves its job's queue only once its answer goes through, or with no line since nothing is owed on it once Orca says it already holds another answer, since a lane whose wait ends waits again on the same question, or that the question's dispatch closed, since no lane waits on it then, as when `drive job end` ended its lane while its read ran: any other refused reply only delays it. An answer past what one Orca relay message carries goes cut, as reply_read sends it."""
     running, data = ended_reads(watcher.name, data)
     for job_id, job in live_lanes(watcher, data).items():
         for message_id in job.get("reads", {}):

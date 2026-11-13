@@ -14,9 +14,7 @@ from drive import reads, state
 from drive.render import clock
 
 BUILD = "https://buildkite.com/forge/test/builds/121531"
-OTHER = "https://buildkite.com/forge/test/builds/121532"
 ASKER = "demo j7"
-FAILED_JOB = "01a1c150-b658-46c9-a067-e38eebe83af2"
 GRANT = "https://buildkite.com/forge/break-glass/builds/1926"
 PROOF = "long-running 1.0.639 from bin/../lib\nFAIL: GitHub lists no delivery the receiver answered 200 and logged\n"
 SSO_FIRST = """[profile identity]
@@ -42,54 +40,13 @@ role_arn = arn:aws:iam::333:role/frg-tnt-gbl-0ddq7rb-admin
 GRANT_ENDS = "2026-11-12T12:22:25.577Z"
 GRANTED = state.parse_time("2026-11-12T11:22:30Z")
 ASSUME = ["aws", "sts", "assume-role", "--profile", "tf", "--role-arn", "arn:aws:iam::222:role/frg-plat-gbl-prod-admin", "--role-session-name", "demo-j7"]
-LOG = (
-    "\x1b_bk;t=1\x07~~~ Running repository pre-command hook\r\n"
-    "\x1b_bk;t=2\x07setup noise\r\n"
-    "\x1b_bk;t=3\x07~~~ Running commands\r\n"
-    "\x1b_bk;t=4\x07\x1b[31mERROR\x1b[39m: raises journal write to 13\r\n"
-    "\x1b_bk;t=5\x07~~~ Running repository post-command hook\r\n"
-    "\x1b_bk;t=6\x07ci job-time: 2.35s\r\n"
-)
-
-
-def build_json(*jobs: dict) -> str:
-    return json.dumps({"web_url": BUILD, "state": "failed", "jobs": list(jobs)})
-
-
-def job(job_id: str, state: str, kind: str = "script") -> dict:
-    return {
-        "id": job_id,
-        "type": kind,
-        "state": state,
-        "name": f"step {job_id[:4]}",
-        "exit_status": 1,
-        "web_url": f"{BUILD}#{job_id}",
-    }
-
-
-def serve(monkeypatch: pytest.MonkeyPatch, build: str) -> list[list[str]]:
-    calls = []
-
-    def fake(argv: list[str], checkout: Path) -> str:
-        calls.append(argv[1:])
-        return build if argv[2] == "api" else LOG
-
-    monkeypatch.setattr(reads, "run", fake)
-    return calls
 
 
 @pytest.mark.parametrize(
     ("body", "question"),
     [
-        (f"LOG {BUILD}", f"LOG {BUILD}"),
-        (f"  LOG {BUILD}\n", f"LOG {BUILD}"),
-        (
-            f"j242 READ: LOG {BUILD} (#7 head 1234abc), failing while it still runs. Give every failed job's name.",
-            f"LOG {BUILD}",
-        ),
-        (f"LOG {BUILD}#{FAILED_JOB} — need: did the sand-next-tests step run\nmore", f"LOG {BUILD}#{FAILED_JOB}"),
-        (f"j232 LOG {BUILD} and LOG {OTHER} are both red on #7", f"LOG {BUILD} {OTHER}"),
-        (f"LOG {BUILD}\nthen LOG {OTHER} if the first is green\nLOG {BUILD}", f"LOG {BUILD} {OTHER}"),
+        (f"LOG {BUILD}", None),
+        (f"j242 READ: LOG {BUILD} (#7 head 1234abc), failing while it still runs. Give every failed job's name.", None),
         ("READ cci show 2065", "READ cci show 2065"),
         ("j247: READ ccn answer show 5299250c9a85\nfor his words", "READ ccn answer show 5299250c9a85"),
         (
@@ -100,176 +57,12 @@ def serve(monkeypatch: pytest.MonkeyPatch, build: str) -> list[list[str]]:
         ("READY https://x/pull/1", None),
         (f"j242 READ, two reads for #7: (1) LOG {BUILD} (2) the field facts", None),
         ("READ: please send the full text of design-run-read-api.md", None),
-        ("LOG (build 1, #7 at 1234abc), verbatim", None),
-        ("j242 PUSHED #7\nLOG https://buildkite.com/forge/test/builds/1", None),
     ],
 )
-def test_a_read_question_opens_with_its_read_past_the_job_id_and_reads_every_log_it_names(
+def test_a_read_question_opens_with_its_read_past_the_job_id_and_a_log_url_is_no_read(
     body: str, question: str | None
 ) -> None:
     assert reads.request(body) == question
-
-
-@pytest.mark.parametrize(
-    ("body", "question"),
-    [
-        (f"j242 PUSHED #7\nLOG {BUILD} is red, and LOG {OTHER} too. Which do I fix first?", f"LOG {BUILD} {OTHER}"),
-        ("j242 READY https://x/pull/1", None),
-    ],
-)
-def test_logs_names_every_log_a_question_names_once_wherever_it_names_them(body: str, question: str | None) -> None:
-    assert reads.logs(body) == question
-
-
-def test_a_log_read_naming_two_builds_reads_both_in_half_the_budget_each(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    serve(monkeypatch, build_json(job(FAILED_JOB, "failed")))
-    limits = []
-    monkeypatch.setattr(reads, "excerpt", lambda log, limit: limits.append(limit) or "cut")
-    said = f"== step 01a1: failed, exit 1, {BUILD}#{FAILED_JOB}\ncut"
-    assert reads.answer(f"LOG {BUILD} {OTHER}", tmp_path, "demo", "j7") == f"{said}\n\n{said}"
-    assert limits == [reads.BUDGET // 2] * 2
-
-
-def test_excerpt_keeps_the_command_output_without_hooks_or_markup() -> None:
-    assert reads.excerpt(LOG, 1000) == "ERROR: raises journal write to 13"
-
-
-def test_excerpt_with_no_failure_line_keeps_the_tail_and_says_how_much_it_cut() -> None:
-    assert reads.excerpt("a" * 10 + "END", 5) == "[no failure lines matched]\n[last 5 of 13 characters]\naaEND"
-
-
-def own_output(share: int) -> str:
-    return (
-        f"[each failure's own output, a repeated one's longest: a Go test's lines from its === RUN, cut to its last {share} characters,"
-        f" else the failure line through the lines indented under it, past {share} characters folded to its failure lines, the 2 after each and its cause lines]"
-    )
-
-
-@pytest.mark.parametrize(
-    "failure",
-    [
-        "--- FAIL: TestChat (2.89s)",
-        "    --- FAIL: TestChat/one_subagent (0.07s)",
-        "[sand] --- FAIL: TestChat (2.89s)",
-        "FAIL\texample.com/app/cmd\t12.183s",
-        "        FAIL [   0.070s] core store::tests::a_copy_keeps_every_write",
-        "thread 'store::tests::a_copy_keeps_every_write' (148890) panicked at crates/core/src/store/tests.rs:12508:61:",
-        "src/app.ts(4,7): error TS2322: Type 'string' is not assignable to type 'number'.",
-        "  ✕ renders the composer (12 ms)",
-        "  ● composer › renders",
-    ],
-)
-def test_excerpt_leads_with_a_failure_far_before_the_tail(failure: str) -> None:
-    output = "\n".join(["ok"] * 50 + [failure, "", "the message", "after", "past it"] + ["x" * 99] * 10)
-    block = f"{failure}\nthe message\nafter"
-    rest = 400 - len(failure) - len(block)
-    assert reads.excerpt(output, 400) == (
-        f"[failure lines, 1 matched]\n{failure}\n{own_output(400 - len(failure))}\n{block}\n"
-        f"[last {rest} of {len(output)} characters]\n{output[-rest:]}"
-    )
-
-
-def test_excerpt_leads_with_every_go_fail_and_its_tests_own_lines_before_passing_tests_logs() -> None:
-    passing = [f"    life_test.go:{n}: offline step answered in 94ms" for n in range(100)]
-    failing = ["=== RUN   TestCounts", "    ssql_test.go:162: subqueries are not supported", "[sand] --- FAIL: TestCounts (0.76s)"]
-    output = "\n".join(
-        ["=== RUN   TestLife", *passing, "--- PASS: TestLife (9.00s)", *failing, "FAIL\texample.com/app/eval\t6.778s", *passing]
-    )
-    said = reads.excerpt(output, 1000)
-    assert said.startswith(
-        "[failure lines, 2 matched]\n[sand] --- FAIL: TestCounts (0.76s)\nFAIL\texample.com/app/eval\t6.778s\n"
-    )
-    assert "\n".join(failing) in said
-    assert said.index("ssql_test.go:162") < said.index("life_test.go")
-
-
-def test_excerpt_joins_overlapping_failures_and_cuts_what_overflows() -> None:
-    output = "\n".join(["--- FAIL: A", "a1", "--- FAIL: B", "b1", "b2", "skip", "--- FAIL: C", "c1", "c2", "x" * 999])
-    named = "--- FAIL: A\n--- FAIL: B\n--- FAIL: C"
-    own = ["--- FAIL: A\na1\n--- FAIL: B\nb1\nb2", "--- FAIL: C\nc1\nc2"]
-    assert reads.excerpt(output, 200).startswith(f"[failure lines, 3 matched]\n{named}\n{own_output(82)}\n{own[0]}\n--\n{own[1]}\n[last ")
-    assert reads.excerpt(output, 60) == (
-        f"[failure lines, 3 matched]\n{named}\n{own_output(12)}\n{own[0][-12:]}\n--\n{own[1][-12:]}\n"
-        f"[last 1 of {len(output)} characters]\nx"
-    )
-    assert reads.excerpt(output, 20) == f"[first 20 of {len(named)} characters of the 3 failure lines]\n{named[:20]}"
-
-
-FAILED_QUERIES = [f"a wake fire packs batch {n} into one claim" for n in range(16)]
-
-
-def failed_query_run(milliseconds: int) -> list[str]:
-    ran = [line for n, name in enumerate(FAILED_QUERIES) for line in ("[api] claimed a wake", "[api] packed a batch", f"✖ {name} ({milliseconds + n}ms)")]
-    summary = [
-        line
-        for n, name in enumerate(FAILED_QUERIES)
-        for line in (
-            f"test at api/src/wake.test.ts:{n + 10}:1",
-            f"✖ {name} ({milliseconds + n}ms)",
-            "  Error: Failed query: ",
-            *(f"    SELECT column_{row} FROM wanted WHERE id = $1" for row in range(118)),
-            f'    cause: error: syntax error at or near "placing{n}"',
-            *(f"        at Object.<anonymous> (api/src/wake.ts:{row}:9)" for row in range(29)),
-            "  }",
-        )
-    ]
-    return [*ran, "ℹ tests 300", "ℹ pass 284", "ℹ fail 16", "✖ failing tests:", *summary]
-
-
-def test_excerpt_keeps_each_failures_cause_printed_far_below_it_and_lists_a_repeated_failure_once() -> None:
-    output = "\n".join([*failed_query_run(100), *failed_query_run(300)])
-    head = reads.excerpt(output, reads.BUDGET).split("\n[last ", 1)[0]
-    assert len(output) > 10 * reads.BUDGET
-    assert head.startswith("[failure lines, 66 matched]\n")
-    assert [head.count(f'cause: error: syntax error at or near "placing{n}"') for n in range(16)] == [1] * 16
-    assert [head.count(f"✖ {name} ({100 + n}ms) (x4)") for n, name in enumerate(FAILED_QUERIES)] == [1] * 16
-    assert head.count("✖ failing tests: (x2)") == 1
-
-
-def test_a_build_url_reads_every_failed_script_job(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    calls = serve(
-        monkeypatch,
-        build_json(
-            job(FAILED_JOB, "failed"), job("0" * 8 + FAILED_JOB[8:], "passed"), job("1" * 36, "failed", "trigger")
-        ),
-    )
-    answer = reads.answer(f"LOG {BUILD}", tmp_path, "demo", "j7")
-    assert calls == [["bk", "api", "/pipelines/test/builds/121531"], ["bk", "log", "test", "121531", FAILED_JOB]]
-    assert answer == f"== step 01a1: failed, exit 1, {BUILD}#{FAILED_JOB}\nERROR: raises journal write to 13"
-
-
-@pytest.mark.parametrize("suffix", [f"#{FAILED_JOB}", f"/canvas?jid={FAILED_JOB}"])
-def test_a_job_url_reads_that_job_alone(suffix: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    other = "0" * 8 + FAILED_JOB[8:]
-    calls = serve(monkeypatch, build_json(job(other, "failed"), job(FAILED_JOB, "passed")))
-    reads.answer(f"LOG {BUILD}{suffix}", tmp_path, "demo", "j7")
-    assert calls[1] == ["bk", "log", "test", "121531", FAILED_JOB]
-
-
-def test_a_green_build_says_it_has_no_failed_job(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    serve(monkeypatch, build_json(job(FAILED_JOB, "passed")))
-    assert reads.answer(f"LOG {BUILD}", tmp_path, "demo", "j7") == f"{BUILD} is failed with no failed job"
-
-
-def test_an_actions_job_url_reads_through_ccx(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    calls = []
-    monkeypatch.setattr(reads, "run", lambda argv, checkout: calls.append(argv) or "tail")
-    url = "https://github.com/yasyf/cc-skills/actions/runs/19/job/126958155452"
-    assert reads.answer(f"LOG {url}", tmp_path, "demo", "j7") == "tail"
-    assert calls == [["ccx", "vcs", "job-log", "126958155452", "-R", "yasyf/cc-skills", "--budget", "3000"]]
-
-
-def test_a_failed_read_or_unknown_url_raises_why(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    def refuse(argv: list[str], checkout: Path) -> str:
-        raise reads.ReadError("tools/ci bk api exited 1: 404 Not Found")
-
-    monkeypatch.setattr(reads, "run", refuse)
-    with pytest.raises(reads.ReadError, match="^tools/ci bk api exited 1: 404 Not Found$"):
-        reads.answer(f"LOG {BUILD}", tmp_path, "demo", "j7")
-    with pytest.raises(reads.ReadError, match="or a GitHub Actions job URL$"):
-        reads.answer("LOG https://example.com/x", tmp_path, "demo", "j7")
 
 
 def test_a_record_read_runs_the_allowed_command_from_the_checkout(
