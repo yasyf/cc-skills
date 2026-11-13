@@ -279,10 +279,11 @@ check's verdict, or from the order when none ran.
   - It owes that line only on news, by his pick "Owe a line only on news: while a job works or
     something it names changed; silent while all waits.": while a job of the incidents works, or
     once an order, job or PR of them moved since the thread's last line, a job by its state, waits,
-    returned line or the cards of his its questions are open on, a PR by its state, checks, review
-    or tap. The watch keeps those facts on each incident at its first pass after each line, and the
+    returned line or the cards of his its questions are open on, a PR by its state, stage or his
+    tap. The watch keeps those facts on each incident at its first pass after each line, and the
     report names what moved and which jobs are at work. An incident whose every job waits, on his
-    card, a release or a PR, gets no line until one of them moves.
+    card, a release or a PR, gets no line until one of them moves. Every open order with a thread
+    shares this rule with no clock, by [When it goes out](messages.md#when-it-goes-out).
   - It runs while he is away too. It restarts once a handler has the report, and only a post keeps
     the facts, so a handler that cannot post leaves the same news owed five minutes on.
   - It stops once an order of the incident keeps proof that users are unblocked, by his pick "Proof

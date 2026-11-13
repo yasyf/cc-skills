@@ -1,6 +1,6 @@
 import shlex
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import datetime
 
 from drive.state import DRIVE_TOOLING, ROLES, SLOT_WAIT, VERSION, agent_gone, carriers, delivered, exempted, lane_death, may_tell, named_prs, now, open_orders, parse_time, pr_key, pr_url, project_lane, promise_thread, resumed, title, work
@@ -308,6 +308,13 @@ def job_prs(drive: dict, job_id: str) -> dict[str, dict]:
     return {key: pr for key, pr in drive["prs"].items() if pr["job"] == job_id}
 
 
+def prs_by_job(drive: dict) -> dict[str, list[str]]:
+    jobs: dict[str, list[str]] = {}
+    for key, pr in drive["prs"].items():
+        jobs.setdefault(pr["job"], []).append(key)
+    return jobs
+
+
 def order_line(order_id: str, order: dict, limit: int = 120, thread: tuple[str, str] | None = None) -> str:
     due = f" due {when(order['due'])}" if order.get("due") else ""
     where = f", its lines go in {thread[0]} thread {thread[1]}" if thread else ""
@@ -385,12 +392,12 @@ def question_line(question: dict) -> str:
     return f"asks him: {cut(question['title'] or 'his question card', 80)}; {card}{waits}{kept}"
 
 
-def job_pr_keys(drive: dict, job_id: str, job: dict) -> list[str]:
-    return list(dict.fromkeys([*map(pr_key, job["prs"]), *job_prs(drive, job_id)]))
+def job_pr_keys(job: dict, registered: Iterable[str]) -> list[str]:
+    return list(dict.fromkeys([*map(pr_key, job["prs"]), *registered]))
 
 
 def job_pr_lines(drive: dict, job_id: str, job: dict) -> list[str]:
-    return [pr_line(key, drive["prs"][key], drive["prs"][key]["card_state"]) if key in drive["prs"] else pr_url(key) for key in job_pr_keys(drive, job_id, job)]
+    return [pr_line(key, drive["prs"][key], drive["prs"][key]["card_state"]) if key in drive["prs"] else pr_url(key) for key in job_pr_keys(job, job_prs(drive, job_id))]
 
 
 FEED_SUBSCRIPTION = "cc-slack subscribe --kind alerts,releases,posts --channel <id>"

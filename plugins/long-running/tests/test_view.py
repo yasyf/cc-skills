@@ -456,7 +456,7 @@ def test_a_big_drive_draws_every_section_at_most_eight_rows_and_counts_the_rest_
 
 def test_watch_redraws_the_page_only_when_the_model_changes(demo: str, drawn: list[str], monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(watch.github, "fetch", lambda keys: ({}, None))
-    watching = watch.Watcher(demo, offset=state.events_end(demo), ticked_at=T0)
+    watching = watch.Watcher(demo, offset=state.events_end(demo))
     watch.run_pass(watching, T0)
     watch.run_pass(watching, T0 + timedelta(seconds=60))
     assert len(drawn) == 1
@@ -477,14 +477,14 @@ def test_a_refused_draw_is_said_once_across_restarts_and_once_when_slack_takes_a
         raise page.PageError("Slack refused the redraw (canvas_too_large)")
 
     monkeypatch.setattr(page, "draw", refused)
-    watching = watch.Watcher(demo, offset=state.events_end(demo), ticked_at=T0)
+    watching = watch.Watcher(demo, offset=state.events_end(demo))
     assert watch.run_pass(watching, T0) == [f"WATCH status page stale since {when(state.stamp(T0))}: Slack refused the redraw (canvas_too_large)"]
     assert watch.run_pass(watching, T0 + timedelta(minutes=10)) == []
-    assert watch.run_pass(watch.Watcher(demo, offset=state.events_end(demo), ticked_at=T0), T0 + timedelta(minutes=40)) == []
+    assert watch.run_pass(watch.Watcher(demo, offset=state.events_end(demo)), T0 + timedelta(minutes=40)) == []
     monkeypatch.setattr(page, "draw", accept)
     redrawn = f"WATCH status page redrawn: Slack takes its redraws again, after refusing them since {when(state.stamp(T0))}"
     assert watch.run_pass(watching, T0 + timedelta(minutes=50)) == [redrawn]
-    assert watch.run_pass(watch.Watcher(demo, offset=state.events_end(demo), ticked_at=T0), T0 + timedelta(minutes=60)) == []
+    assert watch.run_pass(watch.Watcher(demo, offset=state.events_end(demo)), T0 + timedelta(minutes=60)) == []
     assert len(drawn) == 2
 
 
@@ -498,7 +498,7 @@ def test_a_page_slack_calls_full_moves_to_a_new_tab_and_the_watch_says_where(dem
         return subprocess.CompletedProcess(argv, 0, json.dumps({"canvas_id": canvas_id, "url": f"https://slack.example/docs/T1/{canvas_id}"}), "")
 
     monkeypatch.setattr(page.subprocess, "run", canvas)
-    watching = watch.Watcher(demo, offset=state.events_end(demo), ticked_at=T0)
+    watching = watch.Watcher(demo, offset=state.events_end(demo))
     assert watch.run_pass(watching, T0) == []
     for text, minutes in (("a new order", 10), ("another order", 20)):
         with state.edit(demo) as data:

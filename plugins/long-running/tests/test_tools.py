@@ -98,7 +98,7 @@ def test_o1009_a_defects_one_job_call_records_its_builder_waiting_on_the_reader_
     data = state.load(meta)
     builder = data["jobs"]["j2"]
     assert (builder["kind"], builder["state"], builder["waits"], builder["parts"], builder["agent"]) == ("builder", "waiting", ["j1"], [part], None)
-    watching = watch.Watcher(meta, offset=state.events_end(meta), ticked_at=state.now())
+    watching = watch.Watcher(meta, offset=state.events_end(meta))
     later = state.now() + timedelta(minutes=5)
     assert watch.part_gap(watching, data, "o1", part, later) is None
     data["orders"]["o1"]["jobs"].remove("j2")
@@ -685,7 +685,7 @@ def test_his_words_carrying_on_an_order_of_his_work_are_its_parts_the_watch_name
     assert [(record["to"], record["attr"]["order"], record["attr"]["part"]) for record in posted] == [
         (["root@demo"], "o1", f"o1:{words['text']}") for words in (iterate, options, iterate)
     ]
-    watching = watch.Watcher(demo, offset=state.events_end(demo), ticked_at=state.now())
+    watching = watch.Watcher(demo, offset=state.events_end(demo))
     later = state.now() + timedelta(minutes=6)
     assert watch.orphan_lines(watching, later) == []
     with state.edit(demo) as data:
@@ -952,7 +952,7 @@ def test_his_answer_settling_a_finished_readers_question_reaches_the_builder_at_
     tools.run("job", demo, {"ops": [{"brief": {"id": "j2", "serves": "his order", "done_when": "installed", "where": "yasyf/cc-skills main"}}]})
     written = (state.drive_dir(demo) / "jobs" / "j2.brief.md").read_text()
     assert f"Decisions that bind:\n- {ANSWER['title']} (73060f0)\n" in written and "\nResearched: j1\n" in written
-    watching = watch.Watcher(demo, offset=state.events_end(demo), ticked_at=state.now())
+    watching = watch.Watcher(demo, offset=state.events_end(demo))
     assert watch.undelivered_lines(watching, state.now() + timedelta(minutes=11)) == []
     with state.edit(demo) as data:
         data["jobs"]["j1"]["questions"].append(state.new_question(second, "Which card keeps the thread?", state.stamp()))
@@ -1028,7 +1028,7 @@ def test_his_rulings_are_kept_as_drive_answers_listing_each_card_part_and_pr_the
     keys = ["demo:j1-684682", *(f"o1:{part}" for part in parts), "Forge-AI/monorepo#54101", "Forge-AI/monorepo#54102"]
     assert [line[2:].split("  ")[0] for line in said.splitlines() if line.startswith("  ") and " waits on " not in line] == keys * 2
     assert said.count("1 card, 4 parts and 2 PRs have no mark:") == 2
-    watching = watch.Watcher(demo, offset=state.events_end(demo), ticked_at=state.now())
+    watching = watch.Watcher(demo, offset=state.events_end(demo))
     watching.cards = found
     assert [line.split('": ', 1)[1] for line in watch.answer_lines(watching, state.now() + timedelta(minutes=11))] == [
         f"1 card, 4 parts and 2 PRs with no mark, standing, settled, dropped, superseded or reopened by it; j1 not sent his words; drive answer {ruling} lists them"

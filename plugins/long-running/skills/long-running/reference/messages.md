@@ -487,13 +487,17 @@ restating it.
   starts answers in that thread when it is done.
 - While the communicator compacts, cc-slack posts "Got it, back in a minute." under each of his
   messages itself, and the message arrives with `acked`, so it gets no second ack.
-- Everything else waits for a summary: a job result, a merge, a CI turn or a promised time feeds the
-  next summary of its thread, never a line of its own. The watch's `TICK` comes every 30 minutes and
-  names the orders with news; the coordinator sends at most one `report` per thread per tick, then
-  `drive order set <o> --lined` for each order it covered.
-- An incident is the exception: until its fix is live he hears each step the moment it happens, and
-  until its users are unblocked a line five quiet minutes after the last while a job works on it or
-  something it names moved, which the watch owes and has a handler post. A report on it goes out even when its thread already had one that turn, by
+- Each later step of an order with a thread is the watch's to say there, by his pick "A handler
+  posts each step, started by the watch on news": a job returning its finding, a PR going up with his
+  card, changing stage, such as Trunk ejecting it from the merge queue, or taking his tap, and a card
+  of his opening or closing. At its next pass the watch sends one `report` carrying `quiet=true` and
+  the thread, naming what moved, and starts one handler, which posts what changed in that thread, so
+  no session writes a progress line of its own. None goes out while he is away, since his catch-up
+  carries it, nor once a report closing the order is kept or posted, whose post is its line.
+- An incident shares that rule with a clock: until its fix is live he hears each step the moment it
+  happens, and until its users are unblocked a line five quiet minutes after the last while a job
+  works on it or something it names moved, while he is away too, which the watch owes and has a
+  handler post. A report on it goes out even when its thread already had one that turn, by
   [incidents.md](incidents.md).
 - He is away when he says he is going to sleep or stepping out (`drive heard --away`), or when he has
   neither written nor tapped a card for an hour, since each tap on a card records him heard as a

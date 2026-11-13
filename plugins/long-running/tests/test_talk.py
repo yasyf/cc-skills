@@ -552,7 +552,7 @@ def test_a_post_delivers_the_part_its_report_names_and_a_progress_report_naming_
     parts = state.load(demo)["orders"]["o1"]["parts"]
     assert (parts["cause"]["posted"], parts["options as a card"]["posted"]) == (answer, None)
     later = state.now() + timedelta(minutes=30)
-    gaps = watch.part_gaps(watch.Watcher(demo, offset=0, ticked_at=later), state.load(demo), later)
+    gaps = watch.part_gaps(watch.Watcher(demo, offset=0), state.load(demo), later)
     assert gaps == {("o1", "cause"): None, ("o1", "options as a card"): "no job"}
 
 
