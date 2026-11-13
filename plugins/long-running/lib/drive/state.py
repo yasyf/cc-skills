@@ -2212,11 +2212,17 @@ def pr_held_elsewhere(data: dict, key: str, job_id: str) -> str | None:
 
 
 def holding_session(data: dict, order: dict) -> tuple[str, str]:
-    """Who holds an order and its session, "not started" while none is bound: its project's sub-coordinator, else the role holding it, the top coordinator for an order heard at root."""
+    """Who holds an order and its session, "not started" while none is bound."""
+    holder, held = holding_role(data, order)
+    return holder, held.get("session") or "not started"
+
+
+def holding_role(data: dict, order: dict) -> tuple[str, dict]:
+    """Who holds an order and the binding of its session, empty while none is bound: its project's sub-coordinator, else the role holding it, the top coordinator for an order heard at root."""
     if holder_lane(order) is None and order["project"] in data["subcoordinators"]:
-        return f"the sub-coordinator for {order['project']}", data["subcoordinators"][order["project"]]["session"]
+        return f"the sub-coordinator for {order['project']}", data["subcoordinators"][order["project"]]
     role = holder_lane(order) or "coordinator"
-    return f"the {title(role)}", (data["roles"].get(role) or {}).get("session") or "not started"
+    return f"the {title(role)}", data["roles"].get(role) or {}
 
 
 def last_started(data: dict) -> str:
