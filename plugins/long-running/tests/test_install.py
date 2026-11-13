@@ -1147,35 +1147,30 @@ def test_a_proof_of_a_yasyf_merge_beside_a_product_merge_installs_the_yasyf_one_
     assert [key for key, _ in proof_events()] == ["yasyf/cc-skills#7", "Forge-AI/monorepo#9"]
 
 
-def test_a_product_merge_takes_done_at_once_its_merge_commit_its_check_and_keeps_the_close_report_for_the_watch(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
+def test_a_product_merge_takes_done_at_once_its_merge_commit_its_check_keeping_no_proof_or_close_report_and_names_the_release_it_waits_on(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit]
+) -> None:
     proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
     product = "https://github.com/Forge-AI/monorepo/pull/9"
     with state.edit("demo") as data:
         data["jobs"]["j1"].update(said=f"READY {product}", prs=[product], repro=None)
         data["prs"]["Forge-AI/monorepo#9"] = state.new_pr(product, "j1", "o1") | {"state": "merged", "merged_sha": "fedcba9876543210", "title": "Fix: the page"}
-        merged = "Forge-AI/monorepo#9 at fedcba987654"
         change = install.merged_done("demo", data, "j1")
         install.said_on_prs("demo", data, "j1", change)
-    assert change == f"{install.MERGED_DONE}: {merged}; its close report of o1 waits on the order for the watch, which posts it to the communicator on its next read and again each read until cci takes it"
+    merged = "Forge-AI/monorepo#9 at fedcba987654"
+    assert change == (
+        f"{install.MERGED_DONE}: {merged}; no proof kept, since only a release holding fedcba987654 puts it live, so o1's fix-live note waits on that release:"
+        ' drive job add builder --order o1 --goal "prove Forge-AI/monorepo#9 live" --waits release:<service>:Forge-AI/monorepo#9 adds the builder with a merge'
+        " handoff that proves it there once the watch's FREE says that release is out, its DONE giving o1 its proof; <service> is a component"
+        " `tools/ci release select --pr` finds its paths reach, and paths reaching none take no --waits"
+    )
     data = state.load("demo")
-    commit = "https://github.com/Forge-AI/monorepo/commit/fedcba9876543210"
     assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["said"]) == ("done", f"DONE {product} merged: {merged}")
-    assert data["orders"]["o1"]["proof"] == commit
-    assert data["orders"]["o1"]["close_report"] == {
-        "id": "merged-j1",
-        "kind": "report",
-        "to": ["communicator@demo"],
-        "topic": "merged-o1",
-        "attr": {"close": "o1"},
-        "text": f"POST Fix: the page merged: {merged}",
-        "body": f"Fixed: Fix: the page, {product}\nMerged: {merged}\nProof: {commit}\n",
-    }
+    assert (data["orders"]["o1"]["proof"], data["orders"]["o1"]["close_report"]) == (None, None)
     assert proof_events() == [("Forge-AI/monorepo#9", change)]
 
 
-def test_a_product_merge_asks_for_proof_on_the_surface_its_own_brief_names_while_a_sibling_jobs_surface_holds_the_orders_close(
-    config: Path, tmp_path: Path, fake: Callable[..., FakeGit]
-) -> None:
+def test_a_product_merge_names_the_surface_its_own_brief_names_for_the_proof_on_its_release(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
     proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
     page = "the dashboard's run details page: the browser view of a step shows its screenshot"
     port, shown = "https://github.com/Forge-AI/monorepo/pull/9", "https://github.com/Forge-AI/monorepo/pull/10"
@@ -1193,8 +1188,8 @@ def test_a_product_merge_asks_for_proof_on_the_surface_its_own_brief_names_while
             data["prs"][state.pr_key(url)] = state.new_pr(url, job_id, "o1") | {"state": "merged", "merged_sha": sha, "title": "Fix: the page"}
         asked = install.merged_done("demo", data, "j2")
         merged = install.merged_done("demo", data, "j1")
-    assert asked.startswith(f"its PRs merged and j2 took DONE, but he sees this on {page}: prove it there")
-    assert merged == f"{install.MERGED_DONE}: Forge-AI/monorepo#9 at fedcba987654"
+    assert f"proves it there on {page}, where he sees it, once the watch's FREE says that release is out" in asked
+    assert "proves it there once the watch's FREE says that release is out" in merged
     data = state.load("demo")
     assert [data["jobs"][job_id]["state"] for job_id in ("j1", "j2")] == ["done", "done"]
     assert (data["orders"]["o1"]["proof"], data["orders"]["o1"]["close_report"]) == (None, None)

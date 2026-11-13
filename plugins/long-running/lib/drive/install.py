@@ -696,9 +696,9 @@ def merges_of(data: dict, job_id: str) -> dict[str, str]:
     return {state.pr_key(url): data["prs"][state.pr_key(url)]["merged_sha"] for url in data["jobs"][job_id]["prs"]}
 
 
-def finish(name: str, data: dict, job_id: str, line: str, check: list[str], seen: bool, post: str, facts: str, kind: str) -> tuple[str | None, bool]:
-    """Take the line the watch's finish of a merged READY or PUSHED sets on its builder, its report naming its PRs and CHECK:, and on a DONE that leaves its open order nothing to do, an open incident's aside, which the watch closes once DONE records its fix live, keep on the order its proof and the close report the watch posts to the communicator, opening POST with the PRs' titles and post; held while he sees any of the order's results on a surface no CHECK: came from. The surface the job's own brief names, when no CHECK: came from it, and whether the order closes."""
-    from drive import brief, cli
+def finish(name: str, data: dict, job_id: str, line: str, check: list[str], seen: bool, post: str, facts: str) -> bool:
+    """Take the line drive job prove sets on its builder, its report naming its PRs and CHECK:, and on a DONE that leaves its open order nothing to do, an open incident's aside, which the watch closes once DONE records its fix live, keep on the order its proof and the close report the watch posts to the communicator, opening POST with the PRs' titles and post; held while he sees any of the order's results on a surface no CHECK: came from. Whether the order closes."""
+    from drive import cli
 
     job = data["jobs"][job_id]
     order_id, urls = job["order"], " ".join(job["prs"])
@@ -706,22 +706,21 @@ def finish(name: str, data: dict, job_id: str, line: str, check: list[str], seen
     whole = f"{line}\nPR: {urls}\nCHECK: {' '.join(check)}\n"
     state.keep_report(name, job_id, line, whole)
     state.take_result(data, job_id, line, whole)
-    unseen = None if seen else brief.surface(job)
     closes = line.startswith("DONE") and (seen or not cli.order_surface(data, order)) and order["state"] not in state.CLOSED_ORDER_STATES and all(state.delivered(data, order_id, part) for part in order["parts"])
     closes = closes and all(data["jobs"][other]["state"] in state.FINISHED_JOB_STATES for other in order["jobs"]) and not state.open_incidents(data, [order_id])
     if closes:
         title = "; ".join(data["prs"][state.pr_key(url)]["title"] for url in job["prs"])
         order["proof"] = " ".join(check)
         order["close_report"] = {
-            "id": f"{kind}-{job_id}",
+            "id": f"install-proved-{job_id}",
             "kind": "report",
             "to": [f"communicator@{name}"],
-            "topic": f"{kind}-{order_id}",
+            "topic": f"install-proved-{order_id}",
             "attr": {"close": order_id} | ({"thread": order["thread"][1]} if order["thread"] else {}),
             "text": f"POST {title} {post}",
             "body": f"Fixed: {title}, {urls}\n{facts}",
         }
-    return unseen, closes
+    return closes
 
 
 def said_on_prs(name: str, data: dict, job_id: str, change: str) -> None:
@@ -732,18 +731,27 @@ def said_on_prs(name: str, data: dict, job_id: str, change: str) -> None:
 
 
 def merged_done(name: str, data: dict, job_id: str) -> str:
-    """Take DONE at its merge on a builder whose READY or PUSHED's PRs all merged outside yasyf/*, a product change, its merge commits its CHECK:, and keep its order's close report for the watch when that leaves the order nothing to do, as a proof does; what it says on the job's PRs' lines."""
+    """Take DONE at its merge on a builder whose READY or PUSHED's PRs all merged outside yasyf/*, a product change, its merge commits its CHECK:, keeping no proof and no close report on its order, since a merge goes live only once a release holding it is out; what it says on the job's PRs' lines: the release each merge waits on and the drive job add that starts the builder proving it live there, on the surface the job's brief names when he sees it."""
+    from drive import brief
+
+    job = data["jobs"][job_id]
+    order_id, urls = job["order"], " ".join(job["prs"])
     merges = merges_of(data, job_id)
     merged = ", ".join(f"{key} at {sha[:12]}" for key, sha in merges.items())
-    commits = [f"https://github.com/{key.partition('#')[0]}/commit/{sha}" for key, sha in merges.items()]
-    line = f"DONE {' '.join(data['jobs'][job_id]['prs'])} merged: {merged}"
-    unseen, closes = finish(name, data, job_id, line, commits, False, f"merged: {merged}", f"Merged: {merged}\nProof: {' '.join(commits)}\n", "merged")
-    order_id = data["jobs"][job_id]["order"]
-    if unseen:
-        return f"its PRs merged and {job_id} took DONE, but he sees this on {unseen}: prove it there with a recording or the live post once its release is out, then send the close report"
-    if closes:
-        return f"{MERGED_DONE}: {merged}; its close report of {order_id} waits on the order for the watch, which posts it to the communicator on its next read and again each read until cci takes it"
-    return f"{MERGED_DONE}: {merged}"
+    commits = " ".join(f"https://github.com/{key.partition('#')[0]}/commit/{sha}" for key, sha in merges.items())
+    line = f"DONE {urls} merged: {merged}"
+    whole = f"{line}\nPR: {urls}\nCHECK: {commits}\n"
+    state.keep_report(name, job_id, line, whole)
+    state.take_result(data, job_id, line, whole)
+    held = ", ".join(sha[:12] for sha in merges.values())
+    waits = " ".join(f"--waits release:<service>:{key}" for key in merges)
+    seen = f" on {surface}, where he sees it," if (surface := brief.surface(job)) else ""
+    return (
+        f"{MERGED_DONE}: {merged}; no proof kept, since only a release holding {held} puts it live, so {order_id}'s fix-live note waits on that release:"
+        f' drive job add builder --order {order_id} --goal "prove {", ".join(merges)} live" {waits} adds the builder with a merge handoff that proves it there{seen}'
+        f" once the watch's FREE says that release is out, its DONE giving {order_id} its proof; <service> is a component `tools/ci release select --pr` finds its paths reach,"
+        " and paths reaching none take no --waits"
+    )
 
 
 def prove(name: str, job_id: str, timeout: int) -> str:
@@ -807,7 +815,7 @@ def proof_kept(name: str, job_id: str, result: dict) -> str:
             kept.parent.mkdir(exist_ok=True)
             kept.write_text(output)
             seen = [found for found in brief.proofs(output) if brief.SEEN_PROOF.search(found)]
-            _, closes = finish(name, data, job_id, line, [str(kept), *seen], bool(seen), f"is live in {versions}", f"Live: {versions}\nProof: {proven}\n", "install-proved")
+            closes = finish(name, data, job_id, line, [str(kept), *seen], bool(seen), f"is live in {versions}", f"Live: {versions}\nProof: {proven}\n")
             change = proven
             if code:
                 change = f"{PROOF_FAILED}: {line.removeprefix('BLOCKED ')}"

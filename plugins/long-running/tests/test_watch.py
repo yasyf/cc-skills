@@ -358,7 +358,7 @@ def test_a_red_required_check_ends_a_pushed_with_its_build_and_its_red_stage_wak
     assert [(key, text.split(", owed by")[0]) for key, text in woken] == [(KEY, f"{KEY} red since {state.stamp(T0 + timedelta(minutes=1))}")]
 
 
-def test_a_ready_waits_on_the_pr_it_names_and_its_job_takes_done_once_that_product_pr_merges_with_no_free_or_wake(
+def test_a_ready_waits_on_the_pr_it_names_and_its_job_takes_done_once_that_product_pr_merges_with_no_free_or_close_report(
     demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], ready_records: list[list[dict]]
 ) -> None:
     serve(monkeypatch, {KEY: read(state="MERGED", mergeCommit="ccc333")})
@@ -372,7 +372,7 @@ def test_a_ready_waits_on_the_pr_it_names_and_its_job_takes_done_once_that_produ
     data = state.load(demo)
     assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["said"], data["jobs"]["j1"]["waits"]) == ("done", f"DONE {state.pr_url(KEY)} merged: {KEY} at ccc333", [])
     assert not watch.wakes(f"PR {KEY}: merged [o1 j1]", data)
-    assert [record["attr"] for records in ready_records for record in records if record.get("topic") == "merged-o1"] == [{"close": "o1"}]
+    assert (data["orders"]["o1"]["proof"], [record for records in ready_records for record in records if (record.get("attr") or {}).get("close") == "o1"]) == (None, [])
     assert provers == []
 
 
@@ -4580,10 +4580,10 @@ def test_a_yasyf_lander_merges_with_admin_records_its_merge_commit_and_installs_
         ("failed", f"{install.PROOF_FAILED}: https://github.com/yasyf/cc-skills/pull/7: /p.sh exits 1", True),
         ("waiting", "merged", True),
         ("done", "merged", False),
-        ("done", f"{install.MERGED_DONE}: {KEY} at ccc333ddd444", False),
+        ("done", f"{install.MERGED_DONE}: {KEY} at ccc333ddd444; no proof kept", True),
     ],
 )
-def test_a_merge_its_proof_proved_wakes_no_one_and_a_failed_proof_wakes_the_holder(demo: str, state_after: str, change: str, wakes: bool) -> None:
+def test_a_merge_its_proof_proved_wakes_no_one_and_a_failed_proof_or_a_done_at_its_merge_wakes_the_holder(demo: str, state_after: str, change: str, wakes: bool) -> None:
     with state.edit(demo) as data:
         data["jobs"]["j1"]["state"] = state_after
         data["prs"][KEY]["state"] = "merged"
@@ -4647,23 +4647,54 @@ def test_a_merged_ready_tooling_job_keeping_no_proof_file_is_said_orphaned_once_
     assert provers == ["j1"]
 
 
-def test_a_merged_ready_product_job_takes_done_at_its_merge_with_no_proof_or_orphan(
+def test_a_merged_ready_product_job_takes_done_at_its_merge_keeping_no_proof_and_its_line_wakes_the_coordinator_to_prove_it_on_its_release(
     demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], tmp_path: Path, ready_records: list[list[dict]]
 ) -> None:
     serve(monkeypatch, {})
     merged_ready(demo, OTHER, proof_file(tmp_path))
-    with state.edit(demo) as data:
-        data["prs"][OTHER]["title"] = "Fix: the page"
     watching = watcher(demo)
     merged = f"{OTHER} at ccc333ddd444"
-    closing = "its close report of o1 waits on the order for the watch, which posts it to the communicator on its next read and again each read until cci takes it"
     lines = watch.run_pass(watching, T0)
-    assert f"PR {OTHER}: {install.MERGED_DONE}: {merged}; {closing} [o1 j1]" in lines
+    said = [line for line in lines if line.startswith(f"PR {OTHER}: {install.MERGED_DONE}: {merged}; no proof kept, since only a release holding ccc333ddd444 puts it live")]
+    assert len(said) == 1 and f"--waits release:<service>:{OTHER} adds the builder" in said[0] and watch.wakes(said[0], state.load(demo))
     assert not [line for line in lines if line.startswith(("FREE ", "ORPHAN "))]
-    assert state.load(demo)["jobs"]["j1"]["said"] == f"DONE {state.pr_url(OTHER)} merged: {merged}"
-    assert [record["text"] for records in ready_records for record in records if record.get("topic") == "merged-o1"] == [f"POST Fix: the page merged: {merged}"]
+    data = state.load(demo)
+    assert (data["jobs"]["j1"]["said"], data["orders"]["o1"]["proof"], data["orders"]["o1"]["close_report"]) == (f"DONE {state.pr_url(OTHER)} merged: {merged}", None, None)
+    assert not [record for records in ready_records for record in records if (record.get("attr") or {}).get("close") == "o1"]
     assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=31)) if line.startswith(("FREE ", "ORPHAN "))]
     assert provers == []
+
+
+def test_a_fix_merged_to_dev_that_no_release_holds_is_never_proven_live_so_its_reporter_is_owed_no_fix_live_note(
+    demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], ready_records: list[list[dict]]
+) -> None:
+    serve(monkeypatch, {})
+    fix = "Forge-AI/monorepo#55420"
+    merged_ready(demo, fix, None)
+    with state.edit(demo) as data:
+        data["prs"][fix]["merged_sha"] = "485f9f408150"
+        data["orders"]["o1"]["reporter"] = state.reporter(REPORTED)
+    watching = watcher(demo)
+    lines = [line for minutes in (0, 11, 40) for line in watch.run_pass(watching, T0 + timedelta(minutes=minutes))]
+    assert [line for line in lines if line.startswith(f"PR {fix}: {install.MERGED_DONE}: {fix} at 485f9f408150; no proof kept")]
+    assert not [line for line in lines if line.startswith("TELL ")]
+    data = state.load(demo)
+    assert (data["jobs"]["j1"]["state"], data["orders"]["o1"]["proof"], data["orders"]["o1"]["reporter"]["tell_said"]) == ("done", None, None)
+    assert not [record for records in ready_records for record in records if (record.get("attr") or {}).get("close") == "o1"]
+    assert render.reporter_said(data["orders"]["o1"]) == f", reported in {REPORTED}, which hears it is fixed once its fix is proven live"
+    assert provers == []
+
+
+def test_an_open_order_a_merge_commit_once_proved_loses_that_proof_and_its_close_while_a_closed_one_or_a_yasyf_commit_keeps_them(demo: str) -> None:
+    commit, tooling = "https://github.com/Forge-AI/monorepo/commit/485f9f408150", "https://github.com/yasyf/cc-skills/commit/ccc333ddd444"
+    with state.edit(demo) as data:
+        data["orders"]["o1"] |= {"proof": commit, "closed_on": "689162", "reporter": state.reporter(REPORTED) | {"tell_said": state.stamp(T0)}}
+        data["orders"]["o2"] = order(state="done", proof=commit, closed_on="689100", jobs=[])
+        data["orders"]["o3"] = order(proof=tooling, jobs=[])
+    data = state.load(demo)
+    reported = data["orders"]["o1"]
+    assert (reported["proof"], reported["closed_on"], reported["close_report"], reported["reporter"]["tell_said"]) == (None, None, None, None)
+    assert (data["orders"]["o2"]["proof"], data["orders"]["o2"]["closed_on"], data["orders"]["o3"]["proof"]) == (commit, "689100", tooling)
 
 
 def test_a_merged_ready_product_job_on_an_open_incidents_fix_waits_for_its_release_and_is_said_orphaned(
@@ -5165,7 +5196,8 @@ def test_a_fix_proven_live_whose_bug_report_has_not_heard_it_is_fixed_is_said_on
     watching = watcher(demo)
     assert watch.tell_lines(watching, T0 + timedelta(minutes=9)) == []
     line = (
-        f"TELL o1: its fix is proven live and nothing moved on it for 10 minutes, but {REPORTED}, the thread its bug was reported in,"
+        "TELL o1: its fix is proven live by https://buildkite.com/forge/release/builds/14185 and nothing moved on it for 10 minutes,"
+        f" but {REPORTED}, the thread its bug was reported in,"
         " has not heard it is fixed: send its report with --attr close=o1, whose handler posts the fix-live note there and records it"
         " with drive order told o1 <its permalink>; done refuses until then"
     )

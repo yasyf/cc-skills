@@ -109,6 +109,7 @@ LOCAL_ROUTE = "local"
 DISPATCH_PREFIX = "ctx_"
 
 PR_URL = re.compile(r"(?:https?://)?github\.com/([^/\s]+)/([^/\s]+)/pull/(\d+)")
+MERGE_COMMIT = re.compile(r"https://github\.com/(?P<repo>[^/\s]+/[^/\s]+)/commit/[0-9a-f]{7,40}")
 RELEASE_WAIT = re.compile(r"release:(?P<service>[\w.-]+):(?P<pr>[^/\s#]+/[^/\s#]+#\d+)")
 SLOT_WAIT = "builder-slot"
 PR_KEY = re.compile(r"([^/\s#]+)/([^/\s#]+)#(\d+)")
@@ -610,6 +611,10 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         if "joins" not in order:
             carriers = (data["jobs"][job_id]["order"] for job_id in order["jobs"]) if order["incident"] else ()
             order["joins"] = next((other for other in carriers if other != order_id and data["orders"][other]["incident"]), None)
+        if merge_proven(order):
+            order.update(proof=None, close_report=None, closed_on=None)
+            if order["reporter"] and not order["reporter"]["told"]:
+                order["reporter"]["tell_said"] = None
     for pr in data["prs"].values():
         waits = pr.get("waits")
         pr["waits"] = waits if isinstance(waits, list) else [waits] if waits else []
@@ -1124,6 +1129,12 @@ def deliver_posted(data: dict, job_id: str, link: str, moment: str) -> None:
         if order["kind"] == "answer" and order["state"] not in CLOSED_ORDER_STATES and finished and not owed(order) and not (order["reporter"] and not order["reporter"]["told"]):
             if all(held["posted"] for held in order["parts"].values()):
                 order.update(state="done", updated=moment)
+
+
+def merge_proven(order: dict) -> bool:
+    """Whether an open order keeps as its proof only merge commits outside yasyf/*, as the watch's DONE at a merge once kept with its close report, though a merge proves no fix live."""
+    commits = [MERGE_COMMIT.fullmatch(token) for token in (order["proof"] or "").split()]
+    return order["state"] not in CLOSED_ORDER_STATES and bool(commits) and all(commit and not merges_untapped(commit["repo"]) for commit in commits)
 
 
 def may_tell(order: dict) -> bool:
