@@ -2816,7 +2816,7 @@ def job_end(args: argparse.Namespace) -> int:
 
 
 def end_kept(name: str, job_id: str, result: dict) -> dict:
-    """Keep on the job what its lane's end came to once it saved, reclaimed and released: the branches saved, its kept transcript and its ask cleared, or, when the save failed, the end mark taken back, so the lane reads as it did; when a newer install saved the drive meanwhile, the newest install's `drive job ended` keeps it, so the end is never left half kept."""
+    """Keep on the job what its lane's end came to once it saved, reclaimed and released: the branches saved, its kept transcript and its ask cleared, the job left unstamped, since the end of a lane at rest changes nothing it does and so says none of its parts again, or, when the save failed, the end mark taken back, so the lane reads as it did; when a newer install saved the drive meanwhile, the newest install's `drive job ended` keeps it, so the end is never left half kept."""
     try:
         with state.edit(name) as data:
             ended = data["jobs"][job_id]
@@ -2831,7 +2831,7 @@ def end_kept(name: str, job_id: str, result: dict) -> dict:
                     ended["deaths"][-1]["saved"] = result["saved"]
                 if result.get("transcript"):
                     ended["deaths"][-1]["transcript"] = result["transcript"]
-                ended.update(ask=None, updated=state.stamp())
+                ended["ask"] = None
         return ended
     except state.NewerDrive:
         if not (newer := install.upgraded()):

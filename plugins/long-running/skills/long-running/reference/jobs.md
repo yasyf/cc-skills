@@ -275,8 +275,9 @@ lane reads those, and Slack, through this Mac with a blocking question.
 **What the watch reads each minute.**
 
 - The lane's Dispatch, from Orca: a lane that sat at its prompt for 30 minutes makes its parts
-  `ORPHAN`s, and a lane whose worker died or whose Sprite's Orca environment is gone, running or
-  waiting, is one `LANE … died` line.
+  `ORPHAN`s, and a running job's lane whose worker died or whose Sprite's Orca environment is gone
+  is one `LANE … died` line. A waiting job's dead lane is recorded with no line, its Sprite freed
+  by `drive job end`, since his answer reaches the job by `drive job resume` either way.
 - A running job's dead lane is relaunched in the pass that finds it: the watch runs
   `drive job resume <j>` as a process of its own, its output in the drive's `relaunches.log`, and
   its `LANE … died` line says so. So is a running job's agent on this Mac whose last response ended

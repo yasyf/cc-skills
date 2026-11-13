@@ -1420,7 +1420,7 @@ def test_second_instance_exits_quietly(demo: str, monkeypatch: pytest.MonkeyPatc
 
 def test_stale_pid_file_is_claimed_and_released(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     state.pid_path(demo).write_text("999999999\n")
-    monkeypatch.setattr(watch, "run_pass", lambda watching, moment: [])
+    monkeypatch.setattr(watch, "passed", lambda watching, moment: [])
     run_watch(demo, monkeypatch)
     assert not state.pid_path(demo).exists()
 
@@ -1447,7 +1447,7 @@ def test_a_watch_no_launch_agent_started_lets_its_pid_file_go_loads_the_agent_an
     demo: str, monkeypatch: pytest.MonkeyPatch, watch_process: WatchProcess, capsys: pytest.CaptureFixture[str]
 ) -> None:
     state.pid_path(demo).write_text(f"{os.getpid()}\n")
-    monkeypatch.setattr(watch, "run_pass", lambda watching, moment: pytest.fail("a pass ran outside the watch's launch agent"))
+    monkeypatch.setattr(watch, "passed", lambda watching, moment: pytest.fail("a pass ran outside the watch's launch agent"))
     assert watch.main(demo) == 0
     assert (watch_process.ensured, capsys.readouterr().out, state.pid_path(demo).exists()) == ([demo], f"the watch runs for {demo}\n", False)
 
@@ -1456,7 +1456,7 @@ def test_the_watch_waits_for_one_an_older_install_ran_under_a_monitor_and_sends_
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     passes = []
-    monkeypatch.setattr(watch, "run_pass", lambda watching, moment: passes.append(moment) or [])
+    monkeypatch.setattr(watch, "passed", lambda watching, moment: passes.append(moment) or [])
     sent = posts(monkeypatch)
     state.held_path(demo).write_text(f"PR {KEY}: approved [o1 j1]\n")
     state.monitor_pid_path(demo).write_text(f"{os.getppid()}\n")
@@ -1474,7 +1474,7 @@ def test_a_crashed_watch_wakes_the_coordinator_naming_its_version_and_the_line_o
         state.load("gone")
         return []
 
-    monkeypatch.setattr(watch, "run_pass", crash)
+    monkeypatch.setattr(watch, "passed", crash)
     sent = posts(monkeypatch)
     launched(monkeypatch, demo)
     with pytest.raises(state.DriveError):
@@ -1501,7 +1501,7 @@ def mid_pass(monkeypatch: pytest.MonkeyPatch, before_lane_lines: Callable[[], ob
     monkeypatch.setattr(watch, "lane_lines", lambda watching, moment: before_lane_lines() or real(watching, moment))
 
 
-def test_a_pass_that_finds_the_drive_saved_by_a_newer_install_ends_the_watch_holding_every_line_it_made_for_the_one_its_launch_agent_starts_there(
+def test_a_pass_that_finds_the_drive_saved_by_a_newer_install_ends_the_watch_once_it_posted_each_line_its_earlier_stages_made_so_the_watch_after_it_says_none_again(
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with state.edit(demo) as data:
@@ -1513,13 +1513,13 @@ def test_a_pass_that_finds_the_drive_saved_by_a_newer_install_ends_the_watch_hol
     merged = f"PR {KEY}: merged [o1 j1]"
     launched(monkeypatch, demo)
     assert watch.main(demo) == 0
-    assert (sent, state.stored(demo)["prs"][KEY]["state"], state.held_path(demo).read_text(), state.pid_path(demo).exists()) == ([], "merged", f"{merged}\n", False)
+    assert (posted(sent), state.stored(demo)["prs"][KEY]["state"], state.held_path(demo).read_text(), state.pid_path(demo).exists()) == ([("evidence", f"root@{demo}", merged)], "merged", "", False)
     saved_by(demo, state.VERSION)
     monkeypatch.setattr(watch, "upgraded", lambda: None)
     passes = []
-    monkeypatch.setattr(watch, "run_pass", lambda watching, moment: passes.append(moment) or [])
+    monkeypatch.setattr(watch, "passed", lambda watching, moment: passes.append(moment) or [])
     run_watch(demo, monkeypatch)
-    assert (posted(sent), passes, state.held_path(demo).exists()) == ([("evidence", f"root@{demo}", merged)], [], False)
+    assert (len(sent), len(passes), state.held_path(demo).exists()) == (1, 1, False)
 
 
 def test_a_line_whose_post_failed_goes_to_the_watch_its_launch_agent_starts_on_the_newer_install_it_ended_for_between_passes(
@@ -1527,19 +1527,21 @@ def test_a_line_whose_post_failed_goes_to_the_watch_its_launch_agent_starts_on_t
 ) -> None:
     upgrades(monkeypatch, tmp_path, [False, True])
     tapped = f"TAP Hold {KEY} [o1 j1]"
-    monkeypatch.setattr(watch, "run_pass", lambda watching, moment: [tapped])
+    monkeypatch.setattr(watch, "passed", lambda watching, moment: [[tapped]])
     monkeypatch.setattr(watch.time, "sleep", lambda seconds: None)
     sent = posts(monkeypatch, [False])
     launched(monkeypatch, demo)
     assert watch.main(demo) == 0
     assert (sent, state.held_path(demo).read_text()) == ([], f"{tapped}\n")
     monkeypatch.setattr(watch, "upgraded", lambda: None)
-    monkeypatch.setattr(watch, "run_pass", lambda watching, moment: [])
+    monkeypatch.setattr(watch, "passed", lambda watching, moment: [])
     run_watch(demo, monkeypatch)
     assert posted(sent) == [("handoff", f"root@{demo}", tapped)]
 
 
-def test_a_crashed_watch_keeps_the_lines_its_pass_made_for_the_watch_its_launch_agent_starts_again(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_watch_that_crashes_mid_pass_has_posted_the_lines_its_earlier_stages_made_so_the_watch_its_launch_agent_starts_again_says_none_again(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
     with state.edit(demo) as data:
         data["jobs"]["j1"].update(state="waiting", said=f"READY {state.pr_url(KEY)}")
     serve(monkeypatch, {KEY: read(state="MERGED", mergeCommit="ccc333")})
@@ -1548,11 +1550,10 @@ def test_a_crashed_watch_keeps_the_lines_its_pass_made_for_the_watch_its_launch_
     launched(monkeypatch, demo)
     with pytest.raises(state.DriveError):
         watch.main(demo)
-    merged = f"PR {KEY}: merged [o1 j1]"
-    assert ([text.split(":")[0] for _, _, text in posted(sent)], state.held_path(demo).read_text()) == (["WATCH stopped on long-running " + state.VERSION], f"{merged}\n")
-    monkeypatch.setattr(watch, "run_pass", lambda watching, moment: [])
+    assert ([text.split(":")[0] for _, _, text in posted(sent)], state.held_path(demo).read_text()) == ([f"PR {KEY}", "WATCH stopped on long-running " + state.VERSION], "")
+    monkeypatch.setattr(watch, "passed", lambda watching, moment: [])
     run_watch(demo, monkeypatch)
-    assert posted(sent)[1:] == [("evidence", f"root@{demo}", merged)]
+    assert len(sent) == 2
 
 
 def test_ensure_loads_a_launch_agent_that_starts_the_watch_again_after_any_exit_with_no_session_or_secret_unless_one_is_loaded(
@@ -1587,7 +1588,7 @@ def test_a_launched_watch_takes_the_env_of_this_macs_claude_settings_so_each_rea
     monkeypatch.setenv("BUILDKITE_API_TOKEN", "the token the watch inherited")
     monkeypatch.setattr(launchd, "session_env", REAL_SESSION_ENV)
     seen = []
-    monkeypatch.setattr(watch, "run_pass", lambda watching, moment: seen.append(reads.run(["printenv", "BUILDKITE_API_TOKEN"], tmp_path)) or [])
+    monkeypatch.setattr(watch, "passed", lambda watching, moment: seen.append(reads.run(["printenv", "BUILDKITE_API_TOKEN"], tmp_path)) or [])
     run_watch(demo, monkeypatch)
     assert seen == ["the settings token\n"]
 
@@ -1599,7 +1600,7 @@ def test_a_drive_under_long_running_state_gets_no_watch_process_and_a_watch_star
     monkeypatch.setenv("LONG_RUNNING_STATE", str(state_root))
     monkeypatch.setattr(watch, "ensure", REAL_ENSURE)
     monkeypatch.setattr(launchd, "keep", lambda *args: started.append(args))
-    monkeypatch.setattr(watch, "run_pass", lambda watching, moment: pytest.fail("a pass ran on a drive under LONG_RUNNING_STATE"))
+    monkeypatch.setattr(watch, "passed", lambda watching, moment: pytest.fail("a pass ran on a drive under LONG_RUNNING_STATE"))
     assert cli.main(["watch", "--drive", demo]) == 0
     assert "watch.run_pass" in capsys.readouterr().out
     assert watch.main(demo) == 0
@@ -1723,7 +1724,7 @@ def test_a_projects_watch_runs_as_its_own_process_from_where_the_drives_watch_st
     def crash(watching: watch.Watcher, moment: datetime) -> list[str]:
         raise OSError("disk full")
 
-    monkeypatch.setattr(watch, "run_pass", crash)
+    monkeypatch.setattr(watch, "passed", crash)
     with pytest.raises(OSError):
         watch.main(demo, "Iris")
     kind, to, text = posted(sent)[-1]
@@ -1755,7 +1756,7 @@ def files_order(data: dict, **overrides: object) -> None:
     data["jobs"]["j2"] = job(order="o2", parts=["stack 1"])
 
 
-def test_a_part_no_job_carries_is_an_orphan_five_minutes_after_its_order_moved_and_said_once_while_its_why_stands(
+def test_a_part_no_job_carries_is_an_orphan_said_once_five_minutes_after_its_order_moved_which_drive_status_lists_until_it_heals(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     serve(monkeypatch, {})
@@ -1764,9 +1765,12 @@ def test_a_part_no_job_carries_is_an_orphan_five_minutes_after_its_order_moved_a
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == []
     assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == ['ORPHAN o2 "stack 2": no job']
-    assert watch.run_pass(watching, T0 + timedelta(minutes=5, seconds=5)) == []
-    assert watch.run_pass(watching, T0 + timedelta(minutes=35)) == []
-    assert watch.run_pass(watching, T0 + timedelta(hours=3)) == []
+    assert [watch.run_pass(watching, T0 + timedelta(minutes=minutes)) for minutes in (6, 35, 65, 95)] == [[], [], [], []]
+    assert render.orphans(state.load(demo)["orders"]["o2"], 80) == [f'  ORPHAN "stack 2", said {render.when(state.stamp(T0 + timedelta(minutes=5)))}: no job']
+    with state.edit(demo) as data:
+        data["jobs"]["j2"]["parts"] = ["stack 1", "stack 2"]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=96)) == []
+    assert render.orphans(state.load(demo)["orders"]["o2"], 80) == []
 
 
 def test_a_stranded_jobs_orphans_name_once_the_pr_its_line_names_moved_to_another_job_and_the_job_it_names_finished_as_686978_and_686979_missed(
@@ -2899,7 +2903,7 @@ def test_a_pr_he_approved_that_waits_on_a_running_job_waits_on_it_and_is_freed_w
     assert landers == [(KEY,)]
 
 
-def test_a_job_whose_wait_ends_is_freed_before_any_orphan_and_said_to_be_stranded_only_thirty_minutes_on(
+def test_a_job_whose_wait_ends_is_freed_before_any_orphan_and_said_to_be_stranded_once_a_change_to_it_settles(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     serve(monkeypatch, {})
@@ -2918,10 +2922,10 @@ def test_a_job_whose_wait_ends_is_freed_before_any_orphan_and_said_to_be_strande
     with state.edit(demo) as data:
         data["jobs"]["j1"]["updated"] = state.stamp(T0 + timedelta(minutes=10))
     assert watch.run_pass(watching, T0 + timedelta(minutes=11)) == []
-    assert watch.run_pass(watching, T0 + timedelta(minutes=13)) == []
-    assert watch.run_pass(watching, T0 + timedelta(minutes=31)) == [
+    assert watch.run_pass(watching, T0 + timedelta(minutes=13)) == [
         f'ORPHAN o1 "ship the watch": j1 waits on "{said}" and no open PR, card or due time can wake it'
     ]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=31)) == []
 
 
 def completed_run(folder: Path, reply: str) -> codex.Run:
@@ -5338,24 +5342,24 @@ def test_a_merged_ready_jobs_proof_counts_the_prs_its_line_names_so_a_closed_pr_
     assert (provers, any(line.startswith("ORPHAN ") and f"{SUPERSEDED} closed" in line for line in lines)) == (started, not started)
 
 
-def test_a_merged_ready_tooling_job_keeping_no_proof_file_is_said_orphaned_once_and_proved_once_it_keeps_one(
+def test_a_merged_ready_tooling_job_keeping_no_proof_file_takes_blocked_at_its_merge_and_its_part_is_said_orphaned_once(
     demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], tmp_path: Path
 ) -> None:
     serve(monkeypatch, {})
     merged_ready(demo, YASYF, None)
+    monkeypatch.setattr(state, "now", lambda: T0)
     watching = watcher(demo)
-    why = (
-        "j1 keeps no proof file to run: keep one with drive job set j1 --repro <file>, which the watch runs on the installed plugins,"
-        " or start a fresh builder with a merge handoff, added with drive job add builder --builds-nothing, that proves it from its INSTALL: and PROVE: lines"
+    assert watch.run_pass(watching, T0) == []
+    blocked = (
+        f"BLOCKED {state.pr_url(YASYF)} merged, and j1 keeps no proof file to run, so nothing proves it live:"
+        " a fresh builder with a merge handoff, added with drive job add builder --builds-nothing, proves it from its INSTALL: and PROVE: lines"
     )
-    assert watch.run_pass(watching, T0) == [f'ORPHAN o1 "ship the watch": j1\'s PRs all merged and nothing proves them live: {why}']
-    assert watch.run_pass(watching, T0 + timedelta(minutes=31)) == []
-    assert watch.run_pass(watching, T0 + timedelta(minutes=62)) == []
-    assert provers == []
+    assert (state.load(demo)["jobs"]["j1"]["state"], state.load(demo)["jobs"]["j1"]["said"]) == ("failed", blocked)
+    assert watch.run_pass(watching, T0 + timedelta(minutes=3)) == ['ORPHAN o1 "ship the watch": j1 failed']
     with state.edit(demo) as data:
         data["jobs"]["j1"]["repro"] = proof_file(tmp_path)
-    assert watch.run_pass(watching, T0 + timedelta(minutes=63)) == []
-    assert provers == ["j1"]
+    assert [watch.run_pass(watching, T0 + timedelta(minutes=minutes)) for minutes in (31, 62)] == [[], []]
+    assert provers == []
 
 
 def test_a_merged_ready_product_job_takes_done_at_its_merge_keeping_no_proof_and_its_line_wakes_the_coordinator_to_prove_it_on_its_release(

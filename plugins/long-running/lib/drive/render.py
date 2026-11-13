@@ -5,7 +5,7 @@ from collections.abc import Callable, Iterable
 from datetime import datetime
 
 from drive import slack
-from drive.state import DRIVE_TOOLING, ROLES, SLOT_WAIT, VERSION, agent_gone, alias, card_wait, carriers, delivered, exempted, lane_death, may_tell, named_prs, now, open_orders, parse_time, pr_key, pr_url, project_lane, promise_thread, resumed, title, work
+from drive.state import DRIVE_TOOLING, FREED, ROLES, SLOT_WAIT, VERSION, agent_gone, alias, card_wait, carriers, delivered, exempted, lane_death, may_tell, named_prs, now, open_orders, parse_time, pr_key, pr_url, project_lane, promise_thread, resumed, title, work
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
@@ -460,6 +460,7 @@ def order_block(drive: dict, order_id: str, order: dict, whole: bool) -> list[st
     lines = [f"- {order_line(order_id, order, limit, promise_thread(order))}"]
     if whole:
         lines.append(f"  parts: {'; '.join(part_line(drive, order_id, part) for part in order['parts'])}")
+    lines.extend(orphans(order, limit))
     for job_id in order["jobs"]:
         job = drive["jobs"][job_id]
         lines.append(f"  - {job_line(job_id, job, limit)}")
@@ -468,6 +469,11 @@ def order_block(drive: dict, order_id: str, order: dict, whole: bool) -> list[st
         lines.extend(f"    - {question_line(question)}" for question in job["questions"])
         lines.extend(f"    - {line}" for line in job_pr_lines(drive, job_id, job))
     return lines
+
+
+def orphans(order: dict, limit: int) -> list[str]:
+    """Each part of the order whose ORPHAN line the watch said, with the gap it said, until the part heals or a FREE line hands it to its job."""
+    return [f'  ORPHAN "{cut(part, limit)}", said {when(held["orphan_said"])}: {cut(held["orphan_gap"], limit)}' for part, held in order["parts"].items() if held["orphan_gap"] not in (None, FREED)]
 
 
 def part_line(drive: dict, order_id: str, part: str) -> str:
@@ -611,8 +617,8 @@ def status_text(drive: dict, seen: dict[str, str], shown: dict | None = None, ru
         lines.extend(line for order_id, order in orders.items() for line in order_block(drive, order_id, order, False))
     else:
         lines.extend(agentless_lines(drive, orders))
-        lines.append(f"Open orders you run: {len(orders)}, a line each; drive status <id> prints one whole, with its jobs, PRs and questions:")
-        lines.extend(f"- {order_line(order_id, order, 80, promise_thread(order))}" for order_id, order in orders.items())
+        lines.append(f"Open orders you run: {len(orders)}, a line each and one under it for each part an ORPHAN named until it heals; drive status <id> prints one whole, with its jobs, PRs and questions:")
+        lines.extend(line for order_id, order in orders.items() for line in [f"- {order_line(order_id, order, 80, promise_thread(order))}", *orphans(order, 80)])
     repros = sorted(
         (
             (job["updated"], job_id, job)

@@ -117,6 +117,7 @@ PR_URL = re.compile(r"(?:https?://)?github\.com/([^/\s]+)/([^/\s]+)/pull/(\d+)")
 MERGE_COMMIT = re.compile(r"https://github\.com/(?P<repo>[^/\s]+/[^/\s]+)/commit/[0-9a-f]{7,40}")
 RELEASE_WAIT = re.compile(r"release:(?P<service>[\w.-]+):(?P<pr>[^/\s#]+/[^/\s#]+#\d+)")
 SLOT_WAIT = "builder-slot"
+FREED = "FREE"
 PR_KEY = re.compile(r"([^/\s#]+)/([^/\s#]+)#(\d+)")
 DATADOG_MONITOR = re.compile(r"https://(?:[\w-]+\.)*datadoghq\.(?:com|eu)/monitors/(\d+)(?:[/?#]\S*)?")
 SENTRY_ISSUE = re.compile(r"https://(?:[\w-]+\.)*sentry\.io/(?:organizations/[\w-]+/)?issues/[\w-]+(?:[/?#]\S*)?")
@@ -1308,14 +1309,15 @@ def on_mac(job: dict) -> bool:
 
 
 def lane_died(job: dict, worker: str, why: str, moment: datetime) -> bool:
-    """Record once that the job's current worker died or finished, so it takes no more messages: its remote lane, by this dispatch, or its agent on this Mac, by this agent; whether this call recorded it."""
+    """Record once that the job's current worker died or finished, so it takes no more messages: its remote lane, by this dispatch, or its agent on this Mac, by this agent; whether this call recorded it. A running job changes with it, its parts settling while it is relaunched, but a job at rest does not, since a waiting job's answer reaches it by drive job resume whether or not its lane lives and the end of a finished job's lane changes nothing it does."""
     key = worker_key(job)
     deaths = job.setdefault("deaths", [])
     if job[key] != worker or any(death.get(key) == worker for death in deaths):
         return False
     held = {"dispatch": worker, "workspace": job["workspace"]} if key == "dispatch" else {"dispatch": None, "workspace": None, "agent": worker}
     deaths.append({**held, "why": why, "at": stamp(moment)})
-    job["updated"] = stamp(moment)
+    if job["state"] == "running":
+        job["updated"] = stamp(moment)
     return True
 
 
