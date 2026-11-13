@@ -2588,7 +2588,7 @@ document.addEventListener('click', (event) => {
   if (undone) return undo(undone.dataset.undo, toasts.get(undone.dataset.undo) ?? { label: undone.dataset.label, title: undone.dataset.title });
   const dismissed = event.target.closest('button[data-dismiss]');
   if (dismissed) {
-    toasts.delete(dismissed.dataset.dismiss);
+    for (const card of [dismissed.dataset.dismiss, ...(toasts.get(dismissed.dataset.dismiss)?.cards ?? [])]) toasts.delete(card);
     return drawToasts();
   }
   const storyPick = event.target.closest('[data-story-pick], [data-story-priority]');

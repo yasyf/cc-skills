@@ -95,6 +95,17 @@ def test_a_page_is_filed_where_its_order_is_filed_now_so_a_refile_moves_it(run: 
     assert filed() == [("Platform", "Runs")]
 
 
+def test_a_page_scoped_by_words_reads_an_untitled_order_by_its_words(run: Run, ordered: str, tmp_path: Path) -> None:
+    run("order", "add", "--title", "Bucket", "--project", "Platform", "--workstream", "Storage", "move litestream onto the new bucket")
+    run("page", "add", "run-lane", "--order", "o1", "--dir", str(folder(tmp_path, PAGE | {"page.json": json.dumps({"title": "t", "goal": "g", "scope": {"words": ["litestream"]}})})))
+    with state.edit(ordered) as data:
+        data["orders"]["o1"]["state"] = "done"
+        data["orders"]["o1"]["title"] = None
+        data["orders"]["o2"]["title"] = None
+    [page] = pages.shown(state.load(ordered), pages.listed(ordered))
+    assert (page["live"], page["order_title"]) == (True, "ship the run page")
+
+
 def test_a_page_serves_only_its_own_files_of_the_kinds_it_may_hold(run: Run, ordered: str, tmp_path: Path) -> None:
     run("page", "add", "run-lane", "--order", "o1", "--dir", str(folder(tmp_path, PAGE)))
     (pages.pages_dir(ordered) / "secret.json").write_text("{}")
@@ -267,6 +278,25 @@ await answerBatch([picks[0]]);
 done({ failed: { error: failed.error, done: failed.done, counted: failed.said.includes('1 sent, 1 not sent') }, undone, calls, retried: answers.get(picks[0].card).done });
 """, board(queue=questions))
     assert seen == {'failed': {'error': 'Card changed', 'done': True, 'counted': True}, 'undone': {'remaining': [questions[0]['answer']], 'state': 'restored'}, 'calls': 3, 'retried': True}
+
+
+def test_dismissing_a_group_toast_dismisses_the_answers_it_stood_for(tmp_path: Path) -> None:
+    questions = [QUESTION | {'answer': f'https://x.slack.com/archives/D1/p179438245385920{n}', 'tasks': ['o1']} for n in (1, 2)]
+    seen = browse(tmp_path, """
+const fetched = window.fetch;
+window.fetch = (url, options) => {
+  if (url === '/api/answer') return Promise.resolve({ ok: true, json: async () => ({ at: '2026-11-13T00:00:00Z', undo_until: new Date(Date.now() + 10000).toISOString() }) });
+  if (url === '/api/undo') return Promise.resolve({ ok: true, json: async () => ({ restored: true }) });
+  return fetched(url, options);
+};
+await answerBatch(model.queue.map((q) => ({ card: q.answer, label: 'Raise it' })));
+const group = [...toasts.keys()].find((key) => key.startsWith('group:'));
+await undo(group);
+const before = document.querySelectorAll('#toasts .toast').length;
+document.querySelector(`#toasts [data-dismiss="${CSS.escape(group)}"]`).click();
+done({ before, after: document.querySelectorAll('#toasts .toast').length });
+""", board(queue=questions))
+    assert seen == {'before': 1, 'after': 0}
 
 
 @pytest.mark.parametrize('count', [1, 1000 if os.environ.get('FORGE_CI_AT_SCALE') == '1' else 100])
