@@ -120,10 +120,12 @@ WHOLE = (
 )
 RECORD_READ = re.compile(r"record:(\d+)")
 READ_WORDS = re.compile(r"[^\s:]+")
+READ_ID = re.compile(r"[\w./-]*\d{3}[\w./-]*")
 DOC_PATH = re.compile(r"[\w.~/-]+\.(?:md|mdx|rst)\b")
 NAMED_SOURCE = (
     "the read the posting handler names as {read} behind its claims {claims}: each call of its own transcript, its posts"
-    " aside, whose tool name and input hold every word of it, case aside, with that call's whole result, all the call read"
+    " aside, whose tool name and input hold every word of it or an id it names, a word of three digits or more such as a PR,"
+    " build, record or job number or a line range, case aside, with that call's whole result, all the call read"
     " however few of its words the handler names it by; a call reading a"
     " doc, report, PR body or brief shows what that source says, never what the code it describes does, whoever wrote it"
 )
@@ -765,9 +767,11 @@ def own_calls(payload: dict) -> dict[str, str]:
 
 
 def called(index: int, read: str, claimed: list[str], calls: dict[str, str]) -> dict:
-    """Jev's item for one read the claims name: each call whose tool name and input hold every word of the read, case aside, a word split at a colon, as a path's from its line numbers, with its whole result, or none when no call does, its source naming the claims beside the read and each doc, such as a report or a brief, a call of it opens."""
-    words = [json.dumps(word, ensure_ascii=False)[1:-1] for word in READ_WORDS.findall(read.casefold())]
-    held = [call for call in calls if words and all(word in call.casefold() for word in words)]
+    """Jev's item for one read the claims name: each call whose tool name and input hold every word of the read, case aside, a word split at a colon, as a path's from its line numbers, or hold an id the read names, a word of three digits or more standing alone, since a handler names its read as it tells what it found, with its whole result, or none when no call does, its source naming the claims beside the read and each doc, such as a report or a brief, a call of it opens."""
+    folded = read.casefold()
+    words = [json.dumps(word, ensure_ascii=False)[1:-1] for word in READ_WORDS.findall(folded)]
+    ids = [re.compile(rf"(?<![a-z0-9]){re.escape(found.strip('./-_'))}(?![a-z0-9])") for found in READ_ID.findall(folded)]
+    held = [call for call in calls if words and all(word in call.casefold() for word in words) or any(named.search(call.casefold()) for named in ids)]
     docs = list(dict.fromkeys(doc for call in held for doc in DOC_PATH.findall(call)))
     source = NAMED_SOURCE.format(read=json.dumps(read, ensure_ascii=False), claims=json.dumps(claimed, ensure_ascii=False))
     return {

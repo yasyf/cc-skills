@@ -585,8 +585,9 @@ restating it.
   controls that piece where it would run, by his words "we cant do that since we dont control the
   poloices on customer bucket". A handler passes `say` each such line in `claims`, beside the read
   behind it: `record:<seq>`, or words copied from a call of its own, such as a path, command or query,
-  a claim standing on several reads listed once beside each. The say hook hands Jev every call those
-  words name with its whole result, and each record the post cites or carries, whole, and Jev holds
+  or an id that call's input holds, such as a PR, build, record or job number or a line range, a
+  claim standing on several reads listed once beside each. The say hook hands Jev every call those
+  words or ids name with its whole result, and each record the post cites or carries, whole, and Jev holds
   the post for a claim its reads do not back, a read matching no call, or such a line left out, by his
   pick "The handler names the read behind each claim; Jev
   checks each claim against that read, whole, and holds only unbacked claims". The fix is that read,

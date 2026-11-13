@@ -176,10 +176,11 @@ GUESSED_CLAIMS = [{"claim": GUESSED, "read": "cloudrunner/inbox.go"}]
 CLOUD_READ = 'ccx_code_read {"path": "go/sand/next/internal/cloudrunner/inbox.go"}\n57  rows, err := r.postgres.Query(ctx, selectInbox, agentID)'
 
 
-def handler_reads(read: str) -> str:
-    """What message_limits.py hands Jev for a handler's say post its checks found nothing in: the read its claim names, as the calls of its own that read names with their whole results."""
+def handler_reads(read: str, refused: str = "") -> str:
+    """What message_limits.py hands Jev for a handler's say post, with what its checks found in it, if anything: the read its claim names, as the calls of its own that read names with their whole results."""
     named = {"id": "read:1", "source": 'the read the posting handler\'s claims name as "cloudrunner/inbox.go"', "quote": read}
-    return json.dumps({"his_words": [], "reads": [named], "post": {"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS}})
+    found = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": refused}} if refused else {}
+    return json.dumps(found | {"his_words": [], "reads": [named], "post": {"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS}})
 
 
 def checked(evt: BaseHookEvent, script: str) -> HookResult | None:
@@ -243,7 +244,8 @@ def judged(evt: BaseHookEvent, reason: str, rule: str, words: list[Evidence], po
         )
     if verdict.allow and cited(items, verdict.relied_on):
         return evt.context(f"message_limits: Jev read no finding's rule as holding against this post, so it goes out as written.\n```\nJev: {verdict.reason}\n```")
-    return evt.block(f"Jev weighed this post by the drive's rules and held it back: fix what Jev and each finding below name, then call say again.\n```\nJev: {verdict.explained}\n{reason}\n```")
+    claimed = ", passing each read Jev asks for in claims beside its claim" if any(word.id.startswith("read:") or word.id == "claims:none" for word in words) else ""
+    return evt.block(f"Jev weighed this post by the drive's rules and held it back: fix what Jev and each finding below name{claimed}, then call say again.\n```\nJev: {verdict.explained}\n{reason}\n```")
 
 
 def asked(evt: BaseHookEvent, case: str, words: list[Evidence]) -> HookResult | None:
@@ -466,6 +468,16 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             commands={"python3 -I": handler_reads('none: no call of the handler\'s own holds "cloudrunner/inbox.go"')},
             llm={"reason": "the read the claim names matched no call", "allow": False, "refusal": "The cloud reader querying Postgres stands on no read; read cloudrunner/inbox.go."},
         ): Block(pattern="(?s)Jev checked each claim of this post against the read it names and held it back.*Jev: The cloud reader querying Postgres"),
+        Input(
+            tool=SAY,
+            tool_input={"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS},
+            session_id=COMMUNICATOR,
+            agent_id="a1",
+            agent_type=HANDLER,
+            transcript=COMMUNICATOR_TURN,
+            commands={"python3 -I": handler_reads('none: no call of the handler\'s own holds "cloudrunner/inbox.go"', "refused: this post is 123 words, and a line in his thread is at most 60 words")},
+            llm={"reason": "the read the claim names matched no call", "allow": False, "refusal": "The cloud reader querying Postgres stands on no read; read cloudrunner/inbox.go."},
+        ): Block(pattern="(?s)fix what Jev and each finding below name, passing each read Jev asks for in claims beside its claim, then call say again.*Jev: The cloud reader querying Postgres.*123 words"),
         Input(
             tool=SAY,
             tool_input={"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS},

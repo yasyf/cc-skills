@@ -71,7 +71,8 @@ CLAIMS = {
                 "type": "string",
                 "description": (
                     "The read behind it: record:<seq> for a record, held whole, else words copied from one call of yours, such as the"
-                    " path, command or query it ran, each word in its input, every such call handed to Jev with its whole result"
+                    " path, command or query it ran, each word in its input, or an id its input holds, such as a PR, build, record or job"
+                    " number or a line range, every such call handed to Jev with its whole result"
                 ),
             },
         },

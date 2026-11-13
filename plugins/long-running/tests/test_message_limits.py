@@ -789,6 +789,25 @@ def test_jev_gets_each_call_a_claims_read_names_whole_beside_its_claims_a_read_n
     assert doc["source"].endswith('; ["/drive/reports/j1880.md"] this read opens is a doc, which backs a line telling what that doc says and no line on what code does, even word for word')
 
 
+BUILD = ("Bash", {"command": "tools/ci bk api /organizations/forge/pipelines/release/builds/15171"}, '{"number": 15171, "state": "passed"}')
+LATER_BUILD = ("Bash", {"command": "tools/ci bk api /organizations/forge/pipelines/release/builds/151710"}, '{"number": 151710, "state": "failed"}')
+
+
+def test_a_read_told_as_what_it_found_reaches_the_call_whose_input_holds_an_id_it_names_and_no_other(
+    talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    lane = lane_of(transcript)
+    for each in (BUILD, LATER_BUILD, SHADOWED):
+        tool(lane, *each)
+    claims = [
+        {"claim": "The hotfix build passed", "read": "Bash: tools/ci bk api printed '15171 passed', message 'Hotfix b036ac2817d7'"},
+        {"claim": "The next build failed", "read": "build 15172 printed failed"},
+    ]
+    found, unfound = evidence(transcript, monkeypatch, capsys, text="The hotfix build passed, and the next one failed.", thread_ts="1.2", claims=claims)
+    assert found["quote"] == shown(*BUILD)
+    assert unfound["quote"] == 'none: no call of the handler\'s own holds "build 15172 printed failed"'
+
+
 def test_a_record_a_claim_names_or_the_post_cites_and_the_report_it_carries_reach_jev_whole_and_a_post_naming_no_claim_says_so(
     talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], records: dict[str, str]
 ) -> None:
