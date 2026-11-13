@@ -46,7 +46,11 @@ FIX_RULE = (
     "your report ends with one line FIX <the order or PR that fixes the cause, by order id or PR link, comma-separated>,"
     " or FIX none when no fix of ours is owed: drive job report refuses it without one, and the order it names reads as a live bug's fix from then on"
 )
-UNPOSTED_WORK = '{order} is no answer order, so "{part}" is work he ordered, which no post delivers: only a builder or codex job on it returning DONE does'
+UNPOSTED_WORK = (
+    '"{part}" of {order} is work he ordered, which no post delivers: a builder or codex job on it returning DONE does, or a merged PR the'
+    ' {holder} session records with drive order posted {order} <its link> --part "{part}"; when it asks only for an answer,'
+    ' drive order set {order} --kind answer --part "{part}" sorts it as one'
+)
 IMMEDIATE_FIX = "immediate fix"
 FOLLOW_UP = "follow-up"
 INCIDENT_CHOICE = {
@@ -540,6 +544,7 @@ def load(name: str) -> dict:
         for part in order["parts"].values():
             part.pop("kind", None)
             part.setdefault("design", None)
+            part.setdefault("answer", False)
             part["after"] = [each.strip() for each in ([part["after"]] if isinstance(part.get("after"), str) else part.get("after") or [])]
     mail = data.pop("lane_mail", {})
     for job in data["jobs"].values():
@@ -981,9 +986,9 @@ def part_jobs(data: dict, order_id: str, part: str) -> list[tuple[str, dict]]:
 
 
 def work(data: dict, order_id: str, part: str) -> bool:
-    """Whether a part is work he ordered, which only a builder carries: every part of a build order or an incident, and a part of an order of no kind that a builder, codex or design job holds or held or a design lists, since a part only research ever held is his question; never a part of an answer order or one limited to options."""
+    """Whether a part is work he ordered, which only a builder carries: every part of a build order or an incident, and a part of an order of no kind that a builder, codex or design job holds or held or a design lists, since a part only research ever held is his question; never a part of an answer order, of one limited to options, or one drive order set --kind answer --part sorted as an answer."""
     order = data["orders"][order_id]
-    if order["kind"] == "answer" or order["options_only"]:
+    if order["kind"] == "answer" or order["options_only"] or order["parts"][part]["answer"]:
         return False
     return order["kind"] == "build" or order["incident"] or bool(order["parts"][part]["design"]) or any(job["kind"] in WORK_KINDS for _, job in part_jobs(data, order_id, part))
 
@@ -997,11 +1002,12 @@ def carriers(data: dict, order_id: str, part: str) -> list[tuple[str, dict]]:
 
 
 def delivered(data: dict, order_id: str, part: str) -> bool:
-    """Whether a part is delivered: work he ordered once a builder or codex job on it returned DONE, whatever a post says, and words he reads once posted to him or built by a builder that returned DONE."""
+    """Whether a part is delivered: work he ordered once a builder or codex job on it returned DONE or drive order posted recorded the merged PR that delivered it, whatever a post says, and words he reads once posted to him or built by a builder that returned DONE."""
     done = {job["kind"] for _, job in part_jobs(data, order_id, part) if job["state"] == "done"}
+    posted = data["orders"][order_id]["parts"][part]["posted"]
     if work(data, order_id, part):
-        return bool(done & set(CHANGE_KINDS))
-    return "builder" in done or bool(data["orders"][order_id]["parts"][part]["posted"])
+        return bool(done & set(CHANGE_KINDS)) or bool(posted and PR_URL.search(posted))
+    return "builder" in done or bool(posted)
 
 
 def unposted_answer(data: dict, job_id: str) -> bool:
@@ -1119,7 +1125,7 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
 
 def new_part() -> dict:
     """A part of an order, undelivered."""
-    return {"posted": None, "orphan_said": None, "design": None, "after": []}
+    return {"posted": None, "orphan_said": None, "design": None, "after": [], "answer": False}
 
 
 def reporter(link: str) -> dict:
@@ -1722,6 +1728,19 @@ def agent_gone(data: dict, job: dict) -> bool:
 def runs(data: dict, order: dict, project: str | None) -> bool:
     """Whether the coordinator session for project runs an order: one it hears that neither the meta session nor the communicator holds."""
     return hears(data, order, project) and holder_lane(order) is None
+
+
+def holding_lane(data: dict, order: dict) -> str:
+    """The cci lane of the one session an order's watch lines reach, which alone marks its parts delivered: the communicator's or the meta session's when it holds the order, else the coordinator session's that hears it."""
+    return holder_lane(order) or order_lane(data, order)
+
+
+def session_lane(data: dict, session: str | None) -> str | None:
+    """The cci lane a session of the drive posts with: a sub-coordinator's its project's, any other role's its own; None for a session the drive does not bind."""
+    if project := session_project(data, session):
+        return project_lane(project)
+    role = session_role(data, session)
+    return next((lane for lane, held in LANE_ROLES.items() if held == role), None)
 
 
 def holder_lane(order: dict) -> str | None:

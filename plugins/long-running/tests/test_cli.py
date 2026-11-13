@@ -5221,7 +5221,8 @@ def test_only_the_communicator_marks_an_answer_posted_and_the_coordinator_is_tol
     assert (
         "only the communicator records a post in an order's thread or takes back a part's mark: send the post's facts as a report record"
         " to communicator@demo, its part or close attr naming what it delivers, and the communicator's handler posts it and records it;"
-        ' a part a post of the drive already answered is marked from the session holding o1 with drive order posted o1 <that post\'s link> --part "<part>"'
+        " a part a post of the drive already answered, or work a merged PR delivered, is marked from the root@demo session, the one its ORPHAN lines reach,"
+        ' with drive order posted o1 <that post\'s or PR\'s link> --part "<part>"'
     ) in capsys.readouterr().err
     assert state.load("demo")["orders"]["o1"]["parts"]["why?"]["posted"] is None
 
@@ -5250,7 +5251,7 @@ def test_a_part_is_delivered_only_by_the_report_record_that_names_it_and_a_post_
     assert cli.main(["order", "posted", "o1", line, "--part", "fix", "--record", "661301"]) == 2
     refused = capsys.readouterr().err
     assert "record 661301's part attr names none" in refused
-    assert f'marked from the session holding o1 with drive order posted o1 {line} --part "fix", posting nothing' in refused
+    assert f'marked from the root@demo session, the one its ORPHAN lines reach, with drive order posted o1 {line} --part "fix", posting nothing' in refused
     assert run("order", "posted", "o1", line) == (0, f"o1 progress line, no part delivered: {line}")
     assert state.load("demo")["orders"]["o1"]["parts"]["fix"]["posted"] is None
     assert run("order", "posted", "o1", line, "--record", "661300") == (0, f'o1 "fix": posted {line}')
@@ -5265,7 +5266,7 @@ def test_no_post_delivers_an_incidents_parts_but_the_incidents_close(
         data["orders"]["o1"]["incident"] = True
     line = slack_thread.post(state.now(), from_claude=True)
     assert cli.main(["order", "posted", "o1", line, "--part", "fix"]) == 2
-    assert '--part "fix": refused, ' + state.UNPOSTED_WORK.format(order="o1", part="fix") in capsys.readouterr().err
+    assert '--part "fix": refused, ' + state.UNPOSTED_WORK.format(order="o1", part="fix", holder="root@demo") in capsys.readouterr().err
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -5845,7 +5846,7 @@ def test_every_drive_command_the_skill_names_parses_with_the_cli() -> None:
     assert [why for command in commands if (why := refusal(command, leaves))] == []
     for guess in (
         "drive job list j1",
-        "drive order set o1 --part x",
+        "drive order set o1 --goal x",
         "drive job set j1 --state live",
         "drive job add reader --order X",
         "drive job add --order X design",
