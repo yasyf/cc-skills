@@ -1,5 +1,6 @@
 import re
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 
 from drive import limits, settled, state
@@ -212,19 +213,23 @@ def filled(block: dict[str, str]) -> bool:
     return all(block.get(key) for key in KEYS)
 
 
-def research(name: str, data: dict, order_id: str, parts: list[str]) -> tuple[str, str] | None:
-    """The newest reader of these parts of the order whose kept report carries a filled Researched: block, with that report."""
+def researches(name: str, data: dict, order_id: str, parts: list[str]) -> Iterator[tuple[str, str]]:
+    """Each reader of these parts of the order whose kept report carries a filled Researched: block, newest first, with that report."""
     for job_id in reversed(readers(data, order_id, parts)):
         if filled(researched(text := state.report_text(name, job_id))):
-            return job_id, text
-    return None
+            yield job_id, text
+
+
+def research(name: str, data: dict, order_id: str, parts: list[str]) -> tuple[str, str] | None:
+    """The newest reader of these parts of the order whose kept report carries a filled Researched: block, with that report."""
+    return next(researches(name, data, order_id, parts), None)
 
 
 def bound(name: str, data: dict, job: dict) -> tuple[list[str], list[str]]:
-    """What binds the job beside his words on its orders: the id of each answer of his its brief's rulings name, each answer of his the rulings: line of the newest reader of its part of its order and of each order it carries names by id, read as served.named reads a citation whatever words and punctuation surround it, each id cc-notes keeps no answer under, such as a commit or a session, left out, and each that settled a question of such a reader; then his words on each other question of theirs he answered with no answer recorded."""
+    """What binds the job beside his words on its orders: the id of each answer of his its brief's rulings name, each answer of his the rulings: line of every reader of its parts of its order and of each order it carries names by id, since a newer reader on another question of the same part holds none of an older one's, read as served.named reads a citation whatever words and punctuation surround it, each id cc-notes keeps no answer under, such as a commit or a session, left out, and each that settled a question of such a reader; then his words on each other question of theirs he answered with no answer recorded."""
     from drive import refs, served
 
-    found = [held for order_id in [job["order"], *job["carries"]] if (held := research(name, data, order_id, state.job_parts(job, order_id)))]
+    found = [held for order_id in [job["order"], *job["carries"]] for held in researches(name, data, order_id, state.job_parts(job, order_id))]
     closed = [answer for reader_id, _ in found for question in data["jobs"][reader_id]["questions"] if (answer := question["closed"]) and answer["how"] != "withdrawn"]
     cited = dict.fromkeys(answer_id for _, text in found for kind, answer_id in served.named(researched(text)["rulings"]) if kind == "answer")
     named = [answer_id for answer_id in cited if refs.answered(answer_id, data)]
