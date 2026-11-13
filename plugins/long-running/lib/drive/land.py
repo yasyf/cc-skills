@@ -34,6 +34,8 @@ NO_WORKTREE = f"{OWN_FAILURE} check out"
 NO_ENQUEUE = f"{OWN_FAILURE} finish stack-enqueue"
 ENQUEUE_FAILED = 5
 HELD = "not landed while he holds it"
+UNREAD = "not landed: a GitHub read failed before it queued or merged anything, so the next watch pass lands it again"
+RETRIED = (NEWER_INSTALL, OWN_FAILURE, HELD, UNREAD)
 REVIEW_ASK = "@forge-pr-reviewer review"
 BLOCKED_LINE = re.compile(r"^#(?P<number>\d+) BLOCKED (?P<head>\w+) (?P<gaps>.+)$", re.MULTILINE)
 OLDER_HEAD = re.compile(r"awaiting approval on head from \S+ \(approved [^,]+, (?:on an older head|dismissed by a push)\)")
@@ -354,7 +356,7 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
             misfiled = "; ".join(why for key in keys if (why := unexempt(data, key)))
         except (github.GithubError, state.DriveError) as error:
             print(error, flush=True)
-            outcome = f"not landed: {cut(str(error), SAID_CHARS)}"
+            outcome = f"{UNREAD}: {cut(str(error), SAID_CHARS)}"
         else:
             if misfiled:
                 outcome = f"not landed: {misfiled}"
