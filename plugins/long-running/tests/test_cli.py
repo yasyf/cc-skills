@@ -15,7 +15,7 @@ from pathlib import Path
 import drive
 import pytest
 import spawnllm
-from conftest import CARD_BODY, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SETTLED_NOTE, SHORT_ASK, drawn_card, Answers, explained, Chrome, Draws, Drawing, Heard, Jev, Judge, MetaLaunches, Redraws, Thread, WatchProcess, Withdrawals
+from conftest import CARD_BODY, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SETTLED_MATCHED, SETTLED_NOTE, SHORT_ASK, drawn_card, Answers, explained, Chrome, Draws, Drawing, Heard, Jev, Judge, MetaLaunches, Redraws, Thread, WatchProcess, Withdrawals
 from drive import (
     agents,
     brief,
@@ -23,6 +23,7 @@ from drive import (
     cli,
     github,
     install,
+    land,
     limits,
     orca,
     picture,
@@ -2880,20 +2881,69 @@ def test_job_ask_refuses_an_option_jev_reads_as_never_worked_out_to_what_it_will
     assert run("job", "ask", "j1", str(block))[0] == 0
 
 
-def test_job_ask_hands_jev_the_words_of_his_an_order_the_drive_wrote_quotes_and_reads_no_answer_he_gave_another_question(
+def test_job_ask_hands_jev_the_words_of_his_an_order_the_drive_wrote_quotes(
     run: Run, meta: str, slack_thread: Thread, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, jev: Jev
 ) -> None:
     monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS | {"team_url": "https://acme.slack.com/"})
     view.refresh_cards("demo")
     run("order", "add", "--title", "Short title", 'Drive tooling: the finished snapshot page waited 10 minutes for its card, and he ruled "keep each finished snapshot 30 days"')
     run("job", "add", "builder", "--order", "o1", "--goal", "design it")
-    matched: list[list[str]] = []
-    monkeypatch.setattr(settled, "ccn", lambda argv, text, cwd, failure: matched.append(argv) or "[]")
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
     assert run("job", "ask", "j1", str(block))[0] == 0
     assert [(word["id"], word["said"]) for word in jev.asked[0]["state"]["his_words"] if word["id"] == "o1"] == [("o1", '"keep each finished snapshot 30 days"')]
-    assert matched == []
+
+
+WAIT_RULING = {
+    "id": "9992100",
+    "asked": "When should the js_func helper process and its memory cap ship?",
+    "said": "Wait for the four queue PRs to merge, then build the separate process and the cap on top. No clashes, and nothing ships until then",
+}
+
+
+def test_job_ask_reads_his_recorded_answers_ccn_ranks_nearest_and_a_card_asking_him_to_lift_one_holds_its_incident_pr_until_he_answers(
+    run: Run, demo: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], jev: Jev, recorded: Answers
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "chat turns run out of memory on plat", "--incident", "--parts", "fix", "first check")
+    run("job", "add", "builder", "--order", "o1", "--part", "fix", "--goal", "move js_func into its own helper process")
+    recorded.matched = [WAIT_RULING]
+    jev.breaks("breaks1", WAIT_RULING["id"])
+    asked = SHORT_ASK.replace("Holds: none: no option changes code any job builds", "Holds: fix") + "Interim fix: j1 restarts the pods that ran out of memory\n"
+    block = tmp_path / "ask.md"
+    block.write_text(asked)
+    assert cli.main(["job", "ask", "j3", str(block)]) == 2
+    assert f'breaks 9992100: asked "{WAIT_RULING["asked"]}", he said "{WAIT_RULING["said"]}"' in capsys.readouterr().err
+    assert WAIT_RULING in jev.asked[-1]["state"]["his_words"]
+    unsettled = "9992100: this card asks whether the incident overrides his wait"
+    assert run("job", "ask", "j3", str(block), "--unsettled", unsettled)[0] == 0
+    question = state.load("demo")["jobs"]["j3"]["questions"][-1]
+    assert (question["unsettled"], land.ship_held(state.load("demo"), "j3", {})) == (unsettled, [question["card"]])
+    url = "https://github.com/Forge-AI/monorepo/pull/43"
+    assert run("pr", "add", url, "--job", "j3", *LEAD)[0] == 0
+    unlinked = asked.replace("Meanwhile nothing is built on either layout.", "Meanwhile this job builds it on a branch, no PR.")
+    block.write_text(unlinked)
+    assert cli.main(["job", "ask", "j3", str(block)]) == 2
+    assert capsys.readouterr().err.startswith(f"drive: j3 has {url} open, which its ASK's summary does not link")
+    block.write_text(unlinked.replace("on a branch, no PR.", f"in <{url}|the helper process PR>, held until you answer."))
+    assert run("job", "ask", "j3", str(block))[0] == 0
+    data = state.load("demo")
+    assert land.pr_cards(data, data["prs"]["Forge-AI/monorepo#43"], {}) == [data["jobs"]["j3"]["questions"][-1]["card"]]
+
+
+def test_his_recorded_answers_reach_jev_as_ccn_ranks_them_nearest_to_the_whole_block_his_words_alone_never_a_tap_approving_a_pr(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[list[str], str, str]] = []
+    answers = [
+        {"id": "a1" * 20, "title": "Tap Approve on Forge-AI/monorepo#7?", "body": "Approve", "tags": ["scope:durable", "kind:approval"]},
+        {"id": f"{WAIT_RULING['id']}3{'0' * 32}", "title": WAIT_RULING["asked"], "body": f"{WAIT_RULING['said']}\nNotes: kept from his DM", "tags": ["scope:durable"]},
+        *({"id": f"{number:07d}{'0' * 33}", "title": f"Question {number}?", "body": "Yes", "tags": ["scope:durable"]} for number in range(10)),
+    ]
+    monkeypatch.setattr(settled, "ccn", lambda argv, text, cwd, failure: calls.append((argv, text, cwd)) or json.dumps(answers))
+    block = "Ship <https://github.com/Forge-AI/monorepo/pull/7|the helper process PR> before the four queue PRs?"
+    found = SETTLED_MATCHED(block, "/work")
+    assert calls == [(["ccn", "answer", "match", "-", "--label", "scope:durable", "--nearest", "--limit", "-1", "--json"], settled.read(block), "/work")]
+    assert (found[0], len(found)) == (WAIT_RULING, settled.CANDIDATES)
 
 
 def test_his_thread_words_reach_only_the_order_they_are_about_never_another_order_sharing_its_thread(run: Run, demo: str, slack_thread: Thread) -> None:
@@ -5425,7 +5475,7 @@ def test_job_ask_on_a_port_names_the_pr_it_ports_in_its_summary(
         'drive: j1\'s PR is a port of #4100: its ASK\'s summary says "port of #4100", as the text of that PR\'s link, and what in the'
         " target tree forces a choice #4100 did not make, such as what that tree lacks"
     )
-    ported = "This is a <https://github.com/Forge-AI/monorepo/pull/4100|port of #4100>, and your pick decides how a finished run's files are laid out in a target tree that lacks the snapshot writer;"
+    ported = f"This is a <https://github.com/Forge-AI/monorepo/pull/4100|port of #4100>, opened as <{PR}|the move strip port>, and your pick decides how a finished run's files are laid out in a target tree that lacks the snapshot writer;"
     block.write_text(SHORT_ASK.replace("Drive tooling: your pick decides how a finished run's files are laid out;", ported))
     assert run("job", "ask", asking, str(block))[0] == 0
 

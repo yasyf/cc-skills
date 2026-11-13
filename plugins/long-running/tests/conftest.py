@@ -55,6 +55,7 @@ SPRITE_CONFIG = "4b925c205080" + "0" * 52
 LANE_SPEC = Path(__file__).resolve().parents[2] / "orca" / "lib" / "lane.json"
 SETTLED_NOTE = cli.settled_note
 POST_ASK = cli.post_ask
+SETTLED_MATCHED = settled.matched
 TEAM = [
     {"name": "rowan", "real_name": "Rowan Vale", "email": "rowan@example.com"},
     {"name": "juniper.cole", "real_name": "Juniper Cole", "email": "juniper.cole@example.com"},
@@ -738,6 +739,7 @@ def pr_reads(monkeypatch: pytest.MonkeyPatch) -> dict[str, dict]:
 class Answers:
     shown: dict[str, dict] = field(default_factory=dict)
     unrecorded: set[str] = field(default_factory=set)
+    matched: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -778,6 +780,7 @@ def recorded(monkeypatch: pytest.MonkeyPatch) -> Answers:
         return answers.shown.get(answer_id, {"id": answer_id, "title": "", "body": "", "tags": [], "created_at": "2026-11-12T11:33:00Z"})
 
     monkeypatch.setattr(settled, "shown", shown)
+    monkeypatch.setattr(settled, "matched", lambda text, cwd: answers.matched)
     return answers
 
 

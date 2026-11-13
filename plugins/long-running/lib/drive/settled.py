@@ -23,6 +23,7 @@ HAND_ASK = (
 )
 BODY_CHARS = 1500
 QUOTED_CHARS = 400
+CANDIDATES = 8
 UNDECIDED = "none"
 DECIDES = 0.8
 DECIDE_SECONDS = 20
@@ -236,6 +237,13 @@ def plain(text: str) -> str:
 def shown(answer_id: str, cwd: str) -> dict:
     """One recorded answer of his, its title, body and labels."""
     return json.loads(ccn(["ccn", "answer", "show", answer_id, "--json"], "", cwd, f"could not read his answer {answer_id}"))
+
+
+def matched(text: str, cwd: str) -> list[dict]:
+    """The first CANDIDATES of his recorded answers ccn ranks nearest to an ASK's whole block, findings included, which reach a ruling whose subject only its findings name, such as a wait he ordered on another order, each as Jev reads his words beside the card; never a tap approving a PR, which rules only whether that PR lands."""
+    match = ["ccn", "answer", "match", "-", "--label", "scope:durable", "--nearest", "--limit", "-1", "--json"]
+    found = json.loads(ccn(match, read(text), cwd, "could not check the question against his recorded answers"))
+    return [{"id": answer["id"][:7], "asked": answer["title"], "said": his(answer["body"])[:BODY_CHARS]} for answer in found if APPROVAL not in answer["tags"]][:CANDIDATES]
 
 
 def judged(case: str, asked: limits.Question, words: list[dict]) -> list[dict]:

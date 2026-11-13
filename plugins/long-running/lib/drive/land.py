@@ -46,9 +46,9 @@ CI_FILES = re.compile(r"^(?:\.github|\.buildkite|(?:go|infra)/ci)/|^tools/ci(?:-
 
 
 def open_cards(data: dict, job_id: str, pr: dict | None, cards: dict | None) -> list[str]:
-    """His open cards holding a job's work, its PR when given, from landing, since work does not land with a question of his on it unanswered: each card the PR or job waits on, and each card of an open question, any job's on an order it serves, whose `Holds:` line names a change it works on there, the design it builds included, that this job asked, that a design job asked whose design this job builds, or whose `Holds:` line names this job by its id or the PR by its link or #N, so another job's card on an order's one part holds none of this job's work it does not name; none on an open incident, whose repair lands on the recommended option, or an immediate fix, which lands while he picks the proper fix."""
+    """His open cards holding a job's work, its PR when given, from landing, since work does not land with a question of his on it unanswered: each card the PR or job waits on, and each card of an open question, any job's on an order it serves, whose `Holds:` line names a change it works on there, the design it builds included, that this job asked, that a design job asked whose design this job builds, or whose `Holds:` line names this job by its id or the PR by its link or #N, so another job's card on an order's one part holds none of this job's work it does not name; none for an immediate fix, which lands while he picks the proper fix, and on an open incident, whose repair lands on the recommended option, only a card whose question asks him to lift a ruling of his, which `drive job ask --unsettled` marks, by his pick "Hold the PR until you answer; the drive finds each card against your recorded answers"."""
     job = data["jobs"][job_id]
-    if state.IMMEDIATE_FIX in job["parts"] or state.open_incidents(data, [job["order"], *job["carries"]]):
+    if state.IMMEDIATE_FIX in job["parts"]:
         return []
     waited = [wait for wait in view.holding(data, list(dict.fromkeys([*(pr["waits"] if pr is not None else []), *job["waits"]])), cards) if state.card_wait(data, wait)]
     asked = [
@@ -65,7 +65,10 @@ def open_cards(data: dict, job_id: str, pr: dict | None, cards: dict | None) -> 
             or pr is not None and state.names_pr(question["holds"], state.pr_key(pr["url"]))
         )
     ]
-    return list(dict.fromkeys([*waited, *asked]))
+    found = list(dict.fromkeys([*waited, *asked]))
+    if state.open_incidents(data, [job["order"], *job["carries"]]):
+        return [card for card in found if any(question["unsettled"] and question["closed"] is None for _, question in view.drawn_on(data, card))]
+    return found
 
 
 def pr_cards(data: dict, pr: dict, cards: dict | None) -> list[str]:
