@@ -583,8 +583,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         order.setdefault("alerts", [])
         order.setdefault("recovered", None)
         order.setdefault("quiet", None)
-        if order["quiet"]:
-            order["quiet"] = {"heard": None, "facts": {}} | order["quiet"]
+        if order["quiet"] and "news" not in order["quiet"]:
+            order["quiet"] = {"record": order["quiet"]["record"], "at": order["quiet"]["at"], "handler": order["quiet"]["handler"], "heard": None, "news": {}}
         order.setdefault("reporter", None)
         order.setdefault("watch", None)
         order["owner"] = "meta" if order["text"].startswith(TOOLING) else order.get("owner")
