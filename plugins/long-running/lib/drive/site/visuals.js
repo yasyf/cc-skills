@@ -1,7 +1,7 @@
 import hljs from "./vendor/highlight.js@11.12.0/highlight.min.js";
 
 const HLJS = new URL("./vendor/highlight.js@11.12.0/", import.meta.url);
-const ARCH_MAP = new URL("./vendor/cc-present@v0.60.2/arch-map.js", import.meta.url);
+const ARCH_MAP = new URL("./vendor/cc-present@v0.60.2/arch-map.js?drive=keyed-1", import.meta.url);
 const MERMAID = new URL("./vendor/mermaid@12.3.0/mermaid.esm.min.mjs", import.meta.url);
 const VEGA_EMBED = new URL("./vendor/vega-embed@7.3.0/vega-embed.min.mjs", import.meta.url);
 const VIZ = new URL("./vendor/viz@3.31.0/viz.js", import.meta.url);

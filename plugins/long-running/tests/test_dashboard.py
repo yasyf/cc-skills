@@ -395,12 +395,12 @@ def test_an_undo_cc_slack_refuses_says_why(monkeypatch: pytest.MonkeyPatch) -> N
 
 WEB_RUNNER = """
 import { readFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import vm from "node:vm";
-import { dirname, join } from "node:path";
+const kit = await import(pathToFileURL(process.argv[2].replace(/app[.]js$/, "kit/renderers.js")));
 const quiet = { addEventListener() {} };
-const context = vm.createContext({ document: quiet, window: quiet, URL, components: JSON.parse(readFileSync(0, "utf8")) });
-const kit = readFileSync(join(dirname(process.argv[2]), "kit", "decisions.js"), "utf8");
-console.log(vm.runInContext(kit + "\\n" + readFileSync(process.argv[2], "utf8") + "\\n" + process.argv[3], context));
+const context = vm.createContext({ document: quiet, window: quiet, URL, kit, components: JSON.parse(readFileSync(0, "utf8")) });
+console.log(vm.runInContext(readFileSync(process.argv[2], "utf8") + "\\nuseRenderers(kit);\\n" + process.argv[3], context));
 """
 WEB_RENDER = r"""
 model = { repo: "", review: [] };
@@ -434,13 +434,19 @@ def web(tmp_path: Path, script: str, given: object = None) -> object:
 
 def test_table_cells_preserve_slack_link_labels_code_pipes_and_escaped_pipes(tmp_path: Path) -> None:
     line = r"| PR | <https://github.com/acme/app/pull/41|Use a separate process> | `left|right` | left\|right |"
-    cells = web(tmp_path, f"JSON.stringify(decisionCells({json.dumps(line)}))")
+    cells = web(tmp_path, f"JSON.stringify(sharedRenderers.cells({json.dumps(line)}))")
     assert cells == ["PR", "<https://github.com/acme/app/pull/41|Use a separate process>", "`left|right`", "left|right"]
     shown = web(tmp_path, f"model = {{ repo: '', review: [] }}; JSON.stringify(prose({json.dumps('[table block]' + chr(10) + '| PR | Change |' + chr(10) + '| --- | --- |' + chr(10) + '| <https://github.com/acme/app/pull/41|Use a separate process> | Isolate memory |')}))")
     assert '[table block]' not in shown
     assert shown.count('<th>') == 2
     assert shown.count('<td>') == 2
     assert '<a href="https://github.com/acme/app/pull/41" target="_blank" rel="noopener">Use a separate process</a>' in shown
+
+
+def test_a_table_cell_breaks_its_lines_and_draws_bold_around_italics_with_no_stray_markup(tmp_path: Path) -> None:
+    line = '• **"Writer handover times out" – *Running* <br>• "Writer handover stops outages" – *Waiting***'
+    shown = web(tmp_path, f"model = {{ repo: '', review: [] }}; JSON.stringify(inline({json.dumps(line)}))")
+    assert shown == "• <b>&quot;Writer handover times out&quot; – <i>Running</i> <br>• &quot;Writer handover stops outages&quot; – <i>Waiting</i></b>"
 
 
 COMPARED = "\n".join(

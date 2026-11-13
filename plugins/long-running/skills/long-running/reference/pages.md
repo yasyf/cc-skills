@@ -1,61 +1,147 @@
 # Pages
 
-A page is a one-off live dashboard built for one of his orders, such as a migration's progress, a stack's landing lane, or an incident's timeline. It lives in the drive's state dir at `pages/<slug>/`, and the drive's dashboard lists it under Pages and serves it at `/pages/<slug>/`. The dashboard runs no second server or port for it.
+A page is a one-off live dashboard built for an order and its scoped work, such as a migration's progress, a stack's landing lane, or an incident's timeline. It lives in the drive's state dir at `pages/<slug>/`, and the drive's dashboard lists it under Pages and serves it at `/pages/<slug>/`. The dashboard runs no second server or port for it.
 
 ## Build one
 
-A page job is an Opus `builder` whose goal names the page and its order. It builds the page in a scratch folder outside any checkout, then runs `drive page add <slug> --order <o> --dir <folder>`, which checks the folder and puts it in place. Running it again with the same slug replaces the page whole. The job's `DONE` line names the page's link. A page is not code the repo ships, so it opens no PR.
+Naming a goal to prioritize or asking for a page adds a page part on its existing build order; there is no separate page job or order kind. A `codex` job builds the page in a scratch folder outside any checkout:
 
-The folder holds `index.html`, the page the dashboard opens, and `page.json`, which requires `title` and `goal`. In `page.json`, `orders` and `prs` add orders and PR keys, such as `yasyf/cc-skills#42`, that the page shows besides its own order's; `source` links where the page's idea came from, and `job` names the job that built it. The folder may also hold the `.js`, `.css`, `.json`, `.svg`, and `.png` files the page loads, and the verb refuses any other kind. The page's opaque origin cannot fetch its own files or import them as modules, so it loads its own scripts as classic `<script src>` tags and imports only the kit.
+1. Write strict user stories and acceptance criteria before implementation.
+2. Build the page using `/kit/kit.js`, `/kit/kit.css`, and the shared kit renderers.
+3. Run `drive page add <slug> --order <order> --dir <folder>`, which runs the screenshot gate and registers the page only if the gate passes.
+4. Inspect the gate screenshots and click through every user story on the installed live dashboard, verifying that input values, focus, and open state survive stream updates and checking `prefers-reduced-motion`.
+5. Report the slug and `/pages/<slug>/` link in `DONE` so the coordinator can return them to the original thread.
 
-`drive page add` files the page under the order's project and workstream. Pages counts it as live while any order it shows is open, and as done once all of them close.
+Running `drive page add` again with the same slug replaces the page whole; a failed gate leaves the previously installed page intact.
+
+The folder holds `index.html` and `page.json` (which requires `title` and `goal`), plus any `.js`, `.css`, `.json`, `.svg`, and `.png` files the page loads (`drive page add` refuses other file types). The page's opaque origin cannot fetch its own files or import them as modules, so it loads local scripts with classic `<script src>` tags and imports modules only from `/kit/`.
+
+In `page.json`, `orders` and `prs` (such as `yasyf/cc-skills#42`) include specific orders and PRs besides the build order's; `source` links where the page's idea came from, and `job` names the job that built it. `scope` is additive to `orders` and dynamically includes existing and future orders matching `projects`, `workstreams`, or case-insensitive title substring `words`:
+
+```json
+{
+  "title": "Auth Migration Lane",
+  "goal": "What still blocks cutover across auth orders?",
+  "orders": ["o104"],
+  "prs": ["yasyf/cc-skills#42"],
+  "scope": {
+    "projects": ["identity"],
+    "workstreams": ["token-cutover"],
+    "words": ["oauth", "session"]
+  },
+  "source": "slack://channel/p123456",
+  "job": "j889"
+}
+```
+
+`drive page add` files the page under the order's project and workstream. Pages counts it as live while any matched order is open, and as done once all matched orders close.
+
+## Gate and verification
+
+`drive page add` runs a gate that loads the sandboxed page with its actual scoped slice in `agent-browser` under namespace `codex` and writes `desktop` (`1280x900`) and `narrow` (`390x844`) screenshots under `drive/page-checks`.
+
+The gate refuses:
+
+- Runtime errors or console errors
+- Horizontal overflow at `1280x900` or `390x844`
+- Repeated frame title or goal
+- Raw record lines or visible `<pre>` blocks
+- Visible text outside kit components, semantic headings, actions, or navigation
+
+Do not show raw record lines or wrap arbitrary blocks inside a kit component class to evade the gate. The gate is a structural and screenshot artifact check; the `codex` job must still inspect the screenshots in `drive/page-checks` and interactively verify every user story on the installed live dashboard before finishing.
 
 ## Scope rules
 
-- The dashboard serves a page under `Content-Security-Policy: sandbox allow-scripts` and opens it in an `<iframe sandbox="allow-scripts">`. Its origin is opaque, so it cannot call `/api/*`, read the board or post an answer, even when opened on its own.
-- The page gets its data only from the dashboard frame around it. After each change, the dashboard posts `{type: "drive:model", slice}` to the page. The slice is the page's own part of the board:
+- The dashboard serves a page under `Content-Security-Policy: sandbox allow-scripts` and opens it in an `<iframe sandbox="allow-scripts">`. Its origin is opaque, so it cannot call `/api/*`, hold secrets or API keys, read the board, or post an answer directly.
+- After each change, the parent dashboard posts `{type: "drive:model", slice}` to the page:
   - `page`, its `page.json`
-  - `features`, its orders as Now shows them
-  - `prs`, the open PRs of its orders and the PRs it names
-  - `questions`, his open decisions on its orders
-  - `story`, the newest moments naming its orders
+  - `features`, its matched orders as Now shows them
+  - `prs`, the open PRs of its matched orders and the PRs it names
+  - `questions`, open decisions on its matched orders
+  - `story`, the newest moments naming its matched orders
   - `asked`, the state of its last ask
   - `at`
-- It acts only by posting `{type: "drive:answer", answer, label}` or `{type: "drive:ask", text}` to its parent. The parent takes an answer only while his click or key inside the page is still a fresh user activation, and only for one of the slice's PRs or questions with that label among its options. It then sends the answer at once, exactly as the queue would, with the same Undo toast. An ask reaches his Slack direct messages through `/api/say`, under the page's title. A page can never approve anything on its own.
-- A page reads nothing outside its slice. When it needs a fact the slice lacks, add the fact to the slice in `pageSlice` in `site/app.js`, never a fetch from the page.
+- A page reads nothing outside its slice. When it needs a fact the slice lacks, add the fact to `pageSlice` in `site/app.js`, never a fetch from the page.
+- The page acts only through parent messages validated by the dashboard host:
+  - Single and group answers (`answer(card, label)` and `answers([{card, label}])`) require a fresh user activation inside the page and validate that every `{card, label}` matches a visible scoped PR or question and one of its option labels. The parent sends each answer at once, exactly as the queue sends one, and a group shows one toast whose Undo takes back every answer in it. A page can never approve anything on its own.
+  - `ask(text)` posts `{type: "drive:ask", text}`, reaching Slack direct messages through `/api/say` under the page's title.
+  - `open(feature)` navigates the parent dashboard to a scoped `#/feature` route.
+  - `model(messages, onToken)` streams text from the parent's `/api/complete` endpoint using fixed Cerebras `gpt-oss-120b` with owner and origin checks. `messages` accepts `1..20` entries with roles `user` or `assistant` and `1..64000` characters each. No API key is present in the slice or client; if the host lacks a key, the call yields a visible error.
 
 ## The kit
 
-`/kit/kit.js` is a JavaScript module, and `/kit/kit.css` styles it:
+`/kit/renderers.js` is the one owner of the text both the main dashboard and `/kit/kit.js` draw: `createRenderers` returns rich prose, tables, links, option choices and timeline moments, and the module exports the decision-story parsing and PR state facts beside it. Each surface draws its own cards from them.
+
+`/kit/kit.js` is a JavaScript module styled by `/kit/kit.css`. Keep key UI regions in stable containers: use `patch(host, html)` for live content and mount `diagram(host, archDoc, options)` in its own dedicated host rather than replacing the whole page on each update.
 
 ```html
 <link rel="stylesheet" href="/kit/kit.css">
-<main id="page"></main>
+<main id="page">
+  <section id="overview" data-kit-component="overview"></section>
+  <section id="arch" style="height: 360px"></section>
+  <section id="work"></section>
+</main>
 <script type="module">
-  import { live, ring, prLane, decision, timeline, counter } from '/kit/kit.js';
-  live((slice) => {
+  import { live, patch, ring, prose, decisionGroups, prGroups, diagram, timeline, esc } from '/kit/kit.js';
+
+  const overviewHost = document.querySelector('#overview');
+  const archHost = document.querySelector('#arch');
+  const workHost = document.querySelector('#work');
+
+  const archDoc = {
+    arch: 1,
+    name: 'auth-migration',
+    title: 'Auth Migration Architecture',
+    nodes: [
+      { id: 'gateway', name: 'API Gateway', role: 'Edge session router', kind: 'service' },
+      { id: 'tokens', name: 'Token Service', role: 'OAuth token issuer', kind: 'service' },
+    ],
+  };
+
+  live(async (slice) => {
     const prs = slice.features.flatMap((entry) => entry.prs);
-    document.querySelector('#page').innerHTML = `${ring(prs.filter((pr) => pr.state === 'merged').length, prs.length, 'PRs merged')}
-      ${slice.questions.map(decision).join('')}${prLane(slice.prs)}${timeline(slice.story)}`;
+    const merged = prs.filter((pr) => pr.state === 'merged').length;
+
+    patch(overviewHost, `
+      <header data-key="summary" data-kit-component="overview">
+        <h2>Cutover readiness</h2>
+        ${ring(merged, prs.length, 'PRs merged')}
+      </header>
+    `);
+
+    await diagram(archHost, archDoc, {
+      onNode: (nodeId) => console.info('selected', nodeId),
+    });
+
+    patch(workHost, `
+      <section data-key="decisions">${decisionGroups(slice.questions, (q) => q.blocks?.[0]?.title || "Decisions")}</section>
+      <section data-key="prs">${prGroups(slice.prs, (pr) => pr.workstream || "Changes")}</section>
+      <section data-key="story">${timeline(slice.story)}</section>
+    `);
   });
 </script>
 ```
 
-| Component | Draws |
+| Export | Behavior |
 | --- | --- |
-| `live(draw)` | calls `draw(slice)` now and on every change |
-| `ring(done, total, label)` | a progress ring |
-| `counter(element, n)` | counts the element's number up or down to `n` |
-| `prLane(prs)` | each PR with its checks, review and landing line, and Approve and Hold buttons |
-| `decision(question)` | his decision with a button per option, the recommended one filled |
-| `timeline(moments)` | each `{at, text}` moment with its Pacific time |
-| `graph(host, source, kind)` | a `mermaid`, `dot` or `arch` diagram in `host`, drawn by the dashboard's own visuals |
-| `burndown(host, points, field)` | an area chart of `field` over each point's `at` |
-| `answer(card, label)`, `ask(text)` | the bridge calls the buttons make |
-| `esc(text)`, `time(at)` | HTML escaping and a Pacific clock time |
+| `live(draw)` | Calls sync or `async` `draw(slice)` now and on every slice update; sets `document.documentElement.dataset.kitState` (`data-kit-state`) to `ready` or `failed` |
+| `patch(host, html)` | Keyed DOM update in `host` that preserves `[data-key]` nodes, open `<details>`, input focus/values, and checkbox choices |
+| `prose(text)` | Renders rich block and inline prose via `/kit/renderers.js` |
+| `ring(done, total, label)` | Renders a progress ring |
+| `counter(element, n)` | Animates `element`'s numeric value to `n` |
+| `prLane(prs)` | Renders each PR with checks, review and landing status, and Approve / Hold buttons |
+| `prGroups(prs, by)` | Renders grouped PR approval sections with batch approval wired to `answers([{card, label}])` |
+| `decision(question)` | Renders a decision card with context and a button per option (recommended option filled) |
+| `decisionGroups(questions, by)` | Renders grouped decision sections with group recommendations and per-option review |
+| `timeline(moments)` | Renders each `{at, text}` moment with its Pacific time |
+| `diagram(host, archDoc, options)` | Mounts `arch-map` once in `host` and performs keyed updates preserving camera and focus; node IDs must be stable, unique, lowercase, and `<= 40` chars; `options` accepts optional `onState` and `onNode`; scrolling zooms and zooming out steps up the architecture |
+| `graph(host, source, kind)` | Renders a `mermaid`, `dot`, or `arch` diagram in `host` |
+| `burndown(host, points, field)` | Renders an area chart of `field` over each point's `at` |
+| `answer(card, label)` | Sends a single scoped PR or decision answer |
+| `answers(items)` | Sends `[{card, label}]` as one grouped answer with a single Undo toast |
+| `ask(text)` | Sends a question to Slack direct messages under the page's title |
+| `open(feature)` | Navigates the parent dashboard to a scoped `#/feature` route |
+| `model(messages, onToken)` | Returns a `Promise<string>` streaming a completion from parent `/api/complete` (`gpt-oss-120b`) |
+| `esc(text)`, `time(at)` | HTML escaping and Pacific clock time formatting |
 
-A button with `data-kit-answer="<answer>"` and `data-label="<label>"` answers when clicked. The PR and decision buttons are such buttons.
-
-## Strategies
-
-Pick one question the page answers at a glance, such as how far along the migration is or what still blocks this stack, and put it in `goal`. Draw what changes live from the slice, and draw fixed context, such as a plan's steps or a dependency graph, from data the job writes into the folder. Keep his actions on the page to the PRs and decisions the slice already holds, since he answers everything else in the queue.
+A button with `data-kit-answer="<card>"` and `data-label="<label>"` sends an answer when clicked. The single and grouped PR and decision components wire their action buttons automatically.

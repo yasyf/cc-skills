@@ -1,3 +1,4 @@
+let sharedRenderers;
 const ZONE = 'America/Los_Angeles';
 const STALL_MINUTES = 45;
 const READABLE = 0.42;
@@ -16,11 +17,8 @@ const GROUPS = {
 };
 const CHECKS = { pass: 'green', fail: 'red', pending: 'running', none: 'no CI' };
 const JOB_STATES = { running: 'Running', waiting: 'Waiting', built: 'Built, no PR until you answer', done: 'Done', failed: 'Failed', stopped: 'Stopped' };
-const HAPPENED = { order: 'You asked', answer: 'You answered', live: 'Live', merged: 'Merged', failed: 'Failed', refused: 'No card drawn', said: 'Sent you' };
 const LEVEL_IN = 2.2;
 const LEVEL_OUT = 2.4;
-const DECIDED = { tap: 'You tapped', answered: 'You picked', undone: 'You took back' };
-const FEATURE_KINDS = new Set(['order', 'live', 'failed']);
 const HISTORY_FILTERS = [
   ['all', 'Everything'],
   ['prs', 'PRs merged'],
@@ -56,10 +54,7 @@ const QUEUE_FILTERS = [
 const NONE_LEFT = { tap: 'No PR waits on your tap.', question: 'No decision waits on you.' };
 const LABEL = { question: 'Decision', tap: 'Pull request', late: 'Late' };
 const TAP_LABELS = ['Approve', 'Hold'];
-const TAP_KEYS = { Approve: 'a', Hold: 'h' };
 const PR_TABS = [['show', 'Show me'], ['change', 'The change'], ['context', 'Context']];
-const CHECK_FACTS = { pass: ['Tests pass', 'good'], fail: ['Tests fail', 'bad'], pending: ['Tests running', 'warn'], none: ['No CI', ''] };
-const REVIEW_FACTS = { approved: ['Review approved', 'good'], stale: ['Approved on an older head', ''], changes: ['Changes requested', 'bad'] };
 const TALK_FOLLOW_MS = 15 * 60 * 1000;
 const FRAMES_KEPT = 4;
 const GONE_ROWS = { merged: 'Landed', live: 'Landed', closed: 'Closed without merging', dropped: 'Dropped from the drive' };
@@ -105,18 +100,7 @@ const REPORTS = {
   HANDOFF: ['Handed off', 'not-started', 'stopped'],
 };
 const REPORT_WORD = new RegExp(`^(${Object.keys(REPORTS).join('|')})\\b[:,.]?\\s*`);
-const URL_TEXT = /https?:\/\/[^\s<>|]*[^\s<>|.,;:!?)\]'"`]/g;
-const URL_NAMES = [
-  [/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/(\d+)/, (number) => `#${number}`],
-  [/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/commit\/(\w{7})/, (sha) => `commit ${sha}`],
-  [/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/releases\/tag\/(?:[\w-]+\/)*([\w.-]+)/, (tag) => `release ${tag}`],
-  [/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/actions\/runs\//, () => 'Actions run'],
-  [/^https:\/\/buildkite\.com\/[\w-]+\/([\w-]+)\/builds\/(\d+)/, (pipeline, number) => `${pipeline} build ${number}`],
-  [/^https:\/\/[\w-]+\.slack\.com\/archives\//, () => 'Slack message'],
-  [/^https:\/\/app\.datadoghq\.com\/monitors\//, () => 'Datadog monitor'],
-];
 const FILE_WORDS = { brief: 'Brief', report: 'Report', question: 'Question', repro: 'Reproduction', transcript: 'Transcript' };
-const SOURCE_CITE = /(^|[^\w/.@`-])`?((?:[\w.@-]+\/)+[\w.@-]+\.[A-Za-z][A-Za-z0-9]*):(\d+)(?:-(\d+))?`?(?![\w-]|[./]\w)/g;
 const PR_FIELDS = [
   ['refresher', 'In plain words'],
   ['surprise', 'Biggest surprise'],
@@ -188,7 +172,7 @@ const link = (text, url) => (url && !SLACK.test(url) ? `<a href="${esc(url)}" ta
 const minutesSince = (iso) => Math.max(0, Math.round((Date.now() - new Date(iso)) / 60000));
 const bare = (title) => named(String(title ?? '').replace(/^[\w./-]+:\s*\p{Extended_Pictographic}\uFE0F?\s*/u, ''));
 const icon = (name) => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
-const counted = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+function counted(n, one, many) { return sharedRenderers.counted(n, one, many); }
 const fileKey = (name) => name ?? NONE;
 const fileName = (key) => (key === NONE ? UNFILED : key);
 const byName = ([a], [b]) => (a === NONE) - (b === NONE) || a.localeCompare(b);
@@ -253,44 +237,17 @@ function up() {
   return zoomHref(screen, ...path.slice(0, -1));
 }
 
-const VISUAL_KINDS = new Set(['arch', 'mermaid', 'chart', 'compare', 'dot']);
 const VISUAL_WORDS = { arch: 'Map of the parts', mermaid: 'Diagram', dot: 'Diagram', chart: 'Chart', compare: 'Side by side' };
-const WORD_FENCES = new Set(['', 'text', 'txt', 'plain']);
 const FRAMED = new Set(['mermaid', 'dot', 'chart', 'compare']);
-const PICTURE_LINE = /^\s*!\[([^\]]*)\]\((\/[^)\s]+)\)\s*$/;
-const QUOTE_LINE = /^\s*>\s?/;
-const TABLE_ROW = /^\s*\|/;
-const LIST_ITEM = /^\s*(?:[-*•]|\d+[.)])\s+/;
-const KEY_LINE = /^([A-Z][A-Za-z0-9 ()'\/-]{0,38}):(?:\s+(.*))?$/;
-const HEADING_LINE = /^\s*(?:#{1,4}\s+(.+?)|\*\*([^*\n]+)\*\*|\*([^*\n]+)\*):?\s*$/;
 
-function urlName(url) {
-  const found = URL_NAMES.find(([shape]) => shape.test(url));
-  return found ? found[1](...url.match(found[0]).slice(1)) : new URL(url).hostname;
-}
-
-function named(text) {
-  return String(text).replace(URL_TEXT, urlName);
-}
-
-function inline(text, cite = model.repo) {
-  const spans = [];
-  const keep = (html) => `\u0000${spans.push(html) - 1}\u0000`;
-  let out = cite ? String(text).replace(SOURCE_CITE, (_, pre, path, from, to) => `${pre}${keep(sourceLink(cite, path, from, to))}`) : String(text);
-  out = out
-    .replace(/`([^`]+)`/g, (_, code) => keep(`<code>${esc(code)}</code>`))
-    .replace(/<(https?:\/\/[^|>\s]+)\|([^>]+)>/g, (_, url, label) => keep(link(label, url)))
-    .replace(/<(https?:\/\/[^|>\s]+)>/g, (_, url) => keep(link(urlName(url), url)))
-    .replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, (_, alt, url) => keep(picture(url, alt)))
-    .replace(/\[([^\]]+)\]\((#\/[^)\s]+)\)/g, (_, label, route) => keep(`<a class="ref" href="${esc(route)}">${esc(label)}</a>`))
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, (_, label, url) => keep(link(label, url)))
-    .replace(URL_TEXT, (url) => keep(link(urlName(url), url)));
-  out = esc(out)
-    .replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>')
-    .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,;:!?]|$)/g, '$1<b>$2</b>')
-    .replace(/(^|[\s(])_([^_\n]+)_(?=[\s).,;:!?]|$)/g, '$1<i>$2</i>');
-  return out.replace(/\u0000(\d+)\u0000/g, (_, n) => spans[Number(n)]);
-}
+function urlName(url) { return sharedRenderers.urlName(url); }
+function named(text) { return sharedRenderers.named(text); }
+function inline(text, cite) { return sharedRenderers.inline(text, cite); }
+function prose(text, cite) { return sharedRenderers.prose(text, cite); }
+function table(lines, cite) { return sharedRenderers.table(lines, cite); }
+function optionParts(option) { return sharedRenderers.optionParts(option); }
+function decisionPlain(text) { return sharedRenderers.decisionPlain(text); }
+function decisionStory(card) { return sharedRenderers.decisionStory(card); }
 
 function sourceLink(cite, path, from, to) {
   const [repo] = cite.split('#');
@@ -299,88 +256,8 @@ function sourceLink(cite, path, from, to) {
   return `<a class="src" href="https://github.com/${esc(repo)}/blob/${esc(head)}/${esc(path)}#L${from}${to ? `-L${to}` : ''}" target="_blank" rel="noopener" data-src="${esc(cite)}" data-path="${esc(path)}" data-line="${from}" data-to="${to ?? from}">${esc(path.split('/').pop())}:${span}</a>`;
 }
 
-function prose(text, cite) {
-  const blocks = [];
-  const parts = String(text ?? '').replace(/^\s*\[table block\]\s*$/gm, '').split(/^```[ \t]*([\w+-]*)[^\n]*\n([\s\S]*?)^```\s*$/m);
-  parts.forEach((part, i) => {
-    if (i % 3 === 1) return;
-    if (i % 3 === 2) {
-      blocks.push(fenced(parts[i - 1].toLowerCase(), part));
-      return;
-    }
-    for (const para of part.split(/\n\s*\n/)) {
-      const lines = para.split('\n').filter((line) => line.trim());
-      if (!lines.length) continue;
-      while (lines.length) {
-        const heading = lines[0].match(HEADING_LINE);
-        if (heading) {
-          blocks.push(`<h4 class="hd">${inline(heading[1] ?? heading[2] ?? heading[3], cite)}</h4>`);
-          lines.shift();
-          continue;
-        }
-        const row = TABLE_ROW.test(lines[0]);
-        const end = lines.findIndex((line) => TABLE_ROW.test(line) !== row || HEADING_LINE.test(line));
-        const run = lines.splice(0, end < 0 ? lines.length : end);
-        if (row) {
-          blocks.push(table(run, cite));
-        } else if (run.some((line) => PICTURE_LINE.test(line) || QUOTE_LINE.test(line))) {
-          blocks.push(...lineBlocks(run, cite));
-        } else if (run.every((line) => LIST_ITEM.test(line))) {
-          blocks.push(listOf(run, cite));
-        } else if (run.filter((line) => KEY_LINE.test(line)).length > 1) {
-          const at = run.findIndex((line) => KEY_LINE.test(line));
-          if (at) blocks.push(`<p>${run.slice(0, at).map((line) => inline(line, cite)).join('<br>')}</p>`);
-          blocks.push(factList(run.slice(at), cite));
-        } else {
-          blocks.push(`<p>${run.map((line) => inline(line, cite)).join('<br>')}</p>`);
-        }
-      }
-    }
-  });
-  return blocks.join('');
-}
 
-function listOf(lines, cite) {
-  return `<ul>${lines.map((line) => `<li>${inline(line.replace(LIST_ITEM, ''), cite)}</li>`).join('')}</ul>`;
-}
 
-function factList(lines, cite) {
-  const facts = [];
-  for (const line of lines) {
-    const key = line.match(KEY_LINE);
-    if (key) facts.push([key[1], key[2] ? [key[2]] : []]);
-    else facts.at(-1)[1].push(line);
-  }
-  const said = (rest) => {
-    const items = rest.filter((line) => LIST_ITEM.test(line));
-    return `${rest.filter((line) => !LIST_ITEM.test(line)).map((line) => inline(line, cite)).join('<br>')}${items.length ? listOf(items, cite) : ''}`;
-  };
-  return `<dl class="keyed">${facts.map(([key, rest]) => `<dt>${esc(key)}</dt><dd>${said(rest)}</dd>`).join('')}</dl>`;
-}
-
-function lineBlocks(lines, cite) {
-  const blocks = [];
-  let quote = [];
-  const flush = () => {
-    if (quote.length) blocks.push(`<blockquote class="quote">${quote.map((line) => inline(line, cite)).join('<br>')}</blockquote>`);
-    quote = [];
-  };
-  for (const line of lines) {
-    if (QUOTE_LINE.test(line)) {
-      quote.push(line.replace(QUOTE_LINE, ''));
-      continue;
-    }
-    flush();
-    const shot = line.match(PICTURE_LINE);
-    blocks.push(shot ? shown(shot[2], shot[1]) : `<p>${inline(line, cite)}</p>`);
-  }
-  flush();
-  return blocks;
-}
-
-function fenced(language, source) {
-  return visual(VISUAL_KINDS.has(language) ? language : `code:${WORD_FENCES.has(language) ? 'text' : language}`, source);
-}
 
 function shown(path, caption) {
   const drawn = sources.get(path);
@@ -476,7 +353,7 @@ async function drawFigures(root) {
       if (FRAMED.has(host.dataset.visual) && !host.closest('.thumbs')) frame(host);
       if (host.dataset.visual.startsWith('code:')) host.insertAdjacentHTML('afterbegin', `<div class="code-bar"><span>${esc(host.dataset.visual.slice(5) || 'code')}</span><span class="acts"><button type="button" class="linkish" data-copy>Copy</button><button type="button" class="linkish" data-enlarge>Enlarge</button></span></div>`);
     } catch (failure) {
-      host.innerHTML = `<p class="refused">This ${esc(host.dataset.visual.split(':')[0])} did not draw (${esc(failure.message)}), so here is what it is drawn from.</p><pre><code>${esc(host.dataset.source)}</code></pre>`;
+      host.innerHTML = sharedRenderers.refusedVisual(host.dataset.visual, host.dataset.source, failure);
     }
   }
 }
@@ -515,23 +392,9 @@ function notRead(read) {
   return read ? `<p class="refused">${esc(read.error)}</p>` : '<p class="empty small">Reading…</p>';
 }
 
-function table(lines, cite) {
-  const rows = lines.filter((line) => !/^\s*\|[\s:|-]+$/.test(line)).map((line) => Array.isArray(line) ? line : decisionCells(line));
-  const [head, ...body] = rows;
-  return `<div class="table-scroll-hint">Scroll to see every column ↔</div><div class="tablewrap" tabindex="0" role="region" aria-label="Comparison table; scroll for all columns"><table><thead><tr>${head.map((cell) => `<th>${inline(cell, cite)}</th>`).join('')}</tr></thead><tbody>${body
-    .map((row) => `<tr>${row.map((cell) => `<td>${inline(cell, cite)}</td>`).join('')}</tr>`)
-    .join('')}</tbody></table></div>`;
-}
-
 function prKey(url) {
   const found = String(url).match(/^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)/);
   return found ? `${found[1]}#${found[2]}` : null;
-}
-
-function optionParts(option) {
-  const cut = option.search(/:\s|\.\s/);
-  if (cut < 0) return [option, ''];
-  return [option.slice(0, option[cut] === '.' ? cut + 1 : cut), option.slice(cut + 1).trim()];
 }
 
 function answerKey(item) {
@@ -539,25 +402,8 @@ function answerKey(item) {
 }
 
 function choices(item, keyed = false) {
-  const answered = answerKey(item);
-  const given = answers.get(answered);
-  if (given?.done) return `<div class="answered">✓ <b>${esc(given.label)}</b> · answered ${clock(given.at)}</div>`;
-  const held = given && !given.error;
-  const failed = given?.error ? `<p class="refused">${esc(given.error)}</p>` : '';
-  const shown = picked?.card === answered ? picked.index : -1;
-  const buttons = (item.card?.options ?? TAP_LABELS).map((option, i) => {
-    const attrs = `data-card="${esc(answered)}" data-label="${esc(option)}"${held ? ' disabled' : ''}`;
-    if (item.kind === 'tap') return `<button class="${option === 'Approve' ? 'primary' : 'secondary'}" ${attrs}>${keyed ? `<kbd>${TAP_KEYS[option] ?? i + 1}</kbd>` : ''}${esc(option)}</button>`;
-    const [title, detail] = optionParts(option);
-    const recommended = option === item.card.recommended;
-    return `<button class="choice${recommended ? ' recommended' : ''}${i === shown ? ' on' : ''}" ${attrs} data-preview="${i}">
-      <span class="key">${keyed ? i + 1 : ''}</span>
-      <span><span class="choice-title">${esc(title)}${recommended ? '<em>Recommended</em>' : ''}</span>${detail ? `<span class="choice-detail">${esc(detail)}</span>` : ''}</span>
-      <span class="arrow" aria-hidden="true">›</span>
-    </button>`;
-  });
-  const back = restored.has(answered) ? '<p class="restored" role="status">Restored. This is being asked again.</p>' : '';
-  return `${back}<div class="${item.kind === 'tap' ? 'pr-picks' : 'choices'}">${buttons.join('')}</div>${failed}`;
+  const card = answerKey(item);
+  return sharedRenderers.choices({ ...item, answer: card }, { given: answers.get(card), keyed, shown: picked?.card === card ? picked.index : -1, restored: restored.has(card) });
 }
 
 function sayBox(key, under, placeholder, about = '', thread = '') {
@@ -582,7 +428,7 @@ function fold(id, html, lines, key = '') {
 }
 
 function fact(html, tip = '', tone = '') {
-  return `<span class="fact${tone ? ` ${tone}` : ''}"${tip ? ` tabindex="0" data-tip="${esc(tip)}"` : ''}>${html}</span>`;
+  return sharedRenderers.fact(html, tip, tone);
 }
 
 function counter(at, total) {
@@ -729,9 +575,7 @@ function reviewDecision(key) {
 }
 
 function stateFacts(row) {
-  const [checks, checksTone] = CHECK_FACTS[row.checks] ?? CHECK_FACTS.none;
-  const [review, reviewTone] = REVIEW_FACTS[row.review] ?? ['No review yet', ''];
-  return fact(esc(checks), '', checksTone) + fact(esc(review), '', reviewTone);
+  return sharedRenderers.stateFacts(row);
 }
 
 function prFacts(item, row, read) {
@@ -813,7 +657,7 @@ function spots(html) {
 function jumps(key, row, pr, read) {
   const shown = spots(showMe(row, pr, read)).map((label, i) => `<li><button class="linkish" data-spot="${i}" data-item="${esc(key)}">${esc(label)}</button></li>`).join('');
   const words = [row.summary, read?.pr?.show_me, ...PR_FIELDS.map(([field]) => row[field])].join('\n');
-  const cites = [...new Map([...words.matchAll(SOURCE_CITE)].map(([, , path, from]) => [`${path}:${from}`, { path, line: from }])).values()];
+  const cites = [...new Map(sharedRenderers.sourceCites(words).map((cite) => [`${cite.path}:${cite.line}`, cite])).values()];
   const point = (path, line, label) => `<li><button class="linkish" data-point="${esc(pr)}" data-item="${esc(key)}" data-path="${esc(path)}"${line ? ` data-line="${line}"` : ''}>${esc(label)}</button></li>`;
   const files = reviews.get(pr)?.files;
   return `${shown ? `<p class="spot-head">Show me</p><ul class="spots">${shown}</ul>` : ''}
@@ -1041,16 +885,21 @@ function pageScreen(page) {
 }
 
 function pageSlice(page) {
-  const orders = new Set(page.orders);
+  const all = model.status.flatMap((group) => group.features);
+  const scope = page.scope;
+  const matches = (entry) => scope && ((scope.projects ?? []).includes(entry.project) || (scope.workstreams ?? []).includes(entry.workstream) || (scope.words ?? []).some((word) => entry.title.toLowerCase().includes(word.toLowerCase())));
+  const orders = new Set([...page.orders, ...all.filter(matches).map((entry) => entry.id)]);
   const prs = new Set(page.prs);
-  const actable = (item, card, options) => ({ ...item, answer: card, options, answered: answers.get(card) ?? null });
+  const detailed = slice(`/api/page?${new URLSearchParams({ slug: page.slug })}`)?.slice;
+  const details = new Map([...(detailed?.prs ?? []), ...(detailed?.questions ?? [])].map((entry) => [entry.answer, entry]));
+  const actable = (item, card, options) => ({ ...item, card: details.get(card)?.card ?? item.card, answer: card, options, answered: answers.get(card) ?? null });
   return {
     page,
     at: model.at,
-    features: model.status.flatMap((group) => group.features).filter((entry) => orders.has(entry.id)),
+    features: all.filter((entry) => orders.has(entry.id)),
     prs: model.review.filter((entry) => orders.has(entry.feature) || prs.has(entry.key)).map((entry) => actable(entry, entry.answer ?? `tap:${entry.key}`, entry.card?.options ?? ['Approve', 'Hold'])),
     questions: model.queue.filter((item) => item.kind === 'question' && item.tasks.some((id) => orders.has(id))).map((item) => actable(item, item.answer, item.card.options)),
-    story: slice(`/api/story?${new URLSearchParams({ ids: page.orders.join(',') })}`)?.moments ?? [],
+    story: slice(`/api/story?${new URLSearchParams({ ids: [...orders].join(',') })}`)?.moments ?? [],
     asked: sent.get(`page:${page.slug}`) ?? null,
   };
 }
@@ -1065,11 +914,45 @@ function feedPages() {
 function heardPage(event) {
   const frame = [...document.querySelectorAll('iframe.page-frame')].find((each) => each.contentWindow === event.source);
   const page = frame && model.pages.find((each) => each.slug === frame.dataset.page);
-  if (!page || !navigator.userActivation.isActive) return;
+  if (!page) return;
   const { type, answer: card, label, text } = event.data;
+  if (type === 'drive:complete') return completePage(frame, page, event.data);
+  if (!navigator.userActivation.isActive) return;
+  if (type === 'drive:open' && shownPageRoute(event.data.route, pageSlice(page))) return go(event.data.route);
   const shown = pageSlice(page);
-  if (type === 'drive:answer' && [...shown.prs, ...shown.questions].some((item) => item.answer === card && item.options.includes(label))) return answer(card, label);
+  if (type === 'drive:answers' && Array.isArray(event.data.picks) && event.data.picks.length && event.data.picks.every((pick) => [...shown.prs, ...shown.questions].some((item) => (!item.answered || item.answered.error) && item.answer === pick.card && item.options.includes(pick.label)))) return answerBatch(event.data.picks);
+  if (type === 'drive:answer'  && [...shown.prs, ...shown.questions].some((item) => item.answer === card && item.options.includes(label))) return answer(card, label);
   if (type === 'drive:ask' && typeof text === 'string') say(`page:${page.slug}`, null, text, page.title);
+}
+
+function shownPageRoute(route, shown) {
+  return shown.features.some((entry) => route === `#/feature/${entry.id}`) || shown.questions.some((entry) => route === `#/queue/all?at=${encodeURIComponent(entry.answer)}`);
+}
+
+async function completePage(frame, page, request) {
+  const replyTo = (result) => frame.contentWindow?.postMessage({ type: 'drive:completion', id: request.id, ...result }, '*');
+  try {
+    const reply = await fetch('/api/complete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ page: page.slug, messages: request.messages }) });
+    if (!reply.ok) throw new Error((await reply.json()).error);
+    const reader = reply.body.getReader();
+    const decoder = new TextDecoder();
+    let pending = '';
+    while (true) {
+      const { value, done } = await reader.read();
+      pending += decoder.decode(value, { stream: !done });
+      const lines = pending.split('\n');
+      pending = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ') || line.slice(6).trim() === '[DONE]') continue;
+        const data = JSON.parse(line.slice(6));
+        if (data.error) throw new Error(data.error.message);
+        const delta = data.choices?.[0]?.delta?.content;
+        if (delta) replyTo({ delta });
+      }
+      if (done) break;
+    }
+    replyTo({ done: true });
+  } catch (error) { replyTo({ error: error.message }); }
 }
 
 function waiting() {
@@ -1420,9 +1303,7 @@ function taskRow(entry, href = `#/feature/${entry.id}`) {
 }
 
 function momentText(entry) {
-  if (entry.kind === 'heard') return `<b class="what">${esc(entry.detail)}</b> ${reportLine(entry.text)}`;
-  const text = FEATURE_KINDS.has(entry.kind) ? featureLink(entry.feature, entry.text) : link(entry.text, entry.url);
-  return `<b class="what">${DECIDED[entry.kind] ? `${DECIDED[entry.kind]} ${esc(entry.detail)} on` : HAPPENED[entry.kind]}</b> ${text}`;
+  return sharedRenderers.momentText(entry);
 }
 
 function story(scope, title = 'The live story') {
@@ -2171,7 +2052,7 @@ function saidRow(entry) {
     <span class="time">${timeOf(entry.at)}</span>
     <span class="dot"></span>
     <div class="body">
-      <div><b class="what">${HAPPENED.said}</b></div>
+      <div><b class="what">${sharedRenderers.HAPPENED.said}</b></div>
       <div class="said-text">${fold(`said:${entry.at}`, prose(entry.text), 4)}</div>
       ${entry.visuals.length ? `<div class="thumbs">${entry.visuals.map((each) => (each.kind === 'image' ? shot(each.picture, each.caption) : visual(each.kind, each.source, each.caption))).join('')}</div>` : ''}
       ${entry.prs.length ? `<ul class="prlist card">${entry.prs.map(prItem).join('')}</ul>` : ''}
@@ -2187,7 +2068,7 @@ function historyRow(entry) {
     <span class="dot"></span>
     <div class="body">
       <div>${momentText(entry)}</div>
-      ${entry.detail && !DECIDED[entry.kind] ? `<div class="meta">${esc(entry.detail)}</div>` : ''}
+      ${entry.detail && !sharedRenderers.DECIDED[entry.kind] ? `<div class="meta">${esc(entry.detail)}</div>` : ''}
     </div>
     ${Date.parse(entry.undo_until) > Date.now() ? `<button class="btn ghost" data-undo="${esc(entry.url)}" data-label="${esc(entry.detail)}" data-title="${esc(entry.text)}">Undo</button>` : ''}
   </li>`;
@@ -2527,7 +2408,25 @@ async function answer(card, label) {
   render();
 }
 
+async function answerBatch(picks) {
+  const unique = [...new Map(picks.map((pick) => [pick.card, pick])).values()];
+  const group = `group:${crypto.randomUUID()}`;
+  const cards = unique.map((pick) => pick.card);
+  const label = unique.every((pick) => pick.label === unique[0].label) ? unique[0].label : 'Your choices';
+  const about = { label, title: counted(cards.length, 'answer'), cards };
+  toast(group, { ...about, state: 'sending' });
+  await Promise.all(unique.map((pick) => answer(pick.card, pick.label)));
+  const failed = cards.filter((card) => answers.get(card)?.error);
+  toast(group, failed.length ? { ...about, state: 'failed', error: `${cards.length - failed.length} sent, ${failed.length} not sent. Each one shows why on the page.` } : { ...about, state: 'sent' });
+}
+
 async function undo(card, about = toasts.get(card) ?? answers.get(card)) {
+  if (about.cards) {
+    toast(card, { ...about, state: 'undoing' });
+    await Promise.all(about.cards.filter(takesBack).map((each) => undo(each)));
+    const kept = about.cards.filter((each) => answers.get(each)?.done);
+    return toast(card, kept.length ? { ...about, state: 'late', error: `${counted(kept.length, 'answer')} could not be taken back` } : { ...about, state: 'restored' });
+  }
   toast(card, { ...about, state: 'undoing' });
   const said = await ask('/api/undo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ card }) });
   if (!said.ok) return toast(card, { ...about, state: 'late', error: said.error });
@@ -2544,11 +2443,16 @@ const TOAST_SAID = {
   sent: () => 'Sent',
   restored: () => 'Restored. This is being asked again.',
   late: (shown) => shown.error,
-  failed: (shown) => `Not sent: ${shown.error}`,
+  failed: (shown) => (shown.cards ? shown.error : `Not sent: ${shown.error}`),
 };
 
 function undoable(shown) {
+  if (shown.cards) return shown.state === 'sent' && shown.cards.some(takesBack);
   return shown.state === 'sent' && Date.parse(shown.undoUntil) > Date.now();
+}
+
+function takesBack(card) {
+  return Date.parse(answers.get(card)?.undoUntil) > Date.now();
 }
 
 function toast(card, shown) {
@@ -2558,10 +2462,12 @@ function toast(card, shown) {
 }
 
 function drawToasts() {
+  const grouped = new Set([...toasts.values()].flatMap((shown) => shown.cards ?? []));
   const strip = $('#toasts');
   const drawn = new Map([...strip.children].map((node) => [node.dataset.toast, node]));
-  for (const [card, node] of drawn) if (!toasts.has(card)) node.remove();
+  for (const [card, node] of drawn) if (!toasts.has(card) || grouped.has(card)) node.remove();
   for (const [card, shown] of toasts) {
+    if (grouped.has(card)) continue;
     const node = drawn.get(card) ?? strip.appendChild(document.createElement('div'));
     node.dataset.toast = card;
     node.className = `toast ${shown.state}`;
@@ -2569,7 +2475,7 @@ function drawToasts() {
     node.innerHTML = `<span><b>${esc(shown.label)}</b> · ${esc(shown.title)}</span>
       <span class="meta">${esc(TOAST_SAID[shown.state](shown))}</span>
       ${undoable(shown) ? `<button class="btn" data-undo="${esc(card)}">Undo</button>` : ''}
-      ${shown.state === 'restored' ? `<a class="btn" href="${queueHref('all', { answer: card })}">Open it</a>` : ''}
+      ${shown.state === 'restored' && !shown.cards ? `<a class="btn" href="${queueHref('all', { answer: card })}">Open it</a>` : ''}
       <button class="toast-x" data-dismiss="${esc(card)}" aria-label="Dismiss">×</button>`;
   }
 }
@@ -3057,7 +2963,11 @@ document.addEventListener('keydown', (event) => {
     goJump(rows[jumpAt]);
   }
 });
-window.addEventListener('DOMContentLoaded', () => {
+function useRenderers(kit) {
+  sharedRenderers = { ...kit, ...kit.createRenderers({ repo: () => model.repo, sourceLink, picture, shown, fenced: visual, featureLink, reportLine, time: clock }) };
+}
+window.addEventListener('DOMContentLoaded', async () => {
+  useRenderers(await import('/kit/renderers.js'));
   history.scrollRestoration = 'manual';
   placeAfterLoad = history.state?.y ?? null;
   paused = localStorage.getItem('motion') === 'paused';

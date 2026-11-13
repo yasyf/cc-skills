@@ -1,4 +1,4 @@
-import { mount as mountMap, validate as validateMap } from "./system-map.js";
+import { mount as mountMap, validate as validateMap } from "./system-map.js?drive=keyed-1";
 
 const KINDS = new Set(["actor", "app", "service", "worker", "store", "log", "external", "artifact", "doc"]);
 const SHAPES = new Set(["api", "relay", "gate", "router", "guard", "queue", "pool", "log", "recovery", "handoff", "watcher", "keys", "budget", "timer", "uploader", "codec", "compactor", "sweeper", "cache", "ui", "tool", "docs", "sdk", "module", "store"]);
