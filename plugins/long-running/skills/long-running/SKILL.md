@@ -52,7 +52,7 @@ This file holds the fundamental rules; one firing on one input is a tested refus
 - Done is proven where he sees it: a recording of the click, the live post, the installed command's output. Fetched data proves no screen.
 - Promise him something, or tell him the drive failed him, only naming the order, due time, job or PR doing or preventing it (`messages`).
 - Cards and posts name each thing by its proper technical term, never a stand-in (`messages`). Plain words drop only drive ids he cannot open: job, order and waits ids, record seqs.
-- Events and job results feed the next summary, never a record or post each (`messages`).
+- Events and job results reach him in the watch's line on news, never a post each (`messages`).
 
 ## Pages
 

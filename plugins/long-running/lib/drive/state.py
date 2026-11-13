@@ -1143,11 +1143,11 @@ def may_tell(order: dict) -> bool:
 
 def named_prs(data: dict, order_id: str, words: str) -> list[str]:
     """The drive PRs the words name by link, key or bare #N; a bare #N that drive PRs in several repositories carry names the one on the order."""
-    folded = {key.casefold(): key for key in data["prs"]}
     keys = []
     for found in PR_REF.finditer(words):
         if not (number := found.groups()[-1]):
-            keys.append(folded.get(pr_key(found[0]).casefold()))
+            named = pr_key(found[0])
+            keys.append(named if named in data["prs"] else next((key for key in data["prs"] if key.casefold() == named.casefold()), None))
             continue
         shared = [key for key in data["prs"] if key.rpartition("#")[2] == number]
         keys += shared if len(shared) == 1 else [key for key in shared if data["prs"][key]["order"] == order_id]
@@ -1667,7 +1667,16 @@ def slack_message(source: str) -> tuple[str, str, str | None] | None:
 def incident_orders(data: dict, order_id: str) -> list[str]:
     """The orders of the order's incident, the one an alert's order joined with --joins first, then every alert joined to it; an order nothing joined and joining none alone."""
     head = data["orders"][order_id]["joins"] or order_id
-    return [head, *(other_id for other_id, other in data["orders"].items() if other["joins"] == head)]
+    return [head, *joined_orders(data).get(head, [])]
+
+
+def joined_orders(data: dict) -> dict[str, list[str]]:
+    """The orders joined with --joins to each order some joined, by the order they joined, in the order they came."""
+    joined: dict[str, list[str]] = {}
+    for order_id, order in data["orders"].items():
+        if order["joins"]:
+            joined.setdefault(order["joins"], []).append(order_id)
+    return joined
 
 
 def thread_order(data: dict, thread: str | None, until: datetime | None = None) -> str | None:

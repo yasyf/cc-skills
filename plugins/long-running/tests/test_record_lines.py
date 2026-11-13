@@ -130,7 +130,7 @@ def by(agent_type: str, transcript: Path | None = None, **tool_input: object) ->
 @pytest.fixture
 def turn(tmp_path: Path) -> Path:
     path = tmp_path / "coordinator.jsonl"
-    path.write_text(json.dumps({"type": "user", "message": {"role": "user", "content": "TICK o1"}}) + "\n")
+    path.write_text(json.dumps({"type": "user", "message": {"role": "user", "content": "DUE o1"}}) + "\n")
     return path
 
 
