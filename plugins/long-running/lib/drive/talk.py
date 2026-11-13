@@ -37,7 +37,7 @@ def say(name: str, post: dict) -> str:
     report = {"close": post["order"], "writer": "communicator", "written": state.stamp()} if close else cli.report_attrs(post["record"]) if post.get("record") else {}
     known = state.load(name)
     order = post.get("order")
-    if refused := (order and cli.report_refusal(known, order, report)) or held_refusal(known, post.get("record"), report):
+    if refused := (order and cli.report_refusal(known, order, report)) or (close and cli.unfiled_refusal(known, order)) or held_refusal(known, post.get("record"), report):
         raise DriveError(f"nothing posted: {refused}")
     if report.get("catch_up"):
         if known["catch_up"] is None:

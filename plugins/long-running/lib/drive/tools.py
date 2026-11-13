@@ -187,8 +187,8 @@ def verb_tools() -> list[dict]:
                 " a live handler holds, in its thread, or naming its record up a re chain or named by its record's, returns"
                 " handed to <that handler's id>, which takes it at its next step and covers it in its post; it refuses a"
                 " brief while a live handler holds the same record or the same message of his, a copy that needs nothing. For his read-only"
-                " question, answer with project and workstream adds his answer order and the handler's reader job on it in the"
-                " same call, so no job call follows."
+                " question, answer alone adds his answer order and the handler's reader job on it in the same call, so no job call"
+                " follows, and the handler files that order under the project and workstream it reads his question is about."
             ),
             "inputSchema": {"type": "object", "properties": {**schema(leaf("handler", root=root))["properties"], "drive": DRIVE, "dry_run": DRY_RUN}, "required": ["brief"]},
         },
