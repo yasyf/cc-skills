@@ -62,7 +62,7 @@ RECORD = {
         "kind": {
             "enum": ["owner", "answer", "handoff", "defect"],
             "description": (
-                "handoff asks the session holding the order its attrs.order names for a step only it takes on that order, such as"
+                "handoff asks the session holding the order its attrs.order names, or the coordinator session whose agent runs the job its attrs.job names, for a step only it takes, such as"
                 " starting a builder, with no re, since cci also delivers a record to the writer of the record its re names; a"
                 " report or ask goes through the cci `post` tool instead, whose hook reads it, and no record draws his card on a PR"
             ),
@@ -128,7 +128,8 @@ RECORD = {
             "description": (
                 "the lane it goes to in place of the default, the coordinator's from the communicator and the communicator's"
                 " from any other session; a defect goes to the meta session, the communicator's owner record about the drive"
-                " to the meta session alone, and its other owner, answer or handoff record to the session holding the order its"
+                " to the meta session alone, its answer or handoff naming a job by attrs.job or waits to the coordinator session whose"
+                " agent runs that job, and its other owner, answer or handoff record to the session holding the order its"
                 " attrs.order names, else the order of the job it answers, else its thread's newest order, whatever lane this names"
             ),
         },
@@ -178,8 +179,8 @@ def verb_tools() -> list[dict]:
             "description": (
                 "Send his words (owner), his answer to a card (answer), a step the session holding an order owes on it"
                 " (handoff) or a tool's refusal (defect) to another session of the drive in one call, as this session's role,"
-                " a handler's included: a defect reaches the meta session, the communicator's handoff the session holding the"
-                " order its attrs.order names, and an owner record names about, refused without it: the drive's owner record"
+                " a handler's included: a defect reaches the meta session, the communicator's answer or handoff naming a job the"
+                " coordinator session whose agent runs it, its other handoff the session holding the order its attrs.order names, and an owner record names about, refused without it: the drive's owner record"
                 " about the drive, a ruling on how it works included, reaches the meta session alone holding its order, which"
                 " the call adds first, a new order the meta session holds or his words as a part of the open one they carry on, as its"
                 " order field says, and one about his work the coordinator hearing its order."
@@ -749,7 +750,7 @@ def sent(name: str, lane: str, posts: list[dict]) -> list[str]:
 
 
 def post(item: dict, data: dict, other: str, session: str | None) -> dict:
-    """The cci record an item posts as, to the lane it names, else other, a defect's or handoff's long text cut to one line with the whole at the top of its body, as the post hook cuts a record, and sent where the drive routes it: a defect to the meta session, the communicator's owner record about the drive to the meta session alone, and its other owner, answer or handoff record, whatever lane it names, to the session holding the order its attr order names, else the order of the job it answers, else the newest order in its thread; an owner record naming no about, or an item whose re names several seqs, is refused."""
+    """The cci record an item posts as, to the lane it names, else other, a defect's or handoff's long text cut to one line with the whole at the top of its body, as the post hook cuts a record, and sent where the drive routes it: a defect to the meta session, the communicator's owner record about the drive to the meta session alone, its answer or handoff naming a job by attr job or waits id, whatever lane it names, to the coordinator session whose agent runs that job, and its other owner, answer or handoff record to the session holding the order its attr order names, else the order of the job it answers, else the newest order in its thread; an owner record naming no about, or an item whose re names several seqs, is refused."""
     drive = data["name"]
     if item["kind"] not in RECORD["properties"]["kind"]["enum"]:
         raise DriveError(f"record posts owner, answer, handoff and defect records; a {item['kind']} goes through the cci `post` tool, whose hook reads it")

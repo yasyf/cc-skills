@@ -750,6 +750,12 @@ def agent_job(data: dict, agent: str | None) -> str | None:
     return next((job_id for job_id, job in data["jobs"].items() if agent and job.get("agent") == agent), None)
 
 
+def resumed(job: dict) -> str | None:
+    """When a prompt, such as a SendMessage, woke the agent of a job still running on after its last kept return; None once its next return is kept, or for a job no prompt woke since it returned."""
+    woke = job.get("resumed")
+    return woke if woke and job["state"] == "running" and parse_time(woke) > parse_time(job["returned"]) else None
+
+
 def start(job: dict) -> None:
     """Run the job a worker started on, a stopped one included, its turn for a builder slot on this Mac over, so the drive keeps the return of each worker it lets start."""
     job.update(state="running", waits=[wait for wait in job["waits"] if wait != SLOT_WAIT], updated=stamp())
@@ -1227,6 +1233,7 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
         "created": created,
         "updated": created,
         "returned": None,
+        "resumed": None,
     }
 
 
@@ -1708,15 +1715,17 @@ def served_order(data: dict, attrs: dict) -> str | None:
 
 
 def serving_lane(data: dict, kind: str, attrs: dict) -> str | None:
-    """The cci lane of the session a communicator's owner, answer, handoff, posted or refused record serves, the order its attr order names, else the order of the job its attr job or waits id names, else the newest order in its thread: the coordinator session hearing that order, or the meta session's for a drive tooling order but for his words about his work; None for another kind, or a record naming none."""
+    """The cci lane of the session a communicator's owner, answer, handoff, posted or refused record serves, the order its attr order names, else the order of the job its attr job or waits id names, else the newest order in its thread: the meta session's for a drive tooling order but for his words about his work; for any but his owner words, which add a part to that order, the session job_lane reads for the job it names; else the coordinator session hearing that order; None for another kind, or a record naming none."""
     if kind not in ROUTED_KINDS:
         return None
     if (order_id := served_order(data, attrs)) is None:
         return None
     order = data["orders"][order_id]
-    if order["owner"] != "meta":
-        return order_lane(data, order)
-    return None if kind == "owner" else "meta"
+    if order["owner"] == "meta":
+        return None if kind == "owner" else "meta"
+    if kind != "owner" and (job_id := named_job(data, attrs)):
+        return job_lane(data, data["jobs"][job_id])
+    return order_lane(data, order)
 
 
 def named_job(data: dict, attrs: dict) -> str | None:
@@ -1727,7 +1736,7 @@ def named_job(data: dict, attrs: dict) -> str | None:
 
 
 def routed(drives: dict[str, dict], session: str | None, kind: str, attrs: dict, to: list[str]) -> list[str]:
-    """Where a drive session's record goes: a defect to the top coordinator, the communicator or the meta session to the meta session, which holds drive tooling, unless it posts it; the communicator's owner record about the drive to the meta session alone, his ruling on how the drive works included; and the communicator's other owner, answer, handoff, posted or refused record for a coordinator lane to the session holding the order it serves."""
+    """Where a drive session's record goes: a defect to the top coordinator, the communicator or the meta session to the meta session, which holds drive tooling, unless it posts it; the communicator's owner record about the drive to the meta session alone, his ruling on how the drive works included; and the communicator's other owner, answer, handoff, posted or refused record for a coordinator lane to the session serving_lane reads: the coordinator session whose agent runs the job it names, else the one holding the order it serves."""
     made = []
     for entry in to:
         lane, _, name = entry.partition("@")
@@ -1816,6 +1825,19 @@ def session_lane(data: dict, session: str | None) -> str | None:
         return project_lane(project)
     role = session_role(data, session)
     return next((lane for lane, held in LANE_ROLES.items() if held == role), None)
+
+
+def agent_lane(data: dict, job: dict) -> str | None:
+    """The cci lane of the coordinator session whose agent runs a job on this Mac, the top's or a sub-coordinator's, whatever project its order is filed under, since only that session's SendMessage reaches the agent; None for a job no bound coordinator session's agent runs, such as a Sprite lane's, one not started yet or one whose agent ended with its session."""
+    if job["where"] != "local" or not job["agent"]:
+        return None
+    lane = session_lane(data, job["session"])
+    return lane if lane in ("root", *map(project_lane, data["subcoordinators"])) else None
+
+
+def job_lane(data: dict, job: dict) -> str:
+    """The cci lane a job's lines and the communicator's records naming it go to: the coordinator session's whose agent runs it, else the one hearing its order."""
+    return agent_lane(data, job) or order_lane(data, data["orders"][job["order"]])
 
 
 def holder_lane(order: dict) -> str | None:

@@ -6326,9 +6326,11 @@ def test_an_answer_stays_unfinished_until_each_job_waiting_on_an_order_it_touche
     run("job", "add", "builder", "--order", "o2", "--goal", "build the tool")
     with state.edit("demo") as data:
         data["jobs"]["j3"]["state"] = data["jobs"]["j4"]["state"] = "waiting"
+        data["jobs"]["j3"]["agent"] = "agent-3"
     assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
     listed = capsys.readouterr().err
-    assert "  j3 waits on o1 and has not heard a1: SendMessage it his words verbatim, or mark it untouched" in listed
+    sender = "from root@demo, the session session-under-test that started its agent agent-3"
+    assert f"  j3 waits on o1 and has not heard a1: SendMessage it his words verbatim {sender}, or mark it untouched" in listed
     assert "j4" not in listed
     assert cli.main(["answer", "a1", "--stands", designing]) == 2
     refusal = capsys.readouterr().err
