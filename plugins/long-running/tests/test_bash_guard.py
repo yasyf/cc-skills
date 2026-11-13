@@ -329,6 +329,9 @@ def test_a_bucket_read_is_refused_by_what_it_reads_and_a_forge_bucket_or_a_pass_
         "gsutil -m cp gs://customer-bucket/iris/teams/t/x .": "customer-bucket/iris/teams/t/x",
         "azcopy copy 'https://acct.blob.core.windows.net/iris/teams/t/x' ./x": "acct/iris/teams/t/x",
         "sh -c 'aws s3 ls s3://$BUCKET/iris/'": "$BUCKET/iris/",
+        "aws s3 presign s3://frg-plat-usw2-prod-forge-app-bucket/iris/teams/t/runs/blobs/x --expires-in 1800": "frg-plat-usw2-prod-forge-app-bucket/iris/teams/t/runs/blobs/x",
+        "AWS_PROFILE=plat-staging aws s3 cp s3://frg-plat-usw2-staging-microvm-artifacts/projects/proj_01demo/code.zip -": "frg-plat-usw2-staging-microvm-artifacts/projects/proj_01demo/code.zip",
+        "aws s3 ls s3://frg-plat-usw2-staging-microvm-artifacts/": "frg-plat-usw2-staging-microvm-artifacts/",
     }
     builder = {"agent_id": "a-1", "agent_type": "long-running:builder"}
     for command, location in refused.items():
@@ -336,6 +339,8 @@ def test_a_bucket_read_is_refused_by_what_it_reads_and_a_forge_bucket_or_a_pass_
     passed = [
         "aws s3 cp s3://frg-core-usw2-artifacts-internal-release-artifacts/sand/latest.json -",
         "aws s3 ls s3://frg-core-usw2-root-pulumi-state/pulumi/.pulumi/stacks/api/",
+        "AWS_PROFILE=plat-staging aws s3 presign s3://frg-plat-usw2-staging-microvm-artifacts/pass-box/searchbench/searchbench.gz --expires-in 1800 --region us-west-2",
+        "AWS_PROFILE=plat-prod aws s3 cp s3://frg-plat-usw2-prod-microvm-artifacts/pass-box/j2386-oom/ci-linux.gz -",
         "aws s3 cp ./ci-linux s3://artifacts-prod/iris/teams/t/upload",
         "aws s3 rm s3://artifacts-prod/iris/teams/t/runs/stuck.json",
         "aws s3 ls",

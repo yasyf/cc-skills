@@ -38,11 +38,13 @@ UNSEEN_PROMPT = (
     " and run it as `zsh <scratch>/<name>.sh`. When the command removes files outside your worktree or Scratch folder,"
     " run nothing and return BLOCKED naming it"
 )
-FORGE_BUCKETS = frozenset({
-    "frg-core-usw2-artifacts-internal-release-artifacts",
-    "frg-core-usw2-root-pulumi-state",
-    "frg-core-usw2-audit-datadog-log-archive",
-})
+FORGE_LOCATIONS = (
+    "frg-core-usw2-artifacts-internal-release-artifacts/",
+    "frg-core-usw2-audit-datadog-log-archive/",
+    "frg-core-usw2-root-pulumi-state/",
+    "frg-plat-usw2-prod-microvm-artifacts/pass-box/",
+    "frg-plat-usw2-staging-microvm-artifacts/pass-box/",
+)
 COPIES = {"cp", "mv", "sync", "rsync", "copy", "copyto", "move", "moveto"}
 LISTS = {
     "ls", "cat", "du", "head", "stat", "hash", "presign", "signurl", "sign-url", "objects", "lsd", "lsf", "lsl", "lsjson",
@@ -73,7 +75,8 @@ TEAM_READ = (
     " AWS-RunShellScript --parameters file://<scratch>/<name>.json`, whose commands load the team's read grant as the"
     ' runs reader first, `eval "$(./ci runs-reader grant --team <team id>)"`, and copy no team data back;'
     " docs/pass-boxes.md in Forge-AI/monorepo has each step. A team on its own bucket is read only in its own cluster,"
-    " with `tools/ci cluster-job`. Only {forge} read where a job runs, since they hold no team's data"
+    " with `tools/ci cluster-job`. Only {forge} read where a job runs, since they hold no team's data: a box's binary"
+    " goes under `pass-box/<purpose>/` in its env's MicroVM artifacts bucket, and the box fetches it through a presigned URL"
 )
 
 
@@ -374,10 +377,10 @@ def remote_location(tool: str, word: str) -> str | None:
 
 
 def team_read(command: str, cwd: str) -> str | None:
-    """Why a drive job's call must not run: it, a script it runs, or a command it starts through `drive break-glass` or `xargs`, reads a bucket or blob other than a Forge build, state or log bucket, so a team's data, a customer's own bucket included, whose name no list here holds."""
+    """Why a drive job's call must not run: it, a script it runs, or a command it starts through `drive break-glass` or `xargs`, reads a bucket or blob outside a Forge build, state or log bucket and the `pass-box/` folder of a pass box env's MicroVM artifacts bucket, where a job puts the binary its box fetches through a presigned URL, so a team's data, a customer's own bucket included, whose name no list here holds."""
     for words in reached(command, Place(Path(cwd))):
-        if location := next((found for found in bucket_reads(words) if found.split("/", 1)[0] not in FORGE_BUCKETS), None):
-            forge = sorted(f"`{bucket}`" for bucket in FORGE_BUCKETS)
+        if location := next((found for found in bucket_reads(words) if not f"{found}/".startswith(FORGE_LOCATIONS)), None):
+            forge = [f"`{place}`" for place in FORGE_LOCATIONS]
             return TEAM_READ.format(location=location, forge=f"{', '.join(forge[:-1])} and {forge[-1]}")
     return None
 
