@@ -51,6 +51,8 @@ QUIET_LANE = timedelta(minutes=30)
 LINE_BREAKS = re.compile(r"[\r\n]+")
 HANDOFF = timedelta(minutes=2)
 SETTLING = ""
+FREED = "FREE"
+MINUTES = re.compile(r"\b\d+ minutes\b")
 PR_LINE = re.compile(r"\s*(?:READY|PUSHED|PR:)")
 JOB_LINE = re.compile(r"JOB (?P<job>j\d+) o\d+ ")
 UNKEPT_ASK = "keep it with `drive job ask {job}`, which posts its ask record, since no card draws for it until then"
@@ -273,7 +275,7 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 for order_id in [job["order"], *job["carries"]]:
                     parts = data["orders"][order_id]["parts"]
                     for part in parts.keys() & set(state.job_parts(job, order_id)):
-                        parts[part]["orphan_said"] = state.stamp(moment)
+                        parts[part].update(orphan_said=state.stamp(moment), orphan_gap=FREED)
                 built = f", built on {job['branch']}" if job["state"] == "built" else ""
                 unlaunched = f", not started yet: drive job launch {job_id} starts it" if job.get("where") == "remote" and not job.get("dispatch") else ""
                 unstarted = f"; Read your brief first: {job['brief']}" if job.get("brief") and not job.get("agent") and not job.get("dispatch") else ""
@@ -1679,7 +1681,7 @@ def carded(job: dict, asked: datetime) -> bool:
 
 
 def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, moment: datetime) -> str | None:
-    """Why the job leaves its parts with no one, None when it carries them or is a design its builder carries, or SETTLING while a change in the last two minutes is still being handed over; a local job no agent has taken settles one minute only, since its agent's first step records it within seconds of starting; a builder's READY or PUSHED whose yasyf/* PRs merged with no proof file to run is said once on its line, since only the proof file drive job set --repro keeps wakes it."""
+    """Why the job leaves its parts with no one, None when it carries them or is a design its builder carries, or SETTLING while a change in the last two minutes is still being handed over; a local job no agent has taken settles one minute only, since its agent's first step records it within seconds of starting; a waiting job nothing can wake also names what its line names that ended or moved."""
     if moment - state.parse_time(job["updated"]) < (UNSTARTED_FOR if unstarted(job) else HANDOFF):
         return SETTLING
     if job["state"] == "running":
@@ -1695,9 +1697,9 @@ def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, moment: dateti
         if can_wake(job_id, job, data, moment):
             return None
         if merged_ready(data, job_id):
-            return None if unproven(data, job_id) and job.get("unproven_said") == job["said"] else merged_gap(job_id, data)
+            return merged_gap(job_id, data)
         waiting = f"is built on {job['branch']}" if job["state"] == "built" else f'waits on "{cut(job["said"] or "nothing named", 80)}"'
-        return f"{job_id} {waiting} and no open PR, card or due time can wake it"
+        return f"{job_id} {waiting} and no open PR, card or due time can wake it{ended_waits(data, job_id, job)}"
     if job["state"] == "done":
         if state.unposted_answer(data, job_id):
             return f"{job_id} answered and the answer is not posted to him"
@@ -1717,9 +1719,13 @@ def merged_gap(job_id: str, data: dict) -> str:
     return f"{job_id}'s proof, drive job prove pid {proof['pid']}, ended with no result, its output in the drive's {PROOFS_LOG}: drive job prove {job_id} runs it again"
 
 
-def unproven(data: dict, job_id: str) -> bool:
-    """Whether a builder's READY or PUSHED whose PRs all merged names a yasyf/* PR and keeps no executable proof file, so it waits on the proof file drive job set --repro keeps, which the watch then runs, and nothing else wakes it."""
-    return merged_ready(data, job_id) and not product(data, job_id) and bool(proof_gap(data, job_id))
+def ended_waits(data: dict, job_id: str, job: dict) -> str:
+    """What a stranded job's said line names that ended or moved, so its holder reads which of its waits went stale: each drive PR it names now another job's, merged or closed, and each other job it names that finished."""
+    said = job["said"] or ""
+    prs = [(key, data["prs"][key]) for key in state.named_prs(data, job["order"], said)]
+    ended = [f"{key} moved to {pr['job']}" if pr["job"] != job_id else f"{key} {pr['state']}" for key, pr in prs if pr["job"] != job_id or pr["state"] != "open"]
+    ended += [f"{other} {data['jobs'][other]['state']}" for other in dict.fromkeys(re.findall(r"\bj\d+\b", said)) if other != job_id and data["jobs"].get(other, {}).get("state") in state.FINISHED_JOB_STATES]
+    return f"; of what its line names, {', '.join(ended)}" if ended else ""
 
 
 def at_merge(data: dict, job_id: str) -> bool:
@@ -1812,13 +1818,19 @@ def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: dat
 
 
 def unbuilt(data: dict, order_id: str, part: str, jobs: list[tuple[str, dict]]) -> str:
-    """Why work he ordered that only research, a design done with no builder, his card or a post holds has no one carrying it: the builder to start, waiting on the reader still at work and on each open card of his on the part, which it builds the recommended option of and opens no PR until he answers; then the merged PR the part's words name, which drive order posted records as its delivery, or else the sort of the part as an answer."""
+    """Why work he ordered that only research, a design done with no builder, his card or a post holds has no one carrying it: a part a post of the drive already answered leads with that post, since it reads as his question answered and closes once sorted as an answer, while work nothing answered names the builder to start, waiting on the reader still at work and on each open card of his on the part, which it builds the recommended option of and opens no PR until he answers; then the merged PR the part's words name, which drive order posted records as its delivery, or else the sort of the part as an answer."""
     held = ", ".join(f"{job['kind']} {job_id} {job['state']}" for job_id, job in jobs)
     reading = [job_id for job_id, job in jobs if job["kind"] == "reader" and job["state"] not in state.FINISHED_JOB_STATES]
     cards = list(dict.fromkeys(card for _, job in jobs for card in view.open_cards(job)))
     waits = "".join(f" --waits {wait}" for wait in [*reading[-1:], *cards])
     open_cards = f", his card {' and '.join(cards)} open" if cards else ""
     named = shlex.quote(part)
+    start = f"drive job add builder --order {order_id} --part {named} --goal '<what it builds>'{waits}"
+    if posted := data["orders"][order_id]["parts"][part]["posted"]:
+        return (
+            f"answered by the post {posted}, but it counts as work he ordered, which no post delivers, held by {held}{open_cards}:"
+            f" when it asked only for an answer, drive order set {order_id} --kind answer --part {named} closes it; when it asks for a change, start its builder with {start}"
+        )
     prs = state.named_prs(data, order_id, part)
     merged = prs and all(data["prs"][key]["state"] == "merged" for key in prs)
     done = (
@@ -1826,10 +1838,7 @@ def unbuilt(data: dict, order_id: str, part: str, jobs: list[tuple[str, dict]]) 
         if merged
         else f"when it asks only for an answer, drive order set {order_id} --kind answer --part {named}; when a merged PR delivered it, drive order posted {order_id} <its link> --part {named}"
     )
-    return (
-        f"no builder carries this work, only {held}{open_cards}: start one with drive job add builder --order {order_id} --part {named} --goal '<what it builds>'{waits},"
-        f" or add it to a builder with drive job set <builder> --part {named}; {done}"
-    )
+    return f"no builder carries this work, only {held}{open_cards}: start one with {start}, or add it to a builder with drive job set <builder> --part {named}; {done}"
 
 
 def part_gaps(watcher: Watcher, data: dict, moment: datetime) -> dict[tuple[str, str], str | None]:
@@ -1840,37 +1849,36 @@ def part_gaps(watcher: Watcher, data: dict, moment: datetime) -> dict[tuple[str,
     }
 
 
-def orphan_change(data: dict, key: tuple[str, str], gap: str | None, due: set[str], moment: datetime) -> str | None:
-    said = data["orders"][key[0]]["parts"][key[1]]["orphan_said"]
+def orphan_change(data: dict, key: tuple[str, str], gap: str | None, moment: datetime) -> str | None:
+    """Whether the part's gap is said or healed: said once while its why stands, by his pick "77 open parts report unowned once", and again only when its why changes, its count of minutes aside, or 30 minutes after a FREE line said its job's last wait ended."""
+    part = data["orders"][key[0]]["parts"][key[1]]
     if gap is None:
-        return "heal" if said else None
-    if gap == SETTLING:
+        return "heal" if part["orphan_said"] else None
+    if gap == SETTLING or standing(gap) == part["orphan_gap"]:
         return None
-    if key[0] in due or not said or moment - state.parse_time(said) >= TICK_EVERY or added_since(data, key, state.parse_time(said)):
-        return "say"
-    return None
+    if part["orphan_gap"] == FREED and moment - state.parse_time(part["orphan_said"]) < TICK_EVERY:
+        return None
+    return "say"
 
 
-def added_since(data: dict, key: tuple[str, str], said: datetime) -> bool:
-    """Whether a local job no agent has taken was added or resumed on the part since the part was last said, news its 30-minute repeat would hold back."""
-    return any(unstarted(job) and state.parse_time(job["updated"]) > said for _, job in state.part_jobs(data, *key))
+def standing(gap: str) -> str:
+    return MINUTES.sub("N minutes", gap)
 
 
-def orphan_lines(watcher: Watcher, moment: datetime, due: set[str]) -> list[str]:
+def orphan_lines(watcher: Watcher, moment: datetime) -> list[str]:
     data = state.load(watcher.name)
-    if not any(orphan_change(data, key, gap, due, moment) for key, gap in part_gaps(watcher, data, moment).items()):
+    if not any(orphan_change(data, key, gap, moment) for key, gap in part_gaps(watcher, data, moment).items()):
         return []
     lines = []
     with state.edit(watcher.name) as data:
         for key, gap in part_gaps(watcher, data, moment).items():
-            change = orphan_change(data, key, gap, due, moment)
-            if change:
-                data["orders"][key[0]]["parts"][key[1]]["orphan_said"] = None if change == "heal" else state.stamp(moment)
+            change = orphan_change(data, key, gap, moment)
+            part = data["orders"][key[0]]["parts"][key[1]]
+            if change == "heal":
+                part.update(orphan_said=None, orphan_gap=None)
             if change == "say":
+                part.update(orphan_said=state.stamp(moment), orphan_gap=standing(gap))
                 lines.append(f'ORPHAN {key[0]} "{cut(key[1], 80)}": {gap}')
-                for job_id, job in state.part_jobs(data, *key):
-                    if unproven(data, job_id) and gap == merged_gap(job_id, data):
-                        job["unproven_said"] = job["said"]
     return lines
 
 
@@ -2016,13 +2024,12 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
     if "github" not in watcher.failures:
         lines += github_lines(watcher, moment)
     lines += catch_up_lines(watcher, moment)
-    due = due_lines(watcher, moment)
-    lines += [line for _, line in due]
+    lines += [line for _, line in due_lines(watcher, moment)]
     lines += quiet_lines(watcher, moment)
     lines += clock_lines(watcher, moment)
     lines += undelivered_lines(watcher, moment)
     lines += tell_lines(watcher, moment)
-    lines += orphan_lines(watcher, moment, {order_id for order_id, _ in due})
+    lines += orphan_lines(watcher, moment)
     if moment - watcher.ticked_at >= TICK_EVERY:
         watcher.ticked_at = moment
         lines += tick_lines(watcher, moment)

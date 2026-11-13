@@ -578,6 +578,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             part.pop("kind", None)
             part.setdefault("design", None)
             part.setdefault("answer", False)
+            part.setdefault("orphan_gap", None)
             part["after"] = [each.strip() for each in ([part["after"]] if isinstance(part.get("after"), str) else part.get("after") or [])]
     mail = data.pop("lane_mail", {})
     for job in data["jobs"].values():
@@ -833,7 +834,7 @@ def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | Non
                 f" keeps none it can run: keep an executable script exiting 0 once the installed plugins hold the fix with drive job set {job_id} --repro <file>,"
                 " then send this report again"
             )
-    if re.match(r"WAITING\b", line) and not (job["waits"] or job["due"] or named_waits(data, job["order"], line)):
+    if re.match(r"WAITING\b", line) and not (job["waits"] or job["due"] or named_waits(data, job["order"], wait_words(line, report))):
         return (
             "its WAITING names nothing the watch frees it on: name the release as release:<service>:<owner>/<repo>#<n> or a PR the drive"
             f" tracks, or first give it what it waits on with drive job set {job_id} --waits <card or job> or a clock with --due <time>"
@@ -901,16 +902,21 @@ def kept_question(job: dict, file: Path) -> bool:
 def named_waits(data: dict, order_id: str, line: str) -> list[str]:
     """The waits a result line names: each release:<service>:<owner>/<repo>#<n> of a PR the drive tracks, and each other drive PR it names."""
     releases = [found[0] for found in RELEASE_WAIT.finditer(line) if found["pr"] in data["prs"]]
-    return [*releases, *named_prs(data, order_id, RELEASE_WAIT.sub("", line))]
+    return list(dict.fromkeys([*releases, *named_prs(data, order_id, RELEASE_WAIT.sub("", line))]))
 
 
-def result_waits(data: dict, order_id: str, line: str) -> list[str]:
-    """The waits a result line gives its job: each PR and release a READY, PUSHED or WAITING line names, and none for any other line."""
-    return named_waits(data, order_id, line) if re.match(r"(?:READY|PUSHED|WAITING)\b", line) else []
+def wait_words(line: str, report: str) -> str:
+    """The words a result's waits are read from: a WAITING's whole report, which may name what it waits on only below its first line, and a READY's or PUSHED's first line, which names its own PRs while its body cites others."""
+    return f"{line}\n{report}" if re.match(r"WAITING\b", line) else line
+
+
+def result_waits(data: dict, order_id: str, line: str, report: str = "") -> list[str]:
+    """The waits a result gives its job: each PR and release a READY's or PUSHED's line names or a WAITING's whole report names, and none for any other line."""
+    return named_waits(data, order_id, wait_words(line, report)) if re.match(r"(?:READY|PUSHED|WAITING)\b", line) else []
 
 
 def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
-    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, a builder's DONE on an open incident's fix, stop or rollback keeping its proof as the order's proof, which ends the incident's five-minute line, and on its fix also recording that fix live as the order's fixed, built on its branch and waiting on each card a BUILT line names and each open card of his a job on its parts asked, whatever words the line names it in, each card once under its waits id, waiting on each PR and release a READY, PUSHED or WAITING line names, which the watch frees once the PR merges or closes or the release is out, each PR a `WAITING … waits on` line names waiting on each card it names, keep on a job its WAITING line answers as stage.waited reads it, keep each verdict a reader's answer gives on the PR it names, join each open order the FIX line of a result tracing a live bug's cause names to that bug's incident, so hurts_now reads it live, end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met, and deliver the parts of a job whose answer reaches him only by a post by the post its POSTED line names; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
+    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, a builder's DONE on an open incident's fix, stop or rollback keeping its proof as the order's proof, which ends the incident's five-minute line, and on its fix also recording that fix live as the order's fixed, built on its branch and waiting on each card a BUILT line names and each open card of his a job on its parts asked, whatever words the line names it in, each card once under its waits id, waiting on each PR and release a READY or PUSHED line or a WAITING's whole report names, which the watch frees once the PR merges or closes or the release is out, each PR a `WAITING … waits on` line names waiting on each card it names, keep on a job its WAITING line answers as stage.waited reads it, keep each verdict a reader's answer gives on the PR it names, join each open order the FIX line of a result tracing a live bug's cause names to that bug's incident, so hurts_now reads it live, end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met, and deliver the parts of a job whose answer reaches him only by a post by the post its POSTED line names; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
     from drive import stage, view
 
     job = data["jobs"][job_id]
@@ -920,10 +926,10 @@ def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
         job["said"] = line
     if built := BUILT_LINE.match(line):
         job.update(branch=built["branch"], waits=view.stored_waits(data, [*job["waits"], *BUILT_CARD.findall(built["cards"]), *part_cards(data, job_id)]))
-    if waits := result_waits(data, job["order"], line):
+    if waits := result_waits(data, job["order"], line, report):
         job["waits"] = list(dict.fromkeys([*job["waits"], *waits]))
     if re.match(r"WAITING\b", line):
-        job["waited"] = stage.waited(data, job_id, line)
+        job["waited"] = stage.waited(data, job_id, wait_words(line, report))
     if waiting := WAITING_LINE.match(line):
         for key in named_prs(data, job["order"], waiting["prs"]):
             data["prs"][key]["waits"] = view.stored_waits(data, [*data["prs"][key]["waits"], *BUILT_CARD.findall(waiting["cards"])])
@@ -1204,7 +1210,7 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
 
 def new_part() -> dict:
     """A part of an order, undelivered."""
-    return {"posted": None, "orphan_said": None, "design": None, "after": [], "answer": False}
+    return {"posted": None, "orphan_said": None, "orphan_gap": None, "design": None, "after": [], "answer": False}
 
 
 def reporter(link: str) -> dict:

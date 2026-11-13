@@ -41,6 +41,16 @@ SESSION_ENV = "<session env>"
 SESSION_SETTINGS_HOLE = "<session settings>"
 DOUBLE_QUOTED = re.compile(r'[\\"$`]')
 STUCK = re.compile(r"\b(j\d+)\b[^.;\n]*?\b(?:stuck|silent|stalled|hung)\b", re.IGNORECASE)
+UNOWNED = re.compile(
+    r"\b(?:no ?one|nobody|no (?:job|builder|agent|lane))(?:\s+\w+){0,2}?\s+(?:working|works|picked|taken|took|carries|owns|is on it)\b|\bunowned\b|\bnot (?:been )?picked up\b",
+    re.IGNORECASE,
+)
+JOB_WORD = re.compile(r"\bj\d+\b")
+UNOWNED_RULE = (
+    "A line never says work sits with no one on it: the session that saw it puts a job on it that turn and the line names that job, by his words"
+    ' 94c20c6 "its unnaceptbale to just say that no one is workiong on it, get someone workong in it, for all of these"; a line saying no one'
+    " needs to work on something, or that a finished job is no longer on it, says no such thing."
+)
 READ_WINDOW = timedelta(minutes=10)
 TRANSCRIPT_READ = ("cc-transcript", ".jsonl")
 UNREAD_JOB = (
@@ -124,6 +134,17 @@ def unread_job(payload: dict, text: str) -> str | None:
     if not jobs:
         return None
     return UNREAD_JOB.format(jobs=", ".join(jobs), its="their" if len(jobs) > 1 else "its")
+
+
+def unowned_work(text: str) -> Ruled | None:
+    """Why a line, a report to the communicator or a post to him, says work has no one on it while it names no job on it now: the session that saw it puts one on it that turn, by his words 94c20c6."""
+    if not (found := UNOWNED.search(text)) or JOB_WORD.search(text):
+        return None
+    return Ruled(
+        f'refused: "{found[0]}" says work has no one on it and the line names no job: put one on it now, drive job add for a part no job holds or'
+        " drive job resume for the one holding it, and name that job in the line, as {started:<j>} in a post to him",
+        UNOWNED_RULE,
+    )
 
 
 def typed_time(text: str, data: dict) -> Ruled | None:

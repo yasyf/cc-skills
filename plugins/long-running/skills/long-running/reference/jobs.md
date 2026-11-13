@@ -235,7 +235,7 @@ lane reads those through this Mac with a blocking question.
 - A question that opens any other way, such as `READ: please send <file>`, is a `JOB` line for you
   to answer, its first line, whose record carries the whole question as its body, which cci's read
   tool prints; one opening with another result word is a report, by **Reports**. One
-  no resume answered for 30 minutes makes its parts `ORPHAN`s every 30 minutes, whatever card or PR
+  no resume answered for 30 minutes makes its parts `ORPHAN`s, said once, whatever card or PR
   the job has, since a card drawn before the question asks him something else; when he answered
   its card since, the line leads with his answer and the `drive job resume` that carries it.
 - A question kept for you that reads as a `READ`, such as one kept before the watch read it

@@ -3725,6 +3725,26 @@ def test_a_waiting_line_names_what_frees_it_and_each_pr_and_release_it_names_is_
     assert (job["state"], job["waits"]) == ("waiting", ["release:api:Forge-AI/monorepo#42"])
 
 
+def test_a_waiting_whose_first_line_names_no_link_waits_on_each_pr_and_release_its_body_names_as_j1485s_did(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "read each table's stored slot")
+    run("order", "add", "--title", "Other title", "--project", "The drive", "--workstream", "Drive tooling", "ship the SandSQL slots")
+    run("job", "add", "builder", "--order", "o1", "--goal", "read the slots")
+    run("job", "add", "builder", "--order", "o2", "--goal", "ship the slots")
+    keys = [f"Forge-AI/monorepo#{number}" for number in (54607, 54665, 54680)]
+    for key in keys:
+        run("pr", "add", state.pr_url(key), "--job", "j2")
+    report = (
+        "WAITING change (b) of j660 needs Env::file_of to read each table's stored slot; that change follows three open SandSQL PRs and the release carrying them\n"
+        f"It follows {state.pr_url(keys[0])}, {state.pr_url(keys[1])} and {state.pr_url(keys[2])}.\n"
+        f"A SandSQL release ships carrying release:sandsql:{keys[2]}.\n"
+    )
+    assert keep(monkeypatch, capsys, "j1", report) == (0, "")
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["state"], job["waits"]) == ("waiting", [f"release:sandsql:{keys[2]}", *keys])
+
+
 def test_job_set_refuses_any_state_but_stopped_changing_nothing(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship", "--agent", "a-1")

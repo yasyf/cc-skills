@@ -1981,7 +1981,7 @@ def branches(monkeypatch: pytest.MonkeyPatch, prs: dict[str, dict]) -> list[list
     return asked
 
 
-def test_a_finished_lane_whose_job_still_runs_is_said_every_thirty_minutes_until_its_result_is_recorded(
+def test_a_finished_lane_whose_job_still_runs_is_said_once_until_its_result_is_recorded(
     remote: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     deliver(monkeypatch)
@@ -1996,7 +1996,7 @@ def test_a_finished_lane_whose_job_still_runs_is_said_every_thirty_minutes_until
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
     assert watch.run_pass(watching, T0) == [said]
     assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == []
-    assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [said]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == []
     assert asked[0] == [("Forge-AI/monorepo", "ci-mac-box-prove")]
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(state="waiting", said="WAITING CI", due=state.stamp(T0 + timedelta(hours=2)), updated=state.stamp(T0))
@@ -2134,7 +2134,7 @@ def test_end_frees_a_waiting_lane_and_the_job_keeps_waiting_with_its_waits_prs_a
     monkeypatch.setattr(orca, "worker", lambda dispatch: pytest.fail("a lane drive job end ended is never read again as one that died"))
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
     later = state.now() + timedelta(minutes=10)
-    assert (watch.waits_lines(watching, later), staged(watch.agent_lines, watching, later), watch.orphan_lines(watching, later, set())) == ([], [], [])
+    assert (watch.waits_lines(watching, later), staged(watch.agent_lines, watching, later), watch.orphan_lines(watching, later)) == ([], [], [])
     assert state.load(remote)["jobs"]["j2"]["waits"] == ["j1"]
 
 
@@ -2864,7 +2864,7 @@ def test_a_lane_ask_no_drive_job_ask_kept_is_an_orphan_saying_drive_job_ask_keep
     assert watch.UNKEPT_ASK.format(job="j1") not in (watch.unanswered("j1", job, T0 + timedelta(minutes=31)) or "")
 
 
-def test_a_lane_question_nothing_answers_is_an_orphan_every_thirty_minutes_whatever_older_card_its_job_has(
+def test_a_lane_question_nothing_answers_is_an_orphan_once_as_its_minutes_grow_whatever_older_card_its_job_has(
     remote: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def cards(*drawn: tuple[str, datetime]) -> None:
@@ -2886,7 +2886,7 @@ def test_a_lane_question_nothing_answers_is_an_orphan_every_thirty_minutes_whate
     )
     assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [said.format(30)]
     assert watch.run_pass(watching, T0 + timedelta(minutes=45)) == []
-    assert watch.run_pass(watching, T0 + timedelta(minutes=60)) == [said.format(60)]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=60)) == []
     cards((older_card, older), (newer_card, newer))
     with state.edit(remote) as data:
         data["jobs"]["j1"]["questions"].append(state.new_question(None, "Which fixture?", state.stamp(newer), card=newer_card))

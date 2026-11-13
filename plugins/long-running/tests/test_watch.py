@@ -32,6 +32,7 @@ BUILD = "https://buildkite.com/forge/monorepo/builds/7"
 REQUIRED = {"context": "buildkite/test", "targetUrl": BUILD}
 INCIDENT_THREAD = "1794494004.895129"
 NO_BUILDER = "no builder carries this work, only "
+ANSWERED = f"answered by the post {REPORTED}, but it counts as work he ordered, which no post delivers, held by "
 READ = ("reader", "done")
 REPLAYED_685794 = [
     (685713, None, "Incident dd-334827919: API Envoy idle-socket 503s on agent asks", True, [READ], False, None),
@@ -59,27 +60,27 @@ REPLAYED_685794 = [
     (685735, None, "bringing this to me with optins and diagnosis on why it OOMed", True, [READ], True, None),
     (685736, None, "what teh fuyck are these solutins, its a server-side s3 copy right?", True, [READ], False, None),
     (685737, None, "whats blocking blob service now?", True, [READ], False, None),
-    (685738, "build", "auto partitioning on the same abstraction", True, [READ, ("design", "done")], True, f"{NO_BUILDER}reader j2 done, design j3 done: "),
-    (685739, "build", "auto partitioning status", True, [("design", "done")], True, f"{NO_BUILDER}design j2 done: "),
+    (685738, "build", "auto partitioning on the same abstraction", True, [READ, ("design", "done")], True, f"{ANSWERED}reader j2 done, design j3 done: "),
+    (685739, "build", "auto partitioning status", True, [("design", "done")], True, f"{ANSWERED}design j2 done: "),
     (685740, None, "bring me design options to make forks and restores as close to free as possible", True, [READ, ("design", "waiting"), ("builder", "waiting")], False, "j4 waits on"),
     (685741, "build", "increase the search worker's RAM", True, [], True, "no job"),
-    (685742, "build", "answer: did we cap each indexed entry to 1024 tokens as the plan said", True, [READ, READ], True, f"{NO_BUILDER}reader j2 done, reader j3 done: "),
-    (685743, "build", "look into S3's per-prefix request rate limiting", True, [READ], True, f"{NO_BUILDER}reader j2 done: "),
+    (685742, "build", "answer: did we cap each indexed entry to 1024 tokens as the plan said", True, [READ, READ], True, f"{ANSWERED}reader j2 done, reader j3 done: "),
+    (685743, "build", "look into S3's per-prefix request rate limiting", True, [READ], True, f"{ANSWERED}reader j2 done: "),
     (685744, None, "#54749 lands", True, [READ], True, None),
     (685745, None, "his pick on #52894 and #53584", False, [("reader", "waiting")], True, None),
     (685746, "build", "are we doing the ssql release foe it", True, [], True, "no job"),
     (685747, "build", "the release's npm publishing of @poeticapps/poetic removed for now", True, [("builder", "failed"), READ], True, "j2 failed"),
-    (685748, "build", "a card asking whether to tell the reporter it is live", True, [READ, READ], True, f"{NO_BUILDER}reader j2 done, reader j3 done: "),
+    (685748, "build", "a card asking whether to tell the reporter it is live", True, [READ, READ], True, f"{ANSWERED}reader j2 done, reader j3 done: "),
     (685749, None, "why a chat's subagents do not persist across a restart, answered in his thread", True, [READ], True, None),
     (685750, None, "status of the fixes", True, [READ], True, None),
     (685751, "build", "first check", True, [("codex", "failed")], True, "j2 failed"),
-    (685752, "build", "> `_app_action_invocations` tables in 15 minutes", True, [READ], True, f"{NO_BUILDER}reader j2 done: "),
+    (685752, "build", "> `_app_action_invocations` tables in 15 minutes", True, [READ], True, f"{ANSWERED}reader j2 done: "),
     (685753, "build", "what happened to the lost wiki pages and whether they can be recovered", False, [READ], False, f"{NO_BUILDER}reader j2 done: "),
     (685754, "build", "options for holding failed writes and replaying them", False, [READ], False, f"{NO_BUILDER}reader j2 done: "),
-    (685755, "build", "first check", True, [READ], True, f"{NO_BUILDER}reader j2 done: "),
-    (685756, "build", "status of the scratch and run-local databases, and whether a customer's runs could", True, [READ], True, f"{NO_BUILDER}reader j2 done: "),
-    (685757, "build", "how the prompts and the compiler push big reads to a scratch database", True, [READ], True, f"{NO_BUILDER}reader j2 done: "),
-    (685758, "build", "whether production runs still fail on SandSQL now, and which runs the stall", True, [READ], True, f"{NO_BUILDER}reader j2 done: "),
+    (685755, "build", "first check", True, [READ], True, f"{ANSWERED}reader j2 done: "),
+    (685756, "build", "status of the scratch and run-local databases, and whether a customer's runs could", True, [READ], True, f"{ANSWERED}reader j2 done: "),
+    (685757, "build", "how the prompts and the compiler push big reads to a scratch database", True, [READ], True, f"{ANSWERED}reader j2 done: "),
+    (685758, "build", "whether production runs still fail on SandSQL now, and which runs the stall", True, [READ], True, f"{ANSWERED}reader j2 done: "),
     (685759, "build", "fix this too", False, [READ, ("reader", "waiting")], False, f"{NO_BUILDER}reader j2 done, reader j3 waiting: "),
     (685760, "build", "a release plans restate on plat-usw2-prod past the route check", False, [("reader", "waiting")], False, f"{NO_BUILDER}reader j2 waiting: "),
     (685761, "build", "list the rest for me here", True, [], True, "no job"),
@@ -1505,7 +1506,7 @@ def files_order(data: dict, **overrides: object) -> None:
     data["jobs"]["j2"] = job(order="o2", parts=["stack 1"])
 
 
-def test_a_part_no_job_carries_is_an_orphan_five_minutes_after_its_order_moved_and_again_every_thirty_minutes(
+def test_a_part_no_job_carries_is_an_orphan_five_minutes_after_its_order_moved_and_said_once_while_its_why_stands(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     serve(monkeypatch, {})
@@ -1515,7 +1516,29 @@ def test_a_part_no_job_carries_is_an_orphan_five_minutes_after_its_order_moved_a
     assert watch.run_pass(watching, T0) == []
     assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == ['ORPHAN o2 "stack 2": no job']
     assert watch.run_pass(watching, T0 + timedelta(minutes=5, seconds=5)) == []
-    assert watch.run_pass(watching, T0 + timedelta(minutes=35)) == ['ORPHAN o2 "stack 2": no job']
+    assert watch.run_pass(watching, T0 + timedelta(minutes=35)) == []
+    assert watch.run_pass(watching, T0 + timedelta(hours=3)) == []
+
+
+def test_a_stranded_jobs_orphans_name_once_the_pr_its_line_names_moved_to_another_job_and_the_job_it_names_finished_as_686978_and_686979_missed(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    serve(monkeypatch, {})
+    earlier = state.stamp(T0 - timedelta(minutes=10))
+    parts = ["auto partitioning on the same abstraction", "auto partitioning status"]
+    moved = "Forge-AI/monorepo#55175"
+    said = f"READY {state.pr_url(moved)} waits on j4's runbook"
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="done", updated=earlier)
+        data["orders"]["o2"] = order(text=parts[0], jobs=["j2", "j3", "j4"], kind="build", parts={part: state.new_part() for part in parts}, updated=earlier)
+        data["jobs"]["j2"] = job(order="o2", state="waiting", said=said, parts=parts, updated=earlier)
+        data["jobs"]["j3"] = job(order="o2", parts=[], updated=earlier)
+        data["jobs"]["j4"] = job(order="o2", state="done", said="DONE census reads 0 unlinked moved tables", parts=[], updated=earlier)
+        data["prs"][moved] = state.new_pr(state.pr_url(moved), "j3", "o2")
+    stranded = f'j2 waits on "{said}" and no open PR, card or due time can wake it; of what its line names, {moved} moved to j3, j4 done'
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == [f'ORPHAN o2 "{part}": {stranded}' for part in parts]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == []
 
 
 def test_each_change_a_design_lists_is_an_orphan_with_no_builder_once_each_change_it_waits_on_is_delivered(
@@ -1745,17 +1768,17 @@ def test_work_he_ordered_is_carried_only_by_a_builder_never_by_research_his_card
         data["orders"]["o2"] = order(text=merge, jobs=["j2"], kind="build", parts={merge: state.new_part() | {"posted": REPORTED}}, updated=earlier)
         data["jobs"]["j2"] = job(order="o2", kind="reader", parts=[merge], updated=earlier)
     unbuilt = (
-        f"start one with drive job add builder --order o2 --part '{merge}' --goal '<what it builds>'{{waits}}, or add it to a builder with drive job set <builder> --part '{merge}';"
-        f" when it asks only for an answer, drive order set o2 --kind answer --part '{merge}'; when a merged PR delivered it, drive order posted o2 <its link> --part '{merge}'"
+        f"when it asked only for an answer, drive order set o2 --kind answer --part '{merge}' closes it; when it asks for a change,"
+        f" start its builder with drive job add builder --order o2 --part '{merge}' --goal '<what it builds>'{{waits}}"
     )
     watching = watcher(demo)
-    assert watch.run_pass(watching, T0) == [f'ORPHAN o2 "{merge}": no builder carries this work, only reader j2 running: {unbuilt.format(waits=" --waits j2")}']
+    assert watch.run_pass(watching, T0) == [f'ORPHAN o2 "{merge}": {ANSWERED}reader j2 running: {unbuilt.format(waits=" --waits j2")}']
     card = {"question": "Which inbox lands first?", "options": ["First", "Last"], "recommended": "First", "asked": state.stamp(T0), "url": f"{CARD}?thread_ts=1.2", "card": {"title": "Which inbox lands first?", "waits": "demo:j2-7-a"}}
     monkeypatch.setattr(watch.view, "cards", lambda name: {"team_url": "", "questions": [card], "closed": [], "pr_cards": []})
     with state.edit(demo) as data:
         data["jobs"]["j2"].update(kind="design", state="done", questions=[state.new_question(None, None, state.stamp(T0), card=CARD)])
         data["orders"]["o2"]["parts"][merge]["orphan_said"] = None
-    assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == [f'ORPHAN o2 "{merge}": no builder carries this work, only design j2 done, his card {CARD} open: {unbuilt.format(waits=f" --waits {CARD}")}']
+    assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == [f'ORPHAN o2 "{merge}": {ANSWERED}design j2 done, his card {CARD} open: {unbuilt.format(waits=f" --waits {CARD}")}']
     with state.edit(demo) as data:
         data["orders"]["o2"]["jobs"].append("j3")
         data["jobs"]["j3"] = job(order="o2", kind="codex", parts=[merge], updated=earlier)
@@ -1800,8 +1823,8 @@ def test_a_part_sorted_as_an_answer_is_delivered_by_the_post_it_holds_and_one_a_
         data["jobs"]["j3"] = job(order="o2", parts=[fix], updated=earlier)
     watching = watcher(demo)
     [line] = watch.run_pass(watching, T0)
-    assert line.startswith(f'ORPHAN o2 "{asked}": no builder carries this work, only reader j2 done: ')
-    assert f"when it asks only for an answer, drive order set o2 --kind answer --part '{asked}';" in line
+    assert line.startswith(f'ORPHAN o2 "{asked}": {ANSWERED}reader j2 done: ')
+    assert f"when it asked only for an answer, drive order set o2 --kind answer --part '{asked}' closes it;" in line
     assert cli.main(["order", "set", "o2", "--part", asked, "--drive", demo]) == 2
     assert "--part: refused, it sorts a part of o2 with --kind answer" in capsys.readouterr().err
     assert cli.main(["order", "set", "o2", "--kind", "answer", "--part", fix, "--drive", demo]) == 2

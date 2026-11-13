@@ -1711,7 +1711,7 @@ def job_report(args: argparse.Namespace) -> int:
         if not whole.strip():
             raise DriveError(f"stdin held no report for {args.id}; pipe its whole return in: printf '%s\\n' '<line>' ... | drive job report {args.id} -")
         line = whole.strip().splitlines()[0].strip()
-        if refused := brief.report_refusal(name, data, args.id, whole) or state.result_refusal(data, args.id, line, whole) or unreached(name, data, state.result_waits(data, job["order"], line)):
+        if refused := brief.report_refusal(name, data, args.id, whole) or state.result_refusal(data, args.id, line, whole) or unreached(name, data, state.result_waits(data, job["order"], line, whole)):
             raise DriveError(f"{args.id}: refused, nothing kept: {refused}")
         try:
             registered = register_named(name, args.id, line)

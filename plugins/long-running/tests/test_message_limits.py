@@ -1284,6 +1284,14 @@ def test_a_post_calling_a_job_stuck_is_found_until_its_poster_read_that_jobs_tra
     assert say(transcript, text="The copy fix's builder is at work for 40 minutes.") is None
 
 
+def test_say_refuses_a_line_saying_work_has_no_one_on_it_until_it_names_the_job_on_it_now(talker: str, transcript: Path) -> None:
+    refused = say(transcript, text="The stall watcher flagged the partition split stuck and no job has picked it up.")
+    assert refused is not None and refused.startswith('refused: "no job has picked" says work has no one on it and the line names no job')
+    assert refused.rule == agents.UNOWNED_RULE
+    for text in ("No one was working on the partition split, so j1 builds it now.", "No one needs to work on the old export again."):
+        assert say(transcript, text=text) is None, text
+
+
 def test_say_refuses_a_time_typed_for_past_work_and_passes_a_jobs_start_from_its_stamp_and_a_promise(talker: str, transcript: Path) -> None:
     with state.edit("demo") as data:
         data["jobs"]["j1"] = state.new_job("o1", "builder", "fix the replication sync", [], state.stamp())

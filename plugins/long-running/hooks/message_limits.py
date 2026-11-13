@@ -431,7 +431,7 @@ def checked(payload: dict) -> tuple[str | None, dict]:
 
 
 def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> str | None:
-    """What the drive's checks find in a post, which the say hook hands Jev to judge against his words: a bug report's thread gets one fix-live note once the fix is proven live, a question's thread one answer once it is posted to him, an edit of his question card redraws it, an edit of a post say made goes through say, a post in his DM goes through say, a thread outside his DM, such as an alert's, is named with its channel_id, a handler's line in his thread waits for its read of that thread, and then, every finding at once, the post keeps its length, links what it names, asks no tap that is not owed, backs each cause with its record, answers his order by no plan, record or answer of his that is missing, calls nothing by a word he corrected, tells him no coordinator is down that was not restarted, calls no job stuck or silent before its poster read that job's transcript, types no clock time for work already done, says in a summary what a PR it names serves, which a PR card's line above its card already quotes, and `cc-slack check-post` passes its exact words; a line naming a failure of the drive's with no word on how it is prevented only warns the session, and the post goes out."""
+    """What the drive's checks find in a post, which the say hook hands Jev to judge against his words: a bug report's thread gets one fix-live note once the fix is proven live, a question's thread one answer once it is posted to him, an edit of his question card redraws it, an edit of a post say made goes through say, a post in his DM goes through say, a thread outside his DM, such as an alert's, is named with its channel_id, a handler's line in his thread waits for its read of that thread, and then, every finding at once, the post keeps its length, links what it names, asks no tap that is not owed, backs each cause with its record, answers his order by no plan, record or answer of his that is missing, calls nothing by a word he corrected, tells him no coordinator is down that was not restarted, calls no job stuck or silent before its poster read that job's transcript, says no work sits with no one on it while it names no job on it now, types no clock time for work already done, says in a summary what a PR it names serves, which a PR card's line above its card already quotes, and `cc-slack check-post` passes its exact words; a line naming a failure of the drive's with no word on how it is prevented only warns the session, and the post goes out."""
     dm = drive["slack"]["channel"]
     tool_input = payload["tool_input"]
     if PLACEHOLDER.fullmatch(text := (tool_input.get("text") or "").strip()):
@@ -470,6 +470,7 @@ def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> s
             untooled(payload, drive, said),
             reported_down(drive, said),
             agents.unread_job(payload, said),
+            agents.unowned_work(said),
             agents.typed_time(said, drive),
             None if tool_input.get("tap_prs") else limits.kind_refusal(tool_input.get("text") or "", said, drive),
         ]
