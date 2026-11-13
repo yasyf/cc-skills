@@ -86,6 +86,29 @@ def test_a_job_add_naming_no_part_of_the_two_part_order_it_adds_is_refused_befor
     assert state.load(demo)["orders"] == {}
 
 
+def test_o1009_a_defects_one_job_call_records_its_builder_waiting_on_the_reader_so_the_watch_says_no_orphan_while_it_reads(meta: str) -> None:
+    words = "Drive tooling: the watch asked for proof of a PR on the dashboard"
+    order = {"words": words, "kind": "build", "project": "The drive", "workstream": "Drive tooling", "title": "Proof on the dashboard"}
+    part = state.whole_order(words)
+    said = tools.run("job", meta, {"ops": [{"add": {"kind": "reader", "order": order, "goal": "research: the proof the watch asked for"}}]})
+    assert said.splitlines()[1:] == [
+        f'1 job add: j1; j2 builder on "{part}" waits on j1: start no agent for it until the watch\'s FREE line says its last wait ended'
+    ]
+    tools.run("job", meta, {"ops": [{"set": {"id": "j1", "agent": "a-2870"}}]})
+    data = state.load(meta)
+    builder = data["jobs"]["j2"]
+    assert (builder["kind"], builder["state"], builder["waits"], builder["parts"], builder["agent"]) == ("builder", "waiting", ["j1"], [part], None)
+    watching = watch.Watcher(meta, offset=state.events_end(meta), ticked_at=state.now())
+    later = state.now() + timedelta(minutes=5)
+    assert watch.part_gap(watching, data, "o1", part, later) is None
+    data["orders"]["o1"]["jobs"].remove("j2")
+    assert watch.part_gap(watching, data, "o1", part, later).startswith(
+        f"no builder carries this work, only reader j1 running: start one with drive job add builder --order o1 --part '{part}' --goal '<what it builds>' --waits j1,"
+    )
+    assert cli.main(["order", "set", "o1", "--kind", "answer", "--part", part, "--drive", meta]) == 0
+    assert state.load(meta)["jobs"]["j2"]["state"] == "stopped"
+
+
 def test_a_call_with_three_refused_ops_prints_all_three(demo: str) -> None:
     tools.run("order", demo, {"ops": [{"add": {"words": "Ship it", "title": "Short title", "project": "Iris", "workstream": "Run page"}}]})
     with pytest.raises(DriveError) as refused:
@@ -894,7 +917,6 @@ def test_his_answer_settling_a_finished_readers_question_reaches_the_builder_at_
     shown["seq"] = "673125"
     tools.run("record", demo, {"records": [{"kind": "answer", "text": "one subject has one card", "waits": "demo:j1-673100", "ruling": "73060f0"}]})
     assert state.load(demo)["jobs"]["j1"]["undelivered"] == []
-    run("job", "add", "builder", "--order", "o1", "--goal", "build it")
     tools.run("job", demo, {"ops": [{"brief": {"id": "j2", "serves": "his order", "done_when": "installed", "where": "yasyf/cc-skills main"}}]})
     written = (state.drive_dir(demo) / "jobs" / "j2.brief.md").read_text()
     assert f"Decisions that bind:\n- {ANSWER['title']} (73060f0)\n" in written and "\nResearched: j1\n" in written

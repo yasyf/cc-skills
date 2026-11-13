@@ -78,7 +78,7 @@ def test_a_reader_on_a_build_order_keeps_its_researched_report_and_one_on_an_ans
     run("job", "add", "reader", "--order", "o1", "--goal", "research: what the fix needs")
     run("job", "add", "reader", "--order", "o2", "--goal", "answer why it is slow")
     run("job", "set", "j1", "--agent", "a-7")
-    run("job", "set", "j2", "--agent", "a-8")
+    run("job", "set", "j3", "--agent", "a-8")
     done = RESEARCH.splitlines()[0]
     reason = one_line_result.block_reason(agent_stop(done, tmp_path))
     assert reason.startswith("Refused on purpose: j1's return is not kept in the drive")
@@ -87,10 +87,10 @@ def test_a_reader_on_a_build_order_keeps_its_researched_report_and_one_on_an_ans
     keep(run, monkeypatch, "j1", RESEARCH)
     assert one_line_result.block_reason(agent_stop(done, tmp_path)) is None
     answer = "DONE it waits on the store lock"
-    assert one_line_result.block_reason(agent_stop(answer, tmp_path, agent_id="a-8")).startswith("Refused on purpose: j2's return is not kept in the drive")
-    keep(run, monkeypatch, "j2", answer)
+    assert one_line_result.block_reason(agent_stop(answer, tmp_path, agent_id="a-8")).startswith("Refused on purpose: j3's return is not kept in the drive")
+    keep(run, monkeypatch, "j3", answer)
     assert one_line_result.block_reason(agent_stop(answer, tmp_path, agent_id="a-8")) is None
-    assert state.load(demo)["jobs"]["j2"]["state"] == "done"
+    assert state.load(demo)["jobs"]["j3"]["state"] == "done"
 
 
 def test_a_handlers_line_carries_at_most_three_facts_past_its_results(communicator: str, tmp_path: Path) -> None:

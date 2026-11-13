@@ -664,6 +664,11 @@ def order_set(args: argparse.Namespace) -> int:
             order["incident"] = args.incident
         for part in sorted_parts:
             order["parts"][part]["answer"] = args.kind == "answer"
+        answered = set(sorted_parts or order["parts"]) if args.kind == "answer" else set()
+        for job in [data["jobs"][job_id] for job_id in order["jobs"]]:
+            if job["order"] == args.id and answered & set(job["parts"]) and state.unstarted_builder(data, job):
+                left = [part for part in job["parts"] if part not in answered]
+                job.update({"parts": left} if left else {"state": "stopped", "said": f"stopped: drive order set {args.id} --kind answer left it nothing to build"}, updated=state.stamp(moment))
         if args.kind and not sorted_parts:
             order["kind"] = args.kind
         if args.complex is not None:
@@ -684,7 +689,7 @@ def order_set(args: argparse.Namespace) -> int:
 
 
 def sorted_as(data: dict, order_id: str, kind: str | None, named: list[str]) -> list[str]:
-    """The parts --part sorts as --kind names, refused without --kind and, as an answer, while a builder, codex or design job or a drive PR is on one, since that part is work under way."""
+    """The parts --part sorts as --kind names, refused without --kind and, as an answer, while a builder, codex or design job or a drive PR is on one, since that part is work under way, but for a builder still waiting on research with no agent, which the answer stops."""
     if not named:
         return []
     if not kind:
@@ -692,7 +697,7 @@ def sorted_as(data: dict, order_id: str, kind: str | None, named: list[str]) -> 
     parts = pick_parts(order_id, data["orders"][order_id], named)
     for part in parts if kind == "answer" else []:
         jobs = dict(state.part_jobs(data, order_id, part))
-        working = [f"{job['kind']} {job_id}" for job_id, job in jobs.items() if job["kind"] in state.WORK_KINDS]
+        working = [f"{job['kind']} {job_id}" for job_id, job in jobs.items() if job["kind"] in state.WORK_KINDS and not state.unstarted_builder(data, job)]
         working += [key for key, pr in data["prs"].items() if pr["job"] in jobs]
         if working:
             raise DriveError(f'--part "{part}": refused, {", ".join(working)} works on it, so it is work under way, never an answer: its builder\'s DONE or a merged PR delivers it')
@@ -1066,6 +1071,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         if crowd := args.kind == "builder" and not args.remote and not args.agent and not args.waits and place.crowded(data, job_id, state.now()):
             job["where"] = "remote"
         order["jobs"].append(job_id)
+        builder_id = waiting_builder(name, data, job_id, created)
         order["updated"] = created
         state.end_carried_designs(data, args.order, created)
         named = state.named_prs(data, args.order, args.goal)
@@ -1073,11 +1079,28 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         with_cards(name, data)
     history = [line for key in named for line in render.pr_history(data, key, job_id)]
     waiting = [f"{job_id} {job['said']}: start no agent for it until the watch's FREE line says its last wait ended"] if args.waits else []
+    if builder_id:
+        parts_named = ", ".join(json.dumps(part, ensure_ascii=False) for part in data["jobs"][builder_id]["parts"])
+        waiting.append(f"{builder_id} builder on {parts_named} {data['jobs'][builder_id]['said']}: start no agent for it until the watch's FREE line says its last wait ended")
     if crowd:
         waiting.append(
             f"{job_id} starts on a Sprite at once, since {crowd}: drive job launch {job_id} <brief>; one whose brief names a step only this Mac runs, {place.MAC_ONLY_STEPS}, waits its turn for a slot here once its agent starts"
         )
-    return job_id, job | {"beside": beside, "history": history}, [*waiting, *beside, *history]
+    return job_id, job | {"builder": builder_id, "beside": beside, "history": history}, [*waiting, *beside, *history]
+
+
+def waiting_builder(name: str, data: dict, reader_id: str, created: str) -> str | None:
+    """The builder a build order's reader is added with, waiting on it, for each of the reader's parts no builder, codex or design job carries, wherever job_refusal lets a builder wait on that reader, so its work is never research's alone while it reads."""
+    reader = data["jobs"][reader_id]
+    if reader["kind"] != "reader" or not (uncarried := [part for part in reader["parts"] if not state.carriers(data, reader["order"], part)]):
+        return None
+    if brief.job_refusal(name, data, reader["order"], "builder", uncarried, False, [reader_id]):
+        return None
+    builder_id = state.next_id(data["jobs"], "j")
+    builder = data["jobs"][builder_id] = state.new_job(reader["order"], "builder", f"build what {reader_id}'s research finds: {reader['goal'].removeprefix('research: ')}", uncarried, created) | {"waits": [reader_id]}
+    state.hold_unstarted(builder)
+    data["orders"][reader["order"]]["jobs"].append(builder_id)
+    return builder_id
 
 
 def unlandable(data: dict, keys: list[str]) -> str | None:
@@ -3620,7 +3643,7 @@ def parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         type=str.strip,
-        help="with --kind answer, a part that asks only for an answer, which the post it already holds then delivers, refused while a builder, codex or design job or a drive PR is on it; with --kind build, work again",
+        help="with --kind answer, a part that asks only for an answer, which the post it already holds then delivers, refused while a builder, codex or design job or a drive PR is on it, but for a builder no agent started that waits only on readers, which it takes the part off, stopped once none is left; with --kind build, work again",
     )
     verb.add_argument("--complex", action=argparse.BooleanOptionalAction, help="mark or unmark it as more than a one-fact lookup")
     verb.add_argument(
