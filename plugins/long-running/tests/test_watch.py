@@ -3192,7 +3192,7 @@ def test_an_approval_on_an_older_head_reads_approved_on_an_older_head_yet_his_ap
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == [f"PR {KEY}: new head bbbbbbb [o1 j1]", f"PR {KEY}: checks passed [o1 j1]"]
     pr = state.load(demo)["prs"][KEY]
-    assert (pr["review"], watch.view.tap_detail(pr), landers) == ("stale", "green, approved on an older head", [])
+    assert (pr["review"], watch.view.tap_detail(pr), landers) == ("stale", "green, approved on an older head; uncarded, owed by the watch: his card on it is not drawn yet", [])
     approve(demo, KEY)
     watch.run_pass(watching, T0 + timedelta(minutes=1))
     assert landers == [(KEY,)]

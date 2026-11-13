@@ -118,7 +118,7 @@ def test_queue_puts_questions_then_ready_taps_then_late_promises() -> None:
     assert "answer" not in queue[2]
     assert queue[1]["links"] == [{"label": "Pull request", "url": "https://github.com/yasyf/cc-skills/pull/3"}]
     assert (queue[2]["url"], queue[2]["since"], queue[2]["links"]) == ("https://github.com/yasyf/cc-skills/pull/1", None, [])
-    assert queue[3]["detail"] == "green, approved; changed since your tap: now deletes the old page; no Slack card yet"
+    assert queue[3]["detail"] == "green, approved; changed since your tap: now deletes the old page; card, owed by him: green, waits on his Approve; no Slack card yet"
     assert queue[4]["url"] == f"{TEAM}archives/D123/p1794200000000100"
 
 
@@ -306,7 +306,7 @@ def test_a_small_drive_draws_its_counts_then_a_table_for_each_part_that_has_rows
         "## ✅ Finished (1)",
     ]
     assert f"| [Release now?](https://acme.slack.com/archives/D123/p-20) | — | {when(at(-20))} | Yes |" in markdown
-    assert f"| [change 1](https://github.com/yasyf/cc-skills/pull/1) · {first} | 🟢 green, approved; no Slack card yet | — |" in markdown
+    assert f"| [change 1](https://github.com/yasyf/cc-skills/pull/1) · {first} | 🟢 green, approved; card, owed by him: green, waits on his Approve; no Slack card yet | — |" in markdown
     assert "| **No project** | 1 | 1 | · | · | · | · | 1 |" in markdown
     assert f"| [wait for CI]({thread}) | — | CI runs | 🔴 [#3](https://github.com/yasyf/cc-skills/pull/3) 1 merged |" in markdown
     assert f"| [ship the page]({thread}) | — | drawing it | 🟢 {first} |" in markdown

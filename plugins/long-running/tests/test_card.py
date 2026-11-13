@@ -108,6 +108,7 @@ def default_stage(wants_tap: bool, tap: str | None, exempt: str | None, pr_state
 
 
 def judged_job(data: dict) -> dict:
+    data["orders"]["o1"] = state.new_order("ship the run page", "terminal", None, {}, "2026-11-09T08:00:00-08:00") | {"jobs": ["j1"], "project": "Iris", "workstream": "Run page"}
     data["jobs"]["j1"] = state.new_job("o1", "builder", "ship", [], "2026-11-09T08:00:00-08:00")
     return data
 
@@ -602,7 +603,7 @@ def test_a_drive_tooling_pr_whose_his_words_say_none_draws_its_card_with_approve
     monkeypatch.setattr(card, "run", answering(pr_json(body=body)))
     assert cli.main(["order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a tooling PR lands on his Approve", "--drive", drive]) == 0
     with state.edit(drive) as data:
-        data["prs"]["Forge-AI/monorepo#42"]["serves"] = "o1"
+        data["prs"]["Forge-AI/monorepo#42"]["serves"] = "o2"
     reply = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})
     assert [(drawn["number"], drawn["card"]["status"]) for drawn in reply["cards"]] == [(42, "needs_you")]
     assert "refused" not in [event["kind"] for event in events(drive)]
