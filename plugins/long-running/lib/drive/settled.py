@@ -16,8 +16,8 @@ from drive.render import cut
 from drive.state import DriveError
 
 HAND_ASK = (
-    "refused: `drive job ask <j> <file>` keeps a job's question and posts its ask record in the same call, storing the"
-    " waits id its card draws under, so no session posts an ask record: keep the question with it, a remote lane's ASK"
+    "refused: `drive job ask <j> <file>` keeps a job's question and draws his card on it in the same call, under the"
+    " waits id it mints, so no session posts an ask record: keep the question with it, a remote lane's ASK"
     " the watch did not keep with `drive job ask <j>`, and ask an open card of the job's again in new words with"
     " `--redraws <that card's waits id>`"
 )

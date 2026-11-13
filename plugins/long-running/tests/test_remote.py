@@ -27,6 +27,7 @@ from conftest import (
     Drawing,
     Jev,
     cloned,
+    drawn_card,
     git_in,
     staged,
 )
@@ -3496,8 +3497,8 @@ def test_an_open_question_kept_before_the_watch_read_it_as_a_read_is_answered_an
     assert (job["ask"], job["state"], job["reads"]) == (None, "running", {})
 
 
-def test_an_ask_naming_the_block_drive_job_ask_kept_and_posted_wakes_the_coordinator_with_its_file(
-    remote: str, monkeypatch: pytest.MonkeyPatch, drawing: Drawing, asks_sent: list[dict]
+def test_an_ask_naming_the_block_drive_job_ask_kept_and_drew_wakes_the_coordinator_with_its_file(
+    remote: str, monkeypatch: pytest.MonkeyPatch, drawing: Drawing, cards_drawn: list[dict]
 ) -> None:
     kept = cli.keep_ask(remote, "j1", ASK_IN_SHAPE, None)[0]
     deliver(monkeypatch, [message("question", f"ASK {kept}", id="msg_ask")])
@@ -3505,7 +3506,7 @@ def test_an_ask_naming_the_block_drive_job_ask_kept_and_posted_wakes_the_coordin
     assert watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote)), T0) == [f"JOB j1 o1 ASK {kept}"]
     job = state.load(remote)["jobs"]["j1"]
     assert (job["ask"], job["state"], [(question["file"], question["waits"]) for question in job["questions"]]) == ("msg_ask", "waiting", [(str(kept), f"{remote}:j1-7")])
-    assert [(sent["kind"], sent["to"], sent["attr"]["ask"]) for sent in asks_sent] == [("ask", [f"communicator@{remote}"], str(kept))]
+    assert [(drawn["job"], drawn["file"], drawn["waits"]) for drawn in cards_drawn] == [("j1", str(kept), f"{remote}:j1-7")]
 
 
 @pytest.mark.parametrize("sent", [ASK_IN_SHAPE, "ASK /home/sprite/scratch/j1/ask.md"])
@@ -3626,7 +3627,9 @@ def test_drive_job_ask_with_no_file_keeps_each_block_its_lanes_pointer_names_and
     with state.edit(remote) as data:
         data["jobs"]["j1"]["report"] = f"ASK {kept[0]} {kept[1]}"
         data["jobs"]["j1"]["questions"][0]["card"] = "https://acme.slack.com/archives/D123/p1794550261672959"
-    assert run("job", "ask", "j1") == (0, f"{kept[0]}\n{kept[1]}")
+    assert run("job", "ask", "j1") == (
+        0, f"{kept[0]}\nhis card {drawn_card(3)} asks it under {remote}:j1-7\n{kept[1]}\nhis card {drawn_card(4)} asks it under {remote}:j1-8"
+    )
     assert [question["file"] for question in state.load(remote)["jobs"]["j1"]["questions"]] == [str(kept[0]), str(kept[1])]
     with state.edit(remote) as data:
         data["jobs"]["j1"]["report"] = "ASK /home/sprite/scratch/j1/ask.md"

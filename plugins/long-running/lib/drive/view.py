@@ -62,6 +62,7 @@ LEADING_LINK = re.compile(r"^https?://\S+\s+(?=\S)")
 SHARED = re.compile(r"^Shared from (.+?) in #\w+:\s*")
 COMMAS = re.compile(r"\s*,(?:\s*,)*")
 SPACES = re.compile(r"\s+(?=[.;:!?])|(?<=\s)\s+")
+RECORD_TOKEN = re.compile(rf"[^\s()]*(?:{RECORD_ID.pattern})[^\s()]*")
 TITLE_CHARS = 100
 NOW_CHARS = 180
 NO_CARDS = {"questions": [], "pr_cards": [], "closed": [], "team_url": ""}
@@ -311,11 +312,11 @@ def read(name: str, moment: datetime, project: str | None = None, workstream: st
 
 @lru_cache(maxsize=4096)
 def plain(text: str, limit: int) -> str:
-    """The first line of his words as a title: Slack links as their labels, with no record ids."""
+    """The first line of his words as a title: Slack links as their labels, with no record ids, each word holding one dropped whole, so a waits id leaves no stray drive name or dash."""
     first = next((line for line in text.splitlines() if line.strip()), "")
     first = BOARD_PICK.sub("", SLACK_LINK.sub(lambda link: link[1], first))
     first = SHARED.sub(r"\1: ", LEADING_LINK.sub("", first))
-    first = RECORD_ID.sub("", PARENTHETICAL.sub(lambda match: "" if RECORD_ID.search(match[0]) else match[0], first))
+    first = RECORD_TOKEN.sub("", PARENTHETICAL.sub(lambda match: "" if RECORD_ID.search(match[0]) else match[0], first))
     return cut(SPACES.sub("", COMMAS.sub(",", first)).strip(" ,"), limit)
 
 

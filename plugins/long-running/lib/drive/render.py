@@ -24,7 +24,7 @@ REACHING = (
 )
 PREVENTED = "A post telling him the drive failed says how that is prevented: the tool change and its order or PR."
 STAMPS = (
-    "What he reads, a say post, a card or a POST, ready or ask record to the communicator, names when a job started as"
+    "What he reads, a say post, a card or a POST or ready record to the communicator, names when a job started as"
     " {started:<job>} and when a record went out as {at:<seq>}, never a clock time you type, and writes a time a tool or query printed,"
     " such as a GitHub check's, in Pacific on the line linking it or in backticks as it printed it, a release's, build's or deploy's start on the line linking that"
     " build or tool, so its first write passes the check that refuses a typed one; a promise of a time to come passes, and a"
@@ -86,7 +86,7 @@ COMMUNICATOR_RULES = (
     (
         "Nothing else runs in your turn, since work there holds his next message behind it: every report, card, due"
         " line, draft, check-post, read of any kind and anything taking more than one call runs in a handler the drive's"
-        " handler tool starts, which posts its own result. A POST report and an ask record each get one"
+        " handler tool starts, which posts its own result. A POST report gets one"
         " handler, its brief the one line `Record: <seq> Drive: <name> Scratch: <folder>`; an `FYI` report gets none. A record's body and"
         " any path it names are the handler's to read. Your own calls are "
         + OWN_CALLS
@@ -127,7 +127,7 @@ COMMUNICATOR_RULES = (
 )
 COORDINATOR_RULES = (
     (
-        "You have no AskUserQuestion: everything he sees goes to communicator@<drive> as a report, ready or ask record,"
+        "You have no AskUserQuestion: everything he sees goes to communicator@<drive> as a report or ready record, or as a card drive job ask draws,"
         " since his reply under a post"
         " reaches only the session that posted it. Write a report as the facts of the post he reads, one per thread per"
         " turn: its first line says what changed for him, each thing he could open has its URL beside it, and its facts"
@@ -177,7 +177,7 @@ META_RULES = (
         " under a post reaches only the session that posted it: what he should see goes to communicator@<drive> as a report record opening POST, its"
         " first line what changed for him and each thing he could open with its URL beside it, naming what it finishes"
         " (--attr close=<o> on the line that finishes a tooling order, thread or none, else --attr progress=true), and a"
-        " question for him kept with drive job ask, which posts its ask record; the communicator's handler posts both. "
+        " question for him kept with drive job ask, which draws his card on it; the communicator's handler posts the report. "
         + STAMPS
         + " "
         + PREVENTED

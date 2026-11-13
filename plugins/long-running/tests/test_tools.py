@@ -376,7 +376,7 @@ def test_tool_help_prints_each_field_of_its_input_with_its_type_whether_it_is_re
     assert f"ops[].add.order.words (string, required): {words['description']}" in lines
 
 
-def test_a_record_goes_to_the_other_session_and_a_tap_takes_its_ask_and_job_from_the_waits_id(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_record_goes_to_the_other_session_and_a_tap_takes_its_job_and_waits_from_the_waits_id(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     posted: list[tuple[list[str], list[dict]]] = []
     ok = subprocess.CompletedProcess([], 0, "#41\n#42\n", "")
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append((argv, json.loads(kwargs["input"]))) or ok)
@@ -386,7 +386,7 @@ def test_a_record_goes_to_the_other_session_and_a_tap_takes_its_ask_and_job_from
         (
             ["cci", "post", "--drive", "demo", "--lane", "root", "--batch", "-"],
             [
-                {"kind": "answer", "to": ["communicator@demo"], "re": ["7"], "text": "undone: Ring", "attr": {"job": "j2", "undone": "Ring"}},
+                {"kind": "answer", "to": ["communicator@demo"], "text": "undone: Ring", "attr": {"job": "j2", "waits": "demo:j2-7", "undone": "Ring"}},
                 {"kind": "defect", "to": ["meta@demo"], "text": "cc-slack delete hides --url"},
             ],
         )
@@ -998,39 +998,34 @@ def test_an_answer_naming_his_open_card_by_its_waits_attr_settles_that_card_in_t
     assert answered == [("card-answer", "--card", card, "--label", "Ring", "--settled", "--other", "--via", card)]
 
 
-def test_an_answer_closing_an_ask_his_recorded_rules_settled_before_any_card_drew_settles_its_kept_question(
+def test_an_answer_his_recorded_rules_give_by_the_waits_id_of_a_question_whose_card_never_drew_settles_it(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, heard: Heard
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Durable agents", "one card per subject")
     run("job", "add", "builder", "--order", "o1", "--goal", "build it")
     asked = str(state.drive_dir(demo) / "asks" / "j1-5c1d.md")
     with state.edit(demo) as data:
-        data["jobs"]["j1"]["questions"] = [state.new_question(asked, "Which card keeps the subject?", state.stamp())]
-    shown = {"ask": asked}
+        data["jobs"]["j1"]["questions"] = [state.new_question(asked, "Which card keeps the subject?", state.stamp()) | {"waits": "demo:j1-672331"}]
     posted: list[list[dict]] = []
 
     def cci(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        if argv[:2] == ["cci", "show"]:
-            return subprocess.CompletedProcess(argv, 0, json.dumps({"kind": "ask", "fields": {"attrs": shown | {"job": "j1"}}}), "")
         posted.append(json.loads(str(kwargs["input"])))
         return subprocess.CompletedProcess(argv, 0, "672342\n", "")
 
     monkeypatch.setattr(subprocess, "run", cci)
     open_cards(monkeypatch)
     answer = {"kind": "answer", "text": "one subject has one card", "waits": "demo:j1-672331", "ruling": "320b7a7"}
-    shown["ask"] = str(state.drive_dir(demo) / "asks" / "j1-other.md")
     with pytest.raises(DriveError, match="1: refused, nothing posted: no job of this drive keeps the question this answer names"):
-        tools.run("record", demo, {"records": [answer]})
-    shown["ask"] = asked
+        tools.run("record", demo, {"records": [answer | {"waits": "demo:j1-672330"}]})
     heard.refusal = "no permalink names where he said it"
     with pytest.raises(DriveError, match="1: refused, nothing posted: no permalink names where he said it"):
         tools.run("record", demo, {"records": [answer]})
     assert heard.checked == [("one subject has one card", None)]
     heard.refusal = None
-    assert tools.run("record", demo, {"records": [answer], "dry_run": True}).splitlines()[1:] == ['1 would end j1\'s question "Which card keeps the subject?" answered, closing ask 672331']
+    assert tools.run("record", demo, {"records": [answer], "dry_run": True}).splitlines()[1:] == ['1 would end j1\'s question "Which card keeps the subject?" answered, closing its card']
     assert posted == []
     assert tools.run("record", demo, {"records": [answer]}).splitlines()[0] == "1 answer 672342"
-    assert posted[0][0]["resolves"] == ["672331"]
+    assert (posted[0][0].get("resolves"), posted[0][0]["attr"]) == (None, {"job": "j1", "waits": "demo:j1-672331", "ruling": "320b7a7"})
     job = state.load(demo)["jobs"]["j1"]
     closed = job["questions"][0]["closed"]
     assert ((closed["how"], closed["words"], closed["seq"], closed["ruling"]), view.open_questions(job)) == (("answered", "one subject has one card", "672342", "320b7a7"), [])
@@ -1045,19 +1040,12 @@ def test_his_answer_settling_a_finished_readers_question_reaches_the_builder_at_
     state.keep_report(demo, "j1", "DONE researched the store copy", RESEARCH)
     first, second = (str(state.drive_dir(demo) / "asks" / f"j1-{key}.md") for key in ("5c1d", "9e2f"))
     with state.edit(demo) as data:
-        data["jobs"]["j1"].update(state="done", questions=[state.new_question(first, "Which card keeps the subject?", state.stamp())])
+        data["jobs"]["j1"].update(state="done", questions=[state.new_question(first, "Which card keeps the subject?", state.stamp()) | {"waits": "demo:j1-673100"}])
         data["jobs"]["j1"]["undelivered"] = [{"seq": "673013", "words": "one card", "at": state.stamp(), "said": None}]
     assert state.load(demo)["jobs"]["j1"]["undelivered"] == []
-    shown = {"ask": first}
-
-    def cci(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        if argv[:2] == ["cci", "show"]:
-            return subprocess.CompletedProcess(argv, 0, json.dumps({"kind": "ask", "fields": {"attrs": shown | {"job": "j1"}}}), "")
-        return subprocess.CompletedProcess(argv, 0, f"{shown['seq']}\n", "")
-
-    monkeypatch.setattr(subprocess, "run", cci)
+    shown = {"seq": "673125"}
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0, f"{shown['seq']}\n", ""))
     open_cards(monkeypatch)
-    shown["seq"] = "673125"
     tools.run("record", demo, {"records": [{"kind": "answer", "text": "one subject has one card", "waits": "demo:j1-673100", "ruling": "73060f0"}]})
     assert state.load(demo)["jobs"]["j1"]["undelivered"] == []
     tools.run("job", demo, {"ops": [{"brief": {"id": "j2", "serves": "his order", "done_when": "installed", "where": "yasyf/cc-skills main"}}]})
@@ -1066,8 +1054,8 @@ def test_his_answer_settling_a_finished_readers_question_reaches_the_builder_at_
     watching = watch.Watcher(demo, offset=state.events_end(demo))
     assert watch.undelivered_lines(watching, state.now() + timedelta(minutes=11)) == []
     with state.edit(demo) as data:
-        data["jobs"]["j1"]["questions"].append(state.new_question(second, "Which card keeps the thread?", state.stamp()))
-    shown.update(ask=second, seq="673200")
+        data["jobs"]["j1"]["questions"].append(state.new_question(second, "Which card keeps the thread?", state.stamp()) | {"waits": "demo:j1-673190"})
+    shown["seq"] = "673200"
     tools.run("record", demo, {"records": [{"kind": "answer", "text": "the thread's own card", "waits": "demo:j1-673190"}]})
     drive = state.load(demo)
     assert ([kept["seq"] for kept in drive["jobs"]["j2"]["undelivered"]], drive["jobs"]["j1"]["undelivered"]) == (["673200"], [])

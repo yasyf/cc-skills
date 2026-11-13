@@ -704,11 +704,12 @@ def test_an_answer_on_a_drives_question_card_is_posted_as_its_one_answer_record_
     ask({"answer": tap | {"undone": True, "action_ts": "1794200003.000100"}})
     ask({"answer": tap | {"waits": f"{drive}:hier-1", "label": "Keep both until Friday", "other": True, "action_ts": "1794200004.000100"}})
     batch = ["cci", "post", "--drive", drive, "--lane", "communicator", "--batch", "-"]
-    answer = {"kind": "answer", "to": [f"root@{drive}"], "url": url, "re": ["661440"]}
+    answer = {"kind": "answer", "to": [f"root@{drive}"], "url": url}
+    asked = {"job": "j3", "waits": f"{drive}:j3-661440"}
     assert posted == [
-        (batch, [answer | {"text": "Ring", "attr": {"job": "j3"}, "id": f"tap:{drive}:j3-661440:1794200001.000100"}]),
-        (batch, [answer | {"text": "neither, keep both", "attr": {"maps": "none", "job": "j3"}, "id": f"tap:{drive}:j3-661440:1794200002.000100"}]),
-        (batch, [answer | {"text": "undone: Ring", "attr": {"job": "j3", "undone": "Ring"}, "id": f"tap:{drive}:j3-661440:1794200003.000100:undone"}]),
+        (batch, [answer | {"text": "Ring", "attr": asked, "id": f"tap:{drive}:j3-661440:1794200001.000100"}]),
+        (batch, [answer | {"text": "neither, keep both", "attr": {"maps": "none"} | asked, "id": f"tap:{drive}:j3-661440:1794200002.000100"}]),
+        (batch, [answer | {"text": "undone: Ring", "attr": asked | {"undone": "Ring"}, "id": f"tap:{drive}:j3-661440:1794200003.000100:undone"}]),
         (
             batch,
             [
@@ -751,7 +752,7 @@ def test_a_tap_on_a_question_card_cc_slack_forgot_is_recorded_and_ends_its_quest
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append(json.loads(kwargs["input"])) or ok)
     tap = {"waits": f"{drive}:j3-661440", "label": "Ring", "url": NEWER_CARD, "action_ts": "1794200001.000100", "source": "slack"}
     assert ask({"answer": tap}) == {"ok": True, "seq": "661500"}
-    assert [(item["text"], item["re"]) for batch in posted for item in batch] == [("Ring", ["661440"])]
+    assert [(item["text"], item["attr"]) for batch in posted for item in batch] == [("Ring", {"job": "j3", "waits": f"{drive}:j3-661440"})]
     closed = state.load(drive)["jobs"]["j3"]["questions"][0]["closed"]
     assert (closed["how"], closed["words"], closed["link"]) == ("answered", "Ring", NEWER_CARD)
 

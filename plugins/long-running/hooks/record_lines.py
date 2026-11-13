@@ -67,14 +67,14 @@ def refusals(payload: dict, names: list[str], records: list[dict]) -> Iterator[s
 
 
 def readdressed(drives: dict[str, dict], session: str | None, record: dict) -> dict:
-    """The record addressed where its drive routes it: a defect, and the communicator's owner record about the drive, to the meta session, and the communicator's other owner, answer, handoff, posted or refused record to the session holding the order it serves."""
+    """The record addressed where its drive routes it: a defect, and the communicator's owner record about the drive, to the meta session, and the communicator's other owner, answer, handoff or refused record to the session holding the order it serves."""
     entries = listed(record.get("to"))
     to = state.routed(drives, session, kind(record), attrs(record), entries)
     return record if to == entries else record | {"to": to}
 
 
 def decision(payload: dict) -> dict | None:
-    """What a drive session's post becomes: refused with the fix while a record in it, read with the text, kind, lanes and attrs cci stores for it, breaks a rule its kind keeps, an ask record, which only `drive job ask` posts, included, else posted with a warning on each POST line telling him a failure of the drive's with no word on how it is prevented, and every record in it trimmed of the attrs it never carries and one line, the rest in its body for whoever acts on it, and each record sent where its drive routes it, a records list rewritten with each record whole, since a field cci filled in beside the list would put back what the record dropped."""
+    """What a drive session's post becomes: refused with the fix while a record in it, read with the text, kind, lanes and attrs cci stores for it, breaks a rule its kind keeps, an ask record, which no session posts since `drive job ask` draws his card itself, included, else posted with a warning on each POST line telling him a failure of the drive's with no word on how it is prevented, and every record in it trimmed of the attrs it never carries and one line, the rest in its body for whoever acts on it, and each record sent where its drive routes it, a records list rewritten with each record whole, since a field cci filled in beside the list would put back what the record dropped."""
     names = state.session_drives(payload.get("session_id") or "")
     if not names:
         return None

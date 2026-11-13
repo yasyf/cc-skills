@@ -55,7 +55,7 @@ FREED = "FREE"
 MINUTES = re.compile(r"\b\d+ minutes\b")
 PR_LINE = re.compile(r"\s*(?:READY|PUSHED|PR:)")
 JOB_LINE = re.compile(r"JOB (?P<job>j\d+) o\d+ ")
-UNKEPT_ASK = "keep it with `drive job ask {job}`, which posts its ask record, since no card draws for it until then"
+UNKEPT_ASK = "keep it with `drive job ask {job}`, which draws his card on it, since no card draws for it until then"
 ASK_FIELD = re.compile(r"^ASK:?[ \t]+([/~]\S*)[ \t]*$", re.MULTILINE)
 PAUSED = "The recommended answer to this question is built and paused on your pick: tap it and the work ships; another pick rebuilds it first."
 QUIET_FOR = timedelta(minutes=30)
@@ -1498,7 +1498,7 @@ def codex_gap(job_id: str, job: dict) -> str | None:
 
 
 def codex_asks(name: str, job_id: str) -> list[str]:
-    """Keep the ASK block a codex job's reply names on its `ASK: <file>` line, or on an `ASK <file>` line it returned, as `drive job ask` keeps a builder's, in the pass its run is taken, so his card goes up as the lane returns while the recommended option it built ships, since a codex run is never resumed mid-run and an incident never stops on a choice; the JOB line saying its ask record went out, the settled line when he already answered that same question, or why it was not kept."""
+    """Keep the ASK block a codex job's reply names on its `ASK: <file>` line, or on an `ASK <file>` line it returned, as `drive job ask` keeps a builder's, in the pass its run is taken, so his card goes up as the lane returns while the recommended option it built ships, since a codex run is never resumed mid-run and an incident never stops on a choice; the JOB line saying where his card stands, the settled line when he already answered that same question, or why it was not kept."""
     from drive import cli
 
     job = state.load(name)["jobs"][job_id]
@@ -1506,12 +1506,13 @@ def codex_asks(name: str, job_id: str) -> list[str]:
         return []
     head = f"JOB {job_id} {job['order']} {job['said']}"
     try:
-        kept, _, _, decided = cli.keep_ask(name, job_id, Path(named[1]).expanduser().read_text(), None)
+        _, _, question, said = cli.keep_ask(name, job_id, Path(named[1]).expanduser().read_text(), None)
     except (OSError, state.DriveError, slack.SlackError) as error:
         return [f"{head}; its ASK: {named[1]} is not kept: {error}; keep it with drive job ask {job_id} {named[1]}"]
-    if decided:
-        return [f"{head}; {decided}"]
-    return [f"{head}; its ASK is kept in {kept} and its ask record posted, so his card draws, and the recommended option it built ships meanwhile"]
+    if question["closed"]:
+        return [f"{head}; {said}"]
+    kept, _, drawn = said.partition("\n")
+    return [f"{head}; its ASK is kept in {kept}, {drawn}, and the recommended option it built ships meanwhile"]
 
 
 def session_of(job: dict, data: dict) -> dict | None:
@@ -2163,7 +2164,7 @@ def changed_since(order: dict, jobs: dict, last: datetime) -> bool:
 
 
 def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """One loop of the watch: first the answer kept for each lane's read, so a pass a newer install ends while it reads every live lane's mail holds back none it already had, then the drive's own Orca terminal every Orca call speaks as, his cards, the GitHub reads it owes, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, the waits his answers or a job's end release, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited, the receiver and each teammate thread an order watches every 60 s, and GitHub again next poll after a failure, new events, then the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, the catch-up owed him, promised times still owed a line, the line owed in each thread whose order or incident has news, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries. Each stage's lines join the watcher's made lines as it returns, or as it saves when it keeps working after its save, so a pass that ends early, in a crash or on a drive a newer install saved, leaves them to the watch process after it."""
+    """One loop of the watch: first the answer kept for each lane's read, so a pass a newer install ends while it reads every live lane's mail holds back none it already had, then the drive's own Orca terminal every Orca call speaks as, his cards, the GitHub reads it owes, his card on each kept question none drew yet, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, the waits his answers or a job's end release, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited, the receiver and each teammate thread an order watches every 60 s, and GitHub again next poll after a failure, new events, then the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, the catch-up owed him, promised times still owed a line, the line owed in each thread whose order or incident has news, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries. Each stage's lines join the watcher's made lines as it returns, or as it saves when it keeps working after its save, so a pass that ends early, in a crash or on a drive a newer install saved, leaves them to the watch process after it."""
     lines = watcher.made
     lines += read_lines(watcher, state.load(watcher.name), moment)
     if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
@@ -2181,6 +2182,7 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
         lines += carried_lines(watcher, moment)
         checks(watcher, moment)
         lines += stage_lines(watcher, moment)
+        draw_questions(watcher, moment)
         landed(watcher)
         lines += settle_lines(watcher, moment)
         lines += follow_lines(watcher, moment)
@@ -2283,6 +2285,29 @@ def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
         except (slack.SlackError, state.DriveError) as error:
             lines += failed(watcher, "card ask", f"ask again of his card on {', '.join(keys)}", error, moment)
     return lines
+
+
+def draw_questions(watcher: Watcher, moment: datetime) -> None:
+    """Draw his card on each open question of a heard job, kept in its file with no card drawn and no refusal, as drive job ask draws it, so a draw that failed in that call goes up on this read; a job that failed or stopped asks him nothing new. A draw that fails again is said to the meta session from its third failure in a row, and a card drive job card refuses leaves its question refused, which the job's line then says."""
+    if watcher.cards is None:
+        return
+    from drive import cli
+
+    data = state.load(watcher.name)
+    undrawn = [
+        (job_id, Path(question["file"]))
+        for job_id, job in data["jobs"].items()
+        if job["state"] not in ("failed", "stopped") and heard_job(watcher, data, job)
+        for question in view.open_questions(job)
+        if question["file"] and not (question["card"] or question["refused"])
+    ]
+    for job_id, file in undrawn:
+        try:
+            cli.post_ask(watcher.name, job_id, file, cli.ask_card(watcher.name, job_id, file))
+        except (slack.SlackError, state.DriveError) as error:
+            watcher.unsent.setdefault("meta", []).extend(failed(watcher, "question draw", f"draw of {job_id}'s card on {file}", error, moment))
+            continue
+        watcher.failures.pop("question draw", None)
 
 
 def acted(watcher: Watcher, key: str, now: stage.Stage, entered: bool, line: str, moment: datetime) -> list[str]:

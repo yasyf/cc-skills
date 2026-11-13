@@ -549,8 +549,8 @@ Replaces: <only on a question built on another open question of his: the path dr
 - A question built on another open question of his, such as a ceiling that assumes his pick on
   where the rows are counted, asks both choices on that question's card, its options pairing the
   picks, two to four in all, with `Replaces: <that question's ASK file>` under `Findings:`.
-  `drive job ask` then gives this question that card and its waits id, so its ask record redraws
-  that card where it sits, and keeps the other open, folded into this one, drawing no card of its
+  `drive job ask` then gives this question that card and its waits id, and redraws that card where
+  it sits, and keeps the other open, folded into this one, drawing no card of its
   own, until his one answer ends both. It refuses a file whose question his answer or a withdraw
   already closed.
 - The summary tells the decision's story, by his words "its almost like each one needs to tell a

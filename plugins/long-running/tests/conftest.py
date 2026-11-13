@@ -1,3 +1,4 @@
+import itertools
 import json
 import os
 import subprocess
@@ -27,7 +28,6 @@ from drive import (
     stage,
     state,
     talk,
-    tools,
     view,
     watch,
 )
@@ -44,6 +44,7 @@ REAL_SPRITE_CONFIG = orca.sprite_config
 SPRITE_CONFIG = "4b925c205080" + "0" * 52
 LANE_SPEC = Path(__file__).resolve().parents[2] / "orca" / "lib" / "lane.json"
 SETTLED_NOTE = cli.settled_note
+POST_ASK = cli.post_ask
 TEAM = [
     {"name": "rowan", "real_name": "Rowan Vale", "email": "rowan@example.com"},
     {"name": "juniper.cole", "real_name": "Juniper Cole", "email": "juniper.cole@example.com"},
@@ -247,18 +248,24 @@ def drive_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
-def asks_sent(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
-    sent: list[dict] = []
-    real = tools.sent
+def cards_drawn(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
+    """Each card drive job ask or the watch draws, at a link of its own recorded on its question as talk.posted records it, under waits ids minted 7, 8, … in turn; a test of the draw itself puts back POST_ASK."""
+    drawn: list[dict] = []
+    minted = itertools.count(7)
 
-    def post(name: str, lane: str, posts: list[dict]) -> list[str]:
-        if [made["kind"] for made in posts] != ["ask"]:
-            return real(name, lane, posts)
-        sent.append({"lane": lane} | posts[0])
-        return [f"#{6 + len(sent)}"]
+    def post(name: str, job_id: str, file: Path, card: dict) -> str:
+        drawn.append({"job": job_id, "file": str(file)} | card)
+        link = drawn_card(len(drawn))
+        cli.follow_card(name, card["waits"], set(), link)
+        return f"his card {link} asks it under {card['waits']}"
 
-    monkeypatch.setattr(tools, "sent", post)
-    return sent
+    monkeypatch.setattr(cli, "post_ask", post)
+    monkeypatch.setattr(state, "new_waits", lambda name, job_id: f"{name}:{job_id}-{next(minted)}")
+    return drawn
+
+
+def drawn_card(n: int) -> str:
+    return f"https://acme.slack.com/archives/D123/p{1794400000000100 + n}"
 
 
 @pytest.fixture(autouse=True)

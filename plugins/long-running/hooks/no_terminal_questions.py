@@ -8,8 +8,8 @@ from drive import agents, state
 
 REFUSAL = (
     "refused: no drive session asks in its terminal, since nobody reads it and every record for {drive} queues behind"
-    " the question. Keep the block with `drive job ask <job> <file>` and send it to communicator@{drive} as an `ask`"
-    " record, or return it as your `ASK` or `DESIGN`."
+    " the question. Keep the block with `drive job ask <job> <file>`, which draws his card on it for {drive}, or return"
+    " it as your `ASK` or `DESIGN`."
 )
 ACCESS_REFUSAL = (
     "refused: {tool} waits on a person approving it in a dialog in this terminal, which nobody reads. Settle what it"

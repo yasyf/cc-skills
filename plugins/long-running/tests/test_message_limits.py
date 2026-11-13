@@ -2126,8 +2126,8 @@ def test_the_meta_session_posts_nothing_to_slack_and_sends_its_words_and_questio
     said = {"session_id": "tooler", "tool_name": message_limits.SAY, "tool_input": {"text": "The watch hook is fixed."}}
     assert message_limits.deny_reason(said) == (
         "Refused on purpose: the meta session posts nothing to Slack, since his reply under a post reaches only the session that"
-        " posted it. Send the words as a `report` record to communicator@demo, and its handler posts them; a question for him goes"
-        " as an `ask` record there."
+        " posted it. Send the words as a `report` record to communicator@demo, and its handler posts them; a question for him is"
+        " a job's ASK, kept with `drive job ask`, which draws his card."
     )
 
 

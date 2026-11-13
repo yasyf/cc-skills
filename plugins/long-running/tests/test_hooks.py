@@ -17,8 +17,8 @@ import pytest
 import quiet_turn
 import scratch_folder
 import session_start
-from conftest import RESEARCH, SHORT_ASK, Answers, Jev, WatchProcess
-from drive import agents, brief, cli, land, place, render, settled, state, tools
+from conftest import RESEARCH, SHORT_ASK, drawn_card, Answers, Jev, WatchProcess
+from drive import agents, brief, cli, land, place, render, settled, state
 
 Run = Callable[..., tuple[int, str]]
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -208,7 +208,7 @@ def test_no_session_bound_to_a_drive_asks_in_its_terminal_and_a_session_bound_to
     reason = output["hookSpecificOutput"]["permissionDecisionReason"]
     assert reason.startswith("refused: no drive session asks in its terminal")
     assert "`drive job ask <job> <file>`" in reason
-    assert "communicator@demo as an `ask` record" in reason
+    assert "which draws his card on it for demo" in reason
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
     run("start", "demo", "--role", "communicator")
     assert no_terminal_questions.deny_reason(file_call("AskUserQuestion", "talker")) is not None
@@ -319,25 +319,23 @@ def test_a_builder_asking_his_card_builds_its_recommended_option_in_the_same_run
     with state.edit("durable-agents") as data:
         data["jobs"]["j2776"] = data["jobs"].pop("j1")
         data["orders"]["o1"]["jobs"] = ["j2776"]
-    posted = tools.sent
-    monkeypatch.setattr(tools, "sent", lambda name, lane, posts: ["#685446"] if [made["kind"] for made in posts] == ["ask"] else posted(name, lane, posts))
     block = tmp_path / "ask.md"
     block.write_text(
         SHORT_ASK.replace(SHORT_ASK.splitlines()[0], f"ASK {J2776_QUESTION}").replace("Holds: none: no option changes code any job builds", f"Holds: {J2776_PART}")
     )
-    asked = run("job", "ask", "j2776", str(block))[1]
+    asked = run("job", "ask", "j2776", str(block))[1].splitlines()[0]
     job = state.load("durable-agents")["jobs"]["j2776"]
-    assert (job["state"], job["said"], [question["waits"] for question in job["questions"]]) == ("running", J2776_QUESTION, ["durable-agents:j2776-685446"])
+    assert (job["state"], job["said"], [question["waits"] for question in job["questions"]]) == ("running", J2776_QUESTION, ["durable-agents:j2776-7"])
     lane = stepped(tmp_path, "Drive: durable-agents, order o1, job j2776", prompted=EARLIER)
     refused = json.loads(hook_output(one_line_result, monkeypatch, capsys, json.dumps(agent_stop(f"ASK {asked}", **lane))))
     assert refused["reason"].startswith("Refused on purpose: j2776 put his card up and built nothing")
     assert "`ccx vcs ship --no-pr`" in refused["reason"]
-    assert land.ship_held(state.load("durable-agents"), "j2776", {}) == ["durable-agents:j2776-685446"]
-    built = "BUILT j2776-delete-agent, waits on durable-agents:j2776-685446"
+    assert land.ship_held(state.load("durable-agents"), "j2776", {}) == [drawn_card(1)]
+    built = "BUILT j2776-delete-agent, waits on durable-agents:j2776-7"
     monkeypatch.setattr("sys.stdin", io.StringIO(f"{built}\nCHECK: the recommended deleteAgent mutation, pushed on j2776-delete-agent\n"))
     run("job", "report", "j2776", "-")
     job = state.load("durable-agents")["jobs"]["j2776"]
-    assert (job["state"], job["branch"], job["waits"]) == ("built", "j2776-delete-agent", ["durable-agents:j2776-685446"])
+    assert (job["state"], job["branch"], job["waits"]) == ("built", "j2776-delete-agent", ["durable-agents:j2776-7"])
     assert hook_output(one_line_result, monkeypatch, capsys, json.dumps(agent_stop(built, **lane))) == ""
 
 
@@ -348,7 +346,7 @@ def test_a_builder_whose_words_ask_for_options_and_no_build_ends_on_the_ask_driv
     run("job", "add", "builder", "--order", "o1", "--goal", "bring options", "--agent", "a-9")
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
-    asked = run("job", "ask", "j1", str(block))[1]
+    asked = run("job", "ask", "j1", str(block))[1].splitlines()[0]
     monkeypatch.setattr("sys.stdin", io.StringIO(f"ASK {asked}\n"))
     run("job", "report", "j1", "-")
     stop = agent_stop(f"ASK {asked}", **stepped(tmp_path, "Drive: demo, order o1, job j1", prompted=EARLIER))
@@ -1505,16 +1503,16 @@ def test_a_communicators_bash_cci_post_naming_a_lane_other_than_the_session_hear
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
     run("start", demo, "--role", "communicator")
     handler = {"session_id": "talker", "agent_id": "a1", "agent_type": "long-running:handler"}
-    posted = "cci post --kind posted --lane communicator --to root@demo --resolves 8 --attr waits=demo:j1-8 'card up demo:j1-8'"
-    assert landing_guard.deny_reason(bash(posted) | handler) == (
-        "This posted record goes to iris@demo: a defect, and the communicator's owner record about the drive, to the meta"
-        " session, and the communicator's other owner, answer, handoff, posted or refused record to the session holding the"
+    held = "cci post --kind refused --lane communicator --to root@demo --resolves 8 --attr job=j1 'the report names no card'"
+    assert landing_guard.deny_reason(bash(held) | handler) == (
+        "This refused record goes to iris@demo: a defect, and the communicator's owner record about the drive, to the meta"
+        " session, and the communicator's other owner, answer, handoff or refused record to the session holding the"
         " order it serves; post it again with `--to iris@demo`, or on the cci `post` tool, whose hook addresses it"
     )
     refused = "zsh -c \"cci post --kind=refused --lane communicator --to=root@demo,owner --attr job=j1 'cc-slack refused the card'\""
     assert "`--to iris@demo --to owner`" in landing_guard.deny_reason(bash(refused) | handler)
     sent = (
-        "cci post --kind posted --lane communicator --to iris@demo --attr waits=demo:j1-8 'card up demo:j1-8'",
+        "cci post --kind refused --lane communicator --to iris@demo --resolves 8 --attr job=j1 'the report names no card'",
         "cci post --kind report --lane communicator --attr close=o1 'FYI j1 merged'",
     )
     assert [landing_guard.deny_reason(bash(command) | handler) for command in sent] == [None, None]
@@ -1525,4 +1523,4 @@ def test_a_communicators_bash_cci_post_naming_a_lane_other_than_the_session_hear
     for to in ("meta@demo", "root@demo"):
         unordered = landing_guard.deny_reason(bash(f"cci post --kind owner --lane communicator --to {to} --attr about=drive 'the dashboard drops my cards'") | handler)
         assert unordered.startswith("refused, nothing posted: his words about the drive go out on the drive's `record` tool")
-    assert landing_guard.deny_reason(bash(posted) | {"session_id": "iris-1"}) is None
+    assert landing_guard.deny_reason(bash(held) | {"session_id": "iris-1"}) is None

@@ -41,7 +41,7 @@ UNPREVENTED = (
 )
 WAITS_ON_HIM = re.compile(r"\bwait(?:s|ing)? (?:on|for) (?:him|his|your|you)\b|\bneeds? (?:his|your) (?:tap|pick|answer|approval)\b", re.IGNORECASE)
 CARD_NAMED = re.compile(r"slack\.com/archives/|\{card:|\b[\w-]+:j\d+-\d+\b|github\.com/[^/\s]+/[^/\s]+/pull/\d+")
-UNCARDED = "refused: this report says something waits on him and names no card; add its permalink, the PR whose card it is, or its waits id with `--attr waits=<drive>:<j>-<seq>`, so the handler links the card"
+UNCARDED = "refused: this report says something waits on him and names no card; add its permalink, the PR whose card it is, or its waits id with `--attr waits=<drive>:<j>-<n>`, so the handler links the card"
 WAITS_ON_OTHER = re.compile(r"\bwait(?:s|ing)? on (?!(?:him|his|your|you|he)\b)\S", re.IGNORECASE)
 WAITED = re.compile(r"\b\d+ ?(?:s|secs?|seconds?|m|mins?|minutes?|h|hrs?|hours?|d|days?)\b|\bsince \d", re.IGNORECASE)
 RUNNING = re.compile(r"\b(?:running|queued|idle|stopped|started|starting|in progress|not started)\b", re.IGNORECASE)
@@ -77,9 +77,9 @@ def addressed(record: dict, lane: str) -> bool:
 
 
 def relayed_time(record: dict, drive: dict) -> str | None:
-    """Why a record whose words a handler posts to him, a POST report, a ready or an ask record to the communicator, types a clock time for work already done; any other record goes between sessions and types the times it quotes, by his words "i think that time hook its tooa ggessive too"."""
+    """Why a record whose words a handler posts to him, a POST report or a ready record to the communicator, types a clock time for work already done; any other record goes between sessions and types the times it quotes, by his words "i think that time hook its tooa ggessive too"."""
     text = record.get("text") or ""
-    if kind(record) not in ("report", "ready", "ask") or not addressed(record, "communicator") or (kind(record) == "report" and not text.startswith("POST")):
+    if kind(record) not in ("report", "ready") or not addressed(record, "communicator") or (kind(record) == "report" and not text.startswith("POST")):
         return None
     return agents.typed_time(f"{text}\n{record.get('body') or ''}", drive)
 

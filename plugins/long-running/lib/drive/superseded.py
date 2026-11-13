@@ -208,7 +208,7 @@ def follow(name: str, ended: list[tuple[str, dict]]) -> list[str]:
 
 
 def closing(data: dict, kind: str, attrs: dict, topic: str | None, answered: list[str], link: str | None) -> list[tuple[str, dict]]:
-    """The job questions an owner or answer record of his words is on, open or ended: each its `waits` or `thread_card` names, the ask seq it answers names or its `card:<thread_ts>` topic is drawn in, and each whose card his message sits under, whatever thread the record names: his answer is on each, and his owner words only on a question whose work they are about, the drive's for a drive tooling order and his work for any other, so his feedback on the drive under a product card leaves it asking; his feedback on a post or card the drive made, a `Drive tooling: post feedback:` order, and an Undo, which reopens its card, are on none. His words never close a PR card: only his order on its thread, or a job carrying one, withdraws it."""
+    """The job questions an owner or answer record of his words is on, open or ended: each its `waits` or `thread_card` names, the seq its waits id ends in that it answers by `re`, or its `card:<thread_ts>` topic is drawn in, and each whose card his message sits under, whatever thread the record names: his answer is on each, and his owner words only on a question whose work they are about, the drive's for a drive tooling order and his work for any other, so his feedback on the drive under a product card leaves it asking; his feedback on a post or card the drive made, a `Drive tooling: post feedback:` order, and an Undo, which reopens its card, are on none. His words never close a PR card: only his order on its thread, or a job carrying one, withdraws it."""
     if kind not in ("owner", "answer") or "undone" in attrs or feedback(data, attrs.get("order")):
         return []
     return [
@@ -267,7 +267,7 @@ def redraw_refusal(data: dict, job: dict, waits: str, file: str) -> str | None:
     return (
         f'{waits}: his answer on that card closed its question, {when(closed["at"])}: "{cut(closed["words"] or "", 200)}" ({closed["link"] or drawn["card"]}).'
         " A direction he gives under a card is his answer: the card stays settled showing his words, and the work goes ahead"
-        f" on them. Ask only what they leave open, on a card of its own drawn with its own ask record's waits id, never {waits}"
+        f" on them. Ask only what they leave open, on a card of its own drawn under its own waits id, never {waits}"
     )
 
 
