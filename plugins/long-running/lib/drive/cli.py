@@ -1127,8 +1127,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         raise DriveError("--waits records a job whose agent starts on the watch's FREE line once its last wait ends, so it takes no --agent")
     if args.lands and args.kind != "builder":
         raise DriveError("--lands names the PRs a builder lands, which only a builder does")
-    if args.builds_nothing and args.kind != "builder":
-        raise DriveError("--builds-nothing marks a builder that holds no slot of this Mac's builder cap; no other kind of job holds one")
+    refuse_a_mark_off_a_builder(args.kind, args.builds_nothing)
     lands = list(dict.fromkeys(map(state.pr_key, args.lands)))
     found = check_waits(name, args.waits)
     with state.edit(name) as data:
@@ -1177,6 +1176,11 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             f"{job_id} starts on a Sprite at once, since {crowd}: drive job launch {job_id} <brief>; one whose brief declares a step only this Mac runs, on {place.MAC_LINES}, waits its turn for a slot here once its agent starts"
         )
     return job_id, job | {"builder": builder_id, "beside": beside, "history": history}, [*waiting, *beside, *history]
+
+
+def refuse_a_mark_off_a_builder(kind: str, builds_nothing: bool | None) -> None:
+    if builds_nothing and kind != "builder":
+        raise DriveError("--builds-nothing marks a builder that holds no slot of this Mac's builder cap; no other kind of job holds one")
 
 
 def sharing(data: dict, order_id: str, parts: list[str], job_id: str | None = None) -> list[tuple[str, dict, str]]:
@@ -1270,7 +1274,8 @@ def job_set(args: argparse.Namespace) -> int:
         )
     if args.state == "stopped":
         fix_kept(known, args.id)
-    changes = {"agent": args.agent, "state": args.state, "said": args.said, "branch": args.branch, "due": job_clock(args.id, args.due)}
+    refuse_a_mark_off_a_builder(found["kind"], args.builds_nothing)
+    changes = {"agent": args.agent, "state": args.state, "said": args.said, "branch": args.branch, "due": job_clock(args.id, args.due), "builds_nothing": args.builds_nothing}
     urls = dict.fromkeys(state.pr_url(state.pr_key(url)) for url in args.pr)
     if refused := state.job_wait_refusal(known, args.waits):
         raise DriveError(refused)
@@ -1289,7 +1294,8 @@ def job_set(args: argparse.Namespace) -> int:
         if args.card:
             hold_card(job, args.card, shown)
             state.join_card(data, args.id, args.card)
-        state.rewait(job, merged_waits(data, job, [state.change_wait(data, wait) for wait in args.waits], args.no_waits, found))
+        waits = merged_waits(data, job, [state.change_wait(data, wait) for wait in args.waits], args.no_waits, found)
+        state.rewait(job, [wait for wait in waits if not (job.get("builds_nothing") and wait == state.SLOT_WAIT)])
         state.hold_unstarted(job)
         held = {order_id: set(state.job_parts(job, order_id)) for order_id in [job["order"], *args.carries]}
         if args.carries:
@@ -4324,6 +4330,15 @@ def parser() -> argparse.ArgumentParser:
         ),
     )
     waits_opt.add_argument("--no-waits", action="store_true", help="drop every wait it carries before adding any --waits")
+    builds_opt = argparse.ArgumentParser(add_help=False)
+    builds_opt.add_argument(
+        "--builds-nothing",
+        action=argparse.BooleanOptionalAction,
+        help=(
+            "mark or unmark a builder whose whole work holds no checkout or compiler, such as a merged PR's live proof or a read: it holds"
+            " no slot of this Mac's builder cap, drops any turn it waits for one, and starts or takes a message here at once"
+        ),
+    )
 
     root = argparse.ArgumentParser(prog="drive", description="State and events of a long-running drive.")
     root.add_argument("--version", action="version", version=f"drive {state.VERSION}")
@@ -4587,7 +4602,7 @@ def parser() -> argparse.ArgumentParser:
     job = verbs.add_parser("job", help="background agents").add_subparsers(dest="action", required=True)
     verb = job.add_parser(
         "add",
-        parents=both,
+        parents=[*both, builds_opt],
         help=(
             "start a job on an order's parts: prints its id, then each job still running or waiting on one of those parts;"
             " a builder or codex job beside a running one on a part is refused, but on an incident, with --lands or waiting on it"
@@ -4601,11 +4616,6 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--branch", help="the branch it works on")
     verb.add_argument("--worktree", help="its worktree's path")
     verb.add_argument("--remote", action="store_true", help="a builder that starts as a remote lane on a Sprite")
-    verb.add_argument(
-        "--builds-nothing",
-        action="store_true",
-        help="a builder whose whole work holds no checkout or compiler, such as a merged PR's live proof or a read: it holds no slot of this Mac's builder cap and starts here at once",
-    )
     verb.add_argument("--part", action="append", default=[], help="a part of the order this job delivers; default: its only part")
     verb.add_argument(
         "--lands",
@@ -4633,7 +4643,7 @@ def parser() -> argparse.ArgumentParser:
         ),
     )
     verb.set_defaults(run=job_add)
-    verb = job.add_parser("set", parents=[*both, waits_opt])
+    verb = job.add_parser("set", parents=[*both, waits_opt, builds_opt])
     verb.add_argument("id", help="the job")
     verb.add_argument(
         "--agent",

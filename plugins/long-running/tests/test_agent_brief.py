@@ -194,6 +194,12 @@ def test_a_builder_added_to_build_nothing_such_as_an_agentinbox_live_proof_start
     assert place.turns(data, state.now()) == ([], place.LOCAL_BUILDERS)
     assert place.waiting_builders(data) == ["j9"]
     assert run("job", "add", "reader", "--order", "o2", "--goal", "read the APM traces", "--builds-nothing")[0] == 2
+    run("job", "set", "j9", "--builds-nothing")
+    assert (state.load(demo)["jobs"]["j9"]["waits"], place.waiting_builders(state.load(demo))) == ([], [])
+    dry_run = "Order (his words): tidy the docs\nServes: his order\nGoal: dry-run it\nMac: tools/ci cluster-job reads this Mac's Buildkite token\nDrive: demo, order o1, job j9"
+    assert agent_brief.deny_reason(started("long-running:builder", dry_run)) is None
+    run("job", "add", "reader", "--order", "o2", "--goal", "read the APM traces")
+    assert run("job", "set", "j11", "--builds-nothing")[0] == 2
 
 
 def test_a_monorepo_builder_over_this_macs_load_limit_starts_here_only_when_its_brief_names_a_step_only_this_mac_runs(
