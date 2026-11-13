@@ -1046,7 +1046,7 @@ def test_a_sub_coordinator_lands_a_tapped_pr_of_its_project_and_leaves_starting_
     assert [reason.split(":")[0] for reason in refused] == ["ci release start", "ci release approve", "ci release rollback"]
     reads = ("tools/ci release rollback releases/2026-11-11/3 --plan", "tools/ci release status", "tools/ci release watch 4242")
     assert [landing_guard.deny_reason(bash(command) | sub) for command in reads] == [None, None, None]
-    assert [landing_guard.deny_reason(bash(command) | top) for command in cuts] == [None, None, None]
+    assert [landing_guard.deny_reason(bash(command) | top) for command in cuts] == [landing_guard.RELEASE_BY_HAND.format(command=cuts[0]), None, None]
 
 
 def test_a_drive_job_cancels_no_release_it_started_and_returns_it_held_for_the_coordinator(demo: str, no_calls: list[list[str]]) -> None:
@@ -1064,51 +1064,28 @@ def test_a_drive_job_cancels_no_release_it_started_and_returns_it_held_for_the_c
 BRIEFED_HOTFIX = "tools/ci release hotfix 55225 --only cloudrunner-next,executor"
 UNENVED_START = "tools/ci release start cloudrunner-next executor"
 J2508_START = "go/ci/.build/ci.dev release start cloudrunner-next executor --from ad20b74ee450e78db034ebde0be3f97bbb4ed7e8 --order 6f774730eb87"
-PRIMARY_MOVE = "tools/ci release start --hotfix 55115 --without plat-usw2-staging,plat-gbl-staging,tnt-usw2-0ddq7rb,tnt-usw2-1frg9c7,rt-usw2-fwd,plat-usw2-sandbox,platy"
 
 
-def ran(step: dict, *calls: tuple[str, bool]) -> dict:
-    lane = agents.transcript_of(step)
-    for command, failed in calls:
-        call = f"toolu_{len(lane.read_text().splitlines())}"
-        rows = ({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": call, "name": "Bash", "input": {"command": command}}]}}, {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": call, "is_error": failed}]}})
-        with lane.open("a") as handle:
-            handle.writelines(json.dumps(row) + "\n" for row in rows)
-    return step
-
-
-def test_a_drive_job_starts_only_its_briefs_release_and_only_after_a_plan_at_its_flags_passed(demo: str, run: Run, tmp_path: Path, no_calls: list[list[str]]) -> None:
+def test_no_drive_session_or_agent_starts_a_release_by_hand_and_each_still_plans_watches_and_approves(demo: str, run: Run, tmp_path: Path, no_calls: list[list[str]]) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "hotfix only the cloud runner and executor images")
-    where = ("--serves", "his order", "--done-when", "live", "--where", "Forge-AI/monorepo dev")
-    code, out = run("job", "brief", "j1", *where, "--release", BRIEFED_HOTFIX)
-    assert code == 0
-    step = stepped(tmp_path, out)
-    unbriefed = [landing_guard.deny_reason(bash(command) | step) for command in (f"env -u AWS_CONFIG_FILE -u AWS_PROFILE {J2508_START}", PRIMARY_MOVE)]
-    assert unbriefed == [landing_guard.RELEASE_UNBRIEFED.format(job="j1", named=f"`{BRIEFED_HOTFIX}`", command=command) for command in (J2508_START, PRIMARY_MOVE)]
-    unplanned = landing_guard.RELEASE_UNPLANNED.format(command=BRIEFED_HOTFIX, flags="--hotfix 55225 --only cloudrunner-next,executor")
-    assert landing_guard.deny_reason(bash(BRIEFED_HOTFIX) | step) == unplanned
-    ran(step, ("tools/ci release plan --hotfix 55225 --only executor", False), ("tools/ci release plan --hotfix 55225 --only cloudrunner-next,executor", True))
-    assert landing_guard.deny_reason(bash(BRIEFED_HOTFIX) | step) == unplanned
-    ran(step, ("cd /work && go/ci/.build/ci.dev release plan --hotfix 55225 --only executor,cloudrunner-next --json", False))
-    assert landing_guard.deny_reason(bash(BRIEFED_HOTFIX) | step) is None
-    assert landing_guard.deny_reason(bash(f"{BRIEFED_HOTFIX} --from 4aca314") | step).startswith("Refused on purpose: a drive job starts a release only after")
-    unnamed = stepped(tmp_path, "Goal: fix it\nDrive: demo, order o1, job j1")
-    assert landing_guard.deny_reason(bash(BRIEFED_HOTFIX) | unnamed) == landing_guard.RELEASE_UNBRIEFED.format(job="j1", named="no release", command=BRIEFED_HOTFIX)
-    incident = stepped(tmp_path, f"Release: {BRIEFED_HOTFIX}\nIncident: record 5f6b2b5\nDrive: demo, order o1, job j1")
-    assert landing_guard.deny_reason(bash(BRIEFED_HOTFIX) | incident) is None
-    assert landing_guard.deny_reason(bash(J2508_START) | incident) == landing_guard.RELEASE_UNBRIEFED.format(job="j1", named=f"`{BRIEFED_HOTFIX}`", command=J2508_START)
-    vm_brief = tmp_path / "orca" / "tasks" / "pool-x" / "brief.md"
-    vm_brief.parent.mkdir(parents=True)
-    vm_brief.write_text(f"Remote lane: durable-agents-j1\n\n# Brief\n\nRelease: {BRIEFED_HOTFIX}\nDrive: demo, order o1, job j1\n")
-    lane = tmp_path / "lane.jsonl"
-    lane.write_text(json.dumps({"type": "user", "message": {"content": f"Read the whole brief at {vm_brief}, then follow it exactly."}}) + "\n")
-    remote = {"session_id": "a-lane-of-its-own", "agent_type": "long-running:builder", "transcript_path": str(lane)}
-    assert landing_guard.deny_reason(bash(UNENVED_START) | remote) == landing_guard.RELEASE_UNBRIEFED.format(job="j1", named=f"`{BRIEFED_HOTFIX}`", command=UNENVED_START)
-    assert landing_guard.deny_reason(bash("go/ci/.build/ci.dev release cancel dazzling-kools") | remote) == landing_guard.RELEASE_CANCEL
-    assert landing_guard.deny_reason(bash(BRIEFED_HOTFIX) | {"session_id": "session-under-test"}) is None
+    callers = (
+        stepped(tmp_path, "Goal: hotfix it\nDrive: demo, order o1, job j1"),
+        {"session_id": "session-under-test"},
+        {"session_id": "a-lane-of-its-own", "agent_type": "long-running:builder"},
+    )
+    starts = (BRIEFED_HOTFIX, J2508_START, f"env -u AWS_CONFIG_FILE -u AWS_PROFILE {UNENVED_START}")
+    assert [landing_guard.deny_reason(bash(command) | caller) for command in starts for caller in callers] == [
+        landing_guard.RELEASE_BY_HAND.format(command=command) for command in (BRIEFED_HOTFIX, J2508_START, UNENVED_START) for _ in callers
+    ]
+    reads = ("tools/ci release plan --hotfix 55225 --only executor", f"{J2508_START} --dry-run", "tools/ci release watch 4242", "tools/ci release approve releases/2026-11-13/1 --via a-9")
+    assert [landing_guard.deny_reason(bash(command) | caller) for command in reads for caller in callers] == [None] * 12
+    assert landing_guard.deny_reason(bash(BRIEFED_HOTFIX) | {"session_id": "outside-any-drive"}) is None
 
-J2666_START = "go/ci/.build/ci.dev release start platform runtime-api-next restate --order 5419ffd"
+
+J2666_START = "tools/ci release start platform runtime-api-next restate --order 5419ffd"
+BUILD = "https://buildkite.com/forge/release/builds/4242"
+STARTED = json.dumps({"branch": "releases/2026-11-13/1", "commit": "a6f826f", "build": {"number": 4242, "url": BUILD}, "follow": f"ci release watch {BUILD}"})
 CLOCK_PICK = {
     "id": "5419ffd" + "0" * 33,
     "title": "How should the merged clock and its CLOCK_URL reach production?",
@@ -1117,36 +1094,65 @@ CLOCK_PICK = {
 }
 
 
-def test_a_jobs_release_is_approved_once_at_its_brief_and_starts_as_its_release_line_names_it_with_no_envs_listed(
+def released(demo: str, script: str) -> Path:
+    checkout = Path(state.load(demo)["roles"]["coordinator"]["cwd"])
+    ci = checkout / "tools" / "ci"
+    ci.parent.mkdir(exist_ok=True)
+    ci.write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" >> "{checkout}/started"\n{script}\n')
+    ci.chmod(0o755)
+    return checkout / "started"
+
+
+def test_drive_job_add_release_starts_it_on_his_answer_from_the_tops_checkout_and_briefs_the_job_on_its_build(
     demo: str, run: Run, tmp_path: Path, no_calls: list[list[str]], recorded: Answers, jev: Jev, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the clock")
-    run("job", "add", "builder", "--order", "o1", "--goal", "release the merged clock to production")
-    where = ("--serves", "his order", "--done-when", "live", "--where", "Forge-AI/monorepo dev")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build the clock")
+    started = released(demo, f"echo 'waiting on the operator' >&2\necho '{STARTED}'\nexec sleep 600")
     recorded.shown = {answer["id"][:7]: answer for answer in (CLOCK_PICK, PR_TAP)}
-    assert cli.main(["job", "brief", "j1", *where, "--release", J2666_START.replace("5419ffd", "ac61348")]) == 2
-    assert capsys.readouterr().err.strip() == (
-        'drive: j1: refused: `--order ac61348` names his answer to "Tap: #50203, canary diagnostics on the search", "Approve at 4aca314",'
-        f" and Jev does not read it as approving this release. {brief.RELEASE_APPROVAL}"
+    add = ["job", "add", "builder", "--order", "o1", "--goal", "release the merged clock"]
+    refusals = (
+        (
+            J2666_START.replace("5419ffd", "ac61348"),
+            f'refused: `--order ac61348` names his answer to "{PR_TAP["title"]}", "{PR_TAP["body"]}", and Jev does not read it as approving this release. {brief.RELEASE_APPROVAL}',
+        ),
+        (J2666_START.removesuffix(" --order 5419ffd"), f"--release names no --order. {brief.RELEASE_APPROVAL}"),
+        (
+            f"cd go && {J2666_START}",
+            f"--release `cd go && {J2666_START}` is not one `tools/ci release start` or `tools/ci release hotfix` alone: name the one release to start, with its flags as it runs",
+        ),
     )
+    for command, why in refusals:
+        assert cli.main([*add, "--release", command]) == 2
+        assert capsys.readouterr().err.strip() == f"drive: refused, no job added: {why}"
+    assert not started.exists()
     jev.picks("5419ffd")
-    code, out = run("job", "brief", "j1", *where, "--release", J2666_START)
+    code, out = run(*add, "--release", J2666_START)
     assert code == 0
+    assert started.read_text() == "release start platform runtime-api-next restate --order 5419ffd --json\n"
+    written = state.drive_dir(demo) / "jobs" / "j2.brief.md"
+    assert out.splitlines()[:3] == [
+        "j2",
+        f"j2 started `{J2666_START}` as {BUILD} and left it running: its agent follows it with `ci release watch {BUILD}` and reads its approve hold",
+        f"Read your brief first: {written}",
+    ]
     assert jev.asked[-1]["state"] == {
         "action": f"start this production release: `{J2666_START}`",
         "answers": [{"id": "5419ffd", "asked": CLOCK_PICK["title"], "said": CLOCK_PICK["body"]}],
     }
-    asked = len(jev.asked)
-    jev.picks("none")
-    step = ran(stepped(tmp_path, out), ("go/ci/.build/ci.dev release plan platform runtime-api-next restate", False))
-    assert landing_guard.deny_reason(bash(J2666_START) | step) is None
-    assert len(jev.asked) == asked
-    for command in (J2666_START.replace("5419ffd", "7fe7efc"), J2666_START.removesuffix(" --order 5419ffd")):
-        assert landing_guard.deny_reason(bash(command) | step) == landing_guard.RELEASE_UNBRIEFED.format(job="j1", named=f"`{J2666_START}`", command=command)
+    assert run("job", "brief", "j2", "--serves", "his order", "--done-when", "live", "--where", "Forge-AI/monorepo dev")[0] == 0
+    assert f"\nRelease: {J2666_START}\nRelease build: {BUILD}\n" in written.read_text()
+    assert landing_guard.deny_reason(bash(J2666_START) | stepped(tmp_path, out)) == landing_guard.RELEASE_BY_HAND.format(command=J2666_START)
+    released(demo, """cat <<'EOF'\n{\n  "refused": "a freeze holds platform",\n  "code": "frozen"\n}\nEOF\nexit 1""")
+    assert cli.main([*add, "--release", J2666_START]) == 2
+    assert capsys.readouterr().err.strip() == "drive: j3 added and stopped, since its release did not start: a freeze holds platform"
+    job = state.load(demo)["jobs"]["j3"]
+    assert (job["state"], job["said"], job["release_build"]) == ("stopped", "its release did not start: a freeze holds platform", None)
+    assert not (state.drive_dir(demo) / "jobs" / "j3.brief.md").exists()
 
 
-def test_the_top_adds_briefs_starts_and_hears_the_release_job_on_a_sub_coordinators_order_and_the_sub_coordinator_none_of_it(
-    demo: str, run: Run, tmp_path: Path, no_calls: list[list[str]], recorded: Answers, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_the_top_starts_and_hears_the_release_job_on_a_sub_coordinators_order_and_the_sub_coordinator_none_of_it(
+    demo: str, run: Run, no_calls: list[list[str]], recorded: Answers, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Agents", "release the clock", "--parts", "clock", "release")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "platform-1")
@@ -1164,7 +1170,8 @@ def test_the_top_adds_briefs_starts_and_hears_the_release_job_on_a_sub_coordinat
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-under-test")
     assert cli.main(["job", "add", "builder", "--order", "o1", "--part", "release", "--goal", "build it"]) == 2
     assert "only the sub-coordinator for Platform adds its jobs" in capsys.readouterr().err
-    assert run(*cut)[1] == "j2"
+    released(demo, f"echo '{STARTED}'")
+    assert run(*cut)[1].splitlines()[0] == "j2"
     where = ("--serves", "his order", "--done-when", "live", "--where", "Forge-AI/monorepo dev")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "platform-1")
     assert cli.main(["job", "brief", "j2", *where]) == 2
@@ -1176,9 +1183,6 @@ def test_the_top_adds_briefs_starts_and_hears_the_release_job_on_a_sub_coordinat
         None,
         f"refused, no agent started: {held}",
     ]
-    jev.picks("none")
-    step = ran(stepped(tmp_path, out), ("go/ci/.build/ci.dev release plan platform runtime-api-next restate", False))
-    assert landing_guard.deny_reason(bash(J2666_START) | step) is None
     data = state.load("demo")
     data["jobs"]["j2"] |= {"agent": "a-9", "session": "session-under-test"}
     assert [state.job_lane(data, data["jobs"][job_id]) for job_id in ("j1", "j2")] == ["platform", "root"]
@@ -1192,33 +1196,28 @@ INCIDENT_ORDER = {"id": "9e1f2b3" + "0" * 33, "title": "sand runs fail on core-u
 PR_TAP = {"id": "ac61348" + "0" * 33, "title": "Tap: #50203, canary diagnostics on the search", "body": "Approve at 4aca314", "tags": ["scope:durable"]}
 
 
-def test_a_drive_starts_a_release_on_order_naming_an_incidents_answer_or_one_jev_reads_as_his_pick_to_release(
-    demo: str, no_calls: list[list[str]], recorded: Answers, jev: Jev
-) -> None:
-    top = {"session_id": "session-under-test"}
+def test_a_release_starts_on_order_naming_an_incidents_answer_or_one_jev_reads_as_his_pick_to_release(demo: str, recorded: Answers, jev: Jev) -> None:
     recorded.shown = {answer["id"][:7]: answer for answer in (RELEASE_PICK, INCIDENT_ORDER, PR_TAP)}
     start = "tools/ci release start sand --only sand --emergency --order {}"
     jev.picks("5d0c4a1")
-    assert landing_guard.deny_reason(bash(start.format("5d0c4a1")) | top) is None
+    assert brief.approval_refusal(start.format("5d0c4a1"), state.load("demo")) is None
     [asked] = jev.asked
     assert asked["state"] == {
         "action": f"start this production release: `{start.format('5d0c4a1')}`",
         "answers": [{"id": "5d0c4a1", "asked": RELEASE_PICK["title"], "said": RELEASE_PICK["body"]}],
     }
     assert list(asked["questions"]["decides"]["label"]["options"]) == ["none", "5d0c4a1"]
-    assert landing_guard.deny_reason(bash(start.format("9e1f2b3")) | top) is None
+    assert brief.approval_refusal(start.format("9e1f2b3"), state.load("demo")) is None
     assert len(jev.asked) == 1
     jev.picks("none")
-    assert landing_guard.deny_reason(bash(start.format("ac61348")) | top) == (
+    assert brief.approval_refusal(start.format("ac61348"), state.load("demo")) == (
         'refused: `--order ac61348` names his answer to "Tap: #50203, canary diagnostics on the search", "Approve at 4aca314", and Jev'
         f" does not read it as approving this release. {brief.RELEASE_APPROVAL}"
     )
     jev.answer = None
-    assert landing_guard.deny_reason(bash(start.format("ac61348")) | top).startswith(
+    assert brief.approval_refusal(start.format("ac61348"), state.load("demo")).startswith(
         "refused: Jev did not say whether his answer ac61348 approves this release (no jev decision within 20s)"
     )
-    assert [landing_guard.deny_reason(bash(command) | top) for command in (start.format("ac61348") + " --dry-run", "tools/ci release start sand")] == [None, None]
-    assert landing_guard.deny_reason(bash(start.format("ac61348"))) is None
     assert len(jev.asked) == 3
 
 
@@ -1242,11 +1241,10 @@ HELD_VERBS = (
     "tools/ci release resume 15495",
     "tools/ci release approve releases/2026-11-13/2 --via codex",
     "cd /work && ci release rollback releases/2026-11-13/2 sandsql",
-    "tools/ci release hotfix 55960 --only executor",
     "tools/ci bk rerun release 15495 --unit sandsql",
     "tools/ci bk api -X PUT organizations/forge/pipelines/release/builds/15495/jobs/0190a1b2/unblock",
     "tools/ci bk api --X=POST organizations/forge/pipelines/release/builds -d '{\"commit\":\"HEAD\"}'",
-    "drive break-glass j1 --stack sandsql/plat-usw2-prod --reason stuck -- tools/ci release start sandsql",
+    "drive break-glass j1 --stack sandsql/plat-usw2-prod --reason stuck -- tools/ci release resume 15495",
     "timeout 600 tools/ci release resume 15495",
 )
 
@@ -1262,13 +1260,14 @@ def test_while_he_holds_every_release_a_drive_runs_none_but_on_his_exception_rec
     recorded.listed = [RELEASE_HOLD, SSQL_EXCEPTION, RELEASE_PICK | {"created_at": EARLIER}, INCIDENT_ORDER | {"created_at": EARLIER}, PR_TAP | {"created_at": "2026-11-13T19:50:00Z", "tags": ["scope:durable", "kind:approval"]}]
     recorded.shown = {answer["id"][:7]: answer for answer in recorded.listed}
     start = "tools/ci release start sandsql --order {}"
-    assert [landing_guard.deny_reason(bash(start.format(order)) | top) for order in ("5d0c4a1", "9e1f2b3")] == [
+    data = state.load("demo")
+    assert [brief.approval_refusal(start.format(order), data) for order in ("5d0c4a1", "9e1f2b3")] == [
         held(start.format("5d0c4a1"), '`--order 5d0c4a1` names his answer to "Release the memory fix to production now?", recorded before the hold'),
         held(start.format("9e1f2b3"), '`--order 9e1f2b3` names his answer to "sand runs fail on core-usw2", recorded before the hold'),
     ]
     assert jev.asked == []
     jev.picks("8b2e4f7")
-    assert landing_guard.deny_reason(bash(start.format("8b2e4f7")) | top) is None
+    assert brief.approval_refusal(start.format("8b2e4f7"), data) is None
     assert jev.asked[-1]["state"] == {
         "action": f"start this production release: `{start.format('8b2e4f7')}`",
         "answers": [{"id": "8b2e4f7", "asked": SSQL_EXCEPTION["title"], "said": SSQL_EXCEPTION["body"]}],
@@ -1276,12 +1275,16 @@ def test_while_he_holds_every_release_a_drive_runs_none_but_on_his_exception_rec
     assert landing_guard.deny_reason(bash("tools/ci release approve releases/2026-11-13/2") | top) is None
     assert jev.asked[-1]["state"]["answers"] == [{"id": "8b2e4f7", "asked": SSQL_EXCEPTION["title"], "said": SSQL_EXCEPTION["body"]}]
     jev.picks("none")
-    assert landing_guard.deny_reason(bash(start.format("8b2e4f7")) | top) == held(
+    assert brief.approval_refusal(start.format("8b2e4f7"), data) == held(
         start.format("8b2e4f7"), 'Jev does not read his answer 8b2e4f7 to "Release the SandSQL fix to production?" as approving it'
     )
     refused = [landing_guard.deny_reason(bash(command) | top) for command in HELD_VERBS]
     assert refused[0] == held("tools/ci release resume 15495", "Jev reads no answer of his recorded since as approving it")
     assert [reason.startswith(f'refused: he holds every release, by his words "{RELEASE_HOLD["body"]}" (15c4de1, {HOLD_LINK})') for reason in refused] == [True] * len(HELD_VERBS)
+    by_hand = ("tools/ci release hotfix 55960 --only executor", "drive break-glass j1 --stack sandsql/plat-usw2-prod --reason stuck -- tools/ci release start sandsql")
+    assert [landing_guard.deny_reason(bash(command) | top) for command in by_hand] == [
+        landing_guard.RELEASE_BY_HAND.format(command=command) for command in ("tools/ci release hotfix 55960 --only executor", "tools/ci release start sandsql")
+    ]
     jev.answer = None
     assert landing_guard.deny_reason(bash(HELD_VERBS[0]) | top) == held(
         HELD_VERBS[0], "Jev did not say whether an answer of his approves it (no jev decision within 20s); run it again once Jev answers"
@@ -1300,7 +1303,7 @@ def test_while_he_holds_every_release_a_drive_runs_none_but_on_his_exception_rec
     assert landing_guard.deny_reason(bash(start.format("5d0c4a1"))) is None
     recorded.listed = recorded.listed[1:]
     jev.picks("5d0c4a1")
-    assert [landing_guard.deny_reason(bash(command) | top) for command in (start.format("5d0c4a1"), HELD_VERBS[0])] == [None, None]
+    assert [brief.approval_refusal(start.format("5d0c4a1"), data), landing_guard.deny_reason(bash(HELD_VERBS[0]) | top)] == [None, None]
 
 
 def test_a_job_runs_the_release_its_brief_names_on_his_exception_while_he_holds_every_release(
@@ -1309,24 +1312,25 @@ def test_a_job_runs_the_release_its_brief_names_on_his_exception_while_he_holds_
     recorded.listed = [RELEASE_HOLD, SSQL_EXCEPTION, RELEASE_PICK | {"created_at": EARLIER}]
     recorded.shown = {answer["id"][:7]: answer for answer in recorded.listed}
     release = "tools/ci release start sandsql --order 8b2e4f7"
-    step = ran(stepped(tmp_path, f"Release: {release}\nDrive: demo, order o1, job j1"), ("tools/ci release plan sandsql", False))
+    step = stepped(tmp_path, f"Release: {release}\nRelease build: {BUILD}\nDrive: demo, order o1, job j1")
     jev.picks("8b2e4f7")
-    own = (release, "tools/ci release approve releases/2026-11-13/2 --via codex", "tools/ci release resume 15495", "tools/ci bk api -X PUT organizations/forge/pipelines/release/builds/15495/jobs/0190a1b2/unblock")
+    own = ("tools/ci release approve releases/2026-11-13/2 --via codex", "tools/ci release resume 15495", "tools/ci bk api -X PUT organizations/forge/pipelines/release/builds/15495/jobs/0190a1b2/unblock")
     assert [landing_guard.deny_reason(bash(command) | step) for command in own] == [None] * len(own)
+    assert landing_guard.deny_reason(bash(release) | step) == landing_guard.RELEASE_BY_HAND.format(command=release)
     assert {asked["state"]["action"] for asked in jev.asked} == {f"start this production release: `{release}`"}
     jev.picks("none")
-    assert landing_guard.deny_reason(bash(own[1]) | step) == brief.RELEASE_HELD.format(
+    assert landing_guard.deny_reason(bash(own[0]) | step) == brief.RELEASE_HELD.format(
         said=RELEASE_HOLD["body"], where="15c4de1", hold="15c4de1", release=release, why='Jev does not read his answer 8b2e4f7 to "Release the SandSQL fix to production?" as approving it'
     )
     stale = "tools/ci release start sandsql --order 5d0c4a1"
     briefed = stepped(tmp_path, f"Release: {stale}\nDrive: demo, order o1, job j1")
-    assert landing_guard.deny_reason(bash(own[1]) | briefed) == brief.RELEASE_HELD.format(
+    assert landing_guard.deny_reason(bash(own[0]) | briefed) == brief.RELEASE_HELD.format(
         said=RELEASE_HOLD["body"], where="15c4de1", hold="15c4de1", release=stale, why='`--order 5d0c4a1` names his answer to "Release the memory fix to production now?", recorded before the hold'
     )
     assert landing_guard.deny_reason(bash("tools/ci bk cancel release 15495") | briefed) == landing_guard.RELEASE_CANCEL
 
 
-def test_drive_job_add_and_brief_refuse_a_release_his_hold_holds(demo: str, run: Run, recorded: Answers, jev: Jev, capsys: pytest.CaptureFixture[str]) -> None:
+def test_drive_job_add_starts_no_release_his_hold_holds_and_starts_his_exception(demo: str, run: Run, recorded: Answers, jev: Jev, capsys: pytest.CaptureFixture[str]) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the fix")
     recorded.listed = [RELEASE_HOLD, SSQL_EXCEPTION, RELEASE_PICK | {"created_at": EARLIER}]
     recorded.shown = {answer["id"][:7]: answer for answer in recorded.listed}
@@ -1335,13 +1339,13 @@ def test_drive_job_add_and_brief_refuse_a_release_his_hold_holds(demo: str, run:
     why = '`--order 5d0c4a1` names his answer to "Release the memory fix to production now?", recorded before the hold'
     assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "release the fix", "--release", stale]) == 2
     assert capsys.readouterr().err.strip() == "drive: refused, no job added: " + brief.RELEASE_HELD.format(said=RELEASE_HOLD["body"], where="15c4de1", hold="15c4de1", release=stale, why=why)
-    run("job", "add", "builder", "--order", "o1", "--goal", "release the fix")
-    where = ("--serves", "his order", "--done-when", "live", "--where", "Forge-AI/monorepo dev")
-    assert cli.main(["job", "brief", "j1", *where, "--release", stale]) == 2
-    assert capsys.readouterr().err.strip() == "drive: j1: " + brief.RELEASE_HELD.format(said=RELEASE_HOLD["body"], where="15c4de1", hold="15c4de1", release=stale, why=why)
     jev.picks("8b2e4f7")
+    released(demo, f"echo '{STARTED}'")
     excepted = "tools/ci release start sandsql --order 8b2e4f7"
-    assert run("job", "brief", "j1", *where, "--release", excepted)[0] == 0
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "release the fix", "--release", excepted)[1].splitlines()[:2] == [
+        "j1",
+        f"j1 started `{excepted}` as {BUILD} and left it running: its agent follows it with `ci release watch {BUILD}` and reads its approve hold",
+    ]
 
 
 HANDOVER_PICK = {
@@ -1364,18 +1368,15 @@ QUEUE_PICK = {
 }
 
 
-def test_the_clock_release_starts_on_his_picks_of_how_when_and_with_what_it_ships_and_never_on_his_pick_to_enqueue_a_pr(
-    demo: str, no_calls: list[list[str]], recorded: Answers, jev: Jev
-) -> None:
-    top = {"session_id": "session-under-test"}
+def test_the_clock_release_starts_on_his_picks_of_how_when_and_with_what_it_ships_and_never_on_his_pick_to_enqueue_a_pr(demo: str, recorded: Answers, jev: Jev) -> None:
     picks = (CLOCK_PICK, HANDOVER_PICK, POLICY_PICK)
     recorded.shown = {answer["id"][:7]: answer for answer in (*picks, QUEUE_PICK)}
     for pick in picks:
         jev.picks(pick["id"][:7])
-        assert landing_guard.deny_reason(bash(J2666_START.replace("5419ffd", pick["id"][:7])) | top) is None
+        assert brief.approval_refusal(J2666_START.replace("5419ffd", pick["id"][:7]), state.load("demo")) is None
     assert [asked["state"]["answers"] for asked in jev.asked] == [[{"id": pick["id"][:7], "asked": pick["title"], "said": pick["body"]}] for pick in picks]
     jev.picks("none")
-    assert landing_guard.deny_reason(bash(J2666_START.replace("5419ffd", "6881a3a")) | top) == (
+    assert brief.approval_refusal(J2666_START.replace("5419ffd", "6881a3a"), state.load("demo")) == (
         f'refused: `--order 6881a3a` names his answer to "{QUEUE_PICK["title"]}", "Enqueue it (Recommended)", and Jev does not read it'
         f" as approving this release. {brief.RELEASE_APPROVAL}"
     )

@@ -5,6 +5,7 @@ import os
 import re
 import shlex
 import shutil
+import subprocess
 import sys
 import tempfile
 import textwrap
@@ -18,6 +19,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from drive import agents, artifacts, brief, codex, github, install, land, limits, orca, pages, picture, place, reads, refs, render, served, settled, slack, state, superseded, watch
+from drive.shell import simple_commands
 from drive.state import DriveError
 
 DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
@@ -1133,6 +1135,8 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         raise DriveError("--lands names the PRs a builder lands, which only a builder does")
     if args.model and args.kind != "codex":
         raise DriveError("--model names the codex-ask model a codex job runs; any other job's model is its Agent call's")
+    if args.release and args.waits:
+        raise DriveError("--release starts its release as the job is added, so it waits on nothing: add the job once what it waits on has landed")
     refuse_a_mark_off_a_builder(args.kind, args.builds_nothing)
     lands = list(dict.fromkeys(map(state.pr_key, args.lands)))
     found = check_waits(name, args.waits)
@@ -1150,8 +1154,8 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             or proven_again(data, args.order, args.kind, args.goal)
             or unlandable(data, lands)
             or state.job_wait_refusal(data, args.waits)
-            or brief.job_refusal(name, data, args.order, args.kind, parts, bool(lands), args.waits)
-            or second_carrier(order, args.kind, bool(lands), args.waits, live)
+            or brief.job_refusal(name, data, args.order, args.kind, parts, bool(lands or args.release), args.waits)
+            or second_carrier(order, args.kind, bool(lands or args.release), args.waits, live)
         ):
             raise DriveError(f"refused, no job added: {refused}")
         order["owner"] = order["owner"] or state.session_role(data, session)
@@ -1184,7 +1188,38 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         waiting.append(
             f"{job_id} starts on a Sprite at once, since {crowd}: drive job launch {job_id} <brief>; one whose brief declares a step only this Mac runs, on {place.MAC_LINES}, waits its turn for a slot here once its agent starts"
         )
-    return job_id, job | {"builder": builder_id, "beside": beside, "history": history}, [*waiting, *beside, *history]
+    started = state.after_save(name, lambda: started_release(name, job_id, args.release)) if args.release else []
+    return job_id, job | {"builder": builder_id, "beside": beside, "history": history}, [*started, *waiting, *beside, *history]
+
+
+def started_release(name: str, job_id: str, command: str) -> list[str]:
+    """Start the release a job's --release names from the top coordinator's checkout, leave it running once `ci release` names the build it started, and brief the job on that build; a start naming none stops the job with what it said."""
+    said: list[str] = []
+    answer: dict = {}
+    with subprocess.Popen([*simple_commands(command)[0], "--json"], cwd=state.load(name)["roles"]["coordinator"]["cwd"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as release:
+        for line in release.stdout:
+            said.append(line)
+            if answer := release_answer(said):
+                break
+        release.terminate()
+    if not (build := answer.get("build", {}).get("url")):
+        why = answer.get("refused") or render.cut("".join(said).strip(), 600) or f"exit {release.returncode}"
+        with state.edit(name) as data:
+            data["jobs"][job_id].update(state="stopped", said=f"its release did not start: {why}", updated=state.stamp())
+        raise DriveError(f"{job_id} added and stopped, since its release did not start: {why}")
+    with state.edit(name) as data:
+        data["jobs"][job_id]["release_build"] = build
+    line, _ = write_brief(name, job_id, {})
+    return [f"{job_id} started `{command}` as {build} and left it running: its agent follows it with `{answer['follow']}` and reads its approve hold", line]
+
+
+def release_answer(said: list[str]) -> dict:
+    """The JSON object `ci release start --json` answers with: its first line once it stays with the build it started, else what it printed from its first line opening an object, as a refusal prints it; empty until that object closes."""
+    opened = next((at for at, line in enumerate(said) if line.startswith("{")), len(said))
+    try:
+        return json.loads("".join(said[opened:])) if opened < len(said) else {}
+    except json.JSONDecodeError:
+        return {}
 
 
 def refuse_a_mark_off_a_builder(kind: str, builds_nothing: bool | None) -> None:
@@ -2229,7 +2264,7 @@ def answer_first(name: str, order: dict, order_id: str, job_id: str) -> str:
 
 
 def job_brief(args: argparse.Namespace) -> int:
-    line, payload = write_brief(state.resolve(args.drive), args.id, {flag: getattr(args, flag) for flag in state.BRIEF_FLAGS})
+    line, payload = write_brief(state.resolve(args.drive), args.id, {flag: getattr(args, flag, None) for flag in state.BRIEF_FLAGS})
     return emit(args, line, payload)
 
 
@@ -2252,12 +2287,11 @@ def write_brief(name: str, job_id: str, named: dict) -> tuple[str, dict]:
         )
     if (seen := brief.surface({"brief_flags": flags})) and (unstoried := brief.unstoried(seen, flags["interactions"])):
         raise DriveError(f"{job_id}'s result is something he uses, by --native: {unstoried}")
-    if flags["release"] and (
-        unnamed := state.held_elsewhere(data, job["order"], os.environ.get("CLAUDE_CODE_SESSION_ID"), True)
-        or brief.release_refusal(flags["release"])
-        or brief.approval_refusal(flags["release"], data)
+    if state.starts_cut(job) and (
+        held := state.held_elsewhere(data, job["order"], os.environ.get("CLAUDE_CODE_SESSION_ID"), True)
+        or (not job["release_build"] and "its brief names the release it started, so `drive job add --release` writes it once that release starts")
     ):
-        raise DriveError(f"{job_id}: {unnamed}")
+        raise DriveError(f"{job_id}: {held}")
     line, payload = rewrite_brief(name, job_id, flags)
     if kept:
         line += "\nkept from its earlier brief: " + ", ".join(f"--{flag.replace('_', '-')}" for flag in kept)
@@ -2297,6 +2331,7 @@ def rewrite_brief(name: str, job_id: str, flags: dict) -> tuple[str, dict]:
         "Where": flags["where"],
         "Runs as": flags["runs_as"],
         "Release": flags["release"],
+        "Release build": job["release_build"],
         "Mac": flags["mac"],
         "Handoff": flags["handoff"],
         "Decisions that bind": rulings or "none named; search his answers on the area",
@@ -4676,8 +4711,10 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument(
         "--release",
         help=(
-            "the one `tools/ci release start` or `hotfix` the job runs, kept as its brief's Release line: a job starting a production cut is the"
-            " top coordinator's whatever order it serves, so only the top adds it, on the order the release record names"
+            "the one `tools/ci release start` or `hotfix` to start now, its --order naming his answer approving it: refused unless the top"
+            " coordinator adds the job, whatever order it serves, and Jev reads that answer as his go, given after any hold of his on every"
+            " release, or it is an incident's order; it starts"
+            " from the top's checkout, then the job's brief names the command and its build, and its agent follows it and reads its approve hold"
         ),
     )
     verb.add_argument(
@@ -4891,7 +4928,6 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("--would-he-ask", help="what he would still have to ask for if only his words were built")
     verb.add_argument("--runs-as", help="for a pass, a hand repair or any other write of a team's data: the service account in its cluster and how it starts; \"none: <why>\" for a job that writes none")
-    verb.add_argument("--release", help="the one `tools/ci release start` or `hotfix` the job may run, as it runs them, refused when Jev does not read the answer its --order names as his approval; landing_guard refuses any other")
     verb.add_argument(
         "--mac",
         help="the step only this Mac runs that the job itself runs, such as drive break-glass, ci mac-box, ci devbox, ci db-read, a Datadog read or a drive install no lander runs; drive job launch refuses its Sprite start and the agent_brief hook starts it here at any load, and no other words of the brief place it",

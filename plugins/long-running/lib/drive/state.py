@@ -1589,6 +1589,7 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
         "branch": None,
         "worktree": None,
         "prs": [],
+        "release_build": None,
         "waits": [],
         "waited": None,
         "waiting_said": [],

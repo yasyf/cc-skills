@@ -28,7 +28,6 @@ from conftest import (
     SPRITE_CONFIG,
     Answers,
     Drawing,
-    Jev,
     cloned,
     drawn_card,
     git_in,
@@ -848,14 +847,12 @@ def test_a_launch_hands_its_receipt_to_the_newer_install_that_saved_meanwhile(
         ("--mac", "read the 500s in Datadog APM"),
         ("--mac", "drive install long-running@skills --sha 7765bd2"),
         ("--mac", "record the drive's dashboard walking each part"),
-        ("--release", "tools/ci release start api --env prod --order 680721"),
     ],
 )
 def test_launch_starts_a_brief_declaring_a_step_only_this_mac_runs_only_on_this_mac(
-    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], jev: Jev, flag: str, named: str
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], flag: str, named: str
 ) -> None:
     cloned(tmp_path, demo)
-    jev.picks("680721")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship it")
     run("job", "brief", "j1", "--serves", "his order", "--done-when", "merged", "--where", "yasyf/cc-skills main", flag, named)

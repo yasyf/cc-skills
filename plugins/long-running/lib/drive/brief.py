@@ -18,7 +18,7 @@ PLANNED = re.compile(r"^(Goal|Done when|Where|Runs as|Native|Interactions|Would 
 RUNS_AS = re.compile(r"^Runs as:(?![ \t]*none\b)[ \t]*(.+)$", re.MULTILINE | re.IGNORECASE)
 FROM_THIS_MAC = re.compile(r"\bbreak[- ]?glass\w*|\bmachine[- ]profile\b", re.IGNORECASE)
 FIELD = re.compile(
-    r"^(Order \(his words\)|Linked messages|Serves|Goal|Done when|Where|Runs as|Release|Mac|Handoff|Decisions that bind|Research|Researched|Answer"
+    r"^(Order \(his words\)|Linked messages|Serves|Goal|Done when|Where|Runs as|Release|Release build|Mac|Handoff|Decisions that bind|Research|Researched|Answer"
     r"|Native|Interactions|Would he ask|Plan|Incident|Scratch|Transcripts|Drive):",
     re.MULTILINE,
 )
@@ -90,17 +90,14 @@ STOPS_ON_CHOICE = re.compile(rf"[^.;]*(?:(?<!never )\bBLOCKED\b[^.;]*{CHOICE_WOR
 STOPPED_RULING = '"fix ur tooling if it stopped on that it shoukd. have brought a design question card to me asap not just stopped int eh middle of the incident"'
 RELEASE = re.compile(r"^Release:[ \t]*(.+)$", re.MULTILINE)
 MAC = re.compile(r"^Mac:[ \t]*(.+)$", re.MULTILINE)
-INCIDENT = re.compile(r"^Incident:", re.MULTILINE)
 CI_BINARIES = frozenset({"ci", "ci.dev"})
 RELEASE_STARTS = ("start", "hotfix")
 RELEASE_VALUED = frozenset({"groups", "targets", "hotfix", "landed", "exclude", "only", "without", "env", "from", "order"})
 RELEASE_ASIDE = frozenset({"json"})
-PLAN_ASIDE = frozenset({"order"})
-COMMIT_PICKS = frozenset({"from", "green"})
 RELEASE_APPROVAL = (
     "A release starts only on words of his ordering it, whatever card or thread they answer, or on an incident's order, the"
     " answer labelled incident, whose words approve the incident's own cut. Name in `--order` the answer `drive answer`"
-    " recorded for those words, or ask him with `drive job ask` whether to release"
+    " recorded for those words, or read its `tools/ci release plan` and ask him with `drive job ask` whether to start that exact command"
 )
 RELEASE_HELD = (
     'refused: he holds every release, by his words "{said}" ({where}), and only he grants an exception, one release at a time,'
@@ -146,8 +143,8 @@ def fields(text: str) -> list[tuple[str, str]]:
 
 
 def release_flags(words: list[str]) -> dict[str, tuple[str, ...]] | None:
-    """What a `ci release start`, `hotfix` or `plan` ships and from where, as `ci release` parses its words, a hotfix's pull requests as its --hotfix and bare targets as --targets; None for any other command."""
-    if Path(words[0]).name not in CI_BINARIES or words[1:2] != ["release"] or words[2:3] not in (["start"], ["hotfix"], ["plan"]):
+    """What a `ci release start` or `hotfix` ships and from where, as `ci release` parses its words, a hotfix's pull requests as its --hotfix and bare targets as --targets; None for any other command."""
+    if Path(words[0]).name not in CI_BINARIES or words[1:2] != ["release"] or words[2:3] not in (["start"], ["hotfix"]):
         return None
     flags: dict[str, list[str]] = {}
     rest = iter(words[3:])
@@ -161,38 +158,28 @@ def release_flags(words: list[str]) -> dict[str, tuple[str, ...]] | None:
     return {name: tuple(sorted(values)) for name, values in flags.items() if name not in RELEASE_ASIDE}
 
 
-def release_scope(flags: dict[str, tuple[str, ...]]) -> dict[str, tuple[str, ...]]:
-    """What a release's flags ship, to which envs and on which answer of his, leaving out the commit it picks."""
-    return {name: values for name, values in flags.items() if name not in COMMIT_PICKS}
-
-
-def plan_flags(flags: dict[str, tuple[str, ...]]) -> dict[str, tuple[str, ...]]:
-    """A release's flags as the plan before its start is matched on them, leaving out the --order its start names."""
-    return {name: values for name, values in flags.items() if name not in PLAN_ASIDE}
-
-
 def started(command: str) -> list[dict[str, tuple[str, ...]]]:
     """The flags of each `ci release start` or `hotfix` a command runs."""
-    return [flags for words in simple_commands(command) if words[2:3] and words[2] in RELEASE_STARTS and (flags := release_flags(words)) is not None]
+    return [flags for words in simple_commands(command) if (flags := release_flags(words)) is not None]
 
 
 def release_refusal(command: str) -> str | None:
-    """Why a brief's Release line names no release a job may start: it is not one `ci release start` or `hotfix`."""
-    named = started(command)
-    if len(named) != 1:
-        return f"--release names {len(named)} releases: name the one `tools/ci release start` or `tools/ci release hotfix` the job may run, with its flags as it runs them"
+    """Why `drive job add --release` may not start a command: it is not one `ci release start` or `hotfix` alone, naming in --order the answer of his it starts on."""
+    commands = simple_commands(command)
+    if len(commands) != 1 or (flags := release_flags(commands[0])) is None:
+        return f"--release `{command}` is not one `tools/ci release start` or `tools/ci release hotfix` alone: name the one release to start, with its flags as it runs"
+    if not flags.get("order"):
+        return f"--release names no --order. {RELEASE_APPROVAL}"
     return None
 
 
 def approval_refusal(command: str, data: dict) -> str | None:
-    """Why the one release a command starts may not start on the answer of his its --order names: while he holds every release, hold_refusal() refuses it; else it is no incident's order, and Jev does not read it as his order or pick to release, or gave no answer; None for a release naming no --order while no hold stands."""
+    """Why the one release a command starts may not start on the answer of his its --order names: while he holds every release, hold_refusal() refuses it; else it is no incident's order, and Jev does not read it as his order or pick to release, or gave no answer."""
     cwd = data["roles"]["coordinator"]["cwd"]
     if hold := settled.hold(cwd):
         return hold_refusal(command, data, hold)
     [flags] = started(command)
-    if not (orders := flags.get("order")):
-        return None
-    answer_id = orders[-1]
+    answer_id = flags["order"][-1]
     try:
         answer = settled.shown(answer_id, cwd)
         if settled.INCIDENT in answer["tags"] or settled.approving(f"start this production release: `{command}`", [{"id": answer_id, "asked": answer["title"], "said": answer["body"]}]):

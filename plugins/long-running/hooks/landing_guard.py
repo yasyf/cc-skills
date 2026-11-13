@@ -196,14 +196,11 @@ CCI_POST = Landing(
     {"h": "help"},
     reads=("help",),
 )
-RELEASE_UNBRIEFED = (
-    "Refused on purpose: a drive job starts only the release its brief's Release line names, with its targets, --env and"
-    " --order as written, and the brief of {job} names {named}, not `{command}`. Start the brief's release, or return BLOCKED naming the"
-    ' release you would start and why, so the coordinator writes it with `drive job brief {job} --release "<command>"`'
-)
-RELEASE_UNPLANNED = (
-    "Refused on purpose: a drive job starts a release only after a `tools/ci release plan` at the same flags passed earlier"
-    " in the job, and none did for `{command}`. Run `tools/ci release plan {flags}`, read what each stack changes, then start it"
+RELEASE_BY_HAND = (
+    "Refused on purpose: a drive starts a release only through `drive job add builder --order <o> --goal \"<what it ships>\""
+    ' --release "{command}"`, run by the top coordinator, which reads the answer of his its --order names, starts it from the'
+    " top's checkout, prints its build and briefs the job's agent to follow it and read its approve hold. A job needing a release"
+    " returns WAITING release naming that exact command once its `tools/ci release plan` reads right, and the top asks him for his go"
 )
 MISROUTED = (
     "This {kind} record goes to {lanes}: a defect, and the communicator's owner record about the drive, to the meta"
@@ -452,7 +449,7 @@ def lane_reason(keys: list[str]) -> str | None:
 
 
 def cut_reason(words: list[str], shell: Shell) -> str | None:
-    """Why a drive session, an agent it started or a Sprite lane may not run this release verb: a drive job cancels no release, so it returns with one held for the coordinator; a sub-coordinator's session may not start, resume, approve, rerun or roll back a production cut, since one cut carries every project's changes and the top coordinator alone runs them, one at a time; a drive job starts or hotfixes only the release its brief's Release line names, --order included, after a plan at its flags outside an incident, since `drive job brief --release` already read that --order as his approval; a drive session's own start, which no brief names, starts on `--order` only naming an answer of his that approves it; and while he holds every release, each of them runs only on his exception for the release it runs, which a Sprite lane asks the coordinator's Mac with `drive job held --release`."""
+    """Why a drive session, an agent it started or a Sprite lane may not run this release verb: a drive job cancels no release, so it returns with one held for the coordinator; a sub-coordinator's session may not start, resume, approve, rerun or roll back a production cut, since one cut carries every project's changes and the top coordinator alone runs them, one at a time; none of them starts or hotfixes a release by hand, since `drive job add --release` starts each one on his answer approving it; and while he holds every release, each other verb runs only on his exception for the release it runs, which a Sprite lane asks the coordinator's Mac with `drive job held --release`."""
     if (verb := release_verb(words)) is None:
         return None
     job = shell.job or bool(os.environ.get(state.REMOTE_LANE_ENV))
@@ -470,17 +467,14 @@ def cut_reason(words: list[str], shell: Shell) -> str | None:
                 f" the top coordinator of drive {name} (session {top}) does, one at a time. Send it a record at root@{name} naming"
                 " the merged changes the cut must carry"
             )
-    starts = verb in brief.RELEASE_STARTS
-    if starts and job and (unbriefed := unbriefed_reason(words, shell)):
-        return unbriefed
+    if verb in brief.RELEASE_STARTS and (shell.driving or job):
+        return RELEASE_BY_HAND.format(command=" ".join(words))
     if os.environ.get(state.REMOTE_LANE_ENV):
         return lane_release_reason(release_of(words, shell))
     if not names:
         return None
     data = state.load(names[0])
     try:
-        if starts and not job:
-            return brief.approval_refusal(" ".join(words), data)
         hold = settled.hold(data["roles"]["coordinator"]["cwd"])
         return hold and brief.hold_refusal(release_of(words, shell), data, hold)
     except state.DriveError as error:
@@ -488,9 +482,7 @@ def cut_reason(words: list[str], shell: Shell) -> str | None:
 
 
 def release_of(words: list[str], shell: Shell) -> str:
-    """The release a release verb runs, as his exception names it: a start's or hotfix's own words, else the newest Release line of the caller's brief, the release its job runs, else the verb's own words."""
-    if words[1:2] == ["release"] and words[2] in brief.RELEASE_STARTS:
-        return " ".join(words)
+    """The release a release verb runs, as his exception names it: the newest Release line of the caller's brief, the release its job started on, else the verb's own words."""
     return next(reversed(brief.RELEASE.findall(agents.brief(shell.caller))), " ".join(words))
 
 
@@ -518,29 +510,6 @@ def lane_release_reason(release: str) -> str | None:
         return land.lane_held(f"--release={release}")["release"]
     except state.DriveError as error:
         return RELEASE_UNASKED.format(release=release, error=error)
-
-
-def unbriefed_reason(words: list[str], shell: Shell) -> str | None:
-    """Why a drive job may not run this `ci release start` or `hotfix`: its brief's Release line names another release or none, --order included, or, outside an incident, no `ci release plan` at its flags but --order passed earlier in the job, since the builder's no-dry-run rule holds on an incident."""
-    text = agents.brief(shell.caller)
-    flags = brief.release_flags(words)
-    named = brief.RELEASE.findall(text)
-    if not named or [brief.release_scope(flags)] != [brief.release_scope(each) for each in brief.started(named[-1])]:
-        job = match[1] if (match := brief.BRIEF_JOB.search(text)) else "<job>"
-        return RELEASE_UNBRIEFED.format(job=job, named=f"`{named[-1]}`" if named else "no release", command=" ".join(words))
-    plan = brief.plan_flags(flags)
-    if brief.INCIDENT.search(text) or planned(plan, shell):
-        return None
-    shown = (f"--{name}" if values == ("true",) else f"--{name} {','.join(values)}" for name, values in plan.items())
-    return RELEASE_UNPLANNED.format(command=" ".join(words), flags=" ".join(shown))
-
-
-def planned(flags: dict[str, tuple[str, ...]], shell: Shell) -> bool:
-    """Whether a `ci release plan` at these flags, its --order aside, ran earlier in the caller's transcript and exited 0."""
-    rows = agents.tail(agents.transcript_of(shell.caller))
-    calls = [part for row in rows for part in agents.parts(row) if part.get("type") == "tool_use" and part.get("name") == "Bash"]
-    plans = {call["id"] for call in calls if any(words[2:3] == ["plan"] and brief.plan_flags(brief.release_flags(words)) == flags for _, words, _ in commands(call["input"].get("command", ""), shell))}
-    return any(part.get("tool_use_id") in plans and not part.get("is_error") for row in rows for part in agents.parts(row) if part.get("type") == "tool_result")
 
 
 def commands(script: str, shell: Shell) -> Iterator[tuple[list[str], list[str], Shell]]:
@@ -739,7 +708,7 @@ def unprevented_reports(payload: dict) -> str | None:
 
 
 def guarded_reason(payload: dict) -> str | None:
-    """Why a Bash call must not run, a refusal capt-hook's Jev never weighs again: it lands a Forge-AI drive PR without his tap or merges with --admin there, in a drive session or agent lands a Forge-AI PR someone else opened that no order of his names, starts, approves or rolls back a production cut from a sub-coordinator's session, cancels a release from a drive job or starts one other than its brief's Release line names, --order included, or before a plan at its flags outside an incident, or in a drive session's own call starts one on `--order` naming an answer of his that is no incident's and that Jev does not read as his order or pick to release, and in a drive session or agent lands a Forge-AI PR while his card on it is open, around the monorepo's queue or apart from its stack, or on a Sprite lane lands one while `drive job held --pr` on the coordinator's Mac names his card on it open or does not answer, puts up a drive's public PR body showing what only a private place may, or posts with `cci post` an owner or answer record of his words on an open card of his, which only the drive's `record` tool closes in the same call, or an owner record naming no about, which picks the session it reaches."""
+    """Why a Bash call must not run, a refusal capt-hook's Jev never weighs again: it lands a Forge-AI drive PR without his tap or merges with --admin there, in a drive session or agent lands a Forge-AI PR someone else opened that no order of his names, starts, approves or rolls back a production cut from a sub-coordinator's session, cancels a release from a drive job or starts one in a drive session or agent rather than through `drive job add --release`, and in a drive session or agent lands a Forge-AI PR while his card on it is open, around the monorepo's queue or apart from its stack, or on a Sprite lane lands one while `drive job held --pr` on the coordinator's Mac names his card on it open or does not answer, puts up a drive's public PR body showing what only a private place may, or posts with `cci post` an owner or answer record of his words on an open card of his, which only the drive's `record` tool closes in the same call, or an owner record naming no about, which picks the session it reaches."""
     names, shell = shell_of(payload)
     command = payload["tool_input"]["command"]
     if shell.driving and (exposed := body_reason(command, shell)):
