@@ -802,12 +802,43 @@ def test_jev_gets_each_call_a_claims_read_names_whole_beside_its_claims_a_read_n
         {"claim": "the cloud reads the inbox straight from Postgres", "read": "reports/j1880.md"},
     ]
     backed, unbacked, doc = evidence(transcript, monkeypatch, capsys, text=HISTORY_POST, thread_ts="1.2", claims=json.dumps(claims) if as_text else claims)
-    assert (backed["id"], backed["quote"]) == ("read:1", shown(*SHADOWED))
+    assert (backed["id"], backed["quote"]) == ("read:1", f"{shown(*SHADOW)}\n\n{shown(*SHADOWED)}")
     assert '"lower.rs:295-305" behind its claims ["Each table has a `<table>__history` shadow table", "its columns plus the run"]' in backed["source"]
     assert "is a doc" not in backed["source"]
     assert (unbacked["id"], unbacked["quote"]) == ("read:2", 'none: no call of the handler\'s own holds "values.go 250-280"')
     assert (doc["id"], doc["quote"]) == ("read:3", shown(*REPORT))
     assert doc["source"].endswith('; ["/drive/reports/j1880.md"] this read opens is a doc, which backs a line telling what that doc says and no line on what code does, even word for word')
+
+
+@pytest.mark.parametrize(
+    "pointer",
+    [
+        "<persisted-output>\nOutput too large (59.5KB). Full output saved to: {saved}\n\nPreview (first 2KB):\n{preview}\n...\n</persisted-output>",
+        "Error: result (60,894 characters across 1 line) exceeds maximum allowed tokens. Output has been saved to {saved}. Format: Plain text",
+    ],
+    ids=["Bash", "MCP"],
+)
+def test_an_output_the_tool_saved_to_a_file_reaches_jev_whole_by_its_command_or_by_the_files_path(
+    talker: str, transcript: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], pointer: str
+) -> None:
+    saved = tmp_path / "b3keoof79.txt"
+    saved.write_text("o937: long-running 1.0.697 installed\n" + "row\n" * 15000 + "yasyf/cc-skills#4817 merged\n")
+    asked = {"command": "drive status o937 2>&1 | head -80"}
+    tool(lane_of(transcript), "Bash", asked, pointer.format(saved=saved, preview="o937: long-running 1.0.697 installed"))
+    claims = [{"claim": "#4817 merged", "read": "drive status o937"}, {"claim": "#4817 merged", "read": str(saved)}]
+    by_command, by_path = evidence(transcript, monkeypatch, capsys, text=HISTORY_POST, thread_ts="1.2", claims=claims)
+    whole = f"Bash {json.dumps(asked)} {saved}\n{saved.read_text()}"
+    assert (by_command["quote"], by_path["quote"]) == (whole, whole)
+
+
+def test_a_path_and_line_read_hands_jev_a_read_of_the_whole_file(
+    talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    read = ("Read", {"file_path": "/repo/plugins/long-running/lib/drive/talk.py"}, "    46\tdef misplaced(drive: dict, tool_input: dict) -> str | None:")
+    tool(lane_of(transcript), *read)
+    claims = [{"claim": "misplaced checks where a post goes", "read": "lib/drive/talk.py:46"}]
+    (backed,) = evidence(transcript, monkeypatch, capsys, text=HISTORY_POST, thread_ts="1.2", claims=claims)
+    assert backed["quote"] == shown(*read)
 
 
 def test_a_record_a_claim_names_or_the_post_cites_and_the_report_it_carries_reach_jev_whole_and_a_post_naming_no_claim_says_so(

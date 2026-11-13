@@ -24,7 +24,7 @@ BETWEEN_QUOTES = re.compile(r"…|\.{3}|\n|\s/\s")
 QUOTE_MARKS = "\"'“”‘’"
 STRAIGHT = str.maketrans("‘’“”", "''\"\"")
 PLACEHOLDER = re.compile(r"\$\([^()]*\)|\$\{[^{}]*\}|<(?![@#!]|\w+:)[^>|]*>")
-SAVED = re.compile(r"Output has been saved to (/\S+?)\.?(?=\s|$)")
+SAVED = re.compile(r"\A(?:<persisted-output>\n)?[^\n]*?(?:Output has been saved to|Full output saved to:) (/\S+?)\.?(?=\s|$)")
 ALERT_LINK = re.compile(r"^\d+:\d+ bare-url 'https://(?:[\w-]+\.slack\.com/archives/|(?:[\w-]+\.)?sentry\.io/|(?:[\w-]+\.)?datadoghq\.com/)")
 SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+|\n+")
 SWITCH = re.compile(r"orca terminal switch --terminal[= ]([^\s`'\"<>|]+)")
@@ -114,10 +114,12 @@ WHOLE = (
 )
 RECORD_READ = re.compile(r"record:(\d+)")
 READ_WORDS = re.compile(r"[^\s:]+")
+LINE_NUMBERS = re.compile(r":\d[\d-]*(?=[\s:]|$)")
 DOC_PATH = re.compile(r"[\w.~/-]+\.(?:md|mdx|rst)\b")
 NAMED_SOURCE = (
     "the read the posting handler names as {read} behind its claims {claims}: each call of its own transcript, its posts"
-    " aside, whose tool name and input hold every word of it, case aside, with that call's whole result; a call reading a"
+    " aside, whose tool name and input, with the file a tool saved its output to, hold every word of it but a path's line"
+    " numbers, case aside, with that call's whole result, a saved output's whole file; a call reading a"
     " doc, report, PR body or brief shows what that source says, never what the code it describes does, whoever wrote it"
 )
 DOC_SOURCE = "; {docs} this read opens is a doc, which backs a line telling what that doc says and no line on what code does, even word for word"
@@ -758,21 +760,23 @@ def read_evidence(payload: dict, claims: list[dict]) -> list[dict]:
 
 
 def own_calls(payload: dict) -> dict[str, str]:
-    """Each call of the handler's own transcript, its posts aside, as its tool's name and its input, beside its whole result, an error's marked so; the newest result of two calls alike."""
+    """Each call of the handler's own transcript, its posts aside, as its tool's name and its input, beside its whole result, an error's marked so; a result the tool saved to a file, keeping only its preview in the transcript, is that file whole, its call named by the file's path too; the newest result of two calls alike."""
     calls: dict[str, str] = {}
     results: dict[str, str] = {}
     for row in agents.tail(agents.transcript(payload)):
         for part in agents.parts(row):
             if part.get("type") == "tool_use" and part.get("name") not in DM_POSTS | CHANNEL_POSTS:
                 calls[part["id"]] = f"{part['name']} {json.dumps(part.get('input'), ensure_ascii=False)}"
-            elif part.get("type") == "tool_result" and part.get("tool_use_id") in calls:
-                results[calls[part["tool_use_id"]]] = ("error: " if part.get("is_error") else "") + result_text(part)
+            elif part.get("type") == "tool_result" and (call := calls.get(part.get("tool_use_id"))):
+                if saved := SAVED.search(text := result_text(part)):
+                    call, text = f"{call} {saved[1]}", Path(saved[1]).read_text()
+                results[call] = ("error: " if part.get("is_error") else "") + text
     return results
 
 
 def called(index: int, read: str, claimed: list[str], calls: dict[str, str]) -> dict:
-    """Jev's item for one read the claims name: each call whose tool name and input hold every word of the read, case aside, a word split at a colon, as a path's from its line numbers, with its whole result, or none when no call does, its source naming the claims beside the read and each doc, such as a report or a brief, a call of it opens."""
-    words = [json.dumps(word, ensure_ascii=False)[1:-1] for word in READ_WORDS.findall(read.casefold())]
+    """Jev's item for one read the claims name: each call whose tool name and input hold every word of the read, case aside, a path's line numbers after its colon left out, since each call's result goes whole, with its whole result, or none when no call does, its source naming the claims beside the read and each doc, such as a report or a brief, a call of it opens."""
+    words = [json.dumps(word, ensure_ascii=False)[1:-1] for word in READ_WORDS.findall(LINE_NUMBERS.sub("", read.casefold()))]
     held = [call for call in calls if words and all(word in call.casefold() for word in words)]
     docs = list(dict.fromkeys(doc for call in held for doc in DOC_PATH.findall(call)))
     source = NAMED_SOURCE.format(read=json.dumps(read, ensure_ascii=False), claims=json.dumps(claimed, ensure_ascii=False))
