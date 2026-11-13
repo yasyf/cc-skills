@@ -1671,6 +1671,36 @@ def test_the_recommended_option_comes_first_in_a_new_block_and_a_kept_one_still_
     assert limits.question(late, kept=True).recommended == "server-side copy"
 
 
+@pytest.mark.parametrize(
+    "named",
+    [
+        "branch durable-agents-j3700-scale-up-completed-minutes",
+        "`durable-agents-j3700-scale-up-completed-minutes`",
+        "scratch/j3700/raise.sh",
+        "j3700.md",
+        "the card durable-agents:j3665-1794586294029",
+    ],
+)
+def test_an_id_inside_a_branch_path_file_or_waits_id_keeps_its_proper_name(named: str) -> None:
+    described = options_ask("server-side copy (recommended)", "copy in batches").replace("`lib/drive/cli.py`", named, 1)
+    assert limits.question_problems(described)[1] == []
+
+
+@pytest.mark.parametrize(
+    ("ask", "found"),
+    [
+        (options_ask("server-side copy (recommended)", "copy in batches").replace("`lib/drive/cli.py`", "branch j3700", 1), "j3700"),
+        (options_ask("server-side copy (recommended)", "copy in batches").replace("`lib/drive/cli.py`", "`j3700`", 1), "j3700"),
+        (options_ask("server-side copy (recommended)", "copy in batches").replace("`lib/drive/cli.py`", "j3700's branch", 1), "j3700"),
+        (options_ask("server-side copy (recommended)", "copy in batches").replace("`lib/drive/cli.py`", "what j7 built", 1), "j7"),
+        (options_ask("server-side copy (recommended)", "copy in batches").replace("Which way should this go?", "Which way should {order:o1} go?"), "o1"),
+    ],
+)
+def test_a_bare_drive_id_is_refused_wherever_the_card_draws_it(ask: str, found: str) -> None:
+    with pytest.raises(DriveError, match=f'"{found}" is a drive job or order id, which he cannot open'):
+        limits.question(ask)
+
+
 def test_an_option_asking_someone_to_retry_or_confirm_is_refused_naming_the_fix_to_offer() -> None:
     with pytest.raises(DriveError, match='option "ask Rowan to retry the restore" asks someone to retry or confirm "ask Rowan to retry", which fixes nothing: offer the fix itself'):
         limits.question(options_ask("restore from the replica (recommended)", "ask Rowan to retry the restore"))

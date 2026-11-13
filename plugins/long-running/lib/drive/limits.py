@@ -298,7 +298,7 @@ MARKED = re.compile(
 )
 PLAIN_TEXT_RULING = 'his Nov 10 11:21 PM words "look at the formatting you have a link in teh titkle that is just raw markfowen"'
 PROPER_TERMS_RULING = 'his Nov 11 12:36 AM words "use the proper fucking terms for things"'
-DRIVE_ID = re.compile(r"\b[jo]\d+\b")
+DRIVE_ID = re.compile(r"(?<![\w./-])[jo]\d+(?![\w/-]|\.\w)")
 JOB_ID = re.compile(r"\bj\d+\b")
 CLOCK_TIME = re.compile(r"\b(1[0-2]|0?[1-9])(?::([0-5]\d))?(?::[0-5]\d)?\s?([AP])\.?M\b", re.IGNORECASE)
 DAY_BEFORE = re.compile(rf"\b({DAY})(?:,|\s+at)?\s+\Z", re.IGNORECASE)
@@ -696,7 +696,7 @@ def question_problems(text: str, kept: bool = False, unsettled: str | None = Non
     plain = URL.sub(" ", TOKEN.sub(" ", "\n".join([title, *ordered, *options, *(line for _, line in prose)])))
     problems += [
         f'"{found}" is a drive job or order id, which he cannot open: say what that work is, or name an order in the summary as'
-        f" `{{order:<o>}}`, which his card draws as his words; a function, syscall or file keeps its proper name ({PROPER_TERMS_RULING})"
+        f" `{{order:<o>}}`, which his card draws as his words; a branch, path, file, function or syscall keeps its proper name ({PROPER_TERMS_RULING})"
         for found in DRIVE_ID.findall(plain)
     ]
     problems += [
