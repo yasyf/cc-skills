@@ -797,13 +797,13 @@ const done = (result) => {{ document.documentElement.dataset.result = JSON.strin
 def test_a_live_update_keeps_the_page_he_is_on_in_place(tmp_path: Path) -> None:
     kept = browse(tmp_path, """
 location.hash = '#/work/Platform/SandSQL';
-await wait(200);
+await until(() => document.querySelector('#main .canvas [data-cam="in"]'));
 const canvas = document.querySelector('#main .canvas');
 canvas.querySelector('[data-cam="in"]').click();
 await wait(100);
 const aimed = JSON.stringify(nowCamera.at);
 await push({ ...MODEL, at: '2026-11-11T00:05:00-08:00', work: MODEL.work.map((lane) => ({ ...lane, goal: 'moved on' })) });
-await wait(200);
+await until(() => document.querySelector('#main .canvas .topo-node.lane b')?.textContent === 'moved on');
 done({ same: document.querySelector('#main .canvas') === canvas, aimed: JSON.stringify(nowCamera.at) === aimed, goal: canvas.querySelector('.topo-node.lane b').textContent });
 """, board(), "1200,600", "--force-prefers-reduced-motion")
     assert kept == {"same": True, "aimed": True, "goal": "moved on"}
