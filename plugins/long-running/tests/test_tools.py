@@ -4,7 +4,7 @@ import json
 import os
 import subprocess
 from collections.abc import Callable, Iterator
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -1114,6 +1114,19 @@ def test_his_tap_and_an_answer_naming_his_card_by_its_waits_attr_each_post_under
     assert [record["topic"] for batch in cci.posted for record in batch] == ["card:1794200000.000700", "card:1794200000.000701"]
     data = state.load(demo)
     assert [(view.holds(data, wait, view.NO_CARDS), question["closed"]["seq"]) for wait, question in zip(("demo:j1-7", "demo:j2-8"), (data["jobs"]["j1"]["questions"][0], data["jobs"]["j2"]["questions"][0]), strict=True)] == [(False, "51"), (False, "52")]
+
+
+def test_his_tap_the_drive_takes_late_ends_its_question_at_the_tap_while_its_job_reads_changed_when_taken(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build it")
+    monkeypatch.setattr(subprocess, "run", Cci().run)
+    open_cards(monkeypatch, "demo:j1-7")
+    card.question_answered({"waits": "demo:j1-7", "label": "Ring", "url": CARD, "action_ts": "1794200001.000100"})
+    job = state.load(demo)["jobs"]["j1"]
+    closed = job["questions"][0]["closed"]
+    assert (closed["at"], state.parse_time(job["updated"]) > state.parse_time(closed["at"])) == (state.stamp(datetime.fromtimestamp(1794200001.0001).astimezone()), True)
 
 
 def test_an_answer_his_recorded_rules_give_by_the_waits_id_of_a_question_whose_card_never_drew_settles_it_under_the_rulings_full_id(
