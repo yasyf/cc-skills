@@ -3,6 +3,7 @@ import json
 import os
 import re
 import time
+import uuid
 from pathlib import Path
 
 from drive import agents, cli, picture, reads, refs, render, slack, state, view
@@ -16,6 +17,8 @@ TICKET_FLAGS = {"ticket_id": "--ticket", "ticket_tree": "--ticket-tree", "ticket
 EDIT_TAKES = {"edit", "text", "asked", "claims", "dry_run", *TICKET_FLAGS}
 OPENING_WORDS = 12
 RECENT_POSTS = 50
+RECORD_WAIT_SECONDS = 1.0
+RECORD_POLL_SECONDS = 0.05
 WORD = re.compile(r"\w+")
 
 
@@ -52,10 +55,43 @@ def say(name: str, post: dict) -> str:
     if report.get("catch_up"):
         line += released(name, reply["permalink"], corrected)
     if order:
-        try:
-            line += "; " + cli.record_post(name, order, reply["permalink"], report, reply.get("sent"))[0]
-        except (DriveError, slack.SlackError) as error:
-            line += f"; not recorded on {order}: {error}"
+        line += "; " + recording(name, {"order": order, "link": reply["permalink"], "record": post.get("record"), "sent": reply.get("sent")})
+    return line
+
+
+def recording(name: str, receipt: dict) -> str:
+    """Record the post on its order in its own process, behind a receipt kept in the drive, so a slow Slack read, Jev call or drive lock never holds the say call past RECORD_WAIT_SECONDS: the record's line once it lands within that, else where its receipt keeps the line it ends with."""
+    kept = state.drive_dir(name) / "posts" / f"{uuid.uuid4().hex}.json"
+    kept.parent.mkdir(parents=True, exist_ok=True)
+    kept.write_text(json.dumps(receipt))
+    state.detach(name, ["say-record", str(kept)], "posts.log")
+    ends = time.monotonic() + RECORD_WAIT_SECONDS
+    while time.monotonic() < ends:
+        if line := json.loads(kept.read_text()).get("line"):
+            return line
+        time.sleep(RECORD_POLL_SECONDS)
+    return f"recording on {receipt['order']} after this call; its line lands in {kept}, and a failure reaches the meta session as a defect"
+
+
+def unrecorded(name: str, text: str) -> None:
+    """Tell the meta session, as a defect, that a post say made was not recorded on its order."""
+    from drive import tools
+
+    tools.sent(name, "communicator", [{"kind": "defect", "to": [f"meta@{name}"], "text": text}])
+
+
+def record_kept(name: str, kept: Path) -> str:
+    """Record a say post on its order from the receipt `recording` kept, writing the line it ends with back into the receipt; one that cannot be recorded is sent to the meta session as a defect naming the receipt."""
+    receipt = json.loads(kept.read_text())
+    try:
+        report = cli.report_attrs(receipt["record"]) if receipt["record"] else {}
+        line = cli.record_post(name, receipt["order"], receipt["link"], report, receipt["sent"])[0]
+    except (DriveError, slack.SlackError) as error:
+        line = f"not recorded on {receipt['order']}: {error}"
+        unrecorded(name, f"say posted {receipt['link']} but it was {line}; receipt {kept}")
+    tmp = kept.with_suffix(".tmp")
+    tmp.write_text(json.dumps(receipt | {"line": line}))
+    os.replace(tmp, kept)
     return line
 
 

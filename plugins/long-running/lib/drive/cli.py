@@ -2862,10 +2862,20 @@ def handler(args: argparse.Namespace) -> int:
         )
     if re.search(rf"^{re.escape(agents.HIS_WORDS)}:", args.brief, re.MULTILINE):
         watch.hear(name, state.now(), args.away)
-    handler_id, handed = agents.handle(name, args.brief)
+    handler_id, handed = agents.handle(name, args.brief, detached=True)
     if handed:
         return emit(args, f"handed to {handler_id}", {"handler": handler_id, "handed": True})
     return emit(args, f"started {handler_id}", {"handler": handler_id})
+
+
+def say_record(args: argparse.Namespace) -> int:
+    from drive import talk
+
+    return emit(args, talk.record_kept(state.resolve(args.drive), Path(args.receipt)), {"receipt": args.receipt})
+
+
+def handler_start(args: argparse.Namespace) -> int:
+    return emit(args, agents.start_kept(state.resolve(args.drive), args.id), {"handler": args.id})
 
 
 def term(args: argparse.Namespace) -> int:
@@ -4011,6 +4021,14 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("--away", action="store_true", help="he said he is going to sleep or away, for a brief carrying his words")
     verb.set_defaults(run=handler)
+    verb = verbs.add_parser(
+        "handler-start", parents=both, help="start the handler drive handler kept, as its own claude --bg session; the handler verb runs it detached once it returns"
+    )
+    verb.add_argument("id", help="the handler's id, as drive handler printed it")
+    verb.set_defaults(run=handler_start)
+    verb = verbs.add_parser("say-record", parents=both, help="record a post say made on its order from the receipt say kept; say runs it detached")
+    verb.add_argument("receipt", help="the receipt file say kept under the drive's posts folder")
+    verb.set_defaults(run=say_record)
     verb = verbs.add_parser(
         "term", parents=both, help="he corrected a word: say's hook finds it from now on for Jev to judge, naming the proper term his words or the code use"
     )

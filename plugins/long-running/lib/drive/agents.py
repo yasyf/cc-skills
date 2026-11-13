@@ -250,8 +250,8 @@ class Busy(state.DriveError):
     """A live handler holds the same record or message of his a brief holds, so the brief is a copy that needs no handler of its own."""
 
 
-def handle(name: str, brief: str) -> tuple[str, bool]:
-    """Start a handler on its brief, unless a live one already holds what the brief holds, since one message of his has one handler at a time: a brief for another record on that message is handed to that handler, which takes it at its next step; the id of the handler at work on the brief, and whether it was handed."""
+def handle(name: str, brief: str, detached: bool = False) -> tuple[str, bool]:
+    """Start a handler on its brief, unless a live one already holds what the brief holds, since one message of his has one handler at a time: a brief for another record on that message is handed to that handler, which takes it at its next step; the id of the handler at work on the brief, and whether it was handed. Detached, as the handler tool runs it, the handler's session starts after the call returns, from the brief kept for `drive handler-start`; the watch starts it in the call, since nothing waits on the watch."""
     held_now = holds(brief)
     data = state.load(name)
     if (held := holder(data, held_now)) and gone(data["handlers"][held]["session"]):
@@ -273,6 +273,12 @@ def handle(name: str, brief: str) -> tuple[str, bool]:
         raise Busy(f"refused, no handler started: handler {held} is at work on {his}, and one message of his has one handler at a time; this copy needs no handler of its own")
     if folder := scratch(brief):
         folder.mkdir(parents=True, exist_ok=True)
+    if detached:
+        kept = brief_path(name, handler_id)
+        kept.parent.mkdir(parents=True, exist_ok=True)
+        kept.write_text(brief)
+        state.detach(name, ["handler-start", handler_id], "handlers.log")
+        return handler_id, False
     try:
         start_handler(name, handler_id, brief)
     except reads.ReadError as error:
@@ -280,6 +286,24 @@ def handle(name: str, brief: str) -> tuple[str, bool]:
             del data["handlers"][handler_id]
         raise state.DriveError(f"claude --bg started no handler: {error}") from None
     return handler_id, False
+
+
+def brief_path(name: str, handler: str) -> Path:
+    return state.drive_dir(name) / "handlers" / f"{handler}.md"
+
+
+def start_kept(name: str, handler: str) -> str:
+    """Start the handler `handle` kept, in its own process after the handler call returned, since `claude --bg` takes seconds; one that fails to start leaves the drive's handlers and tells the communicator in a done record from lane handler, naming the error and its kept brief."""
+    kept = brief_path(name, handler)
+    try:
+        start_handler(name, handler, kept.read_text())
+    except reads.ReadError as error:
+        with state.edit(name) as data:
+            data["handlers"].pop(handler, None)
+        line = f"BLOCKED handler {handler} did not start: {error}; its brief is kept in {kept}: start it again with the handler tool"
+        reads.run(["cci", "post", "--drive", name, "--lane", "handler", "--kind", "done", "--to", f"communicator@{name}", "--id", f"handler-start-{handler}", "--text", line], Path.cwd())
+        return line
+    return f"started {handler}"
 
 
 def start_handler(name: str, handler: str, prompt: str) -> None:

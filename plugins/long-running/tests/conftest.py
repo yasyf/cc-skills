@@ -692,3 +692,28 @@ def codex_ask(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> CodexAsk:
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config))
     (tmp_path / "runs").mkdir()
     return CodexAsk(tmp_path / "runs")
+
+
+@pytest.fixture(autouse=True)
+def unrecorded(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """The defects say sends the meta session for posts it could not record on their orders."""
+    sent: list[str] = []
+    monkeypatch.setattr(talk, "unrecorded", lambda name, text: sent.append(text))
+    return sent
+
+
+@pytest.fixture(autouse=True)
+def detached_in_the_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run the handler start `drive handler` detaches and the order record `say` detaches in the test's own process, so a test reads the `claude --bg` it ran and say's line carries its record; every other detached verb is detached as before."""
+    detached = state.detach
+
+    def detach(name: str, args: list[str], log: str) -> int:
+        if args[:1] == ["handler-start"]:
+            agents.start_kept(name, args[1])
+            return 0
+        if args[:1] == ["say-record"]:
+            talk.record_kept(name, Path(args[1]))
+            return 0
+        return detached(name, args, log)
+
+    monkeypatch.setattr(state, "detach", detach)
