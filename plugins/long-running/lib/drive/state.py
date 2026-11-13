@@ -860,7 +860,7 @@ def rebuilt_ask(name: str, waits: str) -> Path:
 
 
 def ask_hash(text: str) -> str:
-    """What `drive job ask` names a kept ASK file by, after its job: the hash of its words, so a file whose words no longer hash to its name changed since."""
+    """What `drive job ask` names a kept ASK file by, after its job, and the card's line it sends the communicator by, after the card's waits id: the hash of its words, so a file whose words no longer hash to its name changed since, and a line sent again unchanged names the record cci already holds."""
     return hashlib.sha256(text.encode()).hexdigest()[:8]
 
 

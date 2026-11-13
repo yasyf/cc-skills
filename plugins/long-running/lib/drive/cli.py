@@ -1683,7 +1683,7 @@ def ask_card(name: str, job_id: str, file: Path) -> dict:
 
 
 def post_ask(name: str, job_id: str, file: Path, card: dict) -> str:
-    """Post his card on the job's question kept in the file through `talk.posted`, which records it on each question asked under its waits id: in his DM, the thread of the open incident or else of the job's order when that thread is in his DM, else at his DM root, an incident's thread or a thread outside his DM taking the card's line, what it blocks for an incident, through a report record the communicator posts, since only its `say` carries the ticket cc-slack spends on a write outside his DM. Each other open question of the job asking the same on another card ends superseded by this one, its card shown asked again with no buttons and a link to this one, and each wait on it moves to this one's waits id, so nothing waits on him under it. What was done, for drive job ask to print."""
+    """Post his card on the job's question kept in the file through `talk.posted`, which records it on each question asked under its waits id: in his DM, the thread of the open incident or else of the job's order when that thread is in his DM, else at his DM root, an incident's thread or a thread outside his DM taking the card's line, what it blocks for an incident, through a report record the communicator posts, since only its `say` carries the ticket cc-slack spends on a write outside his DM, once for each change to that report: its cci id names the card's waits id and the report's hash, so cci keeps an unchanged line asked again as the record it already holds, which wakes no handler. Each other open question of the job asking the same on another card ends superseded by this one, its card shown asked again with no buttons and a link to this one, and each wait on it moves to this one's waits id, so nothing waits on him under it. What was done, for drive job ask to print."""
     from drive import talk, tools, view
 
     data = state.load(name)
@@ -1708,9 +1708,10 @@ def post_ask(name: str, job_id: str, file: Path, card: dict) -> str:
     if where and (incidents or not inside):
         blocks = f", and it blocks incident {', '.join(incidents)}: {job_id} builds its recommended option meanwhile, {card['recommended']}" if incidents else ""
         report = {"kind": "report", "text": f'POST his card {link} asks him "{card["title"]}" for {job_id}{blocks}', "to": [f"communicator@{name}"], "attr": {"job": job_id, "waits": card["waits"], "thread": where[1]}}
+        report["id"] = f"card-line:{card['waits']}:{state.ask_hash(json.dumps(report, sort_keys=True))}"
         try:
             tools.sent(name, state.holding_lane(data, data["orders"][job["order"]]), [report])
-            said.append(f"its line in thread {where[1]} of channel {where[0]} goes out from the communicator")
+            said.append(f"its line in thread {where[1]} of channel {where[0]} goes out from the communicator once for each change to it")
         except DriveError as error:
             said.append(f"its line in thread {where[1]} of channel {where[0]} did not go out, so post it there with say: {error}")
     return "; ".join(said)

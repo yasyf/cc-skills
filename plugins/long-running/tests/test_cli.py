@@ -11,6 +11,7 @@ import types
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from unittest.mock import ANY
 
 import drive
 import pytest
@@ -2231,7 +2232,7 @@ def test_job_ask_on_an_open_incident_draws_his_card_in_its_thread_and_sends_the_
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK + "Interim fix: j2 checks the fork copies first\n")
     kept, said = run("job", "ask", "j1", str(block))[1].split("\n", 1)
-    assert said == f"his card {slack_card(1)} asks it under demo:j1-7; its line in thread 1794200000.000100 of channel D123 goes out from the communicator"
+    assert said == f"his card {slack_card(1)} asks it under demo:j1-7; its line in thread 1794200000.000100 of channel D123 goes out from the communicator once for each change to it"
     assert [argv[argv.index("--thread") + 1] for argv in slack_calls if argv[0] == "dm-status"] == ["1794200000.000100"]
     [(lane, [report])] = sent
     assert (lane, report["kind"], report["to"], report["attr"]) == ("root", "report", ["communicator@demo"], {"job": "j1", "waits": "demo:j1-7", "thread": "1794200000.000100"})
@@ -2252,15 +2253,37 @@ def test_job_ask_on_an_order_whose_thread_is_outside_his_dm_draws_his_card_at_hi
     block.write_text(SHORT_ASK)
     title = SHORT_ASK.splitlines()[0].removeprefix("ASK ")
     assert run("job", "ask", "j1", str(block))[1].split("\n", 1)[1] == (
-        f"his card {slack_card(1)} asks it under demo:j1-7; its line in thread 1794200000.000100 of channel C0ALERT1 goes out from the communicator"
+        f"his card {slack_card(1)} asks it under demo:j1-7; its line in thread 1794200000.000100 of channel C0ALERT1 goes out from the communicator once for each change to it"
     )
     assert [("--thread" in argv) for argv in slack_calls if argv[0] == "dm-status"] == [False]
     assert sent == [
         (
             "root",
-            [{"kind": "report", "text": f'POST his card {slack_card(1)} asks him "{title}" for j1', "to": ["communicator@demo"], "attr": {"job": "j1", "waits": "demo:j1-7", "thread": "1794200000.000100"}}],
+            [{"kind": "report", "text": f'POST his card {slack_card(1)} asks him "{title}" for j1', "to": ["communicator@demo"], "attr": {"job": "j1", "waits": "demo:j1-7", "thread": "1794200000.000100"}, "id": ANY}],
         )
     ]
+
+
+def test_job_ask_sends_his_cards_line_outside_his_dm_to_the_communicator_once_for_each_change_to_it(
+    run: Run, asking: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with state.edit("demo") as data:
+        data["orders"]["o1"]["thread"] = ["C0ALERT1", "1794200000.000100"]
+    monkeypatch.setattr(cli, "post_ask", POST_ASK)
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": slack_card(1)} if argv[0] == "dm-status" else {})
+    kept: dict[str, dict] = {}
+    monkeypatch.setattr(tools, "sent", lambda name, lane, posts: [kept.setdefault(post["id"], post) and "672400" for post in posts])
+    block = tmp_path / "ask.md"
+    retitled = SHORT_ASK.replace("ASK How should", "ASK Where should")
+    for text, redraws in (
+        (SHORT_ASK, []),
+        (SHORT_ASK.replace("Meanwhile nothing is built on either layout.", "Meanwhile the reader adds one more finding."), []),
+        (retitled, ["--redraws", "demo:j1-7"]),
+        (retitled, ["--redraws", "demo:j1-7"]),
+    ):
+        block.write_text(text)
+        assert run("job", "ask", asking, str(block), *redraws)[0] == 0
+    assert [report["text"] for report in kept.values()] == [f'POST his card {slack_card(1)} asks him "{text.splitlines()[0].removeprefix("ASK ")}" for j1' for text in (SHORT_ASK, retitled)]
 
 
 def test_job_ask_reads_terms_more_than_ten_of_the_drives_questions_use_as_naming_no_one_subject(run: Run, asking: str, tmp_path: Path) -> None:
