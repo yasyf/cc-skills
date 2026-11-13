@@ -1060,13 +1060,15 @@ def job_add(args: argparse.Namespace) -> int:
         }
         state.hold_unstarted(job)
         if crowd := args.kind == "builder" and not args.remote and not args.agent and not args.waits and place.crowded(data, job_id, state.now()):
-            place.queue(job, state.parse_time(created))
+            job["where"] = "remote"
         order["jobs"].append(job_id)
         order["updated"] = created
         state.end_carried_designs(data, args.order, created)
     waiting = [f"{job_id} {job['said']}: start no agent for it until the watch's FREE line says its last wait ended"] if args.waits else []
     if crowd:
-        waiting.append(f"{job_id} waits its turn for a builder slot on this Mac, {place.positions(data)[job_id]}, since {crowd}: start no agent for it until the watch's FREE line names it")
+        waiting.append(
+            f"{job_id} starts on a Sprite at once, since {crowd}: drive job launch {job_id} <brief>; one whose brief runs drive break-glass, a release start, ci mac-box, ci devbox or a test Mac waits its turn for a slot here once its agent starts"
+        )
     return emit(args, "\n".join([job_id, *waiting, *beside]), {"id": job_id, **job, "beside": beside})
 
 
@@ -1736,7 +1738,7 @@ def place_job(args: argparse.Namespace) -> int:
 
 
 def refuse_a_local_builder(repo: str | None) -> None:
-    """A monorepo builder starts on this Mac only while its load says local; one past this Mac's cap of builders is added waiting its turn for a builder slot, which the watch's FREE line gives it, and the agent_brief hook starts no other builder here while it waits."""
+    """A monorepo builder starts on this Mac only while its load says local; one past this Mac's cap of builders, or behind builders waiting their turn, is added to start on a Sprite at once."""
     if (repo or "").casefold() != place.MONOREPO.casefold():
         return
     where, why = place.verdict(place.busy(), place.limit(), {})
