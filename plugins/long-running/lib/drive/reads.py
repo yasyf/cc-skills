@@ -79,9 +79,7 @@ READ_VERBS = (
 )
 QUERY_VERBS = ("search", "grep")
 PLAN_HEADING = re.compile(r"^(#{1,6})[ \t]+(.+?)[ \t#]*$")
-PLAN_WORD = re.compile(r"[^\W_]+")
 PLANS = 5
-PLAN_SECTIONS = 6
 BUILDKITE_BUILD = re.compile(r"buildkite\.com/[^/\s]+/([^/\s]+)/builds/(\d+)")
 BUILDKITE_JOB = re.compile(r"(?:#|jid=|/jobs/)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")
 ACTIONS_JOB = re.compile(r"github\.com/([^/\s]+/[^/\s]+)/actions/runs/\d+/jobs?/(\d+)")
@@ -454,17 +452,16 @@ def machine_chained(config: configparser.RawConfigParser, section: str) -> bool:
     return True
 
 
-def plan_sections(words: str, checkout: Path) -> list[dict]:
-    """The sections of the cc-notes plans in the checkout that carry the most of the words, best first, each with its plan and the headings above it."""
-    terms = set(PLAN_WORD.findall(words.casefold()))
-    plans = json.loads(run(["ccn", "plan", "search", words, "--limit", str(PLANS), "--json"], checkout))
-    found = [
-        {"plan": plan["id"][:7], "title": plan["title"], "status": plan["status"], **section}
+def plan_sections(phrases: list[str], checkout: Path) -> list[dict]:
+    """The sections of the cc-notes plans in the checkout whose headings or lines carry one of the phrases whole, in any case, plans best first, each with its plan, the headings above it and only the lines carrying one."""
+    phrase = re.compile("|".join(rf"(?<!\w){re.escape(each)}(?!\w)" for each in phrases), re.IGNORECASE)
+    plans = json.loads(run(["ccn", "plan", "search", " ".join(phrases), "--limit", str(PLANS), "--json"], checkout))
+    return [
+        {"plan": plan["id"][:7], "title": plan["title"], "status": plan["status"], "heading": section["heading"], "text": "\n".join(lines)}
         for plan in plans
         for section in sections(json.loads(run(["ccn", "plan", "show", plan["id"], "--json"], checkout))["body"])
+        if (lines := [line for line in section["text"].splitlines() if phrase.search(line)]) or phrase.search(section["heading"])
     ]
-    scored = [(sum(term in f"{section['heading']}\n{section['text']}".casefold() for term in terms), section) for section in found]
-    return [section for score, section in sorted(scored, key=lambda item: -item[0]) if score][:PLAN_SECTIONS]
 
 
 def sections(body: str) -> list[dict]:

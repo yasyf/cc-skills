@@ -207,9 +207,9 @@ def verb_tools() -> list[dict]:
         {
             "name": "search_plan",
             "description": (
-                "Search the plans the coordinator's checkout keeps in cc-notes for the words, to check a step against the plan"
-                " before building it or asking. Returns the sections carrying the most of them, best first, each under its"
-                " plan's title, id, status and the headings above it."
+                "Search the plans the coordinator's checkout keeps in cc-notes for the phrases, to check a step against the plan"
+                " before building it or asking. Returns each line carrying one of them whole, in any case, under its plan's title,"
+                " id, status and the headings above it, plans best first, cut at 12,000 characters: narrow the phrases when it cuts."
             ),
             "inputSchema": {"type": "object", "properties": {**schema(leaf("plan", "search", root=root))["properties"], "drive": DRIVE, "dry_run": DRY_RUN}, "required": ["words"]},
             "annotations": {"readOnlyHint": True},

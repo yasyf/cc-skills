@@ -243,7 +243,7 @@ def test_drive_break_glass_refuses_a_blank_reason_before_any_grant(demo: str, ru
     assert refused.value.code == 2
 
 
-def test_search_plan_returns_the_plan_sections_carrying_its_words_under_their_headings(
+def test_search_plan_returns_the_plan_lines_carrying_its_words_under_their_headings(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     calls: list[tuple[list[str], str]] = []
@@ -262,14 +262,27 @@ def test_search_plan_returns_the_plan_sections_carrying_its_words_under_their_he
     ]
     assert run("plan", "search", "bucket") == (
         0,
-        (
-            "== One copy per store (plan ec8bf71, approved) › One copy per store › Approach › Step 1: the bucket\nWrite each copy to"
-            " the bucket.\n```sh\n# a comment, not a heading\n```"
-        ),
+        "== One copy per store (plan ec8bf71, approved) › One copy per store › Approach › Step 1: the bucket\nWrite each copy to the bucket.",
     )
-    assert run("plan", "search", "deploy", "freeze") == (0, 'no plan the coordinator keeps in cc-notes has a section on "deploy freeze"')
+    assert run("plan", "search", "deploy", "freeze") == (0, 'no plan the coordinator keeps in cc-notes has a line on "deploy", "freeze"')
     listed = {tool["name"]: tool for tool in tools.verb_tools()}["search_plan"]
     assert (listed["inputSchema"]["required"], listed["annotations"]) == (["words"], {"readOnlyHint": True})
+
+
+def test_search_plan_answers_no_line_for_phrases_its_plans_carry_only_split_and_cuts_its_answer_at_the_read_budget(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def plans(body: str) -> None:
+        plan = {**PLAN, "body": body}
+        monkeypatch.setattr(reads, "run", lambda argv, checkout: json.dumps([plan] if argv[2] == "search" else plan))
+
+    plans("# Installs\nThe older installs wait for the lock; none of the verbs is done by one operator.\n")
+    said = tools.run("search_plan", demo, {"words": ["install lock", "older install", "older_verbs_done", "one install per verb"]})
+    assert said == 'no plan the coordinator keeps in cc-notes has a line on "install lock", "older install", "older_verbs_done", "one install per verb"'
+    plans("# Installs\n" + "Each verb takes the install lock.\n" * 1000)
+    said = run("plan", "search", "install lock")[1]
+    assert said.splitlines()[:3] == [f"[first {reads.BUDGET} of 34057 characters]", "== One copy per store (plan ec8bf71, approved) › Installs", "Each verb takes the install lock."]
+    assert len(said) == len(f"[first {reads.BUDGET} of 34057 characters]\n") + reads.BUDGET
 
 
 def test_a_tool_call_naming_its_drive_acts_on_that_drive_from_a_session_no_drive_binds(
