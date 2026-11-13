@@ -450,7 +450,7 @@ class Question:
     recommended: str
     hints: dict[str, str]
     holds: str | None
-    replaces: str = ""
+    replaces: tuple[str, ...] = ()
 
     def card(self, drive: str, waits: str) -> dict:
         """The question card a handler draws from this block, each option's description as the hint cc-slack draws under it, and each file name and path in its body and hints in code formatting."""
@@ -740,9 +740,13 @@ def question_problems(text: str, kept: bool = False, unsettled: str | None = Non
     if hurting and not kept:
         problems += interim_fix_problems("".join(findings[:1]))
     hints = {option: "\n".join(lines) for option, lines in zip(options, described, strict=True) if lines}
-    replaces = REPLACES.search(findings[0]) if findings else None
     recommended = RECOMMENDED.sub("", marked[0]) if len(marked) == 1 else ""
-    return Question(title, summary, show_me, options, recommended, hints, None if held is None else "" if NONE_WHY.match(held[1]) else held[1], replaces[1] if replaces else ""), problems
+    return Question(title, summary, show_me, options, recommended, hints, None if held is None else "" if NONE_WHY.match(held[1]) else held[1], replaced(findings[0]) if findings else ()), problems
+
+
+def replaced(text: str) -> tuple[str, ...]:
+    """The earlier questions a block's `Replaces:` lines name, comma-separated, each by its card's waits id or the ASK file it is kept in, in the order named."""
+    return tuple(dict.fromkeys(ref.strip() for line in REPLACES.findall(text) for ref in line.split(",") if ref.strip()))
 
 
 def unshot(asked: Question) -> str | None:

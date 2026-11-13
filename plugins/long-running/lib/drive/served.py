@@ -320,7 +320,7 @@ def recorded(answer: dict, about: str = "") -> tuple[datetime, str]:
 
 
 def drawn(data: dict, kind: str, name: str) -> dict | None:
-    """The question the drive asked him that this answer of his answered, by the cc-notes answer recorded for it or its card's permalink, the one a later question folded into it left out; None for an answer of his to no question of the drive's."""
+    """The question the drive asked him that this answer of his answered, by the cc-notes answer recorded for it or its card's permalink; None for an answer of his to no question of the drive's."""
     return next(
         (
             question
@@ -328,7 +328,6 @@ def drawn(data: dict, kind: str, name: str) -> dict | None:
             for question in job["questions"]
             if (closed := question["closed"])
             and closed["how"] == "answered"
-            and not question["replaced"]
             and (closed["answer"] and closed["answer"][:7] == name[:7] if kind == "answer" else question["card"] and view.message_key(question["card"]) == view.message_key(name))
         ),
         None,

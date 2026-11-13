@@ -796,7 +796,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             if question["closed"]:
                 question["closed"]["seq"] = bare_seq(question["closed"]["seq"])
             question.setdefault("holds", None)
-            question.setdefault("replaced", None)
+            if question.pop("replaced", None) and not question["closed"]:
+                question.update(closed=new_close("superseded", None, question["card"], by=question["waits"]), waits=None)
             question.setdefault("recorded", [])
             question["waits"] = question["waits"] and question["waits"].replace("-#", "-")
             if question["waits"] and not question["file"] and (kept := rebuilt_ask(name, question["waits"])).exists():
@@ -1610,7 +1611,7 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
 def new_question(
     file: str | None, title: str | None, asked: str, unsettled: str | None = None, card: str | None = None, refused: str | None = None, closed: dict | None = None, holds: str | None = ""
 ) -> dict:
-    return {"file": file, "title": title, "asked": asked, "unsettled": unsettled, "waits": None, "card": card, "refused": refused, "closed": closed, "holds": holds, "replaced": None, "recorded": []}
+    return {"file": file, "title": title, "asked": asked, "unsettled": unsettled, "waits": None, "card": card, "refused": refused, "closed": closed, "holds": holds, "recorded": []}
 
 
 def refused_by(question: dict) -> str:
@@ -1624,8 +1625,8 @@ def new_waits(name: str, job_id: str) -> str:
 
 
 def waits_job(data: dict, waits: str) -> str:
-    """The job his card under this waits id asks for: the newest whose question holds it, but one a `Replaces:` line folded into another's, since a job that takes a question over with `drive job ask --redraws` takes its card; else the job that minted it, which the waits id names."""
-    held = [job_id for job_id, job in data["jobs"].items() for question in job["questions"] if question["waits"] == waits and not question["replaced"]]
+    """The job his card under this waits id asks for: the newest whose question holds it, since a job whose `Replaces:` line names that card takes it over; else the job that minted it, which the waits id names."""
+    held = [job_id for job_id, job in data["jobs"].items() for question in job["questions"] if question["waits"] == waits]
     return held[-1] if held else waits.partition(":")[2].partition("-")[0]
 
 
@@ -1658,8 +1659,8 @@ def question_in(job: dict, question: dict) -> dict:
 
 
 def same_question(one: str | None, other: str | None) -> bool:
-    """Whether two questions ask him the same thing: the same words, whatever their case and spacing."""
-    return bool(one and other) and " ".join(one.split()).casefold() == " ".join(other.split()).casefold()
+    """Whether two questions ask him the same thing: the same words, whatever their case, spacing and closing question mark."""
+    return bool(one and other) and len({" ".join(words.split()).casefold().rstrip("? ") for words in (one, other)}) == 1
 
 
 def version_order(version: str) -> tuple[int, ...]:

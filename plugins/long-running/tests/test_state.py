@@ -217,6 +217,18 @@ def test_load_drops_the_readings_of_his_answers_drive_job_ask_once_kept_beside_a
     assert ("may_settle" in loaded["jobs"]["j1"], "may_settle_by_subject" in loaded, "may_settle_per_answer" in loaded) == (False, False, False)
 
 
+def test_load_ends_a_question_an_older_install_folded_into_another_as_superseded_on_their_shared_card(state_root: Path) -> None:
+    data = state.new_drive("demo", "coordinator", None, "/work")
+    card = "https://acme.slack.com/archives/D1/p1"
+    folded = state.new_question("/asks/j1-a.md", "Where are a run's rows counted?", "2026-11-10T21:00:00-08:00", card=card) | {"waits": "demo:j1-7", "replaced": "/asks/j1-b.md"}
+    live = state.new_question("/asks/j1-b.md", "What ceiling goes on a run's rows?", "2026-11-10T21:00:00-08:00", card=card) | {"waits": "demo:j1-7", "replaced": None}
+    data["jobs"]["j1"] = state.new_job("o1", "design", "row ceiling", [], "2026-11-10T21:00:00-08:00") | {"questions": [folded, live]}
+    state.create(data)
+    ended, asking = state.load("demo")["jobs"]["j1"]["questions"]
+    assert ("replaced" in ended, ended["waits"], ended["closed"]["how"], ended["closed"]["by"], ended["closed"]["link"]) == (False, None, "superseded", "demo:j1-7", card)
+    assert ("replaced" in asking, asking["waits"], asking["closed"]) == (False, "demo:j1-7", None)
+
+
 def test_a_job_saved_with_one_question_and_card_reads_as_a_list_of_its_questions_once(state_root: Path) -> None:
     make("demo")
     data = state.load("demo")
@@ -791,8 +803,9 @@ def test_a_bare_number_two_repositories_share_names_the_pr_on_the_jobs_order() -
     assert state.named_prs(kept_prs(), "o359", "#4289 and Forge-AI/monorepo#4302") == ["yasyf/cc-skills#4289", f"{MONOREPO}#4302"]
 
 
-def test_two_questions_are_the_same_whatever_their_case_and_spacing_and_an_untitled_one_matches_none() -> None:
+def test_two_questions_are_the_same_whatever_their_case_spacing_and_closing_question_mark_and_an_untitled_one_matches_none() -> None:
     assert state.same_question("What runs a watch's  Sand function?", "what runs a watch's Sand function?")
+    assert state.same_question("What runs a watch's Sand function", "What runs a watch's Sand function?")
     assert not state.same_question("What runs a watch's Sand function?", "What runs a watch's Sand function each interval?")
     assert not state.same_question(None, None)
 

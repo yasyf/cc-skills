@@ -212,15 +212,14 @@ def close_card(card: str, closed: dict) -> dict:
 
 
 def end(data: dict, job_id: str, question: dict, closed: dict) -> list[tuple[str, dict]]:
-    """End a job's open question as closed records, with each other open question of the job asking it in the same words superseded by it, and each question a `Replaces:` line folded into it, of any job, ended the same way, since it asked that one too, in the write the caller saves: the one way a question stops asking him, which its card then follows. The questions it ended, by their job."""
+    """End a job's open question as closed records, with each other open question of the job asking it in the same words superseded by it, in the write the caller saves: the one way a question stops asking him, which its card then follows. The questions it ended, by their job."""
     job = data["jobs"][job_id]
     twins = [other for other in view.open_questions(job) if other is not question and state.same_question(other["title"], question["title"])]
     question["closed"] = closed
     for twin in twins:
         twin["closed"] = superseded_by(closed, question)
     job["updated"] = closed["at"]
-    replaced = [(asker, other) for asker, each in data["jobs"].items() for other in view.open_questions(each) if question["file"] and other["replaced"] == question["file"]]
-    return [(job_id, question), *((job_id, twin) for twin in twins), *(ended for asker, other in replaced for ended in end(data, asker, other, closed))]
+    return [(job_id, question), *((job_id, twin) for twin in twins)]
 
 
 def superseded_by(closed: dict, question: dict) -> dict:
@@ -301,29 +300,37 @@ def said_on(data: dict, card: str | None) -> list[dict]:
     return [answer for answer in data["answers"].values() if card and under(answer["link"], card)]
 
 
-def redrawn(data: dict, job_id: str, waits: str) -> list[dict]:
-    """The questions `drive job ask <job> --redraws <waits>` takes the place of: each holding the card under that waits id, of the job or of any other job on one of its orders, but one a `Replaces:` line folded into another, open, or withdrawn with no answer of his under the card, so a job carrying on another's work asks again in new words on that job's card, or on a card his words withdrew, and redraws it where it sits. Refused naming why for a card whose question his answer ended, or any answer of his superseded, and for a waits id no question of those orders holds."""
+def replaced(data: dict, job_id: str, refs: tuple[str, ...]) -> list[dict]:
+    """The questions an ASK block's `Replaces:` line takes the place of, in the order it names them: each holding the card under a waits id it names or kept in an ASK file it names, of the job or of any other job on one of its orders, open, or withdrawn with no answer of his under the card, so a job asking in new words what earlier cards ask redraws the first where it sits and closes each other with a link to it. Refused naming why for a question his answer ended, or any answer of his superseded, and for a name no question of those orders holds."""
     job = data["jobs"][job_id]
     orders = [job["order"], *job["carries"]]
-    held = [(each["order"], question) for each in data["jobs"].values() for question in each["questions"] if question["waits"] == waits and not question["replaced"]]
-    if not (mine := [question for order_id, question in held if order_id in orders]):
-        other = f", which asks for {', '.join(sorted({order_id for order_id, _ in held}))}" if held else ""
-        raise DriveError(
-            f"--redraws {waits}: no question of {', '.join(orders)} holds that card{other}, so {job_id} takes over none:"
-            f" drive status {orders[0]} lists each question of its jobs with its card's waits id"
-        )
-    if ended := next((question for question in mine if question["closed"] and question["closed"]["how"] != "withdrawn"), None):
-        closed = ended["closed"]
-        raise DriveError(
-            f'--redraws {waits}: its question there ended {closed["how"]} {when(closed["at"])}: "{cut(closed["words"] or "", 200)}" ({closed["link"] or ended["card"]}),'
-            " so that card asks him nothing more: ask what is still open on a card of its own, under its own waits id"
-        )
-    if said := next((answer for question in mine if question["closed"] for answer in said_on(data, question["card"])), None):
-        raise DriveError(
-            f'--redraws {waits}: his words under that card answered it: "{cut(said["words"], 200)}" ({said["link"]}), so that card asks him'
-            " nothing more: ask what they leave open on a card of its own, under its own waits id"
-        )
-    return mine
+    found: list[dict] = []
+    for ref in refs:
+        held = [(each["order"], question) for each in data["jobs"].values() for question in each["questions"] if named_by((ref,), question)]
+        if not (mine := [question for order_id, question in held if order_id in orders]):
+            other = f", which asks for {', '.join(sorted({order_id for order_id, _ in held}))}" if held else ""
+            raise DriveError(
+                f"`Replaces: {ref}`: no question of {', '.join(orders)} holds that card or file{other}, so {job_id} replaces none:"
+                f" drive status {orders[0]} lists each question of its jobs with its card's waits id and the file it is kept in"
+            )
+        if ended := next((question for question in mine if question["closed"] and question["closed"]["how"] != "withdrawn"), None):
+            closed = ended["closed"]
+            raise DriveError(
+                f'`Replaces: {ref}`: its question ended {closed["how"]} {when(closed["at"])}: "{cut(closed["words"] or "", 200)}" ({closed["link"] or ended["card"]}),'
+                " so it asks him nothing more: build on his words, and ask what is still open on a card of its own, with no Replaces line naming it"
+            )
+        if said := next((answer for question in mine if question["closed"] for answer in said_on(data, question["card"])), None):
+            raise DriveError(
+                f'`Replaces: {ref}`: his words under its card answered it: "{cut(said["words"], 200)}" ({said["link"]}), so it asks him'
+                " nothing more: ask what they leave open on a card of its own, with no Replaces line naming it"
+            )
+        found += [question for question in mine if not any(question is kept for kept in found)]
+    return found
+
+
+def named_by(refs: tuple[str, ...], question: dict) -> bool:
+    """Whether a `Replaces:` line names this question, by its card's waits id or the ASK file it is kept in."""
+    return any(ref == question["waits"] or question["file"] and Path(ref).expanduser().resolve() == Path(question["file"]).resolve() for ref in refs)
 
 
 def redraw_refusal(data: dict, job: dict, waits: str, file: str) -> str | None:
@@ -402,7 +409,7 @@ def listing(answer_id: str, kept: dict, keys: list[str], asked: dict[str, dict],
             f"mark each: drive answer {answer_id} --stands <key>... --dropped <key>... for a card, order, part or open PR his words remove, which"
             " withdraws a card without stopping its job, drops an order and stops each live job whose order it is, takes a part off its order"
             " and jobs, and closes a PR, --settled <card key>... for a card it"
-            " decides, or <card key>=<the ASK its job keeps with drive job ask --redraws <card key> asking only what it leaves open>... for one"
+            " decides, or <card key>=<the ASK its job keeps with a `Replaces: <card key>` line, asking only what it leaves open>... for one"
             " it decides in part, --superseded"
             " <key>=stop|<key>=<live job to fold it into>... --reopened <PR key>=<live job that reworks it to his words>..., or"
             f" --others-stand once each it drops, settles, supersedes or reopens is marked and at most {OTHERS_STAND} are left"
@@ -456,12 +463,12 @@ def settled_refusal(data: dict, kept: dict, key: str, entry: dict, file: Path | 
     if not question or question["refused"] or question["closed"] or question["waits"] != key:
         return (
             f"{file} keeps no open question of {job_id} redrawing {key}: keep what his answer leaves {key} asking with"
-            f" drive job ask {job_id} <file> --redraws {key}, then mark {key}=<the path it prints>"
+            f" drive job ask {job_id} <file>, its block naming `Replaces: {key}`, then mark {key}=<the path it prints>"
         )
     if f"/p{view.message_key(kept['link'])}" not in limits.FINDINGS.split(file.read_text())[0]:
         return (
             f"{file} does not link his answer {kept['link']} above its Findings:, so the redrawn card would not say which words"
-            f" of his narrowed it: link them in its summary, keep it again with drive job ask {job_id} <file> --redraws {key}, and mark {key}=<the path it prints>"
+            f" of his narrowed it: link them in its summary, keep it again with drive job ask {job_id} <file>, its block naming `Replaces: {key}`, and mark {key}=<the path it prints>"
         )
     return None
 

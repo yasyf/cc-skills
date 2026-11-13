@@ -19,7 +19,7 @@ HAND_ASK = (
     "refused: `drive job ask <j> <file>` keeps a job's question and draws his card on it in the same call, under the"
     " waits id it mints, so no session posts an ask record: keep the question with it, a remote lane's ASK"
     " the watch did not keep with `drive job ask <j>`, and ask an open card of the job's again in new words with"
-    " `--redraws <that card's waits id>`"
+    " a `Replaces: <that card's waits id>` line in the block"
 )
 BODY_CHARS = 1500
 QUOTED_CHARS = 400
@@ -123,15 +123,13 @@ COMMON = {
 
 
 def card_refusal(job_id: str, question: dict, file: Path) -> str | None:
-    """Why the job's question kept in this file draws no card, whatever waits id it is drawn under: it ended, answered by his tap or words, withdrawn or superseded, so its card never draws again, naming the words it ended on, whatever refusal an older install left on it, `drive job ask` or `drive job card` refused it, so it waits on that refusal, or a `Replaces:` line folded it into a later question, whose card asks it."""
+    """Why the job's question kept in this file draws no card, whatever waits id it is drawn under: it ended, answered by his tap or words, withdrawn or superseded, so its card never draws again, naming the words it ended on, whatever refusal an older install left on it, or `drive job ask` or `drive job card` refused it, so it waits on that refusal."""
     if closed := question["closed"]:
         words = f': "{cut(closed["words"], QUOTED_CHARS)}"' if closed["words"] else ""
         link = f' ({closed["link"]})' if closed["link"] else ""
         return f'refused: {job_id}\'s question "{question["title"]}" kept in {file} ended {closed["how"]}, so its card never draws again{words}{link}'
     if question["refused"]:
         return f'refused: {file} keeps {job_id}\'s question "{question["title"]}" pending, since `{state.refused_by(question)}` refused it, so no card draws from it; act on that refusal and ask again: {question["refused"]}'
-    if question["replaced"]:
-        return f'refused: {job_id}\'s question "{question["title"]}" kept in {file} is asked on his card as part of the question kept in {question["replaced"]}, so it draws no card of its own: draw that file'
     return None
 
 
@@ -398,7 +396,7 @@ def jev(request: dict) -> dict:
 
 
 def answered(data: dict, title: str) -> dict | None:
-    """His answer to this same question: the newest question of any job asked in these words, whatever their case and spacing, that ended answered by his tap or words on or under its card, or by his words a record kept for it; a question kept answered with no card and no record, as `drive job ask` once kept one on Jev's reading of an answer he gave another question, is none."""
+    """His answer to this same question: the newest question of any job asked in these words, whatever their case, spacing and closing question mark, that ended answered by his tap or words on or under its card, or by his words a record kept for it; a question kept answered with no card and no record, as `drive job ask` once kept one on Jev's reading of an answer he gave another question, is none."""
     return max(
         (
             question

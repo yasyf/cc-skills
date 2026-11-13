@@ -2097,9 +2097,9 @@ def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, moment: dateti
 
 
 def unposted_card(job_id: str, job: dict, data: dict) -> tuple[str, dict] | None:
-    """The open question whose card never drew for a waiting job, by the job keeping it: one of its own, or one asked on a card it waits on, such as its reader's, that `drive job ask` or `drive job card` refused, or whose draw failed, kept with no card and no refusal and folded into no other, which `draw_questions` draws again."""
+    """The open question whose card never drew for a waiting job, by the job keeping it: one of its own, or one asked on a card it waits on, such as its reader's, that `drive job ask` or `drive job card` refused, or whose draw failed, kept with no card and no refusal, which `draw_questions` draws again."""
     asked = [*((job_id, question) for question in view.open_questions(job)), *view.drawn_on(data, *job["waits"])]
-    unposted = [(owner, question) for owner, question in asked if question["closed"] is None and (question["refused"] or question["file"] and not (question["card"] or question["replaced"]))]
+    unposted = [(owner, question) for owner, question in asked if question["closed"] is None and (question["refused"] or question["file"] and not question["card"])]
     return next((found for found in unposted if found[1]["refused"]), None) or next(iter(unposted), None)
 
 

@@ -99,7 +99,7 @@ words in the order's thread and run `ccn answer search "<words>"`, because his a
 past the question it was given under and names the subject only in his words.
 
 `drive job ask` keeps a question settled with no card only on his answer to that same question,
-asked in the same words, case and spacing aside. That answer is his pick or words on or under the
+asked in the same words, case, spacing and a closing question mark aside. That answer is his pick or words on or under the
 card it was asked on, or his words recorded under it. The tool prints his words and where he gave
 them. On a pick, build that option. On an order, build the option his words leave that removes the
 root cause, the recommended one.
