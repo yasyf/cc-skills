@@ -24,7 +24,7 @@
     "PreToolUse": [
       {
         "hooks": [
-          { "type": "command", "command": "[ -z \"$LONG_RUNNING_HANDLER\" ] || python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" handed_records.py" }
+          { "type": "command", "command": "[ -z \"$LONG_RUNNING_HANDLER\" ] || . \"${CLAUDE_PLUGIN_ROOT}/hooks/python.sh\"; [ -z \"$LONG_RUNNING_HANDLER\" ] || exec \"$python\" -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" handed_records.py" }
         ]
       }
     ],

@@ -3,6 +3,7 @@ import json
 import os
 import re
 from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import agent_brief
@@ -16,6 +17,8 @@ from drive import agents, reads, slack, state, talk, tools
 Run = Callable[..., tuple[int, str]]
 HIS_BRIEF = "Message (his words): why is this card asking again?\nThread: D123 1794380463.481959\nDrive: demo\nScratch: {scratch}\nDeliverable: his answer, in his thread"
 LINE = "POSTED https://acme.slack.com/archives/D123/p1794380463481960"
+BACKGROUND_JOB = "b7f2e0aa"
+GONE = agents.gone
 
 
 @pytest.fixture
@@ -157,18 +160,15 @@ def test_a_handler_ending_hands_its_line_to_the_communicator_and_removes_its_ses
     refused = stop(monkeypatch, capsys, "h-session", transcript, "I answered him in his thread")
     assert json.loads(refused)["decision"] == "block"
     assert len(started) == 1 and removed == []
-    monkeypatch.setattr(
-        reads,
-        "run",
-        lambda argv, checkout, env=None: started.append(argv) or (json.dumps([{"id": "b7f2", "sessionId": "h-session"}, {"id": "c1", "sessionId": "x"}]) if argv[1] == "agents" else ""),
-    )
+    monkeypatch.setattr(reads, "run", lambda argv, checkout, env=None: started.append(argv) or "")
+    monkeypatch.setattr(agents, "background_job", lambda session: (BACKGROUND_JOB, {"sessionId": session}) if session == "h-session" else None)
     monkeypatch.setattr("sys.stdin", io.StringIO(f"{LINE}\n"))
     assert run("job", "report", "j1", "-")[0] == 0
     assert stop(monkeypatch, capsys, "h-session", transcript, LINE) == ""
-    assert started[-2] == [
+    assert started[-1] == [
         "cci", "post", "--drive", "demo", "--lane", "handler", "--kind", "done", "--to", "communicator@demo", "--id", f"handler-{handler}", "--text", LINE,
     ]
-    assert removed == [["claude", "rm", "b7f2"]]
+    assert removed == [["claude", "rm", BACKGROUND_JOB]]
     data = state.load("demo")
     assert data["handlers"] == {}
     assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["transcript"]) == ("done", str(transcript))
@@ -187,9 +187,10 @@ def test_a_handlers_done_record_carries_each_post_as_say_returned_it_whatever_th
         scoped.setenv("CLAUDE_CODE_SESSION_ID", "h-session")
         assert talk.say("demo", {"text": "It copies on the new tree only.", "thread_ts": "1794478810.620779"}) == f"POSTED {reply}"
     monkeypatch.setattr(agents.subprocess, "Popen", lambda argv, **kwargs: None)
-    monkeypatch.setattr(reads, "run", lambda argv, checkout, env=None: started.append(argv) or (json.dumps([{"id": "b7f2", "sessionId": "h-session"}]) if argv[1] == "agents" else ""))
+    monkeypatch.setattr(reads, "run", lambda argv, checkout, env=None: started.append(argv) or "")
+    monkeypatch.setattr(agents, "background_job", lambda session: (BACKGROUND_JOB, {"sessionId": session}))
     assert stop(monkeypatch, capsys, "h-session", transcript, "POSTED https://acme.slack.com/archives/D123/p1794479609881679; waits id demo:j1-7") == ""
-    assert started[-2][-1] == f"POSTED {reply}; waits id demo:j1-7"
+    assert started[-1][-1] == f"POSTED {reply}; waits id demo:j1-7"
 
 
 HIS_LINK = "https://acme.slack.com/archives/D123/p1794446196220659?thread_ts=1794440505.483109&cid=D123"
@@ -236,7 +237,8 @@ def test_a_record_for_a_busy_handlers_thread_reaches_that_handler_at_its_next_st
     late = f"Record: 668291 Drive: demo Scratch: {tmp_path / 'late'}"
     assert tools.run("handler", "demo", {"brief": late}) == f"handed to {handler}"
     monkeypatch.setattr(agents.subprocess, "Popen", lambda argv, **kwargs: None)
-    monkeypatch.setattr(reads, "run", lambda argv, checkout, env=None: started.append(argv) or (json.dumps([{"id": "b7f2", "sessionId": "h-session"}]) if argv[1] == "agents" else ""))
+    monkeypatch.setattr(reads, "run", lambda argv, checkout, env=None: started.append(argv) or "")
+    monkeypatch.setattr(agents, "background_job", lambda session: (BACKGROUND_JOB, {"sessionId": session}))
     refused = json.loads(stop(monkeypatch, capsys, "h-session", transcript, LINE))
     assert refused["decision"] == "block" and late in refused["reason"] and refused["judged"] is False
     assert handler in state.load("demo")["handlers"] and not [argv for argv in started if argv[:2] == ["cci", "post"]]
@@ -261,3 +263,30 @@ def test_the_watchs_brief_naming_a_record_as_cci_post_prints_it_holds_the_same_r
     with pytest.raises(state.DriveError, match=f"handler {handler} is at work on record 680562.*; this copy needs no handler of its own"):
         tools.run("handler", "demo", {"brief": f"Record: 680562 Drive: demo Scratch: {tmp_path / 'handler'}"})
     assert len([argv for argv in started if argv[:2] == ["claude", "--bg"]]) == 1
+
+
+def test_a_handler_is_gone_once_no_running_process_or_unfinished_job_claude_code_keeps_names_its_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    config = tmp_path / "claude"
+    (config / "sessions").mkdir(parents=True)
+    (config / "daemon").mkdir()
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config))
+    (config / "sessions" / f"{os.getpid()}.json").write_text(json.dumps({"sessionId": "running", "kind": "interactive"}))
+    (config / "sessions" / "1.json").write_text(json.dumps({"sessionId": "exited", "kind": "interactive"}))
+    old, now = (datetime.now(UTC) - timedelta(minutes=5)).isoformat(), datetime.now(UTC).isoformat()
+    jobs = {
+        "a1b2c3d4": {"sessionId": "worked", "state": "working", "tempo": "active", "createdAt": old},
+        "b2c3d4e5": {"sessionId": "died", "state": "working", "tempo": "active", "createdAt": old},
+        "c3d4e5f6": {"sessionId": "blocked", "state": "blocked", "tempo": "blocked", "createdAt": old},
+        "d4e5f6a7": {"sessionId": "done", "state": "done", "tempo": "idle", "createdAt": old},
+        "e5f6a7b8": {"sessionId": "fresh", "state": "working", "tempo": "active", "createdAt": now},
+    }
+    for short, kept in jobs.items():
+        (config / "jobs" / short).mkdir(parents=True)
+        (config / "jobs" / short / "state.json").write_text(json.dumps(kept))
+    (config / "daemon" / "roster.json").write_text(json.dumps({"proto": 1, "workers": {"a1b2c3d4": {"pid": os.getpid()}, "b2c3d4e5": {"pid": 1}}}))
+    sessions = ["running", "exited", "worked", "died", "blocked", "done", "fresh", "unknown"]
+    assert {session: GONE(session) for session in sessions} == {
+        "running": False, "exited": True, "worked": False, "died": True, "blocked": False, "done": True, "fresh": False, "unknown": True,
+    }
+    assert GONE(None) is False
+    assert agents.background_job("blocked") == ("c3d4e5f6", jobs["c3d4e5f6"])

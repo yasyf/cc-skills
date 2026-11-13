@@ -21,6 +21,9 @@ RE_HOPS = 8
 CORRECTION_BYTES = 1 << 20
 HANDLER = "long-running:handler"
 SYNTHETIC = "<synthetic>"
+FINISHED_JOB = ("done", "failed", "stopped")
+JOB_GRACE = timedelta(seconds=5)
+ROSTER_PROTO = 1
 DESIGNER = "long-running:designer"
 HIS_WORDS = "Message (his words)"
 SCRATCH = re.compile(r"Scratch:\s*(\S+)")
@@ -242,8 +245,78 @@ def holder(data: dict, held: dict) -> str | None:
 
 
 def gone(session: str | None) -> bool:
-    """Whether a bound handler's session is no longer one `claude agents` lists, as when it died before its Stop hook ended it."""
-    return bool(session) and session not in {row.get("sessionId") for row in json.loads(reads.run(["claude", "agents", "--json"], Path.cwd()))}
+    """Whether a bound handler's session is one `claude agents` no longer lists, as when it died before its Stop hook ended it, read from the records `claude agents` reads, so no Claude Code process starts and probes every session: listed while a running process's `sessions/<pid>.json` names it, or while its background job is unfinished and its worker runs, it was made in the last 5 seconds, or it is blocked."""
+    if not session:
+        return False
+    found = background_job(session)
+    claimed = [
+        (pid, record.get("procStartFt") or record.get("procStart"))
+        for pid, record in session_records()
+        if record.get("sessionId") == session or found and record.get("kind") == "bg" and record.get("jobId") == found[0]
+    ]
+    worker = found and roster_workers().get(found[0])
+    working = [(worker["pid"], worker.get("procStart"))] if worker else []
+    live = running([*claimed, *working])
+    if live.intersection(claimed):
+        return False
+    if not found:
+        return True
+    kept = found[1]
+    if kept["state"] in FINISHED_JOB and kept.get("tempo") != "active":
+        return True
+    fresh = datetime.now(UTC) - datetime.fromisoformat(kept["createdAt"]) < JOB_GRACE
+    return not (live.intersection(working) or kept["state"] == "blocked" or fresh)
+
+
+def registry_record(path: Path) -> dict | None:
+    """A record Claude Code keeps, None once it is removed or while it is half written, as `claude agents` skips one it cannot parse."""
+    try:
+        return json.loads(path.read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+
+
+def session_records() -> list[tuple[int, dict]]:
+    """Each `sessions/<pid>.json` Claude Code keeps, by the pid its name gives, which can outlive its process."""
+    return [
+        (int(path.stem), record)
+        for path in (install.config_dir() / "sessions").glob("*.json")
+        if path.stem.isdigit() and (record := registry_record(path)) is not None
+    ]
+
+
+def background_job(session: str) -> tuple[str, dict] | None:
+    """The background job Claude Code keeps for a session in `jobs/<id>/state.json`, its id the folder's name, the one `claude rm` takes, and its state."""
+    return next(
+        ((path.parent.name, kept) for path in (install.config_dir() / "jobs").glob("*/state.json") if (kept := registry_record(path) or {}).get("sessionId") == session),
+        None,
+    )
+
+
+def roster_workers() -> dict[str, dict]:
+    """The workers Claude Code's daemon says it runs, by job id, from the roster it writes."""
+    kept = registry_record(install.config_dir() / "daemon" / "roster.json") or {}
+    return kept["workers"] if kept.get("proto") == ROSTER_PROTO else {}
+
+
+def running(started: list[tuple[int, str | None]]) -> set[tuple[int, str | None]]:
+    """Each pid and the start its record keeps whose process runs and started then, as `claude agents` checks each record on its own: signal 0 reaches the pid, and `ps`, asked once for all of them, reports that start, or the record keeps none, or `ps` no longer lists the pid."""
+    reached = [(pid, start) for pid, start in started if pid > 1 and signalled(pid)]
+    if not (asked := sorted({pid for pid, start in reached if start})):
+        return set(reached)
+    listing = subprocess.run(
+        ["ps", "-o", "pid=,lstart=", "-p", ",".join(map(str, asked))], capture_output=True, text=True, check=False, env=os.environ | {"LC_ALL": "C", "TZ": "UTC"}
+    ).stdout
+    starts = {int(pid): rest.strip() for pid, _, rest in (line.strip().partition(" ") for line in listing.splitlines() if line.strip())}
+    return {(pid, start) for pid, start in reached if not start or starts.get(pid, start) == start}
+
+
+def signalled(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
 
 
 class Busy(state.DriveError):
@@ -380,7 +453,7 @@ def take_handed(name: str, handler: str) -> list[str]:
 
 
 def end_handler(payload: dict) -> str | None:
-    """Hand the line a handler ended on to the communicator as one cci record each post's POSTED, EDITED and CARD links in it say's own result, whole with its thread_ts, in place of any the handler typed, and remove its session, which would otherwise sit idle holding its memory: `claude rm` takes the short id `claude agents` lists for it. A job the handler held keeps its transcript's path, since the drive forgets the handler. A handler drive handler handed briefs since its last step does not end: they come back as the reason its stop is refused, taken in the one edit that would forget it, so no brief lands on a handler that has ended."""
+    """Hand the line a handler ended on to the communicator as one cci record each post's POSTED, EDITED and CARD links in it say's own result, whole with its thread_ts, in place of any the handler typed, and remove its session, which would otherwise sit idle holding its memory: `claude rm` takes the id of the background job Claude Code keeps for it. A job the handler held keeps its transcript's path, since the drive forgets the handler. A handler drive handler handed briefs since its last step does not end: they come back as the reason its stop is refused, taken in the one edit that would forget it, so no brief lands on a handler that has ended."""
     name = state.session_drives(payload["session_id"])[0]
     with state.edit(name) as data:
         ended_handler = data["handlers"][payload["agent_id"]]
@@ -397,8 +470,7 @@ def end_handler(payload: dict) -> str | None:
         line = "; ".join(filter(None, [*posted, RETYPED.sub("", line).strip(" ;")]))
     cwd = Path(payload["cwd"])
     reads.run(["cci", "post", "--drive", name, "--lane", "handler", "--kind", "done", "--to", f"communicator@{name}", "--id", f"handler-{payload['agent_id']}", "--text", line], cwd)
-    listed = json.loads(reads.run(["claude", "agents", "--json"], cwd))
-    own = next(row["id"] for row in listed if row.get("sessionId") == payload["handler_session"])
+    own, _ = background_job(payload["handler_session"])
     subprocess.Popen(["claude", "rm", own], cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 
 

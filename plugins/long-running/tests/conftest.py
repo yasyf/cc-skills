@@ -613,7 +613,7 @@ def jev(monkeypatch: pytest.MonkeyPatch) -> Jev:
         else:
             judged.asked.append(request)
         if judged.answer is None:
-            raise settled.Unheard("Command 'spawnllm decide' timed out after 60 seconds")
+            raise settled.Unheard("no jev decision within 20s")
         if "illustrates" in questions:
             p_yes = 0.05 if request["state"]["code"] in judged.plain else 0.95
             return {"illustrates": {"type": "binary", "p_yes": p_yes, "confidence": 0.9}}

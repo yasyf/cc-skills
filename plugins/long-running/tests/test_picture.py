@@ -495,5 +495,5 @@ def test_jevs_verdict_on_a_fence_is_kept_so_every_draw_shows_the_same_pictures_a
     assert not picture.illustrative("go", "return lease, nil\n") and picture.illustrative("mermaid", "flowchart TD\n")
     jev.answer = None
     assert picture.illustrative("go", CLAIM)
-    assert capsys.readouterr().err == "drive card: Jev did not say whether a ```go fence illustrates anything, so it draws as a picture: Command 'spawnllm decide' timed out after 60 seconds\n"
+    assert capsys.readouterr().err == "drive card: Jev did not say whether a ```go fence illustrates anything, so it draws as a picture: no jev decision within 20s\n"
     assert len(list((state.root() / picture.JUDGED).glob("*.json"))) == 1

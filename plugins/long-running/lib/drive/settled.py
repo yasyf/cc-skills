@@ -1,7 +1,10 @@
+import dataclasses
 import html
 import json
 import re
 import subprocess
+import time
+from functools import cache
 from pathlib import Path
 
 from drive import limits, slack, state, view
@@ -28,7 +31,7 @@ BODY_CHARS = 1500
 QUOTED_CHARS = 400
 UNDECIDED = "none"
 DECIDES = 0.8
-DECIDE = ["uvx", "--from", "spawnllm>=0.17.7", "spawnllm", "decide", "--provider", "jev", "--timeout", "20"]
+DECIDE_SECONDS = 20
 CHANGES = 0.15
 CHANGES_QUESTION = (
     "His answer below was given to another question. Which of these open questions he has not answered does it decide, rule out"
@@ -238,21 +241,41 @@ def uncarried(text: str, order: dict, parts: list[str]) -> list[str]:
 
 
 class Unheard(Exception):
-    """Jev gave no answer: no key, a timeout, a spawnllm without the verb, or Jev declining the question."""
+    """Jev gave no answer: no key, a timeout, a request Jev rejected, or Jev declining the question."""
+
+
+@cache
+def jev_key() -> str:
+    """Jev's API key, from TYPESAFE_API_KEY or else the Keychain item `spawnllm key set jev` wrote, read once per process, so no question after the first starts a process."""
+    from spawnllm.decide import JEV, api_key
+
+    return api_key(JEV, timeout=DECIDE_SECONDS)
 
 
 def jev(request: dict) -> dict:
-    """Jev's answers to the questions `spawnllm decide` asks it, by question id; Unheard when none came, Jev declining any of them included, which `spawnllm decide` prints as an answer of type refused with no choice."""
+    """Jev's answers to the questions the request asks of its state, each `{"binary": {...}}` or `{"label": {...}}` holding that question's fields, by question id, as spawnllm's `decide_sync` gives them in this process on the one keep-alive client every question of the process shares, the key's read and the answer both within DECIDE_SECONDS; Unheard when none came, Jev declining any of them included. spawnllm is imported on the first question, so a hook or verb that asks none never loads it."""
+    import httpx
+    from spawnllm import (
+        JEV,
+        Binary,
+        DecideError,
+        DecideKeyMissing,
+        Label,
+        Refused,
+        decide_sync,
+    )
+
+    kinds = {"binary": Binary, "label": Label}
+    questions = {key: kinds[kind](**fields) for key, spec in request["questions"].items() for kind, fields in spec.items()}
+    deadline = time.monotonic() + DECIDE_SECONDS
     try:
-        done = subprocess.run(DECIDE, input=json.dumps(request), capture_output=True, text=True, timeout=60, check=False)
-    except (OSError, subprocess.TimeoutExpired) as error:
+        token = jev_key()
+        decision = decide_sync(request["state"], questions, provider=JEV, timeout=deadline - time.monotonic(), api_key=token)
+    except (TimeoutError, ValueError, DecideError, DecideKeyMissing, httpx.HTTPError) as error:
         raise Unheard(str(error)) from None
-    if done.returncode:
-        raise Unheard(done.stderr.strip().rpartition("\n")[2])
-    answers = json.loads(done.stdout)["answers"]
-    if any(answer["type"] == "refused" for answer in answers.values()):
+    if any(isinstance(answer, Refused) for answer in decision.answers.values()):
         raise Unheard("Jev declined the question")
-    return answers
+    return {key: dataclasses.asdict(answer) for key, answer in decision.answers.items()}
 
 
 def answered(data: dict, title: str) -> dict | None:
