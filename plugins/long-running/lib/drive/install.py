@@ -733,7 +733,7 @@ def said_on_prs(name: str, data: dict, job_id: str, change: str) -> None:
 
 
 def merged_done(name: str, data: dict, job_id: str) -> str:
-    """Take DONE at its merge on a builder whose READY or PUSHED's PRs all merged outside yasyf/*, a product change, its merge commits its CHECK:, keeping no proof and no close report on its order, since a merge goes live only once a release holding it is out; what it says on the job's PRs' lines: the release each merge waits on and the drive job add that starts the builder proving it live there, on the surface the job's brief names when he sees it."""
+    """Take DONE at its merge on a builder whose READY or PUSHED's PRs all merged outside yasyf/*, a product change, its merge commits its CHECK:, keeping no proof and no close report on its order, since a merge goes live only once a release holding it is out; what it says on the job's PRs' lines: the release each merge waits on and the drive job add that starts the builder proving it live there, on the surface the job's brief names when he sees it, or on an open incident's fix the incident the watch closes once each merged fix PR of it runs in production, which needs no such builder."""
     from drive import brief
 
     job = data["jobs"][job_id]
@@ -745,6 +745,8 @@ def merged_done(name: str, data: dict, job_id: str) -> str:
     whole = f"{line}\nPR: {urls}\nCHECK: {commits}\n"
     state.keep_report(name, job_id, line, whole)
     state.take_result(data, job_id, line, whole)
+    if fixes := [incident for incident in state.open_incidents(data, [order_id, *job["carries"]]) if state.INCIDENT_FIX in state.job_parts(job, incident)]:
+        return f"{MERGED_DONE}: {merged}; no proof kept, since the watch closes {', '.join(fixes)} once each merged fix PR of it runs in production"
     held = ", ".join(sha[:12] for sha in merges.values())
     waits = " ".join(f"--waits release:<service>:{key}" for key in merges)
     seen = f" on {surface}, where he sees it," if (surface := brief.surface(job)) else ""

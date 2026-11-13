@@ -1471,6 +1471,36 @@ def test_a_pass_that_finds_the_drive_saved_by_a_newer_install_ends_the_watch_hol
     assert (posted(sent), passes, state.held_path(demo).exists()) == ([("evidence", f"root@{demo}", merged)], [], False)
 
 
+def test_a_watch_a_newer_installs_save_ends_mid_pass_holds_the_step_it_reached_and_the_next_watchs_first_pass_starts_there_wrapping_round_to_the_steps_before_it(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="waiting", said=f"READY {state.pr_url(KEY)}")
+    serve(monkeypatch, {KEY: read(state="MERGED", mergeCommit="ccc333")})
+    upgrades(monkeypatch, tmp_path, [False, True])
+    mid_pass(monkeypatch, lambda: saved_by(demo, "9.9.9"))
+    posts(monkeypatch)
+    launched(monkeypatch, demo)
+    assert watch.main(demo) == 0
+    assert state.step_path(demo).read_text() == "lane_lines\n"
+    saved_by(demo, state.VERSION)
+    monkeypatch.setattr(watch, "upgraded", lambda: None)
+    ran = []
+    for step in ("carried_lines", "lane_lines", "pushed_lines", "orphan_lines"):
+        monkeypatch.setattr(watch, step, lambda watching, moment, step=step: ran.append(step) or [])
+    slept = []
+
+    def stop_on_second_rest(seconds: float) -> None:
+        slept.append(seconds)
+        if len(slept) > 1:
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(watch, "time", SimpleNamespace(sleep=stop_on_second_rest))
+    with pytest.raises(KeyboardInterrupt):
+        watch.main(demo)
+    assert (ran, state.step_path(demo).exists()) == (["lane_lines", "pushed_lines", "orphan_lines", "carried_lines"], False)
+
+
 def test_a_line_whose_post_failed_goes_to_the_watch_its_launch_agent_starts_on_the_newer_install_it_ended_for_between_passes(
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1498,7 +1528,11 @@ def test_a_crashed_watch_keeps_the_lines_its_pass_made_for_the_watch_its_launch_
     with pytest.raises(state.DriveError):
         watch.main(demo)
     merged = f"PR {KEY}: merged [o1 j1]"
-    assert ([text.split(":")[0] for _, _, text in posted(sent)], state.held_path(demo).read_text()) == (["WATCH stopped on long-running " + state.VERSION], f"{merged}\n")
+    assert ([text.split(":")[0] for _, _, text in posted(sent)], state.held_path(demo).read_text(), state.step_path(demo).exists()) == (
+        ["WATCH stopped on long-running " + state.VERSION],
+        f"{merged}\n",
+        False,
+    )
     monkeypatch.setattr(watch, "run_pass", lambda watching, moment: [])
     run_watch(demo, monkeypatch)
     assert posted(sent)[1:] == [("evidence", f"root@{demo}", merged)]
@@ -2660,6 +2694,30 @@ def test_a_pr_whose_github_read_failed_keeps_its_stage_and_wakes_nobody_until_a_
     reads[KEY] = read(checks=RED)
     watch.run_pass(watching, T0 + timedelta(minutes=41))
     assert (state.load(demo)["prs"][KEY]["stage"]["woke"], len(woken)) == (state.stamp(T0 + timedelta(minutes=41)), 2)
+
+
+@pytest.mark.parametrize(
+    "merge",
+    [
+        lambda reads, data: reads.update({KEY: read(state="MERGED", mergeCommit="ccc333")}),
+        lambda reads, data: data["prs"][KEY].update(state="merged", merged_sha="ccc333ddd444eee"),
+    ],
+)
+def test_a_merged_pr_takes_the_merged_stage_owed_by_nobody_once_whether_a_read_finds_it_merged_or_its_row_kept_the_open_stage_it_left(
+    demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]], merge: Callable[[dict, dict], None]
+) -> None:
+    reads = {KEY: read(checks=RED)}
+    serve(monkeypatch, reads)
+    watching = watcher(demo)
+    watch.run_pass(watching, T0)
+    assert state.load(demo)["prs"][KEY]["stage"]["name"] == "red"
+    with state.edit(demo) as data:
+        merge(reads, data)
+    watch.run_pass(watching, T0 + timedelta(minutes=1))
+    kept = state.load(demo)["prs"][KEY]["stage"]
+    assert (kept["name"], kept["owner"], kept["since"]) == ("merged", stage.NOBODY, state.stamp(T0 + timedelta(minutes=1)))
+    watch.run_pass(watching, T0 + timedelta(minutes=2))
+    assert state.load(demo)["prs"][KEY]["stage"] == kept
 
 
 @pytest.mark.parametrize(("required", "named"), [(1, "red"), (0, "ready")])
@@ -5002,6 +5060,20 @@ def test_a_merged_ready_product_job_takes_done_at_its_merge_keeping_no_proof_and
     assert provers == []
 
 
+def test_a_pushed_whose_prs_all_merged_takes_done_at_its_merge_and_says_no_ready_even_when_its_pass_starts_at_the_pushed_step(
+    demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str]
+) -> None:
+    serve(monkeypatch, {})
+    merged_ready(demo, OTHER, None)
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["said"] = f"PUSHED {state.pr_url(OTHER)}"
+    watching = watcher(demo)
+    watching.step = "pushed_lines"
+    lines = [line for minutes in (0, 1) for line in watch.run_pass(watching, T0 + timedelta(minutes=minutes))]
+    assert not [line for line in lines if " READY " in line]
+    assert (state.load(demo)["jobs"]["j1"]["said"], provers) == (f"DONE {state.pr_url(OTHER)} merged: {OTHER} at ccc333ddd444", [])
+
+
 @pytest.mark.parametrize(("fix", "sha"), [("Forge-AI/monorepo#55420", "485f9f408150"), ("Forge-AI/monorepo#55448", "6ec574a4f779")])
 def test_a_fix_merged_to_dev_that_no_release_holds_is_never_proven_live_so_its_reporter_is_owed_no_fix_live_note(
     demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], ready_records: list[list[dict]], fix: str, sha: str
@@ -5035,20 +5107,24 @@ def test_an_open_order_a_merge_commit_once_proved_loses_that_proof_and_its_close
     assert (data["orders"]["o2"]["proof"], data["orders"]["o2"]["closed_on"], data["orders"]["o3"]["proof"]) == (commit, "689100", tooling)
 
 
-def test_a_merged_ready_product_job_on_an_open_incidents_fix_waits_for_its_release_and_is_said_orphaned(
-    demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], tmp_path: Path
+def test_a_merged_ready_product_job_on_an_open_incidents_fix_takes_done_at_its_merge_and_its_incident_closes_once_each_merged_fix_pr_runs_in_production(
+    demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str]
 ) -> None:
     serve(monkeypatch, {})
+    live = {"42": False, "43": False}
+    incident_reads(monkeypatch, {}, live)
     merged_ready(demo, OTHER, None)
     with state.edit(demo) as data:
         data["orders"]["o1"].update(incident=True, parts={"fix": state.new_part()})
         data["jobs"]["j1"]["parts"] = ["fix"]
-    why = (
-        f"{OTHER} merged outside yasyf/*, where a merge goes live only in its repository's release, which no drive install puts on this Mac:"
-        " a fresh builder with a merge handoff proves it from its INSTALL: and PROVE: lines once that release is out"
-    )
-    assert f'ORPHAN o1 "fix": j1\'s PRs all merged and nothing proves them live: {why}' in watch.run_pass(watcher(demo), T0)
-    assert (state.load(demo)["jobs"]["j1"]["state"], provers) == ("waiting", [])
+    watching = watcher(demo)
+    lines = watch.run_pass(watching, T0)
+    done = f"PR {OTHER}: {install.MERGED_DONE}: {OTHER} at ccc333ddd444; no proof kept, since the watch closes o1 once each merged fix PR of it runs in production"
+    assert [line.startswith(done) for line in lines if line.startswith((f"PR {OTHER}: {install.MERGED_DONE}", "ORPHAN ", "RECOVERED "))] == [True]
+    assert (state.load(demo)["jobs"]["j1"]["said"], provers) == (f"DONE {state.pr_url(OTHER)} merged: {OTHER} at ccc333ddd444", [])
+    live.update({"42": True, "43": True})
+    assert [line for line in watch.run_pass(watching, T0 + timedelta(minutes=1)) if line.startswith("RECOVERED o1: ")]
+    assert view.incidents(state.load(demo)) == []
 
 
 @pytest.mark.parametrize(("version", "started"), [(state.VERSION, []), ("1.0.1", ["j1"])])

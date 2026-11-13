@@ -292,6 +292,10 @@ def held_path(name: str, project: str | None = None) -> Path:
     return drive_dir(name) / f"watch{watch_suffix(project)}.held"
 
 
+def step_path(name: str, project: str | None = None) -> Path:
+    return drive_dir(name) / f"watch{watch_suffix(project)}.step"
+
+
 def cards_path(name: str) -> Path:
     return drive_dir(name) / "cards.json"
 
@@ -2097,6 +2101,21 @@ def take_held_lines(name: str, project: str | None = None) -> list[str]:
     lines = path.read_text().splitlines()
     path.unlink()
     return lines
+
+
+def hold_step(name: str, project: str | None, step: str) -> None:
+    """Keep the pass step a newer install's save ended a watch process in for the watch process after it, which starts its first pass there."""
+    step_path(name, project).write_text(f"{step}\n")
+
+
+def take_held_step(name: str, project: str | None = None) -> str | None:
+    """The pass step the watch process before this one held for it, once."""
+    path = step_path(name, project)
+    if not path.exists():
+        return None
+    step = path.read_text().strip()
+    path.unlink()
+    return step
 
 
 def read_events(name: str, offset: int = 0) -> Iterator[tuple[dict, int]]:

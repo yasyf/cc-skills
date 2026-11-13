@@ -93,6 +93,7 @@ class Watcher:
     release_marks: dict[str, str | None] = field(default_factory=dict)
     sending: dict[str, int] = field(default_factory=dict)
     carried: dict[str, tuple[set[str], datetime]] = field(default_factory=dict)
+    step: str | None = None
 
     @property
     def lane(self) -> str:
@@ -225,7 +226,7 @@ def edited_since_undrawn(pr: dict, read: dict, cards: dict | None) -> bool:
 
 
 def pushed_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Settle each builder's PUSHED the watch hears once its GitHub read after the take finds the required checks of every PR it names: all green takes the READY it holds, its JOB line waking whoever acts on a READY; a red one ends the hold with a `READY refused` line per failed check, which goes back to a remote lane waiting for its next event and wakes the coordinator otherwise."""
+    """Settle each builder's PUSHED the watch hears once its GitHub read after the take finds the required checks of every PR it names: all green takes the READY it holds, its JOB line waking whoever acts on a READY; a red one ends the hold with a `READY refused` line per failed check, which goes back to a remote lane waiting for its next event and wakes the coordinator otherwise. A PUSHED whose PRs all merged settles nothing and says no READY, since finished takes the merge's finish on it."""
     data = state.load(watcher.name)
     if not any(settles(watcher, data, job_id) for job_id in data["jobs"]):
         return []
@@ -245,7 +246,7 @@ def pushed_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def settles(watcher: Watcher, data: dict, job_id: str) -> tuple[str, list[tuple[str, str]]] | None:
-    if not pushing(watcher, data, job_id):
+    if not pushing(watcher, data, job_id) or merged_ready(data, job_id):
         return None
     verdict = state.pushed_verdict(data, job_id)
     return verdict if verdict[0] != "pending" else None
@@ -1990,11 +1991,8 @@ def ended_waits(data: dict, job_id: str, job: dict) -> str:
 
 
 def at_merge(data: dict, job_id: str) -> bool:
-    """Whether the watch takes DONE at its merge on a builder waiting on a READY or PUSHED whose PRs all merged outside yasyf/*, a product change, with nothing else holding it, unless it is an open incident's fix, which is live only once its release is out."""
-    job = data["jobs"][job_id]
-    if not merged_ready(data, job_id) or job["waits"] or not product(data, job_id):
-        return False
-    return not any(state.INCIDENT_FIX in state.job_parts(job, order_id) for order_id in state.open_incidents(data, [job["order"], *job["carries"]]))
+    """Whether the watch takes DONE at its merge on a builder waiting on a READY or PUSHED whose PRs all merged outside yasyf/*, a product change, with nothing else holding it, an open incident's fix too, whose incident recovered_lines closes once each merged fix PR of it runs in production."""
+    return merged_ready(data, job_id) and not data["jobs"][job_id]["waits"] and product(data, job_id)
 
 
 def proof_due(data: dict, job_id: str) -> bool:
@@ -2206,10 +2204,11 @@ def changed_since(order: dict, jobs: dict, last: datetime) -> bool:
 
 
 def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """One loop of the watch: first the answer kept for each lane's read, so a pass a newer install ends while it reads every live lane's mail holds back none it already had, then the drive's own Orca terminal every Orca call speaks as, his cards, the GitHub reads it owes, his card on each kept question none drew yet, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, the waits his answers or a job's end release, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited, the receiver and each teammate thread an order watches every 60 s, and GitHub again next poll after a failure, new events, then the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, the catch-up owed him, promised times still owed a line, the line owed in each thread whose order or incident has news, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries. Each stage's lines join the watcher's made lines as it returns, or as it saves when it keeps working after its save, so a pass that ends early, in a crash or on a drive a newer install saved, leaves them to the watch process after it."""
+    """One loop of the watch: first the answer kept for each lane's read, so a pass a newer install ends while it reads every live lane's mail holds back none it already had, then the drive's own Orca terminal every Orca call speaks as, his cards, the GitHub reads it owes, his card on each kept question none drew yet, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, the waits his answers or a job's end release, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited, the receiver and each teammate thread an order watches every 60 s, and GitHub again next poll after a failure, new events, then the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, the catch-up owed him, promised times still owed a line, the line owed in each thread whose order or incident has news, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries. Each stage's lines join the watcher's made lines as it returns, or as it saves when it keeps working after its save, so a pass that ends early, in a crash or on a drive a newer install saved, leaves them to the watch process after it. The pass names on the watcher the step it runs, after the lane reads, Orca terminal and cards, so a watch a newer install's save ends mid-pass holds that step, and the first pass of the watch after it starts there and wraps round to the steps before it: every step runs once a pass however often installs end the watch."""
     lines = watcher.made
     lines += read_lines(watcher, state.load(watcher.name), moment)
-    if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
+    minute = watcher.read_at is None or moment - watcher.read_at >= READ_EVERY
+    if minute:
         watcher.read_at = moment
         try:
             orca.speak_as_drive(watcher.name)
@@ -2220,41 +2219,54 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
         view.refresh_cards(watcher.name)
         found, source = view.stored_cards(watcher.name)
         watcher.cards = found if source == "live" else None
-        lines += github_lines(watcher, moment)
-        lines += carried_lines(watcher, moment)
-        checks(watcher, moment)
-        lines += stage_lines(watcher, moment)
-        draw_questions(watcher, moment)
-        landed(watcher)
-        lines += settle_lines(watcher, moment)
-        lines += follow_lines(watcher, moment)
-        lines += waits_lines(watcher, moment)
-        finished(watcher, moment)
-        lines += recovered_lines(watcher, moment)
-        lines += close_report_lines(watcher, moment)
-        lines += waiting_lines(watcher, moment)
-        lines += answer_lines(watcher, moment)
-        lines += lane_lines(watcher, moment)
-        release_lanes(watcher, moment)
-        lines += pushed_lines(watcher, moment)
-        lines += agent_lines(watcher, moment)
-        carry_held(watcher, moment)
-        lines += compact_lines(watcher, moment)
-        lines += page_lines(watcher, moment)
-        lines += down_lines(watcher, moment)
-        lines += dashboard_lines(watcher)
-        lines += receiver_lines(watcher, moment)
-        lines += watched_lines(watcher, moment)
-    lines += event_lines(watcher)
-    if "github" not in watcher.failures:
-        lines += github_lines(watcher, moment)
-    lines += catch_up_lines(watcher, moment)
-    lines += [line for _, line in due_lines(watcher, moment)]
-    lines += quiet_lines(watcher, moment)
-    lines += clock_lines(watcher, moment)
-    lines += undelivered_lines(watcher, moment)
-    lines += tell_lines(watcher, moment)
-    lines += orphan_lines(watcher, moment)
+    steps: dict[str, Callable[[], list[str] | None]] = {
+        **(
+            {
+                "github_lines": lambda: github_lines(watcher, moment),
+                "carried_lines": lambda: carried_lines(watcher, moment),
+                "checks": lambda: checks(watcher, moment),
+                "stage_lines": lambda: stage_lines(watcher, moment),
+                "draw_questions": lambda: draw_questions(watcher, moment),
+                "landed": lambda: landed(watcher),
+                "settle_lines": lambda: settle_lines(watcher, moment),
+                "follow_lines": lambda: follow_lines(watcher, moment),
+                "waits_lines": lambda: waits_lines(watcher, moment),
+                "finished": lambda: finished(watcher, moment),
+                "recovered_lines": lambda: recovered_lines(watcher, moment),
+                "close_report_lines": lambda: close_report_lines(watcher, moment),
+                "waiting_lines": lambda: waiting_lines(watcher, moment),
+                "answer_lines": lambda: answer_lines(watcher, moment),
+                "lane_lines": lambda: lane_lines(watcher, moment),
+                "release_lanes": lambda: release_lanes(watcher, moment),
+                "pushed_lines": lambda: pushed_lines(watcher, moment),
+                "agent_lines": lambda: agent_lines(watcher, moment),
+                "carry_held": lambda: carry_held(watcher, moment),
+                "compact_lines": lambda: compact_lines(watcher, moment),
+                "page_lines": lambda: page_lines(watcher, moment),
+                "down_lines": lambda: down_lines(watcher, moment),
+                "dashboard_lines": lambda: dashboard_lines(watcher),
+                "receiver_lines": lambda: receiver_lines(watcher, moment),
+                "watched_lines": lambda: watched_lines(watcher, moment),
+            }
+            if minute
+            else {}
+        ),
+        "event_lines": lambda: event_lines(watcher),
+        "owed_github_lines": lambda: [] if "github" in watcher.failures else github_lines(watcher, moment),
+        "catch_up_lines": lambda: catch_up_lines(watcher, moment),
+        "due_lines": lambda: [line for _, line in due_lines(watcher, moment)],
+        "quiet_lines": lambda: quiet_lines(watcher, moment),
+        "clock_lines": lambda: clock_lines(watcher, moment),
+        "undelivered_lines": lambda: undelivered_lines(watcher, moment),
+        "tell_lines": lambda: tell_lines(watcher, moment),
+        "orphan_lines": lambda: orphan_lines(watcher, moment),
+    }
+    names = list(steps)
+    start = names.index(watcher.step) if watcher.step in steps else 0
+    for name in names[start:] + names[:start]:
+        watcher.step = name
+        lines += steps[name]() or []
+    watcher.step = None
     return handed(watcher, lines, moment)
 
 
@@ -2279,7 +2291,7 @@ def carried_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Keep each heard unmerged PR's stage, as stage.of names it from the approval, checks and head GitHub last answered for it, and act once on each open one that entered a stage or passed its deadline, leaving a PR never read, or whose last read failed, as it stands until a read answers for it: draw his card on each uncarded PR, one card for the PRs of one card unit as drive card draws them, redraw his card in place on every other change of stage so its line shows it, wake the builder answering for a PR rework or red owe, ask forge-pr-reviewer once for a review of a head grading an hour and then wake its builder, wake the session holding its order on one unlanded, or landing or ready past its deadline, and post his card again, once per card unit, on the PRs that wait on him while they fix a live bug, under a line saying why it asks. A draw that fails keeps the PR uncarded for the next read, and is said to the meta session from its third failure in a row."""
+    """Keep each heard PR's stage, as stage.of names it from the approval, checks and head GitHub last answered for it, a merged one's once more as a read finds it merged, so no line about it names the open stage it left, and act once on each open one that entered a stage or passed its deadline, leaving a PR never read, or whose last read failed, as it stands until a read answers for it: draw his card on each uncarded PR, one card for the PRs of one card unit as drive card draws them, redraw his card in place on every other change of stage so its line shows it, wake the builder answering for a PR rework or red owe, ask forge-pr-reviewer once for a review of a head grading an hour and then wake its builder, wake the session holding its order on one unlanded, or landing or ready past its deadline, and post his card again, once per card unit, on the PRs that wait on him while they fix a live bug, under a line saying why it asks. A draw that fails keeps the PR uncarded for the next read, and is said to the meta session from its third failure in a row."""
     if watcher.cards is None:
         return []
     with state.edit(watcher.name) as data:
@@ -2287,9 +2299,8 @@ def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
         stacks = land.landing_stacks(data)
         units = {key: state.card_unit(key, stacks.get(key, ()), pr) for key, pr in data["prs"].items()}
         acts = []
-        for key in state.unmerged_pr_keys(data):
-            pr = data["prs"][key]
-            if key in watcher.stale or pr["required"] is None or not hears(watcher, data, pr["order"]):
+        for key, pr in data["prs"].items():
+            if pr["state"] == "merged" and (pr["stage"] or {}).get("name") == "merged" or key in watcher.stale or pr["required"] is None or not hears(watcher, data, pr["order"]):
                 continue
             now = stage.of(data, key, watcher.cards)
             if stage.entered(pr["stage"], now):
@@ -2561,14 +2572,14 @@ def main(drive_name: str | None = None, project: str | None = None) -> int:
         os.environ.update(launchd.session_env())
         while holder(state.monitor_pid_path(name)):
             time.sleep(POLL_SECONDS)
-        watching(Watcher(name, offset=state.watch_cursor(name, project), project=project, made=state.take_held_lines(name, project)))
+        watching(Watcher(name, offset=state.watch_cursor(name, project), project=project, made=state.take_held_lines(name, project), step=state.take_held_step(name, project)))
     finally:
         release(name, project)
     return 0
 
 
 def watching(watcher: Watcher) -> None:
-    """Hand each pass's lines to whoever acts on them, first any a watch before this one held for it, and end before a pass once a newer long-running is installed, or the moment a pass finds the drive saved by one, so its launch agent starts the watch on that install and no pass runs older code on a drive a newer install saved; a crash wakes the coordinator session it posts to first. Every line made and not yet posted is held for the watch after this one, which hands it on before its first pass."""
+    """Hand each pass's lines to whoever acts on them, first any a watch before this one held for it, and end before a pass once a newer long-running is installed, or the moment a pass finds the drive saved by one, so its launch agent starts the watch on that install and no pass runs older code on a drive a newer install saved; a crash wakes the coordinator session it posts to first. Every line made and not yet posted is held for the watch after this one, which hands it on before its first pass, and so is the step of a pass a newer install's save ended, never a crashed one's, which starts its first pass again from the top."""
     state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
     try:
         for _ in rests(watcher.name):
@@ -2581,12 +2592,13 @@ def watching(watcher: Watcher) -> None:
             if watcher.offset != read_from:
                 state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
     except Exception as error:
-        keep_unposted(watcher)
-        if isinstance(error, state.NewerDrive) and upgraded():
+        cut = isinstance(error, state.NewerDrive) and upgraded()
+        keep_unposted(watcher, watcher.step if cut else None)
+        if cut:
             return
         stopped(watcher, error)
         raise
-    keep_unposted(watcher)
+    keep_unposted(watcher, watcher.step)
 
 
 def rests(name: str) -> Iterator[None]:
@@ -2599,8 +2611,10 @@ def rests(name: str) -> Iterator[None]:
             queue.control(None, 1, POLL_SECONDS)
 
 
-def keep_unposted(watcher: Watcher) -> None:
-    """Move each line the watch made and has not posted, routed or not, to the watch process after it, which hands them on before its first pass and reads events from past the last one they were made from."""
+def keep_unposted(watcher: Watcher, step: str | None) -> None:
+    """Move each line the watch made and has not posted, routed or not, to the watch process after it, which hands them on before its first pass and reads events from past the last one they were made from, and the pass step it starts that pass at, when one is held."""
     state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
     state.hold_lines(watcher.name, watcher.project, [LINE_BREAKS.sub(" ", line) for line in [*watcher.made, *(line for lines in watcher.unsent.values() for line in lines)]])
+    if step:
+        state.hold_step(watcher.name, watcher.project, step)
     watcher.made, watcher.unsent = [], {}
