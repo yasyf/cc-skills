@@ -15,13 +15,23 @@
     }
   ],
   "mcpServers": {
+    "channel": {
+      "command": "codex-ask",
+      "args": [
+        "channel",
+        "--no-tools"
+      ],
+      "env": {
+        "CLAUDE_PLUGIN_ROOT": ""
+      }
+    },
     "codex-ask-channel": {
       "command": "${CLAUDE_PLUGIN_ROOT}/scripts/mcp-channel.sh"
     }
   },
   "channels": [
     {
-      "server": "codex-ask-channel",
+      "server": "channel",
       "displayName": "codex-ask"
     }
   ]
