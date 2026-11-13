@@ -265,33 +265,33 @@ def unmarked(kept: dict, asked: dict[str, dict]) -> list[str]:
 
 
 def unheard(data: dict, kept: dict) -> list[str]:
-    """The jobs waiting on an order this answer touches when it came, still live, that are not marked sent his words or untouched by them, nor wait for a first worker on a brief holding them, which that worker hears them in as it starts."""
+    """The jobs waiting on an order this answer touches when it came, still live, with an agent or a lane his words can reach, that are not marked sent his words or untouched by them; a job with neither hears them from the launch that starts it, which carries them."""
     return [
         job_id
         for job_id, mark in kept["jobs"].items()
-        if mark is None and (job := data["jobs"][job_id])["state"] not in state.FINISHED_JOB_STATES and not briefed(job, kept["words"])
+        if mark is None and (job := data["jobs"][job_id])["state"] not in state.FINISHED_JOB_STATES and (job.get("agent") or job.get("dispatch"))
     ]
 
 
-def briefed(job: dict, words: str) -> bool:
-    """Whether no worker runs the job yet and the brief its first worker starts on holds his words verbatim."""
-    return not (job.get("agent") or job.get("dispatch")) and bool(job.get("brief")) and carries(Path(job["brief"]).read_text(), words)
-
-
 def delivery(data: dict, job_id: str, job: dict) -> str:
-    """How his words reach the job by a delivery that marks it sent them: a SendMessage from the coordinator session whose agent runs it on this Mac, which drive answer --sent records since the drive cannot see it; drive job resume for a job any other worker runs or ran, which carries them to its lane or its next worker; the brief its first worker starts on for a job no worker runs yet."""
+    """How his words reach the job by a delivery that marks it sent them: a SendMessage from the coordinator session whose agent runs it on this Mac, which drive answer --sent records since the drive cannot see it; drive job resume for a job any other worker runs or ran, which carries them to its lane or its next worker; drive job launch for a job no worker runs yet, which carries them to its first worker."""
     if lane := state.agent_lane(data, job):
         return f"SendMessage it his words verbatim from {lane}@{data['name']}, the session {job['session']} that started its agent {job['agent']}"
     if job.get("agent") or job.get("dispatch"):
         return f"drive job resume {job_id} with his words verbatim"
-    return "put his words verbatim in its brief, which its first worker starts on"
+    return f"drive job launch {job_id} on its FREE line, which carries his words to its first worker"
 
 
 def hear(data: dict, job_id: str, text: str) -> None:
     """Mark the job sent his words on each answer of his it has not heard whose words the text delivered to its worker holds: a message sent to it, or the brief or handoff it started on."""
-    for kept in data["answers"].values():
-        if job_id in kept["jobs"] and kept["jobs"][job_id] is None and carries(text, kept["words"]):
+    for kept in owed(data, job_id):
+        if carries(text, kept["words"]):
             kept["jobs"][job_id] = {"mark": "sent"}
+
+
+def owed(data: dict, job_id: str) -> list[dict]:
+    """Each answer of his that lists the job as waiting to hear it, unmarked."""
+    return [kept for kept in data["answers"].values() if job_id in kept["jobs"] and kept["jobs"][job_id] is None]
 
 
 def carries(text: str, words: str) -> bool:

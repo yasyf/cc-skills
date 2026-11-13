@@ -6849,26 +6849,20 @@ def test_a_remote_lane_waiting_on_an_order_his_answer_touches_is_marked_sent_onl
     assert state.load("demo")["answers"]["a1"]["jobs"] == {"j3": {"mark": "sent"}}
 
 
-def test_sent_on_a_job_no_worker_runs_is_refused_and_its_brief_carrying_his_words_is_what_hears_them(
-    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+def test_sent_on_a_job_no_worker_runs_is_refused_and_his_answer_finishes_without_it_since_the_launch_that_starts_it_carries_his_words(
+    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     cards_asking(monkeypatch, PR)
     run("job", "add", "builder", "--order", "o1", "--goal", "build the store")
     with state.edit("demo") as data:
         data["jobs"]["j3"]["state"] = "waiting"
     assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
-    assert "  j3 waits on o1 and has not heard a1: put his words verbatim in its brief, which its first worker starts on, or mark it untouched" in capsys.readouterr().err
+    assert "j3 waits on o1" not in capsys.readouterr().err
     assert cli.main(["answer", "a1", "--stands", designing, "--sent", "j3"]) == 2
-    assert capsys.readouterr().err == (
-        "drive: j3: refused, nothing marked: --sent records only a SendMessage to an agent a coordinator session on this Mac runs, the one"
-        " delivery the drive cannot see, and no such agent runs it, so his answer has not reached it: mark the rest without it, then j3:"
-        " put his words verbatim in its brief, which its first worker starts on\n"
+    assert capsys.readouterr().err.startswith(
+        "drive: j3: not a job waiting on an order a1 touches that is unmarked, with an agent or lane; a job with neither hears his words"
+        " from the launch that starts it\n"
     )
-    assert state.load("demo")["answers"]["a1"]["jobs"] == {"j3": None}
-    brief = tmp_path / "j3.md"
-    brief.write_text(f"Build the store.\n\nHis answer, verbatim:\n\n{WORDS}\n")
-    with state.edit("demo") as data:
-        data["jobs"]["j3"]["brief"] = str(brief)
     assert run("answer", "a1", "--stands", designing) == (0, "his answer a1 recorded: 1 standing, 0 superseded, 0 reopened by it")
     assert state.load("demo")["answers"]["a1"]["jobs"] == {"j3": None}
 

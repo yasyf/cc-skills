@@ -380,7 +380,7 @@ def test_launch_composes_the_vm_brief_and_records_the_lane(
     assert run("job", "launch", "j1", "brief.md")[0] == 2
 
 
-def test_a_first_launch_whose_brief_carries_his_answer_marks_its_job_sent_it_and_leaves_an_answer_the_brief_lacks_unheard(
+def test_a_first_launch_marks_its_job_sent_the_answer_its_brief_carries_and_carries_the_one_it_lacks_under_his_answers_since(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     cloned(tmp_path, demo)
@@ -397,7 +397,8 @@ def test_a_first_launch_whose_brief_carries_his_answer_marks_its_job_sent_it_and
     monkeypatch.setattr(orca, "launch", lambda *args: {field: f"{field}-1" for field in fields})
     assert run("job", "launch", "j1", "brief.md")[0] == 0
     answers = state.load(demo)["answers"]
-    assert (answers["a1"]["jobs"], answers["a2"]["jobs"]) == ({"j1": {"mark": "sent"}}, {"j1": None})
+    assert (answers["a1"]["jobs"], answers["a2"]["jobs"]) == ({"j1": {"mark": "sent"}}, {"j1": {"mark": "sent"}})
+    assert orca.brief_of((state.drive_dir(demo) / "jobs" / "j1.md").read_text()).endswith(f'{heard}\nHis answers since:\n- "{unsaid}" ({link})')
 
 
 def test_launch_runs_from_the_drives_own_worktree_made_once_with_ccx_and_moved_with_one_fetch_to_the_default_branchs_head_never_the_coordinators_working_tree(
@@ -490,10 +491,35 @@ def test_launch_refuses_a_brief_naming_a_drive_file_the_drive_keeps_no_text_of_a
     assert cli.main(["job", "launch", "j1", "brief.md"]) == 2
     refusal = capsys.readouterr().err
     assert refusal == (
-        "drive: j1: refused, not launched: its brief names Report of j404; Drive file asks/j1290-702505b0.md, which the drive keeps no text of,"
+        "drive: j1: refused, not launched: its brief names Drive file asks/j1290-702505b0.md, which the drive keeps no text of,"
         " so its lane would stop to ask for each; launch it on a brief file that leaves each out: drive job launch j1 <file>\n"
     )
     assert state.load(demo)["jobs"]["j1"] == before
+
+
+def test_a_builder_added_waiting_on_his_card_with_no_lane_starts_on_his_tap_from_its_drive_written_brief_and_hears_his_answer_from_that_launch_as_j3074_could_not(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cloned(tmp_path, demo)
+    words, link, card = "One snapshot file per run", "https://acme.slack.com/archives/D123/p1794300000000700", "https://acme.slack.com/archives/D123/p1794300000000600"
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "reader", "--order", "o1", "--goal", "read it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build it", "--remote")
+    with state.edit(demo) as data:
+        closed = state.new_close("answered", words, link, answer="a1")
+        data["jobs"]["j1"]["questions"].append(state.new_question(None, "Which layout?", state.stamp(), card=card, closed=closed) | {"waits": "demo:j1-7"})
+        data["jobs"]["j2"].update(state="waiting", waits=["demo:j1-7"])
+        data["answers"]["a1"] = {"words": words, "link": link, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {"j2": None}}
+    monkeypatch.setattr(watch.view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [], "closed": []})
+    watch.view.refresh_cards(demo)
+    assert run("answer", "a1") == (0, "his answer a1 recorded: 0 standing, 0 superseded, 0 reopened by it")
+    assert run("job", "brief", "j2", "--serves", "his order", "--done-when", "merged", "--where", "a new branch", "--plan", "finding 1 is j1's")[0] == 0
+    monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
+    monkeypatch.setattr(orca, "launch", lambda *args: {field: f"{field}-1" for field in ("task", "terminal", "workspace", "environment", "lane")} | {"dispatch": DISPATCH})
+    assert run("job", "launch", "j2") == (0, f"j2 started on Sprite workspace-1 as dispatch {DISPATCH}")
+    data = state.load(demo)
+    assert (data["answers"]["a1"]["jobs"], data["jobs"]["j2"]["waits"]) == ({"j2": {"mark": "sent"}}, [])
+    assert f'\nHis answers since:\n- "{words}" ({link})\n' in (state.drive_dir(demo) / "jobs" / "j2.md").read_text()
 
 
 def test_launch_of_a_brief_naming_a_finished_jobs_report_file_as_j2722s_named_j2102s_carries_its_kept_report_and_launches(

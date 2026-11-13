@@ -4885,6 +4885,7 @@ def test_an_answer_leaving_a_card_unmarked_or_a_job_unsent_his_words_says_so_eve
         data["answers"]["a1"]["cards"]["demo:j1-7-a"] = {"mark": "stands"}
     assert said(40) == []
     with state.edit(demo) as data:
+        data["jobs"]["j1"]["agent"] = "a1"
         data["answers"]["a1"]["jobs"]["j1"] = None
     assert said(50) == ['ANSWER a1 "one new tool": j1 not sent his words; drive answer a1 lists them']
     with state.edit(demo) as data:
