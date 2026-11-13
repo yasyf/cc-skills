@@ -917,7 +917,7 @@ def test_jev_gets_each_call_a_claims_read_names_whole_beside_its_claims_a_read_n
     ],
     ids=["Bash", "MCP"],
 )
-def test_an_output_the_tool_saved_to_a_file_reaches_jev_whole_by_its_command_or_by_the_files_path(
+def test_an_output_the_tool_saved_to_a_file_reaches_jev_whole_once_by_its_command_or_by_the_files_path(
     talker: str, transcript: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], pointer: str
 ) -> None:
     saved = tmp_path / "b3keoof79.txt"
@@ -926,8 +926,29 @@ def test_an_output_the_tool_saved_to_a_file_reaches_jev_whole_by_its_command_or_
     tool(lane_of(transcript), "Bash", asked, pointer.format(saved=saved, preview="o937: long-running 1.0.697 installed"))
     claims = [{"claim": "#4817 merged", "read": "drive status o937"}, {"claim": "#4817 merged", "read": str(saved)}]
     by_command, by_path = evidence(transcript, monkeypatch, capsys, text=HISTORY_POST, thread_ts="1.2", claims=claims)
-    whole = f"Bash {json.dumps(asked)} {saved}\n{saved.read_text()}"
-    assert (by_command["quote"], by_path["quote"]) == (whole, whole)
+    call = f"Bash {json.dumps(asked)} {saved}"
+    assert (by_command["quote"], by_path["quote"]) == (f"{call}\n{saved.read_text()}", f"{call}\n{message_limits.GIVEN.format(read='read:1')}")
+
+
+def test_a_call_two_reads_hold_reaches_jev_once_under_the_first_and_the_second_names_it_beside_its_own_calls_whole(
+    talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cards = '{"questions": [' + ", ".join(f'{{"waits": "durable-agents:j{n}"}}' for n in range(2000)) + "]}"
+    compound = ("Bash", {"command": "cc-slack drive-cards --drive durable-agents | grep release; tools/ci bk api /pipelines/release/builds/15427"}, cards)
+    build = ("Bash", {"command": "tools/ci bk api /pipelines/release/builds/15427/jobs"}, '{"state": "passed"}')
+    lane = lane_of(transcript)
+    for each in (compound, build):
+        tool(lane, *each)
+    claims = [
+        {"claim": "the release build passed", "read": "tools/ci bk api /pipelines/release/builds/15427"},
+        {"claim": "one release card is open", "read": "cc-slack drive-cards --drive durable-agents"},
+    ]
+    reads = evidence(transcript, monkeypatch, capsys, text=HISTORY_POST, thread_ts="1.2", claims=claims)
+    assert [(read["id"], read["quote"]) for read in reads] == [
+        ("read:1", f"{shown(*compound)}\n\n{shown(*build)}"),
+        ("read:2", f"{compound[0]} {json.dumps(compound[1])}\n{message_limits.GIVEN.format(read='read:1')}"),
+    ]
+    assert sum(read["quote"].count(cards) for read in reads) == 1
 
 
 def test_a_path_and_line_read_hands_jev_a_read_of_the_whole_file(
