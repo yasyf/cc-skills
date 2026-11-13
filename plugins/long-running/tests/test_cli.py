@@ -15,7 +15,7 @@ from pathlib import Path
 import drive
 import pytest
 import spawnllm
-from conftest import CARD_BODY, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SETTLED_MATCHED, SETTLED_NOTE, SHORT_ASK, drawn_card, Answers, explained, Chrome, Draws, Drawing, Heard, Jev, Judge, MetaLaunches, Redraws, Thread, WatchProcess, Withdrawals
+from conftest import CARD_BODY, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SETTLED_MATCHED, SETTLED_NOTE, SHORT_ASK, WRITTEN_AT, drawn_card, Answers, explained, Chrome, Draws, Drawing, Heard, Jev, Judge, MetaLaunches, Redraws, Thread, WatchProcess, Withdrawals
 from drive import (
     agents,
     brief,
@@ -1416,6 +1416,18 @@ def test_job_ask_refuses_a_card_typing_when_past_work_happened_keeping_nothing(
     assert 'j1: refused, nothing kept: his card draws these words, and "4:55 AM" is a time typed for work already done' in capsys.readouterr().err
     assert state.load("demo")["jobs"]["j1"]["questions"] == []
     block.write_text(SHORT_ASK)
+    assert run("job", "ask", asking, str(block))[0] == 0
+
+
+def test_job_ask_keeps_a_card_naming_when_a_hold_expires_later_today_and_refuses_one_naming_when_it_was_set_earlier_today(
+    run: Run, asking: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(limits, "now", lambda: WRITTEN_AT.replace(hour=7, minute=10, second=7))
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK.replace("Meanwhile nothing is built on either layout.", "Meanwhile the release hold was set at 6:54 AM."))
+    assert cli.main(["job", "ask", asking, str(block)]) == 2
+    assert '"6:54 AM" is a time typed for work already done, and the drive\'s stamps say when it happened: this write is stamped 7:10:07 AM' in capsys.readouterr().err
+    block.write_text(SHORT_ASK.replace("Meanwhile nothing is built on either layout.", "Meanwhile the hold expires at 6:54 PM Pacific today."))
     assert run("job", "ask", asking, str(block))[0] == 0
 
 

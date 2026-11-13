@@ -3,12 +3,13 @@ import re
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from datetime import datetime
 from itertools import groupby, pairwise, permutations
 from pathlib import Path
 
 from drive import picture, slack
 from drive.render import clock, cut, when
-from drive.state import KEPT_ASK, PR_KEY, PR_URL, TOOLING, DriveError, ask_hash, exempted, in_reporter_thread, named_prs, now, root, same_question
+from drive.state import DAY, KEPT_ASK, PR_KEY, PR_URL, TOOLING, DriveError, ask_hash, exempted, in_reporter_thread, named_prs, nearest, now, root, same_question
 
 LINE_WORDS = 60
 SUMMARY_WORDS = 120
@@ -298,10 +299,9 @@ PLAIN_TEXT_RULING = 'his Nov 10 11:21 PM words "look at the formatting you have 
 PROPER_TERMS_RULING = 'his Nov 11 12:36 AM words "use the proper fucking terms for things"'
 DRIVE_ID = re.compile(r"\b[jo]\d+\b")
 JOB_ID = re.compile(r"\bj\d+\b")
-CLOCK_TIME = re.compile(r"\b(?:1[0-2]|0?[1-9])(?::[0-5]\d){0,2}\s?[AP]\.?M\b", re.IGNORECASE)
-PROMISED_BEFORE = re.compile(
-    r"\b(?:by|before|due(?:\s+(?:at|by))?|ETA|next (?:line|update|post|summary)(?:\s+(?:by|before|at))?)\s+(?:about\s+|around\s+)?\Z", re.IGNORECASE
-)
+CLOCK_TIME = re.compile(r"\b(1[0-2]|0?[1-9])(?::([0-5]\d))?(?::[0-5]\d)?\s?([AP])\.?M\b", re.IGNORECASE)
+DAY_BEFORE = re.compile(rf"\b({DAY})(?:,|\s+at)?\s+\Z", re.IGNORECASE)
+DAY_AFTER = re.compile(rf"(?:\s+(?:Pacific|PT|P[SD]T))?,?\s+(?:on\s+)?({DAY})", re.IGNORECASE)
 CATCH_UP_SINCE = re.compile(r"\bcatch-up since\b[^\n*]*", re.IGNORECASE)
 STAMP_RULING = 'his Nov 3 ruling 20c4c24, "the agent should never be passing in a time"'
 RELEASE_START = (
@@ -1397,9 +1397,10 @@ def masked(line: str) -> str:
 
 
 def typed_time(text: str, data: dict) -> str | None:
-    """Why a write types a clock time for work already done, which the drive's stamps give, naming the stamp of the write and of each job it names, or gives a release, build or deploy a start its build or tool never printed: a time in code, a quote, a link, a line linking the tool or read that measured it or a catch-up's title, which the drive writes from its stamp, stays as written, and one its words promise, as "next line by 5:40 AM" and "due 6 AM" do, is a time to come."""
+    """Why a write types a clock time for work already done, which the drive's stamps give, naming the stamp of the write and of each job it names, or gives a release, build or deploy a start its build or tool never printed: a time in code, a quote, a link, a line linking the tool or read that measured it or a catch-up's title, which the drive writes from its stamp, stays as written, and one after the write, on the day written beside it, as "Nov 9" or "tomorrow", else on the day nearest the write, is a time to come."""
     plain = CATCH_UP_SINCE.sub(lambda found: MASK * len(found[0]), QUOTED_LINE.sub(lambda found: MASK * len(found[0]), masked(SOURCED_LINE.sub(lambda found: MASK * len(found[0]), text))))
-    typed = list(dict.fromkeys(found[0] for found in CLOCK_TIME.finditer(plain) if not PROMISED_BEFORE.search(plain, 0, found.start())))
+    at = now()
+    typed = list(dict.fromkeys(found[0] for found in CLOCK_TIME.finditer(plain) if typed_moment(plain, found, at) <= at))
     if not typed:
         return unsourced_start(text)
     jobs = [
@@ -1410,13 +1411,20 @@ def typed_time(text: str, data: dict) -> str | None:
     times = ", ".join(f'"{time}"' for time in typed)
     return (
         f"{times} {'is a time' if len(typed) == 1 else 'are times'} typed for work already done, and the drive's stamps say when"
-        f" it happened: this write is stamped {clock(now(), seconds=True)}{''.join(jobs)}. Name the job or"
+        f" it happened: this write is stamped {clock(at, seconds=True)}{''.join(jobs)}. Name the job or"
         " record and let its stamp give the time, {started:<job>} for when a job started and {at:<seq>} for when a record went out,"
         " which say fills, never for when anything else started; write a time a tool or query measured, such as an outage window,"
         f" in Pacific on the line linking the tool or read that measured it, as \"{SOURCED_TIME}\" does, or quote it in backticks as"
         " its tool printed it, and a release's, build's or deploy's start on the line linking that build or tool, as"
-        f' {QUOTED_START} does; a promise of a time to come, such as "next line by 5:40 AM", passes ({STAMP_RULING})'
+        f" {QUOTED_START} does; a time after this write, such as when a hold expires later today, passes, and one on another day"
+        f' names that day, as "6:54 AM tomorrow" does ({STAMP_RULING})'
     )
+
+
+def typed_moment(text: str, found: re.Match[str], at: datetime) -> datetime:
+    """When the clock time found in the text falls for a write at `at`: on the day written beside it, such as "Nov 9 9:28 PM" or "6:54 PM Pacific today", else on the day nearest the write."""
+    day = DAY_BEFORE.search(text, 0, found.start()) or DAY_AFTER.match(text, found.end())
+    return nearest([int(found[1]) % 12 + (12 if found[3].upper() == "P" else 0)], int(found[2] or 0), at, day[1] if day else "")
 
 
 def unsourced_start(text: str) -> str | None:

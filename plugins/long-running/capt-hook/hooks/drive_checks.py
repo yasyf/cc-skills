@@ -126,7 +126,7 @@ OWN_ACT = "I took the refusal as working as designed because it queues the brief
 AWAY = "Refused on purpose: he is away, since he said so or has written nothing for an hour."
 ASKED = (
     "POST Yes: the old attributes are deleted, dreaming is cleaned up, and the 1024 memory indexes are gone."
-    " Each landed in its own PR, merged by 3:40 AM, and the watch shows no write to the old tables since."
+    " Each landed in its own PR and merged, and the watch shows no write to the old tables since."
     " The only memory work left is the index rebuild, which runs tonight from the cluster's schedule and"
     " needs nothing from you; I will post here when it finishes and the counts match."
 )

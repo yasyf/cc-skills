@@ -34,6 +34,7 @@ from drive import (
 )
 
 SESSION = "session-under-test"
+WRITTEN_AT = datetime(2026, 11, 10, 5, 0).astimezone()
 LEAD = (
     "--headline",
     "His cards say why a change is made",
@@ -238,6 +239,12 @@ def meta(run: Callable[..., tuple[int, str]], demo: str) -> str:
     with state.edit(demo) as data:
         data["roles"]["coordinator"]["session"] = "elsewhere"
     return demo
+
+
+@pytest.fixture(autouse=True)
+def written_at(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every write the typed-time check reads is stamped WRITTEN_AT, so a clock time in a test's words is past or to come by the test, never by when it runs."""
+    monkeypatch.setattr(limits, "now", lambda: WRITTEN_AT)
 
 
 @pytest.fixture(autouse=True)

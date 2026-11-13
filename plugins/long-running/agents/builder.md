@@ -646,7 +646,8 @@ Replaces: <only on a question built on another open question of his: the path dr
   - a clock time typed for work already done anywhere his card draws: name the job as
     `{started:<job>}` or the record as `{at:<seq>}`, or write a time a tool or query printed,
     such as a GitHub check's, in Pacific on the line linking it, or in backticks as it printed it;
-    a time to come, such as "by 5:40 AM", passes;
+    a time after the write, such as "by 5:40 AM", passes, and one on another day names that day, as
+    "6:54 AM tomorrow";
   - a drive job or order id in the question, summary or options, an `{order:<o>}` in the summary aside; a link or markdown in the question
     or an option; a question that calls its object by a vague noun such as "the change" while its
     findings name its proper term;

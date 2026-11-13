@@ -1072,13 +1072,11 @@ def record_on(name: str, order_id: str, link: str, report: dict, items: list[tup
 
 def promised_due(text: str, at: datetime) -> datetime | None:
     """The time a post made at `at` promises his next line by: the first clock time its words put after next line, update, post or summary whose time of day nearest the post is after it, read with AM or PM as written, else on either half of a 12-hour clock, so at 9:29 PM "next line by 9:45" is 9:45 PM and "next line by 7:30" is past, and a time after any other words, such as "due by 2:37", promises nothing."""
-    moment = at.replace(second=0, microsecond=0)
     for said in PROMISED_TIME.finditer(limits.masked(text)):
         hour = int(said[1])
         hours = [hour % 12 + (12 if said[3].upper() == "P" else 0)] if said[3] else [hour % 12, hour % 12 + 12] if 1 <= hour <= 12 else [hour]
-        times = [day.replace(hour=each, minute=int(said[2])) for each in hours for day in (moment - timedelta(days=1), moment, moment + timedelta(days=1))]
-        if (nearest := min(times, key=lambda time: abs(time - at))) > at:
-            return nearest
+        if (due := state.nearest(hours, int(said[2]), at)) > at:
+            return due
     return None
 
 
