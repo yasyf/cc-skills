@@ -151,7 +151,7 @@ install_runner() {
   # Renaming over a running binrun keeps its inode alive (unlike an in-place
   # write, which fails ETXTBSY on Linux).
   tmpd="$(mktemp -d "$RUNNER_DIR/.binrun.XXXXXX")" || { why="could not stage in $RUNNER_DIR"; return 1; }
-  curl -fsSL --retry 2 --connect-timeout 10 --max-time 300 -o "$tmpd/$asset" "$url" \
+  curl -fsSL --retry "$curl_retries" --connect-timeout 10 --max-time "$curl_seconds" -o "$tmpd/$asset" "$url" \
     || { why="could not download the pinned binrun runner ($url)"; return 1; }
   actual="$(sha256_of "$tmpd/$asset")"
   [ "$actual" = "$expected" ] \
@@ -172,23 +172,32 @@ sha256_of() {
 # Arm 4: a binrun on PATH. It carries no stamp, so it ranks below the pinned
 # runner: an older one rejects a descriptor whose source the pin was raised for,
 # and it skips the launch record the pinned runner writes. It serves only when
-# the bootstrap fails, as it does offline. The marker, newer than the descriptor,
-# skips the retry until the plugin updates, so an offline machine pays the
-# download timeout once rather than on every hook.
+# the bootstrap fails, as it does offline. With one to fall back on, the
+# bootstrap gets one short download and claims the attempt first: while the
+# claim is no older than the descriptor, concurrent and later callers go straight
+# to PATH, so an offline machine pays the download timeout once per plugin
+# version, and a caller killed mid-download leaves the claim behind.
 path_binrun="$(command -v binrun 2>/dev/null)" || path_binrun=
-marker="$RUNNER_DIR/.bootstrap-failed"
-if [ -z "$path_binrun" ] || [ ! "$marker" -nt "$DESCRIPTOR" ]; then
+claim="$RUNNER_DIR/.bootstrap-claimed"
+if [ -z "$path_binrun" ] || [ ! -e "$claim" ] || [ "$DESCRIPTOR" -nt "$claim" ]; then
+  curl_retries=2 curl_seconds=300
+  if [ -n "$path_binrun" ]; then
+    curl_retries=0 curl_seconds=60
+    mkdir -p "$RUNNER_DIR" 2>/dev/null && : >"$claim" 2>/dev/null || true
+  fi
   tmpd=
-  trap '[ -z "$tmpd" ] || rm -rf "$tmpd"' EXIT
+  trap '[ -z "$tmpd" ] || rm -rf "$tmpd" 2>/dev/null' EXIT
   if install_runner; then
-    rm -rf "$tmpd"
+    [ -z "$tmpd" ] || rm -rf "$tmpd" 2>/dev/null || true
     trap - EXIT
-    exec "$RUNNER_BIN" "$DESCRIPTOR" "$@"
+    why="could not exec $RUNNER_BIN"
+    shopt -s execfail
+    exec "$RUNNER_BIN" "$DESCRIPTOR" "$@" || true
+    shopt -u execfail
   fi
   [ -n "$path_binrun" ] || fail "$why"
-  echo "{{binary}}: $why; using $path_binrun until the plugin updates" >&2
-  [ -z "$tmpd" ] || rm -rf "$tmpd"
+  echo "{{binary}}: $why; using $path_binrun until the plugin updates" >&2 || true
+  [ -z "$tmpd" ] || rm -rf "$tmpd" 2>/dev/null || true
   trap - EXIT
-  : >"$marker" 2>/dev/null || true
 fi
 exec "$path_binrun" "$DESCRIPTOR" "$@"
