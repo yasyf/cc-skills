@@ -443,7 +443,7 @@ def part_line(drive: dict, order_id: str, part: str) -> str:
     if delivered(drive, order_id, part):
         return f'"{part}": delivered'
     held = ", ".join(f"{job['kind']} {job_id} {job['state']}" for job_id, job in carriers(drive, order_id, part))
-    return f'"{part}": {held or ("no builder carries it" if work(drive["orders"][order_id]) else "no job carries it")}'
+    return f'"{part}": {held or ("no builder carries it" if work(drive, order_id, part) else "no job carries it")}'
 
 
 def pr_history(drive: dict, key: str, skip: str) -> list[str]:
@@ -560,13 +560,14 @@ def status_data(drive: dict, seen: dict[str, str], named: bool = False) -> dict:
     }
 
 
-def status_text(drive: dict, seen: dict[str, str], named: bool = False, runs: Callable[[dict], bool] | None = None) -> str:
-    """The drive page; with ids, only the orders they name, each whole, open or closed, under one summary line and each of their running jobs with no live agent; for a coordinator, whose runs says which orders it runs, only those, one line per open order."""
-    lines = [f"{drive['name']}: {len(open_orders(drive))} open of {len(drive['orders'])} orders"]
-    if named:
-        lines.extend(agentless_lines(drive))
-        lines.extend(line for order_id, order in drive["orders"].items() for line in order_block(drive, order_id, order, True))
+def status_text(drive: dict, seen: dict[str, str], shown: dict | None = None, runs: Callable[[dict], bool] | None = None) -> str:
+    """The drive page; with shown, the drive narrowed to the orders ids name, only those, each whole, open or closed, under one summary line and each of their running jobs with no live agent, who carries each part read on every order and job of the drive; for a coordinator, whose runs says which orders it runs, only those, one line per open order."""
+    if shown is not None:
+        carrying = drive | {"prs": shown["prs"]}
+        lines = [f"{drive['name']}: {len(open_orders(shown))} open of {len(shown['orders'])} orders", *agentless_lines(shown)]
+        lines.extend(line for order_id, order in shown["orders"].items() for line in order_block(carrying, order_id, order, True))
         return "\n".join(lines)
+    lines = [f"{drive['name']}: {len(open_orders(drive))} open of {len(drive['orders'])} orders"]
     lines.extend(role_line(drive, role, seen) for role in ROLES)
     lines.extend(subcoordinator_line(project, held, seen) for project, held in drive["subcoordinators"].items())
     orders = {order_id: order for order_id, order in open_orders(drive).items() if runs is None or runs(order)}

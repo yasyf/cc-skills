@@ -843,7 +843,7 @@ def part_entry(drive: dict, order_id: str, part: str) -> dict:
         "name": part,
         "whole": part == state.whole_order(order["text"]),
         "delivered": state.delivered(drive, order_id, part),
-        "posted": None if state.work(order) else order["parts"][part]["posted"],
+        "posted": None if state.work(drive, order_id, part) else order["parts"][part]["posted"],
         "job": newest and newest[0],
         "kind": newest and newest[1]["kind"],
         "state": newest and newest[1]["state"],

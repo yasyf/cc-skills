@@ -794,10 +794,10 @@ def order_posted(args: argparse.Namespace) -> int:
 
 
 def answered_by(name: str, order_id: str, part: str, link: str) -> tuple[str, dict]:
-    """Deliver words he reads, a part of the order its holder's session holds, by the drive's post that already answered it, wherever it was made, posting nothing; refused for work he ordered, every part of an order neither an answer order nor limited to options, since no post delivers it."""
+    """Deliver words he reads, a part of the order its holder's session holds, by the drive's post that already answered it, wherever it was made, posting nothing; refused for work he ordered, every part of a build order or an incident and a part of an order of no kind that a builder, codex or design job holds or held or a design lists, since no post delivers it."""
     data = state.load(name)
     [part] = pick_parts(order_id, data["orders"][order_id], [part])
-    if state.work(data["orders"][order_id]):
+    if state.work(data, order_id, part):
         raise DriveError(f'--part "{part}": refused, ' + state.UNPOSTED_WORK.format(order=order_id, part=part))
     drive_post_at(link, data, order_id)
     with state.edit(name) as data:
@@ -874,7 +874,7 @@ def reported_parts(data: dict, order_id: str, order: dict, report: dict, items: 
     """The parts of the order a post delivers: each item of its report's part attr names on this order when it is words he reads, never work he ordered, or each part of an order its report closes. A post whose report names neither part nor close, whatever job it names, or that carries no report is a progress line that delivers none, on an order of one part as on one of several."""
     closing = order_id in state.closed_orders(report)
     if named := [part for on, part in items if on == order_id]:
-        return pick_parts(order_id, order, named) if closing or not state.work(order) else []
+        return [part for part in pick_parts(order_id, order, named) if closing or not state.work(data, order_id, part)]
     return list(order["parts"]) if closing else []
 
 
@@ -3057,16 +3057,19 @@ def drive_key(data: dict, key: str) -> str:
     return numbered[0] if numbered else key
 
 
-def only(data: dict, ids: list[str]) -> None:
-    """Narrow data, never saved, to the orders the ids name, directly or through one of their jobs or PRs."""
+def only(data: dict, ids: list[str]) -> dict:
+    """The drive narrowed, never saved, to the orders the ids name, directly or through one of their jobs or PRs, with their jobs and PRs; data stays whole, since who carries a part is read across every job and order."""
     keys = {drive_key(data, key) for key in ids}
     if unknown := keys - set(data["orders"]) - set(data["jobs"]) - set(data["prs"]):
         raise DriveError(f"no order, job or PR {', '.join(sorted(unknown))}; name {ID_FORMS}")
-    orders = {key if key in data["orders"] else (data["jobs"].get(key) or data["prs"][key])["order"] for key in keys}
-    data["orders"] = {key: order for key, order in data["orders"].items() if key in orders}
-    jobs = {job_id for order in data["orders"].values() for job_id in order["jobs"]}
-    data["jobs"] = {key: job for key, job in data["jobs"].items() if key in jobs or job["order"] in orders}
-    data["prs"] = {key: pr for key, pr in data["prs"].items() if pr["order"] in orders}
+    named = {key if key in data["orders"] else (data["jobs"].get(key) or data["prs"][key])["order"] for key in keys}
+    orders = {key: order for key, order in data["orders"].items() if key in named}
+    jobs = {job_id for order in orders.values() for job_id in order["jobs"]}
+    return data | {
+        "orders": orders,
+        "jobs": {key: job for key, job in data["jobs"].items() if key in jobs or job["order"] in named},
+        "prs": {key: pr for key, pr in data["prs"].items() if pr["order"] in named},
+    }
 
 
 def status(args: argparse.Namespace) -> int:
@@ -3080,18 +3083,16 @@ def status(args: argparse.Namespace) -> int:
     corrected = agents.corrections(name, data["held"])
     for seq, mark in data["held"].items():
         mark["corrections"] = corrected.get(seq, [])
-    if args.ids:
-        only(data, args.ids)
+    shown = only(data, args.ids) if args.ids else None
     for project, held in data["subcoordinators"].items():
         held["watch"] = watch.holder(state.pid_path(name, project))
     bound = state.bound_sessions(data)
     with ThreadPoolExecutor() as pool:
         seen = dict(zip(bound, pool.map(lambda held: with_build(orca_place(held, name_show), held), bound.values()), strict=True))
-    named = bool(args.ids)
     session = os.environ.get("CLAUDE_CODE_SESSION_ID")
     project = state.session_project(data, session)
     runs = (lambda order: state.runs(data, order, project)) if state.session_role(data, session) == "coordinator" else None
-    return emit(args, render.status_text(data, seen, named, runs), render.status_data(data, seen, named))
+    return emit(args, render.status_text(data, seen, shown, runs), render.status_data(shown or data, seen, shown is not None))
 
 
 def with_build(place: str, held: dict) -> str:

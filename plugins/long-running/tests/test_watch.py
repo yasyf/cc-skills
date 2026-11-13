@@ -30,6 +30,59 @@ CHECKED = {"head": "aaaaaaa111", "orders": ["o1"], "patch": ""}
 BUILD = "https://buildkite.com/forge/monorepo/builds/7"
 REQUIRED = {"context": "buildkite/test", "targetUrl": BUILD}
 INCIDENT_THREAD = "1794494004.895129"
+NO_BUILDER = "no builder carries this work, only "
+READ = ("reader", "done")
+REPLAYED_685794 = [
+    (685713, None, "Incident dd-334827919: API Envoy idle-socket 503s on agent asks", True, [READ], False, None),
+    (685714, None, "status of every bug", True, [READ], True, None),
+    (685715, None, "status of shipping the automatic split of large tables", True, [READ], True, None),
+    (685716, None, "What's status of splitting agents into their own runners", True, [READ], False, None),
+    (685717, None, "status of the File redesign", True, [READ], True, None),
+    (685718, None, "Why closed?", True, [READ, ("builder", "stopped")], False, "j3 stopped"),
+    (685719, None, "why the files changes took all day", True, [], True, None),
+    (685720, None, "And if they don't land for whatever reason still message the reviewer", True, [("reader", "waiting")], False, None),
+    (685721, None, "What is a restore, and why did it take 5m?", True, [READ], False, None),
+    (685722, None, "measure today's release against 5 to 7 minutes and name every step past it", True, [READ], True, None),
+    (685723, None, "why a release like the last hotfix is not self-serve, and what makes it so", False, [("reader", "waiting")], True, None),
+    (685724, None, "Why so we have a lazy setting at all it should be the same everywhere", True, [("design", "done"), ("builder", "stopped")], False, "j3 stopped"),
+    (685725, None, "What? I'm saying do the automated version we built", True, [], False, None),
+    (685726, None, "delete the repairs stub outright", True, [("builder", "waiting")], True, "j2 waits on"),
+    (685727, None, "whats status of pre-signed bucket file upload stuff?", True, [READ], False, None),
+    (685728, None, "for “Which lock-free rule replaces the two locks #53487 kept?”, can this be built", True, [("design", "waiting")], False, "j2 waits on"),
+    (685729, None, "for “One row per woken cloud agent is its hold and its placement.”, can we remove", True, [READ], False, None),
+    (685730, None, "is a table cap under 2 GB ok", True, [], True, None),
+    (685731, None, "why the 21 GB database is so big", True, [READ], True, None),
+    (685732, None, "so lok into those ssql DBs they are talking about", True, [READ], False, None),
+    (685733, None, "where retiring a field failed in a teammate's session", True, [("reader", "stopped")], True, None),
+    (685734, None, "tell the reporter in his thread when it is all fixed", True, [], True, None),
+    (685735, None, "bringing this to me with optins and diagnosis on why it OOMed", True, [READ], True, None),
+    (685736, None, "what teh fuyck are these solutins, its a server-side s3 copy right?", True, [READ], False, None),
+    (685737, None, "whats blocking blob service now?", True, [READ], False, None),
+    (685738, "build", "auto partitioning on the same abstraction", True, [READ, ("design", "done")], True, f"{NO_BUILDER}reader j2 done, design j3 done: "),
+    (685739, "build", "auto partitioning status", True, [("design", "done")], True, f"{NO_BUILDER}design j2 done: "),
+    (685740, None, "bring me design options to make forks and restores as close to free as possible", True, [READ, ("design", "waiting"), ("builder", "waiting")], False, "j4 waits on"),
+    (685741, "build", "increase the search worker's RAM", True, [], True, "no job"),
+    (685742, "build", "answer: did we cap each indexed entry to 1024 tokens as the plan said", True, [READ, READ], True, f"{NO_BUILDER}reader j2 done, reader j3 done: "),
+    (685743, "build", "look into S3's per-prefix request rate limiting", True, [READ], True, f"{NO_BUILDER}reader j2 done: "),
+    (685744, None, "#54749 lands", True, [READ], True, None),
+    (685745, None, "his pick on #52894 and #53584", False, [("reader", "waiting")], True, None),
+    (685746, "build", "are we doing the ssql release foe it", True, [], True, "no job"),
+    (685747, "build", "the release's npm publishing of @poeticapps/poetic removed for now", True, [("builder", "failed"), READ], True, "j2 failed"),
+    (685748, "build", "a card asking whether to tell the reporter it is live", True, [READ, READ], True, f"{NO_BUILDER}reader j2 done, reader j3 done: "),
+    (685749, None, "why a chat's subagents do not persist across a restart, answered in his thread", True, [READ], True, None),
+    (685750, None, "status of the fixes", True, [READ], True, None),
+    (685751, "build", "first check", True, [("codex", "failed")], True, "j2 failed"),
+    (685752, "build", "> `_app_action_invocations` tables in 15 minutes", True, [READ], True, f"{NO_BUILDER}reader j2 done: "),
+    (685753, "build", "what happened to the lost wiki pages and whether they can be recovered", False, [READ], False, f"{NO_BUILDER}reader j2 done: "),
+    (685754, "build", "options for holding failed writes and replaying them", False, [READ], False, f"{NO_BUILDER}reader j2 done: "),
+    (685755, "build", "first check", True, [READ], True, f"{NO_BUILDER}reader j2 done: "),
+    (685756, "build", "status of the scratch and run-local databases, and whether a customer's runs could", True, [READ], True, f"{NO_BUILDER}reader j2 done: "),
+    (685757, "build", "how the prompts and the compiler push big reads to a scratch database", True, [READ], True, f"{NO_BUILDER}reader j2 done: "),
+    (685758, "build", "whether production runs still fail on SandSQL now, and which runs the stall", True, [READ], True, f"{NO_BUILDER}reader j2 done: "),
+    (685759, "build", "fix this too", False, [READ, ("reader", "waiting")], False, f"{NO_BUILDER}reader j2 done, reader j3 waiting: "),
+    (685760, "build", "a release plans restate on plat-usw2-prod past the route check", False, [("reader", "waiting")], False, f"{NO_BUILDER}reader j2 waiting: "),
+    (685761, "build", "list the rest for me here", True, [], True, "no job"),
+]
 
 
 def order(**overrides: object) -> dict:
@@ -1497,6 +1550,27 @@ def test_work_he_ordered_is_carried_only_by_a_builder_never_by_research_his_card
     with state.edit(demo) as data:
         data["jobs"]["j3"]["state"] = "done"
     assert state.delivered(state.load(demo), "o2", merge)
+
+
+@pytest.mark.parametrize(("kind", "part", "posted", "held", "built", "said"), [case[1:] for case in REPLAYED_685794], ids=[str(case[0]) for case in REPLAYED_685794])
+def test_a_part_of_an_order_of_no_kind_only_research_ever_held_is_his_question_its_post_answers_while_a_build_orders_part_stays_work(
+    demo: str, monkeypatch: pytest.MonkeyPatch, kind: str | None, part: str, posted: bool, held: list[tuple[str, str]], built: bool, said: str | None
+) -> None:
+    serve(monkeypatch, {})
+    earlier = state.stamp(T0 - timedelta(minutes=10))
+    other = "ship the other fix"
+    jobs = [f"j{number}" for number in range(2, len(held) + 2 + built)]
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="done", updated=earlier)
+        parts = {part: state.new_part() | {"posted": REPORTED if posted else None}} | ({other: state.new_part()} if built else {})
+        data["orders"]["o2"] = order(text=part, jobs=jobs, kind=kind, parts=parts, updated=earlier)
+        for job_id, (job_kind, job_state) in zip(jobs, held, strict=False):
+            due = state.stamp(T0 + timedelta(hours=1)) if (job_kind, job_state) == ("reader", "waiting") else None
+            data["jobs"][job_id] = job(order="o2", kind=job_kind, state=job_state, parts=[part], due=due, updated=earlier)
+        if built:
+            data["jobs"][jobs[-1]] = job(order="o2", state="done", parts=[other], updated=earlier)
+    drawn = [line for line in watch.run_pass(watcher(demo), T0) if line.startswith("ORPHAN o2 ")]
+    assert [line.startswith(f'ORPHAN o2 "{part}": {said}') for line in drawn] == ([True] if said else [])
 
 
 @pytest.mark.parametrize("ended", ["failed", "done"])

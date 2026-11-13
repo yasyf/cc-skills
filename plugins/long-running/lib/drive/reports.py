@@ -144,7 +144,7 @@ def misnamed_part(drive: dict, record: dict) -> str | None:
             return agents.Unjudged(UNKNOWN_ORDER.format(item=json.dumps(f"{order_id}:{part}", ensure_ascii=False), order=order_id, drive=drive["name"]))
         if part not in (held := drive["orders"][order_id]["parts"]):
             return agents.Unjudged(UNKNOWN_PART.format(order=order_id, part=part, parts=", ".join(json.dumps(each, ensure_ascii=False) for each in held)))
-        if order_id not in closed and state.work(drive["orders"][order_id]):
+        if order_id not in closed and state.work(drive, order_id, part):
             return agents.Unjudged(UNPOSTED_PART.format(work=state.UNPOSTED_WORK.format(order=order_id, part=part), order=order_id, part=part))
     return None
 
@@ -159,11 +159,11 @@ def unfinished(drive: dict, record: dict) -> str | None:
     closed = state.closed_orders(named)
     if not items and not closed:
         order = state.open_orders(drive).get(order_id or "")
-        quoted = ", ".join(f'"{part}"' for part, kept in order["parts"].items() if not kept["posted"]) if order and not state.work(order) else ""
+        quoted = ", ".join(f'"{part}"' for part, kept in order["parts"].items() if not kept["posted"] and not state.work(drive, order_id, part)) if order else ""
         return UNFINISHED.format(about=f", here {order_id}, the open order it is about" if order else "", parts=f", one of {quoted}" if quoted else "")
     for on in dict.fromkeys(on for on, _ in items if on not in closed):
         order = state.open_orders(drive).get(on or "")
-        if not order or state.work(order):
+        if not order or any(state.work(drive, on, part) for part in order["parts"]):
             continue
         left = [part for part, kept in order["parts"].items() if not kept["posted"]]
         if left and set(left) <= {part for each, part in items if each == on}:
