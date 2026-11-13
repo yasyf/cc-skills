@@ -2331,14 +2331,14 @@ def pr_set(args: argparse.Namespace) -> int:
             refuse_an_exempt_revert(known, key, order, read)
     if args.tap or args.serves or args.design:
         refuse_an_undrawable_tap(key, args)
-    served = ""
+    serving = ""
     with state.edit(name) as data:
         pr = find(data["prs"], key, "drive PR")
         if args.serves:
-            served = f"\nserves {args.serves}, his words: {find(data['orders'], args.serves, 'order')['text']}"
+            serving = f"\nserves {args.serves}, his words: {find(data['orders'], args.serves, 'order')['text']}"
         set_pr(pr, args)
         if args.part:
-            served += f"\ndelivers {'; '.join(pr['parts'])}"
+            serving += f"\ndelivers {'; '.join(pr['parts'])}"
     untapped = ""
     if args.no_tapped:
         repo, number = key.split("#")
@@ -2356,7 +2356,7 @@ def pr_set(args: argparse.Namespace) -> int:
     out = "".join(f"\n{shipping}, so it is not a wait" for shipping in shipped.values())
     view.refresh_cards(name)
     found, source = view.stored_cards(name)
-    line = render.pr_line(key, pr, view.pr_card_words(found if source == "live" else None, source, pr["url"])) + served + untapped + out + "".join(f"\nwithdrew his card {card}: {why}" for card in withdrawn) + corrected
+    line = render.pr_line(key, pr, view.pr_card_words(found if source == "live" else None, source, pr["url"])) + serving + untapped + out + "".join(f"\nwithdrew his card {card}: {why}" for card in withdrawn) + corrected
     return emit(args, line, {"key": key, "withdrawn": withdrawn, **pr})
 
 
