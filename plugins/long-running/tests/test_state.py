@@ -930,3 +930,51 @@ def test_projection_indexes_pr_jobs_once_preserving_order_and_scope() -> None:
     with pytest.raises(RuntimeError), state.indexed_pr_jobs(data):
         raise RuntimeError("projection failed")
     assert state.PR_JOB_INDEX.get() is None
+
+
+def test_j4060_a_drive_saved_with_failed_builders_another_builder_took_over_stops_each_replaced_by_the_newest_carrying_all_its_parts(state_root: Path) -> None:
+    make("demo")
+    data = state.load("demo")
+    del data["replaced_ended"]
+    moment = state.stamp()
+    fix, post = "fix the proof", "post the summary"
+    key = f"{MONOREPO}#1"
+    data["orders"] = {
+        "o1": state.new_order("fix the proof and post it", "terminal", None, {fix: state.new_part(), post: state.new_part()}, moment) | {"jobs": ["j1", "j2", "j3", "j4", "j5"]},
+        "o2": state.new_order("thread the post", "terminal", None, {"thread it": state.new_part()}, moment) | {"jobs": ["j1"]},
+    }
+    data["jobs"] = {
+        "j1": state.new_job("o1", "builder", "fix it", [fix], moment) | {"state": "failed", "carries": {"o2": ["thread it"]}, "prs": [state.pr_url(key)]},
+        "j2": state.new_job("o1", "builder", "fix it again", [fix], moment) | {"state": "failed"},
+        "j3": state.new_job("o1", "builder", "fix and post it", [fix, post], moment) | {"state": "failed"},
+        "j4": state.new_job("o1", "builder", "fix it a third way", [fix], moment) | {"state": "waiting"},
+        "j5": state.new_job("o1", "builder", "called off", [fix, post], moment) | {"state": "stopped"},
+    }
+    data["prs"] = {key: state.new_pr(state.pr_url(key), "j1", "o1")}
+    state.create(data)
+    data = state.load("demo")
+    jobs = data["jobs"]
+    assert {job_id: (job["state"], job["said"]) for job_id, job in jobs.items()} == {
+        "j1": ("stopped", "replaced by j4"),
+        "j2": ("stopped", "replaced by j4"),
+        "j3": ("failed", None),
+        "j4": ("waiting", None),
+        "j5": ("stopped", None),
+    }
+    assert (data["prs"][key]["job"], jobs["j4"]["prs"], jobs["j4"]["carries"], data["replaced_ended"]) == ("j4", [state.pr_url(key)], {"o2": ["thread it"]}, True)
+
+
+def test_j4060_a_builder_failing_after_the_builder_replacing_it_was_added_stops_at_its_result(state_root: Path) -> None:
+    make("demo")
+    data = state.load("demo")
+    moment = state.stamp()
+    data["orders"] = {"o1": state.new_order("fix the proof", "terminal", None, {"fix the proof": state.new_part()}, moment) | {"jobs": ["j1", "j2"]}}
+    data["jobs"] = {
+        "j1": state.new_job("o1", "builder", "fix it", ["fix the proof"], moment) | {"state": "waiting", "said": "PUSHED https://github.com/yasyf/cc-slack/pull/406"},
+        "j2": state.new_job("o1", "builder", "take its next event", ["fix the proof"], moment),
+    }
+    state.create(data)
+    with state.edit("demo") as data:
+        state.take_result(data, "j1", "BLOCKED repro/j1.py exits 1")
+    jobs = state.load("demo")["jobs"]
+    assert {job_id: (job["state"], job["said"]) for job_id, job in jobs.items()} == {"j1": ("stopped", "replaced by j2"), "j2": ("running", None)}

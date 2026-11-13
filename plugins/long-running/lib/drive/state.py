@@ -505,6 +505,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str, terminal: str
         "designs_cited": True,
         "one_question_per_file": True,
         "answers_keyed": True,
+        "replaced_ended": True,
     }
 
 
@@ -812,6 +813,9 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         link_research(data)
     if not data.get("answers_keyed"):
         key_answers(data)
+    if not data.get("replaced_ended"):
+        end_replaced(data, data["orders"], stamp())
+        data["replaced_ended"] = True
     if unkept := any("threads" not in order for order in data["orders"].values()):
         keep_threads(name, data)
     return data, keep and not unkept
@@ -1183,6 +1187,7 @@ def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
                 changed = f'Reworked to your words "{rework["words"]}": {met["change"] if met else line}'
                 data["prs"][key].update(rework=None, tap=None, fundamental=changed, updated=job["updated"])
     end_carried_designs(data, job["order"], job["updated"])
+    end_replaced(data, [job["order"], *job["carries"]], job["updated"])
 
 
 def part_cards(data: dict, job_id: str, pr: dict | None = None) -> list[str]:
@@ -1248,6 +1253,7 @@ def add_changes(name: str, data: dict, job_id: str, report: str) -> list[str]:
     if len(found) > 1 or added:
         order["updated"] = stamp()
         end_carried_designs(data, job["order"], order["updated"])
+        end_replaced(data, [job["order"]], order["updated"])
     return added
 
 
@@ -1304,6 +1310,47 @@ def end_carried_designs(data: dict, order_id: str, moment: str) -> None:
         returned = design["state"] == "waiting" and (design["said"] or "").startswith("DESIGN")
         if design["order"] == order_id and returned and (builder := design_builder(data, design_id)):
             design.update(state="done", said=f"carried by builder {builder}", updated=moment)
+
+
+def end_replaced(data: dict, order_ids: Iterable[str], moment: str) -> list[str]:
+    """Stop each failed builder or codex job of these orders that a later job replaces, said replaced by it, folding each order it carries and each open PR it answers for onto that job, so a failed job whose work has a new owner draws no order blocked and no lane writes another job; a line for each."""
+    ended = []
+    for order_id in dict.fromkeys(order_ids):
+        for job_id in list(data["orders"][order_id]["jobs"]):
+            job = data["jobs"][job_id]
+            if job["order"] == order_id and job["state"] == "failed" and job["kind"] in CHANGE_KINDS and (into := replacer(data, job_id)):
+                moved = fold(data, job_id, into)
+                job.update(state="stopped", said=f"replaced by {into}", updated=moment)
+                ended.append("; ".join([f"{job_id} stopped: replaced by {into}", *(f"{key} now answers to {into}" for key in moved), *(f"{carried} rides on {into}" for carried in job["carries"])]))
+    return ended
+
+
+def replacer(data: dict, job_id: str) -> str | None:
+    """The newest builder or codex job added after this one and not stopped that carries every part this one holds on its order."""
+    job = data["jobs"][job_id]
+    later = [
+        other_id
+        for other_id in data["orders"][job["order"]]["jobs"]
+        if int(other_id[1:]) > int(job_id[1:])
+        and (other := data["jobs"][other_id])["kind"] in CHANGE_KINDS
+        and other["state"] != "stopped"
+        and set(job["parts"]) <= set(job_parts(other, job["order"]))
+    ]
+    return max(later, key=lambda other_id: int(other_id[1:]), default=None)
+
+
+def fold(data: dict, job_id: str, into: str) -> list[str]:
+    """Move a job's parts, each order it carries and each open PR it answers for onto another job, so every wake, check and lander of those PRs reaches that job; the PRs moved."""
+    job, target = data["jobs"][job_id], data["jobs"][into]
+    for order_id, parts in {job["order"]: job["parts"], **job["carries"]}.items():
+        if order_id == target["order"]:
+            target["parts"] = list(dict.fromkeys([*target["parts"], *parts]))
+        else:
+            carry(data, into, order_id, parts)
+    moved = [key for key, pr in data["prs"].items() if pr["job"] == job_id and pr["state"] == "open"]
+    for key in moved:
+        take_pr(data, into, key)
+    return moved
 
 
 def design_builder(data: dict, design_id: str) -> str | None:

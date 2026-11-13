@@ -335,8 +335,9 @@ refused a post he ordered.
   `lane: builder`: you share its session, so its lane is your default, and cci refuses a
   record from a lane addressed only to itself.
 - `Handoff: <seq>` names a record whose watch line names the PR, order and old job: take the PR with
-  `drive pr add <url> --job <your job>` and stop the old job with
-  `drive job set <old> --state stopped --said "handed to <your job>"`. `Handoff: LAND <url>` lands
+  `drive pr add <url> --job <your job>`, and stop an old job that has not failed with
+  `drive job set <old> --state stopped --said "handed to <your job>"`: adding your job stopped a
+  failed one already, said `replaced by <your job>`. `Handoff: LAND <url>` lands
   that PR. Every event after that reaches the meta session, never the coordinator.
 
 ## Handoff

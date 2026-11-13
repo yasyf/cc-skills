@@ -7483,6 +7483,28 @@ def test_an_answer_stays_unfinished_until_each_card_asking_him_is_marked_and_a_s
     assert data["jobs"]["j1"]["said"] == "superseded by his answer a1"
 
 
+def test_adding_a_builder_on_a_failed_builders_part_stops_it_and_moves_its_open_pr_onto_the_new_one(run: Run, with_pr: str) -> None:
+    with state.edit("demo") as data:
+        state.take_result(data, "j1", "BLOCKED its proof failed")
+    code, out = run("job", "add", "builder", "--order", "o1", "--goal", "land it another way")
+    assert (code, out.splitlines()[:2]) == (0, ["j2", f"j1 stopped: replaced by j2; {with_pr} now answers to j2"])
+    data = state.load("demo")
+    order = data["orders"]["o1"]
+    assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["said"], data["prs"][with_pr]["job"]) == ("stopped", "replaced by j2", "j2")
+    assert view.feature_state(order, [data["jobs"][job_id] for job_id in order["jobs"]], [data["prs"][with_pr]]) == "running"
+
+
+def test_a_failed_builder_stays_failed_until_a_later_builder_carries_every_part_it_held(run: Run, demo: str) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy and list the store", "--parts", "copy the store", "list the store")
+    run("job", "add", "builder", "--order", "o1", "--goal", "copy and list it", "--part", "copy the store", "--part", "list the store")
+    with state.edit("demo") as data:
+        state.take_result(data, "j1", "BLOCKED the store list is unreadable")
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "copy it", "--part", "copy the store")[1].splitlines()[0] == "j2"
+    assert state.load("demo")["jobs"]["j1"]["state"] == "failed"
+    assert "j1 stopped: replaced by j2" in run("job", "set", "j2", "--part", "list the store")[1].splitlines()
+    assert state.load("demo")["jobs"]["j1"]["said"] == "replaced by j2"
+
+
 def test_his_answer_on_a_card_asking_him_to_lift_a_pick_lists_each_open_order_the_pick_binds_and_dropping_it_stops_its_job_and_supersedes_the_pick(
     run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], recorded: Answers, closed: list[str]
 ) -> None:

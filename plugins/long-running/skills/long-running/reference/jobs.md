@@ -509,8 +509,9 @@ session started, which `SendMessage` cannot reach: there it prints a handoff bri
 returned gets a fresh builder, since a resumed one re-reads all it ever did on every event: the
 `communicator_calls` hook refuses `SendMessage` to a builder that returned `BUILT` or `DONE` outside
 an incident. Run `drive job add builder` for the same order and parts and `drive pr add <url> --job <new>` for each PR it takes over, write its brief with the
-`Handoff:` line and every earlier job's transcript under `Transcripts:`, then run
-`drive job set <old> --state stopped --said "handed to <new>"`.
+`Handoff:` line and every earlier job's transcript under `Transcripts:`, then, for an old job that
+has not failed, run `drive job set <old> --state stopped --said "handed to <new>"`: `drive job add`
+stops a failed one itself, said `replaced by <new>`.
 
 A built job's `FREE` line is a PR event too: the fresh builder's `Handoff:` names the built branch,
 and `Decisions that bind` carries his answer to each card it waited on, verbatim. An incident's job

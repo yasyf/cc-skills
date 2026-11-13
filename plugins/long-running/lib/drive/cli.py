@@ -1171,6 +1171,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         builder_id = waiting_builder(name, data, job_id, created)
         order["updated"] = created
         state.end_carried_designs(data, args.order, created)
+        replaced = state.end_replaced(data, [args.order], created)
         named = state.named_prs(data, args.order, args.goal)
     if named:
         with_cards(name, data)
@@ -1181,7 +1182,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         waiting.append(
             f"{job_id} starts on a Sprite at once, since {crowd}: drive job launch {job_id} <brief>; one whose brief declares a step only this Mac runs, on {place.MAC_LINES}, waits its turn for a slot here once its agent starts"
         )
-    return job_id, job | {"builder": builder_id, "beside": beside, "history": history}, [*waiting, *beside, *history]
+    return job_id, job | {"builder": builder_id, "beside": beside, "history": history, "replaced": replaced}, [*replaced, *waiting, *beside, *history]
 
 
 def refuse_a_mark_off_a_builder(kind: str, builds_nothing: bool | None) -> None:
@@ -1341,12 +1342,13 @@ def job_set(args: argparse.Namespace) -> int:
                 job["prs"].append(url)
         job["updated"] = state.stamp()
         state.end_carried_designs(data, job["order"], job["updated"])
+        replaced = state.end_replaced(data, [job["order"], *args.carries], job["updated"])
     owned = {pr["url"] for pr in data["prs"].values() if pr["job"] == args.id}
     cards = [card for card in fresh_pr_cards(name) if owned & set(card["prs"])] if args.carries else []
     reworked = [
         line for order_id in args.carries for line in rework_named_prs(name, order_id, args.rework, cards, f"drive job set {args.id} --carries {order_id} --rework <PR>")
     ]
-    return emit(args, already + render.job_line(args.id, job) + "".join(f"\n{line}" for line in reworked), {"id": args.id, **job})
+    return emit(args, already + render.job_line(args.id, job) + "".join(f"\n{line}" for line in [*replaced, *reworked]), {"id": args.id, **job})
 
 
 def fix_kept(data: dict, job_id: str) -> None:

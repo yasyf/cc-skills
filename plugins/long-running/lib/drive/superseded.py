@@ -605,16 +605,8 @@ def supersede(data: dict, answer_id: str, key: str, entry: dict, into: str | Non
         return done
     job = data["jobs"][job_id]
     if into:
-        target = data["jobs"][into]
-        for order_id, parts in {job["order"]: job["parts"], **job["carries"]}.items():
-            if order_id == target["order"]:
-                target["parts"] = list(dict.fromkeys([*target["parts"], *parts]))
-            else:
-                state.carry(data, into, order_id, parts)
-        done.append(f"{job_id}'s parts now ride on {into}")
-        for moved in [held for held, pr in data["prs"].items() if pr["job"] == job_id and pr["state"] == "open"]:
-            state.take_pr(data, into, moved)
-            done.append(f"{moved} now answers to {into}, which its wakes, checks and lander reach")
+        moved = state.fold(data, job_id, into)
+        done += [f"{job_id}'s parts now ride on {into}", *(f"{key} now answers to {into}, which its wakes, checks and lander reach" for key in moved)]
     if job["state"] not in state.FINISHED_JOB_STATES:
         job.update(state="stopped", said=f"superseded by his answer {answer_id}" + (f", folded into {into}" if into else ""), updated=state.stamp())
         done.append(f"{job_id} stopped: end its agent, or its lane with drive job end {job_id}")
