@@ -201,7 +201,9 @@ changed and when, its findings the suspects, and its root cause the verdict.
   its `JOB <j> <o> …; its ASK is kept` line says where his card stands.
 - A builder keeps its `ASK` with `drive job ask` the moment the fork shows, which leaves it
   running, builds the recommended option in the same run and opens its PR, which lands on that
-  option while his card stays open; nothing resumes it for that.
+  option while his card stays open; nothing resumes it for that. A card kept with `--unsettled`,
+  which asks him to lift a ruling of his, holds its PR instead: the builder pushes with
+  `ccx vcs ship --no-pr` and returns `BUILT`.
 - A question he already answered, asked in the same words, on or under its card or recorded under
   it, draws no card and stops nothing. `drive job ask` keeps it settled by that answer, prints his
   words and that the job builds on them now, and sends the session holding the order one `evidence`
@@ -219,6 +221,13 @@ changed and when, its findings the suspects, and its root cause the verdict.
   it, `drive pr set --waits <card>` refuses on it, and a different pick of his starts a follow-up
   job on the same order. His pick: "The repair lands on the recommendation, the question stays
   open, another pick is a follow-up: no incident waits; costs a second PR."
+- A card that asks him to lift a ruling of his holds its PR on an incident too, by his pick "Hold
+  the PR until you answer; the drive finds each card against your recorded answers". `drive job ask`
+  reads each card against his recorded answers `ccn answer match` ranks nearest to its whole block,
+  and refuses one whose option his words rule out until `--unsettled` names them. That mark makes
+  `land.open_cards` keep the card on an incident, so the `bash_guard` hook refuses the
+  `ccx vcs ship` that would open its PR, and the lander, `landing_guard` and his PR card hold an
+  open one, until he answers.
 
 ## Freeze the broken service
 

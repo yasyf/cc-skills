@@ -75,7 +75,8 @@ words "get codex to design and stop doing the bare minimum", and its builder bui
      only what the words cannot: "show a sinippet when it makews sense". It counts toward no word
      limit, so it is never cut; the visual rules are in [Messages](messages.md).
    - Nothing his words settle is asked. `drive job ask` settles only on his answer to the same
-     question and reads only his order and its thread, so also read his answers on the area.
+     question, and Jev reads each card against his order, its thread and the recorded answers of
+     his `ccn answer match` ranks nearest to the block, so also read his answers on the area.
    - Meanwhile the recommended option's builder starts beside the cards and builds it on a pushed
      branch, because he wants work to go on while he decides. When his words on the order ask for
      options only, start no builder on the proper fix until he picks, in an incident too.
@@ -90,7 +91,8 @@ words "get codex to design and stop doing the bare minimum", and its builder bui
    included whatever words the line names it in.
    - `drive status`, `drive view`, the dashboard and his Slack status page show it built, with its
      branch and each card. Outside an incident, the `bash_guard` hook refuses the `ccx vcs ship` that
-     would open its PR while one of its cards is open. An immediate fix's job is never held: its PR goes up at once.
+     would open its PR while one of its cards is open, and on an incident while a card kept with
+     `--unsettled`, asking him to lift a ruling of his, is open. An immediate fix's job is never held: its PR goes up at once.
    - The minute a card holds a built job, the watch replies once in that card's own thread, in
      plain words, that its recommended answer is built and paused on his pick, and `drive view` puts
      that card first in his queue.
@@ -111,7 +113,9 @@ words "get codex to design and stop doing the bare minimum", and its builder bui
      it is open, because the recommendation is yours and the decision is his. The immediate fix is no
      recommended option: it stops harm now, waits on none of his cards, and his pick replaces it.
    - In an incident, by his pick, the fix's PR opens and lands on the recommended option while the
-     card stays open, and `drive pr set --waits <card>` refuses on it. Another pick of his starts a
+     card stays open, and `drive pr set --waits <card>` refuses on it, unless the card asks him to
+     lift a ruling of his, which holds the PR until he answers, by his pick "Hold the PR until you
+     answer; the drive finds each card against your recorded answers". Another pick of his starts a
      follow-up job on the same order, by [Incidents](incidents.md#his-card-on-an-incident).
    - His order to land a change does not answer a design card still open on it. Name that card in
      your `report` at once, so the handler redraws it with its buttons in his order's thread, and

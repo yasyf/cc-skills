@@ -3339,6 +3339,25 @@ def test_a_job_on_an_open_incident_puts_up_its_pr_on_the_recommendation_and_the_
     assert cli.main(["pr", "set", url, "--waits", "demo:j1-7-a", "--drive", demo]) == 0
 
 
+def test_a_job_on_an_open_incident_is_held_from_opening_its_pr_only_by_a_card_asking_him_to_lift_a_ruling_of_his(
+    demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    asking(monkeypatch, demo, "demo:j1-7-a")
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["incident"] = True
+        state.take_result(data, "j1", "BUILT lane/built, waits on demo:j1-7-a")
+        data["prs"].pop(KEY, None)
+        data["jobs"]["j1"]["prs"] = []
+        data["jobs"]["j1"]["questions"] = [state.new_question(None, "Pick demo:j1-7-a?", state.stamp(T0)) | {"waits": "demo:j1-7-a"}]
+    capsys.readouterr()
+    assert cli.main(["job", "held", "j1", "--drive", demo]) == 0
+    assert capsys.readouterr().out == "j1: no open card of his holds its PR\n"
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["questions"][0]["unsettled"] = "9992100: this card asks whether the incident overrides his wait"
+    assert cli.main(["job", "held", "j1", "--drive", demo]) == 0
+    assert capsys.readouterr().out == "demo:j1-7-a\n"
+
+
 def test_job_set_moves_a_builder_off_a_card_his_words_replaced_onto_a_reader_that_just_started_and_refuses_only_a_finished_job(
     demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

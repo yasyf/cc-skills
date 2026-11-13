@@ -95,6 +95,11 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    recommended option in the same run, open its PR and return `PUSHED`, since that PR lands on the
    option while his card stays open, by his pick "The repair lands on the recommendation, the
    question stays open, another pick is a follow-up: no incident waits; costs a second PR."
+   A card that asks him to lift a ruling of his is the exception: `drive job ask` reads each card
+   against the recorded answers of his `ccn answer match` ranks nearest to it, refuses one whose
+   option his words rule out until `--unsettled` names them, and that mark holds its PR on an
+   incident too, so push with `ccx vcs ship --no-pr` and return `BUILT`, by his pick "Hold the PR
+   until you answer; the drive finds each card against your recorded answers".
 4. Write the change:
    - Change only what his words ask. What already exists, a value's printed form, a wire, file or
      API shape, a default, a command's output or a behavior, stays as it was unless his words name
