@@ -861,6 +861,15 @@ def test_a_pr_is_linked_under_the_words_the_post_gives_it_whether_the_drive_hold
         talk.say(demo, {"text": "{pr:yasyf/cc-skills#4250} is live."})
 
 
+def test_a_pr_in_a_table_cell_is_linked_under_its_words_whether_the_bar_before_them_is_escaped_for_the_table_or_not(
+    demo: str, posts: list[tuple[str, ...]]
+) -> None:
+    rows = "| PR | what |\n|---|---|\n| {first} | lands |\n| {second} | lands |"
+    talk.say(demo, {"text": rows.format(first="{pr:7\\|the run page fix}", second="{pr:yasyf/cc-skills#4250|the card that draws charts}")})
+    assert posts[0][-1] == rows.format(first=f"<{PR_URL}|the run page fix>", second="<https://github.com/yasyf/cc-skills/pull/4250|the card that draws charts>")
+    assert said(demo)[0]["text"] == rows.format(first=f"[the run page fix]({PR_URL})", second="[the card that draws charts](https://github.com/yasyf/cc-skills/pull/4250)")
+
+
 ALERT = "1794436805.002349"
 TICKET = {"ticket_id": "t1", "ticket_tree": "tree1", "ticket_agent": "agent1", "ticket_call": "call1", "ticket_fingerprint": "print1"}
 
