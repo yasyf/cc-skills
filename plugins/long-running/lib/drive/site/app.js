@@ -76,11 +76,12 @@ const JUMP_ROWS = 40;
 const KEY_SHEET = [
   ['Anywhere', [[['⌘K'], 'Jump to a screen, question, pull request, task or job'], [['?'], 'Show these keys'], [['Esc'], 'Close what is open, or step back up a level']]],
   ['Your queue', [
-    [['j', '→'], 'Next card'], [['k', '←'], 'Previous card'], [['1–9'], 'Answer with that choice'], [['a'], 'Approve the pull request'], [['h'], 'Hold the pull request'],
-    [['o'], 'Open the pull request on GitHub'], [['q'], 'Ask about it, or answer in your own words'], [['e'], 'Explain more, or show less'],
+    [['j', '→'], 'Next card'], [['k', '←'], 'Previous card'], [['1–9'], 'Select a choice; review before sending'], [['a'], 'Approve the pull request'], [['h'], 'Hold the pull request'],
+    [['o'], 'Open the pull request on GitHub'], [['q'], 'Ask about it, or answer in your own words'], [['e'], 'Open or close evidence'],
     [['f'], 'Next filter: All, PRs, Decisions'], [['[', ']'], 'Previous or next project'], [['⌘Z'], 'Take back the newest answer that still shows Undo'],
   ]],
   ['Now', [[['scroll', 'pinch'], 'Zoom around the pointer, into a project or workstream and back out'], [['⇧ scroll', '←', '→', '↑', '↓'], 'Pan'], [['+', '−'], 'Zoom in or out']]],
+  ['A decision', [[['1–9'], 'Select a path or priority'], [['←', '→'], 'Select a path when a choice is focused'], [['↵'], 'Review the selected choice']]],
   ['A pull request card', [[['←', '→'], 'Switch between Show me, The change and Context, with a tab focused']]],
   ['Writing to Claude', [[['↵'], 'Send'], [['⇧↵'], 'Start a new line']]],
   ['Jump', [[['↑', '↓'], 'Choose a match'], [['↵'], 'Open it']]],
@@ -155,6 +156,7 @@ let queueSlot = 0;
 let picked = null;
 let touched = false;
 const expanded = new Set();
+const decisionStates = new Map();
 const answers = new Map();
 const drafts = new Map();
 const sent = new Map();
@@ -299,7 +301,7 @@ function sourceLink(cite, path, from, to) {
 
 function prose(text, cite) {
   const blocks = [];
-  const parts = String(text ?? '').split(/^```[ \t]*([\w+-]*)[^\n]*\n([\s\S]*?)^```\s*$/m);
+  const parts = String(text ?? '').replace(/^\s*\[table block\]\s*$/gm, '').split(/^```[ \t]*([\w+-]*)[^\n]*\n([\s\S]*?)^```\s*$/m);
   parts.forEach((part, i) => {
     if (i % 3 === 1) return;
     if (i % 3 === 2) {
@@ -514,10 +516,9 @@ function notRead(read) {
 }
 
 function table(lines, cite) {
-  const cells = (line) => line.trim().replace(/^\||\|$/g, '').split('|').map((cell) => cell.trim());
-  const rows = lines.filter((line) => !/^\s*\|[\s:|-]+$/.test(line)).map(cells);
+  const rows = lines.filter((line) => !/^\s*\|[\s:|-]+$/.test(line)).map((line) => Array.isArray(line) ? line : decisionCells(line));
   const [head, ...body] = rows;
-  return `<div class="tablewrap"><table><thead><tr>${head.map((cell) => `<th>${inline(cell, cite)}</th>`).join('')}</tr></thead><tbody>${body
+  return `<div class="table-scroll-hint">Scroll to see every column ↔</div><div class="tablewrap" tabindex="0" role="region" aria-label="Comparison table; scroll for all columns"><table><thead><tr>${head.map((cell) => `<th>${inline(cell, cite)}</th>`).join('')}</tr></thead><tbody>${body
     .map((row) => `<tr>${row.map((cell) => `<td>${inline(cell, cite)}</td>`).join('')}</tr>`)
     .join('')}</tbody></table></div>`;
 }
@@ -655,15 +656,6 @@ function move(delta) {
   render();
 }
 
-function meaning(item, index) {
-  const card = item.card;
-  const option = card.options[index];
-  const [title, detail] = optionParts(option);
-  const label = option === card.recommended ? 'Recommended' : `Choice ${index + 1} of ${card.options.length}`;
-  const explained = (card.hints?.[option] ?? '').split('\n').filter(Boolean).map((line) => `<p>${inline(line)}</p>`).join('');
-  return `<div class="rail-block" data-means><div class="eyebrow">${label}</div><div class="consequence-title">${esc(title)}</div>${detail ? `<p>${esc(detail)}</p>` : ''}${explained}</div>`;
-}
-
 function heldRow(item, entry, held) {
   const project = fileKey(entry.project);
   const stream = fileKey(entry.workstream);
@@ -691,47 +683,49 @@ function priorityChips(item) {
 function decisionRail(item) {
   const card = item.card;
   const rail = item.rail ?? { held: [], asker: null, answers: [] };
-  const index = picked?.card === item.answer ? picked.index : Math.max(0, card.options.indexOf(card.recommended));
-  const tasks = item.blocks.map(({ id }) => featureOf(id)).sort((a, b) => (b.id === rail.asker?.feature) - (a.id === rail.asker?.feature));
+  const tasks = item.blocks.map(({ id }) => featureOf(id));
   const links = [...(card.links ?? []), ...(card.refs ?? [])].filter((each) => !SLACK.test(each.url)).map((each) => `<li>${link(each.label, each.url)}</li>`).join('');
-  const read = `${links ? `<ul class="rail-list">${links}</ul>` : ''}${pictures(card.pictures)}`;
-  return `<aside class="context-rail" aria-label="About this decision">
-    ${meaning(item, index)}
-    <p class="rail-note"><span class="pointer">Hover or focus a choice to read it here.</span><span class="touch">Tap a choice to answer it.</span> An answer is sent as you pick it. While its Undo shows, Undo<span class="pointer"> or ⌘Z</span> takes it back and asks it again.</p>
-    ${tasks.length ? `<div class="rail-block"><div class="eyebrow">What it holds up</div><ul class="held-list">${tasks.map((entry) => heldRow(item, entry, rail.held)).join('')}</ul></div>` : ''}
-    ${rail.asker ? `<div class="rail-block"><div class="eyebrow">Asked by</div><ul class="jobs">${jobRow(rail.asker)}</ul></div>` : ''}
-    ${rail.answers.length ? `<div class="rail-block"><div class="eyebrow">Your earlier words on it</div><ul class="said-list">${rail.answers.map(earlierWords).join('')}</ul></div>` : ''}
-    ${read ? `<div class="rail-block"><div class="eyebrow">Read first</div>${read}</div>` : ''}
-    <div class="rail-block talk-block">
-      <div class="eyebrow" data-key="q">Ask about this, or answer in your own words</div>
-      ${item.thread ? talkPane(item.thread, cardTs(item.answer)) : ''}
-      ${sayBox(`q:${item.answer}`, item.answer, 'Ask a question, or answer in your own words', '', item.thread ?? '')}
-    </div>
+  return `<aside class="context-rail decision-sidebar" aria-label="About this decision">
+    <div class="eyebrow">Need something before deciding?</div>
+    <h3>Ask in your words.</h3>
+    ${sayBox(`q:${item.answer}`, item.answer, 'Ask a question, or answer in your own words', '', item.thread ?? '')}
+    ${item.thread ? `<details class="story-disclosure"><summary>Conversation</summary>${talkPane(item.thread, cardTs(item.answer))}</details>` : ''}
+    <details class="story-disclosure" data-story-evidence><summary>Evidence and source</summary>${prose(card.body)}${links ? `<ul class="rail-list">${links}</ul>` : ''}${pictures(card.pictures)}${card.options.map((label) => card.hints?.[label] ? `<details><summary>${esc(decisionPlain(optionParts(label)[0]))}</summary>${prose(card.hints[label])}</details>` : '').join('')}</details>
+    ${tasks.length ? `<details class="story-disclosure"><summary>Related work</summary><ul class="held-list">${tasks.map((entry) => heldRow(item, entry, rail.held)).join('')}</ul></details>` : ''}
+    ${rail.answers.length ? `<details class="story-disclosure"><summary>Your earlier words</summary><ul class="said-list">${rail.answers.map(earlierWords).join('')}</ul></details>` : ''}
+    <details class="story-disclosure"><summary>Question details</summary>${priorityChips(item)}${rail.asker ? `<ul class="jobs">${jobRow(rail.asker)}</ul>` : ''}</details>
   </aside>`;
 }
 
 function decisionCard(item, at, total) {
-  const card = item.card;
-  const rows = (card.rows ?? []).map((row) => `<li>${inline(row.text)}</li>`).join('');
-  const body = [card.body ? prose(card.body) : '', rows ? `<ul class="rows">${rows}</ul>` : ''].join('');
-  const facts = [
-    item.since ? fact(esc(`Asked ${clock(item.since)}`), `Waiting on you for ${ago(item.since)}`) : '',
-    item.holds ? fact(esc(`Holds up ${item.holds} finished`), `${item.holds} green, approved ${item.holds === 1 ? 'change or built job waits' : 'changes or built jobs wait'} on this answer`, 'warn') : '',
-    item.rank_why ? fact('Why it ranks here', item.rank_why) : '',
-    ...(card.facts ?? []).map((each) => fact(`${esc(each.label)}: ${inline(each.value)}`)),
-  ].join('');
-  return `<div class="queue-layout">
-    <article class="focus-card" aria-labelledby="item-title" tabindex="-1">
-      <div class="card-content">
-        <div class="card-top"><span class="type-label">Decision</span>${counter(at, total)}</div>
-        <h2 class="card-title" id="item-title">${inline(card.title || item.title)}</h2>
-        ${body ? `<div class="card-summary">${fold(`q:${item.answer}`, body, 8, 'e')}</div>` : ''}
-        ${facts ? `<div class="facts">${facts}</div>` : ''}
-        ${choices(item, true)}
-      </div>
-    </article>
-    ${decisionRail(item)}
-  </div>`;
+  const key = item.answer;
+  if (item.card.body === undefined) return `<div class="queue-layout story-layout"><article class="focus-card decision-story" aria-labelledby="item-title" tabindex="-1"><div class="card-content"><div class="card-top"><span class="type-label">Decision</span>${counter(at, total)}</div><h2 class="card-title" id="item-title">${esc(decisionPlain(item.card.title))}</h2>${notRead(slice(`/api/card?${new URLSearchParams({ answer: key })}`))}</div></article>${decisionRail(item)}</div>`;
+  const story = decisionStory(item.card);
+  if (!decisionStates.has(key)) decisionStates.set(key, { selected: Math.max(0, item.card.options.indexOf(item.card.recommended)), step: 0, compare: false });
+  const state = decisionStates.get(key);
+  const option = story.options[state.selected];
+  const recommended = option.label === item.card.recommended;
+  const metrics = option.metrics?.length ? `<dl class="story-metrics">${option.metrics.map((metric) => `<div><dd>${esc(metric.value)}</dd><dt>${esc(metric.label)}</dt></div>`).join('')}</dl>` : '';
+  const outcome = `<section class="story-outcome" aria-live="polite"><span class="eyebrow">${recommended ? 'Recommended outcome' : 'Selected outcome'}</span><h3>${esc(option.title)}</h3>${option.consequence ? `<p>${esc(option.consequence)}</p>` : ''}${metrics}${item.card.hints?.[option.label] ? `<div class="story-hint">${prose(item.card.hints[option.label])}</div>` : ''}</section>`;
+  const options = `<div class="story-options" role="group" aria-label="Choose a path">${story.options.map((choice, i) => `<button class="story-option" data-story-pick="${i}" data-story-card="${esc(key)}" aria-pressed="${i === state.selected}"><kbd>${i + 1}</kbd><span><strong>${esc(choice.title)}</strong>${choice.label === item.card.recommended ? '<em>Recommended</em>' : ''}${story.format === 'lab' && choice.metrics?.length ? `<span class="option-metrics">${choice.metrics.map((metric) => `<span><b>${esc(metric.value)}</b>${esc(metric.label)}</span>`).join('')}</span>` : `<small>${esc(choice.consequence)}</small>`}</span><span aria-hidden="true">${i === state.selected ? '↗' : '→'}</span></button>`).join('')}</div>`;
+  const given = answers.get(key);
+  const action = given?.done ? `<p class="answered">✓ ${esc(given.label)}</p>` : `<div class="story-action"><button class="btn" data-story-review="${esc(key)}"${given && !given.error ? ' disabled' : ''}>Review this choice <kbd>↵</kbd></button><small>Choose first. Review before sending.</small>${given?.error ? `<p role="alert">${esc(given.error)}</p>` : ''}</div>`;
+  const lab = `<div class="story-lab">${options}${action}${outcome}<button class="linkish" data-story-compare="${esc(key)}" aria-expanded="${state.compare}">${state.compare ? 'Close comparison' : 'Compare every path'}</button>${state.compare ? table([['Path', 'What changes', ...(story.options[0].metrics ?? []).map((metric) => metric.label)], ...story.options.map((choice) => [choice.title, choice.consequence, ...(choice.metrics ?? []).map((metric) => metric.value)])]) : ''}</div>`;
+  const interview = `<div class="story-interview"><div class="story-steps" aria-label="Step ${state.step + 1} of 2"><span class="on">1 · Your priority</span><span class="${state.step ? 'on' : ''}">2 · Your path</span></div>${state.step ? `<button class="linkish" data-story-back="${esc(key)}">← Change my priority</button>${outcome}${action}` : `<h3>What matters most here?</h3><div class="story-options">${story.options.map((choice, i) => `<button class="story-option" data-story-priority="${i}" data-story-card="${esc(key)}"><kbd>${i + 1}</kbd><span><strong>${esc(choice.consequence || choice.title)}</strong>${choice.consequence ? `<small>${esc(choice.title)}</small>` : ''}</span><span aria-hidden="true">→</span></button>`).join('')}</div>`}</div>`;
+  return `<div class="queue-layout story-layout"><article class="focus-card decision-story ${story.format}" aria-labelledby="item-title" tabindex="-1" data-story="${esc(key)}" data-format="${story.format}"><div class="card-content"><div class="card-top"><span class="type-label">${{ cockpit: 'Decision cockpit', lab: 'Tradeoff lab', interview: 'Decision interview' }[story.format]}</span>${counter(at, total)}</div><h2 class="card-title" id="item-title">${esc(story.headline)}</h2><p class="story-context">${esc(story.context)}</p>${restored.has(key) ? '<p class="restored" role="status">Restored. This is being asked again.</p>' : ''}${story.format === 'lab' ? lab : story.format === 'interview' ? interview : `<div class="story-cockpit">${options}<div>${outcome}${action}</div></div>`}</div></article>${decisionRail(item)}</div>`;
+}
+
+function reviewDecision(key) {
+  const item = model.queue.find((each) => each.answer === key);
+  if (!item) return;
+  const card = opened(item).card;
+  const story = decisionStory(card);
+  const option = story.options[decisionStates.get(key).selected];
+  const dialog = $('#decision-review');
+  dialog.innerHTML = `<span class="eyebrow">Review your decision</span><h2 id="decision-review-title">${esc(story.headline)}</h2><h3>${esc(option.title)}</h3><p>${esc(option.consequence)}</p><details><summary>The exact answer</summary><p>${esc(option.label)}</p></details><div class="story-action"><button class="btn" data-card="${esc(key)}" data-label="${esc(option.label)}">Send this answer</button><button class="btn ghost" data-story-close>Keep thinking</button></div>`;
+  dialog.dataset.card = key;
+  dialog.showModal();
+  dialog.querySelector('[data-story-close]').focus();
 }
 
 function stateFacts(row) {
@@ -866,16 +860,16 @@ function prRail(item, key, rows, row, pr, head, read, inline) {
   const entry = model.review.find((each) => each.key === pr);
   return `<aside class="context-rail pr-rail" aria-label="About this change">
     <div class="rail-block"><div class="eyebrow">Attached to this change <code>${esc(head.slice(0, 7))}</code></div><div class="facts">${stateFacts(row)}</div>${entry ? prState(entry) : ''}<p class="spot-head">What Approve lands</p><ul class="rail-list">${landing(item, rows, entry)}</ul></div>
-    ${entry ? serves(entry) : ''}
-    <div class="rail-block"><div class="eyebrow">Jump to a point in the change</div>${jumps(key, row, pr, read)}</div>
+    ${entry ? `<details class="story-disclosure"><summary>Related work</summary>${serves(entry)}</details>` : ''}
+    <details class="story-disclosure"><summary>Evidence and files</summary>${jumps(key, row, pr, read)}</details>
     <div class="rail-block"><div class="eyebrow">Question or line comment</div>${noteBox(key, pr)}</div>
-    <div class="rail-block talk"><div class="eyebrow"${inline ? '' : ' data-key="q"'}>Tell the drive what to change</div>${item.thread ? talkPane(item.thread, cardTs(item.answer)) : ''}
+    <div class="rail-block talk"><div class="eyebrow"${inline ? '' : ' data-key="q"'}>Tell the drive what to change</div>${item.thread ? `<details class="story-disclosure"><summary>Conversation</summary>${talkPane(item.thread, cardTs(item.answer))}</details>` : ''}
       ${sayBox(item.answer ? `t:${item.answer}` : `r:${pr}`, item.answer ?? '', 'Ask the drive, or tell Claude what to change', item.answer ? '' : `About ${row.url}`, item.thread ?? '')}
     </div>
   </aside>`;
 }
 
-function prCard(item, at, total, inline = false) {
+function prCard(item, at, total, embedded = false) {
   const key = noticeKey(item);
   const rows = (item.card?.prs ?? [{ url: item.url, title: item.title }]).map((row, i) => ({ ...prReads.get(prKey(row.url))?.pr?.row, ...item.prs?.[i], ...row }));
   const chosen = chosenRow(item);
@@ -884,25 +878,27 @@ function prCard(item, at, total, inline = false) {
   const head = model.review.find((each) => each.key === pr)?.head ?? row.head ?? '';
   const read = prReads.get(pr);
   const tab = prTabs.get(key) ?? 'show';
-  const title = item.card ? bare(item.card.title.replace(/^\w+: approve (.*)\?$/, '$1')).replace(/^./, (c) => c.toUpperCase()) : item.title;
+  const title = decisionPlain(read?.pr?.title ?? row.title).replace(/^./, (c) => c.toUpperCase());
+  const context = read?.pr?.body?.match(/^## Context\s*\n([\s\S]*?)(?=^## |$(?![\s\S]))/m)?.[1]?.trim();
+  const story = [['Why this exists', context ?? row.refresher], ['What changes', row.summary], ['Downstream', row.hate_most]].map(([label, text]) => `<div><strong>${label}</strong><p>${text ? inline(text, pr) : 'The author has not supplied this explanation yet.'}</p></div>`).join('');
   const stack = rows.length > 1 ? `<ol class="stack" aria-label="The PRs on this card, in the order they land">${rows.map((each, i) => stackRow(each, i, i === chosen, key)).join('')}</ol>` : '';
   const tabs = PR_TABS.map(([id, label]) => `<button role="tab" class="${id === tab ? 'on' : ''}" aria-selected="${id === tab}" data-prtab="${id}" data-item="${esc(key)}">${label}</button>`).join('');
-  const panes = PR_TABS.map(([id]) => `<div class="pr-pane ${id}" role="tabpanel"${id === tab ? '' : ' hidden'}>${prPane(id, row, pr, head, read, inline)}</div>`).join('');
+  const panes = PR_TABS.map(([id]) => `<div class="pr-pane ${id}" role="tabpanel"${id === tab ? '' : ' hidden'}>${prPane(id, row, pr, head, read, embedded)}</div>`).join('');
   return `<div class="pr-layout" data-read="${esc(pr)}" data-head="${esc(head)}">
     <article class="focus-card pr-card" aria-labelledby="item-title" tabindex="-1">
       <div class="card-content">
-        <div class="card-top"><span class="type-label">Pull request <a href="${esc(row.url)}" target="_blank" rel="noopener" data-github data-tip="Open it on GitHub"${inline ? '' : ' data-key="o"'}>${esc(pr)}</a></span>${inline ? '' : counter(at, total)}</div>
+        <div class="card-top"><span class="type-label">Pull request <a href="${esc(row.url)}" target="_blank" rel="noopener" data-github data-tip="Open it on GitHub"${embedded ? '' : ' data-key="o"'}>${esc(pr)}</a></span>${embedded ? '' : counter(at, total)}</div>
         <h2 class="card-title" id="item-title">${esc(title)}</h2>
+        <div class="pr-story">${story}</div>
         ${stack}
-        ${row.summary ? `<div class="card-summary">${prose(row.summary, pr)}</div>` : ''}
-        ${row.refresher ? `<div class="card-summary">${fold(`r:${key}:${pr}`, prose(row.refresher, pr), 3, inline ? '' : 'e')}</div>` : ''}
         <div class="facts">${prFacts(item, row, read)}</div>
       </div>
+      <div class="pr-decision-actions">${choices(item, !embedded)}</div>
       <div class="pr-tabs" role="tablist" aria-label="About this change">${tabs}</div>
       ${panes}
-      <div class="pr-actions">${choices(item, !inline)}<span class="meta">${esc(item.untapped ?? approveWords(model.review.find((each) => each.key === pr), row))}</span></div>
+      <div class="pr-actions"><span class="meta">${esc(item.untapped ?? approveWords(model.review.find((each) => each.key === pr), row))}</span></div>
     </article>
-    ${prRail(item, key, rows, row, pr, head, read, inline)}
+    ${prRail(item, key, rows, row, pr, head, read, embedded)}
   </div>`;
 }
 
@@ -939,8 +935,8 @@ function queueScreen(id) {
     <p class="queue-order">Ranked by incident, past due, built work waiting, what it unblocks, then age; what the drive is answering you on goes last</p>
     ${unread}
     ${list.length === 1 ? `<div class="queue-current">${priorityChips(item)}</div>` : ''}
-    <div class="queue-shell${list.length > 1 ? '' : ' alone'}">${list.length > 1 ? queueList(list, at, filter) : ''}${shown}</div>
-    <footer class="qfoot"><span>As of ${clock(model.at)}</span><span><kbd>j</kbd><kbd>k</kbd> move <kbd>1–9</kbd> answer <kbd>a</kbd> approve <kbd>h</kbd> hold <kbd>o</kbd> GitHub <kbd>q</kbd> ask <kbd>e</kbd> explain <kbd>f</kbd> filter <kbd>[</kbd><kbd>]</kbd> project <kbd>⌘Z</kbd> undo <button type="button" class="linkish" data-keys><kbd>?</kbd> every key</button></span></footer>`;
+    <div class="queue-shell${list.length > 1 ? '' : ' alone'}">${list.length > 1 ? `<details class="queue-picker"${narrow.matches ? '' : ' open'}><summary>Browse ranked queue <span>${list.length}</span></summary>${queueList(list, at, filter)}</details>` : ''}${shown}</div>
+    <footer class="qfoot"><span>As of ${clock(model.at)}</span><span><kbd>j</kbd><kbd>k</kbd> move <kbd>1–9</kbd> select <kbd>↵</kbd> review <kbd>a</kbd> approve <kbd>h</kbd> hold <kbd>o</kbd> GitHub <kbd>q</kbd> ask <kbd>e</kbd> explain <kbd>f</kbd> filter <kbd>[</kbd><kbd>]</kbd> project <kbd>⌘Z</kbd> undo <button type="button" class="linkish" data-keys><kbd>?</kbd> every key</button></span></footer>`;
 }
 
 function queueList(list, at, filter) {
@@ -1750,9 +1746,6 @@ function preview(choice) {
   const index = Number(choice.dataset.preview);
   if (picked?.card === choice.dataset.card && picked.index === index) return;
   picked = { card: choice.dataset.card, index };
-  const item = model.queue.find((each) => each.answer === choice.dataset.card);
-  const rail = document.querySelector('#main [data-means]');
-  if (item && rail) rail.outerHTML = meaning(opened(item), index);
   for (const each of choice.parentElement.querySelectorAll('.choice')) each.classList.toggle('on', each === choice);
 }
 
@@ -2685,8 +2678,36 @@ document.addEventListener('click', (event) => {
     toasts.delete(dismissed.dataset.dismiss);
     return drawToasts();
   }
+  const storyPick = event.target.closest('[data-story-pick], [data-story-priority]');
+  if (storyPick) {
+    const state = decisionStates.get(storyPick.dataset.storyCard);
+    state.selected = Number(storyPick.dataset.storyPick ?? storyPick.dataset.storyPriority);
+    if (storyPick.hasAttribute('data-story-priority')) state.step = 1;
+    render();
+    if (storyPick.hasAttribute('data-story-priority')) { const title = $('#main .decision-story h2'); title.tabIndex = -1; title.focus(); }
+    return;
+  }
+  const compare = event.target.closest('[data-story-compare]');
+  if (compare) {
+    const state = decisionStates.get(compare.dataset.storyCompare);
+    state.compare = !state.compare;
+    return render();
+  }
+  const back = event.target.closest('[data-story-back]');
+  if (back) {
+    const state = decisionStates.get(back.dataset.storyBack);
+    state.step = 0;
+    render();
+    return document.querySelector(`[data-story-priority="${state.selected}"]`).focus();
+  }
+  const review = event.target.closest('[data-story-review]');
+  if (review) return reviewDecision(review.dataset.storyReview);
+  if (event.target.closest('[data-story-close]')) return $('#decision-review').close();
   const pick = event.target.closest('button[data-card]');
-  if (pick) return answer(pick.dataset.card, pick.dataset.label);
+  if (pick) {
+    $('#decision-review').close();
+    return answer(pick.dataset.card, pick.dataset.label);
+  }
   const pr = event.target.closest('button[data-pr]');
   if (pr) return openPR(pr.dataset.pr);
   const queued = event.target.closest('[data-queue]');
@@ -2956,6 +2977,29 @@ document.addEventListener('keydown', (event) => {
   if (free && screen === 'now' && pan && !event.target.closest?.('.now-side, .task-sheet')) {
     event.preventDefault();
     return panNow(...pan);
+  }
+  const decision = $('#main .decision-story');
+  const storyChoice = event.target.closest?.('[data-story-pick]');
+  if (free && storyChoice && ['ArrowLeft', 'ArrowRight'].includes(event.key)) {
+    event.preventDefault();
+    const choices = [...decision.querySelectorAll('[data-story-pick]')];
+    const next = choices[(choices.indexOf(storyChoice) + (event.key === 'ArrowRight' ? 1 : choices.length - 1)) % choices.length];
+    next.click();
+    return next.focus();
+  }
+  if (free && decision && /^[1-9]$/.test(event.key)) {
+    event.preventDefault();
+    return decision.querySelector(`[data-story-${decision.dataset.format === 'interview' && decisionStates.get(decision.dataset.story).step === 0 ? 'priority' : 'pick'}="${Number(event.key) - 1}"]`)?.click();
+  }
+  if (free && decision && event.key === 'Enter' && !event.target.closest('button, a, summary')) {
+    event.preventDefault();
+    return decision.querySelector('[data-story-review]')?.click();
+  }
+  if (free && decision && event.key === 'e') {
+    event.preventDefault();
+    const details = $('#main [data-story-evidence]');
+    details.open = !details.open;
+    return details.querySelector('summary').focus();
   }
   if (free && screen === 'queue') {
     const step = { ArrowLeft: -1, ArrowRight: 1, k: -1, j: 1 }[event.key];
