@@ -7854,6 +7854,15 @@ def test_folding_a_superseded_prs_job_into_a_live_one_moves_its_open_pr_so_its_w
     assert (stage.owner_job(data, designing), closed) == ("j3", [])
 
 
+def test_job_set_pr_moves_a_tracked_prs_row_to_the_job_that_took_it_over_so_its_stage_line_and_wakes_name_that_job(run: Run, with_pr: str) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the new tool")
+    run("job", "add", "builder", "--order", "o2", "--goal", "take over the landing")
+    untracked = "https://github.com/Forge-AI/monorepo/pull/43"
+    assert run("job", "set", "j2", "--pr", PR, "--pr", untracked)[0] == 0
+    data = state.load("demo")
+    assert (data["prs"][with_pr]["job"], data["jobs"]["j2"]["prs"], stage.owner_job(data, with_pr)) == ("j2", [PR, untracked], "j2")
+
+
 def test_job_set_carries_refuses_a_part_a_running_builder_carries_so_one_change_has_one_builder(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:

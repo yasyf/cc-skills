@@ -83,7 +83,7 @@ def owner(data: dict, subject: str) -> tuple[str, str]:
     if subject in data["jobs"]:
         return subject, data["jobs"][subject]["order"]
     pr = data["prs"][subject]
-    return stage.owner_job(data, subject) or pr["job"], pr["order"]
+    return pr["job"], pr["order"]
 
 
 def starts(data: dict, moment: datetime) -> tuple[int, int]:

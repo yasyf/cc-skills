@@ -14,7 +14,6 @@ GRADERS = "Buildkite and forge-pr-reviewer"
 WAITED = "what it waits on"
 ACCEPT_RULING = '2bb0472, "you have to accept the risk stop just pretendinf urblocked"'
 UNLANDED_SILENT = "no outcome: its process ended before it said whether it queued anything"
-LIVE = ("running", "waiting")
 WAKES_LOG = "wakes.log"
 NAMED_HEAD = re.compile(r"\bat ([0-9a-f]{7,40})\b")
 ASKS_HIM = ("held", "card")
@@ -253,13 +252,9 @@ def live(data: dict, pr: dict) -> bool:
 
 
 def owner_job(data: dict, key: str) -> str | None:
-    """The job that answers for the PR now: the newest live one carrying it, a builder that took it over included, else the newest live one carrying a PR of its landing stack, else its own job, whose finished or dead lane drive pr wake replaces with a fresh builder; None when its own job is stopped, so no wake starts work he called off and the session holding its order closes the PR or moves it to a live job."""
-    pr = data["prs"][key]
-    stack = land.landing_stacks(data).get(key, (key,))
-    for urls in ({pr["url"]}, {data["prs"][member]["url"] for member in stack}):
-        if found := [job_id for job_id, job in data["jobs"].items() if job["kind"] == "builder" and job["state"] in LIVE and urls & set(job["prs"])]:
-            return max(found, key=lambda job_id: state.parse_time(data["jobs"][job_id]["created"]))
-    return None if data["jobs"][pr["job"]]["state"] == "stopped" else pr["job"]
+    """The job that answers for the PR now: the one its row names, which its stage line's tag prints and drive pr add --job, drive job set --pr and a superseded fold move, whose finished or dead lane drive pr wake replaces with a fresh builder; None when that job is stopped, so no wake starts work he called off and the session holding its order closes the PR or moves it to a live job."""
+    job_id = data["prs"][key]["job"]
+    return None if data["jobs"][job_id]["state"] == "stopped" else job_id
 
 
 def entered(kept: dict | None, now: Stage) -> bool:

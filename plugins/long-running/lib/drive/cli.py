@@ -1292,7 +1292,11 @@ def job_set(args: argparse.Namespace) -> int:
                 state.start(job)
         if args.repro:
             job["repro"] = keep_repro(name, args.id, args.repro)
-        job["prs"].extend(url for url in urls if url not in job["prs"])
+        for url in urls:
+            if (key := state.pr_key(url)) in data["prs"]:
+                state.take_pr(data, args.id, key)
+            elif url not in job["prs"]:
+                job["prs"].append(url)
         job["updated"] = state.stamp()
         state.end_carried_designs(data, job["order"], job["updated"])
     owned = {pr["url"] for pr in data["prs"].values() if pr["job"] == args.id}
@@ -2987,7 +2991,7 @@ def releaded(pr: dict) -> str:
 
 
 def pr_wake(args: argparse.Namespace) -> int:
-    """Send a PR's stage line, or the text given, to the builder answering for it, as its stage owes: to a lane Orca holds as a message to its Dispatch, which neither answers its question nor touches its job's ask or state; to a fresh worker on its job when that lane finished or died, as drive job resume relaunches one; and to a builder this Mac's session holds as a handoff record to the session holding its order, which sends it to that agent. A PR no live job carries whose own job is stopped, as his superseding answer stops one, or whose job stopped while the wake waited on its lock, goes to that session the same way, so no wake starts work he called off. A lane's send or relaunch runs under the job's own lock, as drive job resume's does, so a second wake arriving while the first starts the job's next worker waits for it and sends that worker its line."""
+    """Send a PR's stage line, or the text given, to the builder answering for it, as its stage owes: to a lane Orca holds as a message to its Dispatch, which neither answers its question nor touches its job's ask or state; to a fresh worker on its job when that lane finished or died, as drive job resume relaunches one; and to a builder this Mac's session holds as a handoff record to the session holding its order, which sends it to that agent. A PR whose own job is stopped, as his superseding answer stops one, or whose job stopped while the wake waited on its lock, goes to that session the same way, so no wake starts work he called off. A lane's send or relaunch runs under the job's own lock, as drive job resume's does, so a second wake arriving while the first starts the job's next worker waits for it and sends that worker its line."""
     from drive import stage, tools, view
 
     name = state.resolve(args.drive)
@@ -4554,7 +4558,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--said", help="its latest line")
     verb.add_argument("--due", help="its clock: when it must have returned, said once as DUE if it still runs then, a time or +10m")
     verb.add_argument("--repro", help="the job's pick-up-and-run reproduction file, kept in the drive")
-    verb.add_argument("--pr", action="append", default=[], help="a PR it opened or took over")
+    verb.add_argument("--pr", action="append", default=[], help="a PR it opened or took over; a PR the drive tracks then names it on its row, as drive pr add --job moves one")
     named = verb.add_mutually_exclusive_group()
     named.add_argument("--part", action="append", default=[], help="another part of the order this job delivers, or of the one order --carries names")
     named.add_argument("--parts", nargs="+", type=str.strip, metavar="PART", help="the parts of its own order this job delivers, replacing its list")
