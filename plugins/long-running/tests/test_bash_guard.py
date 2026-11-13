@@ -256,7 +256,7 @@ def test_a_drive_call_retrying_past_a_failing_check_is_refused_naming_the_log_re
     ):
         reason = bash_guard.deny_reason(bash(command))
         assert reason.startswith(f"refused: `{step}` retries past a failing check, and a check that fails is fixed at its cause")
-        assert "`tools/ci bk log <job>`" in reason
+        assert "`tools/ci bk log '<job URL>'`" in reason
     assert bash_guard.deny_reason(bash("tools/ci bk log 0190a1b2-job")) is None
     assert bash_guard.deny_reason(bash(".agents/skills/submit-pr/scripts/stack-enqueue 4244")) is None
     assert bash_guard.deny_reason(bash("tools/ci bk rerun 0190a1b2-job", session="ordinary")) is None

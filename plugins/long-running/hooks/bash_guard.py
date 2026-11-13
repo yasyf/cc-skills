@@ -227,7 +227,7 @@ def retried(found: list[list[str]]) -> str | None:
             continue
         return (
             f"refused: `{step}` retries past a failing check, and a check that fails is fixed at its cause, never retried past"
-            f" with {FLAKE} or a rerun. Read the failed job's own output with `tools/ci bk log <job>`, or `gh run view <run>"
+            f" with {FLAKE} or a rerun. Read the failed job's own output with `tools/ci bk log '<job URL>'`, or `gh run view <run>"
             " --log-failed` on GitHub Actions, fix the cause and push the fix; a test that flakes gets a flake fix of its own"
         )
     return None
