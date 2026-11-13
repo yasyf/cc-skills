@@ -10,8 +10,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import DRIVE_TERMINAL, SHORT_ASK, CodexAsk, Draws, Judge, Redraws, Thread, WatchProcess, Withdrawals, commit_files, git_in, staged
-from drive import card, cli, github, install, land, launchd, orca, place, reads, render, served, slack, stage, state, superseded, talk, view, watch
+from conftest import DRIVE_TERMINAL, SHORT_ASK, CodexAsk, Draws, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, commit_files, git_in, staged
+from drive import card, cli, github, install, land, launchd, orca, place, reads, receiver, render, served, slack, stage, state, superseded, talk, view, watch
 
 KEY = "Forge-AI/monorepo#42"
 OTHER = "Forge-AI/monorepo#43"
@@ -175,6 +175,7 @@ def closed_cards(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, str, b
 
 REAL_ENSURE = watch.ensure
 REAL_FETCH = github.fetch
+REAL_RUN_PASS = watch.run_pass
 REAL_LISTEN = watch.listen
 REAL_SESSION_ENV = launchd.session_env
 
@@ -333,13 +334,65 @@ def test_merge_is_reported_and_the_pr_leaves_the_read_set(demo: str, monkeypatch
     assert calls == [[KEY]]
 
 
-def test_github_reads_at_most_once_a_minute(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_github_is_read_for_every_pr_at_the_watchs_start_then_only_for_the_prs_a_delivery_names(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(watch, "run_pass", REAL_RUN_PASS)
+    with state.edit(demo) as data:
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "aaaaaaa111", "wants_tap": False}
+    calls = serve(monkeypatch, {KEY: read(), OTHER: read()})
+    watching = watcher(demo)
+    watch.run_pass(watching, T0)
+    watch.run_pass(watching, T0 + timedelta(seconds=60))
+    state.append_event(demo, receiver.DELIVERY, repo="Forge-AI/monorepo", numbers=[43], event="check_run", guid="g1")
+    assert watch.run_pass(watching, T0 + timedelta(seconds=65)) == []
+    assert calls == [[KEY, OTHER], [OTHER]]
+
+
+def test_a_delivery_of_a_failed_check_is_said_in_the_pass_it_wakes(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(watch, "run_pass", REAL_RUN_PASS)
+    reads = {KEY: read()}
+    serve(monkeypatch, reads)
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == []
+    reads[KEY] = read(checks=RED)
+    assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
+    state.append_event(demo, receiver.DELIVERY, repo="Forge-AI/monorepo", numbers=[42], event="check_run", guid="g1")
+    assert watch.run_pass(watching, T0 + timedelta(seconds=10)) == [f"PR {KEY}: checks failed [o1 j1]"]
+
+
+def test_a_builders_pushed_owes_a_read_of_each_pr_it_names_github_has_not_answered_for_since_the_take(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(watch, "run_pass", REAL_RUN_PASS)
     calls = serve(monkeypatch, {KEY: read()})
     watching = watcher(demo)
     watch.run_pass(watching, T0)
-    watch.run_pass(watching, T0 + timedelta(seconds=30))
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="waiting", said=f"PUSHED {state.pr_url(KEY)}", updated=state.stamp(T0 + timedelta(seconds=2)))
+    watch.run_pass(watching, T0 + timedelta(seconds=5))
+    watch.run_pass(watching, T0 + timedelta(seconds=10))
+    assert calls == [[KEY], [KEY]]
+
+
+def test_the_watch_hooks_each_repository_of_a_pr_it_hears_and_reads_its_prs_since_github_delivered_nothing_of_them_before(
+    demo: str, monkeypatch: pytest.MonkeyPatch, receiving: Receiver
+) -> None:
+    monkeypatch.setattr(watch, "run_pass", REAL_RUN_PASS)
+    calls = serve(monkeypatch, {KEY: read()})
+    watching = watcher(demo)
+    watch.run_pass(watching, T0)
+    receiving.unhooked.add("Forge-AI/monorepo")
     watch.run_pass(watching, T0 + timedelta(seconds=60))
-    assert len(calls) == 2
+    watch.run_pass(watching, T0 + timedelta(seconds=120))
+    assert (receiving.hooked, calls) == (["Forge-AI/monorepo"], [[KEY], [KEY]])
+
+
+def test_a_receiver_that_does_not_answer_is_said_from_its_third_minute_in_a_row(demo: str, monkeypatch: pytest.MonkeyPatch, receiving: Receiver) -> None:
+    serve(monkeypatch, {})
+    receiving.answering = False
+    watching = watcher(demo)
+    assert [watch.run_pass(watching, T0 + timedelta(minutes=minutes)) for minutes in range(3)] == [
+        [],
+        [],
+        [f"WATCH upkeep of the receiver failed 3 times in a row: nothing answers on its port {receiver.PORT}; its log is {receiver.log_path()}"],
+    ]
 
 
 def fetch_outcomes(monkeypatch: pytest.MonkeyPatch, outcomes: list[bool]) -> list[list[str]]:

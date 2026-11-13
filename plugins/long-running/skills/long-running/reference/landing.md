@@ -106,7 +106,7 @@ for its repository says, then return `DONE <proof>`.
   class lands it.
 - Return `PUSHED <url>` once, the moment the head you mean to ship is pushed and registered, with CI and
   review still running. `READY` counts only on a green required check: the watch holds a `PUSHED`,
-  waking nobody, until its minute read finds green every check the rules of its repository's default
+  waking nobody, until its first GitHub read after the take finds green every check the rules of its repository's default
   branch name, one not yet posted holding it too, or at that read when they name none, then takes it
   as the `READY`, or sends a red one back to the builder. The watch then draws his card the
   minute GitHub reports the PR green and approved,
@@ -282,7 +282,7 @@ stack-enqueue names only once `ai-review` finished on that head without approvin
 lander posts `@forge-pr-reviewer review` on that PR, once a head, and `--watch` waits for the
 approvals and queues it. His card tap starts it when the PR is already green, approved by the
 reviewer bot, on its head or an older one, and free of conflicts, and the watch starts it within
-one GitHub read, 60 seconds, of the PR getting there. It
+60 seconds of reading the PR there, which it does as GitHub delivers the change. It
 walks each stack his Approve touches, a native GitHub stack or PRs each on the one below's head
 branch, and lands each PR he approved with the PRs under it once each of them is ready.
 `stack-enqueue` queues a named PR with those below it and never one above, so a PR above that cannot land
