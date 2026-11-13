@@ -3591,16 +3591,15 @@ def test_an_end_whose_save_is_refused_leaves_the_watchs_record_of_the_lanes_deat
     assert run("job", "end", "j1") == (0, "destroyed pool-sleeping dispatch ctx_lane0001\nj1's lane ended; j1 stays waiting")
 
 
-@pytest.mark.parametrize(
-    ("code", "message", "why"),
-    [
-        ("invalid_argument", "Unknown environment: f0b7755c-d270-48fa-88c3-8ad678a1c2e4", "Orca no longer holds its Sprite's environment"),
-        ("peer_changed", PEER_CHANGED, "Orca no longer pairs with its Sprite's server"),
-    ],
-)
 @pytest.mark.parametrize("words", ["Build #4412 failed: fix the lint", None])
-def test_resume_or_launch_after_end_relaunches_the_job_on_a_fresh_sprite_with_any_message_in_its_handoff(
-    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, code: str, message: str, why: str, words: str | None
+def test_resume_or_launch_after_end_reads_the_end_never_orca_or_the_destroyed_sprite_and_relaunches_on_a_fresh_sprite_with_any_message_in_its_handoff(
+    run: Run,
+    remote: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    kept_logs: list[tuple[str, str]],
+    kept_transcripts: list[tuple[str, str]],
+    words: str | None,
 ) -> None:
     cloned(tmp_path, remote)
     first = tmp_path / "first.md"
@@ -3612,14 +3611,17 @@ def test_resume_or_launch_after_end_relaunches_the_job_on_a_fresh_sprite_with_an
     monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: "")
     nothing = NOTHING.format("pool-rxo7catmn6cw4efb")
     assert run("job", "end", "j1") == (0, f"j1's lane ended; j1 stays waiting, and {nothing}")
+    ended = state.lane_death(state.load(remote)["jobs"]["j1"])["ended"]["at"]
+    end_kept = (list(kept_logs), list(kept_transcripts))
     monkeypatch.setattr(orca, "save", lambda *args: pytest.fail("the end already saved this lane's Sprite and recorded what it found"))
-    monkeypatch.setattr(orca, "worker", refused(code, message))
+    monkeypatch.setattr(orca, "worker", lambda dispatch: pytest.fail("a lane drive job end ended is read from its end, never from Orca"))
+    monkeypatch.setattr(orca, "session_of", lambda workspace, dispatch: pytest.fail("nothing resumes on the Sprite drive job end destroyed"))
     monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing is sent to a lane whose Sprite is gone: {args}"))
     monkeypatch.setattr(orca, "new_run", lambda drive, objective: FRESH_RUN)
     launched = {}
 
     def fake_launch(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None, workspace: str | None, session: str | None) -> dict:
-        launched.update(lane=lane, brief=brief.read_text(), run=run_id)
+        launched.update(lane=lane, brief=brief.read_text(), run=run_id, workspace=workspace)
         fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
         return {field: f"{field}-2" for field in fields}
 
@@ -3628,11 +3630,13 @@ def test_resume_or_launch_after_end_relaunches_the_job_on_a_fresh_sprite_with_an
     assert run("job", *(("resume", "j1", words) if words else ("launch", "j1"))) == (
         0,
         f"j1: {went}, relaunched on Sprite workspace-2 as dispatch dispatch-2 in a handoff"
-        " carrying its brief, its branch, its last line, its report and its PRs; its lane on Sprite pool-rxo7catmn6cw4efb was"
-        f" dead ({why}), and {nothing}",
+        " carrying its brief, its branch, its last line, its report and its PRs; its lane on Sprite pool-rxo7catmn6cw4efb had"
+        f" ended (the drive job end of {ended} ended it), and {nothing}",
     )
-    assert (launched["lane"], launched["run"]) == ("demo-j1-2", FRESH_RUN)
+    assert (launched["lane"], launched["run"], launched["workspace"]) == ("demo-j1-2", FRESH_RUN, None)
+    assert (kept_logs, kept_transcripts) == end_kept
     brief = orca.brief_of(launched["brief"])
+    assert "## Taking over from a lane that ended\n\nThe lane that held this job ended on Sprite pool-rxo7catmn6cw4efb at " in brief
     assert f": ended by drive job end. You take the job over on a fresh Sprite from its pushed branches; {nothing}. Commit and push before any long build." in brief
     assert f"Its last line: WAITING CI on {url}\nIts PRs: {url}\n" in brief
     if words:
