@@ -193,7 +193,9 @@ minutes is said with the remedy, a `SendMessage` to wake it.
    `saved/<lane>/<branch>`, uncommitted changes included, before it destroys the Sprite, and keeps
    the Sprite, naming why, when the save fails. While the job is not finished, end saves before it
    ends the lane, and end's output and that lane's handoff name each branch GitHub holds under
-   `saved/<lane>/`, read from its refs, never from what a save printed. When the Sprite does not
+   `saved/<lane>/`, read from its refs, never from what a save printed, or, when GitHub holds
+   none, what the save found: that the Sprite held nothing unpushed or uncommitted, or that
+   cc-remote records no Sprite under that name, so nothing on it was read or saved. When the Sprite does not
    answer or the save fails, end refuses, ending nothing and naming why, and the watch ends it again
    once it restarts.
 

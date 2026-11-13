@@ -530,12 +530,15 @@ https on the token `gh auth token` prints. The token travels on the ssh
 session's stdin into that one shell's environment, and git reads it through a
 credential helper that names only the variable, so it never reaches the
 Sprite's disk, its shell history or a process's arguments. It prints what it
-saved and the repository and `saved/<lane>/` it went under, naming no branch,
-or nothing, and exits 1 naming why the read or the save failed; a failed push
-leaves each commit on its `saved/<lane>` branch, which `--held` still names, so
-the Sprite is kept. `drive job resume` and `drive job end` run it before they
-relaunch or free a lane, then name each branch GitHub holds under
-`saved/<lane>/` from one read of its refs, never from what a save printed. A branch whose tip is already in GitHub's default branch, such as a local
+saved and the repository and `saved/<lane>/` it went under, naming no branch;
+that the Sprite held nothing unpushed or uncommitted, so nothing was saved; or
+that cc-remote records no Sprite under that workspace name, so nothing on it
+was read or saved. It exits 1 naming why the read or the save failed; a failed
+push leaves each commit on its `saved/<lane>` branch, which `--held` still
+names, so the Sprite is kept. `drive job resume` and `drive job end` run it
+before they relaunch or free a lane, then name each branch GitHub holds under
+`saved/<lane>/` from one read of its refs, never from what a save printed, or,
+when GitHub holds none, the line it printed. A branch whose tip is already in GitHub's default branch, such as a local
 `dev` at a squash merge, counts as on a remote for both verbs.
 
 `orca-reclaim.py --destroy <workspace> <lane>` first saves the Sprite as

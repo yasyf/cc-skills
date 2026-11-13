@@ -1283,11 +1283,22 @@ class SaveTest(unittest.TestCase):
         self.assertEqual((len(kept), kept["saved/demo-j1/other"], kept["saved/demo-j1/lane"]), (3, tips["other"], git_in(root, "rev-parse", "lane")))
         self.assertEqual(git_in(base / "github.git", "for-each-ref", "refs/heads/saved/"), "")
 
-    def test_save_of_a_sprite_holding_nothing_or_unknown_runs_nothing_on_it(self):
+    def test_save_of_a_sprite_holding_nothing_or_unknown_runs_nothing_on_it_and_says_which(self):
         cc_remote = SavingCcRemote(SPRITE, checkout(SPRITE.root), Path("/nonexistent"))
         self.assertIsNone(orca_gc.save("pool-abc", "demo-j1", cc_remote))
-        self.assertIsNone(orca_gc.save("pool-other", "demo-j1", cc_remote))
+        self.assertEqual(orca_gc.save("pool-other", "demo-j1", cc_remote), "cc-remote records no Sprite pool-other, so nothing on it was read or saved")
         self.assertEqual(cc_remote.sent, [])
+        said = {}
+        for workspace in ("pool-abc", "pool-other"):
+            with mock.patch.object(sys, "argv", ["orca-reclaim.py", "--save", workspace, "demo-j1"]), mock.patch.object(orca_gc, "CcRemote", return_value=cc_remote), mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+                said[workspace] = (orca_gc.main(), out.getvalue())
+        self.assertEqual(
+            said,
+            {
+                "pool-abc": (0, "pool-abc held nothing unpushed or uncommitted, so nothing was saved\n"),
+                "pool-other": (0, "cc-remote records no Sprite pool-other, so nothing on it was read or saved\n"),
+            },
+        )
 
     def test_save_of_a_sprite_that_cannot_be_read_names_why(self):
         cc_remote = SavingCcRemote(SPRITE, "ssh to pool-abc could not read /home/sprite/repo: i/o timeout", Path("/nonexistent"))
