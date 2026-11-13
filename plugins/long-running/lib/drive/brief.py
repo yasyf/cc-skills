@@ -639,7 +639,7 @@ def held(proof: str) -> bool:
 
 @functools.cache
 def unopened(link: str) -> str | None:
-    """Why a link does not open as he would open it, read by its host's reader once a process, or None when it opens: a Slack message in his workspace that cc-slack reads back, a GitHub pull request, commit, Actions run or release that gh api returns, or a Buildkite build that bk build view returns; a link on any other host has no reader, so it does not open."""
+    """Why a link does not open as he would open it, read by its host's reader once a process, or None when it opens: a Slack message in his workspace that cc-slack reads back, a GitHub pull request, commit, Actions run or release that gh api returns once ccx's rate-limit floor lifts, or a Buildkite build that bk build view returns; a link on any other host has no reader, so it does not open."""
     from drive import github, slack
 
     host = urlparse(link).hostname or ""
@@ -651,7 +651,7 @@ def unopened(link: str) -> str | None:
         elif host == "github.com":
             if not (api := next((route.format(*found.groups()) for pattern, route in GITHUB_PAGES if (found := pattern.match(link))), None)):
                 return "it names no pull request, commit, Actions run or release, the GitHub pages the drive reads"
-            github.read(link, ["gh", "api", api, "--silent"])
+            github.read_past_floor(link, ["gh", "api", api, "--silent"])
         elif found := github.BUILD.match(link):
             github.run(["bk", "build", "view", found["number"], "-p", found["pipeline"], "-o", "json"])
         else:
