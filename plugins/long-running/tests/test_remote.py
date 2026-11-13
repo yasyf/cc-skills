@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import threading
+import uuid
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -1003,7 +1004,7 @@ def test_a_resume_retried_after_its_bind_refused_relaunches_the_same_attempt_wit
     (prepared, kept, first_run), (relaunched, again, second_run) = launched
     assert (relaunched, first_run, second_run) == (prepared, "run_try1", "run_try2")
     assert orca.brief_of(kept).endswith("which you act on now:\n\nPR #12 merged: prove it live")
-    assert orca.brief_of(again).endswith("which you act on now:\n\nPR #12 merged at abc123: prove it live")
+    assert orca.brief_of(again).endswith("which you act on now:\n\nPR #12 merged: prove it live\n\nPR #12 merged at abc123: prove it live")
     assert sent == []
     job = state.load(remote)["jobs"]["j1"]
     assert (job["run"], job["dispatch"], [death["dispatch"] for death in job["deaths"]]) == ("run_try2", "dispatch-2", [DISPATCH])
@@ -1526,7 +1527,7 @@ def test_a_resume_arriving_while_another_starts_the_jobs_next_worker_waits_for_i
     assert sent == [("send", "--to", "dispatch:dispatch-2", "--run", FRESH_RUN, "--subject", "From the coordinator", "--body", "TAP Approve #12", "--retry-request", ANY)]
 
 
-def refused(monkeypatch: pytest.MonkeyPatch, refusal: str) -> None:
+def orca_refuses(monkeypatch: pytest.MonkeyPatch, refusal: str) -> None:
     verb, code, message = refusal.split(": ", 2)
     done = subprocess.CompletedProcess([], 1, stdout=json.dumps({"ok": False, "error": {"code": code, "message": message}}), stderr="")
     monkeypatch.setattr(orca.subprocess, "run", lambda argv, **kwargs: done)
@@ -1541,7 +1542,7 @@ def test_a_relaunch_orca_refuses_exits_2_with_the_refusal_verbatim_and_keeps_the
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(brief=str(first), terminal="term_lane", workspace="pool-one", environment="pool-one")
     refusal = "orca orchestration worker-start: terminal_busy: The terminal is running another worker."
-    refused(monkeypatch, refusal)
+    orca_refuses(monkeypatch, refusal)
     monkeypatch.setattr(orca, "worker", lambda dispatch: FINISHED_WORKER)
     monkeypatch.setattr(orca, "place_tools", lambda workspace: None)
     monkeypatch.setattr(orca, "place_brief", lambda workspace, lane, text: f"/home/sprite/{lane}.md")
@@ -1553,7 +1554,7 @@ def test_a_relaunch_orca_refuses_exits_2_with_the_refusal_verbatim_and_keeps_the
 
 def test_a_send_orca_refuses_keeps_the_text_held_under_its_request_id(run: Run, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
     refusal = "orca orchestration send: dispatch_inactive: Dispatch ctx_lane0001 finished on pool-one, which cannot take follow-ups for finished workers yet."
-    refused(monkeypatch, refusal)
+    orca_refuses(monkeypatch, refusal)
     monkeypatch.setattr(orca, "place_tools", lambda workspace: None)
     code, out = run("job", "resume", "j1", "the review")
     [kept] = state.held(state.load(remote)["jobs"]["j1"])
@@ -1604,7 +1605,7 @@ def test_a_held_text_goes_once_under_its_request_id_when_a_bare_resume_finds_the
     assert run("job", "resume", "j1") == (0, f"j1: sent to dispatch {DISPATCH}")
     assert run("job", "resume", "j1") == (0, "j1 holds no message to send")
     assert sent == [
-        ("send", "--to", f"dispatch:{DISPATCH}", "--run", RUN, "--subject", "From the coordinator", "--body", "ship it, he said", "--retry-request", kept["request"])
+        ("send", "--to", f"dispatch:{DISPATCH}", "--run", RUN, "--subject", "From the coordinator", "--body", "ship it, he said", "--retry-request", str(uuid.uuid5(uuid.UUID(kept["request"]), "send")))
     ]
     assert state.load(remote)["jobs"]["j1"]["undelivered"] == []
 
