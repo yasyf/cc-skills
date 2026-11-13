@@ -4038,21 +4038,32 @@ def test_a_lander_queues_each_pr_he_approved_with_those_below_it_never_one_above
 
 @pytest.mark.parametrize(
     ("asker", "holds", "held"),
-    [("j1", "", False), ("j2", "", False), ("j2", "the dashboard", False), ("j1", "ship the watch", True), ("j2", "Ship  the WATCH, once its store is picked", True)],
+    [
+        ("j1", "", False),
+        ("j2", "", False),
+        ("j2", "the dashboard", False),
+        ("j1", "ship the watch", True),
+        ("j2", "Ship  the WATCH, once its store is picked", False),
+        ("j2", "ship the watch, which builder j1 builds", True),
+        ("j2", "ship the watch, where #42 lands", True),
+        ("j3", "ship the watch", True),
+    ],
 )
-def test_an_open_question_holds_a_stack_from_landing_only_while_its_holds_line_names_a_change_the_stacks_job_builds(
+def test_an_open_question_holds_a_stack_from_landing_only_while_its_holds_line_names_a_change_the_stacks_job_builds_that_job_asked_builds_the_design_of_or_is_named_by(
     demo: str, landers: list[tuple[str, ...]], asker: str, holds: str, held: bool
 ) -> None:
     stacked(demo)
     approve(demo, KEY, OTHER)
     waits = f"demo:{asker}-1-a"
     with state.edit(demo) as data:
-        data["orders"]["o1"]["jobs"].append("j2")
+        data["orders"]["o1"]["jobs"].extend(["j2", "j3"])
         data["orders"]["o1"]["parts"]["the dashboard"] = state.new_part()
         data["jobs"]["j2"] = job(kind="design", parts=["the dashboard"], carries={}, state="done")
+        data["jobs"]["j3"] = job(kind="design", parts=["ship the watch"], carries={}, state="done")
         data["jobs"][asker]["questions"].append(state.new_question(None, "Which OpenAI endpoint?", state.stamp(T0), holds=holds) | {"waits": waits})
     cards = NO_CARDS | {"questions": [question(waits)]}
-    assert land.open_cards(state.load(demo), "j1", [], cards) == ([waits] if held else [])
+    drive = state.load(demo)
+    assert land.open_cards(drive, "j1", drive["prs"][KEY], cards) == ([waits] if held else [])
     assert land.start(demo, [KEY, OTHER], cards) == ([] if held else [(KEY, OTHER)])
     with state.edit(demo) as data:
         data["jobs"][asker]["questions"][-1]["closed"] = state.new_close("answered", "Team", None, seq="#9")

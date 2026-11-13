@@ -549,10 +549,11 @@ Replaces: <only on a question built on another open question of his: the path dr
   summary names it; `drive job ask` refuses the block without it.
 - `Holds:` names, in each change's own words, every change of the order the options alter: a part
   of the order, or a PR the drive tracks that builds it, by its link or `#N`, which `drive job ask`
-  keeps as the parts that PR serves. His open card then holds from landing only the PRs of jobs
-  working a change it names, so a card on another subject holds no PR its options leave alone, and
-  `Holds: none: <why>` holds nothing. `drive job ask` refuses a block without the line, or one
-  naming no part of its job's orders. His pick: "Each question names the changes it holds,
+  keeps as the parts that PR serves. His open card then holds from landing, among the PRs of jobs
+  working a change it names, only those its own job or its design's builder carries and those it
+  names by link, `#N` or their job's id, so a card on another subject holds no PR its options
+  leave alone, and `Holds: none: <why>` holds nothing. `drive job ask` refuses a block without the
+  line, or one naming no part of its job's orders. His pick: "Each question names the changes it holds,
   kept with it".
 - A question built on another open question of his, such as a ceiling that assumes his pick on
   where the rows are counted, asks both choices on that question's card, its options pairing the
