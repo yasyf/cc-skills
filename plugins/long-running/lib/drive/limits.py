@@ -369,7 +369,7 @@ AWS_ACTION = re.compile(
     re.IGNORECASE,
 )
 RECORD_CHARS = 120
-THIRD_PERSON = re.compile(r"\b(?:he|him|his|himself)\b", re.IGNORECASE)
+THIRD_PERSON = re.compile(r"\b(?:he|him|his|himself)\b|(?<!\w[ \t])\b(?:He|Him|His|Himself)\b")
 WHOLE_KINDS = {"owner", "answer", "incident"}
 REPORT_ATTRS = {"catch_up": "true", "close": "<o,…>", "part": "<o>:<part>", "progress": "true", "job": "<j>", "thread": "<ts>", "waits": "<drive>:<j>-<seq>"}
 UNSPELLED = re.compile(r"[^a-z0-9]")
@@ -1463,7 +1463,7 @@ def stand_in_refusal(post: dict, stand_ins: dict[str, str]) -> str | None:
 
 
 def third_person(found: dict[str, str]) -> list[str]:
-    """Each section, by heading, whose words outside a quote or code speak of him as he or his, with the words around the first; his card shows them to him, so they say you."""
+    """Each section, by heading, whose words outside a quote or code may speak of him as he or his, with the words around the first; his card shows them to him, so they say you. A capitalised He, Him or His a word precedes on its line, as in "Wren He's entries", is a name, since English capitalises the pronoun only where its sentence, line, cell, item or link text opens."""
     named = []
     for heading, text in found.items():
         bare = QUOTED.sub(lambda said: MASK * len(said[0]), FENCED.sub(lambda code: MASK * len(code[0]), text))
