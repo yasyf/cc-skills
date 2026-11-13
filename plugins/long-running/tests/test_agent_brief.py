@@ -53,8 +53,8 @@ def test_a_builder_passing_over_a_teams_data_names_what_it_runs_as(demo: str) ->
     order = "Order (his words): plat's runs are missing\nServes: his order\n"
     brief = f"{order}Goal: backfill run rows for team plat"
     refused = agent_brief.deny_reason(started("long-running:builder", brief))
-    assert refused.startswith("refused: this builder's Goal reads as a pass over a team's data (`backfill`) and its brief has no `Runs as:` line")
-    assert refused.endswith('--runs-as "<service account, how it starts>"`, or `--runs-as "none: <why>"` when the job writes no team\'s data')
+    assert refused.startswith("refused: the Goal reads as a pass over a team's data (`backfill`) with no `Runs as:` line")
+    assert refused.endswith('--runs-as "<service account, how it starts>"`, or `--runs-as "none: <why>"` when it writes no team\'s data')
     for runs_as in ("svc-plat-backfill in the plat cluster, a cronjob", "none: it edits PR bodies"):
         assert agent_brief.deny_reason(started("long-running:builder", f"{brief}\nRuns as: {runs_as}")) is None
     for goal, word in (

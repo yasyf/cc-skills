@@ -554,7 +554,7 @@ def no_slack_reads(evt: BaseHookEvent) -> HookResult | None:
             pattern="return it as your `ASK` or `DESIGN`"
         ),
         Input(tool="AskUserQuestion", tool_input={"questions": [{"question": "Ship it?"}]}, session_id=HANDLER_SESSION, agent_type=HANDLER): Block(
-            pattern="communicator@fixture as an `ask` record"
+            pattern="which draws his card on it for fixture"
         ),
         Input(tool="mcp__computer-use__request_access", tool_input={"apps": ["Slack"], "reason": "x"}, session_id=NO_DRIVE): Allow(),
         Input(tool="mcp__computer-use__request_access", tool_input={"apps": ["Slack"], "reason": "x"}, session_id=COMMUNICATOR, agent_id="a1", agent_type=BUILDER): Block(
