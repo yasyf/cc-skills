@@ -321,13 +321,15 @@ GitHub still computing mergeability after a push to the default branch, and queu
 landing as `PR … not landed: <its last lines>` on the first gap that needs a fix, such as a conflict. His card tap starts it when the PR is already green, approved by the
 reviewer bot, on its head or an older one, and free of conflicts, and the watch starts it within
 60 seconds of reading the PR there, which it does as GitHub delivers the change. It
-walks each stack his Approve touches, a native GitHub stack or PRs each on the one below's head
-branch, and lands each PR he approved with the PRs under it once each of them is ready.
-`stack-enqueue` queues a named PR with those below it and never one above, so a PR above that cannot land
-now, such as one red, held, in conflict or still waiting on his Approve, holds none of them. While a PR
-below cannot land, the PR above it reads `behind` it, and while one below conflicts with its base, every PR above it
-reads `behind` it whatever its own row reads, owed by that PR's owner or the card holding it, so no builder above it
-is woken: none of them lands before it, and only its restack moves them. Each other PR of his card lands in a call of its own, since `stack-enqueue`
+lands what his card drew whole, bottom first, by his rule "Approve lands exactly those, bottom first,
+and a PR added later gets its own card": the PRs of his card that share a stack, a native GitHub stack
+or PRs each on the one below's head branch, with every PR under them and the PRs of that PR's card,
+once each of them is ready. A PR stacked above them on a card of its own, such as one red, held, in
+conflict or still waiting on his Approve, holds none of them, and his Approve on one card never passes
+to a PR of another. While a PR his Approve lands with it cannot land, a ready PR reads `behind` it, and
+while one below conflicts with its base, every PR above it reads `behind` it whatever its own row reads,
+owed by that PR's owner or the card holding it, so no builder above it is woken: none of them lands
+before it, and only its restack moves them. Each other PR of his card lands in a call of its own, since `stack-enqueue`
 refuses PRs named together that no stack links, such as one order's sibling PRs on `dev`. What
 holds a PR he approved is its stage, as `stage.of` names it, which his card shows and whose owner the
 watch wakes, and its deadline wakes that owner again.

@@ -711,8 +711,12 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         pr.setdefault("rework", None)
         if pr.get("fundamental"):
             pr["tap"] = None
-        if tap := pr["tap"]:
-            pr["tap"] = new_tap(tap["label"], tap["head"], tap["source"], tap.get("action_ts"), tap.get("via"), tap["at"])
+        if (tap := pr["tap"]) and pr["state"] == "open" and (via := tap.get("via")):
+            pr["tap"] = None
+            if pr["card"] == data["prs"].get(via, {}).get("card") and via not in (pr.get("stack") or []):
+                pr["card"] = None
+        elif tap:
+            pr["tap"] = new_tap(tap["label"], tap["head"], tap["source"], tap.get("action_ts"), tap["at"])
     data.setdefault("answers", {})
     for answer in data["answers"].values():
         answer.setdefault("jobs", {})
@@ -2574,9 +2578,9 @@ def rework_reason(pr: dict) -> str:
     return f'Being reworked to your words "{pr["rework"]["words"]}". A fresh card asks your tap once its builder says how they are met'
 
 
-def new_tap(label: str, head: str, source: str, action_ts: str | None = None, via: str | None = None, at: str | None = None) -> dict:
-    """His tap on a PR, the one shape every writer stores: what he pressed or said, when, on which head, its source, the card press's Slack action, and the PR of its landing stack it came from."""
-    return {"label": label, "at": at or stamp(), "head": head, "source": source, "action_ts": action_ts, "via": via}
+def new_tap(label: str, head: str, source: str, action_ts: str | None = None, at: str | None = None) -> dict:
+    """His tap on a PR, the one shape every writer stores: what he pressed or said, when, on which head, its source and the card press's Slack action."""
+    return {"label": label, "at": at or stamp(), "head": head, "source": source, "action_ts": action_ts}
 
 
 def new_pr(url: str, job_id: str, order_id: str) -> dict:

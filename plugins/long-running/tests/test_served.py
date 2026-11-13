@@ -112,7 +112,6 @@ STORED_TAPS = {
     "before patch was a field": {"label": "Approve", "at": "2026-11-12T16:11:40-08:00", "head": "head0", "source": "pressed the button"},
     "a card press kept a patch": {"label": "Approve", "at": "2026-11-12T18:30:00-08:00", "head": "head0", "source": "pressed the button", "action_ts": "1.2", "patch": "p0"},
     "a later head read beside the patch": {"label": "Approve", "at": "2026-11-12T18:30:00-08:00", "head": "head0", "source": "pressed the button", "action_ts": "1.2", "patch": "p0", "read": "head1"},
-    "adopted from its stack": {"label": "Approve", "at": "2026-11-12T18:30:00-08:00", "head": "head0", "source": "pressed the button", "action_ts": "1.2", "via": "Forge-AI/monorepo#41"},
 }
 
 
@@ -134,7 +133,7 @@ def test_a_moved_check_carries_beside_his_approve_in_each_shape_a_drive_stored_i
         data["prs"][KEY] |= moved | {"tap": tap}
     assert served.carry(demo, [KEY]) == [KEY]
     pr = state.load(demo)["prs"][KEY]
-    loaded = {"label": "Approve", "at": tap["at"], "head": "head0", "source": "pressed the button", "action_ts": tap.get("action_ts"), "via": tap.get("via")}
+    loaded = {"label": "Approve", "at": tap["at"], "head": "head0", "source": "pressed the button", "action_ts": tap.get("action_ts")}
     assert (pr["checked"]["head"], pr["tap"], served.unread(pr)) == ("head2", loaded, False)
 
 
@@ -150,7 +149,7 @@ def test_his_approve_recorded_by_pr_set_tapped_stays_on_its_head_through_a_push_
         data["prs"][KEY] |= moved
     assert served.carry(demo, [KEY]) == [KEY]
     pr = state.load(demo)["prs"][KEY]
-    assert (pr["checked"]["head"], pr["tap"] | {"at": ""}) == ("head2", {"label": "Approve", "at": "", "head": "head1", "source": link, "action_ts": None, "via": None})
+    assert (pr["checked"]["head"], pr["tap"] | {"at": ""}) == ("head2", {"label": "Approve", "at": "", "head": "head1", "source": link, "action_ts": None})
 
 
 GAPS = (

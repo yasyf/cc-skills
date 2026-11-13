@@ -39,9 +39,9 @@ class Stage:
     why: str
 
 
-def of(data: dict, key: str, cards: dict, under: dict[str, str | None] | None = None) -> Stage:
+def of(data: dict, key: str, cards: dict, under: dict[str, str | None] | None = None, stacks: dict[str, tuple[str, ...]] | None = None) -> Stage:
     """What a PR is now and who owes its next step, the first rule that matches, the last matching every PR; the only place the drive says what a PR is, which the watch, the lander, his card, the dashboard and drive status read."""
-    return behind(data, key, cards, own(data, key, cards), under)
+    return behind(data, key, cards, own(data, key, cards), under, stacks)
 
 
 def on_card(data: dict, key: str, cards: dict) -> Stage:
@@ -224,45 +224,26 @@ def grading(pr: dict) -> str:
     return f"its checks run at {pr['head'][:7]}" if pr["checks"] == "pending" else ""
 
 
-def behind(data: dict, key: str, cards: dict, now: Stage, under: dict[str, str | None] | None = None) -> Stage:
-    """The PR's stage now, unless a PR under it, bottom first, holds it: one GitHub reads conflicting with its base, which every PR above it waits on whatever its own row reads, since none of them lands before it and their builders can fix nothing until its owner settles it, or, while it reads ready, one that does not by its own row, since stack-enqueue lands it with the PRs under it and never waits on one above; then that PR's stage, seen from this one, whose owner owes the step. A stage someone answers on the PR itself stands: his card to draw, a lander's try, his hold and a rework to his words."""
+def behind(data: dict, key: str, cards: dict, now: Stage, under: dict[str, str | None] | None = None, stacks: dict[str, tuple[str, ...]] | None = None) -> Stage:
+    """The PR's stage now, unless another PR his Approve lands it with, by land.landed_with() bottom first, holds it: one under it that GitHub reads conflicting with its base, which every PR above it waits on whatever its own row reads, since none of them lands before it and their builders can fix nothing until its owner settles it, or, while it reads ready, one that does not by its own row; then that PR's stage, seen from this one, whose owner owes the step. A stage someone answers on the PR itself stands: his card to draw, a lander's try, his hold and a rework to his words."""
     if now.name in OWN_STEP:
         return now
-    for member in land.chain(land.unders(data) if under is None else under, key)[:-1]:
-        below = data["prs"][member]
-        if (below["conflict"] or now.name == "ready") and (other := own(data, member, cards)).name != "ready":
-            conflicts = f" conflicts with its base {below['base']}," if below["conflict"] else ","
-            return Stage("behind", other.owner, f"{member} below it in its stack{conflicts} {other.name}: {other.why}")
+    under = land.unders(data) if under is None else under
+    stacks = land.landing_stacks(data, under) if stacks is None else stacks
+    below = land.chain(under, key)
+    for member in land.landed_with(data, under, stacks, key):
+        conflicts = member in below and data["prs"][member]["conflict"]
+        if member != key and (conflicts or now.name == "ready") and (other := own(data, member, cards)).name != "ready":
+            mates = land.together(data, stacks, member)
+            where = "below it in its stack" if member in below else "on his card with it" if key in mates else f"on his card with {mates[0]}"
+            base = f" conflicts with its base {data['prs'][member]['base']}," if conflicts else ","
+            return Stage("behind", other.owner, f"{member} {where}{base} {other.name}: {other.why}")
     return now
 
 
 def live(data: dict, pr: dict) -> bool:
     """Whether the PR fixes a bug hurting someone now, so a card asking him is asked again every EVERY of its stage."""
     return any(state.hurts_now(data, data["orders"][order_id]) for order_id in state.served_orders(data, pr))
-
-
-def adopt(data: dict) -> list[str]:
-    """Give each open PR waiting on his tap that holds none, and is not being reworked to his words, the newest tap of his on another PR of its landing stack whose card was last drawn with it, made once its row was added, at its own head, since his Approve or Hold on a card lands or holds the PRs it carries; the PRs given one."""
-    given = []
-    for key, members in land.landing_stacks(data).items():
-        pr = data["prs"][key]
-        if pr["tap"] or pr["rework"] or not carded(pr):
-            continue
-        taps = [
-            (member, tap)
-            for member in members
-            if member != key
-            and key in (data["prs"][member].get("stack") or [])
-            and (tap := data["prs"][member]["tap"])
-            and (not pr["added"] or state.parse_time(pr["added"]) <= state.parse_time(tap["at"]))
-        ]
-        if not taps:
-            continue
-        member, tap = max(taps, key=lambda found: state.parse_time(found[1]["at"]))
-        pr["tap"] = state.new_tap(tap["label"], pr["head"], tap["source"], tap["action_ts"], tap["via"] or member, tap["at"])
-        pr["card"] = pr["card"] or data["prs"][member]["card"]
-        given.append(key)
-    return given
 
 
 def owner_job(data: dict, key: str) -> str | None:
@@ -301,9 +282,10 @@ def kept(pr: dict, now: Stage) -> None:
 def shown(data: dict, cards: dict | None, keys: list[str]) -> None:
     """Put on each open PR of the drive the keys name, as loaded, never saved, the stage stage.of names now from the watch's last GitHub read, its since kept while the watch kept that stage, so drive status, drive pr set and every view.build surface, the dashboard, the status page and his catch-up, show what a decision made now reads."""
     under = land.unders(data)
+    stacks = land.landing_stacks(data, under)
     for key in keys:
         pr = data["prs"][key]
-        now = of(data, key, cards, under)
+        now = of(data, key, cards, under, stacks)
         since = pr["stage"]["since"] if pr["stage"] and pr["stage"]["name"] == now.name else None
         pr["stage"] = {"name": now.name, "owner": now.owner, "why": now.why, "since": since, "woke": None}
 
@@ -324,7 +306,7 @@ def line(key: str, pr: dict, now: Stage) -> str:
 
 
 def settle(data: dict, cards: dict) -> None:
-    """Keep on each open PR waiting on his tap the link of the card of his drawn on it, read from his cards as cc-slack lists them, dropping a link to a card cc-slack lists withdrawn so the PR reads uncarded and its card draws again, and give each the tap his card on its landing unit holds."""
+    """Keep on each open PR waiting on his tap the link of the card of his drawn on it, read from his cards as cc-slack lists them, dropping a link to a card cc-slack lists withdrawn so the PR reads uncarded and its card draws again."""
     for pr in data["prs"].values():
         if pr["state"] != "open" or not carded(pr):
             continue
@@ -332,7 +314,6 @@ def settle(data: dict, cards: dict) -> None:
             pr["card"] = None
         if not pr["card"] and (drawn := view.card_for(cards["pr_cards"], pr["url"])):
             pr["card"] = drawn["url"]
-    adopt(data)
 
 
 def wake(name: str, key: str, text: str) -> None:

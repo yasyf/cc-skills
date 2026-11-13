@@ -4199,11 +4199,12 @@ def approve(name: str, *keys: str) -> None:
             data["prs"][key] |= {"wants_tap": True, "tap": {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "pressed the button"}}
 
 
-def stacked(name: str, native: list[str] | None = None) -> None:
+def stacked(name: str, native: list[str] | None = None, cards: list[list[str]] | None = None) -> None:
     with state.edit(name) as data:
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "bbbbbbb222", "checked": CHECKED | {"head": "bbbbbbb222"}}
-        for key in (KEY, OTHER):
-            data["prs"][key] |= {"stack": [KEY, OTHER], "native": [KEY, OTHER] if native is None else native, "checks": "pass", "review": "approved"}
+        for card in cards or [[KEY, OTHER]]:
+            for key in card:
+                data["prs"][key] |= {"stack": card, "native": [KEY, OTHER] if native is None else native, "checks": "pass", "review": "approved"}
 
 
 def test_his_approve_starts_one_lander_once_its_pr_is_green_and_conflict_free_and_again_only_on_a_head_no_lander_tried(
@@ -4230,14 +4231,23 @@ def test_his_approve_starts_one_lander_once_its_pr_is_green_and_conflict_free_an
     assert state.load(demo)["prs"][KEY]["lander"]["head"] == "ccccccc333"
 
 
+ONE_CARD, TWO_CARDS = [[KEY, OTHER]], [[KEY], [OTHER]]
+
+
 @pytest.mark.parametrize(
-    ("approved", "card", "unit"),
-    [((KEY, OTHER), None, (KEY, OTHER)), ((KEY,), None, (KEY,)), ((OTHER,), None, None), ((KEY, OTHER), "demo:j1-7-a", None)],
+    ("approved", "cards", "card", "unit"),
+    [
+        ((KEY, OTHER), ONE_CARD, None, (KEY, OTHER)),
+        ((KEY,), ONE_CARD, None, None),
+        ((KEY,), TWO_CARDS, None, (KEY,)),
+        ((OTHER,), TWO_CARDS, None, None),
+        ((KEY, OTHER), ONE_CARD, "demo:j1-7-a", None),
+    ],
 )
-def test_a_lander_queues_each_pr_he_approved_with_those_below_it_never_one_above_and_nothing_while_his_card_holds_it(
-    demo: str, landers: list[tuple[str, ...]], approved: tuple[str, ...], card: str | None, unit: tuple[str, ...] | None
+def test_a_lander_queues_the_prs_his_card_drew_whole_with_those_below_them_never_a_pr_above_on_its_own_card_and_nothing_while_his_card_holds_it(
+    demo: str, landers: list[tuple[str, ...]], approved: tuple[str, ...], cards: list[list[str]], card: str | None, unit: tuple[str, ...] | None
 ) -> None:
-    stacked(demo)
+    stacked(demo, cards=cards)
     approve(demo, *approved)
     cards = NO_CARDS
     if card:
@@ -4374,28 +4384,90 @@ def test_a_lander_the_watch_stops_dequeues_each_pr_it_queued_and_removes_its_wor
     assert not (state.drive_dir(demo) / land.LANDINGS / str(os.getpid())).exists()
 
 
-def test_a_lander_queues_a_stacks_ready_bottom_while_a_pr_above_it_waits_on_an_open_pr_and_that_pr_once_it_merges(demo: str, landers: list[tuple[str, ...]]) -> None:
-    stacked(demo)
+@pytest.mark.parametrize(("cards", "first"), [(ONE_CARD, []), (TWO_CARDS, [(KEY,)])])
+def test_a_pr_above_waiting_on_an_open_pr_holds_the_bottom_of_its_own_card_and_no_other_card_and_lands_once_that_pr_merges(
+    demo: str, landers: list[tuple[str, ...]], cards: list[list[str]], first: list[tuple[str, ...]]
+) -> None:
+    stacked(demo, cards=cards)
     approve(demo, KEY, OTHER)
     with state.edit(demo) as data:
         data["prs"][THIRD] = state.new_pr(state.pr_url(THIRD), "j1", "o1")
         data["jobs"]["j1"]["waits"] = [KEY, OTHER, THIRD]
         data["prs"][OTHER]["waits"] = [THIRD]
-    assert land.start(demo, [KEY, OTHER], NO_CARDS) == [(KEY,)]
+    assert land.start(demo, [KEY, OTHER], NO_CARDS) == first
     with state.edit(demo) as data:
         data["prs"][THIRD]["state"] = "merged"
-        data["prs"][KEY]["state"] = "merged"
-    assert land.start(demo, [KEY, OTHER], NO_CARDS) == [(OTHER,)]
-    assert landers == [(KEY,), (OTHER,)]
+        if first:
+            data["prs"][KEY]["state"] = "merged"
+    assert land.start(demo, [KEY, OTHER], NO_CARDS) == ([(OTHER,)] if first else [(KEY, OTHER)])
 
 
-def test_a_lander_queues_a_stacks_green_approved_bottom_while_a_pr_above_it_is_red(demo: str, landers: list[tuple[str, ...]]) -> None:
-    stacked(demo)
+@pytest.mark.parametrize(
+    ("cards", "name", "why", "unit"), [(ONE_CARD, "behind", f"{OTHER} on his card with it, red: ", []), (TWO_CARDS, "ready", "green and approved by him", [(KEY,)])]
+)
+def test_a_red_pr_above_holds_the_green_approved_bottom_of_its_own_card_and_never_one_of_another(
+    demo: str, landers: list[tuple[str, ...]], cards: list[list[str]], name: str, why: str, unit: list[tuple[str, ...]]
+) -> None:
+    stacked(demo, cards=cards)
     approve(demo, KEY, OTHER)
     with state.edit(demo) as data:
         data["prs"][OTHER]["checks"] = "fail"
-    assert land.start(demo, [KEY, OTHER], NO_CARDS) == [(KEY,)]
-    assert landers == [(KEY,)]
+    now = stage.of(state.load(demo), KEY, NO_CARDS)
+    assert (now.name, now.why.startswith(why)) == (name, True)
+    assert land.start(demo, [KEY, OTHER], NO_CARDS) == unit
+
+
+def test_his_approve_of_49869_and_53227_lands_them_while_55258_stacked_later_on_its_own_card_grades_and_passes_none_of_it_to_55258(
+    demo: str, landers: list[tuple[str, ...]]
+) -> None:
+    bottom, renewal, reparent = "Forge-AI/monorepo#49869", "Forge-AI/monorepo#53227", "Forge-AI/monorepo#55258"
+    shape = {
+        bottom: ("bottom", "dev", [bottom, renewal]),
+        renewal: ("on-bottom-1", "bottom", [bottom, renewal]),
+        reparent: ("on-bottom-2", "bottom", [reparent]),
+    }
+    with state.edit(demo) as data:
+        for key, (branch, base, card) in shape.items():
+            data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {
+                "head": "aaaaaaa111",
+                "checked": CHECKED,
+                "branch": branch,
+                "base": base,
+                "stack": card,
+                "card": "https://acme.slack.com/archives/D123/p1",
+                "checks": "pass",
+                "review": "approved",
+            }
+        data["prs"][reparent] |= {"checks": "pending", "added": None}
+    approve(demo, bottom, renewal)
+    data = state.load(demo)
+    stage.settle(data, NO_CARDS)
+    assert data["prs"][reparent]["tap"] is None
+    assert [stage.of(data, key, NO_CARDS).name for key in shape] == ["ready", "ready", "grading"]
+    assert land.units(data, list(shape), NO_CARDS) == [(bottom, renewal)]
+    with state.edit(demo) as data:
+        data["prs"][reparent]["checks"] = "pass"
+        data["prs"][renewal]["checks"] = "fail"
+    approve(demo, reparent)
+    behind = stage.of(state.load(demo), reparent, NO_CARDS)
+    assert (behind.name, behind.why.startswith(f"{renewal} on his card with {bottom}, red: ")) == ("behind", True)
+    assert land.start(demo, list(shape), NO_CARDS) == []
+    with state.edit(demo) as data:
+        data["prs"][renewal]["checks"] = "pass"
+    assert land.start(demo, list(shape), NO_CARDS) == [(bottom, renewal, reparent)]
+    assert landers == [(bottom, renewal, reparent)]
+
+
+def test_a_tap_stage_adopt_copied_onto_an_open_pr_is_dropped_with_the_card_it_never_drew_on_and_one_he_gave_is_kept(demo: str) -> None:
+    approve(demo, KEY)
+    with state.edit(demo) as data:
+        data["prs"][KEY]["card"] = "https://acme.slack.com/archives/D123/p1"
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {
+            "tap": data["prs"][KEY]["tap"] | {"via": KEY},
+            "card": "https://acme.slack.com/archives/D123/p1",
+        }
+    data = state.load(demo)
+    assert (data["prs"][KEY]["tap"]["label"], data["prs"][OTHER]["tap"], data["prs"][OTHER]["card"]) == ("Approve", None, None)
 
 
 def test_his_approve_under_a_pr_the_hold_label_holds_queues_it_with_the_prs_under_it_and_leaves_the_held_pr_open(

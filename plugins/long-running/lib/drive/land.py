@@ -213,9 +213,9 @@ def chain(under: dict[str, str | None], key: str) -> tuple[str, ...]:
     return (*chain(under, parent), key) if (parent := under.get(key)) else (key,)
 
 
-def landing_stacks(data: dict) -> dict[str, tuple[str, ...]]:
-    """Each open PR the drive tracks in a stack, mapped to the stack's open tracked PRs bottom first, as the watch last read them: the PRs one card of his draws together, joined by unders()."""
-    under = unders(data)
+def landing_stacks(data: dict, under: dict[str, str | None] | None = None) -> dict[str, tuple[str, ...]]:
+    """Each open PR the drive tracks in a stack, mapped to the stack's open tracked PRs bottom first, as the watch last read them: the PRs one card of his draws together, joined by unders() unless the caller already read them."""
+    under = unders(data) if under is None else under
     stacks: dict[str, list[str]] = {}
     for key in under:
         stacks.setdefault(chain(under, key)[0], []).append(key)
@@ -237,9 +237,26 @@ def held(data: dict, keys: list[str], cards: dict | None) -> str:
     return "; ".join(f"{key}: {why}" for key in keys if (why := stage.held(data, data["prs"][key], cards)))
 
 
-def unit(data: dict, under: dict[str, str | None], key: str, cards: dict) -> tuple[str, ...]:
-    """The PRs one lander queues for key: its chain(), key and the PRs under it bottom first, once every PR of it lands now, else none, so a PR above it that is red, untapped or held never holds it."""
-    members = chain(under, key)
+def together(data: dict, stacks: dict[str, tuple[str, ...]], key: str) -> list[str]:
+    """The open PRs his card drew with key that share its landing stack, bottom first, else key alone, since stack-enqueue refuses PRs named together that no stack links, such as the sibling PRs of one order his card draws together."""
+    landed = stacks.get(key, (key,))
+    return [member for member in data["prs"][key].get("stack") or [key] if data["prs"][member]["state"] == "open" and member in landed]
+
+
+def landed_with(data: dict, under: dict[str, str | None], stacks: dict[str, tuple[str, ...]], key: str) -> tuple[str, ...]:
+    """What his Approve lands key with, bottom first: the PRs of his card on it that share its stack, by together(), each open PR under one of them, and the PRs of that PR's card in turn, since his Approve lands exactly the PRs his card lists, bottom first, and a PR stacked above on a card of its own never holds them."""
+    found: dict[str, None] = {}
+    todo = [key]
+    while todo:
+        if (member := todo.pop()) not in found:
+            found[member] = None
+            todo += [below for mate in together(data, stacks, member) for below in chain(under, mate)]
+    return tuple(sorted(found, key=lambda member: (len(chain(under, member)), int(member.split("#")[1]))))
+
+
+def unit(data: dict, under: dict[str, str | None], stacks: dict[str, tuple[str, ...]], key: str, cards: dict) -> tuple[str, ...]:
+    """The PRs one lander queues for key, its landed_with(), once every PR of it lands now, else none."""
+    members = landed_with(data, under, stacks, key)
     return members if all(unready(data, member, cards) is None for member in members) else ()
 
 
@@ -257,12 +274,13 @@ def held_below(keys: list[str], below: list[str]) -> str:
 
 
 def units(data: dict, keys: list[str], cards: dict) -> list[tuple[str, ...]]:
-    """The units a lander lands now among keys, in every repository the drive tracks: each key's unit() that reads ready, whole for a Forge-AI/monorepo chain stack-enqueue queues unless GitHub refused() its merge, and its bottom PR alone after that refusal and in any other repository, which gh pr merge merges one PR at a time, longest first, leaving out one that shares a PR with a unit taken before it, since one lander holds a PR at a time: a chain inside a longer one, or one on the same PR as a sibling's, which lands at a later pass."""
+    """The units a lander lands now among keys, in every repository the drive tracks: each key's unit() that reads ready, whole for a Forge-AI/monorepo unit stack-enqueue queues unless GitHub refused() its merge, and its bottom PR alone after that refusal and in any other repository, which gh pr merge merges one PR at a time, longest first, leaving out one that shares a PR with a unit taken before it, since one lander holds a PR at a time: a unit inside a longer one, or one on the same PR as a sibling's, which lands at a later pass."""
     under = unders(data)
+    stacks = landing_stacks(data, under)
     found = dict.fromkeys(
         members if state.queued_by_lander(members[0]) and not any(refused(data["prs"][member]) for member in members) else members[:1]
         for key in keys
-        if data["prs"][key]["state"] == "open" and (members := unit(data, under, key, cards))
+        if data["prs"][key]["state"] == "open" and (members := unit(data, under, stacks, key, cards))
     )
     taken: list[tuple[str, ...]] = []
     for members in sorted(found, key=len, reverse=True):

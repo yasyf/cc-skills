@@ -271,10 +271,14 @@ def stored_stack(drive_pr: str, run: Run) -> list[str]:
     return keys
 
 
-def test_enqueueing_a_pr_of_a_stored_stack_needs_only_the_prs_under_it_named_so_a_held_pr_above_holds_none_of_them(stored_stack: list[str], no_calls: None) -> None:
+def test_enqueueing_a_pr_of_a_stored_stack_needs_every_pr_his_card_drew_and_those_under_it_named_so_a_held_pr_above_on_its_own_card_holds_none_of_them(
+    stored_stack: list[str], no_calls: None
+) -> None:
     with state.edit("demo") as data:
-        data["prs"][stored_stack[2]] |= {"hold_label": True, "tap": None}
-    assert landing_guard.deny_reason(bash("stack-enqueue 41")) is None
+        for key in stored_stack[:2]:
+            data["prs"][key]["stack"] = stored_stack[:2]
+        data["prs"][stored_stack[2]] |= {"stack": stored_stack[2:], "hold_label": True, "tap": None}
+    assert landing_guard.deny_reason(bash("stack-enqueue 41")) == landing_guard.STACK_REASON.format(named=stored_stack[0], left=stored_stack[1], every="41 42")
     reason = landing_guard.deny_reason(bash("stack-enqueue 42"))
     assert reason == landing_guard.STACK_REASON.format(named=stored_stack[1], left=stored_stack[0], every="41 42")
     assert reason.endswith("`stack-enqueue 41 42`")

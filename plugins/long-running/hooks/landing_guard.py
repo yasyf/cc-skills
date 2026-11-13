@@ -51,8 +51,8 @@ UNASKED = (
     " run this again"
 )
 STACK_REASON = (
-    "Refused on purpose: {named} leaves out {left} below it in its stack, which stack-enqueue queues with it."
-    " Name every PR it queues: `stack-enqueue {every}`"
+    "Refused on purpose: {named} leaves out {left}, which his Approve lands with it: the PRs his card drew and every PR under them."
+    " Name each of them: `stack-enqueue {every}`"
 )
 COORDINATOR_STEP = (
     "Refused on purpose: the {who} does no order's work itself, so its turn never blocks, and `{step}` is such"
@@ -380,11 +380,12 @@ def pr_reason(landing: Landing, key: str, shell: Shell) -> str | None:
 
 
 def stacked(keys: list[str], session: str) -> list[str]:
-    """The named PRs with the open PRs under each that stack-enqueue queues with it, by land.chain as land.unit reads it, each chain bottom first, never a PR above."""
+    """The named PRs with every open PR his Approve lands with each, by land.landed_with as land.unit reads it, each bottom first, never a PR above on a card of its own."""
     members: dict[str, None] = {}
     for key in keys:
         if judged := judged_by(key, session):
-            members |= dict.fromkeys(land.chain(land.unders(state.load(judged[0])), state.pr_key(judged[1]["url"])))
+            data = state.load(judged[0])
+            members |= dict.fromkeys(land.landed_with(data, land.unders(data), land.landing_stacks(data), state.pr_key(judged[1]["url"])))
     shown = {member.lower() for member in members}
     return [*members, *(key for key in keys if key.lower() not in shown)]
 
