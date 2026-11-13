@@ -382,8 +382,8 @@ refused a post he ordered.
   there, which the meta session starts a fix from.
 - A record you send the session that started you, such as an `FYI` report, goes to `meta@<drive>` on the cci `post` tool.
 - `Handoff: <seq>` names a record whose watch line names the PR, order and old job: take the PR with
-  `drive pr add <url> --job <your job>` and stop the old job with
-  `drive job set <old> --state stopped --said "handed to <your job>"`. `Handoff: LAND <url>` lands
+  `drive pr add <url> --job <your job>`; adding your job stopped the old one, said
+  `handed to <your job>`, or `replaced by <your job>` once it failed. `Handoff: LAND <url>` lands
   that PR. Every event after that reaches the meta session, never the coordinator.
 
 ## Handoff
