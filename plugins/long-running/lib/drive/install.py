@@ -45,6 +45,7 @@ PROVEN = "proven live by drive job prove"
 PROOF_FAILED = "drive job prove failed"
 MERGED_DONE = "done at its merge"
 SAID_CHARS = 300
+NO_JOB = "j0"
 
 
 class InstallError(Exception):
@@ -67,14 +68,18 @@ def sleep(seconds: float) -> None:
     time.sleep(seconds)
 
 
-def run(cmd: list[str], deadline: float, cwd: str | None = None) -> str:
+def ran(cmd: list[str], deadline: float, cwd: str | None = None) -> subprocess.CompletedProcess:
     left = deadline - clock()
     if left <= 0:
         raise InstallError(f"no time left to run {' '.join(cmd)}")
     try:
-        done = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=left, cwd=cwd)
+        return subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=left, cwd=cwd)
     except subprocess.TimeoutExpired:
         raise InstallError(f"{' '.join(cmd)} ran past the deadline ({left:.0f}s left when it started)") from None
+
+
+def run(cmd: list[str], deadline: float, cwd: str | None = None) -> str:
+    done = ran(cmd, deadline, cwd)
     if done.returncode != 0:
         raise InstallError(f"{' '.join(cmd)} exited {done.returncode}: {done.stderr.strip()}")
     return done.stdout
@@ -532,7 +537,7 @@ def prefetch(clone: str, ref: str, folder: str, deadline: float) -> None:
 
 
 def try_drives(clone: str, ref: str, folder: str, deadline: float) -> None:
-    """Run the release's own drive status on a copy of each drive on this Mac before any scope switches to it, refusing a release that cannot read one, since every drive verb, tool, watch and hook runs the newest install."""
+    """Run the release's own drive status on a copy of each drive on this Mac before any scope switches to it, then its drive status of a job no drive holds, refusing a release that cannot read a drive or that answers that refusal with anything but its `drive:` line and exit 2, how every caller of drive reads a refusal, since every drive verb, tool, watch and hook runs the newest install."""
     if not (names := state.names()):
         return
     with tempfile.TemporaryDirectory(prefix="drive-try-") as scratch:
@@ -542,11 +547,18 @@ def try_drives(clone: str, ref: str, folder: str, deadline: float) -> None:
         git(clone, f"--work-tree={tree}", "checkout", ref, "--", folder, deadline=deadline)
         for name in names:
             state.clone(name, copies)
+        drive = ["env", f"LONG_RUNNING_STATE={copies}", str(tree / folder / "bin" / "drive")]
         for name in names:
             try:
-                run(["env", f"LONG_RUNNING_STATE={copies}", str(tree / folder / "bin" / "drive"), "status", "--drive", name], deadline)
+                run([*drive, "status", "--drive", name], deadline)
             except InstallError as error:
                 raise InstallError(f"refused {ref}, keeping the release installed now: its own drive status failed on a copy of the {name} drive: {error}") from None
+        refusal = ran([*drive, "status", NO_JOB, "--drive", names[0]], deadline)
+        if refusal.returncode != 2 or not refusal.stderr.startswith("drive: "):
+            raise InstallError(
+                f"refused {ref}, keeping the release installed now: its own drive status {NO_JOB} on a copy of the {names[0]} drive exited {refusal.returncode}"
+                f" without printing its `drive:` refusal and exiting 2: {refusal.stderr.strip()}"
+            )
 
 
 def install(key: str, sha: str | None, repo: str | None, deadline: float, timeout: int, drive: str | None) -> str:
