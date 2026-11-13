@@ -24,7 +24,8 @@ STATE_CLAIM = re.compile(
     r" (?:stopped|stalled|stuck|idle|silent|hung|quiet|dead|died|crashed|late|overdue)\b"
     r"|\bno (?:word|line|update|reply|output|report)s? (?:back )?from you\b|\b(?:have ?n[o']t|not) heard (?:back )?from you\b"
     r"|\byour (?:lane|worker|session) (?:has |is |was |seems )?(?:died|dead|stopped|stalled|stuck|idle|hung|quiet|silent|ended)\b"
-    r"|\bstatus\?|\bany (?:update|progress|news)\s*\?|\bare you (?:still )?(?:working|there|alive|stuck|running|on it)\b|\bstill (?:working|there|alive|running)\?",
+    r"|\bare you (?:still )?(?:working|there|alive|stuck|running|on it)\b"
+    r"|(?:\byour |(?<!\w\s)(?<!\w))(?:status|any (?:update|progress|news)\s*|still (?:working|there|alive|running))\?",
     re.IGNORECASE,
 )
 STATE_RULE = "A message that states or asks a running job's own state, such as that it stopped, stalled or went quiet, sent with no read of its transcript."
@@ -56,18 +57,23 @@ def communicator_call(payload: dict) -> str:
 
 
 def aimed(payload: dict) -> bool:
-    """Whether the call may message a job, which target names from the drive: a SendMessage or a Bash `drive job resume`."""
+    """Whether the call may message a job, which messages names from the drive: a SendMessage or a Bash `drive job resume`."""
     return payload["tool_name"] == "SendMessage" or (payload["tool_name"] == "Bash" and bool(RESUME.search(payload["tool_input"].get("command") or "")))
 
 
-def target(payload: dict, data: dict) -> str | None:
-    """The job a coordinator's message goes to: a local agent's by its SendMessage `to`, a remote lane's by `drive job resume`."""
+def messages(payload: dict, data: dict) -> list[tuple[str, str, str]]:
+    """Each job a coordinator's call messages, with the words it says to that job and the command before them: a local agent's by its SendMessage `to`, with the whole message, and each remote lane a `drive job resume` names, with that resume's own words up to the next one."""
     call = payload["tool_input"]
     if payload["tool_name"] == "SendMessage":
-        return state.agent_job(data, call.get("to"))
-    if payload["tool_name"] == "Bash" and (resumed := RESUME.search(call.get("command") or "")):
-        return resumed[1] if resumed[1] in data["jobs"] else None
-    return None
+        job_id = state.agent_job(data, call.get("to"))
+        return [(job_id, str(call.get("message") or ""), "")] if job_id else []
+    command = call.get("command") or ""
+    resumes = list(RESUME.finditer(command))
+    return [
+        (resumed[1], command[resumed.end() : following.start() if following else None], command[: resumed.start()])
+        for resumed, following in zip(resumes, [*resumes[1:], None], strict=True)
+        if resumed[1] in data["jobs"]
+    ]
 
 
 def resumed_builder(payload: dict, data: dict, job_id: str) -> str | None:
@@ -135,14 +141,11 @@ def read_job(path: Path, job_id: str, job: dict) -> bool:
     return False
 
 
-def unread_job(payload: dict, data: dict, job_id: str) -> str | None:
-    """Why a message to a running job waits for a read of its transcript, earlier in the same command or in the last 10 minutes, when it tells the job what state it is in or asks it: an absent message is no evidence, and a state guessed reaches the job as fact. An order, a ruling, an answer or a refusal relayed states no state, even one that says stop, land or stuck, so it goes through unread, and Jev judges each refusal by its rule."""
+def unread_job(payload: dict, data: dict, job_id: str, said: str, before: str) -> str | None:
+    """Why a message to a running job waits for a read of its transcript, earlier in the same command or in the last 10 minutes, when it tells the job what state it is in or asks it: an absent message is no evidence, and a state guessed reaches the job as fact. An order, a ruling, an answer or a refusal relayed states no state, even one that says stop, land or stuck, so it goes through unread, and so does a question whose subject is another job or CI, or another resume's words in the same command, since neither is about this job; Jev judges each refusal by its rule."""
     job = data["jobs"][job_id]
-    call = payload["tool_input"]
-    text = str(call.get("message") or "") if payload["tool_name"] == "SendMessage" else call.get("command") or ""
-    resumed = RESUME.search(text)
-    claim = STATE_CLAIM.search(text[resumed.end() :] if resumed else text)
-    if job["state"] != "running" or not claim or (resumed and transcript_read(job_id, job).search(text[: resumed.start()])):
+    claim = STATE_CLAIM.search(said)
+    if job["state"] != "running" or not claim or transcript_read(job_id, job).search(before):
         return None
     if read_job(Path(payload["transcript_path"]), job_id, job):
         return None
@@ -173,9 +176,10 @@ def deny_reason(payload: dict) -> str | None:
     if not aimed(payload):
         return None
     data = state.load(names[0])
-    if (job_id := target(payload, data)) is None:
-        return None
-    return resumed_builder(payload, data, job_id) or woken_builder(payload, data, job_id) or unread_job(payload, data, job_id)
+    for job_id, said, before in messages(payload, data):
+        if why := resumed_builder(payload, data, job_id) or woken_builder(payload, data, job_id) or unread_job(payload, data, job_id, said, before):
+            return why
+    return None
 
 
 def main() -> None:

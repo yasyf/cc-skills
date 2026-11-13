@@ -146,6 +146,28 @@ def test_an_order_to_a_running_job_goes_unread_and_only_a_claim_or_ask_about_its
     assert output["rule"] == communicator_calls.STATE_RULE
 
 
+def test_a_question_about_another_job_or_another_resumes_words_is_not_about_the_job_it_goes_to(
+    demo: str, run: Run, builder: Callable[..., None], tmp_path: Path
+) -> None:
+    builder(where="local", dispatch=None, agent="a-7", state="running")
+    for other in (
+        "Find who pushed c14e327 (the PR's own builder j3812 still running?) and whether the handoff should go to the PR's live builder instead of a new one.",
+        "Is j3812 still running?",
+        "Is CI still running?",
+    ):
+        assert communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message=other)) is None, other
+    for own in ("j3812 merged #12. Still running?", "What's your status?"):
+        assert communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message=own)) is not None, own
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "build the rest")
+    run("job", "add", "builder", "--order", "o2", "--goal", "build the rest")
+    with state.edit(demo) as data:
+        for job_id in ("j1", "j2"):
+            data["jobs"][job_id].update(where="remote", dispatch=f"ctx_{job_id}", agent=None, state="running")
+    both = 'drive job resume j1 "Rebase it on dev"; drive job resume j2 "You stopped without a result line"'
+    assert communicator_calls.deny_reason(call("Bash", transcript(tmp_path), command=both)).startswith("A message that tells j2 ")
+    assert communicator_calls.deny_reason(call("Bash", transcript(tmp_path), command=f"drive job replies j2 && {both}")) is None
+    assert communicator_calls.deny_reason(call("Bash", transcript(tmp_path), command='drive job resume j1 "Rebase it on dev"; drive job resume j1 "Are you stuck?"')).startswith("A message that tells j1 ")
+
 
 def test_the_coordinators_message_quoting_when_past_work_happened_goes_out_since_it_never_reaches_him(
     demo: str, builder: Callable[..., None], tmp_path: Path
