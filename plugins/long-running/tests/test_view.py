@@ -700,6 +700,15 @@ def test_a_pr_card_carrying_a_stack_is_one_queue_item_and_each_card_less_pr_is_i
     ]
 
 
+def test_a_card_of_sibling_prs_in_his_queue_is_titled_as_the_card_and_names_the_pr_its_pane_opens_whichever_waits_on_him_last() -> None:
+    data = drive_of({"o1": order("fix the incident", ["j1"])}, {"j1": job("o1", "running")}, [pr(n, "o1", wants_tap=True) for n in (1, 2)])
+    urls = [f"https://github.com/yasyf/cc-skills/pull/{n}" for n in (1, 2)]
+    card = {"prs": urls, "asked": at(-50), "url": f"{TEAM}archives/D123/p1794200000000100", "card": {"title": "Fix: 2 PRs of one request: cap the demo buffer", "options": ["Approve", "Hold"], "prs": [{"url": url} for url in urls], "siblings": True}}
+    [item] = view.build(data, found(pr_cards=[card]), T0)["queue"]
+    assert (item["title"], item["pr"], item["links"]) == ("2 PRs of one request: cap the demo buffer", urls[0], [{"label": "Pull request", "url": urls[0]}])
+    assert [each["url"] for each in item["prs"]] == urls
+
+
 def test_a_stack_card_in_his_queue_carries_each_of_its_prs_as_it_stands_now_in_the_cards_order() -> None:
     data = drive_of({"o1": order("ship the page", ["j1"])}, {"j1": job("o1", "running")}, [pr(1, "o1", state="merged"), pr(2, "o1", wants_tap=True)])
     urls = [f"https://github.com/yasyf/cc-skills/pull/{n}" for n in (1, 2)]

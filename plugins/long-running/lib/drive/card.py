@@ -359,17 +359,19 @@ def stack_words(pr: dict) -> tuple[str, str]:
     return title.strip(), clipped(" ".join(rest.split()), STACK_CHARS)
 
 
-def render_stack(members: list[Member]) -> dict:
-    """One card for a stack of PRs, bottom first: its title and summary from the bottom PR, a section per PR, and one Approve for the PRs still asking his tap, each other's section saying what holds it, its PRs' Show me charts at most the ones one Slack message draws, since cc-slack posts the whole stack as one."""
+def render_stack(members: list[Member], siblings: bool) -> dict:
+    """One card for a stack of PRs, bottom first, or for sibling PRs of one request, which never sit on each other: a stack's title and summary from its bottom PR, siblings titled as that many PRs of one request and marked siblings, so cc-slack never words them a stack, a section per PR, and one Approve for the PRs still asking his tap, each other's section saying what holds it, its PRs' Show me charts at most the ones one Slack message draws, since cc-slack posts the whole card as one."""
     drawn, charts = [], limits.CHARTS
     for member in members:
         drawn.append(one := render(*member, charts=charts))
         charts -= sum(fence[1].lower() in picture.NATIVE for fence in picture.FENCE.finditer(one["prs"][0]["show_me"]))
     kinds = [kind_and_title(member[0]["title"]) for member in members]
     kind = next((each for each in STACK_KINDS if any(each == found for found, _ in kinds)), "Change")
-    title, summary = stack_words(members[0][0])
-    count = len(members)
-    card = {"status": "info", "title": framed(f"{kind}: ", title) if title else framed(f"{kind}: {count} PRs: ", kinds[0][1]), "prs": [one["prs"][0] for one in drawn]}
+    title, summary = ("", "") if siblings else stack_words(members[0][0])
+    count = f"{len(members)} PRs of one request" if siblings else f"{len(members)} PRs"
+    card = {"status": "info", "title": framed(f"{kind}: ", title) if title else framed(f"{kind}: {count}: ", kinds[0][1]), "prs": [one["prs"][0] for one in drawn]}
+    if siblings:
+        card["siblings"] = True
     if summary:
         card["body"] = summary
     if any(one["status"] == "needs_you" for one in drawn):
@@ -537,8 +539,13 @@ def drawn(known: dict[str, tuple[str, dict]], undrawn: dict[str, tuple[str, ...]
         entry["undrawn"] = kept
 
 
-def drawn_card(shown: list[Member]) -> dict:
-    return render_stack(shown) if len(shown) > 1 else render(*shown[0])
+def drawn_card(shown: list[Member], siblings: bool) -> dict:
+    return render_stack(shown, siblings) if len(shown) > 1 else render(*shown[0])
+
+
+def siblings(known: dict[str, tuple[str, dict]], members: list[str], reads: dict[str, dict]) -> bool:
+    """Whether a card's PRs are sibling PRs of one request rather than a stack: none in a native GitHub stack and none on another's head branch, so each lands alone though his one Approve taps them all."""
+    return not any(known[key][1]["native"] for key in members) and len(chains(members, reads)) == len(members)
 
 
 def holding(known: dict[str, tuple[str, dict]], key: str) -> dict[str, str]:
@@ -626,7 +633,7 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
             continue
         taken: set[str] = set()
         drawings = {key: pictured(known[key][0], reads[key], taken) for key in members}
-        card = drawn_card([(reads[key], known[key][1] | {"now": standing(known, key)}, drawings[key][0], tuple(holding(known, key).values()), drawings[key][1]) for key in members])
+        card = drawn_card([(reads[key], known[key][1] | {"now": standing(known, key)}, drawings[key][0], tuple(holding(known, key).values()), drawings[key][1]) for key in members], siblings(known, members, reads))
         remember(known, members)
         drawn(known, {key: undrawn for key, (_, undrawn) in drawings.items()}, at)
         repo, number = members[0].split("#")

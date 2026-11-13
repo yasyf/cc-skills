@@ -843,7 +843,7 @@ function prState(entry) {
   ].join('');
   const failed = entry.failed.map((name) => `<li>${link(name, `${entry.url}/checks`)}</li>`).join('');
   const stack = entry.stack.length > 1 ? entry.stack.map((key) => `<li>${key === entry.key ? `<b>${esc(key)}</b>, this one` : `<button class="linkish" data-pr="${esc(key)}">${esc(key)}</button>`}</li>`).join('') : '';
-  return `${facts ? `<div class="facts">${facts}</div>` : ''}${failed ? `<p class="spot-head">Failing checks</p><ul class="rail-list">${failed}</ul>` : ''}${stack ? `<p class="spot-head">Its stack, bottom first</p><ol class="rail-list">${stack}</ol>` : ''}`;
+  return `${facts ? `<div class="facts">${facts}</div>` : ''}${failed ? `<p class="spot-head">Failing checks</p><ul class="rail-list">${failed}</ul>` : ''}${stack ? `<p class="spot-head">${entry.card?.siblings ? 'Its card, PRs of one request' : 'Its stack, bottom first'}</p><ol class="rail-list">${stack}</ol>` : ''}`;
 }
 
 function serves(entry) {
@@ -943,10 +943,15 @@ function queueList(list, at, filter) {
   return `<ol class="queue-list" aria-label="Everything here, most urgent first">${list.map((item, i) => {
     const tip = [item.title, item.rank_why, [fileName(fileKey(item.project)), fileName(fileKey(item.workstream))].join(' / ')].filter(Boolean).join('\n');
     return `<li class="qrow${i === at ? ' on' : ''}" data-rank="${item.priority.rank}">
-      <a class="qrow-main" href="${esc(queueHref(filter, item))}" data-queue="${esc(noticeKey(item))}"${item.kind === 'question' ? '' : ` data-tip="${esc(tip)}"`}${i === at ? ' aria-current="true"' : ''}>${priorityChips(item)}<span class="qrow-kind">${LABEL[item.kind]} · ${esc(fileName(fileKey(item.project)))}</span><span class="qrow-title">${esc(bare(item.title))}</span></a>
+      <a class="qrow-main" href="${esc(queueHref(filter, item))}" data-queue="${esc(noticeKey(item))}"${item.kind === 'question' ? '' : ` data-tip="${esc(tip)}"`}${i === at ? ' aria-current="true"' : ''}>${priorityChips(item)}<span class="qrow-kind">${LABEL[item.kind]} · ${esc(fileName(fileKey(item.project)))}</span><span class="qrow-title">${esc(bare(item.title))}</span>${heldPRs(item)}</a>
       ${item.kind === 'question' ? '' : `<span class="qrow-acts">${rowActions(item, filter)}</span>`}
     </li>`;
   }).join('')}</ol>`;
+}
+
+function heldPRs(item) {
+  if (!(item.prs?.length > 1)) return '';
+  return `<span class="qrow-prs">${item.prs.map((pr) => `<span class="qrow-pr${pr.state === 'open' ? '' : ' gone'}">${esc([`${prKey(pr.url)} · ${bare(pr.title)}`, GONE_ROWS[pr.state]].filter(Boolean).join(' · '))}</span>`).join('')}</span>`;
 }
 
 function rowActions(item, filter) {
@@ -957,7 +962,7 @@ function rowActions(item, filter) {
     ...picks,
     `<button class="mini" data-ask-about="${esc(noticeKey(item))}" data-href="${esc(queueHref(filter, item))}">Ask</button>`,
     task ? `<a class="mini" href="#/feature/${esc(task)}">Open task</a>` : '',
-    item.pr ? `<a class="mini" href="${esc(item.pr)}" target="_blank" rel="noopener">GitHub ↗</a>` : '',
+    ...(item.prs?.length > 1 ? item.prs.map((pr) => `<a class="mini" href="${esc(pr.url)}" target="_blank" rel="noopener">#${esc(prKey(pr.url).split('#')[1])} ↗</a>`) : [item.pr ? `<a class="mini" href="${esc(item.pr)}" target="_blank" rel="noopener">GitHub ↗</a>` : '']),
   ].join('');
 }
 
@@ -984,7 +989,7 @@ function nowScreen() {
 
 function scopeWork(scope, project, stream) {
   const asks = shownQueue('all', project, stream);
-  const queued = new Set(asks.map((item) => item.pr).filter(Boolean));
+  const queued = new Set(asks.flatMap((item) => item.prs?.map((pr) => pr.url) ?? []));
   const open = new Map((scope ?? []).flatMap((entry) => entry.prs.filter((pr) => pr.state === 'open' && !queued.has(pr.url)).map((pr) => [pr.url, pr])));
   const rows = model.review.filter((entry) => open.has(entry.url)).map((entry) => `<li class="qrow"><button class="qrow-main linkish" data-pr="${esc(entry.key)}" data-tip="${esc([entry.title, prSaid(open.get(entry.url)), entry.job_said].filter(Boolean).join('\n'))}"><span class="qrow-kind">${LABEL.tap}</span><span class="qrow-title">${esc(bare(entry.title))}</span><small>${esc(prSaid(open.get(entry.url)))}</small></button></li>`);
   return `<section class="scope-work">

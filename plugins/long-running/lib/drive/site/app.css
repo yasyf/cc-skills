@@ -135,6 +135,9 @@ button.al.warn::before { background: #c98a4b; }
 .qrow-main:hover { text-decoration: none; }
 .qrow-title { font-size: 13px; font-weight: 550; line-height: 1.4; }
 .qrow small { color: var(--muted); font-size: 10.5px; line-height: 1.45; }
+.qrow-prs { display: grid; gap: 2px; min-width: 0; }
+.qrow-pr { overflow: hidden; color: var(--ink-2); font-size: 11px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
+.qrow-pr.gone { color: var(--muted); }
 .qrow-acts { display: none; flex-wrap: wrap; gap: 6px; padding: 0 14px 12px; }
 .qrow:is(:hover, :focus-within) .qrow-acts { display: flex; }
 .mini { padding: 3px 8px; border: 1px solid var(--line); border-radius: 5px; background: var(--paper); color: var(--ink-2); font-size: 11px; font-weight: 550; cursor: pointer; }

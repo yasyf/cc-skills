@@ -350,7 +350,7 @@ def test_two_show_me_tables_reach_the_card_as_two_tables_with_a_blank_line_betwe
 def test_a_stack_cards_charts_stop_at_the_two_one_slack_message_draws_the_lowest_prs_first() -> None:
     show_me = f"## Show me\nEach wake, before and after.\n\n```chart\n{CHART}\n```\n\n```chart\n{CHART}\n```\n"
     members = [(pr_json(url=stack_url(number), body=show_me), {**entry(), "url": stack_url(number)}, (), ()) for number in (41, 42)]
-    assert [row["show_me"] for row in card.drawn_card(members)["prs"]] == [
+    assert [row["show_me"] for row in card.drawn_card(members, False)["prs"]] == [
         f"Each wake, before and after.\n\n```chart\n{CHART}\n```\n\n```chart\n{CHART}\n```",
         "Each wake, before and after.",
     ]
@@ -1131,6 +1131,7 @@ def test_a_redraw_of_one_pr_in_a_stack_redraws_the_whole_stack(stacked: list[lis
     [drawn] = ask(asks(42))["cards"]
     assert [row["url"] for row in drawn["card"]["prs"]] == [stack_url(41), stack_url(42), stack_url(43)]
     assert drawn["card"]["waits"] == "merge:Forge-AI:monorepo:41-43"
+    assert "siblings" not in drawn["card"]
 
 
 def test_a_stack_of_three_merged_prs_on_one_order_redraws_as_done(
@@ -1199,6 +1200,7 @@ def test_prs_of_one_order_in_no_native_stack_asked_together_draw_one_card_whose_
     [drawn] = ask(asks(54591, 54602, 54608))["cards"]
     assert [row["url"] for row in drawn["card"]["prs"]] == [stack_url(n) for n in (54591, 54602, 54608)]
     assert drawn["card"]["waits"] == "merge:Forge-AI:monorepo:54591-54608"
+    assert (drawn["card"]["title"], drawn["card"]["siblings"]) == ("Fix: 3 PRs of one request: one move of the cutover", True)
     assert all(state.load("demo")["prs"][key]["stack"] == keys for key in keys)
     ask({"answer": {"repo": "Forge-AI/monorepo", "number": 54591, "waits": drawn["card"]["waits"], "label": "Approve", "heads": {}, "action_ts": "", "source": "slack"}})
     assert [state.load("demo")["prs"][key]["tap"]["label"] for key in keys] == ["Approve"] * 3

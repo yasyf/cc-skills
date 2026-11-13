@@ -372,7 +372,9 @@ When it is answered, replaced or redone:
   by one rule, `state.card_unit`: one card per stack his Approve lands, a native GitHub stack or PRs
   each on the one below's head branch, and for PRs in none, one per repository and order they serve,
   so sibling PRs of one order ready together draw one card whose Approve covers each, however many it
-  holds, the PR sections past the 50 blocks one Slack message holds under its Explain more. It is only
+  holds, titled as that many PRs of one request and never called a stack, by his pick "Keep one card
+  per request, as you picked; its title and wording stop calling siblings a stack. One Approve still
+  lands both.", the PR sections past the 50 blocks one Slack message holds under its Explain more. It is only
   for a PR that
   carries out an order of his whose words ask for it, or a `Forge-AI/*` drive tooling fix no exempt
   class covers, which serves its own order by [Scope](scope.md).
