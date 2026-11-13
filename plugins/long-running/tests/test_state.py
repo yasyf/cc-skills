@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from drive import stage, state
+from drive import settled, stage, state
 from drive.state import DriveError
 
 REFERENCE = datetime(2026, 11, 9, 14, 0).astimezone()
@@ -290,6 +290,37 @@ def test_j3668_a_drive_saved_with_two_questions_in_one_ask_file_keeps_the_one_an
     data["jobs"] = {"j1": state.new_job("o1", "builder", "build it", [], moment) | {"state": "waiting", "questions": [answered, undrawn, other]}}
     state.create(data)
     assert state.load("demo")["jobs"]["j1"]["questions"] == [answered | {"refused": None}, other]
+
+
+def test_j3986_a_drive_saved_keying_his_rulings_as_typed_keys_each_by_its_full_id_and_folds_one_kept_twice(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    make("demo")
+    data = state.load("demo")
+    del data["answers_keyed"]
+    ruling, other = "596e9ccb7937b69da452c43c49fc284a31301704", "76872536b257acbecf0a8cba730ce7ef1ccbc651"
+    early, late = "2026-11-13T03:02:22-08:00", "2026-11-13T03:03:34-08:00"
+    kept = {"words": "Tree", "link": "https://acme.slack.com/archives/D1/p1"}
+    dropped = {"mark": "dropped", "job": None, "card": None}
+    data["answers"] = {
+        ruling: kept | {"at": early, "said": early, "cards": {"demo:j1-1": None, "demo:j1-2": {"mark": "stands"}}, "jobs": {"j1": None}},
+        "596e9cc": kept | {"at": late, "said": late, "cards": {"demo:j1-1": dropped}, "jobs": {"j1": {"mark": "sent"}}},
+        "7687253": kept | {"at": late, "said": late, "cards": {}, "jobs": {}},
+    }
+    closed = state.new_close("answered", None, None, seq="671985", ruling="7687253", at=late)
+    question = state.new_question(None, "Which host runs the rules?", early, closed=closed)
+    data["jobs"] = {"j1": state.new_job("o1", "builder", "build it", [], early) | {"questions": [question], "brief_flags": {"ruling": ["596e9cc", ruling, "deadbee"]}}}
+    state.create(data)
+    listed: list[list[str]] = []
+    monkeypatch.setattr(settled, "ccn", lambda argv, text, cwd, failure: listed.append(argv) or json.dumps([{"id": ruling}, {"id": other}]))
+    drive = state.load("demo")
+    assert listed == [["ccn", "answer", "list", "--limit", "0", "--include-superseded", "--json"]]
+    assert drive["answers"] == {
+        ruling: kept | {"at": early, "said": late, "cards": {"demo:j1-1": dropped, "demo:j1-2": {"mark": "stands"}}, "jobs": {"j1": {"mark": "sent"}}},
+        other: kept | {"at": late, "said": late, "cards": {}, "jobs": {}},
+    }
+    assert (drive["jobs"]["j1"]["questions"][0]["closed"]["ruling"], drive["jobs"]["j1"]["brief_flags"]["ruling"]) == (other, [ruling, "deadbee"])
+    with state.edit("demo"):
+        pass
+    assert (state.load("demo")["answers"] == drive["answers"], len(listed)) == (True, 2)
 
 
 def test_an_answer_saved_before_answers_listed_waiting_jobs_reads_with_no_job_to_mark(state_root: Path) -> None:

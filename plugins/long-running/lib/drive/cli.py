@@ -1961,7 +1961,7 @@ def recorded_answers(data: dict, job: dict, text: str) -> list[dict]:
             continue
         if words := settled.his(answer["body"]):
             asked = settled.answered(data, answer["title"])
-            kept = next((entry["link"] for key, entry in data["answers"].items() if answer["id"].startswith(key)), None)
+            kept = data["answers"][answer["id"]]["link"] if answer["id"] in data["answers"] else None
             found[answer["id"]] = {"answer": answer["id"][:7], "words": words, "link": kept or (asked and (asked["card"] or asked["closed"]["link"]))}
     return list(found.values())
 
@@ -2238,7 +2238,8 @@ def write_brief(name: str, job_id: str, named: dict) -> tuple[str, dict]:
     earlier_flags = job.get("brief_flags") or {}
     kept = [flag for flag in state.BRIEF_FLAGS if earlier_flags.get(flag) and (flag == "ruling" or not named.get(flag))]
     bound = [answer_id for other in order["jobs"] for answer_id in (data["jobs"][other].get("brief_flags") or {}).get("ruling") or []]
-    flags = {flag: named.get(flag) or earlier_flags.get(flag) for flag in state.BRIEF_FLAGS} | {"ruling": [*dict.fromkeys([*bound, *(named.get("ruling") or [])])]}
+    ruled = [settled.shown(answer_id, data["roles"]["coordinator"]["cwd"])["id"] for answer_id in named.get("ruling") or []]
+    flags = {flag: named.get(flag) or earlier_flags.get(flag) for flag in state.BRIEF_FLAGS} | {"ruling": [*dict.fromkeys([*bound, *ruled])]}
     flags["serves"] = flags["serves"] or ("drive tooling" if tooling(order) else "his order")
     if job["state"] == "waiting" and job["prs"] and not (job.get("agent") or job.get("dispatch") or named.get("handoff")):
         raise DriveError(
@@ -3659,9 +3660,12 @@ def answer(args: argparse.Namespace) -> int:
         raise DriveError("his cards could not be read, so nothing can say what this answer leaves asking him; the watch rereads them every minute, run this again then")
     data = state.load(name)
     asked = superseded.asking(data, found)
-    if args.id not in data["answers"] and (unowed := rewrite_refusal(data, args)):
+    cwd = data["roles"]["coordinator"]["cwd"]
+    cited = settled.shown(args.id, cwd) if args.id else None
+    if cited:
+        args.id = cited["id"]
+    if args.id not in data["answers"] and (unowed := rewrite_refusal(data, args, cited)):
         raise DriveError(unowed)
-    cited = args.id
     if args.id is None:
         if not (args.title and args.words and args.link):
             raise DriveError('name his answer\'s cc-notes id, or pass --title "<the question, verbatim>" with --words and --link to record it in cc-notes first')
@@ -3669,7 +3673,7 @@ def answer(args: argparse.Namespace) -> int:
             raise DriveError(f"refused, nothing recorded: {unsaid}")
         changes = settled.changed(args.title, args.words, asked)
         labels = ["scope:durable", f"drive:{name}", *settled.kind(args.words), *args.label]
-        args.id = settled.recorded(args.title, args.words, labels, data["roles"]["coordinator"]["cwd"])
+        args.id = settled.recorded(args.title, args.words, labels, cwd)
     marking = args.stands or args.settled or args.dropped or args.superseded or args.reopened or args.others_stand or args.sent or args.untouched
     if args.id not in data["answers"]:
         if marking:
@@ -3680,11 +3684,10 @@ def answer(args: argparse.Namespace) -> int:
         if not (args.words and args.link):
             raise DriveError(f'{args.id} is not recorded yet: pass --words "<his words, verbatim>" and --link <the permalink of his message or the card he tapped>')
         if cited:
-            shown = settled.shown(cited, data["roles"]["coordinator"]["cwd"])
-            if unsaid := settled.unsaid([args.words, settled.his(shown["body"])], args.link, found, data):
-                raise DriveError(f"{cited}: refused, nothing recorded: {unsaid}")
-            changes = settled.changed(shown["title"], args.words, asked)
-        bound = superseded.binding(data, args.link, asked, data["roles"]["coordinator"]["cwd"])
+            if unsaid := settled.unsaid([args.words, settled.his(cited["body"])], args.link, found, data):
+                raise DriveError(f"{args.id}: refused, nothing recorded: {unsaid}")
+            changes = settled.changed(cited["title"], args.words, asked)
+        bound = superseded.binding(data, args.link, asked, cwd)
         with state.edit(name) as data:
             data["answers"][args.id] = superseded.record(data, args.words, args.link, asked, changes, bound, state.stamp())
     done = []
@@ -3731,7 +3734,6 @@ def answer(args: argparse.Namespace) -> int:
     try:
         done += [settle_card(name, args.id, kept, key, asked[key], file) for key, file in args.settled]
         dropping = superseded.whole(data, asked, args.dropped)
-        cwd = data["roles"]["coordinator"]["cwd"]
         bound = superseded.binding(data, kept["link"], asked, cwd) if dropping else {}
         for order_id, keys in dropping.items():
             for pick in bound.get(order_id, []):
@@ -3824,9 +3826,9 @@ def settle_card(name: str, answer_id: str, kept: dict, key: str, entry: dict, fi
     return f"{key}: {shown}, settling {job_id}'s question, so {job_id} builds on his words"
 
 
-def rewrite_refusal(data: dict, args: argparse.Namespace) -> str | None:
+def rewrite_refusal(data: dict, args: argparse.Namespace, cited: dict | None) -> str | None:
     """Why a ruling of his may not be recorded yet: its skill rewrite is owed the moment it is, so an open "Drive tooling:" order, the meta session's, carries it, and the watch chases that order until its builder is done."""
-    labels = args.label if args.id is None else settled.shown(args.id, data["roles"]["coordinator"]["cwd"])["tags"]
+    labels = cited["tags"] if cited else args.label
     if RULING not in labels:
         return None
     order = data["orders"].get(args.rewrite or "")

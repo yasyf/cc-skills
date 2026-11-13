@@ -774,7 +774,7 @@ def test_a_readers_return_briefs_the_builder_waiting_on_it_with_each_ruling_the_
     monkeypatch.setattr("sys.stdin", io.StringIO(RESEARCH))
     code, out = run("job", "report", "j1", "-")
     jobs = state.load(demo)["jobs"]
-    assert (code, out.splitlines()[2], jobs["j2"]["brief_flags"]["ruling"]) == (0, "his words from o1, rulings: 1, earlier jobs: 0", ["73060f0"])
+    assert (code, out.splitlines()[2], jobs["j2"]["brief_flags"]["ruling"]) == (0, "his words from o1, rulings: 1, earlier jobs: 0", [recorded.shown["73060f0"]["id"]])
     assert f"\nDecisions that bind:\n- {title} (73060f0)\n  Owner verdict: approved.\n" in Path(jobs["j2"]["brief"]).read_text()
     assert run("job", "brief", "j4")[1].splitlines()[1] == "his words from o2, rulings: 0, earlier jobs: 0"
 

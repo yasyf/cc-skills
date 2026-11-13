@@ -7534,10 +7534,11 @@ def test_his_answer_under_a_pr_card_lists_the_order_a_pick_binds_when_the_record
     assert "  j3 waits on o2 and has not heard a1: " in listed
 
 
-def test_an_answer_with_no_id_records_his_words_in_cc_notes_first_and_goes_on_by_its_short_id(
-    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_an_answer_with_no_id_records_his_words_in_cc_notes_first_and_goes_on_by_its_id_whatever_prefix_names_it(
+    run: Run, designing: str, recorded: Answers, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     cards_asking(monkeypatch, PR)
+    recorded.shown["beb09e5"] = {"id": "beb09e5f00d", "title": "Which topology?", "body": WORDS, "tags": [], "created_at": "2026-11-12T11:33:00Z"}
     added: list[tuple[list[str], str]] = []
 
     def ccn(argv: list[str], input: str, **_: object) -> subprocess.CompletedProcess[str]:
@@ -7548,10 +7549,26 @@ def test_an_answer_with_no_id_records_his_words_in_cc_notes_first_and_goes_on_by
     assert cli.main(["answer", "--words", WORDS, "--link", PICK]) == 2
     assert "--title" in capsys.readouterr().err
     assert cli.main(["answer", "--title", "Which topology?", "--words", WORDS, "--link", PICK, "--label", "header:topology"]) == 2
-    assert "his answer beb09e5 " in capsys.readouterr().err
+    assert "his answer beb09e5f00d " in capsys.readouterr().err
     labels = ["--label=scope:durable", "--label=drive:demo", "--label=header:topology"]
     assert added == [(["ccn", "answer", "add", "--title=Which topology?", "--body-file", "-", *labels, "--json"], WORDS)]
     assert run("answer", "beb09e5", "--others-stand")[0] == 0
+    assert list(state.load("demo")["answers"]) == ["beb09e5f00d"]
+
+
+def test_j3986_his_ruling_kept_under_its_full_id_is_found_by_any_prefix_and_never_kept_twice(
+    run: Run, designing: str, recorded: Answers, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cards_asking(monkeypatch, PR)
+    ruling = "bf042d636954f67a80ca7fd1fc26ddfdbfb1527d"
+    for typed in (ruling, ruling[:12], ruling[:7]):
+        recorded.shown[typed] = {"id": ruling, "title": "Which topology?", "body": WORDS, "tags": [], "created_at": "2026-11-13T20:19:36Z"}
+    assert cli.main(["answer", ruling, "--words", WORDS, "--link", PICK]) == 2
+    capsys.readouterr()
+    assert cli.main(["answer", ruling[:12], "--words", WORDS, "--link", PICK]) == 2
+    assert f'his answer {ruling} "' in capsys.readouterr().err
+    assert run("answer", ruling[:7], "--others-stand")[0] == 0
+    assert list(state.load("demo")["answers"]) == [ruling]
 
 
 def test_an_answer_is_recorded_only_as_his_words_at_the_permalink_it_names(
