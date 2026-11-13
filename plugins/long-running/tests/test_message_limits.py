@@ -1799,9 +1799,19 @@ def test_a_cards_show_me_is_drawn_whole_and_counts_against_no_limit(talker: str,
     assert posted(transcript, card=card | {"body": said(40) + "\n*Show me*\n```\nthe fix #41\n```"}) is None
 
 
-def test_a_saved_thread_is_a_read_only_once_the_handler_opens_its_file(talker: str, unread: Path) -> None:
+@pytest.mark.parametrize(
+    "command",
+    [
+        "python3 -c 'print(open(\"{saved}\").read()[-80000:])'",
+        "cd {folder}/; python3 -I -c \"s=open('{name}').read(); print(s[-9000:])\"",
+        "cd {folder}/ && python3 -I -c \"print(open('{name}').read()[-9000:])\"",
+    ],
+    ids=["full path", "handler 48a784aa", "handler 7997c216"],
+)
+def test_a_saved_thread_is_a_read_only_once_the_handler_opens_its_file(talker: str, unread: Path, command: str) -> None:
     lane = lane_of(unread)
     saved = "/Users/me/.claude/projects/p/s/tool-results/mcp-plugin_cc-slack_cc-slack-slack_thread-1.txt"
+    command = command.format(saved=saved, folder=Path(saved).parent, name=Path(saved).name)
     at = datetime.now(UTC).isoformat()
     use = {"type": "tool_use", "id": "long", "name": message_limits.THREAD_READ, "input": {"channel_id": DM, "thread_ts": "1.2", "limit": 1000}}
     notice = (
@@ -1809,7 +1819,7 @@ def test_a_saved_thread_is_a_read_only_once_the_handler_opens_its_file(talker: s
         f" {saved}. Format: Plain text - For targeted searches (find a string): use grep on the file directly."
     )
     result = {"type": "tool_result", "tool_use_id": "long", "content": [{"type": "text", "text": notice}]}
-    opened = {"type": "tool_use", "id": "open", "name": "Bash", "input": {"command": f"python3 -c 'print(open(\"{saved}\").read()[-80000:])'"}}
+    opened = {"type": "tool_use", "id": "open", "name": "Bash", "input": {"command": command}}
     printed = {"type": "tool_result", "tool_use_id": "open", "content": "the newest messages"}
     with lane.open("a") as transcript:
         for row in ({"type": "assistant", "message": {"content": [use]}}, {"type": "user", "message": {"content": [result]}}):
