@@ -494,7 +494,7 @@ def follow_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def checks(watcher: Watcher, moment: datetime) -> None:
-    """Start the check against his words of each PR the watch hears that owes one, within one GitHub read of finding it unchecked and with no coordinator turn: its CHECKED line redraws his card in place, so his Approve of a changed patch lands it once it is green, and its NOT READY line goes to its builder."""
+    """Start the check against his words of each PR the watch hears that owes one, within one GitHub read of finding it unchecked and with no coordinator turn: its CHECKED line redraws his card in place, so his Approve of a changed patch lands it once it is green, and its NOT READY line goes to its builder unless he approved the PR."""
     if watcher.cards is None:
         return
     data = state.load(watcher.name)
@@ -503,7 +503,7 @@ def checks(watcher: Watcher, moment: datetime) -> None:
 
 
 def check_owed(name: str, key: str, pr: dict, data: dict, cards: dict, moment: datetime) -> bool:
-    """Whether a PR owes the check of its change against his words: open and waiting on his card, its change at its head not checked, its builder's report no port of an old-tree PR, which the coordinator checks against that PR, and no check of it running or done at this head since its builder last returned. It runs on every head whatever its job's state or its waits, its objection a line on his card and a wake of its builder, and his Approve lands the PR whatever it says."""
+    """Whether a PR owes the check of its change against his words: open and waiting on his card, its change at its head not checked, its builder's report no port of an old-tree PR, which the coordinator checks against that PR, and no check of it running or done at this head since its builder last returned. It runs on every head whatever its job's state or its waits, its objection a line on his card and, until he approves the PR, a wake of its builder, and his Approve lands the PR whatever it says."""
     if pr["state"] != "open" or not stage.carded(pr) or state.checked(data, pr):
         return False
     return not served.ported(state.report_text(name, pr["job"])) and not served.tried(pr, data["jobs"][pr["job"]]["returned"], moment)
@@ -2145,7 +2145,7 @@ def wakes(line: str, data: dict) -> bool:
 
 
 def handed(watcher: Watcher, lines: list[str], moment: datetime) -> list[str]:
-    """Hand each line to the one who acts on it: the lander's own failure, once however many PRs it held back, and an order's the communicator or the meta session holds to that session, a check's NOT READY whole to the builder answering for its PR through drive pr wake, and the rest, returned, to the coordinator. Until it is handed, each line stays on the watcher, the coordinator's among its made lines and a holder's among its unsent, so a newer install that takes the watch over meanwhile gets it."""
+    """Hand each line to the one who acts on it: the lander's own failure, once however many PRs it held back, and an order's the communicator or the meta session holds to that session, a check's NOT READY whole to the builder answering for its PR through drive pr wake unless he approved the PR, whose card alone shows it, and the rest, returned, to the coordinator. Until it is handed, each line stays on the watcher, the coordinator's among its made lines and a holder's among its unsent, so a newer install that takes the watch over meanwhile gets it."""
     lines = [LINE_BREAKS.sub(" ", line) for line in lines]
     if not lines and not any(watcher.unsent.get(lane) for lane in state.HOLDERS):
         return []
@@ -2153,7 +2153,8 @@ def handed(watcher: Watcher, lines: list[str], moment: datetime) -> list[str]:
     kept = []
     for line in lines:
         if (found := PR_EVENT.match(line)) and found["change"].startswith(served.NOT_READY):
-            stage.wake(watcher.name, found["key"], line)
+            if not land.approved(data["prs"][found["key"]]):
+                stage.wake(watcher.name, found["key"], line)
         elif line.startswith(LANDER):
             if line not in (meta := watcher.unsent.setdefault("meta", [])):
                 meta.append(line)

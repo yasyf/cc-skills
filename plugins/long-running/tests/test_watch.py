@@ -27,7 +27,7 @@ ASKED = "Should Iris, desktop and the sand CLI show sign-in when an api session 
 REPORTED = "https://acme.slack.com/archives/C0REPORTS01/p1794400100000200"
 UNRECORDED = 'ORPHAN o1 "ship the watch": j1\'s agent finished and its result is not recorded: "'
 REPORT_IT = "; only drive job report j1 - sets it, or names why it refuses, so SendMessage from the session that started it wakes it to pipe its return there"
-CHECKED = {"head": "aaaaaaa111", "orders": ["o1"], "patch": ""}
+CHECKED = {"head": "aaaaaaa111", "read": "aaaaaaa111", "orders": ["o1"], "lines": {}}
 BUILD = "https://buildkite.com/forge/monorepo/builds/7"
 REQUIRED = {"context": "buildkite/test", "targetUrl": BUILD}
 INCIDENT_THREAD = "1794494004.895129"
@@ -2902,13 +2902,13 @@ def test_a_pr_whose_head_moved_to_a_change_nobody_judged_gets_its_card_and_its_c
     demo: str, monkeypatch: pytest.MonkeyPatch, checkers: list[str], draws: Draws
 ) -> None:
     with state.edit(demo) as data:
-        data["prs"][KEY] |= {"wants_tap": True, "checked": CHECKED | {"patch": "a change judged before"}}
+        data["prs"][KEY] |= {"wants_tap": True, "checked": CHECKED | {"lines": {"api/run.ts": "a change judged before"}}}
     serve(monkeypatch, {KEY: read(headRefOid="bbbbbbb222", checks=GREEN, reviewDecision="APPROVED")})
     watching = watcher(demo)
     watch.run_pass(watching, T0)
     assert (draws.keys, checkers) == ([[KEY]], [KEY])
     assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=30)) if line.startswith(("PR ", "STAGE "))]
-    assert (state.load(demo)["prs"][KEY]["checked"], state.load(demo)["prs"][KEY]["stage"]["name"]) == (None, "card")
+    assert (state.load(demo)["prs"][KEY]["checked"]["read"], state.load(demo)["prs"][KEY]["stage"]["name"]) == ("bbbbbbb222", "card")
     with state.edit(demo) as data:
         data["prs"][KEY]["checked"] = CHECKED | {"head": "bbbbbbb222"}
         data["jobs"]["j1"]["carries"]["o2"] = ["no staff flag"]
@@ -2951,7 +2951,7 @@ def test_an_unchecked_pr_starts_one_check_against_his_words_whatever_its_jobs_st
     watching = watcher(demo)
     assert (watch.run_pass(watching, T0 + timedelta(minutes=1)), checkers) == ([], [KEY])
     assert (watch.run_pass(watching, T0 + timedelta(minutes=2)), checkers) == ([], [KEY])
-    judge.against = [{"order": "o1", "words": "ship the watch", "change": "watch.py stops the watch"}]
+    judge.against = [{"order": "o1", "words": "ship the watch", "file": "watch.py", "change": "watch.py stops the watch"}]
     assert cli.main(["pr", "check", state.pr_url(KEY), "--drive", demo]) == 0
     assert watch.run_pass(watching, T0 + timedelta(minutes=3)) == []
     [(key, refused)] = woken
@@ -2969,6 +2969,22 @@ def test_an_unchecked_pr_starts_one_check_against_his_words_whatever_its_jobs_st
     assert (state.load(demo)["prs"][KEY]["checked"]["head"], watch.run_pass(watching, T0 + timedelta(minutes=7)), checkers) == ("aaaaaaa111", [], [KEY, KEY])
 
 
+def test_a_not_ready_on_a_pr_he_approved_is_drawn_on_his_card_and_wakes_no_builder(
+    demo: str, monkeypatch: pytest.MonkeyPatch, checkers: list[str], judge: Judge, woken: list[tuple[str, str]]
+) -> None:
+    serve(monkeypatch, {})
+    monkeypatch.setattr(state, "now", lambda: T0 + timedelta(minutes=1))
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="waiting", said=f"PUSHED {state.pr_url(KEY)}", returned=state.stamp(T0))
+        data["prs"][KEY] |= {"wants_tap": True, "checked": None, "tap": state.new_tap("Approve", "aaaaaaa111", "pressed the button", "1.2")}
+    watching = watcher(demo)
+    watch.run_pass(watching, T0 + timedelta(minutes=1))
+    judge.against = [{"order": "o1", "words": "ship the watch", "file": "watch.py", "change": "watch.py stops the watch"}]
+    assert cli.main(["pr", "check", state.pr_url(KEY), "--drive", demo]) == 0
+    watch.run_pass(watching, T0 + timedelta(minutes=2))
+    assert (woken, state.against(state.load(demo)["prs"][KEY])) == ([], 'o1 "ship the watch": watch.py stops the watch')
+
+
 def test_a_green_pr_waiting_on_his_tap_gets_its_card_at_once_while_its_check_runs_or_says_not_ready_and_its_new_head_is_checked_again(
     demo: str, monkeypatch: pytest.MonkeyPatch, checkers: list[str], judge: Judge, draws: Draws, woken: list[tuple[str, str]]
 ) -> None:
@@ -2981,7 +2997,7 @@ def test_a_green_pr_waiting_on_his_tap_gets_its_card_at_once_while_its_check_run
     watching = watcher(demo)
     watch.run_pass(watching, T0)
     assert (draws.keys, checkers) == ([[KEY]], [KEY])
-    judge.against = [{"order": "o1", "words": "ship the watch", "change": "watch.py stops the watch"}]
+    judge.against = [{"order": "o1", "words": "ship the watch", "file": "watch.py", "change": "watch.py stops the watch"}]
     assert cli.main(["pr", "check", state.pr_url(KEY), "--drive", demo]) == 0
     watch.run_pass(watching, T0 + timedelta(minutes=1))
     refused = [key for key, text in woken if f"PR {KEY}: NOT READY: " in text]
@@ -3008,7 +3024,7 @@ def test_a_check_names_every_pr_its_job_and_the_job_it_was_handed_from_carry_wit
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"title": "Fix: the stack's top"}
     delivered = f'its job\'s merged PRs already deliver their share of these orders: {merged} "Fix: a Sprite lane gets the wasm toolchain"'
     told: list[str] = []
-    wasm = {"order": "o1", "words": "ship the watch", "change": "no PR gives Sprites the wasm toolchain"}
+    wasm = {"order": "o1", "words": "ship the watch", "file": "", "change": "no PR gives Sprites the wasm toolchain"}
     monkeypatch.setattr(served, "judged", lambda name, said, changes: told.append(said) or ([] if delivered in said else [wasm]))
     assert cli.main(["pr", "check", state.pr_url(KEY), "--drive", demo]) == 0
     [said] = told

@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import re
@@ -39,8 +40,8 @@ VERDICT = {
             "type": "array",
             "items": {
                 "type": "object",
-                "properties": {"order": {"type": "string"}, "words": {"type": "string"}, "change": {"type": "string"}},
-                "required": ["order", "words", "change"],
+                "properties": {"order": {"type": "string"}, "words": {"type": "string"}, "file": {"type": "string"}, "change": {"type": "string"}},
+                "required": ["order", "words", "file", "change"],
             },
         }
     },
@@ -52,7 +53,7 @@ An answer of his is his words on this change as much as an order is: where an an
 
 First list in `changed` each change the diff makes to what already exists: what existing code returns, prints, stores, accepts or depends on, such as a wire, file or API shape, a default or a command's output, and each behavior it removes. List each side of one value as its own change, what it holds or how it is made apart from the form it is written, stored or sized in, since his words can name one and leave the other: a timestamp moving from local time to UTC and from seconds to an ISO string is two changes. Give each its `before` and `after` as the diff shows them, and in `named_by` quote the words of his or of a cited answer that name that side's new form or behavior, else none. Words naming the kind of value name what it holds, never the form it is written in or what else it stops doing: a convention such a word is often read with is a reader's reading, never his words naming it. New code that alters nothing existing is not a change to list.
 
-Then list in `against` each place where the change goes against his words: it does or keeps what his words rule out, such as a flag, a switch or a page they say goes; it removes, or leaves out of every PR here, what his words say this change delivers; it makes the outcome his words name impossible; or it makes a change in `changed` that nothing of his names and the outcome his words name, the problem they describe included, does not need, by his words "stop overrecahing and changing things people didnt ask you when you are asked to make a change". Read his words for what he means, as a careful colleague would. In `order` name the order, or the answer's id or link, in `words` quote the words of his it goes against or beyond, and in `change` name the file and the line or hunk that does it, with its before and after when it changes what exists, and one sentence on why.
+Then list in `against` each place where the change goes against his words: it does or keeps what his words rule out, such as a flag, a switch or a page they say goes; it removes, or leaves out of every PR here, what his words say this change delivers; it makes the outcome his words name impossible; or it makes a change in `changed` that nothing of his names and the outcome his words name, the problem they describe included, does not need, by his words "stop overrecahing and changing things people didnt ask you when you are asked to make a change". Read his words for what he means, as a careful colleague would. In `order` name the order, or the answer's id or link, in `words` quote the words of his it goes against or beyond, in `file` the path of the file that does it as its `diff --git a/` line names it, or an empty string when no one file does, and in `change` name the file and the line or hunk that does it, with its before and after when it changes what exists, and one sentence on why.
 
 Leave out:
 - what his newer words on the same point overrule, an answer's included, since his newest words win;
@@ -64,7 +65,7 @@ An empty `against` says the change meets his words."""
 
 
 class Against(DriveError):
-    """A change judged to go against his words, a change to what already exists that they do not need included, which its builder fixes, as against a read or judge that failed, which runs again; named holds each of his words it goes against or beyond and what in the change does, before and after."""
+    """A change judged to go against his words, a change to what already exists that they do not need included, which its builder fixes unless he approved the PR, as against a read or judge that failed, which runs again; named holds each of his words it goes against or beyond and what in the change does, before and after."""
 
     def __init__(self, keys: list[str], named: str):
         self.named = named
@@ -75,7 +76,7 @@ class Against(DriveError):
 
 
 def check(name: str, key: str, cited: list[str]) -> dict:
-    """Judge one PR's change, read whole from GitHub at its head, title and diff and never the body, against the words of the orders it serves, for the parts it carries, and against each answer of his cited names or its design cites, and return the head it checked, or the one its head already holds, for verdict to keep, judging past no install's lock; every other PR its job carries, and each job it was handed from, is named as delivering its own share, the merged ones marked merged and the closed ones left out, so neither a sibling's diff nor a part an earlier PR already landed refuses it. The judge first lists each change the diff makes to what already exists, before and after, then refuses each his words do not need, by his words "stop overrecahing and changing things people didnt ask you when you are asked to make a change". Refuse, naming each of his words the change goes against or beyond, so his card draws only on a change checked against his words."""
+    """Judge one PR's change, read whole from GitHub at its head, title and diff and never the body, against the words of the orders it serves, for the parts it carries, and against each answer of his cited names or its design cites, and return the head it checked, or the one its head already holds, for verdict to keep, judging past no install's lock; every other PR its job carries, and each job it was handed from, is named as delivering its own share, the merged ones marked merged and the closed ones left out, so neither a sibling's diff nor a part an earlier PR already landed refuses it. The judge first lists each change the diff makes to what already exists, before and after, then refuses each his words do not need, by his words "stop overrecahing and changing things people didnt ask you when you are asked to make a change". Refuse, naming each of his words the change goes against or beyond, so his card draws only on a change checked against his words, leaving out each objection to a file whose added and removed lines are those of the head the check last passed, while it serves no order that head was not checked against, so a verdict holds for the same change after a restack."""
     data = state.load(name)
     pr = data["prs"][key]
     if state.checked(data, pr):
@@ -83,16 +84,18 @@ def check(name: str, key: str, cited: list[str]) -> dict:
     orders = state.served_orders(data, pr)
     state.let_go_install()
     read = change(key)
+    lines = digests(read["diff"])
+    passed = pr["checked"]["lines"] if pr["checked"] and set(orders) <= set(pr["checked"]["orders"]) else {}
     answered = answers(data, [*cited, pr.get("design") or ""], view.live_cards(name))
     carried = (state.pr_key(url) for job in data["jobs"].values() if pr["url"] in job["prs"] for url in job["prs"])
     others = [other for other in dict.fromkeys(carried) if other != key and data["prs"][other]["state"] != "closed"]
-    if found := judged(name, words(data, data["jobs"][pr["job"]], orders, pr["parts"], answered, others), {key: read}):
+    if found := [item for item in judged(name, words(data, data["jobs"][pr["job"]], orders, pr["parts"], answered, others), {key: read}) if item["file"] not in lines or passed.get(item["file"]) != lines[item["file"]]]:
         raise Against([key], "; ".join(f'{item["order"]} "{item["words"]}": {item["change"]}' for item in found))
-    return {"head": read["head"], "orders": orders, "patch": patch(read["diff"])}
+    return {"head": read["head"], "read": read["head"], "orders": orders, "lines": lines}
 
 
 def verdict(name: str, key: str) -> str:
-    """Judge one PR his card waits on at its head against his words, the one place a PR is judged, with the answers its builder's DESIGN: line cites, and keep the outcome on the PR: CHECKED and NOT READY also as a check event, which the watch says on the PR's line, and a refusal wakes its builder through drive pr wake and is a line on his card, holding neither his Approve nor its landing; then redraw his open card in place, so it shows the verdict. A judge or GitHub read that failed is kept alone, and the watch tries it again RETRY on."""
+    """Judge one PR his card waits on at its head against his words, the one place a PR is judged, with the answers its builder's DESIGN: line cites, and keep the outcome on the PR: CHECKED and NOT READY also as a check event, which the watch says on the PR's line, and a refusal is a line on his card that wakes its builder through drive pr wake unless he approved the PR, holding neither his Approve nor its landing; then redraw his open card in place, so it shows the verdict. A judge or GitHub read that failed is kept alone, and the watch tries it again RETRY on."""
     data = state.load(name)
     pr = data["prs"][key]
     head, at, named, checked = pr["head"], state.stamp(), "", None
@@ -171,7 +174,7 @@ def spawn(name: str, key: str) -> int:
 
 
 def carry(name: str, keys: list[str]) -> list[str]:
-    """Carry each PR's check to a head that moved while its change stayed the one judged, by `git patch-id --stable`, as a restack moves it, so no check stands on a change nobody judged; the PRs whose check it carried."""
+    """Carry each PR's check to a head that moved while each file's added and removed lines stayed those judged, as a restack moves them, so no check stands on a change nobody judged, and mark each other moved head read, its check kept on the head it passed for the next check to read; the PRs whose check it carried."""
     data = state.load(name)
     moved = [key for key in keys if unread(data["prs"][key])]
     if not moved:
@@ -183,21 +186,21 @@ def carry(name: str, keys: list[str]) -> list[str]:
             pr = data["prs"][key]
             if read["head"] != pr["head"] or not unread(pr):
                 continue
-            stamp = pr["checked"]
-            pr["checked"] = stamp | {"head": pr["head"]} if patch(read["diff"]) == stamp["patch"] else None
-            if pr["checked"]:
+            pr["checked"] |= {"read": pr["head"]}
+            if digests(read["diff"]) == pr["checked"]["lines"]:
+                pr["checked"]["head"] = pr["head"]
                 carried.append(key)
     return carried
 
 
 def unread(pr: dict) -> bool:
     """Whether a check stamped on another head is still to be compared with the change at the PR's head."""
-    return bool(pr["checked"]) and pr["checked"]["head"] != pr["head"]
+    return bool(pr["checked"]) and pr["checked"]["read"] != pr["head"]
 
 
-def patch(diff: bytes) -> str:
-    """The id of the change a diff makes wherever its hunks land, by `git patch-id --stable`, so a restack onto a moved base keeps it."""
-    return subprocess.run(["git", "patch-id", "--stable"], input=diff, capture_output=True, check=True).stdout.decode().split(" ")[0]
+def digests(diff: bytes) -> dict[str, str]:
+    """The SHA-1 of each file's added and removed lines, keyed by its path, so a restack that moves its hunks or the lines around them keeps it."""
+    return {path: hashlib.sha1("\n".join(line for line in text.splitlines() if line.startswith(("+", "-"))).encode()).hexdigest() for path, text in files(diff)}
 
 
 def change(key: str) -> dict:

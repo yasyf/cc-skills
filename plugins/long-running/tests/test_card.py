@@ -83,7 +83,7 @@ def entry(wants_tap: bool = True, tap: str | None = None, exempt: str | None = N
         "hold_label": False,
         "conflict": False,
         "merged_sha": None,
-        "checked": {"head": HEAD, "orders": ["o1"], "patch": ""},
+        "checked": {"head": HEAD, "read": HEAD, "orders": ["o1"], "lines": {}},
         "checker": None,
         "updated": "2026-11-09T08:00:00-08:00",
         "now": stage.Stage(named, "", ""),
@@ -898,7 +898,7 @@ def test_a_change_against_his_words_is_a_whole_line_on_his_card_beside_approve_a
     key, change = "Forge-AI/monorepo#42", "run.ts drops the run page " + "and its link from the sidebar " * 20
     named = f'o1 "ship the run page": {change}'
     redraw = moved_under_his_card(drive, monkeypatch)
-    judge.against = [{"order": "o1", "words": "ship the run page", "change": change}]
+    judge.against = [{"order": "o1", "words": "ship the run page", "file": "run.ts", "change": change}]
     assert cli.main(["pr", "check", URL, "--drive", drive]) == 0
     [checked] = [event for event in events(drive) if event["kind"] == "check"]
     assert checked["change"].startswith(f"NOT READY: {key} go against his words, judged from each PR's title and diff: {named}. ")
@@ -909,7 +909,8 @@ def test_a_change_against_his_words_is_a_whole_line_on_his_card_beside_approve_a
     pr = state.load(drive)["prs"][key]
     assert (pr["tap"]["label"], pr["fundamental"], landers) == ("Approve", None, [(key,)])
     [held] = ask(redraw)["cards"]
-    assert (held["card"]["prs"][0]["blocks"], held["card"]["prs"][0]["review"]) == ("Approved by you. CI passed; the drive queues it for merge", line)
+    approved = f"Commit fedcba9 goes against your words: {named}. Your Approve still lands it"
+    assert (held["card"]["prs"][0]["blocks"], held["card"]["prs"][0]["review"]) == ("Approved by you. CI passed; the drive queues it for merge", approved)
 
 
 def test_answer_matches_the_lowercase_repo_cc_slack_sends(drive: str) -> None:
@@ -1136,7 +1137,7 @@ def siblings(monkeypatch: pytest.MonkeyPatch, orders: dict[int, str], drawn_alon
     with state.edit("demo") as data:
         for number, order in orders.items():
             key = f"Forge-AI/monorepo#{number}"
-            served = {"serves": order, "checked": {"head": HEAD, "orders": ["o1", order], "patch": ""}}
+            served = {"serves": order, "checked": {"head": HEAD, "read": HEAD, "orders": ["o1", order], "lines": {}}}
             data["prs"][key] = {**kept_entry(), "url": stack_url(number), **served, **({"stack": [key]} if drawn_alone else {})}
     monkeypatch.setattr(
         card,
