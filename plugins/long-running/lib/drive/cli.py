@@ -3701,7 +3701,7 @@ def pr_checked(args: argparse.Namespace) -> int:
 
 
 def answer(args: argparse.Namespace) -> int:
-    """Record an answer or ruling of his against the cards asking him, orders and parts undelivered and PRs not yet live that it could change, those of the job and order of the card it answers, those its words name, each other question card Jev reads it as changing, and those of each open order a pick of his binds that the card asked him to lift, and the jobs waiting on their orders: refuse until each card, order, part and PR is marked standing, settled, dropped, superseded or reopened by it and each job sent his words or untouched, show his answer on each card it settles, redraw each it settles in part to the ASK its job keeps for what is left, withdraw each card it drops without stopping its job, drop each order it drops, or whose every part it drops, stopping the live jobs whose order it is and marking in cc-notes each pick binding it superseded by his answer, take each other part it drops off its order, jobs and PRs, close on GitHub each open PR it drops, settle each superseded card in place, withdraw each card carrying a reopened PR until its builder's READY says how his words are met, and close on GitHub an open PR superseded outright; any other card, part or PR still asking him may be marked too."""
+    """Record an answer or ruling of his against the cards asking him, orders and parts undelivered and PRs not yet live that it could change, those of the job and order of the card it answers, those its words name, each other question card Jev reads it as changing, and those of each open order a pick of his binds that the card asked him to lift, and the jobs waiting on their orders: refuse until each card, order, part and PR is marked standing, settled, dropped, superseded or reopened by it and each job sent his words or untouched, either mark taking his words off the texts that job holds, show his answer on each card it settles, redraw each it settles in part to the ASK its job keeps for what is left, withdraw each card it drops without stopping its job, drop each order it drops, or whose every part it drops, stopping the live jobs whose order it is and marking in cc-notes each pick binding it superseded by his answer, take each other part it drops off its order, jobs and PRs, close on GitHub each open PR it drops, settle each superseded card in place, withdraw each card carrying a reopened PR until its builder's READY says how his words are met, and close on GitHub an open PR superseded outright; any other card, part or PR still asking him may be marked too."""
     from drive import view
 
     name = state.resolve(args.drive)
@@ -3780,6 +3780,8 @@ def answer(args: argparse.Namespace) -> int:
     with state.edit(name) as data:
         data["answers"][args.id]["cards"].update({key: {"mark": "stands"} for key in args.stands})
         data["answers"][args.id]["jobs"].update({job_id: {"mark": "sent"} for job_id in sent} | {job_id: {"mark": "untouched"} for job_id in args.untouched})
+        for job_id in told:
+            superseded.unhold(data["jobs"][job_id], kept["words"])
     cleared: set[str] = set()
     try:
         done += [settle_card(name, args.id, kept, key, asked[key], file) for key, file in args.settled]

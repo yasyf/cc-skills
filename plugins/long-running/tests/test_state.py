@@ -278,6 +278,31 @@ def test_a_drive_saved_while_the_card_store_held_whether_a_question_was_open_clo
     assert state.load("demo")["jobs"]["j1"]["questions"][0]["closed"] is None
 
 
+def test_a_drive_saved_holding_his_answer_on_jobs_not_owed_it_drops_each_copy_on_a_job_made_after_he_gave_it_or_marked_heard(state_root: Path) -> None:
+    make("demo")
+    data = state.load("demo")
+    del data["holds_owed"]
+    tapped, took = "2026-11-13T12:06:14-08:00", "2026-11-13T14:15:38-08:00"
+    tap_card, typed_card = "https://acme.slack.com/archives/D1/p1794600340632399", "https://acme.slack.com/archives/D1/p1794600900000100"
+    tap = state.new_question("/asks/j1-b.md", "Which forms?", "2026-11-13T11:30:00-08:00", card=tap_card, closed=state.new_close("answered", "Optional NONE", tap_card, seq="699068", at=tapped))
+    typed = state.new_question("/asks/j1-c.md", "Which reports?", "2026-11-13T11:40:00-08:00", card=typed_card, closed=state.new_close("answered", "the reports", typed_card, seq="699111", at="2026-11-13T13:00:00-08:00"))
+
+    def held(seq: str, waits: str, words: str) -> dict:
+        return {"seq": seq, "words": f'His answer on card {waits}, verbatim: "{words}"', "at": took, "said": None, "request": f"req-{seq}"}
+
+    both = [held("699068", "demo:j1-2", "Optional NONE"), held("699111", "demo:j1-3", "the reports")]
+    data["jobs"] = {
+        "j1": state.new_job("o1", "builder", "build it", [], "2026-11-13T10:00:00-08:00") | {"questions": [tap | {"waits": "demo:j1-2"}, typed | {"waits": "demo:j1-3"}], "undelivered": both},
+        "j2": state.new_job("o1", "builder", "build the reports", [], "2026-11-13T12:11:36-08:00") | {"undelivered": both},
+        "j3": state.new_job("o1", "builder", "build the checker", [], "2026-11-13T09:00:00-08:00") | {"undelivered": both},
+    }
+    data["answers"] = {"e614876": {"words": "Optional NONE", "link": tap_card, "at": took, "said": took, "cards": {}, "jobs": {"j1": None, "j3": {"mark": "untouched"}}}}
+    state.create(data)
+    with state.edit("demo") as drive:
+        assert {job_id: [kept["seq"] for kept in job["undelivered"]] for job_id, job in drive["jobs"].items()} == {"j1": ["699068", "699111"], "j2": ["699111"], "j3": ["699111"]}
+        assert drive["holds_owed"] is True
+
+
 def test_j3668_a_drive_saved_with_two_questions_in_one_ask_file_keeps_the_one_answered_on_his_card_and_drops_its_refusal(state_root: Path) -> None:
     make("demo")
     data = state.load("demo")

@@ -2,6 +2,7 @@ import io
 import json
 import subprocess
 from collections.abc import Callable
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -745,8 +746,8 @@ NEWER_CARD = "https://acme.slack.com/archives/D123/p1794200000000100"
 
 def test_a_tap_on_a_question_card_cc_slack_forgot_is_recorded_and_ends_its_question(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
     with state.edit(drive) as data:
-        data["jobs"]["j3"] = state.new_job("o1", "builder", "the door", [], "2026-11-12T08:00:00-08:00")
-        data["jobs"]["j3"]["questions"] = [state.new_question("asks/j3-ring.md", "Ring or knock?", "2026-11-12T08:20:00-08:00", card=NEWER_CARD) | {"waits": f"{drive}:j3-661440"}]
+        data["jobs"]["j3"] = state.new_job("o1", "builder", "the door", [], "2026-11-08T20:00:00-08:00")
+        data["jobs"]["j3"]["questions"] = [state.new_question("asks/j3-ring.md", "Ring or knock?", "2026-11-08T20:20:00-08:00", card=NEWER_CARD) | {"waits": f"{drive}:j3-661440"}]
     monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
     view.refresh_cards(drive)
     posted: list[list[dict]] = []
@@ -759,13 +760,31 @@ def test_a_tap_on_a_question_card_cc_slack_forgot_is_recorded_and_ends_its_quest
     assert (closed["how"], closed["words"], closed["link"]) == ("answered", "Ring", NEWER_CARD)
 
 
+def test_his_tap_the_drive_takes_two_hours_late_is_held_on_every_job_it_frees_but_one_made_after_it(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    tapped = datetime.fromtimestamp(1794200001.0001).astimezone()
+    took = tapped + timedelta(hours=2)
+    with state.edit(drive) as data:
+        data["jobs"]["j1"].update(created=state.stamp(tapped - timedelta(hours=3)), waits=["j3"])
+        data["jobs"]["j3"] = state.new_job("o1", "builder", "the door", [], state.stamp(tapped - timedelta(hours=1)))
+        data["jobs"]["j3"]["questions"] = [state.new_question("asks/j3-ring.md", "Ring or knock?", state.stamp(tapped - timedelta(minutes=30)), card=NEWER_CARD) | {"waits": f"{drive}:j3-661440"}]
+        data["jobs"]["j4"] = state.new_job("o1", "builder", "the bell, briefed with his answer", [], state.stamp(tapped + timedelta(minutes=3))) | {"waits": ["j3"]}
+    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
+    view.refresh_cards(drive)
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, '{"seq": 661500}\n', ""))
+    monkeypatch.setattr(state, "now", lambda: took)
+    tap = {"waits": f"{drive}:j3-661440", "label": "Ring", "url": NEWER_CARD, "action_ts": "1794200001.000100", "source": "slack"}
+    assert ask({"answer": tap}) == {"ok": True, "seq": "661500"}
+    jobs = state.load(drive)["jobs"]
+    assert {job_id: [held["seq"] for held in job["undelivered"]] for job_id, job in jobs.items()} == {"j1": ["661500"], "j3": ["661500"], "j4": []}
+
+
 def two_questions_of_j3(drive: str, monkeypatch: pytest.MonkeyPatch) -> tuple[list[tuple[str, str, str, bool]], list[list[dict]]]:
     """j3's older question on one card and its newer one on another, as cc-slack lists his cards; each card the drive closes in place, and each record batch posted."""
     with state.edit(drive) as data:
-        data["jobs"]["j3"] = state.new_job("o1", "builder", "the door", [], "2026-11-12T08:00:00-08:00")
+        data["jobs"]["j3"] = state.new_job("o1", "builder", "the door", [], "2026-11-08T20:00:00-08:00")
         data["jobs"]["j3"]["questions"] = [
-            state.new_question("asks/j3-bell.md", "Bell or knocker?", "2026-11-12T08:10:00-08:00", card=OLDER_CARD) | {"waits": f"{drive}:j3-661000"},
-            state.new_question("asks/j3-ring.md", "Ring or knock?", "2026-11-12T08:20:00-08:00", card=NEWER_CARD) | {"waits": f"{drive}:j3-661440"},
+            state.new_question("asks/j3-bell.md", "Bell or knocker?", "2026-11-08T20:10:00-08:00", card=OLDER_CARD) | {"waits": f"{drive}:j3-661000"},
+            state.new_question("asks/j3-ring.md", "Ring or knock?", "2026-11-08T20:20:00-08:00", card=NEWER_CARD) | {"waits": f"{drive}:j3-661440"},
         ]
     shown = [
         {"question": "Bell or knocker?", "url": OLDER_CARD, "card": {"waits": f"{drive}:j3-661000"}, "options": ["Bell", "Knocker"]},
