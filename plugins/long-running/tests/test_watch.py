@@ -4337,6 +4337,35 @@ def test_a_landing_whose_worktree_checkout_could_not_fetch_a_blob_is_said_once_t
     assert posted(sent) == [("defect", f"meta@{demo}", f"{watch.LANDER}{failed}")]
 
 
+@pytest.mark.parametrize("mode", ["--check", "--watch"])
+def test_a_landing_whose_stack_enqueue_failed_on_its_own_is_said_once_to_the_meta_session_as_the_landers_defect_and_tried_again_with_no_new_tap_until_it_queues(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]], mode: str
+) -> None:
+    waiting_job(demo)
+    approve(demo, KEY)
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= {"checks": "pass", "review": "approved"}
+    on_main(tmp_path, demo, f"#!/bin/sh\n[ \"$1\" = {mode} ] || exit 0\necho \"stack-enqueue failed: [Errno 2] No such file or directory: 'ccx'\" >&2\nexit 5\n")
+    watching = watcher(demo)
+    failed = land.run(demo, [KEY])
+    assert failed == (
+        f"{land.NO_ENQUEUE} {mode} on {KEY}, which exited 5 on a failure of its own:"
+        f" stack-enqueue failed: [Errno 2] No such file or directory: 'ccx'; its whole output is in {state.drive_dir(demo) / land.LOG}"
+    )
+    assert land.start(demo, [KEY], NO_CARDS) == [(KEY,)]
+    assert land.run(demo, [KEY]) == failed
+    enqueue_exiting(tmp_path, demo, 0)
+    assert land.start(demo, [KEY], NO_CARDS) == [(KEY,)]
+    assert land.run(demo, [KEY]) == land.QUEUED
+    assert land.start(demo, [KEY], NO_CARDS) == []
+    assert landers == [(KEY,), (KEY,)]
+    lines = watch.event_lines(watching)
+    assert lines == [f"{watch.LANDER}{failed}", f"PR {KEY}: {land.QUEUED} [o1 j1]"]
+    sent = posts(monkeypatch)
+    assert watch.handed(watching, lines, T0) == [f"PR {KEY}: {land.QUEUED} [o1 j1]"]
+    assert posted(sent) == [("defect", f"meta@{demo}", f"{watch.LANDER}{failed}")]
+
+
 def test_a_lander_that_outlived_an_install_reopens_on_the_newest_drive_which_records_its_outcome_and_logs_it_under_its_pr(
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

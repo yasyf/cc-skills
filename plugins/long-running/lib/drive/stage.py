@@ -110,7 +110,7 @@ def landing_why(pr: dict) -> str:
 
 
 def unlanded(data: dict, pr: dict) -> str | None:
-    """How a lander's try at the PR's head ended without landing it, or None when no try at this head stands: none ran on it, Trunk holds it, GitHub refused() the merge Trunk's queue took, so the lander lands it again one PR at a time, or ejected it on a flaky test whose fix it waits on, by ejection(), what let it run moved since, nothing clearing it now while it waits on his card, as after drive pr set --no-exempt --tap, or his tap made after the try started, or what the try waited on moved since, a PR below it that is cleared or merged now, a newer install's save that ended it before it queued anything, a hold of his that it or halt() stopped it on, which held() reads while it stands, or no fresh worktree of the default branch to land from, such as when GitHub did not answer, so the lander tries again."""
+    """How a lander's try at the PR's head ended without landing it, or None when no try at this head stands: none ran on it, Trunk holds it, GitHub refused() the merge Trunk's queue took, so the lander lands it again one PR at a time, or ejected it on a flaky test whose fix it waits on, by ejection(), what let it run moved since, nothing clearing it now while it waits on his card, as after drive pr set --no-exempt --tap, or his tap made after the try started, or what the try waited on moved since, a PR below it that is cleared or merged now, a newer install's save that ended it before it queued anything, a hold of his that it or halt() stopped it on, which held() reads while it stands, or the lander's own failure, no fresh worktree of the default branch to land from, such as when GitHub did not answer, or stack-enqueue failing on its own, so the lander tries again."""
     lander = pr["lander"]
     if not lander or lander["head"] != pr["head"] or land.running(pr) or land.refused(pr):
         return None
@@ -119,7 +119,7 @@ def unlanded(data: dict, pr: dict) -> str | None:
     if lander["outcome"] == land.QUEUED:
         return ejection(data, pr) if pr["ejected"] else None
     outcome = lander["outcome"] or UNLANDED_SILENT
-    if outcome.startswith((land.NEWER_INSTALL, land.NO_WORKTREE, land.HELD)):
+    if outcome.startswith((land.NEWER_INSTALL, land.OWN_FAILURE, land.HELD)):
         return None
     if lander.get("below") and all(key in data["prs"] and (state.cleared(data["prs"][key]) or data["prs"][key]["state"] == "merged") for key in lander["below"]):
         return None

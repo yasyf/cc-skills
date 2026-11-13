@@ -29,7 +29,10 @@ ASYNC_SECONDS = 2
 NOT_MERGING = "not merging it"
 MERGE = ("gh", "pr", "merge", "--squash")
 NEWER_INSTALL = "not landed: a newer long-running saved the drive while stack-enqueue --check ran, so the landing runs again on it"
-NO_WORKTREE = "the lander could not check out"
+OWN_FAILURE = "the lander could not"
+NO_WORKTREE = f"{OWN_FAILURE} check out"
+NO_ENQUEUE = f"{OWN_FAILURE} finish stack-enqueue"
+ENQUEUE_FAILED = 5
 HELD = "not landed while he holds it"
 REVIEW_ASK = "@forge-pr-reviewer review"
 BLOCKED_LINE = re.compile(r"^#(?P<number>\d+) BLOCKED (?P<head>\w+) (?P<gaps>.+)$", re.MULTILINE)
@@ -419,7 +422,7 @@ def said(output: str) -> str:
 
 
 def enqueued(name: str, clone: Path, keys: list[str], dry_run: bool = False, flake: bool = False) -> str:
-    """Queue the unit through stack-enqueue as the head of its repository's default branch holds it, run from a fresh() worktree of the coordinator checkout's clone and never from that checkout, with --flake when a PR of it requeues() at the head Trunk ejected it at: --check first, whose BLOCKED lines end the landing, unless each gap is an approval on an older head, which stack-enqueue names only once ai-review finished on the head, or a wait to retarget onto the default branch once the PR under it lands; a dry run stops there, saying what it would queue; then forge-pr-reviewer is asked to review each head approved only on an older one, once, and --watch waits until Trunk holds every PR of it or one needs a fix rather than a wait, unless halt() ends it first, which dequeues each PR of it; what came of it. A drive a newer install saved while it read the PRs below the unit, made the fresh worktree, ran --check or waited on Trunk in --watch ends the landing unlanded, for the next landing on that install."""
+    """Queue the unit through stack-enqueue as the head of its repository's default branch holds it, run from a fresh() worktree of the coordinator checkout's clone and never from that checkout, with --flake when a PR of it requeues() at the head Trunk ejected it at: --check first, whose exit of ENQUEUE_FAILED ends the landing as the lander's own failure, by unfinished(), as the same exit of --watch does, and whose BLOCKED lines end it, unless each gap is an approval on an older head, which stack-enqueue names only once ai-review finished on the head, or a wait to retarget onto the default branch once the PR under it lands; a dry run stops there, saying what it would queue; then forge-pr-reviewer is asked to review each head approved only on an older one, once, and --watch waits until Trunk holds every PR of it or one needs a fix rather than a wait, unless halt() ends it first, which dequeues each PR of it; what came of it. A drive a newer install saved while it read the PRs below the unit, made the fresh worktree, ran --check or waited on Trunk in --watch ends the landing unlanded, for the next landing on that install."""
     repo = github.repo_of(keys[0])
     numbers = [key.split("#")[1] for key in keys]
     flags = ["--flake"] if flake else []
@@ -434,6 +437,8 @@ def enqueued(name: str, clone: Path, keys: list[str], dry_run: bool = False, fla
             except OSError as error:
                 return f"not landed: {script} did not start: {error}"
             print(checked.stdout + checked.stderr, flush=True)
+            if checked.returncode == ENQUEUE_FAILED:
+                return unfinished(name, "--check", keys, checked)
             blocked = list(BLOCKED_LINE.finditer(checked.stdout))
             if any(not (OLDER_HEAD.fullmatch(gap) or RETARGETS.fullmatch(gap)) for line in blocked for gap in line["gaps"].split("; ")):
                 return f"not landed: {cut('; '.join(line[0] for line in blocked), SAID_CHARS)}; its whole output is in {state.drive_dir(name) / LOG}"
@@ -456,7 +461,14 @@ def enqueued(name: str, clone: Path, keys: list[str], dry_run: bool = False, fla
     print(done.stdout + done.stderr, flush=True)
     if done.returncode == 0:
         return QUEUED
+    if done.returncode == ENQUEUE_FAILED:
+        return unfinished(name, "--watch", keys, done)
     return f"not landed: stack-enqueue --watch exited {done.returncode}: {said(done.stdout + done.stderr)}; its whole output is in {state.drive_dir(name) / LOG}"
+
+
+def unfinished(name: str, mode: str, keys: list[str], done: subprocess.CompletedProcess) -> str:
+    """The lander's own failure when stack-enqueue exits ENQUEUE_FAILED, its FAILED, which says nothing of the PRs, such as a binary it runs that a Homebrew upgrade unlinked for a moment or a GitHub read that timed out, so the watch's next pass tries the same head again."""
+    return f"{NO_ENQUEUE} {mode} on {', '.join(keys)}, which exited {ENQUEUE_FAILED} on a failure of its own: {said(done.stdout + done.stderr)}; its whole output is in {state.drive_dir(name) / LOG}"
 
 
 @contextmanager

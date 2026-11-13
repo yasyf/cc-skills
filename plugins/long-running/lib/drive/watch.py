@@ -933,7 +933,7 @@ def event_line(event: dict, prs: dict) -> str:
     suffix = f" {ids(prs[key])}" if key in prs else ""
     if event["kind"] == "tap":
         return f"TAP {event['label']} {key}{suffix}"
-    if event["kind"] == "landing" and event["change"].startswith(land.NO_WORKTREE):
+    if event["kind"] == "landing" and event["change"].startswith(land.OWN_FAILURE):
         return f"{LANDER}{event['change']}"
     if event["kind"] in ("landing", "check", "proof"):
         return f"PR {key}: {event['change']}{suffix}"
