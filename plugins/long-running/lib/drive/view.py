@@ -1057,8 +1057,8 @@ def bug_stage(order: dict, prs: list[dict]) -> str:
 
 
 def glance(card: dict) -> dict:
-    """A card as a page lists it before he opens it: its question, its options and the PRs it carries."""
-    return {"title": card["title"], "options": card["options"], "recommended": card.get("recommended"), "prs": [{"url": row["url"], "title": row["title"]} for row in card.get("prs") or []]}
+    """A card as a page lists it before he opens it: its question, its options, the PRs it carries and whether they are sibling PRs of one request, so a PR page never calls them a stack."""
+    return {"title": card["title"], "options": card["options"], "recommended": card.get("recommended"), "prs": [{"url": row["url"], "title": row["title"]} for row in card.get("prs") or []], "siblings": card.get("siblings", False)}
 
 
 def outline(entry: dict) -> dict:
