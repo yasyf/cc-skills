@@ -212,3 +212,62 @@ def test_shim_takes_the_passwd_home_from_user_without_id(tmp_path: Path):
         },
     )
     assert out.stdout.strip() == "0.61.0 tool.binrun"
+
+
+def offline_path(tmp_path: Path, *, with_binrun: bool) -> Path:
+    bin_dir = tmp_path / "path"
+    bin_dir.mkdir()
+    curl = bin_dir / "curl"
+    curl.write_text(f'#!/bin/bash\necho x >>{tmp_path / "curl-calls"}\nexit 22\n')
+    curl.chmod(0o755)
+    if with_binrun:
+        stale = bin_dir / "binrun"
+        stale.write_text('#!/bin/bash\necho "path-binrun ${*:2}"\n')
+        stale.chmod(0o755)
+    return bin_dir
+
+
+def test_shim_bootstraps_the_pinned_runner_before_a_binrun_on_path(tmp_path: Path):
+    cache = plugin_cache(tmp_path, {"0.61.0": False})
+    (cache / "0.61.0" / "bin" / "tool.binrun").write_text("{}")
+    env = {
+        "PATH": f"{offline_path(tmp_path, with_binrun=True)}:/usr/bin:/bin",
+        "DAEMONKIT_HOME": str(tmp_path),
+    }
+    runs = [
+        subprocess.run(
+            [str(cache / "0.61.0" / "bin" / "tool"), "vcs"],
+            capture_output=True,
+            text=True,
+            check=True,
+            env=env,
+        )
+        for _ in range(2)
+    ]
+    assert [run.stdout.strip() for run in runs] == ["path-binrun vcs"] * 2
+    assert "could not download the pinned binrun runner" in runs[0].stderr
+    assert runs[1].stderr == ""
+    assert (tmp_path / "curl-calls").read_text().count("x") == 1
+    assert not list((tmp_path / ".daemonkit" / "binrun").glob("*/.binrun.*"))
+
+
+def test_shim_fails_when_the_bootstrap_fails_with_no_binrun_on_path(tmp_path: Path):
+    cache = plugin_cache(tmp_path, {"0.61.0": False})
+    (cache / "0.61.0" / "bin" / "tool.binrun").write_text("{}")
+    env = {
+        "PATH": f"{offline_path(tmp_path, with_binrun=False)}:/usr/bin:/bin",
+        "DAEMONKIT_HOME": str(tmp_path),
+    }
+    runs = [
+        subprocess.run(
+            [str(cache / "0.61.0" / "bin" / "tool"), "vcs"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+        )
+        for _ in range(2)
+    ]
+    assert [run.returncode for run in runs] == [1, 1]
+    assert all("could not download the pinned binrun runner" in run.stderr for run in runs)
+    assert (tmp_path / "curl-calls").read_text().count("x") == 2
