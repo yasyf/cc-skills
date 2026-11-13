@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections import Counter
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -85,8 +86,10 @@ BUILDKITE_JOB = re.compile(r"(?:#|jid=|/jobs/)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{
 ACTIONS_JOB = re.compile(r"github\.com/([^/\s]+/[^/\s]+)/actions/runs/\d+/jobs?/(\d+)")
 MARKUP = re.compile(r"\x1b_[^\x07]*\x07|\x1b\[[0-9;]*[A-Za-z]|\r")
 FAILURE = re.compile(r"--- FAIL: |^\s*(?:FAIL\s|[✖✕●] )|panicked at |error TS\d+")
-GO_FAIL = re.compile(r"--- FAIL: (\S+)")
+GO_FAIL = re.compile(r"--- FAIL: (\S+)|^FAIL\t")
 GO_START = re.compile(r"=== (?:RUN|CONT|NAME)\s+(\S+)")
+CAUSE = re.compile(r"^\s*(?:\[cause\]|cause|Caused by)\s*:")
+DURATION = re.compile(r"\s*\(\d[\d.]*\s?m?s\)$")
 FAILURE_AFTER = 2
 COMMAND_START = "~~~ Running commands"
 COMMAND_END = "~~~ Running repository post-command hook"
@@ -502,49 +505,82 @@ def buildkite(pipeline: str, number: str, job_id: str | None, checkout: Path, bu
 
 
 def excerpt(log: str, limit: int) -> str:
-    """The job's own command output, without Buildkite's hooks and markup, whole when it fits in `limit` characters, else its failure lines, then each failure's own output in an even share of what they leave, then its last characters in the rest."""
+    """The job's own command output, without Buildkite's hooks and markup, whole when it fits in `limit` characters, else its failure lines, a repeated one once, then each failure's own output folded to an even share of what they leave, then its last characters in the rest."""
     output = MARKUP.sub("", log).split(COMMAND_START, 1)[-1].split(COMMAND_END, 1)[0].strip()
     if len(output) <= limit:
         return output
-    found, own = failures(output)
+    found, matched, own = failures(output)
     if not found:
         return f"[no failure lines matched]\n[last {limit} of {len(output)} characters]\n{output[-limit:]}"
     named = "\n".join(found)
     if len(named) >= limit:
         return f"[first {limit} of {len(named)} characters of the {len(found)} failure lines]\n{named[:limit]}"
     share = (limit - len(named)) // len(own)
-    kept = [block[max(len(block) - share, 0) :] for block in own]
+    kept = [fold(block, go, share) for block, go in own]
     said = (
-        f"[failure lines, {len(found)} matched]\n{named}\n"
-        f"[each failure's own output: a Go test's lines from its === RUN, else the failure line and the {FAILURE_AFTER} after it,"
-        f" each cut to its last {share} characters]\n"
+        f"[failure lines, {matched} matched]\n{named}\n"
+        f"[each failure's own output, a repeated one's longest: a Go test's lines from its === RUN, cut to its last {share} characters,"
+        f" else the failure line through the lines indented under it, past {share} characters folded to its failure lines, the {FAILURE_AFTER} after each and its cause lines]\n"
         + "\n--\n".join(kept)
     )
     rest = limit - len(named) - sum(map(len, kept))
     return f"{said}\n[last {rest} of {len(output)} characters]\n{output[-rest:]}" if rest else said
 
 
-def failures(output: str) -> tuple[list[str], list[str]]:
-    """The output's non-blank lines that match FAILURE, matched anywhere in a `--- FAIL:` line, and each one's own output, overlapping ones joined: a Go test's lines from its last `=== RUN`, `=== CONT` or `=== NAME` line, else the failure line, through the FAILURE_AFTER lines after it."""
+def failures(output: str) -> tuple[list[str], int, list[tuple[list[str], bool]]]:
+    """The output's non-blank lines that match FAILURE, matched anywhere in a `--- FAIL:` line, each listed once as first printed, with its count when lines alike but for a trailing duration repeat it; how many matched; and each one's own output, a repeated one's longest, overlapping ones joined and marked when one is Go's: a Go test's lines from its last `=== RUN`, `=== CONT` or `=== NAME` line, else a Go package's `FAIL` line, through the FAILURE_AFTER lines after it, and anything else's failure line through each line after it indented deeper, never fewer than FAILURE_AFTER."""
     lines = [line for line in output.splitlines() if line.strip()]
     began: dict[str, int] = {}
-    found: list[str] = []
-    spans: list[tuple[int, int]] = []
+    first: dict[str, str] = {}
+    times: Counter[str] = Counter()
+    spans: dict[str, tuple[int, int, bool]] = {}
     for at, line in enumerate(lines):
         if test := GO_START.search(line):
             began[test[1]] = at
         if not FAILURE.search(line):
             continue
-        found.append(line)
-        test = GO_FAIL.search(line)
-        spans.append((began.get(test[1], at) if test else at, at + FAILURE_AFTER))
-    joined: list[list[int]] = []
-    for first, last in sorted(spans):
-        if joined and first <= joined[-1][1] + 1:
-            joined[-1][1] = max(joined[-1][1], last)
+        key = DURATION.sub("", line.strip())
+        first.setdefault(key, line)
+        times[key] += 1
+        if test := GO_FAIL.search(line):
+            span = (began.get(test[1], at), at + FAILURE_AFTER, True)
         else:
-            joined.append([first, last])
-    return found, ["\n".join(lines[first : last + 1]) for first, last in joined]
+            span = (at, max(indented(lines, at), at + FAILURE_AFTER), False)
+        if key not in spans or span[1] - span[0] > spans[key][1] - spans[key][0]:
+            spans[key] = span
+    joined: list[list] = []
+    for start, end, go in sorted(spans.values()):
+        if joined and start <= joined[-1][1] + 1:
+            joined[-1][1:] = [max(joined[-1][1], end), joined[-1][2] or go]
+        else:
+            joined.append([start, end, go])
+    found = [line if times[key] == 1 else f"{line} (x{times[key]})" for key, line in first.items()]
+    return found, times.total(), [(lines[start : end + 1], go) for start, end, go in joined]
+
+
+def indented(lines: list[str], at: int) -> int:
+    """The index of the last line in the run right after the line at `at` indented deeper than it, `at` when the next line is not."""
+    depth = len(lines[at]) - len(lines[at].lstrip())
+    end = at
+    while end + 1 < len(lines) and len(lines[end + 1]) - len(lines[end + 1].lstrip()) > depth:
+        end += 1
+    return end
+
+
+def fold(block: list[str], go: bool, share: int) -> str:
+    """A failure's own output whole when it fits in `share` characters; else a Go test's last `share`, since Go prints a test's message just above its `--- FAIL`, and anything else's failure lines, the FAILURE_AFTER lines after each and its CAUSE lines, each run of lines between them said as its count, cut to its first `share`."""
+    text = "\n".join(block)
+    if len(text) <= share:
+        return text
+    if go:
+        return text[len(text) - share :]
+    kept = {after for at, line in enumerate(block) if FAILURE.search(line) for after in range(at, at + FAILURE_AFTER + 1)}
+    kept |= {at for at, line in enumerate(block) if CAUSE.match(line)}
+    parts: list[str] = []
+    for keep, group in itertools.groupby(range(len(block)), kept.__contains__):
+        ats = list(group)
+        parts += [block[at] for at in ats] if keep else [f"[{len(ats)} lines]"]
+    return "\n".join(parts)[:share]
 
 
 def run(argv: list[str], checkout: Path, env: dict[str, str] | None = None, bounded: bool = True, stdin: str | None = None) -> str:

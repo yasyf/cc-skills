@@ -141,8 +141,8 @@ def test_excerpt_with_no_failure_line_keeps_the_tail_and_says_how_much_it_cut() 
 
 def own_output(share: int) -> str:
     return (
-        "[each failure's own output: a Go test's lines from its === RUN, else the failure line and the 2 after it,"
-        f" each cut to its last {share} characters]"
+        f"[each failure's own output, a repeated one's longest: a Go test's lines from its === RUN, cut to its last {share} characters,"
+        f" else the failure line through the lines indented under it, past {share} characters folded to its failure lines, the 2 after each and its cause lines]"
     )
 
 
@@ -194,6 +194,37 @@ def test_excerpt_joins_overlapping_failures_and_cuts_what_overflows() -> None:
         f"[last 1 of {len(output)} characters]\nx"
     )
     assert reads.excerpt(output, 20) == f"[first 20 of {len(named)} characters of the 3 failure lines]\n{named[:20]}"
+
+
+FAILED_QUERIES = [f"a wake fire packs batch {n} into one claim" for n in range(16)]
+
+
+def failed_query_run(milliseconds: int) -> list[str]:
+    ran = [line for n, name in enumerate(FAILED_QUERIES) for line in ("[api] claimed a wake", "[api] packed a batch", f"✖ {name} ({milliseconds + n}ms)")]
+    summary = [
+        line
+        for n, name in enumerate(FAILED_QUERIES)
+        for line in (
+            f"test at api/src/wake.test.ts:{n + 10}:1",
+            f"✖ {name} ({milliseconds + n}ms)",
+            "  Error: Failed query: ",
+            *(f"    SELECT column_{row} FROM wanted WHERE id = $1" for row in range(118)),
+            f'    cause: error: syntax error at or near "placing{n}"',
+            *(f"        at Object.<anonymous> (api/src/wake.ts:{row}:9)" for row in range(29)),
+            "  }",
+        )
+    ]
+    return [*ran, "ℹ tests 300", "ℹ pass 284", "ℹ fail 16", "✖ failing tests:", *summary]
+
+
+def test_excerpt_keeps_each_failures_cause_printed_far_below_it_and_lists_a_repeated_failure_once() -> None:
+    output = "\n".join([*failed_query_run(100), *failed_query_run(300)])
+    head = reads.excerpt(output, reads.BUDGET).split("\n[last ", 1)[0]
+    assert len(output) > 10 * reads.BUDGET
+    assert head.startswith("[failure lines, 66 matched]\n")
+    assert [head.count(f'cause: error: syntax error at or near "placing{n}"') for n in range(16)] == [1] * 16
+    assert [head.count(f"✖ {name} ({100 + n}ms) (x4)") for n, name in enumerate(FAILED_QUERIES)] == [1] * 16
+    assert head.count("✖ failing tests: (x2)") == 1
 
 
 def test_a_build_url_reads_every_failed_script_job(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
