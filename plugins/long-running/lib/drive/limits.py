@@ -155,6 +155,16 @@ ROOT_CAUSE_RULES = {
 ROOT_CAUSE_WORDS = {"id": "ruling:0c59046", "asked": "his ruling on root causes", "said": ROOT_CAUSE_QUOTE}
 TEAM_DATA_QUOTE = "4, it is never ok to write from local or not use a service agent or any things like this"
 IRIS_BLOBS_QUOTE = "it shouldnt be reading iris blobs at all locally only with a service account on a pass box"
+TEAM_DATA_RULE = (
+    "a drive job reads or writes a team's data only as a service account, on a pass box or in the team's own cluster,"
+    f' never on this Mac, a Sprite or under `drive break-glass`, by his words "{TEAM_DATA_QUOTE}" and'
+    f' "{IRIS_BLOBS_QUOTE}"'
+)
+CLUSTER_JOB = (
+    "runs as a Job in the team's cluster, started from its suspended CronJob with `tools/ci cluster-job --cluster"
+    ' <release env> --cronjob <name> --reason "<why>"`'
+)
+UNMADE = "returns `BLOCKED` naming it and the team, which leaves him to pick the service account that makes it"
 TEAM_DATA_WORDS = {
     "id": "ruling:32f49af",
     "asked": (

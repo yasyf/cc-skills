@@ -12,6 +12,8 @@ BRIEF_FILE = re.compile(r"^Read your brief first:[ \t]*(\S+)|(/\S+/orca/tasks/[^
 HANDOFF = re.compile(r"^Handoff:", re.MULTILINE)
 SERVES_TOOLING = re.compile(r"^Serves:[ \t]*drive tooling\b", re.MULTILINE | re.IGNORECASE)
 PLANNED = re.compile(r"^(Goal|Done when|Where|Runs as|Native|Interactions|Would he ask|Plan|Incident):[ \t]*(.+)$", re.MULTILINE)
+RUNS_AS = re.compile(r"^Runs as:(?![ \t]*none\b)[ \t]*(.+)$", re.MULTILINE | re.IGNORECASE)
+FROM_THIS_MAC = re.compile(r"\bbreak[- ]?glass\w*|\bmachine[- ]profile\b", re.IGNORECASE)
 FIELD = re.compile(
     r"^(Order \(his words\)|Serves|Goal|Done when|Where|Runs as|Release|Mac|Handoff|Decisions that bind|Research|Researched|Answer"
     r"|Native|Interactions|Would he ask|Plan|Incident|Scratch|Transcripts|Drive):",
@@ -305,8 +307,16 @@ def job_refusal(name: str, data: dict, order_id: str, kind: str, parts: list[str
 
 
 def brief_refusal(name: str, data: dict, job_id: str, brief: str) -> str | None:
-    """Why this brief may not start its job's agent: the lines its writer plans the job with ask him for a sign-in, Touch ID or cc-sudo on an AWS action this Mac's machine profile runs, a drive tooling brief aside, whose lines name the sign-ins the drive's checks refuse; an incident's codex lane or builder needs its kind's rule on a choice, by incident_refusal; a build order's builder, designer or codex lane needs the Researched: line naming a reader of its own part, unless it ships the immediate fix or designs a follow-up he ordered, which starts at once doing its own research, and an answer order's one lane does its own research."""
-    if not SERVES_TOOLING.search(brief) and (asked := limits.sign_in_problems([(f"its {found[1]} line", found[2]) for found in PLANNED.finditer(brief)])):
+    """Why this brief may not start its job's agent: its Runs as line, outside his double-quoted words and unless it opens none, proposes break-glass or the machine profile, which run on this Mac, for a write of a team's data, which runs only as a service account in the team's cluster; the lines its writer plans the job with ask him for a sign-in, Touch ID or cc-sudo on an AWS action this Mac's machine profile runs; a drive tooling brief aside from both, whose lines name the routes and sign-ins the drive's checks refuse; an incident's codex lane or builder needs its kind's rule on a choice, by incident_refusal; a build order's builder, designer or codex lane needs the Researched: line naming a reader of its own part, unless it ships the immediate fix or designs a follow-up he ordered, which starts at once doing its own research, and an answer order's one lane does its own research."""
+    tooling = SERVES_TOOLING.search(brief)
+    runs = None if tooling else RUNS_AS.search(brief)
+    if runs and (route := limits.proposed(FROM_THIS_MAC, limits.SAID.sub(lambda said: limits.MASK * len(said[0]), runs[1]))):
+        return (
+            f'{job_id}\'s Runs as line writes a team\'s data under "{route[0]}", which runs on this Mac, and'
+            f" {limits.TEAM_DATA_RULE}: a pass or hand repair {limits.CLUSTER_JOB}, and a write no CronJob makes {limits.UNMADE};"
+            f' write the line again with `drive job brief {job_id} --runs-as "<service account, how it starts>"`'
+        )
+    if not tooling and (asked := limits.sign_in_problems([(f"its {found[1]} line", found[2]) for found in PLANNED.finditer(brief)])):
         return f"{job_id}'s brief plans a sign-in of his: {asked[0]}"
     job = data["jobs"][job_id]
     order_id = job["order"]
