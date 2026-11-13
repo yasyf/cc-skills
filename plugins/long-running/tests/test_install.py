@@ -1193,7 +1193,7 @@ def test_a_product_merge_names_the_surface_its_own_brief_names_for_the_proof_on_
     assert (data["orders"]["o1"]["proof"], data["orders"]["o1"]["close_report"]) == (None, None)
 
 
-def test_an_incidents_fix_proven_live_records_it_live_and_leaves_its_close_to_the_watch(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
+def test_an_incidents_fix_proven_live_keeps_no_close_and_leaves_its_close_to_the_watchs_read(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
     git = fake([BUILD], {BUILD})
     script = proving(config, tmp_path, git, 0)
     with state.edit("demo") as data:
@@ -1201,8 +1201,7 @@ def test_an_incidents_fix_proven_live_records_it_live_and_leaves_its_close_to_th
         data["jobs"]["j1"]["parts"] = ["fix"]
     install.prove("demo", "j1", 900)
     order = state.load("demo")["orders"]["o1"]
-    assert (order["close_report"], order["proof"]) == (None, f"{URL} live: {script} exits 0 on long-running@skills 1.0.3")
-    assert order["fixed"] == f"j1 proved it live: {order['proof']}"
+    assert (order["close_report"], order["proof"], order["recovered"]) == (None, None, None)
     assert proof_events() == [("yasyf/cc-skills#7", f"{install.PROVEN} on long-running@skills 1.0.3: {script} exits 0, its output {state.proof_path('demo', 'j1')}")]
 
 

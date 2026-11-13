@@ -6230,7 +6230,7 @@ def test_no_post_delivers_an_incidents_parts_but_the_incidents_close(
     report_records(monkeypatch, {"674088": {"order": "o1", "incident": "true", "part": "o1:fix"}, "674089": {"part": "fix;o1:first check"}, "674090": {"close": "o1"}})
     assert run("order", "posted", "o1", line, "--record", "674088") == (0, f"o1 progress line, no part delivered: {line}")
     with state.edit("demo") as data:
-        data["orders"]["o1"]["fixed"] = "release 13990 ships #54336 on sand"
+        data["orders"]["o1"]["recovered"] = state.stamp()
     assert run("order", "posted", "o1", line, "--record", "674089") == (0, f"o1 progress line, no part delivered: {line}")
     assert [part["posted"] for part in state.load("demo")["orders"]["o1"]["parts"].values()] == [None, None]
     assert run("order", "posted", "o1", line, "--record", "674090") == (0, f'o1 "fix", "first check": posted {line}')

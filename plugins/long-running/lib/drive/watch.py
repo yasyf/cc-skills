@@ -280,7 +280,7 @@ def bare(wait: str) -> str:
 
 
 def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Drop each wait of a job or PR that ended, his card answered, the job finished, the release out or a builder slot on this Mac given to the earliest due builder waiting its turn, one per slot no builder holds, and say once, as its last wait ends, that nothing holds it, holding back the job's ORPHAN for 30 minutes, but for a builder's READY or PUSHED whose PRs all merged, which the watch finishes next in the same pass, or else says once as an ORPHAN naming who finishes it; a builder given its slot waits on nothing with no agent yet, its slot stamped with when its turn came, and holds that slot until its agent starts. The cards a job asked him on hold it too, so it keeps its waits until he answers them. His open card for a PR whose waits ended is redrawn in place, so it names only the waits that still hold. The release that ships the last release wait of a job or PR on an open incident's fix is kept on the incident as its fix live, by the watch dropping that wait."""
+    """Drop each wait of a job or PR that ended, his card answered, the job finished, the release out or a builder slot on this Mac given to the earliest due builder waiting its turn, one per slot no builder holds, and say once, as its last wait ends, that nothing holds it, holding back the job's ORPHAN for 30 minutes, but for a builder's READY or PUSHED whose PRs all merged, which the watch finishes next in the same pass, or else says once as an ORPHAN naming who finishes it; a builder given its slot waits on nothing with no agent yet, its slot stamped with when its turn came, and holds that slot until its agent starts. The cards a job asked him on hold it too, so it keeps its waits until he answers them. His open card for a PR whose waits ended is redrawn in place, so it names only the waits that still hold."""
     data = state.load(watcher.name)
     out, lines = shipped(watcher, data, moment)
     turns, held = place.turns(data, moment)
@@ -296,7 +296,6 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
         for job_id, job in data["jobs"].items():
             if not heard_job(watcher, data, job) or view.open_cards(job):
                 continue
-            fixing(data, [job["order"], *job["carries"]], job, job, out)
             turn = job_id in turned and job["state"] == "waiting" and state.SLOT_WAIT in job["waits"]
             if (ended := released(data, job, watcher.cards, out | slot if turn else out)) and job["state"] not in state.FINISHED_JOB_STATES and not merged_ready(data, job_id):
                 job["updated"] = state.stamp(moment)
@@ -316,7 +315,6 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
         for key, pr in data["prs"].items():
             if not hears(watcher, data, pr["order"]):
                 continue
-            fixing(data, [pr["order"]], pr, data["jobs"][pr["job"]], out)
             waited = pr["waits"]
             if (ended := released(data, pr, watcher.cards, out)) and pr["state"] == "open":
                 lines.append(f"FREE {key} {pr['job']} {pr['order']}: {ended}, nothing else holds it")
@@ -330,16 +328,6 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
     return lines
 
 
-def fixing(data: dict, order_ids: list[str], owner: dict, job: dict, out: dict[str, str]) -> None:
-    """Keep on each open incident order whose fix the job carries, the PR's own job for a PR, the releases out that ship the last of the job's or PR's release waits as its fixed, the record that its fix is live, read under the lock that drops those waits, so whichever watch drops them keeps it."""
-    shipping = [out[wait] for wait in owner["waits"] if wait in out]
-    if not shipping or any(state.RELEASE_WAIT.fullmatch(wait) and wait not in out for wait in owner["waits"]):
-        return
-    for order_id in state.open_incidents(data, order_ids):
-        if state.INCIDENT_FIX in state.job_parts(job, order_id):
-            data["orders"][order_id]["fixed"] = ", ".join(shipping)
-
-
 def monitors(data: dict, order_id: str) -> dict[str, str]:
     """The link of each Datadog monitor recorded on the orders of an order's incident, by its id."""
     links = (link for other in state.incident_orders(data, order_id) for link in data["orders"][other]["alerts"])
@@ -347,26 +335,43 @@ def monitors(data: dict, order_id: str) -> dict[str, str]:
 
 
 def recovered_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Close each open incident the watch hears once its fix is live and every Datadog monitor recorded on it reads OK, the monitors of them all read in one search, and one with no monitor at once: what is left of it moves to a plain order, and a POST report hands the communicator the Live line for its thread, whose handler closes each order of it."""
+    """Close each open incident the watch hears once its fix is live and every Datadog monitor recorded on it reads OK, one with no monitor on its fix alone: what is left of it moves to a plain order, and a POST report hands the communicator the Live line for its thread, whose handler closes each order of it. Its fix is live when no job on a fix part of its orders still works, no PR of one is open, one merged and each merged one runs on every production stack, read fresh each pass for them all in one `tools/ci release pull --json`, run in the drive's checkout as orca.checkout moves it to its default branch's head, and never kept, so neither a builder's claim nor a monitor gone quiet stands for a fix that never deployed; a fix PR outside Forge-AI/monorepo has no production read, so the coordinator closes its incident. The monitors of the incidents whose fix is live are read in one search."""
     data = state.load(watcher.name)
-    fixed = {
-        head: monitors(data, head)
-        for head in state.open_incidents(data, list(data["orders"]))
-        if data["orders"][head]["fixed"] and not data["orders"][head]["joins"] and not data["orders"][head]["recovered"] and hears(watcher, data, head)
-    }
+    fixes = {}
+    for head in state.open_incidents(data, list(data["orders"])):
+        if data["orders"][head]["joins"] or data["orders"][head]["recovered"] or not hears(watcher, data, head):
+            continue
+        jobs = {job_id: job for order_id in state.incident_orders(data, head) for job_id, job in state.part_jobs(data, order_id, state.INCIDENT_FIX)}
+        prs = [key for key, pr in data["prs"].items() if pr["job"] in jobs and pr["state"] != "closed"]
+        if (
+            prs
+            and all(data["prs"][key]["state"] == "merged" and key.split("#")[0].lower() == state.MONOREPO.lower() for key in prs)
+            and all(job["state"] in state.FINISHED_JOB_STATES for job in jobs.values())
+        ):
+            fixes[head] = prs
+    if not (pulls := sorted({key for keys in fixes.values() for key in keys})):
+        return []
+    try:
+        checkout = orca.checkout(watcher.name, data)
+        read = json.loads(reads.run([str(checkout / "tools" / "ci"), "release", "pull", *(key.split("#")[1] for key in pulls), "--json"], checkout))
+    except (state.DriveError, reads.ReadError) as error:
+        return read_failed(watcher, "fix landing", error, moment)
+    watcher.failures.pop("fix landing", None)
+    live = {key for key, pull in zip(pulls, read, strict=True) if pull["liveInProduction"]}
+    landed = {head: monitors(data, head) for head, keys in fixes.items() if set(keys) <= live}
     lines, ok = [], set()
-    if ids := sorted({monitor for found in fixed.values() for monitor in found}):
+    if ids := sorted({monitor for found in landed.values() for monitor in found}):
         argv = ["pup", "--no-agent", "monitors", "search", "--query", f"id:({' OR '.join(ids)})", "--per-page", str(len(ids)), "--jq", ".monitors | map({id, status})"]
         try:
-            read = json.loads(reads.run(argv, Path(data["roles"]["coordinator"]["cwd"])))
+            statuses = json.loads(reads.run(argv, checkout))
         except reads.ReadError as error:
             lines = read_failed(watcher, "datadog monitors", error, moment)
         else:
             watcher.failures.pop("datadog monitors", None)
-            ok = {str(monitor["id"]) for monitor in read if monitor["status"] == "OK"}
-    for head, found in fixed.items():
+            ok = {str(monitor["id"]) for monitor in statuses if monitor["status"] == "OK"}
+    for head, found in landed.items():
         if found.keys() <= ok:
-            lines += closed(watcher, head, list(found.values()), moment)
+            lines += closed(watcher, head, list(found.values()), f"{', '.join(map(state.pr_url, fixes[head]))} live in production", moment)
     return lines
 
 
@@ -399,7 +404,7 @@ def reported(watcher: Watcher, records: list[dict]) -> list[str]:
     return seqs
 
 
-def closed(watcher: Watcher, head: str, links: list[str], moment: datetime) -> list[str]:
+def closed(watcher: Watcher, head: str, links: list[str], fix: str, moment: datetime) -> list[str]:
     """Close an incident that is over: its live work moves to a plain order and each of its orders keeps the recovery of its monitors, when it has any, and its fix live as its proof, then a POST report, naming each PR of the incident as the watch last read it from GitHub, names each order for the communicator's handler to post in its thread and close; a post that fails goes again next read."""
     read_ok = f"{', '.join(links)} read OK"
     with state.edit(watcher.name) as data:
@@ -408,12 +413,11 @@ def closed(watcher: Watcher, head: str, links: list[str], moment: datetime) -> l
         prs = incident_pr_lines(watcher.name, group)
         follow = follow_up(data, head, group, state.stamp(moment))
         for order_id in group:
-            data["orders"][order_id]["proof"] = data["orders"][order_id]["proof"] or "; ".join([*([f"{read_ok} at {when(state.stamp(moment))}"] if links else []), incident["fixed"]])
-    pr = state.PR_KEY.search(incident["fixed"])
+            data["orders"][order_id]["proof"] = data["orders"][order_id]["proof"] or "; ".join([*([f"{read_ok} at {when(state.stamp(moment))}"] if links else []), fix])
     facts = [
         f"Incident: {incident['text']}",
         *([f"Recovered: {read_ok}"] if links else []),
-        f"Fix live: {incident['fixed']}" + (f", {state.pr_url(pr[0])}" if pr else ""),
+        f"Fix live: {fix}",
         *prs,
     ]
     record = {
@@ -432,7 +436,7 @@ def closed(watcher: Watcher, head: str, links: list[str], moment: datetime) -> l
         for order_id in group:
             data["orders"][order_id]["recovered"] = state.stamp(moment)
     moved = f"; its live jobs, open PRs and parts left moved to the plain order {follow}" if follow else ""
-    return [f"RECOVERED {head}: {f'{read_ok} and ' if links else ''}{incident['fixed']}, so the communicator posts its Live line and closes {', '.join(group)}{moved}"]
+    return [f"RECOVERED {head}: {f'{read_ok} and ' if links else ''}{fix}, so the communicator posts its Live line and closes {', '.join(group)}{moved}"]
 
 
 def follow_up(data: dict, head: str, group: list[str], created: str) -> str | None:
@@ -1027,7 +1031,7 @@ def line_facts(data: dict, group: list[str], registered: dict[str, list[str]]) -
 
 
 def quiet_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Owe him a line in the thread of each open order with news the watch hears, by his pick "A handler posts each step, started by the watch on news", and in each thread of open incidents whose users are not unblocked yet, its fix not recorded live and no order of it keeping a proof, that had none in five minutes and has news, while he is away too, by his pick "Watch-owned clock: no 10-minute silence again, a line every five quiet minutes from a handler reading the jobs; costs one handler session each" and "Proof ends the line: none once users are unblocked; the incident stays open until its root fix is live." and "Owe a line only on news: while a job works or something it names changed; silent while all waits.". News is an order, job or PR of it whose facts moved since the thread's last line, which the watch keeps on each order at the first pass after that line: a job returning, a PR going up with his card, a new head, its checks settling, Trunk ejecting it or his tap, never its stage relabelled with none of those changed, a card of his opening or closing; on an incident, a job of it at work too. An order owes its line once five minutes passed since its thread's last line or the watch's last report on it, as an incident does, so a thread lined minutes before waits out that window and its line carries every step in it; never while he is away, since his catch-up carries it then, nor once a report closing it is kept or posted, since that report's post is its line. Each such thread gets one report naming every order and incident in it with its jobs and what moved, written once, and one handler the watch starts on it, which reads the jobs and posts what changed in that thread, so orders sharing a thread get one line, not one each. A handler already at work in that thread takes the report at its next step. Only a post keeps the facts, so a handler that cannot post owes him the same news five minutes after it got the report; a failed write or start is said as a failed read is and tried again next pass with the same report."""
+    """Owe him a line in the thread of each open order with news the watch hears, by his pick "A handler posts each step, started by the watch on news", and in each thread of open incidents whose users are not unblocked yet, the watch not having found it over and no order of it keeping a proof, that had none in five minutes and has news, while he is away too, by his pick "Watch-owned clock: no 10-minute silence again, a line every five quiet minutes from a handler reading the jobs; costs one handler session each" and "Proof ends the line: none once users are unblocked; the incident stays open until its root fix is live." and "Owe a line only on news: while a job works or something it names changed; silent while all waits.". News is an order, job or PR of it whose facts moved since the thread's last line, which the watch keeps on each order at the first pass after that line: a job returning, a PR going up with his card, a new head, its checks settling, Trunk ejecting it or his tap, never its stage relabelled with none of those changed, a card of his opening or closing; on an incident, a job of it at work too. An order owes its line once five minutes passed since its thread's last line or the watch's last report on it, as an incident does, so a thread lined minutes before waits out that window and its line carries every step in it; never while he is away, since his catch-up carries it then, nor once a report closing it is kept or posted, since that report's post is its line. Each such thread gets one report naming every order and incident in it with its jobs and what moved, written once, and one handler the watch starts on it, which reads the jobs and posts what changed in that thread, so orders sharing a thread get one line, not one each. A handler already at work in that thread takes the report at its next step. Only a post keeps the facts, so a handler that cannot post owes him the same news five minutes after it got the report; a failed write or start is said as a failed read is and tried again next pass with the same report."""
     data = state.load(watcher.name)
     away = state.owner_away(data, moment)
     threads: dict[tuple[str, str] | str, list[str]] = {}
@@ -1035,7 +1039,7 @@ def quiet_lines(watcher: Watcher, moment: datetime) -> list[str]:
     registered = render.prs_by_job(data)
     joined = state.joined_orders(data)
     for head, order in heard_orders(watcher, data).items():
-        if not (order["incident"] or order["thread"]) or order["joins"] or order["fixed"] or order["close_report"] or order["closed_on"]:
+        if not (order["incident"] or order["thread"]) or order["joins"] or order["recovered"] or order["close_report"] or order["closed_on"]:
             continue
         group = [head, *joined.get(head, [])]
         if not any(data["orders"][order_id]["proof"] for order_id in group):
@@ -2032,7 +2036,7 @@ def unstarted(job: dict) -> bool:
 
 
 def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: datetime) -> str | None:
-    """Why a part of the order has no one carrying it, None when it is carried, delivered or waits on something named: work he ordered, every part of a build order or an incident and a part of an order of no kind that a builder, codex or design job holds or held or a design lists, unless drive order set --kind answer --part sorted it as an answer, is carried only by a builder, codex or design job, never by research, his card or a post, so it has no one the moment none is on it past its handover, and the gap names the builder to start; a change a design lists has no job only while the order asks for options only, waiting on his pick, which adds its builder, since drive job report adds one for each change as the design returns; a builder, codex or design job on the order's immediate fix part carries the order's other parts too until it is done; an open incident's fix is carried only by a live job, an open PR of a job on it or its fix recorded live, a builder's DONE or the release that shipped it, never by a post, so once its jobs end otherwise the gap says it has no fix job and names the second one to start at once."""
+    """Why a part of the order has no one carrying it, None when it is carried, delivered or waits on something named: work he ordered, every part of a build order or an incident and a part of an order of no kind that a builder, codex or design job holds or held or a design lists, unless drive order set --kind answer --part sorted it as an answer, is carried only by a builder, codex or design job, never by research, his card or a post, so it has no one the moment none is on it past its handover, and the gap names the builder to start; a change a design lists has no job only while the order asks for options only, waiting on his pick, which adds its builder, since drive job report adds one for each change as the design returns; a builder, codex or design job on the order's immediate fix part carries the order's other parts too until it is done; an open incident's fix is carried only by a live job, or an open or merged PR of a job on it, which the release train ships, never by a post, so once its jobs end otherwise the gap says it has no fix job and names the second one to start at once."""
     order = data["orders"][order_id]
     jobs = state.part_jobs(data, order_id, part)
     gaps = {job_id: job_gap(watcher, job_id, job, data, moment) for job_id, job in jobs}
@@ -2042,12 +2046,11 @@ def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: dat
         jobs
         and part == state.INCIDENT_FIX
         and state.open_incidents(data, [order_id])
-        and not order["fixed"]
-        and not any(job["state"] not in state.FINISHED_JOB_STATES or job_id in {pr["job"] for pr in state.open_prs(data)} for job_id, job in jobs)
+        and not any(job["state"] not in state.FINISHED_JOB_STATES or job_id in {pr["job"] for pr in data["prs"].values() if pr["state"] != "closed"} for job_id, job in jobs)
     ):
         last, job = jobs[-1]
         return (
-            f"no fix job: {last} ended {job['state']} with no open PR; start the second fix job now, an Opus 5.5 long-running:builder on {last}'s brief:"
+            f"no fix job: {last} ended {job['state']} with no open or merged PR; start the second fix job now, an Opus 5.5 long-running:builder on {last}'s brief:"
             f" drive job add builder --order {order_id} --part {state.INCIDENT_FIX} --goal {shlex.quote(job['goal'])} (incidents: Clocks)"
         )
     if state.delivered(data, order_id, part):
