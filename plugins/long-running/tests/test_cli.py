@@ -16,7 +16,7 @@ from unittest.mock import ANY
 import drive
 import pytest
 import spawnllm
-from conftest import CARD_BODY, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SETTLED_MATCHED, SETTLED_NOTE, SHORT_ASK, WRITTEN_AT, drawn_card, Answers, explained, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, MetaLaunches, Redraws, Thread, WatchProcess, Withdrawals
+from conftest import CARD_BODY, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SHORT_ASK, WRITTEN_AT, drawn_card, Answers, explained, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, MetaLaunches, Redraws, Thread, WatchProcess, Withdrawals
 from drive import (
     agents,
     brief,
@@ -7746,9 +7746,11 @@ def test_backfill_labels_as_approvals_every_tap_on_a_pr_card_by_its_question_wha
 
     def ccn(argv: list[str], input: str, cwd: str, **_: object) -> subprocess.CompletedProcess[str]:
         calls.append([cwd, *argv])
-        return subprocess.CompletedProcess(argv, 0, json.dumps(stored) if argv[2] == "list" else "{}", "")
+        listed = [{**answer, "created_at": "2026-11-10T05:00:00Z"} for answer in stored]
+        return subprocess.CompletedProcess(argv, 0, json.dumps(listed) if argv[2] == "list" else "{}", "")
 
     monkeypatch.setattr("drive.settled.subprocess", types.SimpleNamespace(run=ccn, TimeoutExpired=subprocess.TimeoutExpired))
+    monkeypatch.setattr(settled, "listed", SETTLED_LISTED)
     BACKFILL("/work")
     assert calls == [
         ["/work", "ccn", "answer", "list", "--label", "scope:durable", "--limit", "0", "--full", "--json"],

@@ -98,6 +98,7 @@ REPEATS_QUESTION = (
 )
 APPROVAL = "kind:approval"
 INCIDENT = "incident"
+RELEASE_HOLD = "release-hold"
 TAP_HEADER = "header:Tap"
 TAP_QUESTION = re.compile(r"(?:PR )?(?:Taps?\b|Approv|Land\b).*?(?:#\d+|/pull/\d+)", re.IGNORECASE)
 RARE = re.compile(r"[a-z][a-z0-9-]{4,}")
@@ -152,8 +153,7 @@ def kind(words: str) -> list[str]:
 
 def backfill(cwd: str) -> None:
     """Label as approvals the taps on PR cards recorded before `drive answer` labelled them, by the question alone, whatever his words: one opening with Tap, Approve or Land that names a PR, or one under a Tap header."""
-    listed = ccn(["ccn", "answer", "list", "--label", "scope:durable", "--limit", "0", "--full", "--json"], "", cwd, "could not read his recorded answers")
-    for answer in json.loads(listed):
+    for answer in listed("scope:durable", cwd):
         if APPROVAL not in answer["tags"] and (TAP_QUESTION.match(answer["title"]) or TAP_HEADER in answer["tags"]):
             ccn(["ccn", "answer", "edit", answer["id"], "--add-label", APPROVAL], "", cwd, f"could not label his answer {answer['id'][:7]} an approval")
 
@@ -248,6 +248,17 @@ def shown(answer_id: str, cwd: str) -> dict:
     return json.loads(ccn(["ccn", "answer", "show", answer_id, "--json"], "", cwd, f"could not read his answer {answer_id}"))
 
 
+def listed(label: str, cwd: str) -> list[dict]:
+    """His recorded answers carrying the label, newest first, each with its body and the time it was recorded; never one a later answer superseded."""
+    found = json.loads(ccn(["ccn", "answer", "list", "--label", label, "--limit", "0", "--full", "--json"], "", cwd, f"could not read his answers labelled {label}"))
+    return sorted(found, key=lambda answer: answer["created_at"], reverse=True)
+
+
+def hold(cwd: str) -> dict | None:
+    """His newest standing hold on every release, the answer labelled release-hold that no later answer of his superseded; None when none stands."""
+    return next(iter(listed(RELEASE_HOLD, cwd)), None)
+
+
 def matched(text: str, cwd: str) -> list[dict]:
     """The first CANDIDATES of his recorded answers ccn ranks nearest to an ASK's whole block, findings included, which reach a ruling whose subject only its findings name, such as a wait he ordered on another order, each as Jev reads his words beside the card; never a tap approving a PR, which rules only whether that PR lands."""
     match = ["ccn", "answer", "match", "-", "--label", "scope:durable", "--nearest", "--limit", "-1", "--json"]
@@ -322,9 +333,9 @@ def repeats(data: dict, words: str) -> str | None:
     return pick["choice"] if pick["choice"] in options and pick["probabilities"][pick["choice"]] >= DECIDES else None
 
 
-def approving(action: str, answer: dict) -> bool:
-    """Whether Jev reads this answer of his as his order or card pick approving the action, at the 0.8 bar; Unheard when Jev gave no answer."""
-    return picked(APPROVES_QUESTION, "It approves no such action.", {"action": action}, [answer]) is not None
+def approving(action: str, answers: list[dict]) -> bool:
+    """Whether Jev reads one of these answers of his as his order or card pick approving the action, at the 0.8 bar; Unheard when Jev gave no answer."""
+    return picked(APPROVES_QUESTION, "It approves no such action.", {"action": action}, answers) is not None
 
 
 def picked(instructions: str, unpicked: str, asked: dict, found: list[dict]) -> dict | None:

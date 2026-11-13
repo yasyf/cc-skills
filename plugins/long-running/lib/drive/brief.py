@@ -102,6 +102,12 @@ RELEASE_APPROVAL = (
     " answer labelled incident, whose words approve the incident's own cut. Name in `--order` the answer `drive answer`"
     " recorded for those words, or ask him with `drive job ask` whether to release"
 )
+RELEASE_HELD = (
+    'refused: he holds every release, by his words "{said}" ({where}), and only he grants an exception, one release at a time,'
+    " so `{release}` runs only on an answer of his recorded since that approves it: {why}. Ask him with `drive job ask`"
+    " whether to release it, record his answer with `drive answer`, and name it in the release's `--order`. Once he says"
+    " releases can go again, his answer saying so supersedes the hold: `ccn answer supersede {hold} --by <id>`"
+)
 PULL_WORDS = re.compile(r"(?:#?\d+,?)+")
 NAMES = re.compile(r"[,\s]+")
 ABSTRACTION_RULING = '"we should buiold the abstraction first, make sure it works by imaginign, then implement the strategies"'
@@ -178,15 +184,18 @@ def release_refusal(command: str) -> str | None:
     return None
 
 
-def approval_refusal(command: str, cwd: str) -> str | None:
-    """Why the one release a command starts may not start on the answer of his its --order names: it is no incident's order, and Jev does not read it as his order or pick to release, or gave no answer; None for a release naming no --order."""
+def approval_refusal(command: str, data: dict) -> str | None:
+    """Why the one release a command starts may not start on the answer of his its --order names: while he holds every release, hold_refusal() refuses it; else it is no incident's order, and Jev does not read it as his order or pick to release, or gave no answer; None for a release naming no --order while no hold stands."""
+    cwd = data["roles"]["coordinator"]["cwd"]
+    if hold := settled.hold(cwd):
+        return hold_refusal(command, data, hold)
     [flags] = started(command)
     if not (orders := flags.get("order")):
         return None
     answer_id = orders[-1]
     try:
         answer = settled.shown(answer_id, cwd)
-        if settled.INCIDENT in answer["tags"] or settled.approving(f"start this production release: `{command}`", {"id": answer_id, "asked": answer["title"], "said": answer["body"]}):
+        if settled.INCIDENT in answer["tags"] or settled.approving(f"start this production release: `{command}`", [{"id": answer_id, "asked": answer["title"], "said": answer["body"]}]):
             return None
     except state.DriveError as error:
         return f"refused: `--order {answer_id}` names no answer of his that could be read: {error}. {RELEASE_APPROVAL}"
@@ -194,6 +203,31 @@ def approval_refusal(command: str, cwd: str) -> str | None:
         return f"refused: Jev did not say whether his answer {answer_id} approves this release ({failure}); run it again once Jev answers. {RELEASE_APPROVAL}"
     asked, said = cut(answer["title"], 200), cut(answer["body"], settled.QUOTED_CHARS)
     return f'refused: `--order {answer_id}` names his answer to "{asked}", "{said}", and Jev does not read it as approving this release. {RELEASE_APPROVAL}'
+
+
+def hold_refusal(release: str, data: dict, hold: dict) -> str | None:
+    """Why a release may not run under his hold on every release: no answer of his recorded after the hold reads to Jev as approving it, his exception for that one release, the one its --order names when it is a `ci release start` or `hotfix` naming one, else any of his newest CANDIDATES, never a tap on a PR card; an incident's order passes on no label, the hold included."""
+    cwd = data["roles"]["coordinator"]["cwd"]
+    where = ", ".join(filter(None, [hold["id"][:7], (data["answers"].get(hold["id"][:7]) or {}).get("link")]))
+    said = cut(settled.his(hold["body"]), settled.QUOTED_CHARS)
+    named = started(release)
+    orders = named[0].get("order") if len(named) == 1 else None
+    try:
+        if orders:
+            found = [settled.shown(orders[-1], cwd)]
+            why = f'Jev does not read his answer {orders[-1]} to "{cut(found[0]["title"], 200)}" as approving it'
+            if found[0]["created_at"] <= hold["created_at"]:
+                found, why = [], f'`--order {orders[-1]}` names his answer to "{cut(found[0]["title"], 200)}", recorded before the hold'
+        else:
+            found = [answer for answer in settled.listed("scope:durable", cwd) if answer["created_at"] > hold["created_at"] and settled.APPROVAL not in answer["tags"]][: settled.CANDIDATES]
+            why = "Jev reads no answer of his recorded since as approving it"
+        if found and settled.approving(f"start this production release: `{release}`", [{"id": answer["id"][:7], "asked": answer["title"], "said": answer["body"]} for answer in found]):
+            return None
+    except state.DriveError as error:
+        why = f"his answers could not be read: {error}"
+    except settled.Unheard as failure:
+        why = f"Jev did not say whether an answer of his approves it ({failure}); run it again once Jev answers"
+    return RELEASE_HELD.format(said=said, where=where, hold=hold["id"][:7], release=release, why=why)
 
 
 def gives_tooling(job_id: str, order_id: str) -> str:

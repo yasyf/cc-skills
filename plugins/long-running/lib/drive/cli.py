@@ -1130,6 +1130,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
     refuse_a_mark_off_a_builder(args.kind, args.builds_nothing)
     lands = list(dict.fromkeys(map(state.pr_key, args.lands)))
     found = check_waits(name, args.waits)
+    unreleased = args.release and (brief.release_refusal(args.release) or brief.approval_refusal(args.release, state.load(name)))
     with state.edit(name) as data:
         order = find(data["orders"], args.order, "order")
         parts = pick_parts(args.order, order, args.part)
@@ -1138,7 +1139,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         live = sharing(data, args.order, parts)
         if refused := (
             state.held_elsewhere(data, args.order, session, bool(args.release))
-            or (args.release and brief.release_refusal(args.release))
+            or unreleased
             or proven_again(data, args.order, args.kind, args.goal)
             or unlandable(data, lands)
             or state.job_wait_refusal(data, args.waits)
@@ -2241,7 +2242,7 @@ def write_brief(name: str, job_id: str, named: dict) -> tuple[str, dict]:
     if flags["release"] and (
         unnamed := state.held_elsewhere(data, job["order"], os.environ.get("CLAUDE_CODE_SESSION_ID"), True)
         or brief.release_refusal(flags["release"])
-        or brief.approval_refusal(flags["release"], data["roles"]["coordinator"]["cwd"])
+        or brief.approval_refusal(flags["release"], data)
     ):
         raise DriveError(f"{job_id}: {unnamed}")
     line, payload = rewrite_brief(name, job_id, flags)
@@ -2890,6 +2891,10 @@ def job_held(args: argparse.Namespace) -> int:
         raise DriveError("job held needs the job: name it, or run it from a Sprite lane, whose own job it reads")
     data = state.load(name)
     find(data["jobs"], job_id, "job")
+    if args.release:
+        hold = settled.hold(data["roles"]["coordinator"]["cwd"])
+        refused = hold and brief.hold_refusal(args.release, data, hold)
+        return emit(args, refused or f"no hold of his refuses {args.release}", {"id": job_id, "release": refused})
     live = view.live_cards(name)
     if args.pr:
         tracked = {stored.lower(): pr for stored, pr in data["prs"].items()}
@@ -4965,6 +4970,10 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument(
         "--exempt",
         help='the exempt class the PR goes up under, as the drive pr add in the same call registers it: none of his cards holds a "flake fix"; the bash_guard hook on a Sprite lane passes it',
+    )
+    verb.add_argument(
+        "--release",
+        help="instead, why his hold on every release refuses this release, a `ci release start` or `hotfix` as the job runs it, or a release verb naming none; the landing_guard hook on a Sprite lane asks it before the lane starts, resumes, approves, reruns or rolls back a release",
     )
     verb.set_defaults(run=job_held)
     verb = job.add_parser("wake", parents=both, help="send the job's lane a message while it takes messages, starting no worker: the watchdog's agent's one way to message the job answering for a stall")

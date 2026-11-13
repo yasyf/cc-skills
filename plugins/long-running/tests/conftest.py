@@ -59,6 +59,7 @@ LANE_SPEC = Path(__file__).resolve().parents[2] / "orca" / "lib" / "lane.json"
 SETTLED_NOTE = cli.settled_note
 POST_ASK = cli.post_ask
 SETTLED_MATCHED = settled.matched
+SETTLED_LISTED = settled.listed
 TEAM = [
     {"name": "rowan", "real_name": "Rowan Vale", "email": "rowan@example.com"},
     {"name": "juniper.cole", "real_name": "Juniper Cole", "email": "juniper.cole@example.com"},
@@ -809,6 +810,7 @@ class Answers:
     shown: dict[str, dict] = field(default_factory=dict)
     unrecorded: set[str] = field(default_factory=set)
     matched: list[dict] = field(default_factory=list)
+    listed: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -850,6 +852,7 @@ def recorded(monkeypatch: pytest.MonkeyPatch) -> Answers:
 
     monkeypatch.setattr(settled, "shown", shown)
     monkeypatch.setattr(settled, "matched", lambda text, cwd: answers.matched)
+    monkeypatch.setattr(settled, "listed", lambda label, cwd: sorted((answer for answer in answers.listed if label in answer["tags"]), key=lambda answer: answer["created_at"], reverse=True))
     return answers
 
 

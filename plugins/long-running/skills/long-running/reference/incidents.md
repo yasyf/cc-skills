@@ -372,7 +372,9 @@ check's verdict, or from the order when none ran.
 - The incident order's words approve starting its own release and its rollback, never the migrations,
   deletes and replaces its approve hold holds. The job that starts the release passes `--order <the
   answer id>` and reads that hold as [landing.md](landing.md#after-merge) says. His own order approves
-  starting any other release he ordered, the same way.
+  starting any other release he ordered, the same way. While he holds every release, an incident's
+  order approves its cut and rollback only when he gave it after the hold, by
+  [landing.md](landing.md#after-merge).
 - A revert is never a rollback, because his standing rule is fix forward. A rollback to an older
   build, when prudent, is an immediate fix the incident order approves, with no tap. A PR or build
   that takes a change out, whole or in part, is his to approve, by the monorepo `release` skill's reserved
