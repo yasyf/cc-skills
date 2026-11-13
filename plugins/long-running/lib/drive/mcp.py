@@ -206,7 +206,8 @@ SAY = {
                     " its text names no card, and no word limit counts them. It posts only while the drive"
                     " owes him a catch-up, which posting it settles. A correction record"
                     " re a report held for his catch-up posts nothing, since the catch-up carries it, and one re a report his catch-up"
-                    " carried names that post to reword"
+                    " carried names that post to reword. A held report its writer withdrew goes out in no catch-up and gives back the"
+                    " close of each open order it claimed"
                 ),
             },
             "edit": {

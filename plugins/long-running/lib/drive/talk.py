@@ -50,7 +50,7 @@ def say(name: str, post: dict) -> str:
     if post.get("dry_run"):
         return dry(name, post) + (f"; {cli.delivering(name, order, report)}" if order else "")
     held = list(known["held"]) if report.get("catch_up") else []
-    corrected = agents.corrections(name, [post["record"], *held]) if post.get("record") else {}
+    amended = agents.amendments(name, [post["record"], *held] if post.get("record") else [])
     if close:
         report["seq"] = close_report(name, order, post.get("text") or "")
     claimed = cli.claim_close(name, report)
@@ -67,10 +67,10 @@ def say(name: str, post: dict) -> str:
             data["handlers"][handler]["posted"].append(line)
     if warning := reply.get("warning"):
         line += f" WARNING {warning}"
-    if found := corrected.get(post.get("record")):
+    if found := amended["correction"].get(post.get("record")):
         line += f"; cci holds corrections of report {post['record']}, {', '.join(found)}: unless this post carries each, reword it with say(edit={reply['permalink']}, text=…)"
     if report.get("catch_up"):
-        line += released(name, reply["permalink"], corrected)
+        line += released(name, reply["permalink"], amended)
     if order:
         line += "; " + recording(name, {"order": order, "link": reply["permalink"], "record": post.get("record"), "sent": reply.get("sent")}, report if close else None)
     if close:
@@ -167,7 +167,7 @@ def hold(name: str, seq: str, report: dict, order_id: str | None) -> str:
     lane = report["writer"] if report["writer"] in writers else state.heard_lane(data, order_id) if order_id else "root"
     argv = ["cci", "post", "--drive", name, "--lane", "communicator", "--kind", "refused", "--re", seq, "--to", f"{lane}@{name}", "--id", f"held-{seq}"]
     argv += ["--attr", f"held={seq}", *(["--attr", f"order={order_id}"] if order_id else [])]
-    corrected = agents.corrections(name, [seq]).get(seq, [])
+    corrected = agents.amendments(name, [seq])["correction"].get(seq, [])
     text = HELD.format(seq=seq) + (f"; the catch-up carries it{render.corrected_by(corrected)}" if corrected else "")
     try:
         told = str(json.loads(reads.run([*argv, "--json", "--text", text], Path.cwd(), reads.posting()))["seq"])
@@ -178,19 +178,25 @@ def hold(name: str, seq: str, report: dict, order_id: str | None) -> str:
     return told
 
 
-def released(name: str, post: str, corrected: dict[str, list[str]]) -> str:
-    """Settle the catch-up the drive owed him, which just posted at post, as the last line each order it covers got, and let go of every report held for it, keeping post as the copy each went out in, and name them, with each correction cci holds re one, which the post must carry."""
+def released(name: str, post: str, amended: dict[str, dict[str, list[str]]]) -> str:
+    """Settle the catch-up the drive owed him, which just posted at post, as the last line each order it covers got, and let go of every report held for it, keeping post as the copy each went out in but for one its writer withdrew, which went out in none and gives back the close of each open order it claimed, and name them, with each correction cci holds re one carried, which the post must carry, and each withdrawn, which it must leave out."""
+    withdrawn = amended["withdraw"]
     with state.edit(name) as data:
         held, data["held"] = data["held"], {}
-        data["carried"] |= dict.fromkeys(held, post)
+        carried = [seq for seq in held if seq not in withdrawn]
+        data["carried"] |= dict.fromkeys(carried, post)
+        for order in data["orders"].values():
+            if order["closed_on"] in withdrawn and order["state"] not in state.CLOSED_ORDER_STATES:
+                order["closed_on"] = None
         for order_id in data["catch_up"]["orders"]:
             data["orders"][order_id]["last_line"] = state.stamp()
         data["catch_up"] = None
-    if not held:
-        return ""
-    fixes = [fix for seq in held for fix in corrected.get(seq, [])]
-    line = f"; it carries the reports held for it, no longer held: {', '.join(held)}"
-    return line + (f"; cci holds corrections {', '.join(fixes)} of them: unless this post carries each, reword it with say(edit={post}, text=…)" if fixes else "")
+    fixes = [fix for seq in carried for fix in amended["correction"].get(seq, [])]
+    line = f"; it carries the reports held for it, no longer held: {', '.join(carried)}" if carried else ""
+    line += f"; cci holds corrections {', '.join(fixes)} of them: unless this post carries each, reword it with say(edit={post}, text=…)" if fixes else ""
+    if taken := [seq for seq in held if seq in withdrawn]:
+        line += f"; their writers withdrew reports {', '.join(taken)}, so no post carries them and no order closes on them: unless this post leaves each out, reword it with say(edit={post}, text=…)"
+    return line
 
 
 def held_refusal(data: dict, seq: str | None, report: dict) -> str | None:

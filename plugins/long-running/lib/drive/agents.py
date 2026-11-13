@@ -19,7 +19,8 @@ THREAD = re.compile(r"^Thread:[ \t]*(?:\S+[ \t]+)?(\d+\.\d+)", re.MULTILINE)
 RETYPED = re.compile(r"\b(?:POSTED|EDITED|CARD)(?:\s+https://\S+)+\s*;?\s*")
 HIS_KINDS = ("owner", "answer")
 RE_HOPS = 8
-CORRECTION_BYTES = 1 << 20
+AMENDING = ("correction", "withdraw")
+AMENDMENT_BYTES = 1 << 20
 TRUNK_DRIVE = "trunk"
 TRUNK_FAILED = "failed in Trunk's merge queue"
 HANDLER = "long-running:handler"
@@ -279,20 +280,20 @@ def shown(seq: str) -> dict:
         raise state.DriveError(f"record {seq} could not be read: {error}") from None
 
 
-def corrections(name: str, seqs: Iterable[str]) -> dict[str, list[str]]:
-    """The seqs of the correction records cci holds re each of seqs, oldest first, read in one cci grep from the lowest of them; a record no correction answers is left out."""
+def amendments(name: str, seqs: Iterable[str]) -> dict[str, dict[str, list[str]]]:
+    """By kind, correction or withdraw, the seqs of the records of that kind cci holds re each of seqs, oldest first, read in one cci grep from the lowest of them; a record none answers is left out."""
+    found: dict[str, dict[str, list[str]]] = {kind: {} for kind in AMENDING}
     wanted = set(seqs)
     if not wanted:
-        return {}
-    argv = ["cci", "grep", ".", "--drive", name, "--kind", "correction", "--since", min(wanted, key=int), "--budget", str(CORRECTION_BYTES), "--json"]
+        return found
+    argv = ["cci", "grep", ".", "--drive", name, *(flag for kind in AMENDING for flag in ("--kind", kind)), "--since", min(wanted, key=int), "--budget", str(AMENDMENT_BYTES), "--json"]
     try:
         lines = reads.run(argv, Path.cwd()).splitlines()
     except reads.ReadError as error:
-        raise state.DriveError(f"the corrections of records {', '.join(sorted(wanted, key=int))} could not be read: {error}") from None
-    found: dict[str, list[str]] = {}
+        raise state.DriveError(f"the corrections and withdrawals of records {', '.join(sorted(wanted, key=int))} could not be read: {error}") from None
     for record in map(json.loads, reversed(lines)):
         if (answered := str(record.get("re"))) in wanted:
-            found.setdefault(answered, []).append(str(record["seq"]))
+            found[record["kind"]].setdefault(answered, []).append(str(record["seq"]))
     return found
 
 

@@ -3800,9 +3800,10 @@ def status(args: argparse.Namespace) -> int:
     with_cards(name, data, shown)
     for job_id, in_line in place.positions(data).items():
         data["jobs"][job_id]["in_line"] = in_line
-    corrected = agents.corrections(name, data["held"])
+    amended = agents.amendments(name, data["held"])
     for seq, mark in data["held"].items():
-        mark["corrections"] = corrected.get(seq, [])
+        mark["corrections"] = amended["correction"].get(seq, [])
+        mark["withdrawn"] = amended["withdraw"].get(seq, [])
     for project, held in data["subcoordinators"].items():
         held["watch"] = watch.holder(state.pid_path(name, project))
     seen = {}

@@ -247,12 +247,15 @@ def test_status_data_keeps_only_open_work() -> None:
 def test_status_lists_each_report_held_for_his_catch_up() -> None:
     drive = sample()
     at = state.stamp(state.now())
-    drive["held"] = {"700": {"order": "o1", "at": at, "told": "701", "corrections": ["704", "706"]}, "702": {"order": None, "at": at, "told": "703", "corrections": []}}
+    drive["held"] = {
+        "700": {"order": "o1", "at": at, "told": "701", "corrections": ["704", "706"], "withdrawn": []},
+        "702": {"order": None, "at": at, "told": "703", "corrections": [], "withdrawn": ["708"]},
+    }
     lines = render.status_text(drive, {}).splitlines()
-    start = lines.index("Held for his catch-up, since he is away; the catch-up he gets when he is back carries each:")
+    start = lines.index("Held for his catch-up, since he is away; the catch-up he gets when he is back carries each its writer did not withdraw:")
     assert lines[start + 1 : start + 3] == [
         f"- report 700 (o1), held {render.when(at)}, its writer told in record 701, corrected by records 704, 706",
-        f"- report 702 (no order), held {render.when(at)}, its writer told in record 703",
+        f"- report 702 (no order), held {render.when(at)}, its writer told in record 703, withdrawn by record 708, so the catch-up leaves it out and closes no order on it",
     ]
     assert render.status_data(drive, {})["held"] == drive["held"]
     assert not any(line.startswith("Held for his catch-up") for line in render.status_text(sample(), {}).splitlines())
