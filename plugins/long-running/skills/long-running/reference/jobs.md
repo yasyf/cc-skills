@@ -33,7 +33,7 @@ Contents:
   A builder on an open incident's order or on an `immediate fix` part never waits its turn: it
   starts here at once past the cap and the line, and holds a slot against later builders once it
   runs.
-  A builder added with `drive job add builder --builds-nothing`, one whose whole work holds no
+  A builder added with `drive job add builder --order <o> --goal "<goal>" --builds-nothing`, one whose whole work holds no
   checkout or compiler, such as a merged PR's live proof or a read, holds no slot at all: it starts
   here at once past the cap and the line, and no later builder counts it.
   Each watch pass counts this Mac's builders once and gives each open slot to the builder job waiting
@@ -100,7 +100,7 @@ job, and its first call after a prompt that reached it after its return, such as
 marks the job running again, when its type is one the job's kind runs as: `long-running:builder` on a builder, `long-running:reader` on a reader,
 `long-running:designer` on a design job, and an incident's second-lane `long-running:builder` on
 a codex job; a call or stop after its return with no such prompt leaves
-the return standing. Every worker start runs its job, a stopped one included, and ends its turn in line for a builder slot: this record, `drive job launch`, `drive job resume`, and `drive job set <j> --agent` naming a worker other
+the return standing. Every worker start runs its job, a stopped one included, and ends its turn in line for a builder slot: this record, `drive job launch`, a `drive job resume` of a job not stopped, which refuses a stopped one, and `drive job set <j> --agent` naming a worker other
 than the one recorded. Only the agent a stop left on its job keeps the stop, so that agent's later return is refused. An agent of any other type is never recorded this way, even
 when its brief, the brief file it names or the record it is briefed with names a job: a
 `long-running:handler` started to run `drive job launch <j>` leaves `<j>` to the lane it launches

@@ -2256,8 +2256,14 @@ def job_resume(args: argparse.Namespace) -> int:
     if args.text is not None:
         return relaunch(args, name, args.text)
     with state.job_locked(name, args.id, orca.LAUNCH_SECONDS):
-        started_job(state.load(name), args.id)
+        unstopped(args.id, started_job(state.load(name), args.id))
         return deliver(args, name)
+
+
+def unstopped(job_id: str, job: dict) -> None:
+    """Refuse a resume of a stopped job, read under the job's own lock, sending, holding and starting nothing, so a resume the watch started while the job ran never reaches a lane its stop retired or starts a second writer beside the job that replaced it; drive job launch runs a stopped job again."""
+    if job["state"] == "stopped":
+        raise DriveError(f"{job_id}: refused, nothing sent, held or started: it is stopped; drive job launch {job_id} runs it again")
 
 
 def relaunch(args: argparse.Namespace, name: str, text: str | None) -> int:
@@ -2265,6 +2271,8 @@ def relaunch(args: argparse.Namespace, name: str, text: str | None) -> int:
     with state.job_locked(name, args.id, orca.LAUNCH_SECONDS):
         data = state.load(name)
         job = find(data["jobs"], args.id, "job")
+        if text is not None:
+            unstopped(args.id, job)
         taker = other_sessions_agent(job)
         if taker and text is not None:
             return hand_over(args, name, data, taker)
@@ -4619,7 +4627,8 @@ def parser() -> argparse.ArgumentParser:
         description=(
             "Answer a remote lane's question, or send it the next event, once Orca shows its worker alive, by the one relaunch drive"
             " job launch shares, under the job's own lock, so a resume arriving while another starts the job's next worker waits"
-            " for it, about 150 s, and sends that worker the text. An agent on this Mac whose last response ended on an API error or"
+            " for it, about 150 s, and sends that worker the text; one that finds the job stopped once it holds that lock exits 2,"
+            " sending, holding and starting nothing, and drive job launch runs a stopped job again. An agent on this Mac whose last response ended on an API error or"
             " a refusal hands the job to a lane on a Sprite, or on this Mac when its brief declares a step only this Mac runs, with a handoff carrying the job's brief and this text. When its "
             "worker finished and Orca still holds its terminal, on its Sprite or on this Mac, start the job's next worker "
             "in that terminal, or, when Orca no longer finds that terminal or worktree, as a dead worker's; when its worker is dead, relaunch the job on a fresh Sprite, or in a fresh worktree on this "
@@ -5167,8 +5176,8 @@ def main(argv: list[str] | None = None) -> int:
     detached = os.environ.pop(state.DETACHED_ENV, None)
     if lane := os.environ.pop(reads.SPRITE_LANE, None):
         own = os.environ[state.OWN_JOB_ENV]
-        if refused := reads.lane_refusal(args, parsed, os.environ["LONG_RUNNING_DRIVE"], own):
-            print(refused, file=sys.stderr)
+        if refusal := reads.lane_refusal(args, parsed, os.environ["LONG_RUNNING_DRIVE"], own):
+            print(refusal, file=sys.stderr)
             return 2
         if args.verb == "status" and not args.ids:
             args.ids = [own]
