@@ -77,7 +77,10 @@ REPORT_CHANGE = re.compile(r"^CHANGE:[ \t]*(?P<change>.+?)[ \t]*$", re.MULTILINE
 CHANGE_LINE = re.compile(r"^Change:[ \t]*(?P<change>.+?)(?:[ \t]*\(waits on (?P<after>[^()]*)\))?[ \t]*$", re.MULTILINE)
 CHANGE_WAITS = re.compile(r"\bchange (\d+)")
 BUILT_CARD = re.compile(r"https://[^\s,]+/archives/[^\s,]+/p\d+[^\s,]*|[\w.-]+:j\d+-\d+[\w-]*")
-EXEMPT_CLASSES = ("pure port", "test-only", "ci-only", "flake fix", "incident fix")
+FLAKE_FIX = "flake fix"
+EXEMPT_CLASSES = ("pure port", "test-only", "ci-only", FLAKE_FIX, "incident fix")
+FLAKE_RULING = "532cd3d"
+FLAKE_WORDS = "and ffs fix these flaky tgests how many times do I have to tell yoiu"
 TAP_LABELS = ("Approve", "Hold")
 TOOLING = "Drive tooling:"
 DRIVE_TOOLING = (
@@ -2144,7 +2147,12 @@ def queued_by_lander(key: str) -> bool:
 
 def cleared(pr: dict) -> bool:
     """Whether the PR may land with no more word from him: he approved it, or an exempt class lands it with no tap."""
-    return (pr["tap"] or {}).get("label") == "Approve" or bool(pr.get("exempt"))
+    return (pr["tap"] or {}).get("label") == "Approve" or bool(exempted(pr))
+
+
+def exempted(pr: dict) -> str | None:
+    """The exempt class that lands the PR with no tap: its class, unless it is a flake fix changing code outside tests and fixtures, which keeps his tap and card."""
+    return None if pr.get("exempt") == FLAKE_FIX and pr["wants_tap"] else pr.get("exempt")
 
 
 def names_pr(words: str, key: str) -> bool:
@@ -2196,7 +2204,9 @@ def card_unit(key: str, stack: tuple[str, ...], pr: dict) -> tuple[tuple[str, ..
 
 
 def served_orders(data: dict, pr: dict) -> list[str]:
-    """The orders whose words a PR's change is checked against: the one `drive pr set --serves` names alone, else its job's own, the order of every other job carrying it, a builder that took the PR over included, and each order those jobs carry."""
+    """The orders whose words a PR's change is checked against: none for a flake fix, which his ruling FLAKE_RULING alone judges; the one `drive pr set --serves` names alone, else its job's own, the order of every other job carrying it, a builder that took the PR over included, and each order those jobs carry."""
+    if pr.get("exempt") == FLAKE_FIX:
+        return []
     if pr.get("serves"):
         return [pr["serves"]]
     jobs = [data["jobs"][job_id] for job_id in pr_jobs(data, pr)]
@@ -2229,7 +2239,7 @@ def tap_refused(pr: dict) -> str | None:
     """Why his card on the PR offers no Approve; None when it does: open, waiting on his tap with no exempt class landing it, and neither his Approve, his Hold nor the hold label on it, whatever the check against his words says. A red PR offers it, and so does one the check objects to, the objection a line on the card."""
     if pr["state"] != "open":
         return f"it is {pr['state']}"
-    if pr.get("exempt"):
+    if exempted(pr):
         return f'its exempt class "{pr["exempt"]}" lands it with no tap'
     if not pr["wants_tap"]:
         return "its author or its own builder lands it with no tap"

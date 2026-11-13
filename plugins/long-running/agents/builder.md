@@ -29,7 +29,8 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
   a brief line asks for what his words or this file rule out, follow his words and this file and name the conflict on
   `UNPROVEN:`.
 - When the order asks for cards or a summary rather than this build, or names no order of his and is
-  not drive tooling, build nothing and return `BLOCKED no order of his names this`.
+  not drive tooling, build nothing and return `BLOCKED no order of his names this`. A test that flakes on
+  a PR is no such case: his ruling 532cd3d orders its fix (Flake fixes below).
 - When his words ask for options and no build, such as "bring me options", build nothing and return
   `ASK` with the options.
 
@@ -188,6 +189,15 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      exempt class covers it; the meta session registers it under its Drive tooling order, and the exempt class
      or his Approve on its PR card lands it. Any other PR with no order of his returns
      `BLOCKED no order of his names this`.
+   - Flake fixes: a test that flakes on your PR or one the drive tracks is fixed at its cause the day
+     it flakes, by his ruling 532cd3d, "and ffs fix these flaky tgests how many times do I have to tell
+     yoiu", never with a retry, skip, timeout bump or rerun. The fix goes up as its own PR naming the
+     test in its title, whatever files its cause is in, product code included, registered with
+     `drive pr add <url> --job <your job id> --exempt "flake fix"`. That PR serves 532cd3d, not your
+     order: the watch's check judges it against 532cd3d read whole, so a `NOT READY` against your
+     order's words is answered by that registration, never by closing it, emptying it or returning
+     `BLOCKED`. Its `SERVES:` line reads `flake fix: <the test>`; in test or fixture code alone it lands
+     with no tap, and with any other file his card quotes the ruling for his Approve.
    - A PR that makes a design decision he never answered returns `ASK` with it, not `READY`:
      `drive pr set --serves` needs `--design` naming his answer for each.
 
@@ -399,7 +409,7 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 | Line | What it holds |
 | --- | --- |
 | `PR:` | the PR's link |
-| `SERVES:` | `port of #N`, or the order of his it carries out, quoted from your brief |
+| `SERVES:` | `port of #N`, `flake fix: <the test>`, or the order of his it carries out, quoted from your brief |
 | `CHANGE:` | what changed for him; on a PR reworked to his words, how they are met, which its fresh card shows him |
 | `CHECK:` | the proof: a link, or the absolute path of a file that exists |
 | `DESIGN:` | on a `READY`, each design decision the PR makes beside the answer id or card permalink of his that settled it, or `none`; the watch's check reads each answer it names whole as his words when it judges the change |

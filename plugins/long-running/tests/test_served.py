@@ -4,8 +4,8 @@ import subprocess
 from collections.abc import Callable
 
 import pytest
-from conftest import Judge
-from drive import github, served, state
+from conftest import Answers, Judge
+from drive import github, served, stage, state
 
 KEY = "Forge-AI/monorepo#42"
 URL = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -199,3 +199,63 @@ def test_the_judge_refuses_uuidv7_row_ids_printed_dashed_where_32_hex_stood_and_
     said = served.words({"orders": {"o1": order | {"parts": dict.fromkeys(parts)}}}, {"order": "o1", "parts": parts, "carries": {}}, ["o1"], [], answered, [])
     found = JUDGE(demo, said, {key: READ_CHANGE(key)})
     assert any(refused_in in item["change"] for item in found) if refused_in else found == [], found
+
+
+STATUS = (
+    b"diff --git a/go/sand/cmd/iris_serve_session.go b/go/sand/cmd/iris_serve_session.go\nindex 1111111111aa..2222222222bb 100644\n"
+    b"--- a/go/sand/cmd/iris_serve_session.go\n+++ b/go/sand/cmd/iris_serve_session.go\n@@ -1884,3 +1884,3 @@ func (s *session) statusLocked() string {\n"
+    b"-\tif s.lease != nil {\n+\tif s.lease != nil && !s.hub.finished() {\n \t\treturn statusRunning\n"
+)
+
+
+def test_a_flake_fix_at_a_product_code_cause_is_judged_against_his_ruling_alone_and_keeps_his_tap_until_only_tests_change(
+    run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch, judge: Judge, recorded: Answers
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "open a side chat beside the session")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    recorded.shown[state.FLAKE_RULING] = {"id": f"{state.FLAKE_RULING}314b29e4dd77f018524c99590519c91e7", "title": "Flaky tests in CI: retry, skip, or fix?", "body": state.FLAKE_WORDS, "tags": [], "created_at": "2026-11-04T06:04:01Z"}
+    files = ["go/sand/cmd/iris_serve_session.go", "dashboard/e2e/irisServe.e2e.ts"]
+    monkeypatch.setattr(github, "files", lambda key: files)
+    assert run("pr", "add", URL, "--job", "j1", "--exempt", "flake fix")[0] == 0
+    data = state.load(demo)
+    pr = data["prs"][KEY]
+    assert (pr["exempt"], pr["wants_tap"], stage.carded(pr), state.cleared(pr), state.served_orders(data, pr)) == ("flake fix", True, True, False, [])
+    with state.edit(demo) as data:
+        data["prs"][KEY]["head"] = "head1"
+    monkeypatch.setattr(served, "change", lambda key: {"title": "Fix: a chat reads idle once its run ends, so irisServe.e2e.ts stops flaking", "body": "", "head": "head1", "diff": STATUS})
+    assert served.verdict(demo, KEY).startswith(f"{served.CHECKED} against his ruling {state.FLAKE_RULING} at head1")
+    said = judge.asked[-1][0]
+    assert state.FLAKE_WORDS in said and "side chat" not in said
+    files[:] = ["dashboard/e2e/irisServe.e2e.ts"]
+    assert run("pr", "add", URL, "--job", "j1", "--exempt", "flake fix")[0] == 0
+    pr = state.load(demo)["prs"][KEY]
+    assert (pr["wants_tap"], stage.carded(pr), state.cleared(pr), state.exempted(pr)) == (False, False, True, "flake fix")
+
+
+FLAKE_RULING = (
+    '532cd3d, 2026-11-03T22:04:01-08:00, asked "Flaky tests in CI: retry, skip, or fix?": "Owner, Nov 3 2026 10:02 PM, verbatim: "and ffs fix these flaky tgests'
+    ' how many times do I have to tell yoiu: https://poetic-technology.slack.com/archives/C0B75AL4XEW/p1793772091923669?thread_ts=1793772079.138749&cid=C0B75AL4XEW".'
+    " Ruling, repeated: a flaky test is fixed at its cause the day it flakes; never a retry, a skip, a timeout bump or a rerun. A repeat of this order is a defect"
+    ' report: the lane finds where the earlier orders failed to hold."'
+)
+RETRY = (
+    b"diff --git a/dashboard/e2e/irisServe.e2e.ts b/dashboard/e2e/irisServe.e2e.ts\nindex 1111111111aa..2222222222bb 100644\n"
+    b"--- a/dashboard/e2e/irisServe.e2e.ts\n+++ b/dashboard/e2e/irisServe.e2e.ts\n@@ -12,6 +12,8 @@ import { serve } from './irisServe';\n"
+    b" \n test.describe('sand iris serve', () => {\n+  test.describe.configure({ retries: 3 });\n+\n   test('opens a side chat', async ({ page }) => {\n"
+    b"-    await page.getByRole('button', { name: 'Add to this chat' }).click();\n+    await page.getByRole('button', { name: 'Add to this chat' }).click({ timeout: 60_000 });\n   });\n });\n"
+)
+FLAKE_FIXES = {
+    "Forge-AI/monorepo#54983, closed unmerged as BLOCKED no order of his names this": ("Forge-AI/monorepo#54983", None),
+    "Forge-AI/monorepo#55393, closed unmerged to answer a NOT READY": ("Forge-AI/monorepo#55393", None),
+    "Forge-AI/monorepo#55619, judged overreach against its feature order": ("Forge-AI/monorepo#55619", None),
+    "a retry and a timeout bump": ("Forge-AI/monorepo#1", {"title": "Fix: the side chat test in dashboard/e2e/irisServe.e2e.ts stops flaking", "diff": RETRY}),
+}
+
+
+@pytest.mark.skipif(os.environ.get("DRIVE_REAL_JUDGE") != "1", reason="replays three flake fixes, read from GitHub, on the judge itself, which DRIVE_REAL_JUDGE=1 asks for")
+@pytest.mark.parametrize("case", list(FLAKE_FIXES))
+def test_the_judge_passes_each_flake_fix_the_drive_turned_away_against_his_ruling_532cd3d_alone_and_refuses_a_retry_and_a_timeout_bump(case: str, demo: str) -> None:
+    key, read = FLAKE_FIXES[case]
+    said = served.words({"orders": {}}, {"order": "o1", "parts": [], "carries": {}}, [], [], [FLAKE_RULING], [])
+    found = JUDGE(demo, said, {key: read or READ_CHANGE(key)})
+    assert {item["file"] for item in found} == {"dashboard/e2e/irisServe.e2e.ts"} if read else found == [], found
