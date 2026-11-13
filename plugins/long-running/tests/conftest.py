@@ -514,6 +514,14 @@ def kept_logs(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
 
 
 @pytest.fixture(autouse=True)
+def runtimes_listening(monkeypatch: pytest.MonkeyPatch) -> dict[str, bool]:
+    """Whether anything listens where Orca's runtime serves on each workspace's Sprite, as that Sprite answers over ssh, by workspace; no answer, as from a Sprite ssh does not reach, unless a test puts one."""
+    answers: dict[str, bool] = {}
+    monkeypatch.setattr(orca, "runtime_listening", answers.get)
+    return answers
+
+
+@pytest.fixture(autouse=True)
 def sessions(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     """The Claude session each Sprite answers with for a dead lane's dispatch, by workspace, which a resume of that lane resumes there; none unless a test puts one."""
     held: dict[str, str] = {}
