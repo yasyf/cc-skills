@@ -6163,3 +6163,11 @@ def test_a_drive_started_from_an_older_install_hands_its_verb_to_the_newest_inst
     monkeypatch.setattr(install, "upgraded", lambda: None)
     assert cli.main() == 2
     assert capsys.readouterr().err.startswith(f"drive: the {demo} drive was saved by long-running 9.9.9")
+
+
+def test_a_parse_never_hands_a_verb_the_list_its_parser_keeps_as_a_default() -> None:
+    first = cli.parsed(["job", "set", "j1"])
+    first.waits.append("job j2")
+    first.part.append("a part")
+    again = cli.parsed(["job", "set", "j1"])
+    assert (again.waits, again.part, cli.parser() is cli.parser()) == ([], [], True)

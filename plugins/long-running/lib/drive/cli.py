@@ -8,6 +8,7 @@ import sys
 import tempfile
 import textwrap
 from collections.abc import Callable
+from functools import cache
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import datetime, timedelta
@@ -1118,7 +1119,7 @@ def job_set(args: argparse.Namespace) -> int:
             f" change its DESIGN listed; every other state comes from the job's return: pipe it into `drive job report {args.id} -`{line}"
         )
     if args.state == "stopped":
-        fix_kept(state.load(name), args.id)
+        fix_kept(known, args.id)
     changes = {"agent": args.agent, "state": args.state, "said": args.said, "branch": args.branch, "due": job_clock(args.id, args.due)}
     urls = dict.fromkeys(state.pr_url(state.pr_key(url)) for url in args.pr)
     if refused := state.change_wait_refusal(known, args.waits):
@@ -1141,7 +1142,6 @@ def job_set(args: argparse.Namespace) -> int:
         )
     check_waits(name, args.waits)
     told_him(name, args)
-    known = state.load(name)
     for order_id in args.carries:
         refuse_a_crossed_order(name, known, find(known["jobs"], args.id, "job")["order"], order_id, f"{args.id} --carries")
     if args.rework and len(args.carries) != 1:
@@ -1244,6 +1244,8 @@ def told_him(name: str, args: argparse.Namespace) -> None:
     """An incident's job waits on his card only once the incident's thread says so: the drive's post there linking each card, with what it blocks and the default the job builds on meanwhile."""
     from drive import view
 
+    if not (args.card or args.waits):
+        return
     data = state.load(name)
     job = find(data["jobs"], args.id, "job")
     cards = [card for card in [args.card, *args.waits] if card and state.card_wait(data, card)]
@@ -2482,6 +2484,8 @@ def correct_card(name: str, key: str, url: str, stored: str, unshown: str, shows
 def check_waits(name: str, waits: list[str]) -> None:
     from drive import view
 
+    if not waits:
+        return
     data = state.load(name)
     for wait in waits:
         pr = release["pr"] if (release := state.RELEASE_WAIT.fullmatch(wait)) else wait
@@ -3220,7 +3224,9 @@ def job_kind(kind: str) -> str:
     return "design" if kind == "designer" else kind
 
 
+@cache
 def parser() -> argparse.ArgumentParser:
+    """The drive's parser, built once a process, since a batch reads it for every op; read it through parsed, which copies the lists a parse shares with its defaults."""
     drive_opt = argparse.ArgumentParser(add_help=False)
     drive_opt.add_argument("--drive", help="the drive to act on")
     json_opt = argparse.ArgumentParser(add_help=False)
@@ -4165,16 +4171,24 @@ def parser() -> argparse.ArgumentParser:
     return root
 
 
+def parsed(argv: list[str] | None) -> argparse.Namespace:
+    args = parser().parse_args(argv)
+    for key, value in vars(args).items():
+        if isinstance(value, list):
+            setattr(args, key, list(value))
+    return args
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run one verb holding its install's lock, so a newer install's first save waits for it to end, in the newest installed drive when this process started from an older install, such as a launch's bind prefix, unless the drive process that started it holds its own install's lock and waits on it as part of its verb. A Sprite lane's verb, which reads.lane_drive marks as a SPRITE_LANE run as its job's own lane, runs only when reads.lane_refusal finds nothing in what it parsed writing to another job or acting on another drive, a bare `status` reading the lane's own job, and nothing it starts carries that mark."""
     if argv is None and state.held_by_parent():
         state.hold_install()
     elif argv is None:
         install.reopen(sys.argv[1:])
-    args = parser().parse_args(argv)
+    args = parsed(argv)
     if os.environ.pop(reads.SPRITE_LANE, None):
         own = os.environ[state.OWN_JOB_ENV]
-        if refused := reads.lane_refusal(args, parser().parse_args, os.environ["LONG_RUNNING_DRIVE"], own):
+        if refused := reads.lane_refusal(args, parsed, os.environ["LONG_RUNNING_DRIVE"], own):
             print(refused, file=sys.stderr)
             return 2
         if args.verb == "status" and not args.ids:
