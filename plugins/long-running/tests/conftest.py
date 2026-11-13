@@ -69,6 +69,15 @@ exists: supervisor/copies.rs store_copy_at copies one store
 open: none
 """
 
+LOCK_STALL = (
+    "Drive tooling: one long drive command, a break-glass that ran 14 minutes on the previous release, held its release's lock the whole"
+    " time, so every drive command that writes on the newer release waited with no output for up to 11 minutes, about 60 of them across every session"
+)
+LOCK_STALL_AGAIN = (
+    "Drive tooling: one long command of a break-glass job on an older install held every newer verb, so for about ten minutes no session"
+    " could add a job, post a record or start a handler"
+)
+
 SHORT_ASK = """ASK How should a finished run's files be laid out so its page opens without guessing?
 Drive tooling: your pick decides how a finished run's files are laid out; a run is about 180 small files, each with its page map at the end, so the browser guesses where each map starts.
 Recommended: one snapshot file per finished run, so any finished run opens in 3 requests.

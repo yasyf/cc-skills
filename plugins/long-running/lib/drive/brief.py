@@ -364,7 +364,7 @@ def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
             f'its Change: line "{cut(stray, 80)}" waits on a change its list does not hold: a change waits only on earlier changes'
             " of its list, as (waits on change <its number, counting Change: lines from 1>) or (waits on change 1 and change 2)"
         )
-    if job["kind"] == "reader" and (refused := reader_refusal(job_id, job, order, text, lines)):
+    if job["kind"] == "reader" and (refused := reader_refusal(data, job_id, job, order, text, lines)):
         return refused
     if opening in ("DONE", *READY_OPENINGS) and (left := left_steps(text)):
         return (
@@ -388,7 +388,7 @@ def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
     )
 
 
-def reader_refusal(job_id: str, job: dict, order: dict, text: str, lines: list[str]) -> str | None:
+def reader_refusal(data: dict, job_id: str, job: dict, order: dict, text: str, lines: list[str]) -> str | None:
     """Why a reader's return may not be kept: research for a build order carries its filled Researched: block, and a DESIGN is a choice for him of two to four options, one recommended, starting from the root cause its evidence finds and offering the option that removes it, and on a bug hurting someone now names the immediate fix shipping while he picks."""
     block = researched(text)
     if order["kind"] == "build" and not order["incident"] and job["goal"].casefold().startswith("research") and (
@@ -411,7 +411,7 @@ def reader_refusal(job_id: str, job: dict, order: dict, text: str, lines: list[s
     options = [limits.RECOMMENDED.sub("", option) for option in offered]
     if problems := limits.root_cause_problems(text, options):
         return f"a reader's DESIGN names its simplest option, starts from the root cause and names the option that removes it: {problems[0]}"
-    if state.hurts_now(order) and (problems := limits.interim_fix_problems(text)):
+    if state.hurts_now(data, order) and (problems := limits.interim_fix_problems(text)):
         return f"a reader's DESIGN on a bug hurting someone now names its immediate fix: {problems[0]}"
     return None
 

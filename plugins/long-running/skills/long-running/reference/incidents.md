@@ -74,7 +74,7 @@ changed and when, its findings the suspects, and its root cause the verdict.
   <o> --alert <its link> --project "<o's project>" --workstream "<o's workstream>" --title "<a few words>"`. It takes the
   parts his words ask for with `drive order set <new> --parts "<part>"`, and the owner carries it with
   `drive job set <owner> --carries <new> --part "<part>"`. `--joins` refuses an order that is
-  closed or no incident. The order keeps what it joins, and the incident and each alert joined to it
+  closed, and with `--incident` one that is no incident. The order keeps what it joins, and the incident and each alert joined to it
   share their threads both ways, so `say` and `drive order posted` take a line on any of them in any
   of their threads. A line in a thread outside them is refused, naming the order whose thread it is,
   or, when none holds it and his alert is at its root, the `--joins` command to run.
