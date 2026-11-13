@@ -188,6 +188,45 @@ class RecordedSync(unittest.TestCase):
                          [(e["ts"], e["kind"], e["text"]) for e in RECORDED])
 
 
+class CleanedTimeline(unittest.TestCase):
+    def setUp(self):
+        self.incident, self.docs = incident_dir(), docs_checkout()
+        state = json.loads((self.incident / "state.json").read_text())
+        timeline = [
+            {"ts": "2026-09-02T14:05:00-07:00", "kind": "alert", "actor": "Datadog", "text": "Paged ai-oncall",
+             "refs": ["https://app.datadoghq.com/monitors/312516332"]},
+            {"ts": "2026-09-02T14:20:00-07:00", "kind": "action", "actor": "Commander",
+             "text": "<@U0TEST0001> Suspected: the release in <#C0A1B2C3D4E|inc-browsers> broke pools", "refs": []},
+            {"ts": "2026-09-02T14:44:00-07:00", "kind": "deploy", "actor": "ai-oncall", "text": "Started the hotfix release",
+             "refs": ["https://buildkite.com/forge/release/builds/9"]},
+            {"ts": "2026-09-02T14:45:00-07:00", "kind": "deploy", "actor": "ai-oncall", "text": "Started the hotfix release",
+             "refs": ["https://buildkite.com/forge/release/builds/10"]},
+        ]
+        state.update(timeline=timeline, started_at="2026-09-02T14:05:00.400-07:00",
+                     detected_at="2026-09-02T14:05:00.400-07:00", severity="SEV2")
+        (self.incident / "state.json").write_text(json.dumps(state))
+        run(retro_live.init, args(self.incident, self.docs))
+        self.code = run(retro_live.sync, args(self.incident, self.docs))
+        self.R = json.loads((self.docs / retro_live.RETRO_DIR / SLUG / "retro.json").read_text())
+
+    def test_the_cleaned_retro_passes_check(self):
+        self.assertEqual(self.code, 0)
+
+    def test_the_page_that_opened_the_incident_is_not_before_it(self):
+        self.assertNotIn("phase", self.R["timeline"][0])
+
+    def test_slack_mentions_are_dropped_and_channels_named(self):
+        self.assertEqual(self.R["timeline"][1]["text"], "Suspected: the release in #inc-browsers broke pools")
+
+    def test_a_repeated_event_is_one_entry_carrying_both_links(self):
+        releases = [t for t in self.R["timeline"] if t["kind"] == "deploy"]
+        self.assertEqual([r["refs"] for r in releases],
+                         [["https://buildkite.com/forge/release/builds/9", "https://buildkite.com/forge/release/builds/10"]])
+
+    def test_the_severity_is_carried_as_the_page_reads_it(self):
+        self.assertEqual(self.R["meta"]["incident"]["severity"], "sev-2")
+
+
 class RegisterShapedTitle(unittest.TestCase):
     def setUp(self):
         self.incident, self.docs = incident_dir(), docs_checkout()

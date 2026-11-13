@@ -51,6 +51,8 @@ TEMPLATE_VAR = re.compile(r"\{\{\s*([\w.-]+?)\.name\s*\}\}")
 TEMPLATE_LEFT = re.compile(r"\s*[\u2014\u2013:-]?\s*\{\{[^}]*\}\}")
 WORD = re.compile(r"\S+")
 FOLDER = re.compile(r"[\w-]+")
+SLACK_MARK = re.compile(r"<(?:[@!][\w^|-]+(?:\|[^>]*)?|#C[A-Z0-9]+\|(?P<channel>[^>]+)|(?P<url>https?:[^|>]+)(?:\|(?P<label>[^>]+))?)>")
+SEV_LEVEL = re.compile(r"sev[\s-]?(\d)", re.I)
 
 
 def utc_now() -> datetime.datetime:
@@ -70,6 +72,19 @@ def clip(text: str, budget: int, chars: int = 0) -> str:
     while parts and (len(parts) > budget or (chars and len(" ".join(parts)) > chars)):
         parts.pop()
     return " ".join(parts)
+
+
+def unslack(text) -> str:
+    def plain(m):
+        if m["channel"]:
+            return "#" + m["channel"]
+        return m["label"] or m["url"] or ""
+    return re.sub(r"\s{2,}", " ", SLACK_MARK.sub(plain, str(text or ""))).strip()
+
+
+def same_event(a: dict, b: dict, retro) -> bool:
+    return ((a["kind"], a["actor"], a["text"].lower()) == (b["kind"], b["actor"], b["text"].lower())
+            and abs(retro.parse_ts(b["ts"]) - retro.parse_ts(a["ts"])) <= datetime.timedelta(minutes=10))
 
 
 def handle(text: str, fallback: str, retro) -> str:
@@ -214,8 +229,8 @@ def live_block(state: dict, retro, now: datetime.datetime, source) -> dict:
 
 def recorded_rows(state: dict, retro) -> list:
     return [{"ts": row["ts"], "kind": row["kind"], "actor": row.get("actor") or "a responder",
-             "h": handle(row.get("text"), "Timeline entry", retro),
-             "text": clip(row.get("text"), retro.ENTRY_WORDS), "refs": list(row.get("refs") or []),
+             "h": handle(unslack(row.get("text")), "Timeline entry", retro),
+             "text": clip(unslack(row.get("text")), retro.ENTRY_WORDS), "refs": list(row.get("refs") or []),
              "key": row["kind"] in KEY_KINDS}
             for row in state["timeline"]]
 
@@ -227,8 +242,8 @@ def derived_rows(state: dict, messages: list, retro) -> list:
             continue
         author = m.get("author") or m.get("user") or "a responder"
         rows.append({"ts": slack_stamp(m["ts"]), "kind": "report", "actor": author,
-                     "h": handle(m.get("text"), "Slack report", retro),
-                     "text": clip(m.get("text"), retro.ENTRY_WORDS), "refs": [m["permalink"]], "key": False})
+                     "h": handle(unslack(m.get("text")), "Slack report", retro),
+                     "text": clip(unslack(m.get("text")), retro.ENTRY_WORDS), "refs": [m["permalink"]], "key": False})
     for monitor in state.get("monitors") or []:
         if monitor.get("fired_at"):
             rows.append({"ts": monitor["fired_at"], "kind": "alert", "actor": "Datadog",
@@ -258,6 +273,16 @@ def timeline_of(state: dict, messages: list, retro, onset) -> list:
     all_clear = retro.try_ts(state.get("all_clear_at"))
     rows = recorded_rows(state, retro) if "timeline" in state else derived_rows(state, messages, retro)
     rows.sort(key=lambda row: retro.parse_ts(row["ts"]))
+    merged = []
+    for row in rows:
+        if merged and same_event(merged[-1], row, retro):
+            held = merged[-1]
+            held["refs"] = list(dict.fromkeys(held["refs"] + row["refs"]))
+            held["key"] = held["key"] or row["key"]
+            continue
+        merged.append(row)
+    rows = merged
+    onset = onset.replace(microsecond=0) if onset else None
     flagged = 0
     for row in rows:
         if onset and retro.parse_ts(row["ts"]) < onset:
@@ -357,6 +382,9 @@ def shell(state: dict, R: dict, retro, now: datetime.datetime, source) -> dict:
     meta["teams"] = [t["codename"] for t in state.get("teams") or [] if isinstance(t, dict) and t.get("codename")]
     if state.get("incident_channel"):
         meta.setdefault("incident", {})["channel"] = state["incident_channel"]
+    level = SEV_LEVEL.fullmatch(str(state.get("severity") or "").strip())
+    if level:
+        meta.setdefault("incident", {})["severity"] = f"sev-{level.group(1)}"
     timestamps = R.setdefault("timestamps", {})
     previous = dict(timestamps)
     timestamps["onset"] = state.get("started_at")
