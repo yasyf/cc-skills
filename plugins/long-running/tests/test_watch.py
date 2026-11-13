@@ -2346,7 +2346,7 @@ def paused(thread: str = "1.2") -> dict:
 
 
 def question(waits: str) -> dict:
-    return {"question": f"Pick {waits}?", "options": ["Yes", "No"], "recommended": "Yes", "asked": state.stamp(T0), "url": f"{CARD}?thread_ts=1.2", "card": {"title": f"Pick {waits}?", "waits": waits}}
+    return {"question": f"Pick {waits}?", "options": ["Yes", "No"], "recommended": "Yes", "asked": state.stamp(T0), "url": f"{CARD}?thread_ts=1.2", "card": {"title": f"Pick {waits}?", "body": "", "options": ["Yes", "No"], "recommended": "Yes", "waits": waits}}
 
 
 def asking(monkeypatch: pytest.MonkeyPatch, name: str, *waits: str) -> None:
