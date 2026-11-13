@@ -288,6 +288,21 @@ def test_a_sprite_lanes_kept_report_answers_that_it_was_kept_with_its_first_line
     assert run("job", "report", "j1", "-") == (0, "kept j1's report: DONE researched the store copy")
 
 
+@pytest.mark.parametrize("lane", [False, True])
+def test_a_verb_that_refuses_itself_prints_its_refusal_and_exits_2_on_a_sprite_lane_and_off_one(
+    lane: bool, demo: str, run: Callable[..., tuple[int, str]], tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Copies", "--project", "The drive", "--workstream", "Drive tooling", "count the stranded table copies")
+    run("job", "add", "reader", "--order", "o1", "--goal", "count them")
+    if lane:
+        monkeypatch.setenv(reads.SPRITE_LANE, "1")
+        monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
+        monkeypatch.setenv("LONG_RUNNING_DRIVE", demo)
+    capsys.readouterr()
+    assert cli.main(["job", "set", "j1", "--repro", str(tmp_path / "missing.sh")]) == 2
+    assert capsys.readouterr().err == f"drive: no reproduction file at {tmp_path / 'missing.sh'}\n"
+
+
 def test_drive_break_glass_refuses_a_blank_reason_before_any_grant(demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "count the stranded table copies")
     monkeypatch.setattr(reads, "break_glass", lambda *args: pytest.fail("a blank reason started a grant"))
