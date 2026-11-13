@@ -338,7 +338,11 @@ the PR: one that could make no fresh worktree of the default branch, such as whe
 checkout fetched, or whose `stack-enqueue --check` or `--watch` exited 5, its own failure, such as a `ccx` that a
 Homebrew upgrade unlinked for a moment or a GitHub read that timed out. The watch says it once to the meta session
 as the lander's own `LANDER the lander could not …` defect, never as the PR's not landed line, and the lander tries
-again at the watch's next pass with no new tap. A try that
+again at the watch's next pass with no new tap. So does a try that ended on a failed GitHub read before it
+queued or merged anything, such as a TLS handshake timeout on its diff read, said on the PR's line and named by
+its `ready` stage until a try lands it. The lander reads the default branch's head with `git ls-remote` and
+fetches that commit by its sha, writing no ref, since every worktree of the clone and every lander share
+`refs/remotes/origin/<branch>`. A try that
 comes to what the one before it on that head did is said once. A try stands only while what let it run does: once `drive pr set <url> --no-exempt --tap`
 puts the PR on his card, or his tap comes after the try started, the PR reads his card or `ready` again, never
 `unlanded`. Its outcome comes back as the PR's stage:

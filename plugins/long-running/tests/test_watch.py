@@ -4472,6 +4472,35 @@ def test_a_landing_whose_stack_enqueue_failed_on_its_own_is_said_once_to_the_met
     assert posted(sent) == [("defect", f"meta@{demo}", f"{watch.LANDER}{failed}")]
 
 
+def test_replayed_55635_a_landing_whose_diff_read_timed_out_reads_ready_naming_that_try_and_the_next_pass_lands_it_with_no_new_tap_or_defect(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
+) -> None:
+    waiting_job(demo)
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= {"exempt": "pure port", "wants_tap": False, "checks": "pass", "review": "approved"}
+    enqueue_exiting(tmp_path, demo, 0)
+    timeout = f'could not read {KEY}\'s diff from GitHub: gh: Get "https://api.github.com/repos/Forge-AI/monorepo/compare": net/http: TLS handshake timeout'
+
+    def timed_out(key: str) -> dict:
+        raise state.DriveError(f"{key}: {timeout}; run this again")
+
+    monkeypatch.setattr(land.served, "change", timed_out)
+    watching = watcher(demo)
+    failed = land.run(demo, [KEY])
+    assert failed == f"{land.UNREAD}: {KEY}: {timeout}; run this again"
+    assert stage.of(state.load(demo), KEY, NO_CARDS) == stage.Stage("ready", stage.LANDER, f'green, its exempt class "pure port" lands it; its lander\'s last try ended {failed}')
+    assert land.start(demo, [KEY], NO_CARDS) == [(KEY,)]
+    monkeypatch.setattr(land.served, "change", lambda key: {"title": "Port: the run page", "body": "", "head": "aaaaaaa111", "diff": b""})
+    assert land.run(demo, [KEY]) == land.QUEUED
+    assert landers == [(KEY,)]
+    lines = watch.event_lines(watching)
+    assert lines == [f"PR {KEY}: {failed} [o1 j1]", f"PR {KEY}: {land.QUEUED} [o1 j1]"]
+    assert [watch.wakes(line, state.load(demo)) for line in lines] == [False, False]
+    sent = posts(monkeypatch)
+    assert watch.handed(watching, lines, T0) == lines
+    assert posted(sent) == []
+
+
 def test_a_lander_that_outlived_an_install_reopens_on_the_newest_drive_which_records_its_outcome_and_logs_it_under_its_pr(
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
