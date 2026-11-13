@@ -16,7 +16,7 @@ from unittest.mock import ANY
 import drive
 import pytest
 import spawnllm
-from conftest import CARD_BODY, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SETTLED_MATCHED, SETTLED_NOTE, SHORT_ASK, WRITTEN_AT, drawn_card, Answers, explained, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, MetaLaunches, Redraws, Thread, WatchProcess, Withdrawals
+from conftest import CARD_BODY, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SETTLED_MATCHED, SETTLED_NOTE, SHORT_ASK, WRITTEN_AT, drawn_card, Answers, explained, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, SessionLaunches, Redraws, Thread, WatchProcess, Withdrawals
 from drive import (
     agents,
     brief,
@@ -148,7 +148,7 @@ def test_start_creates_the_drive_and_prints_the_roles_context(run: Run, tmp_path
             "started": data["roles"]["communicator"]["started"],
         }
     }
-    assert data["slack"] == {"page": None, "watch": []}
+    assert data["slack"] == {"page": None, "watch": [], "channel": "D123"}
 
 
 def test_a_coordinators_start_starts_the_watch_and_says_so(run: Run, watch_process: WatchProcess, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -161,23 +161,60 @@ def test_a_coordinators_start_starts_the_watch_and_says_so(run: Run, watch_proce
 
 
 def test_drive_start_starts_the_meta_session_beside_the_others_once_until_it_binds(
-    run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, meta_launches: MetaLaunches
+    run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, session_launches: SessionLaunches
 ) -> None:
     out = run("start", "demo", "--role", "communicator")[1]
     registered = "demo-communicator registered: cci session run keeps session session-under-test running in tmux"
     assert f"\n\n{registered}\nstarted the meta session, which holds drive tooling, in Orca terminal term_meta1\ncommunicator: " in out
-    assert (meta_launches.started, state.load("demo")["launched"]) == ([("demo", str(tmp_path))], {"meta": "term_meta1"})
+    assert (session_launches.started, state.load("demo")["launched"]) == ([("demo", "meta", str(tmp_path))], {"meta": "term_meta1"})
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "coordinator-session")
     registered = "demo-coordinator registered: cci session run keeps session coordinator-session running in tmux"
     assert f"\n\n{registered}\nthe meta session starts in Orca terminal term_meta1, which an earlier drive start opened\n" in run("start", "demo", "--role", "coordinator")[1]
-    meta_launches.open.clear()
+    session_launches.open.clear()
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "communicator-2")
     assert "in Orca terminal term_meta2\ncommunicator: " in run("start", "demo", "--role", "communicator")[1]
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "meta-session")
     run("start", "demo", "--role", "meta")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "coordinator-session")
     assert "the meta session starts in" not in run("start", "demo", "--role", "coordinator")[1]
-    assert len(meta_launches.started) == 2
+    assert len(session_launches.started) == 2
+
+
+def test_a_drive_started_with_no_communicator_starts_its_own_in_orca_once_until_it_binds(
+    run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, session_launches: SessionLaunches
+) -> None:
+    out = run("start", "demo", "--role", "coordinator")[1]
+    assert (
+        "\nstarted the meta session, which holds drive tooling, in Orca terminal term_meta1"
+        "\nstarted the communicator, which talks to him in the drive's own channel, in Orca terminal term_communicator1\n"
+    ) in out
+    assert (session_launches.started, state.load("demo")["launched"]) == (
+        [("demo", "meta", str(tmp_path)), ("demo", "communicator", str(tmp_path))],
+        {"meta": "term_meta1", "communicator": "term_communicator1"},
+    )
+    assert "\nthe communicator starts in Orca terminal term_communicator1, which an earlier drive start opened\n" in run("start", "demo", "--role", "coordinator")[1]
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "communicator-session")
+    run("start", "demo", "--role", "communicator")
+    session_launches.open.clear()
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-under-test")
+    assert "Orca terminal term_communicator" not in run("start", "demo", "--role", "coordinator")[1]
+    assert [role for _, role, _ in session_launches.started] == ["meta", "communicator", "meta"]
+
+
+def test_the_communicators_start_keeps_the_drives_own_channel_and_draws_its_page_there(run: Run, drive_channels: dict[str, str], monkeypatch: pytest.MonkeyPatch) -> None:
+    drive_channels["demo"] = "C0DEMO"
+    run("start", "demo", "--role", "coordinator")
+    with state.edit("demo") as data:
+        data["slack"]["page"] = "F0INHISDM"
+    assert "channel" not in state.load("demo")["slack"]
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "communicator-session")
+    code, out = run("start", "demo", "--role", "communicator")
+    assert (code, out.splitlines()[1]) == (0, "Hold with slack_watch: the drive's channel C0DEMO")
+    assert state.load("demo")["slack"] == {"page": None, "watch": [], "channel": "C0DEMO"}
+    with state.edit("demo") as data:
+        data["slack"]["page"] = "F0INCHANNEL"
+    run("start", "demo", "--role", "communicator")
+    assert (state.load("demo")["slack"]["page"], slack.channel(state.load("demo")), slack.conversation(state.load("demo"))) == ("F0INCHANNEL", "C0DEMO", ["--channel", "C0DEMO"])
 
 
 def test_a_sub_coordinator_binds_beside_the_top_for_a_project_an_order_is_filed_under_and_a_new_session_replaces_it(

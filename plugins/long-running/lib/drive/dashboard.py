@@ -163,9 +163,9 @@ def answer_card(card: str, label: str, via: str) -> dict:
     return cc_slack("card-answer", "--card", card, "--label", label, "--via", via, "--surface", "dashboard")
 
 
-def relay(text: str, under: str) -> dict:
-    """Post his words in his DM, marked as typed on the dashboard, under the card or ask thread named, or as a new message; the drive hears them as his DM."""
-    return cc_slack("dm-relay", "--text", text, *(["--under", under] if under else []))
+def relay(name: str, text: str, under: str) -> dict:
+    """Post his words in the drive's channel, marked as typed on the dashboard, under the card or ask thread named, or as a new message; the drive hears them as his words there."""
+    return cc_slack("dm-relay", "--text", text, *(["--under", under] if under else []), *slack.conversation(state.load(name)))
 
 
 def pr_read(name: str, key: str) -> dict | None:
@@ -657,7 +657,7 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 self.answered(409, {"error": ELSEWHERE})
                 return
             try:
-                sent = relay(text, under)
+                sent = relay(board.name, text, under)
             except (DriveError, subprocess.TimeoutExpired) as error:
                 self.answered(502, {"error": str(error)})
                 return

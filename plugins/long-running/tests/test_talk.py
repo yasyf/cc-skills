@@ -281,7 +281,7 @@ def test_say_posts_the_words_its_hook_judged_and_checks_none_of_them_again(demo:
     with state.edit(demo) as data:
         data["stand_ins"]["backup"] = "S3 replica"
     text = "The fence held, the backup copy is current, and the runs failed because the pool was full."
-    assert talk.say(demo, {"text": text, "dry_run": True}) == f"DRY his DM root, 0 pictures: {text}"
+    assert talk.say(demo, {"text": text, "dry_run": True}) == f"DRY the drive's channel root, 0 pictures: {text}"
     talk.say(demo, {"text": text})
     assert ([argv[-1] for argv in posts], checked.texts) == ([text], [])
 
@@ -327,7 +327,7 @@ def test_a_code_or_diagram_fence_in_the_text_goes_to_slack_as_its_picture_while_
     assert posts[0][5:] == ("--file", str(tmp_path / "go code.png"), "--file", str(tmp_path / "Diagram.png"), "--", sent)
     [kept] = said(demo)
     assert (kept["text"], kept["visuals"]) == (text, [])
-    assert talk.say(demo, {"text": text, "dry_run": True}) == f"DRY his DM root, 2 pictures: {sent}"
+    assert talk.say(demo, {"text": text, "dry_run": True}) == f"DRY the drive's channel root, 2 pictures: {sent}"
 
 
 def building(demo: str) -> None:
@@ -1033,7 +1033,7 @@ def test_his_catch_up_counts_every_open_card_and_draws_only_those_asked_since_he
         + "\n\n"
         + "\n".join(drawn[5:])
     )
-    assert talk.say(demo, {"text": text, "record": "660299", "dry_run": True}) == f"DRY his DM root, 0 pictures: {sent}"
+    assert talk.say(demo, {"text": text, "record": "660299", "dry_run": True}) == f"DRY the drive's channel root, 0 pictures: {sent}"
     talk.say(demo, {"text": text, "record": "660299"})
     assert posts[-1][-1] == sent
     assert "Question 1?" not in sent and "Question 2?" not in sent
@@ -1143,7 +1143,7 @@ def test_a_line_in_an_alerts_thread_goes_out_through_cc_slack_reply_with_the_tic
         )
     ]
     assert said(demo)[0]["channel"] == "C0ALERT1"
-    with pytest.raises(DriveError, match=f"^nothing posted: thread {ALERT} is in channel C0ALERT1, not his DM, so pass channel_id C0ALERT1 with it$"):
+    with pytest.raises(DriveError, match=f"^nothing posted: thread {ALERT} is in channel C0ALERT1, not the drive's channel, so pass channel_id C0ALERT1 with it$"):
         talk.say(demo, {"text": "The release failed on the migration.", "thread_ts": ALERT, "record": "683597"})
     assert len(posts) == 1
 
@@ -1167,10 +1167,10 @@ def test_an_edit_of_a_line_in_an_alerts_thread_goes_out_with_the_ticket_its_hook
 @pytest.mark.parametrize(
     ("post", "why"),
     [
-        ({"channel_id": "D123", "thread_ts": ALERT}, "channel_id D123 is his DM; leave channel_id out"),
-        ({"channel_id": "C0ALERT1"}, "channel_id C0ALERT1 names the channel of a thread outside his DM, so it takes that thread's thread_ts"),
-        ({"channel_id": "C0ALERT1", "thread_ts": ALERT, "about": WAITS}, "about names the card a reply in his DM is about"),
-        ({"channel_id": "U0REPORTER", "card": {"title": QUESTION}}, "a card goes up in his DM and its line in a thread outside it, so with channel_id U0REPORTER it takes"),
+        ({"channel_id": "D123", "thread_ts": ALERT}, "channel_id D123 is the drive's channel; leave channel_id out"),
+        ({"channel_id": "C0ALERT1"}, "channel_id C0ALERT1 names the channel of a thread outside the drive's channel, so it takes that thread's thread_ts"),
+        ({"channel_id": "C0ALERT1", "thread_ts": ALERT, "about": WAITS}, "about names the card a reply in the drive's channel is about"),
+        ({"channel_id": "U0REPORTER", "card": {"title": QUESTION}}, "a card goes up in the drive's channel and its line in a thread outside it, so with channel_id U0REPORTER it takes"),
     ],
 )
 def test_a_post_outside_his_dm_takes_a_thread_and_nothing_only_his_dm_draws(demo: str, posts: list[tuple[str, ...]], post: dict, why: str) -> None:
@@ -1183,13 +1183,13 @@ def test_a_card_on_an_order_in_an_alerts_thread_goes_up_in_his_dm_and_its_line_g
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], slack_thread: Thread
 ) -> None:
     alert_order(run, slack_thread)
-    with pytest.raises(DriveError, match=f"^nothing posted: thread {ALERT} is in channel C0ALERT1, not his DM, so pass channel_id C0ALERT1 with it$"):
+    with pytest.raises(DriveError, match=f"^nothing posted: thread {ALERT} is in channel C0ALERT1, not the drive's channel, so pass channel_id C0ALERT1 with it$"):
         talk.say(demo, {"text": "Your pick holds the fix.", "card": {"title": QUESTION}, "thread_ts": ALERT})
     with pytest.raises(DriveError, match=f"pass channel_id C0ALERT1 and thread_ts {ALERT}"):
         talk.say(demo, {"text": "Ready to land.", "tap_prs": [PR_URL]})
     assert posts == []
     card = {"text": "Your pick holds the fix.", "card": {"title": QUESTION}, "channel_id": "C0ALERT1", "thread_ts": ALERT}
-    assert talk.say(demo, card | {"dry_run": True}) == f"DRY his DM root, thread {ALERT} of channel C0ALERT1, 0 pictures, card {QUESTION!r}: Your pick holds the fix."
+    assert talk.say(demo, card | {"dry_run": True}) == f"DRY the drive's channel root, thread {ALERT} of channel C0ALERT1, 0 pictures, card {QUESTION!r}: Your pick holds the fix."
     assert talk.say(demo, card | TICKET) == f"POSTED {POSTED} CARD {POSTED}"
     talk.say(demo, {"text": "Ready to land.", "tap_prs": [PR_URL], "channel_id": "C0ALERT1", "thread_ts": ALERT} | TICKET)
     tickets = ("--ticket", "t1", "--ticket-tree", "tree1", "--ticket-agent", "agent1", "--ticket-call", "call1", "--ticket-fingerprint", "print1")
@@ -1289,7 +1289,7 @@ def test_a_pr_card_drawn_at_his_dm_root_is_a_thread_of_the_order_its_pr_serves_s
     sent = slack.cc_slack
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: sent(*argv) | {"card_permalink": f"https://acme.slack.com/archives/D123/p{card.replace('.', '')}"})
     talk.say(demo, {"text": "land these", "tap_prs": [PR_URL]})
-    assert posts == [("dm-status", "--agent", "claude", "--drive", "demo", "--tap-pr", PR_URL, "--", "land these")]
+    assert posts == [("dm-status", "--agent", "claude", "--drive", "demo", "--channel", "D123", "--tap-pr", PR_URL, "--", "land these")]
     report(monkeypatch, {"progress": "true", "order": "o1"})
     line = f"https://acme.slack.com/archives/D123/p1794532866928349?thread_ts={card}"
     slack_thread.messages.append({"ts": "1794532866.928349", "thread_ts": card, "from_claude": True})
@@ -1313,3 +1313,16 @@ def test_the_watchs_paused_reply_under_his_question_card_goes_in_the_cards_threa
     assert ("channel" not in data["slack"], data["orders"]["o1"]["threads"][0][:2]) == (True, [his_dm, question])
     assert talk.posted(demo, {"text": watch.PAUSED, "thread_ts": question})["permalink"] == POSTED
     assert posts == [("dm-status", "--agent", "claude", "--drive", demo, "--thread", question, "--", watch.PAUSED)]
+
+
+def test_say_posts_in_the_drives_own_channel_once_its_communicator_kept_one(
+    demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], drive_channels: dict[str, str]
+) -> None:
+    drive_channels[demo] = "C0DEMO"
+    run("start", demo, "--role", "communicator")
+    text = "The run page shows each run's history."
+    assert talk.say(demo, {"text": text, "dry_run": True}) == f"DRY the drive's channel root, 0 pictures: {text}"
+    talk.say(demo, {"text": text})
+    assert posts == [("dm-status", "--agent", "claude", "--drive", demo, "--channel", "C0DEMO", "--", text)]
+    with pytest.raises(DriveError, match="^nothing posted: channel_id C0DEMO is the drive's channel; leave channel_id out"):
+        talk.say(demo, {"text": text, "channel_id": "C0DEMO", "thread_ts": "1794300000.000100"})

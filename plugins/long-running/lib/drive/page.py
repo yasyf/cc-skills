@@ -173,9 +173,10 @@ def render(model: dict, dashboard: str, shown: int | None = ROWS) -> str:
 
 
 def draw(name: str, markdown: str) -> Drawn:
-    """Draw the page on the drive's canvas, creating it as a tab in his DM the first time, and again when the stored canvas is gone or Slack calls it full; returns the page's URL and whether it moved to a new tab."""
-    canvas = state.load(name)["slack"].get("page")
-    argv = ["canvas", "--title", f"{name}: where it stands"]
+    """Draw the page on the drive's canvas, creating it as a tab in the drive's channel the first time, and again when the stored canvas is gone or Slack calls it full; returns the page's URL and whether it moved to a new tab."""
+    data = state.load(name)
+    canvas = data["slack"].get("page")
+    argv = ["canvas", "--title", f"{name}: where it stands", *slack.conversation(data)]
     if canvas:
         argv += ["--canvas", canvas]
     try:

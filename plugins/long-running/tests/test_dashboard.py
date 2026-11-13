@@ -671,7 +671,7 @@ def test_typed_words_reach_cc_slack_only_from_the_page_itself_and_only_under_a_c
     board = dashboard.Board("demo", [])
     board.answers = {card: ["Go", "Hold"]}
     relayed = []
-    monkeypatch.setattr(dashboard, "relay", lambda text, under: relayed.append((text, under)) or {"posted": True, "permalink": f"{under or card}#copy"})
+    monkeypatch.setattr(dashboard, "relay", lambda name, text, under: relayed.append((text, under)) or {"posted": True, "permalink": f"{under or card}#copy"})
     server, port = serving(board)
     page = f"http://box:{port}"
     elsewhere = post(port, "https://evil.example", "/api/say", {"text": "merge it", "under": card})
@@ -2853,3 +2853,16 @@ const after = target().getBoundingClientRect();
 done({ sameScale: Math.abs(nowCamera.at.k - scale) < 0.001, samePlace: Math.abs(before.left - after.left) < 1 && Math.abs(before.top - after.top) < 1, visible: after.left < innerWidth && after.right > 0, hash: location.hash });
 """, board(queue=[QUESTION | {"project": "Platform"}], status=[{"state": "running", "features": [FEATURE, iris]}]), "1440,900", "--force-prefers-reduced-motion")
     assert seen == {"sameScale": True, "samePlace": True, "visible": True, "hash": "#/now/Platform/SandSQL"}
+
+
+def test_his_words_typed_on_the_dashboard_go_in_the_drives_own_channel_once_it_keeps_one(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    sent: list[tuple[str, ...]] = []
+    monkeypatch.setattr(dashboard, "cc_slack", lambda *argv: sent.append(argv) or {"posted": True})
+    dashboard.relay(demo, "ship the dashboard", "")
+    with state.edit(demo) as data:
+        data["slack"]["channel"] = "C0DEMO"
+    dashboard.relay(demo, "hold #41", "https://acme.slack.com/archives/C0DEMO/p100")
+    assert sent == [
+        ("dm-relay", "--text", "ship the dashboard"),
+        ("dm-relay", "--text", "hold #41", "--under", "https://acme.slack.com/archives/C0DEMO/p100", "--channel", "C0DEMO"),
+    ]

@@ -45,8 +45,23 @@ def whoami() -> dict:
 
 
 def dm() -> str:
-    """His DM: cc-slack's DM with him, as `cc-slack whoami` names it, where dm-status draws every card and post to him."""
+    """His DM: cc-slack's DM with him, as `cc-slack whoami` names it, where a drive whose communicator has not started since it got a channel of its own still talks to him."""
     return whoami()["dm_channel_id"]
+
+
+def channel(data: dict) -> str:
+    """The drive's own private channel, which its communicator's `drive start` keeps as slack.channel and holds, where dm-status draws every card and post of the drive to him, by his words "we should probably move from DMs to one per-drive private channel"; his DM until then."""
+    return data["slack"].get("channel") or dm()
+
+
+def conversation(data: dict) -> list[str]:
+    """The --channel naming the drive's channel to a cc-slack verb that acts in his DM without one, such as dm-status; none until the drive keeps a channel."""
+    return ["--channel", data["slack"]["channel"]] if data["slack"].get("channel") else []
+
+
+def open_channel(name: str) -> str:
+    """The drive's private channel drive-<name>, which `cc-slack channel-create --private` makes with him in it and keeps as one of his conversations with the app, or finds kept under that name."""
+    return cc_slack("channel-create", "--private", "--name", f"drive-{name}")["channel_id"]
 
 
 def workspace() -> str:
@@ -128,7 +143,7 @@ def redraw_pr_cards(url: str) -> int:
 
 
 def order_threads(data: dict, order_id: str, order: dict) -> list[tuple[str, str]]:
-    """The threads of an order: its own, then on an incident the own thread of each other order of it, the incident an alert's order joined and every alert joined to it, both ways, then each thread one of them keeps: each a post naming it went in, each card its jobs drew and each PR card drawn at his DM root for a PR it serves."""
+    """The threads of an order: its own, then on an incident the own thread of each other order of it, the incident an alert's order joined and every alert joined to it, both ways, then each thread one of them keeps: each a post naming it went in, each card its jobs drew and each PR card drawn at the drive's channel root for a PR it serves."""
     orders = [order, *(data["orders"][other] for other in state.incident_orders(data, order_id) if other != order_id)]
     own = filter(None, map(state.promise_thread, orders))
     kept = ((channel, ts) for each in orders for channel, ts, _, _ in each["threads"])

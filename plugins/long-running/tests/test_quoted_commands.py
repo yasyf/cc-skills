@@ -17,7 +17,7 @@ SKILL = cli.PAGES.parent
 PLUGIN = SKILL.parents[1]
 PAGES = sorted([SKILL / "SKILL.md", *cli.PAGES.glob("*.md"), *(PLUGIN / "agents").glob("*.md")])
 HOLE = "placeholder"
-START_META = orca.start_meta
+START_SESSION = orca.start_session
 FENCE = re.compile(r" {0,3}(`{3,})[^`]*")
 TICKS = re.compile(r"`+")
 PLACEHOLDER = re.compile(r"<[^<>]*>")
@@ -177,15 +177,16 @@ def test_every_quoted_drive_command_parses(words: list[str], monkeypatch: pytest
         assert refusal.code == 0
 
 
-def test_the_meta_session_drive_start_opens_runs_the_lines_start_or_resume_prints(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+@pytest.mark.parametrize("role", ["meta", "communicator"])
+def test_the_session_drive_start_opens_beside_it_runs_the_lines_start_or_resume_prints(role: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     registered: list[tuple[list[str], Path]] = []
     created: list[tuple[str, ...]] = []
-    monkeypatch.setattr(reads, "run", lambda argv, checkout: registered.append((argv, checkout)) or "demo-meta registered")
-    monkeypatch.setattr(orca, "request", lambda *args: created.append(args) or {"terminal": {"handle": "term_meta"}})
-    assert START_META("demo", "/w/demo", None) == "term_meta"
-    assert created == [("terminal", "create", "--worktree", "path:/w/demo", "--title", "demo-meta", "--command", "cci session attach demo-meta")]
+    monkeypatch.setattr(reads, "run", lambda argv, checkout: registered.append((argv, checkout)) or f"demo-{role} registered")
+    monkeypatch.setattr(orca, "request", lambda *args: created.append(args) or {"terminal": {"handle": f"term_{role}"}})
+    assert START_SESSION("demo", role, "/w/demo", None) == f"term_{role}"
+    assert created == [("terminal", "create", "--worktree", "path:/w/demo", "--title", f"demo-{role}", "--command", f"cci session attach demo-{role}")]
     assert cli.manual(argparse.Namespace(page="start", row=None)) == 0
-    [quoted] = [line for line in session_starts(capsys.readouterr().out) if line.startswith("cci session register <drive>-meta ")]
+    [quoted] = [line for line in session_starts(capsys.readouterr().out) if line.startswith(f"cci session register <drive>-{role} ")]
     assert registered == [(shlex.split(quoted.replace("<drive>", "demo").replace("<worktree>", "/w/demo")), Path("/w/demo"))]
 
 

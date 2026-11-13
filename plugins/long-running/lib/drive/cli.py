@@ -42,8 +42,8 @@ FROM_HELP = (
     " or slack:<channel>/<ts>, the one form Slack is asked which thread it is in; or terminal"
 )
 THREAD_HELP = (
-    "the thread the order's lines go in, in his DM or a channel such as an alert's: its permalink, slack:<channel>/<ts>, or its ts"
-    " in the channel of the --from message, his DM for an order from the terminal"
+    "the thread the order's lines go in, in the drive's channel or a channel such as an alert's: its permalink, slack:<channel>/<ts>, or its ts"
+    " in the channel of the --from message, the drive's channel for an order from the terminal"
 )
 RULING = "ruling"
 CODE_LABEL = "code:"
@@ -66,8 +66,8 @@ REPORTER_HELP = (
     "the bug report the order fixes, or the question an answer order answers, by its Slack permalink or slack:<channel>/<its thread's ts>,"
     " from the share or link in his words: its thread gets one note, a bug report's once the fix is proven live and a question's once"
     " the answer is posted, and done refuses until drive order told records it; on order add, default: the thread a teammate started"
-    " outside his DM that the --from message is in, with no --thread, on an order neither an answer, a watch nor an incident, whose"
-    " lines then go to his DM; on order set, another reporter kept beside those the order holds, such as a second teammate's report of"
+    " outside the drive's channel that the --from message is in, with no --thread, on an order neither an answer, a watch nor an incident, whose"
+    " lines then go to the drive's channel; on order set, another reporter kept beside those the order holds, such as a second teammate's report of"
     " the same bug, so each thread hears its own note"
 )
 WATCH_HELP = (
@@ -94,6 +94,7 @@ LIST_ITEM = re.compile(r"\s*(?:[-*] |\d+\. )")
 MANIFEST = Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json"
 LAUNCHED = ("run", "dispatch", "task", "terminal", "workspace", "environment", "lane", "sprite_config")
 MCP_TOOLS = ("say", "heard", "handler", "record", "order", "job", "pr", "incident", "status", "search_plan")
+SIBLINGS = {"meta": ("the meta session", "which holds drive tooling"), "communicator": ("the communicator", "which talks to him in the drive's own channel")}
 
 
 def emit(args: argparse.Namespace, line: str, payload: object) -> int:
@@ -117,6 +118,7 @@ def start(args: argparse.Namespace) -> int:
         raise DriveError(f"--project binds a sub-coordinator, which holds the coordinator role; the {state.title(args.role)} holds no project")
     session = os.environ.get("CLAUDE_CODE_SESSION_ID")
     fresh = state.new_drive(args.name, args.role, session, os.getcwd(), orca.own_terminal())
+    channel = slack.open_channel(args.name) if args.role == "communicator" else None
     with state.edit_or_create(args.name, fresh) as data:
         if args.project:
             bind_subcoordinator(data, args.project, fresh["roles"][args.role])
@@ -128,30 +130,32 @@ def start(args: argparse.Namespace) -> int:
         else:
             data["roles"][args.role] = fresh["roles"][args.role]
         watched_channels = data["slack"].setdefault("watch", [])
-        watched_channels.extend(channel for channel in dict.fromkeys(args.watch) if channel not in watched_channels)
+        watched_channels.extend(each for each in dict.fromkeys(args.watch) if each not in watched_channels)
+        if channel and channel != data["slack"].get("channel"):
+            data["slack"].update(channel=channel, page=None)
     held = fresh["roles"][args.role]
     registered = "" if state.scratch() else f"{agents.register(args.name, args.role, args.project, held['cwd'], held['session'])}\n"
     seen = orca_place(held, run_show)
-    meta = "" if "meta" in data["roles"] else meta_started(args.name, held["cwd"], data["launched"].get("meta"))
+    siblings = "".join(sibling_started(args.name, role, held["cwd"], data["launched"].get(role)) for role in SIBLINGS if role not in data["roles"])
     watched = f"{watch.ensure(args.name, args.project)}\n" if args.role == "coordinator" else ""
     seat = f"sub-coordinator for {args.project}" if args.project else args.role
-    text = f"{render.context(data, args.role, args.project)}\n\n{registered}{meta}{watched}{seat}: session {held['session']}, {seen}"
+    text = f"{render.context(data, args.role, args.project)}\n\n{registered}{siblings}{watched}{seat}: session {held['session']}, {seen}"
     return emit(args, text, {**data, "orca": {seat: seen}})
 
 
-def meta_started(name: str, worktree: str, earlier: str | None) -> str:
-    """Start the meta session in an Orca terminal of its own while none is bound, by his words "have the skill always start a meta root as a sibling to coordinator and communicator"; the line saying so, or nothing for a drive under LONG_RUNNING_STATE."""
+def sibling_started(name: str, role: str, worktree: str, earlier: str | None) -> str:
+    """Start the meta session or the communicator in an Orca terminal of its own while none is bound, by his words "have the skill always start a meta root as a sibling to coordinator and communicator", and the communicator so every drive has its own, which holds its own channel; the line saying so, or nothing for a drive under LONG_RUNNING_STATE."""
     if state.scratch():
         return ""
     try:
-        handle = orca.start_meta(name, worktree, earlier)
+        handle = orca.start_session(name, role, worktree, earlier)
     except orca.OrcaError as error:
-        return f"the meta session, which holds drive tooling, did not start: {error}; drive manual start prints its commands\n"
+        return f"{SIBLINGS[role][0]}, {SIBLINGS[role][1]}, did not start: {error}; drive manual start prints its commands\n"
     if handle is None:
-        return f"the meta session starts in Orca terminal {earlier}, which an earlier drive start opened\n"
+        return f"{SIBLINGS[role][0]} starts in Orca terminal {earlier}, which an earlier drive start opened\n"
     with state.edit(name) as data:
-        data["launched"]["meta"] = handle
-    return f"started the meta session, which holds drive tooling, in Orca terminal {handle}\n"
+        data["launched"][role] = handle
+    return f"started {SIBLINGS[role][0]}, {SIBLINGS[role][1]}, in Orca terminal {handle}\n"
 
 
 def bind_subcoordinator(data: dict, project: str, held: dict) -> None:
@@ -447,8 +451,8 @@ def order_thread(data: dict, source: str, message: tuple[str, str, str | None] |
 
 
 def teammate_report(data: dict, args: argparse.Namespace, message: tuple[str, str, str | None] | None, thread: tuple[str, str] | None) -> dict | None:
-    """The reporter of an order he gave in a thread a teammate started outside his DM, that thread, which then hears only its one note while the order's lines go to his DM, by his pick "Drive posts only the fixed note in a reporter's thread, so the hook's one-pass rule always takes it"; None when --thread names where its lines go, on an answer, watch or incident order, and in a thread he, the drive or a bot started."""
-    if args.thread or args.watch or args.incident or args.joins or args.kind == "answer" or not (message and thread) or thread[0] == slack.dm() or thread[1] == message[1]:
+    """The reporter of an order he gave in a thread a teammate started outside the drive's channel, that thread, which then hears only its one note while the order's lines go to the drive's channel, by his pick "Drive posts only the fixed note in a reporter's thread, so the hook's one-pass rule always takes it"; None when --thread names where its lines go, on an answer, watch or incident order, and in a thread he, the drive or a bot started."""
+    if args.thread or args.watch or args.incident or args.joins or args.kind == "answer" or not (message and thread) or thread[0] == slack.channel(data) or thread[1] == message[1]:
         return None
     try:
         root = slack.root(*thread)
@@ -463,9 +467,9 @@ def teammate_report(data: dict, args: argparse.Namespace, message: tuple[str, st
 
 
 def check_thread(data: dict, flag: str, message: tuple[str, str, str | None] | None) -> tuple[str, str]:
-    """The channel and thread --thread names, by permalink, slack:<channel>/<ts>, or a bare ts in the channel of the message the order came from, his DM for one from outside Slack; refused when Slack reads no thread at that ts there, naming the thread a reply is in. The thread of the message the order came from, which --from already names, needs no read."""
+    """The channel and thread --thread names, by permalink, slack:<channel>/<ts>, or a bare ts in the channel of the message the order came from, the drive's channel for one from outside Slack; refused when Slack reads no thread at that ts there, naming the thread a reply is in. The thread of the message the order came from, which --from already names, needs no read."""
     if SLACK_TS.fullmatch(flag):
-        where = (message[0] if message else slack.dm(), flag)
+        where = (message[0] if message else slack.channel(data), flag)
     elif not (where := state.link_thread(flag)):
         raise DriveError(f"--thread {flag}: refused, name the thread by its permalink, as slack:<channel>/<ts>, or by its ts in the channel of the --from message")
     if message and where == (message[0], message[2]):
@@ -580,13 +584,13 @@ def his_words(link: str, deed: str) -> str:
 
 
 def drive_post_at(link: str, data: dict, order_id: str, sent: str | None = None) -> tuple[dict, bool, tuple[str, str] | None]:
-    """The drive's post as Slack holds it, or, for one say just made, from the words it was sent with, reading nothing; whether it is a line to him, in his DM or in a thread; and its thread when the order holds it not yet, which the call naming the order joins to the order's threads."""
+    """The drive's post as Slack holds it, or, for one say just made, from the words it was sent with, reading nothing; whether it is a line to him, in the drive's channel or in a thread; and its thread when the order holds it not yet, which the call naming the order joins to the order's threads."""
     posted = slack.posted(link, sent) if sent else slack.message(link)
     if not posted.get("from_claude"):
         raise DriveError(f"{link} is not the drive's post")
     where = (state.CARD_LINK.search(link)[1], posted.get("thread_ts"))
     gained = where if where[1] and where not in slack.order_threads(data, order_id, data["orders"][order_id]) else None
-    return posted, where[0] == slack.dm() or bool(where[1]), gained
+    return posted, where[0] == slack.channel(data) or bool(where[1]), gained
 
 
 def pick_parts(order_id: str, order: dict, named: list[str]) -> list[str]:
@@ -1725,14 +1729,14 @@ def ask_card(name: str, job_id: str, file: Path) -> dict:
 
 
 def post_ask(name: str, job_id: str, file: Path, card: dict) -> str:
-    """Post his card on the job's question kept in the file through `talk.posted`, which records it on each question asked under its waits id: in his DM, the thread of the open incident or else of the job's order when that thread is in his DM, else at his DM root, an incident's thread or a thread outside his DM taking the card's line, what it blocks for an incident, through a report record the communicator posts, since only its `say` carries the ticket cc-slack spends on a write outside his DM, once for each change to that report: its cci id names the card's waits id and the report's hash, so cci keeps an unchanged line asked again as the record it already holds, which wakes no handler. Each other open question of the job asking the same on another card ends superseded by this one, its card shown asked again with no buttons and a link to this one, and each wait on it moves to this one's waits id, so nothing waits on him under it. What was done, for drive job ask to print."""
+    """Post his card on the job's question kept in the file through `talk.posted`, which records it on each question asked under its waits id: in the drive's channel, the thread of the open incident or else of the job's order when that thread is in the drive's channel, else at the drive's channel root, an incident's thread or a thread outside the drive's channel taking the card's line, what it blocks for an incident, through a report record the communicator posts, since only its `say` carries the ticket cc-slack spends on a write outside the drive's channel, once for each change to that report: its cci id names the card's waits id and the report's hash, so cci keeps an unchanged line asked again as the record it already holds, which wakes no handler. Each other open question of the job asking the same on another card ends superseded by this one, its card shown asked again with no buttons and a link to this one, and each wait on it moves to this one's waits id, so nothing waits on him under it. What was done, for drive job ask to print."""
     from drive import talk, tools, view
 
     data = state.load(name)
     job = data["jobs"][job_id]
     incidents = state.open_incidents(data, [job["order"], *job["carries"]])
     where = state.promise_thread(data["orders"][incidents[0] if incidents else job["order"]])
-    inside = where is not None and where[0] == slack.dm()
+    inside = where is not None and where[0] == slack.channel(data)
     link = talk.posted(name, {"card": card} | ({"thread_ts": where[1]} if inside else {}))["permalink"]
     with state.edit(name) as data:
         live = state.kept_in(data["jobs"][job_id], file)
@@ -4374,7 +4378,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument(
         "--thread",
         help=(
-            f"{THREAD_HELP}; default: the thread the --from message is in, his DM's root when a teammate started it, since that thread"
+            f"{THREAD_HELP}; default: the thread the --from message is in, the drive's channel root when a teammate started it, since that thread"
             " is its reporter's and hears only its one note. An order in the thread of his open PR card names"
             " that card and leaves it up, since its stack can meet his words already: only --rework withdraws one"
         ),
@@ -4722,7 +4726,7 @@ def parser() -> argparse.ArgumentParser:
             " it, or `Root cause: fixed: <that structure>, removed by <the merged PR's link>`, `not found: <the job"
             " finding it>` or `none: <why>`. Keep it in the drive in a file of"
             " its own, add it to the job's open questions, each open until his answer to its own card, and draw its card"
-            " in his DM in the same call under the waits id minted for it, printing the file and the card; a card that"
+            " in the drive's channel in the same call under the waits id minted for it, printing the file and the card; a card that"
             " does not draw goes up on the watch's next read. A block asking again, in the same words, what one of the"
             " job's questions asks that his answer has not closed, or with --redraws in new words what the card it names"
             " asks, open or withdrawn, the job's own or another job's on one of its orders that this job takes over, takes"
@@ -5245,7 +5249,7 @@ def parser() -> argparse.ArgumentParser:
     verb = verbs.add_parser(
         "heard",
         parents=both,
-        help="he wrote: record it, adding the orders that changed while he was away to the catch-up the drive owes him, which the watch posts at his DM root; prints heard, or away, and nothing to act on",
+        help="he wrote: record it, adding the orders that changed while he was away to the catch-up the drive owes him, which the watch posts at the drive's channel root; prints heard, or away, and nothing to act on",
     )
     verb.add_argument("--away", action="store_true", help="he said he is going to sleep or away")
     verb.add_argument(

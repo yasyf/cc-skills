@@ -216,7 +216,7 @@ def records(name: str, text: str) -> dict[str, dict]:
 
 
 def answer(data: dict, answer_id: str) -> dict:
-    """A ruling of his by the id cc-notes keeps it under, which means nothing to him: his words under the time he said them, linked to the ack of them in his DM."""
+    """A ruling of his by the id cc-notes keeps it under, which means nothing to him: his words under the time he said them, linked to the ack of them in the drive's channel."""
     found = settled.shown(answer_id, data["roles"]["coordinator"]["cwd"])
     said = render.when(state.parse_time(found["created_at"]).astimezone().isoformat())
     url = ack[1] if (ack := ACK.search(found["body"])) else None
@@ -268,7 +268,7 @@ def opening(text: str) -> str:
 
 
 def slack(text: str, found: dict[str, dict], thread: str | None) -> str:
-    """The text as Slack shows it in this thread of his DM, None for its root: each reference a link under the words that name it, which Slack draws a card under, or a record that links nothing as its words; a card named in its own thread reads as the words after its | or as "this card", with no link, since a link there draws the card again under the post. His words: "why are you showing me a card in the thread of the same post that this is a thread of"."""
+    """The text as Slack shows it in this thread of the drive's channel, None for its root: each reference a link under the words that name it, which Slack draws a card under, or a record that links nothing as its words; a card named in its own thread reads as the words after its | or as "this card", with no link, since a link there draws the card again under the post. His words: "why are you showing me a card in the thread of the same post that this is a thread of"."""
 
     def shown(match: re.Match[str]) -> str:
         ref = found[match[0]]

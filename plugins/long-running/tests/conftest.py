@@ -416,6 +416,14 @@ def his_dm(monkeypatch: pytest.MonkeyPatch) -> str:
 
 
 @pytest.fixture(autouse=True)
+def drive_channels(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+    """The channel cc-slack channel-create --private makes for each drive a communicator starts, by drive name: D123, the id his DM has here, unless a test names another, so a test of where a post goes reads one place."""
+    made: dict[str, str] = {}
+    monkeypatch.setattr(slack, "open_channel", lambda name: made.setdefault(name, "D123"))
+    return made
+
+
+@pytest.fixture(autouse=True)
 def unopened_links(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     """Every proof link opens unless a test says why it does not, so no test reads Slack, GitHub or Buildkite for one."""
     shut: dict[str, str] = {}
@@ -663,23 +671,23 @@ def ended_lanes(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 
 @dataclass
-class MetaLaunches:
-    started: list[tuple[str, str]] = field(default_factory=list)
+class SessionLaunches:
+    started: list[tuple[str, str, str]] = field(default_factory=list)
     open: set[str] = field(default_factory=set)
 
 
 @pytest.fixture(autouse=True)
-def meta_launches(monkeypatch: pytest.MonkeyPatch) -> MetaLaunches:
-    launches = MetaLaunches()
+def session_launches(monkeypatch: pytest.MonkeyPatch) -> SessionLaunches:
+    launches = SessionLaunches()
 
-    def start_meta(drive: str, worktree: str, earlier: str | None) -> str | None:
+    def start_session(drive: str, role: str, worktree: str, earlier: str | None) -> str | None:
         if earlier in launches.open:
             return None
-        launches.started.append((drive, worktree))
-        launches.open.add(handle := f"term_meta{len(launches.started)}")
+        launches.started.append((drive, role, worktree))
+        launches.open.add(handle := f"term_{role}{sum(started[1] == role for started in launches.started)}")
         return handle
 
-    monkeypatch.setattr(orca, "start_meta", start_meta)
+    monkeypatch.setattr(orca, "start_session", start_session)
     return launches
 
 

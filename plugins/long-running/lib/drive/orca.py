@@ -252,13 +252,13 @@ def tmux(*args: str) -> str:
     return "" if ran.returncode else ran.stdout
 
 
-def start_meta(drive: str, worktree: str, earlier: str | None) -> str | None:
-    """Start the drive's meta session under cci in the drive's worktree and show it in an Orca terminal of its own, by its lines in Start or resume, unless the terminal an earlier drive start opened for it is still there; the new terminal's handle, or None."""
+def start_session(drive: str, role: str, worktree: str, earlier: str | None) -> str | None:
+    """Start the drive's meta session or communicator under cci in the drive's worktree and show it in an Orca terminal of its own, by its lines in Start or resume, unless the terminal an earlier drive start opened for it is still there; the new terminal's handle, or None."""
     if earlier:
         with contextlib.suppress(OrcaError):
             terminal(earlier)
             return None
-    register, show = (shlex.split(line) for line in agents.launch(drive, "meta", None, worktree))
+    register, show = (shlex.split(line) for line in agents.launch(drive, role, None, worktree))
     try:
         reads.run(register, Path(worktree))
     except reads.ReadError as error:

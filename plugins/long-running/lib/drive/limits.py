@@ -509,7 +509,7 @@ def untabled(text: str) -> str:
 
 
 def post_refusal(post: dict, edited: int = 0) -> str | None:
-    """Why a post to his DM is over the length a routine line, summary or card gets, or None when it fits: each row of a table is a line of its own, and the words around the tables keep the post's limit; an edit may reword the post it edits, edited words long, at its own length and a few words more."""
+    """Why a post to the drive's channel is over the length a routine line, summary or card gets, or None when it fits: each row of a table is a line of its own, and the words around the tables keep the post's limit; an edit may reword the post it edits, edited words long, at its own length and a few words more."""
     if card := post.get("card"):
         return card_refusal(card, post.get("text") or "")
     if long := next((row for table in tables((post.get("text") or "").splitlines()) for row in table if words(" ".join(row)) > LINE_WORDS), None):
@@ -1540,7 +1540,7 @@ def kind_words(data: dict, pr: dict) -> str:
 
 
 def link_refusal(post: dict, kinds: tuple[str, ...]) -> str | None:
-    """Why a handler's post to his DM names a PR or card of the kinds the drive holds without its link: a line's `text`, or a card's summary and Show me captions, carry each link where the thing is named, and its title and options, drawn as plain text, name only what the body links."""
+    """Why a handler's post to the drive's channel names a PR or card of the kinds the drive holds without its link: a line's `text`, or a card's summary and Show me captions, carry each link where the thing is named, and its title and options, drawn as plain text, name only what the body links."""
     if card := post.get("card"):
         summary, *example = SHOWN.split(card.get("body") or "", maxsplit=1)
         problems = unlinked([summary, *captions(example[0].splitlines() if example else []), post.get("text") or ""], [card.get("title") or "", *(card.get("options") or [])], kinds)

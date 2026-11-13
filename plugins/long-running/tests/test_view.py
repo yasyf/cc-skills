@@ -1155,3 +1155,13 @@ def test_where_it_is_takes_out_sentences_naming_record_ids_and_reads_a_line_whos
         "DONE reader j2027 done, 1 of 3 parts delivered",
         "DONE yasyf/cc-notes#278 merged as 9219fa636f",
     ]
+
+
+def test_the_page_draws_as_a_tab_in_the_drives_own_channel_once_it_keeps_one(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    drawn: list[list[str]] = []
+    monkeypatch.setattr(page.subprocess, "run", lambda argv, **kwargs: drawn.append(argv) or subprocess.CompletedProcess(argv, 0, json.dumps({"canvas_id": "F1", "url": "https://slack.example/docs/T1/F1"}), ""))
+    DRAW(demo, "# demo")
+    with state.edit(demo) as data:
+        data["slack"].update(channel="C0DEMO", page=None)
+    DRAW(demo, "# demo")
+    assert [argv[1:] for argv in drawn] == [["canvas", "--title", "demo: where it stands"], ["canvas", "--title", "demo: where it stands", "--channel", "C0DEMO"]]

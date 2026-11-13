@@ -40,7 +40,7 @@ summary line about it, because work stopped before it starts wastes nothing.
   feature threads carry only their feature. Its PR's His words list says none. A `yasyf/*` tooling
   PR lands with no tap. A `Forge-AI/*` one lands under an exempt class, or serves its own order with
   `drive pr set <url> --tap --serves <its Drive tooling order> --design none` and gets a PR card at
-  his DM root. That card's top line quotes the order's "Drive tooling: …" words, and his Approve
+  the drive's channel root. That card's top line quotes the order's "Drive tooling: …" words, and his Approve
   lands it.
 - **Neither**: the drive does not build, polish, or card it. A PR someone other than him opened on
   GitHub is the drive's only when his order's words name it by #N or link, by his ruling 5815316 on a
@@ -61,7 +61,7 @@ summary line about it, because work stopped before it starts wastes nothing.
 Three kinds of work are the drive's without a new order, and each line about them says which. A defect
 in something the drive shipped or is building belongs to the order that shipped it, and its line
 names that order. A defect in a tool the drive runs on is drive tooling, fixed without asking under
-its own order, its lines at his DM root, never in a feature thread it unblocks. His feedback on a
+its own order, its lines at the drive's channel root, never in a feature thread it unblocks. His feedback on a
 post or card is one, in the library, `cc-slack check-post` or drive tool that let it through, every
 time. A test that flakes on any PR the drive tracks is fixed at its cause the day it flakes, whatever
 files the cause is in, by his ruling 532cd3d, "and ffs fix these flaky tgests how many times do I have

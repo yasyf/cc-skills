@@ -190,7 +190,7 @@ def test_a_report_opens_post_or_fyi(demo: str) -> None:
 def test_a_reports_url_names_what_it_measured_never_his_message_its_thread_names(demo: str, turn: Path) -> None:
     his = "https://acme.slack.com/archives/D123/p1794480738192769"
     cause = {"kind": "report", "text": "POST cause of the read-only alert: the agent row is refused", "to": TO, "attrs": PROGRESS | {"thread": "1794480738.192769"}}
-    assert f"{his} is a message in his DM, which --attr thread=1794480738.192769 names" in refusal(record_lines.decision(coordinator(turn, **cause, url=his)))
+    assert f"{his} is a message in the drive's channel, which --attr thread=1794480738.192769 names" in refusal(record_lines.decision(coordinator(turn, **cause, url=his)))
     assert "--attr thread=1794200000.000100" in refusal(record_lines.decision(coordinator(turn, **cause, url=f"{his}?thread_ts=1794200000.000100&cid=D123")))
     for url in ("https://app.datadoghq.com/apm/trace/6af59a19000000005751719c320fc91b", "https://acme.slack.com/archives/C777/p1794413465441409"):
         assert record_lines.decision(coordinator(turn, **cause, url=url)) is None
@@ -257,7 +257,7 @@ def test_a_report_whose_thread_is_none_goes_without_it_and_one_naming_no_slack_t
         assert made["updatedInput"]["attrs"] == named
     for thread in ("dm", "1794478810"):
         reason = refusal(record_lines.decision(coordinator(turn, kind="report", text="POST j1 merged", to=TO, attrs={"part": "o1:cause", "thread": thread})))
-        assert f"thread {thread} is no Slack thread" in reason and "leave thread out for a post at his DM root" in reason
+        assert f"thread {thread} is no Slack thread" in reason and "leave thread out for a post at the drive's channel root" in reason
         assert agents.ruled(reason) == {"judged": False}
     assert record_lines.decision(coordinator(turn, kind="report", text="POST j1 merged", to=TO, attrs={"close": "o1"})) is None
 

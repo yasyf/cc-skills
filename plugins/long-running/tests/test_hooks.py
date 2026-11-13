@@ -126,7 +126,7 @@ def test_session_start_names_the_channels_each_role_holds(run: Run, monkeypatch:
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
     run("start", "demo", "--role", "communicator")
     context = session_start.respond({"session_id": "talker"})["hookSpecificOutput"]["additionalContext"]
-    assert "Hold with slack_watch: his DM D123" in context
+    assert "Hold with slack_watch: the drive's channel D123" in context
 
 
 def test_a_compaction_brings_the_newest_installed_skill_page_as_a_hook_output_of_its_own_beside_the_role_block(demo: str) -> None:
