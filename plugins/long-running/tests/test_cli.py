@@ -5371,6 +5371,20 @@ def test_an_order_with_a_reporter_closes_done_only_once_its_one_fix_live_note_is
     assert [state.load("demo")["orders"][order_id]["state"] for order_id in ("o1", "o2")] == ["done", "done"]
 
 
+def test_his_order_to_keep_answering_a_teammates_thread_keeps_that_thread_on_the_order_from_its_filing_and_a_link_naming_no_thread_is_refused(
+    run: Run, demo: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert cli.main(["order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "watch her responses", "--watch", "C0TEAM0001/1794500000.000300"]) == 2
+    assert "--watch C0TEAM0001/1794500000.000300: refused, name the thread by its Slack permalink or as slack:<channel>/<its thread's ts>" in capsys.readouterr().err
+    linked = "https://acme.slack.com/archives/C0TEAM0001/p1794500060000100?thread_ts=1794500000.000300&cid=C0TEAM0001"
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "watch her responses and keep replying", "--kind", "answer", "--watch", linked)
+    order = state.load("demo")["orders"]["o1"]
+    since = f"{state.parse_time(order['created']).timestamp():.6f}"
+    assert order["watch"] == {"channel": "C0TEAM0001", "thread": "1794500000.000300", "since": since, "seen": since, "record": None}
+    run("order", "set", "o1", "--watch", "slack:C0TEAM0002/1794557000.000100")
+    assert [state.load("demo")["orders"]["o1"]["watch"][field] for field in ("channel", "thread", "record")] == ["C0TEAM0002", "1794557000.000100", None]
+
+
 def test_a_reporter_the_bot_cannot_reach_is_told_in_their_group_dm_with_him_and_only_his_words_take_a_reporter_off(
     run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

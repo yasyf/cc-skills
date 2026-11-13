@@ -66,6 +66,10 @@ REPORTER_HELP = (
     " from the share or link in his words: its thread gets one note, a bug report's once the fix is proven live and a question's once"
     " the answer is posted, and done refuses until drive order told records it"
 )
+WATCH_HELP = (
+    "a teammate's Slack thread he ordered watched, by its permalink or slack:<channel>/<its thread's ts>: the watch reads it once"
+    " a minute and starts a handler on each new message there from anyone but him, the drive and a bot, until the order closes"
+)
 ALERT_HELP = (
     "the Datadog monitor or Sentry issue link of the alert it is, again for each: once its fix is live, the watch reads each"
     " monitor every minute and closes the incident once all read OK"
@@ -266,6 +270,7 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
     message = his_message(args.source)
     thread = order_thread(state.load(name), args.source, message, args.thread)
     reported = state.reporter(args.reporter) if args.reporter else None
+    watched = state.new_watch(args.watch, state.parse_time(created)) if args.watch else None
     if (args.incident or args.joins) and args.options_only:
         raise DriveError(
             "--options-only: refused, an incident order is never limited to options, since its codex jobs start at the alert, before he picks;"
@@ -304,6 +309,7 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
             "promised": created if args.due else None,
             "alerts": alerts,
             "reporter": reported,
+            "watch": watched,
             "incident": args.incident or joined is not None,
             "kind": "build" if args.incident or joined is not None else args.kind,
             "complex": args.complex,
@@ -569,6 +575,7 @@ def order_set(args: argparse.Namespace) -> int:
     closing = args.state in state.CLOSED_ORDER_STATES and not withdrawn
     order = find(data["orders"], args.id, "order")
     reporter = None if unreported else state.reporter(args.reporter) if args.reporter else order["reporter"]
+    watched = state.new_watch(args.watch, state.now()) if args.watch else None
     if args.state == "done" and reporter and not reporter["told"]:
         raise DriveError(untold(args.id, order | {"reporter": reporter}))
     if args.words is not None:
@@ -609,6 +616,7 @@ def order_set(args: argparse.Namespace) -> int:
         "withdrawn": withdrawn,
         "options_only": args.options_only,
         "once": args.once,
+        "watch": watched,
     }
     moment = state.now()
     due = state.parse_due(args.due, moment) if args.due else None
@@ -3688,6 +3696,7 @@ def parser() -> argparse.ArgumentParser:
         ),
     )
     verb.add_argument("--reporter", metavar="LINK", help=REPORTER_HELP)
+    verb.add_argument("--watch", metavar="LINK", help=WATCH_HELP)
     verb.add_argument("--alert", dest="alerts", action="append", default=[], metavar="LINK", help=ALERT_HELP)
     verb.add_argument(
         "--project",
@@ -3728,6 +3737,7 @@ def parser() -> argparse.ArgumentParser:
     reported = verb.add_mutually_exclusive_group()
     reported.add_argument("--reporter", metavar="LINK", help=REPORTER_HELP)
     reported.add_argument("--no-reporter", metavar="LINK", help="his Slack message saying not to tell the reporter; the order then closes done with no note to them")
+    verb.add_argument("--watch", metavar="LINK", help=f"{WATCH_HELP}; it replaces any thread the order watched, reading only messages newer than now")
     verb.add_argument("--incident", action=argparse.BooleanOptionalAction, help="mark or unmark it as an incident order")
     verb.add_argument("--alert", dest="alerts", action="append", default=[], metavar="LINK", help=f"added to its alerts: {ALERT_HELP}")
     verb.add_argument(
@@ -3833,7 +3843,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--project", metavar="NAME", required=True, help="the project the dashboard's Now screen files it under")
     verb.add_argument("--workstream", metavar="NAME", required=True, help="the workstream inside its project the Now screen files it under")
     verb.add_argument("--title", metavar="WORDS", required=True, help=f"the few words, at most {TITLE_CHARS} characters and no link, the dashboard names it by")
-    verb.set_defaults(run=incident_open, incident=True, joins=None, kind=None, complex=False, options_only=False, once=False, owner=None)
+    verb.set_defaults(run=incident_open, incident=True, joins=None, kind=None, complex=False, options_only=False, once=False, owner=None, watch=None)
     verb = incident.add_parser(
         "stop",
         parents=both,
