@@ -382,6 +382,26 @@ def test_a_drive_saved_dating_his_late_card_taps_by_when_the_drive_took_them_dat
     assert len(shown) == 2
 
 
+def test_a_drive_saved_with_builders_whose_goal_is_their_readers_question_gives_each_untaken_one_its_parts_goal_on_its_brief_too(state_root: Path, tmp_path: Path) -> None:
+    make("demo")
+    data = state.load("demo")
+    del data["builder_goals_named"]
+    copied = "build what j1's research finds: read-only, at once: why the copy stalls"
+    kept = tmp_path / "j2.brief.md"
+    kept.write_text(f"Order (his words): copy one store\nGoal: {copied}\nResearched: j1\n")
+    parts = ["the copy", "the proof"]
+    data["jobs"] = {
+        "j2": state.new_job("o1", "builder", copied, parts, state.stamp()) | {"state": "waiting", "brief": str(kept)},
+        "j3": state.new_job("o1", "builder", copied, parts, state.stamp()) | {"agent": "a1"},
+    }
+    state.create(data)
+    jobs = state.load("demo")["jobs"]
+    assert ([jobs[job_id]["goal"] for job_id in ("j2", "j3")], kept.read_text()) == (
+        ["build the copy; the proof", copied],
+        "Order (his words): copy one store\nGoal: build the copy; the proof\nResearched: j1\n",
+    )
+
+
 def test_an_answer_saved_before_answers_listed_waiting_jobs_reads_with_no_job_to_mark(state_root: Path) -> None:
     make("demo")
     data = state.load("demo")

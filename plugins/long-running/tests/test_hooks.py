@@ -863,7 +863,7 @@ def test_a_build_orders_codex_lane_is_added_and_started_only_on_its_readers_rese
         0,
         "j4\nj4 waits on j2: start no agent for it until the watch's FREE line says its last wait ended\n"
         'j2 reader running on "the copy": research: the copy\n'
-        'j3 builder waiting on "the copy": build what j2\'s research finds: the copy',
+        'j3 builder waiting on "the copy": build the copy',
     )
     bare = "Order: Drive tooling: copy one store\nDrive: demo, order o1, job {}"
     assert scratch_folder.deny_reason(drive_agent("codex:codex-wrapper", bare.format("j1"))) == (

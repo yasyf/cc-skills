@@ -133,6 +133,7 @@ DAY_OFFSETS = {"yesterday": -1, "today": 0, "tonight": 0, "tomorrow": 1}
 OFFSET_UNITS = {"m": "minutes", "h": "hours", "d": "days"}
 AWAY_AFTER = timedelta(minutes=60)
 PART_CHARS = 80
+READER_QUESTION_GOAL = re.compile(r"build what j\d+'s research finds: ")
 REBUILT_ASKS = ".rebuilt"
 NOT_LANE = re.compile(r"[^a-z0-9]+")
 WAITS_ID = re.compile(r"([\w.-]+):(j\d+)-(\d+)")
@@ -513,6 +514,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str, terminal: str
         "answers_keyed": True,
         "taps_dated": True,
         "holds_owed": True,
+        "builder_goals_named": True,
     }
 
 
@@ -783,7 +785,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     if data["catch_up"]:
         data["catch_up"]["record"] = bare_seq(data["catch_up"]["record"])
     passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)
-    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed"))
+    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("builder_goals_named"))
     if (pictures := drive_dir(name) / "pictures").is_dir() and not (pictures / picture.SOURCED).exists():
         picture.fill(pictures, [*map(Path.read_text, sorted((drive_dir(name) / "asks").glob("*.md"))), *pr_bodies(name)])
     if cards_path(name).exists() and not (drive_dir(name) / "asks" / REBUILT_ASKS).exists():
@@ -818,6 +820,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         cite_returned_designs(name, data)
     if not data.get("research_linked"):
         link_research(data)
+    if not data.get("builder_goals_named"):
+        name_builder_goals(data)
     if not data.get("answers_keyed"):
         key_answers(data)
     if not data.get("taps_dated"):
@@ -874,6 +878,16 @@ def link_research(data: dict) -> None:
             if question["holds"] == "" and question["file"] and Path(question["file"]).exists() and not limits.HOLDS.search(Path(question["file"]).read_text()):
                 question["holds"] = None
     data["research_linked"] = True
+
+
+def name_builder_goals(data: dict) -> None:
+    """Give each builder no agent or lane took whose goal an older drive job add copied from its reader's question the goal parts_goal gives it now, on its brief's Goal: line too, so none starts on that reader's limits; marked so this runs once."""
+    for job in data["jobs"].values():
+        if job["kind"] == "builder" and untaken(job) and READER_QUESTION_GOAL.match(job["goal"]):
+            copied, job["goal"] = f"\nGoal: {job['goal']}\n", parts_goal(job["parts"])
+            if job.get("brief") and (path := Path(job["brief"])).exists() and copied in (text := path.read_text()):
+                path.write_text(text.replace(copied, f"\nGoal: {job['goal']}\n", 1))
+    data["builder_goals_named"] = True
 
 
 def finish_asked_readers(name: str, data: dict) -> None:
@@ -1065,6 +1079,16 @@ def hold_unstarted(job: dict) -> None:
     """A job no agent or lane has started waits, rather than runs, while anything it waits on holds it, so the watch reads it waiting, never as not started, and says FREE once the last wait ends."""
     if job["state"] == "running" and job["waits"] and not job.get("agent") and not job.get("dispatch"):
         job.update(state="waiting", said=f"waits on {', '.join(job['waits'])}")
+
+
+def parts_goal(parts: list[str]) -> str:
+    """The goal of the builder drive job add records beside a reader: the parts of his order it builds, never the reader's question, whose limits, such as read-only, bind the reader alone."""
+    return f"build {'; '.join(parts)}"
+
+
+def untaken(job: dict) -> bool:
+    """Whether no agent or lane took a live job and it opened no PR, so the brief it starts on can still change."""
+    return job["state"] in ("running", "waiting") and not (job["agent"] or job.get("dispatch") or job["prs"])
 
 
 def unstarted_builder(data: dict, job: dict) -> bool:
