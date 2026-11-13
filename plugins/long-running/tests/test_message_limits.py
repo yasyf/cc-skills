@@ -1686,6 +1686,15 @@ def test_a_block_kept_with_fields_under_its_options_redraws_them_as_its_descript
         ("authority-v3.db.reindex-building, authority-v1.db.lock and go.sum", "`authority-v3.db.reindex-building`, `authority-v1.db.lock` and `go.sum`"),
         ("internal/store/source_reindex.go:185 and clone.rs:105-111, at 6:32", "`internal/store/source_reindex.go:185` and `clone.rs:105-111`, at 6:32"),
         ("*see lib/x.py* in v0.76.10, e.g. at 1.5 min", "*see `lib/x.py`* in v0.76.10, e.g. at 1.5 min"),
+        ("serve every caller of POST /cloud-agents/:to/inbox alike", "serve every caller of POST `/cloud-agents/:to/inbox` alike"),
+        ("GET /v1/teams/:team/sessions/:id.", "GET `/v1/teams/:team/sessions/:id`."),
+        ("users/:id/", "`users/:id/`"),
+        ("/v1/{id}/runs and app/[slug]/page.tsx", "`/v1/{id}/runs` and `app/[slug]/page.tsx`"),
+        ("s3://demo-bucket/teams/t1/", "`s3://demo-bucket/teams/t1/`"),
+        ("localhost:8080/api/v1", "`localhost:8080/api/v1`"),
+        ("see a/b: then and/or: x at 10:30/11:00 AM", "see a/b: then and/or: x at 10:30/11:00 AM"),
+        ("(lib/x.py) and [lib/y.py]", "(`lib/x.py`) and [`lib/y.py`]"),
+        ("POST `/cloud-agents/`:to/inbox", "POST `/cloud-agents/`:to/inbox"),
     ],
 )
 def test_a_card_draws_each_file_name_and_path_as_code_so_slack_links_none_of_them(line: str, drawn: str) -> None:

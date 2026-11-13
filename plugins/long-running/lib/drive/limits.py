@@ -293,7 +293,7 @@ OPTION_SHAPE = "what he gets and what it costs, the description under it saying 
 FIELD = re.compile(r"(?:^|[.;]\s+)\*?(?P<label>[A-Z][a-z]+):\*?\s")
 CODE_LINE = r"(?::\d+(?:-\d+)?)?"
 CODE_PATH = re.compile(
-    rf"(?<![\w./~-])(?![A-Za-z]+/[A-Za-z]+(?![\w/-]|\.\w))(?=[\w.~/-]*[A-Za-z])~?[\w.-]*/(?:[\w./-]|(?<=/)\*)*(?<=[\w/*]){CODE_LINE}|\b{SOURCE_FILE}{CODE_LINE}\b"
+    rf"(?<![\w.:/~`-])(?![A-Za-z]+/[A-Za-z]+(?![\w/-]|\.\w))(?=[\w.:~/-]*[A-Za-z])~?[\w.:-]*/(?:[\w.:/-]|(?<=/)(?:\*|\{{[\w.-]+\}}|\[[\w.-]+\]))*(?<=[\w/*}}\]]){CODE_LINE}|\b{SOURCE_FILE}{CODE_LINE}\b"
 )
 UNCODED = re.compile(rf"(?P<kept>`[^`\n]*`|<[^<>\n]*>|!?\[[^\]\n]*\]\([^)\s]*\)|https?://\S+)|{CODE_PATH.pattern}")
 DESCRIPTION_SHAPE = (
