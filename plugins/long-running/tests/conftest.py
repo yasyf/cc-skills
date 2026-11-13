@@ -233,7 +233,7 @@ def asks_sent(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
         if [made["kind"] for made in posts] != ["ask"]:
             return real(name, lane, posts)
         sent.append({"lane": lane} | posts[0])
-        return [str(6 + len(sent))]
+        return [f"#{6 + len(sent)}"]
 
     monkeypatch.setattr(tools, "sent", post)
     return sent
