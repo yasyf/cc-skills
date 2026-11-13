@@ -73,7 +73,8 @@ RECORD = {
         "url": {
             "type": "string",
             "description": (
-                "his message's or the card's permalink, always given for his words: an answer under a question card, in"
+                "his message's or the card's permalink, or terminal for words he typed into a drive session's terminal,"
+                " always given for his words: an answer under a question card, in"
                 " whatever thread the record names, ends the job's question that card asks as answered, and owner words"
                 " under it about that card's work end it as withdrawn, and the card follows, showing his words with no"
                 " buttons; his feedback on the drive under a product card leaves it asking, and only the coordinator's"
@@ -609,7 +610,7 @@ def unheard(data: dict, found: dict, made: dict) -> str | None:
     """Why a record keeping words as his answer or ruling, one closing his card, settling a question or naming a ruling, is not his: its text, or the ruling's recorded words above its notes, is not what he said at its url."""
     ruling = (made.get("attr") or {}).get("ruling")
     said = [made["text"], *([settled.his(settled.shown(ruling, data["roles"]["coordinator"]["cwd"])["body"])] if ruling else [])]
-    return next((unsaid for words in said if (unsaid := settled.unsaid(words, made.get("url"), found))), None)
+    return next((unsaid for words in said if (unsaid := settled.unsaid(words, made.get("url"), found, data))), None)
 
 
 def superseded_by_answer(data: dict, made: dict, questions: list[tuple[str, dict]], found: dict) -> list[tuple[str, dict, dict]]:

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from drive import github, limits, settled, slack, state, view
 from drive.render import cut, when
+from drive.settled import TERMINAL
 from drive.state import DriveError
 
 OTHERS_STAND = 3
@@ -115,8 +116,8 @@ def answer_cards(data: dict, answer_id: str, kept: dict) -> list[tuple[str, dict
 
 
 def answer_card(card: str, words: str, link: str, settled: bool) -> dict:
-    """Close his question card in place showing his words and a link to them with no buttons, so a late tap records nothing: settled by them as his written-in answer, or withdrawn for them; every route that closes a question card goes through this one call."""
-    return slack.cc_slack("card-answer", "--card", card, "--label", words, *(("--settled", "--other") if settled else ("--withdrawn",)), "--via", link)
+    """Close his question card in place showing his words and a link to them with no buttons, so a late tap records nothing: settled by them as his written-in answer, or withdrawn for them; every route that closes a question card goes through this one call. Words he typed into a terminal have no permalink, so the card links itself."""
+    return slack.cc_slack("card-answer", "--card", card, "--label", words, *(("--settled", "--other") if settled else ("--withdrawn",)), "--via", card if link == TERMINAL else link)
 
 
 def close_card(card: str, closed: dict) -> dict:

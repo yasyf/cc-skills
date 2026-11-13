@@ -1,13 +1,16 @@
 import dataclasses
 import html
 import json
+import mmap
 import re
 import subprocess
 import time
+from collections.abc import Iterator
 from functools import cache
 from pathlib import Path
 
 from drive import limits, slack, state, view
+from drive.install import config_dir
 from drive.render import cut
 from drive.state import DriveError
 
@@ -72,10 +75,13 @@ AMOUNT = re.compile(r"(?<![\w.,:#/$-])(\d+(?:\.\d+)?)[- ]?([a-z]+)\b", re.IGNORE
 NOTES = "\nNotes:"
 ELIDED = re.compile(r"\.\.\.|…|\[[^\[\]]*\]")
 UNWORDED = re.compile(r"[\W_]+")
+TERMINAL = "terminal"
+HUMAN = b'"kind":"human"'
 HIS_ANSWER = (
     "a question of his becomes a ruling only with his own answer, so only his words verbatim are recorded as his, at the"
-    " permalink of his message or of the card he answered, cut with … where words are left out, never a drafted answer he"
-    " never saw or a reading of his words: answer a question he asked in his thread and record his reply. A drafted ruling"
+    " permalink of his message or of the card he answered, or at terminal for a prompt he typed into a drive session's terminal,"
+    " cut with … where words are left out, never a drafted answer he never saw or a reading of his words: answer a question"
+    " he asked in his thread and record his reply. A drafted ruling"
     " beside his question is how a store duplicating one that existed was built, his words: \"its a terieble duplicatgion and"
     ' was clerarly not throught through"'
 )
@@ -170,21 +176,56 @@ def heard(link: str, found: dict | None) -> str | None:
     return message["text"] if message.get("from_user") else None
 
 
-def unsaid(words: str, link: str | None, found: dict | None) -> str | None:
-    """Why words kept as his answer are not his: no link names where he said them, what is there is not his, or it lacks a piece of them, split where an ellipsis or a bracketed insertion leaves his words out; None when each piece is his."""
+def unsaid(words: str, link: str | None, found: dict | None, data: dict) -> str | None:
+    """Why words kept as his answer are not his: no link names where he said them, what is there is not his, or it lacks a piece of them, split where an ellipsis or a bracketed insertion leaves his words out; None when each piece is his. At terminal, his words are a prompt he typed into a session the drive binds that holds every piece."""
     if not plain(ELIDED.sub(" ", words)):
         return f"no words of his are given; {HIS_ANSWER}"
     if not link:
         return f'no permalink names where he said "{cut(words, 200)}"; {HIS_ANSWER}'
+    if link == TERMINAL:
+        if any(lacking(words, said) is None for said in typed(data)):
+            return None
+        return f'no prompt he typed into a terminal of the drive\'s sessions says "{cut(words, 200)}"; {HIS_ANSWER}'
     try:
         said = heard(link, found)
     except slack.SlackError as error:
         return f"{link} could not be read for his words ({error}); {HIS_ANSWER}"
     if said is None:
         return f"{link} is neither his own message nor a card he answered; {HIS_ANSWER}"
-    if missing := next((piece.strip() for piece in ELIDED.split(words) if f" {plain(piece)} " not in f" {plain(said)} "), None):
+    if missing := lacking(words, said):
         return f'his words at {link} do not say "{cut(missing, 200)}"; {HIS_ANSWER}'
     return None
+
+
+def lacking(words: str, said: str) -> str | None:
+    """The first piece of the words, split where an ellipsis or a bracketed insertion leaves his words out, that what he said does not hold."""
+    return next((piece.strip() for piece in ELIDED.split(words) if f" {plain(piece)} " not in f" {plain(said)} "), None)
+
+
+def typed(data: dict) -> Iterator[str]:
+    """Each prompt typed into a session the drive binds, read from its transcript by human_words; a row still being written is left for the next read."""
+    for held in state.bound_sessions(data).values():
+        path = next((config_dir() / "projects").glob(f"*/{held['session']}.jsonl"), None)
+        if path is None or not path.stat().st_size:
+            continue
+        with path.open("rb") as handle, mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ) as rows:
+            at = rows.find(HUMAN)
+            while at != -1 and (end := rows.find(b"\n", at)) != -1:
+                if (said := human_words(json.loads(rows[rows.rfind(b"\n", 0, at) + 1 : end]))) is not None:
+                    yield said
+                at = rows.find(HUMAN, end)
+
+
+def human_words(row: dict) -> str | None:
+    """The words of a transcript row that is a prompt a person typed, as cc-sync's ClassifyRecord reads human input: a user row or queued command whose origin Claude Code marks a human's and that is no meta injection. A cci delivery's origin is its channel's and a tool result carries none, so neither is his; a prompt Orca types into a terminal is marked a human's too."""
+    queued = row["type"] == "attachment" and row["attachment"].get("type") == "queued_command"
+    if not queued and row["type"] != "user":
+        return None
+    prompt = row["attachment"] if queued else row
+    if (prompt.get("origin") or {}).get("kind") != "human" or prompt.get("isMeta"):
+        return None
+    said = prompt["prompt"] if queued else row["message"]["content"]
+    return said if isinstance(said, str) else " ".join(block["text"] for block in said if block.get("type") == "text")
 
 
 def plain(text: str) -> str:
