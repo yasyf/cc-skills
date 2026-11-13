@@ -5,7 +5,6 @@ import json
 import math
 import os
 import re
-import shutil
 import sqlite3
 import subprocess
 import sys
@@ -1202,9 +1201,10 @@ def store(name: str, data: dict) -> None:
 
 
 def written(name: str, data: dict, newest: str | None) -> None:
-    """Write data to the drive's database in one transaction: each row whose JSON changed, each it no longer holds deleted, and saved_by when it changed, so a write that changes nothing writes nothing; refused, writing nothing, when an install newer than newest saved it last. A drive with no database yet gets one built whole beside it and moved into place, so no reader meets it half built."""
+    """Write data to the drive's database in one transaction: each row whose JSON changed, each it no longer holds deleted, and saved_by when it changed, so a write that changes nothing writes nothing; refused, writing nothing, when an install newer than newest saved it last. A drive with no database yet gets one built whole beside it and moved into place, so no reader meets it half built, then the drive.json pointing to it that every older install refuses."""
     if not (path := database_path(name)).exists():
         os.replace(built(name, data), path)
+        pointed(name, data)
         return
     with closing(connect(path)) as db:
         db.execute("BEGIN IMMEDIATE")
@@ -1269,30 +1269,36 @@ def placed(before: dict[str, tuple[int, str | None]], order: list[str]) -> dict[
 
 
 def moved(name: str) -> None:
-    """Move a drive an older install saved to drive.json into its database, under the drive's lock, which every older install's write takes, once each older install's verb that may read it ended: drive.json kept as it was beside it, then replaced by a pointer to the database that every older install refuses as a drive a newer install saved, its bindings kept so an older verb still resolves the drive and says so, then the database moved into place; a move cut short goes on from the kept copy."""
+    """Move a drive an older install saved to drive.json into its database, under the drive's lock, which every older install's write takes, once each older install's verb that may read it ended: drive.json kept as it was beside it, then replaced by the pointer every older install refuses, then the database moved into place; a move cut short goes on from the kept copy, and a drive a newer install saved is refused, moving nothing."""
     if database_path(name).exists() or not (path := state_path(name)).exists():
         return
-    data = json.loads(path.read_text())
-    if MOVED in data:
-        data = json.loads(backup_path(name).read_text())
-    else:
+    found = json.loads(path.read_text())
+    data = json.loads(backup_path(name).read_text()) if MOVED in found else found
+    if (saver := data.get("saved_by")) and version_order(saver) > version_order(VERSION):
+        raise NewerDrive(f"the {name} drive was saved by long-running {saver}, newer than this {VERSION}, which may misread it: run the newest install's drive")
+    if MOVED not in found:
         linking = backup_path(name).with_name(f"{BACKUP}.{os.getpid()}.tmp")
         linking.unlink(missing_ok=True)
         os.link(path, linking)
         os.replace(linking, backup_path(name))
     database = built(name, data)
-    pointer = {MOVED: DATABASE, "backup": BACKUP, "saved_by": MOVED_SAVER, "name": name, "roles": {}, "subcoordinators": {}, "handlers": {}, "launched": {}}
-    tmp = path.with_name("drive.json.tmp")
-    tmp.write_text(json.dumps(pointer | {field: data[field] for field in BINDINGS if field in data}, indent=2) + "\n")
-    os.replace(tmp, path)
+    pointed(name, data)
     os.replace(database, database_path(name))
+
+
+def pointed(name: str, data: dict) -> None:
+    """Replace drive.json with a pointer to the drive's database, saved_by an install newer than any, so every older install's load, edit, batch and edit_or_create refuse the drive as a newer install's, its bindings kept so an older verb still resolves the drive and says so."""
+    pointer = {MOVED: DATABASE, "backup": BACKUP, "saved_by": MOVED_SAVER, "name": name, "roles": {}, "subcoordinators": {}, "handlers": {}, "launched": {}}
+    tmp = state_path(name).with_name("drive.json.tmp")
+    tmp.write_text(json.dumps(pointer | {field: data[field] for field in BINDINGS if field in data}, indent=2) + "\n")
+    os.replace(tmp, state_path(name))
 
 
 def clone(name: str, folder: Path) -> None:
     """Copy the drive's saved state into folder, as the drive of its name there, read in one transaction."""
     (folder / name).mkdir(parents=True)
     if not database_path(name).exists():
-        shutil.copyfile(state_path(name), folder / name / "drive.json")
+        (folder / name / "drive.json").write_text(json.dumps(stored_json(name)))
         return
     with closing(connect(database_path(name))) as source, closing(sqlite3.connect(folder / name / DATABASE)) as copy:
         source.backup(copy)
@@ -1311,7 +1317,7 @@ def flocked(path: Path) -> Iterator[None]:
 
 @contextmanager
 def locked(name: str) -> Iterator[None]:
-    """Hold the drive's lock for one load and save, waiting up to DRIVE_LOCK_SECONDS for the process holding it, then refusing with who that is, so a process stuck under it fails this verb instead of holding every writer of the drive behind it; a process's first hold moves a drive.json an older install saved into the drive's database, and the reports an older install kept into their jobs' histories."""
+    """Hold the drive's lock for one load and save, waiting up to DRIVE_LOCK_SECONDS for the process holding it, then refusing with who that is, so a process stuck under it fails this verb instead of holding every writer of the drive behind it; a process's first hold moves the reports an older install kept into their jobs' histories."""
     path = drive_dir(name) / ".lock"
     path.parent.mkdir(parents=True, exist_ok=True)
     asked = time.monotonic()
@@ -1320,7 +1326,6 @@ def locked(name: str) -> Iterator[None]:
             raise DriveError(f"{name}'s drive lock is still held after {DRIVE_LOCK_SECONDS}s, so this changed nothing: {holders(path)}")
         got = time.monotonic()
         try:
-            moved(name)
             moved_reports(name)
             yield
         finally:
@@ -1352,6 +1357,15 @@ def job_locked(name: str, job_id: str, seconds: float) -> Iterator[None]:
 
 
 @contextmanager
+def writing(name: str) -> Iterator[None]:
+    """Hold the drive's lock for a write, once every older install's verb that may read the drive ended, moving a drive.json an older install saved into the drive's database first."""
+    older_verbs_done(name)
+    with locked(name):
+        moved(name)
+        yield
+
+
+@contextmanager
 def edit(name: str) -> Iterator[dict]:
     """Load the drive under its lock, yield it for changes, and save it atomically on exit; inside a batch, which holds the lock already, keep the changes for the batch's one save."""
     if name in BATCHED:
@@ -1359,8 +1373,7 @@ def edit(name: str) -> Iterator[dict]:
         yield data
         BATCHED[name] = json.dumps(data)
         return
-    older_verbs_done(name)
-    with locked(name):
+    with writing(name):
         data = load(name)
         yield data
         save(name, data)
@@ -1370,8 +1383,7 @@ def edit(name: str) -> Iterator[dict]:
 def batch(name: str) -> Iterator[list[str]]:
     """Hold the drive's lock across a call of several writes, each load and edit inside it reading and changing one copy in memory, saved once when the call ends and never when it raises, so a refused write leaves drive.json as it was; what a write does outside the drive runs after that save, its lines added to the list it yields."""
     after: list[str] = []
-    older_verbs_done(name)
-    with locked(name):
+    with writing(name):
         BATCHED[name] = json.dumps(load(name))
         AFTER_SAVE[name] = []
         try:
@@ -1395,15 +1407,14 @@ def after_save(name: str, effect: Callable[[], list[str]]) -> list[str]:
 @contextmanager
 def edit_or_create(name: str, fresh: dict) -> Iterator[dict]:
     """Like edit, but start from fresh when the drive does not exist yet; the lock covers the check too."""
-    older_verbs_done(name)
-    with locked(name):
+    with writing(name):
         data = load(name) if exists(name) else fresh
         yield data
         save(name, data)
 
 
 def create(data: dict) -> None:
-    with locked(data["name"]):
+    with writing(data["name"]):
         save(data["name"], data)
 
 

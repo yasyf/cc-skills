@@ -252,7 +252,7 @@ def state_root() -> Path:
     return Path.home() / ".local" / "state" / "long-running"
 
 
-BINDINGS: dict[Path, tuple[tuple[tuple[int, int, int] | None, ...], frozenset[str]]] = {}
+BINDINGS: dict[Path, tuple[tuple[int, int, int], frozenset[str]]] = {}
 BOUND_FIELDS = ("driver", "roles", "subcoordinators")
 
 
@@ -264,37 +264,32 @@ def saved_sessions(data: dict) -> frozenset[str]:
 
 
 def saved_bindings(folder: Path) -> dict:
-    """A drive's bindings as saved, read as `state.saved` reads them: its roles, sub-coordinators and handlers rows from its database, else its drive.json whole."""
-    if not (folder / "drive.db").exists():
-        return json.loads((folder / "drive.json").read_text())
+    """A drive's bindings as its database saved them, read as `state.saved` reads them: its roles, sub-coordinators and handlers rows."""
     fields = ", ".join("?" * len(BOUND_FIELDS))
     with closing(sqlite3.connect(folder / "drive.db")) as db:
         rows = db.execute(f"SELECT collection, key, body FROM rows WHERE collection = '' AND key IN ({fields}) OR collection = 'handlers'", BOUND_FIELDS).fetchall()
     return {key: json.loads(body) for collection, key, body in rows if not collection} | {"handlers": {key: json.loads(body) for collection, key, body in rows if collection}}
 
 
-def file_stamp(path: Path) -> tuple[int, int, int] | None:
-    """A file's modification time, size and inode, or None when it is missing."""
-    try:
-        seen = path.stat()
-    except (FileNotFoundError, NotADirectoryError):
-        return None
-    return (seen.st_mtime_ns, seen.st_size, seen.st_ino)
-
-
 def bound_sessions() -> frozenset[str]:
-    """The sessions any drive on this Mac binds, each drive's bindings read again only once its database, the database's log or its drive.json changes, so a call from a session no drive binds costs a stat of each drive's state files and no read."""
+    """The sessions any drive on this Mac binds: each drive's binding rows read from its database at each call, a short read in one transaction, and a drive still on drive.json parsed again only once that file changes, so a call from a session no drive binds costs no parse."""
     root = state_root()
     if not root.is_dir():
         return frozenset()
     bound: set[str] = set()
     for entry in os.scandir(root):
         folder = Path(entry.path)
-        stamp = tuple(file_stamp(folder / file) for file in ("drive.db", "drive.db-wal", "drive.json"))
-        if stamp[0] is None and stamp[2] is None:
+        if (folder / "drive.db").is_file():
+            bound |= saved_sessions(saved_bindings(folder))
             continue
-        if (kept := BINDINGS.get(folder)) is None or kept[0] != stamp:
-            kept = BINDINGS[folder] = (stamp, saved_sessions(saved_bindings(folder)))
+        path = folder / "drive.json"
+        try:
+            seen = path.stat()
+        except (FileNotFoundError, NotADirectoryError):
+            continue
+        stamp = (seen.st_mtime_ns, seen.st_size, seen.st_ino)
+        if (kept := BINDINGS.get(path)) is None or kept[0] != stamp:
+            kept = BINDINGS[path] = (stamp, saved_sessions(json.loads(path.read_text())))
         bound |= kept[1]
     return frozenset(bound)
 

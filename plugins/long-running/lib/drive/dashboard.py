@@ -8,6 +8,7 @@ import re
 import select
 import signal
 import socket
+import sqlite3
 import ssl
 import subprocess
 import sys
@@ -44,6 +45,7 @@ MANIFEST = Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json
 LAUNCH_AGENTS = Path.home() / "Library" / "LaunchAgents"
 AGENT_ENV = ("PATH", "CLAUDE_CONFIG_DIR", "XDG_STATE_HOME", "XDG_BIN_HOME", "CC_SLACK_CONFIG", "CHROME")
 RESTART_SECONDS = 10
+CHANGE_POLL_SECONDS = 2
 FILES = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
@@ -180,17 +182,21 @@ def card_pictures(card: dict) -> set[str]:
 
 
 def changes(name: str) -> Iterator[None]:
-    """Yield at once, then after each write kqueue reports to the drive's state directory, its database, the database's write-ahead log, its events log or Claude Code's plugins folder, where each install replaces installed_plugins.json, so an install wakes the dashboard as a change to the drive does; a file deleted, as the last connection to the database deletes its log, is watched again once it is back."""
+    """Yield at once, then after each write kqueue reports to the drive's state directory, its database, the database's write-ahead log, its events log or Claude Code's plugins folder, where each install replaces installed_plugins.json, so an install wakes the dashboard as a change to the drive does, and at least every CHANGE_POLL_SECONDS, since a database write lands in its log before its commit is published to readers; a file deleted, as the last connection to the database deletes its log, is watched again once it is back."""
     queue = select.kqueue()
     watched: dict[Path, int] = {}
     while True:
         for path in (state.drive_dir(name), state.database_path(name), state.wal_path(name), state.events_path(name), install.config_dir() / "plugins"):
-            if path not in watched and path.exists():
+            if path in watched:
+                continue
+            try:
                 watched[path] = os.open(path, os.O_RDONLY)
-                flags = select.KQ_NOTE_WRITE | select.KQ_NOTE_EXTEND | select.KQ_NOTE_DELETE
-                queue.control([select.kevent(watched[path], select.KQ_FILTER_VNODE, select.KQ_EV_ADD | select.KQ_EV_CLEAR, flags)], 0)
+            except FileNotFoundError:
+                continue
+            flags = select.KQ_NOTE_WRITE | select.KQ_NOTE_EXTEND | select.KQ_NOTE_DELETE
+            queue.control([select.kevent(watched[path], select.KQ_FILTER_VNODE, select.KQ_EV_ADD | select.KQ_EV_CLEAR, flags)], 0)
         yield
-        for event in queue.control(None, 1):
+        for event in queue.control(None, 1, CHANGE_POLL_SECONDS):
             if event.fflags & select.KQ_NOTE_DELETE:
                 os.close(event.ident)
                 watched = {path: fd for path, fd in watched.items() if fd != event.ident}
@@ -283,10 +289,15 @@ class Board:
         self.holding = threading.Lock()
         self.held: dict[str, threading.Event] = {}
         self.assistant = review.Assistant(name)
+        self.database: sqlite3.Connection | None = None
 
     def stamp(self) -> tuple[int, ...]:
-        paths = (state.state_path(self.name), state.database_path(self.name), state.wal_path(self.name), state.cards_path(self.name), state.events_path(self.name))
-        return tuple(path.stat().st_mtime_ns if path.exists() else 0 for path in paths)
+        """What the board is built from, as it stands: the database's data_version on this board's own connection, which changes with each commit another connection makes, and the time each of the drive's other files last changed."""
+        if self.database is None and state.database_path(self.name).exists():
+            self.database = state.connect(state.database_path(self.name))
+        committed = self.database.execute("PRAGMA data_version").fetchone()[0] if self.database else 0
+        paths = (state.state_path(self.name), state.cards_path(self.name), state.events_path(self.name))
+        return (committed, *(path.stat().st_mtime_ns if path.exists() else 0 for path in paths))
 
     def rebuild(self) -> None:
         for event, end in state.read_events(self.name, self.offset):
