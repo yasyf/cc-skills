@@ -1673,14 +1673,14 @@ function sourceRows(a, found) {
 
 function hideSource() {
   const tip = $('#srctip');
-  delete tip.dataset.key;
+  delete tip.dataset.shows;
   if (tip.matches(':popover-open')) tip.hidePopover();
 }
 
 function showTip(el) {
   const tip = $('#srctip');
-  if (tip.dataset.key === `tip:${el.dataset.tip}` && tip.matches(':popover-open')) return;
-  tip.dataset.key = `tip:${el.dataset.tip}`;
+  if (tip.dataset.shows === `tip:${el.dataset.tip}` && tip.matches(':popover-open')) return;
+  tip.dataset.shows = `tip:${el.dataset.tip}`;
   const [head, ...lines] = el.dataset.tip.split('\n');
   tip.innerHTML = lines.length ? `<header>${esc(head)}</header>${lines.map((line) => `<p>${esc(line)}</p>`).join('')}` : `<p>${esc(head)}</p>`;
   if (!tip.matches(':popover-open')) tip.showPopover();
@@ -1711,7 +1711,7 @@ function preview(choice) {
 
 function showSource(a) {
   const tip = $('#srctip');
-  tip.dataset.key = a.href;
+  tip.dataset.shows = a.href;
   tip.innerHTML = sourceRows(a, sourceSeen.get(a.href));
   if (!tip.matches(':popover-open')) tip.showPopover();
   placeTip(tip, a.getBoundingClientRect(), true);
@@ -1723,7 +1723,7 @@ function showSource(a) {
     .then(async (found) => {
       if (found.lines) for (const [at, lit] of (await (await import('/visuals.js')).lines(a.dataset.path, found.lines.map((line) => line.text))).entries()) found.lines[at].lit = lit;
       sourceSeen.set(key, found);
-      if (tip.dataset.key === key && a.isConnected && tip.matches(':popover-open')) showSource(a);
+      if (tip.dataset.shows === key && a.isConnected && tip.matches(':popover-open')) showSource(a);
     });
 }
 
@@ -2604,7 +2604,7 @@ document.addEventListener('submit', (event) => {
 document.addEventListener('click', (event) => {
   if (touched) {
     const tipped = !event.target.closest('a, button') && event.target.closest('[data-tip]');
-    if (tipped) return $('#srctip').dataset.key === `tip:${tipped.dataset.tip}` ? hideSource() : showTip(tipped);
+    if (tipped) return $('#srctip').dataset.shows === `tip:${tipped.dataset.tip}` ? hideSource() : showTip(tipped);
     hideSource();
   }
   const undone = event.target.closest('button[data-undo]');

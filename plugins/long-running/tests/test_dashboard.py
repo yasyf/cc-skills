@@ -1114,7 +1114,7 @@ done({
     assert seen["needs"] == ["1 question for you"]
     assert re.fullmatch(
         r"0 features went live in the last day, 1 is moving and 0 are blocked; 2 decisions and 1 PR to tap wait on you,"
-        r" the oldest since Nov 10 9:30 PM \(\d+[hd]\)\. 1 of the decisions holds no open task\.",
+        r" the oldest since Nov 10 9:30 PM \((?:\d+h|\d+d(?: \d+h)?)\)\. 1 of the decisions holds no open task\.",
         seen["headline"],
     )
 
@@ -1531,9 +1531,10 @@ const words = [...rail.querySelectorAll('.said-list q')].map((said) => said.text
 rail.querySelectorAll('.held small')[1].dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
 await wait(50);
 const hovered = document.querySelector('#srctip').textContent;
+const badge = getComputedStyle(document.querySelector('#srctip'), '::after').content;
 rail.querySelector('.held-title').focus();
 await wait(50);
-done({ rows, job, words, hovered, focused: document.querySelector('#srctip').textContent });
+done({ rows, job, words, hovered, badge, focused: document.querySelector('#srctip').textContent });
 """, board(queue=[item], status=[{"state": "running", "features": [shipping, stuck]}]))
     assert seen == {
         "rows": [
@@ -1543,6 +1544,7 @@ done({ rows, job, words, hovered, focused: document.querySelector('#srctip').tex
         "job": {"goal": "read the limits", "files": ["Brief", "Report"]},
         "words": ["newer words", "older words"],
         "hovered": "unblock the lane. Blocked. Finished and held: built on lane/two. Waits on this answer and on “Other one?”.",
+        "badge": "none",
         "focused": "ship the fix. Being built. Finished and held: a/b#7 green and approved. Waits on this answer.",
     }
 
