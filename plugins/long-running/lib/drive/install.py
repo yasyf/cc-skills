@@ -496,6 +496,12 @@ def installed(key: str) -> dict:
     return newest(installs(key))
 
 
+def prefetch(clone: str, ref: str, folder: str, deadline: float) -> None:
+    """Fetch every blob of the folder at ref into the blobless clone in one fetch, as git's own promisor fetch asks for them, since `git checkout <ref> -- <folder>` fetches each missing blob in a process of its own: 440 of them for long-running, 3 minutes 8 seconds on this Mac against 2 seconds for one fetch, and refused when any one of them times out."""
+    blobs = git(clone, "ls-tree", "-r", "--object-only", ref, "--", folder, deadline=deadline).split()
+    git(clone, "-c", "fetch.negotiationAlgorithm=noop", "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--recurse-submodules=no", "--filter=blob:none", "origin", *blobs, deadline=deadline)
+
+
 def try_drives(clone: str, ref: str, folder: str, deadline: float) -> None:
     """Run the release's own drive status on a copy of each drive on this Mac before any scope switches to it, refusing a release that cannot read one, since every drive verb, tool, watch and hook runs the newest install."""
     if not (names := state.names()):
@@ -503,6 +509,7 @@ def try_drives(clone: str, ref: str, folder: str, deadline: float) -> None:
     with tempfile.TemporaryDirectory(prefix="drive-try-") as scratch:
         tree, copies = Path(scratch) / "release", Path(scratch) / "state"
         tree.mkdir()
+        prefetch(clone, ref, folder, deadline)
         git(clone, f"--work-tree={tree}", "checkout", ref, "--", folder, deadline=deadline)
         for name in names:
             state.clone(name, copies)
