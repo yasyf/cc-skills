@@ -23,6 +23,7 @@ CORRECTION_BYTES = 1 << 20
 TRUNK_DRIVE = "trunk"
 TRUNK_FAILED = "failed in Trunk's merge queue"
 HANDLER = "long-running:handler"
+CLAUDE_HOOK_SECONDS = "600"
 SYNTHETIC = "<synthetic>"
 OUTAGE_WAITS = (1, 2, 4, 8)
 RESUMED = "Resumed: an API error ended your last turn before it was done, so do now what the prompt it answered asked, from where it stopped."
@@ -408,9 +409,9 @@ def start_kept(name: str, handler: str) -> str:
 
 
 def start_handler(name: str, handler: str, prompt: str) -> None:
-    """Start a handler as its own `claude --bg` session on its agent definition, which sets its model, in the communicator's checkout, whether the communicator or the drive's watch starts it, its SessionStart hook binding it to the drive by the id in its environment, `CCI_PARENT_SESSION` naming the communicator's session, so cci binds the handler's session to no lane and it posts as the communicator's lanes, and `CLAUDE_LONG_RUNNING_DRIVE` naming the drive, so each cci call that names no drive resolves this one; the watch's own lane stays out of its environment."""
+    """Start a handler as its own `claude --bg` session on its agent definition, which sets its model, in the communicator's checkout, whether the communicator or the drive's watch starts it, its SessionStart hook binding it to the drive by the id in its environment, `CCI_PARENT_SESSION` naming the communicator's session, so cci binds the handler's session to no lane and it posts as the communicator's lanes, and `CLAUDE_LONG_RUNNING_DRIVE` naming the drive, so each cci call that names no drive resolves this one, and `CAPT_HOOK_CLIENT_TIMEOUT` at Claude Code's own hook timeout, so Jev's check of a say post Slack already has runs as long as that check needs rather than capt-hook's 30 s; the watch's own lane stays out of its environment."""
     communicator = state.saved(name)["roles"]["communicator"]
-    env = {state.HANDLER_ENV: f"{name}/{handler}", "CCI_PARENT_SESSION": communicator["session"], state.DRIVE_ENV: name}
+    env = {state.HANDLER_ENV: f"{name}/{handler}", "CCI_PARENT_SESSION": communicator["session"], state.DRIVE_ENV: name, "CAPT_HOOK_CLIENT_TIMEOUT": CLAUDE_HOOK_SECONDS}
     settings = session_settings(env)
     argv = ["claude", "--bg", "--agent", HANDLER, "--permission-mode", "bypassPermissions", "--settings", json.dumps(settings), "-n", f"{name} handler {handler}", prompt]
     reads.run(argv, Path(communicator["cwd"]), {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"} | settings["env"])

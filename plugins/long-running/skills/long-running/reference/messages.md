@@ -611,7 +611,9 @@ restating it.
   whether the system controls that piece where it would run, by his words "we cant do that since we dont control the
   poloices on customer bucket". A handler passes `say` each such line in `claims`, beside the read
   behind it: `record:<seq>`, or words copied from a call of its own, such as a path, command or query,
-  a claim standing on several reads listed once beside each. The say hook hands Jev every call those
+  a claim standing on several reads listed once beside each. A bare `{pr:<number>}` or `{card:<waits id>}`
+  is no claim, since `say` draws it under the PR's title or the card's question, and Jev reads the post's
+  words as written beside it, so it needs no read; words after its `|` are the handler's own claim. The say hook hands Jev every call those
   words name with its whole result, and each record the post cites or carries, whole, and Jev holds
   the post for a claim its reads do not back, a read matching no call, or such a line left out, by his
   pick "The handler names the read behind each claim; Jev
@@ -760,28 +762,38 @@ GET 2 page ranges
   `cc-slack check-post` and counts them as they go out. A `say` post counts the words of each
   `{card:}`, `{pr:}`, `{order:}` and `{record:}` title it draws, and its length refusal says how many
   of them those titles are.
-- A finding refuses nothing on its own. The hook hands the post and every finding, check-post's and
-  the drive's own, to Jev with the rule each finding stands for, in this skill's and cc-slack's words,
-  and his words: his messages in the thread it goes to and each answer or Explain more tap of his a
-  card there shows, and on a post on an order his messages and card answers in each of that order's
-  other threads in his DM, read from Slack, beside the session's recent turns. A handler's brief, the record it reads in and
-  every prompt of a handler's own `claude --bg` session are the communicator's or a writer's words,
-  never his, whatever they quote. Jev judges only the line each finding names, by its rule: the post
-  goes out when no finding's rule holds against its line, or his words lift it, and comes back with
-  Jev's reason when one does, never for saying more than his message asked, and never as unpermitted,
-  since cc-slack's Slack permission hook judges every write. When Jev cannot finish,
-  because it errs, times out, or reads the transcript past capt-hook's deadline, a finding a count or
-  a mark decides, the post's word count or his reading as away, still refuses, since no judgment lifts
-  it, and each other finding only warns: the post goes out as written, and the session that posts it hears every finding beside it
-  and rewords the post in place when one holds. His pick: "Refusals only warn when the judge cannot
-  finish: no post ever waits, but it goes out unchecked, as twice this morning". A session's account of
-  its own act or mistake names no cause the cause rule asks a record for. An order or job id, such as
-  o643 or j1700, comes back with no judging unless a message of his the post passes as asked used it.
-  His words: "stop hard coding it and just use jev evaluating my message and rules to see if it's ok
-  to send" and, on a refusal Jev got wrong, "you need to fix the hookw henver it wrongly refuses yu".
-- What the hook let out is what he reads: `say` adds no words of its own and checks nothing again.
-  Check-post reads the words under each link, so a card, PR, order or record title it flags is named
-  in the post's own words, `{pr:<number>|<words>}` or `{record:<seq>|<words>}`.
+- A finding refuses nothing on its own. Once `say` has posted the post, so `say` stays fast, the hook
+  hands it and every finding, check-post's and the drive's own, to Jev with the rule each finding
+  stands for, in this skill's and cc-slack's words, and his words: his messages in the thread it went
+  to and each answer or Explain more tap of his a card there shows, and on a post on an order his
+  messages and card answers in each of that order's other threads in his DM, read from Slack, beside
+  the session's recent turns. A handler's brief, the record it reads in and every prompt of a handler's
+  own `claude --bg` session are the communicator's or a writer's words, never his, whatever they
+  quote. Jev judges only the line each finding names, by its rule: the post stands when no finding's
+  rule holds against its line, or his words lift it, and is held with Jev's reason when one does,
+  never for saying more than his message asked, and never as unpermitted, since cc-slack's Slack
+  permission hook judges every write. A held post stays in his DM as written, and the
+  session that posted it hears Jev's reason, rewords it in place with `say(edit=<its permalink>,
+  text=…)`, which Jev checks again, and ends its turn only once Jev passes the new words. His pick:
+  "Say posts at once and Jev checks afterwards: say stays fast, but a held line sits in your DM until
+  its handler edits it". A handler's session gives Jev up to Claude Code's own 600-second hook
+  timeout, and every other session the deadline capt-hook's request leaves.
+- A post with a finding a count or a mark decides, the post's word count, his reading as away or a
+  line out of turn in the thread a bug report or question came from, and a dry run, Jev judges before
+  `say` runs, since an edit takes back neither the buzz on his phone nor a line a reporter already
+  read: it goes out only when Jev lifts that finding, and when Jev cannot finish, because it errs,
+  times out, or reads the transcript past capt-hook's deadline, it still refuses, since no judgment
+  lifts it. On any other post a Jev that cannot finish leaves each finding as a warning: the post
+  stays as written, and the session that posted it hears every finding beside it and rewords the post
+  in place when one holds. His pick: "Refusals only warn when the judge cannot finish: no post ever
+  waits, but it goes out unchecked, as twice this morning". A session's account of its own act or
+  mistake names no cause the cause rule asks a record for. An order or job id, such as o643 or j1700,
+  comes back unposted with no judging unless a message of his the post passes as asked used it. His
+  words: "stop hard coding it and just use jev evaluating my message and rules to see if it's ok to
+  send" and, on a refusal Jev got wrong, "you need to fix the hookw henver it wrongly refuses yu".
+- What the session passed `say` is what he reads: `say` adds no words of its own and checks nothing
+  again. Check-post reads the words under each link, so a card, PR, order or record title it flags is
+  named in the post's own words, `{pr:<number>|<words>}` or `{record:<seq>|<words>}`.
 - A post that answers him passes each message of his in `asked`, word for word or by its permalink
   in his DM, and check-post gets each message's words as `--asked`, so a drive word he used there,
   such as "the drive" in his question about the drive, passes in the answer, and so does an internal
@@ -794,9 +806,10 @@ GET 2 page ranges
   check-post that exits 1 naming no finding.
 - A handler's new line in his thread comes back until that handler has read the thread in the last
   10 minutes, so the line cannot miss what he said there since. Past that read every other check
-  runs. A post Jev upholds a finding on, such as one check-post flags, one over its limit, one naming
-  something he could open with no link there, or one asking a tap that is not owed, comes back once,
-  with every finding, Jev's reason and what to fix.
+  runs. A post over its limit that Jev upholds the finding on comes back once, unposted, with every
+  finding, Jev's reason and what to fix; a post Jev holds on any other finding, such as one
+  check-post flags, one naming something he could open with no link there, or one asking a tap that
+  is not owed, is reworded in place once, from every finding, Jev's reason and what to fix.
 - Then read it as he will, on a phone, with no other context. Does he know what changed, whether he
   must act, and when he hears next? Does every number, term and reference make sense with nothing
   else open, and does each thing he could open carry its link right there?

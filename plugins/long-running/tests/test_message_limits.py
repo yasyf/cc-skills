@@ -539,7 +539,7 @@ def test_jev_reads_a_refused_say_post_as_slack_gets_it_and_a_reference_nested_in
         monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))
         message_limits.main()
         printed.append(json.loads(capsys.readouterr().out))
-    assert printed[0]["post"] == {"text": said(60) + " <https://github.com/yasyf/cc-skills/pull/7|the run page shows its history>", "thread_ts": "1.2"}
+    assert printed[0]["post"] == {"text": said(60) + " <https://github.com/yasyf/cc-skills/pull/7|the run page shows its history>", "written": said(60) + " {pr:7}", "thread_ts": "1.2"}
     assert printed[1]["judged"] is False
     assert "his_words" not in printed[1]
     assert printed[1]["hookSpecificOutput"]["permissionDecisionReason"].startswith(f"{{pr:7|the fix}} sits inside the words of the link to {release}")
