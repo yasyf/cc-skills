@@ -537,6 +537,37 @@ def test_a_terminal_holds_a_session_only_when_its_process_tree_does_with_or_with
     assert orca.holds_session({"ptyId": "pty-1"}, "s-comm")
 
 
+def test_status_places_a_session_while_claude_code_removes_a_session_file_it_listed(
+    run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session = os.environ["CLAUDE_CODE_SESSION_ID"]
+    sessions = tmp_path / "config" / "sessions"
+    sessions.mkdir(parents=True)
+    (sessions / "7807.json").write_text(json.dumps({"pid": 7807, "sessionId": session}))
+    removed = sessions / "91343.json"
+    removed.write_text(json.dumps({"pid": 91343, "sessionId": "s-exited"}))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("ORCA_TERMINAL_HANDLE", "term_abc")
+    monkeypatch.delenv("TMUX")
+    pane = {"sessionId": "pty-1", "pid": 7330}
+    monkeypatch.setattr(orca, "request", lambda *args: {"terminal": {"ptyId": "pty-1", "orphaned": False}, "worktrees": [{"sessions": [pane]}]})
+    monkeypatch.setattr(orca, "parents", lambda: {7807: 7330, 7330: 1})
+    run("start", "demo", "--role", "coordinator")
+    listed = Path.glob
+
+    def removed_once_listed(path: Path, pattern: str, **kwargs: bool) -> list[Path]:
+        found = list(listed(path, pattern, **kwargs))
+        if path == sessions:
+            removed.unlink(missing_ok=True)
+        return found
+
+    monkeypatch.setattr(Path, "glob", removed_once_listed)
+    assert run("status")[1].splitlines()[2] == (
+        f"coordinator: session {session}, open it with: orca terminal switch --terminal term_abc; Hold no Slack channel."
+    )
+    assert not removed.exists()
+
+
 def test_context_refuses_a_session_with_no_role(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "a-stranger")
     monkeypatch.setenv("LONG_RUNNING_DRIVE", "demo")
