@@ -2864,6 +2864,40 @@ def test_two_watches_reading_one_shared_run_each_take_the_mail_of_the_jobs_they_
     assert [reply["id"] for job_id in ("j1", "j2") for reply in state.replies(remote, job_id)] == ["msg_top", "msg_iris"]
 
 
+def test_a_lane_whose_job_carries_the_drives_order_wakes_only_the_watch_hearing_its_own_order_with_its_report_its_stop_and_its_death(
+    run: Run, remote: str, monkeypatch: pytest.MonkeyPatch, ended_lanes: list[str]
+) -> None:
+    carrying(run, remote)
+    with state.edit(remote) as data:
+        data["orders"]["o1"]["project"] = "Iris"
+        data["jobs"]["j1"]["workspace"] = "sprite-old"
+        cli.bind_subcoordinator(data, "Iris", {"session": "iris-1", "terminal": None, "cwd": "/work", "started": state.stamp(T0)})
+    ready = "READY https://github.com/Forge-AI/monorepo/pull/8"
+    stopped = "Worker term_1 ended its turn without sending worker_done.\nLast output:\nkept j1's report\nFull output: x"
+    deliver(
+        monkeypatch,
+        [message("question", f"DRIVE job report j1 -\n{json.dumps({'stdin': ready})}", id="relay_report")],
+        [message("escalation", stopped, subject="Worker stopped without reporting")],
+    )
+
+    def report(question: str, root: Path, drive: str, job_id: str) -> str:
+        state.keep_report(drive, job_id, ready, ready)
+        with state.edit(drive) as data:
+            state.take_result(data, job_id, ready, ready)
+        return reads.lane_exit(0, str(state.replies_path(drive, job_id)))
+
+    monkeypatch.setattr(reads, "answer", report)
+    monkeypatch.setattr(orca, "call", lambda *args: {})
+    top = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    iris = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0, project="Iris")
+    assert (staged(watch.lane_lines, top, T0), staged(watch.lane_lines, iris, T0)) == ([], [f"JOB j1 o1 {ready}"])
+    assert (staged(watch.lane_lines, top, T0), staged(watch.lane_lines, iris, T0)) == ([], ["JOB j1 o1 STOPPED without a report, last output: kept j1's report"])
+    monkeypatch.setattr(orca, "worker", lambda dispatch: dead())
+    assert staged(watch.agent_lines, top, T0) == []
+    assert staged(watch.agent_lines, iris, T0)[0].startswith(f'LANE j1 o1 died on Sprite sprite-old: its worker exited, while it waited on "{ready}"')
+    assert ended_lanes == ["j1"]
+
+
 def test_two_watches_reading_one_run_past_orcas_newest_hundred_each_take_every_message_of_the_jobs_they_hear(
     run: Run, remote: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
