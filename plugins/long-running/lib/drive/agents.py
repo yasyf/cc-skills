@@ -27,11 +27,13 @@ ORDER = "Order"
 IN_THREAD = "In his thread"
 SCRATCH = re.compile(r"Scratch:\s*(\S+)")
 LABEL = re.compile(rf"^({'|'.join(re.escape(label) for label in (*render.HANDLER_LABELS, ORDER, IN_THREAD))}):")
+DATADOG_PLUGIN = "datadog@claude-plugins-official"
 SESSION_SETTINGS = {
     "bashOutputMaxChars": 6000,
     "outputStyle": "default",
     "env": {"CLAUDE_CODE_SILENT_TURN_REMINDER": "0"},
     "permissions": {"deny": ["AskUserQuestion"]},
+    "enabledPlugins": {DATADOG_PLUGIN: True},
 }
 ORCA = "orca@skills"
 SESSION_ENV = "<session env>"
@@ -378,11 +380,12 @@ def start_handler(name: str, handler: str, prompt: str) -> None:
 
 
 def session_settings(env: dict[str, str]) -> dict:
-    """What a session the drive starts runs on: every Orca lane's env, settings and denied tools from the orca plugin's lib/lane.json, the file orca-worker-launch.sh reads, CLAUDE_LANE_SETTINGS merged over those settings as that launcher merges it, then the drive's own SESSION_SETTINGS and env on top."""
+    """What a session the drive starts runs on: every Orca lane's env, settings and denied tools from the orca plugin's lib/lane.json, the file orca-worker-launch.sh reads, CLAUDE_LANE_SETTINGS merged over those settings as that launcher merges it, then the drive's own SESSION_SETTINGS and env on top, its plugins over the lane's plugin by plugin, so the Datadog plugin, whose MCP is a drive session's one Datadog read, stays on whatever CLAUDE_LANE_SETTINGS turns off."""
     lane = lane_spec()
-    local = json.loads(os.environ.get("CLAUDE_LANE_SETTINGS") or "{}")
+    settings = lane["settings"] | json.loads(os.environ.get("CLAUDE_LANE_SETTINGS") or "{}")
     denied = list(dict.fromkeys([*lane["deniedTools"], *SESSION_SETTINGS["permissions"]["deny"]]))
-    return lane["settings"] | local | SESSION_SETTINGS | {"env": lane["env"] | SESSION_SETTINGS["env"] | env, "permissions": {"deny": denied}}
+    plugins = settings.get("enabledPlugins", {}) | SESSION_SETTINGS["enabledPlugins"]
+    return settings | SESSION_SETTINGS | {"env": lane["env"] | SESSION_SETTINGS["env"] | env, "permissions": {"deny": denied}, "enabledPlugins": plugins}
 
 
 def lane_spec() -> dict:

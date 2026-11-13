@@ -73,16 +73,17 @@ def test_drive_handler_starts_its_own_claude_bg_session_and_records_that_he_wrot
     assert state.load("demo")["owner"] == data["owner"]
 
 
-def test_a_handler_session_starts_with_every_orca_lanes_env_settings_and_denied_tools_and_this_macs_lane_settings_over_them(
+def test_a_handler_session_starts_with_every_orca_lanes_env_settings_and_denied_tools_and_this_macs_lane_settings_over_them_but_the_datadog_plugin(
     communicator: str, run: Run, tmp_path: Path, started: list[list[str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("CLAUDE_LANE_SETTINGS", json.dumps({"enabledPlugins": {"cc-review@cc-review": False}, "verbose": True}))
+    plugins = {"cc-review@cc-review": False, agents.DATADOG_PLUGIN: False}
+    monkeypatch.setenv("CLAUDE_LANE_SETTINGS", json.dumps({"enabledPlugins": plugins, "verbose": True}))
     start(run, tmp_path)
     [argv] = started
     settings = json.loads(argv[argv.index("--settings") + 1])
     lane = json.loads(LANE_SPEC.read_text())
     assert {key: settings["env"][key] for key in lane["env"]} == lane["env"]
-    assert (settings["enabledPlugins"], settings["verbose"], settings["statusLine"], settings["bashOutputMaxChars"]) == ({"cc-review@cc-review": False}, True, lane["settings"]["statusLine"], 6000)
+    assert (settings["enabledPlugins"], settings["verbose"], settings["statusLine"], settings["bashOutputMaxChars"]) == (plugins | {agents.DATADOG_PLUGIN: True}, True, lane["settings"]["statusLine"], 6000)
     assert settings["permissions"]["deny"] == lane["deniedTools"]
 
 

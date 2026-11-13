@@ -375,3 +375,46 @@ def test_a_bucket_read_is_refused_by_what_it_reads_and_a_forge_bucket_or_a_pass_
     assert bash_guard.deny_reason(bash("aws s3 ls s3://artifacts-prod/iris/teams/t/", session="ordinary")) is None
     monkeypatch.setenv(state.REMOTE_LANE_ENV, "1")
     assert bash_guard.deny_reason(bash("aws s3 ls s3://artifacts-prod/iris/teams/t/", session="sprite")).startswith("refused: this reads")
+
+
+HANDLER_SESSION = "5e48f8c7-ad54-49d0-bf4e-bbc509e11035"
+MONITOR_READ = (
+    "pup monitors get 337843756 2>&1 | python3 -I -c \"import json,sys; d=json.load(sys.stdin); d=d.get('data',d);"
+    " print({k:d.get(k) for k in ['name','overall_state','overallState']}); print(json.dumps(d.get('state',{}))[:600])\""
+)
+LOGS_READ = (
+    "pup logs search --query 'service:restate-worker @log_kind:executor_oom_run_crashed -forge_cluster:plat-sandbox"
+    " -forge_cluster:plat-staging' --from 5h --limit 50 2>&1 | python3 -I -c \"\nimport json,sys\nd=json.load(sys.stdin);"
+    " rows=d.get('data',d) if isinstance(d,dict) else d\nprint(len(rows))\nfor r in rows[:20]:\n  a=r.get('attributes',r);"
+    " print(a.get('timestamp'), (a.get('attributes') or {}).get('forge_cluster'))\n\""
+)
+
+
+def test_handler_9d78cc4es_pup_reads_are_refused_naming_the_datadog_mcp(communicator: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    with state.edit(communicator) as data:
+        data["handlers"]["9d78cc4e"] = {"session": HANDLER_SESSION, "started": state.stamp(), "holds": None, "handed": []}
+    own = {"agent_type": "long-running:handler", "transcript_path": str(tmp_path / "handler.jsonl")}
+    for command in (MONITOR_READ, LOGS_READ):
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(bash(command, session=HANDLER_SESSION, **own))))
+        bash_guard.main()
+        output = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
+        assert (output["permissionDecision"], output["permissionDecisionReason"]) == ("deny", bash_guard.DATADOG_READ), command
+    assert bash_guard.DATADOG_READ.startswith("refused: a drive session reads Datadog only through the Datadog MCP's tools, whose `execute_code`")
+    assert "`select:mcp__plugin_datadog_mcp__execute_code," in bash_guard.DATADOG_READ
+
+
+def test_every_drive_session_and_drive_agent_reads_datadog_through_its_mcp_never_pup(communicator: str, tmp_path: Path) -> None:
+    script = tmp_path / "read.sh"
+    script.write_text("#!/bin/zsh\nset -euo pipefail\n/opt/homebrew/bin/pup logs search --query 'service:api' --from 1h\n")
+    reader = {"agent_id": "a-1", "agent_type": "long-running:reader"}
+    refused = [
+        bash(MONITOR_READ),
+        bash(f"zsh {script}"),
+        bash('drive break-glass j1 --stack sandsql/plat-usw2-prod --reason "read the monitor" -- pup monitors get 337843756'),
+        bash("env PUP_SITE=datadoghq.com pup metrics query --query 'avg:system.load.1{*}' --from 1h", session="ordinary", **reader),
+    ]
+    for payload in refused:
+        assert bash_guard.deny_reason(payload) == bash_guard.DATADOG_READ, payload["tool_input"]["command"]
+    assert bash_guard.deny_reason(bash("which pup dog datadog")) is None
+    assert bash_guard.deny_reason(bash(f"cat > {tmp_path / 'later.sh'} <<'EOF'\npup monitors get 1\nEOF")) is None
+    assert bash_guard.deny_reason(bash(MONITOR_READ, session="ordinary")) is None

@@ -79,6 +79,15 @@ TEAM_READ = (
     " goes under `pass-box/<purpose>/` in its env's MicroVM artifacts bucket, and the box fetches it through a presigned URL"
 )
 
+DATADOG_CLI = "pup"
+DATADOG_READ = (
+    "refused: a drive session reads Datadog only through the Datadog MCP's tools, whose `execute_code` reaches any Datadog"
+    " API, never the `pup` command, whose OAuth grant keeps the scopes its `pup auth login` was granted while later pup"
+    " releases add commands needing more, such as profiling's `continuous_profiler_read`. Load them with ToolSearch"
+    " `select:mcp__plugin_datadog_mcp__execute_code,mcp__plugin_datadog_mcp__search_datadog_sdk` and make the same read"
+    " through `execute_code`"
+)
+
 
 def commands(text: str) -> list[list[str]]:
     """The words of each command the script runs, past assignments and wrappers, and those of each `sh -c` script inside it."""
@@ -385,6 +394,11 @@ def team_read(command: str, cwd: str) -> str | None:
     return None
 
 
+def datadog_cli(command: str, cwd: str) -> str | None:
+    """Why a drive session's call must not run: it, a script it runs, or a command it starts through `drive break-glass` or `xargs`, reads Datadog through the `pup` command rather than the Datadog MCP."""
+    return DATADOG_READ if any(Path(words[0]).name == DATADOG_CLI for words in reached(command, Place(Path(cwd)))) else None
+
+
 def role_of(session: str | None = None, terminal: str | None = None) -> tuple[dict, str] | None:
     """The drive and role whose recorded session or terminal this is."""
     for name in state.names():
@@ -450,7 +464,7 @@ def mid_incident(found: list[list[str]]) -> str | None:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive session's or drive agent's call must not run: it, or an Orca lane's, reads a team's bucket or blobs where it runs, a designer pushes, a builder, on this Mac or a Sprite, opens its PR while his open cards hold its job, a read takes a stale version's cached skill page, or a session is resumed while it runs, from a shell-ending command, or ended mid-incident, a call retries past a failing check; why any session's call restarts the hook helper he never approved on a card; and why Claude Code's permission prompt on a drive agent's or an Orca lane's command gets a refusal rather than an answer nobody gives."""
+    """Why a drive session's or drive agent's call must not run: it, or an Orca lane's, reads a team's bucket or blobs where it runs, it reads Datadog through `pup` rather than the Datadog MCP, a designer pushes, a builder, on this Mac or a Sprite, opens its PR while his open cards hold its job, a read takes a stale version's cached skill page, or a session is resumed while it runs, from a shell-ending command, or ended mid-incident, a call retries past a failing check; why any session's call restarts the hook helper he never approved on a card; and why Claude Code's permission prompt on a drive agent's or an Orca lane's command gets a refusal rather than an answer nobody gives."""
     call = payload["tool_input"]
     session = payload.get("session_id") or ""
     drives = state.session_drives(session)
@@ -468,6 +482,7 @@ def deny_reason(payload: dict) -> str | None:
         return helper_install(found, drives)
     scripts = terminal_scripts(found)
     reasons = (
+        lambda: datadog_cli(call["command"], payload.get("cwd") or os.getcwd()),
         lambda: designer_push(found) if kind == DESIGNER else None,
         lambda: bare_pr(found) if kind == BUILDER else None,
         lambda: held_pr(found, payload.get("agent_id") or "", drives) if kind == BUILDER else None,
