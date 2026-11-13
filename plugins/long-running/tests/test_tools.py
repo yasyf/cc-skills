@@ -150,6 +150,8 @@ def test_a_refusal_while_a_job_call_runs_writes_nothing_and_a_passing_call_saves
 def test_a_dry_run_prints_each_command_and_changes_nothing(demo: str) -> None:
     said = tools.run("pr", demo, {"dry_run": True, "ops": [{"set": {"url": "https://github.com/a/b/pull/1", "tap": False, "why": "superseded", "waits": ["c1", "c2"]}}]})
     assert said == "1 drive pr set https://github.com/a/b/pull/1 --waits=c1 --waits=c2 --no-tap --why=superseded"
+    flaky = tools.run("pr", demo, {"dry_run": True, "ops": [{"set": {"url": "Forge-AI/monorepo#42", "flaky": ["TestX", "Forge-AI/monorepo#43"]}}]})
+    assert flaky == "1 drive pr set 'Forge-AI/monorepo#42' --flaky TestX 'Forge-AI/monorepo#43'"
     assert tools.run("status", demo, {"dry_run": True, "ids": ["o1", "j2"]}) == "1 drive status o1 j2"
     assert state.load(demo)["prs"] == {}
 
@@ -162,6 +164,9 @@ def test_each_verb_tool_is_typed_from_the_parser_the_cli_runs() -> None:
     assert job_set["properties"]["state"]["enum"] == list(state.JOB_STATES)
     assert (job_set["properties"]["waits"]["type"], "id" in job_set["required"]) == ("array", False)
     assert ops["add"]["add"]["properties"]["order"]["anyOf"][1]["required"] == ["words", "title"]
+    pr_set = next(shape["properties"]["set"] for shape in listed["pr"]["inputSchema"]["properties"]["ops"]["items"]["oneOf"] if "set" in shape["properties"])
+    flaky = pr_set["properties"]["flaky"]
+    assert (flaky["type"], flaky["items"], flaky["minItems"], flaky["maxItems"]) == ("array", {"type": "string"}, 2, 2)
     assert listed["status"]["annotations"] == {"readOnlyHint": True}
 
 
