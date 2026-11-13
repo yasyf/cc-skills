@@ -51,7 +51,7 @@ HANDOFF = timedelta(minutes=2)
 SETTLING = ""
 PR_LINE = re.compile(r"\s*(?:READY|PUSHED|PR:)")
 LANE_REPORT = re.compile(r"DRIVE job report\b")
-UNKEPT_ASK = "keep it with `drive job ask {job}`, which prints the file its ask record names, since no file holds it until then"
+UNKEPT_ASK = "keep it with `drive job ask {job}`, which posts its ask record, since no card draws for it until then"
 ASK_FIELD = re.compile(r"^ASK:?[ \t]+([/~]\S*)[ \t]*$", re.MULTILINE)
 PAUSED = "The recommended answer to this question is built and paused on your pick: tap it and the work ships; another pick rebuilds it first."
 QUIET_FOR = timedelta(minutes=30)
@@ -1234,7 +1234,7 @@ class Answered(str):
 
 
 def codex_asks(name: str, job_id: str) -> list[str]:
-    """Keep the ASK block a codex job's reply names on its `ASK: <file>` line, or on an `ASK <file>` line it returned, as `drive job ask` keeps a builder's, in the pass its run is taken, so his card goes up as the lane returns while the recommended option it built ships, since a codex run is never resumed mid-run and an incident never stops on a choice; the JOB line waking the coordinator to send its ask record, the settled line when he already answered that same question, or why it was not kept."""
+    """Keep the ASK block a codex job's reply names on its `ASK: <file>` line, or on an `ASK <file>` line it returned, as `drive job ask` keeps a builder's, in the pass its run is taken, so his card goes up as the lane returns while the recommended option it built ships, since a codex run is never resumed mid-run and an incident never stops on a choice; the JOB line saying its ask record went out, the settled line when he already answered that same question, or why it was not kept."""
     from drive import cli
 
     job = state.load(name)["jobs"][job_id]
@@ -1247,7 +1247,7 @@ def codex_asks(name: str, job_id: str) -> list[str]:
         return [f"{head}; its ASK: {named[1]} is not kept: {error}; keep it with drive job ask {job_id} {named[1]}"]
     if decided:
         return [f"{head}; {decided}"]
-    return [f"{head}; its ASK is kept: send its ask record, path {kept}, and the recommended option it built ships meanwhile"]
+    return [f"{head}; its ASK is kept in {kept} and its ask record posted, so his card draws, and the recommended option it built ships meanwhile"]
 
 
 def session_of(job: dict, data: dict) -> dict | None:

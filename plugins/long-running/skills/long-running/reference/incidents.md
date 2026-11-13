@@ -198,7 +198,7 @@ changed and when, its findings the suspects, and its root cause the verdict.
   - A codex lane writes its `ASK` block to a file in its scratch, builds the recommended option in
     the same run, and returns its result with an `ASK: <that file>` line. Nothing resumes a codex
     run, so the watch keeps that block as `drive job ask` does in the pass it takes the run, and
-    its `JOB <j> <o> …; its ASK is kept` line wakes you to send the ask record, its path named.
+    its `JOB <j> <o> …; its ASK is kept` line says its ask record went out, so his card draws.
   - A builder returns `ASK <path>` the moment the fork shows, and you resume it in that turn with
     "build the recommended option meanwhile".
 - A question he already answered, asked in the same words, on or under its card or recorded under
@@ -212,9 +212,8 @@ changed and when, its findings the suspects, and its root cause the verdict.
   `drive job set <j> --card <link>` or `--waits <card>` on a job of an open incident order
   refuses until `--told <link>` names that post, which links each card.
 - The ask record says the card is an incident's, so its handler posts that line the moment the
-  card is up: the cci `post` tool's hook marks an ask of a job on an open incident order
-  `incident=true`, with the incident's thread as its `thread`, and `landing_guard` refuses a
-  `cci post` in Bash without them.
+  card is up: `drive job ask` marks the ask of a job on an open incident order `incident=true`,
+  with the incident's thread as its `thread`.
 - Its PR opens and lands on that recommendation while the card stays open: `drive pr add` takes
   it, `drive pr set --waits <card>` refuses on it, and a different pick of his starts a follow-up
   job on the same order. His pick: "The repair lands on the recommendation, the question stays

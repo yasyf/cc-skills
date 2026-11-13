@@ -1244,8 +1244,8 @@ def test_job_ask_refuses_a_card_typing_when_past_work_happened_keeping_nothing(
     assert run("job", "ask", asking, str(block))[0] == 0
 
 
-def test_job_ask_keeps_an_ask_in_the_shape_he_reads_and_sets_the_job_waiting(
-    run: Run, asking: str, tmp_path: Path, state_root: Path
+def test_job_ask_keeps_an_ask_in_the_shape_he_reads_sets_the_job_waiting_and_posts_its_ask_record_once(
+    run: Run, asking: str, tmp_path: Path, state_root: Path, asks_sent: list[dict]
 ) -> None:
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
@@ -1258,6 +1258,8 @@ def test_job_ask_keeps_an_ask_in_the_shape_he_reads_and_sets_the_job_waiting(
     assert job["state"] == "waiting"
     assert job["said"] == "How should a finished run's files be laid out so its page opens without guessing?"
     shown = json.loads(run("job", "ask", asking, str(block), "--json")[1])
+    assert asks_sent == [{"lane": "root", "kind": "ask", "text": job["said"], "to": ["communicator@demo"], "attr": {"job": "j1", "ask": str(kept)}}]
+    assert (job["questions"][0]["waits"], shown["waits"]) == ("demo:j1-7", "demo:j1-7")
     assert shown["recommended"].startswith("One snapshot file per finished run")
     assert len(shown["options"]) == 3
     assert len(shown["summary"]) == 3
@@ -1844,23 +1846,95 @@ def test_job_card_refuses_an_ask_saying_a_pr_waits_on_his_tap_while_he_has_nothi
     assert run("job", "card", str(block), "--waits", "demo:j1-7")[0] == 0
 
 
-def test_job_card_after_a_job_draws_its_newest_kept_ask_or_the_one_named_under_the_waits_id_its_card_has(
-    run: Run, asking: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_job_card_after_a_job_draws_its_newest_kept_ask_or_the_one_named_under_the_waits_id_its_ask_record_stored(
+    run: Run, asking: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
     first = run("job", "ask", asking, str(block))[1]
-    assert cli.main(["job", "card", asking]) == 2
-    assert f"j1's ASK in {first} has no card yet, so no waits id: pass --waits demo:j1-<its ask record's seq>" in capsys.readouterr().err
-    code, printed = run("job", "card", first, "--waits", "demo:j1-7")
-    assert code == 0
-    assert run("job", "card", asking) == (0, printed)
+    code, printed = run("job", "card", asking)
+    assert (code, json.loads(printed)["waits"]) == (0, "demo:j1-7")
+    assert run("job", "card", first, "--waits", "demo:j1-7") == (0, printed)
     block.write_text(SHORT_ASK.replace("ASK How should", "ASK Where should"))
-    newest = run("job", "ask", asking, str(block))[1]
-    assert cli.main(["job", "card", asking]) == 2
-    assert f"j1's ASK in {newest} has no card yet" in capsys.readouterr().err
+    run("job", "ask", asking, str(block))
+    assert json.loads(run("job", "card", asking)[1])["waits"] == "demo:j1-8"
     assert run("job", "card", asking, first) == (0, printed)
+
+
+def test_a_question_whose_ask_record_did_not_go_out_has_no_waits_id_until_job_ask_sends_it_again(
+    run: Run, asking: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    sends = tools.sent
+
+    def locked(name: str, lane: str, posts: list[dict]) -> list[str]:
+        raise state.DriveError("cci post exited 1: database is locked")
+
+    monkeypatch.setattr(tools, "sent", locked)
+    assert cli.main(["job", "ask", asking, str(block)]) == 2
+    kept = state.drive_dir("demo") / "asks" / f"j1-{state.ask_hash(SHORT_ASK)}.md"
+    assert capsys.readouterr().err == (
+        f"drive: {kept} keeps j1's question, but its ask record did not go out, so no card draws for it: cci post exited 1: database is locked;"
+        f" once cci answers, run drive job ask j1 {kept} again, which sends it\n"
+    )
+    assert cli.main(["job", "card", asking]) == 2
+    assert f"j1's ASK in {kept} has no card yet, so no waits id: pass --waits demo:j1-<its ask record's seq>" in capsys.readouterr().err
+    assert f"never drawn, kept in {kept}" in run("status")[1]
+    monkeypatch.setattr(tools, "sent", sends)
+    assert run("job", "ask", asking, str(kept)) == (0, str(kept))
+    assert [(question["file"], question["waits"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [(str(kept), "demo:j1-7")]
+
+
+def test_job_ask_on_an_open_incident_posts_its_ask_record_in_the_incidents_thread_marked_incident(
+    run: Run, demo: str, tmp_path: Path, asks_sent: list[dict]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL fork copies fail on plat", "--incident", "--thread", "1794200000.000100", "--parts", "fix", "first check")
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK + "Interim fix: j2 checks the fork copies first\n")
+    kept = run("job", "ask", "j1", str(block))[1]
+    assert [(sent["lane"], sent["attr"]) for sent in asks_sent] == [("root", {"job": "j1", "ask": kept, "thread": "1794200000.000100", "incident": "true"})]
+
+
+def test_job_ask_redraws_asks_an_open_card_of_the_job_again_in_new_words_under_its_waits_id_and_refuses_any_other(
+    run: Run, asking: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], asks_sent: list[dict]
+) -> None:
+    monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
+    link = "https://acme.slack.com/archives/D123/p1794300000000100"
+    shown = {"question": "How should?", "options": ["Yes", "No"], "recommended": "Yes", "asked": state.stamp(), "url": link, "card": {"title": "How should?", "waits": "demo:j1-7"}}
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": [], "closed": []})
+    monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK))
+    first = run("job", "ask", asking, "-")[1]
+    run("job", "card", first, "--waits", "demo:j1-7")
+    run("job", "set", asking, "--card", link)
+    reworded = SHORT_ASK.replace("ASK How should", "ASK Where should")
+    monkeypatch.setattr("sys.stdin", io.StringIO(reworded))
+    assert cli.main(["job", "ask", asking, "-", "--redraws", "demo:j1-9"]) == 2
+    assert "--redraws demo:j1-9: no open card of j1 asks him under that waits id" in capsys.readouterr().err
+    monkeypatch.setattr("sys.stdin", io.StringIO(reworded))
+    again = run("job", "ask", asking, "-", "--redraws", "demo:j1-7")[1]
+    assert [(question["file"], question["waits"], question["card"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [(again, "demo:j1-7", link)]
+    assert [sent["attr"].get("waits") for sent in asks_sent] == [None, "demo:j1-7"]
+
+
+def test_job_ask_reads_terms_more_than_ten_of_the_drives_questions_use_as_naming_no_one_subject(
+    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("job", "add", "builder", "--order", "o1", "--goal", "restart them")
+    with state.edit("demo") as data:
+        data["jobs"]["j2"]["questions"] = [state.new_question(str(tmp_path / "j2.md"), "Which drive install command restarts the lanes?", state.stamp()) | {"waits": "demo:j2-3"}]
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK.replace(SHORT_ASK.split("\n")[0], "ASK Should the drive install command prune old worktrees?"))
+    assert cli.main(["job", "ask", asking, str(block)]) == 2
+    assert "on its card demo:j2-3, not up yet, the same subject in other words, sharing command, drive, install" in capsys.readouterr().err
+    topics = ["rebuild caches", "rotate tokens", "reload hooks", "refresh skills", "repair links", "resume agents", "sync plugins", "trim journals", "pin versions", "clear locks", "renew certs"]
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"] = [
+            state.new_question(str(tmp_path / f"{n}.md"), f"Should the drive install command {topic}?", state.stamp(), settled={"answer": "a1", "at": state.stamp()})
+            for n, topic in enumerate(topics)
+        ]
+    assert run("job", "ask", asking, str(block))[0] == 0
 
 
 def in_place(printed: str) -> str:
@@ -1886,7 +1960,7 @@ def test_cards_redraw_prints_each_open_cards_card_in_one_pass_and_names_each_it_
     for text in (SHORT_ASK, SHORT_ASK.replace("ASK How should", "ASK Where should")):
         monkeypatch.setattr("sys.stdin", io.StringIO(text))
         kept.append(run("job", "ask", asking, "-")[1])
-    printed = [run("job", "card", path, "--waits", f"demo:j1-{n}")[1] for n, path in enumerate(kept)]
+    printed = [run("job", "card", path, "--waits", f"demo:j1-{n}")[1] for n, path in enumerate(kept, 7)]
     unasked = json.loads(printed[0]) | {"waits": "demo:hier-1"}
     unanswerable = {"title": "Which way?", "body": "One line.", "options": [], "recommended": "", "waits": "demo:hier-2", "drive": "demo"}
     reordered = unasked | {"waits": "demo:hier-3", "options": unasked["options"][::-1]}
@@ -1900,7 +1974,7 @@ def test_cards_redraw_prints_each_open_cards_card_in_one_pass_and_names_each_it_
     assert "demo:hier-3: the ASK is out of shape" in err and "is not first: put it first" in err
     assert (state_root / "demo" / "asks" / "hier-1.md").is_file()
     assert state.load("demo")["jobs"] == jobs
-    assert run("cards", "redraw", "--waits", "demo:j1-1") == (0, in_place(printed[1]))
+    assert run("cards", "redraw", "--waits", "demo:j1-8") == (0, in_place(printed[1]))
     assert cli.main(["cards", "redraw", "--waits", "demo:j1-9"]) == 2
     assert "demo:j1-9: not one of his open cards" in capsys.readouterr().err
 
@@ -2001,32 +2075,32 @@ def test_a_job_keeps_every_question_it_asks_each_open_until_his_answer_to_its_ow
         kept.append(run("job", "ask", asking, "-")[1])
     links = [f"https://acme.slack.com/archives/D123/p179430000000010{n}" for n in range(3)]
     shown = [
-        {"question": title, "options": ["Yes", "No"], "recommended": "Yes", "asked": state.stamp(), "url": link, "card": {"title": title, "waits": f"demo:j1-{n}"}}
-        for n, (title, link) in enumerate(zip(titles, links, strict=True))
+        {"question": title, "options": ["Yes", "No"], "recommended": "Yes", "asked": state.stamp(), "url": link, "card": {"title": title, "waits": waits}}
+        for title, link, waits in zip(titles, links, ["demo:j1-7", "demo:j1-8", "demo:j1-2"], strict=True)
     ]
     closed: list[dict] = []
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": list(shown), "pr_cards": [], "closed": list(closed)})
     for n, (path, link) in enumerate(zip(kept[:2], links[:2], strict=True)):
-        assert run("job", "card", path, "--waits", f"demo:j1-{n}")[0] == 0
+        assert run("job", "card", path, "--waits", f"demo:j1-{7 + n}")[0] == 0
         assert run("job", "set", asking, "--card", link)[0] == 0
     assert run("job", "set", asking, "--card", links[2])[0] == 0
     questions = state.load("demo")["jobs"]["j1"]["questions"]
     assert [(question["file"], question["waits"], question["card"]) for question in questions] == [
-        (kept[0], "demo:j1-0", links[0]),
-        (kept[1], "demo:j1-1", links[1]),
-        (kept[2], None, None),
+        (kept[0], "demo:j1-7", links[0]),
+        (kept[1], "demo:j1-8", links[1]),
+        (kept[2], "demo:j1-9", None),
         (None, "demo:j1-2", links[2]),
     ]
     answered = shown.pop(0)
-    closed.append({"waits": "demo:j1-0", "title": titles[0], "prs": [], "asked": answered["asked"], "url": links[0], "answer": {"label": "Yes", "at": answered["asked"]}, "tapped": "", "replaced_by": ""})
+    closed.append({"waits": "demo:j1-7", "title": titles[0], "prs": [], "asked": answered["asked"], "url": links[0], "answer": {"label": "Yes", "at": answered["asked"]}, "tapped": "", "replaced_by": ""})
     status = run("status", asking)[1]
-    assert f'card {links[0]} answered "Yes" at {render.when(answered["asked"])} (demo:j1-0)' in status
-    assert f"asks him: Where should a finished run's files be laid out so its page opens without…; card {links[1]} open since {render.when(shown[0]['asked'])} (demo:j1-1)" in status
-    assert f"never drawn, kept in {kept[2]}" in status
+    assert f'card {links[0]} answered "Yes" at {render.when(answered["asked"])} (demo:j1-7)' in status
+    assert f"asks him: Where should a finished run's files be laid out so its page opens without…; card {links[1]} open since {render.when(shown[0]['asked'])} (demo:j1-8)" in status
+    assert f"card demo:j1-9 never drawn, kept in {kept[2]}" in status
     assert f"asks him: When should; card {links[2]} open since {render.when(shown[1]['asked'])} (demo:j1-2)" in status
 
 
-def test_a_redrawn_card_moves_to_the_question_that_redoes_it_and_a_card_never_posted_holds_nothing(
+def test_a_redrawn_card_moves_to_the_question_that_redoes_it_and_a_question_with_no_card_up_yet_shows_its_waits_id(
     run: Run, asking: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
@@ -2042,10 +2116,10 @@ def test_a_redrawn_card_moves_to_the_question_that_redoes_it_and_a_card_never_po
     run("job", "card", kept[1], "--waits", "demo:j1-7")
     run("job", "card", kept[2], "--waits", "demo:j1-8")
     questions = state.load("demo")["jobs"]["j1"]["questions"]
-    assert [(question["file"], question["waits"], question["card"]) for question in questions] == [(kept[1], "demo:j1-7", link), (kept[2], "demo:j1-8", None)]
+    assert [(question["file"], question["waits"], question["card"]) for question in questions] == [(kept[1], "demo:j1-7", link), (kept[2], "demo:j1-9", None)]
     status = run("status", asking)[1]
     assert f"card {link} open since {render.when(shown['asked'])} (demo:j1-7)" in status
-    assert f"card demo:j1-8 never drawn, kept in {kept[2]}" in status
+    assert f"card demo:j1-9 never drawn, kept in {kept[2]}" in status
 
 
 def test_a_question_asked_again_in_the_same_words_redraws_its_one_card_under_the_waits_id_of_its_first_ask(
@@ -2116,11 +2190,11 @@ def test_a_question_asked_again_after_he_answered_its_card_is_kept_settled_in_th
     assert settled_notes == [("j1", link)]
     monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace("ASK How should", "ASK When should")))
     other = run("job", "ask", asking, "-")[1]
-    assert json.loads(run("job", "card", other, "--waits", "demo:j1-9")[1])["waits"] == "demo:j1-9"
+    assert json.loads(run("job", "card", other, "--waits", "demo:j1-8")[1])["waits"] == "demo:j1-8"
     assert [(question["file"], question["waits"], question["closed"] and question["closed"]["words"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [
         (first, "demo:j1-7", "Yes"),
         (again, None, "Yes"),
-        (other, "demo:j1-9", None),
+        (other, "demo:j1-8", None),
     ]
 
 
@@ -2186,7 +2260,7 @@ def test_job_card_refuses_a_question_he_answered_under_a_new_waits_id_and_never_
     ]
 
 
-def test_job_ask_drop_throws_away_a_near_copy_kept_with_no_card_so_nothing_counts_or_sends_it(
+def test_job_ask_drop_throws_away_a_near_copy_kept_with_no_card_so_nothing_counts_it(
     run: Run, asking: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
@@ -2200,7 +2274,7 @@ def test_job_ask_drop_throws_away_a_near_copy_kept_with_no_card_so_nothing_count
     near_copy = "ASK How should a finished run's files be laid out so its page opens with no guessing?"
     monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace(SHORT_ASK.split("\n")[0], near_copy)))
     copy = run("job", "ask", asking, "-")[1]
-    assert f"never drawn, kept in {copy}" in run("status", asking)[1]
+    assert f"card demo:j1-8 never drawn, kept in {copy}" in run("status", asking)[1]
     assert cli.main(["job", "ask", asking, "--drop", first]) == 2
     assert f"kept in {first} is on his card {link}, which only his answer closes" in capsys.readouterr().err
     code, out = run("job", "ask", asking, "--drop", copy)
@@ -2211,7 +2285,6 @@ def test_job_ask_drop_throws_away_a_near_copy_kept_with_no_card_so_nothing_count
     assert not Path(copy).exists()
     status = run("status", asking)[1]
     assert copy not in status and f"card {link} open since " in status and "(demo:j1-7)" in status
-    assert settled.ask_refusal(["demo"], {"ask": copy, "job": "j1"}, near_copy).startswith(f"refused: {copy} keeps no question of j1")
     assert json.loads(run("job", "card", asking)[1])["title"] == job["said"]
 
 
@@ -2395,8 +2468,8 @@ def test_an_amount_names_a_unit_never_a_word_the_count_check_skips() -> None:
     assert settled.amounts("step 2 was skipped, keep 3 this week, 1 its own, 30-day bonding under 2gb") == {"30 day", "2 gb"}
 
 
-def test_job_ask_settles_a_question_only_on_his_answer_to_that_same_question_so_its_job_builds_on_his_words_with_no_card(
-    run: Run, asking: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, jev: Jev, settled_notes: list[tuple[str, str]]
+def test_job_ask_settles_a_question_only_on_his_answer_to_that_same_question_so_its_job_builds_on_his_words_with_no_card_or_ask_record(
+    run: Run, asking: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, jev: Jev, settled_notes: list[tuple[str, str]], asks_sent: list[dict]
 ) -> None:
     card = "https://acme.slack.com/archives/D123/p1794300000000100"
     title = SHORT_ASK.splitlines()[0].removeprefix("ASK ")
@@ -2423,12 +2496,12 @@ def test_job_ask_settles_a_question_only_on_his_answer_to_that_same_question_so_
         [(str(kept), None, words, card)],
     )
     assert settled_notes == [("j1", card)]
-    assert matched == []
+    assert (matched, asks_sent) == ([], [])
     assert not [request for request in jev.asked if "decides" in request["questions"]]
     block.write_text(SHORT_ASK.replace("ASK How should", "ASK When should"))
     assert run("job", "ask", asking, str(block))[0] == 0
     job = state.load("demo")["jobs"]["j1"]
-    assert (job["state"], job["questions"][-1]["closed"]) == ("waiting", None)
+    assert (job["state"], job["questions"][-1]["closed"], job["questions"][-1]["waits"], len(asks_sent)) == ("waiting", None, "demo:j1-7", 1)
 
 
 def test_a_settled_question_tells_the_session_holding_its_order_in_one_record_that_wakes_nobody(
@@ -2790,7 +2863,7 @@ def test_a_readers_design_holds_its_builder_until_its_kept_question_is_on_his_ca
     others = state.new_question(asked, "Where does the copy run?", state.stamp(), refused="refused: his words on this order name an amount this question offers no tap for.")
     replays = {
         "no question kept": ([], "j1 returned DESIGN, a choice for him its research found, and keeps it as no question of his: drive job ask j1"),
-        "j1656 before his ruling": ([kept], f'j1 returned DESIGN, and its question "Where does the copy run?" kept in {asked} is on no card of his yet'),
+        "j1656 before his ruling": ([kept], f'j1 returned DESIGN, and its question "Where does the copy run?" kept in {asked} has no waits id, so its ask record never went out'),
         "refused by an amount": ([others], "j1 returned DESIGN, and drive job ask refused its question \"Where does the copy run?\" kept in"),
         "j1654, his card up": ([kept | {"waits": "demo:j1-671973", "card": answered["card"]}], None),
         "j1651, his card answered": ([answered], None),
@@ -2819,7 +2892,7 @@ def test_his_ruling_settling_a_readers_ask_before_its_card_draws_is_kept_on_its_
     with state.edit("demo") as data:
         data["jobs"]["j1"]["questions"] = [state.new_question(asked, "Where does the copy run?", state.stamp())]
     assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "build it"]) == 2
-    assert "is on no card of his yet" in capsys.readouterr().err
+    assert "has no waits id, so its ask record never went out" in capsys.readouterr().err
     posted: list[dict] = []
     real = subprocess.run
 
@@ -3001,12 +3074,12 @@ def test_a_readers_design_report_keeps_its_ask_in_the_same_call_or_keeps_nothing
     job = state.load("demo")["jobs"]["j1"]
     [question] = job["questions"]
     assert (code, job["state"], question["title"], question["refused"]) == (0, "done", DESIGN_TITLE, None)
-    assert out == f"{state.replies_path('demo', 'j1')}\nits ASK is kept in {question['file']}, the path its ask record names"
+    assert out == f"{state.replies_path('demo', 'j1')}\nits ASK is kept in {question['file']}, its ask record posted"
     assert Path(question["file"]).read_text().startswith(f"ASK {DESIGN_TITLE}\n")
 
 
-def test_a_readers_design_report_after_its_own_ask_keeps_that_asks_unsettled_and_writes_its_report(
-    run: Run, meta: str, monkeypatch: pytest.MonkeyPatch
+def test_a_readers_design_report_after_its_own_ask_keeps_that_asks_unsettled_and_writes_its_report_posting_no_second_ask_record(
+    run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, asks_sent: list[dict]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
@@ -3019,6 +3092,7 @@ def test_a_readers_design_report_after_its_own_ask_keeps_that_asks_unsettled_and
     assert run("job", "report", "j1", "-")[0] == 0
     job = state.load("demo")["jobs"]["j1"]
     assert (job["state"], [question["unsettled"] for question in job["questions"]], state.report_text("demo", "j1").strip()) == ("done", [why], swept.strip())
+    assert [sent["attr"]["job"] for sent in asks_sent] == ["j1"]
 
 
 def test_a_design_lanes_design_names_on_each_fork_line_a_question_it_kept(

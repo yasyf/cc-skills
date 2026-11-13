@@ -2,6 +2,7 @@
 
 import re
 import sys
+from collections import Counter
 from pathlib import Path
 
 from drive import github, limits, settled, slack, state, view
@@ -11,6 +12,7 @@ from drive.state import DriveError
 
 OTHERS_STAND = 3
 SUBJECT_TERMS = 3
+GENERIC_TITLES = 10
 
 
 def asking(data: dict, found: dict) -> dict[str, dict]:
@@ -82,10 +84,16 @@ def record(data: dict, words: str, link: str, asked: dict[str, dict], changes: s
     }
 
 
-def shared(title: str, other: str) -> list[str]:
-    """The proper terms two questions share when they ask about one subject in other words, as three jobs asked about one search worker's cache disk; fewer than SUBJECT_TERMS shared is no subject in common."""
-    terms = sorted(settled.rare(title) & settled.rare(other))
+def shared(title: str, other: str, common: set[str]) -> list[str]:
+    """The proper terms two questions share when they ask about one subject in other words, as three jobs asked about one search worker's cache disk, but for the drive's common ones; fewer than SUBJECT_TERMS shared is no subject in common."""
+    terms = sorted(settled.rare(title) & settled.rare(other) - common)
     return terms if len(terms) >= SUBJECT_TERMS else []
+
+
+def generic(data: dict) -> set[str]:
+    """The terms more than GENERIC_TITLES of the drive's questions use, such as drive, install and command on a drive about its own tooling, which name no one subject."""
+    used = Counter(term for job in data["jobs"].values() for question in job["questions"] for term in settled.rare(question["title"] or ""))
+    return {term for term, count in used.items() if count > GENERIC_TITLES}
 
 
 def named(words: str, key: str, entry: dict) -> bool:
@@ -185,7 +193,7 @@ def closing(data: dict, kind: str, attrs: dict, topic: str | None, answered: lis
         for job_id, job in data["jobs"].items()
         if kind == "answer" or (attrs.get("about") == state.ABOUT_DRIVE) == (data["orders"][job["order"]]["owner"] == "meta")
         for question in job["questions"]
-        if (waits := question["waits"]) and (waits == attrs.get("thread_card") or waits.rpartition("-")[2] in answered)
+        if (waits := question["waits"]) and (waits in (attrs.get("thread_card"), attrs.get("waits")) or waits.rpartition("-")[2] in answered)
         or (card := question["card"]) and (topic == f"card:{view.card_thread(card)}" or link and under(link, card))
     ]
 
@@ -279,7 +287,7 @@ def listing(answer_id: str, kept: dict, keys: list[str], asked: dict[str, dict],
         *rows,
         (
             f"mark each: drive answer {answer_id} --stands <key>... --settled <card key>... for a card it decides, or <card key>=<the"
-            " ASK its job keeps with drive job ask asking only what it leaves open>... for one it decides in part, --superseded"
+            " ASK its job keeps with drive job ask --redraws <card key> asking only what it leaves open>... for one it decides in part, --superseded"
             " <key>=stop|<key>=<live job to fold it into>... --reopened <PR key>=<live job that reworks it to his words>..., or"
             f" --others-stand once each it settles, supersedes or reopens is marked and at most {OTHERS_STAND} are left"
         ),
@@ -329,15 +337,15 @@ def settled_refusal(data: dict, kept: dict, key: str, entry: dict, file: Path | 
         return None
     job_id = entry["job"]
     question = state.kept_in(data["jobs"][job_id], file)
-    if not question or question["refused"] or question["closed"] or question["card"] or question["waits"]:
+    if not question or question["refused"] or question["closed"] or question["waits"] != key:
         return (
-            f"{file} keeps no question of {job_id} drawn on no card yet: keep what his answer leaves {key} asking with"
-            f" drive job ask {job_id} <file>, then mark {key}=<the path it prints>"
+            f"{file} keeps no open question of {job_id} redrawing {key}: keep what his answer leaves {key} asking with"
+            f" drive job ask {job_id} <file> --redraws {key}, then mark {key}=<the path it prints>"
         )
     if f"/p{view.message_key(kept['link'])}" not in limits.FINDINGS.split(file.read_text())[0]:
         return (
             f"{file} does not link his answer {kept['link']} above its Findings:, so the redrawn card would not say which words"
-            f" of his narrowed it: link them in its summary, keep it again with drive job ask {job_id} <file>, and mark {key}=<the path it prints>"
+            f" of his narrowed it: link them in its summary, keep it again with drive job ask {job_id} <file> --redraws {key}, and mark {key}=<the path it prints>"
         )
     return None
 

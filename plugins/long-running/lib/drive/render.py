@@ -177,7 +177,7 @@ META_RULES = (
         " under a post reaches only the session that posted it: what he should see goes to communicator@<drive> as a report record opening POST, its"
         " first line what changed for him and each thing he could open with its URL beside it, naming what it finishes"
         " (--attr close=<o> on the line that finishes a tooling order, thread or none, else --attr progress=true), and a"
-        " question for him as an ask record; the communicator's handler posts both. "
+        " question for him kept with drive job ask, which posts its ask record; the communicator's handler posts both. "
         + STAMPS
         + " "
         + PREVENTED
