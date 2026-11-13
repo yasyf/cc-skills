@@ -3,6 +3,7 @@ import os
 import re
 import signal
 import subprocess
+import tempfile
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -22,6 +23,12 @@ QUEUED = "queued for merge"
 REFUSED = "merge refused by GitHub"
 GITHUB_API = "GITHUB_API_"
 BASE_MOVED = "Base branch was modified"
+CONFLICTED = ("the merge commit cannot be cleanly created", "merge conflicts")
+REBASED = "rebased onto"
+CLONES = "clones"
+CLONE_URL = "https://github.com/{}.git"
+CLAUSE = re.compile(r"(?<=[.;:!?|]) ")
+LINE_END = "\x1f"
 MERGE_ASYNC = "merge-async"
 STACKED = "must be merged using the asynchronous merge REST API"
 ASYNC_SECONDS = 2
@@ -112,9 +119,10 @@ def reported(key: str, pr: dict) -> bool:
 
 
 def landing(pr: dict) -> bool:
-    """Whether a lander holds the PR on its head: still running on it, or done with it queued for merge and not ejected by Trunk since."""
+    """Whether a lander holds the PR on its head: still running on it, done with it queued for merge and not ejected by Trunk since, or done rebasing it onto its base, until the watch reads the head it pushed."""
     lander = pr["lander"] or {}
-    return lander.get("head") == pr["head"] and (running(pr) or lander.get("outcome") == QUEUED and not pr["ejected"])
+    outcome = lander.get("outcome") or ""
+    return lander.get("head") == pr["head"] and (running(pr) or outcome == QUEUED and not pr["ejected"] or outcome.startswith(REBASED))
 
 
 def flaked(pr: dict) -> dict | None:
@@ -480,6 +488,8 @@ def merged(name: str, key: str, flags: list[str]) -> str:
     if (refusal := merged_sync(key, flags)) and STACKED in refusal:
         print(f"{key}: {refusal}; merging it through GitHub's {MERGE_ASYNC} instead", flush=True)
         refusal = merged_async(key, flags)
+    if refusal and state.merges_untapped(key) and conflicted(refusal):
+        return rebased(name, key, refusal)
     if refusal:
         return f"not landed: {refusal}"
     try:
@@ -526,3 +536,85 @@ def merged_async(key: str, flags: list[str]) -> str | None:
         except github.GithubError as error:
             return cut(str(error), SAID_CHARS)
     return None if result["status"] == "merged" else f"GitHub's {MERGE_ASYNC} ended it {result['status']}: {cut(result['details'].get('message', ''), SAID_CHARS)}"
+
+
+def conflicted(outcome: str) -> bool:
+    """Whether GitHub refused a merge on a conflict with its base."""
+    return any(said in outcome for said in CONFLICTED)
+
+
+def rebased(name: str, key: str, refusal: str) -> str:
+    """Rebase a yasyf/* PR whose merge GitHub refused on a conflict onto its base as one commit, by his rule for direct merges, "always rebase first", in the drive's own clone of its repository, each markdown page git's merge conflicts in merged again by clause_merged(), and push it to its branch with a lease on the head fetched, so the watch, reading that head, starts the lander on it as on any head its builder pushes; a conflict in any other file, or in a clause both sides changed, is not landed, and reads red for its builder, who settles it. The commit carries the message of the branch's one commit, or its PR's title over each commit's message, as GitHub's squash of the branch would."""
+    pr = state.load(name)["prs"][key]
+    refs = f"refs/lander/{os.getpid()}"
+    try:
+        clone = cloned(name, github.repo_of(key))
+        git = ["git", "-C", str(clone)]
+        try:
+            github.run([*git, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin", f"+refs/heads/{pr['base']}:{refs}/base", f"+refs/heads/{pr['branch']}:{refs}/head"])
+            base, head = github.run([*git, "rev-parse", f"{refs}/base", f"{refs}/head"]).split()
+            if subprocess.run([*git, "merge-base", "--is-ancestor", base, head]).returncode == 0:
+                return f"not landed: {refusal}; {pr['branch']} already sits on {pr['base']} at {base[:12]}, so a rebase changes nothing"
+            tree, pages, unsettled = settled(clone, base, head)
+            if unsettled:
+                return f"not landed: {refusal}; {', '.join(unsettled)} conflict past a clause-by-clause merge, so its builder rebases it"
+            messages = [message.strip() for message in github.run([*git, "log", "--reverse", "--format=%B%x00", f"{base}..{head}"]).split("\0") if message.strip()]
+            message = messages[0] if len(messages) == 1 else "\n\n".join([pr["title"], *(f"* {message}" for message in messages)])
+            commit = github.run([*git, "commit-tree", tree, "-p", base, "-F", "-"], stdin=message).strip()
+            github.run([*git, "push", "-q", f"--force-with-lease=refs/heads/{pr['branch']}:{head}", "origin", f"{commit}:refs/heads/{pr['branch']}"])
+        finally:
+            subprocess.run([*git, "update-ref", "--stdin"], input=f"delete {refs}/base\ndelete {refs}/head\n", capture_output=True, text=True)
+    except github.GithubError as error:
+        return f"not landed: {refusal}; the lander could not rebase it onto {pr['base']}: {cut(str(error), SAID_CHARS)}"
+    how = f"{', '.join(pages)} merged clause by clause with git merge-file" if pages else "which git merges clean"
+    return f"{REBASED} {pr['base']} at {base[:12]} as {commit[:12]} after GitHub refused its merge on a conflict, {how}; the lander merges that head once the watch reads it"
+
+
+def cloned(name: str, repo: str) -> Path:
+    """The drive's own blobless bare clone of repo, in its clones folder, made on first use."""
+    clone = state.drive_dir(name) / CLONES / repo
+    if not clone.exists():
+        github.run(["git", "clone", "-q", "--bare", "--filter=blob:none", CLONE_URL.format(repo), str(clone)], timeout=CHECKOUT_SECONDS)
+    return clone
+
+
+def settled(clone: Path, base: str, head: str) -> tuple[str, list[str], list[str]]:
+    """The tree git's merge of head onto base makes, with each markdown page it conflicts in that clause_merged() merges written into it; the pages it merged, and each path still conflicting."""
+    git = ["git", "-C", str(clone)]
+    done = subprocess.run([*git, "merge-tree", "--write-tree", "-z", "--no-messages", base, head], capture_output=True, text=True)
+    if done.returncode > 1:
+        raise github.GithubError(f"git merge-tree exited {done.returncode}: {' '.join(done.stderr.split())}")
+    tree, *entries = [entry for entry in done.stdout.split("\0") if entry]
+    stages: dict[str, dict[str, str]] = {}
+    for entry in entries:
+        info, path = entry.split("\t", 1)
+        _, oid, stage = info.split()
+        stages.setdefault(path, {})[stage] = oid
+    texts = {
+        path: clause_merged(*(github.run([*git, "cat-file", "blob", sides[stage]]) for stage in "123")) if path.endswith(".md") and sides.keys() == {"1", "2", "3"} else None
+        for path, sides in stages.items()
+    }
+    unsettled = [path for path, text in texts.items() if text is None]
+    if unsettled or not texts:
+        return tree, [], unsettled
+    index = clone / f"lander-{os.getpid()}.index"
+    indexed = ["env", f"GIT_INDEX_FILE={index}", *git]
+    try:
+        github.run([*indexed, "read-tree", tree])
+        for path, text in texts.items():
+            blob = github.run([*git, "hash-object", "-w", "--stdin"], stdin=text).strip()
+            github.run([*indexed, "update-index", "--cacheinfo", f"100644,{blob},{path}"])
+        return github.run([*indexed, "write-tree", "--missing-ok"]).strip(), list(texts), []
+    finally:
+        index.unlink(missing_ok=True)
+
+
+def clause_merged(base: str, ours: str, theirs: str) -> str | None:
+    """The three-way merge of a markdown page by git merge-file with each of its lines split after each clause mark, so edits to different clauses of one long table row merge as git merges edits to different lines; None while a clause conflicts."""
+    with tempfile.TemporaryDirectory() as folder:
+        sides = []
+        for side, text in (("ours", ours), ("base", base), ("theirs", theirs)):
+            (path := Path(folder, side)).write_text(CLAUSE.sub(" \n", text.replace("\n", LINE_END + "\n")), encoding="utf-8")
+            sides.append(str(path))
+        done = subprocess.run(["git", "merge-file", "-p", *sides], capture_output=True, text=True, encoding="utf-8")
+    return None if done.returncode else done.stdout.replace(" \n", " ").replace(LINE_END + "\n", "\n")

@@ -137,8 +137,13 @@ No tap and no green gate: by his standing rule a `yasyf/*` PR merges without ask
    asks, and never touches the PR's branch. When `gh pr merge` refuses a PR of a native GitHub stack,
    saying it must be merged using the asynchronous merge REST API, the lander merges it through
    GitHub's `merge-async` endpoint past its rules, which GitHub allows only for a stack's bottom PR,
-   the one the lander lands, and reads its result until GitHub ends it. After any other refusal the watch starts the lander again
-   on the head its builder pushes, once GitHub reads it free of conflicts, so nobody registers a
+   the one the lander lands, and reads its result until GitHub ends it. When GitHub refuses it on a
+   conflict with its base, the lander rebases the PR onto it as one commit in the drive's own clone,
+   by his rule for direct merges, "always rebase first", merging each markdown page git's merge
+   conflicts in again clause by clause with `git merge-file`, and pushes it with a lease on the head it
+   fetched; a conflict in any other file, or in one clause both sides changed, reads `red` and wakes its
+   builder, who rebases it. After any refusal the watch starts the lander again on the head the
+   lander or its builder pushes, once GitHub reads it free of conflicts, so nobody registers a
    rebased PR again. Once every PR the job's `READY` or `PUSHED` names merged and no lander still
    runs on one, the watch starts `drive job prove <j>`, which installs each plugin a `yasyf/*` merge
    changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, its other merges taken at once, waits until each workflow a `yasyf/*` merge ran on the default branch completed its first run from the merge on that was not cancelled, then runs the job's proof file with those plugins' `bin/` first on

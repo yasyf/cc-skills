@@ -18,6 +18,8 @@ OTHER = "Forge-AI/monorepo#43"
 YASYF = "yasyf/cc-skills#7"
 BASE_MOVED = "GraphQL: Base branch was modified. Review and try the merge again. (mergePullRequest)"
 DIRTY = f"X Pull request {YASYF} is not mergeable: the merge commit cannot be cleanly created."
+POLICY = f"X Pull request {YASYF} is not mergeable: the base branch policy prohibits the merge."
+ROWS = "| `drive a` | runs a. Then b. Then c. |\n| `drive d` | runs d. |\n"
 T0 = state.parse_time("2026-11-09T10:00:00-05:00")
 GATE = "LTX Behavioral Gate (short)"
 RUNNING = [{"name": "test", "conclusion": None}]
@@ -4915,14 +4917,83 @@ def test_a_yasyf_merge_whose_base_moved_merges_again_on_the_new_base_and_never_u
 
 def test_a_yasyf_merge_gh_refuses_for_any_other_reason_is_not_landed_and_reads_unlanded_for_the_session_holding_its_order(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     runs: list[list[str]] = []
-    monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: runs.append(argv) or land.subprocess.CompletedProcess(argv, 1, "", DIRTY + "\n"))
+    monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: runs.append(argv) or land.subprocess.CompletedProcess(argv, 1, "", POLICY + "\n"))
     outcome = land.merged(demo, YASYF, ["--admin"])
-    assert outcome == f"not landed: gh pr merge --squash --admin refused it: {DIRTY}"
+    assert outcome == f"not landed: gh pr merge --squash --admin refused it: {POLICY}"
     assert runs == [["gh", "pr", "merge", "7", "-R", "yasyf/cc-skills", "--squash", "--admin"]]
     waiting_job(demo)
     tried(demo, outcome)
     assert not watch.wakes(f"PR {YASYF}: {outcome} [o1 j1]", state.load(demo))
     assert stage.of(state.load(demo), YASYF, NO_CARDS).name == "unlanded"
+
+
+def conflicting(demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, ours: dict[str, str], theirs: dict[str, str]) -> tuple[Path, str]:
+    """yasyf/cc-skills on an origin whose main and the PR's change branch each commit files over one base, GitHub refusing the PR's merge on that conflict, and the PR's row at the change's head conflicting with main; the origin and main's head."""
+    work, origin = tmp_path / "work", tmp_path / "yasyf" / "cc-skills.git"
+    git_in(tmp_path, "init", "-q", "-b", "main", str(work))
+    commit_files(work, "base", {"verbs.md": ROWS, "tool.py": "x = 1\n"})
+    git_in(work, "switch", "-q", "-c", "change")
+    head = commit_files(work, "Fix: drive a runs fast", theirs)
+    git_in(work, "switch", "-q", "main")
+    main = commit_files(work, "Fix: drive c runs twice", ours)
+    git_in(tmp_path, "clone", "-q", "--bare", str(work), str(origin))
+    for who in ("AUTHOR", "COMMITTER"):
+        monkeypatch.setenv(f"GIT_{who}_NAME", "t")
+        monkeypatch.setenv(f"GIT_{who}_EMAIL", "t@example.com")
+    monkeypatch.setattr(land, "CLONE_URL", f"file://{tmp_path}/{{}}.git")
+    monkeypatch.setattr(land, "merged_sync", lambda key, flags: f"gh pr merge --squash --admin refused it: {DIRTY}")
+    tried(demo, "")
+    with state.edit(demo) as data:
+        pr = data["prs"][YASYF]
+        pr |= {"head": head, "base": "main", "branch": "change", "title": "Fix: drive a runs fast", "conflict": True, "lander": pr["lander"] | {"head": head}}
+    return origin, main
+
+
+def test_a_yasyf_merge_github_refuses_on_a_conflict_in_prose_alone_is_rebased_onto_main_as_one_commit_that_the_lander_merges_once_the_watch_reads_it(
+    demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    origin, main = conflicting(demo, monkeypatch, tmp_path, {"verbs.md": ROWS.replace("Then c.", "Then c twice.")}, {"verbs.md": ROWS.replace("runs a.", "runs a fast.")})
+    outcome = land.merged(demo, YASYF, ["--admin"])
+    rebased = git_in(origin, "rev-parse", "change")
+    assert outcome == (
+        f"{land.REBASED} main at {main[:12]} as {rebased[:12]} after GitHub refused its merge on a conflict,"
+        " verbs.md merged clause by clause with git merge-file; the lander merges that head once the watch reads it"
+    )
+    assert git_in(origin, "rev-parse", "change^") == main
+    assert git_in(origin, "show", "change:verbs.md") == ROWS.replace("runs a.", "runs a fast.").replace("Then c.", "Then c twice.").rstrip("\n")
+    assert git_in(origin, "log", "-1", "--format=%B", "change") == "Fix: drive a runs fast"
+    with state.edit(demo) as data:
+        data["prs"][YASYF]["lander"]["outcome"] = outcome
+    assert stage.of(state.load(demo), YASYF, NO_CARDS).name == "landing"
+    with state.edit(demo) as data:
+        data["prs"][YASYF] |= {"head": rebased, "conflict": False}
+    assert land.moved(YASYF, state.load(demo)["prs"][YASYF])
+
+
+def test_a_yasyf_merge_github_refuses_on_a_conflict_in_code_is_not_landed_and_reads_red_for_its_builder_with_its_branch_untouched(
+    demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    origin, _ = conflicting(demo, monkeypatch, tmp_path, {"tool.py": "x = 2\n"}, {"tool.py": "x = 3\n"})
+    head = git_in(origin, "rev-parse", "change")
+    outcome = land.merged(demo, YASYF, ["--admin"])
+    assert outcome == f"not landed: gh pr merge --squash --admin refused it: {DIRTY}; tool.py conflict past a clause-by-clause merge, so its builder rebases it"
+    assert git_in(origin, "rev-parse", "change") == head
+    with state.edit(demo) as data:
+        data["prs"][YASYF]["lander"]["outcome"] = outcome
+    now = stage.of(state.load(demo), YASYF, NO_CARDS)
+    assert (now.name, now.owner) == ("red", stage.BUILDER)
+
+
+@pytest.mark.parametrize(
+    ("theirs", "merged"),
+    [
+        (ROWS.replace("Then c.", "Then c twice."), ROWS.replace("runs a.", "runs a fast.").replace("Then c.", "Then c twice.")),
+        (ROWS.replace("runs a.", "runs a slow."), None),
+        (ROWS.replace("Then b.", "Then b too."), None),
+    ],
+)
+def test_a_markdown_row_merges_clause_by_clause_only_where_no_clause_or_its_neighbour_changed_on_both_sides(theirs: str, merged: str | None) -> None:
+    assert land.clause_merged(ROWS, ROWS.replace("runs a.", "runs a fast."), theirs) == merged
 
 
 def test_a_stacked_yasyf_pr_gh_pr_merge_refuses_merges_through_githubs_merge_async_past_its_rules_and_reads_its_result_until_it_merged(
