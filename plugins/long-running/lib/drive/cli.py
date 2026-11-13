@@ -1339,7 +1339,7 @@ def drop_ask(name: str, job_id: str, file: Path) -> tuple[str | None, bool]:
 
 
 def keep_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: str | None = None) -> tuple[Path, limits.Question, dict, str | None]:
-    """Keep the job's ASK block, or the ASK a DESIGN return puts to him, in its own file once it is in the shape he reads and the words his card draws type no clock time for work already done, in place of the job's open question asking the same or the one whose card `redraws` names by its waits id, set the job waiting on it, and post its ask record, storing the waits id its card draws under; a block the job already keeps and asks him is kept already; the question keeps the words of its `Holds:` line, with the parts each PR the drive tracks on the job's orders that they name serves appended, which hold from landing only the PRs of jobs working a change they name, refused when they name no part of the job's orders, unless a design job names the changes its `Change:` lines are about to make parts; asked again with no --unsettled, as a reader's DESIGN report re-asks it, it keeps the --unsettled its kept question with that title carries; a question any job asked on a card since withdrawn keeps that card's waits id, so asking it again redraws that card. One he already answered, the same words asked on a card he tapped or wrote on or under, or under a record keeping his words, is kept settled by that answer, draws no card and leaves the job as it was, so it goes straight to building on his words, and the session holding its order hears so in one record; no answer he gave another question settles it, and no ccn match or Jev reading is asked. One refused stays kept as the job's pending question with its refusal, which posts no ask record, so the watch says the job waits on a card never posted until it asks again or drops it. Each question of the job in the same words that ended with no card drawn is replaced, so a question once kept settled on another answer of his draws its card when asked again."""
+    """Keep the job's ASK block, or the ASK a DESIGN return puts to him, in its own file once it is in the shape he reads and the words his card draws type no clock time for work already done, in place of the job's open question asking the same or the one whose card `redraws` names by its waits id, set the job waiting on it, and post its ask record, storing the waits id its card draws under, the one of the question it takes the place of included, only once that record went out, so a question whose ask record did not go out holds no waits id and asking it again sends it; a block the job already keeps whose ask record went out is kept already; the question keeps the words of its `Holds:` line, with the parts each PR the drive tracks on the job's orders that they name serves appended, which hold from landing only the PRs of jobs working a change they name, refused when they name no part of the job's orders, unless a design job names the changes its `Change:` lines are about to make parts; asked again with no --unsettled, as a reader's DESIGN report re-asks it, it keeps the --unsettled its kept question with that title carries; a question any job asked on a card since withdrawn keeps that card's waits id, so asking it again redraws that card. One he already answered, the same words asked on a card he tapped or wrote on or under, or under a record keeping his words, is kept settled by that answer, draws no card and leaves the job as it was, so it goes straight to building on his words, and the session holding its order hears so in one record; no answer he gave another question settles it, and no ccn match or Jev reading is asked. One refused stays kept as the job's pending question with its refusal, which posts no ask record, so the watch says the job waits on a card never posted until it asks again or drops it. Each question of the job in the same words that ended with no card drawn is replaced, so a question once kept settled on another answer of his draws its card when asked again."""
     from drive import superseded, view
 
     text = f"{limits.ask_block(text).strip()}\n"
@@ -1408,9 +1408,7 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: 
             redrawn = [other for other in view.open_questions(job) if other["waits"] == redraws] if redraws else []
             held = next((twin for twin in [*twins, *withdrawn, *redrawn] if twin["card"]), None) or next((twin for twin in [*twins, *redrawn] if twin["waits"]), None)
             question = state.new_question(str(kept), asked.title, held["asked"] if held else state.stamp(), unsettled, holds=holds)
-            if held:
-                question.update(waits=held["waits"], card=held["card"])
-            replaced = [*twins, *withdrawn, *redrawn, *reworded, *undrawn]
+            replaced = [other for other in [*twins, *withdrawn, *redrawn, *reworded, *undrawn] if other is not held]
             moment = state.stamp()
             job.update(said=asked.title, updated=moment, returned=moment)
             if not (job["kind"] == "reader" and job["state"] == "done"):
@@ -1424,11 +1422,9 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: 
         )
     if answer:
         return kept, asked, question, settled_line(job_id, job, question, answer)
-    seq = send_ask(name, job_id, kept, question["waits"])
-    if question["waits"]:
-        return kept, asked, question, None
+    seq = send_ask(name, job_id, kept, held and held["waits"])
     with state.edit(name) as data:
-        keep_waits(data["jobs"][job_id], kept, f"{name}:{job_id}-{seq}")
+        keep_waits(data["jobs"][job_id], kept, held and held["waits"] or f"{name}:{job_id}-{seq}", held and held["card"])
         return kept, asked, state.kept_in(data["jobs"][job_id], kept), None
 
 
@@ -1659,12 +1655,12 @@ def asks(file: Path, title: str) -> bool:
         return False
 
 
-def keep_waits(job: dict, file: Path, waits: str) -> None:
-    """Give the waits id to the newest question kept in the file; a question of the job that held it before, which this card redraws, hands over its card and leaves the job."""
+def keep_waits(job: dict, file: Path, waits: str, card: str | None = None) -> None:
+    """Give the waits id to the newest question kept in the file, with the card drawn under it, read from the question of the job that held it before or given for one another job held; that question, which this card redraws, hands over its card and leaves the job."""
     question = state.kept_in(job, file)
     if question is None:
         return
-    redrawn = next((other["card"] for other in job["questions"] if other is not question and other["waits"] == waits and other["card"]), None)
+    redrawn = next((other["card"] for other in job["questions"] if other is not question and other["waits"] == waits and other["card"]), card)
     question.update(waits=waits, card=question["card"] or redrawn)
     job["questions"] = [other for other in job["questions"] if other is question or other["waits"] != waits]
 

@@ -1924,6 +1924,49 @@ def test_a_question_whose_ask_record_did_not_go_out_has_no_waits_id_until_job_as
     assert [(question["file"], question["waits"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [(str(kept), "demo:j1-7")]
 
 
+def test_a_question_taking_a_cards_place_whose_ask_record_did_not_go_out_leaves_that_card_open_until_job_ask_sends_it_again(
+    run: Run, asking: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], asks_sent: list[dict]
+) -> None:
+    link = "https://acme.slack.com/archives/D123/p1794300000000100"
+    shown = {"question": "How should?", "options": ["Yes", "No"], "recommended": "Yes", "asked": state.stamp(), "url": link, "card": {"title": "How should?", "waits": "demo:j1-7"}}
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": [], "closed": []})
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    first = run("job", "ask", asking, str(block))[1]
+    run("job", "set", asking, "--card", link)
+    block.write_text(SHORT_ASK.replace("Meanwhile nothing is built on either layout.", "Meanwhile the reader adds one more finding."))
+    sends = tools.sent
+
+    def held(name: str, lane: str, posts: list[dict]) -> list[str]:
+        raise state.DriveError("cci: --batch record 1: lane root is held by live thread demo-root")
+
+    monkeypatch.setattr(tools, "sent", held)
+    assert cli.main(["job", "ask", asking, str(block)]) == 2
+    again = state.drive_dir("demo") / "asks" / f"j1-{state.ask_hash(block.read_text())}.md"
+    assert f"{again} keeps j1's question, but its ask record did not go out" in capsys.readouterr().err
+    questions = state.load("demo")["jobs"]["j1"]["questions"]
+    assert [(question["file"], question["waits"], question["card"]) for question in questions] == [(first, "demo:j1-7", link), (str(again), None, None)]
+    monkeypatch.setattr(tools, "sent", sends)
+    assert run("job", "ask", asking, str(again)) == (0, str(again))
+    questions = state.load("demo")["jobs"]["j1"]["questions"]
+    assert [(question["file"], question["waits"], question["card"]) for question in questions] == [(str(again), "demo:j1-7", link)]
+    assert [sent["attr"].get("waits") for sent in asks_sent] == [None, "demo:j1-7"]
+
+
+def test_a_waits_id_an_older_install_stored_with_cci_s_hash_loads_without_it_so_asking_its_question_again_draws_a_card(
+    run: Run, asking: str, tmp_path: Path, asks_sent: list[dict]
+) -> None:
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    run("job", "ask", asking, str(block))
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"][0]["waits"] = "demo:j1-#7"
+    assert [question["waits"] for question in state.load("demo")["jobs"]["j1"]["questions"]] == ["demo:j1-7"]
+    block.write_text(SHORT_ASK.replace("Meanwhile nothing is built on either layout.", "Meanwhile the reader adds one more finding."))
+    run("job", "ask", asking, str(block))
+    assert [sent["attr"].get("waits") for sent in asks_sent] == [None, "demo:j1-7"]
+
+
 def test_job_ask_on_an_open_incident_posts_its_ask_record_in_the_incidents_thread_marked_incident(
     run: Run, demo: str, tmp_path: Path, asks_sent: list[dict]
 ) -> None:
