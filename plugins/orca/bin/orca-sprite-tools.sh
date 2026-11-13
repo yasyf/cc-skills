@@ -6,7 +6,7 @@ if [ $# -ne 1 ]; then
   exit 2
 fi
 task=$1
-released=("ccx yasyf/cc-context" "cc-notes yasyf/cc-notes ccn")
+released=("ccx yasyf/cc-context checksums.txt" "cc-notes yasyf/cc-notes SHA256SUMS.txt ccn")
 unfit=76
 
 die() {
@@ -20,14 +20,18 @@ IFS=$'\t' read -r host config <<<"$forward"
 
 words=()
 for entry in "${released[@]}"; do
-  read -r bin repo alias <<<"$entry"
+  read -r bin repo sums alias <<<"$entry"
   asset=${bin}_linux_amd64
-  latest=$(gh api "repos/$repo/releases/latest" --jq "[.tag_name, (.assets[] | select(.name == \"$asset\") | .browser_download_url, .digest)] | @tsv") ||
-    die "gh could not read the latest $repo release, so no tool was installed"
-  IFS=$'\t' read -r tag url digest <<<"$latest"
-  [[ $tag =~ ^v[0-9]+(\.[0-9]+)+$ && $url == "https://github.com/$repo/releases/download/$tag/$asset" && $digest =~ ^sha256:[0-9a-f]{64}$ ]] ||
-    die "the latest $repo release reads '$latest', not a version tag with a $asset asset and its sha256 digest, so no tool was installed"
-  words+=("$bin" "$tag" "$url" "${digest#sha256:}" "$alias")
+  printed=$("$bin" --version 2>&1) || die "$bin --version failed on this Mac: ${printed##*$'\n'}, so no tool was installed"
+  tag=${printed%% *}
+  [[ $tag =~ ^v[0-9]+(\.[0-9]+)+$ ]] ||
+    die "this Mac's $bin --version printed '$printed', not a release tag, so no tool was installed"
+  release=https://github.com/$repo/releases/download/$tag
+  listed=$(curl -fsSL --retry 3 "$release/$sums") || die "curl could not read $release/$sums, so no tool was installed"
+  digest=$(awk -v asset="$asset" '$2 == asset { print $1 }' <<<"$listed")
+  [[ $digest =~ ^[0-9a-f]{64}$ ]] ||
+    die "$release/$sums names no sha256 for $asset, so no tool was installed"
+  words+=("$bin" "$tag" "$release/$asset" "$digest" "$alias")
 done
 
 read -ra tools <<<"${WORKER_TOOLS:-}"

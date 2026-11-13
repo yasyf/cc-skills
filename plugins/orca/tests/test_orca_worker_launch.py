@@ -30,7 +30,7 @@ LOCAL_NAME = f"{LANE}-{hashlib.sha256(RUN.encode()).hexdigest()[:8]}"
 LOCAL_TERMINAL = "term_local_1"
 WIDEN = f"git -C {LOCAL_WORKTREE} sparse-checkout add <dir>"
 SPARSE = f"{LOCAL_WORKTREE} is sparse: widen with {WIDEN}"
-TOOLS = ("orca", "cc-remote", "git", "gh", "ssh")
+TOOLS = ("orca", "cc-remote", "git", "gh", "ccx", "cc-notes", "curl", "ssh")
 PIN = "9.8.7"
 
 VERSION = ["cc-remote", "version"]
@@ -60,10 +60,11 @@ PREPARED = {
     "brief": {"path": f"/home/sprite/.cc-remote/orca/tasks/{WORKSPACE}/brief.md", "sha256": SHA, "bytes": BYTES},
     "baseCommit": BASE,
 }
-RELEASES = (("ccx", "yasyf/cc-context", "v0.95.43", "a" * 64, ""), ("cc-notes", "yasyf/cc-notes", "v0.76.7", "b" * 64, "ccn"))
+RELEASES = (("ccx", "yasyf/cc-context", "v0.95.43", "a" * 64, "", "checksums.txt", "v0.95.43\n"), ("cc-notes", "yasyf/cc-notes", "v0.76.7", "b" * 64, "ccn", "SHA256SUMS.txt", "v0.76.7 (0123abc)\n"))
 REWRITTEN = BRIEF + "\nA later line.\n"
 INSTALLED = {"out": "ccx v0.95.43\ncc-notes v0.76.7\nccn v0.76.7\n"}
-UNRELEASED = {"out": "v0.95.43\n"}
+UNREAD = {"rc": 22, "err": "curl: (22) The requested URL returned error: 503\n"}
+FLOOR = "ccx: GitHub rate limit floor: user core has 680 of 5000 left, under the floor of 1000, until 6:52PM (2026-11-12T18:52:01-08:00); top callers: zsh 440, drive watch 347, drive card 156, drive pr check 154, cc-slack 142\n"
 RECEIPT = {"ok": True, "result": {"runId": RUN, "taskId": "task_a", "dispatchId": "ctx_a", "state": "ready", "stage": "remote_input_accepted"}}
 ALLOCATION_KEPT = ["allocation.json", "prepare.err", "prepare.status", "request.json"]
 PREPARE_KEPT = sorted([*ALLOCATION_KEPT, "prepared.json"])
@@ -133,8 +134,12 @@ def tasks(*titles: str) -> dict:
     return {"out": {"ok": True, "result": {"tasks": [{"id": f"task_{n}", "title": title} for n, title in enumerate(titles)]}}}
 
 
-def download(repo: str, tag: str, bin: str) -> str:
-    return f"https://github.com/{repo}/releases/download/{tag}/{bin}_linux_amd64"
+def download(repo: str, tag: str, name: str) -> str:
+    return f"https://github.com/{repo}/releases/download/{tag}/{name}"
+
+
+def listed(bin: str, sha: str) -> dict:
+    return {"out": f"{'c' * 64}  {bin}_darwin_arm64\n{sha}  {bin}_linux_amd64\n{'d' * 64}  {bin}_linux_arm64\n"}
 
 
 def fake(path: Path) -> Path:
@@ -203,7 +208,9 @@ class Launch:
         self.reply("cc-remote orca prepare", {"out": response if isinstance(response, str) else json.dumps(response), "err": "prepared on sprites\n"})
         self.reply(f"cc-remote destroy {WORKSPACE}", {})
         self.reply("cc-remote orca stop", {"out": json.dumps({"lane": LANE, "workspace": WORKSPACE})})
-        self.reply("gh api", *({"out": f"{tag}\t{download(repo, tag, bin)}\tsha256:{sha}\n"} for bin, repo, tag, sha, _ in RELEASES))
+        for bin, *_, version in RELEASES:
+            self.reply(bin, {"out": version})
+        self.reply("curl", *(listed(bin, sha) for bin, _, _, sha, *_ in RELEASES))
         self.reply("ssh", *(() if copied is None else (copied,)), INSTALLED)
         self.reply("orca orchestration worker-start", started or {"out": RECEIPT})
 
@@ -244,9 +251,9 @@ class Launch:
         return ["cc-remote", "orca", "prepare", *opening, "--provider", "sprites", "--profile", "agents", "--agent", kind, "--model", model, "--effort", effort, "--brief-file", str(self.brief), *lane_env, *extra]
 
     def tools(self, placed: str = "0") -> list[list[str]]:
-        latest = [["gh", "api", f"repos/{repo}/releases/latest", "--jq", f'[.tag_name, (.assets[] | select(.name == "{bin}_linux_amd64") | .browser_download_url, .digest)] | @tsv'] for bin, repo, *_ in RELEASES]
-        words = " ".join(f"{bin} {tag} {download(repo, tag, bin)} {sha} {alias or "''"}" for bin, repo, tag, sha, alias in RELEASES)
-        return [*latest, ["ssh", "-F", PREPARED["forward"]["config"], "-o", "BatchMode=yes", "-o", "ConnectTimeout=30", WORKSPACE, f"bash -s -- {placed} {words}"]]
+        read = [call for bin, repo, tag, _, _, sums, _ in RELEASES for call in ([bin, "--version"], ["curl", "-fsSL", "--retry", "3", download(repo, tag, sums)])]
+        words = " ".join(f"{bin} {tag} {download(repo, tag, f'{bin}_linux_amd64')} {sha} {alias or "''"}" for bin, repo, tag, sha, alias, *_ in RELEASES)
+        return [*read, ["ssh", "-F", PREPARED["forward"]["config"], "-o", "BatchMode=yes", "-o", "ConnectTimeout=30", WORKSPACE, f"bash -s -- {placed} {words}"]]
 
     def copy(self) -> list[str]:
         return ["ssh", "-F", PREPARED["forward"]["config"], "-o", "BatchMode=yes", "-o", "ConnectTimeout=30", WORKSPACE, f"cat >{PREPARED['brief']['path']}"]
@@ -887,7 +894,7 @@ class SpriteTest(LaunchTest):
                 launch = self.fresh()
                 launch.sprite()
                 if failed == "tools":
-                    launch.reply("gh api", UNRELEASED)
+                    launch.reply("curl", UNREAD)
                 else:
                     launch.reply("orca orchestration worker-start", UNREACHED, UNREACHED)
                     launch.reply("orca orchestration request-show", request_state("absent"), request_state("absent"))
@@ -909,7 +916,7 @@ class SpriteTest(LaunchTest):
         rewritten = {**PREPARED, "brief": {**PREPARED["brief"], "sha256": hashlib.sha256(REWRITTEN.encode()).hexdigest(), "bytes": len(REWRITTEN.encode())}}
         gone = "ssh: connect to host pool-spare port 22: Connection refused"
         self.launch.sprite()
-        self.launch.reply("gh api", UNRELEASED)
+        self.launch.reply("curl", UNREAD)
         self.assertEqual(self.launch.run().returncode, 1)
         first = self.launch.calls()
         self.launch.brief.write_text(REWRITTEN)
@@ -925,7 +932,7 @@ class SpriteTest(LaunchTest):
     def test_a_prepared_sprite_that_refuses_the_brief_keeps_the_attempt_for_another_launch(self):
         refused = f"bash: line 1: {PREPARED['brief']['path']}: No such file or directory"
         self.launch.sprite()
-        self.launch.reply("gh api", UNRELEASED)
+        self.launch.reply("curl", UNREAD)
         self.assertEqual(self.launch.run().returncode, 1)
         first = self.launch.calls()
         self.launch.sprite(copied={"rc": 1, "err": f"{refused}\n"})
@@ -968,10 +975,10 @@ class SpriteTest(LaunchTest):
 
     def test_a_sprite_whose_tool_releases_cannot_be_read_stays_idle_and_a_relaunch_reruns_them_on_it(self):
         self.launch.sprite()
-        self.launch.reply("gh api", UNRELEASED)
-        reason = "the latest yasyf/cc-context release reads 'v0.95.43', not a version tag with a ccx_linux_amd64 asset and its sha256 digest, so no tool was installed"
+        self.launch.reply("curl", UNREAD)
+        reason = f"curl could not read {download('yasyf/cc-context', 'v0.95.43', 'checksums.txt')}, so no tool was installed"
         line = f"the Sprite did not take the released ccx and cc-notes, the tools WORKER_TOOLS names, or the wasm toolchain: {reason}; the prepared worker stays idle and unattached, {self.launch.attempt} keeps tools.err, and launching this brief again reruns the tool check on that Sprite"
-        first = [VERSION, CURRENT, self.launch.prepare(), *self.launch.tools()[:1]]
+        first = [VERSION, CURRENT, self.launch.prepare(), *self.launch.tools()[:2]]
         self.assert_failed(self.launch, self.launch.run(), line, first)
         self.assertEqual(self.launch.kept(), TOOLS_KEPT)
         self.launch.sprite(copied={})
@@ -980,6 +987,27 @@ class SpriteTest(LaunchTest):
         self.assertEqual(json.loads(relaunched.stdout)["dispatch"], "ctx_a")
         self.assertEqual(self.launch.calls(), [*first, VERSION, CURRENT, self.launch.copy(), *self.launch.tools(), self.launch.start()])
         self.assertEqual(self.launch.kept(), SPRITE_KEPT)
+
+    def test_a_launch_while_ccx_refuses_github_api_reads_under_its_floor_installs_the_releases_this_mac_runs(self):
+        self.launch.sprite()
+        self.launch.reply("gh api", {"rc": 1, "err": FLOOR}, {"rc": 1, "err": FLOOR})
+        result = self.launch.run()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), *self.launch.tools(), self.launch.start()])
+
+    def test_a_release_this_mac_cannot_name_or_whose_checksums_omit_its_asset_starts_no_worker(self):
+        checksums = download("yasyf/cc-context", "v0.95.43", "checksums.txt")
+        for answered, reply, reason, read in (
+            ("ccx", {"out": "dev\n"}, "this Mac's ccx --version printed 'dev', not a release tag, so no tool was installed", 1),
+            ("curl", listed("cc-notes", "a" * 64), f"{checksums} names no sha256 for ccx_linux_amd64, so no tool was installed", 2),
+        ):
+            with self.subTest(answered=answered):
+                launch = self.fresh()
+                launch.sprite()
+                launch.reply(answered, reply)
+                line = f"the Sprite did not take the released ccx and cc-notes, the tools WORKER_TOOLS names, or the wasm toolchain: {reason}; the prepared worker stays idle and unattached, {launch.attempt} keeps tools.err, and launching this brief again reruns the tool check on that Sprite"
+                self.assert_failed(launch, launch.run(), line, [VERSION, CURRENT, launch.prepare(), *launch.tools()[:read]])
+                self.assertEqual(launch.kept(), TOOLS_KEPT)
 
     def test_a_sprite_whose_own_install_refuses_the_tools_is_destroyed_and_a_relaunch_prepares_a_fresh_one(self):
         for reason in (

@@ -72,10 +72,12 @@ Between prepare and `worker-start`, the launcher runs `orca-sprite-tools.sh`
 on the prepared task. The Sprite's payload bakes the `ccx` and `cc-notes`
 releases its inventory pinned when it was built, so without this step a lane
 runs whatever those were, such as ccx 0.89.18 while this Mac runs 0.95.43. The
-script reads the latest GitHub release of each, installs its `linux_amd64`
-asset into the Sprite's `~/.local/bin` after checking the release's SHA-256
-digest, links `ccn`, and checks that a login shell there runs the new binary
-and prints the release tag. `~/.local/bin` leads the PATH the Sprite's Orca
+script reads the release tag each prints for `--version` on this Mac, takes
+that release's `linux_amd64` asset and checksum file from their github.com
+download links, which spend no GitHub API quota, installs the asset into the
+Sprite's `~/.local/bin` after checking it against the SHA-256 the checksum
+file lists, links `ccn`, and checks that a login shell there runs the new
+binary and prints the release tag. `~/.local/bin` leads the PATH the Sprite's Orca
 runtime gives its agents, ahead of the baked `/usr/local/bin`. It then gives
 the Sprite the toolchain cc-context's `ensure-wasm` hook builds its go:embed
 WASM artifacts with, which a Sprite otherwise lacks, so the hook and the
