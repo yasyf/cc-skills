@@ -192,7 +192,9 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    each new head whatever your job's state, its title and diff and never its body, against the words of the
    order it serves, the one `drive pr set --serves` names or else your order and every order your
    job carries, for the parts the PR carries, those `drive pr set --part` names or else your job's,
-   and each answer of his your newest `DESIGN:` lines name by its card's waits id or permalink, its answer record or its cc-notes id, read whole once and kept on the PR, after
+   and each answer of his your newest `DESIGN:` lines name by its card's waits id or permalink, its answer record or its cc-notes id, read whole once and kept on the PR,
+   each card of the drive's it answers read with the options that card offered, so his number names that option's own words and
+   description, and with his durable answers `ccn answer match` finds for the card's words, after
    listing each change the diff makes to what already exists, before and after. Its `NOT READY`
    on a PR he has not approved comes back to you through `drive pr wake` naming each of his words the change goes against, and each change to what
    exists they do not need: change the PRs to his words, put back what they did not ask to change,
@@ -472,7 +474,7 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 | `SERVES:` | `port of #N`, `flake fix: <the test>`, or the order of his it carries out, quoted from your brief |
 | `CHANGE:` | what changed for him; on a PR reworked to his words, how they are met, which its fresh card shows him |
 | `CHECK:` | the proof: a link, or the absolute path of a file that exists and is not empty |
-| `DESIGN:` | on a `READY`, each design decision the PR makes beside his answer that settled it, named by his card's waits id, its permalink, the answer record as `{record:<seq>}` or the cc-notes answer id, or `none`; kept on each PR the first line names, replacing what it cited before, and a return with none leaves it; the watch's check reads each answer it names whole as his words when it judges the change, and `drive job report` refuses a line naming none of them |
+| `DESIGN:` | on a `READY`, each design decision the PR makes beside his answer that settled it, named by his card's waits id, its permalink, the answer record as `{record:<seq>}` or the cc-notes answer id, or `none`; kept on each PR the first line names, replacing what it cited before, and a return with none leaves it; the watch's check reads each answer it names whole as his words when it judges the change, a card's with the options it offered and his durable answers on its subject, so build a picked option as its own words and description say, and `drive job report` refuses a line naming none of them |
 | `NATIVE:` | what the platform he sees it on already does for this and what the change builds on, with links, or `none: he never sees it` |
 | `RULINGS:` | each ruling of his on the area you followed, quoted |
 | `REUSES:` | on a `READY` whose research found something that exists, how the PR calls or extends it; `drive job report` refuses a `READY` without it |

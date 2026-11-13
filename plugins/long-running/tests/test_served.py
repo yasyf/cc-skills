@@ -2,10 +2,11 @@ import json
 import os
 import subprocess
 from collections.abc import Callable
+from pathlib import Path
 
 import pytest
 from conftest import LEAD, Answers, Judge
-from drive import github, refs, served, settled, slack, stage, state
+from drive import github, limits, refs, served, settled, slack, stage, state
 from drive.state import DriveError
 
 KEY = "Forge-AI/monorepo#42"
@@ -156,6 +157,41 @@ GAPS = (
     'b3cbd28, 2026-11-12T02:15:56-08:00, asked "Do you accept the two wrong-id gaps the reviewer bot is holding the UUIDv7 row ids change on?":'
     ' "Accept both: keeps the id-less answer, so these two rare wrong-id gaps stay; your pick here becomes my owner ruling, no code change."'
 )
+SEARCH_ASKED = "How should plat's search stop failing journal reads when one page fetch takes over 30 seconds?"
+SEARCH_ASK = f"""ASK {SEARCH_ASKED}
+Every "disk I/O error" behind the search worker's journal monitor is a page fetch the replicator left unanswered for 30 seconds, since lazy journal copies shipped.
+Meanwhile chat pages are unaffected; search misses those chats' newest turns.
+- Fetch before reading: search lands a journal's pages first, so a slow fetch delays indexing, never fails it (recommended)
+  Before chat and run search read a journal, the Go reader asks the replicator to land the pages that range needs through its existing fill path and waits outside SQLite under the indexer's own budget, so SQLite reads only pages on disk. It touches chatsearch/journal.go, runsearch, sandsql/local/followed.go and the fill in lanes.rs, and indexing downloads each range before reading it.
+- Parallel fetches: the replicator answers each reader fetch on its own, so one slow fetch stalls no other
+  The replicator's fault server in lanes.rs runs each reader fetch as its own task, where today each copy has one reader fetch in flight on one shared task, and page landing moves off that task; the 30-second deadline stays. It touches lanes.rs and its tests, adds parallel bucket reads per host, and rests on queueing the logs do not prove.
+- No deadline: a read waits for the replicator's own answer instead of 30 seconds
+  The journal's file layer in sandsql-replica's disk.rs loses FAULT_TIMEOUT and its socket timeouts, so a view fails only when the replicator answers 503 or the copy is lost. It is one file, but a stalled replicator would hold journal read threads with no end, and his Nov 10 ruling calls a timer change standing in for a cause a hack.
+Findings:
+Holds: none: the order is a read-only diagnosis.
+Root cause: a search read of a lazily restored copy fetches each absent segment inside SQLite under a fixed 30 s socket deadline.
+First principles: Fetch before reading
+Simplest: Fetch before reading
+Interim fix: none: chat pages are not on this path.
+"""
+SEARCH_CARD = "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794534105413699"
+SEARCH_PICK = {"id": "38dfc32057e99cd970064f05adf6317042e9d7f1", "title": SEARCH_ASKED, "body": "1+2+fiure out why its taking more than 30 seconds thats the real bug", "tags": [], "created_at": "2026-11-13T01:47:14Z"}
+ONE_PATH = {
+    "id": "cb82cc364b6789445c52d5b5e8b484b3e9d245d7",
+    "title": "Once followed copies are lazy, what keeps a host's unheld journal copies from filling its disk, as on the search worker's 8Gi cache disk?",
+    "body": "1 and we can unify all logic on that right? Not keep all these random other code paths?\nNotes: his own words on the card",
+    "tags": ["scope:durable"],
+    "created_at": "2026-11-11T21:03:15Z",
+}
+LAZY_SLICES = {
+    "id": "af02eaf9c4274a2a5a84fe7aa800c9fc76be758b",
+    "title": "Search indexing, best effort: how should search text reach the indexer?",
+    "body": "Journal, lazy slices: on each ping the worker mounts the journal lazily at that position and reads 200 entries past its cursor; nothing new.",
+    "tags": ["scope:durable"],
+    "created_at": "2026-11-11T21:18:07Z",
+}
+SEARCH_OPTIONS = f'the options his card "{SEARCH_ASKED}" offered, numbered as it drew them: {"; ".join(limits.offered(limits.redrawn(SEARCH_ASK)))}'
+SEARCH_SUBJECT = f', recorded on the subject of "{SEARCH_ASKED}"'
 REPLAYS = {
     "Forge-AI/monorepo#54664": (
         {
@@ -190,12 +226,22 @@ REPLAYS = {
         ],
         None,
     ),
+    "Forge-AI/monorepo#55465": (
+        {
+            "created": "2026-11-12T16:50:29-08:00",
+            "text": "https://poetic-technology.slack.com/archives/C0822AHFY3G/p1794531029122869 Datadog monitor 337919227"
+            ' "SandSQL journal failing to show cloud chats — prod,request request on plat" opened at warn',
+        },
+        ["option 1: search lands a journal's pages before reading"],
+        [line for _, line in sorted([served.recorded(ONE_PATH, SEARCH_SUBJECT), served.recorded(LAZY_SLICES, SEARCH_SUBJECT), served.recorded(SEARCH_PICK)])] + [SEARCH_OPTIONS],
+        "followed_reads.go",
+    ),
 }
 
 
-@pytest.mark.skipif(os.environ.get("DRIVE_REAL_JUDGE") != "1", reason="replays three merged PRs, read from GitHub, on the judge itself, which DRIVE_REAL_JUDGE=1 asks for")
+@pytest.mark.skipif(os.environ.get("DRIVE_REAL_JUDGE") != "1", reason="replays four merged PRs, read from GitHub, on the judge itself, which DRIVE_REAL_JUDGE=1 asks for")
 @pytest.mark.parametrize("key", list(REPLAYS))
-def test_the_judge_refuses_uuidv7_row_ids_printed_dashed_where_32_hex_stood_and_passes_the_32_hex_fix_and_a_fix_his_words_need(key: str, demo: str) -> None:
+def test_the_judge_refuses_dashed_uuidv7_ids_and_a_picked_option_built_as_whole_copies_and_passes_the_32_hex_fix_and_a_fix_his_words_need(key: str, demo: str) -> None:
     order, parts, answered, refused_in = REPLAYS[key]
     said = served.words({"orders": {"o1": order | {"parts": dict.fromkeys(parts)}}}, {"order": "o1", "parts": parts, "carries": {}}, ["o1"], [], answered, [])
     found = JUDGE(demo, said, {key: READ_CHANGE(key)})
@@ -350,3 +396,23 @@ def test_a_waits_id_of_a_card_he_has_not_answered_is_no_answer_of_his(slack_and_
 
 def test_words_naming_no_answer_of_his_name_none() -> None:
     assert served.named("asked:Also start stopped boxes, as built (his pick, 3:24 AM Nov 10)") == []
+
+
+def test_a_cited_card_answer_reads_with_the_options_its_card_offered_and_his_durable_answers_on_its_subject_once_however_it_is_named(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, slack_and_cci: list[str], recorded: Answers
+) -> None:
+    ask = tmp_path / "j2513-dcd8e53f.md"
+    ask.write_text(SEARCH_ASK)
+    closed = state.new_close("answered", SEARCH_PICK["body"], SEARCH_CARD, answer="38dfc32", at="2026-11-13T01:47:14Z")
+    question = state.new_question(str(ask), SEARCH_ASKED, "2026-11-13T01:21:00Z", card=SEARCH_CARD, closed=closed) | {"waits": "demo:j2513-1794535260000"}
+    data = {"name": "demo", "roles": {"coordinator": {"cwd": "/tmp"}}, "jobs": {"j2513": {"questions": [question]}}}
+    recorded.shown |= {answer["id"][:7]: answer for answer in (SEARCH_PICK, ONE_PATH, LAZY_SLICES)}
+    monkeypatch.setattr(settled, "matched", lambda text, cwd: [{"id": answer["id"][:7]} for answer in (SEARCH_PICK, ONE_PATH, LAZY_SLICES)] if "land the pages that range needs" in text else [])
+    assert served.answers(data, [f"DESIGN: answer 38dfc32 (card {SEARCH_CARD})"], None) == [
+        f'cb82cc3, {at(ONE_PATH["created_at"])}{SEARCH_SUBJECT}, asked "{ONE_PATH["title"]}": "1 and we can unify all logic on that right? Not keep all these random other code paths?"',
+        f'af02eaf, {at(LAZY_SLICES["created_at"])}{SEARCH_SUBJECT}, asked "{LAZY_SLICES["title"]}": "{LAZY_SLICES["body"]}"',
+        f'{SEARCH_CARD}, {slack.sent_at({"ts": "1794534105.413699"}).isoformat(timespec="seconds")}: "Land it with the stack under it"',
+        f'38dfc32, {at(SEARCH_PICK["created_at"])}, asked "{SEARCH_ASKED}": "{SEARCH_PICK["body"]}"',
+        SEARCH_OPTIONS,
+    ]
+    assert SEARCH_OPTIONS.count("Option ") == 3 and "Option 1 (recommended): Fetch before reading" in SEARCH_OPTIONS and "land the pages that range needs" in SEARCH_OPTIONS

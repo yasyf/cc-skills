@@ -944,14 +944,19 @@ def ask_case(text: str, asked: Question) -> str:
             f"Question: {asked.title}",
             *asked.summary,
             *(["Show me:", *asked.show_me] if asked.show_me else []),
-            *(
-                f"Option {number}{' (recommended)' if option == asked.recommended else ''}: {option}" + (f" -- {asked.hints[option]}" if option in asked.hints else "")
-                for number, option in enumerate(asked.options, 1)
-            ),
+            *offered(asked),
             *(found[0].strip() for pattern in (ROOT_CAUSE, FIRST_PRINCIPLES, SIMPLEST) if (found := pattern.search(findings))),
             *pages,
         ]
     )
+
+
+def offered(asked: Question) -> list[str]:
+    """Each option of a card, numbered as his card draws them, with its description and the recommended one marked."""
+    return [
+        f"Option {number}{' (recommended)' if option == asked.recommended else ''}: {option}" + (f" -- {asked.hints[option]}" if option in asked.hints else "")
+        for number, option in enumerate(asked.options, 1)
+    ]
 
 
 def rule_words(case: str) -> list[dict[str, str]]:

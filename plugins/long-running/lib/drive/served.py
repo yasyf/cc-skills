@@ -4,8 +4,9 @@ import os
 import re
 import subprocess
 from datetime import datetime, timedelta
+from pathlib import Path
 
-from drive import brief, github, install, refs, settled, slack, state, view
+from drive import brief, github, install, limits, refs, settled, slack, state, view
 from drive.limits import REF
 from drive.render import cut
 from drive.state import DriveError
@@ -52,9 +53,9 @@ VERDICT = {
     },
     "required": ["changed", "against"],
 }
-RULES = """You check a change before the drive puts it on his card for his Approve. <his_words> holds the words of each order the change serves, his own words verbatim, oldest first, with the parts of each this change delivers and, when its PRs name theirs, the parts other changes deliver, and, when this change is one PR of a job that has others, those PRs: the merged ones, which already deliver their share, and the open ones, each judged on its own; then his answers that bind them, those their job's brief carries and those the PRs cite for the design decisions they make, oldest first, each the question he was asked and his answer, the option he tapped or his own words. <change> holds each pull request's title and diff, source files before tests. PR bodies are left out by his ruling: "Get rid of the fucking PR body check that's insane to delay on who cares about the body".
+RULES = """You check a change before the drive puts it on his card for his Approve. <his_words> holds the words of each order the change serves, his own words verbatim, oldest first, with the parts of each this change delivers and, when its PRs name theirs, the parts other changes deliver, and, when this change is one PR of a job that has others, those PRs: the merged ones, which already deliver their share, and the open ones, each judged on its own; then his answers that bind them, those their job's brief carries and those the PRs cite for the design decisions they make, oldest first, each the question he was asked and his answer, the option he tapped or his own words, with the options each card the drive asked him offered, numbered as his card drew them, each with its description, and his durable answers recorded on that card's subject. <change> holds each pull request's title and diff, source files before tests. PR bodies are left out by his ruling: "Get rid of the fucking PR body check that's insane to delay on who cares about the body".
 
-An answer of his is his words on this change as much as an order is: where an answer settles how or when an order's words are met, such as a step it leaves to a later change, judge the change against the answer.
+An answer of his is his words on this change as much as an order is: where an answer settles how or when an order's words are met, such as a step it leaves to a later change, judge the change against the answer. Where his answer picks an option of a card, by its number, as 1 or 1+2, or by its words, that option's own words and description are his words: they bind over the name of a part or anyone's reading of his pick, and a change that builds the option another way, such as one copying a whole file where the option lands only the pages a read needs, goes against them. His durable answers on a card's subject bind a change on that subject as much as his pick does: a change that keeps or adds what they rule out, such as a second code path where they ask for one, goes against them; one on another subject binds nothing here.
 
 First list in `changed` each change the diff makes to what already exists: what existing code returns, prints, stores, accepts or depends on, such as a wire, file or API shape, a default or a command's output, and each behavior it removes. List each side of one value as its own change, what it holds or how it is made apart from the form it is written, stored or sized in, since his words can name one and leave the other: a timestamp moving from local time to UTC and from seconds to an ISO string is two changes. Give each its `before` and `after` as the diff shows them, and in `named_by` quote the words of his or of a cited answer that name that side's new form or behavior, else none. Words naming the kind of value name what it holds, never the form it is written in or what else it stops doing: a convention such a word is often read with is a reader's reading, never his words naming it. New code that alters nothing existing is not a change to list.
 
@@ -85,7 +86,7 @@ class Against(DriveError):
 
 
 def check(name: str, key: str, bound: list[str]) -> dict:
-    """Judge one PR's change, read whole from GitHub at its head, title and diff and never the body, against the words of the orders it serves, for the parts it carries, and against each answer of his kept on it for the design it makes and each bound names, a flake fix against his ruling FLAKE_RULING in place of any order, and return the head it checked, or the one its head already holds, for verdict to keep; every other PR its job carries, and each job it was handed from, is named as delivering its own share, the merged ones marked merged and the closed ones left out, so neither a sibling's diff nor a part an earlier PR already landed refuses it. The judge first lists each change the diff makes to what already exists, before and after, then refuses each his words do not need, by his words "stop overrecahing and changing things people didnt ask you when you are asked to make a change". Refuse, naming each of his words the change goes against or beyond, so his card draws only on a change checked against his words, leaving out each objection to a file whose added and removed lines are those of the head the check last passed, while it serves no order that head was not checked against, so a verdict holds for the same change after a restack."""
+    """Judge one PR's change, read whole from GitHub at its head, title and diff and never the body, against the words of the orders it serves, for the parts it carries, and against each answer of his kept on it for the design it makes and each bound names, read by answers with the options of each card of the drive's it answers and his durable answers on that card's subject, a flake fix against his ruling FLAKE_RULING in place of any order, and return the head it checked, or the one its head already holds, for verdict to keep; every other PR its job carries, and each job it was handed from, is named as delivering its own share, the merged ones marked merged and the closed ones left out, so neither a sibling's diff nor a part an earlier PR already landed refuses it. The judge first lists each change the diff makes to what already exists, before and after, then refuses each his words do not need, by his words "stop overrecahing and changing things people didnt ask you when you are asked to make a change". Refuse, naming each of his words the change goes against or beyond, so his card draws only on a change checked against his words, leaving out each objection to a file whose added and removed lines are those of the head the check last passed, while it serves no order that head was not checked against, so a verdict holds for the same change after a restack."""
     data = state.load(name)
     pr = data["prs"][key]
     if state.checked(data, pr):
@@ -235,7 +236,7 @@ def files(diff: bytes) -> list[tuple[str, str]]:
 
 
 def words(data: dict, job: dict, orders: list[str], named: list[str], answered: list[str], others: list[str]) -> str:
-    """Each order's words, oldest first, with the parts of it the change carries, those its PR names, else every part of it the job delivers, shared with the job's other PRs when it has any, and the order's other parts left to other changes, so a PR is never judged on a part it does not carry; an order the PR carries no part of is read whole. Then the job's merged PRs, which already deliver their share, and its other open PRs, each judged on its own; then each answer of his binding the PR or that it cites."""
+    """Each order's words, oldest first, with the parts of it the change carries, those its PR names, else every part of it the job delivers, shared with the job's other PRs when it has any, and the order's other parts left to other changes, so a PR is never judged on a part it does not carry; an order the PR carries no part of is read whole. Then the job's merged PRs, which already deliver their share, and its other open PRs, each judged on its own; then each answer of his binding the PR or that it cites, as answers reads them."""
     lines = []
     delivers = "this change and its job's other PRs deliver" if others and not named else "this change delivers"
     for order_id in sorted(orders, key=lambda order_id: data["orders"][order_id]["created"]):
@@ -268,9 +269,12 @@ def kept_answers(name: str, data: dict, key: str) -> list[str]:
 
 
 def answers(data: dict, cited: list[str], found: dict | None) -> list[str]:
-    """Each answer of his the citations name, oldest first, as the judge reads it, once for each card however many ways it is named: a card's waits id as the drive keeps his answer on its question, the question and his words, else as the cc-notes answer or card permalink it keeps; an answer id as cc-notes keeps it, the question he was asked and his words above its notes; a Slack permalink as the message there, which on a card he answered shows the question and the option he tapped; and an answer record as cci keeps his words, any other record naming no answer. A card he has not answered, or a message he did not write, is refused, since a question of his becomes a ruling only with his own answer."""
+    """Each answer of his the citations name, oldest first, as the judge reads it, once for each card however many ways it is named: a card's waits id as the drive keeps his answer on its question, the question and his words, else as the cc-notes answer or card permalink it keeps; an answer id as cc-notes keeps it, the question he was asked and his words above its notes; a Slack permalink as the message there, which on a card he answered shows the question and the option he tapped; and an answer record as cci keeps his words, any other record naming no answer. Each card the drive asked him that one of them answers, by its waits id, recorded answer or permalink, adds the options its ASK file kept, as offered draws them, so a number in his answer reads as that option's own words rather than anyone's reading of it, and his durable answers settled.matched finds nearest the card's question, options and descriptions, each read as an answer id is, since his words on the card's subject bind the change as much as his pick. A card he has not answered, or a message he did not write, is refused, since a question of his becomes a ruling only with his own answer."""
     read: dict[str, tuple[datetime, str]] = {}
+    asked: dict[str, dict] = {}
+    cwd = data["roles"]["coordinator"]["cwd"]
     for kind, name in sorted(dict.fromkeys(each for text in cited for each in named(text)), key=lambda each: READ_FIRST.index(each[0])):
+        question = None
         if kind == "card":
             question = answered(data, name)
             if not question["closed"]["words"]:
@@ -288,15 +292,47 @@ def answers(data: dict, cited: list[str], found: dict | None) -> list[str]:
                 raise DriveError(f"{name} is not his answer: it is neither his own message nor a card he answered; {settled.HIS_ANSWER}")
             at = slack.sent_at(message)
             read[name] = (at, f'{name}, {at.isoformat(timespec="seconds")}: "{message["text"]}"')
+            question = question or drawn(data, "link", name)
         elif kind == "answer":
-            answer = settled.shown(name, data["roles"]["coordinator"]["cwd"])
-            at = datetime.fromisoformat(answer["created_at"]).astimezone()
-            said = settled.his(answer["body"])
-            read[answer["id"]] = (at, f'{answer["id"][:7]}, {at.isoformat(timespec="seconds")}, asked "{answer["title"]}": "{said}"')
+            answer = settled.shown(name, cwd)
+            read[answer["id"]] = recorded(answer)
+            question = question or drawn(data, "answer", answer["id"])
         elif kind == "record" and (record := refs.shown(data["name"], "record", name))["kind"] == "answer" and (key := record["refs"].get("url") or name) not in read:
             at = state.parse_time(record["at"]).astimezone()
             read[key] = (at, f'{key}, {at.isoformat(timespec="seconds")}: "{record["text"]}"')
+        if question and question["file"]:
+            asked[question["file"]] = question
+    own = {question["closed"]["answer"][:7] for question in asked.values() if question["closed"]["answer"]}
+    for file, question in asked.items():
+        card = limits.redrawn(Path(file).read_text())
+        at = state.parse_time(question["closed"]["at"]).astimezone()
+        read[file] = (at, f'the options his card "{card.title}" offered, numbered as it drew them: {"; ".join(limits.offered(card))}')
+        for match in settled.matched("\n".join([card.title, *card.options, *card.hints.values()]), cwd):
+            if match["id"] not in own and (answer := settled.shown(match["id"], cwd))["id"] not in read:
+                read[answer["id"]] = recorded(answer, f', recorded on the subject of "{card.title}"')
     return [line for _, line in sorted(read.values())]
+
+
+def recorded(answer: dict, about: str = "") -> tuple[datetime, str]:
+    """An answer of his as cc-notes keeps it, when he gave it and the line the judge reads: the question he was asked and his words above its notes."""
+    at = datetime.fromisoformat(answer["created_at"]).astimezone()
+    return at, f'{answer["id"][:7]}, {at.isoformat(timespec="seconds")}{about}, asked "{answer["title"]}": "{settled.his(answer["body"])}"'
+
+
+def drawn(data: dict, kind: str, name: str) -> dict | None:
+    """The question the drive asked him that this answer of his answered, by the cc-notes answer recorded for it or its card's permalink, the one a later question folded into it left out; None for an answer of his to no question of the drive's."""
+    return next(
+        (
+            question
+            for job in data["jobs"].values()
+            for question in job["questions"]
+            if (closed := question["closed"])
+            and closed["how"] == "answered"
+            and not question["replaced"]
+            and (closed["answer"] and closed["answer"][:7] == name[:7] if kind == "answer" else question["card"] and view.message_key(question["card"]) == view.message_key(name))
+        ),
+        None,
+    )
 
 
 def named(text: str) -> list[tuple[str, str]]:
