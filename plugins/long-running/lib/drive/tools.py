@@ -670,7 +670,7 @@ def hearer(data: dict, job_id: str) -> str | None:
             for builder_id in data["orders"][job["order"]]["jobs"]
             if (builder := data["jobs"][builder_id])["kind"] == "builder"
             and builder["state"] not in state.FINISHED_JOB_STATES
-            and builder["brief"]
+            and builder.get("brief")
             and (named := brief.RESEARCHED_BY.search(orca.brief_of(Path(builder["brief"]).read_text())))
             and named[1] == job_id
         ),

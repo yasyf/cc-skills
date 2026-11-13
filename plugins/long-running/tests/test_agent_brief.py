@@ -23,7 +23,7 @@ def test_a_design_job_starts_as_the_designer(demo: str, run: Run, monkeypatch: p
     monkeypatch.setattr("sys.stdin", io.StringIO(RESEARCH))
     run("job", "report", "j1", "-")
     run("job", "add", "design", "--order", "o1", "--goal", "design the copy")
-    prompt = "Researched: j1\nDrive: demo, order o1, job j2"
+    prompt = "Researched: j1\nDrive: demo, order o1, job j3"
     for call in (started("codex:codex-wrapper", prompt), started("long-running:builder", prompt, "fable")):
         assert agents.shaped(call) == call["tool_input"] | {"subagent_type": "long-running:designer"}
     assert agent_brief.deny_reason(started("long-running:designer", prompt, "fable")) is None
