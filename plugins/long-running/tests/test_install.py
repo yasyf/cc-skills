@@ -796,7 +796,7 @@ def test_an_install_near_its_deadline_waits_only_the_time_left(fake: Callable[..
     start_drive("demo", communicator="term_comm")
     git = fake(["unused"], set(), call_seconds=5)
     git.waits["term_comm"] = BUSY
-    assert install.main("long-running@skills", None, None, 80, None) == 0
+    assert install.main("long-running@skills", None, None, 85, None) == 0
     assert git.typed_into("term_comm") == [waited("term_comm", "10000"), sent("term_comm")]
     assert sorted(git.orca_timeouts) == [60, 70]
     assert "demo communicator: busy for 10s" in capsys.readouterr().out
