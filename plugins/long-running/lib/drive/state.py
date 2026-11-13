@@ -1919,16 +1919,17 @@ def title(role: str) -> str:
     return "meta session" if role == "meta" else role
 
 
-def held_elsewhere(data: dict, order_id: str, role: str | None) -> str | None:
-    """Why a session's role may not act on an order another session of the drive holds, naming the holder, its session and the handoff record that asks it for the step; an order from before owners is held by the first role to add a job to it."""
+def held_elsewhere(data: dict, order_id: str, session: str | None) -> str | None:
+    """Why a session may not act on an order another session of the drive holds, naming the holder, its session and the handoff record that asks it for the step; compared by holding lane rather than session role, as pr_held_elsewhere is, so the top coordinator and a sub-coordinator, both of role coordinator, are told apart; a session the drive does not bind, such as a Sprite lane's, is refused nothing, and an order from before owners is held by the first role to add a job to it."""
     order = data["orders"][order_id]
-    holder = order["owner"]
-    if role is None or holder in (None, role):
+    lane = holding_lane(data, order)
+    if session_lane(data, session) in (None, lane) or order["owner"] is None:
         return None
+    holder, held = holding_session(data, order)
     return (
-        f"{order_id} is the {title(holder)}'s order, session {holding_session(data, order)[1]}: only the {title(holder)} adds its jobs, starts its agents,"
-        f" checks its PRs and posts its reports; send the {title(holder)} the step as a handoff record on the drive's record tool instead,"
-        f' to "{holding_lane(data, order)}" and attrs {{"order": "{order_id}"}}'
+        f"{order_id} is {holder}'s order, session {held}: only {holder} adds its jobs, starts its agents,"
+        f" checks its PRs and posts its reports; send {holder} the step as a handoff record on the drive's record tool instead,"
+        f' to "{lane}" and attrs {{"order": "{order_id}"}}'
     )
 
 

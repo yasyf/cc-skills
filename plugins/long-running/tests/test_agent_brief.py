@@ -79,15 +79,15 @@ def test_a_ninth_builder_here_starts_on_a_sprite_at_once_and_only_one_whose_brie
 ) -> None:
     wrote = state.now() - timedelta(minutes=3)
     monkeypatch.setattr(watch, "last_write", lambda job, data: (wrote, None))
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "tidy the docs")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "tidy the docs", "--parts", *(f"part {number}" for number in range(1, 9)), "docs")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the card", "--due", "+2h", "--thread", "1.2")
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the watch", "--due", "+1h", "--thread", "1.3")
-    run("job", "add", "builder", "--order", "o3", "--goal", "fix the watch")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the watch", "--due", "+1h", "--thread", "1.3", "--parts", "here", "on a Sprite")
+    run("job", "add", "builder", "--order", "o3", "--part", "here", "--goal", "fix the watch")
     for number in range(1, 9):
-        run("job", "add", "builder", "--order", "o1", "--goal", f"build part {number}", "--agent", f"a{number}")
-    run("job", "add", "builder", "--order", "o1", "--goal", "tidy the docs")
+        run("job", "add", "builder", "--order", "o1", "--part", f"part {number}", "--goal", f"build part {number}", "--agent", f"a{number}")
+    run("job", "add", "builder", "--order", "o1", "--part", "docs", "--goal", "tidy the docs")
     run("job", "add", "builder", "--order", "o2", "--goal", "fix the card")
-    run("job", "add", "builder", "--order", "o3", "--goal", "fix the watch on a Sprite", "--remote")
+    run("job", "add", "builder", "--order", "o3", "--part", "on a Sprite", "--goal", "fix the watch on a Sprite", "--remote")
     with state.edit(demo) as data:
         asked = state.new_question(None, "Which store?", state.stamp(), card="https://acme.slack.com/archives/D123/p1794200000000100")
         data["jobs"]["j13"] = state.new_job("o1", "builder", "cut over agent_hosts", [], state.stamp()) | {"state": "waiting", "questions": [asked]}
@@ -141,10 +141,10 @@ def test_an_open_incidents_fix_builder_and_an_immediate_fix_start_here_at_once_w
     demo: str, run: Run, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(watch, "last_write", lambda job, data: (state.now(), None))
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "tidy the docs")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "tidy the docs", "--parts", *(f"part {number}" for number in range(1, 9)), "docs")
     for number in range(1, 9):
-        run("job", "add", "builder", "--order", "o1", "--goal", f"build part {number}", "--agent", f"a{number}")
-    run("job", "add", "builder", "--order", "o1", "--goal", "tidy the docs")
+        run("job", "add", "builder", "--order", "o1", "--part", f"part {number}", "--goal", f"build part {number}", "--agent", f"a{number}")
+    run("job", "add", "builder", "--order", "o1", "--part", "docs", "--goal", "tidy the docs")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix this asap", "--incident", "--parts", "fix", "first check")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the card is broken", "--parts", "the card", "immediate fix")
     order = "Order (his words): fix it\nServes: his order\nGoal: fix it\nDrive: demo, "
@@ -159,9 +159,9 @@ def test_a_monorepo_builder_over_this_macs_load_limit_starts_here_only_when_its_
 ) -> None:
     monkeypatch.setattr(place, "busy", lambda: 0.63)
     monkeypatch.setattr(place, "limit", lambda: 0.5)
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "prove the fixes")
-    assert run("job", "add", "builder", "--order", "o1", "--goal", "prove", "--repo", "Forge-AI/monorepo") == (0, "j1")
-    run("job", "add", "builder", "--order", "o1", "--goal", "tidy", "--repo", "yasyf/cc-skills")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "prove the fixes", "--parts", "prove", "tidy")
+    assert run("job", "add", "builder", "--order", "o1", "--part", "prove", "--goal", "prove", "--repo", "Forge-AI/monorepo") == (0, "j1")
+    run("job", "add", "builder", "--order", "o1", "--part", "tidy", "--goal", "tidy", "--repo", "yasyf/cc-skills")
 
     def start(job_id: str, lines: str) -> str | None:
         return agent_brief.deny_reason(started("long-running:builder", f"Order (his words): prove the fixes\nServes: his order\n{lines}\nDrive: demo, order o1, job {job_id}"))
