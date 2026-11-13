@@ -703,15 +703,19 @@ def put_on_sprite(workspace: str, folder: str, name: str, text: bytes) -> str:
     return said[1]
 
 
-def reply(drive: str, run: str, message_id: str, body: str) -> None:
-    """Answer a lane's question on its Run: Orca takes a coordinator's reply only on the one Run its terminal is bound to, which a launch or another reply moves."""
+def reply(drive: str, run: str, message_id: str, body: str, request: str | None = None) -> None:
+    """Answer a lane's question on its Run: Orca takes a coordinator's reply only on the one Run its terminal is bound to, which a launch or another reply moves; under a request id, a retry Orca already applied is replayed, never applied twice."""
     with state.binding(drive):
         home = drive_run(drive)
         try:
             call("run-use", "--id", run)
-            call("reply", "--id", message_id, "--run", run, "--body", body)
+            call("reply", "--id", message_id, "--run", run, "--body", body, *retried(request))
         finally:
             call("run-use", "--id", home)
+
+
+def retried(request: str | None) -> tuple[str, ...]:
+    return ("--retry-request", request) if request else ()
 
 
 def bound_command(drive: str, run: str, argv: list[str]) -> subprocess.CompletedProcess:
@@ -767,20 +771,25 @@ def completed(argv: list[str], command: subprocess.Popen) -> subprocess.Complete
     return subprocess.CompletedProcess(argv, command.returncode, stdout, stderr)
 
 
-def answer(drive: str, job: dict, text: str) -> str:
-    """Reply to the lane's open question, or send to its Dispatch when it asked nothing or Orca already holds another answer to that question, since the lane no longer waits on it."""
+def answer(drive: str, job: dict, text: str, request: str) -> str:
+    """Reply to the lane's open question, or send to its Dispatch when it asked nothing or Orca already holds another answer to that question, since the lane no longer waits on it, under the request id the text was held with, so a try Orca applied before its answer was lost is replayed; the send takes an id made from that one, since Orca refuses one id reused for another verb as request_mismatch."""
     if job.get("ask"):
         try:
-            reply(drive, job["run"], job["ask"], text)
+            reply(drive, job["run"], job["ask"], text, request)
         except OrcaError as error:
             if error.code != ANSWERED_ELSEWHERE:
                 raise
         else:
             return f"answered its question {job['ask']}"
-    return send(job, "From the coordinator", text)
+    return send(job, "From the coordinator", text, str(uuid.uuid5(uuid.UUID(request), "send")))
 
 
-def send(job: dict, subject: str, text: str) -> str:
+def send(job: dict, subject: str, text: str, request: str | None = None) -> str:
     """Send the text to the lane's Dispatch as a message, which neither answers nor clears a question it asked."""
-    call("send", "--to", f"dispatch:{job['dispatch']}", "--run", job["run"], "--subject", subject, "--body", text)
+    call("send", "--to", f"dispatch:{job['dispatch']}", "--run", job["run"], "--subject", subject, "--body", text, *retried(request))
     return f"sent to dispatch {job['dispatch']}"
+
+
+def takes_messages(worker: dict) -> bool:
+    """Whether a worker-show's worker is alive and unfinished, so a message to its Dispatch reaches it."""
+    return worker["worker"]["state"] not in FINISHED and worker["projection"]["liveness"]["verdict"] == "live"

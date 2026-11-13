@@ -85,6 +85,7 @@ class Watcher:
     dashboard_down: bool = False
     releasing: dict[str, subprocess.Popen] = field(default_factory=dict)
     released: set[str] = field(default_factory=set)
+    sending: dict[str, int] = field(default_factory=dict)
 
     @property
     def lane(self) -> str:
@@ -1066,6 +1067,11 @@ def undelivered_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def unreached(job_id: str, answer: dict) -> str:
+    if answer.get("request"):
+        return (
+            f'the message "{cut(answer["words"], 80)}" a resume held at {when(answer["at"])} has not reached {job_id}; the watch sends it once Orca reads its lane alive,'
+            f" its next worker gets it in its handoff, and drive job resume {job_id} delivers it now"
+        )
     return f'his answer {answer["seq"]} "{cut(answer["words"], 80)}" of {when(answer["at"])} has not reached {job_id}; drive job resume {job_id} "<his answer>" carries it'
 
 
@@ -1439,6 +1445,8 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 lane |= orca.run_of(worker)
             if any(job.get(field) != value for field, value in lane.items()):
                 found[job_id] = lane
+            if state.held(job) and orca.takes_messages(worker) and not ((pid := watcher.sending.get(job_id)) and state.alive(pid)):
+                watcher.sending[job_id] = send_held(watcher.name, job_id)
             if why := orca.death(worker):
                 deaths[job_id] = (job["dispatch"], why)
             elif running:
@@ -1556,6 +1564,11 @@ def death_lines(name: str, deaths: dict[str, tuple[str, str]], moment: datetime)
 def relaunch(name: str, job_id: str) -> int:
     """Run `drive job resume` on a running job whose lane died as its own process, outliving the pass that started it, its output appended to the drive's relaunches log."""
     return state.detach(name, ["job", "resume", job_id, CARRY_ON], RELAUNCHES_LOG)
+
+
+def send_held(name: str, job_id: str) -> int:
+    """Run `drive job resume` with no text on a job holding texts a resume could not deliver, once Orca reads its worker alive, as its own process, so the pass never waits on Orca or the job's lock; each goes under the request id it was held with, so Orca never applies one twice. Its output is appended to the drive's relaunches log."""
+    return state.detach(name, ["job", "resume", job_id], RELAUNCHES_LOG)
 
 
 def end_lane(name: str, job_id: str) -> int:

@@ -1061,6 +1061,11 @@ def lane_died(job: dict, dispatch: str, why: str, moment: datetime) -> bool:
     return True
 
 
+def held(job: dict) -> list[dict]:
+    """The texts drive job resume keeps on the job's undelivered list until Orca takes them, oldest first, each with the Orca request id every try sends it under."""
+    return [kept for kept in job["undelivered"] if kept.get("request")]
+
+
 def lane_death(job: dict) -> dict | None:
     """The recorded death of the job's current remote lane, which takes no message until drive job resume relaunches it; None while it lives or the job has none."""
     return next((death for death in job.get("deaths", []) if death["dispatch"] == job.get("dispatch")), None)

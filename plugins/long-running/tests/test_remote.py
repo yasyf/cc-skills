@@ -7,6 +7,7 @@ import threading
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
+from unittest.mock import ANY
 
 import pytest
 from conftest import LIVE_WORKER, Drawing, cloned, git_in, staged
@@ -332,7 +333,7 @@ def test_job_set_agent_records_the_run_task_terminal_and_lane_orca_shows_for_the
     sent = []
     monkeypatch.setattr(orca, "call", lambda *args: sent.append(args) or {})
     assert run("job", "resume", "j1", "PR checks failed") == (0, f"j1: sent to dispatch {SPRITE_DISPATCH}")
-    assert sent == [("send", "--to", f"dispatch:{SPRITE_DISPATCH}", "--run", FRESH_RUN, "--subject", "From the coordinator", "--body", "PR checks failed")]
+    assert sent == [("send", "--to", f"dispatch:{SPRITE_DISPATCH}", "--run", FRESH_RUN, "--subject", "From the coordinator", "--body", "PR checks failed", "--retry-request", ANY)]
 
 
 def test_launch_composes_the_vm_brief_and_records_the_lane(
@@ -865,19 +866,9 @@ def test_resume_answers_the_open_question_then_sends_to_the_dispatch(
     assert run("job", "resume", "j1", "PR checks failed")[0] == 0
     assert calls == [
         ("run-use", "--id", RUN),
-        ("reply", "--id", "msg_q1", "--run", RUN, "--body", "TAP Approve"),
+        ("reply", "--id", "msg_q1", "--run", RUN, "--body", "TAP Approve", "--retry-request", ANY),
         ("run-use", "--id", DRIVE_RUN),
-        (
-            "send",
-            "--to",
-            f"dispatch:{DISPATCH}",
-            "--run",
-            RUN,
-            "--subject",
-            "From the coordinator",
-            "--body",
-            "PR checks failed",
-        ),
+        ("send", "--to", f"dispatch:{DISPATCH}", "--run", RUN, "--subject", "From the coordinator", "--body", "PR checks failed", "--retry-request", ANY),
     ]
     job = state.load(remote)["jobs"]["j1"]
     assert (job["ask"], job["state"]) == (None, "running")
@@ -893,10 +884,11 @@ def test_resume_sends_to_the_dispatch_when_orca_already_holds_another_answer_to_
     assert run("job", "resume", "j1", "PR checks failed") == (0, f"j1: sent to dispatch {DISPATCH}")
     assert calls == [
         ("run-use", "--id", RUN),
-        ("reply", "--id", "msg_q1", "--run", RUN, "--body", "PR checks failed"),
+        ("reply", "--id", "msg_q1", "--run", RUN, "--body", "PR checks failed", "--retry-request", ANY),
         ("run-use", "--id", DRIVE_RUN),
-        ("send", "--to", f"dispatch:{DISPATCH}", "--run", RUN, "--subject", "From the coordinator", "--body", "PR checks failed"),
+        ("send", "--to", f"dispatch:{DISPATCH}", "--run", RUN, "--subject", "From the coordinator", "--body", "PR checks failed", "--retry-request", ANY),
     ]
+    assert calls[1][-1] != calls[3][-1]
     job = state.load(remote)["jobs"]["j1"]
     assert (job["ask"], job["state"]) == (None, "running")
 
@@ -914,7 +906,7 @@ def test_resume_answers_an_open_question_naming_logs_with_those_logs_ahead_of_it
     assert code == 0
     assert "with LOG https://buildkite.com/forge/test/builds/1 read ahead of your text" in out
     assert asked == [("LOG https://buildkite.com/forge/test/builds/1", tmp_path, remote, "j1")]
-    assert ("reply", "--id", "msg_q1", "--run", RUN, "--body", "FAIL hold_test.go:41\n\nThe field facts: none") in calls
+    assert ("reply", "--id", "msg_q1", "--run", RUN, "--body", "FAIL hold_test.go:41\n\nThe field facts: none", "--retry-request", ANY) in calls
 
 
 def dead(verdict: str = "exited") -> dict:
@@ -1531,46 +1523,50 @@ def test_a_resume_arriving_while_another_starts_the_jobs_next_worker_waits_for_i
     assert out[0].startswith("j1: the message went to the job's next worker, relaunched on Sprite workspace-2 as dispatch dispatch-2")
     assert out[1] == "j1: sent to dispatch dispatch-2"
     assert len(launches) == 1 and orca.brief_of(launches[0]).endswith("which you act on now:\n\nPR #12: checks failed")
-    assert sent == [("send", "--to", "dispatch:dispatch-2", "--run", FRESH_RUN, "--subject", "From the coordinator", "--body", "TAP Approve #12")]
+    assert sent == [("send", "--to", "dispatch:dispatch-2", "--run", FRESH_RUN, "--subject", "From the coordinator", "--body", "TAP Approve #12", "--retry-request", ANY)]
 
 
-@pytest.mark.parametrize(
-    ("shown", "refusal"),
-    [
-        (
-            None,
-            "orca orchestration send: dispatch_inactive: Dispatch ctx_lane0001 finished on pool-one, which cannot take "
-            "follow-ups for finished workers yet.",
-        ),
-        (
-            FINISHED_WORKER,
-            "orca orchestration worker-start: terminal_busy: The terminal is running another worker.",
-        ),
-    ],
-)
-def test_a_resume_orca_refuses_exits_2_with_the_refusal_verbatim(
-    remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], shown: dict | None, refusal: str
+def refused(monkeypatch: pytest.MonkeyPatch, refusal: str) -> None:
+    verb, code, message = refusal.split(": ", 2)
+    done = subprocess.CompletedProcess([], 1, stdout=json.dumps({"ok": False, "error": {"code": code, "message": message}}), stderr="")
+    monkeypatch.setattr(orca.subprocess, "run", lambda argv, **kwargs: done)
+    monkeypatch.setattr(orca, "bound_command", lambda drive, run_id, argv: done)
+
+
+def test_a_relaunch_orca_refuses_exits_2_with_the_refusal_verbatim_and_keeps_the_text_held(
+    remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     first = tmp_path / "first.md"
     first.write_text(orca.vm_brief(remote, "j1", "Order (his words): prove it", None))
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(brief=str(first), terminal="term_lane", workspace="pool-one", environment="pool-one")
-    verb, code, message = refusal.split(": ", 2)
-    reply = {"ok": False, "error": {"code": code, "message": message}}
-    if shown:
-        monkeypatch.setattr(orca, "worker", lambda dispatch: shown)
-    done = subprocess.CompletedProcess([], 1, stdout=json.dumps(reply), stderr="")
-    monkeypatch.setattr(orca.subprocess, "run", lambda argv, **kwargs: done)
-    monkeypatch.setattr(orca, "bound_command", lambda drive, run_id, argv: done)
+    refusal = "orca orchestration worker-start: terminal_busy: The terminal is running another worker."
+    refused(monkeypatch, refusal)
+    monkeypatch.setattr(orca, "worker", lambda dispatch: FINISHED_WORKER)
     monkeypatch.setattr(orca, "place_tools", lambda workspace: None)
     monkeypatch.setattr(orca, "place_brief", lambda workspace, lane, text: f"/home/sprite/{lane}.md")
     assert cli.main(["job", "resume", "j1", "the review"]) == 2
     assert capsys.readouterr().err == f"drive: {refusal}\n"
-    assert state.load(remote)["jobs"]["j1"]["dispatch"] == DISPATCH
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["dispatch"], [kept["words"] for kept in state.held(job)]) == (DISPATCH, ["the review"])
+
+
+def test_a_send_orca_refuses_keeps_the_text_held_under_its_request_id(run: Run, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    refusal = "orca orchestration send: dispatch_inactive: Dispatch ctx_lane0001 finished on pool-one, which cannot take follow-ups for finished workers yet."
+    refused(monkeypatch, refusal)
+    monkeypatch.setattr(orca, "place_tools", lambda workspace: None)
+    code, out = run("job", "resume", "j1", "the review")
+    [kept] = state.held(state.load(remote)["jobs"]["j1"])
+    assert (code, out, kept["words"]) == (
+        0,
+        f"j1: held, not sent yet: {refusal}; the job keeps its text under the Orca request id each was held with, the watch sends them"
+        " once Orca reads its lane on its Sprite alive, and its next worker gets them in its handoff",
+        "the review",
+    )
 
 
 @pytest.mark.parametrize("unknown", ["remote_runtime_unavailable", "unverifiable"])
-def test_resume_sends_nothing_while_orca_cannot_tell_whether_the_lane_lives(
+def test_resume_holds_the_text_and_sends_nothing_while_orca_cannot_tell_whether_the_lane_lives(
     run: Run, remote: str, monkeypatch: pytest.MonkeyPatch, unknown: str
 ) -> None:
     sent = []
@@ -1583,8 +1579,115 @@ def test_resume_sends_nothing_while_orca_cannot_tell_whether_the_lane_lives(
 
     monkeypatch.setattr(orca, "worker", show)
     monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a lane Orca cannot see is never relaunched"))
-    assert (run("job", "resume", "j1", "PR checks failed")[0], sent) == (2, [])
-    assert "deaths" not in state.load(remote)["jobs"]["j1"]
+    code, out = run("job", "resume", "j1", "PR checks failed")
+    assert (code, sent, out.startswith("j1: held, not sent yet: ")) == (0, [], True)
+    job = state.load(remote)["jobs"]["j1"]
+    assert ("deaths" in job, [kept["words"] for kept in state.held(job)]) == (False, ["PR checks failed"])
+
+
+def test_a_held_text_goes_once_under_its_request_id_when_a_bare_resume_finds_the_lane_alive(
+    run: Run, remote: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sent = []
+    monkeypatch.setattr(orca, "call", lambda *args: sent.append(args) or {})
+
+    def down(dispatch: str) -> dict:
+        raise orca.OrcaError("orca orchestration worker-show: remote_runtime_unavailable: the host did not answer")
+
+    monkeypatch.setattr(orca, "worker", down)
+    with state.edit(remote) as data:
+        data["jobs"]["j1"]["undelivered"] = [{"seq": "#61", "words": "ship it", "at": state.stamp(), "said": None}]
+    assert run("job", "resume", "j1", "ship it, he said")[0] == 0
+    assert run("job", "resume", "j1", "ship it, he said")[0] == 0
+    [kept] = state.held(state.load(remote)["jobs"]["j1"])
+    monkeypatch.setattr(orca, "worker", lambda dispatch: LIVE_WORKER)
+    assert run("job", "resume", "j1") == (0, f"j1: sent to dispatch {DISPATCH}")
+    assert run("job", "resume", "j1") == (0, "j1 holds no message to send")
+    assert sent == [
+        ("send", "--to", f"dispatch:{DISPATCH}", "--run", RUN, "--subject", "From the coordinator", "--body", "ship it, he said", "--retry-request", kept["request"])
+    ]
+    assert state.load(remote)["jobs"]["j1"]["undelivered"] == []
+
+
+def test_a_relaunch_carries_each_held_text_in_its_handoff_ahead_of_its_own(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cloned(tmp_path, remote)
+    first = tmp_path / "first.md"
+    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(brief=str(first), workspace="sprite-old")
+        data["jobs"]["j1"]["undelivered"] = [{"seq": None, "words": "TAP Approve #12", "at": state.stamp(), "said": None, "request": "req-held"}]
+    launched = []
+    monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"a dead lane is sent nothing: {args}"))
+    monkeypatch.setattr(orca, "new_run", lambda objective: FRESH_RUN)
+    monkeypatch.setattr(orca, "worker", lambda dispatch: dead())
+    monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: None)
+    monkeypatch.setattr(
+        orca,
+        "launch",
+        lambda drive, lane, brief, checkout, run_id, route, workspace: launched.append(brief.read_text())
+        or {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane")},
+    )
+    assert run("job", "resume", "j1", watch.CARRY_ON)[0] == 0
+    [brief] = launched
+    assert orca.brief_of(brief).endswith(f"which you act on now:\n\nTAP Approve #12\n\n{watch.CARRY_ON}")
+    assert state.load(remote)["jobs"]["j1"]["undelivered"] == []
+
+
+def test_a_pr_wake_to_a_dead_lane_relaunches_its_job_with_the_line_in_its_handoff(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cloned(tmp_path, remote)
+    first = tmp_path / "first.md"
+    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
+    url = "https://github.com/Forge-AI/monorepo/pull/7"
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(brief=str(first), workspace="sprite-old", prs=[url])
+        data["prs"][state.pr_key(url)] = state.new_pr(url, "j1", "o1")
+    launched = []
+    monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"a dead lane is sent nothing: {args}"))
+    monkeypatch.setattr(orca, "new_run", lambda objective: FRESH_RUN)
+    monkeypatch.setattr(orca, "worker", lambda dispatch: dead())
+    monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: None)
+    monkeypatch.setattr(
+        orca,
+        "launch",
+        lambda drive, lane, brief, checkout, run_id, route, workspace: launched.append(brief.read_text())
+        or {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane")},
+    )
+    code, out = run("pr", "wake", url, "--text", "PR #7 is red: fix it")
+    assert (code, out.startswith("j1: the message went to the job's next worker, relaunched on Sprite workspace-2")) == (0, True)
+    [brief] = launched
+    assert orca.brief_of(brief).endswith("which you act on now:\n\nPR #7 is red: fix it")
+
+
+def test_the_watch_sends_a_jobs_held_texts_once_orca_reads_its_lane_alive(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    deliver(monkeypatch)
+    senders = []
+    monkeypatch.setattr(watch, "send_held", lambda name, job_id: senders.append(job_id) or os.getpid())
+    with state.edit(remote) as data:
+        data["jobs"]["j1"]["undelivered"] = [{"seq": None, "words": "TAP Approve #12", "at": state.stamp(T0), "said": None, "request": "req-held"}]
+
+    def down(dispatch: str) -> dict:
+        raise orca.OrcaError("orca orchestration worker-show: remote_runtime_unavailable: the host did not answer")
+
+    monkeypatch.setattr(orca, "worker", down)
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    watch.run_pass(watching, T0)
+    assert senders == []
+    monkeypatch.setattr(orca, "worker", lambda dispatch: LIVE_WORKER)
+    watch.run_pass(watching, T0 + timedelta(minutes=1))
+    watch.run_pass(watching, T0 + timedelta(minutes=2))
+    assert senders == ["j1"]
+
+
+def test_a_held_text_no_send_took_is_said_as_the_watchs_to_send(remote: str) -> None:
+    held = {"seq": None, "words": "TAP Approve #12", "at": state.stamp(T0), "said": None, "request": "req-held"}
+    assert watch.unreached("j1", held) == (
+        f'the message "TAP Approve #12" a resume held at {render.when(held["at"])} has not reached j1; the watch sends it once Orca reads its lane alive,'
+        " its next worker gets it in its handoff, and drive job resume j1 delivers it now"
+    )
 
 
 def test_the_watch_ends_a_waiting_jobs_dead_lane_on_a_sprite_once(remote: str, monkeypatch: pytest.MonkeyPatch, ended_lanes: list[str]) -> None:
