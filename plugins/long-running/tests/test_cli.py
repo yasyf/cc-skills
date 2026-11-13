@@ -6925,6 +6925,54 @@ def test_drive_manual_prints_only_the_rows_a_word_names(run: Run) -> None:
     assert run("manual", "coordinator", "nothing-names-this")[0] == 2
 
 
+def test_drive_manual_prints_the_bullet_carrying_words_no_row_names(run: Run) -> None:
+    code, out = run("manual", "incidents", "hand repair")
+    assert code == 0
+    assert "never under `drive break-glass` from this Mac" in " ".join(out.split())
+    assert len(out) < len((cli.PAGES / "incidents.md").read_text()) / 10
+
+
+def test_page_parts_prints_each_part_carrying_the_words_once() -> None:
+    page = "\n".join(
+        [
+            "# Page",
+            "",
+            "## Clocks",
+            "",
+            "- A bullet naming a hand",
+            "  repair across a wrap.",
+            "- A bullet with no match.",
+            "  - A nested bullet on a hand repair.",
+            "",
+            "### Deeper",
+            "",
+            "Text under the deeper heading.",
+            "",
+            "## Hand repair",
+            "",
+            "```sh",
+            "# not a heading",
+            "```",
+            "",
+            "## Later",
+            "",
+            "| row | a hand repair in its second cell |",
+            "",
+            "A paragraph about a hand",
+            "repair.",
+        ]
+    )
+    assert cli.page_parts(page, "HAND  repair") == [
+        "- A bullet naming a hand\n  repair across a wrap.",
+        "  - A nested bullet on a hand repair.",
+        "## Hand repair\n\n```sh\n# not a heading\n```",
+        "| row | a hand repair in its second cell |",
+        "A paragraph about a hand\nrepair.",
+    ]
+    assert cli.page_parts(page, "clocks") == ["\n".join(page.splitlines()[2:12])]
+    assert cli.page_parts(page, "absent words") == []
+
+
 def test_drive_manual_with_no_page_lists_the_pages(run: Run) -> None:
     pages = sorted(path.stem for path in cli.PAGES.glob("*.md"))
     assert run("manual") == (0, "\n".join(["drive manual <page> prints one of these pages:", *(f"- {page}" for page in pages)]))

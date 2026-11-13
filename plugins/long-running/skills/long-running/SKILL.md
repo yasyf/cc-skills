@@ -56,7 +56,7 @@ This file holds the fundamental rules; one firing on one input is a tested refus
 
 ## Pages
 
-Read a page, or its rows naming `<row>`, with `drive manual <page> [<row>]`, never `--help` or Read.
+Read a page, or its parts naming `<row>`, with `drive manual <page> [<row>]`, never `--help` or Read.
 
 | Page | Read when |
 |---|---|
