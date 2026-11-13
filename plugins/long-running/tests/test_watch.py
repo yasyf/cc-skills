@@ -6161,8 +6161,8 @@ def test_a_merged_pr_settles_its_own_card_only_once_every_other_card_carrying_it
     assert (asked, shown) == ([(state.pr_url(other), f"{KEY} merged, {other} merged"), (state.pr_url(KEY), f"{KEY} merged")], [])
 
 
-def test_a_pr_github_closes_and_reopens_settles_his_card_at_the_close_read_and_is_read_while_closed_so_its_reopen_redraws_that_card_in_place(
-    demo: str, monkeypatch: pytest.MonkeyPatch, redraws: Redraws
+def test_a_pr_github_closes_and_reopens_settles_his_card_at_the_close_read_and_is_read_while_closed_so_its_reopen_draws_that_card_again(
+    demo: str, monkeypatch: pytest.MonkeyPatch, redraws: Redraws, draws: Draws
 ) -> None:
     url = state.pr_url(KEY)
     with state.edit(demo) as data:
@@ -6184,14 +6184,14 @@ def test_a_pr_github_closes_and_reopens_settles_his_card_at_the_close_read_and_i
     reopened = watch.run_pass(watching, T0 + timedelta(minutes=3))
     data = state.load(demo)
     assert (reopened, watch.wakes(reopened[0], data, NO_CARDS)) == ([f"PR {KEY}: open [o1 j1]"], False)
-    assert (redraws.asked, data["prs"][KEY]["state"], data["prs"][KEY]["stage"]["name"]) == ([url, url], "open", "uncarded")
+    assert (redraws.asked, draws.keys, data["prs"][KEY]["state"], data["prs"][KEY]["stage"]["name"]) == ([url], [[KEY]], "open", "uncarded")
     assert calls == [[KEY]] * 4
     shown[:], shut[:] = [pr_card(KEY)], []
     watch.run_pass(watching, T0 + timedelta(minutes=4))
     assert state.load(demo)["prs"][KEY]["stage"]["name"] == "card"
 
 
-def test_his_card_cc_slack_keeps_closed_in_place_on_a_pr_that_asks_his_tap_again_reads_uncarded_and_is_redrawn_in_place_never_drawn_anew(
+def test_his_card_cc_slack_keeps_closed_in_place_on_a_pr_that_asks_his_tap_again_reads_uncarded_and_is_drawn_once_for_cc_slack_to_redraw_in_place(
     demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws, redraws: Redraws
 ) -> None:
     url = state.pr_url(KEY)
@@ -6204,13 +6204,13 @@ def test_his_card_cc_slack_keeps_closed_in_place_on_a_pr_that_asks_his_tap_again
     watching = watcher(demo)
     watch.run_pass(watching, T0)
     data = state.load(demo)
-    assert (data["prs"][KEY]["stage"]["name"], redraws.asked, draws.keys) == ("uncarded", [url], [])
+    assert (data["prs"][KEY]["stage"]["name"], redraws.asked, draws.keys) == ("uncarded", [], [[KEY]])
     assert data["prs"][KEY]["stage"]["why"] == "his card on it is closed, since Approve came off it while it waited on no tap, so the watch redraws it in place"
     assert view.wait_words(data, KEY, shown) == f"{view.pr_link(data['prs'][KEY])} lands"
     shown.update(closed=[], pr_cards=[pr_card(KEY)])
     watch.run_pass(watching, T0 + timedelta(minutes=1))
     data = state.load(demo)
-    assert (data["prs"][KEY]["stage"]["name"], draws.keys) == ("card", [])
+    assert (data["prs"][KEY]["stage"]["name"], draws.keys) == ("card", [[KEY]])
     assert view.wait_words(data, KEY, shown) == f"{view.pr_link(data['prs'][KEY])} lands, which waits on your Approve on {view.link('its card', CARD)}"
 
 

@@ -317,7 +317,7 @@ def lead_words(entry: dict) -> str:
 
 
 def render(pr: dict, entry: dict, shown: tuple[str, ...] = (), held: tuple[str, ...] = (), undrawn: tuple[str, ...] = (), charts: int = limits.CHARTS) -> dict:
-    """The cc-slack PR card for a `gh pr view` payload, the drive's entry for that PR, its drawn Show me pictures, what each of its waits that holds waits for, in his card's words, why each Show me picture left off it does not draw, and how many ```chart fences its Show me may still draw on the card. It opens with the PR's lead, its headline alone as the title and its why, what and downstream as the body above the PR's own sections; a PR kept with no lead is titled from its own title as before."""
+    """The cc-slack PR card for a `gh pr view` payload, the drive's entry for that PR, its drawn Show me pictures, what each of its waits that holds waits for, in his card's words, why each Show me picture left off it does not draw, and how many ```chart fences its Show me may still draw on the card. It opens with the PR's lead, its headline alone as the title and its why, what and downstream as the body above the PR's own sections; a PR kept with no lead is titled from its own title as before. A flake fix asking his tap says under its body that it fixes a flaking test at its cause, by his ruling FLAKE_RULING, its words quoted."""
     kind, plain = kind_and_title(pr["title"])
     body = body_of(pr)
     found = {heading: without_html(text) for heading, text in sections(body).items()}
@@ -351,6 +351,8 @@ def render(pr: dict, entry: dict, shown: tuple[str, ...] = (), held: tuple[str, 
             "recommended": "Approve",
             "waits": merge_waits(pr["url"]),
         }
+        if entry.get("exempt") == state.FLAKE_FIX:
+            card["body"] = "\n\n".join(filter(None, [card.get("body"), f'Fixes a flaking test at its cause, by your ruling "{state.FLAKE_WORDS}"']))
     else:
         card["status"] = "done" if pr["state"] == "MERGED" else "info"
     if not row["lands"]:

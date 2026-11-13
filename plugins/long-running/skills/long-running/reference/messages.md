@@ -381,8 +381,8 @@ When it is answered, replaced or redone:
 
 **A PR card.**
 
-- Nobody writes it: `drive pr add` draws it at his DM root the moment it registers a PR waiting on
-  his tap, and the watch draws it on its next read for a PR still `uncarded`, whatever its checks,
+- Nobody writes it: `drive pr add` draws it the moment it registers a PR waiting on
+  his tap, and the watch draws it on its next read for a PR that enters `uncarded`, whatever its checks,
   review or check against his words say, since each is a line on it. Its draws and `drive card` group PRs
   by one rule, `state.card_unit`: one card per stack his Approve lands, a native GitHub stack or PRs
   each on the one below's head branch, and for PRs in none, one per repository and order they serve,
@@ -393,23 +393,26 @@ When it is answered, replaced or redone:
   for a PR that
   carries out an order of his whose words ask for it, or a `Forge-AI/*` drive tooling fix no exempt
   class covers, which serves its own order by [Scope](scope.md).
-- The drive's own draw posts the card at his DM root, in no order's thread, under one line written
-  from its PRs' titles with no link, so Slack draws no other card: `Waits on your Approve: <what
-  each PR does>`. While its PRs wait on him and fix a bug hurting someone now, the watch asks again
-  every 30 minutes, once per card, under `Asking again, since it fixes a reported bug: <what each PR
-  does>`, or `an open incident`. A flake fix's line adds that it fixes a flaking test at its cause,
-  quoting his ruling. Before it posts, `cc-slack check-post` reads the line, and Jev judges anything
-  it finds by the plain-words rule in one call. The order's thread hears one line when the PR merges. A card drawn through `say` carries a
+- A PR has one card. The drive's own draw sends cc-slack the PRs with no line: cc-slack redraws
+  their card where it sits, offering Approve again when the drive still asks it, or first posts it
+  in his DM's thread of the first order they carry out, at his DM root when they carry out none, and
+  posts nothing else. While its PRs wait on him and fix a bug hurting someone now, the watch draws
+  it again every 30 minutes, once per card, with one line in that thread, else the card's own, with
+  no link, so Slack draws no other card: `Asking again, since it fixes a reported bug: <what each PR
+  does>`, or `an open incident`. Before it posts, `cc-slack check-post` reads the line, and Jev
+  judges anything it finds by the plain-words rule in one call. A flake fix's card says under its
+  body that it fixes a flaking test at its cause, quoting his ruling. The order's thread hears one line when the PR merges. A card drawn through `say` carries a
   line above it quoting that order: his words, or the tooling order's "Drive tooling: …" words. The say hook finds a PR card whose PR serves a drive tooling order while
   its text leaves out that order's words, naming them, for Jev to judge. Those words pass
   `cc-slack check-post`, which `drive order add` and `drive order set <o> --words` run on them. A
   port never gets one: he reads "port of #N landed" in its order's thread once it lands, and so for
   every class that lands with no tap.
 - `say(tap_prs=[<each url or owner/repo#number, bottom first>], text=<line>)` makes cc-slack draw
-  one card at his DM root for the stack those PRs form (`drive card`), with Approve and Hold while it
-  waits on him. The drive posts the line in the thread of each open order those PRs carry out, the
-  one each serves, its own and each its job carries, in his DM, and cc-slack puts the card's
-  permalink under it there, so whichever thread he reads carries its buttons; with none, the line
+  one card for the stack those PRs form (`drive card`), with Approve and Hold while it waits on him,
+  in the first thread the line goes in when it has none yet, else redrawn where it sits. The drive
+  posts the line in the thread of each open order those PRs carry out, the one each serves, its own
+  and each its job carries, in his DM, and cc-slack puts the card's permalink under it in each
+  other thread, so whichever thread he reads carries its buttons; with none, the line
   goes at his DM root. An order whose thread is outside his DM, such as an alert's, gets the line with
   the card's link through `cc-slack reply`, so the call names that thread with `channel_id` and
   `thread_ts`, the one place cc-slack's Slack permission hook judges it for, and is refused without

@@ -43,10 +43,11 @@ def posts(demo: str, monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, ...]]:
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "https://acme.slack.com/", "questions": [question_card(CARD_URL, QUESTION, WAITS)], "pr_cards": [], "closed": []})
 
     def cc_slack(*argv: str) -> dict:
-        if argv[0] == "dm-status" and not {"--", "--card", "--file"} & set(argv):
+        if argv[0] == "dm-status" and not {"--", "--card", "--file", "--tap-pr"} & set(argv):
             raise slack.SlackError("dm-status needs a card, text, or files")
         sent.append(argv)
-        return {"permalink": POSTED, "thread_ts": "1794300000.000900"}
+        reply = {"permalink": POSTED, "thread_ts": "1794300000.000900"}
+        return reply | {"card_permalink": POSTED} if argv[0] == "dm-status" and not {"--", "--card", "--file"} & set(argv) else reply
 
     monkeypatch.setattr(slack, "cc_slack", cc_slack)
     with state.edit(demo) as data:
@@ -362,7 +363,7 @@ def test_a_stack_card_names_each_pr_by_its_url_and_the_dashboard_keeps_the_stack
     assert said(demo)[0]["prs"] == ["yasyf/cc-skills#7"]
 
 
-def test_the_drives_own_draw_of_his_card_goes_at_his_dm_root_under_a_line_saying_it_waits_on_his_approve_and_what_its_prs_do(
+def test_the_drives_own_draw_of_his_card_goes_in_its_orders_thread_with_no_line_over_it(
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, checked: Checked
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "show a run's history", "--thread", "1794200000.000100")
@@ -375,9 +376,8 @@ def test_the_drives_own_draw_of_his_card_goes_at_his_dm_root_under_a_line_saying
     rows = [{"title": "the run page shows its history"}, {"title": "the watch draws the PR card"}]
     monkeypatch.setattr("drive.card.cards", lambda asked: {"cards": [{"repo": "yasyf/cc-skills", "number": 7, "card": {"title": "New: approve 2 PRs?", "prs": rows}}], "skipped": []})
     assert DRAW(demo, ["yasyf/cc-skills#7", "yasyf/cc-skills#8"]) == POSTED
-    line = "Waits on your Approve: the run page shows its history; the watch draws the PR card"
-    assert posts == [("dm-status", "--agent", "claude", "--drive", "demo", "--tap-pr", PR_URL, "--tap-pr", tooling, "--", line)]
-    assert (said(demo)[0]["text"], checked.texts[-1]) == (line, line)
+    assert posts == [("dm-status", "--agent", "claude", "--drive", "demo", "--thread", "1794200000.000100", "--tap-pr", PR_URL, "--tap-pr", tooling)]
+    assert (said(demo)[0]["text"], checked.texts) == ("the run page shows its history; the watch draws the PR card", [])
 
 
 def test_the_watchs_ask_again_on_a_stack_card_says_why_it_asks_where_it_posted_a_carries_out_line_quoting_another_order(
@@ -400,7 +400,8 @@ def test_the_watchs_ask_again_on_a_stack_card_says_why_it_asks_where_it_posted_a
     monkeypatch.setattr("drive.card.cards", lambda asked: {"cards": [{"repo": "yasyf/cc-skills", "number": 7, "card": {"title": "New: approve 3 PRs?", "prs": rows}}], "skipped": []})
     assert DRAW(demo, stack, again=True) == POSTED
     line = "Asking again, since it fixes a reported bug: only the root agent has tools that ask the operator; every other agent mails the root; the root asks for each mail it gets"
-    assert posts == [("dm-status", "--agent", "claude", "--drive", "demo", *(flag for key in stack for flag in ("--tap-pr", state.pr_url(key))), "--", line)]
+    drawn = ("dm-status", "--agent", "claude", "--drive", "demo", "--thread", "1794200000.000100", *(flag for key in stack for flag in ("--tap-pr", state.pr_url(key))))
+    assert posts == [drawn, (*drawn, "--", line)]
     assert said(demo)[0]["text"] == line
 
 
@@ -412,13 +413,15 @@ def test_a_line_over_his_card_that_check_post_flags_and_jev_reads_as_shorthand_p
     monkeypatch.setattr("drive.card.cards", lambda asked: {"cards": [{"repo": "yasyf/cc-skills", "number": 7, "card": {"title": "Fix: approve the desk?", "prs": [{"title": "the desk sheds j12"}]}}], "skipped": []})
     checked.findings = ["1:28 drive-term 'desk': name the role by what it does"]
     jev.picks(talk.BREAKS)
-    with pytest.raises(DriveError, match="nothing was posted: the line over his card breaks the plain-words rule"):
-        DRAW(demo, ["yasyf/cc-skills#7"])
+    line = "Asking again, since it fixes a reported bug: the desk sheds j12"
+    with pytest.raises(DriveError, match="nothing was posted: the line asking his tap again breaks the plain-words rule"):
+        DRAW(demo, ["yasyf/cc-skills#7"], again=True)
     assert (posts, said(demo)) == ([], [])
-    assert jev.asked[-1]["state"] == {"line": "Waits on your Approve: the desk sheds j12", "findings": checked.findings}
+    assert jev.asked[-1]["state"] == {"line": line, "findings": checked.findings}
     jev.answer = None
-    assert DRAW(demo, ["yasyf/cc-skills#7"]) == POSTED
-    assert posts == [("dm-status", "--agent", "claude", "--drive", "demo", "--tap-pr", PR_URL, "--", "Waits on your Approve: the desk sheds j12")]
+    assert DRAW(demo, ["yasyf/cc-skills#7"], again=True) == POSTED
+    drawn = ("dm-status", "--agent", "claude", "--drive", "demo", "--tap-pr", PR_URL)
+    assert posts == [drawn, (*drawn[:5], "--thread", "1794300000.000900", *drawn[5:], "--", line)]
 
 
 def test_a_pr_card_goes_in_the_thread_of_each_open_order_its_pr_carries_out_so_the_one_he_reads_carries_its_link(
