@@ -106,6 +106,7 @@ Show me:
 Findings:
 Root cause: <the structure that lets the defect happen, by its proper terms; or fixed: <that structure>, removed by <the merged PR's link>; or not found: <the job finding it>; or none: <why no defect is behind this question>>
 First principles: <the option that removes that structure so the defect cannot occur, by its words>
+Simplest: <the option that is the simplest design doing his words, by its words>
 Interim fix: <on a bug hurting someone now: the link of the PR, release, rollback or repair shipping the immediate fix, or the job building it; or none: <why nobody is hurt now>>
 Holds: <each change of the order its options alter, in that change's words; or none: <why no option alters what any job builds>>
 <the design in plain words, what his words already settle, and the evidence behind each option's description>
@@ -121,7 +122,7 @@ Holds: <each change of the order its options alter, in that change's words; or n
   abstraction every caller goes through, so the defect cannot occur. That option is always offered
   and recommended unless his own pick or order chooses another, which beats this preference; each other
   option says it keeps the structure and what that costs, and one that keeps it behind a cap, timer,
-  retry, exit, flag, pin or sweeper is recommended only when his pick chose it. On drive tooling, the simplest build that does his words, with the fewest checks, steps, flags and verbs, such as stripping every escape code, is always an option, each other option saying what it adds over it, by his words "in geernal keeps implifying all this tuff". A cause
+  retry, exit, flag, pin or sweeper is recommended only when his pick chose it. On every card, his product designs included, one option is the simplest design that does his words, with the fewest tables, columns, rows per fact, messages, processes, checks and steps, such as one row per blob holding its sha and a ref count, and each other option says what it adds over it, by his words "in geernal keeps implifying all this tuff". A simpler design his words or an answer of his your findings quote name is that option even when an older pick set it aside, and when the fork exists only because of an earlier pick of the drive's own recommendation, the option undoing that pick is. `Simplest:` names it by its words, whole or up to the colon that ends its first part, and `drive job ask` refuses a card without it. A cause
   not found yet reads `Root cause: not found: <the job finding it>`, and the card offers no cap, timer
   or exit around the step it has not explained. A card asking only whether to release a merged fix reads
   `Root cause: fixed: <the structure>, removed by <the merged PR's link>` with no `First principles:`

@@ -171,7 +171,8 @@ summary of one feature is a line of at most 60 words.
   and the Show me follow as written.
 - The card starts from the root cause, the structure that lets the defect happen, and one option is
   always the one that removes it so the defect cannot occur, recommended, every other option saying
-  it keeps that structure and what that costs. The recommended option is the block's first, which `drive job ask` refuses otherwise. `drive job ask` refuses a block whose findings carry no `Root cause:` line
+  it keeps that structure and what that costs. The recommended option is the block's first, which `drive job ask` refuses otherwise. `drive job ask` refuses a block whose findings carry no `Simplest:` line
+  naming by its words the option that is the simplest design doing his words, by his words "in geernal keeps implifying all this tuff", or no `Root cause:` line
   with a `First principles:` line naming that option by its words, `Root cause: fixed: <the structure>,
   removed by <the merged PR's link>` on a card asking only whether to release that PR, `Root cause: not
   found: <the job finding it>` or `Root cause: none: <why>`, as on his approval of an action his rules

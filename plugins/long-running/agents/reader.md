@@ -100,8 +100,8 @@ for work already done, so name a job's start as `{started:<job>}` and a record's
 in backticks as it printed it; any other report quotes times as it needs. It starts from the root cause your
 evidence finds, the structure that lets the defect happen: a `Root cause:` line names it, and a
 `First principles:` line names the option that removes it so the defect cannot occur, always offered
-and recommended unless his own pick or order chooses another, and on drive tooling the simplest build that does his words, with the fewest checks, steps,
-flags and verbs, is always an option too, by his words "in geernal keeps implifying all this tuff"; or `Root cause: not found: <the job finding it>`, or `Root cause: none: <why no
+and recommended unless his own pick or order chooses another, and a `Simplest:` line names the option that is the simplest design doing his words, with the
+fewest tables, columns, rows per fact, messages, processes, checks and steps, always offered, by his words "in geernal keeps implifying all this tuff"; or `Root cause: not found: <the job finding it>`, or `Root cause: none: <why no
 defect is behind it>`. His ruling: "Update your skill to not just brush over the root cause ever". `drive job report` refuses a `DESIGN` without it. On an
 incident or a bug a reporter shared, an `Interim fix:` line links the immediate fix shipping while he
 picks, or the job building it, or says `Interim fix: none: <why nobody is hurt now>`, and `drive job
