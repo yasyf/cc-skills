@@ -706,6 +706,30 @@ def test_a_readers_return_briefs_the_builder_waiting_on_it_so_its_free_line_laun
     assert ("Serves: his order\n" in (rewritten := Path(jobs["j2"]["brief"]).read_text()), "Plan: the run page section\n" in rewritten) == (True, True)
 
 
+def test_a_builder_launched_before_its_free_line_reads_starting_while_its_sprite_starts_never_orphaned_as_j3803_was(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cloned(tmp_path, demo)
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "show the run page", "--kind", "build")
+    run("job", "add", "reader", "--order", "o1", "--goal", "research: the run page")
+    monkeypatch.setattr("sys.stdin", io.StringIO(RESEARCH))
+    assert run("job", "report", "j1", "-")[0] == 0
+    watching = watch.Watcher(demo, offset=state.events_end(demo))
+    starting = state.now() + timedelta(minutes=3)
+    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+    read: list[tuple] = []
+
+    def launch(*args: object) -> dict:
+        job = state.load(demo)["jobs"]["j2"]
+        read.append(((job["state"], job["said"], job["waits"]), staged(watch.agent_lines, watching, starting), watch.orphan_lines(watching, starting)))
+        return {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH}
+
+    monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
+    monkeypatch.setattr(orca, "launch", launch)
+    assert run("job", "launch", "j2") == (0, f"j2 started on Sprite workspace-1 as dispatch {DISPATCH}")
+    assert read == [(("running", None, []), [], [])]
+
+
 def test_a_readers_return_briefs_the_builder_waiting_on_it_with_each_ruling_the_readers_brief_binds_and_another_orders_builder_with_none(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, recorded: Answers
 ) -> None:
