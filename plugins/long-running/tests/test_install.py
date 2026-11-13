@@ -1529,7 +1529,7 @@ def test_a_proof_file_exiting_0_that_prints_nothing_takes_blocked_and_keeps_no_c
     ("change", "refusal"),
     [
         ({"repro": None}, "j1 keeps no proof file to run: keep one with drive job set j1 --repro <file>"),
-        ({"prs": ["https://github.com/Forge-AI/monorepo/pull/9"]}, "Forge-AI/monorepo#9 merged outside yasyf/*, where a merge goes live only in its repository's release"),
+        ({"said": "PUSHED https://github.com/Forge-AI/monorepo/pull/9", "prs": ["https://github.com/Forge-AI/monorepo/pull/9"]}, "Forge-AI/monorepo#9 merged outside yasyf/*, where a merge goes live only in its repository's release"),
         ({"said": "WAITING on the release"}, "j1 waits on no READY or PUSHED whose PRs all merged, so there is nothing to prove"),
     ],
 )
