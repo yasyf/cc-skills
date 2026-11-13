@@ -244,10 +244,11 @@ def test_place_counts_a_builder_lane_started_on_this_mac_while_it_launches_or_ru
 ) -> None:
     monkeypatch.setattr(place, "busy", lambda: 0.2)
     monkeypatch.setenv(place.LIMIT_ENV, "0.5")
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "many")
+    goals = ("lane here", "lane here ended", "launching here", "never started here", "on a Sprite", "recorded by hand on a Sprite")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "many", "--parts", *goals)
     monkeypatch.setattr(orca, "worker", lambda dispatch: SPRITE_WORKER if dispatch == SPRITE_DISPATCH else LIVE_WORKER)
-    for goal in ("lane here", "lane here ended", "launching here", "never started here", "on a Sprite", "recorded by hand on a Sprite"):
-        run("job", "add", "builder", "--order", "o1", "--goal", goal, "--remote")
+    for goal in goals:
+        run("job", "add", "builder", "--order", "o1", "--part", goal, "--goal", goal, "--remote")
     run("job", "set", "j1", "--agent", "ctx_here1")
     run("job", "set", "j2", "--agent", "ctx_here2")
     run("job", "set", "j6", "--agent", SPRITE_DISPATCH)
@@ -439,9 +440,9 @@ def test_a_first_launch_marks_its_job_sent_the_answer_its_brief_carries_and_carr
 def test_launch_runs_from_the_drives_own_worktree_made_once_with_ccx_and_moved_with_one_fetch_to_the_default_branchs_head_never_the_coordinators_working_tree(
     run: Run, demo: str, tmp_path: Path, ccx_worktrees: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it", "--parts", "ship it", "ship it again")
     for goal in ("ship it", "ship it again"):
-        run("job", "add", "builder", "--order", "o1", "--goal", goal, "--remote")
+        run("job", "add", "builder", "--order", "o1", "--part", goal, "--goal", goal, "--remote")
     state_folder = state.drive_dir(demo)
     for job_id in ("j1", "j2"):
         (state_folder / f"{job_id}-brief.md").write_text(f"Drive: demo, order o1, job {job_id}\n")

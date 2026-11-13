@@ -3352,7 +3352,6 @@ def test_a_builder_is_added_waiting_on_another_builders_change_until_that_builde
         " the brief it starts on, drive job launch j3 <brief>, or stop it with drive job set j3 --state stopped before adding the job that replaces it"
     )
     assert run("job", "add", "reader", "--order", "o1", "--goal", "dropped")[0] == 0
-    assert run("job", "set", "j5", "--state", "stopped")[0] == 0
     refusals = {
         "j1": "--waits j1: j1 is done, so nothing of it is left to wait on",
         "j3": f"--waits j3: j3 already opened {built}, so wait on the PR this job builds on, as --waits {built}",
@@ -4156,7 +4155,7 @@ def test_a_kept_report_sets_a_running_job_from_its_first_line(
     kept_proof(tmp_path, "j1")
     if first.startswith("READY "):
         run("pr", "add", first.split()[1], "--job", "j1", *LEAD)
-    run("job", "add", "builder", "--order", "o1", "--goal", "ship again")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship again", "--waits", "j1")
     run("job", "set", "j2", "--state", "stopped")
     rest = DESIGNED.split("\n", 1)[1] if kind == "design" else ""
     for job_id in ("j1", "j2"):
@@ -7081,7 +7080,7 @@ def test_an_answer_lists_every_pr_of_its_order_not_yet_live_and_a_reopened_one_g
 ) -> None:
     run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/44", "--job", "j1", *LEAD)
     run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/45", "--job", "j2", *LEAD)
-    run("job", "add", "builder", "--order", "o1", "--goal", "shipped", "--waits", "j1")
+    run("job", "add", "builder", "--order", "o1", "--goal", "shipped", "--waits", designing)
     run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/46", "--job", "j3", *LEAD)
     settled = cards_asking(monkeypatch, PR)
     withdrawals.cards = [TAP_CARD]
@@ -7117,7 +7116,7 @@ def test_his_answer_reopening_the_top_pr_of_a_two_pr_stack_card_cards_the_pr_it_
     run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, withdrawals: Withdrawals, native_stacks: dict[str, list[tuple[str, str]]]
 ) -> None:
     top, top_url = "Forge-AI/monorepo#44", "https://github.com/Forge-AI/monorepo/pull/44"
-    run("job", "add", "builder", "--order", "o1", "--goal", "rework the top", "--waits", "j1")
+    run("job", "add", "builder", "--order", "o1", "--goal", "rework the top", "--waits", designing)
     run("pr", "add", top_url, "--job", "j3", *LEAD)
     cards_asking(monkeypatch, PR, top_url)
     stack = [designing, top]
@@ -7205,7 +7204,7 @@ def test_an_answer_stays_unfinished_until_each_job_waiting_on_an_order_it_touche
     run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     cards_asking(monkeypatch, PR)
-    run("job", "add", "builder", "--order", "o1", "--goal", "build the store", "--waits", "j1")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build the store", "--waits", designing)
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the new tool")
     run("job", "add", "builder", "--order", "o2", "--goal", "build the tool")
     with state.edit("demo") as data:
@@ -7234,7 +7233,7 @@ def test_an_agent_the_top_started_on_an_order_a_sub_coordinator_now_hears_takes_
     run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     cards_asking(monkeypatch, PR)
-    run("job", "add", "builder", "--order", "o1", "--goal", "build the store", "--waits", "j1")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build the store", "--waits", designing)
     with state.edit("demo") as data:
         data["jobs"]["j3"].update(state="waiting", agent="agent-3")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "drive-1")
@@ -7249,7 +7248,7 @@ def test_a_remote_lane_waiting_on_an_order_his_answer_touches_is_marked_sent_onl
     run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     cards_asking(monkeypatch, PR)
-    run("job", "add", "builder", "--order", "o1", "--goal", "build the store", "--remote", "--waits", "j1")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build the store", "--remote", "--waits", designing)
     with state.edit("demo") as data:
         data["jobs"]["j3"].update(state="waiting", dispatch="ctx_lane0003")
     assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
@@ -7274,7 +7273,7 @@ def test_sent_on_a_job_no_worker_runs_is_refused_and_his_answer_finishes_without
     run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     cards_asking(monkeypatch, PR)
-    run("job", "add", "builder", "--order", "o1", "--goal", "build the store", "--waits", "j1")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build the store", "--waits", designing)
     with state.edit("demo") as data:
         data["jobs"]["j3"]["state"] = "waiting"
     assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
@@ -7293,7 +7292,7 @@ def test_an_answer_under_a_card_no_longer_open_still_waits_on_each_job_waiting_o
 ) -> None:
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [], "closed": []})
     view.refresh_cards("demo")
-    run("job", "add", "builder", "--order", "o1", "--goal", "build the store", "--waits", "j1")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build the store", "--waits", designing)
     with state.edit("demo") as data:
         data["jobs"]["j3"].update(state="waiting", agent="agent-3")
     assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
