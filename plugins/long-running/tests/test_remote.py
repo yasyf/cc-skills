@@ -1663,6 +1663,56 @@ def test_a_pr_wake_to_a_dead_lane_relaunches_its_job_with_the_line_in_its_handof
     assert orca.brief_of(brief).endswith("which you act on now:\n\nPR #7 is red: fix it")
 
 
+def test_a_second_pr_wake_arriving_while_the_first_relaunches_the_dead_lane_waits_for_it_and_sends_that_worker_its_line(
+    remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cloned(tmp_path, remote)
+    first = tmp_path / "first.md"
+    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
+    url = "https://github.com/Forge-AI/monorepo/pull/7"
+    key = state.pr_key(url)
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(brief=str(first), workspace="sprite-old", prs=[url])
+        data["prs"][key] = state.new_pr(url, "j1", "o1")
+    monkeypatch.setattr(orca, "worker", lambda dispatch: dead() if dispatch == DISPATCH else LIVE_WORKER)
+    monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: None)
+    monkeypatch.setattr(orca, "new_run", lambda drive, objective: FRESH_RUN)
+    sent, launches = [], []
+    monkeypatch.setattr(orca, "call", lambda *args: sent.append(args) or {})
+    launching, waiting, release = threading.Event(), threading.Event(), threading.Event()
+    locked, entered = state.job_locked, itertools.count(1)
+
+    def job_locked(name: str, job_id: str, seconds: float):
+        if next(entered) == 2:
+            waiting.set()
+        return locked(name, job_id, seconds)
+
+    def slow_launch(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None, workspace: str | None) -> dict:
+        launches.append(brief.read_text())
+        launching.set()
+        assert release.wait(10)
+        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane")}
+
+    monkeypatch.setattr(state, "job_locked", job_locked)
+    monkeypatch.setattr(orca, "launch", slow_launch)
+    verdicts = [f"PR {key}: NOT READY: {key} go against his words: first [o1 j1]", f"PR {key}: NOT READY: {key} go against his words: second [o1 j1]"]
+    codes = {}
+    wakes = [threading.Thread(target=lambda text=text: codes.setdefault(text, cli.main(["pr", "wake", url, "--text", text, "--drive", remote]))) for text in verdicts]
+    wakes[0].start()
+    assert launching.wait(10)
+    wakes[1].start()
+    assert waiting.wait(10)
+    release.set()
+    for wake in wakes:
+        wake.join(10)
+    assert codes == dict.fromkeys(verdicts, 0)
+    out = capsys.readouterr().out.splitlines()
+    assert out[0].startswith("j1: the message went to the job's next worker, relaunched on Sprite workspace-2 as dispatch dispatch-2")
+    assert out[1] == f"{key}: j1 sent to dispatch dispatch-2"
+    assert len(launches) == 1 and orca.brief_of(launches[0]).endswith(f"which you act on now:\n\n{verdicts[0]}")
+    assert sent == [("send", "--to", "dispatch:dispatch-2", "--run", FRESH_RUN, "--subject", f"{key}: its next step is yours", "--body", verdicts[1])]
+
+
 def test_a_pr_wake_to_a_finished_lane_starts_its_jobs_next_worker_in_its_terminal_with_the_line_in_its_handoff(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

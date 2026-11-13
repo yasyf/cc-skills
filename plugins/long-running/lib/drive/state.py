@@ -1500,7 +1500,7 @@ def binding(name: str) -> AbstractContextManager[None]:
 
 @contextmanager
 def job_locked(name: str, job_id: str, seconds: float) -> Iterator[None]:
-    """Hold the job's own lock while one launch or resume reads its last worker and starts or messages the next, waiting up to seconds for another doing so, so a second one acts on the worker the first started; refused naming who holds it past that. It waits holding no install's lock, taken again once the job's is, since the launch it waits on may hand its receipt to a newer install whose first save waits on this one; a newer save meanwhile refuses this one's first load."""
+    """Hold the job's own lock while one launch, resume or PR wake reads its last worker and starts or messages the next, waiting up to seconds for another doing so, so a second one acts on the worker the first started; refused naming who holds it past that. It waits holding no install's lock, taken again once the job's is, since the launch it waits on may hand its receipt to a newer install whose first save waits on this one; a newer save meanwhile refuses this one's first load."""
     path = drive_dir(name) / "jobs" / f"{job_id}.lock"
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "a") as handle:
