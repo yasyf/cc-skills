@@ -2831,6 +2831,23 @@ def test_a_pr_wake_to_a_dead_lane_relaunches_its_job_with_the_line_in_its_handof
     assert orca.brief_of(brief).endswith("which you act on now:\n\nPR #7 is red: fix it")
 
 
+def test_a_pr_wake_goes_to_the_job_its_row_names_alone_while_a_newer_live_builder_lists_its_url(run: Run, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    url = "https://github.com/Forge-AI/monorepo/pull/7"
+    key = state.pr_key(url)
+    with state.edit(remote) as data:
+        data["jobs"]["j1"]["prs"] = [url]
+        data["prs"][key] = state.new_pr(url, "j1", "o1")
+        newer = state.stamp(state.parse_time(data["jobs"]["j1"]["created"]) + timedelta(days=2))
+        data["jobs"]["j2"] = state.new_job("o1", "builder", "a later builder", [], newer) | {"run": RUN, "dispatch": "ctx_lane0002", "prs": [url]}
+    sent = []
+    monkeypatch.setattr(orca, "call", lambda *args: sent.append(args) or {})
+    monkeypatch.setattr(orca, "worker", lambda dispatch: LIVE_WORKER)
+    monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a wake to a live lane starts no worker"))
+    line = f"PR {key}: NOT READY: {key} go against his words [o1 j1]"
+    assert run("pr", "wake", url, "--text", line) == (0, f"{key}: j1 sent to dispatch {DISPATCH}")
+    assert [args[:9] for args in sent] == [("send", "--to", f"dispatch:{DISPATCH}", "--run", RUN, "--subject", f"{key}: its next step is yours", "--body", line)]
+
+
 FINDING = "WHY: j1 waits on a release that shipped an hour ago"
 
 
