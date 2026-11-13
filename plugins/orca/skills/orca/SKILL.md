@@ -459,7 +459,10 @@ origin or landed. A worktree with uncommitted or unpushed work stays. Add
 `--dry-run` to print the plan first. A Dispatch that already settled through
 `worker_done` gets the same sweep without the stop:
 `orca-reclaim.py --run <run> --dispatch <ctx>` closes its idle terminal and
-reclaims its worktree.
+reclaims its worktree. A Dispatch on a paired server whose environment
+`orca environment list` no longer names, such as a Sprite `cc-remote destroy`
+already took down, has nothing left to reclaim: it prints `gone` and closes and
+reads nothing.
 
 `orca-reclaim.py --held <workspace>` changes nothing. It prints what the Sprite
 cc-remote records under that workspace name holds that a fresh Sprite would not
@@ -558,8 +561,8 @@ A settled Sprite worker frees its Sprite through the same `orca-reclaim.py`
 call. The Sprite must be one whose cc-remote task record names the Dispatch's
 worktree and terminal, and whose workspace record still exists. The reclaimer
 runs `cc-remote destroy` through `WORKER_CC_REMOTE` or `ccRemote`, under
-`CC_REMOTE_CONFIG` or `ccRemoteConfig`, and removes its Orca environment. It
-does this only once no unsettled Dispatch shares the workspace, the terminal
+`CC_REMOTE_CONFIG` or `ccRemoteConfig`, which also removes its Orca environment.
+It does this only once no unsettled Dispatch shares the workspace, the terminal
 reads idle twice, and the checkout, read over ssh, is clean in every worktree,
 holds no other branch or stash with commits on no remote, and has its HEAD on origin or landed; `--done` skips the idle check.
 A branch counts as on a remote when its tip is on an origin ref the Sprite holds, or GitHub has it as a branch's head or a landed PR's. GitHub answers whether the HEAD
