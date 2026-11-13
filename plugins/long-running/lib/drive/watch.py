@@ -2384,7 +2384,7 @@ def passed(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
 
 
 def stages(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
-    """The lines of each stage of one loop of the watch, as it returns: first the answer kept for each lane's read, so a pass a newer install ends while it reads every live lane's mail holds back none it already had, then the drive's own Orca terminal every Orca call speaks as, his cards, the GitHub reads it owes, his card on each kept question none drew yet, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, the waits his answers or a job's end release, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the chains of waits that stood unmoved, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited, the receiver and each teammate thread an order watches every 60 s, and GitHub again next poll after a failure, new events, then the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, the catch-up owed him, promised times still owed a line, the line owed in each thread whose order or incident has news, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries. A stage that keeps working after its save joins the lines it made by then to the watcher's made lines itself."""
+    """The lines of each stage of one loop of the watch, as it returns: first the answer kept for each lane's read, so a pass a newer install ends while it reads every live lane's mail holds back none it already had, then the drive's own Orca terminal every Orca call speaks as, his cards, the GitHub reads it owes, his card on each kept question none drew yet, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, the waits his answers or a job's end release, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the chains of waits that stood unmoved, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited, the receiver and each teammate thread an order watches every 60 s, and GitHub again next poll after a failure, new events, then the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, the catch-up owed him, promised times still owed a line, the line owed in each thread whose order or incident has news, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries, and on a drive with no communicator a handler on each POST report to it. A stage that keeps working after its save joins the lines it made by then to the watcher's made lines itself."""
     yield read_lines(watcher, state.load(watcher.name), moment)
     if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
         watcher.read_at = moment
@@ -2433,6 +2433,27 @@ def stages(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
     yield undelivered_lines(watcher, moment)
     yield tell_lines(watcher, moment)
     yield orphan_lines(watcher, moment)
+    yield post_lines(watcher, moment)
+
+
+def post_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Start the handler on each `POST` report to communicator@<drive> on a drive whose roles hold no communicator, as one started from a terminal holds none, since a communicator starts one on each of its reports and nothing else reads them: the handler posts it in his DM and its line goes to the coordinator, and a live handler on the same record, as the one a stall line starts, refuses its copy. Each report is read once, through cci's cursor, which a handler that did not start sets back to its report, so the next poll starts it again."""
+    if watcher.project or "communicator" in state.load(watcher.name)["roles"]:
+        return []
+    try:
+        seqs = agents.posts(watcher.name)
+    except state.DriveError as error:
+        return read_failed(watcher, "POST reports", error, moment)
+    watcher.failures.pop("POST reports", None)
+    for seq in seqs:
+        try:
+            with contextlib.suppress(agents.Busy):
+                agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'post-{seq}'}")
+        except state.DriveError as error:
+            agents.unread(watcher.name, seq)
+            return failed(watcher, "POST handler", f"handler on POST report {seq}", error, moment)
+    watcher.failures.pop("POST handler", None)
+    return []
 
 
 def carried_lines(watcher: Watcher, moment: datetime) -> list[str]:

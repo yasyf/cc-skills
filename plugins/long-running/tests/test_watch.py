@@ -6469,11 +6469,11 @@ def test_a_stall_the_coordinator_sat_on_reaches_him_once_he_is_back_never_while_
     assert watchdogs == []
 
 
-def test_a_stall_on_a_drive_started_from_a_terminal_with_no_communicator_goes_to_the_coordinator_as_a_record_and_the_pass_goes_on(
-    demo: str, monkeypatch: pytest.MonkeyPatch, ready_records: list[list[dict]]
+def test_a_stall_on_a_drive_started_from_a_terminal_with_no_communicator_starts_its_handler_beside_the_coordinator_once(
+    demo: str, monkeypatch: pytest.MonkeyPatch, ready_records: list[list[dict]], posts_to_communicator: list[str]
 ) -> None:
-    posted: list[list[str]] = []
-    monkeypatch.setattr(reads, "run", lambda argv, checkout, env=None, stdin=None: posted.append(argv) or "")
+    ran: list[tuple[list[str], Path]] = []
+    monkeypatch.setattr(reads, "run", lambda argv, checkout, env=None, stdin=None: ran.append((argv, checkout)) or "")
     watching = stalling(demo)
     told_at = T0 + timedelta(minutes=98)
     with state.edit(demo) as data:
@@ -6485,18 +6485,52 @@ def test_a_stall_on_a_drive_started_from_a_terminal_with_no_communicator_goes_to
             "said": state.stamp(T0 + timedelta(minutes=68)),
             "told": None,
         }
+    coordinator = state.load(demo)["roles"]["coordinator"]
     assert "communicator" not in state.load(demo)["roles"]
     assert watch.stall_lines(watching, told_at) == []
     [[report]] = ready_records
-    assert report["text"] == f"POST {KEY} has not moved in 98 minutes and the coordinator was told 30 minutes ago: post one line on it in its thread"
-    [argv] = posted
-    assert argv[:10] == ["cci", "post", "--drive", demo, "--lane", "handler", "--kind", "handoff", "--to", f"root@{demo}"]
-    assert argv[argv.index("--re") + 1] == "9"
-    assert argv[-1] == f"No communicator holds this drive to start a handler, so this brief is the coordinator's: Record: #9 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'stall-#9'}"
+    assert (report["text"], report["to"]) == (f"POST {KEY} has not moved in 98 minutes and the coordinator was told 30 minutes ago: post one line on it in its thread", [f"communicator@{demo}"])
+    [(argv, checkout)] = ran
+    assert (argv[:4], checkout) == (["claude", "--bg", "--agent", "long-running:handler"], Path(coordinator["cwd"]))
+    assert json.loads(argv[argv.index("--settings") + 1])["env"]["CCI_PARENT_SESSION"] == coordinator["session"]
+    assert argv[-1] == f"Record: #9 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'stall-#9'}"
     data = state.load(demo)
-    assert (data["handlers"], data["prs"][KEY]["stall"]["told"]) == ({}, state.stamp(told_at))
+    assert ([entry["holds"]["record"] for entry in data["handlers"].values()], data["prs"][KEY]["stall"]["told"]) == (["9"], state.stamp(told_at))
+    posts_to_communicator.append("9")
+    assert watch.post_lines(watching, told_at) == []
     assert watch.stall_lines(watching, told_at + timedelta(minutes=1)) == []
-    assert (len(ready_records), len(posted)) == (1, 1)
+    assert (len(ready_records), len(ran)) == (1, 1)
+
+
+def test_the_watch_starts_a_handler_on_each_post_report_to_a_communicator_its_drive_lacks_once_and_reads_again_one_that_did_not_start(
+    demo: str, monkeypatch: pytest.MonkeyPatch, posts_to_communicator: list[str]
+) -> None:
+    ran: list[list[str]] = []
+    unread: list[str] = []
+    refused = {"697102"}
+
+    def run(argv: list[str], checkout: Path, env: dict | None = None, stdin: str | None = None) -> str:
+        if argv[:2] == ["claude", "--bg"] and argv[-1].split()[1] in refused:
+            raise reads.ReadError("claude --bg: workspace not trusted")
+        ran.append(argv)
+        return ""
+
+    monkeypatch.setattr(reads, "run", run)
+    monkeypatch.setattr(watch.agents, "unread", lambda name, seq: unread.append(seq))
+    watching = watcher(demo)
+    posts_to_communicator += ["697061", "697102", "697160"]
+    assert watch.post_lines(watching, T0) == []
+    assert ([argv[-1] for argv in ran], unread) == ([f"Record: 697061 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'post-697061'}"], ["697102"])
+    refused.clear()
+    posts_to_communicator += ["697102", "697160"]
+    assert watch.post_lines(watching, T0 + timedelta(seconds=5)) == []
+    assert [argv[-1].split()[1] for argv in ran] == ["697061", "697102", "697160"]
+    assert sorted(entry["holds"]["record"] for entry in state.load(demo)["handlers"].values()) == ["697061", "697102", "697160"]
+    with state.edit(demo) as data:
+        data["roles"]["communicator"] = {"session": "communicator-session", "terminal": None, "cwd": "/work", "started": state.stamp(T0)}
+    posts_to_communicator.append("697200")
+    assert watch.post_lines(watching, T0 + timedelta(seconds=10)) == []
+    assert (len(ran), posts_to_communicator) == (3, ["697200"])
 
 
 def test_at_most_two_watchdog_agents_run_at_once_oldest_stall_first(demo: str, watchdogs: list[tuple[str, Path]]) -> None:

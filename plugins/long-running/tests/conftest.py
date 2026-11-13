@@ -375,6 +375,19 @@ def trunk_queue(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
 
 
 @pytest.fixture(autouse=True)
+def posts_to_communicator(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    kept: list[str] = []
+
+    def read(name: str) -> list[str]:
+        seqs = list(kept)
+        kept.clear()
+        return seqs
+
+    monkeypatch.setattr(agents, "posts", read)
+    return kept
+
+
+@pytest.fixture(autouse=True)
 def ended_sessions(monkeypatch: pytest.MonkeyPatch) -> set[str]:
     ended: set[str] = set()
     monkeypatch.setattr(agents, "gone", lambda session: session in ended)

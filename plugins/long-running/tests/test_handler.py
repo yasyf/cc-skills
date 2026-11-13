@@ -210,6 +210,30 @@ def test_a_handlers_own_session_reads_as_an_agent_of_the_communicators(
     assert agent_brief.deny_reason(agents.seen(step | {"tool_input": {"subagent_type": agents.HANDLER, "prompt": "Record: 1"}})) is None
 
 
+def test_on_a_drive_with_no_communicator_drive_handler_starts_the_handler_beside_the_coordinator_and_its_line_reaches_the_coordinator(
+    demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    ran: list[tuple[list[str], Path]] = []
+    monkeypatch.setattr(reads, "run", lambda argv, checkout, env=None: ran.append((argv, checkout)) or "")
+    coordinator = state.load("demo")["roles"]["coordinator"]
+    assert "communicator" not in state.load("demo")["roles"]
+    handler = start(run, tmp_path)
+    [(argv, checkout)] = ran
+    assert (argv[:4], checkout) == (["claude", "--bg", "--agent", agents.HANDLER], Path(coordinator["cwd"]))
+    assert json.loads(argv[argv.index("--settings") + 1])["env"]["CCI_PARENT_SESSION"] == coordinator["session"]
+    transcript = tmp_path / "h-session.jsonl"
+    bind(monkeypatch, handler, "h-session", transcript)
+    step = {"session_id": "h-session", "agent_type": agents.HANDLER, "transcript_path": str(transcript), "tool_name": "Bash"}
+    assert agents.seen(step) == step | {"agent_id": handler, "agent_transcript_path": str(transcript), "handler_session": "h-session"}
+    assert state.session_role(state.load("demo"), "h-session") == "communicator"
+    monkeypatch.setattr(agents.subprocess, "Popen", lambda argv, **kwargs: None)
+    monkeypatch.setattr(agents, "background_job", lambda session: (BACKGROUND_JOB, {"sessionId": session}))
+    monkeypatch.setattr(one_line_result, "block_reason", lambda payload: None)
+    assert stop(monkeypatch, capsys, "h-session", transcript, LINE) == ""
+    assert ran[-1][0] == ["cci", "post", "--drive", "demo", "--lane", "handler", "--kind", "done", "--to", "root@demo", "--id", f"handler-{handler}", "--text", LINE]
+    assert state.load("demo")["handlers"] == {}
+
+
 def test_the_agent_tool_starts_no_handler(communicator: str) -> None:
     call = {"session_id": os.environ["CLAUDE_CODE_SESSION_ID"], "tool_name": "Agent", "tool_input": {"subagent_type": agents.HANDLER, "prompt": "Record: 1", "description": "d"}}
     refused = agent_brief.deny_reason(call)
