@@ -467,6 +467,18 @@ def newest_drive() -> Path:
     return Path(newest([entry for key, entries in plugins.items() if key.partition("@")[0] == LONG_RUNNING for entry in entries])["installPath"]) / "bin" / "drive"
 
 
+def handed(newer: Path, name: str, verb: list[str], receipt: Path, kept: dict, what: str, seconds: float) -> str:
+    """Run the newest install's `drive <verb> <receipt>` on what an older install's verb kept in receipt, once a newer install saved the drive while that verb worked holding no install's lock, so what it did lands either way; its stdout, or a refusal naming the receipt, which stays."""
+    receipt.write_text(json.dumps(kept))
+    try:
+        done = subprocess.run([str(newer), *verb, str(receipt), "--drive", name, "--json"], capture_output=True, text=True, check=False, timeout=seconds)
+    except subprocess.TimeoutExpired:
+        raise state.DriveError(f"{what}, and {newer} did not record it within {seconds:g}s; its receipt is kept in {receipt}") from None
+    if done.returncode:
+        raise state.DriveError(f"{what}, and {newer} did not record it: {done.stderr.strip()}; its receipt is kept in {receipt}")
+    return done.stdout
+
+
 def upgraded() -> Path | None:
     """The drive of the newest installed long-running, when this code runs from the plugin cache and a newer one is installed."""
     if not DRIVE.is_relative_to((config_dir() / "plugins" / "cache").resolve()):

@@ -591,7 +591,7 @@ def test_a_launch_holds_no_install_lock_while_its_launcher_runs_and_hands_its_re
 
     monkeypatch.setattr(orca, "launch", launch)
     monkeypatch.setattr(cli.install, "upgraded", lambda: newest)
-    monkeypatch.setattr(cli.subprocess, "run", newer)
+    monkeypatch.setattr(cli.install.subprocess, "run", newer)
     state.hold_install()
     assert run("job", "launch", "j1", "brief.md") == (0, f"j1 started on Sprite workspace-1 as dispatch {DISPATCH}")
     receipt = state.drive_dir(demo) / "jobs" / f"j1.{DISPATCH}.json"
