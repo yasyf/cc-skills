@@ -554,7 +554,7 @@ def standing(known: dict[str, tuple[str, dict]], key: str) -> "Stage":
 
 
 def reworked(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
-    """Why no card is drawn for the members, a redraw of one cc-slack posted included: one of them is being reworked to his words, so its card stays down until its builder's READY says how they are met."""
+    """Why no card is drawn for the members, a redraw of one cc-slack posted included: one of them is being reworked to his words, so its card stays down until its builder's READY says how they are met; cards() draws the PRs below the lowest reworked one alone."""
     return "; ".join(
         f"{key if len(members) > 1 else 'it'} is being reworked to his words \"{entry['rework']['words']}\", so no card asks his tap until its builder's READY says how they are met"
         for key in members
@@ -576,7 +576,7 @@ def on_his_card(known: dict[str, tuple[str, dict]], reads: dict[str, dict], memb
 
 
 def cards(asked: list[dict], redraw: bool = False) -> dict:
-    """One card per stack the asked PRs form, by groups(), bottom PR first, each card drawn kept on its PRs so Approve lands exactly those, and a fresh one only when tap_refused finds one of them asking his Approve, the same check that puts Approve on a card. A redraw of a card cc-slack already posted draws it as the PRs stand now, a wait that holds back a fresh Approve shown on it rather than refusing it. A PR body's sections are drawn as they stand and never hold a card, but a Show me picture that does not draw, such as a Mermaid diagram Mermaid cannot parse, refuses its stack's card with why, which `refused` tells the session hearing its order, since a card without the picture shows him nothing for it."""
+    """One card per stack the asked PRs form, by groups(), bottom PR first, cut below its lowest PR reworked to his words, which with every PR above it is refused by reworked() since none lands without it, each card drawn kept on its PRs so Approve lands exactly those, and a fresh one only when tap_refused finds one of them asking his Approve, the same check that puts Approve on a card. A redraw of a card cc-slack already posted draws it as the PRs stand now, a wait that holds back a fresh Approve shown on it rather than refusing it. A PR body's sections are drawn as they stand and never hold a card, but a Show me picture that does not draw, such as a Mermaid diagram Mermaid cannot parse, refuses its stack's card with why, which `refused` tells the session hearing its order, since a card without the picture shows him nothing for it."""
     known = drive_prs()
     asked_keys = keys_of(asked, known)
     for key in asked_keys:
@@ -595,8 +595,14 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
         members = [key for key in group if key in reads]
         if not members:
             continue
+        lowest = next((index for index, key in enumerate(members) if reworked(known, [key])), len(members))
+        reason = foreign(known, members) or ("" if lowest else reworked(known, members))
+        if not reason and lowest < len(members):
+            refusals = [skip(key, reworked(known, members)) for key in members[lowest:]]
+            refused(refusals)
+            skipped += refusals
+            members = members[:lowest]
         fresh = not redraw and not on_his_card(known, reads, members)
-        reason = foreign(known, members) or reworked(known, members)
         if fresh and not reason and (off := untapped(known, reads, members)):
             skipped += [skip(key, off) for key in members]
             continue

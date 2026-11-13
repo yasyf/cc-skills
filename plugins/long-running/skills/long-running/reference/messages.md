@@ -419,8 +419,10 @@ When it is answered, replaced or redone:
   read the stack's `## His words, step by step` against them, names the PR: `--rework <PR>` on
   `drive order add`, `drive order set` or `drive job set --carries`, or `drive answer --reopened`, each
   withdrawing it with his words as the reason. His order filed on its thread, or a job carrying one,
-  with no `--rework` names the card and leaves it up, since a stack can meet his words already. No
-  redraw or new head brings it back; a fresh card goes up on its own, with a row saying
+  with no `--rework` names the card and leaves it up, since a stack can meet his words already. The
+  PRs below the lowest reworked one go up on a card of their own, so a PR his answer leaves standing
+  asks his tap at once, and his Approve on it never reaches a PR above it. No
+  redraw or new head brings the reworked PR back; a fresh card goes up on its own, with a row saying
   what changed, only once the builder's `READY` says in its `CHANGE:` line how his words are met. A
   question or any other words of his under it leave it up. His words: "So why isn't this card withdrawn then? And why do I have to keep asking that?"
 - Its words come from each PR's title and body, with record ids and the HTML tags GitHub draws
