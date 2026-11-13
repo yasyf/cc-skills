@@ -400,9 +400,16 @@ def batched(payload: dict, script: str, due: tuple[str, ...]) -> dict:
 
 
 def ran_alone(payload: dict, script: str) -> dict:
-    batch = Batch((script,), {script})
-    run_checks(payload, batch)
-    return result_of(batch, script)
+    """One check run on its own, as `python3 -I <script>` launched on the interpreter python3 resolves to, since no other check's verdict waits behind it."""
+    ran = subprocess.run(
+        ["python3", "-I", str(newest_install() / "hooks" / script)],
+        executable=interpreter(),
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        cwd=payload.get("cwd") or None,
+    )
+    return {"code": ran.returncode, "stdout": ran.stdout, "stderr": ran.stderr}
 
 
 def checked(evt: BaseHookEvent, script: str) -> HookResult | None:

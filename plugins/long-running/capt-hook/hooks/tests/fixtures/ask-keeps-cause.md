@@ -10,4 +10,5 @@ Findings:
 Root cause: each LTX file records its page map's length only in its last 24 bytes, so a reader must guess a range before it can read the map.
 First principles: Retry each missed guess with a larger range
 Interim fix: none: pages open, only slower on a wrong guess
+Holds: none: no job builds the run page's reader while he picks
 (1) What a journal file is: a run's journal is a SQLite database, copied to the team's bucket as LTX files.
