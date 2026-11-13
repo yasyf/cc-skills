@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Self
 
 from drive import agents, codex, dashboard, github, land, launchd, orca, page, place, procs, reads, receiver, render, served, slack, stage, state, superseded, view
-from drive.install import MERGED_DONE, PROVEN, config_dir, merged_done, merged_ready, product, proof_gap, said_on_prs, upgraded
+from drive.install import PROVEN, config_dir, merged_done, merged_ready, product, proof_gap, said_on_prs, upgraded
 from drive.render import cut, subscribe, when
 
 POLL_SECONDS = 5
@@ -1096,7 +1096,7 @@ def tell_lines(watcher: Watcher, moment: datetime) -> list[str]:
             happened, heard, note = (
                 ("its answer is posted", "its question was asked in, has not heard the answer", "the answer")
                 if answered
-                else ("its fix is proven live", "its bug was reported in, has not heard it is fixed", "the fix-live note")
+                else (f"its fix is proven live by {cut(data['orders'][order_id]['proof'], 160)}", "its bug was reported in, has not heard it is fixed", "the fix-live note")
             )
             lines.append(
                 f"TELL {order_id}: {happened} and nothing moved on it for 10 minutes, but {reporter['link']}, the thread {heard}:"
@@ -1792,7 +1792,7 @@ def proving(data: dict, job_id: str) -> bool:
 
 
 def finished(watcher: Watcher, moment: datetime) -> None:
-    """Finish each builder the watch hears whose READY or PUSHED's PRs all merged: one whose PRs all merged outside yasyf/* takes DONE at its merge, and one naming a yasyf/* PR and keeping an executable proof file gets drive job prove, which takes its DONE or BLOCKED once the installed plugins hold its yasyf/* merges, marked under the drive's lock so no second proof starts on its line; each says it on the job's PRs' lines."""
+    """Finish each builder the watch hears whose READY or PUSHED's PRs all merged: one whose PRs all merged outside yasyf/* takes DONE at its merge, its order keeping no proof until a builder proves it live on the release holding its merge, and one naming a yasyf/* PR and keeping an executable proof file gets drive job prove, which takes its DONE or BLOCKED once the installed plugins hold its yasyf/* merges, marked under the drive's lock so no second proof starts on its line; each says it on the job's PRs' lines."""
     data = state.load(watcher.name)
     if not any(hears(watcher, data, job["order"]) and (at_merge(data, job_id) or proof_due(data, job_id)) for job_id, job in data["jobs"].items()):
         return
@@ -2190,7 +2190,7 @@ def holder_line(line: str, data: dict) -> str | None:
 
 
 def needs_step(line: str, data: dict) -> bool:
-    """Whether a line asks for a step now: any line but a PR's, his tap but an Approve, which the drive's lander lands in every repository once its stage reads ready, a PR's merged line only when nobody else says it, never GitHub's merged line for a PR the lander merges and says so itself or whose job took DONE at its merge, nor the lander's merged line on a job already proved or whose proof the watch runs, whose proof line says so, and a line on a PR no longer open while its job does not run to take it, such as its proof failing or its close, but its proof passing or its job's DONE at its merge. An open PR's moves wake nobody, since its stage wakes its owner."""
+    """Whether a line asks for a step now: any line but a PR's, his tap but an Approve, which the drive's lander lands in every repository once its stage reads ready, a PR's merged line only when nobody else says it, never GitHub's merged line for a PR the lander merges and says so itself or whose job took DONE at its merge, whose line asks for the builder proving it live on its release, nor the lander's merged line on a job already proved or whose proof the watch runs, whose proof line says so, and a line on a PR no longer open while its job does not run to take it, such as its proof failing, its close or its job's DONE at its merge, but its proof passing. An open PR's moves wake nobody, since its stage wakes its owner."""
     if (tapped := TAP_EVENT.match(line)) and tapped["label"] == "Approve":
         return False
     found = PR_EVENT.match(line)
@@ -2201,7 +2201,7 @@ def needs_step(line: str, data: dict) -> bool:
         return not (land.reported(found["key"], pr) or data["jobs"][found["job"]]["state"] == "done")
     if found["change"].startswith("merged at"):
         return not (data["jobs"][found["job"]]["state"] in state.FINISHED_JOB_STATES or proving(data, found["job"]))
-    if pr["state"] == "open" or found["change"].startswith((PROVEN, MERGED_DONE)):
+    if pr["state"] == "open" or found["change"].startswith(PROVEN):
         return False
     return data["jobs"][found["job"]]["state"] != "running"
 
