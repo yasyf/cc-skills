@@ -214,14 +214,16 @@ copy of the drive's cci or cc-notes records, so a lane reads through this Mac wi
 question.
 
 - Its first line opens with the read, after the lane's job id when it writes one: `LOG <url>` for a
-  red Buildkite or GitHub Actions check, or `READ <command>` for a `cci` or `ccn` read the builder
-  agent lists. `READ: LOG <url>` reads as `LOG <url>`. A `LOG` question reads every `LOG <url>` it
+  red Buildkite or GitHub Actions check, `READ <command>` for a `cci` or `ccn` read the builder
+  agent lists, or `READ <path>` for a file under the drive's `reports/`, `asks/`, `repro/`,
+  `scratch/` or `jobs/` folder, which `orca.drive_files` reads whole as it carries one a brief
+  names, refusing a path that resolves outside the folder. `READ: LOG <url>` reads as `LOG <url>`. A `LOG` question reads every `LOG <url>` it
   names, each in an even share of the 12,000 characters, and a `READ` question runs its first line
   alone.
 - The watch answers it itself, with no event, as it answers a `DRIVE` question: `drive job read`,
   which it starts as a process of its own, runs `tools/ci bk`, `ccx vcs job-log`, `cci` or `ccn` in
-  the directory the coordinator started the drive from, and the watch replies with the output, cut
-  to 12,000 characters, once that reader ends, so a read that runs for minutes holds up no pass. The
+  the directory the coordinator started the drive from, or reads the drive files, and the watch
+  replies with the output, a command's cut to 12,000 characters, once that reader ends, so a read that runs for minutes holds up no pass. The
   reader keeps first the answer its own end leaves, then the one it finishes with, under its
   question's message id, so a refused reply sends the same answer again and a read stopped mid-run
   is answered as stopped, never run twice. A `LOG` answer leads each failed job's share with its failure lines, such as a

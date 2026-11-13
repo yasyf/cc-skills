@@ -18,6 +18,7 @@ OTHER = "https://buildkite.com/forge/test/builds/121532"
 ASKER = "demo j7"
 FAILED_JOB = "01a1c150-b658-46c9-a067-e38eebe83af2"
 GRANT = "https://buildkite.com/forge/break-glass/builds/1926"
+PROOF = "long-running 1.0.639 from bin/../lib\nFAIL: GitHub lists no delivery the receiver answered 200 and logged\n"
 SSO_FIRST = """[profile identity]
 sso_session = forge
 [profile plat-prod-human]
@@ -341,6 +342,59 @@ def test_a_record_read_refuses_anything_but_a_listed_read(
     monkeypatch.setattr(reads, "run", lambda argv, checkout: pytest.fail(f"ran {argv}"))
     with pytest.raises(reads.ReadError, match="^only these reads run here: cci show"):
         reads.answer(f"READ {command}", tmp_path, "demo", "j7")
+
+
+@pytest.mark.parametrize("command", ["cat {folder}/reports/j2176.proof.txt", "tail -c 3000 reports/j2176.proof.txt", "reports/j2176.proof.txt."])
+def test_a_read_naming_a_drive_file_gets_it_whole_however_the_lane_words_it(
+    command: str, state_root: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(reads, "run", lambda argv, checkout: pytest.fail(f"ran {argv}"))
+    folder = state.drive_dir("demo")
+    (folder / "reports").mkdir(parents=True)
+    (folder / "reports" / "j2176.proof.txt").write_text(PROOF * 400)
+    assert reads.answer(f"READ {command.format(folder=folder)}", tmp_path, "demo", "j2919") == f"# Drive file reports/j2176.proof.txt\n\n{PROOF * 400}"
+
+
+def test_a_read_naming_several_drive_files_answers_each_and_one_the_folder_lacks_as_none(state_root: Path, tmp_path: Path) -> None:
+    folder = state.drive_dir("demo")
+    for name, text in {"asks/j2329-48750da6.md": "ASK When a chat's Sand code turn has no stored description?\n", "jobs/j2329.brief.md": "Order (his words): describe code turns\n"}.items():
+        (folder / name).parent.mkdir(parents=True, exist_ok=True)
+        (folder / name).write_text(text)
+    question = "READ please paste whole asks/j2329-48750da6.md, jobs/j2329.brief.md and jobs/j2643.brief.md"
+    assert reads.answer(question, tmp_path, "demo", "j2894") == (
+        "# Drive file asks/j2329-48750da6.md\n\nASK When a chat's Sand code turn has no stored description?\n\n\n"
+        "# Drive file jobs/j2329.brief.md\n\nOrder (his words): describe code turns\n\n\n"
+        "# Drive file jobs/j2643.brief.md\n\nthe drive keeps no such file inside its folder"
+    )
+
+
+def test_a_read_reaching_outside_the_drive_folder_gets_none_of_the_outside_file(state_root: Path, tmp_path: Path) -> None:
+    folder = state.drive_dir("demo")
+    outside = tmp_path / "key.pem"
+    outside.write_text("PRIVATE KEY\n")
+    (folder / "reports").mkdir(parents=True)
+    (folder / "scratch" / "j633").mkdir(parents=True)
+    (folder / "scratch" / "j633" / "key.pem").symlink_to(outside)
+    escape = f"reports/{'../' * (len(folder.relative_to(tmp_path).parts) + 1)}key.pem"
+    said = reads.answer(f"READ cat {escape} scratch/j633/key.pem", tmp_path, "demo", "j7")
+    assert "PRIVATE KEY" not in said
+    assert said.count("the drive keeps no such file inside its folder") == 2
+    with pytest.raises(reads.ReadError, match="reads as READ <its path>"):
+        reads.answer(f"READ cat {outside}", tmp_path, "demo", "j7")
+
+
+def test_a_drive_file_that_is_not_utf8_reads_with_its_bad_bytes_replaced(state_root: Path, tmp_path: Path) -> None:
+    folder = state.drive_dir("demo")
+    (folder / "repro").mkdir(parents=True)
+    (folder / "repro" / "out.bin").write_bytes(b"exit \xff\n")
+    assert reads.answer("READ repro/out.bin", tmp_path, "demo", "j7") == "# Drive file repro/out.bin\n\nexit �\n"
+
+
+def test_a_listed_read_naming_a_drive_path_still_runs_its_record_read(state_root: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    calls = []
+    monkeypatch.setattr(reads, "run", lambda ran, checkout: calls.append(ran) or "his words")
+    assert reads.answer("READ ccn search asks/j2329-48750da6.md", tmp_path, "demo", "j7") == "his words"
+    assert calls == [["ccn", "search", "asks/j2329-48750da6.md"]]
 
 
 def test_a_long_record_read_keeps_its_head(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

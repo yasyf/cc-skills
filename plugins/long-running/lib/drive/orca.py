@@ -39,7 +39,7 @@ REPORT_LINE = re.compile(r"^(?:Researched|Plan):.*$", re.MULTILINE)
 REPORT_JOB = re.compile(r"\bj\d+\b")
 REPORT_FILE = re.compile(r"reports/(j\d+)\.md")
 REPRO_FILE = re.compile(r"repro/(j\d+)(?:\.\w+)?")
-CARRIED = "reports|asks|repro|scratch"
+CARRIED = "reports|asks|repro|scratch|jobs"
 PATH_CHARS = r"[^\s`'\"<>()\[\]{}*,;|]+"
 PATH_END = re.compile(r"[^\w/]+$")
 DRIVE = PLUGIN / "bin" / "drive"
@@ -296,7 +296,7 @@ def vm_brief(drive: str, job_id: str, brief: str, route: str | None) -> str:
 
 
 def drive_files(drive: str, brief: str) -> dict[str, str | None]:
-    """Each file of the drive's state folder the brief names, by the heading its text goes under, with that text or None when the drive keeps none: the report of each job its Researched: and Plan: lines name, every return it took as `drive job report` prints it, and each path under the folder's reports, asks, repro and scratch folders it names anywhere, absolute or from the folder, a reports/<job>.md being that job's report and a repro/<job>, with any suffix or none, the repro file drive job set --repro kept for it; a folder it names, such as its Scratch: line's, carries nothing."""
+    """Each file of the drive's state folder the brief names, by the heading its text goes under, with that text or None when the drive keeps none: the report of each job its Researched: and Plan: lines name, every return it took as `drive job report` prints it, and each path under the folder's reports, asks, repro, scratch and jobs folders it names anywhere, absolute or from the folder, a reports/<job>.md being that job's report and a repro/<job>, with any suffix or none, the repro file drive job set --repro kept for it; a folder it names, such as its Scratch: line's, carries nothing, and a path resolving outside the folder, through `..` or a symlink, has no text, since a lane's READ names its path."""
     folder = state.drive_dir(drive)
     roots = [folder, *([Path("~") / folder.relative_to(Path.home())] if folder.is_relative_to(Path.home()) else [])]
     prefix = "|".join(re.escape(f"{root}/") for root in roots)
@@ -309,7 +309,7 @@ def drive_files(drive: str, brief: str) -> dict[str, str | None]:
         if (repro := REPRO_FILE.fullmatch(name)) and (kept := state.load(drive)["jobs"].get(repro[1], {}).get("repro")):
             name = f"repro/{Path(kept).name}"
         if not (file := folder / name).is_dir():
-            files[f"Drive file {name}"] = file.read_text() if file.is_file() else None
+            files[f"Drive file {name}"] = file.read_text(errors="replace") if file.is_file() and file.resolve().is_relative_to(folder.resolve()) else None
     return files
 
 
