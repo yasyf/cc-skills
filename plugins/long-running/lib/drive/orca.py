@@ -37,6 +37,8 @@ START_TIMEOUT_MS = "600000"
 BRIEF_HEADING = "\n# Brief\n\n"
 REPORT_LINE = re.compile(r"^(?:Researched|Plan):.*$", re.MULTILINE)
 REPORT_JOB = re.compile(r"\bj\d+\b")
+REPORT_FILE = re.compile(r"reports/(j\d+)\.md")
+REPRO_FILE = re.compile(r"repro/(j\d+)(?:\.\w+)?")
 CARRIED = "reports|asks|repro|scratch"
 PATH_CHARS = r"[^\s`'\"<>()\[\]{}*,;|]+"
 PATH_END = re.compile(r"[^\w/]+$")
@@ -288,15 +290,19 @@ def vm_brief(drive: str, job_id: str, brief: str, route: str | None) -> str:
 
 
 def drive_files(drive: str, brief: str) -> dict[str, str | None]:
-    """Each file of the drive's state folder the brief names, by the heading its text goes under, with that text or None when the drive keeps none: the report of each job its Researched: and Plan: lines name, every return it took as `drive job report` prints it, and each path under the folder's reports, asks, repro and scratch folders it names anywhere, absolute or from the folder; a folder it names, such as its Scratch: line's, carries nothing."""
+    """Each file of the drive's state folder the brief names, by the heading its text goes under, with that text or None when the drive keeps none: the report of each job its Researched: and Plan: lines name, every return it took as `drive job report` prints it, and each path under the folder's reports, asks, repro and scratch folders it names anywhere, absolute or from the folder, a reports/<job>.md being that job's report and a repro/<job>, with any suffix or none, the repro file drive job set --repro kept for it; a folder it names, such as its Scratch: line's, carries nothing."""
     folder = state.drive_dir(drive)
     roots = [folder, *([Path("~") / folder.relative_to(Path.home())] if folder.is_relative_to(Path.home()) else [])]
     prefix = "|".join(re.escape(f"{root}/") for root in roots)
     named = [PATH_END.sub("", found) for found in re.findall(rf"(?<![\w./~-])(?:{prefix})?((?:{CARRIED})/{PATH_CHARS})", brief)]
     files = {f"Report of {job_id}": state.report_text(drive, job_id) or None for job_id in REPORT_JOB.findall("\n".join(REPORT_LINE.findall(brief)))}
     for name in named:
-        file = folder / name
-        if not file.is_dir():
+        if report := REPORT_FILE.fullmatch(name):
+            files[f"Report of {report[1]}"] = state.report_text(drive, report[1]) or None
+            continue
+        if (repro := REPRO_FILE.fullmatch(name)) and (kept := state.load(drive)["jobs"].get(repro[1], {}).get("repro")):
+            name = f"repro/{Path(kept).name}"
+        if not (file := folder / name).is_dir():
             files[f"Drive file {name}"] = file.read_text() if file.is_file() else None
     return files
 
@@ -306,14 +312,14 @@ def carried(drive: str, brief: str) -> str:
     return "".join(f"\n# {heading}, which your brief names\n\n{text.strip()}\n" for heading, text in drive_files(drive, brief).items() if text is not None)
 
 
-def uncarried(drive: str, brief: str) -> str | None:
+def uncarried(drive: str, job_id: str, brief: str) -> str | None:
     """Why no lane starts on this brief: it names a drive file the drive keeps none of, which its lane would stop to ask for."""
     missing = [heading for heading, text in drive_files(drive, brief).items() if text is None]
     if not missing:
         return None
     return (
         f"its brief names {'; '.join(missing)}, which the drive keeps no text of, so its lane would stop to ask for each;"
-        " keep each in the drive first, or take its name out of the brief"
+        f" launch it on a brief file that leaves each out: drive job launch {job_id} <file>"
     )
 
 
