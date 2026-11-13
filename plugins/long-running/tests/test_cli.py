@@ -2029,7 +2029,7 @@ def test_a_question_asked_twice_before_its_card_is_drawn_draws_its_newest_block_
     assert not Path(kept[0]).exists() and Path(kept[1]).exists()
 
 
-def test_a_question_asked_again_after_he_answered_its_card_goes_on_a_card_of_its_own(
+def test_a_question_asked_again_in_other_words_after_he_answered_its_card_goes_on_a_card_of_its_own(
     run: Run, asking: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
@@ -2044,7 +2044,7 @@ def test_a_question_asked_again_after_he_answered_its_card_goes_on_a_card_of_its
     listed.clear()
     with state.edit("demo") as data:
         data["jobs"]["j1"]["questions"][0]["closed"] = state.new_close("answered", "Yes", link)
-    monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace("opens in 3 requests", "opens in 3 calls")))
+    monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace("ASK How should", "ASK When should")))
     again = run("job", "ask", asking, "-")[1]
     assert json.loads(run("job", "card", again, "--waits", "demo:j1-9")[1])["waits"] == "demo:j1-9"
     assert [(question["file"], question["waits"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [
@@ -5349,8 +5349,8 @@ def test_heard_takes_a_part_a_done_jobs_card_still_open_waits_on(run: Run, demo:
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [question], "pr_cards": [], "closed": []})
     view.refresh_cards("demo")
     assert run("heard", "--repeats", "o1", "--part", "fix")[1].splitlines()[0] == "heard"
-    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
-    view.refresh_cards("demo")
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"][-1]["closed"] = state.new_close("answered", "Bot", DESIGN_CARD)
     assert run("heard", "--repeats", "o1", "--part", "fix")[0] == 2
 
 
@@ -6034,10 +6034,11 @@ def test_superseding_a_card_he_already_answered_refuses_and_stops_no_job(
     run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     cards_asking(monkeypatch, PR)
-    monkeypatch.setattr(slack, "cc_slack", lambda *args: {"answered": False, "already_answered": True, "label": "Tree", "at": "now"})
     assert run("answer", "a1", "--words", WORDS, "--link", TAP_CARD)[0] == 2
+    with state.edit("demo") as data:
+        data["jobs"]["j2"]["questions"][-1]["closed"] = state.new_close("answered", "Tree", DESIGN_CARD)
     assert cli.main(["answer", "a1", "--superseded", "demo:j2-7=stop"]) == 2
-    assert f"{DESIGN_CARD} already shows his answer 'Tree'" in capsys.readouterr().err
+    assert "demo:j2-7: not a card or PR that a1 has not marked" in capsys.readouterr().err
     data = state.load("demo")
     assert (data["answers"]["a1"]["cards"]["demo:j2-7"], data["jobs"]["j2"]["state"]) == (None, "running")
 
@@ -6060,14 +6061,22 @@ def test_cards_withdraw_settles_his_open_card_with_his_words_and_refuses_a_card_
 ) -> None:
     shown = open_card(7, {"title": "Which cache disk?", "options": ["Lazy", "Bigger"], "recommended": "Lazy", "waits": "demo:j1-7"})
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": [], "closed": []})
+    view.refresh_cards("demo")
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"].append(state.new_question(None, "Which cache disk?", state.stamp(), None, shown["url"]) | {"waits": "demo:j1-7"})
     calls: list[tuple] = []
     monkeypatch.setattr(slack, "cc_slack", lambda *args: calls.append(args) or {"answered": True})
     words, via = "We're already addressing this with the lazy + restate object", "https://acme.slack.com/archives/D123/p1794300000000999"
     code, line = run("cards", "withdraw", "demo:j1-7", "--words", words, "--via", via)
     assert (code, calls) == (0, [("card-answer", "--card", shown["url"], "--label", words, "--withdrawn", "--via", via)])
-    assert line == f"withdrew his card {shown['url']} (demo:j1-7): it shows his words and a link to them, with no buttons; j1 asks again under demo:j1-7 once its work is back, which redraws this card"
+    assert line.splitlines() == [
+        "withdrew 1 question(s) drawn on his card demo:j1-7",
+        f"demo:j1-7: his card {shown['url']} now shows his words with no buttons, its question withdrawn",
+        "j1 asks again under demo:j1-7 once its work is back, which redraws its card",
+    ]
+    assert state.load("demo")["jobs"]["j1"]["questions"][-1]["closed"]["how"] == "withdrawn"
     assert cli.main(["cards", "withdraw", "demo:j1-8", "--words", words, "--via", via]) == 2
-    assert "demo:j1-8: not one of his open question cards" in capsys.readouterr().err
+    assert "demo:j1-8: no open question of this drive is drawn on that card" in capsys.readouterr().err
 
 
 def test_a_ruling_records_only_with_the_tooling_order_rewriting_the_skill_to_it(
