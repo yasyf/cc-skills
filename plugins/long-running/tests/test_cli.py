@@ -4963,8 +4963,6 @@ def test_a_line_in_the_thread_of_the_incident_an_alert_joined_is_its_last_line_a
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
-        state.carry(data, "j1", "o2", list(data["orders"]["o2"]["parts"]))
-        state.drop_carries(data, "j1")
     line = slack_thread.post(state.now() + timedelta(seconds=1), from_claude=True)
     assert run("order", "posted", "o2", line) == (0, f"o2 progress line, no part delivered: {line}")
     alert_order = state.load("demo")["orders"]["o2"]

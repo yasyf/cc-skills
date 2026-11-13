@@ -1338,7 +1338,7 @@ def test_due_names_every_part_nothing_carries(demo: str, monkeypatch: pytest.Mon
     assert lines[1:] == ['ORPHAN o2 "stack 2": no job']
 
 
-def test_a_part_another_orders_job_carries_is_no_orphan_until_that_job_is_done(
+def test_a_part_another_orders_builder_carries_is_delivered_by_that_builders_done(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     serve(monkeypatch, {})
@@ -1352,8 +1352,10 @@ def test_a_part_another_orders_job_carries_is_no_orphan_until_that_job_is_done(
     with state.edit(demo) as data:
         state.take_result(data, "j1", "DONE carried it")
         data["orders"]["o2"]["updated"] = state.stamp(T0)
+    data = state.load(demo)
+    assert (data["jobs"]["j1"]["carries"], data["orders"]["o2"]["jobs"], state.delivered(data, "o2", "stack 2")) == ({"o2": ["stack 2"]}, ["j2", "j1"], True)
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
-    assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == ['ORPHAN o2 "stack 2": no job']
+    assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == []
 
 
 def test_a_job_on_the_part_heals_the_orphan_once_its_handover_is_done(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

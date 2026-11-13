@@ -714,13 +714,6 @@ def carry(data: dict, job_id: str, order_id: str, parts: list[str]) -> None:
     order["updated"] = stamp()
 
 
-def drop_carries(data: dict, job_id: str) -> None:
-    """A done job stops carrying other orders' parts, so a part it leaves undelivered reads as nobody's again."""
-    for order_id in data["jobs"][job_id]["carries"]:
-        data["orders"][order_id]["jobs"].remove(job_id)
-    data["jobs"][job_id]["carries"] = {}
-
-
 def agent_job(data: dict, agent: str | None) -> str | None:
     return next((job_id for job_id, job in data["jobs"].items() if agent and job.get("agent") == agent), None)
 
@@ -878,8 +871,6 @@ def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
                 order["joins"] = head
     if (posted := POSTED_LINE.match(line)) and unposted_answer(data, job_id):
         deliver_posted(data, job_id, posted["link"], moment)
-    if taken == "done":
-        drop_carries(data, job_id)
     if job["kind"] == "builder" and re.match(r"READY\b", line):
         met = REPORT_CHANGE.search(report)
         for key in named_prs(data, job["order"], line):
