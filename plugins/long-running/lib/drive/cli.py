@@ -3210,18 +3210,17 @@ def run_tool(tool: str, given: dict) -> str:
 
 
 def plan_search(args: argparse.Namespace) -> int:
-    """Print the sections of the plans the coordinator's checkout keeps in cc-notes that carry the most of the words, each under its plan and headings."""
-    words = " ".join(args.words)
+    """Print each line of the plans the coordinator's checkout keeps in cc-notes that carries one of the phrases whole, under its plan and headings, cut at reads.BUDGET characters."""
     checkout_dir = Path(state.load(state.resolve(args.drive))["roles"]["coordinator"]["cwd"])
     try:
-        found = reads.plan_sections(words, checkout_dir)
+        found = reads.plan_sections(args.words, checkout_dir)
     except reads.ReadError as error:
         raise DriveError(f"plan search: {error}") from None
     said = "\n\n".join(
-        " › ".join(filter(None, [f"== {section['title']} (plan {section['plan']}, {section['status']})", section["heading"]])) + f"\n{section['text']}"
+        "\n".join(filter(None, [" › ".join(filter(None, [f"== {section['title']} (plan {section['plan']}, {section['status']})", section["heading"]])), section["text"]]))
         for section in found
     )
-    return emit(args, said or f'no plan the coordinator keeps in cc-notes has a section on "{words}"', found)
+    return emit(args, reads.head(said) or "no plan the coordinator keeps in cc-notes has a line on " + ", ".join(f'"{each}"' for each in args.words), found)
 
 
 def page_add(args: argparse.Namespace) -> int:
@@ -4237,9 +4236,9 @@ def parser() -> argparse.ArgumentParser:
     verb = plan.add_parser(
         "search",
         parents=both,
-        help="print the plan sections carrying the most of the words, best first, each under its plan's title and the headings above it",
+        help="print each plan line carrying one of the phrases whole, in any case, under its plan's title and the headings above it, plans best first, cut at 12,000 characters",
     )
-    verb.add_argument("words", nargs="+", help="what to look for in the plans, such as a part, a step or a file")
+    verb.add_argument("words", nargs="+", help="each phrase to look for in the plans, matched whole in any case, such as a part, a step or a file")
     verb.set_defaults(run=plan_search)
     page = verbs.add_parser("page", help="the one-off live dashboards page jobs build, listed under Pages on the drive's dashboard").add_subparsers(dest="action", required=True)
     verb = page.add_parser(
