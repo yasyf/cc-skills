@@ -167,7 +167,6 @@ const slotted = new Map();
 const followed = new Map();
 const slices = new Map();
 const sources = new Map();
-const TYPED_MARK = '_You, on the dashboard:_ ';
 let reviewing = null;
 let viewing = null;
 
@@ -1569,11 +1568,10 @@ function waitingCards() {
 function message(said, waiting) {
   const item = waiting.get(said.ts);
   const buttons = item ? choices(item) : said.buttons?.length ? `<div class="chips">${said.buttons.map((label) => `<span class="chip settled">${esc(label)}</span>`).join('')}</div>` : '';
-  const typed = said.from_claude && said.text.startsWith(TYPED_MARK);
-  const who = typed ? 'You, on the dashboard' : said.from_claude ? esc(said.user_name) : 'You';
-  return `<div class="msg${said.from_claude && !typed ? '' : ' you'}">
+  const who = said.dashboard ? 'You, on the dashboard' : said.from_claude ? esc(said.user_name) : 'You';
+  return `<div class="msg${said.from_claude ? '' : ' you'}">
     <div class="who">${who} · ${slackTime(said.ts)}</div>
-    <div class="said-text">${prose(typed ? said.text.slice(TYPED_MARK.length) : said.text)}</div>
+    <div class="said-text">${prose(said.text)}</div>
     ${buttons}
   </div>`;
 }
