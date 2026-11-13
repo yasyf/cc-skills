@@ -606,7 +606,7 @@ def test_a_handlers_handoff_goes_to_the_session_holding_the_order_its_order_attr
 
 
 def open_cards(monkeypatch: pytest.MonkeyPatch, *waits: str, prs: tuple[str, ...] = ()) -> list[tuple[str, ...]]:
-    """His open question card for each waits id, the first at CARD, its question kept on the job the waits id names as drawn there, and a PR card at PR_CARD carrying the PRs named; each card-answer call cc-slack gets, answered as a card that was waiting."""
+    """His open question card for each waits id, the first at CARD, its question kept on the job the waits id names as drawn there, and a PR card at PR_CARD carrying the PRs named, stored as the drive stores the cards cc-slack lists; each card-answer call cc-slack gets, answered as a card that was waiting."""
     urls = [CARD if index == 0 else f"{CARD[:-2]}{index:02d}" for index in range(len(waits))]
     if waits:
         with state.edit("demo") as data:
@@ -622,6 +622,7 @@ def open_cards(monkeypatch: pytest.MonkeyPatch, *waits: str, prs: tuple[str, ...
         "closed": [], "pr_cards": [{"url": PR_CARD, "prs": list(prs), "card": {"options": ["Approve", "Hold"]}}] if prs else [],
     }
     monkeypatch.setattr(view, "cards", lambda name: found)
+    view.refresh_cards("demo")
     answered: list[tuple[str, ...]] = []
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: answered.append(argv) or {})
     return answered
