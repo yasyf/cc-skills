@@ -3163,7 +3163,7 @@ def pr_tapped(args: argparse.Namespace) -> int:
 def pr_land(args: argparse.Namespace) -> int:
     keys = [state.pr_key(url) for url in args.urls]
     name = state.resolve(args.drive)
-    outcome = land.record(name, keys, args.outcome, args.below) if args.outcome else land.run(name, keys, args.dry_run)
+    outcome = land.record(name, keys, args.outcome, args.below, dict(args.asked)) if args.outcome else land.run(name, keys, args.dry_run)
     return emit(args, f"{', '.join(keys)}: {outcome}", {"keys": keys, "outcome": outcome})
 
 
@@ -4554,6 +4554,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--dry-run", action="store_true", help="run stack-enqueue --check from a fresh worktree of the default branch, say what it would do, refusing as it would, and queue and record nothing")
     verb.add_argument("--outcome", help="land nothing and record this outcome, as a lander reopening on a newer install records what came of its landing")
     verb.add_argument("--below", action="append", default=[], metavar="PR", help="with --outcome, a PR below it without his Approve that held it; repeat for each")
+    verb.add_argument("--asked", action="append", nargs=2, default=[], metavar=("PR", "HEAD"), help="with --outcome, a PR and the head its lander asked forge-pr-reviewer to review; repeat for each")
     verb.set_defaults(run=pr_land)
     verb = pr.add_parser(
         "check",

@@ -28,6 +28,7 @@ STACKED = "must be merged using the asynchronous merge REST API"
 ASYNC_SECONDS = 2
 NOT_MERGING = "not merging it"
 MERGE = ("gh", "pr", "merge", "--squash")
+# TODO: delete with its case in stage.unlanded once no lander of an install that refused mid-check still runs: its record() reopens on this install with this outcome.
 NEWER_INSTALL = "not landed: a newer long-running saved the drive while stack-enqueue --check ran, so the landing runs again on it"
 OWN_FAILURE = "the lander could not"
 NO_WORKTREE = f"{OWN_FAILURE} check out"
@@ -364,6 +365,7 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
     if foreign := [why for key in keys if (why := state.foreign_pr(data, key))]:
         raise state.DriveError("; ".join(foreign))
     below: list[str] = []
+    asked: dict[str, str] = {}
     if holding := held(data, keys, view.live_cards(name)):
         outcome = f"{HELD}: {holding}"
     elif state.merges_untapped(keys[0]):
@@ -380,19 +382,21 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
             elif below:
                 outcome = held_below(keys, below)
             elif state.queued_by_lander(keys[0]):
-                outcome = enqueued(name, Path(data["roles"]["coordinator"]["cwd"]), keys, dry_run, any(requeues(data, data["prs"][key]) for key in keys))
+                outcome = enqueued(name, Path(data["roles"]["coordinator"]["cwd"]), keys, data["prs"], asked, dry_run, any(requeues(data, data["prs"][key]) for key in keys))
             else:
                 head = data["prs"][keys[0]]["head"]
                 outcome = f"would merge it with {' '.join(MERGE)} --match-head-commit {head[:12]}" if dry_run else merged(name, keys[0], ["--match-head-commit", head])
     if dry_run:
         return outcome
-    return record(name, keys, outcome, below)
+    return record(name, keys, outcome, below, asked)
 
 
-def record(name: str, keys: list[str], outcome: str, below: list[str]) -> str:
-    """Record what came of a landing on each PR, with the top of keys as its entry, the PR stack-enqueue submits and so the one whose labels say Trunk ejected them all, and as a landing event unless the try before it on the same head came to the same, such as a retried landing that again could make no worktree; on the newest install, which `drive pr land --outcome` records it on when one landed while this lander waited on the queue or an install."""
-    install.reopen(["pr", "land", *map(state.pr_url, keys), "--drive", name, "--outcome", outcome, *(flag for key in below for flag in ("--below", key))])
+def record(name: str, keys: list[str], outcome: str, below: list[str], asked: dict[str, str]) -> str:
+    """Record what came of a landing on each PR, with the top of keys as its entry, the PR stack-enqueue submits and so the one whose labels say Trunk ejected them all, and as a landing event unless the try before it on the same head came to the same, such as a retried landing that again could make no worktree, and on each PR asked names the head its lander asked forge-pr-reviewer to review, so none is asked twice; on the newest install, which `drive pr land --outcome` records it on when one landed while this lander worked."""
+    install.reopen(["pr", "land", *map(state.pr_url, keys), "--drive", name, "--outcome", outcome, *(flag for key in below for flag in ("--below", key)), *(flag for key, head in asked.items() for flag in ("--asked", key, head))])
     with state.edit(name) as data:
+        for key, head in asked.items():
+            data["prs"][key]["review_asked"] = head
         noted(name, data, keys, outcome, below)
     return outcome
 
@@ -421,8 +425,8 @@ def said(output: str) -> str:
     return cut("; ".join([line for line in output.splitlines() if line.strip()][-SAID_LINES:]), SAID_CHARS)
 
 
-def enqueued(name: str, clone: Path, keys: list[str], dry_run: bool = False, flake: bool = False) -> str:
-    """Queue the unit through stack-enqueue as the head of its repository's default branch holds it, run from a fresh() worktree of the coordinator checkout's clone and never from that checkout, with --flake when a PR of it requeues() at the head Trunk ejected it at: --check first, whose exit of ENQUEUE_FAILED ends the landing as the lander's own failure, by unfinished(), as the same exit of --watch does, and whose BLOCKED lines end it, unless each gap is an approval on an older head, which stack-enqueue names only once ai-review finished on the head, or a wait to retarget onto the default branch once the PR under it lands; a dry run stops there, saying what it would queue; then forge-pr-reviewer is asked to review each head approved only on an older one, once, and --watch waits until Trunk holds every PR of it or one needs a fix rather than a wait, unless halt() ends it first, which dequeues each PR of it; what came of it. A drive a newer install saved while it read the PRs below the unit, made the fresh worktree, ran --check or waited on Trunk in --watch ends the landing unlanded, for the next landing on that install."""
+def enqueued(name: str, clone: Path, keys: list[str], prs: dict, asked: dict[str, str], dry_run: bool = False, flake: bool = False) -> str:
+    """Queue the unit through stack-enqueue as the head of its repository's default branch holds it, run from a fresh() worktree of the coordinator checkout's clone and never from that checkout, with --flake when a PR of it requeues() at the head Trunk ejected it at: --check first, whose exit of ENQUEUE_FAILED ends the landing as the lander's own failure, by unfinished(), as the same exit of --watch does, and whose BLOCKED lines end it, unless each gap is an approval on an older head, which stack-enqueue names only once ai-review finished on the head, or a wait to retarget onto the default branch once the PR under it lands; a dry run stops there, saying what it would queue; then forge-pr-reviewer is asked to review each head approved only on an older one that prs, the drive's PRs as the lander read them at its start, records no ask of, each head it asks added to asked for record() to keep, and --watch waits until Trunk holds every PR of it or one needs a fix rather than a wait, unless halt() ends it first, which dequeues each PR of it; what came of it. It reads and writes no drive state, so an install that saves the drive while it makes the worktree, runs --check or waits on Trunk never ends the landing."""
     repo = github.repo_of(keys[0])
     numbers = [key.split("#")[1] for key in keys]
     flags = ["--flake"] if flake else []
@@ -444,12 +448,13 @@ def enqueued(name: str, clone: Path, keys: list[str], dry_run: bool = False, fla
                 return f"not landed: {cut('; '.join(line[0] for line in blocked), SAID_CHARS)}; its whole output is in {state.drive_dir(name) / LOG}"
             if dry_run:
                 return f"would queue {', '.join(keys)} through stack-enqueue {' '.join(['--watch', *flags])} from {branch} at {sha[:12]}: every PR below it is merged, approved by him or exempt"
-            try:
-                refused = ask_review(name, repo, {line["number"]: line["head"] for line in blocked if OLDER_HEAD.search(line["gaps"])})
-            except state.NewerDrive as error:
-                return f"{NEWER_INSTALL}: {cut(str(error), SAID_CHARS)}"
-            if refused:
-                return refused
+            for line in blocked:
+                key = f"{repo}#{line['number']}"
+                if not OLDER_HEAD.search(line["gaps"]) or prs[key]["review_asked"] == line["head"]:
+                    continue
+                if refused := ask_review(repo, line["number"], line["head"]):
+                    return refused
+                asked[key] = line["head"]
             try:
                 done = subprocess.run([script, "--watch", *flags, *numbers], cwd=checkout, capture_output=True, text=True)
             except Halted:
@@ -487,18 +492,12 @@ def fresh(name: str, clone: Path, branch: str) -> Iterator[tuple[Path, str]]:
         subprocess.run([*git, "worktree", "remove", "--force", str(checkout)])
 
 
-def ask_review(name: str, repo: str, heads: dict[str, str]) -> str | None:
-    """Post the comment ai-review names for a head it will not review on its own on each PR whose head, as stack-enqueue names it, was not asked before, and record that head on the PR so none is asked twice; why not, when GitHub refused one."""
-    asked = state.load(name)["prs"]
-    for number, head in heads.items():
-        if asked[f"{repo}#{number}"]["review_asked"] == head:
-            continue
-        done = subprocess.run(["gh", "pr", "comment", number, "-R", repo, "--body", REVIEW_ASK], capture_output=True, text=True)
-        if done.returncode:
-            return f"not landed: #{number} waits on a review of head {head}, and gh pr comment refused {REVIEW_ASK!r}: {cut(' '.join(done.stderr.split()), SAID_CHARS)}"
-        print(f"#{number} asked forge-pr-reviewer to review head {head}: {done.stdout.strip()}", flush=True)
-        with state.edit(name) as data:
-            data["prs"][f"{repo}#{number}"]["review_asked"] = head
+def ask_review(repo: str, number: str, head: str) -> str | None:
+    """Post the comment ai-review names for a head it will not review on its own on the PR, whose caller records that head as its review_asked so none is asked twice; why not, when GitHub refused it."""
+    done = subprocess.run(["gh", "pr", "comment", number, "-R", repo, "--body", REVIEW_ASK], capture_output=True, text=True)
+    if done.returncode:
+        return f"not landed: #{number} waits on a review of head {head}, and gh pr comment refused {REVIEW_ASK!r}: {cut(' '.join(done.stderr.split()), SAID_CHARS)}"
+    print(f"#{number} asked forge-pr-reviewer to review head {head}: {done.stdout.strip()}", flush=True)
     return None
 
 
