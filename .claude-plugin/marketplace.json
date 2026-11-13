@@ -132,10 +132,10 @@
         "source": "git-subdir",
         "url": "https://github.com/yasyf/cc-skills",
         "path": "plugins/incident-retro",
-        "ref": "incident-retro--v0.7.42"
+        "ref": "incident-retro--v0.7.43"
       },
       "description": "Write incident retrospectives as an interactive HTML page rendered from one canonical retro.json: outage windows and time-to-detect/mitigate/resolve tiles derived from timestamps, a swimlane timeline with Slack quotes, root and contributing causes with evidence, action items with live GitHub state, committed Datadog notebook and monitor snapshots drawn in the page, reader comments, and an in-page assistant; imports Google Docs postmortems.",
-      "version": "0.7.42"
+      "version": "0.7.43"
     },
     {
       "name": "orca",
