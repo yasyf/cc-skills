@@ -156,9 +156,15 @@ unstarted() {
     { [ -f "$attempt/tools.err" ] && [ ! -e "$attempt/worker-start.status" ]; } ||
     { [ -e "$attempt/worker-start.status" ] && earlier=$(jq -er .run "$attempt/request.json" 2>/dev/null) && unreached "$earlier"; }
 }
-if [ "$route" = sprite ] && [ -d "$attempt" ] && [ ! -L "$attempt" ]; then
+if [ -d "$attempt" ] && [ ! -L "$attempt" ] && { [ "$route" = sprite ] || [ -e "$attempt/prepare.err" ]; }; then
   if [ ! -e "$attempt/worker-start.status" ] && ! { read -r failed 2>/dev/null <"$attempt/prepare.status" && [ "$failed" = 0 ]; }; then
+    if [ "$route" = sprite ]; then
+      stopped=$("$cc_remote" orca stop "$lane" --provider sprites --profile agents 2>&1 >/dev/null) ||
+        die "cc-remote orca stop $lane failed: ${stopped##*$'\n'}, so the Sprite the earlier prepare claimed still holds the lane; $attempt keeps that attempt, and nothing was prepared"
+    fi
     retire "whose prepare ${failed:+exited }${failed:-never finished} before any worker started"
+  elif [ "$route" = local ] && [ ! -e "$attempt/worker-start.status" ]; then
+    retire "whose Sprite was prepared but started no worker"
   elif [ -n "$continued" ] && unstarted && held=$(jq -r .workspace "$attempt/prepared.json") && [ "$held" != "$continued" ]; then
     retire "which prepared Sprite $held while this launch continues on Sprite $continued, and $(discard "$held")"
   fi

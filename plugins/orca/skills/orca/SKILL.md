@@ -283,10 +283,12 @@ Each brief claims `<brief-stem>.worker` beside the brief. For
 `/briefs/lane-a.md`, that is `/briefs/lane-a.worker`. An existing directory,
 link, failed attempt, or legacy `<brief-stem>.dispatch.json` refuses replay.
 The exceptions are a fenced or unrecorded `worker-start`, described above, and
-a Sprite attempt whose prepare exited nonzero or never finished, and that never
-ran `worker-start`.
+a Sprite attempt that never ran `worker-start`, either because its prepare exited
+nonzero or never finished, or because this launch takes the local route.
 In that last case no task reached any worker, so launching the brief again moves
-the attempt to `<brief-stem>.worker.<n>`, keeping its files, and prepares afresh. The directory records `request.json` with the requested route, model, effort,
+the attempt to `<brief-stem>.worker.<n>`, keeping its files, and prepares afresh.
+On the Sprite route it first runs `cc-remote orca stop <lane>`, since cc-remote
+refuses a lane that already claimed a warm Sprite until a stop releases it. The directory records `request.json` with the requested route, model, effort,
 tier, ref, optional expected base, and local brief hash/bytes.
 
 The remote route retains `allocation.json`, raw but for the brief a relaunch
