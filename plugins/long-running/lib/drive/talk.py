@@ -73,17 +73,22 @@ def recording(name: str, receipt: dict) -> str:
     return f"recording on {receipt['order']} after this call; its line lands in {kept}, and a failure reaches the meta session as a defect"
 
 
-def record_kept(name: str, kept: Path) -> str:
-    """Record a say post on its order from the receipt `recording` kept, writing the line it ends with back into the receipt; one that cannot be recorded is sent to the meta session as a defect naming the receipt."""
+def unrecorded(name: str, text: str) -> None:
+    """Tell the meta session, as a defect, that a post say made was not recorded on its order."""
     from drive import tools
 
+    tools.sent(name, "communicator", [{"kind": "defect", "to": [f"meta@{name}"], "text": text}])
+
+
+def record_kept(name: str, kept: Path) -> str:
+    """Record a say post on its order from the receipt `recording` kept, writing the line it ends with back into the receipt; one that cannot be recorded is sent to the meta session as a defect naming the receipt."""
     receipt = json.loads(kept.read_text())
     try:
         report = cli.report_attrs(receipt["record"]) if receipt["record"] else {}
         line = cli.record_post(name, receipt["order"], receipt["link"], report, receipt["sent"])[0]
     except (DriveError, slack.SlackError) as error:
         line = f"not recorded on {receipt['order']}: {error}"
-        tools.sent(name, "communicator", [{"kind": "defect", "to": [f"meta@{name}"], "text": f"say posted {receipt['link']} but it was {line}; receipt {kept}"}])
+        unrecorded(name, f"say posted {receipt['link']} but it was {line}; receipt {kept}")
     tmp = kept.with_suffix(".tmp")
     tmp.write_text(json.dumps(receipt | {"line": line}))
     os.replace(tmp, kept)
