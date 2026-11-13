@@ -81,6 +81,7 @@ class Watcher:
     owed: set[str] | None = None
     stale: set[str] = field(default_factory=set)
     unhookable: set[str] = field(default_factory=set)
+    mapped: set[str] = field(default_factory=set)
     agent_gaps: dict[str, str | None] = field(default_factory=dict)
     made: list[str] = field(default_factory=list)
     unsent: dict[str, list[str]] = field(default_factory=dict)
@@ -243,6 +244,43 @@ def dropped_lines(watcher: Watcher, foreign: dict[str, tuple[str, str, str]], mo
 
 def bare(wait: str) -> str:
     return wait.split("?")[0]
+
+
+def release_wait_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Give each merged PR outside yasyf/* that no release wait names, on a live job carrying the fix of an open incident the watch hears whose fix is not recorded live, a release wait on its job for each component go/ci's map lists its paths reaching, since a merged fix runs nowhere until a release ships it, so the release that ships the last of them records the fix live as a release wait its builder named does; a PR whose paths reach no component is said once, naming the wait that records it by hand, each PR is mapped once a watch, and a failed read is retried next pass and said as a failed read is."""
+    from drive import cli
+
+    data = state.load(watcher.name)
+    named = {found["pr"] for owner in [*data["jobs"].values(), *data["prs"].values()] for wait in owner["waits"] if (found := state.RELEASE_WAIT.fullmatch(wait))}
+    fixes = {key: pr["job"] for key, pr in data["prs"].items() if key not in named and key not in watcher.mapped and unreleased_fix(watcher, data, key, pr)}
+    if not fixes:
+        return []
+    try:
+        answers = cli.reached(watcher.name, data, list(fixes))
+    except (github.GithubError, state.DriveError) as error:
+        return read_failed(watcher, "release components", error, moment)
+    watcher.failures.pop("release components", None)
+    watcher.mapped |= fixes.keys()
+    lines = []
+    with state.edit(watcher.name) as data:
+        for key, answer in answers.items():
+            job = data["jobs"][fixes[key]]
+            if not answer["touched"]:
+                lines.append(f"WATCH {key} fixes incident {job['order']} and merged, but `tools/ci release select --pr` maps its paths to no component, so no release records its fix live: drive job set {fixes[key]} --waits release:<component>:{key} names the one that runs it")
+                continue
+            state.rewait(job, list(dict.fromkeys([*job["waits"], *(f"release:{component}:{key}" for component in answer["touched"])])))
+    return lines
+
+
+def unreleased_fix(watcher: Watcher, data: dict, key: str, pr: dict) -> bool:
+    """Whether a PR merged outside yasyf/* is on a live job carrying the fix of an open incident the watch hears whose fix is not recorded live."""
+    job = data["jobs"][pr["job"]]
+    if not pr["merged_sha"] or state.merges_untapped(key) or job["state"] in state.FINISHED_JOB_STATES:
+        return False
+    return any(
+        hears(watcher, data, order_id) and not data["orders"][order_id]["fixed"] and state.INCIDENT_FIX in state.job_parts(job, order_id)
+        for order_id in state.open_incidents(data, [job["order"], *job["carries"]])
+    )
 
 
 def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
@@ -1951,7 +1989,7 @@ def tick_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """One loop of the watch: the drive's own Orca terminal every Orca call speaks as, his cards, the GitHub reads it owes, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, the waits his answers or a job's end release, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited and the receiver every 60 s, and GitHub again next poll after a failure, new events, then the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, the catch-up owed him, promised times still owed a line, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries, a tick every 30 minutes while he is here. Each stage's lines join the watcher's made lines as it returns, or as it saves when it keeps working after its save, so a pass that ends early, in a crash or on a drive a newer install saved, leaves them to the watch process after it."""
+    """One loop of the watch: the drive's own Orca terminal every Orca call speaks as, his cards, the GitHub reads it owes, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, a release wait on each component a merged incident fix no release wait names reaches, the waits his answers or a job's end release, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited and the receiver every 60 s, and GitHub again next poll after a failure, new events, then the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, the catch-up owed him, promised times still owed a line, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries, a tick every 30 minutes while he is here. Each stage's lines join the watcher's made lines as it returns, or as it saves when it keeps working after its save, so a pass that ends early, in a crash or on a drive a newer install saved, leaves them to the watch process after it."""
     lines = watcher.made
     if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
         watcher.read_at = moment
@@ -1971,6 +2009,7 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
         landed(watcher)
         lines += settle_lines(watcher, moment)
         lines += follow_lines(watcher, moment)
+        lines += release_wait_lines(watcher, moment)
         lines += waits_lines(watcher, moment)
         finished(watcher, moment)
         lines += recovered_lines(watcher, moment)

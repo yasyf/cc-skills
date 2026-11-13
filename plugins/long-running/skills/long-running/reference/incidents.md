@@ -418,7 +418,9 @@ the thread and its reporter, if any, has heard, which takes it off the dashboard
 the strip counts only open incidents and bug reports whose reporter has not heard.
 
 The watch sends step 8 itself once the incident's fix is live: the release shipping the last release
-wait of a job or PR on its `fix` part is out, or a builder on that part returned `DONE`. Every Datadog
+wait of a job or PR on its `fix` part is out, or a builder on that part returned `DONE`. A `fix`
+PR outside `yasyf/*` that merged with no release wait naming it gets one on its job for each
+component `tools/ci release select --pr` maps its paths to. Every Datadog
 monitor recorded on the incident must read OK too, all of them read in one search a minute; an
 incident with none, a Sentry issue's or his words', closes on its fix alone. Then it:
 
