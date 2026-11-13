@@ -46,6 +46,27 @@ def test_a_job_call_whose_inline_tooling_order_repeats_an_open_one_adds_no_job_a
     assert (list(state.load(meta)["jobs"]), len([request for request in jev.asked if "repeats" in request["questions"]])) == (["j1"], 1)
 
 
+def test_a_job_call_whose_inline_tooling_order_repeats_one_no_unfinished_job_carries_adds_its_reader_on_its_own_part_with_its_builder_waiting(
+    meta: str, jev: Jev
+) -> None:
+    filed = {"title": "Install lock stall", "project": "The drive", "workstream": "Drive tooling", "kind": "build"}
+    tools.run("job", meta, {"ops": [{"add": {"kind": "reader", "order": filed | {"words": LOCK_STALL}, "goal": "research: the install lock"}}]})
+    with state.edit(meta) as data:
+        for job in data["jobs"].values():
+            job["state"] = "done"
+    jev.picks("o1")
+    said = tools.run("job", meta, {"ops": [{"add": {"kind": "reader", "order": filed | {"words": LOCK_STALL_AGAIN}, "goal": "research: the install stall"}}]})
+    assert said.splitlines()[0] == "1 order add: o2; joins o1: no record; no unfinished job on o1 carries it, so its jobs are added on o2"
+    assert said.splitlines()[1].startswith("1 job add: j3; j4 builder on")
+    part = state.whole_order(LOCK_STALL_AGAIN)
+    data = state.load(meta)
+    assert [(data["jobs"][job_id]["kind"], data["jobs"][job_id]["parts"], data["jobs"][job_id]["waits"]) for job_id in data["orders"]["o2"]["jobs"]] == [
+        ("reader", [part], []),
+        ("builder", [part], ["j3"]),
+    ]
+    assert [job["carries"] for job in data["jobs"].values()] == [{}] * 4
+
+
 def test_a_call_with_a_refused_op_writes_nothing_and_names_every_refused_op_with_its_fix(demo: str) -> None:
     with pytest.raises(DriveError) as refused:
         tools.run("order", demo, {"ops": [{"add": {"words": "Ship it", "title": "Short title", "project": "The drive", "workstream": "Drive tooling"}}, {"set": {"id": "o9", "note": "x"}}, {"set": {"note": "never"}}]})

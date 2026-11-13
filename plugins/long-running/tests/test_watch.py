@@ -1860,7 +1860,7 @@ def test_a_done_design_leaves_its_own_part_with_the_builder_carrying_one_of_its_
         data["jobs"]["j3"].update(state="stopped")
     assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == [
         'ORPHAN o2 "redesign the moved tables": no builder carries this work, only design j2 done: start one with drive job add builder --order o2'
-        " --part 'redesign the moved tables' --goal '<what it builds>', or add it to a builder with drive job set <builder> --part 'redesign the moved tables'; when it asks only for an answer,"
+        " --part 'redesign the moved tables' --goal '<what it builds>', or add it to a builder with drive job set <builder> --part 'redesign the moved tables', adding --carries o2 for another order's builder; when it asks only for an answer,"
         " drive order set o2 --kind answer --part 'redesign the moved tables'; when a merged PR delivered it, drive order posted o2 <its link> --part 'redesign the moved tables'",
         'ORPHAN o2 "the moved-table interface": j3 stopped',
     ]
@@ -2153,7 +2153,7 @@ def test_a_merged_pr_delivers_a_work_part_through_drive_order_posted_which_refus
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == [
         f'ORPHAN o2 "{lands}": no builder carries this work, only reader j2 done: start one with drive job add builder --order o2 --part \'{lands}\''
-        f" --goal '<what it builds>', or add it to a builder with drive job set <builder> --part '{lands}'; {OTHER} merged, so drive order posted o2 {landed} --part '{lands}' delivers it"
+        f" --goal '<what it builds>', or add it to a builder with drive job set <builder> --part '{lands}', adding --carries o2 for another order's builder; {OTHER} merged, so drive order posted o2 {landed} --part '{lands}' delivers it"
     ]
     assert cli.main(["order", "posted", "o2", REPORTED, "--part", lands, "--drive", demo]) == 2
     assert f'--part "{lands}": refused, ' + state.UNPOSTED_WORK.format(order="o2", part=lands, holder="root@demo") in capsys.readouterr().err

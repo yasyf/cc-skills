@@ -328,7 +328,13 @@ def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, d
         for job_id in carriers:
             state.carry(data, job_id, order_id, list(order["parts"]))
     if joined:
-        carried = f"carried by {', '.join(carriers) or 'the next job added on ' + head}, so no job starts on it" if repeats else f"its owner job carries this order with --carries {order_id}"
+        carried = (
+            f"carried by {', '.join(carriers)}, so no job starts on it"
+            if carriers
+            else f"no unfinished job on {head} carries it, so its jobs are added on {order_id}"
+            if repeats
+            else f"its owner job carries this order with --carries {order_id}"
+        )
         started.append(f"joins {args.joins}: {joined['note'] or 'no record'}; {carried}")
     return order_id, order, started, incidents
 
@@ -1131,10 +1137,6 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         order["jobs"].append(job_id)
         builder_id = waiting_builder(name, data, job_id, created)
         order["updated"] = created
-        for other_id, other in state.open_orders(data).items():
-            if other["joins"] == args.order and not state.hurts_now(data, other):
-                for carrier in filter(None, [job_id, builder_id]):
-                    state.carry(data, carrier, other_id, list(other["parts"]))
         state.end_carried_designs(data, args.order, created)
         named = state.named_prs(data, args.order, args.goal)
     if named:
@@ -4299,8 +4301,8 @@ def parser() -> argparse.ArgumentParser:
         metavar="ORDER",
         help=(
             "the open order this one repeats, an incident's on the same failing service: it takes that order's record and kind and starts no job,"
-            " since that incident's owner, or else each unfinished job on that order and each added on it later, carries it; a \"Drive tooling:\" order Jev reads as"
-            " repeating an open tooling order joins it unasked"
+            " since that incident's owner, or else each unfinished job on that order, carries it, and with none its own jobs are added on it;"
+            ' a "Drive tooling:" order Jev reads as repeating an open tooling order joins it unasked'
         ),
     )
     verb.add_argument(
