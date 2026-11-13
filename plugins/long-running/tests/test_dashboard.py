@@ -34,6 +34,55 @@ def test_links_lead_with_https_on_the_tailnet_name_when_the_tailnet_issues_certi
     assert dashboard.links_of(41330, None) == ["http://127.0.0.1:41330/"]
 
 
+def test_rebuild_lists_reports_only_when_jobs_directory_membership_changes(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    with state.edit(demo) as data:
+        data["orders"] = {"o1": order("ship the page", ["j1", "j2"], project="Drive", workstream="Dashboard")}
+        data["jobs"] = {job_id: job("o1", "running") for job_id in ("j1", "j2")}
+    folder = state.drive_dir(demo) / "jobs"
+    folder.mkdir(exist_ok=True)
+    report = folder / "j1.replies.jsonl"
+    report.write_text("{}\n")
+    (folder / "j2.jsonl").write_text("{}\n")
+    listed_at = folder.stat().st_mtime_ns
+    listings: list[str] = []
+    glob = Path.glob
+
+    def listed(path: Path, pattern: str) -> Iterator[Path]:
+        if path == folder:
+            listings.append(pattern)
+        return glob(path, pattern)
+
+    monkeypatch.setattr(Path, "glob", listed)
+    monkeypatch.setattr(dashboard, "home_repo", lambda checkout: None)
+    board = dashboard.Board(demo, [])
+    board.rebuild()
+    board.rebuild()
+    assert listings == ["*.replies.jsonl"]
+    assert board.reports == {"j1"}
+    assert {entry["id"]: entry["files"] for entry in board.model["work"]} == {"j1": ["report"], "j2": []}
+
+    report.write_text('{}\n{"updated": true}\n')
+    assert folder.stat().st_mtime_ns == listed_at
+    board.rebuild()
+    assert listings == ["*.replies.jsonl"]
+    assert board.reports == {"j1"}
+    assert {entry["id"]: entry["files"] for entry in board.model["work"]} == {"j1": ["report"], "j2": []}
+
+    (folder / "j2.replies.jsonl").write_text("{}\n")
+    os.utime(folder, ns=(listed_at + 1_000_000_000, listed_at + 1_000_000_000))
+    board.rebuild()
+    assert listings == ["*.replies.jsonl"] * 2
+    assert board.reports == {"j1", "j2"}
+    assert {entry["id"]: entry["files"] for entry in board.model["work"]} == {"j1": ["report"], "j2": ["report"]}
+
+    report.unlink()
+    os.utime(folder, ns=(listed_at + 2_000_000_000, listed_at + 2_000_000_000))
+    board.rebuild()
+    assert listings == ["*.replies.jsonl"] * 3
+    assert board.reports == {"j2"}
+    assert {entry["id"]: entry["files"] for entry in board.model["work"]} == {"j1": [], "j2": ["report"]}
+
+
 def serving(board: dashboard.Board, net: dashboard.Tailnet = NET) -> tuple[ThreadingHTTPServer, int]:
     server = ThreadingHTTPServer((dashboard.LOOPBACK, 0), BaseHTTPRequestHandler)
     port = server.server_address[1]
