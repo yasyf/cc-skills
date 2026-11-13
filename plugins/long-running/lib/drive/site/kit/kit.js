@@ -56,7 +56,7 @@ export function counter(element, to) {
 }
 
 function choices(item) {
-  if (item.answered) return `<span class="kit-meta">${esc(item.answered.label)}${item.answered.done ? ' sent' : item.answered.error ? `: ${esc(item.answered.error)}` : ', waiting for Undo'}</span>`;
+  if (item.answered) return `<span class="kit-meta">${esc(item.answered.label)}${item.answered.done ? ' sent' : item.answered.error ? `: ${esc(item.answered.error)}` : ', sending'}</span>`;
   return item.options.map((label) => `<button type="button" class="kit-btn${label === item.card?.recommended ? ' primary' : ''}" data-kit-answer="${esc(item.answer)}" data-label="${esc(label)}">${esc(label)}</button>`).join('');
 }
 
