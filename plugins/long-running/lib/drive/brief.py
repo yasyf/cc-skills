@@ -92,7 +92,6 @@ RELEASE_APPROVAL = (
 )
 PULL_WORDS = re.compile(r"(?:#?\d+,?)+")
 NAMES = re.compile(r"[,\s]+")
-RULING_ID = re.compile(r"""(?<![\w-])((?=[0-9a-f]*\d)[0-9a-f]{7,40})(?:[ \t]+\([^()"']*\))?(?:[ \t]*[:,][ \t]*|[ \t]+)["'“]""")
 ABSTRACTION_RULING = '"we should buiold the abstraction first, make sure it works by imaginign, then implement the strategies"'
 NARROWS_QUESTION = (
     "Does this design build less than these words of his name, or build part of it later, with no fork below asking him about it:"
@@ -222,10 +221,13 @@ def research(name: str, data: dict, order_id: str, parts: list[str]) -> tuple[st
 
 
 def bound(name: str, data: dict, job: dict) -> tuple[list[str], list[str]]:
-    """What binds the job beside his words on its orders: the id of each answer of his its brief's rulings name, each the rulings: line of the newest reader of its part of its order and of each order it carries names by id and quote, and each that settled a question of such a reader; then his words on each other question of theirs he answered with no answer recorded."""
+    """What binds the job beside his words on its orders: the id of each answer of his its brief's rulings name, each answer of his the rulings: line of the newest reader of its part of its order and of each order it carries names by id, read as served.named reads a citation whatever words and punctuation surround it, each id cc-notes keeps no answer under, such as a commit or a session, left out, and each that settled a question of such a reader; then his words on each other question of theirs he answered with no answer recorded."""
+    from drive import refs, served
+
     found = [held for order_id in [job["order"], *job["carries"]] if (held := research(name, data, order_id, state.job_parts(job, order_id)))]
     closed = [answer for reader_id, _ in found for question in data["jobs"][reader_id]["questions"] if (answer := question["closed"]) and answer["how"] != "withdrawn"]
-    named = [ruling[1] for _, text in found for ruling in RULING_ID.finditer(researched(text)["rulings"])]
+    cited = dict.fromkeys(answer_id for _, text in found for kind, answer_id in served.named(researched(text)["rulings"]) if kind == "answer")
+    named = [answer_id for answer_id in cited if refs.answered(answer_id, data)]
     ids = [*((job.get("brief_flags") or {}).get("ruling") or []), *(answer["ruling"] for answer in closed if answer["ruling"]), *named]
     heard = [f'his answer "{answer["words"]}"' + (f" ({answer['link']})" if answer["link"] else "") for answer in closed if not answer["ruling"] and answer["words"]]
     return list(dict.fromkeys(ids)), list(dict.fromkeys(heard))

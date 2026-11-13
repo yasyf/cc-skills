@@ -5261,6 +5261,7 @@ def test_job_brief_carries_the_words_of_each_order_the_job_carries_and_each_ruli
     assert keep(monkeypatch, capsys, "j1", RESEARCH.replace("rulings: none on the copy path", rulings)) == (0, "")
     recorded.shown["bc0da25"] = {"id": "bc0da25e", "title": "Partition strategies", "body": "time, hash by key and spill all ship\nNotes: read as three strategies", "tags": [], "created_at": "2026-11-12T11:33:00Z"}
     recorded.shown["a6a9980"] = {"id": "a6a9980f", "title": "Abstraction first", "body": "build the abstraction first", "tags": [], "created_at": "2026-11-12T11:34:00Z"}
+    recorded.unrecorded.add("9f3c2e1")
     builder = run("job", "add", "builder", "--order", "o1", "--goal", "partition the tables")[1].splitlines()[0]
     assert run("job", "set", builder, "--carries", "o2")[0] == 0
     code, out = run("job", "brief", builder, "--serves", "drive tooling", "--done-when", "merged", "--where", "yasyf/cc-skills main")

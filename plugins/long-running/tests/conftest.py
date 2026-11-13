@@ -737,6 +737,7 @@ def pr_reads(monkeypatch: pytest.MonkeyPatch) -> dict[str, dict]:
 @dataclass
 class Answers:
     shown: dict[str, dict] = field(default_factory=dict)
+    unrecorded: set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -770,9 +771,13 @@ def backfilled(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 @pytest.fixture(autouse=True)
 def recorded(monkeypatch: pytest.MonkeyPatch) -> Answers:
     answers = Answers()
-    monkeypatch.setattr(
-        settled, "shown", lambda answer_id, cwd: answers.shown.get(answer_id, {"id": answer_id, "title": "", "body": "", "tags": [], "created_at": "2026-11-12T11:33:00Z"})
-    )
+
+    def shown(answer_id: str, cwd: str) -> dict:
+        if answer_id in answers.unrecorded:
+            raise state.DriveError(f'could not read his answer {answer_id}: not-found: entity not found: no answer matches "{answer_id}"')
+        return answers.shown.get(answer_id, {"id": answer_id, "title": "", "body": "", "tags": [], "created_at": "2026-11-12T11:33:00Z"})
+
+    monkeypatch.setattr(settled, "shown", shown)
     return answers
 
 
