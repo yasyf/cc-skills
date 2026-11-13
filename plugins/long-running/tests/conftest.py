@@ -216,15 +216,32 @@ def run(state_root: Path, capsys: pytest.CaptureFixture[str]) -> Callable[..., t
     return invoke
 
 
+def bind_communicator(name: str, channel: str | None = None) -> str:
+    """Bind this session as the drive's own communicator, creating the drive when none exists, with his DM when channel names it, as a drive saved before this Mac's shared communicator started keeps them."""
+    held = state.held_by(os.environ.get("CLAUDE_CODE_SESSION_ID"), orca.own_terminal(), os.getcwd())
+    with state.edit_or_create(name, state.new_drive(name, "communicator", held["session"], held["cwd"], channel, held["terminal"])) as data:
+        data["roles"]["communicator"] = held
+        data["slack"]["channel"] = channel or data["slack"]["channel"]
+    return name
+
+
+def start_drive(run: Callable[..., tuple[int, str]], name: str, *flags: str, channel: str = "D123") -> tuple[int, str]:
+    """Start the drive's coordinator with flags and keep his DM on the drive, as a drive saved before this Mac's shared communicator started keeps it."""
+    started = run("start", name, "--role", "coordinator", *flags)
+    with state.edit(name) as data:
+        data["slack"]["channel"] = channel
+    return started
+
+
 @pytest.fixture
 def demo(run: Callable[..., tuple[int, str]]) -> str:
-    run("start", "demo", "--role", "coordinator", "--channel", "D123")
+    start_drive(run, "demo")
     return "demo"
 
 
 @pytest.fixture
-def communicator(run: Callable[..., tuple[int, str]], demo: str) -> str:
-    run("start", demo, "--role", "communicator")
+def communicator(demo: str) -> str:
+    bind_communicator(demo)
     with state.edit(demo) as data:
         data["roles"]["coordinator"]["session"] = "elsewhere"
     return demo

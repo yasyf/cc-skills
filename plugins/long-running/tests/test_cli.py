@@ -15,7 +15,7 @@ from pathlib import Path
 import drive
 import pytest
 import spawnllm
-from conftest import CARD_BODY, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SETTLED_NOTE, SHORT_ASK, drawn_card, Answers, explained, Chrome, Draws, Drawing, Heard, Jev, Judge, MetaLaunches, Redraws, Thread, WatchProcess, Withdrawals
+from conftest import bind_communicator, start_drive, CARD_BODY, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SETTLED_NOTE, SHORT_ASK, drawn_card, Answers, explained, Chrome, Draws, Drawing, Heard, Jev, Judge, MetaLaunches, Redraws, Thread, WatchProcess, Withdrawals
 from drive import (
     agents,
     brief,
@@ -134,24 +134,68 @@ Interim fix: none: no runner writes format 16 yet, so no reader meets a split jo
 """
 
 
-def test_start_creates_the_drive_and_prints_the_roles_context(run: Run, tmp_path: Path) -> None:
-    code, out = run("start", "demo", "--role", "communicator", "--channel", "D123")
+def test_the_communicator_starts_belonging_to_no_drive_and_every_drive_reads_it_and_his_dm(run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    code, out = run("start", "--role", "communicator", "--channel", "D123")
     assert code == 0
-    assert out.startswith("You are the communicator of drive demo: you talk to him. The coordinator: not started.")
-    data = state.load("demo")
-    assert data["roles"] == {
-        "communicator": {
-            "session": os.environ["CLAUDE_CODE_SESSION_ID"],
-            "terminal": None,
-            "cwd": str(tmp_path),
-            "started": data["roles"]["communicator"]["started"],
-        }
-    }
-    assert data["slack"] == {"channel": "D123", "page": None, "watch": []}
+    assert out.startswith("You are the communicator of every drive on this Mac, belonging to none: you talk to him. No drive yet.")
+    assert out.splitlines()[-2:] == [
+        "communicator registered: cci session run keeps session session-under-test running in tmux",
+        "communicator: session session-under-test, serving no drive yet, in no Orca terminal",
+    ]
+    held = state.communicator()
+    assert held == {"session": "session-under-test", "terminal": None, "cwd": str(tmp_path), "started": held["started"], "channel": "D123"}
+    assert state.names() == []
+    for name in ("demo", "other"):
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", f"{name}-coordinator")
+        assert run("start", name, "--role", "coordinator")[0] == 0
+    for name in ("demo", "other"):
+        data = state.load(name)
+        assert data["roles"]["communicator"] == {field: held[field] for field in ("session", "terminal", "cwd", "started")}
+        assert data["slack"]["channel"] == "D123"
+        assert ("communicator" in state.stored(name)["roles"], state.stored(name)["slack"]["channel"]) == (False, None)
+    assert state.session_drives("session-under-test") == ["other", "demo"]
+    assert "The communicator: session session-under-test, serving demo, other." in run("context", "--drive", "demo", "--role", "coordinator")[1]
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "communicator-2")
+    assert run("start", "--role", "communicator")[1].splitlines()[-1] == "communicator: session communicator-2, serving demo, other, in no Orca terminal"
+    assert (state.communicator()["channel"], state.load("other")["roles"]["communicator"]["session"]) == ("D123", "communicator-2")
+
+
+def test_the_communicators_start_takes_no_drive_watch_or_project_needs_his_dm_once_and_a_drive_role_takes_no_dm(
+    run: Run, capsys: pytest.CaptureFixture[str]
+) -> None:
+    shared = (
+        "drive: drive start --role communicator: refused, the communicator belongs to no drive and serves every drive on this Mac, so it takes no"
+        " drive name, --watch or --project: drive start --role communicator [--channel <his DM id>]"
+    )
+    for argv in (
+        ["start", "demo", "--role", "communicator", "--channel", "D123"],
+        ["start", "--role", "communicator", "--channel", "D123", "--watch", "C0B75AL4XEW"],
+        ["start", "--role", "communicator", "--channel", "D123", "--project", "Iris"],
+    ):
+        assert cli.main(argv) == 2
+        assert capsys.readouterr().err.strip() == shared
+    assert cli.main(["start", "--role", "communicator"]) == 2
+    assert capsys.readouterr().err.strip() == "drive: drive start --role communicator: pass --channel <his DM id>, since no communicator on this Mac kept his DM yet"
+    assert cli.main(["start", "demo", "--role", "coordinator", "--channel", "D123"]) == 2
+    assert capsys.readouterr().err.strip() == (
+        "drive: drive start demo --role coordinator --channel: refused, his DM is held by the communicator every drive on this Mac shares;"
+        " pass it to drive start --role communicator"
+    )
+    assert cli.main(["start", "--role", "meta"]) == 2
+    assert capsys.readouterr().err.strip() == "drive: drive start --role meta: name the drive the meta session binds to"
+    assert (state.communicator(), state.names()) == (None, [])
+
+
+def test_drive_move_refuses_a_drives_own_communicator_from_before_the_shared_one(communicator: str, capsys: pytest.CaptureFixture[str]) -> None:
+    assert cli.main(["move", "communicator", "--his-word", REPORTED]) == 2
+    assert capsys.readouterr().err.strip() == (
+        f"drive: drive move communicator: refused, drive {communicator}'s communicator is its own, from before the one every drive on this Mac"
+        " shares: start that one in its place by drive manual migration, One communicator for every drive"
+    )
 
 
 def test_a_coordinators_start_starts_the_watch_and_says_so(run: Run, watch_process: WatchProcess, monkeypatch: pytest.MonkeyPatch) -> None:
-    run("start", "demo", "--role", "communicator", "--channel", "D123")
+    run("start", "--role", "communicator", "--channel", "D123")
     assert watch_process.ensured == []
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "coordinator-session")
     code, out = run("start", "demo", "--role", "coordinator")
@@ -162,16 +206,16 @@ def test_a_coordinators_start_starts_the_watch_and_says_so(run: Run, watch_proce
 def test_drive_start_starts_the_meta_session_beside_the_others_once_until_it_binds(
     run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, meta_launches: MetaLaunches
 ) -> None:
-    out = run("start", "demo", "--role", "communicator", "--channel", "D123")[1]
-    registered = "demo-communicator registered: cci session run keeps session session-under-test running in tmux"
-    assert f"\n\n{registered}\nstarted the meta session, which holds drive tooling, in Orca terminal term_meta1\ncommunicator: " in out
-    assert (meta_launches.started, state.load("demo")["launched"]) == ([("demo", str(tmp_path))], {"meta": "term_meta1"})
+    run("start", "--role", "communicator", "--channel", "D123")
+    assert meta_launches.started == []
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "coordinator-session")
+    out = run("start", "demo", "--role", "coordinator")[1]
     registered = "demo-coordinator registered: cci session run keeps session coordinator-session running in tmux"
+    assert f"\n\n{registered}\nstarted the meta session, which holds drive tooling, in Orca terminal term_meta1\n" in out
+    assert (meta_launches.started, state.load("demo")["launched"]) == ([("demo", str(tmp_path))], {"meta": "term_meta1"})
     assert f"\n\n{registered}\nthe meta session starts in Orca terminal term_meta1, which an earlier drive start opened\n" in run("start", "demo", "--role", "coordinator")[1]
     meta_launches.open.clear()
-    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "communicator-2")
-    assert "in Orca terminal term_meta2\ncommunicator: " in run("start", "demo", "--role", "communicator")[1]
+    assert "in Orca terminal term_meta2\n" in run("start", "demo", "--role", "coordinator")[1]
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "meta-session")
     run("start", "demo", "--role", "meta")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "coordinator-session")
@@ -210,8 +254,8 @@ def test_start_refuses_a_project_to_the_communicator_and_one_no_order_is_filed_u
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
-    assert cli.main(["start", "demo", "--role", "communicator", "--project", "Iris"]) == 2
-    assert capsys.readouterr().err.strip() == "drive: --project binds a sub-coordinator, which holds the coordinator role; the communicator holds no project"
+    assert cli.main(["start", "demo", "--role", "meta", "--project", "Iris"]) == 2
+    assert capsys.readouterr().err.strip() == "drive: --project binds a sub-coordinator, which holds the coordinator role; the meta session holds no project"
     assert cli.main(["start", "demo", "--role", "coordinator", "--project", "Platform"]) == 2
     assert capsys.readouterr().err.strip() == "drive: --project Platform: no order is filed under it; the projects in use: Iris"
     data = state.load("demo")
@@ -264,13 +308,14 @@ def test_a_session_holding_a_role_binds_no_sub_coordinator_and_a_sub_coordinator
     assert run("start", "demo", "--role", "coordinator", "--project", "Iris")[0] == 0
     assert cli.main(["start", "demo", "--role", "coordinator", "--project", "Platform"]) == 2
     assert capsys.readouterr().err.strip() == "drive: --project Platform: session iris-1 is the sub-coordinator for Iris of drive demo; bind Platform's from another session"
-    assert cli.main(["start", "demo", "--role", "communicator"]) == 2
-    assert capsys.readouterr().err.strip() == (
-        "drive: --role communicator: session iris-1 is the sub-coordinator for Iris in drive demo; the top coordinator, the communicator and"
-        " the meta session are sessions of their own, so start this role from another session"
-    )
+    for role, argv in (("communicator", ["start", "--role", "communicator", "--channel", "D123"]), ("meta", ["start", "demo", "--role", "meta"])):
+        assert cli.main(argv) == 2
+        assert capsys.readouterr().err.strip() == (
+            f"drive: --role {role}: session iris-1 is the sub-coordinator for Iris in drive demo; the top coordinator, the communicator and"
+            " the meta session are sessions of their own, so start this role from another session"
+        )
     data = state.load("demo")
-    assert (list(data["subcoordinators"]), data["roles"]["coordinator"]["session"], "communicator" in data["roles"]) == (["Iris"], "session-under-test", False)
+    assert (list(data["subcoordinators"]), data["roles"]["coordinator"]["session"], "communicator" in data["roles"], state.communicator()) == (["Iris"], "session-under-test", False, None)
 
 
 def test_heard_returns_one_word_whatever_sub_coordinator_his_thread_is_filed_under(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -294,7 +339,7 @@ def test_each_role_binds_its_own_session_and_a_restart_rebinds_one(
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "keep me")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "communicator-session")
-    assert run("start", "demo", "--role", "communicator")[0] == 0
+    assert run("start", "--role", "communicator", "--channel", "D123")[0] == 0
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "after-restart")
     code, _ = run("start", "demo", "--role", "coordinator")
     data = state.load("demo")
@@ -323,7 +368,7 @@ def test_each_order_has_one_owner_and_the_other_session_adds_no_job_to_it(
         data["orders"]["o4"] = data["orders"]["o2"] | {"owner": "communicator", "jobs": []}
     assert state.load("demo")["orders"]["o4"]["owner"] == "meta"
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "communicator-session")
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     assert cli.main(["job", "add", "reader", "--order", "o1", "--goal", "read it"]) == 2
     assert "o1 is the coordinator's order, session session-under-test" in capsys.readouterr().err
     assert run("job", "add", "reader", "--order", "o3", "--goal", "read it")[0] == 0
@@ -339,7 +384,7 @@ def test_the_meta_session_holds_every_tooling_order_but_no_product_order(
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a verb for owners")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "communicator-session")
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "--kind", "answer", "what does the watch hold")
     assert [order["owner"] for order in state.load("demo")["orders"].values()] == ["meta", "communicator"]
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "meta-session")
@@ -373,16 +418,14 @@ def test_a_drive_saved_with_one_driver_reads_as_its_coordinator(run: Run, demo: 
     data = state.load("demo")
     assert "driver" not in data
     assert data["roles"]["coordinator"]["session"] == os.environ["CLAUDE_CODE_SESSION_ID"]
-    assert run("start", "demo", "--role", "communicator")[0] == 0
+    bind_communicator("demo")
     saved = state.stored("demo")
     assert "driver" not in saved
     assert set(saved["roles"]) == {"communicator", "coordinator"}
 
 
 def test_start_stores_watched_channels_and_a_later_watch_adds(run: Run) -> None:
-    code, out = run(
-        "start", "demo", "--role", "coordinator", "--channel", "D123", "--watch", "C0B75AL4XEW", "--watch", "C0B75AL4XEW"
-    )
+    code, out = start_drive(run, "demo", "--watch", "C0B75AL4XEW", "--watch", "C0B75AL4XEW")
     assert code == 0
     assert 'Hold with cc-slack subscribe --kind alerts,releases,posts --channel <id>: C0B75AL4XEW' in out
     assert state.load("demo")["slack"]["watch"] == ["C0B75AL4XEW"]
@@ -402,7 +445,7 @@ def test_start_adds_watch_to_a_drive_saved_before_watch_existed(run: Run, demo: 
 
 
 def test_status_and_context_print_who_holds_each_channel(run: Run) -> None:
-    run("start", "demo", "--role", "coordinator", "--channel", "D123", "--watch", "C0B75AL4XEW", "--watch", "C0822AHFY3G")
+    start_drive(run, "demo", "--watch", "C0B75AL4XEW", "--watch", "C0822AHFY3G")
     session = os.environ["CLAUDE_CODE_SESSION_ID"]
     code, out = run("status")
     assert code == 0
@@ -3523,7 +3566,7 @@ def test_his_ruling_settling_a_readers_ask_before_its_card_draws_is_kept_on_its_
     ruling = {"kind": "answer", "text": "always do the correct first-principels thing not. ahack", "waits": "demo:j1-671975", "ruling": "32164d3"}
     with monkeypatch.context() as communicating:
         communicating.setenv("CLAUDE_CODE_SESSION_ID", "communicator-session")
-        run("start", "demo", "--role", "communicator")
+        bind_communicator("demo")
         assert tools.run("record", "demo", {"records": [ruling]}).splitlines() == [
             "1 answer 671985",
             '1 j1\'s question "Where does the copy run?" ended answered by 671985',
@@ -5792,7 +5835,7 @@ def test_setting_parts_keeps_what_a_kept_part_recorded(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, slack_thread: "Thread"
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "two answers", "--kind", "answer", "--parts", "why", "how")
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
@@ -5808,7 +5851,7 @@ def test_a_post_naming_no_part_of_an_order_of_several_is_a_progress_line_that_ke
     run: Run, demo: str, slack_thread: "Thread", capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "stop the harm, roll back, find the cause", "--kind", "answer", "--thread", "1794200000.000100", "--due", "+10m", "--parts", "stop the harm", "rollback", "cause")
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
@@ -5831,7 +5874,7 @@ def test_a_post_naming_no_part_of_an_order_of_several_is_a_progress_line_that_ke
 
 def test_the_communicator_takes_back_a_parts_delivered_mark(run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "stop the harm, roll back", "--kind", "answer", "--thread", "1794200000.000100", "--parts", "stop the harm", "rollback")
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
@@ -5850,7 +5893,7 @@ def test_an_answer_counts_as_posted_in_the_thread_of_one_of_the_orders_cards(
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "how fast can restore go?", "--kind", "answer", "--thread", "1794100000.000100")
     run("job", "add", "reader", "--order", "o1", "--goal", "faster restore")
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
@@ -5869,7 +5912,7 @@ def test_a_line_in_the_thread_of_the_card_of_a_pr_on_the_order_is_in_the_orders_
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship web search", "--kind", "answer", "--thread", "1794100000.000100", "--due", "+30m")
     run("job", "add", "builder", "--order", "o1", "--goal", "web search")
     run("pr", "add", PR, "--job", "j1", *LEAD)
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
@@ -5890,7 +5933,7 @@ def test_a_bare_link_to_a_line_under_the_card_of_a_pr_on_the_order_reads_the_car
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship web search", "--thread", "1794100000.000100")
     run("job", "add", "builder", "--order", "o1", "--goal", "web search")
     run("pr", "add", PR, "--job", "j1", *LEAD)
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
@@ -5908,7 +5951,7 @@ def test_a_part_delivered_at_the_root_of_another_channel_is_recorded_where_it_wa
 ) -> None:
     parts = ["answer why it fails silently", "tell the two stopped people now"]
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "tell the stopped people", "--kind", "answer", "--thread", "1794100000.000100", "--due", "+30m", "--parts", *parts)
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
@@ -5926,7 +5969,7 @@ def test_a_post_for_a_report_delivers_the_part_its_record_names_in_any_thread(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, slack_thread: "Thread"
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL errors on plat", "--thread", "1794100000.000100", "--kind", "answer", "--parts", "fix", "first check")
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
@@ -5941,7 +5984,7 @@ def test_a_line_on_an_incident_in_the_thread_of_another_alert_joins_that_thread_
     run: Run, demo: str, slack_thread: "Thread"
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL errors on plat", "--thread", "1794100000.000100", "--incident", "--parts", "fix", "first check")
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
@@ -5959,7 +6002,7 @@ def test_a_line_in_the_thread_of_the_incident_an_alert_joined_is_its_last_line_a
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL errors on plat", "--thread", "1794200000.000100", "--incident", "--parts", "fix", "first check")
     alert = "SandSQL replica lanes unproven on staging"
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", alert, "--from", "slack:C0ALERTS1/1794300000.000100", "--thread", "1794300000.000100", "--joins", "o1", "--due", "+30m")
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
@@ -6014,7 +6057,7 @@ def test_the_line_a_closing_report_posts_keeps_the_time_owed_even_when_it_was_th
     )
     for text in ("unfreeze and release", fix):
         run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", text, "--thread", "1794200000.000100")
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
@@ -6053,7 +6096,7 @@ def test_a_handler_closes_only_an_order_its_report_record_closes(
     monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "kind": "report", "lane": "root", "at": "2026-11-11T09:08:16.896Z", "fields": {"attrs": attrs[argv[2]]}}))
     for text in ("fix the watch", "fix the handler", "fix the say tool", "fix the card"):
         run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", text)
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
@@ -6079,7 +6122,7 @@ def test_an_order_with_a_reporter_closes_done_only_once_its_one_fix_live_note_is
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "fix the stuck staging deploy", "--thread", "1794200000.000100", "--reporter", REPORTED)
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "fix the watch", "--thread", "1794200000.000100")
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
@@ -6121,7 +6164,7 @@ def test_a_reporter_the_bot_cannot_reach_is_told_in_their_group_dm_with_him_and_
     assert "refused, name the message by its Slack permalink or as slack:<channel>/<its thread's ts>" in capsys.readouterr().err
     for words in ("fix the deploy", "fix the cache"):
         run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", words, "--thread", "1794200000.000100", "--reporter", "slack:C0REPORTS01/1794400100.000200")
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
@@ -6153,7 +6196,7 @@ def test_a_question_a_teammate_asked_him_that_he_shares_reaches_them_once_its_an
     order = state.load("demo")["orders"]["o1"]
     assert (state.reported_bug(order), state.hurts_now(state.load("demo"), order)) == (False, False)
     assert f", asked in {asked}, which hears the answer once it is posted" in run("order", "show", "o1")[1]
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
@@ -6177,7 +6220,7 @@ def test_the_communicator_drops_an_order_no_record_names_with_a_note_and_closes_
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the watch")
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
@@ -6213,7 +6256,7 @@ def test_a_part_is_delivered_only_by_the_report_record_that_names_it_and_a_post_
     run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "fix the unfurl", "--kind", "answer", "--thread", "1794200000.000100", "--parts", "fix")
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
@@ -6243,7 +6286,7 @@ def test_no_post_delivers_an_incidents_parts_but_the_incidents_close(
     line = slack_thread.post(state.now(), from_claude=True)
     assert cli.main(["order", "posted", "o1", line, "--part", "fix"]) == 2
     assert '--part "fix": refused, ' + state.UNPOSTED_WORK.format(order="o1", part="fix", holder="root@demo") in capsys.readouterr().err
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
@@ -6293,7 +6336,7 @@ def test_an_answer_orders_reporter_is_told_once_its_answer_is_posted_and_never_a
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "which page shows a run's history?", "--kind", "answer", "--thread", "1794200000.000100", "--reporter", REPORTED)
     run("job", "add", "reader", "--order", "o1", "--goal", "find the page")
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
@@ -6331,7 +6374,7 @@ def test_a_report_naming_parts_delivers_each_whatever_its_posts_words_say_and_th
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", words, "--thread", "1794200000.000100", "--kind", "answer", "--parts", *parts)
     earlier = slack_thread.post(state.now(), from_claude=True, text="Checking where each fix stands now; I will post it by 1:30 PM.")
     assert run("order", "posted", "o1", earlier, "--part", status) == (0, f'o1 "{status}": posted {earlier}, the post that answered it')
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
@@ -6387,7 +6430,7 @@ def test_one_post_delivers_each_part_its_report_names_on_every_order_an_item_nam
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "fix the search worker", "--kind", "answer", "--thread", "1794200000.000100", "--parts", "fix", "first check")
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "raise its RAM", "--kind", "answer", "--thread", "1794200000.000100", "--parts", "increase the RAM")
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
@@ -6402,7 +6445,7 @@ def test_order_posted_on_the_communicators_own_order_takes_the_report_its_handle
     run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "which page shows a run's history?", "--kind", "answer", "--thread", "1794200000.000100", "--owner", "communicator")
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
@@ -6423,7 +6466,7 @@ def test_order_set_done_refuses_the_report_order_posted_refuses_so_one_check_dec
     run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "ship the run page", "--thread", "1794200000.000100")
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"

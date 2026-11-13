@@ -14,7 +14,7 @@ def named_job(payload: dict) -> tuple[str, dict, str, str] | None:
     """The drive, its state, the job its brief's Drive line names, in its prompt or the brief file the prompt names, and that brief, when the drive knows the job."""
     text = brief.carried(payload["tool_input"].get("prompt") or "")
     match = brief.BRIEF_JOB.search(text)
-    names = state.session_drives(payload["session_id"]) if match and payload.get("session_id") else []
+    names = state.call_drives(payload) if match else []
     if not names:
         return None
     data = state.load(names[0])

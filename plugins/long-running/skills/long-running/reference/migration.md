@@ -4,6 +4,7 @@ Each move is done by hand:
 
 - [From one driver to two sessions](#from-one-driver-to-two-sessions), in place.
 - [Add a meta session](#add-a-meta-session), to a running drive.
+- [One communicator for every drive](#one-communicator-for-every-drive), once for this Mac.
 - [Into an Orca terminal](#into-an-orca-terminal), for a session Orca does not show.
 - [Read a 0.7.x drive](#read-a-07x-drive) through
   [Cards, stand-downs and what stays behind](#cards-stand-downs-and-what-stays-behind): a 0.7.x
@@ -54,8 +55,8 @@ Every drive runs a meta session beside the communicator and the coordinator. One
 meta session existed reads `meta: not started` in `drive status`, and its `Drive tooling:` orders
 are the meta session's already, whoever held them before.
 
-1. Run `drive start <name> --role <its role>` again in the communicator's or the coordinator's
-   session: while no meta session is bound, it starts one under cci and shows it in an Orca terminal
+1. Run `drive start <name> --role coordinator` again in the coordinator's session: while no meta
+   session is bound, it starts one under cci and shows it in an Orca terminal
    of its own with the lines in [Start or resume](start.md), whose prompt binds it with
    `drive start <name> --role meta`. Run those lines yourself only when the start printed that the
    meta session did not start.
@@ -63,6 +64,21 @@ are the meta session's already, whoever held them before.
    `record` tool alone each `owner` record about the drive with the order it adds first, and the
    watch hands it its orders' lines.
 3. Check it: `drive status` reads `meta: session <id>`.
+
+## One communicator for every drive
+
+A drive started before one communicator served every drive on this Mac keeps its own in its
+`communicator` role until this Mac's starts. From then every drive reads that one from
+`communicator.json`, and each drops its own at its next save.
+
+1. In the session holding his DM now, run `cci session rm <drive>-communicator`, which drops its
+   subscription and keep-alive and leaves it running, then
+   `drive start --role communicator --channel <his DM id>`, which registers it as `communicator`
+   with one subscription across drives. cci refuses that register while the old alias still
+   holds the session, naming the `cci session rm`.
+2. Run `cci session rm <drive>-communicator` for each other drive's own communicator too, so only
+   this Mac's hears that drive's lines; the session itself ends only on his word.
+3. Check it: `drive status` in each drive reads `communicator: session <id>, serving <each drive>`.
 
 ## Into an Orca terminal
 
@@ -137,7 +153,7 @@ His rulings already live in cc-notes answers.
 ## Carry
 
 1. Start the new drive's sessions by [Start or resume](start.md). The coordinator runs
-   `drive setup` first, and its `drive start <name> --role coordinator --channel <his DM>` adds a
+   `drive setup` first, and its `drive start <name> --role coordinator` adds a
    `--watch <channel id>` for each other channel the old drive watched, its alert channels above
    all, which `cc-slack follows --session <old holder's session id>` lists.
 2. Hand the watches over: one session holds a channel at a time, and stopping the old holder's

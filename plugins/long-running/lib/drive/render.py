@@ -4,7 +4,7 @@ import sys
 from collections.abc import Callable, Iterable
 from datetime import datetime
 
-from drive.state import DRIVE_TOOLING, ROLES, SLOT_WAIT, VERSION, agent_gone, alias, card_wait, carriers, delivered, exempted, lane_death, may_tell, named_prs, now, open_orders, parse_time, pr_key, pr_url, project_lane, promise_thread, resumed, title, work
+from drive.state import DRIVE_TOOLING, ROLES, SLOT_WAIT, VERSION, agent_gone, alias, card_wait, carriers, communicator, delivered, exempted, lane_death, may_tell, named_prs, names, now, open_orders, parse_time, pr_key, pr_url, project_lane, promise_thread, resumed, saved, title, work
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
@@ -21,7 +21,14 @@ EYES = (
 )
 REACHING = (
     "Post, read and close records with the cci MCP tools while that server is up, `cci post` only while it is gone;"
-    " while cci is down, SendMessage `<drive>-<role>` after ListAgents: a disconnect never excuses a message."
+    " while cci is down, SendMessage `<drive>-<role>`, the communicator's `communicator`, after ListAgents: a disconnect"
+    " never excuses a message."
+)
+SHARED_RULE = (
+    "Every drive on this Mac shares you, so each record's line names its sender as <lane>@<drive>. Pass that drive as"
+    " drive on each drive and cci tool call about it: a drive command refuses to guess it, and cci's own default is"
+    " your alias's drive, communicator, which no session reads. File his message on the drive it is about, and start"
+    " its handler there."
 )
 PREVENTED = "A post telling him the drive failed says how that is prevented: the tool change and its order or PR."
 STAMPS = (
@@ -436,6 +443,8 @@ def hold_line(drive: dict, role: str) -> str:
 
 def who(drive: dict, role: str) -> str:
     held = drive["roles"].get(role)
+    if role == "communicator" and communicator():
+        return f"session {held['session']}, serving {', '.join(names())}"
     return f"session {held['session']}" if held else "not started"
 
 
@@ -519,13 +528,36 @@ def opening(drive: dict, role: str, project: str | None) -> list[str]:
     ]
 
 
-def context(drive: dict, role: str, project: str | None = None) -> str:
-    """The SessionStart block: a session's role, its rules, one line per item that needs it now, and the reads; a sub-coordinator's names its project, its cci lane and its subscription."""
+def shared_opening(held: dict) -> list[str]:
+    """Who the communicator every drive on this Mac shares is: each drive it serves with that drive's coordinator and meta session, his DM it holds, and its one cci subscription across drives."""
+    served = "; ".join(f"Drive {name}: the coordinator {who(bound, 'coordinator')}, the meta session {who(bound, 'meta')}" for name in names() for bound in [saved(name)])
+    return [
+        (
+            f"You are the communicator of every drive on this Mac, belonging to none: {JOB['communicator']}. {served or 'No drive yet'}."
+            " A background agent this session started ignores this block."
+        ),
+        f"Hold with slack_watch: his DM {held['channel']}",
+        (
+            "cci: run no cci drive use and no cci subscribe: your cci alias communicator owns your one subscription, which hears"
+            " communicator@<drive> in every drive."
+        ),
+    ]
+
+
+def context(drive: dict | None, role: str, project: str | None = None) -> str:
+    """The SessionStart block: a session's role, its rules, one line per item that needs it now, and the reads; a sub-coordinator's names its project, its cci lane and its subscription, and the communicator every drive on this Mac shares, which needs no drive, names each drive it serves."""
+    shared = communicator() if role == "communicator" else None
     lines = [
-        *opening(drive, role, project),
-        f"cci: run cci drive use {drive['name']}, and no cci subscribe: your cci alias {alias(drive['name'], role, project)} owns your subscription.",
+        *(
+            shared_opening(shared)
+            if shared
+            else [
+                *opening(drive, role, project),
+                f"cci: run cci drive use {drive['name']}, and no cci subscribe: your cci alias {alias(drive['name'], role, project)} owns your subscription.",
+            ]
+        ),
         f"{title(role).capitalize()} rules:",
-        *(f"{number}. {rule}" for number, rule in enumerate(RULES[role], 1)),
+        *(f"{number}. {rule}" for number, rule in enumerate([*RULES[role], *([SHARED_RULE] if shared else [])], 1)),
         FILED,
     ]
     lines += [
@@ -547,8 +579,8 @@ def compact_instructions(drive: dict, role: str) -> str:
     return "\n".join(
         [
             (
-                f"These instructions replace the default summary sections. The summary of the {title(role)} of drive"
-                f" {drive['name']} is at most {KEEP_LIMIT[role]} characters and holds only:"
+                f"These instructions replace the default summary sections. The summary of the {title(role)} of"
+                f" {'every drive on this Mac' if role == 'communicator' and communicator() else 'drive ' + drive['name']} is at most {KEEP_LIMIT[role]} characters and holds only:"
             ),
             *(f"{number}. {item}" for number, item in enumerate(KEEP[role], 1)),
             (

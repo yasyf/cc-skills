@@ -264,8 +264,10 @@ def project_lane(project: str) -> str:
     return NOT_LANE.sub("-", project.lower()).strip("-")
 
 
-def alias(drive: str, role: str, project: str | None = None) -> str:
-    """The cci alias a role's session, or a project's sub-coordinator's, is registered under, which names its tmux session too."""
+def alias(drive: str | None, role: str, project: str | None = None) -> str:
+    """The cci alias a role's session, or a project's sub-coordinator's, is registered under, which names its tmux session too; the communicator every drive on this Mac shares, named by no drive or once it started, is `communicator`."""
+    if role == "communicator" and (drive is None or communicator()):
+        return "communicator"
     return f"{drive}-{project_lane(project) if project else role}"
 
 
@@ -454,7 +456,7 @@ def new_drive(
 ) -> dict:
     return {
         "name": name,
-        "roles": {role: {"session": session, "terminal": terminal, "cwd": cwd, "started": stamp()}},
+        "roles": {role: held_by(session, terminal, cwd)},
         "subcoordinators": {},
         "handlers": {},
         "slack": {"channel": channel, "page": None, "watch": []},
@@ -473,9 +475,54 @@ def new_drive(
     }
 
 
+def held_by(session: str | None, terminal: str | None, cwd: str) -> dict:
+    """A role's binding: the session holding it, the Orca terminal it runs in, its folder and when it bound."""
+    return {"session": session, "terminal": terminal, "cwd": cwd, "started": stamp()}
+
+
+def communicator_path() -> Path:
+    return root() / "communicator.json"
+
+
+def communicator() -> dict | None:
+    """The communicator every drive on this Mac shares, as drive start --role communicator kept it: its binding and his DM; None until one started."""
+    try:
+        return json.loads(communicator_path().read_text())
+    except FileNotFoundError:
+        return None
+
+
+@contextmanager
+def communicator_edit() -> Iterator[dict]:
+    """communicator.json under its lock, yielded for changes and written whole on exit, so two writers never lose each other's change: drive start --role communicator, drive move and each drive's watch compacting it."""
+    path = communicator_path()
+    with flocked(path.with_name(".communicator.lock")):
+        held = communicator() or {}
+        yield held
+        tmp = path.with_name("communicator.json.tmp")
+        tmp.write_text(json.dumps(held, indent=2) + "\n")
+        os.replace(tmp, path)
+
+
+def with_communicator(data: dict) -> dict:
+    """The drive with this Mac's communicator in its communicator role and his DM as its channel once one started, which communicator.json alone holds, so every drive reads the one session holding his DM."""
+    if held := communicator():
+        data["roles"]["communicator"] = {field: held[field] for field in ("session", "terminal", "cwd", "started")}
+        if "slack" in data:
+            data["slack"]["channel"] = held["channel"]
+    return data
+
+
+def without_communicator(data: dict) -> dict:
+    """The drive as written, leaving out what with_communicator adds once this Mac's communicator started, so communicator.json stays its one owner and a drive's earlier communicator is dropped at its next save."""
+    if communicator() is None:
+        return data
+    return data | {"roles": {role: held for role, held in data["roles"].items() if role != "communicator"}, "slack": data["slack"] | {"channel": None}}
+
+
 def saved(name: str) -> dict:
-    """The sessions bound to a drive as saved, read alone from its database: each role's, each sub-coordinator's and each handler's, one saved with a single driver session reading as that session coordinating."""
-    return bound(stored(name, BINDINGS))
+    """The sessions bound to a drive as saved, read alone from its database: each role's, this Mac's communicator's, each sub-coordinator's and each handler's, one saved with a single driver session reading as that session coordinating."""
+    return with_communicator(bound(stored(name, BINDINGS)))
 
 
 def saved_job(name: str, job_id: str) -> dict | None:
@@ -576,8 +623,8 @@ def load(name: str) -> dict:
     if name in BATCHED:
         return marshal.loads(BATCHED[name])
     if not (path := database_path(name)).exists():
-        return shaped(name, stored_json(name))[0]
-    return refuse_newer(name, whole(path, lambda saved: shaped(name, saved)))
+        return with_communicator(shaped(name, stored_json(name))[0])
+    return with_communicator(refuse_newer(name, whole(path, lambda saved: shaped(name, saved))))
 
 
 def refuse_newer(name: str, data: dict) -> dict:
@@ -1522,6 +1569,7 @@ def store(name: str, data: dict) -> None:
 
 def written(name: str, data: dict, newest: str | None) -> None:
     """Write data to the drive's database in one transaction: each row whose JSON changed, each it no longer holds deleted, and saved_by when it changed, so a write that changes nothing writes nothing, and one that changed a row is kept in WROTE; refused, writing nothing, when an install newer than newest saved it last. Each write then checkpoints what the WAL holds into the database as far as no reader still needs it, so the WAL every reader searches stays short; a checkpoint that fails leaves the committed write standing, for the next write's to finish. A drive with no database yet gets one built whole beside it and moved into place, so no reader meets it half built, then the drive.json pointing to it that every older install refuses."""
+    data = without_communicator(data)
     if not (path := database_path(name)).exists():
         os.replace(built(name, data), path)
         pointed(name, data)
@@ -1736,7 +1784,7 @@ def after_save(name: str, effect: Callable[[], list[str]]) -> list[str]:
 def edit_or_create(name: str, fresh: dict) -> Iterator[dict]:
     """Like edit, but start from fresh when the drive does not exist yet; the lock covers the check too."""
     with writing(name):
-        data = load(name) if exists(name) else fresh
+        data = load(name) if exists(name) else with_communicator(fresh)
         yield data
         save(name, data)
 
@@ -2082,14 +2130,23 @@ def session_drives(session: str) -> list[str]:
     return list(dict.fromkeys(name for _, name in sorted(bound, reverse=True)))
 
 
+def call_drives(payload: dict) -> list[str]:
+    """The drives binding a hook's session, the one its call is about first: a handler's own, which agents.seen names, else the one its tool input names, so the communicator every drive on this Mac shares is checked against the drive each call names."""
+    bound = session_drives(payload.get("session_id") or "")
+    named = payload.get("drive") or (payload.get("tool_input") or {}).get("drive")
+    return [named, *(name for name in bound if name != named)] if named in bound else bound
+
+
 def resolve(name: str | None = None) -> str:
-    """The drive a verb acts on: --drive, $LONG_RUNNING_DRIVE, this session's drive, or the only drive."""
+    """The drive a verb acts on: --drive, $LONG_RUNNING_DRIVE, this session's drive, or the only drive; the communicator every drive shares names its drive each call, since every drive binds it."""
     chosen = name or os.environ.get("LONG_RUNNING_DRIVE")
     if chosen:
         if not exists(chosen):
             raise DriveError(f"no drive named {chosen}")
         return chosen
     if (session := os.environ.get("CLAUDE_CODE_SESSION_ID")) and (bound := session_drives(session)):
+        if len(bound) > 1 and session == (communicator() or {}).get("session"):
+            raise DriveError(f"you are the communicator of every drive on this Mac, so pass the drive this call is about: --drive one of {', '.join(sorted(bound))}")
         return bound[0]
     available = names()
     if len(available) == 1:

@@ -25,7 +25,7 @@ def block_reason(payload: dict) -> str | None:
     if payload.get("stop_hook_active"):
         return None
     session = payload.get("session_id") or ""
-    names = state.session_drives(session)
+    names = state.call_drives(payload)
     if not names:
         return None
     data = state.load(names[0])

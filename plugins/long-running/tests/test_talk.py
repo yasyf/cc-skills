@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import Checked, Jev, Thread
+from conftest import bind_communicator, Checked, Jev, Thread
 from drive import (
     agents,
     cli,
@@ -535,7 +535,7 @@ def test_a_handlers_post_in_its_orders_thread_is_recorded_on_that_order_though_t
 ) -> None:
     thread = "1794200000.000100"
     run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "SandSQL", "why app actions fail", "--kind", "answer", "--thread", thread, "--parts", "fix")
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     with state.edit(demo) as data:
         data["roles"]["communicator"]["session"] = "communicator-session"
         data["roles"]["coordinator"]["session"] = "elsewhere"
@@ -554,7 +554,7 @@ def test_a_post_on_an_order_goes_out_in_any_thread_and_a_thread_the_order_holds_
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL errors on plat", "--thread", "1794200000.000100", "--incident", "--parts", "fix", "first check")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL error log count", "--from", "slack:D123/1794300000.000100", "--thread", "1794300000.000100", "--joins", "o1")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why the copy stalls", "--thread", "1794400000.000100")
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     with state.edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
@@ -627,7 +627,7 @@ def test_a_post_delivers_the_part_its_report_names_and_a_progress_report_naming_
 ) -> None:
     thread = "1794200000.000100"
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why it fails, and the options", "--kind", "answer", "--thread", thread, "--parts", "cause", "options as a card")
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     with state.edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
@@ -653,7 +653,7 @@ def test_a_report_naming_two_parts_of_its_order_in_its_one_part_attr_delivers_bo
 ) -> None:
     thread = "1794200000.000100"
     run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Releases", f"1) {SSQL}, and 2) {FOOTERS}?", "--kind", "answer", "--thread", thread, "--parts", SSQL, FOOTERS)
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     with state.edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
@@ -677,7 +677,7 @@ def test_a_report_naming_an_incidents_parts_delivers_none_since_each_is_work_he_
 ) -> None:
     thread = "1794200000.000100"
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Incidents", "QUEUE_FULL refusals", "--thread", thread, "--incident", "--parts", "first check", "fix", "cause")
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     with state.edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
@@ -723,7 +723,7 @@ def test_a_time_a_post_promises_becomes_its_orders_due_once_slack_has_the_post_a
 ) -> None:
     thread = "1794200000.000100"
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Iris chat turns fail on sand 0.162.3983", "--thread", thread)
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     at = datetime(2026, 11, 11, 21, 29, 43, 954739).astimezone()
     with state.edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -755,7 +755,7 @@ def test_a_post_on_an_incident_records_its_line_and_keeps_no_time_its_words_prom
 ) -> None:
     thread = "1794200000.000100"
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Alerts", "Iris chat turns fail on sand 0.162.3983", "--thread", thread, "--incident", "--parts", "fix", "first check")
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     with state.edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
@@ -772,7 +772,7 @@ def test_a_post_cc_slack_reports_failing_after_it_went_out_is_kept_and_recorded_
 ) -> None:
     thread = "1794200000.000100"
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why the copy stalls", "--thread", thread)
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     with state.edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
@@ -809,7 +809,7 @@ def test_a_report_delivers_on_an_order_only_from_the_lane_of_its_holder_and_a_re
     thread = "1794200000.000100"
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Questions", "which page shows a run's history?", "--thread", thread, "--owner", "communicator")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "show a run's history", "--thread", thread, "--owner", "coordinator")
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     with state.edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
@@ -843,7 +843,7 @@ def test_a_second_report_closing_one_order_posts_nothing_whoever_wrote_it_and_a_
     thread = "1794200000.000100"
     for words in ("one fix-live post per order", "one fix-live post per order, again"):
         run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", words, "--thread", thread, "--owner", "meta")
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     with state.edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
     sent: list[tuple[str, ...]] = []
@@ -1186,7 +1186,7 @@ def test_a_report_closing_its_order_in_another_orders_thread_his_message_started
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the incident badge counts only live incidents", "--thread", own)
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "how is the dashboard looking", "--from", f"slack:D123/{his}", "--thread", his)
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the zoomed-out view", "--thread", "1794150000.000100")
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     with state.edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
@@ -1206,7 +1206,7 @@ def test_a_report_about_its_order_goes_out_through_say_in_a_thread_his_message_s
     his, alert = "1794200000.000100", "1794100000.000100"
     run("order", "add", "--title", "Short title", "--project", "SandSQL", "--workstream", "Alerts", "--from", f"slack:C0822AHFY3G/{alert}", "unknown column case_v2.audit_status", "--thread", alert)
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the run page", "--thread", "1794150000.000100")
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     with state.edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
@@ -1244,7 +1244,7 @@ def test_a_pr_card_drawn_at_his_dm_root_is_a_thread_of_the_order_its_pr_serves_s
     question, card = "1794520890.022349", "1794526059.841239"
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "give the sprite what it needs")
     building(demo)
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     with state.edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import message_limits
 import pytest
-from conftest import Checked, Thread, explained
+from conftest import bind_communicator, Checked, Thread, explained
 from drive import agents, limits, picture, refs, slack, state, talk, view
 from drive.state import DriveError
 
@@ -355,7 +355,7 @@ def lane_of(transcript: Path) -> Path:
 
 @pytest.fixture
 def talker(run: Run) -> str:
-    run("start", "demo", "--role", "communicator", "--channel", DM)
+    bind_communicator("demo", DM)
     return os.environ["CLAUDE_CODE_SESSION_ID"]
 
 

@@ -145,9 +145,10 @@ class Warned(str):
     """A finding the session hears beside its post, which goes out as written: a word pattern that also matches the product's own refusals, such as a pod its check refused, warns rather than refuses, by his pick "1 and then if we kepe getting false rejects move to 3", whose third option reads "Cause and plain-words findings only warn the session ... posts go out"."""
 
 
-def his_drive(session: str) -> dict | None:
-    """The drive this session is the communicator of, whose handlers write everything he reads in his DM with the app."""
-    for name in state.session_drives(session):
+def his_drive(payload: dict) -> dict | None:
+    """The drive this session is the communicator of, whose handlers write everything he reads in his DM with the app: the one the call names first, since the communicator every drive on this Mac shares is each one's."""
+    session = payload.get("session_id") or ""
+    for name in state.call_drives(payload):
         if state.session_role(state.saved(name), session) == "communicator":
             return state.load(name)
     return None
@@ -378,7 +379,7 @@ def untooled(payload: dict, drive: dict, said: str) -> str | None:
 
 def his_words(payload: dict) -> list[dict]:
     """What Jev judges a refused post by besides the transcripts: his words in his DM in the thread it goes to and in each other thread of the order it is on, read from Slack, his messages and the answers its cards show, and each message of his in his DM its asked links by permalink; a handler's brief and the record it reads in are the communicator's and a writer's words, never his, and a thread outside his DM, such as a bug report's, holds others' words; a post naming a cause or failure with the order or PR preventing it carries his ruling asking for that line, and a post in a question card's thread his ruling that each option it explains is worked out."""
-    if (drive := his_drive(payload.get("session_id") or "")) is None or not posts_to(payload, dm := drive["slack"]["channel"]):
+    if (drive := his_drive(payload)) is None or not posts_to(payload, dm := drive["slack"]["channel"]):
         return []
     ruled = [PREVENTION_WORDS] if refs.prevented(payload["tool_input"].get("text") or "") else []
     ruled += [WORKED_WORDS] if in_card_thread(drive, payload["tool_input"]) else []
@@ -445,7 +446,7 @@ def checked(payload: dict) -> tuple[str | None, dict]:
     """What the drive's checks find in a post to his DM, and the call's input as Slack gets it, each of say's references linked, with its words as written beside them, and its claims parsed from the JSON text a client may send them as, which Jev weighs the findings against: the coordinator posts nothing, and say refuses a reference that names nothing, claims whose text is not JSON or a link inside a link's words outright, whatever Jev reads."""
     if posted := coordinator_post(payload):
         return posted, payload["tool_input"]
-    if (drive := his_drive(payload.get("session_id") or "")) is None:
+    if (drive := his_drive(payload)) is None:
         return None, payload["tool_input"]
     said = payload["tool_input"].get("text") or ""
     if payload["tool_name"] != SAY:
@@ -786,7 +787,7 @@ def denial(reason: str) -> dict:
 def read_evidence(payload: dict, claims: list[dict]) -> list[dict]:
     """What Jev weighs every handler's say post by beside his words, whatever the checks found: for each read its claims name, the calls of its own that read names with their whole results, or the record it names, each record its text cites and the report it carries, all whole, since a line on where code lives, what it does, or a number or state stands only on the read behind it; none for any other post, such as the communicator's ack, or a card or PR card, which a record draws."""
     tool_input = payload["tool_input"]
-    if payload["tool_name"] != SAY or not payload.get("agent_id") or tool_input.get("card") or tool_input.get("tap_prs") or his_drive(payload.get("session_id") or "") is None:
+    if payload["tool_name"] != SAY or not payload.get("agent_id") or tool_input.get("card") or tool_input.get("tap_prs") or his_drive(payload) is None:
         return []
     reads: dict[str, list[str]] = {}
     for claim in claims:

@@ -1350,15 +1350,15 @@ def context_tokens(entry: dict) -> int:
 
 
 def compact_due(data: dict, moment: datetime) -> str | None:
-    """Why the communicator should compact now: past the mark, and both it and he quiet, so no message lands mid-compaction."""
+    """Why the communicator should compact now: past the mark, and both it and he quiet on every drive it serves, so no message lands mid-compaction."""
     held = data["roles"].get("communicator")
     if not held or not held.get("terminal"):
         return None
     path = session_transcript(held)
     if not path.exists() or moment - datetime.fromtimestamp(path.stat().st_mtime).astimezone() < COMPACT_WHEN_QUIET:
         return None
-    heard = (data.get("owner") or {}).get("heard")
-    if heard and moment - state.parse_time(heard) < COMPACT_WHEN_QUIET:
+    served = [state.stored(name, ("owner",)) for name in state.names()] if state.communicator() else [data]
+    if any((heard := (drive.get("owner") or {}).get("heard")) and moment - state.parse_time(heard) < COMPACT_WHEN_QUIET for drive in served):
         return None
     turn = last_turn(path)
     if not turn or not agents.ended(turn):
@@ -1368,13 +1368,16 @@ def compact_due(data: dict, moment: datetime) -> str | None:
 
 
 def compact_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Type /compact into the communicator's Orca terminal at a quiet moment, never at its context limit mid-conversation; the drive's own watch alone does."""
+    """Type /compact into the communicator's Orca terminal at a quiet moment, never at its context limit mid-conversation; the drive's own watch alone does, and of the watches of the drives sharing this Mac's communicator only the first to find it due, which stamps communicator.json under its lock."""
     data = state.load(watcher.name)
     if watcher.project or not (why := compact_due(data, moment)):
         return []
     try:
-        terminal = data["roles"]["communicator"]["terminal"]
-        orca.request("terminal", "send", "--terminal", terminal, "--text", "/compact", "--enter")
+        with state.communicator_edit() if state.communicator() else contextlib.nullcontext({}) as shared:
+            if (compacted := shared.get("compacted")) and moment - state.parse_time(compacted) < COMPACT_WHEN_QUIET:
+                return []
+            orca.request("terminal", "send", "--terminal", data["roles"]["communicator"]["terminal"], "--text", "/compact", "--enter")
+            shared["compacted"] = state.stamp(moment)
     except orca.OrcaError as error:
         return read_failed(watcher, "communicator compaction", error, moment)
     watcher.failures.pop("communicator compaction", None)

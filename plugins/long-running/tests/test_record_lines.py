@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 import record_lines
-from conftest import SHORT_ASK
+from conftest import bind_communicator, SHORT_ASK
 from drive import agents, limits, reads, settled, slack, state
 
 SESSION = "session-under-test"
@@ -500,7 +500,7 @@ def test_the_communicators_record_for_a_coordinator_goes_to_the_session_hearing_
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
     run("start", demo, "--role", "coordinator", "--project", "Iris")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
-    run("start", demo, "--role", "communicator")
+    bind_communicator(demo)
     root = ["root@demo"]
     records = [
         {"kind": "answer", "text": "Ring", "to": root, "re": ["7"], "attrs": {"job": "j1", "maps": "none"}},
@@ -529,7 +529,7 @@ def test_the_communicators_record_answering_a_coordinators_record_reaches_its_wr
     run("start", demo, "--role", "coordinator", "--project", "Iris")
     run("job", "add", "builder", "--order", "o1", "--goal", "cut the release")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
-    run("start", demo, "--role", "communicator")
+    bind_communicator(demo)
     writers = {"686826": "root", "686830": "iris", "686840": "builder"}
     monkeypatch.setattr(agents, "shown", lambda seq: {"lane": writers[seq]})
     root = ["root@demo"]
@@ -550,7 +550,7 @@ def bound_to_iris(run: Callable[..., tuple[int, str]], demo: str, monkeypatch: p
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
     run("start", demo, "--role", "coordinator", "--project", "Iris")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
-    run("start", demo, "--role", "communicator")
+    bind_communicator(demo)
     with state.edit(demo) as data:
         data["orders"]["o1"]["thread"] = ["D123", THREAD]
         data["jobs"]["j1"]["questions"] = [state.new_question(str(state.drive_dir(demo) / "asks" / "j1-7.md"), "Which ring?", state.stamp(), card=CARD)]
@@ -561,7 +561,7 @@ def test_the_communicators_record_is_routed_on_the_drive_it_names_while_its_sess
     run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     bound_to_iris(run, demo, monkeypatch)
-    run("start", "newer", "--role", "communicator")
+    bind_communicator("newer")
     with state.edit("newer") as data:
         data["roles"]["communicator"]["started"] = "2099-01-01T00:00:00-08:00"
     assert state.session_drives("talker") == ["newer", demo]
@@ -592,3 +592,17 @@ def test_his_words_on_his_open_question_go_only_through_the_record_tool_that_end
     assert "the drive's `record` tool" in refusal(record_lines.decision(post(kind="owner", text="drop the sweeper", attrs={"thread_card": "demo:j1-7"})))
     assert record_lines.decision(post(kind="owner", text="a new order", attrs={"about": "his work"})) is None
     assert record_lines.decision(post(kind="answer", text="undone: Ring", re=["7"], attrs={"job": "j1", "undone": "Ring"})) is None
+
+
+def test_the_shared_communicators_record_naming_no_drive_is_refused_once_it_serves_two_drives(
+    run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", "--role", "communicator", "--channel", "D123")
+    owner = {"kind": "owner", "text": "a new order", "attrs": {"about": "his work"}}
+    unnamed = record_lines.UNNAMED_DRIVE.format(drives="demo, other")
+    assert "you are the communicator of every drive on this Mac" not in str(record_lines.decision(post("talker", **owner)))
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "other-coordinator")
+    run("start", "other", "--role", "coordinator")
+    assert refusal(record_lines.decision(post("talker", **owner))) == unnamed
+    assert unnamed not in str(record_lines.decision(post("talker", drive="other", **owner)))

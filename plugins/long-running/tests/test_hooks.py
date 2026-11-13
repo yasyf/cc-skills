@@ -17,7 +17,7 @@ import pytest
 import quiet_turn
 import scratch_folder
 import session_start
-from conftest import LEAD, RESEARCH, SHORT_ASK, drawn_card, Answers, Jev, WatchProcess
+from conftest import start_drive, bind_communicator, LEAD, RESEARCH, SHORT_ASK, drawn_card, Answers, Jev, WatchProcess
 from drive import agents, brief, cli, land, place, render, settled, state
 
 Run = Callable[..., tuple[int, str]]
@@ -78,7 +78,7 @@ def test_session_start_gives_each_role_its_own_context(demo: str, run: Run, monk
     assert context.startswith("You are the coordinator of drive demo: ")
     assert "ship the fix" not in context
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     context = session_start.respond({"session_id": "talker", "source": "compact"})["hookSpecificOutput"]["additionalContext"]
     assert context.startswith("You are the communicator of drive demo: you talk to him.")
     assert watch_process.ensured == ["demo"]
@@ -98,12 +98,12 @@ def test_session_start_gives_a_sub_coordinator_its_projects_context_and_starts_i
 
 
 def test_session_start_names_the_channels_each_role_holds(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
-    run("start", "demo", "--role", "coordinator", "--channel", "D123", "--watch", "C0B75AL4XEW", "--watch", "C0822AHFY3G")
+    start_drive(run, "demo", "--watch", "C0B75AL4XEW", "--watch", "C0822AHFY3G")
     output = session_start.respond({"session_id": os.environ["CLAUDE_CODE_SESSION_ID"], "source": "compact"})
     context = output["hookSpecificOutput"]["additionalContext"]
     assert 'Hold with cc-slack subscribe --kind alerts,releases,posts --channel <id>: C0B75AL4XEW, C0822AHFY3G' in context
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     context = session_start.respond({"session_id": "talker"})["hookSpecificOutput"]["additionalContext"]
     assert "Hold with slack_watch: his DM D123" in context
 
@@ -149,10 +149,32 @@ def test_pre_compact_prints_each_roles_summary_instructions(
     out = hook_output(pre_compact, monkeypatch, capsys, json.dumps(payload))
     assert "summary of the coordinator of drive demo is at most 3000 characters" in out
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     out = hook_output(pre_compact, monkeypatch, capsys, json.dumps({"session_id": "talker", "trigger": "manual"}))
     assert "summary of the communicator of drive demo is at most 1500 characters" in out
     assert hook_output(pre_compact, monkeypatch, capsys, json.dumps({"session_id": "someone-else"})) == ""
+
+
+def test_the_shared_communicator_gets_one_context_naming_every_drive_it_serves_at_start_and_compaction(
+    demo: str, run: Run, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", "--role", "communicator", "--channel", "D123")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "other-coordinator")
+    run("start", "other", "--role", "coordinator")
+    context = session_start.respond({"session_id": "talker", "source": "compact"})["hookSpecificOutput"]["additionalContext"]
+    assert context.splitlines()[:3] == [
+        (
+            "You are the communicator of every drive on this Mac, belonging to none: you talk to him. Drive demo: the coordinator session"
+            " session-under-test, the meta session not started; Drive other: the coordinator session other-coordinator, the meta session not"
+            " started. A background agent this session started ignores this block."
+        ),
+        "Hold with slack_watch: his DM D123",
+        "cci: run no cci drive use and no cci subscribe: your cci alias communicator owns your one subscription, which hears communicator@<drive> in every drive.",
+    ]
+    assert f"{len(render.RULES['communicator']) + 1}. {render.SHARED_RULE}" in context.splitlines()
+    out = hook_output(pre_compact, monkeypatch, capsys, json.dumps({"session_id": "talker", "trigger": "manual"}))
+    assert "summary of the communicator of every drive on this Mac is at most 1500 characters" in out
 
 
 def file_call(tool: str, session: str | None = None, **fields: object) -> dict:
@@ -175,7 +197,7 @@ def test_a_drive_role_opens_no_file_and_its_agents_and_other_sessions_do(
     assert "a bounded Bash slice such as `tail -c 2000 <file>`" in reason
     assert "a lesson is a cc-notes note (`ccn note add`)" in reason
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     assert no_file_tools.deny_reason(file_call("Edit", "talker")).startswith("refused: the communicator opens no file with Edit")
     assert no_file_tools.deny_reason(file_call("Read", "talker", agent_id="a-1")) is None
     assert hook_output(no_file_tools, monkeypatch, capsys, json.dumps(file_call("Write", "someone-else"))) == ""
@@ -191,7 +213,7 @@ def test_a_drive_role_reads_no_slack_thread_and_its_agents_and_other_sessions_do
         f"refused: the coordinator reads no Slack thread or channel itself with {thread}"
     )
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     history = "mcp__plugin_cc-slack_cc-slack__slack_history"
     assert no_slack_reads.deny_reason(file_call(history, "talker")).startswith("refused: the communicator reads no Slack")
     assert no_slack_reads.deny_reason(file_call(thread, "talker", agent_id="a-1")) is None
@@ -210,7 +232,7 @@ def test_no_session_bound_to_a_drive_asks_in_its_terminal_and_a_session_bound_to
     assert "`drive job ask <job> <file>`" in reason
     assert "which draws his card on it for demo" in reason
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     assert no_terminal_questions.deny_reason(file_call("AskUserQuestion", "talker")) is not None
     assert no_terminal_questions.deny_reason(file_call("AskUserQuestion", "talker", agent_id="a-1", agent_type="long-running:builder")) is not None
     with state.edit(demo) as data:
@@ -268,7 +290,7 @@ def test_a_drive_job_with_a_long_final_message_is_sent_back_to_keep_it_in_its_re
 
 def test_a_handler_is_held_to_one_line_and_other_sessions_are_left_alone(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     reason = one_line_result.block_reason(agent_stop("POSTED https://acme.slack.com/archives/D1/p1\nI posted it", "talker"))
     assert "lands whole in the communicator's context" in reason
     assert "drive job report" not in reason
@@ -313,7 +335,7 @@ J2776_PART = "the release's tenant smoke creates one cloud agent and deletes it"
 def test_a_builder_asking_his_card_builds_its_recommended_option_in_the_same_run_and_ends_built_where_j2776_ended_waiting_with_nothing_built(
     run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("start", "durable-agents", "--role", "coordinator", "--channel", "D123")
+    start_drive(run, "durable-agents")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", J2776_PART)
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--agent", "a-9")
     with state.edit("durable-agents") as data:
@@ -651,7 +673,7 @@ def turn_stop(message: str, **fields: object) -> dict:
 def test_a_communicator_turn_ends_on_one_word_and_other_sessions_are_left_alone(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     assert quiet_turn.block_reason(turn_stop("Posted the ack and started a handler.")) is None
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     reason = quiet_turn.block_reason(turn_stop("Acked and started a handler for his question.", session_id="talker"))
     assert reason.startswith("Your turn ended on 8 words in this terminal")
     assert "`Sent.`" in reason
@@ -693,7 +715,7 @@ def test_a_drive_roles_agent_runs_unnamed_with_fable_on_its_designer_alone_and_n
     written.write_text("Order (his words): fix it\nServes: his order\n")
     assert agent_brief.deny_reason(started_by_role(coordinator, subagent_type="long-running:builder", prompt=f"Read your brief first: {written}")) is None
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     assert "name" not in agents.shaped(started_by_role("talker", subagent_type="long-running:builder", name="desk"))
     assert agent_brief.deny_reason(started_by_role("talker", subagent_type="long-running:builder", prompt=tooling)).startswith(
         "refused: a builder serving drive tooling is the meta session's, never the communicator's"
@@ -876,7 +898,7 @@ def test_a_builder_serving_drive_tooling_on_the_coordinators_order_starts_from_t
     run("job", "report", "j1", "-")
     run("job", "add", "builder", "--order", "o1", "--goal", "the reporter hears the fix is live")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "tooler")
     run("start", "demo", "--role", "meta")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", coordinator)
@@ -1501,7 +1523,7 @@ def test_a_communicators_bash_cci_post_naming_a_lane_other_than_the_session_hear
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
     run("start", demo, "--role", "coordinator", "--project", "Iris")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
-    run("start", demo, "--role", "communicator")
+    bind_communicator(demo)
     handler = {"session_id": "talker", "agent_id": "a1", "agent_type": "long-running:handler"}
     held = "cci post --kind refused --lane communicator --to root@demo --resolves 8 --attr job=j1 'the report names no card'"
     assert landing_guard.deny_reason(bash(held) | handler) == (

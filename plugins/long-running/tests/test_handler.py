@@ -197,6 +197,7 @@ def test_a_handlers_own_session_reads_as_an_agent_of_the_communicators(
         "agent_id": handler,
         "agent_transcript_path": str(transcript),
         "handler_session": "h-session",
+        "drive": "demo",
     }
     assert agents.seen(step | {"session_id": "someone-else"})["session_id"] == "someone-else"
     assert agents.transcript(agents.seen(step)) == transcript

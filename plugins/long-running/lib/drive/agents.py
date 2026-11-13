@@ -168,7 +168,7 @@ def typed_time(text: str, data: dict) -> Ruled | None:
 
 
 def seen(payload: dict) -> dict:
-    """A hook's payload as the drive's checks read it: a handler's own `claude --bg` session reads as an agent of the communicator's session, as a handler ran before it had a session of its own, so every check on a handler binds it unchanged."""
+    """A hook's payload as the drive's checks read it: a handler's own `claude --bg` session reads as an agent of the communicator's session, as a handler ran before it had a session of its own, so every check on a handler binds it unchanged, and names the handler's drive, since the communicator every drive on this Mac shares is bound to each."""
     if payload.get("agent_id") or payload.get("agent_type") != HANDLER or not (names := state.session_drives(payload["session_id"])):
         return payload
     data = state.saved(names[0])
@@ -177,6 +177,7 @@ def seen(payload: dict) -> dict:
         "agent_id": state.handler_id(data, payload["session_id"]),
         "agent_transcript_path": payload["transcript_path"],
         "handler_session": payload["session_id"],
+        "drive": names[0],
     }
 
 
@@ -202,7 +203,7 @@ def his_words(prompt: str) -> str:
 def shaped(payload: dict) -> dict:
     """The Agent call a drive session makes, in the one shape the drive runs it: a role's call without `name`, since a named agent joins the agent team and never wakes on events, a design job as the designer, the only definition that keeps it read only and its forks in his cards' shape, and Fable on the designer alone; and a lane whose order needs its definition's Opus or Fable without the Sonnet or Haiku passed for it."""
     call = payload["tool_input"]
-    if not (names := state.session_drives(payload.get("session_id") or "")):
+    if not (names := state.call_drives(payload)):
         return call
     data = state.load(names[0])
     text = carried(call.get("prompt") or "")
@@ -468,18 +469,19 @@ def filled(page: str) -> str:
     return "\n".join(fill(line) for line in page.split("\n"))
 
 
-def launch(name: str, role: str, project: str | None, worktree: str) -> list[str]:
-    """The `cci session register` line of Start or resume that starts the role's session, or a project's sub-coordinator's, under its alias in the worktree, and the `orca terminal create` line that shows it in Orca, as `drive manual start` fills them."""
+def launch(name: str | None, role: str, project: str | None, worktree: str) -> list[str]:
+    """The `cci session register` line of Start or resume that starts the role's session, or a project's sub-coordinator's, under its alias in the worktree, and the `orca terminal create` line that shows it in Orca, as `drive manual start` fills them; the communicator every drive on this Mac shares names no drive."""
     lines = filled(START_PAGE.read_text()).splitlines()
-    register = next(line for line in lines if line.startswith(f"cci session register <drive>-{'<lane>' if project else role} "))
+    registered = "communicator" if role == "communicator" else f"<drive>-{'<lane>' if project else role}"
+    register = next(line for line in lines if line.startswith(f"cci session register {registered} "))
     show = next(line for line in lines if line.startswith("orca terminal create --worktree path:<worktree> --title <alias> "))
-    named = {"<alias>": state.alias(name, role, project), "<drive>": name, "<worktree>": shlex.quote(worktree), "<lane>": state.project_lane(project or ""), "<project>": project or ""}
+    named = {"<alias>": state.alias(name, role, project), "<drive>": name or "", "<worktree>": shlex.quote(worktree), "<lane>": state.project_lane(project or ""), "<project>": project or ""}
     for hole, value in named.items():
         register, show = register.replace(hole, value), show.replace(hole, value)
     return [register, show]
 
 
-def register(name: str, role: str, project: str | None, worktree: str, session: str) -> str:
+def register(name: str | None, role: str, project: str | None, worktree: str, session: str) -> str:
     """Register the session with cci as the role's, or a project's sub-coordinator's, by its line in Start or resume naming the session in place of `--new`, so its alias owns its cci subscription and cci session run keeps it running in tmux once it exits; cci's line saying where it runs."""
     words = shlex.split(launch(name, role, project, worktree)[0])
     words[words.index("--new") : words.index("--new") + 1] = ["--session", session]
@@ -519,7 +521,7 @@ def take_handed(name: str, handler: str) -> list[str]:
 
 def end_handler(payload: dict, refused: Callable[[dict], str | None]) -> str | None:
     """End a handler's turn once refused, the Stop hook's checks of its line, lets it: hand the line it ended on to the communicator as one cci record each post's POSTED, EDITED and CARD links in it say's own result, whole with its thread_ts, in place of any the handler typed, and remove its session. A job the handler held keeps its transcript's path, since the drive forgets the handler. A handler drive handler handed briefs since its last step does not end: they come back as the reason its stop is refused, taken in the one edit that would forget it, so no brief lands on a handler that has ended. A drive a newer install saved, which this install may neither check nor write, still ends the handler on its line with the posts its saved bindings hold, its entry left to drive handler, which takes it off with each brief it was handed once its turn is over, and a check that raises still posts that line before its error goes on."""
-    name = state.session_drives(payload["session_id"])[0]
+    name = state.call_drives(payload)[0]
     try:
         if reason := refused(payload):
             return reason

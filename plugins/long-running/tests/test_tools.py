@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 from drive import agents, card, cli, limits, mcp, reads, settled, slack, state, superseded, tools, view, watch
-from conftest import LEAD, LOCK_STALL, LOCK_STALL_AGAIN, RESEARCH, Answers, Heard, Jev, Withdrawals
+from conftest import bind_communicator, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, RESEARCH, Answers, Heard, Jev, Withdrawals
 from drive.state import DriveError
 
 THREAD = "1794200000.000100"
@@ -453,7 +453,7 @@ def test_a_sub_coordinator_posts_from_its_lane_and_his_answer_to_its_card_or_an_
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
     run("start", demo, "--role", "coordinator", "--project", "Iris")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
-    run("start", demo, "--role", "communicator")
+    bind_communicator(demo)
     posted: list[tuple[str, list[dict]]] = []
 
     def post(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
@@ -493,7 +493,7 @@ def test_the_communicators_records_about_the_drive_reach_the_meta_session_alone_
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: cards say why", "--thread", tooling)
     monkeypatch.setattr(subprocess, "run", post)
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
-    run("start", demo, "--role", "communicator")
+    bind_communicator(demo)
     defect = {"kind": "defect", "text": "cc-slack delete hides --url"}
     rewrite = {"words": "Drive tooling: meta stuff goes to a meta root", "title": "Meta stuff to a meta root"}
     ruling = {"kind": "owner", "text": "meta stuff goes to a meta root", "ruling": "abc1234", "about": "drive", "to": "root", "order": rewrite}
@@ -555,7 +555,7 @@ def test_his_ruling_typed_into_the_communicators_terminal_goes_out_at_terminal_a
 
     monkeypatch.setattr(subprocess, "run", post)
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", session)
-    run("start", demo, "--role", "communicator")
+    bind_communicator(demo)
     order = {"words": "Drive tooling: answer things like this almost at once", "title": "Answer at once"}
     ruling = {"kind": "owner", "text": TYPED, "url": "terminal", "ruling": "07fe4ea", "about": "drive", "order": order}
     for words, answer in ((drafted, "07fe4ea"), (TYPED, "d7af7ed")):
@@ -595,7 +595,7 @@ def test_his_badge_ask_of_record_672014_reaches_the_meta_session_holding_the_dri
 
     monkeypatch.setattr(subprocess, "run", post)
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
-    run("start", demo, "--role", "communicator")
+    bind_communicator(demo)
     thread = "1794480049.653959"
     asked = {
         "kind": "owner",
@@ -653,7 +653,7 @@ def test_his_hierarchical_coordinators_question_in_his_own_words_reaches_the_met
 
     monkeypatch.setattr(subprocess, "run", post)
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
-    run("start", demo, "--role", "communicator")
+    bind_communicator(demo)
     thread = "1794513118.807399"
     words = "did we move to heirachical coordinators? feels like it should fix tehse delays?"
     url = f"https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794514438699909?thread_ts={thread}&cid=D0C4HQWPLCC"
@@ -698,7 +698,7 @@ def test_his_words_carrying_on_an_order_of_his_work_are_its_parts_the_watch_name
     monkeypatch.setattr(subprocess, "run", post)
     open_cards(monkeypatch)
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
-    run("start", demo, "--role", "communicator")
+    bind_communicator(demo)
     dm = "https://poetic-technology.slack.com/archives/D0C4HQWPLCC"
     iterate = {"kind": "owner", "text": "rase the 1s test for now then keep iterating", "url": f"{dm}/p1794526841094869?thread_ts={thread}", "thread": thread, "about": "his work"}
     options = {"kind": "owner", "text": "YOU SAID YOU WERE BRINGING ME OPTIONS FOR 0 STALL", "url": f"{dm}/p1794528706341939?thread_ts={thread}", "thread": thread, "about": "his work"}
@@ -734,7 +734,7 @@ def recording(monkeypatch: pytest.MonkeyPatch, run: Callable[..., tuple[int, str
     monkeypatch.setattr(subprocess, "run", post)
     open_cards(monkeypatch)
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
-    run("start", "demo", "--role", "communicator")
+    bind_communicator("demo")
     return posted
 
 
@@ -809,7 +809,7 @@ def test_the_communicators_owner_or_answer_record_goes_to_the_session_hearing_it
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
     run("start", demo, "--role", "coordinator", "--project", "Iris")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
-    run("start", demo, "--role", "communicator")
+    bind_communicator(demo)
     records = [
         {"kind": "owner", "text": "also the logs page", "thread": THREAD, "to": "root", "about": "his work"},
         {"kind": "owner", "text": "and the alert", "thread": other, "to": "iris", "about": "his work"},
@@ -837,7 +837,7 @@ def test_a_handlers_handoff_goes_to_the_coordinator_that_wrote_the_record_it_ans
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
     run("start", demo, "--role", "coordinator", "--project", "Iris")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
-    run("start", demo, "--role", "communicator")
+    bind_communicator(demo)
     with state.edit(demo) as data:
         data["handlers"]["h1"] = {"session": "handler-1", "transcript": None, "started": state.stamp(), "holds": [], "handed": [], "posted": []}
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "handler-1")
@@ -863,7 +863,7 @@ def test_an_answer_or_handoff_naming_a_job_goes_to_the_session_hearing_its_order
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
     run("start", demo, "--role", "coordinator", "--project", "Iris")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
-    run("start", demo, "--role", "communicator")
+    bind_communicator(demo)
     with state.edit(demo) as data:
         data["handlers"]["h1"] = {"session": "handler-1", "transcript": None, "started": state.stamp(), "holds": [], "handed": [], "posted": []}
     open_cards(monkeypatch, "demo:j1-7")
@@ -989,7 +989,7 @@ def test_his_feedback_on_a_card_leaves_its_question_asking_even_under_a_drive_to
         run("start", demo, "--role", "meta")
         run("job", "add", "builder", "--order", "o1", "--goal", "build the cards")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
-    run("start", demo, "--role", "communicator")
+    bind_communicator(demo)
     answered = open_cards(monkeypatch, "demo:j1-7")
     words = "I clciked undo and nothign happened"
     feedback = {"kind": "owner", "text": words, "thread_card": "demo:j1-7", "about": "drive", "order": {"words": f'{state.POST_FEEDBACK} "{words}"', "title": "Undo drew nothing"}}

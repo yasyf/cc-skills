@@ -104,6 +104,15 @@ def due_stamp(text: str) -> str:
 
 
 def start(args: argparse.Namespace) -> int:
+    if args.role == "communicator":
+        return start_communicator(args)
+    if args.name is None:
+        raise DriveError(f"drive start --role {args.role}: name the drive the {state.title(args.role)} binds to")
+    if args.channel:
+        raise DriveError(
+            f"drive start {args.name} --role {args.role} --channel: refused, his DM is held by the communicator every drive on this Mac shares;"
+            " pass it to drive start --role communicator"
+        )
     if not DRIVE_NAME.fullmatch(args.name):
         raise DriveError(f"drive names are letters, digits, dot, dash and underscore: {args.name}")
     if not orca.in_terminal():
@@ -114,7 +123,7 @@ def start(args: argparse.Namespace) -> int:
     if args.project and args.role != "coordinator":
         raise DriveError(f"--project binds a sub-coordinator, which holds the coordinator role; the {state.title(args.role)} holds no project")
     session = os.environ.get("CLAUDE_CODE_SESSION_ID")
-    fresh = state.new_drive(args.name, args.role, session, os.getcwd(), args.channel, orca.own_terminal())
+    fresh = state.new_drive(args.name, args.role, session, os.getcwd(), None, orca.own_terminal())
     with state.edit_or_create(args.name, fresh) as data:
         if args.project:
             bind_subcoordinator(data, args.project, fresh["roles"][args.role])
@@ -125,8 +134,6 @@ def start(args: argparse.Namespace) -> int:
             )
         else:
             data["roles"][args.role] = fresh["roles"][args.role]
-        if args.channel:
-            data["slack"]["channel"] = args.channel
         watched_channels = data["slack"].setdefault("watch", [])
         watched_channels.extend(channel for channel in dict.fromkeys(args.watch) if channel not in watched_channels)
     held = fresh["roles"][args.role]
@@ -137,6 +144,35 @@ def start(args: argparse.Namespace) -> int:
     seat = f"sub-coordinator for {args.project}" if args.project else args.role
     text = f"{render.context(data, args.role, args.project)}\n\n{registered}{meta}{watched}{seat}: session {held['session']}, {seen}"
     return emit(args, text, {**data, "orca": {seat: seen}})
+
+
+def start_communicator(args: argparse.Namespace) -> int:
+    """Bind this session as the communicator every drive on this Mac shares, belonging to none, which holds his DM and hears communicator@ in every drive through its one cci subscription; kept in communicator.json, his DM the one kept before when --channel is left out. Refused with a drive's name, a --watch or a --project, which name one drive's sessions, and without --channel while none was kept."""
+    if args.name or args.watch or args.project:
+        raise DriveError(
+            "drive start --role communicator: refused, the communicator belongs to no drive and serves every drive on this Mac, so it takes no"
+            " drive name, --watch or --project: drive start --role communicator [--channel <his DM id>]"
+        )
+    if not orca.in_terminal():
+        raise DriveError(
+            "drive start --role communicator: refused, this session runs in no Orca terminal, so he cannot open it from Orca;"
+            f" start the session under cci and show it in one with {' then '.join(agents.launch(None, 'communicator', None, os.getcwd()))}"
+        )
+    session = os.environ.get("CLAUDE_CODE_SESSION_ID")
+    if seat := next(((name, project) for name in state.names() if (project := state.session_project(state.saved(name), session))), None):
+        raise DriveError(
+            f"--role communicator: session {session} is the sub-coordinator for {seat[1]} in drive {seat[0]}; the top coordinator,"
+            " the communicator and the meta session are sessions of their own, so start this role from another session"
+        )
+    with state.communicator_edit() as held:
+        if not (channel := args.channel or held.get("channel")):
+            raise DriveError("drive start --role communicator: pass --channel <his DM id>, since no communicator on this Mac kept his DM yet")
+        held.clear()
+        held.update(state.held_by(session, orca.own_terminal(), os.getcwd()), channel=channel)
+    registered = "" if state.scratch() else f"{agents.register(None, 'communicator', None, held['cwd'], held['session'])}\n"
+    seen = orca_place(held, run_show)
+    text = f"{render.context(None, 'communicator')}\n\n{registered}communicator: session {held['session']}, serving {', '.join(state.names()) or 'no drive yet'}, {seen}"
+    return emit(args, text, {"communicator": held, "drives": state.names(), "orca": {"communicator": seen}})
 
 
 def meta_started(name: str, worktree: str, earlier: str | None) -> str:
@@ -3749,9 +3785,12 @@ def with_build(place: str, held: dict) -> str:
 
 
 def context(args: argparse.Namespace) -> int:
+    session = os.environ.get("CLAUDE_CODE_SESSION_ID")
+    if (shared := state.communicator()) and (args.role or (session == shared["session"] and "communicator")) == "communicator":
+        print(render.context(None, "communicator"))
+        return 0
     name = state.resolve(args.drive)
     data = state.load(name)
-    session = os.environ.get("CLAUDE_CODE_SESSION_ID")
     role = args.role or state.session_role(data, session)
     if role is None:
         raise DriveError(f"this session holds no role in drive {name}; pass --role")
@@ -3913,17 +3952,24 @@ def move(args: argparse.Namespace) -> int:
         raise DriveError(
             f"drive move {args.role}: refused, ending a session is his decision: pass --his-word <the permalink of his message naming the move>"
         )
-    known = state.load(name)
-    if incidents := state.open_incidents(known, list(known["orders"])):
+    shared = args.role == "communicator"
+    if shared and state.communicator() is None:
         raise DriveError(
-            f"drive move {args.role}: refused, incident {', '.join(incidents)} is open and a move ends the {args.role}'s session:"
-            " move it once the fix is live"
+            f"drive move communicator: refused, drive {name}'s communicator is its own, from before the one every drive on this Mac shares:"
+            " start that one in its place by drive manual migration, One communicator for every drive"
         )
+    for drive in state.names() if shared else [name]:
+        known = state.load(drive)
+        if incidents := state.open_incidents(known, list(known["orders"])):
+            raise DriveError(
+                f"drive move {args.role}: refused, incident {', '.join(incidents)} of drive {drive} is open and a move ends the {args.role}'s session:"
+                " move it once the fix is live"
+            )
     his_words(args.his_word, "move a session")
-    with state.edit(name) as data:
-        held = find(data["roles"], args.role, "role")
+    with state.communicator_edit() if shared else state.edit(name) as data:
+        held = data if shared else find(data["roles"], args.role, "role")
         held["move_word"] = args.his_word
-    registered = "" if state.scratch() else f"; {agents.register(name, args.role, None, held['cwd'], held['session'])}"
+    registered = "" if state.scratch() else f"; {agents.register(None if shared else name, args.role, None, held['cwd'], held['session'])}"
     lanes = {role: lane for lane, role in state.LANE_ROLES.items()}
     mover = lanes[next(role for role in state.ROLES if role != args.role)]
     session, terminal = held["session"], held["terminal"]
@@ -4024,12 +4070,17 @@ def parser() -> argparse.ArgumentParser:
     root.add_argument("--root", action=Root, nargs=0, help="print the folder of the long-running install this drive runs, the newest installed, whose hooks/ and lib/ a proof file imports")
     verbs = root.add_subparsers(dest="verb", required=True)
 
-    verb = verbs.add_parser("start", parents=[json_opt], help="create the drive or bind one of its two roles to this session")
-    verb.add_argument("name")
-    verb.add_argument(
-        "--role", required=True, choices=state.ROLES, help="communicator talks to him; coordinator runs his orders and jobs; meta holds drive tooling: its fixes, skill rewrites and installs"
+    verb = verbs.add_parser(
+        "start", parents=[json_opt], help="create the drive or bind one of its roles to this session, or bind the communicator every drive on this Mac shares"
     )
-    verb.add_argument("--channel", help="his DM channel id")
+    verb.add_argument("name", nargs="?", help="the drive; none for the communicator, which belongs to no drive")
+    verb.add_argument(
+        "--role",
+        required=True,
+        choices=state.ROLES,
+        help="communicator talks to him for every drive on this Mac; coordinator runs a drive's orders and jobs; meta holds its drive tooling: its fixes, skill rewrites and installs",
+    )
+    verb.add_argument("--channel", help="with --role communicator, his DM channel id, kept for every drive; default: the one kept before")
     verb.add_argument(
         "--watch", action="append", default=[], metavar="CHANNEL", help="another channel the coordinator subscribes to, kept across restarts"
     )

@@ -5,7 +5,7 @@ description: Use when work will outlive one context window, spans several PRs or
 
 # Long-running drives
 
-A drive is three Claude Code sessions, the communicator, coordinator and meta session, and their jobs. Only the coordinator and the designer run Fable 5.2 (`claude-fable-5-2`); the rest run Opus 5.5 (`claude-opus-5-5`), Sonnet only a one-fact lookup, since complex work on a light model gets redone.
+A drive is three Claude Code sessions, the communicator, coordinator and meta session, and their jobs; the communicator is one session every drive on this Mac shares, belonging to none, so each drive reaches him through it. Only the coordinator and the designer run Fable 5.2 (`claude-fable-5-2`); the rest run Opus 5.5 (`claude-opus-5-5`), Sonnet only a one-fact lookup, since complex work on a light model gets redone.
 
 The communicator is the only session he talks to: its turn on his message is a one-sentence ack alone inside 5 to 10 seconds, then `drive handler`, which starts `long-running:handler` as its own session, so his next message never waits. The handler does every read, card and post through `say` and ends on one line, sent back as one cci record. Each `owner` record names its `about`: his words on the drive, rulings included, reach the meta session alone, and those on his work the coordinator. He reads only Slack; no session has AskUserQuestion (`communicator`).
 

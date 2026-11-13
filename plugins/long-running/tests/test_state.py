@@ -446,6 +446,35 @@ def test_resolve_finds_the_newest_drive_bound_to_this_session(
     assert state.session_role(state.load("other"), "me") == "communicator"
 
 
+def test_every_drive_reads_the_one_communicator_this_mac_shares_and_his_dm_keeps_neither_and_its_calls_name_their_drive(
+    state_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    make("alpha", "top-a")
+    make("beta", "top-b")
+    with state.edit("beta") as data:
+        data["roles"]["communicator"] = {"session": "beta-talker", "terminal": None, "cwd": "/work", "started": "2026-11-09T11:00:00-08:00"}
+        data["slack"]["channel"] = "D0OLD"
+    with state.communicator_edit() as held:
+        held.update(state.held_by("talker", "term-7", "/home"), channel="D123")
+    shared = {field: state.communicator()[field] for field in ("session", "terminal", "cwd", "started")}
+    for name in ("alpha", "beta"):
+        data = state.load(name)
+        assert (data["roles"]["communicator"], data["slack"]["channel"], state.saved(name)["roles"]["communicator"]) == (shared, "D123", shared)
+    assert (state.session_drives("talker"), state.session_drives("beta-talker")) == (["beta", "alpha"], [])
+    with state.edit("beta") as data:
+        data["orders"]["o1"] = {"text": "ship it", "jobs": []}
+    assert ("communicator" in state.stored("beta")["roles"], state.stored("beta")["slack"]["channel"]) == (False, None)
+    assert state.call_drives({"session_id": "talker", "tool_input": {"drive": "alpha"}}) == ["alpha", "beta"]
+    assert state.call_drives({"session_id": "talker", "drive": "beta", "tool_input": {"drive": "alpha"}}) == ["beta", "alpha"]
+    assert state.call_drives({"session_id": "talker", "tool_input": {"drive": "ghost"}}) == ["beta", "alpha"]
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    with pytest.raises(DriveError, match="you are the communicator of every drive on this Mac, so pass the drive this call is about: --drive one of alpha, beta"):
+        state.resolve()
+    assert state.resolve("alpha") == "alpha"
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "top-a")
+    assert state.resolve() == "alpha"
+
+
 def test_resolving_a_sessions_drive_loads_no_drive_it_is_not_bound_to(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     make("mine", "me")
     make("other", "someone-else")

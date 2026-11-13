@@ -26,6 +26,10 @@ READY_GONE = (
     " a PR still uncarded and redraws it in place as its stage moves; send none, and `drive status <pr>` names its stage"
 )
 LIMIT_ATTR = "max_words"
+UNNAMED_DRIVE = (
+    "refused: you are the communicator of every drive on this Mac, and cci posts a record naming no drive to your alias's"
+    " drive, communicator, which no session reads: pass drive, the one the record is about, of {drives}"
+)
 
 
 def unready(record: dict) -> str | None:
@@ -75,10 +79,12 @@ def readdressed(drives: dict[str, dict], session: str | None, record: dict) -> d
 
 def decision(payload: dict) -> dict | None:
     """What a drive session's post becomes: refused with the fix while a record in it, read with the text, kind, lanes and attrs cci stores for it, breaks a rule its kind keeps, an ask record, which no session posts since `drive job ask` draws his card itself, included, else posted with a warning on each POST line telling him a failure of the drive's with no word on how it is prevented, and every record in it trimmed of the attrs it never carries and one line, the rest in its body for whoever acts on it, and each record sent where its drive routes it, a records list rewritten with each record whole, since a field cci filled in beside the list would put back what the record dropped."""
-    names = state.session_drives(payload.get("session_id") or "")
+    names = state.call_drives(payload)
     if not names:
         return None
     tool_input = payload["tool_input"]
+    if len(names) > 1 and not (payload.get("drive") or tool_input.get("drive")) and payload.get("session_id") == (state.communicator() or {}).get("session"):
+        return {"permissionDecision": "deny", "permissionDecisionReason": UNNAMED_DRIVE.format(drives=", ".join(sorted(names)))}
     given = posted(tool_input)
     drive = state.load(names[0])
     records = [trimmed(record) for record in given]

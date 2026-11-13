@@ -11,7 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from conftest import DRIVE_TERMINAL, LEAD, SHORT_ASK, CodexAsk, drawn_card, Draws, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, staged
+from conftest import bind_communicator, DRIVE_TERMINAL, LEAD, SHORT_ASK, CodexAsk, drawn_card, Draws, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, staged
 from drive import agents, card, cli, codex, github, install, land, launchd, orca, place, reads, receiver, render, served, slack, stage, state, superseded, talk, view, watch
 
 KEY = "Forge-AI/monorepo#42"
@@ -1968,7 +1968,7 @@ def test_a_done_builder_delivers_its_part_and_a_done_reader_codex_or_design_job_
     assert watch.run_pass(watching, T0) == ['ORPHAN o2 "why do old runs fail?": j2 answered and the answer is not posted to him']
     assert cli.main(["order", "posted", "o2", answer, "--drive", demo]) == 2
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
-    assert cli.main(["start", demo, "--role", "communicator"]) == 0
+    bind_communicator(demo)
     assert cli.main(["order", "posted", "o2", his, "--drive", demo]) == 2
     monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "kind": "report", "lane": "root", "at": "2026-11-11T09:08:16.896Z", "fields": {"attrs": {"job": "j2", "part": "why do old runs fail?"}}}))
     assert cli.main(["order", "posted", "o2", answer, "--record", "661300", "--drive", demo]) == 0
@@ -2629,6 +2629,26 @@ def test_a_communicator_outside_orca_is_never_compacted(demo: str, tmp_path: Pat
     with state.edit(demo) as data:
         data["roles"]["communicator"]["terminal"] = None
     assert watch.compact_due(state.load(demo), state.now()) is None
+
+
+def test_the_shared_communicator_is_compacted_once_whichever_drives_watch_finds_it_due_and_only_while_he_is_quiet_on_every_drive(
+    demo: str, run: Callable[..., tuple[int, str]], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    talking(demo, tmp_path, monkeypatch, [answered(130_000)], timedelta(minutes=12), timedelta(minutes=20))
+    with state.communicator_edit() as held:
+        held.update(state.load(demo)["roles"]["communicator"], channel="D123")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "other-coordinator")
+    run("start", "other", "--role", "coordinator")
+    with state.edit("other") as data:
+        data["owner"] = {"heard": state.stamp(state.now() - timedelta(minutes=3)), "away": False}
+    assert watch.compact_due(state.load(demo), state.now()) is None
+    with state.edit("other") as data:
+        data["owner"]["heard"] = state.stamp(state.now() - timedelta(minutes=20))
+    sent: list[tuple[str, ...]] = []
+    monkeypatch.setattr(watch.orca, "request", lambda *args: sent.append(args) or {})
+    assert watch.compact_lines(watcher(demo), state.now()) == ["WATCH compacted the communicator at 130000 tokens of context, quiet 10 minutes"]
+    assert watch.compact_lines(watcher("other"), state.now()) == []
+    assert sent == [("terminal", "send", "--terminal", "term-7", "--text", "/compact", "--enter")]
 
 
 def worker(
