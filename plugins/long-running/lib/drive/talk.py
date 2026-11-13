@@ -442,7 +442,7 @@ def carried(name: str, reply: dict, place: tuple[str, str], post: dict, sent: st
 def status(name: str, post: dict, stack: list[str], pictures: list[str], sent: str) -> list[str]:
     """The `cc-slack dm-status` call making a new post in his DM."""
     prs = state.load(name)["prs"]
-    argv = ["dm-status", "--agent", "claude"]
+    argv = ["dm-status", "--agent", "claude", "--drive", name]
     if thread := post.get("thread_ts"):
         argv += ["--thread", thread]
     if card := post.get("card"):
