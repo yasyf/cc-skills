@@ -682,6 +682,7 @@ def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetim
         if refused := state.result_refusal(data, job_id, job["said"], body):
             return f'JOB {job_id} {job["order"]} {job["said"]}; refused, its state unset: {refused}; drive job resume {job_id} "<the refusal>" sends it back'
         state.take_result(data, job_id, job["said"], body)
+        state.cite_designs(data, job_id, job["said"], body)
         added = state.add_changes(name, data, job_id, body)
         if untracked := [url for url in dict.fromkeys(found[0] for line in body.splitlines() if PR_LINE.match(line) for found in state.PR_URL.finditer(line)) if state.pr_key(url) not in data["prs"]]:
             return f"JOB {job_id} {job['order']} {job['said']}; the drive tracks no {', '.join(untracked)}: drive pr add <url> --job {job_id} registers each"

@@ -84,8 +84,8 @@ class Against(DriveError):
         )
 
 
-def check(name: str, key: str, cited: list[str]) -> dict:
-    """Judge one PR's change, read whole from GitHub at its head, title and diff and never the body, against the words of the orders it serves, for the parts it carries, and against each answer of his cited names or its design cites, a flake fix against his ruling FLAKE_RULING in place of any order, and return the head it checked, or the one its head already holds, for verdict to keep; every other PR its job carries, and each job it was handed from, is named as delivering its own share, the merged ones marked merged and the closed ones left out, so neither a sibling's diff nor a part an earlier PR already landed refuses it. The judge first lists each change the diff makes to what already exists, before and after, then refuses each his words do not need, by his words "stop overrecahing and changing things people didnt ask you when you are asked to make a change". Refuse, naming each of his words the change goes against or beyond, so his card draws only on a change checked against his words, leaving out each objection to a file whose added and removed lines are those of the head the check last passed, while it serves no order that head was not checked against, so a verdict holds for the same change after a restack."""
+def check(name: str, key: str, bound: list[str]) -> dict:
+    """Judge one PR's change, read whole from GitHub at its head, title and diff and never the body, against the words of the orders it serves, for the parts it carries, and against each answer of his kept on it for the design it makes and each bound names, a flake fix against his ruling FLAKE_RULING in place of any order, and return the head it checked, or the one its head already holds, for verdict to keep; every other PR its job carries, and each job it was handed from, is named as delivering its own share, the merged ones marked merged and the closed ones left out, so neither a sibling's diff nor a part an earlier PR already landed refuses it. The judge first lists each change the diff makes to what already exists, before and after, then refuses each his words do not need, by his words "stop overrecahing and changing things people didnt ask you when you are asked to make a change". Refuse, naming each of his words the change goes against or beyond, so his card draws only on a change checked against his words, leaving out each objection to a file whose added and removed lines are those of the head the check last passed, while it serves no order that head was not checked against, so a verdict holds for the same change after a restack."""
     data = state.load(name)
     pr = data["prs"][key]
     if state.checked(data, pr):
@@ -95,7 +95,7 @@ def check(name: str, key: str, cited: list[str]) -> dict:
     lines = digests(read["diff"])
     passed = pr["checked"]["lines"] if pr["checked"] and set(orders) <= set(pr["checked"]["orders"]) else {}
     flake = [state.FLAKE_RULING] if pr.get("exempt") == state.FLAKE_FIX else []
-    answered = answers(data, [*cited, pr.get("design") or "", *flake], view.live_cards(name))
+    answered = list(dict.fromkeys([*kept_answers(name, data, key), *answers(data, [*bound, *flake], view.live_cards(name))]))
     carried = (state.pr_key(url) for job in data["jobs"].values() if pr["url"] in job["prs"] for url in job["prs"])
     others = [other for other in dict.fromkeys(carried) if other != key and data["prs"][other]["state"] != "closed"]
     if found := [item for item in judged(name, words(data, data["jobs"][pr["job"]], orders, pr["parts"], answered, others), {key: read}) if item["file"] not in lines or passed.get(item["file"]) != lines[item["file"]]]:
@@ -104,13 +104,13 @@ def check(name: str, key: str, cited: list[str]) -> dict:
 
 
 def verdict(name: str, key: str) -> str:
-    """Judge one PR his card waits on at its head against his words, the one place a PR is judged, with the answers its builder's DESIGN: line cites and each answer of his binding its job, by brief.bound, and keep the outcome on the PR: CHECKED and NOT READY also as a check event, which the watch says on the PR's line, and a refusal is a line on his card that wakes its builder through drive pr wake unless he approved the PR, holding neither his Approve nor its landing; then redraw his open card in place, so it shows the verdict. A judge or GitHub read that failed is kept alone, and the watch tries it again RETRY on."""
+    """Judge one PR his card waits on at its head against his words, the one place a PR is judged, with the answers kept on it for its design and each answer of his binding its job, by brief.bound, and keep the outcome on the PR: CHECKED and NOT READY also as a check event, which the watch says on the PR's line, and a refusal is a line on his card that wakes its builder through drive pr wake unless he approved the PR, holding neither his Approve nor its landing; then redraw his open card in place, so it shows the verdict. A judge or GitHub read that failed is kept alone, and the watch tries it again RETRY on."""
     data = state.load(name)
     pr = data["prs"][key]
     head, at, named, checked = pr["head"], state.stamp(), "", None
-    cited = [*(line for line in state.report_text(name, pr["job"]).splitlines() if line.startswith("DESIGN:")), *brief.bound(name, data, data["jobs"][pr["job"]])[0]]
+    bound = brief.bound(name, data, data["jobs"][pr["job"]])[0]
     try:
-        checked = check(name, key, cited)
+        checked = check(name, key, bound)
     except Against as error:
         outcome, named = f"{NOT_READY}: {error}", error.named
     except DriveError as error:
@@ -251,6 +251,18 @@ def words(data: dict, job: dict, orders: list[str], named: list[str], answered: 
     if answered:
         lines += ["his answers that bind the PRs, those their brief carries and those they cite for the design they make:", *answered]
     return "\n".join(lines)
+
+
+def kept_answers(name: str, data: dict, key: str) -> list[str]:
+    """The answers of his the PR cites for its design, as the judge reads them: the list kept on it, else its citation read once and kept, so no later check proves a card link again against cc-slack's live cards, which drop a card once its thread goes quiet; a citation replaced while it was read keeps nothing."""
+    pr = data["prs"][key]
+    if pr["answers"] is not None:
+        return pr["answers"]
+    read = answers(data, [pr["design"] or ""], view.live_cards(name))
+    with state.edit(name) as data:
+        if data["prs"][key]["design"] == pr["design"]:
+            data["prs"][key]["answers"] = read
+    return read
 
 
 def answers(data: dict, cited: list[str], found: dict | None) -> list[str]:

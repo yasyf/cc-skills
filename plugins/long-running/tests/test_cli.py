@@ -4223,6 +4223,44 @@ def test_a_ready_or_pushed_whose_design_line_names_no_answer_of_his_keeps_nothin
     assert state.load("demo")["prs"][with_pr].get("serves") is None
 
 
+def test_pr_set_design_replaces_what_a_returns_design_line_cited_and_the_check_reads_only_the_answers_kept_on_the_pr(
+    run: Run, with_pr: str, on_github: dict, judge: Judge, recorded: Answers, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    recorded.shown["953a8c8"] = DOORS
+    dropped = "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794357048254809"
+    assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\nDESIGN: one proposal tool, his tap {dropped}\n") == (0, "")
+    assert state.load("demo")["prs"][with_pr]["design"] == f"DESIGN: one proposal tool, his tap {dropped}"
+    code, out = run("pr", "set", PR, "--design", "asked:953a8c8")
+    assert (code, ", design answers 953a8c8" in out.splitlines()[0], "his answer its design cites, kept: 953a8c8, " in out) == (0, True, True)
+    pr = state.load("demo")["prs"][with_pr]
+    assert (pr["design"], [answer.partition(", ")[0] for answer in pr["answers"]], pr["checker"]) == ("asked:953a8c8", ["953a8c8"], None)
+    monkeypatch.setattr(settled, "shown", lambda answer_id, cwd: pytest.fail(f"read {answer_id} again"))
+    monkeypatch.setattr(settled, "heard", lambda link, found: pytest.fail(f"read {link}"))
+    judge.against = [{"order": "o1", "words": "land it", "change": "api/run.ts keeps the staff flag", "file": "api/run.ts"}]
+    assert cli.main(["pr", "check", PR, "--drive", "demo"]) == 0
+    judge.against = []
+    assert cli.main(["pr", "check", PR, "--drive", "demo"]) == 0
+    assert [f'asked "{DOORS["title"]}"' in said and dropped not in said for said, _ in judge.asked] == [True, True]
+    assert state.load("demo")["prs"][with_pr]["checked"]["orders"] == ["o1"]
+
+
+def test_a_drive_saved_before_prs_kept_their_design_cites_on_each_open_pr_the_design_lines_of_its_jobs_newest_ready_or_pushed_naming_it(
+    run: Run, with_pr: str
+) -> None:
+    for at, whole in (
+        ("2026-11-11T08:00:00-08:00", f"PUSHED {PR}\nDESIGN: the doors stay open, by 953a8c8\n"),
+        ("2026-11-11T09:00:00-08:00", f"WAITING CI on {PR}\nDESIGN: one proposal tool, by 5f75623\n"),
+        ("2026-11-11T10:00:00-08:00", f"PUSHED {PR}\nCHANGE: the doors stay open\n"),
+    ):
+        state.keep_report("demo", "j1", state.opening(whole), whole, state.parse_time(at))
+    with state.edit("demo") as data:
+        data.pop("designs_cited")
+    assert state.load("demo")["prs"][with_pr]["design"] == "DESIGN: the doors stay open, by 953a8c8"
+    with state.edit("demo") as data:
+        data["prs"][with_pr]["design"] = None
+    assert state.load("demo")["prs"][with_pr]["design"] is None
+
+
 def test_order_set_sorts_an_order_again(run: Run, demo: str) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why did the copy stall?", "--kind", "answer")
     assert run("order", "set", "o1", "--kind", "build", "--complex")[0] == 0

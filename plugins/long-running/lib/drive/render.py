@@ -366,7 +366,14 @@ def pr_line(key: str, pr: dict, card: str | None) -> str:
     waits = f", waits on {', '.join(pr['waits'])}" if pr.get("waits") else ""
     held = ", held by its hold label" if pr["hold_label"] else ""
     title = f' "{cut(pr["title"], 80)}"' if pr["title"] else ""
-    return f"{key}{title} {pr['state']}, checks {pr['checks']}, review {pr['review']}, {tap}{held}{exempt}{port}{waits}{stage_words(pr)}"
+    return f"{key}{title} {pr['state']}, checks {pr['checks']}, review {pr['review']}, {tap}{held}{exempt}{port}{waits}{design_words(pr)}{stage_words(pr)}"
+
+
+def design_words(pr: dict) -> str:
+    """The answers of his the check reads for the PR's design, each by its id or link, or what the PR cites while the check has read none of it."""
+    if pr.get("answers"):
+        return f", design answers {', '.join(answer.partition(', ')[0] for answer in pr['answers'])}"
+    return f", design {cut(' '.join(pr['design'].split()), 80)}" if pr.get("design") else ""
 
 
 def stage_words(pr: dict) -> str:

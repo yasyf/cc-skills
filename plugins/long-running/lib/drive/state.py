@@ -468,6 +468,7 @@ def new_drive(
         "catch_up": None,
         "launched": {},
         "closed_from_cards": True,
+        "designs_cited": True,
     }
 
 
@@ -687,6 +688,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         pr.setdefault("author", None)
         pr.setdefault("checked", None)
         pr.setdefault("undrawn", None)
+        pr.setdefault("design", None)
+        pr.setdefault("answers", None)
         if stamp := pr["checked"]:
             stamp.pop("patch", None)
             stamp.setdefault("lines", {})
@@ -712,7 +715,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     if "catch_up" not in data:
         data["catch_up"] = new_catch_up(min(mark["at"] for mark in data["held"].values()), [mark["order"] for mark in data["held"].values() if mark["order"]]) if data["held"] else None
     passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)
-    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards"))
+    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited"))
     if (pictures := drive_dir(name) / "pictures").is_dir() and not (pictures / picture.SOURCED).exists():
         picture.fill(pictures, [*map(Path.read_text, sorted((drive_dir(name) / "asks").glob("*.md"))), *pr_bodies(name)])
     if cards_path(name).exists() and not (drive_dir(name) / "asks" / REBUILT_ASKS).exists():
@@ -738,6 +741,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     if not data.get("closed_from_cards"):
         finish_asked_readers(name, data)
         close_from_cards(name, data)
+    if not data.get("designs_cited"):
+        cite_returned_designs(name, data)
     if unkept := any("threads" not in order for order in data["orders"].values()):
         keep_threads(name, data)
     return data, keep and not unkept
@@ -765,6 +770,16 @@ def keep_threads(name: str, data: dict) -> None:
     for event, _ in read_events(name):
         if event["kind"] == "said" and event.get("card") and (keys := [key for key in event.get("prs") or [] if key in data["prs"]]):
             join_pr_cards(data, keys, [event["card"]], event["at"])
+
+
+def cite_returned_designs(name: str, data: dict) -> None:
+    """Cite on each open PR citing no design the DESIGN: lines of the newest READY or PUSHED return of its job that names it and carries any, as cite_designs does at each return, since the check reads a PR's design answers only from what the PR cites; marked so this runs once."""
+    for key, pr in data["prs"].items():
+        if pr["state"] != "open" or pr["design"]:
+            continue
+        named = (cited for reply in returns(name, pr["job"]) if REPORTED_LINE.match(said := opening(reply["body"])) and key in named_prs(data, pr["order"], said) and (cited := design_lines(reply["body"])))
+        pr["design"] = next(named, None)
+    data["designs_cited"] = True
 
 
 def finish_asked_readers(name: str, data: dict) -> None:
@@ -1122,6 +1137,24 @@ def change_builders(name: str, data: dict, design_id: str, changes: list[tuple[l
         data["orders"][order_id]["jobs"].append(builder_id)
         added.append(builder_id)
     return added
+
+
+def cite_designs(data: dict, job_id: str, line: str, report: str) -> None:
+    """Cite the DESIGN: lines of a READY or PUSHED return on each PR its first line names, replacing what each cited before, so the check reads a PR's design answers from its newest return citing any and never from an older return or another PR's; a return citing none leaves each PR's citation as it was."""
+    if REPORTED_LINE.match(line) and (cited := design_lines(report)):
+        for key in named_prs(data, data["jobs"][job_id]["order"], line):
+            cite(data["prs"][key], cited)
+
+
+def design_lines(report: str) -> str:
+    return "\n".join(line for line in report.splitlines() if line.startswith("DESIGN:"))
+
+
+def cite(pr: dict, design: str, answered: list[str] | None = None) -> None:
+    """Keep on the PR the citation of his answers for the design it makes, the one list the check reads, with those answers as read, or None until the check reads them once, and drop its check so it runs on them; citing what it already cites, read nowhere, keeps the answers read before, which outlive cc-slack dropping a card."""
+    if design == pr["design"] and answered is None:
+        return
+    pr.update(design=design, answers=answered, checker=None)
 
 
 def change_waits(line: re.Match) -> list[int]:
@@ -2535,5 +2568,7 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "undrawn": None,
         "parts": [],
         "lead": None,
+        "design": None,
+        "answers": None,
         "updated": stamp(),
     }
