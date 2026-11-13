@@ -106,9 +106,9 @@ COMMON = {
 
 
 def card_refusal(job_id: str, question: dict, file: Path) -> str | None:
-    """Why the job's question kept in this file draws no card, whatever waits id it is drawn under: `drive job ask` refused it, so it waits on that refusal, a `Replaces:` line folded it into a later question, whose card asks it, or it ended, answered by his tap or words, withdrawn or superseded, so its card never draws again, naming the words it ended on."""
+    """Why the job's question kept in this file draws no card, whatever waits id it is drawn under: `drive job ask` or `drive job card` refused it, so it waits on that refusal, a `Replaces:` line folded it into a later question, whose card asks it, or it ended, answered by his tap or words, withdrawn or superseded, so its card never draws again, naming the words it ended on."""
     if question["refused"]:
-        return f'refused: {file} keeps {job_id}\'s question "{question["title"]}" pending, since `drive job ask` refused it, so no card draws from it; act on that refusal and ask again: {question["refused"]}'
+        return f'refused: {file} keeps {job_id}\'s question "{question["title"]}" pending, since `{state.refused_by(question)}` refused it, so no card draws from it; act on that refusal and ask again: {question["refused"]}'
     if question["replaced"] and not question["closed"]:
         return f'refused: {job_id}\'s question "{question["title"]}" kept in {file} is asked on his card as part of the question kept in {question["replaced"]}, so it draws no card of its own: draw that file'
     if not (closed := question["closed"]):

@@ -1623,10 +1623,26 @@ def asked_elsewhere(job_id: str, other: str, question: dict) -> str:
 
 
 def job_card(args: argparse.Namespace) -> int:
-    """Print the question card a kept ASK block draws, its Show me code drawn as highlighted pictures, and give the question kept in that file the card's waits id."""
+    """Print the question card a kept ASK block draws, its Show me code drawn as highlighted pictures, and give the question kept in that file the card's waits id; a card it refuses to draw for a question kept there with no card up is written on that question as its refusal, by `refuse_draw`."""
     name = state.resolve(args.drive)
-    card = question_card(name, *card_source(name, args))
+    path, waits = card_source(name, args)
+    try:
+        card = question_card(name, path, waits)
+    except DriveError as error:
+        refuse_draw(name, path, waits, str(error))
+        raise
     return emit(args, json.dumps(card), card)
+
+
+def refuse_draw(name: str, path: Path, waits: str, refusal: str) -> None:
+    """Keep a card `drive job card` refused as the refusal of the open question its job keeps in this file with no card up, drawn under its own waits id or one no other question of the job holds but one folded into it, as its ask record names it, so `drive status` lists it refused, no card draws from it and the watch names each job waiting on it until `drive job ask` asks it again; a draw onto another question's card refuses only that draw."""
+    with state.edit(name) as data:
+        job = data["jobs"].get(waits.partition(":")[2].partition("-")[0])
+        question = job and state.kept_in(job, path)
+        if not question or question["closed"] or question["card"] or question["refused"] or question["replaced"] or any(other is not question and other["waits"] == waits and not other["replaced"] for other in job["questions"]):
+            return
+        question.update(refused=refusal, waits=question["waits"] or waits)
+        job["updated"] = state.stamp()
 
 
 def card_source(name: str, args: argparse.Namespace) -> tuple[Path, str]:

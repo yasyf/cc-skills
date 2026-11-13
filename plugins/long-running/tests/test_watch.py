@@ -2173,6 +2173,24 @@ def test_a_builder_built_beside_its_readers_open_card_waits_on_that_card_whateve
     assert watch.run_pass(watcher(demo), T0) == []
 
 
+def test_a_builder_waiting_on_its_readers_card_that_drive_job_card_refused_is_said_to_wait_on_a_card_never_posted(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(watch.view, "cards", lambda name: watch.view.NO_CARDS)
+    refused = 'the Show me picture "1 · Before" does not draw: Parse error on line 7'
+    with state.edit(demo) as data:
+        data["prs"].pop(KEY)
+        parts = data["jobs"].pop("j1")["parts"]
+        asked = state.new_question("/drive/asks/j2612-ab.md", "Which shape?", state.stamp(T0), refused=refused) | {"waits": "durable-agents:j2612-684681"}
+        data["jobs"]["j2612"] = job(kind="reader", state="done", parts=parts, questions=[asked])
+        data["jobs"]["j2649"] = job(parts=parts)
+        data["orders"]["o1"]["jobs"] = ["j2612", "j2649"]
+    with state.edit(demo) as data:
+        state.take_result(data, "j2649", "BUILT j2649-sparse-replace, waits on j2612's card")
+        data["jobs"]["j2649"]["updated"] = state.stamp(T0 - timedelta(minutes=10))
+    assert watch.run_pass(watcher(demo), T0) == [
+        f'ORPHAN o1 "ship the watch": j2649 waits on a card never posted: drive job card refused j2612\'s question "Which shape?" kept in /drive/asks/j2612-ab.md: {refused}'
+    ]
+
+
 def test_a_refused_question_his_recorded_answer_since_settled_no_longer_waits_on_a_card_never_posted(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(watch.view, "cards", lambda name: watch.view.NO_CARDS)
     refused = "refused: his recorded answer 5630432 already decides this question."
