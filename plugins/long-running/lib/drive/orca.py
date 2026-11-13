@@ -81,9 +81,8 @@ echo "== dmesg | tail -n 50"; dmesg | tail -n 50
 SPRITE_TRANSCRIPTS = 'tar -czf - -C "$HOME/.claude/projects" . || [ $? -eq 1 ]'
 UNKEPT = "unkept.txt"
 TRANSCRIPTS = ".transcripts"
-ANSWER_BYTES = 4096
 RELAY_BYTES = 64 * 1024
-RELAY_ROOM = 4096
+ANSWER_MESSAGE_ID = "msg_" + "0" * 12
 KEPT_ANSWER = "drive answer kept on this Sprite: "
 DRIVE_STATUS = re.compile(r"drive exited \d+\n")
 CHECKOUT_LOCK = ".checkout.lock"
@@ -715,34 +714,21 @@ def place_tools(workspace: str) -> None:
 
 
 def sprite_answer(answer: str, job: dict, message_id: str) -> str:
-    """What a Sprite lane's question gets through Orca: the answer whole when it fits in ANSWER_BYTES, else a line naming the file on the lane's Sprite that holds it, after the `drive exited` line a DRIVE answer opens with, so a lane's drive that reads no such line still exits with the verb's status. Orca keeps a reply four times over, in the message, its question, its relay item and its receipt, so a long answer costs the database four times its size; one the Sprite cannot take goes whole."""
+    """What a Sprite lane's question gets through Orca: the answer whole when one Orca relay message carries it, else a line naming the file on the lane's Sprite that holds it, after the `drive exited` line a DRIVE answer opens with, so a lane's drive that reads no such line still exits with the verb's status. Orca keeps a reply past what its relay carries as the question's answer and never relays it; OrcaError when the Sprite cannot take the file."""
     text = answer.encode()
-    if state.on_mac(job) or len(text) <= ANSWER_BYTES:
+    if state.on_mac(job) or relay_bytes(message_id, answer) <= RELAY_BYTES:
         return answer
     try:
         path = put_on_sprite(job["workspace"], SPRITE_ANSWERS, f"{message_id}.txt", text)
-    except (OrcaError, OSError, subprocess.TimeoutExpired):
-        return answer
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise OrcaError(f"writing {SPRITE_ANSWERS}/{message_id}.txt onto {job['workspace']}: {error}") from None
     opening = status[0] if (status := DRIVE_STATUS.match(answer)) else ""
     return f"{opening}{KEPT_ANSWER}{path} ({len(text)} bytes, SHA-256 {hashlib.sha256(text).hexdigest()}); read it in full\n"
 
 
-def relayable(answer: str, question: str) -> str:
-    """The answer whole when one Orca relay message carries it, else as much of its head as fits, over a line saying how many bytes it cut and that the same question asked again gets the whole answer as a file on the lane's Sprite, as sprite_answer writes it. Orca refuses a relay message past RELAY_BYTES of JSON, where each quote, backslash or newline escapes to two bytes, and RELAY_ROOM keeps room for the ids, keys and subject it wraps an answer in and for that line."""
-    room = RELAY_BYTES - RELAY_ROOM
-    kept, size = len(answer), relay_bytes(answer)
-    if size <= room:
-        return answer
-    while size > room:
-        kept = kept * room // size
-        size = relay_bytes(answer[:kept])
-    asked = re.sub(r"^DRIVE\b", "drive", question.partition("\n")[0])
-    total = len(answer.encode())
-    return f"{answer[:kept]}\n[cut {total - len(answer[:kept].encode()):,} of {total:,} bytes, past the 64 KiB one Orca relay message carries: ask `{asked}` again and its whole answer comes as a file on this Sprite]\n"
-
-
-def relay_bytes(text: str) -> int:
-    return len(json.dumps(text, ensure_ascii=False).encode())
+def relay_bytes(message_id: str, answer: str) -> int:
+    """The bytes of the relay message Orca builds to carry this answer to the question's Sprite, counted as Orca counts them before it refuses one past RELAY_BYTES: the UTF-8 length of `JSON.stringify({questionId, answerMessageId, body})`, its answer message's id always `msg_` and 12 hex digits."""
+    return len(json.dumps({"questionId": message_id, "answerMessageId": ANSWER_MESSAGE_ID, "body": answer}, ensure_ascii=False, separators=(",", ":")).encode())
 
 
 def put_on_sprite(workspace: str, folder: str, name: str, text: bytes) -> str:
