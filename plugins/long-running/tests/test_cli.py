@@ -2829,11 +2829,40 @@ def test_a_cause_report_names_its_fix_whose_order_reads_live_from_it(
     code, err = keep(monkeypatch, capsys, "j3", traced)
     assert (code, f"j3: refused, nothing kept: j3 traces the cause of o1's live bug, so {state.FIX_RULE}" in err) == (2, True)
     code, err = keep(monkeypatch, capsys, "j3", traced + "FIX o2, o9\n")
-    assert (code, "its FIX line names o9, no order or PR the drive tracks" in err) == (2, True)
+    assert (code, "its FIX line names o9, neither an order of the drive nor a GitHub PR link" in err) == (2, True)
     assert keep(monkeypatch, capsys, "j3", traced + "FIX o2\n") == (0, "")
     orders = state.load("demo")["orders"]
     assert [(orders[order_id]["joins"], state.hurts_now(orders[order_id])) for order_id in ("o2", "o3")] == [("o1", True), (None, False)]
     assert state.incident_orders(state.load("demo"), "o1") == ["o1", "o2"]
+
+
+@pytest.mark.parametrize(
+    ("fix", "author", "said", "tracked"),
+    [
+        ("none", "yasyf", None, None),
+        (PR, "yasyf", "FIX kept, Forge-AI/monorepo#42: tracked under o1", ("j3", "o1")),
+        (PR, "rowan", "FIX kept, Forge-AI/monorepo#42: refused, nothing added: Forge-AI/monorepo#42 was opened on GitHub by rowan, not yasyf", None),
+    ],
+)
+def test_a_cause_reports_fix_linking_a_pr_the_drive_does_not_track_is_kept_and_registers_it_unless_someone_else_opened_it(
+    run: Run,
+    demo: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    on_github: dict,
+    fix: str,
+    author: str,
+    said: str | None,
+    tracked: tuple[str, str] | None,
+) -> None:
+    monkeypatch.setattr(cli.reads, "run", recorded([]))
+    run("incident", "open", "SandSQL mint endpoint failing", "--record", RECORD, *FILED)
+    on_github["author"]["login"] = author
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"DONE the predecessor's handover delays each mint\nFIX {fix}\n"))
+    assert cli.main(["job", "report", "j3", "-", "--json"]) == 0
+    fixes = json.loads(capsys.readouterr().out)["fixes"]
+    pr = state.load("demo")["prs"].get("Forge-AI/monorepo#42")
+    assert ([line[: len(said)] for line in fixes], pr and (pr["job"], pr["order"])) == ([said] if said else [], tracked)
 
 
 def test_a_builder_landing_prs_he_approved_starts_with_no_research(run: Run, with_pr: str, capsys: pytest.CaptureFixture[str]) -> None:
