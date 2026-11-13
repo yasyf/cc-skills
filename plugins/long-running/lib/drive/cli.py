@@ -43,8 +43,8 @@ FROM_HELP = (
     " or slack:<channel>/<ts>, the one form Slack is asked which thread it is in; or terminal"
 )
 THREAD_HELP = (
-    "the thread the order's lines go in, in his DM or a channel such as an alert's: its permalink, slack:<channel>/<ts>, or its ts"
-    " in the channel of the --from message, his DM for an order from the terminal"
+    "the order's own thread, in his DM or a channel such as an alert's: its permalink, slack:<channel>/<ts>, or its ts"
+    " in the channel of the --from message, his DM for an order from the terminal; its lines to him go in a channel's thread only for an incident"
 )
 RULING = "ruling"
 CODE_LABEL = "code:"
@@ -431,7 +431,7 @@ def slack_key(source: str, message: tuple[str, str, str | None] | None) -> str:
 
 
 def order_thread(data: dict, source: str, message: tuple[str, str, str | None] | None, flag: str | None) -> tuple[str, str] | None:
-    """The channel and thread an order's lines go in: the one --thread names, checked, else the thread of the message --from names, which its permalink and slack:<channel>/<thread ts>/<his reply ts> carry, so only slack:<channel>/<ts> asks Slack which thread it is in; None for an order from outside Slack with no --thread."""
+    """An order's own thread: the one --thread names, checked, else the thread of the message --from names, which its permalink and slack:<channel>/<thread ts>/<his reply ts> carry, so only slack:<channel>/<ts> asks Slack which thread it is in; None for an order from outside Slack with no --thread."""
     if flag:
         return check_thread(data, flag, message)
     if not message:
@@ -581,12 +581,15 @@ def his_words(link: str, deed: str) -> str:
 
 
 def drive_post_at(link: str, data: dict, order_id: str, sent: str | None = None) -> tuple[dict, bool, tuple[str, str] | None]:
-    """The drive's post as Slack holds it, or, for one say just made, from the words it was sent with, reading nothing; whether it is a line to him, in his DM or in a thread; and its thread when the order holds it not yet, which the call naming the order joins to the order's threads."""
+    """The drive's post as Slack holds it, or, for one say just made, from the words it was sent with, reading nothing; whether it is a line to him, in his DM or in a thread; and its thread when the order holds it not yet, which the call naming the order joins to the order's threads: a post at his DM root on an order whose own thread holds no line to him is the thread its next lines reply under."""
     posted = slack.posted(link, sent) if sent else slack.message(link)
     if not posted.get("from_claude"):
         raise DriveError(f"{link} is not the drive's post")
     where = (state.CARD_LINK.search(link)[1], posted.get("thread_ts"))
-    gained = where if where[1] and where not in slack.order_threads(data, order_id, data["orders"][order_id]) else None
+    order = data["orders"][order_id]
+    if where == (slack.dm(), None) and order["thread"] and not state.promise_thread(order):
+        where = (where[0], posted["ts"])
+    gained = where if where[1] and where not in slack.order_threads(data, order_id, order) else None
     return posted, where[0] == slack.dm() or bool(where[1]), gained
 
 
@@ -3906,7 +3909,7 @@ def answering(name: str, args: argparse.Namespace) -> Callable[[str], str]:
         order_id = added_order(parser().parse_args(["order", "add", words, "--from", held["link"], "--kind", "answer", "--complex", "--title", args.answer, "--drive", name]), unfiled=True)[0]
         job_id = added_job(parser().parse_args(["job", "add", "reader", "--order", order_id, "--goal", args.answer, "--agent", handler_id, "--drive", name]))[0]
         data = with_cards(name, state.load(name))
-        thread = state.promise_thread(data["orders"][order_id])
+        thread = state.own_thread(data["orders"][order_id])
         work = [
             line
             for other_id, other in state.open_orders(data).items()

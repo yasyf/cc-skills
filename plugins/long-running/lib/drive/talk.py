@@ -42,7 +42,7 @@ def say(name: str, post: dict) -> str:
         raise DriveError("nothing posted: close answers the order of the message of his or the record your handler holds, and no order holds it")
     if close:
         report = {"close": order, "writer": "communicator", "written": state.stamp()}
-    if refused := (order and cli.report_refusal(known, order, report)) or (close and cli.unfiled_refusal(known, order)) or held_refusal(known, seq, report):
+    if refused := (order and cli.report_refusal(known, order, report)) or (close and cli.unfiled_refusal(known, order)) or held_refusal(known, seq, report) or unplaced(known, post, report):
         raise DriveError(f"nothing posted: {refused}")
     if report.get("catch_up"):
         if known["catch_up"] is None:
@@ -252,7 +252,7 @@ def dry(name: str, post: dict) -> str:
 
 
 def check(name: str, post: dict) -> None:
-    """Refuse an edit carrying anything but new words for its post, or a fence that draws as a picture, which an edit of a Slack message cannot add, a PR card naming a PR the drive holds none of, which it cannot draw, a post outside his DM naming his DM, carrying about, which names a card his reply in his DM is about, or with no thread in a channel, where only a person's user id opens a conversation, the group DM of that person, him and the bot, and a card there, a thread outside his DM named with no channel_id, and a PR card leaving out the thread outside his DM of an order its PRs carry out, which its line goes in."""
+    """Refuse an edit carrying anything but new words for its post, or a fence that draws as a picture, which an edit of a Slack message cannot add, a PR card naming a PR the drive holds none of, which it cannot draw, a post outside his DM naming his DM, carrying about, which names a card his reply in his DM is about, or with no thread in a channel, where only a person's user id opens a conversation, the group DM of that person, him and the bot, and a card there, a thread outside his DM named with no channel_id, and a PR card leaving out the thread outside his DM of an incident its PRs carry out, which its line goes in."""
     data = state.load(name)
     if channel := post.get("channel_id"):
         if channel == slack.dm():
@@ -290,9 +290,26 @@ def misplaced(data: dict, post: dict) -> str | None:
     """Why a post naming a thread with no channel_id goes nowhere: the thread is an order's, its own or one it keeps, in a channel outside his DM, such as an alert's, so in his DM Slack finds no such thread."""
     if post.get("channel_id") or post.get("edit") or not (thread := post.get("thread_ts")):
         return None
-    dm = slack.dm()
-    place = next((where[0] for order in data["orders"].values() for where in [state.promise_thread(order), *order["threads"]] if where and where[1] == thread and where[0] != dm), None)
+    place = outside(data, thread)
     return place and f"nothing posted: thread {thread} is in channel {place}, not his DM, so pass channel_id {place} with it"
+
+
+def unplaced(data: dict, post: dict, report: dict) -> str | None:
+    """Why a report's post naming no place goes nowhere: its line goes in the thread its record names and never at his DM root instead, so a line cc-slack's Slack permission hook refuses in its thread goes nowhere else. His catch-up posts at his DM root and a card draws in his DM, so neither is held to it."""
+    if not (thread := report.get("thread")) or report.get("catch_up") or any(post.get(key) for key in ("channel_id", "thread_ts", "edit", "about", "card", "tap_prs")):
+        return None
+    if channel := outside(data, thread):
+        return (
+            f"report {report['seq']}'s line goes in thread {thread} of channel {channel}, never his DM root: pass channel_id {channel}"
+            f" and thread_ts {thread}, the place cc-slack's Slack permission hook judges this say for, and a post it refuses there goes nowhere else"
+        )
+    return f"report {report['seq']}'s line goes in thread {thread} of his DM, never his DM root: pass thread_ts {thread}"
+
+
+def outside(data: dict, thread: str) -> str | None:
+    """The channel outside his DM a thread of an order is in, its own or one it keeps, such as an alert's; None for a thread of his DM."""
+    dm = slack.dm()
+    return next((where[0] for order in data["orders"].values() for where in [state.own_thread(order), *order["threads"]] if where and where[1] == thread and where[0] != dm), None)
 
 
 def shown(name: str, post: dict) -> tuple[list[dict], str, list[str]]:

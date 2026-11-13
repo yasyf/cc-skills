@@ -2269,7 +2269,7 @@ def test_the_communicators_ack_is_one_sentence_and_the_rest_goes_in_the_handlers
 def test_a_say_naming_an_alert_orders_thread_with_no_channel_id_is_told_its_channel_since_his_dm_holds_no_such_thread(run: Run, talker: str, transcript: Path) -> None:
     alert = "1794493064.110609"
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the release failed", "--from", f"slack:C0822AHFY3G/{alert}")
-    assert state.promise_thread(state.load("demo")["orders"]["o1"]) == ("C0822AHFY3G", alert)
+    assert state.own_thread(state.load("demo")["orders"]["o1"]) == ("C0822AHFY3G", alert)
     assert say(transcript, text="The fix merged.", thread_ts=alert) == f"nothing posted: thread {alert} is in channel C0822AHFY3G, not his DM, so pass channel_id C0822AHFY3G with it"
     assert message_limits.posted_order(state.load("demo"), {"channel_id": "C0822AHFY3G", "thread_ts": alert}, None) == "o1"
     assert message_limits.posted_order(state.load("demo"), {"thread_ts": alert}, None) is None

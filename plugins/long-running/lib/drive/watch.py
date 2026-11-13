@@ -43,7 +43,7 @@ RELAUNCH_REFUSED = "relaunch_refused"
 PROOFS_LOG = "proofs.log"
 CARRY_ON = "The lane that held this job died while it worked, and the watch started you in its place: carry the job on from where that lane left it."
 UNREACHED = "Orca could not reach this job's lane on its Sprite, so the watch had drive job resume wake that Sprite: carry the job on from where the lane left it."
-UNTHREADED = "the order has no thread, so its time was the drive's own and is said this once"
+UNTHREADED = "no thread holds the order's lines to him, so its time was the drive's own and is said this once"
 CUT_OFF = (
     f"its read stopped before it finished, so what it did and printed are unknown, its output in the drive's {READS_LOG}, and no read"
     " runs twice: read what a drive command changed, then ask again if it must run again"
@@ -962,7 +962,7 @@ def overdue(order: dict, moment: datetime, away: bool) -> bool:
 
 
 def due_lines(watcher: Watcher, moment: datetime) -> list[tuple[str, str]]:
-    """Each promised time that passed with no drive post in its order's thread or one of its cards' since it was promised, read from Slack, again every ten minutes until one is there; only the first while he is away. An incident promises none, since quiet_lines owes its next line five quiet minutes after its last once it has news. An order with no thread has no line to read, so its time is the drive's own, said once and kept by being said."""
+    """Each promised time that passed with no drive post in its order's thread or one of its cards' since it was promised, read from Slack, again every ten minutes until one is there; only the first while he is away. An incident promises none, since quiet_lines owes its next line five quiet minutes after its last once it has news. An order whose lines to him have no thread has no line to read, so its time is the drive's own, said once and kept by being said."""
     data = state.load(watcher.name)
     away = state.owner_away(data, moment)
     threads = {
@@ -1848,7 +1848,7 @@ def stuck_line(data: dict, subject: str, held: dict, moment: datetime) -> str:
 
 
 def stall_report(data: dict, subject: str, links: list[tuple[str, str]], held: dict, cards: dict, moment: datetime) -> dict:
-    """The report owing him one line on a stall the session holding its order heard 30 minutes ago with nothing moving since, in the thread of the work it holds, naming his card on each PR in the chain that waits on his tap as his cards stand now, never as its watchdog agent saw them."""
+    """The report owing him one line on a stall the session holding its order heard 30 minutes ago with nothing moving since, in the thread of his DM its order's lines to him go in, an incident's too, naming his card on each PR in the chain that waits on his tap as his cards stand now, never as its watchdog agent saw them."""
     job_id, order_id = stall.owner(data, subject)
     order = data["orders"][order_id]
     holder, _ = state.holding_session(data, order)
@@ -1868,7 +1868,7 @@ def stall_report(data: dict, subject: str, links: list[tuple[str, str]], held: d
     return {
         "kind": "report",
         "topic": f"watch-stall-{NOT_SLUG.sub('-', subject)}",
-        "attr": {"order": order_id, "job": job_id, "stall": "true"} | ({"thread": order["thread"][1]} if order["thread"] else {}),
+        "attr": {"order": order_id, "job": job_id, "stall": "true"} | ({"thread": where[1]} if (where := state.dm_thread(order)) else {}),
         "text": f"POST {subject} has not moved in {stood} minutes and {holder} was told {told} minutes ago: post one line on it in its thread",
         "body": "\n".join(facts) + "\n",
     }

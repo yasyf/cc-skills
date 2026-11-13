@@ -11,7 +11,6 @@ import types
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from unittest.mock import ANY
 
 import drive
 import pytest
@@ -698,10 +697,10 @@ def test_an_order_from_his_reply_goes_in_the_thread_his_reply_is_in_in_the_chann
     data = state.load("demo")
     assert {order_id: (order["from"], order["thread"], state.promise_thread(order)) for order_id, order in data["orders"].items()} == {
         "o1": (f"slack:D123/{reply}", ["D123", root], ("D123", root)),
-        "o2": (f"slack:C0BUGS1/{bug_reply}", ["C0BUGS1", bug_root], ("C0BUGS1", bug_root)),
-        "o3": (f"slack:C0BUGS1/{bug_reply}", ["C0BUGS1", bug_root], ("C0BUGS1", bug_root)),
-        "o4": (f"slack:C0BUGS1/{bug_reply}", ["C0BUGS1", bug_root], ("C0BUGS1", bug_root)),
-        "o5": (f"slack:C0BUGS1/{bug_reply}", ["C0BUGS1", bug_root], ("C0BUGS1", bug_root)),
+        "o2": (f"slack:C0BUGS1/{bug_reply}", ["C0BUGS1", bug_root], None),
+        "o3": (f"slack:C0BUGS1/{bug_reply}", ["C0BUGS1", bug_root], None),
+        "o4": (f"slack:C0BUGS1/{bug_reply}", ["C0BUGS1", bug_root], None),
+        "o5": (f"slack:C0BUGS1/{bug_reply}", ["C0BUGS1", bug_root], None),
     }
     assert state.message_order(data, "C0BUGS1", bug_root, bug_reply) == "o2"
     assert cli.main([*filed, "look at this", "--from", "slack:C0GONE1/1794341700.000300"]) == 2
@@ -712,7 +711,7 @@ def test_an_order_from_his_reply_goes_in_the_thread_his_reply_is_in_in_the_chann
     assert set(state.load("demo")["orders"]) == {"o1", "o2", "o3", "o4", "o5"}
 
 
-def test_order_set_from_points_an_order_at_his_dm_post_while_its_lines_stay_in_the_alert_thread(run: Run, demo: str, slack_thread: Thread) -> None:
+def test_order_set_from_points_an_order_at_his_dm_post_while_its_own_thread_stays_the_alert_thread(run: Run, demo: str, slack_thread: Thread) -> None:
     alert, reply, dm_post = "1794493064.110609", "1794495071.669329", "1794495097.793329"
     slack_thread.messages.append({"ts": alert, "from_bot": True})
     filed = ["order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling"]
@@ -724,7 +723,7 @@ def test_order_set_from_points_an_order_at_his_dm_post_while_its_lines_stay_in_t
     dm_link, alert_link = (f"https://acme.slack.com/archives/{channel}/p{ts.replace('.', '')}" for channel, ts in (("D123", dm_post), ("C0822AHFY3G", alert)))
     assert run("order", "set", "o1", "--from", dm_link, "--thread", alert_link)[0] == 0
     data = state.load("demo")
-    assert (data["orders"]["o1"]["from"], state.promise_thread(data["orders"]["o1"])) == (f"slack:D123/{dm_post}", ("C0822AHFY3G", alert))
+    assert (data["orders"]["o1"]["from"], state.own_thread(data["orders"]["o1"])) == (f"slack:D123/{dm_post}", ("C0822AHFY3G", alert))
     assert state.message_order(data, "D123", dm_post, dm_post) == "o1"
     assert run("order", "set", "o1", "--from", f"slack:D123/{dm_post}")[0] == 0
     assert state.load("demo")["orders"]["o1"]["thread"] == ["C0822AHFY3G", alert]
@@ -746,7 +745,7 @@ def test_an_order_he_gives_in_a_thread_a_teammate_started_takes_that_thread_as_i
     assert orders["o1"]["reporters"] == [state.reporter(f"slack:C0BUGS1/{report}")]
     assert (orders["o1"]["thread"], state.promise_thread(orders["o1"]), state.thread_attr(orders["o1"])) == (["C0BUGS1", report], None, {})
     assert orders["o1"]["due"] and limits.his_words(orders["o1"]) == "fix this"
-    assert [(orders[order_id]["reporters"], state.promise_thread(orders[order_id])) for order_id in ("o2", "o3")] == [([], ("C0BUGS1", report))] * 2
+    assert [(orders[order_id]["reporters"], state.own_thread(orders[order_id]), state.promise_thread(orders[order_id])) for order_id in ("o2", "o3")] == [([], ("C0BUGS1", report), None)] * 2
     slack_thread.messages[0] |= {"from_bot": True}
     assert run(*filed, "unpause the release", "--from", f"slack:C0BUGS1/{report}/{reply}") == (0, "o4")
     assert state.load("demo")["orders"]["o4"]["reporters"] == []
@@ -2304,35 +2303,28 @@ def test_job_ask_on_an_open_incident_draws_his_card_in_its_thread_and_sends_the_
     assert report["text"].startswith(f'POST his card {slack_card(1)} asks him "{title}" for j1, and it blocks incident o1: j1 builds its recommended option meanwhile, One snapshot file per finished run')
 
 
-def test_job_ask_on_an_order_whose_thread_is_outside_his_dm_draws_his_card_at_his_dm_root_and_sends_its_line_there_to_the_communicator(
-    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, slack_calls: list[tuple[str, ...]]
+@pytest.mark.parametrize(("kept", "card_thread"), [([], None), ([["D123", "1794200050.000200", "2026-11-13T10:00:00-08:00", "question"]], "1794200050.000200")])
+def test_job_ask_on_an_order_whose_own_thread_is_outside_his_dm_draws_his_card_in_its_thread_of_his_dm_else_at_his_dm_root_and_sends_no_line_to_that_channel(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, slack_calls: list[tuple[str, ...]], kept: list[list[str]], card_thread: str | None
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "design the run page")
     run("job", "add", "builder", "--order", "o1", "--goal", "design it")
     with state.edit("demo") as data:
-        data["orders"]["o1"]["thread"] = ["C0ALERT1", "1794200000.000100"]
+        data["orders"]["o1"].update(thread=["C0ALERT1", "1794200000.000100"], threads=kept)
     sent: list[tuple[str, list[dict]]] = []
     monkeypatch.setattr(tools, "sent", lambda name, lane, posts: sent.append((lane, posts)) or ["672400"])
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
-    title = SHORT_ASK.splitlines()[0].removeprefix("ASK ")
-    assert run("job", "ask", "j1", str(block))[1].split("\n", 1)[1] == (
-        f"his card {slack_card(1)} asks it under demo:j1-7; its line in thread 1794200000.000100 of channel C0ALERT1 goes out from the communicator once for each change to it"
-    )
-    assert [("--thread" in argv) for argv in slack_calls if argv[0] == "dm-status"] == [False]
-    assert sent == [
-        (
-            "root",
-            [{"kind": "report", "text": f'POST his card {slack_card(1)} asks him "{title}" for j1', "to": ["communicator@demo"], "attr": {"job": "j1", "waits": "demo:j1-7", "thread": "1794200000.000100"}, "id": ANY}],
-        )
-    ]
+    assert run("job", "ask", "j1", str(block))[1].split("\n", 1)[1] == f"his card {slack_card(1)} asks it under demo:j1-7"
+    assert [argv[argv.index("--thread") + 1] if "--thread" in argv else None for argv in slack_calls if argv[0] == "dm-status"] == [card_thread]
+    assert sent == []
 
 
 def test_job_ask_sends_his_cards_line_outside_his_dm_to_the_communicator_once_for_each_change_to_it(
     run: Run, asking: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with state.edit("demo") as data:
-        data["orders"]["o1"]["thread"] = ["C0ALERT1", "1794200000.000100"]
+        data["orders"]["o1"].update(thread=["C0ALERT1", "1794200000.000100"], incident=True)
     monkeypatch.setattr(cli, "post_ask", POST_ASK)
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": slack_card(1)} if argv[0] == "dm-status" else {})
     kept: dict[str, dict] = {}
@@ -2345,9 +2337,12 @@ def test_job_ask_sends_his_cards_line_outside_his_dm_to_the_communicator_once_fo
         (retitled, ["--redraws", "demo:j1-7"]),
         (retitled, ["--redraws", "demo:j1-7"]),
     ):
-        block.write_text(text)
+        block.write_text(text + "Interim fix: j2 checks the fork copies first\n")
         assert run("job", "ask", asking, str(block), *redraws)[0] == 0
-    assert [report["text"] for report in kept.values()] == [f'POST his card {slack_card(1)} asks him "{text.splitlines()[0].removeprefix("ASK ")}" for j1' for text in (SHORT_ASK, retitled)]
+    blocks = ", and it blocks incident o1: j1 builds its recommended option meanwhile, One snapshot file per finished run, written when it ends, old runs backfilled: opens in 3 requests"
+    assert [report["text"] for report in kept.values()] == [
+        f'POST his card {slack_card(1)} asks him "{text.splitlines()[0].removeprefix("ASK ")}" for j1{blocks}' for text in (SHORT_ASK, retitled)
+    ]
 
 
 def test_job_ask_reads_terms_more_than_ten_of_the_drives_questions_use_as_naming_no_one_subject(run: Run, asking: str, tmp_path: Path) -> None:

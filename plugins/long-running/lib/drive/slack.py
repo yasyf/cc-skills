@@ -131,7 +131,7 @@ def redraw_pr_cards(url: str) -> int:
 def order_threads(data: dict, order_id: str, order: dict) -> list[tuple[str, str]]:
     """The threads of an order: its own, then on an incident the own thread of each other order of it, the incident an alert's order joined and every alert joined to it, both ways, then each thread one of them keeps: each a post naming it went in, each card its jobs drew and each PR card drawn at his DM root for a PR it serves."""
     orders = [order, *(data["orders"][other] for other in state.incident_orders(data, order_id) if other != order_id)]
-    own = filter(None, map(state.promise_thread, orders))
+    own = filter(None, map(state.own_thread, orders))
     kept = ((channel, ts) for each in orders for channel, ts, _, _ in each["threads"])
     return list(dict.fromkeys([*own, *kept]))
 
