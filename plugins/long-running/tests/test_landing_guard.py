@@ -190,7 +190,7 @@ def test_a_sprite_lanes_release_verb_asks_the_coordinators_mac_whether_his_hold_
     lane = bash(RESUME, session_id="sprite")
     assert landing_guard.deny_reason(lane) is None
     recorded.listed = [HOLD]
-    refused = brief.RELEASE_HELD.format(said=HOLD["body"], where="15c4de1", hold="15c4de1", release=RESUME, why="Jev reads no answer of his recorded since as approving it")
+    refused = brief.RELEASE_HELD.format(said=HOLD["body"], where="15c4de1", hold="15c4de1", release=RESUME, why="it names no `--order`, and neither does a `Release:` line of its job's brief")
     assert landing_guard.deny_reason(lane) == refused
     assert sprite == [["drive", "job", "held", "--json", f"--release={RESUME}"]] * 2
     assert run("job", "held", "--release", RESUME) == (0, refused)

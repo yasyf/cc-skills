@@ -1272,22 +1272,22 @@ def test_while_he_holds_every_release_a_drive_runs_none_but_on_his_exception_rec
         "action": f"start this production release: `{start.format('8b2e4f7')}`",
         "answers": [{"id": "8b2e4f7", "asked": SSQL_EXCEPTION["title"], "said": SSQL_EXCEPTION["body"]}],
     }
-    assert landing_guard.deny_reason(bash("tools/ci release approve releases/2026-11-13/2") | top) is None
-    assert jev.asked[-1]["state"]["answers"] == [{"id": "8b2e4f7", "asked": SSQL_EXCEPTION["title"], "said": SSQL_EXCEPTION["body"]}]
+    asked = len(jev.asked)
+    refused = [landing_guard.deny_reason(bash(command) | top) for command in HELD_VERBS]
+    assert refused[0] == held("tools/ci release resume 15495", "it names no `--order`, and neither does a `Release:` line of its job's brief")
+    assert [reason.startswith(f'refused: he holds every release, by his words "{RELEASE_HOLD["body"]}" (15c4de1, {HOLD_LINK})') for reason in refused] == [True] * len(HELD_VERBS)
+    assert len(jev.asked) == asked
     jev.picks("none")
     assert brief.approval_refusal(start.format("8b2e4f7"), data) == held(
         start.format("8b2e4f7"), 'Jev does not read his answer 8b2e4f7 to "Release the SandSQL fix to production?" as approving it'
     )
-    refused = [landing_guard.deny_reason(bash(command) | top) for command in HELD_VERBS]
-    assert refused[0] == held("tools/ci release resume 15495", "Jev reads no answer of his recorded since as approving it")
-    assert [reason.startswith(f'refused: he holds every release, by his words "{RELEASE_HOLD["body"]}" (15c4de1, {HOLD_LINK})') for reason in refused] == [True] * len(HELD_VERBS)
     by_hand = ("tools/ci release hotfix 55960 --only executor", "drive break-glass j1 --stack sandsql/plat-usw2-prod --reason stuck -- tools/ci release start sandsql")
     assert [landing_guard.deny_reason(bash(command) | top) for command in by_hand] == [
         landing_guard.RELEASE_BY_HAND.format(command=command) for command in ("tools/ci release hotfix 55960 --only executor", "tools/ci release start sandsql")
     ]
     jev.answer = None
-    assert landing_guard.deny_reason(bash(HELD_VERBS[0]) | top) == held(
-        HELD_VERBS[0], "Jev did not say whether an answer of his approves it (no jev decision within 20s); run it again once Jev answers"
+    assert brief.approval_refusal(start.format("8b2e4f7"), data) == held(
+        start.format("8b2e4f7"), "Jev did not say whether his answer 8b2e4f7 approves it (no jev decision within 20s); run it again once Jev answers"
     )
     reads = (
         "tools/ci release start sandsql --dry-run",
@@ -1328,6 +1328,32 @@ def test_a_job_runs_the_release_its_brief_names_on_his_exception_while_he_holds_
         said=RELEASE_HOLD["body"], where="15c4de1", hold="15c4de1", release=stale, why='`--order 5d0c4a1` names his answer to "Release the memory fix to production now?", recorded before the hold'
     )
     assert landing_guard.deny_reason(bash("tools/ci bk cancel release 15495") | briefed) == landing_guard.RELEASE_CANCEL
+
+
+def test_a_codex_lane_runs_a_release_verb_only_on_the_exception_its_jobs_kept_brief_names_while_he_holds_every_release(
+    demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], no_calls: list[list[str]], recorded: Answers, jev: Jev
+) -> None:
+    recorded.listed = [RELEASE_HOLD, SSQL_EXCEPTION]
+    recorded.shown = {answer["id"][:7]: answer for answer in recorded.listed}
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the fix")
+    run("job", "add", "codex", "--order", "o1", "--goal", "release the fix")
+    kept = tmp_path / "j1.md"
+    kept.write_text("Drive: demo, order o1, job j1\n")
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["brief"] = str(kept)
+    monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
+    monkeypatch.setenv(state.DRIVE_ENV, "demo")
+    lane = bash(HELD_VERBS[0]) | {"session_id": "a-codex-session", "transcript_path": str(tmp_path / "rollout.jsonl")}
+    refused = brief.RELEASE_HELD.format(said=RELEASE_HOLD["body"], where="15c4de1", hold="15c4de1", release=HELD_VERBS[0], why="it names no `--order`, and neither does a `Release:` line of its job's brief")
+    assert landing_guard.deny_reason(lane) == refused
+    assert json.loads(hook_output(landing_guard, monkeypatch, capsys, json.dumps(lane))) == landing_guard.denial(refused)
+    assert landing_guard.deny_reason(lane | {"tool_input": {"command": "tools/ci release cancel releases/2026-11-13/2"}}) == landing_guard.RELEASE_CANCEL
+    assert jev.asked == []
+    release = "tools/ci release start sandsql --order 8b2e4f7"
+    kept.write_text(f"Release: {release}\nDrive: demo, order o1, job j1\n")
+    jev.picks("8b2e4f7")
+    assert landing_guard.deny_reason(lane) is None
+    assert [asked["state"]["action"] for asked in jev.asked] == [f"start this production release: `{release}`"]
 
 
 def test_drive_job_add_starts_no_release_his_hold_holds_and_starts_his_exception(demo: str, run: Run, recorded: Answers, jev: Jev, capsys: pytest.CaptureFixture[str]) -> None:

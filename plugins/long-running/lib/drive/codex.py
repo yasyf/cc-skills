@@ -1,6 +1,10 @@
+import hashlib
 import json
 import os
+import shlex
 import subprocess
+import sys
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -14,6 +18,9 @@ LOG_TAIL = 4096
 COLLECT_SECONDS = 60
 DISPATCH_SECONDS = 120
 SCHEMA_FILE = "codex-result.json"
+GUARD = Path(__file__).resolve().parents[2] / "hooks" / "landing_guard.py"
+GUARD_MATCHER = "^Bash$"
+GUARD_SECONDS = 60
 RESULT = {
     "type": "object",
     "properties": {
@@ -69,20 +76,53 @@ def launcher() -> Path:
 
 
 def ask(name: str, job_id: str, question: str, incident: bool, model: str | None) -> Path:
-    """Start a codex job's codex-ask run on its brief, detached, its final message held by `--schema` to the drive's result, so no reply lacks its state: the run folder under the job's scratch folder, which a finished run's next launch reuses, and codex-ask refuses while a run in it still goes; an incident's run takes codex's fast tier, and a job added with `--model` runs that model, any other codex-ask's own default, sol."""
+    """Start a codex job's codex-ask run on its brief, detached, its final message held by `--schema` to the drive's result, so no reply lacks its state: the run folder under the job's scratch folder, which a finished run's next launch reuses, and codex-ask refuses while a run in it still goes; an incident's run takes codex's fast tier, and a job added with `--model` runs that model, any other codex-ask's own default, sol. The run carries its drive and job in its environment, so the hook guarded() writes holds each of its Bash calls as landing_guard holds a drive job's."""
     scratch = state.drive_dir(name) / "scratch" / job_id
     scratch.mkdir(parents=True, exist_ok=True)
     schema = scratch / SCHEMA_FILE
     schema.write_text(json.dumps(RESULT, indent=2) + "\n")
     folder = scratch / "codex"
+    guarded()
     argv = [str(launcher()), "--dispatch", "-s", str(folder), "--schema", str(schema), *(["-m", model] if model else []), *(["--incident"] if incident else []), "-"]
     try:
-        done = subprocess.run(argv, input=question, check=False, capture_output=True, text=True, timeout=DISPATCH_SECONDS)
+        done = subprocess.run(argv, input=question, env=os.environ | {state.DRIVE_ENV: name, state.OWN_JOB_ENV: job_id}, check=False, capture_output=True, text=True, timeout=DISPATCH_SECONDS)
     except (OSError, subprocess.TimeoutExpired) as error:
         raise CodexError(str(error)) from None
     if done.returncode:
         raise CodexError(" ".join(done.stderr.split()) or f"codex-ask --dispatch exited {done.returncode}")
     return folder
+
+
+def guarded() -> None:
+    """Hold each codex run's Bash calls to landing_guard, as capt-hook holds a Claude session's: a PreToolUse group in codex's hooks.json runs this install's landing_guard on every call of a run that carries its job, trusted in config.toml as codex keeps the hash of a hook it may run, so the next run starts with it; the group an older install wrote is replaced in place."""
+    home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+    hooks = home / "hooks.json"
+    handler = {"type": "command", "command": f'[ -z "${state.OWN_JOB_ENV}" ] || exec {shlex.quote(sys.executable)} -I {shlex.quote(str(GUARD))}', "timeout": GUARD_SECONDS}
+    group = {"matcher": GUARD_MATCHER, "hooks": [handler]}
+    written = json.loads(hooks.read_text()) if hooks.exists() else {"hooks": {}}
+    groups = written["hooks"].setdefault("PreToolUse", [])
+    at = next((index for index, kept in enumerate(groups) if any(f"/hooks/{GUARD.name}" in hook.get("command", "") for hook in kept["hooks"])), len(groups))
+    if groups[at : at + 1] != [group]:
+        groups[at : at + 1] = [group]
+        replaced(hooks, json.dumps(written, indent=2) + "\n")
+    shown = json.dumps({"event_name": "pre_tool_use", "hooks": [handler | {"async": False}], "matcher": GUARD_MATCHER}, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    trusted = f"sha256:{hashlib.sha256(shown.encode()).hexdigest()}"
+    config = home / "config.toml"
+    text = config.read_text() if config.exists() else ""
+    key = f"{hooks}:pre_tool_use:{at}:0"
+    if (entry := tomllib.loads(text).get("hooks", {}).get("state", {}).get(key)) is None:
+        replaced(config, f'{text}\n[hooks.state.{json.dumps(key)}]\ntrusted_hash = "{trusted}"\n')
+    elif entry["trusted_hash"] != trusted:
+        replaced(config, text.replace(entry["trusted_hash"], trusted, 1))
+
+
+def replaced(path: Path, text: str) -> None:
+    """Write a codex file whole in one rename, keeping its mode, since config.toml holds credentials only its user may read."""
+    fresh = path.with_name(f".{path.name}.{os.getpid()}")
+    fresh.write_text(text)
+    if path.exists():
+        fresh.chmod(path.stat().st_mode)
+    os.replace(fresh, path)
 
 
 def run_of(job: dict) -> Run:
