@@ -319,8 +319,11 @@ Posting it:
   then. No session posts a question card, and none is put together by hand.
 - A kept ASK file changes only through `drive job ask`, which checks the new words against every
   rule. `drive job card` and `drive cards redraw` refuse a kept file whose words no longer hash to its
-  name, naming the `drive job ask <j> <file>` that keeps them. A block rebuilt from his card, and one
-  no job kept, meet every rule a new block meets before they draw.
+  name, naming the `drive job ask <j> <file>` that keeps them. A question already asked under a waits
+  id redraws under the rules it was asked under; once its file's words changed, it redraws from his
+  card as cc-slack stores it, and once cc-slack forgot that card, from the file only while its
+  question, summary, recommended option and options are the ones his card's message in Slack shows.
+  A block no job kept meets every rule a new block meets before it draws.
 - cc-slack posts a card that names its drive and waits on him at his DM root, and posts the card's
   permalink under its question in the thread of the job's order, or of its open incident, when that
   thread is in his DM. A thread outside his DM, such as an alert's, gets the card's line through a
