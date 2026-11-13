@@ -21,7 +21,7 @@ STAFF_ROUTES = ("break-glass", "db-read")
 
 
 def block_reason(payload: dict) -> str | None:
-    """Why a drive session's background agent, a handler's own session included, may not stop yet: its final message lands whole in that session's context, a handler's as its cci record, so it is one line."""
+    """Why a drive session's background agent, a handler's own session included, may not stop yet: its final message lands whole in that session's context, a handler's as its cci record, so it is one line, kept first with `drive job report` by every job's agent but a codex relay, whose job's state comes from the codex-ask run it asked."""
     if payload.get("stop_hook_active"):
         return None
     session = payload.get("session_id") or ""
@@ -44,7 +44,7 @@ def block_reason(payload: dict) -> str | None:
     keep = (
         f"keep your whole return first, if you have not, by piping it into `drive job report {job_id or '<your job>'} -`"
         " from a quoted heredoc, then end"
-        if role == "coordinator" or job_id
+        if (role == "coordinator" or job_id) and not (job_id and data["jobs"][job_id]["kind"] == "codex")
         else "end"
     )
     return agents.Unjudged(

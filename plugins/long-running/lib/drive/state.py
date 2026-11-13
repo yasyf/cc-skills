@@ -771,11 +771,9 @@ def unstarted_builder(data: dict, job: dict) -> bool:
 
 
 def result_state(job: dict, line: str) -> str | None:
-    """The state a job's returned line moves it to, or None when the line is no result: a reader's answer or its DESIGN to done, since a design lane takes its choice on; `BUILT <branch>, waits on <cards>` to built, and an ASK to waiting on his card. A codex job's line is its codex-ask run's, never its relay's: a `BLOCKED` one fails it and any other is done, since nothing resumes a codex run; the ASK block its reply names the watch keeps as it takes the run, which sets the job waiting on his card."""
+    """The state a job's returned line moves it to, or None when the line is no result: a reader's answer or its DESIGN to done, since a design lane takes its choice on; `BUILT <branch>, waits on <cards>` to built, and an ASK to waiting on his card. A codex job's line maps as every other job's does, so its HANDOFF stops it, its READY or PUSHED waits on its PR, and a line opening with no result, such as its relay's `REPLY_FILE:` pointer, sets nothing."""
     opening = re.match(r"[A-Z]*", line)[0]
     reader = job["kind"] == "reader"
-    if job["kind"] == "codex":
-        return "failed" if opening == "BLOCKED" else "done"
     if BUILT_LINE.match(line):
         return "built"
     return "done" if reader and opening == "DESIGN" else RESULT_STATES.get(opening, "done" if reader else None)

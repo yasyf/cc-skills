@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 from conftest import DRIVE_TERMINAL, SHORT_ASK, CodexAsk, Draws, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, commit_files, git_in, staged
-from drive import card, cli, github, install, land, launchd, orca, place, reads, receiver, render, served, slack, stage, state, superseded, talk, view, watch
+from drive import card, cli, codex, github, install, land, launchd, orca, place, reads, receiver, render, served, slack, stage, state, superseded, talk, view, watch
 
 KEY = "Forge-AI/monorepo#42"
 OTHER = "Forge-AI/monorepo#43"
@@ -2146,14 +2146,14 @@ def test_the_watch_takes_a_codex_jobs_result_from_its_completed_run_whatever_its
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, codex_ask: CodexAsk
 ) -> None:
     monkeypatch.setattr(watch, "local_gap", REAL_LOCAL_GAP)
-    reply = codex_ask.run("completed", "UNPROVEN two of three findings hold\nFinding 1\n")
+    reply = codex_ask.run("completed", "DONE two of three findings hold\nFinding 1\n")
     write_transcript(tmp_path / "config", relayed(reply, f"REPLY_FILE: {reply}"), timedelta(minutes=4))
     with state.edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["jobs"]["j1"].update(kind="codex", session="session-under-test", agent="a1", updated=state.stamp(state.now() - timedelta(minutes=10)))
     assert watch.run_pass(watcher(demo, state.now()), state.now()) == []
     job = state.load(demo)["jobs"]["j1"]
-    assert (job["state"], job["said"], state.report_text(demo, "j1")) == ("done", "UNPROVEN two of three findings hold", "UNPROVEN two of three findings hold\nFinding 1\n")
+    assert (job["state"], job["said"], state.report_text(demo, "j1")) == ("done", "DONE two of three findings hold", "DONE two of three findings hold\nFinding 1\n")
 
 
 def test_a_codex_lane_that_built_its_recommended_option_has_the_ask_block_it_named_kept_as_its_run_is_taken_so_his_card_goes_up_as_it_returns(
@@ -2548,6 +2548,46 @@ def test_a_job_whose_wait_ends_is_freed_before_any_orphan_and_said_to_be_strande
     assert watch.run_pass(watching, T0 + timedelta(minutes=13)) == []
     assert watch.run_pass(watching, T0 + timedelta(minutes=31)) == [
         f'ORPHAN o1 "ship the watch": j1 waits on "{said}" and no open PR, card or due time can wake it'
+    ]
+
+
+def completed_run(folder: Path, reply: str) -> codex.Run:
+    folder.mkdir(parents=True)
+    (folder / "codex-r-1").write_text(reply)
+    return codex.Run("completed", folder / "codex-r-1", folder / "codex-q-1.log")
+
+
+def test_a_job_waiting_on_a_codex_job_holds_through_its_handoff_its_relays_pointer_and_a_stop_until_the_work_it_was_given_is_delivered(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    serve(monkeypatch, {})
+    handoff = "HANDOFF j3 is unfinished with a stopped implementation pending a scope decision, and no PR or release exists."
+    with state.edit(demo) as data:
+        data["prs"][KEY]["state"] = "merged"
+        data["orders"]["o2"] = order(text="build the page kit", parts={"page kit": state.new_part()}, jobs=["j2", "j3"])
+        data["jobs"]["j2"] = job(order="o2", kind="codex", goal="build the page kit", parts=["page kit"], state="stopped", said="handed to j3")
+        data["jobs"]["j3"] = job(order="o2", kind="codex", goal="build the page kit", parts=["page kit"])
+        data["jobs"]["j1"].update(state="waiting", said="waits on j3", waits=["j3"], updated=state.stamp(T0 - timedelta(minutes=10)))
+        data["jobs"]["j4"] = job(goal="build on the page kit", state="waiting", said="waits on j2", waits=["j2"])
+        data["orders"]["o1"]["jobs"].append("j4")
+    with state.edit(demo) as data:
+        codex.take(demo, data, "j3", completed_run(tmp_path / "codex-ask.1", f"{handoff}\n"))
+    data = state.load(demo)
+    assert (data["jobs"]["j3"]["state"], data["jobs"]["j3"]["said"]) == ("stopped", handoff)
+    pointer = "REPLY_FILE: /runs/codex-ask.1/codex-r-1"
+    assert state.result_refusal(data, "j3", pointer, f"{pointer}\n").startswith("j3 is stopped, so its work goes on in another job")
+    watching = watcher(demo, T0 + timedelta(hours=1))
+    for minute in (0, 2, 4):
+        assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=minute)) if line.startswith("FREE ")]
+    with state.edit(demo) as data:
+        state.start(data["jobs"]["j3"])
+    assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=6)) if line.startswith("FREE ")]
+    assert [state.load(demo)["jobs"][job_id]["waits"] for job_id in ("j1", "j4")] == [["j3"], ["j2"]]
+    with state.edit(demo) as data:
+        codex.take(demo, data, "j3", completed_run(tmp_path / "codex-ask.2", "DONE built the page kit\n"))
+    assert [line for line in watch.run_pass(watching, T0 + timedelta(minutes=8)) if line.startswith("FREE ")] == [
+        "FREE j1 o1: j3 answered or done, nothing else holds it",
+        "FREE j4 o1: j2 answered or done, nothing else holds it",
     ]
 
 
