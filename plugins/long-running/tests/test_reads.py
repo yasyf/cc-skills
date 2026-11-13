@@ -148,14 +148,15 @@ def test_a_record_read_runs_the_allowed_command_from_the_checkout(
 @pytest.mark.parametrize(
     ("command", "argv"),
     [
-        ("ccn answer search sandsql shrink", ["ccn", "answer", "search", "sandsql shrink"]),
+        ("ccn answer search sandsql shrink", ["ccn", "answer", "search", "sandsql", "shrink"]),
         ('ccn answer search "sandsql shrink"', ["ccn", "answer", "search", "sandsql shrink"]),
-        ("ccn note search sandsql evict --limit 5", ["ccn", "note", "search", "sandsql evict", "--limit", "5"]),
-        ("cci grep sandsql restore --drive d", ["cci", "grep", "sandsql restore", "--drive", "d"]),
+        ("ccn note search sandsql evict --limit 5", ["ccn", "note", "search", "sandsql", "evict", "--limit", "5"]),
+        ("cci grep --drive durable-agents Send them ahead", ["cci", "grep", "--drive", "durable-agents", "Send", "them", "ahead"]),
+        ("ccn answer match hand over pause --json --limit 20", ["ccn", "answer", "match", "hand", "over", "pause", "--json", "--limit", "20"]),
         ("ccn search --limit 5 x", ["ccn", "search", "--limit", "5", "x"]),
     ],
 )
-def test_a_search_read_passes_its_words_before_the_first_flag_as_one_query(
+def test_a_search_read_passes_its_words_as_the_lane_wrote_them_for_the_tool_to_join(
     command: str, argv: list[str], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     calls = []
@@ -175,9 +176,9 @@ def test_a_ccn_show_of_several_ids_runs_once_for_each_its_outputs_joined(monkeyp
     ("command", "argv"),
     [
         ("ccn answer search 'Where should a chat's pin be stored'", ["ccn", "answer", "search", "Where should a chat's pin be stored"]),
-        ("ccn answer search the dead lane's saved branch", ["ccn", "answer", "search", "the dead lane's saved branch"]),
-        ("cci grep don't \"chat's pin\" --drive d", ["cci", "grep", "don't chat's pin", "--drive", "d"]),
-        ('ccn note search "unclosed quote --limit 5', ["ccn", "note", "search", '"unclosed quote', "--limit", "5"]),
+        ("ccn answer search the dead lane's saved branch", ["ccn", "answer", "search", "the", "dead", "lane's", "saved", "branch"]),
+        ("cci grep don't \"chat's pin\" --drive d", ["cci", "grep", "don't", "chat's pin", "--drive", "d"]),
+        ('ccn note search "unclosed quote --limit 5', ["ccn", "note", "search", '"unclosed', "quote", "--limit", "5"]),
     ],
 )
 def test_a_read_in_free_text_takes_each_apostrophe_and_stray_quote_as_a_letter_of_its_word(
@@ -187,6 +188,29 @@ def test_a_read_in_free_text_takes_each_apostrophe_and_stray_quote_as_a_letter_o
     monkeypatch.setattr(reads, "run", lambda ran, checkout: calls.append(ran) or "his words")
     assert reads.answer(f"READ {command}", tmp_path, "demo", "j7") == "his words"
     assert calls == [argv]
+
+
+@pytest.mark.parametrize(
+    ("command", "refused"),
+    [
+        ("cci grep --drive durable-agents Send them ahead", "it ran as these 7 words: cci grep --drive durable-agents Send them ahead"),
+        ("cci grep 'pauses about 0.2 s' --drive durable-agents", "it ran as these 5 words: cci grep 'pauses about 0.2 s' --drive durable-agents"),
+        (
+            'cci grep "o947" --drive durable-agents --kind order',
+            "it ran as these 7 words: cci grep o947 --drive durable-agents --kind order; the drive keeps its orders and jobs, so drive status o947 on your Sprite reads them",
+        ),
+    ],
+)
+def test_a_refused_record_read_names_the_words_it_ran_as_and_the_drive_read_for_an_order_or_job(
+    command: str, refused: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def tool(argv: list[str], checkout: Path) -> str:
+        raise reads.ReadError("cci grep exited 1: cci: refused")
+
+    monkeypatch.setattr(reads, "run", tool)
+    with pytest.raises(reads.ReadError) as error:
+        reads.answer(f"READ {command}", tmp_path, "demo", "j7")
+    assert str(error.value) == f"cci grep exited 1: cci: refused; {refused}"
 
 
 def test_a_read_request_in_prose_is_told_the_reads_that_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
