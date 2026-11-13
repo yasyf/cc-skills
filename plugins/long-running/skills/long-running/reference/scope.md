@@ -81,7 +81,10 @@ A question for him reaches him only as a question card, drawn from an `ask` reco
 communicator's handler, because he reads no terminal. Every drive session and handler starts with
 the AskUserQuestion tool denied ([Start or resume](start.md)), the `no_terminal_questions` hook
 refuses the tool in any session bound to a drive, the agents it starts and one started before that
-deny included, and a job asks through its `ASK` return, so no question waits in a terminal.
+deny included, and a job asks through its `ASK` return, so no question waits in a terminal. The same
+hook refuses there each computer-use request for screen-control access (`request_access`,
+`request_full_control`, `request_teach_access`), whose approval dialog waits in that terminal too,
+and tells a job to return what it was for as `UNPROVEN: <the check>: <the proof that settles it>`.
 
 A question he has answered is never asked again, in any wording. Before you write an `ASK`, read his
 words in the order's thread and run `ccn answer search "<words>"`, because his answer often rules
