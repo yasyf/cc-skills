@@ -107,6 +107,8 @@ class FakeGit:
         self.helper = "12.121.70"
         self.proofs: set[str] = set()
         self.changed = f"{FOLDER}/lib/drive/install.py"
+        self.drive_status = subprocess.CompletedProcess([], 0, "", "")
+        self.tried: list[tuple[list[str], dict]] = []
 
     @property
     def helper(self) -> str:
@@ -157,6 +159,9 @@ class FakeGit:
         self.now += self.call_seconds
         if cmd[0] == "gh":
             return subprocess.CompletedProcess(cmd, 1, "", "gh: API rate limit exceeded (HTTP 403)")
+        if cmd[0] == "env" and cmd[3:5] == ["status", "--drive"]:
+            self.tried.append((cmd, json.loads((Path(cmd[1].partition("=")[2]) / cmd[5] / "drive.json").read_text())))
+            return subprocess.CompletedProcess(cmd, self.drive_status.returncode, "", self.drive_status.stderr)
         if cmd[:3] == ["claude", "plugin", "update"]:
             self.update(cmd[3], cmd[5], options.get("cwd"))
         if cmd == RESTART:
@@ -739,7 +744,7 @@ def test_an_install_near_its_deadline_waits_only_the_time_left(fake: Callable[..
     start_drive("demo", communicator="term_comm")
     git = fake(["unused"], set(), call_seconds=5)
     git.waits["term_comm"] = BUSY
-    assert install.main("long-running@skills", None, None, 60, None) == 0
+    assert install.main("long-running@skills", None, None, 70, None) == 0
     assert git.typed_into("term_comm") == [waited("term_comm", "10000"), sent("term_comm")]
     assert sorted(git.orca_timeouts) == [60, 70]
     assert "demo communicator: busy for 10s" in capsys.readouterr().out
@@ -836,6 +841,42 @@ def test_a_reload_never_sent_leaves_no_stamp_so_the_next_install_sends_it(fake: 
     git.waits["term_comm"] = {"ok": False, "error": {"code": "terminal_not_found", "message": "no terminal term_comm"}}
     assert install.main("long-running@skills", None, None, 900, None) == 0
     assert "communicator" not in json.loads((state.drive_dir("demo") / install.RELOADS).read_text())
+
+
+def test_a_long_running_release_whose_own_drive_status_fails_on_a_copy_of_a_drive_is_refused_before_any_scope_updates(
+    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
+) -> None:
+    start_drive("demo", communicator="term_comm")
+    git = fake(["long-running--v1.0.3"], {"long-running--v1.0.3"})
+    git.drive_status = subprocess.CompletedProcess([], 1, "", "NameError: name 'report_path' is not defined")
+    assert install.main("long-running@skills", SHA, None, 900, None) == 1
+    assert git.claude_calls() == []
+    assert git.orca_calls == []
+    err = capsys.readouterr().err
+    assert "refused long-running--v1.0.3, keeping the release installed now: its own drive status failed on a copy of the demo drive" in err
+    assert "NameError: name 'report_path' is not defined" in err
+
+
+def test_a_long_running_release_reads_a_copy_of_every_drive_with_its_own_drive_status_before_it_installs(fake: Callable[..., FakeGit]) -> None:
+    start_drive("demo", communicator="term_comm")
+    start_drive("other", communicator="term_other")
+    git = fake(["long-running--v1.0.3"], {"long-running--v1.0.3"})
+    assert install.main("long-running@skills", SHA, None, 900, None) == 0
+    copies = {Path(cmd[1].partition("=")[2]) for cmd, _ in git.tried}
+    assert [cmd[3:] for cmd, _ in git.tried] == [["status", "--drive", "demo"], ["status", "--drive", "other"]]
+    assert all(cmd[2].endswith(f"{FOLDER}/bin/drive") for cmd, _ in git.tried)
+    assert len(copies) == 1 and state.root() not in copies
+    assert [saved for _, saved in git.tried] == [json.loads(state.state_path(name).read_text()) for name in ("demo", "other")]
+    assert git.calls.index(git.tried[-1][0]) < git.calls.index(["claude", "plugin", "marketplace", "update", "skills"])
+    checkout = next(call for call in git.git_calls() if "checkout" in call)
+    assert checkout[1:] == ["checkout", "long-running--v1.0.3", "--", FOLDER]
+
+
+def test_a_plugin_other_than_long_running_runs_no_drive_status(fake: Callable[..., FakeGit]) -> None:
+    start_drive("demo", communicator="term_comm")
+    git = fake(["codex--v1.0.3"], {"codex--v1.0.3"})
+    assert install.main("codex@skills", SHA, None, 900, None) == 0
+    assert git.tried == []
 
 
 def needing_the_app(fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch, answers: list[dict]) -> FakeGit:
