@@ -515,7 +515,10 @@ def queue(drive: dict, found: dict, moment: datetime, features: list[dict]) -> l
         item |= {"project": home and home["project"], "workstream": home and home["workstream"]}
         rank, item["rank_why"] = ranking(drive, item, item["tasks"], urgent, moment)
         ranked.append((rank, item))
-    return [item for _, item in sorted(ranked, key=lambda entry: entry[0])]
+    return [
+        item | {"priority": {"rank": position, "incident": not rank[0], "overdue": not rank[1], "weight": -rank[3]}}
+        for position, (rank, item) in enumerate(sorted(ranked, key=lambda entry: entry[0]), 1)
+    ]
 
 
 def ranking(drive: dict, item: dict, orders: list[str], urgent: dict[str, str], moment: datetime) -> tuple[tuple, str]:

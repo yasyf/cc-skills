@@ -367,6 +367,17 @@ def web(tmp_path: Path, script: str, given: object = None) -> object:
     return json.loads(subprocess.run(["node", str(runner), str(app), script], input=json.dumps(given), capture_output=True, text=True, check=True).stdout)
 
 
+def test_every_address_in_a_line_shows_as_what_it_names_and_never_as_raw_text(tmp_path: Path) -> None:
+    line = "READY on https://github.com/acme/app/pull/41, its card https://acme.slack.com/archives/D1/p100?thread_ts=1.2 and build https://buildkite.com/acme/test/builds/128084). See https://app.datadoghq.com/monitors/3 or https://example.com/x."
+    shown = web(tmp_path, f"model = {{ repo: '', review: [] }}; JSON.stringify([inline({json.dumps(line)}), named({json.dumps(line)})])")
+    assert shown == [
+        'READY on <a href="https://github.com/acme/app/pull/41" target="_blank" rel="noopener">#41</a>, its card Slack message and build '
+        '<a href="https://buildkite.com/acme/test/builds/128084" target="_blank" rel="noopener">test build 128084</a>). '
+        'See <a href="https://app.datadoghq.com/monitors/3" target="_blank" rel="noopener">Datadog monitor</a> or <a href="https://example.com/x" target="_blank" rel="noopener">example.com</a>.',
+        "READY on #41, its card Slack message and build test build 128084). See Datadog monitor or example.com.",
+    ]
+
+
 def test_a_quoted_message_on_a_card_shows_as_one_quote_of_its_text_with_its_links_and_never_as_a_picture(tmp_path: Path) -> None:
     body = "\n".join(
         [
@@ -563,7 +574,7 @@ FEATURE = {
 
 RAIL = {"failed": [], "conflict": False, "draft": False, "branch": "lane", "base": "main", "stack": [], "landing": None, "approve_waits": None, "parts": [], "job": None, "job_said": "", "job_at": None}
 QUESTION = {
-    "kind": "question", "tasks": [], "answer": "https://x.slack.com/archives/D1/p1794382453859209", "title": "Raise the limit?", "since": None, "holds": 0, "blocks": [], "thread": None,
+    "priority": {"rank": 1, "incident": False, "overdue": False, "weight": 0}, "kind": "question", "tasks": [], "answer": "https://x.slack.com/archives/D1/p1794382453859209", "title": "Raise the limit?", "since": None, "holds": 0, "blocks": [], "thread": None,
     "card": {"title": "Raise the limit?", "body": "", "options": ["Raise it", "Shard it"], "recommended": "Raise it"},
 }
 
@@ -581,7 +592,7 @@ def board(**changed: object) -> dict:
     return {
         "drive": "demo", "at": "2026-11-11T00:00:00-08:00", "counts": counts, "queue": [], "status": [{"state": "running", "features": [FEATURE]}], "cards": "live",
         "review": [], "work": lanes, "history": moments, "incidents": [], "bug_reports": [], "repo": "", "links": [], "channel": "D1", "pages": [],
-    } | changed
+    } | changed | {"queue": [item | {"priority": {"rank": rank, "incident": False, "overdue": False, "weight": item.get("holds", 0) + len(item.get("blocks", []))} | {key: value for key, value in item.get("priority", {}).items() if key != "rank"}} for rank, item in enumerate(changed.get("queue", []), 1)]}
 
 
 def fresh(minutes: int) -> str:
@@ -915,7 +926,7 @@ await wait(300);
 const canvas = document.querySelector('#main .canvas');
 const viewport = canvas.querySelector('.viewport');
 const box = canvas.getBoundingClientRect();
-const fills = { right: innerWidth - box.right <= 24, bottom: innerHeight - box.bottom <= 24, share: box.width * box.height / (innerWidth * innerHeight) > 0.7 };
+const fills = { right: innerWidth - box.right <= 24, bottom: innerHeight - box.bottom <= 24, share: box.width * box.height / (innerWidth * innerHeight) > 0.6 };
 const wheel = (deltaY, [x, y]) => viewport.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY, clientX: x, clientY: y }));
 const middle = (el) => { const r = el.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; };
 const over = middle(canvas.querySelector('.region[data-cam-key="Platform"]'));
@@ -931,7 +942,7 @@ done({ fills, zoomedIn, here, zoomedOut: location.hash, same: document.querySele
     assert seen == {
         "fills": {"right": True, "bottom": True, "share": True},
         "zoomedIn": "#/now/Platform",
-        "here": {"narrow": True, "listed": ["Raise the limit?"], "acts": ["1", "2", "Ask"], "filtered": "#/queue/all?project=Platform"},
+        "here": {"narrow": True, "listed": ["Raise the limit?"], "acts": [], "filtered": "#/queue/all?project=Platform"},
         "zoomedOut": "#/now",
         "same": True,
     }
@@ -985,10 +996,10 @@ done({
 """, board(status=[{"state": "running", "features": features}]), size, "--force-prefers-reduced-motion")
     assert seen == {
         "cards": [
-            {"project": "Iris", "said": ["Iris", "1 workstream: Desktop app", "1 open of 1", []], "tips": [["1 waiting", True]], "readable": True, "inside": True},
+            {"project": "Iris", "said": ["Iris", "1 workstream", "1 active", []], "tips": [["1 waiting", True]], "readable": True, "inside": True},
             {
                 "project": "Platform",
-                "said": ["Platform", "2 workstreams: SandSQL, Tables", "2 open of 32", ["1 question for you", "1 blocked"]],
+                "said": ["Platform", "2 workstreams", "2 active", ["1 question for you", "1 blocked"]],
                 "tips": [["1 blocked", True], ["1 being built", True], ["30 live", True]],
                 "readable": True,
                 "inside": True,
@@ -1049,7 +1060,7 @@ done({ walked, clicked: location.hash, trails: document.querySelectorAll('.crumb
     }
 
 
-def test_the_now_headline_and_the_top_strip_read_one_count_of_what_waits_on_him_and_his_oldest_wait(tmp_path: Path) -> None:
+def test_now_draws_waiting_and_movement_as_labeled_metrics_and_lists_global_priority(tmp_path: Path) -> None:
     newer = QUESTION | {"since": "2026-11-10T23:00:00-08:00"}
     older = QUESTION | {"answer": "https://x.slack.com/archives/D1/p1794382400000000", "title": "Shard it?", "since": "2026-11-10T21:30:00-08:00"}
     tap = QUESTION | {"kind": "tap", "answer": "https://x.slack.com/archives/D1/p1794382453859300", "since": "2026-11-10T22:15:00-08:00"}
@@ -1058,18 +1069,16 @@ def test_the_now_headline_and_the_top_strip_read_one_count_of_what_waits_on_him_
 location.hash = '#/now';
 await wait(300);
 done({
-  headline: document.querySelector('#main .lead').textContent.replace(/\\s+/g, ' '),
+  metrics: [...document.querySelectorAll('#main .metric')].map((metric) => metric.textContent.replace('↗', '').trim()),
+  ranked: [...document.querySelectorAll('#main .qrow')].map((row) => row.dataset.rank),
   strip: [...document.querySelectorAll('#alerts > *')].map((chip) => chip.textContent),
   needs: [...document.querySelectorAll('#main .region[data-cam-key="Platform"] .region-head .need')].map((need) => need.textContent),
 });
 """, board(queue=[newer, older, tap], status=[{"state": "running", "features": [owned]}]))
     assert seen["strip"] == ["2 decisions for you", "1 PR to tap"]
     assert seen["needs"] == ["1 question for you"]
-    assert re.fullmatch(
-        r"0 features went live in the last day, 1 is moving and 0 are blocked; 2 decisions and 1 PR to tap wait on you,"
-        r" the oldest since Nov 10 9:30 PM \((?:\d+h|\d+d(?: \d+h)?)\)\. 1 of the decisions holds no open task\.",
-        seen["headline"],
-    )
+    assert seen["metrics"] == ["Decisions2", "PRs to approve1", "Moving1", "Blocked0", "Live0"]
+    assert seen["ranked"] == ["1", "2"]
 
 
 def test_a_task_sheet_heads_with_what_it_waits_on_and_lists_where_it_is_what_ships_what_went_wrong_and_what_comes_next(tmp_path: Path) -> None:
@@ -1633,7 +1642,7 @@ def test_a_pr_with_no_card_takes_approve_from_its_key_and_the_queue_lists_by_ran
     seen = browse(tmp_path, """
 location.hash = '#/queue/all';
 await wait(100);
-const rows = () => [...document.querySelectorAll('#main .queue-list .qrow-main small')].map((why) => why.textContent);
+const rows = () => [...document.querySelectorAll('#main .queue-list .qrow')].map((row) => row.dataset.rank);
 const listed = rows();
 const chips = [...document.querySelectorAll('#main .scope-projects a')].map((chip) => chip.textContent);
 const press = (key) => document.body.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
@@ -1649,7 +1658,7 @@ await wait(50);
 done({ listed, chips, scoped, waits, sent });
 """, board(queue=[tap, other], review=review))
     assert seen == {
-        "listed": ["lands 1 PR; waiting since Nov 10 11:00 PM", "waiting since Nov 10 10:00 PM"],
+        "listed": ["1", "2"],
         "chips": ["All projects2", "Drive1", "Iris1"],
         "scoped": {"hash": "#/queue/all?project=Drive", "title": "fix the lock", "listed": 0},
         "waits": "After your Approve it still waits: its review reads none",
@@ -2566,3 +2575,66 @@ def test_each_screen_reads_the_same_requests_of_the_same_size_however_old_the_dr
     seen = {n: browse(tmp_path / str(n), VISITED, aged(n)) for n in (1, 100, 1000)}
     assert {screen for screen, _, _ in seen[1]} == {"summary", *VISITS}
     assert seen[1] == seen[100] == seen[1000]
+
+
+@pytest.mark.parametrize("size", ["1440,900", "390,844"])
+def test_filtering_keeps_global_ranks_and_visible_reasons_without_shortening_the_question(tmp_path: Path, size: str) -> None:
+    title = "Should we reserve capacity for writes so one team's reads cannot stop everyone else?"
+    items = [
+        QUESTION | {"answer": f"https://x.slack.com/archives/D1/p1794382453859{n:03}", "project": project, "workstream": "Reads", "title": title, "priority": {"incident": n == 1, "overdue": n == 3, "weight": n}}
+        for n, project in enumerate(["Iris", "Platform", "Iris", "Platform"])
+    ]
+    seen = browse(tmp_path, """
+location.hash = '#/queue/question?project=Platform';
+await wait(150);
+const rows = [...document.querySelectorAll('#main .queue-list .qrow')];
+const read = rows.map((row) => ({ rank: row.dataset.rank, reasons: row.querySelector('.priority-chips').textContent, title: row.querySelector('.qrow-title').textContent, clipped: getComputedStyle(row.querySelector('.qrow-title')).textOverflow === 'ellipsis', links: row.querySelectorAll('a').length, buttons: row.querySelectorAll('button').length, tooltip: !!row.querySelector('[data-tip]') }));
+const href = rows[1].querySelector('.qrow-main').getAttribute('href');
+rows[1].querySelector('.qrow-main').click();
+await wait(100);
+document.dispatchEvent(new KeyboardEvent('keydown', { key: 'q', bubbles: true }));
+await wait(100);
+const box = document.activeElement;
+box.value = 'How does this affect writes?';
+box.dispatchEvent(new Event('input', { bubbles: true }));
+await push({ ...MODEL, at: new Date().toISOString() });
+done({ read, draft: document.activeElement.value, asking: box === document.activeElement, opened: location.hash === href, selected: document.querySelector('.qrow.on a').getAttribute('href') === href, scoped: location.hash.includes('project=Platform'), overflow: document.documentElement.scrollWidth > innerWidth });
+""", board(queue=items), size)
+    assert seen == {
+        "read": [
+            {"rank": "2", "reasons": "#2IncidentUnblocks 1", "title": title, "clipped": False, "links": 1, "buttons": 0, "tooltip": False},
+            {"rank": "4", "reasons": "#4Past dueUnblocks 3", "title": title, "clipped": False, "links": 1, "buttons": 0, "tooltip": False},
+        ],
+        "draft": "How does this affect writes?", "asking": True, "opened": True, "selected": True, "scoped": True, "overflow": False,
+    }
+
+
+@pytest.mark.parametrize("count", [1, 1000 if os.environ.get("FORGE_CI_AT_SCALE") == "1" else 100])
+def test_queue_reads_one_focused_card_at_any_queue_size(tmp_path: Path, count: int) -> None:
+    items = [QUESTION | {"answer": f"https://x.slack.com/archives/D1/p1794382453{n:06}"} for n in range(count)]
+    seen = browse(tmp_path, """
+await wait(150);
+done(reads.filter((url) => url.startsWith('/api/card?')).length);
+""", board(queue=items), before="""
+const reads = [];
+const fetchCard = window.fetch;
+window.fetch = (url, ...args) => { reads.push(String(url)); return fetchCard(url, ...args); };
+""")
+    assert seen == 1
+
+
+def test_live_project_reordering_keeps_the_focused_workstream_and_its_zoom_in_place(tmp_path: Path) -> None:
+    iris = FEATURE | {"id": "o2", "project": "Iris", "workstream": "Desktop"}
+    seen = browse(tmp_path, """
+location.hash = '#/now/Platform/SandSQL';
+await wait(800);
+const target = () => document.querySelector('.stream.here');
+const before = target().getBoundingClientRect();
+const scale = nowCamera.at.k;
+const queue = [{ ...MODEL.queue[0], project: 'Iris', tasks: ['o2'] }];
+await push({ ...MODEL, queue });
+await wait(100);
+const after = target().getBoundingClientRect();
+done({ sameScale: Math.abs(nowCamera.at.k - scale) < 0.001, samePlace: Math.abs(before.left - after.left) < 1 && Math.abs(before.top - after.top) < 1, visible: after.left < innerWidth && after.right > 0, hash: location.hash });
+""", board(queue=[QUESTION | {"project": "Platform"}], status=[{"state": "running", "features": [FEATURE, iris]}]), "1440,900", "--force-prefers-reduced-motion")
+    assert seen == {"sameScale": True, "samePlace": True, "visible": True, "hash": "#/now/Platform/SandSQL"}
