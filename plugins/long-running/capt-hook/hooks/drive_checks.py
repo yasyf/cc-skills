@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 import runpy
+import shutil
 import subprocess
-from collections.abc import Sequence
-from dataclasses import dataclass, replace
+import threading
+from collections import OrderedDict
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
+from functools import cache
 from pathlib import Path
 
 from captain_hook import (
@@ -27,7 +33,14 @@ from captain_hook import (
 )
 from captain_hook.prompt import Prompt
 from captain_hook.snapshots.client import EvidenceIncomplete
-from captain_hook.tickets import Context, Decide, Evidence, Proposal, Undecided, UserAnswered
+from captain_hook.tickets import (
+    Context,
+    Decide,
+    Evidence,
+    Proposal,
+    Undecided,
+    UserAnswered,
+)
 from captain_hook.tickets.context import said_evidence
 from captain_hook.tickets.decide import UNPERMITTED, cited
 from captain_hook.transcripts import TranscriptLoadError
@@ -40,9 +53,53 @@ POSTS = (*(SLACK + tool for tool in ("slack_dm_status", "slack_reply", "slack_se
 NO_DRIVE = "0a0a0a0a-no-drive-session"
 COORDINATOR = "coordinator-fixture"
 COMMUNICATOR = "communicator-fixture"
+DRIVE_AGENTS = "long-running:"
 HANDLER = "long-running:handler"
 BUILDER = "long-running:builder"
 POST = "mcp__plugin_cc-inbox_cci__post"
+FILE_TOOLS = ("Read", "Write", "Edit", "Bash")
+SLACK_READS = (SLACK + "slack_thread", SLACK + "slack_history")
+QUESTIONS = ("AskUserQuestion",)
+SHELL = ("Bash",)
+SEARCHES = ("Bash", "Read", "Grep")
+AGENT = ("Agent",)
+RECORDS = (POST,)
+PRE_TOOL_CHECKS: dict[str, tuple[str, ...] | None] = {
+    "no_file_tools.py": FILE_TOOLS,
+    "no_slack_reads.py": SLACK_READS,
+    "no_terminal_questions.py": QUESTIONS,
+    "landing_guard.py": SHELL,
+    "bash_guard.py": SEARCHES,
+    "agent_brief.py": AGENT,
+    "scratch_folder.py": AGENT,
+    "message_limits.py": POSTS,
+    "record_lines.py": RECORDS,
+    "communicator_calls.py": None,
+}
+REMOTE_LANE = "LONG_RUNNING_REMOTE_LANE"
+QUOTING = re.compile(r"[\"'\\]")
+LANDING_WORDS = re.compile(r"(?<![\w.-])(?:gh|ccx|ci|cci|stack-enqueue)(?![\w.-])")
+HELPER_WORDS = re.compile(r"(?<![\w.-])(?:helper|brew)(?![\w.-])")
+BATCHES_KEPT = 64
+RUNNER = """
+import contextlib, io, json, runpy, sys, traceback
+payload, scripts, ran = sys.stdin.read(), sys.argv[1:], {}
+for script in scripts:
+    out, err, code = io.StringIO(), io.StringIO(), 0
+    sys.argv, sys.stdin = [script], io.StringIO(payload)
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        try:
+            runpy.run_path(script, run_name="__main__")
+        except SystemExit as exited:
+            if isinstance(exited.code, str):
+                print(exited.code, file=sys.stderr)
+            code = 1 if isinstance(exited.code, str) else exited.code or 0
+        except Exception:
+            traceback.print_exc()
+            code = 1
+    ran[script] = {"code": code, "stdout": out.getvalue(), "stderr": err.getvalue()}
+print(json.dumps(ran))
+"""
 TURN = Path(__file__).resolve().parent / "tests" / "fixtures" / "turn.jsonl"
 REMOVES_CAUSE = TURN.with_name("ask-removes-cause.md")
 KEEPS_CAUSE = TURN.with_name("ask-keeps-cause.md")
@@ -182,19 +239,149 @@ def handler_reads(read: str) -> str:
     return json.dumps({"his_words": [], "reads": [named], "post": {"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS}})
 
 
-def checked(evt: BaseHookEvent, script: str) -> HookResult | None:
-    """Run the drive's own check for this call from the newest installed long-running, since capt-hook keeps this pack loaded from the install it first found while an install leaves the pack's files unchanged, and let Jev judge each refusal it makes by the rule the check names, else by its words, so a check that matched a call its rule never meant lets the call through, and every handler's say post by the read each of its claims names, which the check hands with it, whatever it found; a merge, release or public-body guard, or a refusal decided by the call's shape alone, the check marks unjudged and it blocks outright, and a check that exits non-zero raises with its own stderr, so capt-hook's log names why it failed."""
+def state_root() -> Path:
+    """The folder each drive's saved state lives under, as the drive's own `state.root` reads it from this process's environment."""
+    if explicit := os.environ.get("LONG_RUNNING_STATE"):
+        return Path(explicit)
+    if xdg := os.environ.get("XDG_STATE_HOME"):
+        return Path(xdg) / "long-running"
+    return Path.home() / ".local" / "state" / "long-running"
+
+
+BINDINGS: dict[Path, tuple[tuple[int, int, int], frozenset[str]]] = {}
+
+
+def saved_sessions(data: dict) -> frozenset[str]:
+    """Every session a saved drive binds, as `state.session_drives` reads them: each role's, each sub-coordinator's and each handler's."""
+    roles = {"coordinator": data["driver"]} if "driver" in data else data["roles"]
+    held = [*roles.values(), *data.get("subcoordinators", {}).values(), *data.get("handlers", {}).values()]
+    return frozenset(entry["session"] for entry in held)
+
+
+def bound_sessions() -> frozenset[str]:
+    """The sessions any drive on this Mac binds, each drive's state parsed again only once its file changes, so a call from a session no drive binds costs a stat of each drive's state and no parse."""
+    root = state_root()
+    if not root.is_dir():
+        return frozenset()
+    bound: set[str] = set()
+    for entry in os.scandir(root):
+        path = Path(entry.path) / "drive.json"
+        try:
+            seen = path.stat()
+        except (FileNotFoundError, NotADirectoryError):
+            continue
+        stamp = (seen.st_mtime_ns, seen.st_size, seen.st_ino)
+        if (kept := BINDINGS.get(path)) is None or kept[0] != stamp:
+            kept = BINDINGS[path] = (stamp, saved_sessions(json.loads(path.read_text())))
+        bound |= kept[1]
+    return frozenset(bound)
+
+
+def unquoted_command(payload: dict) -> str:
+    return QUOTING.sub("", payload["tool_input"].get("command") or "") if payload.get("tool_name") == "Bash" else ""
+
+
+def lands_or_posts(payload: dict) -> bool:
+    """Whether landing_guard may refuse this call from a session no drive binds: a Bash command naming gh, ccx, ci, cci or stack-enqueue, which it reads for a landing on a guarded repo or a cci post the drive routes."""
+    return bool(LANDING_WORDS.search(unquoted_command(payload)))
+
+
+def restarts_helper_or_ships_remote(payload: dict) -> bool:
+    """Whether bash_guard may refuse this call from a session no drive binds: a Bash command naming helper or brew, which may restart the hook helper, or any Bash command on a Sprite lane, whose ship asks `drive job held`."""
+    return payload.get("tool_name") == "Bash" and (bool(os.environ.get(REMOTE_LANE)) or bool(HELPER_WORDS.search(unquoted_command(payload))))
+
+
+def starts_drive_agent(payload: dict) -> bool:
+    """Whether scratch_folder acts on this call from a session no drive binds: an Agent call starting a drive agent, whose Scratch folder it makes."""
+    return str(payload["tool_input"].get("subagent_type") or "").startswith(DRIVE_AGENTS)
+
+
+UNBOUND_CHECKS: dict[str, Callable[[dict], bool]] = {
+    "landing_guard.py": lands_or_posts,
+    "bash_guard.py": restarts_helper_or_ships_remote,
+    "scratch_folder.py": starts_drive_agent,
+}
+
+
+def checks_due(evt: BaseHookEvent, script: str) -> tuple[str, ...]:
+    """The drive checks this hook event runs: on a PreToolUse call, this one and each other check matching its tool, else this one alone; a check runs for a drive agent or a session a drive binds, and for any other session only where it can act on one no drive binds."""
     payload = evt._raw
+    tool = payload.get("tool_name")
+    pending = evt.event_name == Event.PreToolUse and payload.get("tool_use_id")
+    matching = [check for check, tools in PRE_TOOL_CHECKS.items() if check == script or tools is None or tool in tools] if pending else [script]
+    if (payload.get("agent_type") or "").startswith(DRIVE_AGENTS):
+        return tuple(matching)
+    unbound = [check for check in matching if check in UNBOUND_CHECKS and UNBOUND_CHECKS[check](payload)]
+    if len(unbound) < len(matching) and (payload.get("session_id") or "") in bound_sessions():
+        return tuple(matching)
+    return tuple(unbound)
+
+
+@cache
+def interpreter() -> str:
+    """The python3 this process's PATH names past any shims folder, so a check runs without a version manager's shim resolving the interpreter again on every call."""
+    unshimmed = os.pathsep.join(folder for folder in os.environ.get("PATH", "").split(os.pathsep) if Path(folder).name != "shims")
+    return shutil.which("python3", path=unshimmed) or "python3"
+
+
+def run_checks(payload: dict, scripts: Sequence[str]) -> dict[str, dict]:
+    """Run each script from the newest installed long-running in one interpreter, each on the payload as its own stdin, and return each one's exit code, stdout and stderr by name."""
+    hooks = newest_install() / "hooks"
     ran = subprocess.run(
-        ["python3", "-I", str(newest_install() / "hooks" / script)],
+        [interpreter(), "-I", "-c", RUNNER, *(str(hooks / script) for script in scripts)],
         input=json.dumps(payload),
         capture_output=True,
         text=True,
+        check=False,
         cwd=payload.get("cwd") or None,
     )
     if ran.returncode:
-        raise RuntimeError(f"{script} exited {ran.returncode}:\n{ran.stderr}")
-    if not (said := ran.stdout.strip()):
+        raise RuntimeError(f"{', '.join(scripts)} exited {ran.returncode}:\n{ran.stderr}")
+    return {Path(path).name: result for path, result in json.loads(ran.stdout).items()}
+
+
+@dataclass(slots=True)
+class Batch:
+    waiting: set[str]
+    running: threading.Lock = field(default_factory=threading.Lock)
+    ran: dict[str, dict] | None = None
+
+
+BATCHES: OrderedDict[tuple[str, str], Batch] = OrderedDict()
+BATCHING = threading.Lock()
+
+
+def batched(payload: dict, script: str, due: tuple[str, ...]) -> dict:
+    """This check's run of the one interpreter every due check of a tool call shares: the first check to arrive runs them all, and each takes its own result; a run that raised is run again by the next check to arrive."""
+    key = (payload.get("session_id") or "", payload["tool_use_id"])
+    with BATCHING:
+        if (batch := BATCHES.get(key)) is None:
+            batch = BATCHES[key] = Batch(set(due))
+            while len(BATCHES) > BATCHES_KEPT:
+                BATCHES.popitem(last=False)
+    try:
+        with batch.running:
+            if batch.ran is None:
+                batch.ran = run_checks(payload, due)
+            ran = batch.ran
+    finally:
+        with BATCHING:
+            batch.waiting.discard(script)
+            if not batch.waiting and BATCHES.get(key) is batch:
+                del BATCHES[key]
+    return ran[script] if script in ran else run_checks(payload, (script,))[script]
+
+
+def checked(evt: BaseHookEvent, script: str) -> HookResult | None:
+    """Run the drive's own check for this call from the newest installed long-running, since capt-hook keeps this pack loaded from the install it first found while an install leaves the pack's files unchanged, and let Jev judge each refusal it makes by the rule the check names, else by its words, so a check that matched a call its rule never meant lets the call through, and every handler's say post by the read each of its claims names, which the check hands with it, whatever it found; a merge, release or public-body guard, or a refusal decided by the call's shape alone, the check marks unjudged and it blocks outright, and a check that exits non-zero raises with its own stderr, so capt-hook's log names why it failed."""
+    payload = evt._raw
+    due = checks_due(evt, script)
+    if script not in due:
+        return None
+    ran = batched(payload, script, due) if len(due) > 1 else run_checks(payload, due)[script]
+    if ran["code"]:
+        raise RuntimeError(f"{script} exited {ran['code']}:\n{ran['stderr']}")
+    if not (said := ran["stdout"].strip()):
         return None
     output = json.loads(said)
     if case := output.get("ask"):
@@ -265,7 +452,7 @@ def asked(evt: BaseHookEvent, case: str, words: list[Evidence]) -> HookResult | 
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Read", "Write", "Edit", "Bash")],
+    only_if=[Tool(*FILE_TOOLS)],
     tests={Input(command="ls", session_id=NO_DRIVE): Allow()},
 )
 def no_file_tools(evt: BaseHookEvent) -> HookResult | None:
@@ -274,7 +461,7 @@ def no_file_tools(evt: BaseHookEvent) -> HookResult | None:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool(SLACK + "slack_thread", SLACK + "slack_history")],
+    only_if=[Tool(*SLACK_READS)],
     tests={Input(tool=SLACK + "slack_thread", tool_input={"channel": "D0", "ts": "1.0"}, session_id=NO_DRIVE): Allow()},
 )
 def no_slack_reads(evt: BaseHookEvent) -> HookResult | None:
@@ -283,7 +470,7 @@ def no_slack_reads(evt: BaseHookEvent) -> HookResult | None:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("AskUserQuestion")],
+    only_if=[Tool(*QUESTIONS)],
     tests={
         Input(tool="AskUserQuestion", tool_input={"questions": [{"question": "Ship it?"}]}, session_id=NO_DRIVE): Allow(),
         Input(tool="AskUserQuestion", tool_input={"questions": [{"question": "Ship it?"}]}, session_id=COORDINATOR): Block(pattern="no drive session asks in its terminal"),
@@ -301,10 +488,12 @@ def no_terminal_questions(evt: BaseHookEvent) -> HookResult | None:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash")],
+    only_if=[Tool(*SHELL)],
     tests={
         Input(command="ls", session_id=NO_DRIVE): Allow(),
+        Input(command="gh pr view 1", session_id=NO_DRIVE, tool_use_id="toolu_unbound"): Allow(),
         Input(command='ccx vcs ship -m "Fix: x"', session_id=COORDINATOR, decide=CONFIRMED): Block(pattern="does no order's work itself"),
+        Input(command='ccx vcs ship -m "Fix: x"', session_id=COORDINATOR, decide=CONFIRMED, tool_use_id="toolu_batched"): Block(pattern="does no order's work itself"),
         Input(command="for j in j855 j966; do drive job replies $j --drive fixture | tail -5; done", session_id=COORDINATOR): Allow(),
         Input(command="orca orchestration check --help", session_id=COORDINATOR): Allow(),
         Input(
@@ -343,7 +532,7 @@ def landing_guard(evt: BaseHookEvent) -> HookResult | None:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Bash", "Read", "Grep")],
+    only_if=[Tool(*SEARCHES)],
     tests={
         Input(command="ls", session_id=NO_DRIVE): Allow(),
         Input(
@@ -363,7 +552,7 @@ def bash_guard(evt: BaseHookEvent) -> HookResult | None:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Agent")],
+    only_if=[Tool(*AGENT)],
     tests={
         Input(tool="Agent", tool_input={"subagent_type": HANDLER, "prompt": "Record: 1", "model": "sonnet"}, session_id=NO_DRIVE): Allow(),
         Input(
@@ -395,7 +584,7 @@ def agent_brief(evt: BaseHookEvent) -> HookResult | None:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("Agent")],
+    only_if=[Tool(*AGENT)],
     tests={Input(tool="Agent", tool_input={"subagent_type": "long-running:builder", "prompt": "Goal: x"}, session_id=NO_DRIVE): Allow()},
 )
 def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
@@ -502,7 +691,7 @@ def message_limits(evt: BaseHookEvent) -> HookResult | None:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool(POST)],
+    only_if=[Tool(*RECORDS)],
     tests={
         Input(tool=POST, tool_input={"kind": "report", "text": "x"}, session_id=NO_DRIVE): Allow(),
         Input(

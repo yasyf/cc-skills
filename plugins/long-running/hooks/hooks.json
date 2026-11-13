@@ -4,27 +4,27 @@
       {
         "matcher": "startup|resume|compact",
         "hooks": [
-          { "type": "command", "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" session_start.py" }
+          { "type": "command", "command": ". \"${CLAUDE_PLUGIN_ROOT}/hooks/python.sh\" && exec \"$python\" -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" session_start.py" }
         ]
       },
       {
         "matcher": "compact",
         "hooks": [
-          { "type": "command", "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" compacted_skill.py" }
+          { "type": "command", "command": ". \"${CLAUDE_PLUGIN_ROOT}/hooks/python.sh\" && exec \"$python\" -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" compacted_skill.py" }
         ]
       }
     ],
     "Stop": [
       {
         "hooks": [
-          { "type": "command", "command": "[ -z \"$LONG_RUNNING_HANDLER\" ] || python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" one_line_result.py" }
+          { "type": "command", "command": "[ -z \"$LONG_RUNNING_HANDLER\" ] || . \"${CLAUDE_PLUGIN_ROOT}/hooks/python.sh\"; [ -z \"$LONG_RUNNING_HANDLER\" ] || exec \"$python\" -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" one_line_result.py" }
         ]
       }
     ],
     "PreCompact": [
       {
         "hooks": [
-          { "type": "command", "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" pre_compact.py" }
+          { "type": "command", "command": ". \"${CLAUDE_PLUGIN_ROOT}/hooks/python.sh\" && exec \"$python\" -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" pre_compact.py" }
         ]
       }
     ],
@@ -32,7 +32,7 @@
       {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" bash_guard.py" }
+          { "type": "command", "command": ". \"${CLAUDE_PLUGIN_ROOT}/hooks/python.sh\" && exec \"$python\" -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" bash_guard.py" }
         ]
       }
     ]
