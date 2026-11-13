@@ -29,7 +29,7 @@ reading of his words "your messages need to be way shorter rewrite this for a hu
 | A line in his thread | 60 words |
 | A summary of two or more features, each under its own bold line | 120 words |
 | Each row of a markdown table, which `say` draws as Slack's own table | 60 words, its words outside the post's count |
-| The open cards `say` draws under his catch-up | none: drawn whole, outside the 120 |
+| The count of his open cards and the cards asked since he was last heard, which `say` adds to his catch-up | none: drawn whole, outside the 120 |
 | A question card: question, summary and options together | 150 words |
 | A question card's Show me, the worked example between its summary and options | none: drawn whole as its visuals, outside the 150 |
 | Each option on a card | one line of 25 words, saying what he gets and what it costs |
@@ -514,11 +514,14 @@ restating it.
   comes after rewords the catch-up post: `say` of it posts nothing and names that post, and a
   second catch-up while none is owed posts nothing.
 - That report carries `catch_up=true`, so `say` opens the post with the bold title
-  `*Catch-up since <the time he was last heard>*` whatever the text says, and closes it with every
-  open card waiting on him, the list his status page queues, each on its own line under a count of
-  them and five a message, since Slack draws five a message. No writer lists a card in the catch-up:
-  a card the text names is not drawn twice, and the 120 words count the text alone, never the cards
-  `say` adds, so none is cut to fit. The catch-up never goes in
+  `*Catch-up since <the time he was last heard>*` whatever the text says, and closes it with a
+  count of every open card waiting on him, the list his status page queues, linking that queue on
+  the dashboard, then each card asked since he was last heard, on its own line and five a message,
+  since Slack draws five a message. A card asked before he went away stays behind the count, by his
+  words on a catch-up that drew every card: "including all tehse cards each time ^^ is not helpful
+  and is very obtrusive". No writer lists a card in the catch-up: a card the text names is not
+  drawn twice, and the 120 words count the text alone, never the cards `say` adds, so none is cut
+  to fit. The catch-up never goes in
   the thread of the message that brought him back, because a thread gets only lines about its own
   order.
 - The minute a job built on a card's recommended option starts waiting on that card, the watch

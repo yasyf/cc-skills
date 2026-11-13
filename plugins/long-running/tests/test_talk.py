@@ -30,7 +30,7 @@ PR_URL = "https://github.com/yasyf/cc-skills/pull/7"
 POSTED = "https://acme.slack.com/archives/D123/p1794300000000900"
 QUESTION = "Lock each chat's database, or the whole table?"
 ASKED = "2026-11-10T20:59:00-08:00"
-OPEN_CARDS = f"\n\n*Your open cards: 1 question*\n<{CARD_URL}|{QUESTION}>"
+AWAY = "2026-11-10T21:30:00-08:00"
 CORRECTIONS = agents.corrections
 DRAW = talk.draw
 SSQL = "are we doing the ssql release foe it"
@@ -779,6 +779,10 @@ def owe(name: str, *orders: str) -> str:
     return f"*Catch-up since {render.when(ASKED)}*\n"
 
 
+def open_cards(name: str, counts: str = "1 question") -> str:
+    return f"\n\n*<{dashboard.link(name)}#/|Your open cards: {counts}>*"
+
+
 def test_a_catch_up_opens_with_its_title_from_the_time_he_was_last_heard_whatever_title_it_came_with_and_posts_once_for_each_one_owed(
     demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -787,8 +791,8 @@ def test_a_catch_up_opens_with_its_title_from_the_time_he_was_last_heard_whateve
     talk.say(demo, {"text": "The run page fix is live.", "record": "660299"})
     titled = owe(demo) + "The run page fix is live."
     talk.say(demo, {"text": "*Catch-up since 4:00 PM*\nThe run page fix is live.", "record": "660301"})
-    assert [argv[-1] for argv in posts] == [titled + OPEN_CARDS] * 2
-    assert [kept["text"] for kept in said(demo)] == [f"{titled}\n\n*Your open cards: 1 question*\n[{QUESTION}](#/queue/question/1794300000.000100)"] * 2
+    assert [argv[-1] for argv in posts] == [titled + open_cards(demo)] * 2
+    assert [kept["text"] for kept in said(demo)] == [titled + open_cards(demo)] * 2
     with pytest.raises(DriveError, match="nothing posted: report 660301 is a catch-up, and the drive owes him none, since its last catch-up already posted"):
         talk.say(demo, {"text": "The run page fix is live.", "record": "660301"})
     report(monkeypatch, {"orders": "o1"})
@@ -859,27 +863,32 @@ def test_a_correction_of_a_held_report_rides_with_it_and_one_after_his_catch_up_
         talk.say(demo, {"text": "It reads 12 MiB a request.", "record": "669980"})
 
 
-def test_his_catch_up_closes_with_every_open_card_waiting_on_him_five_a_message_none_drawn_twice(
+def test_his_catch_up_counts_every_open_card_and_draws_only_those_asked_since_he_was_last_heard_five_a_message_none_drawn_twice(
     demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    questions = [question_card(f"https://acme.slack.com/archives/D123/p179430000000020{n}", f"Question {n}?", f"demo:j{n}-1") for n in range(1, 8)]
-    tap = {"prs": [PR_URL], "asked": ASKED, "url": "https://acme.slack.com/archives/D123/p1794300000000300", "card": {"title": "New: approve the run page history?", "waits": "merge:yasyf:cc-skills:7"}}
+    questions = [question_card(f"https://acme.slack.com/archives/D123/p179430000000020{n}", f"Question {n}?", f"demo:j{n}-1") | ({"asked": AWAY} if n > 2 else {}) for n in range(1, 9)]
+    tap = {"prs": [PR_URL], "asked": AWAY, "url": "https://acme.slack.com/archives/D123/p1794300000000300", "card": {"title": "New: approve the run page history?", "waits": "merge:yasyf:cc-skills:7"}}
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "https://acme.slack.com/", "questions": questions, "pr_cards": [tap], "closed": []})
     with state.edit(demo) as data:
-        data["prs"]["yasyf/cc-skills#7"].update(checks="pass", stage={"name": "card", "owner": "him", "why": "green, waits on his Approve", "since": ASKED, "woke": None})
+        data["prs"]["yasyf/cc-skills#7"].update(checks="pass", stage={"name": "card", "owner": "him", "why": "green, waits on his Approve", "since": AWAY, "woke": None})
     report(monkeypatch, {"catch_up": "true"})
     title = owe(demo)
     text = "*The run page*\nIts fix is live, and {card:demo:j3-1} picks its lock."
-    drawn = [f"<{tap['url']}|{tap['card']['title']}>"] + [f"<{card['url']}|{card['question']}>" for card in [*questions[:2], *questions[3:]]]
+    drawn = [f"<{tap['url']}|{tap['card']['title']}>"] + [f"<{card['url']}|{card['question']}>" for card in questions[3:]]
     sent = (
         f"{title}*The run page*\nIts fix is live, and <{questions[2]['url']}|Question 3?> picks its lock."
-        "\n\n*Your open cards: 6 questions, 1 PR card*\n" + "\n".join(drawn[:5]) + "\n\n" + "\n".join(drawn[5:])
+        + open_cards(demo, "8 questions, 1 PR card")
+        + ", 6 new since you were last heard:\n"
+        + "\n".join(drawn[:5])
+        + "\n\n"
+        + "\n".join(drawn[5:])
     )
     assert talk.say(demo, {"text": text, "record": "660299", "dry_run": True}) == f"DRY his DM root, 0 pictures: {sent}"
     talk.say(demo, {"text": text, "record": "660299"})
     assert posts[-1][-1] == sent
+    assert "Question 1?" not in sent and "Question 2?" not in sent
     shown = said(demo)[-1]["text"]
-    assert "\n[New: approve the run page history?](#/queue/tap/1794300000.000300)\n" in shown and shown.endswith("\n[Question 7?](#/queue/question/1794300000.000207)")
+    assert ":\n[New: approve the run page history?](#/queue/tap/1794300000.000300)\n" in shown and shown.endswith("\n[Question 8?](#/queue/question/1794300000.000208)")
 
 
 def test_his_catch_up_posts_nothing_while_cc_slack_cannot_list_the_cards_it_closes_with(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
@@ -889,7 +898,7 @@ def test_his_catch_up_posts_nothing_while_cc_slack_cannot_list_the_cards_it_clos
     monkeypatch.setattr(view, "cards", unlisted)
     report(monkeypatch, {"catch_up": "true"})
     owe(demo)
-    with pytest.raises(DriveError, match="nothing posted: his catch-up draws every open card of his, which cc-slack could not list: cc-slack exited 1"):
+    with pytest.raises(DriveError, match="nothing posted: his catch-up counts every open card of his, which cc-slack could not list: cc-slack exited 1"):
         talk.say(demo, {"text": "The run page fix is live.", "record": "660299"})
     assert (posts, said(demo)) == ([], [])
 
@@ -938,7 +947,7 @@ def test_a_post_goes_out_in_exactly_the_words_it_was_given_while_built_work_wait
     report(monkeypatch, {"catch_up": "true"})
     title = owe(demo, "o1")
     talk.say(demo, {"text": "The fix is live.", "record": "660299"})
-    assert [argv[-1] for argv in posts] == ["Shipped.", "Catch-up", f"{title}The fix is live." + OPEN_CARDS]
+    assert [argv[-1] for argv in posts] == ["Shipped.", "Catch-up", f"{title}The fix is live." + open_cards(demo)]
     assert state.load(demo)["catch_up"] is None
     assert state.load(demo)["orders"]["o1"]["last_line"]
 

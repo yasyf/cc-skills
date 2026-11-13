@@ -8,7 +8,7 @@ import time
 import uuid
 from pathlib import Path
 
-from drive import agents, cli, picture, reads, refs, render, slack, state, view
+from drive import agents, cli, dashboard, picture, reads, refs, render, slack, state, view
 from drive.state import DriveError
 
 CATCH_UP_TITLE = re.compile(r"\A\s*\**\s*catch-up since\b[^\n]*\n*", re.IGNORECASE)
@@ -25,7 +25,7 @@ WORD = re.compile(r"\w+")
 
 
 def say(name: str, post: dict) -> str:
-    """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or with a person's user id as channel_id and no thread in the group DM of that person, him and the bot, or reword one it made in any of those, and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title and the open cards it closes with its only additions; a post naming an order is recorded on it wherever it goes, delivering the parts its report record names, making the clock time its words promise his next line by the order's due, and adding its thread to the order's threads. A report's post names each correction cci holds re it, which the post may lack, and a correction of a report held for his catch-up or carried by it posts nothing, naming where that report's copy is. A handler's result line is kept on its entry, for its done record to carry whole. What the drive's checks find in its words, the say hook hands Jev to judge against his words before this runs."""
+    """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or with a person's user id as channel_id and no thread in the group DM of that person, him and the bot, or reword one it made in any of those, and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title, the count of his open cards it closes with and the cards asked since he was last heard its only additions; a post naming an order is recorded on it wherever it goes, delivering the parts its report record names, making the clock time its words promise his next line by the order's due, and adding its thread to the order's threads. A report's post names each correction cci holds re it, which the post may lack, and a correction of a report held for his catch-up or carried by it posts nothing, naming where that report's copy is. A handler's result line is kept on its entry, for its done record to carry whole. What the drive's checks find in its words, the say hook hands Jev to judge against his words before this runs."""
     if (close := post.get("close")) and (not post.get("order") or post.get("record") or post.get("edit")):
         raise DriveError("nothing posted: close answers the order the post is on and writes its report itself, so pass order, and no record or edit")
     report = {"close": post["order"], "writer": "communicator", "written": state.stamp()} if close else cli.report_attrs(post["record"]) if post.get("record") else {}
@@ -36,7 +36,7 @@ def say(name: str, post: dict) -> str:
     if report.get("catch_up"):
         if known["catch_up"] is None:
             raise DriveError(f"nothing posted: report {post['record']} is a catch-up, and the drive owes him none, since its last catch-up already posted")
-        post = post | {"text": titled(known, post.get("text") or "") + waiting(name, post.get("text") or "")}
+        post = post | {"text": titled(known, post.get("text") or "") + waiting(name, known, post.get("text") or "")}
     if post.get("dry_run"):
         return dry(name, post) + (f"; {cli.delivering(name, order, report)}" if order else "")
     held = list(known["held"]) if report.get("catch_up") else []
@@ -200,20 +200,24 @@ def titled(data: dict, text: str) -> str:
     return f"*Catch-up since {render.when(data['catch_up']['since'])}*\n{CATCH_UP_TITLE.sub('', text, count=1)}"
 
 
-def waiting(name: str, text: str) -> str:
-    """The lines his catch-up closes with: every open card of his the status page queues as waiting on him, in its order, that the text does not already name, each on its own line under a count of them, with a blank line after each five, where cc-slack starts its next message since Slack draws five a message. The say hook counts only the text it was given, so no word limit counts these."""
+def waiting(name: str, data: dict, text: str) -> str:
+    """The lines his catch-up closes with: a count of every open card of his the status page queues as waiting on him, linking that queue on the dashboard, then each one asked since he was last heard that the text does not already name, in the queue's order, on its own line, with a blank line after each five, where cc-slack starts its next message since Slack draws five a message. A card asked before he went away stays behind the count, by his words on a catch-up that drew every card: "including all tehse cards each time ^^ is not helpful and is very obtrusive". The say hook counts only the text it was given, so no word limit counts these."""
     try:
         found = view.cards(name)
     except view.CardsError as error:
-        raise DriveError(f"nothing posted: his catch-up draws every open card of his, which cc-slack could not list: {error}") from None
-    named = {match[2] for match in refs.REF.finditer(text) if match[1] == "card"}
-    queued = [item for item in view.build(state.load(name), found, state.now())["queue"] if "card" in item and item["card"]["waits"] not in named]
+        raise DriveError(f"nothing posted: his catch-up counts every open card of his, which cc-slack could not list: {error}") from None
+    queued = [item for item in view.build(data, found, state.now())["queue"] if "card" in item]
     if not queued:
         return ""
     counts = [f"{count} {word}{'' if count == 1 else 's'}" for kind, word in CARD_KINDS if (count := sum(item["kind"] == kind for item in queued))]
-    lines = [f"{{card:{item['card']['waits']}}}" for item in queued]
+    count = f"\n\n*<{dashboard.link(name)}#/|Your open cards: {', '.join(counts)}>*"
+    named = {match[2] for match in refs.REF.finditer(text) if match[1] == "card"}
+    since = state.parse_time(data["catch_up"]["since"])
+    lines = [f"{{card:{item['card']['waits']}}}" for item in queued if state.parse_time(item["since"]) > since and item["card"]["waits"] not in named]
+    if not lines:
+        return count
     messages = ["\n".join(lines[start : start + CARDS_A_MESSAGE]) for start in range(0, len(lines), CARDS_A_MESSAGE)]
-    return f"\n\n*Your open cards: {', '.join(counts)}*\n" + "\n\n".join(messages)
+    return f"{count}, {len(lines)} new since you were last heard:\n" + "\n\n".join(messages)
 
 
 def dry(name: str, post: dict) -> str:
