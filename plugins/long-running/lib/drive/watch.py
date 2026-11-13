@@ -2414,7 +2414,6 @@ def main(drive_name: str | None = None, project: str | None = None) -> int:
     try:
         os.environ.update(launchd.session_env())
         while holder(state.monitor_pid_path(name)):
-            state.let_go_install()
             time.sleep(POLL_SECONDS)
         watching(Watcher(name, offset=state.watch_cursor(name, project), ticked_at=state.now(), project=project, made=state.take_held_lines(name, project)))
     finally:
@@ -2423,9 +2422,8 @@ def main(drive_name: str | None = None, project: str | None = None) -> int:
 
 
 def watching(watcher: Watcher) -> None:
-    """Hand each pass's lines to whoever acts on them, first any a watch before this one held for it, and end before a pass once a newer long-running is installed, or the moment a pass finds the drive saved by one, so its launch agent starts the watch on that install and no pass runs older code on a drive a newer install saved; a crash wakes the coordinator session it posts to first. Every line made and not yet posted is held for the watch after this one, which hands it on before its first pass, so the watch holds no install's lock: a pass that reads GitHub and each Sprite for minutes, or waits on a drive process it started, never holds a newer install's verbs."""
+    """Hand each pass's lines to whoever acts on them, first any a watch before this one held for it, and end before a pass once a newer long-running is installed, or the moment a pass finds the drive saved by one, so its launch agent starts the watch on that install and no pass runs older code on a drive a newer install saved; a crash wakes the coordinator session it posts to first. Every line made and not yet posted is held for the watch after this one, which hands it on before its first pass."""
     state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
-    state.let_go_install()
     try:
         for _ in rests(watcher.name):
             if upgraded():

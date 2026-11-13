@@ -616,7 +616,7 @@ def test_a_readers_return_briefs_the_builder_waiting_on_it_so_its_free_line_laun
     assert ("Serves: his order\n" in (rewritten := Path(jobs["j2"]["brief"]).read_text()), "Plan: the run page section\n" in rewritten) == (True, True)
 
 
-def test_a_launch_holds_no_install_lock_while_its_launcher_runs_and_hands_its_receipt_to_the_newer_install_that_saved_meanwhile(
+def test_a_launch_hands_its_receipt_to_the_newer_install_that_saved_meanwhile(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     cloned(tmp_path, demo)
@@ -625,11 +625,10 @@ def test_a_launch_holds_no_install_lock_while_its_launcher_runs_and_hands_its_re
     run("job", "add", "builder", "--order", "o1", "--goal", "ship it")
     monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
     fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
-    held, handed = [], []
+    handed = []
     newest, version = tmp_path / "newest" / "bin" / "drive", state.VERSION
 
     def launch(*args: object) -> dict:
-        held.append(dict(state.HELD_INSTALL))
         monkeypatch.setattr(state, "VERSION", "0.0.1")
         return {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH}
 
@@ -646,10 +645,9 @@ def test_a_launch_holds_no_install_lock_while_its_launcher_runs_and_hands_its_re
     monkeypatch.setattr(orca, "launch", launch)
     monkeypatch.setattr(cli.install, "upgraded", lambda: newest)
     monkeypatch.setattr(cli.install.subprocess, "run", newer)
-    state.hold_install()
     assert run("job", "launch", "j1", "brief.md") == (0, f"j1 started on Sprite workspace-1 as dispatch {DISPATCH}")
     receipt = state.drive_dir(demo) / "jobs" / f"j1.{DISPATCH}.json"
-    assert (held, handed, receipt.exists()) == ([{}], [["job", "started", "j1", str(receipt), "--drive", demo, "--json"]], False)
+    assert (handed, receipt.exists()) == ([["job", "started", "j1", str(receipt), "--drive", demo, "--json"]], False)
     job = state.load(demo)["jobs"]["j1"]
     assert (job["where"], job["dispatch"], job["run"], job["state"]) == ("remote", DISPATCH, RUN, "running")
 
@@ -1654,6 +1652,40 @@ def test_a_message_to_a_live_sprite_lane_no_recorded_start_put_the_tools_on_plac
     assert state.load(remote)["jobs"]["j1"]["tools_on"] == "pool-1895"
 
 
+def test_a_resume_to_a_live_worker_hands_the_text_it_took_to_the_newer_install_that_saved_meanwhile_so_it_goes_out_once(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(state="waiting", ask="q-1")
+    sent, handed = [], []
+    newest, version = tmp_path / "newest" / "bin" / "drive", state.VERSION
+
+    def took(verb: str, *args: object) -> dict:
+        sent.append(verb)
+        if verb == "reply":
+            monkeypatch.setattr(state, "VERSION", "0.0.1")
+        return {}
+
+    real = subprocess.run
+
+    def newer(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if argv[0] != str(newest):
+            return real(argv, **kwargs)
+        handed.append(argv[1:])
+        monkeypatch.setattr(state, "VERSION", version)
+        code = cli.main(argv[1:])
+        return subprocess.CompletedProcess(argv, code, capsys.readouterr().out, "")
+
+    monkeypatch.setattr(orca, "call", took)
+    monkeypatch.setattr(cli.install, "upgraded", lambda: newest)
+    monkeypatch.setattr(cli.install.subprocess, "run", newer)
+    assert run("job", "resume", "j1", "PR #7 merged") == (0, "j1: answered its question q-1")
+    [argv] = handed
+    assert (argv[:3], argv[4:], Path(argv[3]).exists(), sent.count("reply")) == (["job", "sent", "j1"], ["--drive", remote, "--json"], False, 1)
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["ask"], job["state"], job["undelivered"]) == (None, "running", [])
+
+
 def test_a_live_sprite_lane_whose_sprite_refuses_the_tools_still_gets_its_message_and_the_next_one_places_them_again(
     run: Run, remote: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2423,7 +2455,7 @@ def test_end_frees_a_waiting_lane_and_the_job_keeps_waiting_with_its_waits_prs_a
     assert state.load(remote)["jobs"]["j2"]["waits"] == ["j1"]
 
 
-def test_an_end_holds_no_install_lock_while_it_saves_and_releases_and_hands_its_end_to_the_newer_install_that_saved_meanwhile(
+def test_an_end_hands_its_end_to_the_newer_install_that_saved_meanwhile(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], saved_on_github: dict[str, list[str]]
 ) -> None:
     cloned(tmp_path, remote)
@@ -2432,11 +2464,10 @@ def test_an_end_holds_no_install_lock_while_it_saves_and_releases_and_hands_its_
     run("job", "add", "builder", "--order", "o1", "--goal", "restack onto the fix", "--remote")
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(state="waiting", said="WAITING CI", ask="a question", workspace="pool-one")
-    held, handed = [], []
+    handed = []
     newest, version = tmp_path / "newest" / "bin" / "drive", state.VERSION
 
     def saved(drive: str, job_id: str, job: dict, root: Path) -> str:
-        held.append(dict(state.HELD_INSTALL))
         monkeypatch.setattr(state, "VERSION", "0.0.1")
         return RESTACK
 
@@ -2454,10 +2485,9 @@ def test_an_end_holds_no_install_lock_while_it_saves_and_releases_and_hands_its_
     monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: "destroyed pool-one dispatch ctx_lane0001")
     monkeypatch.setattr(cli.install, "upgraded", lambda: newest)
     monkeypatch.setattr(cli.install.subprocess, "run", newer)
-    state.hold_install()
     assert run("job", "end", "j1")[1].endswith("j1's lane ended; j1 stays waiting, and what its Sprite held on no remote is saved on GitHub as saved/demo-j1/restack at 1a2b3c4d5e")
     [argv] = handed
-    assert (held, argv[:3], argv[4:], Path(argv[3]).exists()) == ([{}], ["job", "ended", "j1"], ["--drive", remote, "--json"], False)
+    assert (argv[:3], argv[4:], Path(argv[3]).exists()) == (["job", "ended", "j1"], ["--drive", remote, "--json"], False)
     job = state.load(remote)["jobs"]["j1"]
     assert (job["ask"], job["deaths"][-1]["saved"], job["deaths"][-1]["why"]) == (None, RESTACK, "ended by drive job end")
 

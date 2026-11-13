@@ -312,8 +312,6 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
     elif state.merges_untapped(keys[0]):
         outcome = f"would merge it with {' '.join(MERGE)} --admin, then install each plugin it changes" if dry_run else merged(name, keys[0], ["--admin"])
     else:
-        if state.queued_by_lander(keys[0]):
-            state.let_go_install()
         try:
             below = uncleared_below(data, keys)
             misfiled = "; ".join(why for key in keys if (why := unexempt(data, key)))
@@ -367,7 +365,7 @@ def said(output: str) -> str:
 
 
 def enqueued(name: str, clone: Path, keys: list[str], dry_run: bool = False, flake: bool = False) -> str:
-    """Queue the unit through stack-enqueue as the head of its repository's default branch holds it, run from a fresh() worktree of the coordinator checkout's clone and never from that checkout, with --flake when a PR of it requeues() at the head Trunk ejected it at: --check first, whose BLOCKED lines end the landing, unless each gap is an approval on an older head, which stack-enqueue names only once ai-review finished on the head, or a wait to retarget onto the default branch once the PR under it lands; a dry run stops there, saying what it would queue; then forge-pr-reviewer is asked to review each head approved only on an older one, once, and --watch waits until Trunk holds every PR of it or one needs a fix rather than a wait, unless halt() ends it first, which dequeues each PR of it; what came of it. The lander holds no install's lock from before it reads the PRs below the unit, through the fresh worktree, which can take minutes on the monorepo, --check, which reads GitHub for every PR of the unit, and --watch, which may wait an hour and a half on Trunk; a drive a newer install saved meanwhile ends the landing unlanded, for the next landing on that install."""
+    """Queue the unit through stack-enqueue as the head of its repository's default branch holds it, run from a fresh() worktree of the coordinator checkout's clone and never from that checkout, with --flake when a PR of it requeues() at the head Trunk ejected it at: --check first, whose BLOCKED lines end the landing, unless each gap is an approval on an older head, which stack-enqueue names only once ai-review finished on the head, or a wait to retarget onto the default branch once the PR under it lands; a dry run stops there, saying what it would queue; then forge-pr-reviewer is asked to review each head approved only on an older one, once, and --watch waits until Trunk holds every PR of it or one needs a fix rather than a wait, unless halt() ends it first, which dequeues each PR of it; what came of it. A drive a newer install saved while it read the PRs below the unit, made the fresh worktree, ran --check or waited on Trunk in --watch ends the landing unlanded, for the next landing on that install."""
     repo = github.repo_of(keys[0])
     numbers = [key.split("#")[1] for key in keys]
     flags = ["--flake"] if flake else []
@@ -439,7 +437,7 @@ def ask_review(name: str, repo: str, heads: dict[str, str]) -> str | None:
 
 
 def merged(name: str, key: str, flags: list[str]) -> str:
-    """Merge a PR with gh pr merge and the flags given, --admin past its checks for a yasyf/* one by his rule for his own repositories and --match-head-commit for any other, which GitHub merges only once its repository's rules pass, with gh itself since ccx's GitHub gateway refuses a merge, record its merge commit on its row, then install from it each plugin of this Mac it changes, having let go of its install's lock, which an install of long-running would wait on; what came of it. GitHub refuses a merge whose base moved while it merged, which another merge into that base did, so the lander merges again on the new base, and any other refusal is not landed."""
+    """Merge a PR with gh pr merge and the flags given, --admin past its checks for a yasyf/* one by his rule for his own repositories and --match-head-commit for any other, which GitHub merges only once its repository's rules pass, with gh itself since ccx's GitHub gateway refuses a merge, record its merge commit on its row, then install from it each plugin of this Mac it changes; what came of it. GitHub refuses a merge whose base moved while it merged, which another merge into that base did, so the lander merges again on the new base, and any other refusal is not landed."""
     repo, number = key.split("#")
     command = ["gh", "pr", "merge", number, "-R", repo, "--squash", *flags]
     while (done := subprocess.run(command, capture_output=True, text=True)).returncode and BASE_MOVED in done.stderr:
@@ -453,7 +451,6 @@ def merged(name: str, key: str, flags: list[str]) -> str:
         return f"merged, but its merge commit did not read, so nothing was installed: {cut(str(error), SAID_CHARS)}"
     with state.edit(name) as data:
         data["prs"][key]["merged_sha"] = sha
-    state.let_go_install()
     plugins = install.touched(repo, files)
     if not plugins:
         return f"merged at {sha[:12]}; it changes no plugin installed on this Mac"

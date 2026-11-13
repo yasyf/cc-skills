@@ -2036,20 +2036,40 @@ def messaged(args: argparse.Namespace, name: str, job: dict, held: list[dict]) -
             hows.append(orca.answer(name, job, kept["words"], kept["request"]))
         except orca.OrcaError as error:
             return unsent(args, job, held[index:], error)
-        with state.edit(name) as data:
-            fresh = data["jobs"][args.id]
-            if fresh.get("ask") == job.get("ask"):
-                fresh.update(ask=None, state="running")
-            fresh.update(
-                updated=state.stamp(),
-                undelivered=[left for left in fresh["undelivered"] if left.get("request") != kept["request"] and (left.get("request") or state.parse_time(left["at"]) > state.parse_time(kept["at"]))],
-            )
-            if not unfit:
-                fresh["tools_on"] = workspace
-            superseded.hear(data, args.id, kept["words"])
+        sent_kept(name, args.id, kept | {"ask": job.get("ask")} | ({} if unfit else {"tools_on": workspace}))
         job = {**job, "ask": None}
     how = "; ".join(hows) + (f"; its Sprite still lacks the drive forwarder: {unfit}" if unfit else "")
     return emit(args, f"{args.id}: {how}", {"id": args.id, "how": how})
+
+
+def sent_kept(name: str, job_id: str, sent: dict) -> dict:
+    """Keep on the job a held text its live worker took: dropped from the job with each text held before it, its question closed when the text answered the one it still asks, each answer of his the text carries marked sent, and the tools on the Sprite tools_on names; when a newer install saved the drive while Orca took the text, the newest install's `drive job sent` keeps it, so the text is never sent twice."""
+    try:
+        with state.edit(name) as data:
+            fresh = data["jobs"][job_id]
+            if fresh.get("ask") == sent["ask"]:
+                fresh.update(ask=None, state="running")
+            fresh.update(
+                updated=state.stamp(),
+                undelivered=[left for left in fresh["undelivered"] if left.get("request") != sent["request"] and (left.get("request") or state.parse_time(left["at"]) > state.parse_time(sent["at"]))],
+            )
+            if "tools_on" in sent:
+                fresh["tools_on"] = sent["tools_on"]
+            superseded.hear(data, job_id, sent["words"])
+        return fresh
+    except state.NewerDrive:
+        if not (newer := install.upgraded()):
+            raise
+    receipt = state.drive_dir(name) / "jobs" / f"{job_id}.sent.{sent['request']}.json"
+    return json.loads(install.handed(newer, name, ["job", "sent", job_id], receipt, sent, f"{job_id}: its worker took the text", state.DRIVE_LOCK_SECONDS))
+
+
+def job_sent(args: argparse.Namespace) -> int:
+    """Keep a held text an older install's resume saw its live worker take while this install saved the drive, which sent_kept hands here."""
+    name, receipt = state.resolve(args.drive), Path(args.receipt)
+    job = sent_kept(name, args.id, json.loads(receipt.read_text()))
+    receipt.unlink()
+    return emit(args, f"{args.id}: the text its worker took is kept", job)
 
 
 def unsent(args: argparse.Namespace, job: dict, held: list[dict], error: orca.OrcaError) -> int:
@@ -2140,8 +2160,7 @@ def job_started(args: argparse.Namespace) -> int:
 
 
 def launch_attempt(name: str, job: dict, attempt: str, kept: Path, brief: str, root: Path, workspace: str | None, session: str | None) -> dict:
-    """Launch one attempt of a job's lane on a Run the drive's own terminal makes, since Orca binds a Run only to the terminal that made it: on a fresh Sprite, or on the workspace's own Sprite in the checkout it holds, there resuming the Claude session given; a try whose worker-start sent nothing reuses the Sprite it prepared, a Run Orca cannot make starts nothing, and the launcher copies this brief onto it. It holds no install's lock from here, so a newer install's first save never waits out the launcher, and record_start hands the receipt to that install when it saved first. A fresh Sprite that refuses the tools a worker needs is destroyed by the launcher, and the attempt launches once more on another; Unfit when that one refuses them too, or when the workspace's own Sprite does."""
-    state.let_go_install()
+    """Launch one attempt of a job's lane on a Run the drive's own terminal makes, since Orca binds a Run only to the terminal that made it: on a fresh Sprite, or on the workspace's own Sprite in the checkout it holds, there resuming the Claude session given; a try whose worker-start sent nothing reuses the Sprite it prepared, a Run Orca cannot make starts nothing, and the launcher copies this brief onto it. When a newer install saved the drive while the launcher ran, record_start hands the receipt to that install. A fresh Sprite that refuses the tools a worker needs is destroyed by the launcher, and the attempt launches once more on another; Unfit when that one refuses them too, or when the workspace's own Sprite does."""
     kept.write_text(brief)
     try:
         run = orca.new_run(name, f"drive {name} {attempt}: {job['goal']}")
@@ -2376,7 +2395,6 @@ def job_end(args: argparse.Namespace) -> int:
     if not (fresh or state.on_mac(job)):
         orca.keep_logs(name, args.id, job, job["dispatch"])
     saved = None
-    state.let_go_install()
     if job["state"] not in state.FINISHED_JOB_STATES:
         try:
             saved = orca.save(name, args.id, job, root)
@@ -2395,7 +2413,7 @@ def job_end(args: argparse.Namespace) -> int:
 
 
 def end_kept(name: str, job_id: str, result: dict) -> dict:
-    """Keep on the job what its lane's end came to once it saved, reclaimed and released holding no install's lock: the branches saved and its ask cleared, or, when the save failed, the end mark taken back, so the lane reads as it did; when a newer install saved the drive meanwhile, the newest install's `drive job ended` keeps it, so the end is never left half kept."""
+    """Keep on the job what its lane's end came to once it saved, reclaimed and released: the branches saved and its ask cleared, or, when the save failed, the end mark taken back, so the lane reads as it did; when a newer install saved the drive meanwhile, the newest install's `drive job ended` keeps it, so the end is never left half kept."""
     try:
         with state.edit(name) as data:
             ended = data["jobs"][job_id]
@@ -3524,12 +3542,11 @@ def page_add(args: argparse.Namespace) -> int:
 
 
 def break_glass(args: argparse.Namespace) -> int:
-    """Run one command under the forge/break-glass grant for a stack, started in the job's or order's name with its reason, holding only the stack's env's admin credentials, minted on this Mac's machine profile to end no later than the grant, and stopped with every process left in its group by the grant's end or when drive is stopped: its output and exit status are the verb's, and nobody signs in. It saves nothing to the drive, so it lets go of its install's lock once it has read it, and a newer install's first save never waits out its grant."""
+    """Run one command under the forge/break-glass grant for a stack, started in the job's or order's name with its reason, holding only the stack's env's admin credentials, minted on this Mac's machine profile to end no later than the grant, and stopped with every process left in its group by the grant's end or when drive is stopped: its output and exit status are the verb's, and nobody signs in. It saves nothing to the drive."""
     name = state.resolve(args.drive)
     data = state.load(name)
     records, label = (data["jobs"], "job") if JOB_ID.fullmatch(args.id) else (data["orders"], "order")
     find(records, args.id, label)
-    state.let_go_install()
     try:
         with reads.break_glass(args.stack, args.reason, f"{name} {args.id}", Path(data["roles"]["coordinator"]["cwd"])) as granted:
             print(f"break-glass grant {granted.link} passed; running {args.command[0]} {reads.held(granted)}", file=sys.stderr, flush=True)
@@ -4241,6 +4258,10 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("id", help="the job")
     verb.add_argument("receipt", help="the receipt file the end kept under the drive's jobs folder")
     verb.set_defaults(run=job_ended)
+    verb = job.add_parser("sent", parents=both, help="keep a text an older install's job resume saw its live worker take, from the receipt it kept; that resume runs it")
+    verb.add_argument("id", help="the job")
+    verb.add_argument("receipt", help="the receipt file the resume kept under the drive's jobs folder")
+    verb.set_defaults(run=job_sent)
     verb = job.add_parser(
         "prove",
         parents=both,
@@ -4691,10 +4712,8 @@ def parsed(argv: list[str] | None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run one verb holding its install's lock, so a newer install's first save waits for it to end, in the newest installed drive when this process started from an older install, such as a launch's bind prefix, unless the drive process that started it holds its own install's lock and waits on it as part of its verb. A Sprite lane's verb, which reads.lane_drive marks as a SPRITE_LANE run as its job's own lane, runs only when reads.lane_refusal finds nothing in what it parsed writing to another job or acting on another drive, a bare `status` reading the lane's own job, and nothing it starts carries that mark."""
-    if argv is None and state.held_by_parent():
-        state.hold_install()
-    elif argv is None:
+    """Run one verb in the newest installed drive when this process started from an older install, such as a launch's bind prefix. A Sprite lane's verb, which reads.lane_drive marks as a SPRITE_LANE run as its job's own lane, runs only when reads.lane_refusal finds nothing in what it parsed writing to another job or acting on another drive, a bare `status` reading the lane's own job, and nothing it starts carries that mark."""
+    if argv is None:
         install.reopen(sys.argv[1:])
     args = parsed(argv)
     if os.environ.pop(reads.SPRITE_LANE, None):

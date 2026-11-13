@@ -3677,15 +3677,14 @@ def test_a_pr_set_to_serve_an_order_its_job_carries_is_judged_against_that_order
     assert state.load("demo")["prs"][with_pr]["checked"]["orders"] == ["o2"]
 
 
-def test_a_check_holds_no_install_lock_while_it_judges_and_hands_its_outcome_to_the_newer_install_that_saved_meanwhile(
+def test_a_check_hands_its_outcome_to_the_newer_install_that_saved_meanwhile(
     run: Run, with_pr: str, on_github: dict, judge: Judge, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     assert run("pr", "set", PR, "--serves", "o1", "--design", "none")[0] == 0
-    held, handed = [], []
+    handed = []
     newest, version = tmp_path / "newest" / "bin" / "drive", state.VERSION
 
     def judged(name: str, said: str, changes: dict) -> list[dict]:
-        held.append(dict(state.HELD_INSTALL))
         monkeypatch.setattr(state, "VERSION", "0.0.1")
         return []
 
@@ -3702,10 +3701,9 @@ def test_a_check_holds_no_install_lock_while_it_judges_and_hands_its_outcome_to_
     monkeypatch.setattr(served, "judged", judged)
     monkeypatch.setattr(served.install, "upgraded", lambda: newest)
     monkeypatch.setattr(served.install.subprocess, "run", newer)
-    state.hold_install()
     assert cli.main(["pr", "check", PR, "--drive", "demo"]) == 0
     [argv] = handed
-    assert (held, argv[:3], argv[4:], Path(argv[3]).exists()) == ([{}], ["pr", "checked", state.pr_url(with_pr)], ["--drive", "demo", "--json"], False)
+    assert (argv[:3], argv[4:], Path(argv[3]).exists()) == (["pr", "checked", state.pr_url(with_pr)], ["--drive", "demo", "--json"], False)
     pr = state.load("demo")["prs"][with_pr]
     assert (pr["checked"]["orders"], pr["checker"]["outcome"].startswith(served.CHECKED)) == (["o1"], True)
     assert capsys.readouterr().out.startswith(f"{with_pr}: {served.CHECKED}")

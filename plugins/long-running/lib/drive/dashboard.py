@@ -379,16 +379,14 @@ class Board:
             self.changed.notify_all()
 
     def follow(self) -> Path:
-        """Rebuild on a change to the drive's stored state, at most once every REBUILD_GAP_SECONDS, so a burst of writes, as a busy drive commits about twice a second, costs one rebuild and a change inside the gap shows at the first wake after it, holding this install's lock while it does so a newer install's first save waits for the rebuild, until a newer long-running is installed; then return that install's drive, still holding the lock, so this code never reads a drive it saved."""
+        """Rebuild on a change to the drive's stored state, at most once every REBUILD_GAP_SECONDS, so a burst of writes, as a busy drive commits about twice a second, costs one rebuild and a change inside the gap shows at the first wake after it, until a newer long-running is installed; then return that install's drive, so this code never reads a drive it saved."""
         built, due = None, 0.0
         for _ in changes(self.name):
-            state.hold_install()
             if newer := install.upgraded():
                 return newer
             if time.monotonic() >= due and (stamp := self.stamp()) != built:
                 built, due = stamp, time.monotonic() + REBUILD_GAP_SECONDS
                 self.rebuild()
-            state.let_go_install()
 
     def after(self, version: int) -> tuple[int, bytes]:
         """The summary once it is newer than version, waiting for the next change when it is not."""
