@@ -85,7 +85,7 @@ def overloaded(data: dict, text: str) -> str | None:
     where, why = place.verdict(place.busy(), place.limit(), {})
     if where == "local":
         return None
-    return (
+    return agents.Unjudged(
         f"refused: {why}, so {match[1]} starts on a Sprite: drive job launch {match[1]} <brief>. A brief declaring a step only this Mac runs,"
         f" on {place.MAC_LINES}, starts here at any load"
     )
@@ -101,14 +101,14 @@ def crowded(name: str, data: dict, text: str) -> str | None:
     elif not (why := place.crowded(data, job_id, moment)):
         return None
     if job_id and not place.mac_step(text):
-        return f"refused: {why}, so {job_id} starts on a Sprite at once, since its brief declares no step only this Mac runs on {place.MAC_LINES}: write this brief to a file and run drive job launch {job_id} <file>"
+        return agents.Unjudged(f"refused: {why}, so {job_id} starts on a Sprite at once, since its brief declares no step only this Mac runs on {place.MAC_LINES}: write this brief to a file and run drive job launch {job_id} <file>")
     if job_id in places:
-        return f"refused: {why}{line(data)}"
+        return agents.Unjudged(f"refused: {why}{line(data)}")
     if job_id is None or not place.queueable(data, job_id):
-        return f"refused: {why}, so this one waits: start it once a slot opens here with no builder waiting its turn{line(data)}"
+        return agents.Unjudged(f"refused: {why}, so this one waits: start it once a slot opens here with no builder waiting its turn{line(data)}")
     with state.edit(name) as data:
         place.queue(data["jobs"][job_id], moment)
-    return f"refused: {why}, so {job_id} waits its turn for a builder slot on this Mac, {place.positions(data)[job_id]}{line(data)}"
+    return agents.Unjudged(f"refused: {why}, so {job_id} waits its turn for a builder slot on this Mac, {place.positions(data)[job_id]}{line(data)}")
 
 
 def line(data: dict) -> str:
