@@ -5,7 +5,9 @@ import math
 import os
 import re
 import subprocess
+import sys
 import time
+import traceback
 import uuid
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import AbstractContextManager, contextmanager
@@ -126,6 +128,7 @@ LOCK_POLL_SECONDS = 0.1
 HOLDER_CHARS = 200
 HOLDERS_SECONDS = 5
 DRIVE_LOCK_SECONDS = 300
+SLOW_HOLD_SECONDS = 2
 AFTER_SAVE: dict[str, list[Callable[[], list[str]]]] = {}
 VERSION = json.loads((Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json").read_text())["version"]
 
@@ -1123,11 +1126,24 @@ def locked(name: str) -> Iterator[None]:
     """Hold the drive's lock for one load and save, waiting up to DRIVE_LOCK_SECONDS for the process holding it, then refusing with who that is, so a process stuck under it fails this verb instead of holding every writer of the drive behind it; a process's first hold moves the reports an older install kept into their jobs' histories."""
     path = drive_dir(name) / ".lock"
     path.parent.mkdir(parents=True, exist_ok=True)
+    asked = time.monotonic()
     with open(path, "a") as handle:
         if not taken(handle, DRIVE_LOCK_SECONDS):
             raise DriveError(f"{name}'s drive lock is still held after {DRIVE_LOCK_SECONDS}s, so this changed nothing: {holders(path)}")
-        moved_reports(name)
-        yield
+        got = time.monotonic()
+        try:
+            moved_reports(name)
+            yield
+        finally:
+            if (held := time.monotonic() - got) >= SLOW_HOLD_SECONDS:
+                kept_hold(name, held, got - asked)
+
+
+def kept_hold(name: str, held: float, waited: float) -> None:
+    """Log a hold of the drive's lock past SLOW_HOLD_SECONDS to locks.log: how long, how long it waited first, the drive code that held it and the verb, so the verb holding every writer behind it is named."""
+    holder = next(frame for frame in reversed(traceback.extract_stack()[:-1]) if Path(frame.filename).name not in ("state.py", "contextlib.py"))
+    with open(drive_dir(name) / "locks.log", "a") as log:
+        log.write(f"{stamp()} pid {os.getpid()} held {held:.1f}s after waiting {waited:.1f}s in {holder.name} ({Path(holder.filename).name}:{holder.lineno}): drive {' '.join(sys.argv[1:])[:HOLDER_CHARS]}\n")
 
 
 def binding(name: str) -> AbstractContextManager[None]:
