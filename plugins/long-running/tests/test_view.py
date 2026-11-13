@@ -82,10 +82,10 @@ def question(title: str, minutes: int, waits: str | None = None) -> dict:
     return {"question": title, "options": ["Yes", "No"], "recommended": "Yes", "asked": at(minutes), "url": f"{TEAM}archives/D123/p{minutes}", "card": drawn}
 
 
-def test_queue_puts_questions_then_ready_taps_then_late_promises() -> None:
+def test_queue_ranks_late_promises_then_what_lands_most_then_the_oldest_wait() -> None:
     data = drive_of(
         {
-            "o1": order("ship the page", ["j1"]),
+            "o1": order("ship the page", ["j1"], project="Drive", workstream="Dashboard"),
             "o2": order("promised earlier", ["j2"], due=at(-90)),
             "o3": order("promised later", ["j3"], due=at(-10)),
             "o4": order("not due yet", ["j4"], due=at(30)),
@@ -107,22 +107,31 @@ def test_queue_puts_questions_then_ready_taps_then_late_promises() -> None:
     card = {"prs": ["https://github.com/yasyf/cc-skills/pull/3"], "asked": at(-50), "url": f"{TEAM}archives/D123/p3", "card": drawn}
     queue = view.build(data, found([question("Release now?", -20)], [card]), T0)["queue"]
     assert [(item["kind"], item["title"]) for item in queue] == [
-        ("question", "Release now?"),
-        ("tap", "change 3"),
-        ("tap", "change 1"),
-        ("tap", "change 7"),
         ("late", "promised earlier"),
         ("late", "promised later"),
+        ("tap", "change 3"),
+        ("tap", "change 7"),
+        ("tap", "change 1"),
+        ("question", "Release now?"),
     ]
-    assert queue[0]["detail"] == "Recommended: Yes"
-    assert (queue[0]["card"]["body"], queue[0]["answer"]) == ("Why it matters", f"{TEAM}archives/D123/p-20")
-    assert queue[1]["url"] == card["url"]
-    assert (queue[1]["card"], queue[1]["answer"]) == (drawn, card["url"])
-    assert "answer" not in queue[2]
-    assert queue[1]["links"] == [{"label": "Pull request", "url": "https://github.com/yasyf/cc-skills/pull/3"}]
-    assert (queue[2]["url"], queue[2]["since"], queue[2]["links"]) == ("https://github.com/yasyf/cc-skills/pull/1", None, [])
+    assert queue[5]["detail"] == "Recommended: Yes"
+    assert (queue[5]["card"]["body"], queue[5]["answer"]) == ("Why it matters", f"{TEAM}archives/D123/p-20")
+    assert queue[2]["url"] == card["url"]
+    assert (queue[2]["card"], queue[2]["answer"]) == (drawn, card["url"])
+    assert "answer" not in queue[4]
+    assert queue[2]["links"] == [{"label": "Pull request", "url": "https://github.com/yasyf/cc-skills/pull/3"}]
+    assert (queue[4]["url"], queue[4]["since"], queue[4]["links"]) == ("https://github.com/yasyf/cc-skills/pull/1", None, [])
     assert queue[3]["detail"] == "green, approved; changed since your tap: now deletes the old page; card, owed by him: green, waits on his Approve; no Slack card yet"
-    assert queue[4]["url"] == f"{TEAM}archives/D123/p1794200000000100"
+    assert queue[0]["url"] == f"{TEAM}archives/D123/p1794200000000100"
+    assert [item["rank_why"] for item in queue] == [
+        f"past due since {when(at(-90))}",
+        f"past due since {when(at(-10))}",
+        f"lands 1 PR; waiting since {when(at(-50))}",
+        f"lands 1 PR; waiting since {when(at(-7))}",
+        f"lands 1 PR; waiting since {when(at(-1))}",
+        f"waiting since {when(at(-20))}",
+    ]
+    assert [(item["tasks"], item["project"], item["workstream"]) for item in queue[1:3]] == [(["o3"], None, None), (["o1"], "Drive", "Dashboard")]
 
 
 @pytest.mark.parametrize(
@@ -658,7 +667,7 @@ def test_a_card_posted_inside_a_thread_reads_that_thread_on_the_queue_and_in_rev
     tap = {"prs": ["https://github.com/yasyf/cc-skills/pull/1"], "asked": at(-50), "url": f"{TEAM}archives/D123/p1794200000000100?thread_ts=1794100000.000200&cid=D123", "card": drawn}
     asked = {**question("Release now?", -20), "url": f"{TEAM}archives/D123/p1794300000000300"}
     model = view.board(data, found([asked], [tap]), "live", [], T0, set())
-    assert [(item["kind"], item["thread"]) for item in model["queue"]] == [("question", "1794300000.000300"), ("tap", "1794100000.000200")]
+    assert [(item["kind"], item["thread"]) for item in model["queue"]] == [("tap", "1794100000.000200"), ("question", "1794300000.000300")]
     assert model["review"][0]["thread"] == "1794100000.000200"
 
 

@@ -818,7 +818,7 @@ def test_his_catch_up_closes_with_every_open_card_waiting_on_him_five_a_message_
     report(monkeypatch, {"catch_up": "true"})
     title = owe(demo)
     text = "*The run page*\nIts fix is live, and {card:demo:j3-1} picks its lock."
-    drawn = [f"<{card['url']}|{card['question']}>" for card in [*questions[:2], *questions[3:]]] + [f"<{tap['url']}|{tap['card']['title']}>"]
+    drawn = [f"<{tap['url']}|{tap['card']['title']}>"] + [f"<{card['url']}|{card['question']}>" for card in [*questions[:2], *questions[3:]]]
     sent = (
         f"{title}*The run page*\nIts fix is live, and <{questions[2]['url']}|Question 3?> picks its lock."
         "\n\n*Your open cards: 6 questions, 1 PR card*\n" + "\n".join(drawn[:5]) + "\n\n" + "\n".join(drawn[5:])
@@ -826,7 +826,8 @@ def test_his_catch_up_closes_with_every_open_card_waiting_on_him_five_a_message_
     assert talk.say(demo, {"text": text, "record": "660299", "dry_run": True}) == f"DRY his DM root, 0 pictures: {sent}"
     talk.say(demo, {"text": text, "record": "660299"})
     assert posts[-1][-1] == sent
-    assert said(demo)[-1]["text"].endswith("\n[New: approve the run page history?](#/queue/tap/1794300000.000300)")
+    shown = said(demo)[-1]["text"]
+    assert "\n[New: approve the run page history?](#/queue/tap/1794300000.000300)\n" in shown and shown.endswith("\n[Question 7?](#/queue/question/1794300000.000207)")
 
 
 def test_his_catch_up_posts_nothing_while_cc_slack_cannot_list_the_cards_it_closes_with(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
