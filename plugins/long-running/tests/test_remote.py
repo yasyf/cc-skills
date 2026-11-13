@@ -2135,6 +2135,17 @@ def test_a_lanes_drive_job_report_wakes_the_coordinator_with_its_line_as_its_ans
     assert state.load(remote)["jobs"]["j1"]["reads"] == {}
 
 
+def test_a_lane_that_has_said_nothing_reading_another_jobs_report_gets_its_answer_and_wakes_no_one(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    deliver(monkeypatch, [message("question", "DRIVE job report j2051\n{}", id="relay_report")])
+    replies = []
+    monkeypatch.setattr(reads, "answer", lambda question, root, drive, job_id: reads.lane_exit(0, "every return j2051 took"))
+    monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
+    assert state.load(remote)["jobs"]["j1"]["said"] is None
+    assert staged(watch.lane_lines, watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0), T0) == []
+    assert [args for args in replies if args[0] == "reply"] == [("reply", "--id", "relay_report", "--run", RUN, "--body", "drive exited 0\nevery return j2051 took")]
+    assert state.load(remote)["jobs"]["j1"]["reads"] == {}
+
+
 def test_a_report_drive_job_report_took_is_not_taken_again_when_its_lane_sends_it(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
     url = "https://github.com/Forge-AI/monorepo/pull/8"
     report = f"PUSHED {url}\nPR: {url}\nCHANGE: x\n"

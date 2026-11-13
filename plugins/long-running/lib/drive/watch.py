@@ -51,7 +51,7 @@ LINE_BREAKS = re.compile(r"[\r\n]+")
 HANDOFF = timedelta(minutes=2)
 SETTLING = ""
 PR_LINE = re.compile(r"\s*(?:READY|PUSHED|PR:)")
-LANE_REPORT = re.compile(r"DRIVE job report\b")
+LANE_REPORT = re.compile(r"DRIVE job report\b[^\n]*\s-(?:\s|$)")
 UNKEPT_ASK = "keep it with `drive job ask {job}`, which prints the file its ask record names, since no file holds it until then"
 ASK_FIELD = re.compile(r"^ASK:?[ \t]+([/~]\S*)[ \t]*$", re.MULTILINE)
 PAUSED = "The recommended answer to this question is built and paused on your pick: tap it and the work ships; another pick rebuilds it first."
