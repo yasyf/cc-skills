@@ -472,6 +472,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str, terminal: str
         "launched": {},
         "closed_from_cards": True,
         "designs_cited": True,
+        "one_question_per_file": True,
     }
 
 
@@ -754,6 +755,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     if not data.get("closed_from_cards"):
         finish_asked_readers(name, data)
         close_from_cards(name, data)
+    if not data.get("one_question_per_file"):
+        one_question_per_file(data)
     if not data.get("designs_cited"):
         cite_returned_designs(name, data)
     if unkept := any("threads" not in order for order in data["orders"].values()):
@@ -816,6 +819,20 @@ def close_from_cards(name: str, data: dict) -> None:
             answer = (view.closed_card(found, drawn) or {}).get("answer") or {}
             question["closed"] = new_close("withdrawn" if answer.get("withdrawn") else "answered", answer.get("label"), None, at=answer.get("at") or job["updated"])
     data["closed_from_cards"] = True
+
+
+def one_question_per_file(data: dict) -> None:
+    """Keep each job one question per ASK file, the one `drive job ask` now keeps there, since an older install appended a question on each ask of the same words: a question that ended or is on his card over one never drawn or refused, the newest among equals, and no refusal on one that ended, which its card follows instead; marked so this runs once."""
+    for job in data["jobs"].values():
+        kept: dict[Path, dict] = {}
+        for question in job["questions"]:
+            if question["closed"]:
+                question["refused"] = None
+            if question["file"] and ((held := kept.get(file := Path(question["file"]).resolve())) is None or bool(question["closed"] or question["card"]) >= bool(held["closed"] or held["card"])):
+                kept[file] = question
+        chosen = {id(question) for question in kept.values()}
+        job["questions"] = [question for question in job["questions"] if not question["file"] or id(question) in chosen]
+    data["one_question_per_file"] = True
 
 
 def rebuilt_ask(name: str, waits: str) -> Path:
@@ -1447,7 +1464,7 @@ def new_question(
 
 
 def refused_by(question: dict) -> str:
-    """The verb that refused a question: `drive job card`, drawing a card under the waits id the question holds, else `drive job ask`, whose refusal leaves the question holding none."""
+    """The verb that refused a question: `drive job card`, whose draw `drive job ask` and the watch draw through too, drawing a card under the waits id the question holds, else `drive job ask`, whose refusal before any draw leaves the question holding none."""
     return "drive job card" if question["waits"] else "drive job ask"
 
 

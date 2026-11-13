@@ -2659,6 +2659,60 @@ def test_job_card_refuses_a_question_he_answered_under_a_new_waits_id_and_never_
     ]
 
 
+def test_j3668_an_answered_question_asked_again_settles_on_his_answer_whatever_its_shape_keeping_one_question_in_its_file_the_watch_never_redraws(
+    run: Run, asking: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], cards_drawn: list[dict]
+) -> None:
+    monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
+    link = "https://acme.slack.com/archives/D123/p1794300000000100"
+    shown = {"question": "How should?", "options": ["Yes", "No"], "recommended": "Yes", "asked": state.stamp(), "url": link, "card": {"title": "How should?", "waits": "demo:j1-7"}}
+    listed = [shown]
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": list(listed), "pr_cards": [], "closed": []})
+    monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK))
+    first = run("job", "ask", asking, "-")[1].splitlines()[0]
+    run("job", "set", asking, "--card", link)
+    listed.clear()
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"][0]["closed"] = state.new_close("answered", "Rules in the shared wasm", link)
+    monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK))
+    assert run("job", "ask", asking, "-")[1].startswith(f"{first} keeps j1's question settled, no card")
+    monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace("- Map at the start of each file:", "- Ask the reader to retry the map at the start of each file:")))
+    again = run("job", "ask", asking, "-")[1].split(" keeps ")[0]
+    questions = state.load("demo")["jobs"]["j1"]["questions"]
+    assert [(question["file"], question["waits"], question["card"], question["refused"], question["closed"]["how"]) for question in questions] == [
+        (first, "demo:j1-7", link, None, "answered"),
+        (again, None, None, None, "answered"),
+    ]
+    watch.draw_questions(watch.Watcher("demo", offset=state.events_end("demo"), cards=view.NO_CARDS), state.now())
+    assert len(cards_drawn) == 1
+    assert cli.main(["job", "ask", asking, "--drop", first]) == 2
+    assert f"is on his card {link}, ended answered there, so nothing counts it open" in capsys.readouterr().err
+
+
+def test_j3668_a_card_the_watch_cannot_draw_keeps_one_refusal_under_the_waits_id_its_question_holds(
+    run: Run, asking: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cards_drawn: list[dict]
+) -> None:
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    draw = cli.post_ask
+
+    def locked(name: str, job_id: str, file: Path, card: dict) -> str:
+        raise slack.SlackError("dm-status: database is locked")
+
+    monkeypatch.setattr(cli, "post_ask", locked)
+    kept = run("job", "ask", asking, str(block))[1].splitlines()[0]
+    monkeypatch.setattr(cli, "post_ask", draw)
+    Path(kept).write_text(SHORT_ASK.replace("Meanwhile nothing is built on either layout.", "Meanwhile the journal keeps its layout."))
+    watcher = watch.Watcher("demo", offset=state.events_end("demo"), cards=view.NO_CARDS)
+    watch.draw_questions(watcher, state.now())
+    watch.draw_questions(watcher, state.now())
+    refusal = (
+        f"{kept} no longer holds the words drive job ask kept there, so it draws no card: a kept question changes only through"
+        " drive job ask, which checks the new words against every rule, so keep them with drive job ask j1 <file> and draw the file it prints"
+    )
+    assert [(question["waits"], question["card"], question["refused"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [("demo:j1-7", None, refusal)]
+    assert cards_drawn == []
+
+
 def test_job_ask_drop_throws_away_a_near_copy_whose_card_did_not_draw_so_nothing_counts_it(
     run: Run, asking: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

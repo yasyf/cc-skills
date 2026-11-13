@@ -407,7 +407,7 @@ def job_line(job_id: str, job: dict, limit: int = 100) -> str:
 
 
 def question_line(question: dict) -> str:
-    card = f"refused, so no card draws: {cut(question['refused'].removeprefix('refused: '), 120)}" if question["refused"] else question["card_state"]
+    card = f"refused, so no card draws: {cut(question['refused'].removeprefix('refused: '), 120)}" if question["refused"] and not question["closed"] else question["card_state"]
     waits = f" ({question['waits']})" if question["card"] and question["waits"] else ""
     kept = f", kept in {question['file']}" if question["file"] else ""
     replaced = f", asked as part of the question kept in {question['replaced']}" if question["replaced"] else ""

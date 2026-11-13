@@ -278,6 +278,20 @@ def test_a_drive_saved_while_the_card_store_held_whether_a_question_was_open_clo
     assert state.load("demo")["jobs"]["j1"]["questions"][0]["closed"] is None
 
 
+def test_j3668_a_drive_saved_with_two_questions_in_one_ask_file_keeps_the_one_answered_on_his_card_and_drops_its_refusal(state_root: Path) -> None:
+    make("demo")
+    data = state.load("demo")
+    del data["one_question_per_file"]
+    moment = "2026-11-12T09:00:00-08:00"
+    link = "https://acme.slack.com/archives/D1/p1794396500236719"
+    answered = state.new_question("/asks/j1-a.md", "Which host runs the rules?", moment, card=link, refused="refused: it ended answered", closed=state.new_close("answered", "Rules in the shared wasm", link, at=moment))
+    undrawn = state.new_question("/asks/j1-a.md", "Which host runs the rules?", moment)
+    other = state.new_question("/asks/j1-b.md", "Who builds it?", moment)
+    data["jobs"] = {"j1": state.new_job("o1", "builder", "build it", [], moment) | {"state": "waiting", "questions": [answered, undrawn, other]}}
+    state.create(data)
+    assert state.load("demo")["jobs"]["j1"]["questions"] == [answered | {"refused": None}, other]
+
+
 def test_an_answer_saved_before_answers_listed_waiting_jobs_reads_with_no_job_to_mark(state_root: Path) -> None:
     make("demo")
     data = state.load("demo")
