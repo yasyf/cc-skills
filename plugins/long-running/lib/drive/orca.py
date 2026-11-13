@@ -68,12 +68,17 @@ class Unstarted(OrcaError):
     """A launch or a bound command that refused before anything started a worker, so running it again starts it once."""
 
 
+class Unfit(Unstarted):
+    """A Sprite that refused the tools a worker needs, so the job's next worker starts on another."""
+
+
 class LaneEnd(NamedTuple):
     why: str
     branch: str | None
     worktree: str | None
     terminal: str | None = None
     run: str | None = None
+    unfit: bool = False
 
 
 def request(*args: str, seconds: float = CALL_SECONDS) -> dict:
@@ -301,8 +306,8 @@ def brief_of(vm_brief: str) -> str:
     return vm_brief.rsplit(BRIEF_HEADING, 1)[-1].strip()
 
 
-def handoff(brief: str, ended: dict, job: dict, text: str, end: LaneEnd, left: str | None) -> str:
-    """The brief of a lane taking over from one that died or finished: the job's brief, then what that lane left, what its Sprite holds that the new lane continues on, and the message it never read."""
+def handoff(brief: str, ended: dict, job: dict, text: str | None, end: LaneEnd, left: str | None) -> str:
+    """The brief of a lane taking over from one that died or finished: the job's brief, then what that lane left, what its Sprite holds that the new lane continues on, and the message it never read, when a resume brought one."""
     local = state.on_mac(job)
     if end.worktree:
         how, where = "finished", f"You continue the job in its terminal and checkout {ON_MAC if local else 'on the same Sprite'}, as it left them."
@@ -314,13 +319,15 @@ def handoff(brief: str, ended: dict, job: dict, text: str, end: LaneEnd, left: s
             + (f"what it held on no remote was saved for you: {ended['saved']}. Fetch each saved branch and carry its work on. {PUSH_FIRST}" if ended.get("saved") else UNPUSHED)
         )
     held = f"The lane that held this job {how} {place(job)} at {render.when(ended['at'])}: {ended['why']}. {where}"
-    return taking_over(brief, f"a lane that {how}", held, end.branch, job, f"The coordinator's message it never read, which you act on now:\n\n{text.strip()}\n")
+    return taking_over(brief, f"a lane that {how}", held, end.branch, job, text and f"The coordinator's message it never read, which you act on now:\n\n{text.strip()}\n")
 
 
-def agent_handoff(brief: str, job: dict, text: str | None) -> str:
-    """The brief of an agent or lane taking over a job from an Agent of another session, which only that session's SendMessage reaches: the job's brief, then what that agent left and the message, when one came, that it never read."""
-    held = f"The agent that held this job, {job['agent']} of session {job['session']}, runs where this session cannot message it. You take the job over from its pushed branches; {UNPUSHED}"
-    return taking_over(brief, "an agent of another session", held, None, job, text and f"The message it never read, which you act on now:\n\n{text.strip()}\n")
+def agent_handoff(brief: str, job: dict, text: str | None, died: str | None) -> str:
+    """The brief of an agent or lane taking over a job from an Agent on this Mac that stopped, or from one of another session, which only that session's SendMessage reaches: the job's brief, then what that agent left and the message, when one came, that it never read."""
+    where = f"stopped, so it takes no message: {died}" if died else "runs where this session cannot message it"
+    held = f"The agent that held this job, {job['agent']} of session {job['session']}, {where}. You take the job over from its pushed branches; {UNPUSHED}"
+    holder = "an agent that stopped" if died else "an agent of another session"
+    return taking_over(brief, holder, held, None, job, text and f"The message it never read, which you act on now:\n\n{text.strip()}\n")
 
 
 def taking_over(brief: str, holder: str, held: str, branch: str | None, job: dict, message: str | None) -> str:
@@ -573,7 +580,7 @@ def start_after(drive: str, lane: str, brief: Path, job: dict, end: LaneEnd) -> 
 
 
 def place_tools(workspace: str) -> None:
-    """Put on the workspace's Sprite the tools a launch puts there, through the orca plugin's own step on the task cc-remote keeps for that Sprite: the released ccx and cc-notes, and each WORKER_TOOLS file, this plugin's `drive` that asks each verb of this Mac; Unstarted naming the step's refusal, since no worker starts without them."""
+    """Put on the workspace's Sprite the tools a launch puts there, through the orca plugin's own step on the task cc-remote keeps for that Sprite: the released ccx and cc-notes, and each WORKER_TOOLS file, this plugin's `drive` that asks each verb of this Mac; Unfit naming the step's refusal, since no worker starts without them."""
     done = subprocess.run(
         [tool(TOOLS), str(CC_REMOTE_TASKS / f"{workspace}.json")],
         env={**os.environ, "WORKER_TOOLS": SPRITE_TOOLS},
@@ -584,7 +591,7 @@ def place_tools(workspace: str) -> None:
     )
     if done.returncode:
         said = done.stderr.strip().splitlines()
-        raise Unstarted(f"{TOOLS} exited {done.returncode} on {workspace}, so no worker started: {said[-1] if said else 'no output'}")
+        raise Unfit(f"{TOOLS} exited {done.returncode} on {workspace}, so no worker started: {said[-1] if said else 'no output'}")
 
 
 def reply(drive: str, run: str, message_id: str, body: str) -> None:

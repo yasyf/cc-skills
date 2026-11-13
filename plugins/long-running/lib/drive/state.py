@@ -1143,6 +1143,17 @@ def binding(name: str) -> AbstractContextManager[None]:
 
 
 @contextmanager
+def job_locked(name: str, job_id: str, seconds: float) -> Iterator[None]:
+    """Hold the job's own lock while one launch or resume reads its last worker and starts or messages the next, waiting up to seconds for another doing so, so a second one acts on the worker the first started; refused naming who holds it past that."""
+    path = drive_dir(name) / "jobs" / f"{job_id}.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a") as handle:
+        if not taken(handle, seconds):
+            raise DriveError(f"{job_id}'s lock is still held after {seconds:g}s, so nothing was started or sent: {holders(path)}")
+        yield
+
+
+@contextmanager
 def edit(name: str) -> Iterator[dict]:
     """Load the drive under its lock, yield it for changes, and save it atomically on exit; inside a batch, which holds the lock already, keep the changes for the batch's one save."""
     if name in BATCHED:

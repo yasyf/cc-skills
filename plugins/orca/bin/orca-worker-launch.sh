@@ -141,10 +141,18 @@ retire() {
   mv "$attempt" "$retired"
   echo "$retired keeps the earlier attempt, $1; preparing again" >&2
 }
+unreached() {
+  local tasks
+  [ ! -s "$attempt/worker-start.json" ] &&
+    tasks=$(orca orchestration task-list --run "$1" --json 2>/dev/null) &&
+    jq -e --arg lane "$lane" '.ok == true and all(.result.tasks[]; .title != $lane)' <<<"$tasks" >/dev/null 2>&1
+}
 unstarted() {
+  local earlier
   [ -f "$attempt/worker-start.unsent" ] ||
     [ "$(jq -r '.error.code // empty' "$attempt/worker-start.json" 2>/dev/null)" = consumer_fenced ] ||
-    { [ -f "$attempt/tools.err" ] && [ ! -e "$attempt/worker-start.status" ]; }
+    { [ -f "$attempt/tools.err" ] && [ ! -e "$attempt/worker-start.status" ]; } ||
+    { [ -e "$attempt/worker-start.status" ] && earlier=$(jq -er .run "$attempt/request.json" 2>/dev/null) && unreached "$earlier"; }
 }
 if [ "$route" = sprite ] && [ -d "$attempt" ] && [ ! -L "$attempt" ]; then
   if [ ! -e "$attempt/worker-start.status" ] && ! { read -r failed 2>/dev/null <"$attempt/prepare.status" && [ "$failed" = 0 ]; }; then
@@ -221,6 +229,11 @@ start_worker() {
       echo "$request" >"$attempt/worker-start.unsent"
       error=$(jq -r '"\(.error.code): \(.error.message | split(". ")[0] | rtrimstr("."))"' "$attempt/worker-start.json" 2>/dev/null) || error=
       die "no worker started on Sprite $workspace: orca orchestration worker-start failed twice before Orca recorded it${error:+, with $error}; its terminal $terminal waits idle, and launching this brief again retries worker-start in it"
+    fi
+    if [ "$route" = sprite ] && unreached "$run"; then
+      echo >"$attempt/worker-start.unsent"
+      error=$(tail -n 1 "$attempt/worker-start.err")
+      die "no worker started on Sprite $workspace: worker-start exited $status before Orca answered${error:+: $error}, and Run $run holds no task for $lane; its terminal $terminal waits idle, and launching this brief again retries worker-start in it"
     fi
     error=$(jq -r 'select(.ok == false) | "\(.error.code): \(.error.message)"' "$attempt/worker-start.json" 2>/dev/null) || error=
     die "orca orchestration worker-start exited $status${error:+: $error}; kept terminal $terminal, worktree $wt, and the receipt in $attempt"

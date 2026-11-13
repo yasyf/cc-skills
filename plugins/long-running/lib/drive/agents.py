@@ -19,6 +19,7 @@ HIS_KINDS = ("owner", "answer")
 RE_HOPS = 8
 CORRECTION_BYTES = 1 << 20
 HANDLER = "long-running:handler"
+SYNTHETIC = "<synthetic>"
 DESIGNER = "long-running:designer"
 HIS_WORDS = "Message (his words)"
 SCRATCH = re.compile(r"Scratch:\s*(\S+)")
@@ -311,8 +312,13 @@ def end_handler(payload: dict) -> None:
 
 
 def ended(row: dict) -> bool:
-    """Whether a transcript row is a response's last: the model stopped on its own rather than for a tool call, so the session's turn is over and its next wake starts another."""
-    return row.get("type") == "assistant" and row["message"].get("stop_reason") == "end_turn"
+    """Whether a transcript row is a response's last: the model stopped rather than for a tool call or a paused server tool, so the session's turn is over and its next wake starts another."""
+    return row.get("type") == "assistant" and row["message"].get("stop_reason") not in (None, "tool_use", "pause_turn")
+
+
+def died(row: dict) -> bool:
+    """Whether a transcript row is a response that ended on an API error or a refusal, the row Claude Code writes itself under model `<synthetic>` or one stopped for any reason but the end of its turn, so the agent's turn ended without its work and a SendMessage meets the same stop."""
+    return ended(row) and (row["message"].get("stop_reason") != "end_turn" or row["message"].get("model") == SYNTHETIC)
 
 
 def brief(payload: dict) -> str:
