@@ -18,6 +18,7 @@ LIVE = ("running", "waiting")
 WAKES_LOG = "wakes.log"
 NAMED_HEAD = re.compile(r"\bat ([0-9a-f]{7,40})\b")
 ASKS_HIM = ("held", "card")
+OWN_STEP = ("uncarded", "landing", "unlanded", "held", "rework", "merged", "closed")
 EVERY = {
     "uncarded": timedelta(0),
     "landing": timedelta(minutes=90),
@@ -150,12 +151,14 @@ def grading(pr: dict) -> str:
 
 
 def behind(data: dict, key: str, cards: dict, now: Stage) -> Stage:
-    """The PR's stage now, unless it reads ready while a PR under it, bottom first, does not by its own row, since stack-enqueue lands it with the PRs under it and never waits on one above: then that PR's stage, seen from this one, whose owner owes the step."""
-    if now.name != "ready":
+    """The PR's stage now, unless a PR under it, bottom first, holds it: one GitHub reads conflicting with its base, which every PR above it waits on whatever its own row reads, since none of them lands before it and their builders can fix nothing until its owner settles it, or, while it reads ready, one that does not by its own row, since stack-enqueue lands it with the PRs under it and never waits on one above; then that PR's stage, seen from this one, whose owner owes the step. A stage someone answers on the PR itself stands: his card to draw, a lander's try, his hold and a rework to his words."""
+    if now.name in OWN_STEP:
         return now
     for member in land.chain(land.unders(data), key)[:-1]:
-        if (other := own(data, member, cards)).name != "ready":
-            return Stage("behind", other.owner, f"{member} below it in its stack, {other.name}: {other.why}")
+        below = data["prs"][member]
+        if (below["conflict"] or now.name == "ready") and (other := own(data, member, cards)).name != "ready":
+            conflicts = f" conflicts with its base {below['base']}," if below["conflict"] else ","
+            return Stage("behind", other.owner, f"{member} below it in its stack{conflicts} {other.name}: {other.why}")
     return now
 
 
