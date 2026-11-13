@@ -162,8 +162,8 @@ someone now, an incident's or one a reporter shared, the findings' `Interim fix:
 immediate fix shipping while he picks (its PR, release, rollback, repair, or the job building it),
 or reads `Interim fix: none: <why nobody is hurt now>`; `drive job ask` and a reader's `DESIGN` are
 refused without it. The findings' `Holds:` line names, in each change's own words, every change of the
-order its options alter, or reads `Holds: none: <why>`, and his open card holds from landing only
-the PRs of jobs working a change it names. No option asks a
+order its options alter, or reads `Holds: none: <why>`, and his open card holds from landing,
+among the PRs of jobs working a change it names, only those its own job or its design's builder carries and those it names by link, `#N` or their job's id. No option asks a
 reporter or anyone else to retry or confirm. The findings stay in the job's file, and Explain more
 on the card posts the one section he asks about, never a findings post of its own.
 

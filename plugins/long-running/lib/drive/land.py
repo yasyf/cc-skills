@@ -44,32 +44,39 @@ STORED_DATA = re.compile(r"(?:^|/)migrations?/|(?:^|/)[^/]*schema[^/]*$|\.(?:sql
 CI_FILES = re.compile(r"^(?:\.github|\.buildkite|(?:go|infra)/ci)/|^tools/ci(?:-ts)?(?:/|$)")
 
 
-def open_cards(data: dict, job_id: str, waits: list[str], cards: dict | None) -> list[str]:
-    """His open cards holding a job's work from landing, since work does not land with a question of his on it unanswered: each card its PR or job waits on, and each card of an open question, any job's on an order it serves, whose `Holds:` line names a change it works on there, the design it builds included; none on an open incident, whose repair lands on the recommended option, or an immediate fix, which lands while he picks the proper fix."""
+def open_cards(data: dict, job_id: str, pr: dict | None, cards: dict | None) -> list[str]:
+    """His open cards holding a job's work, its PR when given, from landing, since work does not land with a question of his on it unanswered: each card the PR or job waits on, and each card of an open question, any job's on an order it serves, whose `Holds:` line names a change it works on there, the design it builds included, that this job asked, that a design job asked whose design this job builds, or whose `Holds:` line names this job by its id or the PR by its link or #N, so another job's card on an order's one part holds none of this job's work it does not name; none on an open incident, whose repair lands on the recommended option, or an immediate fix, which lands while he picks the proper fix."""
     job = data["jobs"][job_id]
     if state.IMMEDIATE_FIX in job["parts"] or state.open_incidents(data, [job["order"], *job["carries"]]):
         return []
-    waited = [wait for wait in view.holding(data, list(dict.fromkeys([*waits, *job["waits"]])), cards) if state.card_wait(data, wait)]
+    waited = [wait for wait in view.holding(data, list(dict.fromkeys([*(pr["waits"] if pr is not None else []), *job["waits"]])), cards) if state.card_wait(data, wait)]
     asked = [
         drawn
         for order_id in [job["order"], *job["carries"]]
         for asker in data["orders"][order_id]["jobs"]
         for question in view.open_questions(data["jobs"][asker])
-        if (drawn := question["card"] or question["waits"]) and state.names_part(question["holds"], state.worked(data, job_id, order_id))
+        if (drawn := question["card"] or question["waits"])
+        and state.names_part(question["holds"], state.worked(data, job_id, order_id))
+        and (
+            asker == job_id
+            or state.design_builder(data, asker) == job_id
+            or state.names_job(question["holds"], job_id)
+            or pr is not None and state.names_pr(question["holds"], state.pr_key(pr["url"]))
+        )
     ]
     return list(dict.fromkeys([*waited, *asked]))
 
 
 def pr_cards(data: dict, pr: dict, cards: dict | None) -> list[str]:
     """His open cards holding a PR from landing: those holding the work of any job carrying it, its own and each that holds its landing, by open_cards()."""
-    return list(dict.fromkeys(card for job_id in state.pr_jobs(data, pr) for card in open_cards(data, job_id, pr["waits"], cards)))
+    return list(dict.fromkeys(card for job_id in state.pr_jobs(data, pr) for card in open_cards(data, job_id, pr, cards)))
 
 
 def ship_held(data: dict, job_id: str, cards: dict | None) -> list[str]:
     """His open cards holding a job's PR from going up, which the `bash_guard` hook refuses the `ccx vcs ship` that would open it by, on this Mac and through `drive job held` on a Sprite: none once the job has an open PR, which a ship pushes to rather than opens."""
     if any(data["prs"].get(state.pr_key(url), {}).get("state") == "open" for url in data["jobs"][job_id]["prs"]):
         return []
-    return open_cards(data, job_id, [], cards)
+    return open_cards(data, job_id, None, cards)
 
 
 def lane_held(*flags: str) -> dict:

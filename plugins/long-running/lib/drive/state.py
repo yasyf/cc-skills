@@ -1132,6 +1132,11 @@ def names_part(holds: str, parts: Iterable[str]) -> bool:
     return bool(said) and any(part.casefold() in said for part in parts)
 
 
+def names_job(holds: str, job_id: str) -> bool:
+    """Whether a question's `Holds:` words name a job by its id, as a reader's names the builder its pick shapes."""
+    return bool(re.search(rf"(?<![\w-]){re.escape(job_id)}\b", holds))
+
+
 def held_words(data: dict, holds: str, order_ids: Iterable[str]) -> str:
     """A question's `Holds:` words with, for each PR the drive tracks on these orders that they name by its link, its owner/name#N key or a bare #N, the parts it serves appended: those `drive pr set --part` names, else the parts its job works on its order, so a lane that names its PR names its change."""
     orders = set(order_ids)

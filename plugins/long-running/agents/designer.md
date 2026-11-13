@@ -133,8 +133,9 @@ Replaces: <only on a question built on another open question of his: the path dr
   settled, the recommended option is the one they choose. His ruling: "Update your skill to not just brush over the root cause ever", and his words "so why was that not the suggested optin to me, or even any of the options?" `drive job ask` refuses a block whose lines are out of this shape, and
   one with an option or part Jev reads as breaking his words, this ruling, his ruling that a team's data is read or written only as a service account, or what a page it links shows once Chrome opens it, naming each part and the words it breaks: rewrite that part, or ask again with `--unsettled` naming each id and why those words do not reach it, by his words "They should all use jev for judgement rather than hard coding thighs".
 - `Holds:` names, in each change's own words, every change of the order the options alter: a part
-  of the order, one of the `Change:` lines your report lists, or a PR the drive tracks that builds it, by its link or `#N`, which `drive job ask` keeps as the parts that PR serves. His open card then holds from landing only the PRs of jobs
-  working a change it names, so a card on another subject holds no PR its options leave alone, and
+  of the order, one of the `Change:` lines your report lists, or a PR the drive tracks that builds it, by its link or `#N`, which `drive job ask` keeps as the parts that PR serves. His open card then holds from landing, among the PRs of jobs
+  working a change it names, only those its own job or its design's builder carries and those it
+  names by link, `#N` or their job's id, so a card on another subject holds no PR its options leave alone, and
   `Holds: none: <why>` holds nothing. `drive job ask` refuses a block without the line, or one
   naming no part of its job's orders, unless they are your coming `Change:` lines. His pick: "Each question names the changes it holds,
   kept with it".
