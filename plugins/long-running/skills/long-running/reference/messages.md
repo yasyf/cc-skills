@@ -536,10 +536,10 @@ restating it.
   report travels with it, since cci never changes the report: `drive status` names it on the
   report's line, the `refused` record names one already written, and a `say` of the correction
   posts nothing while its report is held. A report found wrong while it is held, such as a close
-  of an order not done, its writer takes back with one `withdraw` record `--re` it
-  `--to communicator@<drive>`: `drive status` names the withdrawal on the report's line, the
-  catch-up leaves the report out, so no post carries it and no order closes on it, and once the
-  catch-up posts, an order it claimed to close is free for another report's close.
+  of an order not done, its writer takes back with the cci `close` tool, `how: withdraw`:
+  `drive status` names the withdrawal on the report's line, the catch-up leaves the report out,
+  so no post carries it and no order closes on it, and once the catch-up posts, an order it
+  claimed to close is free for another report's close.
 - His next message, right after its ack, or his next card tap gets one catch-up at his DM root,
   posted by the drive with no session in between. `drive heard`, or the tap, adds every order that
   changed while he was away or has a report held to the catch-up the drive owes him, which it keeps
