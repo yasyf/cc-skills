@@ -23,6 +23,7 @@ QUEUED = "queued for merge"
 REFUSED = "merge refused by GitHub"
 GITHUB_API = "GITHUB_API_"
 BASE_MOVED = "Base branch was modified"
+CONFLICTS = ("Pull Request has merge conflicts", "the merge commit cannot be cleanly created")
 MERGE_ASYNC = "merge-async"
 STACKED = "must be merged using the asynchronous merge REST API"
 ASYNC_SECONDS = 2
@@ -162,6 +163,12 @@ def refused(pr: dict) -> bool:
     """Whether GitHub refused, for the first time at the PR's head, the merge its lander queued there once Trunk's merge queue took it, with no failing check, so the lander lands it again one PR at a time, bottom first; a refusal of that one-at-a-time landing is not landed."""
     lander = pr["lander"] or {}
     return lander.get("head") == pr["head"] and (lander.get("outcome") or "").startswith(REFUSED) and not (lander.get("was") or "").startswith(REFUSED)
+
+
+def conflicted(pr: dict) -> bool:
+    """Whether GitHub refused the lander's merge at the PR's head for a conflict with its base, which only its builder's rebase settles, whatever the watch's last read of its mergeability said."""
+    lander = pr["lander"] or {}
+    return lander.get("head") == pr["head"] and any(conflict in (lander.get("outcome") or "") for conflict in CONFLICTS)
 
 
 def refusals(data: dict, keys: list[str]) -> dict[str, str]:

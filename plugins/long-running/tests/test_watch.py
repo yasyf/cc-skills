@@ -19,6 +19,8 @@ OTHER = "Forge-AI/monorepo#43"
 YASYF = "yasyf/cc-skills#7"
 BASE_MOVED = "GraphQL: Base branch was modified. Review and try the merge again. (mergePullRequest)"
 DIRTY = f"X Pull request {YASYF} is not mergeable: the merge commit cannot be cleanly created."
+MERGE_CONFLICTS = "GraphQL: Pull Request has merge conflicts (mergePullRequest)"
+POLICY = f"X Pull request {YASYF} is not mergeable: the base branch policy prohibits the merge."
 T0 = state.parse_time("2026-11-09T10:00:00-05:00")
 GATE = "LTX Behavioral Gate (short)"
 RUNNING = [{"name": "test", "conclusion": None}]
@@ -5157,12 +5159,28 @@ def test_a_yasyf_merge_whose_base_moved_merges_again_on_the_new_base_and_never_u
     assert runs == [["gh", "pr", "merge", "7", "-R", "yasyf/cc-skills", "--squash", "--admin"]] * 3
 
 
-def test_a_yasyf_merge_gh_refuses_for_any_other_reason_is_not_landed_and_reads_unlanded_for_the_session_holding_its_order(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(("refusal", "mergeable"), [(DIRTY, "MERGEABLE"), (MERGE_CONFLICTS, "CONFLICTING"), (MERGE_CONFLICTS, "UNKNOWN")])
+def test_a_yasyf_merge_gh_refuses_for_a_conflict_reads_red_and_wakes_its_builder_with_no_stage_line_whatever_github_last_read_of_its_mergeability(
+    demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]], landers: list[tuple[str, ...]], refusal: str, mergeable: str
+) -> None:
     runs: list[list[str]] = []
-    monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: runs.append(argv) or land.subprocess.CompletedProcess(argv, 1, "", DIRTY + "\n"))
+    monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: runs.append(argv) or land.subprocess.CompletedProcess(argv, 1, "", refusal + "\n"))
     outcome = land.merged(demo, YASYF, ["--admin"])
-    assert outcome == f"not landed: gh pr merge --squash --admin refused it: {DIRTY}"
+    assert outcome == f"not landed: gh pr merge --squash --admin refused it: {refusal}"
     assert runs == [["gh", "pr", "merge", "7", "-R", "yasyf/cc-skills", "--squash", "--admin"]]
+    waiting_job(demo)
+    tried(demo, outcome)
+    serve(monkeypatch, {YASYF: read(mergeable=mergeable)})
+    lines = watch.run_pass(watcher(demo), T0)
+    assert [line for line in lines if line.startswith("STAGE")] == []
+    assert woken == [(YASYF, f"{YASYF} red since {state.stamp(T0)}, owed by its builder: it conflicts with its base main [o1 j1]")]
+    assert landers == []
+
+
+def test_a_yasyf_merge_gh_refuses_for_any_other_reason_is_not_landed_and_reads_unlanded_for_the_session_holding_its_order(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: land.subprocess.CompletedProcess(argv, 1, "", POLICY + "\n"))
+    outcome = land.merged(demo, YASYF, ["--admin"])
+    assert outcome == f"not landed: gh pr merge --squash --admin refused it: {POLICY}"
     waiting_job(demo)
     tried(demo, outcome)
     assert not watch.wakes(f"PR {YASYF}: {outcome} [o1 j1]", state.load(demo))

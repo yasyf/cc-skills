@@ -114,9 +114,9 @@ def landing_why(pr: dict) -> str:
 
 
 def unlanded(data: dict, pr: dict) -> str | None:
-    """How a lander's try at the PR's head ended without landing it, or None when no try at this head stands: none ran on it, Trunk holds it, GitHub refused() the merge Trunk's queue took, so the lander lands it again one PR at a time, or ejected it on a flaky test whose fix it waits on, by ejection(), what let it run moved since, nothing clearing it now while it waits on his card, as after drive pr set --no-exempt --tap, or his tap made after the try started, or what the try waited on moved since, a PR below it that is cleared or merged now, a newer install's save that ended it before it queued anything, a hold of his that it or halt() stopped it on, which held() reads while it stands, or the lander's own failure, no fresh worktree of the default branch to land from, such as when GitHub did not answer, stack-enqueue failing on its own, or a GitHub read that failed before it queued or merged anything, so the lander tries again."""
+    """How a lander's try at the PR's head ended without landing it, or None when no try at this head stands: none ran on it, Trunk holds it, GitHub refused its merge for a conflict with its base, which red() owes its builder, GitHub refused() the merge Trunk's queue took, so the lander lands it again one PR at a time, or ejected it on a flaky test whose fix it waits on, by ejection(), what let it run moved since, nothing clearing it now while it waits on his card, as after drive pr set --no-exempt --tap, or his tap made after the try started, or what the try waited on moved since, a PR below it that is cleared or merged now, a newer install's save that ended it before it queued anything, a hold of his that it or halt() stopped it on, which held() reads while it stands, or the lander's own failure, no fresh worktree of the default branch to land from, such as when GitHub did not answer, stack-enqueue failing on its own, or a GitHub read that failed before it queued or merged anything, so the lander tries again."""
     lander = pr["lander"]
-    if not lander or lander["head"] != pr["head"] or land.running(pr) or land.refused(pr):
+    if not lander or lander["head"] != pr["head"] or land.running(pr) or land.refused(pr) or land.conflicted(pr):
         return None
     if carded(pr) and not state.cleared(pr) or pr["tap"] and state.parse_time(pr["tap"]["at"]) > state.parse_time(lander["at"]):
         return None
@@ -163,11 +163,11 @@ def held(data: dict, pr: dict, cards: dict) -> str:
 
 
 def red(key: str, pr: dict) -> str:
-    """What its builder must fix at its head: failing checks, a conflict, a draft, changes a reviewer asked for, or, in a repository whose rules require an approving review before merging, a forge-pr-reviewer that finished on a green head and approved nothing, which holds it until each finding is fixed or its risk accepted."""
+    """What its builder must fix at its head: failing checks, a conflict GitHub reads or refused the lander's merge for, a draft, changes a reviewer asked for, or, in a repository whose rules require an approving review before merging, a forge-pr-reviewer that finished on a green head and approved nothing, which holds it until each finding is fixed or its risk accepted."""
     head = pr["head"][:7]
     if pr["checks"] == "fail":
         return f"its checks fail at {head}: {', '.join(pr['failed_checks']) or 'see its checks'}"
-    if pr["conflict"]:
+    if pr["conflict"] or land.conflicted(pr):
         return f"it conflicts with its base {pr['base']}"
     if pr["draft"]:
         return "it is a draft"

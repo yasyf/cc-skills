@@ -149,7 +149,8 @@ change".
    asks, and never touches the PR's branch. When `gh pr merge` refuses a PR of a native GitHub stack,
    saying it must be merged using the asynchronous merge REST API, the lander merges it through
    GitHub's `merge-async` endpoint past its rules, which GitHub allows only for a stack's bottom PR,
-   the one the lander lands, and reads its result until GitHub ends it. After any other refusal, a failing check included, the watch
+   the one the lander lands, and reads its result until GitHub ends it. A refusal for a conflict with its base reads `red`, which
+   wakes its builder to rebase. After any other refusal, a failing check included, the watch
    starts the lander again on the head its builder pushes once its stage reads `ready` there, free of
    conflicts and failing checks, so nobody registers a rebased PR again. Once every PR the job's `READY` or `PUSHED` names merged and no lander still
    runs on one, the watch starts `drive job prove <j>`, which installs each plugin a `yasyf/*` merge
@@ -349,6 +350,10 @@ puts the PR on his card, or his tap comes after the try started, the PR reads hi
 `landing` while Trunk holds it, and `unlanded`, a lander's try that ended without queueing it, with
 `UNLANDED_SILENT` when its process ended before saying, which wakes the session holding its order
 every 30 minutes for a builder that fixes the cause and pushes; the lander tries the new head on its own.
+A merge GitHub refused for a conflict with its base, `Pull Request has merge conflicts` or `the merge
+commit cannot be cleanly created`, is never `unlanded`: the PR reads `red`, owed by its builder, "it
+conflicts with its base", whatever the watch last read of its mergeability, so `drive pr wake` sends its
+builder the line at once and every 30 minutes, and no session starts one; its rebased head lands on its own.
 His `TAP Approve` line itself wakes no session: a red PR's stage wakes its builder.
 
 **The same lander lands every other repository the drive tracks**, such as `Forge-AI/litestream`, by
