@@ -1463,12 +1463,11 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: 
         )
     orders = [job["order"], *job["carries"]]
     parts = [part for order_id in orders for part in data["orders"][order_id]["parts"]]
-    holds = asked.holds and state.held_words(data, asked.holds, orders)
-    if holds and job["kind"] != "design" and not state.names_part(holds, parts):
+    if asked.holds and job["kind"] != "design" and not state.names_change(data, asked.holds, orders):
         raise DriveError(
             f"`Holds: {asked.holds}` names no change of {job_id}'s orders, so his card would hold nothing from landing: name each change its"
-            f" options alter by its words, of {'; '.join(json.dumps(part, ensure_ascii=False) for part in parts)}, or a PR the drive tracks"
-            f" on them by its link or #N, or write `Holds: none: <why>` ({limits.HOLDS_RULING})"
+            f" options alter by its words, of {'; '.join(json.dumps(part, ensure_ascii=False) for part in parts)}, a PR the drive tracks"
+            f" on them by its link or #N, or the job building it by its id, or write `Holds: none: <why>` ({limits.HOLDS_RULING})"
         )
     if redraws and not any(question["waits"] == redraws for question in view.open_questions(job)):
         raise DriveError(f"--redraws {redraws}: no open card of {job_id} asks him under that waits id; drive status {job_id} lists each of its questions with its card's waits id")
@@ -1494,20 +1493,20 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: 
         reworded = [other for other in job["questions"] if other["refused"] and (state.same_question(asked.title, other["title"]) or superseded.shared(asked.title, other["title"], generic))]
         undrawn = [other for other in job["questions"] if other["closed"] and not (other["card"] or other["waits"]) and state.same_question(asked.title, other["title"])]
         if answer:
-            question = state.new_question(str(kept), asked.title, state.stamp(), unsettled, closed=answer["closed"] | {"at": state.stamp()}, holds=holds)
+            question = state.new_question(str(kept), asked.title, state.stamp(), unsettled, closed=answer["closed"] | {"at": state.stamp()}, holds=asked.holds)
             replaced = [*twins, *reworded, *undrawn]
             job["updated"] = state.stamp()
             if target:
                 superseded.end(data, asker, target, question["closed"])
         elif refused:
-            question = state.new_question(str(kept), asked.title, state.stamp(), unsettled, refused=refused, holds=holds)
+            question = state.new_question(str(kept), asked.title, state.stamp(), unsettled, refused=refused, holds=asked.holds)
             replaced = [*(twin for twin in twins if twin["refused"]), *reworded, *undrawn]
             job["updated"] = state.stamp()
         else:
             withdrawn = superseded.redrawable(data, asked.title)
             redrawn = [other for other in view.open_questions(job) if other["waits"] == redraws and not other["replaced"]] if redraws else []
             held = target or next((twin for twin in [*twins, *withdrawn, *redrawn] if twin["card"]), None) or next((twin for twin in [*twins, *redrawn] if twin["waits"]), None)
-            question = state.new_question(str(kept), asked.title, held["asked"] if held else state.stamp(), unsettled, holds=holds)
+            question = state.new_question(str(kept), asked.title, held["asked"] if held else state.stamp(), unsettled, holds=asked.holds)
             if folded_into := next((twin["replaced"] for twin in twins if twin["replaced"]), None):
                 question.update(waits=held and held["waits"], card=held and held["card"], replaced=folded_into)
             replaced = [other for other in [*twins, *withdrawn, *redrawn, *reworded, *undrawn] if other is not held or folded_into]

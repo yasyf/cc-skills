@@ -79,8 +79,9 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    `BUILT <branch>, waits on <the card's waits id>`, by his words "build recommended options on
    branches until I select the option then build / turn my option into PRs". When `Decisions that
    bind` names an open card's option to build, build that one the same way. While any open card of
-   his bears on your work, one your job waits on or one whose question's `Holds:` line names a change
-   your job builds, the design you build included, the `bash_guard` hook refuses a `ccx vcs ship`
+   his bears on your work, one your job waits on, one you or the design job you build asked whose
+   question's `Holds:` line names a change your job builds, or any one whose `Holds:` line names
+   your job or its PR, the `bash_guard` hook refuses a `ccx vcs ship`
    that would open your PR, on this Mac and on a Sprite, and `drive pr add` refuses the PR, since
    work does not land with a question of his on it unanswered. Only when his words ask for options
    and no build, or the recommended option is no change you build, does the `ASK` end your run:
@@ -532,11 +533,11 @@ Replaces: <only on a question built on another open question of his: the path dr
   `Interim fix:` links the immediate fix shipping while he picks, which his pick replaces, and the
   summary names it; `drive job ask` refuses the block without it.
 - `Holds:` names, in each change's own words, every change of the order the options alter: a part
-  of the order, or a PR the drive tracks that builds it, by its link or `#N`, which `drive job ask`
-  keeps as the parts that PR serves. His open card then holds from landing only the PRs of jobs
-  working a change it names, so a card on another subject holds no PR its options leave alone, and
-  `Holds: none: <why>` holds nothing. `drive job ask` refuses a block without the line, or one
-  naming no part of its job's orders. His pick: "Each question names the changes it holds,
+  of the order, a PR the drive tracks that builds it, by its link or `#N`, or the job building it,
+  by its id. His open card then holds from landing your own work on a change it names and each PR
+  or job it names, never another job's work on a part you share, so a card on another subject holds
+  no PR its options leave alone, and `Holds: none: <why>` holds nothing. `drive job ask` refuses a
+  block without the line, or one naming no part, PR or job of its job's orders. His pick: "Each question names the changes it holds,
   kept with it".
 - A question built on another open question of his, such as a ceiling that assumes his pick on
   where the rows are counted, asks both choices on that question's card, its options pairing the

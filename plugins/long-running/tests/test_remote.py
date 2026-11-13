@@ -3520,7 +3520,7 @@ def test_an_ask_no_drive_job_ask_kept_goes_to_the_coordinator_saying_drive_job_a
 
 
 @pytest.mark.parametrize("named", ["#4127", "Forge-AI/monorepo#4127", "https://github.com/Forge-AI/monorepo/pull/4127"])
-def test_a_holds_line_naming_a_pr_the_drive_tracks_on_the_jobs_order_is_kept_with_the_parts_its_job_works(named: str, remote: str) -> None:
+def test_a_holds_line_naming_a_pr_the_drive_tracks_on_the_jobs_order_is_kept_as_written(named: str, remote: str) -> None:
     held = f'{named} "the nightly store copy runs on its own worker", where keeping copy times adds two store_copies columns'
     asked = ASK_IN_SHAPE.replace("Holds: none: no option changes code any job builds", f"Holds: {held}")
     with pytest.raises(state.DriveError, match="names no change of j1's orders"):
@@ -3532,8 +3532,13 @@ def test_a_holds_line_naming_a_pr_the_drive_tracks_on_the_jobs_order_is_kept_wit
     with state.edit(remote) as data:
         data["prs"]["Forge-AI/monorepo#4127"] = state.new_pr(state.pr_url("Forge-AI/monorepo#4127"), "j1", "o1")
     question = cli.keep_ask(remote, "j1", asked, None)[2]
-    assert question["holds"] == f"{held}; ship the remote builder"
-    assert state.load(remote)["jobs"]["j1"]["questions"][-1]["holds"] == question["holds"]
+    assert (question["holds"], state.load(remote)["jobs"]["j1"]["questions"][-1]["holds"]) == (held, held)
+
+
+def test_a_holds_line_naming_a_job_on_the_jobs_order_by_its_id_is_kept(remote: str) -> None:
+    held = "the store columns builder j1 adds"
+    asked = ASK_IN_SHAPE.replace("Holds: none: no option changes code any job builds", f"Holds: {held}")
+    assert cli.keep_ask(remote, "j1", asked, None)[2]["holds"] == held
 
 
 def test_a_lane_ask_no_drive_job_ask_kept_is_an_orphan_saying_drive_job_ask_keeps_it_never_that_a_resume_answers_it(

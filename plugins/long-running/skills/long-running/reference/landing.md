@@ -22,8 +22,8 @@ for its repository says, then return `DONE <proof>`.
 - While a question card of his on the change is unanswered, land and enqueue nothing, whatever order to
   land arrived, since its recommended option never stands in for his answer. `drive pr add`,
   `drive pr land` and the `landing_guard` hook refuse a PR while a card of his is open that any job
-  carrying it waits on, its own or one holding its landing, or whose `Holds:` line names a change one
-  of them builds; the watch stops a lander already landing it when that card opens, and the lander
+  carrying it waits on, its own or one holding its landing, or whose `Holds:` line names one of them
+  or that PR, or names a change one of them builds on a question it or the design job it builds asked; the watch stops a lander already landing it when that card opens, and the lander
   dequeues what it queued. On a Sprite lane, which holds no copy of the drive, the hook asks this Mac
   with `drive job held --pr` first and refuses while it does not answer. Return `WAITING` naming the card, which
   the coordinator puts in front of him by [Design first](design.md). An incident's repair is the

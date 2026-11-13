@@ -113,8 +113,8 @@ REPLACES = re.compile(r"^[ \t]*Replaces:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
 HOLDS_RULING = 'his pick "Each question names the changes it holds, kept with it"'
 HOLDS_SHAPE = (
     "`Holds: <each change of the order its options alter, in that change's words, as the order's parts or your `Change:`"
-    " lines name it, or a PR the drive tracks that builds it, by its link or #N>` or `Holds: none: <why no option alters what any job builds>`, since his open card holds from landing"
-    " only the PRs building a change it names"
+    " lines name it, a PR the drive tracks that builds it, by its link or #N, or the job building it, by its id>` or `Holds: none: <why no option alters what any job builds>`, since his"
+    " open card holds from landing only your own work on a change it names, the work of the builder of a design you ask, and each PR or job it names"
 )
 SHIPPING = re.compile(r"https?://\S+|\bj\d+\b")
 NOT_FOUND = re.compile(r"not found[ \t]*:[ \t]*(.*)", re.IGNORECASE)

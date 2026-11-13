@@ -973,7 +973,7 @@ def result_waits(data: dict, order_id: str, line: str, report: str = "") -> list
 
 
 def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
-    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, a builder's DONE on an open incident's fix, stop or rollback keeping its proof as the order's proof, which ends the incident's five-minute line, and on its fix also recording that fix live as the order's fixed, built on its branch and waiting on each card a BUILT line names and each open card of his a job on its parts asked, whatever words the line names it in, each card once under its waits id, waiting on each PR and release a READY or PUSHED line or a WAITING's whole report names, which the watch frees once the PR merges or closes or the release is out, each PR a `WAITING … waits on` line names waiting on each card it names, keep on a job its WAITING line answers as stage.waited reads it and on each red PR it answers each PR and release it names, which his card on that PR then names and links, keep each verdict a reader's answer gives on the PR it names, join each open order the FIX line of a result tracing a live bug's cause names to that bug's incident, so hurts_now reads it live, end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met, dropping his tap on it so a fresh card asks it for the reworked change, and deliver the parts of a job whose answer reaches him only by a post by the post its POSTED line names; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
+    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, a builder's DONE on an open incident's fix, stop or rollback keeping its proof as the order's proof, which ends the incident's five-minute line, and on its fix also recording that fix live as the order's fixed, built on its branch and waiting on each card a BUILT line names and each open card of his built_cards() reads, whatever words the line names it in, each card once under its waits id, waiting on each PR and release a READY or PUSHED line or a WAITING's whole report names, which the watch frees once the PR merges or closes or the release is out, each PR a `WAITING … waits on` line names waiting on each card it names, keep on a job its WAITING line answers as stage.waited reads it and on each red PR it answers each PR and release it names, which his card on that PR then names and links, keep each verdict a reader's answer gives on the PR it names, join each open order the FIX line of a result tracing a live bug's cause names to that bug's incident, so hurts_now reads it live, end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met, dropping his tap on it so a fresh card asks it for the reworked change, and deliver the parts of a job whose answer reaches him only by a post by the post its POSTED line names; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
     from drive import stage, view
 
     job = data["jobs"][job_id]
@@ -982,7 +982,7 @@ def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
     if taken != "waiting" or not re.match(r"ASK\b", line):
         job["said"] = line
     if built := BUILT_LINE.match(line):
-        job.update(branch=built["branch"], waits=view.stored_waits(data, [*job["waits"], *BUILT_CARD.findall(built["cards"]), *part_cards(data, job_id)]))
+        job.update(branch=built["branch"], waits=view.stored_waits(data, [*job["waits"], *BUILT_CARD.findall(built["cards"]), *built_cards(data, job_id)]))
     if waits := result_waits(data, job["order"], line, report):
         job["waits"] = list(dict.fromkeys([*job["waits"], *waits]))
     if re.match(r"WAITING\b", line):
@@ -1016,12 +1016,34 @@ def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
     end_carried_designs(data, job["order"], job["updated"])
 
 
-def part_cards(data: dict, job_id: str) -> list[str]:
-    """Each open card of his that a job on any part this job delivers asked, by its link or else its waits id, as view.open_cards reads it: a builder built beside its reader's card waits on that card from the drive's records, never from how its line words it."""
+def built_cards(data: dict, job_id: str) -> list[str]:
+    """Each open card of his a BUILT job waits on from the drive's records, never from how its line words it: each card whose question holds its work, by question_cards(), and each card a reader of the parts it delivers asked, whose research it built beside."""
+    from drive import brief, view
+
+    job = data["jobs"][job_id]
+    researched = [card for order_id in [job["order"], *job["carries"]] for reader in brief.readers(data, order_id, job_parts(job, order_id)) for card in view.open_cards(data["jobs"][reader])]
+    return [*question_cards(data, job_id), *researched]
+
+
+def question_cards(data: dict, job_id: str, pr: dict | None = None) -> list[str]:
+    """Each open card of his whose question holds a job's work, by its link or else its waits id: one asked on an order the job serves whose `Holds:` line names the job by its id or the PR by its link, owner/name#N key or #N, and one the job itself or the design job it builds asked whose `Holds:` line names a change it works on; another lane's card naming only a part they share holds none of it."""
     from drive import view
 
     job = data["jobs"][job_id]
-    return [card for order_id in [job["order"], *job["carries"]] for part in job_parts(job, order_id) for _, other in part_jobs(data, order_id, part) for card in view.open_cards(other)]
+    return list(
+        dict.fromkeys(
+            drawn
+            for order_id in [job["order"], *job["carries"]]
+            for asker in data["orders"][order_id]["jobs"]
+            for question in view.open_questions(data["jobs"][asker])
+            if (drawn := question["card"] or question["waits"])
+            and (
+                names_lane(question["holds"], job_id)
+                or pr is not None and pr_key(pr["url"]) in named_prs(data, order_id, question["holds"])
+                or names_part(question["holds"], worked(data, job_id, order_id)) and (asker == job_id or design_builder(data, asker) == job_id)
+            )
+        )
+    )
 
 
 def required_verdict(prs: dict[str, dict]) -> tuple[str, list[tuple[str, str]]]:
@@ -1103,16 +1125,19 @@ def names_part(holds: str, parts: Iterable[str]) -> bool:
     return bool(said) and any(part.casefold() in said for part in parts)
 
 
-def held_words(data: dict, holds: str, order_ids: Iterable[str]) -> str:
-    """A question's `Holds:` words with, for each PR the drive tracks on these orders that they name by its link, its owner/name#N key or a bare #N, the parts it serves appended: those `drive pr set --part` names, else the parts its job works on its order, so a lane that names its PR names its change."""
-    orders = set(order_ids)
-    named = [
-        pr
-        for key, pr in data["prs"].items()
-        if pr["order"] in orders and re.search(rf"{re.escape(pr_url(key).removeprefix('https://'))}\b|{re.escape(key)}\b|(?<![\w/-])#{key.rpartition('#')[2]}\b", holds)
-    ]
-    served = [part for pr in named for part in pr["parts"] or sorted(worked(data, pr["job"], pr["order"])) if not names_part(holds, [part])]
-    return "; ".join([holds, *dict.fromkeys(served)])
+def names_lane(holds: str, job_id: str) -> bool:
+    """Whether a question's `Holds:` words name a job by its id."""
+    return bool(re.search(rf"(?<![\w-]){re.escape(job_id)}\b", holds))
+
+
+def names_change(data: dict, holds: str, order_ids: list[str]) -> bool:
+    """Whether a question's `Holds:` words name work on these orders his open card can hold: a part by its words, a PR the drive tracks on them by its link, owner/name#N key or #N, or a job on them by its id."""
+    orders = [data["orders"][order_id] for order_id in order_ids]
+    return (
+        names_part(holds, [part for order in orders for part in order["parts"]])
+        or any(data["prs"][key]["order"] in order_ids for order_id in order_ids for key in named_prs(data, order_id, holds))
+        or any(names_lane(holds, job_id) for order in orders for job_id in order["jobs"])
+    )
 
 
 def worked(data: dict, job_id: str, order_id: str) -> set[str]:

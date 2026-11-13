@@ -4043,11 +4043,22 @@ def test_a_lander_queues_each_pr_he_approved_with_those_below_it_never_one_above
 
 
 @pytest.mark.parametrize(
-    ("asker", "holds", "held"),
-    [("j1", "", False), ("j2", "", False), ("j2", "the dashboard", False), ("j1", "ship the watch", True), ("j2", "Ship  the WATCH, once its store is picked", True)],
+    ("asker", "kind", "parts", "holds", "landed"),
+    [
+        ("j1", "design", ["the dashboard"], "", (KEY, OTHER)),
+        ("j2", "design", ["the dashboard"], "", (KEY, OTHER)),
+        ("j2", "design", ["the dashboard"], "the dashboard", (KEY, OTHER)),
+        ("j1", "design", ["the dashboard"], "ship the watch", None),
+        ("j2", "builder", ["ship the watch"], "Ship  the WATCH, once its store is picked", (KEY, OTHER)),
+        ("j2", "design", ["ship the watch"], "Ship  the WATCH, once its store is picked", None),
+        ("j2", "reader", ["ship the watch"], "the store builder j1 picks", None),
+        ("j2", "reader", ["ship the watch"], "the store j12 picks", (KEY, OTHER)),
+        ("j2", "reader", ["ship the watch"], "the store #42 picks", None),
+        ("j2", "reader", ["ship the watch"], "the store Forge-AI/monorepo#43 picks", (KEY,)),
+    ],
 )
-def test_an_open_question_holds_a_stack_from_landing_only_while_its_holds_line_names_a_change_the_stacks_job_builds(
-    demo: str, landers: list[tuple[str, ...]], asker: str, holds: str, held: bool
+def test_an_open_question_holds_a_pr_only_while_its_holds_line_names_it_or_its_job_or_a_change_its_own_job_or_its_designs_builder_builds(
+    demo: str, landers: list[tuple[str, ...]], asker: str, kind: str, parts: list[str], holds: str, landed: tuple[str, ...] | None
 ) -> None:
     stacked(demo)
     approve(demo, KEY, OTHER)
@@ -4055,14 +4066,25 @@ def test_an_open_question_holds_a_stack_from_landing_only_while_its_holds_line_n
     with state.edit(demo) as data:
         data["orders"]["o1"]["jobs"].append("j2")
         data["orders"]["o1"]["parts"]["the dashboard"] = state.new_part()
-        data["jobs"]["j2"] = job(kind="design", parts=["the dashboard"], carries={}, state="done")
+        data["jobs"]["j2"] = job(kind=kind, parts=parts, carries={}, state="done")
         data["jobs"][asker]["questions"].append(state.new_question(None, "Which OpenAI endpoint?", state.stamp(T0), holds=holds) | {"waits": waits})
     cards = NO_CARDS | {"questions": [question(waits)]}
-    assert land.open_cards(state.load(demo), "j1", [], cards) == ([waits] if held else [])
-    assert land.start(demo, [KEY, OTHER], cards) == ([] if held else [(KEY, OTHER)])
+    data = state.load(demo)
+    assert land.pr_cards(data, data["prs"][KEY], cards) == ([] if landed else [waits])
+    assert land.start(demo, [KEY, OTHER], cards) == ([landed] if landed else [])
     with state.edit(demo) as data:
         data["jobs"][asker]["questions"][-1]["closed"] = state.new_close("answered", "Team", None, seq="#9")
-    assert land.start(demo, [KEY, OTHER], cards) == ([(KEY, OTHER)] if held else [])
+    assert land.start(demo, [KEY, OTHER], cards) == ([] if landed else [(KEY, OTHER)])
+
+
+def test_a_built_builder_waits_on_its_readers_card_never_on_another_builders_card_on_a_part_they_share(demo: str) -> None:
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["jobs"] += ["j2", "j3"]
+        data["jobs"]["j2"] = job(parts=["ship the watch"], carries={}, questions=[state.new_question(None, "Keep the pod's inbox fixes?", state.stamp(T0), holds="ship the watch") | {"waits": "demo:j2-1-a"}])
+        data["jobs"]["j3"] = job(kind="reader", parts=["ship the watch"], carries={}, state="done", questions=[state.new_question(None, "Which store?", state.stamp(T0)) | {"waits": "demo:j3-2-a"}])
+    with state.edit(demo) as data:
+        state.take_result(data, "j1", "BUILT lane/built, waits on his card")
+    assert state.load(demo)["jobs"]["j1"]["waits"] == ["demo:j3-2-a"]
 
 
 def test_a_question_kept_before_holds_lines_holds_nothing_so_the_approved_pr_of_its_own_job_lands(demo: str, landers: list[tuple[str, ...]]) -> None:

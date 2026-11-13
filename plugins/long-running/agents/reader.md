@@ -110,8 +110,8 @@ defect is behind it>`. His ruling: "Update your skill to not just brush over the
 incident or a bug a reporter shared, an `Interim fix:` line links the immediate fix shipping while he
 picks, or the job building it, or says `Interim fix: none: <why nobody is hurt now>`, and `drive job
 report` refuses a `DESIGN` without it. A `Holds:` line names, in each change's own words, every
-part of the order its options alter, or a PR the drive tracks that builds it, by its link or `#N`, or says `Holds: none: <why no option alters what any job builds>`,
-since his open card holds from landing only the PRs of jobs working a change it names, by his pick
+part of the order its options alter, a PR the drive tracks that builds it, by its link or `#N`, or the job building it, by its id, or says `Holds: none: <why no option alters what any job builds>`,
+since his open card holds from landing only each PR or job it names, never other work on a part it names, by his pick
 "Each question names the changes it holds, kept with it", and `drive job report` refuses a `DESIGN`
 without it. On a bug a reporter shared, any report but an `ASK`, `BLOCKED` or `HANDOFF` ends with
 `FIX <the order or PR that fixes the cause>`, several comma-separated, or `FIX none`, which marks that
