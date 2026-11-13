@@ -798,29 +798,38 @@ def traced(data: dict, job_id: str, line: str) -> str | None:
     )
 
 
-def fix_named(data: dict, order_id: str, fix: str) -> tuple[list[str], list[str]]:
-    """The orders a FIX line's words name, each by its id or as the order a drive PR it names serves, and each word naming neither; none for FIX none."""
+def fix_named(data: dict, order_id: str, fix: str) -> tuple[list[str], list[str], list[str]]:
+    """The orders a FIX line's words name, each by its id or as the order a drive PR it names serves, the key of each GitHub PR it links that the drive does not track, and each word naming none of these; none for FIX none."""
     if re.match(rf"{NO_FIX}\b", fix):
-        return [], []
-    orders, unknown = [], []
+        return [], [], []
+    orders, untracked, unknown = [], [], []
     for word in filter(None, (word.strip(".;`*") for word in re.split(r"[\s,]+", fix))):
         if word in data["orders"]:
             orders.append(word)
         elif prs := named_prs(data, order_id, word):
             orders += [order_served(data["prs"][key]) for key in prs]
+        elif PR_URL.match(word):
+            untracked.append(pr_key(word))
         else:
             unknown.append(word)
-    return list(dict.fromkeys(orders)), unknown
+    return list(dict.fromkeys(orders)), list(dict.fromkeys(untracked)), unknown
+
+
+def untracked_fixes(data: dict, job_id: str, line: str, report: str) -> list[str]:
+    """The key of each GitHub PR the drive does not track that the last FIX line of a result tracing a live bug's cause links, which `drive job report` registers on the job before it takes the result."""
+    if not traced(data, job_id, line) or not (fixes := FIX_LINE.findall(report)):
+        return []
+    return fix_named(data, data["jobs"][job_id]["order"], fixes[-1])[1]
 
 
 def fix_refusal(data: dict, job_id: str, line: str, report: str) -> str | None:
-    """Why a result tracing a live bug's cause may not be taken: it ends with no FIX line naming the order or PR that fixes the cause, or none, which take_result marks live from, by his pick "Incident cause names the fix: live from the report that names it until it merges; costs one required line on every cause report", or a word on its last one names no order or PR the drive tracks."""
+    """Why a result tracing a live bug's cause may not be taken: it ends with no FIX line naming the order or PR that fixes the cause, or none, which take_result marks live from, by his pick "Incident cause names the fix: live from the report that names it until it merges; costs one required line on every cause report", or a word on its last one names no order of the drive and links no GitHub PR."""
     if not (bug := traced(data, job_id, line)):
         return None
     if not (fixes := FIX_LINE.findall(report)):
         return f"{job_id} traces the cause of {bug}'s live bug, so {FIX_RULE}"
-    if unknown := fix_named(data, data["jobs"][job_id]["order"], fixes[-1])[1]:
-        return f"its FIX line names {', '.join(unknown)}, no order or PR the drive tracks: name each fix by its order id or PR link, comma-separated, or say FIX none"
+    if unknown := fix_named(data, data["jobs"][job_id]["order"], fixes[-1])[2]:
+        return f"its FIX line names {', '.join(unknown)}, neither an order of the drive nor a GitHub PR link: name each fix by its order id or PR link, comma-separated, or say FIX none"
     return None
 
 

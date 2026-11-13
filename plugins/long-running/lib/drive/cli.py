@@ -1578,7 +1578,7 @@ def keep_waits(job: dict, file: Path, waits: str) -> None:
 
 
 def job_report(args: argparse.Namespace) -> int:
-    """Keep a job's whole return from stdin in its history, which is its report, its first line setting the job's state, or refuse it with nothing kept, naming the fix, when that line would set none or it types a clock time for work already done; a reader's DESIGN is kept as its ASK in the same call, whose path it prints. With no stdin, print every return the job took, newest first."""
+    """Keep a job's whole return from stdin in its history, which is its report, its first line setting the job's state, or refuse it with nothing kept, naming the fix, when that line would set none or it types a clock time for work already done; a reader's DESIGN is kept as its ASK in the same call, whose path it prints, and each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links is registered on the job before the take, which joins its order to the bug, or kept untracked with the reason drive pr add refused it. With no stdin, print every return the job took, newest first."""
     name = state.resolve(args.drive)
     data = state.load(name)
     job = find(data["jobs"], args.id, "job")
@@ -1603,14 +1603,20 @@ def job_report(args: argparse.Namespace) -> int:
             except DriveError as error:
                 raise DriveError(f"{args.id}: refused, its report not kept: a reader's DESIGN is his card as it stands, kept as its ASK, and drive job ask refused it: {error}") from None
         state.keep_report(name, args.id, line, whole)
+        fixes = []
+        for key in state.untracked_fixes(data, args.id, line, whole):
+            try:
+                fixes.append(f"FIX kept, {key}: tracked under {add_pr(name, key, args.id, github_pr(key))['order']}")
+            except DriveError as error:
+                fixes.append(f"FIX kept, {error}")
         with state.edit(name) as data:
             state.take_result(data, args.id, line, whole)
             state.add_changes(data, args.id, whole)
         kept = str(state.replies_path(name, args.id))
         merging = merge_reported(name, args.id)
         shown = f"{kept}\n{decided}" if decided else f"{kept}\nits ASK is kept in {asked}, the path its ask record names" if asked else kept
-        shown = "\n".join([shown, *registered, *(f"{key}: {said}" for key, said in merging)])
-        return emit(args, shown, {"id": args.id, "report": kept, "ask": asked and str(asked), "merging": dict(merging)})
+        shown = "\n".join([shown, *registered, *fixes, *(f"{key}: {said}" for key, said in merging)])
+        return emit(args, shown, {"id": args.id, "report": kept, "ask": asked and str(asked), "merging": dict(merging), "fixes": fixes})
     text = state.report_text(name, args.id)
     if not text and not job["said"]:
         raise DriveError(f"{args.id} kept no report and has returned nothing yet")
@@ -2192,18 +2198,18 @@ def pr_wake(args: argparse.Namespace) -> int:
 
 
 def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = None, exempt: str | None = None, no_tap: bool = False) -> dict:
-    """Register a PR on its job from its GitHub read, refused as `drive pr add` refuses, keeping the title it read, so a PR merged and proved before the watch's next read is named by it; the PR as registered, the job's first in place of each wait on its change. `drive pr add` runs it, and `drive job report` for each PR a builder's READY or PUSHED names that no `drive pr add` registered, so every PR a result names lands as one its builder added does."""
+    """Register a PR on its job from its GitHub read, refused as `drive pr add` refuses, keeping the title it read, so a PR merged and proved before the watch's next read is named by it; the PR as registered, the job's first in place of each wait on its change. `drive pr add` runs it, and `drive job report` for each PR a builder's READY or PUSHED names that no `drive pr add` registered, so every PR a result names lands as one its builder added does, and for each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links. Someone else's PR no order of his names is refused before any check that would have its title or body edited."""
     url = state.pr_url(key)
-    refuse_an_unkinded_title(key, read, port_of)
-    refuse_third_person(key, read)
-    refuse_an_undrawn_show_me(name, key, read)
-    if port_of:
-        refuse_a_port_storing_data(key, port_of)
     known = state.load(name)
     added = find(known["jobs"], job_id, "job")
     author = read["author"]["login"]
     if why := state.foreign(key, author, [known["orders"][added["order"]]]):
         raise DriveError(f"{key}: refused, nothing added: {why}")
+    refuse_an_unkinded_title(key, read, port_of)
+    refuse_third_person(key, read)
+    refuse_an_undrawn_show_me(name, key, read)
+    if port_of:
+        refuse_a_port_storing_data(key, port_of)
     if (exempt or no_tap) and (incidents := state.open_incidents(known, [added["order"], *added["carries"]])):
         refuse_an_exempt_revert(known, key, incidents[0], read, f"Add it waiting on his tap with drive pr add {url} --job {job_id}. ")
     with state.edit(name) as data:
