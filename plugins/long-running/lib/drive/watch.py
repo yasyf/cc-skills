@@ -352,10 +352,15 @@ def close_report_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def reported(watcher: Watcher, records: list[dict]) -> list[str]:
-    """Post the watch's reports in one cci batch, each addressed to the communicator, whose handlers post them, so no coordinator's or the meta session's channel carries one; their seqs."""
+    """Post the watch's reports in one cci batch, each addressed to the communicator, whose handlers post them, so no coordinator's or the meta session's channel carries one, and mark each order a report closes closed on its seq unless another report closes it already, so second_close refuses every later close of it; their seqs."""
     from drive import tools
 
-    return tools.sent(watcher.name, LANE, [record | {"to": [f"communicator@{watcher.name}"]} for record in records])
+    seqs = tools.sent(watcher.name, LANE, [record | {"to": [f"communicator@{watcher.name}"]} for record in records])
+    if closes := [(order_id, seq.removeprefix("#")) for record, seq in zip(records, seqs, strict=True) for order_id in state.closed_orders(record.get("attr") or {})]:
+        with state.edit(watcher.name) as data:
+            for order_id, seq in closes:
+                data["orders"][order_id]["closed_on"] = data["orders"][order_id]["closed_on"] or seq
+    return seqs
 
 
 def closed(watcher: Watcher, head: str, links: list[str], moment: datetime) -> list[str]:

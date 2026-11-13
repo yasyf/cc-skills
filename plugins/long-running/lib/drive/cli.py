@@ -906,7 +906,7 @@ def communicators_order(data: dict, order_id: str) -> dict:
 
 def report_refusal(data: dict, order_id: str, report: dict) -> str | None:
     """Why a report may deliver or close nothing on an order, the one check say, order posted and order set --state done share: another report already closes the order, or the drive's session that wrote it does not hold the order. Only the communicator's side posts, so the refusal names the report its handler passes instead: the holder's, which on the communicator's own order the handler writes itself from the communicator's lane."""
-    if refused := second_close(data, order_id, report):
+    if refused := state.second_close(data, order_id, report):
         return refused
     writer = state.LANE_ROLES.get(report.get("writer") or "")
     holder = data["orders"][order_id]["owner"] if order_id in data["orders"] else None
@@ -921,21 +921,13 @@ def report_refusal(data: dict, order_id: str, report: dict) -> str | None:
     return f"refused, the report is the {state.title(writer)}'s and {order_id} is the {state.title(holder)}'s order, so it delivers nothing there: {carried}, or post with no record, a progress line"
 
 
-def second_close(data: dict, order_id: str, report: dict) -> str | None:
-    """Why a report closing an order closes nothing: another report already closes it, claimed by say before its post went out or by drive order set, so he reads one close of each order whoever wrote the second, such as the watch's close report and the meta session's on one DONE."""
-    closer = data["orders"][order_id]["closed_on"] if order_id in data["orders"] else None
-    if closer is None or closer == report.get("seq") or order_id not in state.closed_orders(report):
-        return None
-    return f"refused, report {closer} already closes {order_id}, so this second close of it posts nothing: return NOTHING {order_id} closes on report {closer}"
-
-
 def claim_close(name: str, report: dict) -> list[str]:
-    """Claim each order the report closes for it under the drive's lock, just before say posts it, so of two reports closing one order at once only the first posts and second_close refuses the other; the orders claimed, which a post that fails gives back."""
+    """Claim each order the report closes for it under the drive's lock, just before say posts it, so of two reports closing one order at once only the first posts and second_close refuses the other; the orders claimed, which a post that fails gives back, never one the watch's post of this report already marked."""
     if not state.closed_orders(report):
         return []
     with state.edit(name) as data:
-        closes = [order_id for order_id in state.closed_orders(report) if order_id in data["orders"]]
-        if refused := next(filter(None, (second_close(data, order_id, report) for order_id in closes)), None):
+        closes = [order_id for order_id in state.closed_orders(report) if order_id in data["orders"] and data["orders"][order_id]["closed_on"] != report["seq"]]
+        if refused := next(filter(None, (state.second_close(data, order_id, report) for order_id in closes)), None):
             raise DriveError(f"nothing posted: {refused}")
         for order_id in closes:
             data["orders"][order_id]["closed_on"] = report["seq"]
