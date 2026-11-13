@@ -4602,11 +4602,17 @@ def parser() -> argparse.ArgumentParser:
     job = verbs.add_parser("job", help="background agents").add_subparsers(dest="action", required=True)
     verb = job.add_parser(
         "add",
-        parents=[*both, builds_opt],
+        parents=both,
         help=(
             "start a job on an order's parts: prints its id, then each job still running or waiting on one of those parts;"
             " a builder or codex job beside a running one on a part is refused, but on an incident, with --lands or waiting on it"
         ),
+    )
+    verb.add_argument(
+        "--builds-nothing",
+        action="store_true",
+        default=None,
+        help="a builder whose whole work holds no checkout or compiler, such as a merged PR's live proof or a read: it holds no slot of this Mac's builder cap and starts here at once",
     )
     verb.add_argument("kind", type=job_kind, choices=state.JOB_KINDS, help="what the job is; designer, its agent type's name, is design")
     verb.add_argument("--order", required=True, help="the order whose parts it delivers")
