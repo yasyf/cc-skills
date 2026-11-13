@@ -18,7 +18,7 @@ import quiet_turn
 import scratch_folder
 import session_start
 from conftest import RESEARCH, SHORT_ASK, Answers, Jev, WatchProcess
-from drive import agents, cli, land, place, render, settled, state, tools
+from drive import agents, brief, cli, land, place, render, settled, state, tools
 
 Run = Callable[..., tuple[int, str]]
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -1027,14 +1027,10 @@ def ran(step: dict, *calls: tuple[str, bool]) -> dict:
     return step
 
 
-def test_a_drive_job_starts_only_its_briefs_release_and_only_after_a_plan_at_its_flags_passed(
-    demo: str, run: Run, tmp_path: Path, no_calls: list[list[str]], capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_a_drive_job_starts_only_its_briefs_release_and_only_after_a_plan_at_its_flags_passed(demo: str, run: Run, tmp_path: Path, no_calls: list[list[str]]) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "hotfix only the cloud runner and executor images")
     where = ("--serves", "his order", "--done-when", "live", "--where", "Forge-AI/monorepo dev")
-    assert cli.main(["job", "brief", "j1", *where, "--release", UNENVED_START]) == 2
-    assert capsys.readouterr().err.strip() == "drive: j1: --release names a start with no --env, which ships to every env its targets reach: name its --env"
     code, out = run("job", "brief", "j1", *where, "--release", BRIEFED_HOTFIX)
     assert code == 0
     step = stepped(tmp_path, out)
@@ -1062,6 +1058,43 @@ def test_a_drive_job_starts_only_its_briefs_release_and_only_after_a_plan_at_its
     assert landing_guard.deny_reason(bash("go/ci/.build/ci.dev release cancel dazzling-kools") | remote) == landing_guard.RELEASE_CANCEL
     assert landing_guard.deny_reason(bash(BRIEFED_HOTFIX) | {"session_id": "session-under-test"}) is None
 
+J2666_START = "go/ci/.build/ci.dev release start platform runtime-api-next restate --order 5419ffd"
+CLOCK_PICK = {
+    "id": "5419ffd" + "0" * 33,
+    "title": "How should the merged clock and its CLOCK_URL reach production?",
+    "body": "Wait for green dev tests and the landing order, then one normal release with clock schedules",
+    "tags": ["scope:durable"],
+}
+
+
+def test_a_jobs_release_is_approved_once_at_its_brief_and_starts_as_its_release_line_names_it_with_no_envs_listed(
+    demo: str, run: Run, tmp_path: Path, no_calls: list[list[str]], recorded: Answers, jev: Jev, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the clock")
+    run("job", "add", "builder", "--order", "o1", "--goal", "release the merged clock to production")
+    where = ("--serves", "his order", "--done-when", "live", "--where", "Forge-AI/monorepo dev")
+    recorded.shown = {answer["id"][:7]: answer for answer in (CLOCK_PICK, PR_TAP)}
+    assert cli.main(["job", "brief", "j1", *where, "--release", J2666_START.replace("5419ffd", "ac61348")]) == 2
+    assert capsys.readouterr().err.strip() == (
+        'drive: j1: refused: `--order ac61348` names his answer to "Tap: #50203, canary diagnostics on the search", "Approve at 4aca314",'
+        f" and Jev does not read it as approving this release. {brief.RELEASE_APPROVAL}"
+    )
+    jev.picks("5419ffd")
+    code, out = run("job", "brief", "j1", *where, "--release", J2666_START)
+    assert code == 0
+    assert jev.asked[-1]["state"] == {
+        "action": f"start this production release: `{J2666_START}`",
+        "answers": [{"id": "5419ffd", "asked": CLOCK_PICK["title"], "said": CLOCK_PICK["body"]}],
+    }
+    asked = len(jev.asked)
+    jev.picks("none")
+    step = ran(stepped(tmp_path, out), ("go/ci/.build/ci.dev release plan platform runtime-api-next restate", False))
+    assert landing_guard.deny_reason(bash(J2666_START) | step) is None
+    assert len(jev.asked) == asked
+    for command in (J2666_START.replace("5419ffd", "7fe7efc"), J2666_START.removesuffix(" --order 5419ffd")):
+        assert landing_guard.deny_reason(bash(command) | step) == landing_guard.RELEASE_UNBRIEFED.format(job="j1", named=f"`{J2666_START}`", command=command)
+
+
 RELEASE_PICK = {"id": "5d0c4a1" + "0" * 33, "title": "Release the memory fix to production now?", "body": "Release now (Recommended)", "tags": ["scope:durable"]}
 INCIDENT_ORDER = {"id": "9e1f2b3" + "0" * 33, "title": "sand runs fail on core-usw2", "body": "runs are failing, fix it", "tags": ["scope:durable", "drive:demo", "incident"]}
 PR_TAP = {"id": "ac61348" + "0" * 33, "title": "Tap: #50203, canary diagnostics on the search", "body": "Approve at 4aca314", "tags": ["scope:durable"]}
@@ -1084,10 +1117,9 @@ def test_a_drive_starts_a_release_on_order_naming_an_incidents_answer_or_one_jev
     assert landing_guard.deny_reason(bash(start.format("9e1f2b3")) | top) is None
     assert len(jev.asked) == 1
     jev.picks("none")
-    refused = landing_guard.deny_reason(bash(start.format("ac61348")) | top)
-    assert refused.startswith(
+    assert landing_guard.deny_reason(bash(start.format("ac61348")) | top) == (
         'refused: `--order ac61348` names his answer to "Tap: #50203, canary diagnostics on the search", "Approve at 4aca314", and Jev'
-        " does not read it as approving this release. A release starts only on his order to release it"
+        f" does not read it as approving this release. {brief.RELEASE_APPROVAL}"
     )
     jev.answer = None
     assert landing_guard.deny_reason(bash(start.format("ac61348")) | top).startswith(

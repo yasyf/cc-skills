@@ -2,7 +2,7 @@ import re
 import sys
 from pathlib import Path
 
-from drive import limits, state
+from drive import limits, settled, state
 from drive.render import cut
 from drive.shell import simple_commands
 
@@ -81,8 +81,14 @@ INCIDENT = re.compile(r"^Incident:", re.MULTILINE)
 CI_BINARIES = frozenset({"ci", "ci.dev"})
 RELEASE_STARTS = ("start", "hotfix")
 RELEASE_VALUED = frozenset({"groups", "targets", "hotfix", "landed", "exclude", "only", "without", "env", "from", "order"})
-RELEASE_ASIDE = frozenset({"order", "json"})
+RELEASE_ASIDE = frozenset({"json"})
+PLAN_ASIDE = frozenset({"order"})
 COMMIT_PICKS = frozenset({"from", "green"})
+RELEASE_APPROVAL = (
+    "A release starts only on words of his ordering it, whatever card or thread they answer, or on an incident's order, the"
+    " answer labelled incident, whose words approve the incident's own cut. Name in `--order` the answer `drive answer`"
+    " recorded for those words, or ask him with `drive job ask` whether to release"
+)
 PULL_WORDS = re.compile(r"(?:#?\d+,?)+")
 NAMES = re.compile(r"[,\s]+")
 
@@ -117,8 +123,13 @@ def release_flags(words: list[str]) -> dict[str, tuple[str, ...]] | None:
 
 
 def release_scope(flags: dict[str, tuple[str, ...]]) -> dict[str, tuple[str, ...]]:
-    """What a release's flags ship and to which envs, leaving out the commit it picks."""
+    """What a release's flags ship, to which envs and on which answer of his, leaving out the commit it picks."""
     return {name: values for name, values in flags.items() if name not in COMMIT_PICKS}
+
+
+def plan_flags(flags: dict[str, tuple[str, ...]]) -> dict[str, tuple[str, ...]]:
+    """A release's flags as the plan before its start is matched on them, leaving out the --order its start names."""
+    return {name: values for name, values in flags.items() if name not in PLAN_ASIDE}
 
 
 def started(command: str) -> list[dict[str, tuple[str, ...]]]:
@@ -127,13 +138,29 @@ def started(command: str) -> list[dict[str, tuple[str, ...]]]:
 
 
 def release_refusal(command: str) -> str | None:
-    """Why a brief's Release line names no release a job may start: it is not one `ci release start` or `hotfix`, or a start leaving out --env, which then ships to every env its targets reach."""
+    """Why a brief's Release line names no release a job may start: it is not one `ci release start` or `hotfix`."""
     named = started(command)
     if len(named) != 1:
-        return f"--release names {len(named)} releases: name the one `tools/ci release start` or `tools/ci release hotfix` the job may run, with its targets and --env as it runs them"
-    if "hotfix" not in named[0] and "env" not in named[0]:
-        return "--release names a start with no --env, which ships to every env its targets reach: name its --env"
+        return f"--release names {len(named)} releases: name the one `tools/ci release start` or `tools/ci release hotfix` the job may run, with its flags as it runs them"
     return None
+
+
+def approval_refusal(command: str, cwd: str) -> str | None:
+    """Why the one release a command starts may not start on the answer of his its --order names: it is no incident's order, and Jev does not read it as his order or pick to release, or gave no answer; None for a release naming no --order."""
+    [flags] = started(command)
+    if not (orders := flags.get("order")):
+        return None
+    answer_id = orders[-1]
+    try:
+        answer = settled.shown(answer_id, cwd)
+        if settled.INCIDENT in answer["tags"] or settled.approving(f"start this production release: `{command}`", {"id": answer_id, "asked": answer["title"], "said": answer["body"]}):
+            return None
+    except state.DriveError as error:
+        return f"refused: `--order {answer_id}` names no answer of his that could be read: {error}. {RELEASE_APPROVAL}"
+    except settled.Unheard as failure:
+        return f"refused: Jev did not say whether his answer {answer_id} approves this release ({failure}); run it again once Jev answers. {RELEASE_APPROVAL}"
+    asked, said = cut(answer["title"], 200), cut(answer["body"], settled.QUOTED_CHARS)
+    return f'refused: `--order {answer_id}` names his answer to "{asked}", "{said}", and Jev does not read it as approving this release. {RELEASE_APPROVAL}'
 
 
 def gives_tooling(job_id: str, order_id: str) -> str:
