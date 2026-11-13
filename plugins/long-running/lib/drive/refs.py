@@ -2,7 +2,7 @@ import json
 import re
 from pathlib import Path
 
-from drive import dashboard, picture, reads, render, settled, state, view
+from drive import agents, dashboard, picture, reads, render, settled, state, view
 from drive.limits import REF
 from drive.state import DriveError
 
@@ -232,9 +232,12 @@ def posted_at(name: str, seq: str) -> dict:
 
 def shown(name: str, kind: str, seq: str) -> dict:
     try:
-        return json.loads(reads.run(["cci", "show", seq, "--json", "--drive", name], Path.cwd()))
-    except reads.ReadError as error:
+        record = agents.shown(seq)
+    except DriveError as error:
         raise DriveError(f"{{{kind}:{seq}}} could not be read: {error}") from None
+    if record["drive"] != name:
+        raise DriveError(f"{{{kind}:{seq}}} could not be read: #{seq} is on drive {record['drive']}, not {name}")
+    return record
 
 
 def opening(text: str) -> str:

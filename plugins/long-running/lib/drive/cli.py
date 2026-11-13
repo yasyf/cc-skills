@@ -789,10 +789,7 @@ def need_record_close(data: dict, order_id: str, seq: str | None, dropped_with_n
 
 def report_attrs(seq: str) -> dict:
     """The attrs of a record, read from cci: a report's close, part, job and catch_up, with the lane that wrote it as its writer, when as written, for a correction the record it corrects, and as asked the channel and thread of the message of his it answers, followed up its re chain."""
-    try:
-        record = json.loads(reads.run(["cci", "show", seq, "--json"], Path.cwd()))
-    except reads.ReadError as error:
-        raise DriveError(f"record {seq} could not be read: {error}") from None
+    record = agents.shown(seq)
     corrects = {"corrects": str(record["re"])} if record["kind"] == "correction" and record.get("re") else {}
     asked = {"asked": thread} if record.get("re") and (thread := agents.asked_thread([str(record["re"])])) else {}
     return record["fields"].get("attrs", {}) | {"writer": record["lane"], "written": record["at"]} | corrects | asked

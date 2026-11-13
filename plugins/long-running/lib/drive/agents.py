@@ -52,6 +52,7 @@ TYPED_TIME_RULE = (
     " come, a time quoted as a tool printed it and a linked time pass, a release's, build's or deploy's start only on the line"
     " linking the build or tool it was quoted from."
 )
+RECORDS: dict[str, dict] = {}
 
 
 class Ruled(str):
@@ -208,10 +209,26 @@ def asked_thread(seqs: Iterable[str]) -> tuple[str, str] | None:
 
 
 def shown(seq: str) -> dict:
+    """A cci record by its seq, read once a process, since a record never changes once posted."""
+    if seq not in RECORDS:
+        try:
+            RECORDS[seq] = json.loads(reads.run(["cci", "show", seq, "--json"], Path.cwd()).splitlines()[0])
+        except reads.ReadError as error:
+            raise state.DriveError(f"record {seq} could not be read: {error}") from None
+    return RECORDS[seq]
+
+
+def prefetch(seqs: Iterable[str]) -> None:
+    """Read each of these records not read yet in one cci show, so a call naming several pays for one; one that cannot be read is left to `shown`, which names it."""
+    if not (wanted := [seq for seq in dict.fromkeys(seqs) if seq not in RECORDS]):
+        return
     try:
-        return json.loads(reads.run(["cci", "show", seq, "--json"], Path.cwd()).splitlines()[0])
-    except reads.ReadError as error:
-        raise state.DriveError(f"record {seq} could not be read: {error}") from None
+        lines = reads.run(["cci", "show", *wanted, "--json"], Path.cwd()).splitlines()
+    except reads.ReadError:
+        return
+    for line in lines:
+        record = json.loads(line)
+        RECORDS[str(record["seq"])] = record
 
 
 def corrections(name: str, seqs: Iterable[str]) -> dict[str, list[str]]:

@@ -717,3 +717,9 @@ def detached_in_the_call(monkeypatch: pytest.MonkeyPatch) -> None:
         return detached(name, args, log)
 
     monkeypatch.setattr(state, "detach", detach)
+
+
+@pytest.fixture(autouse=True)
+def records_read_fresh(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Start each test with no cci record read yet, since a process keeps every record it read."""
+    monkeypatch.setattr(agents, "RECORDS", {})
