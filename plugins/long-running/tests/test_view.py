@@ -63,7 +63,7 @@ def pr(number: int, order_id: str, **overrides: object) -> tuple[str, dict]:
     entry = state.new_pr(url, "j1", order_id) | {"wants_tap": False, "title": f"New: \U0001f680 change {number}", "updated": at(-number)}
     entry |= {"checks": "pass", "review": "approved"} | overrides
     asks = entry["state"] == "open" and stage.carded(entry) and entry["checks"] == "pass" and not (entry["tap"] or entry["hold_label"] or entry["waits"])
-    drawn = {"stage": {"name": "card", "owner": stage.HIM, "why": "green, waits on his Approve", "since": at(-number), "woke": None}, "card": entry["card"] or f"{TEAM}archives/D123/p{number}"}
+    drawn = {"stage": {"name": "card", "owner": stage.HIM, "why": "green, waits on his Approve", "since": at(-number), "woke": None}}
     kept = drawn if asks and "stage" not in overrides else {}
     return f"yasyf/cc-skills#{number}", entry | kept
 
@@ -76,6 +76,11 @@ def drive_of(orders: dict, jobs: dict, prs: list[tuple[str, dict]]) -> dict:
 
 def found(questions: list[dict] = (), pr_cards: list[dict] = (), closed: list[dict] = ()) -> dict:
     return {"team_url": TEAM, "questions": list(questions), "pr_cards": list(pr_cards), "closed": list(closed)}
+
+
+def pr_card(number: int, minutes: int) -> dict:
+    url = f"https://github.com/yasyf/cc-skills/pull/{number}"
+    return {"prs": [url], "asked": at(minutes), "url": f"{TEAM}archives/D123/p{number}0", "card": {"title": f"New: approve change {number}?", "options": ["Approve", "Hold"], "prs": [{"url": url}]}}
 
 
 def question(title: str, minutes: int, waits: str | None = None) -> dict:
@@ -181,34 +186,30 @@ def test_queue_ranks_late_promises_then_what_lands_most_then_the_oldest_wait() -
     )
     drawn = {"title": "Fix: approve change 3?", "options": ["Approve", "Hold"], "prs": [{"url": "https://github.com/yasyf/cc-skills/pull/3", "refresher": "One key"}]}
     card = {"prs": ["https://github.com/yasyf/cc-skills/pull/3"], "asked": at(-50), "url": f"{TEAM}archives/D123/p3", "card": drawn}
-    queue = view.build(data, found([question("Release now?", -20)], [card]), T0)["queue"]
+    queue = view.build(data, found([question("Release now?", -20)], [card, pr_card(7, -7)]), T0)["queue"]
     assert [(item["kind"], item["title"]) for item in queue] == [
         ("late", "promised earlier"),
         ("late", "promised later"),
         ("tap", "change 3"),
         ("tap", "change 7"),
-        ("tap", "change 1"),
         ("question", "Release now?"),
     ]
-    assert [item["priority"]["rank"] for item in queue] == list(range(1, 7))
-    assert [item["priority"]["overdue"] for item in queue] == [True, True, False, False, False, False]
-    assert [item["priority"]["weight"] for item in queue] == [0, 0, 2, 2, 2, 0]
+    assert [item["priority"]["rank"] for item in queue] == list(range(1, 6))
+    assert [item["priority"]["overdue"] for item in queue] == [True, True, False, False, False]
+    assert [item["priority"]["weight"] for item in queue] == [0, 0, 2, 2, 0]
     assert all(not item["priority"]["incident"] for item in queue)
-    assert queue[5]["detail"] == "Recommended: Yes"
-    assert (queue[5]["card"]["body"], queue[5]["answer"]) == ("Why it matters", f"{TEAM}archives/D123/p-20")
+    assert queue[4]["detail"] == "Recommended: Yes"
+    assert (queue[4]["card"]["body"], queue[4]["answer"]) == ("Why it matters", f"{TEAM}archives/D123/p-20")
     assert queue[2]["url"] == card["url"]
     assert (queue[2]["card"], queue[2]["answer"]) == (drawn, card["url"])
-    assert "answer" not in queue[4]
     assert queue[2]["links"] == [{"label": "Pull request", "url": "https://github.com/yasyf/cc-skills/pull/3"}]
-    assert (queue[4]["url"], queue[4]["since"], queue[4]["links"]) == ("https://github.com/yasyf/cc-skills/pull/1", None, [])
-    assert queue[3]["detail"] == "green, approved; changed since your tap: now deletes the old page; card, owed by him: green, waits on his Approve; no Slack card yet"
+    assert queue[3]["detail"] == "green, approved; changed since your tap: now deletes the old page; card, owed by him: green, waits on his Approve"
     assert queue[0]["url"] == f"{TEAM}archives/D123/p1794200000000100"
     assert [item["rank_why"] for item in queue] == [
         f"past due since {when(at(-90))}",
         f"past due since {when(at(-10))}",
         f"lands 1 PR; waiting since {when(at(-50))}",
         f"lands 1 PR; waiting since {when(at(-7))}",
-        f"lands 1 PR; waiting since {when(at(-1))}",
         f"waiting since {when(at(-20))}",
     ]
     assert [(item["tasks"], item["project"], item["workstream"]) for item in queue[1:3]] == [(["o3"], None, None), (["o1"], "Drive", "Dashboard")]
@@ -383,7 +384,7 @@ def test_a_small_drive_draws_its_counts_then_a_table_for_each_part_that_has_rows
         {"j1": job("o1", "running", "drawing it"), "j2": job("o2", "waiting", "CI runs")},
         [pr(1, "o1", wants_tap=True), pr(2, "o2", state="merged"), pr(3, "o2", checks="fail", wants_tap=False)],
     )
-    model = view.build(data, found([question("Release now?", -20)]), T0)
+    model = view.build(data, found([question("Release now?", -20)], [pr_card(1, -1)]), T0)
     markdown = page.render(model, DASHBOARD)
     thread = "https://acme.slack.com/archives/D123/p1794200000000100"
     first = "[#1](https://github.com/yasyf/cc-skills/pull/1)"
@@ -398,7 +399,7 @@ def test_a_small_drive_draws_its_counts_then_a_table_for_each_part_that_has_rows
         "## ✅ Finished (1)",
     ]
     assert f"| [Release now?](https://acme.slack.com/archives/D123/p-20) | — | {when(at(-20))} | Yes |" in markdown
-    assert f"| [change 1](https://github.com/yasyf/cc-skills/pull/1) · {first} | 🟢 green, approved; card, owed by him: green, waits on his Approve; no Slack card yet | — |" in markdown
+    assert f"| [change 1]({TEAM}archives/D123/p10) · {first} | 🟢 green, approved; card, owed by him: green, waits on his Approve | {when(at(-1))} |" in markdown
     assert "| **No project** | 1 | 1 | · | · | · | · | 1 |" in markdown
     assert f"| [wait for CI]({thread}) | — | CI runs | 🔴 [#3](https://github.com/yasyf/cc-skills/pull/3) 1 merged |" in markdown
     assert f"| [ship the page]({thread}) | — | drawing it | 🟢 {first} |" in markdown
@@ -467,7 +468,7 @@ def big_drive(orders: int, jobs: int, questions: int, taps: int, late: int) -> t
         question(f"{words}, now or after the release cut tonight? {n}", -n) | {"url": f"{TEAM}archives/D0C4HQWPLCC/p17942{n:08d}?thread_ts=1794224280.936909&cid=D0C4HQWPLCC"}
         for n in range(questions)
     ]
-    return drive_of(drive_orders, drive_jobs, prs), found(asked)
+    return drive_of(drive_orders, drive_jobs, prs), found(asked, [pr_card(n, -n) for n in range(1, taps + 1)])
 
 
 def test_a_big_drive_draws_every_section_at_most_eight_rows_and_counts_the_rest_on_the_dashboard() -> None:
@@ -695,7 +696,7 @@ def test_cards_an_older_cc_slack_lists_with_no_closed_field_read_as_none_closed(
     assert (listed, source) == (found(), "live")
     assert view.card_words(listed, source, gone) == f"card {gone}, which cc-slack no longer keeps"
     assert view.card_words(listed, source, "demo:j1-1") == "card demo:j1-1 never drawn"
-    assert view.pr_card_words(listed, source, "https://github.com/acme/app/pull/43") is None
+    assert view.pr_card_words(listed, source, state.new_pr("https://github.com/acme/app/pull/43", "j1", "o1")) is None
 
 
 def test_review_lists_every_open_pr_by_whether_it_waits_on_him_and_carries_its_card_and_its_thread() -> None:
@@ -729,15 +730,12 @@ def test_review_says_his_approve_queues_a_green_monorepo_pr_with_no_tap_at_once(
     assert review["approve_waits"] == ""
 
 
-def test_a_pr_card_carrying_a_stack_is_one_queue_item_and_each_card_less_pr_is_its_own() -> None:
+def test_a_pr_card_carrying_a_stack_is_one_queue_item_and_a_card_less_pr_is_no_tap_of_his() -> None:
     data = drive_of({"o1": order("ship the page", ["j1"])}, {"j1": job("o1", "running")}, [pr(n, "o1", wants_tap=True) for n in (1, 2, 3)])
     urls = [f"https://github.com/yasyf/cc-skills/pull/{n}" for n in (1, 2)]
     card = {"prs": urls, "asked": at(-50), "url": f"{TEAM}archives/D123/p1794200000000100", "card": {"title": "Fix: approve the stack?", "options": ["Approve", "Hold"], "prs": [{"url": url} for url in urls]}}
     queue = view.build(data, found(pr_cards=[card]), T0)["queue"]
-    assert [(item["kind"], item.get("answer"), item["url"]) for item in queue] == [
-        ("tap", card["url"], card["url"]),
-        ("tap", None, "https://github.com/yasyf/cc-skills/pull/3"),
-    ]
+    assert [(item["kind"], item.get("answer"), item["url"]) for item in queue] == [("tap", card["url"], card["url"])]
 
 
 def test_a_card_of_sibling_prs_in_his_queue_is_titled_as_the_card_and_names_the_pr_its_pane_opens_whichever_waits_on_him_last() -> None:
@@ -767,17 +765,17 @@ def test_a_stack_card_in_his_queue_carries_each_of_its_prs_as_it_stands_now_in_t
 
 
 REPLAYED_TAPS = {
-    "Forge-AI/monorepo#55451": ("ced18ce6af0fb56617cf2c1a40ed78ca08441a77", "2026-11-13T00:08:20-08:00", "p1794539745884569"),
-    "Forge-AI/monorepo#55464": ("996c1360a9fa0eb843b87dece9cc4f8d2e8b1a7d", "2026-11-13T00:08:42-08:00", "p1794539760095039"),
+    "Forge-AI/monorepo#55451": ("ced18ce6af0fb56617cf2c1a40ed78ca08441a77", "2026-11-13T00:08:20-08:00"),
+    "Forge-AI/monorepo#55464": ("996c1360a9fa0eb843b87dece9cc4f8d2e8b1a7d", "2026-11-13T00:08:42-08:00"),
 }
 
 
 def test_a_pr_he_approved_on_the_dashboard_leaves_every_queue_at_once_though_the_watch_still_keeps_it_waiting_on_his_card() -> None:
     rows = []
-    for key, (head, tapped, card) in REPLAYED_TAPS.items():
+    for key, (head, tapped) in REPLAYED_TAPS.items():
         _, entry = pr(1, "o1", wants_tap=True)
         tap = {"label": "Approve", "at": tapped, "head": head, "source": "answered on the dashboard"}
-        rows.append((key, entry | {"url": state.pr_url(key), "head": head, "card": f"https://poetic-technology.slack.com/archives/D0C4HQWPLCC/{card}", "tap": tap}))
+        rows.append((key, entry | {"url": state.pr_url(key), "head": head, "tap": tap}))
     data = drive_of({"o1": order("land the journal fixes", ["j1"])}, {"j1": job("o1", "waiting")}, rows)
     assert {key: entry["stage"]["name"] for key, entry in data["prs"].items()} == dict.fromkeys(REPLAYED_TAPS, "card")
     moment = state.parse_time("2026-11-13T00:09:00-08:00")
@@ -1056,16 +1054,19 @@ def test_a_question_card_cc_slacks_store_forgot_reads_as_the_drives_question_sta
     assert view.question_card_words(None, "unavailable: not signed in", asked) == "his cards could not be read (unavailable: not signed in)"
 
 
-def test_pr_card_words_name_his_open_tap_card_a_tap_on_a_redrawn_one_or_none() -> None:
-    pr, other = "https://github.com/acme/app/pull/41", "https://github.com/acme/app/pull/42"
-    first, again = f"{TEAM}archives/D123/p1794448525433989", f"{TEAM}archives/D123/p1794479611192239"
-    tapped = closed(again, -10, "merge:acme/app:41", [pr], answer={"label": "Approve", "at": at(-5)}, tapped="✓ Approve")
-    withdrawn = closed(first, -60, "merge:acme/app:41", [pr], answer={"label": "a new head", "at": at(-59), "withdrawn": True}, replaced_by=again)
-    ledger = found(pr_cards=[{"prs": [other], "asked": at(-30), "url": f"{TEAM}archives/D123/p1794454407770969", "card": {"waits": "merge:acme/app:42"}}], closed=[withdrawn, tapped])
-    assert view.pr_card_words(ledger, "live", other) == f"card {TEAM}archives/D123/p1794454407770969 open since {when(at(-30))}"
+def test_pr_card_words_name_his_open_tap_card_at_its_head_one_at_an_older_head_by_that_head_a_tap_on_a_redrawn_one_or_none() -> None:
+    pr = state.new_pr("https://github.com/acme/app/pull/41", "j1", "o1") | {"head": "a1b2c3d4e5f6"}
+    other = state.new_pr("https://github.com/acme/app/pull/42", "j1", "o1") | {"head": "f6e5d4c3b2a1"}
+    first, again, shown = (f"{TEAM}archives/D123/p{ts}" for ts in (1794448525433989, 1794479611192239, 1794454407770969))
+    tapped = closed(again, -10, "merge:acme/app:41", [pr["url"]], answer={"label": "Approve", "at": at(-5)}, tapped="✓ Approve")
+    withdrawn = closed(first, -60, "merge:acme/app:41", [pr["url"]], answer={"label": "a new head", "at": at(-59), "withdrawn": True}, replaced_by=again)
+    card = {"prs": [other["url"]], "asked": at(-30), "url": shown, "card": {"waits": "merge:acme/app:42", "prs": [{"url": other["url"], "head": other["head"]}]}}
+    ledger = found(pr_cards=[card], closed=[withdrawn, tapped])
+    assert view.pr_card_words(ledger, "live", other) == f"card {shown} open since {when(at(-30))}"
+    assert view.pr_card_words(ledger, "live", other | {"head": "0123456789ab"}) == "his open card on it shows f6e5d4c rather than its head 0123456"
     assert view.pr_card_words(ledger, "live", pr) == f'card {again} answered "Approve" at {when(at(-5))}'
     assert view.pr_card_words(found(closed=[withdrawn]), "live", pr) == f"card {first} withdrawn at {when(at(-59))}: a new head, redrawn as card {again}, which cc-slack no longer keeps"
-    assert view.pr_card_words(ledger, "live", "https://github.com/acme/app/pull/43") is None
+    assert view.pr_card_words(ledger, "live", state.new_pr("https://github.com/acme/app/pull/43", "j1", "o1")) is None
 
 
 def test_a_task_is_named_by_its_short_title_with_his_words_whole_and_an_untitled_order_by_its_first_words() -> None:
@@ -1101,7 +1102,8 @@ def test_a_line_too_long_for_its_row_ends_on_a_whole_word() -> None:
 def test_a_task_header_names_what_it_waits_on_and_agrees_with_the_state_it_shows(order_state: str, jobs: dict, prs: dict | None, state_shown: str, waits_on: dict) -> None:
     made = {job_id: job("o1", job_state, goal=goal, updated=-10 * n) for n, (job_id, (job_state, goal)) in enumerate(jobs.items(), 1)}
     data = drive_of({"o1": order("ship it", list(jobs), state=order_state)}, made, [] if prs is None else [pr(7, "o1", **prs)])
-    [entry] = [entry for group in view.board(data, found(), "live", [], T0, set(), {})["status"] for entry in group["features"]]
+    cards = found(pr_cards=[pr_card(7, -7)] if prs and prs.get("wants_tap") else [])
+    [entry] = [entry for group in view.board(data, cards, "live", [], T0, set(), {})["status"] for entry in group["features"]]
     assert entry["state"] == state_shown
     assert {key: value for key, value in entry["holdup"].items() if value and key != "url"} == waits_on
 

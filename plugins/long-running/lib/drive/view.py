@@ -199,11 +199,15 @@ def question_card_words(found: dict | None, source: str, question: dict) -> str:
     return f"card {card} {closed['how']}{said} at {when(closed['at'])}"
 
 
-def pr_card_words(found: dict | None, source: str, url: str) -> str | None:
-    """His newest card carrying the PR at url as cc-slack's store holds it now, open ones first; None when he never got one."""
+def pr_card_words(found: dict | None, source: str, pr: dict) -> str | None:
+    """His card on the PR as cc-slack's store holds it now: the open one at its head, an open one at an older head, named by the head it shows and never by its link, since a tap on it is not his tap on this head, or else the newest closed one; None when he never got one."""
     if found is None:
         return f"his cards could not be read ({source})"
-    shown = card_for(found["pr_cards"], url) or card_for(found["closed"], url)
+    if shown := head_card(pr, found["pr_cards"]):
+        return card_words(found, source, shown["url"])
+    if shown := card_for(found["pr_cards"], pr["url"]):
+        return f"his open card on it shows {shown_heads(shown, pr)} rather than its head {pr['head'][:7]}"
+    shown = card_for(found["closed"], pr["url"])
     return shown and card_words(found, source, shown["url"])
 
 
@@ -298,10 +302,19 @@ def wait_words(drive: dict, wait: str, found: dict | None) -> str:
 
 
 def tap_card(pr: dict, found: dict | None) -> str | None:
-    """The link of his card on the PR while it offers him Approve: the PR waits on his tap and cc-slack does not keep that card closed_in_place(), as it does from the redraw that took Approve off it until a redraw opens it again; with his cards unread, the card kept on the PR."""
-    if not (pr["card"] and state.asks_tap(pr)) or found is not None and closed_in_place(found, pr["card"]):
+    """The link of his card a tap on lands the PR, which every line naming his card on it reads: while the PR waits on his tap, his open card at its head; None with his cards unread."""
+    if found is None or not state.asks_tap(pr):
         return None
-    return pr["card"]
+    shown = head_card(pr, found["pr_cards"])
+    return shown and shown["url"]
+
+
+def standing_card(pr: dict, found: dict) -> str | None:
+    """The link of his card on the PR that a redraw in place draws again: an open one at any head, or one cc-slack keeps closed_in_place(), as it does from the redraw that took Approve off it until a redraw opens it again; None once none stands, so the watch draws a fresh one."""
+    if shown := card_for(found["pr_cards"], pr["url"]):
+        return shown["url"]
+    closed = card_for(found["closed"], pr["url"])
+    return closed["url"] if closed and closed_in_place(found, closed["url"]) else None
 
 
 def pr_link(pr: dict) -> str:
@@ -385,27 +398,37 @@ def card_for(pr_cards: list[dict], url: str) -> dict | None:
     return next((card for card in reversed(pr_cards) if url in card["prs"]), None)
 
 
+def head_card(pr: dict, pr_cards: list[dict]) -> dict | None:
+    """His newest open card carrying the PR whose row shows its head."""
+    return next((card for card in reversed(pr_cards) if pr["url"] in card["prs"] and pr["head"] in card_heads(card, pr["url"])), None)
+
+
+def shown_heads(card: dict, pr: dict) -> str:
+    return ", ".join(head[:7] or "no head" for head in card_heads(card, pr["url"])) or "no head"
+
+
 def waits_on_tap(pr: dict) -> bool:
     """Whether the PR waits on his tap alone, as its stage on its row says: green and unapproved."""
     return pr["state"] == "open" and stage_name(pr) == "card"
 
 
 def tap_claim_refusal(data: dict, order_id: str, text: str, pr_cards: list[dict]) -> str | None:
-    """Why words say something waits on his tap or Approve when he has nothing to tap. A sentence saying so that links open tap cards is judged by them alone, each passing while every PR on it stands open at the head it shows, so a PR the sentence says shipped is never blamed. One linking none passes while each PR it names that owes his tap has its open tap card at its head linked in the words; when none of the PRs it names owes his tap, each is refused with why."""
+    """Why words say something waits on his tap or Approve when he has nothing to tap. A sentence saying so is judged by each open tap card it links, passing while every PR on it stands open at the head it shows, and by each PR it names that owes his tap, passing while the words link its open tap card at its head, by head_card(), so a PR the sentence says shipped is never blamed; one linking no card while none of the PRs it names owes his tap refuses each with why."""
     linked = set(SLACK_TS.findall(text))
     found = []
     for sentence in SENTENCE_BREAK.split(text):
         if not TAP_CLAIM.search(SLACK_LINK.sub(r"\1", sentence)):
             continue
         cited = set(SLACK_TS.findall(sentence))
-        if cards := [card for card in pr_cards if message_key(card["url"]) in cited]:
-            for card in cards:
-                for key in state.named_prs(data, order_id, " ".join(card["prs"])):
-                    pr = data["prs"][key]
-                    if pr["state"] != "open" or pr["head"] not in card_heads(card, pr["url"]):
-                        found.append(f"{key}: its tap card {card['url']}, which the words link, no longer stands: {limits.tap_owed_not(pr) or 'it moved past the head the card shows'}")
-            continue
+        cards = [card for card in pr_cards if message_key(card["url"]) in cited]
+        for card in cards:
+            for key in state.named_prs(data, order_id, " ".join(card["prs"])):
+                pr = data["prs"][key]
+                if pr["state"] != "open" or pr["head"] not in card_heads(card, pr["url"]):
+                    found.append(f"{key}: its tap card {card['url']}, which the words link, no longer stands: {limits.tap_owed_not(pr) or 'it moved past the head the card shows'}")
         owed = [key for key in state.named_prs(data, order_id, sentence) if not limits.tap_owed_not(data["prs"][key])]
+        if not owed and cards:
+            continue
         if not owed:
             for ref in dict.fromkeys(match[0] for match in state.PR_REF.finditer(sentence)):
                 keys = state.named_prs(data, order_id, ref)
@@ -413,8 +436,7 @@ def tap_claim_refusal(data: dict, order_id: str, text: str, pr_cards: list[dict]
             continue
         for key in owed:
             pr = data["prs"][key]
-            card = card_for(pr_cards, pr["url"])
-            if card is None or pr["head"] not in card_heads(card, pr["url"]):
+            if (card := head_card(pr, pr_cards)) is None:
                 found.append(f"{key}: no open tap card of his stands at its head")
             elif message_key(card["url"]) not in linked:
                 found.append(f"{key}: the words do not link its open tap card {card['url']}")
@@ -539,7 +561,7 @@ def is_late(order: dict, moment: datetime) -> bool:
 
 
 def queue(drive: dict, found: dict, moment: datetime, features: list[dict], answering: dict[str, str]) -> list[dict]:
-    taps = [(pr, card_for(found["pr_cards"], pr["url"])) for pr in drive["prs"].values() if waits_on_tap(pr)]
+    taps = [(pr, head_card(pr, found["pr_cards"])) for pr in drive["prs"].values() if waits_on_tap(pr)]
     taps = list({card["url"] if card else pr["url"]: (pr, card) for pr, card in taps}.values())
     waiting = waiting_on_him(drive, found)
     asker = asked_by(drive, found)
@@ -842,7 +864,7 @@ def history(drive: dict, events: Iterable[dict], team_url: str) -> list[dict]:
 
 
 def review_entry(key: str, pr: dict, drive: dict, found: dict) -> dict:
-    card = card_for(found["pr_cards"], pr["url"])
+    card = head_card(pr, found["pr_cards"])
     order = drive["orders"].get(pr["order"]) or {}
     job = drive["jobs"].get(pr["job"])
     group = "decided" if pr.get("tap") else "you" if waits_on_tap(pr) else "not ready"

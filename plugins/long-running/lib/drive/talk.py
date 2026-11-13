@@ -462,8 +462,8 @@ def status(name: str, post: dict, stack: list[str], pictures: list[str], sent: s
 
 
 def draw(name: str, keys: list[str], again: bool = False) -> str:
-    """Post his card on the PRs at his DM root and in no order's thread, under the line `waits_line` writes from their records, as drive pr add draws it on the row it makes and the watch on a PR still uncarded, or `again` on PRs that wait on him while they fix a live bug, keep it as a said event, and keep its link on each PR it carries; that link. A card drive card refuses for every one of them, or a line `plain` refuses, posts nothing and says why."""
-    from drive import card, stage
+    """Post his card on the PRs at his DM root and in no order's thread, under the line `waits_line` writes from their records, as drive pr add draws it on the row it makes and the watch on a PR still uncarded, or `again` on PRs that wait on him while they fix a live bug, keep it as a said event, and store his cards as cc-slack lists them now, which view.tap_card reads; its link. A card drive card refuses for every one of them, or a line `plain` refuses, posts nothing and says why."""
+    from drive import card
 
     drawn = card.cards([{"repo": key.split("#")[0], "number": int(key.split("#")[1])} for key in keys])
     if not drawn["cards"]:
@@ -476,12 +476,6 @@ def draw(name: str, keys: list[str], again: bool = False) -> str:
         name, "said", text=line, channel=None, thread=reply.get("thread_ts"), url=reply["permalink"], card=reply.get("card_permalink"), order=None, visuals=[], prs=keys, edited=False
     )
     view.refresh_cards(name)
-    found = view.live_cards(name)
-    with state.edit(name) as data:
-        for key in keys:
-            data["prs"][key]["card"] = link
-        if found is not None:
-            stage.settle(data, found)
     return link
 
 
@@ -512,11 +506,9 @@ def plain(line: str) -> None:
 
 
 def withdraw(name: str, key: str) -> list[str]:
-    """Withdraw each open card of his carrying a PR reworked to his words, his words its reason, and forget its link on the PR, so no card asks his tap on it until its builder's READY says how they are met and the watch draws a fresh one; each card withdrawn."""
+    """Withdraw each open card of his carrying a PR reworked to his words, his words its reason, so no card asks his tap on it until its builder's READY says how they are met and the watch draws a fresh one; each card withdrawn."""
     pr = state.load(name)["prs"][key]
     withdrawn = slack.withdraw_pr_card(pr["url"], state.rework_reason(pr))
-    with state.edit(name) as data:
-        data["prs"][key]["card"] = None
     view.refresh_cards(name)
     return withdrawn
 

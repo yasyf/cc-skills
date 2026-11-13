@@ -5008,7 +5008,7 @@ def test_pr_add_on_a_public_repo_takes_demo_pictures_and_draws_his_card_in_the_s
         "Follows yasyf/cc-skills#4146."
     )
     assert run("pr", "add", PR, "--job", "j1", *LEAD) == (0, f"Forge-AI/monorepo#42, his card {draws.link}")
-    assert (draws.keys, state.load("demo")["prs"]["Forge-AI/monorepo#42"]["card"]) == ([["Forge-AI/monorepo#42"]], draws.link)
+    assert (draws.keys, view.tap_card(state.load("demo")["prs"]["Forge-AI/monorepo#42"], view.live_cards("demo"))) == ([["Forge-AI/monorepo#42"]], draws.link)
 
 
 def test_pr_add_whose_card_draw_fails_registers_the_pr_uncarded_for_the_watch_to_draw(run: Run, demo: str, draws: Draws) -> None:
@@ -5031,7 +5031,7 @@ def test_a_builders_pushed_naming_a_pr_the_drive_does_not_track_registers_it_on_
     code, out = run("job", "report", "j1", "-")
     assert (code, out.splitlines()[1]) == (0, "yasyf/cc-skills#7: registered on j1")
     pr = state.load("demo")["prs"]["yasyf/cc-skills#7"]
-    assert (pr["job"], pr["card"], draws.keys) == ("j1", None, [])
+    assert (pr["job"], draws.keys) == ("j1", [])
 
 
 def test_a_builders_pushed_naming_an_untracked_pr_his_card_would_open_with_no_lead_is_refused_until_drive_pr_add_keeps_one(
@@ -5098,7 +5098,7 @@ def test_pr_set_no_tapped_drops_a_hold_the_drive_gave_itself_with_its_why(run: R
     assert state.load("demo")["prs"][with_pr]["tap"] is not None
     code, out = run("pr", "set", PR, "--no-tapped", "--why", "the release carrying its reader is live")
     assert code == 0
-    assert out.endswith(f"\ndropped the Hold the drive gave itself ({source}): the release carrying its reader is live")
+    assert out.endswith(f"\ndropped the Hold the drive gave itself ({source}): the release carrying its reader is live\nredrawing in place the 1 open card(s) of his carrying it, to drop the Hold the drive gave itself")
     pr = state.load("demo")["prs"][with_pr]
     assert (pr["tap"], pr["fundamental"]) == (None, None)
     assert run("pr", "tapped", PR) == (1, f"{with_pr}: no tap from him yet")
@@ -5402,7 +5402,8 @@ def test_pr_set_port_of_exempts_it_with_no_tap(run: Run, with_pr: str, on_github
     pr = state.load("demo")["prs"][with_pr]
     assert code == 0
     assert (pr["port_of"], pr["exempt"], pr["wants_tap"]) == (51234, "pure port", False)
-    assert "no tap needed, exempt: pure port of #51234; grading, owed by Buildkite and forge-pr-reviewer: " in out
+    assert "no tap needed, " in out
+    assert "exempt: pure port of #51234; grading, owed by Buildkite and forge-pr-reviewer: " in out
     assert withdrawals.asked == [(PR, "port of #51234, which lands with no tap")]
     assert run("pr", "tapped", PR) == (0, f"{with_pr}: exempt: pure port")
     assert run("pr", "set", PR, "--port-of", "51234", "--tap", "--serves", "o1", "--design", "none")[0] == 2
@@ -7374,7 +7375,8 @@ BACKFILL, ASK_JEV, UNSAID = settled.backfill, settled.jev, settled.unsaid
 
 def cards_asking(monkeypatch: pytest.MonkeyPatch, *prs: str) -> list[tuple[str, ...]]:
     question = {"question": "Which topology?", "options": ["Tree", "Ring"], "recommended": "Tree", "asked": state.stamp(), "url": DESIGN_CARD, "card": {"title": "Which topology?", "waits": "demo:j2-7"}}
-    tap = {"asked": state.stamp(), "url": TAP_CARD, "prs": list(prs), "card": {"title": "New: land it?", "waits": "merge:Forge-AI:monorepo:42"}}
+    heads = [{"url": url, "head": state.load("demo")["prs"][state.pr_key(url)]["head"]} for url in prs]
+    tap = {"asked": state.stamp(), "url": TAP_CARD, "prs": list(prs), "card": {"title": "New: land it?", "waits": "merge:Forge-AI:monorepo:42", "prs": heads}}
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [question], "pr_cards": [tap], "closed": []})
     view.refresh_cards("demo")
     with state.edit("demo") as data:
@@ -7826,22 +7828,18 @@ def test_his_answer_reopening_the_top_pr_of_a_two_pr_stack_card_cards_the_pr_it_
     stack = [designing, top]
     with state.edit("demo") as data:
         for key in stack:
-            data["prs"][key] |= {"native": stack, "stack": stack, "card": TAP_CARD, "head": "abc", "checks": "pass", "review": "approved"}
+            data["prs"][key] |= {"native": stack, "stack": stack, "head": "abc", "checks": "pass", "review": "approved"}
     for key in stack:
         native_stacks[key] = [(member, "open") for member in stack]
     withdrawals.cards = [TAP_CARD]
     assert cli.main(["answer", "8213afb", "--words", WORDS, "--link", PICK]) == 2
     code, out = run("answer", "8213afb", "--stands", designing, "--reopened", f"{top}=j3")
     assert (code, withdrawals.asked) == (0, [(top_url, state.rework_reason(state.load("demo")["prs"][top]))]), out
-    assert [state.load("demo")["prs"][key]["card"] for key in stack] == [TAP_CARD, None]
     gone = {"waits": "merge:Forge-AI:monorepo:42-44", "title": "New: land it?", "prs": [PR, top_url], "asked": state.stamp(), "url": TAP_CARD, "tapped": "", "replaced_by": ""}
     gone["answer"] = {"at": state.stamp(), "label": state.rework_reason(state.load("demo")["prs"][top]), "withdrawn": True}
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [], "closed": [gone]})
     view.refresh_cards("demo")
-    found = view.live_cards("demo")
-    with state.edit("demo") as data:
-        stage.settle(data, found)
-    assert (state.load("demo")["prs"][designing]["card"], stage.of(state.load("demo"), designing, found).name) == (None, "uncarded")
+    assert stage.of(state.load("demo"), designing, view.live_cards("demo")).name == "uncarded"
     read = {"title": "Fix: land it", "body": CARD_BODY, "state": "OPEN", "isDraft": False, "headRefOid": "abc", "baseRefName": "main", "headRefName": "land-it", "reviewDecision": "APPROVED", "labels": []}
     monkeypatch.setattr(card, "run", lambda cmd, **_: "[]" if cmd[1] == "api" else json.dumps(read | {"url": f"https://github.com/Forge-AI/monorepo/pull/{cmd[3]}"}))
     drawn = card.cards([{"repo": "Forge-AI/monorepo", "number": 42}])

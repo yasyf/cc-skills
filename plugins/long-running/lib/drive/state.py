@@ -658,6 +658,10 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         order.setdefault("quiet", None)
         if order["quiet"] and "news" not in order["quiet"]:
             order["quiet"] = {"record": order["quiet"]["record"], "at": order["quiet"]["at"], "handler": order["quiet"]["handler"], "heard": None, "news": {}}
+        if order["quiet"]:
+            for key in order["quiet"]["news"].keys() & data["prs"].keys():
+                if len(news := order["quiet"]["news"][key]) == 6:
+                    del news[4]
         if "reporters" not in order:
             held = order.pop("reporter", None)
             order["reporters"] = [held] if held else []
@@ -718,10 +722,9 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         pr.setdefault("conflict", False)
         pr.setdefault("failed_checks", [])
         pr.setdefault("hold_label", False)
-        for gone in ("ready_said", "stuck", "unchecked"):
+        for gone in ("ready_said", "stuck", "unchecked", "card"):
             pr.pop(gone, None)
         pr.setdefault("stage", None)
-        pr.setdefault("card", None)
         pr.setdefault("added", None)
         pr.setdefault("native", [])
         pr.setdefault("trunk", None)
@@ -756,10 +759,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         pr.setdefault("rework", None)
         if pr.get("fundamental"):
             pr["tap"] = None
-        if (tap := pr["tap"]) and pr["state"] == "open" and (via := tap.get("via")):
+        if (tap := pr["tap"]) and pr["state"] == "open" and tap.get("via"):
             pr["tap"] = None
-            if pr["card"] == data["prs"].get(via, {}).get("card") and via not in (pr.get("stack") or []):
-                pr["card"] = None
         elif tap:
             pr["tap"] = new_tap(tap["label"], tap["head"], tap["source"], tap.get("action_ts"), tap["at"])
     data.setdefault("answers", {})
@@ -2783,7 +2784,6 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "draft": False,
         "merged_sha": None,
         "stage": None,
-        "card": None,
         "added": stamp(),
         "waits": [],
         "lander": None,

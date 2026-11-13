@@ -1000,18 +1000,18 @@ def quiet_since(data: dict, group: list[str]) -> datetime:
 
 
 def line_facts(data: dict, group: list[str], registered: dict[str, list[str]]) -> dict[str, list]:
-    """What a line on an open order or incident tells him, by the order, job or PR it is about: each order of it, each job's state, waits, cards of his its open questions are drawn on and returned line once it is not running, and each PR's state, head, checks, Trunk ejection, card of his and tap as the watch last read them; never a stamp or the time of a read, which move with nothing changed, nor the stage stage.of names from those, which relabels a PR with nothing of its own changed, such as red to behind once a PR below it in its stack goes red."""
+    """What a line on an open order or incident tells him, by the order, job or PR it is about: each order of it, each job's state, waits, cards of his its open questions are drawn on and returned line once it is not running, and each PR's state, head, checks, Trunk ejection and tap as the watch last read them; never a stamp or the time of a read, which move with nothing changed, nor the stage stage.of names from those, which relabels a PR with nothing of its own changed, such as red to behind once a PR below it in its stack goes red."""
     jobs = {job_id: data["jobs"][job_id] for order_id in group for job_id in data["orders"][order_id]["jobs"]}
     prs = {key: data["prs"][key] for key in incident_prs(data, group, registered) if key in data["prs"]}
     return {
         **{order_id: [data["orders"][order_id]["state"]] for order_id in group},
         **{job_id: [job["state"], job["waits"], view.open_cards(job), job["said"]] for job_id, job in jobs.items() if job["state"] != "running"},
-        **{key: [pr["state"], pr["head"], pr["checks"], pr["ejected"], pr["card"], pr["tap"] and pr["tap"]["label"]] for key, pr in prs.items()},
+        **{key: [pr["state"], pr["head"], pr["checks"], pr["ejected"], pr["tap"] and pr["tap"]["label"]] for key, pr in prs.items()},
     }
 
 
 def quiet_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Owe him a line in the thread of each open order with news the watch hears, by his pick "A handler posts each step, started by the watch on news", and in each thread of open incidents whose users are not unblocked yet, the watch not having found it over and no order of it keeping a proof, that had none in five minutes and has news, while he is away too, by his pick "Watch-owned clock: no 10-minute silence again, a line every five quiet minutes from a handler reading the jobs; costs one handler session each" and "Proof ends the line: none once users are unblocked; the incident stays open until its root fix is live." and "Owe a line only on news: while a job works or something it names changed; silent while all waits.". News is an order, job or PR of it whose facts moved since the thread's last line, which the watch keeps on each order at the first pass after that line: a job returning, a PR going up with his card, a new head, its checks settling, Trunk ejecting it or his tap, never its stage relabelled with none of those changed, a card of his opening or closing; on an incident, a job of it at work too. An order owes its line once five minutes passed since its thread's last line or the watch's last report on it, as an incident does, so a thread lined minutes before waits out that window and its line carries every step in it; never while he is away, since his catch-up carries it then, nor once a report closing it is kept or posted, since that report's post is its line. Each such thread gets one report naming every order and incident in it with its jobs and what moved, written once, and one handler the watch starts on it, which reads the jobs and posts what changed in that thread, so orders sharing a thread get one line, not one each. A handler already at work in that thread takes the report at its next step. Only a post keeps the facts, so a handler that cannot post owes him the same news five minutes after it got the report; a failed write or start is said as a failed read is and tried again next pass with the same report."""
+    """Owe him a line in the thread of each open order with news the watch hears, by his pick "A handler posts each step, started by the watch on news", and in each thread of open incidents whose users are not unblocked yet, the watch not having found it over and no order of it keeping a proof, that had none in five minutes and has news, while he is away too, by his pick "Watch-owned clock: no 10-minute silence again, a line every five quiet minutes from a handler reading the jobs; costs one handler session each" and "Proof ends the line: none once users are unblocked; the incident stays open until its root fix is live." and "Owe a line only on news: while a job works or something it names changed; silent while all waits.". News is an order, job or PR of it whose facts moved since the thread's last line, which the watch keeps on each order at the first pass after that line: a job returning, a new head, its checks settling, Trunk ejecting it or his tap, never its stage relabelled with none of those changed, a card of his opening or closing; on an incident, a job of it at work too. An order owes its line once five minutes passed since its thread's last line or the watch's last report on it, as an incident does, so a thread lined minutes before waits out that window and its line carries every step in it; never while he is away, since his catch-up carries it then, nor once a report closing it is kept or posted, since that report's post is its line. Each such thread gets one report naming every order and incident in it with its jobs and what moved, written once, and one handler the watch starts on it, which reads the jobs and posts what changed in that thread, so orders sharing a thread get one line, not one each. A handler already at work in that thread takes the report at its next step. Only a post keeps the facts, so a handler that cannot post owes him the same news five minutes after it got the report; a failed write or start is said as a failed read is and tried again next pass with the same report."""
     data = state.load(watcher.name)
     away = state.owner_away(data, moment)
     threads: dict[tuple[str, str] | str, list[str]] = {}
@@ -1791,7 +1791,7 @@ def stall_lines(watcher: Watcher, moment: datetime) -> list[str]:
             lines.append(stuck_line(data, subject, held, moment))
         elif not held["told"] and moment - state.parse_time(held["said"]) >= stall.TOLD_AFTER and not state.owner_away(data, moment):
             try:
-                [seq] = reported(watcher, [stall_report(data, subject, held, moment)])
+                [seq] = reported(watcher, [stall_report(data, subject, links[subject], held, watcher.cards, moment)])
                 held["told"] = state.stamp(moment)
                 with contextlib.suppress(agents.Busy):
                     agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'stall-{seq}'}")
@@ -1847,8 +1847,8 @@ def stuck_line(data: dict, subject: str, held: dict, moment: datetime) -> str:
     )
 
 
-def stall_report(data: dict, subject: str, held: dict, moment: datetime) -> dict:
-    """The report owing him one line on a stall the session holding its order heard 30 minutes ago with nothing moving since, in the thread of the work it holds."""
+def stall_report(data: dict, subject: str, links: list[tuple[str, str]], held: dict, cards: dict, moment: datetime) -> dict:
+    """The report owing him one line on a stall the session holding its order heard 30 minutes ago with nothing moving since, in the thread of the work it holds, naming his card on each PR in the chain that waits on his tap as his cards stand now, never as its watchdog agent saw them."""
     job_id, order_id = stall.owner(data, subject)
     order = data["orders"][order_id]
     holder, _ = state.holding_session(data, order)
@@ -1859,6 +1859,11 @@ def stall_report(data: dict, subject: str, held: dict, moment: datetime) -> dict
         f"Unmoved {stood} minutes: {held['print']}",
         f"The STUCK line went to {holder} at {when(held['said'])}, {told} minutes ago.",
         *(f"{label}: {found[label]}" for label in ("WHY", "WHO", "NEXT", "UNREAD") if label in found),
+        *(
+            f"His card on {key} now: {view.tap_card(pr, cards) or 'none open at its head, so the watch draws or redraws it'}"
+            for key in dict.fromkeys(link for link, _ in links)
+            if (pr := data["prs"].get(key)) and state.asks_tap(pr)
+        ),
     ]
     return {
         "kind": "report",
@@ -2484,7 +2489,6 @@ def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
     if watcher.cards is None:
         return []
     with state.edit(watcher.name) as data:
-        stage.settle(data, watcher.cards)
         stacks = land.landing_stacks(data)
         units = {key: state.card_unit(key, stacks.get(key, ()), pr) for key, pr in data["prs"].items()}
         acts = []
@@ -2517,11 +2521,11 @@ def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
     from drive import talk
 
     for keys in uncarded.values():
-        closed = {data["prs"][key]["card"]: key for key in keys if data["prs"][key]["card"]}
+        standing = [key for key in keys if view.standing_card(data["prs"][key], watcher.cards)]
         try:
-            for key in closed.values():
+            for key in standing:
                 slack.redraw_pr_cards(state.pr_url(key))
-            if undrawn := [key for key in keys if not data["prs"][key]["card"]]:
+            if undrawn := [key for key in keys if key not in standing]:
                 talk.draw(watcher.name, undrawn)
         except (slack.SlackError, state.DriveError) as error:
             if said := failed(watcher, "card draw", f"draw of his card on {', '.join(keys)}", error, moment):
@@ -2567,7 +2571,7 @@ def acted(watcher: Watcher, key: str, now: stage.Stage, entered: bool, line: str
     from drive import talk
 
     said = []
-    card = state.load(watcher.name)["prs"][key]["card"]
+    card = view.standing_card(state.load(watcher.name)["prs"][key], view.live_cards(watcher.name) or view.NO_CARDS)
     if now.name == "rework":
         if card:
             try:

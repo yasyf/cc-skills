@@ -49,12 +49,19 @@ def on_card(data: dict, key: str, cards: dict) -> Stage:
 
 
 def own(data: dict, key: str, cards: dict | None) -> Stage:
-    """The PR's stage by its own row, whatever the rest of its landing stack reads: uncarded, owed by the watch, only while state.asks_tap finds his card would offer Approve, the check every draw of his card makes, so the watch owes no draw the draw refuses, and no card of his offers it, by view.tap_card: none is drawn yet, or cc-slack keeps the one drawn closed in place, which the watch redraws in place, so no stage names a closed card as his to tap."""
+    """The PR's stage by its own row, whatever the rest of its landing stack reads: uncarded, owed by the watch, only while state.asks_tap finds his card would offer Approve, the check every draw of his card makes, so the watch owes no draw the draw refuses, and no card of his offers it at its head, by view.tap_card, the one read of his card every line naming it makes: none is drawn, the one open on it shows an older head, or cc-slack keeps the one drawn closed in place, either of which the watch redraws in place, so no stage names a card as his to tap that the say hook finds not open at its head; with his cards unread, whatever rule comes next."""
     pr = data["prs"][key]
-    if not pr["rework"] and state.asks_tap(pr) and not view.tap_card(pr, cards):
-        closed = "his card on it is closed, since Approve came off it while it waited on no tap, so the watch redraws it in place"
-        return Stage("uncarded", WATCH, closed if pr["card"] else "his card on it is not drawn yet")
+    if not pr["rework"] and cards is not None and state.asks_tap(pr) and not view.tap_card(pr, cards):
+        return Stage("uncarded", WATCH, uncarded(pr, cards))
     return alone(data, key, cards)
+
+
+def uncarded(pr: dict, cards: dict) -> str:
+    if shown := view.card_for(cards["pr_cards"], pr["url"]):
+        return f"his card on it shows {view.shown_heads(shown, pr)} rather than its head {pr['head'][:7]}, so the watch redraws it in place"
+    if view.standing_card(pr, cards):
+        return "his card on it is closed, since Approve came off it while it waited on no tap, so the watch redraws it in place"
+    return "his card on it is not drawn yet"
 
 
 def alone(data: dict, key: str, cards: dict) -> Stage:
@@ -305,17 +312,6 @@ def line(key: str, pr: dict, now: Stage) -> str:
     """The PR's stage as its owner and drive status read it."""
     since = f" since {pr['stage']['since']}" if pr["stage"] and pr["stage"]["name"] == now.name else ""
     return f"{key} {now.name}{since}, owed by {now.owner}: {now.why}"
-
-
-def settle(data: dict, cards: dict) -> None:
-    """Keep on each open PR waiting on his tap the link of the card of his drawn on it, read from his cards as cc-slack lists them, dropping a link to a card cc-slack lists withdrawn so the PR reads uncarded and its card draws again."""
-    for pr in data["prs"].values():
-        if pr["state"] != "open" or not carded(pr):
-            continue
-        if pr["card"] and ((view.closed_card(cards, pr["card"]) or {}).get("answer") or {}).get("withdrawn"):
-            pr["card"] = None
-        if not pr["card"] and (drawn := view.card_for(cards["pr_cards"], pr["url"])):
-            pr["card"] = drawn["url"]
 
 
 def wake(name: str, key: str, text: str) -> None:

@@ -17,7 +17,9 @@ DEMO = "https://github.com/yasyf/cc-skills/blob/3d8111f/pr-shots/demo-hover/x.pn
 
 
 @pytest.fixture
-def drive_pr(run: Run, demo: str) -> str:
+def drive_pr(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> str:
+    asking = {"question": "Ship it?", "url": "https://forge.slack.com/archives/D123/p1794200000000100", "card": {"title": "Ship it?", "waits": CARD}}
+    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS | {"questions": [asking]})
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
     run("pr", "add", PR, "--job", "j1", *LEAD)
