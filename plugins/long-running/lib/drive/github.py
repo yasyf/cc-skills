@@ -375,6 +375,11 @@ def stacks(keys: list[str]) -> dict[str, list[tuple[str, str]]]:
     return found
 
 
+def holds(repo: str, ref: str, commit: str) -> bool:
+    """Whether the history of ref, a commit or tag on repo, holds commit, as GitHub's compare of the two reads it, a commit holding itself with no read."""
+    return ref == commit or read(f"whether {repo}'s {ref} holds {commit[:7]}", ["gh", "api", f"repos/{repo}/compare/{commit}...{ref}", "--jq", ".status"], max_age="1h").strip() in ("ahead", "identical")
+
+
 def build(pipeline: str, number: str) -> dict:
     """A Buildkite build as `bk build view` reads it now: its state, its jobs and the environment it started with, such as a go/ci release's RELEASE_START or a cluster job's CLUSTER_JOB."""
     try:
