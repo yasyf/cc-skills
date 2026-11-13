@@ -3431,8 +3431,10 @@ def test_a_builder_landing_prs_he_approved_starts_with_no_research(run: Run, wit
 
 def test_a_drive_tooling_yasyf_pr_wanting_no_tap_may_land_untapped_as_the_lander_lands_it(run: Run, with_pr: str, meta: str) -> None:
     run("order", "set", "o1", "--kind", "build")
+    run("start", "demo", "--role", "meta")
     with state.edit("demo") as data:
         data["orders"]["o1"]["text"] = "Drive tooling: the watch draws his card"
+        data["roles"]["coordinator"]["session"] = "elsewhere"
     tooling = "https://github.com/yasyf/cc-skills/pull/7"
     run("pr", "add", tooling, "--job", "j1")
     assert run("pr", "tapped", tooling) == (0, "yasyf/cc-skills#7: wants no tap: the drive lands a yasyf/* PR with none")
