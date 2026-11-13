@@ -799,7 +799,7 @@ def answer_read(name: str, job_id: str, message_id: str) -> list[str | None]:
     question = data["jobs"][job_id]["reads"][message_id]
     keep_answer(name, job_id, message_id, [reads.lane_exit(1, CUT_OFF) if reads.DRIVE.match(question) else f"{question}: {CUT_OFF}", CUT_OFF])
     try:
-        kept = [reads.answer(question, Path(data["roles"]["coordinator"]["cwd"]), name, job_id), None]
+        kept = [orca.sprite_answer(reads.answer(question, Path(data["roles"]["coordinator"]["cwd"]), name, job_id), data["jobs"][job_id], message_id), None]
     except reads.ReadError as error:
         kept = [f"{question}: {error}"] * 2
     keep_answer(name, job_id, message_id, kept)
