@@ -3523,6 +3523,96 @@ def test_a_held_red_pr_wakes_no_builder_while_his_hold_stands_and_its_builder_at
     assert (state.load(demo)["prs"][KEY]["stage"]["name"], [key for key, _ in woken]) == ("red", [KEY])
 
 
+@pytest.mark.parametrize("asked", ["its wait", "its job's question"])
+def test_a_red_pr_waiting_on_his_card_wakes_its_builder_at_once_and_every_thirty_minutes_while_his_card_stays_up(
+    demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]], asked: str
+) -> None:
+    waiting_job(demo)
+    asking(monkeypatch, demo, HOLDING_CARD)
+    if asked == "its wait":
+        waits_on(demo, HOLDING_CARD)
+    else:
+        holding_job(demo, HOLDING_CARD)
+        holding_asks(demo, "")
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= {"wants_tap": True, "card": CARD}
+    serve(monkeypatch, {KEY: read(checks=RED)})
+    watching = watcher(demo)
+    watch.run_pass(watching, T0)
+    watch.run_pass(watching, T0 + timedelta(minutes=30))
+    kept = state.load(demo)["prs"][KEY]["stage"]
+    assert (kept["name"], kept["owner"], [key for key, _ in woken]) == ("red", stage.BUILDER, [KEY, KEY])
+    assert stage.held(state.load(demo), state.load(demo)["prs"][KEY], view.live_cards(demo))
+
+
+def his_card_row(name: str, key: str) -> dict:
+    entry = state.load(name)["prs"][key]
+    known = {key: (name, entry)}
+    shown = {"title": entry["title"], "body": "", "comments": [], "state": "OPEN", "isDraft": False, "headRefOid": entry["head"], "labels": [], "url": entry["url"], "reviewDecision": "REVIEW_REQUIRED"}
+    return card.render(shown, entry | {"now": card.standing(known, key)}, (), tuple(card.holding(known, key).values()))["prs"][0]
+
+
+def test_replayed_55175_a_red_pr_whose_builder_waits_on_a_fix_that_waits_on_his_tap_names_and_links_that_fix_and_its_card_on_his_card(
+    demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]], redraws: Redraws
+) -> None:
+    red_pr, fix, fix_card = "Forge-AI/monorepo#55175", "Forge-AI/monorepo#55582", "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794549855666519"
+    titles = {red_pr: "New: the change dev left red", fix: "Fix: the flaky test dev broke"}
+    heads = {red_pr: "75e6d42aaa", fix: "55582aaaaa"}
+    with state.edit(demo) as data:
+        data["orders"] |= {"o688": order(jobs=["j2661"]), "o689": order(jobs=["j2662"])}
+        data["jobs"] |= {"j2661": job(order="o688", prs=[state.pr_url(red_pr)]), "j2662": job(order="o689", prs=[state.pr_url(fix)], state="waiting")}
+        for key, job_id, card_link in ((red_pr, "j2661", CARD), (fix, "j2662", fix_card)):
+            order_id = data["jobs"][job_id]["order"]
+            data["prs"][key] = state.new_pr(state.pr_url(key), job_id, order_id) | {
+                "head": heads[key],
+                "title": titles[key],
+                "wants_tap": True,
+                "card": card_link,
+                "checked": CHECKED | {"head": heads[key], "orders": [order_id]},
+            }
+    reads = {
+        red_pr: read(headRefOid=heads[red_pr], title=titles[red_pr], checks=[{"name": "buildkite/test", "conclusion": "FAILURE"}]),
+        fix: read(headRefOid=heads[fix], title=titles[fix], checks=GREEN, reviewDecision="APPROVED"),
+    }
+    serve(monkeypatch, reads)
+    passes = []
+
+    def at(minutes: int) -> None:
+        watch.run_pass(watcher(demo), T0 + timedelta(minutes=minutes))
+        kept = state.load(demo)["prs"][red_pr]["stage"]
+        passes.append((minutes, kept["name"], kept["owner"], [key for key, _ in woken]))
+        woken.clear()
+
+    at(0)
+    with state.edit(demo) as data:
+        state.take_result(data, "j2661", f"WAITING #55175 waits on {state.pr_url(fix)} to merge")
+    at(16)
+    fix_link = view.pr_link(state.load(demo)["prs"][fix])
+    asked_why = f"its checks fail at 75e6d42: buildkite/test, and its builder waits on {fix_link}, which waits on his Approve on [his card]({fix_card})"
+    assert state.load(demo)["prs"][red_pr]["stage"]["why"] == asked_why
+    lands = f"{fix_link} lands, which waits on your Approve on [its card]({fix_card})"
+    assert his_card_row(demo, red_pr)["lands"] == f"you approve, CI passes and {lands}"
+    for minutes in (46, 76, 106):
+        at(minutes)
+    approve(demo, red_pr)
+    assert his_card_row(demo, red_pr)["blocks"] == f"Approved by you. CI failed; it lands once {lands}"
+    approve(demo, fix)
+    at(144)
+    assert his_card_row(demo, red_pr)["blocks"] == f"Approved by you. CI failed; it lands once {fix_link} lands"
+    reads[fix] = read(state="MERGED", mergeCommit="ddd444", headRefOid=heads[fix], title=titles[fix], checks=GREEN, reviewDecision="APPROVED")
+    at(150)
+    assert passes == [
+        (0, "red", stage.BUILDER, [red_pr]),
+        (16, "blocked", stage.HIM, []),
+        (46, "blocked", stage.HIM, []),
+        (76, "blocked", stage.HIM, []),
+        (106, "blocked", stage.HIM, []),
+        (144, "blocked", stage.WAITED, []),
+        (150, "red", stage.BUILDER, [red_pr]),
+    ]
+    assert redraws.asked.count(state.pr_url(red_pr)) == 4
+
+
 def release_out(data: dict, release: str) -> None:
     data["jobs"]["j1180"]["waits"].remove(release)
 
@@ -3575,7 +3665,8 @@ def test_replayed_j1180_a_red_pr_whose_builder_waits_on_other_prs_and_releases_w
         end(reads, data, other, release)
     at(153)
     assert passes == [(0, list(own)), (30, []), (60, []), (90, []), (91, [own[0]]), (92, []), (122, []), (152, []), (153, list(own))]
-    assert (kept["name"], kept["owner"], kept["why"]) == ("blocked", stage.WAITED, f"its checks fail at ce6d321: buildkite/test, and its builder waits on {release}, {other}")
+    named = view.pr_link(state.load(demo)["prs"][other])
+    assert (kept["name"], kept["owner"], kept["why"]) == ("blocked", stage.WAITED, f"its checks fail at ce6d321: buildkite/test, and its builder waits on {release}, {named}")
     assert [state.load(demo)["prs"][key]["stage"]["name"] for key in own] == ["red", "red"]
 
 

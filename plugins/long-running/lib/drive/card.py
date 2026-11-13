@@ -245,7 +245,7 @@ def tap_refused(pr: dict, entry: dict) -> str | None:
 
 
 def waits_on(pr: dict, entry: dict, held: tuple[str, ...]) -> str:
-    """What his card says under the PR: merged or closed as GitHub reads it, else its stage as stage.of names it when the card draws, in his card's words, a check's objection included, which never takes his Approve off it."""
+    """What his card says under the PR: merged or closed as GitHub reads it, else its stage as stage.of names it when the card draws, in his card's words, with each of its waits that still holds, such as the PR fixing its red and that PR's card when it waits on his Approve, a check's objection included, which never takes his Approve off it."""
     now, approved, key = entry["now"], tap_label(entry) == "Approve", state.pr_key(pr["url"])
     match pr["state"], now.name:
         case "MERGED", _:
@@ -257,7 +257,9 @@ def waits_on(pr: dict, entry: dict, held: tuple[str, ...]) -> str:
         case _, "held" if entry["hold_label"]:
             return "Held by the drive with the hold label on GitHub"
         case _, "red" if entry["checks"] == "fail":
-            return "CI failed; the agent is fixing it"
+            return "CI failed; the agent is fixing it" + (f", then it lands once {in_turn(list(held))}" if held else "")
+        case _, "blocked" if entry["checks"] == "fail" and held:
+            return "CI failed; it lands once " + in_turn(list(held))
         case _, "red" if entry["draft"]:
             return "Still a draft; the agent is finishing it"
         case _, "red" if entry["review"] == "changes":

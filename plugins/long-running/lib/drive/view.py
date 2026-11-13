@@ -269,13 +269,19 @@ def wait_words(drive: dict, wait: str, found: dict | None) -> str:
     if wait in drive["jobs"]:
         return f"the build of {cut(drive['jobs'][wait]['goal'], TITLE_CHARS)} finishes"
     if wait in drive["prs"]:
-        return f"{pr_link(drive['prs'][wait])} lands"
+        pr = drive["prs"][wait]
+        return f"{pr_link(pr)} lands" + (f", which waits on your Approve on {link('its card', card)}" if (card := tap_card(pr)) else "")
     if release := state.RELEASE_WAIT.fullmatch(wait):
         return f"the {release['service']} release carrying {pr_link(drive['prs'][release['pr']])} is out"
     listed = [*found["questions"], *found["pr_cards"]] if found else []
     if card := next((card for card in listed if card["card"].get("waits") == wait or message_key(card["url"]) == message_key(wait)), None):
         return f"you answer {link(card['card']['title'], card['url'])}"
     return f"you answer {link('your question card', wait)}" if wait.startswith("https://") else "you answer your question card"
+
+
+def tap_card(pr: dict) -> str | None:
+    """The link of his card on the PR while it offers him Approve, which is when the PR waits on his tap."""
+    return pr["card"] if state.asks_tap(pr) else None
 
 
 def pr_link(pr: dict) -> str:
