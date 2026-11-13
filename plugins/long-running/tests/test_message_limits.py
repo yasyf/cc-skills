@@ -447,6 +447,23 @@ def test_a_bug_reports_thread_gets_its_fix_live_note_only_once_the_fix_is_proven
     assert message_limits.deny_reason(call("slack_reply", transcript, **note | {"thread_ts": "1794400000.000100"})) is None
 
 
+def test_a_reply_he_ordered_in_a_reporters_thread_that_is_its_orders_own_thread_goes_out_on_its_first_try(run: Run, talker: str, transcript: Path) -> None:
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "watch his replies and keep replying", "--reporter", REPORTED)
+    reply = {"channel_id": "C0REPORTS01", "thread_ts": "1794400100.000200", "text": "SandSQL commits each batch in one round trip, so your import lands in about two seconds."}
+    assert message_limits.deny_reason(call("slack_reply", transcript, **reply)) is not None
+    with state.edit("demo") as data:
+        data["orders"]["o1"]["thread"] = ["C0REPORTS01", "1794400100.000200"]
+    assert message_limits.deny_reason(call("slack_reply", transcript, **reply)) is None
+    assert message_limits.reporter_post(call("slack_reply", transcript, **reply) | {"tool_name": message_limits.SAY}, state.load("demo")) is None
+
+
+def test_a_fix_live_note_before_the_proof_is_judged_by_the_reporter_rule_and_refuses_when_jev_cannot_finish(run: Run, talker: str, transcript: Path) -> None:
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "fix the stuck staging deploy", "--reporter", REPORTED)
+    note = {"channel_id": "C0REPORTS01", "thread_ts": "1794400100.000200", "text": "Fixed: staging deploys go through again since 10:02 AM."}
+    reason = message_limits.deny_reason(call("slack_reply", transcript, **note))
+    assert agents.ruled(reason) == {"rule": message_limits.REPORTER_RULE, "counted": reason}
+
+
 def test_a_shared_questions_thread_gets_its_answer_only_once_it_is_posted_to_him_and_only_once(run: Run, talker: str, transcript: Path, slack_thread: Thread) -> None:
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "what is left for cloud Iris", "--kind", "answer", "--reporter", REPORTED)
     note = {"channel_id": "C0REPORTS01", "thread_ts": "1794400100.000200", "text": "What is left for cloud Iris: the cut-over, then the cleanup."}

@@ -42,6 +42,11 @@ RESTARTED = re.compile(r"\brestart", re.IGNORECASE)
 DOWN_RULING = "his Nov 8 ruling: \"The coordinator is down? Then why the fuck haven't you restarted it?\" and \"It's unacceptable to just say it's down\""
 WAITING = "WAITING-ON-HIM"
 AWAY_RULE = "While he is away, a line of news to him that is not a card, a line saying what waits on him, an incident line or an answer to a message of his."
+REPORTER_RULE = (
+    "The thread someone else reported a bug or asked him a question in hears from the drive once: that the bug is fixed once its fix"
+    " is proven live, or the answer once it is posted to him, by his words \"we have authorization to message once in bug fix threads"
+    ' after we ship the fix".'
+)
 TITLED = (
     " {} of the words counted are the titles its {{card:…}}, {{pr:…}}, {{order:…}}, {{record:…}} and {{answer:…}} references draw as their words;"
     " {{pr:<number>|<words>}} or {{record:<seq>|<words>}} names one in fewer words of your own."
@@ -492,7 +497,7 @@ def reported_down(drive: dict, said: str) -> str | None:
 
 
 def reporter_post(payload: dict, drive: dict) -> str | None:
-    """Why a post may not go in the thread a bug an order fixes was reported in, or a question an answer order answers was asked in: that thread gets one note, a bug report's only once the fix is proven live and a question's only once the answer is posted."""
+    """Why a post may not go in the thread a bug an order fixes was reported in, or a question an answer order answers was asked in: that thread gets one note, a bug report's only once the fix is proven live and a question's only once the answer is posted, which Jev judges by REPORTER_RULE and which refuses when Jev cannot finish; a thread an open order's own lines go in, such as a teammate's he ordered the drive to keep replying in, is his order to post there."""
     tool_input = payload["tool_input"]
     if payload["tool_name"] not in CHANNEL_POSTS - {EDIT} and not (payload["tool_name"] == SAY and tool_input.get("channel_id")):
         return None
@@ -501,19 +506,24 @@ def reporter_post(payload: dict, drive: dict) -> str | None:
     reported = [order for order in drive["orders"].values() if order["reporter"] and (order["reporter"]["channel"], order["reporter"]["thread"]) == where]
     if not reported or any(order["state"] not in state.CLOSED_ORDER_STATES and state.may_tell(order) and not order["reporter"]["told"] for order in reported):
         return None
-    if told := next((order for order in reported if order["reporter"]["told"]), None):
-        if told["kind"] == "answer":
-            return f"Refused on purpose: this thread already heard the answer to its question, in {told['reporter']['told']}, and hears it once. Post nothing more there."
-        return (
+    if any(state.promise_thread(order) == where for order in state.open_orders(drive).values()):
+        return None
+    told = next((order for order in reported if order["reporter"]["told"]), None)
+    if told and told["kind"] == "answer":
+        refused = f"Refused on purpose: this thread already heard the answer to its question, in {told['reporter']['told']}, and hears it once. Post nothing more there."
+    elif told:
+        refused = (
             f"Refused on purpose: this thread already heard its bug is fixed, in {told['reporter']['told']}, and a bug report's thread gets its fix-live note once."
             " Post nothing more there."
         )
-    if any(order["kind"] == "answer" for order in reported):
-        return "Refused on purpose: the answer to the question asked in this thread is not posted to him yet, so a note now would come before it. It goes once the answer is posted."
-    return (
-        "Refused on purpose: the fix for the bug reported in this thread keeps no proof that it is live, so a note now would come before"
-        " the fix. It goes once the coordinator records the proof and sends the report closing the order."
-    )
+    elif any(order["kind"] == "answer" for order in reported):
+        refused = "Refused on purpose: the answer to the question asked in this thread is not posted to him yet, so a note now would come before it. It goes once the answer is posted."
+    else:
+        refused = (
+            "Refused on purpose: the fix for the bug reported in this thread keeps no proof that it is live, so a note now would come before"
+            " the fix. It goes once the coordinator records the proof and sends the report closing the order."
+        )
+    return agents.Ruled(refused, REPORTER_RULE, refused)
 
 
 def unsaid_post(payload: dict, drive: dict) -> str | None:
