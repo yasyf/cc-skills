@@ -36,6 +36,7 @@ PIN = "9.8.7"
 VERSION = ["cc-remote", "version"]
 CURRENT = ["orca", "orchestration", "run-current", "--full", "--json"]
 DESTROY = ["cc-remote", "destroy", WORKSPACE]
+STOP = ["cc-remote", "orca", "stop", LANE, "--provider", "sprites", "--profile", "agents"]
 BOUND = {"out": {"ok": True, "result": {"run": {"id": RUN, "coordinator_handle": "term_coordinator"}}}}
 AGENT = {"kind": "claude", "model": "claude-opus-5-5", "effort": "xhigh"}
 PREPARED = {
@@ -200,6 +201,7 @@ class Launch:
         response = allocated if allocated is not None else prepared if isinstance(prepared, str) else allocation(prepared)
         self.reply("cc-remote orca prepare", {"out": response if isinstance(response, str) else json.dumps(response), "err": "prepared on sprites\n"})
         self.reply(f"cc-remote destroy {WORKSPACE}", {})
+        self.reply("cc-remote orca stop", {"out": json.dumps({"lane": LANE, "workspace": WORKSPACE})})
         self.reply("gh api", *({"out": f"{tag}\t{download(repo, tag, bin)}\tsha256:{sha}\n"} for bin, repo, tag, sha, _ in RELEASES))
         self.reply("ssh", *(() if copied is None else (copied,)), INSTALLED)
         self.reply("orca orchestration worker-start", started or {"out": RECEIPT})
@@ -478,7 +480,7 @@ class AttemptTest(LaunchTest):
         self.assertIn(f"{retired[0]} keeps the earlier attempt, whose prepare exited 1 before any worker started; preparing again", failures[1].stderr)
         self.assertEqual(third.returncode, 0, third.stderr)
         self.assertIn(f"{retired[1]} keeps the earlier attempt, whose prepare exited 1 before any worker started; preparing again", third.stderr)
-        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare()] * 3 + [*self.launch.tools(), self.launch.start()])
+        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), *[VERSION, CURRENT, STOP, self.launch.prepare()] * 2, *self.launch.tools(), self.launch.start()])
         self.assertEqual([sorted(path.name for path in attempt.iterdir()) for attempt in retired], [ALLOCATION_KEPT, ALLOCATION_KEPT])
         self.assertEqual(self.launch.kept(), SPRITE_KEPT)
 
@@ -491,9 +493,37 @@ class AttemptTest(LaunchTest):
         self.assertEqual(result.returncode, 0, result.stderr)
         retired = self.launch.attempt.with_name(f"{self.launch.attempt.name}.1")
         self.assertIn(f"{retired} keeps the earlier attempt, whose prepare never finished before any worker started; preparing again", result.stderr)
-        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), *self.launch.tools(), self.launch.start()])
+        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, STOP, self.launch.prepare(), *self.launch.tools(), self.launch.start()])
         self.assertEqual(sorted(path.name for path in retired.iterdir()), ["allocation.json", "prepare.err"])
         self.assertEqual(self.launch.kept(), SPRITE_KEPT)
+
+    def test_a_relaunch_whose_stop_of_the_failed_claim_fails_keeps_the_attempt_and_prepares_nothing(self):
+        self.launch.attempt.mkdir()
+        (self.launch.attempt / "prepare.err").write_text("cc-remote: guest-bootstrap: exit 255\n")
+        (self.launch.attempt / "prepare.status").write_text("1\n")
+        self.launch.sprite()
+        self.launch.reply("cc-remote orca stop", {"rc": 1, "err": "cc-remote: suspend pool-spare: 503\n"})
+        self.assert_failed(self.launch, self.launch.run(), f"cc-remote orca stop {LANE} failed: cc-remote: suspend pool-spare: 503, so the Sprite the earlier prepare claimed still holds the lane; {self.launch.attempt} keeps that attempt, and nothing was prepared", [VERSION, CURRENT, STOP])
+        self.assertEqual(self.launch.kept(), ["prepare.err", "prepare.status"])
+
+    def test_a_local_launch_after_a_sprite_attempt_that_started_no_worker_keeps_it_and_launches_here(self):
+        for shape, kept, why in (
+            ("failed", {"prepare.err": "cc-remote: guest-bootstrap: exit 255\n", "prepare.status": "1\n"}, "whose prepare exited 1 before any worker started"),
+            ("unstarted", {"prepare.err": "", "prepare.status": "0\n", "tools.err": "ccx: GitHub rate limit floor\n"}, "whose Sprite was prepared but started no worker"),
+        ):
+            with self.subTest(shape=shape):
+                launch = self.fresh()
+                launch.local()
+                launch.attempt.mkdir()
+                for receipt, text in kept.items():
+                    (launch.attempt / receipt).write_text(text)
+                result = launch.run(model="fable", WORKER_LOCAL="1")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                retired = launch.attempt.with_name(f"{launch.attempt.name}.1")
+                self.assertIn(f"{retired} keeps the earlier attempt, {why}; preparing again", result.stderr)
+                self.assertEqual(launch.calls(), launch.local_calls())
+                self.assertEqual(sorted(path.name for path in retired.iterdir()), sorted(kept))
+                self.assertEqual(launch.kept(), LOCAL_KEPT)
 
     def test_an_earlier_local_attempt_refuses_instead_of_retrying(self):
         self.launch.local()
