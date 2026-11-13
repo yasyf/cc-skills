@@ -123,7 +123,7 @@ def verdict(name: str, key: str) -> str:
 
 
 def kept(name: str, key: str, result: dict) -> str:
-    """Keep a check's outcome on its PR, with the head it checked, and redraw his open card for it, as verdict describes, unless another check of it started after this one, whose outcome is the one kept; a NOT READY at a head an earlier check already objected to redraws his card with its objection but makes no check event, so its builder is woken once a head however often a return of its builder reruns the judge; when a newer install saved the drive while the check judged, the newest install's `drive pr checked` keeps it, so no judgment runs twice."""
+    """Keep a check's outcome on its PR, with the head it checked, and redraw his open card for it, as verdict describes, unless another check of it started after this one, whose outcome is the one kept; a NOT READY at a head an earlier check already objected to redraws his card with its objection but makes no check event, so its builder is woken once a head however often a return of its builder reruns the judge; when an install of a newer drive schema saved the drive while the check judged, the newest install's `drive pr checked` keeps it, so no judgment runs twice."""
     outcome = result["outcome"]
     try:
         with state.edit(name) as data:

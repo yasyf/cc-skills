@@ -762,7 +762,7 @@ def test_an_install_types_reload_plugins_into_both_drive_sessions_once_each_is_i
 
 def test_an_install_reloads_the_sessions_of_a_drive_a_newer_install_saved_after_its_update(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
     start_drive("demo", communicator="term_comm", coordinator="term_coord")
-    state.store("demo", state.stored("demo") | {"saved_by": "9.9.9"})
+    state.store("demo", state.stored("demo") | {"schema": state.SCHEMA + 1})
     git = fake(["unused"], set())
     git.together = threading.Barrier(2, timeout=5)
     assert install.main("long-running@skills", None, None, 900, None) == 0

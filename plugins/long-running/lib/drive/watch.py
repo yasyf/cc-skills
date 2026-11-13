@@ -882,7 +882,7 @@ def answer_read(name: str, job_id: str, message_id: str) -> list[str | None]:
 
 
 def answer_kept(name: str, job_id: str, message_id: str, kept: list[str | None]) -> None:
-    """Keep the answer a read came to; when a newer install saved the drive while it ran, the newest install's `drive job answered` keeps it, so the read never runs again."""
+    """Keep the answer a read came to; when an install of a newer drive schema saved the drive while it ran, the newest install's `drive job answered` keeps it, so the read never runs again."""
     try:
         keep_answer(name, job_id, message_id, kept)
         return
@@ -2776,7 +2776,7 @@ def main(drive_name: str | None = None, project: str | None = None) -> int:
 
 
 def watching(watcher: Watcher) -> None:
-    """Hand each pass's lines to whoever acts on them as each of its stages returns, first any a watch before this one held for it, and end before a pass once a newer long-running is installed, or the moment a pass finds the drive saved by one, so its launch agent starts the watch on that install and no pass runs older code on a drive a newer install saved; a crash wakes the coordinator session it posts to first. Every line made and not yet posted is held for the watch after this one, which hands it on before its first pass."""
+    """Hand each pass's lines to whoever acts on them as each of its stages returns, first any a watch before this one held for it, and end before a pass once a newer long-running is installed, or the moment a pass finds the drive saved in a newer drive schema, so its launch agent starts the watch on that install and no pass runs older code on a drive shaped by newer code; a crash wakes the coordinator session it posts to first. Every line made and not yet posted is held for the watch after this one, which hands it on before its first pass."""
     state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
     try:
         for _ in rests(watcher.name):

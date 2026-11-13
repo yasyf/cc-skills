@@ -4133,7 +4133,7 @@ def test_a_kept_answer_goes_at_the_start_of_the_pass_before_any_lane_mail_is_rea
 
     def newer_install_saves(run: str, after: int) -> list[dict]:
         calls.append(("inbox", run))
-        state.store(remote, state.stored(remote) | {"saved_by": "9.9.9"})
+        state.store(remote, state.stored(remote) | {"schema": state.SCHEMA + 1})
         return []
 
     monkeypatch.setattr(orca, "mail", newer_install_saves)
@@ -4346,13 +4346,13 @@ def test_a_read_a_newer_installs_save_overtook_keeps_its_answer_through_the_newe
     assert staged(watch.lane_lines, watch.Watcher(remote, offset=state.events_end(remote)), T0) == []
 
     def answered_as_an_install_lands(question: str, root: Path, drive: str, job_id: str) -> str:
-        state.store(drive, state.stored(drive) | {"saved_by": "9.9.9"})
+        state.store(drive, state.stored(drive) | {"schema": state.SCHEMA + 1})
         return "m2065 the field facts"
 
     def newest(newer: Path, name: str, verb: list[str], receipt: Path, kept: dict, what: str, seconds: float) -> str:
         receipt.parent.mkdir(parents=True, exist_ok=True)
         receipt.write_text(json.dumps(kept))
-        state.store(name, state.stored(name) | {"saved_by": state.VERSION})
+        state.store(name, state.stored(name) | {"schema": state.SCHEMA})
         monkeypatch.setattr(reads, "answer", lambda *args: pytest.fail("the newest install ran the read again"))
         assert cli.main([*verb, str(receipt), "--drive", name]) == 0
         return ""
@@ -5192,7 +5192,7 @@ def test_bound_keeps_the_worker_start_receipt_and_status_when_a_newer_install_sa
     receipt = json.dumps({"ok": True, "result": {"state": "ready", "dispatchId": DISPATCH}})
 
     def worker_start(argv: list[str], **kwargs: object) -> Started:
-        state.store(remote, state.stored(remote) | {"saved_by": "9.9.9"})
+        state.store(remote, state.stored(remote) | {"schema": state.SCHEMA + 1})
         return Started(argv, stdout=receipt)
 
     monkeypatch.setattr(orca.subprocess, "Popen", worker_start)

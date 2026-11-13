@@ -236,7 +236,7 @@ def test_a_kept_dashboard_serving_its_links_is_left_alone_and_one_that_is_not_is
     assert ran == [("kickstart", "-k", f"gui/{os.getuid()}/com.yasyf.long-running.dashboard.{demo}")]
 
 
-def test_a_drive_saved_by_a_newer_install_hands_the_port_to_that_install_which_answers_throughout(
+def test_a_drive_saved_in_a_newer_schema_hands_the_port_to_that_install_which_answers_throughout(
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     newer = tmp_path / "cache" / "9.9.9" / "bin" / "drive"
@@ -264,7 +264,7 @@ def test_a_drive_saved_by_a_newer_install_hands_the_port_to_that_install_which_a
     def execv(executable: str, argv: list[str]) -> None:
         handed.append(argv)
         monkeypatch.setattr(dashboard.install, "upgraded", lambda: None)
-        monkeypatch.setattr(state, "VERSION", "9.9.9")
+        monkeypatch.setattr(state, "SCHEMA", state.SCHEMA + 1)
         inherited = [f"--listening={os.dup(int(arg.removeprefix('--listening=')))}" if arg.startswith("--listening=") else arg for arg in argv]
         reopened.append(threading.Thread(target=reopen, args=(inherited[3:],), daemon=True))
         reopened[0].start()
@@ -283,14 +283,14 @@ def test_a_drive_saved_by_a_newer_install_hands_the_port_to_that_install_which_a
             time.sleep(0.05)
         threading.Thread(target=ask, daemon=True).start()
         time.sleep(0.3)
-        state.store(demo, state.stored(demo) | {"saved_by": "9.9.9"})
+        state.store(demo, state.stored(demo) | {"schema": state.SCHEMA + 1})
 
     monkeypatch.setattr(dashboard, "changes", changes)
     monkeypatch.setattr(dashboard, "tailnet", lambda: None)
     monkeypatch.setattr(dashboard.Board, "hear", lambda self: None)
     monkeypatch.setattr(dashboard, "home_repo", lambda checkout: None)
     monkeypatch.setattr(dashboard.signal, "signal", lambda signum, handler: None)
-    monkeypatch.setattr(dashboard.install, "upgraded", lambda: newer if state.saved_by(demo) == "9.9.9" else None)
+    monkeypatch.setattr(dashboard.install, "upgraded", lambda: newer if state.stored(demo)["schema"] > state.SCHEMA else None)
     monkeypatch.setattr(dashboard.os, "execv", execv)
     with socket.create_server((dashboard.LOOPBACK, 0)) as probe:
         port = probe.getsockname()[1]

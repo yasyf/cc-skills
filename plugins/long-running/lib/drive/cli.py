@@ -2485,7 +2485,7 @@ def messaged(args: argparse.Namespace, name: str, job: dict, held: list[dict]) -
 
 
 def sent_kept(name: str, job_id: str, sent: dict) -> dict:
-    """Keep on the job a held text its live worker took: dropped from the job, its question closed when the text answered the one it still asks, each answer of his the text carries marked sent, and the tools on the Sprite tools_on names; when a newer install saved the drive while Orca took the text, the newest install's `drive job sent` keeps it, so the text is never sent twice."""
+    """Keep on the job a held text its live worker took: dropped from the job, its question closed when the text answered the one it still asks, each answer of his the text carries marked sent, and the tools on the Sprite tools_on names; when an install of a newer drive schema saved the drive while Orca took the text, the newest install's `drive job sent` keeps it, so the text is never sent twice."""
     try:
         with state.edit(name) as data:
             fresh = data["jobs"][job_id]
@@ -2595,7 +2595,7 @@ def launch_brief(name: str, job_id: str, job: dict) -> Path:
 
 
 def record_start(name: str, job_id: str, started: dict | None, handoff: str | None) -> dict:
-    """Record a started worker's receipt on its job, its turn open until the watch takes that worker's worker_done or escalation, with the handoff a relaunch started it on, else the launch's brief, the Sprite its start put the tools on, the cc-remote config that Sprite was made from, none of the texts it held, which that handoff or brief carries, and the job sent each answer of his whose words that handoff or brief holds, or with no receipt clear the launching mark of a launch whose worker never started. When a newer install saved the drive while the worker started, which launch_attempt lets one do, the newest install's `drive job started` records it, so the receipt lands either way."""
+    """Record a started worker's receipt on its job, its turn open until the watch takes that worker's worker_done or escalation, with the handoff a relaunch started it on, else the launch's brief, the Sprite its start put the tools on, the cc-remote config that Sprite was made from, none of the texts it held, which that handoff or brief carries, and the job sent each answer of his whose words that handoff or brief holds, or with no receipt clear the launching mark of a launch whose worker never started. When an install of a newer drive schema saved the drive while the worker started, which launch_attempt lets one do, the newest install's `drive job started` records it, so the receipt lands either way."""
     try:
         with state.edit(name) as data:
             job = data["jobs"][job_id]
@@ -2630,7 +2630,7 @@ def job_started(args: argparse.Namespace) -> int:
 
 
 def launch_attempt(name: str, job: dict, attempt: str, kept: Path, brief: str, root: Path, workspace: str | None, session: str | None) -> dict:
-    """Launch one attempt of a job's lane on a Run the drive's own terminal makes, since Orca binds a Run only to the terminal that made it: on a fresh Sprite, or on the workspace's own Sprite in the checkout it holds, there resuming the Claude session given; a fresh Sprite's receipt records the SHA-256 of the cc-remote config the checkout holds, which it is made from, and one on the workspace's own Sprite keeps the job's; a try whose worker-start sent nothing reuses the Sprite it prepared, a Run Orca cannot make starts nothing, and the launcher copies this brief onto it. When a newer install saved the drive while the launcher ran, record_start hands the receipt to that install. A fresh Sprite that refuses the tools a worker needs is destroyed by the launcher, and the attempt launches once more on another; Unfit when that one refuses them too, or when the workspace's own Sprite does."""
+    """Launch one attempt of a job's lane on a Run the drive's own terminal makes, since Orca binds a Run only to the terminal that made it: on a fresh Sprite, or on the workspace's own Sprite in the checkout it holds, there resuming the Claude session given; a fresh Sprite's receipt records the SHA-256 of the cc-remote config the checkout holds, which it is made from, and one on the workspace's own Sprite keeps the job's; a try whose worker-start sent nothing reuses the Sprite it prepared, a Run Orca cannot make starts nothing, and the launcher copies this brief onto it. When an install of a newer drive schema saved the drive while the launcher ran, record_start hands the receipt to that install. A fresh Sprite that refuses the tools a worker needs is destroyed by the launcher, and the attempt launches once more on another; Unfit when that one refuses them too, or when the workspace's own Sprite does."""
     kept.write_text(brief)
     try:
         run = orca.new_run(name, f"drive {name} {attempt}: {job['goal']}")
@@ -2952,7 +2952,7 @@ def job_end(args: argparse.Namespace) -> int:
 
 
 def end_kept(name: str, job_id: str, result: dict) -> dict:
-    """Keep on the job what its lane's end came to once it saved, reclaimed and released: the branches saved, its kept transcript and its ask cleared, the job left unstamped, since the end of a lane at rest changes nothing it does and so says none of its parts again, or, when the save failed, the end mark taken back, so the lane reads as it did; when a newer install saved the drive meanwhile, the newest install's `drive job ended` keeps it, so the end is never left half kept."""
+    """Keep on the job what its lane's end came to once it saved, reclaimed and released: the branches saved, its kept transcript and its ask cleared, the job left unstamped, since the end of a lane at rest changes nothing it does and so says none of its parts again, or, when the save failed, the end mark taken back, so the lane reads as it did; when an install of a newer drive schema saved the drive meanwhile, the newest install's `drive job ended` keeps it, so the end is never left half kept."""
     try:
         with state.edit(name) as data:
             ended = data["jobs"][job_id]

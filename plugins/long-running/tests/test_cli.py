@@ -8199,7 +8199,7 @@ def test_a_pr_carrying_a_code_ruling_is_refused_until_it_writes_his_words_into_t
 def test_a_drive_started_from_an_older_install_hands_its_verb_to_the_newest_install_before_a_drive_json_it_saved_refuses_it(
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    state.store(demo, state.stored(demo) | {"saved_by": "9.9.9"})
+    state.store(demo, state.stored(demo) | {"schema": state.SCHEMA + 1})
     newer = tmp_path / "cache" / "9.9.9" / "bin" / "drive"
     argv = ["drive", "status", "--drive", demo]
 
@@ -8217,13 +8217,13 @@ def test_a_drive_started_from_an_older_install_hands_its_verb_to_the_newest_inst
     assert execed.value.args == (newer, [str(newer), *argv[1:]])
     monkeypatch.setattr(install, "upgraded", lambda: None)
     assert cli.main() == 2
-    assert capsys.readouterr().err.startswith(f"drive: the {demo} drive was saved by long-running 9.9.9")
+    assert capsys.readouterr().err.startswith(f"drive: the {demo} drive was saved in drive schema {state.SCHEMA + 1}")
 
 
 def test_a_verb_a_newer_installs_save_refused_before_it_changed_anything_runs_again_on_the_newest_install_with_the_stdin_it_read(
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    state.store(demo, state.stored(demo) | {"saved_by": "9.9.9"})
+    state.store(demo, state.stored(demo) | {"schema": state.SCHEMA + 1})
     arguments = json.dumps({"drive": demo})
     reopened: list[tuple[list[str], str | None]] = []
     monkeypatch.setattr(install, "upgraded", lambda: tmp_path / "cache" / "9.9.9" / "bin" / "drive")
@@ -8234,7 +8234,7 @@ def test_a_verb_a_newer_installs_save_refused_before_it_changed_anything_runs_ag
     monkeypatch.setattr("sys.stdin", io.StringIO(arguments))
     assert cli.main() == 2
     assert reopened == [(["tool", "status"], None), (["tool", "status"], arguments)]
-    assert capsys.readouterr().err.startswith(f"drive: the {demo} drive was saved by long-running 9.9.9, newer than this")
+    assert capsys.readouterr().err.startswith(f"drive: the {demo} drive was saved in drive schema {state.SCHEMA + 1}, newer than this")
     reopened.clear()
     monkeypatch.setattr("sys.stdin", io.StringIO(arguments))
     subprocess.run([sys.executable, "-c", ""], check=True)
@@ -8253,7 +8253,7 @@ def test_a_verb_a_newer_installs_save_refused_before_it_changed_anything_runs_ag
 def test_a_launch_or_resume_a_newer_installs_save_refused_after_it_woke_a_sprite_runs_again_on_the_newest_install(
     asking: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, argv: list[str], again: bool
 ) -> None:
-    state.store("demo", state.stored("demo") | {"saved_by": "9.9.9"})
+    state.store("demo", state.stored("demo") | {"schema": state.SCHEMA + 1})
     argv = [*argv, "--drive", "demo"]
     reopened: list[tuple[list[str], str | None]] = []
     monkeypatch.setattr(install, "upgraded", lambda: tmp_path / "cache" / "9.9.9" / "bin" / "drive")
@@ -8272,16 +8272,16 @@ def test_a_resume_the_watch_ran_says_the_refusal_it_still_meets_in_the_watchs_li
     with state.edit("demo") as data:
         cli.bind_subcoordinator(data, "The drive", {"session": "drive-1", "terminal": None, "cwd": "/work", "started": state.stamp()})
     start = state.events_end("demo")
-    state.store("demo", state.stored("demo") | {"saved_by": "9.9.9"})
+    state.store("demo", state.stored("demo") | {"schema": state.SCHEMA + 1})
     monkeypatch.setattr(install, "upgraded", lambda: None)
     monkeypatch.setattr(cli.sys, "argv", ["drive", "job", "resume", asking, watch.UNREACHED, "--drive", "demo"])
     assert cli.main() == 2
     assert state.events_end("demo") == start
     monkeypatch.setenv(state.DETACHED_ENV, watch.RELAUNCHES_LOG)
     assert cli.main() == 2
-    refusal = f"the demo drive was saved by long-running 9.9.9, newer than this {state.VERSION}, which may misread it: run the newest install's drive"
+    refusal = f"the demo drive was saved in drive schema {state.SCHEMA + 1}, newer than this long-running {state.VERSION}'s {state.SCHEMA}, which may misread it: run the newest install's drive"
     assert capsys.readouterr().err == f"drive: {refusal}\n" * 2
-    state.store("demo", state.stored("demo") | {"saved_by": state.VERSION})
+    state.store("demo", state.stored("demo") | {"schema": state.SCHEMA})
     assert watch.event_lines(watch.Watcher("demo", offset=start)) == []
     assert watch.event_lines(watch.Watcher("demo", offset=start, project="The drive")) == [
         f"EVENT relaunch_refused drive job resume j1, which the watch ran, refused: {refusal}; its output is in the drive's relaunches.log [o1 j1]"

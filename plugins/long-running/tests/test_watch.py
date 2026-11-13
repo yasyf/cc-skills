@@ -1519,8 +1519,8 @@ def upgrades(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, installs: list[boo
     monkeypatch.setattr(watch, "upgraded", lambda: next(found))
 
 
-def saved_by(name: str, saver: str) -> None:
-    state.store(name, state.stored(name) | {"saved_by": saver})
+def saved_in(name: str, schema: int) -> None:
+    state.store(name, state.stored(name) | {"schema": schema})
 
 
 def mid_pass(monkeypatch: pytest.MonkeyPatch, before_lane_lines: Callable[[], object]) -> None:
@@ -1528,20 +1528,20 @@ def mid_pass(monkeypatch: pytest.MonkeyPatch, before_lane_lines: Callable[[], ob
     monkeypatch.setattr(watch, "lane_lines", lambda watching, moment: before_lane_lines() or real(watching, moment))
 
 
-def test_a_pass_that_finds_the_drive_saved_by_a_newer_install_ends_the_watch_once_it_posted_each_line_its_earlier_stages_made_so_the_watch_after_it_says_none_again(
+def test_a_pass_that_finds_the_drive_saved_in_a_newer_schema_ends_the_watch_once_it_posted_each_line_its_earlier_stages_made_so_the_watch_after_it_says_none_again(
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with state.edit(demo) as data:
         data["jobs"]["j1"].update(state="waiting", said=f"READY {state.pr_url(KEY)}")
     serve(monkeypatch, {KEY: read(state="MERGED", mergeCommit="ccc333")})
     upgrades(monkeypatch, tmp_path, [False, True])
-    mid_pass(monkeypatch, lambda: saved_by(demo, "9.9.9"))
+    mid_pass(monkeypatch, lambda: saved_in(demo, state.SCHEMA + 1))
     sent = posts(monkeypatch)
     merged = f"PR {KEY}: merged [o1 j1]"
     launched(monkeypatch, demo)
     assert watch.main(demo) == 0
     assert (posted(sent), state.stored(demo)["prs"][KEY]["state"], state.held_path(demo).read_text(), state.pid_path(demo).exists()) == ([("evidence", f"root@{demo}", merged)], "merged", "", False)
-    saved_by(demo, state.VERSION)
+    saved_in(demo, state.SCHEMA)
     monkeypatch.setattr(watch, "upgraded", lambda: None)
     passes = []
     monkeypatch.setattr(watch, "passed", lambda watching, moment: passes.append(moment) or [])
@@ -4838,7 +4838,7 @@ def test_a_lander_that_outlived_an_install_reopens_on_the_newest_drive_which_rec
 
     def queued_then_installed(name: str, clone: Path, keys: list[str], prs: dict, asked: dict[str, str], dry_run: bool = False, flake: bool = False) -> str:
         outcome = queued(name, clone, keys, prs, asked, dry_run, flake)
-        state.store(demo, state.stored(demo) | {"saved_by": "9.9.9"})
+        state.store(demo, state.stored(demo) | {"schema": state.SCHEMA + 1})
         return outcome
 
     class Execed(Exception):
@@ -4854,7 +4854,7 @@ def test_a_lander_that_outlived_an_install_reopens_on_the_newest_drive_which_rec
         land.run(demo, [KEY])
     assert execed.value.args == (newer, [str(newer), "pr", "land", state.pr_url(KEY), "--drive", demo, "--outcome", land.QUEUED])
     assert state.stored(demo)["prs"][KEY]["lander"] is None
-    state.store(demo, state.stored(demo) | {"saved_by": state.VERSION})
+    state.store(demo, state.stored(demo) | {"schema": state.SCHEMA})
     monkeypatch.setattr(install, "upgraded", lambda: None)
     assert cli.main(["pr", "land", state.pr_url(KEY), "--drive", demo, "--outcome", land.QUEUED]) == 0
     assert capsys.readouterr().out.splitlines()[-1] == f"{KEY}: {land.QUEUED}"
@@ -4917,7 +4917,7 @@ def test_an_install_that_saves_the_drive_while_the_lander_checks_a_pr_ends_no_la
     fetched = github.fetched
 
     def installed_while_checking(clone: str, branch: str) -> str:
-        state.store(demo, state.stored(demo) | {"saved_by": "9.9.9"})
+        state.store(demo, state.stored(demo) | {"schema": state.SCHEMA + 1})
         return fetched(clone, branch)
 
     class Execed(Exception):
@@ -4934,7 +4934,7 @@ def test_an_install_that_saves_the_drive_while_the_lander_checks_a_pr_ends_no_la
     reopened = [str(newer), "pr", "land", state.pr_url(KEY), "--drive", demo, "--outcome", land.QUEUED, "--asked", KEY, "34087d1264"]
     assert execed.value.args == (newer, reopened)
     assert calls.read_text() == "pr comment 42 -R Forge-AI/monorepo --body @forge-pr-reviewer review\n"
-    state.store(demo, state.stored(demo) | {"saved_by": state.VERSION})
+    state.store(demo, state.stored(demo) | {"schema": state.SCHEMA})
     monkeypatch.setattr(install, "upgraded", lambda: None)
     assert cli.main(reopened[1:]) == 0
     pr = state.load(demo)["prs"][KEY]

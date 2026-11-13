@@ -41,17 +41,36 @@ def test_edit_saves_atomically_and_leaves_no_temp(state_root: Path) -> None:
     assert (state_root / "demo" / ".lock").exists()
 
 
-def test_a_drive_a_newer_install_saved_is_refused_before_any_of_it_is_read_while_its_bindings_still_read(state_root: Path) -> None:
+def test_a_drive_saved_in_a_newer_schema_is_refused_before_any_of_it_is_read_while_its_bindings_still_read(state_root: Path) -> None:
     make("demo", session="session-1")
-    assert state.saved_by("demo") == state.VERSION
-    major, minor, patch = state.VERSION.split(".")
-    state.store("demo", state.stored("demo") | {"saved_by": f"{major}.{minor}.{int(patch) - 1}"})
+    assert state.stored("demo")["schema"] == state.SCHEMA
+    state.store("demo", state.stored("demo") | {"schema": state.SCHEMA - 1})
     assert state.load("demo")["roles"]["coordinator"]["session"] == "session-1"
-    newer = f"{major}.{minor}.{int(patch) + 1}"
-    state.store("demo", state.stored("demo") | {"saved_by": newer, "orders": {"o1": {"parts": "a shape no install reads yet"}}})
-    with pytest.raises(state.NewerDrive, match=f"saved by long-running {re.escape(newer)}, newer than this {re.escape(state.VERSION)}"):
+    newer = state.SCHEMA + 1
+    state.store("demo", state.stored("demo") | {"schema": newer, "orders": {"o1": {"parts": "a shape no install reads yet"}}})
+    with pytest.raises(state.NewerDrive, match=f"saved in drive schema {newer}, newer than this long-running {re.escape(state.VERSION)}'s {state.SCHEMA}"):
         state.load("demo")
     assert state.saved("demo")["roles"]["coordinator"]["session"] == "session-1"
+
+
+def test_the_fields_a_load_shapes_are_the_ones_recorded_for_this_drive_schema_so_a_release_reshaping_them_bumps_it(state_root: Path) -> None:
+    data = state.new_drive("demo", "coordinator", None, "/work")
+    data["orders"]["o1"] = state.new_order("ship it", "D1:1.0", None, {"ship it": state.new_part()}, "2026-11-10T21:00:00-08:00")
+    data["jobs"]["j1"] = state.new_job("o1", "builder", "build it", ["ship it"], "2026-11-10T21:00:00-08:00")
+    data["prs"]["o/r#1"] = state.new_pr("https://github.com/o/r/pull/1", "j1", "o1")
+    data["answers"]["a1"] = {}
+    data["handlers"]["h1"] = {}
+    state.create(data)
+    loaded = state.load("demo")
+    fields = shape({field: value for field, value in loaded.items() if field not in state.COLLECTIONS}) | {
+        collection: shape(next(iter(loaded[collection].values()))) for collection in state.COLLECTIONS
+    }
+    recorded = Path(__file__).parent / "schemas" / f"{state.SCHEMA}.json"
+    assert fields == json.loads(recorded.read_text()), f"a load shapes the drive's rows differently than drive schema {state.SCHEMA}: bump state.SCHEMA, so an older install refuses the drive rather than misread it, and record these fields as tests/schemas/<the new number>.json"
+
+
+def shape(record: dict) -> dict[str, str]:
+    return {field: type(value).__name__ for field, value in record.items()}
 
 
 def test_a_save_that_changes_a_row_or_a_command_that_does_more_than_read_is_kept_as_written_so_its_verb_never_runs_twice(
@@ -105,20 +124,36 @@ with state.edit("demo") as data:
 """
 
 
-def test_an_older_installs_save_after_a_newer_installs_is_refused_leaving_the_newer_save_whole(state_root: Path, tmp_path: Path) -> None:
-    make("demo")
+def newer_release_saves(tmp_path: Path, schema: int) -> None:
     release = tmp_path / "9.9.9"
     shutil.copytree(Path(state.__file__).resolve().parent, release / "lib" / "drive")
+    copied = release / "lib" / "drive" / "state.py"
+    copied.write_text(copied.read_text().replace(f"\nSCHEMA = {state.SCHEMA}\n", f"\nSCHEMA = {schema}\n"))
     (release / ".claude-plugin").mkdir()
     (release / ".claude-plugin" / "plugin.json").write_text(json.dumps({"version": "9.9.9"}))
-    read = state.load("demo")
     subprocess.run([sys.executable, "-c", NEWER_RELEASE_SAVE, str(release / "lib")], check=True, timeout=30)
-    with pytest.raises(state.NewerDrive, match="saved by long-running 9.9.9 since this"):
-        state.save("demo", read | {"terminal": "the older verb's receipt"})
-    with pytest.raises(state.NewerDrive, match="saved by long-running 9.9.9, newer than this"), state.edit("demo") as data:
+
+
+def test_an_older_installs_verb_saves_after_a_newer_install_of_the_same_drive_schema_saved_keeping_both_saves(state_root: Path, tmp_path: Path) -> None:
+    make("demo")
+    state.load("demo")
+    newer_release_saves(tmp_path, state.SCHEMA)
+    with state.edit("demo") as data:
         data["terminal"] = "the older verb's receipt"
     saved = state.stored("demo")
-    assert (saved["saved_by"], saved.get("terminal"), saved["slack"]["page_stale"]) == ("9.9.9", None, "the newer release's save")
+    assert (saved["schema"], saved["terminal"], saved["slack"]["page_stale"]) == (state.SCHEMA, "the older verb's receipt", "the newer release's save")
+
+
+def test_an_older_installs_save_after_an_install_of_a_newer_drive_schema_saved_is_refused_leaving_the_newer_save_whole(state_root: Path, tmp_path: Path) -> None:
+    make("demo")
+    read = state.load("demo")
+    newer_release_saves(tmp_path, state.SCHEMA + 1)
+    with pytest.raises(state.NewerDrive, match=f"saved in drive schema {state.SCHEMA + 1} since this long-running"):
+        state.save("demo", read | {"terminal": "the older verb's receipt"})
+    with pytest.raises(state.NewerDrive, match=f"saved in drive schema {state.SCHEMA + 1}, newer than this"), state.edit("demo") as data:
+        data["terminal"] = "the older verb's receipt"
+    saved = state.stored("demo")
+    assert (saved["schema"], saved.get("terminal"), saved["slack"]["page_stale"]) == (state.SCHEMA + 1, None, "the newer release's save")
 
 
 def test_a_write_waiting_past_the_drive_lock_wait_changes_nothing_and_names_the_lock_held(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:

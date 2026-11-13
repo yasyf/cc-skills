@@ -470,8 +470,7 @@ def test_a_handler_whose_stop_hook_meets_a_drive_a_newer_install_saved_still_end
     assert [tools.run("handler", "demo", {"brief": briefs[seq]}) for seq in ("684835", "684840")] == [f"handed to {handler}"] * 2
     transcript = tmp_path / "h-session.jsonl"
     bind(monkeypatch, handler, "h-session", transcript)
-    major, minor, patch = state.VERSION.split(".")
-    state.store("demo", state.stored("demo") | {"saved_by": f"{major}.{minor}.{int(patch) + 1}"})
+    state.store("demo", state.stored("demo") | {"schema": state.SCHEMA + 1})
     monkeypatch.setattr(agents, "hold", lambda payload: pytest.fail("a handler's Stop hook holds no job"))
     removed: list[list[str]] = []
     monkeypatch.setattr(agents.subprocess, "Popen", lambda argv, **kwargs: removed.append(argv))
@@ -480,7 +479,7 @@ def test_a_handler_whose_stop_hook_meets_a_drive_a_newer_install_saved_still_end
     assert started[-1] == ["cci", "post", "--drive", "demo", "--lane", "handler", "--kind", "done", "--to", "communicator@demo", "--id", f"handler-{handler}", "--text", LINE]
     assert removed == [["claude", "rm", BACKGROUND_JOB]]
 
-    state.store("demo", state.stored("demo") | {"saved_by": state.VERSION})
+    state.store("demo", state.stored("demo") | {"schema": state.SCHEMA})
     ended_sessions.add("h-session")
     fresh = tools.run("handler", "demo", {"brief": briefs["684835"]}).removeprefix("started ")
     assert {key: entry["handed"] for key, entry in state.load("demo")["handlers"].items()} == {fresh: [briefs["684840"]]}
