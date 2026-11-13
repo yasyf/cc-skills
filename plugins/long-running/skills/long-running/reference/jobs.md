@@ -290,9 +290,13 @@ before it sends or starts.
   when it asked none or Orca already holds another answer to it. A live Sprite lane no start this
   drive recorded put the tools on, as one started before the drive forwarder existed or recorded by
   hand, first gets the tools a launch puts there, `drive` among them; a refusal is named after the
-  send, and the next message tries again. On a finished worker whose Sprite is still up, it starts the job's
-  next worker in its terminal, on the Run and terminal Orca shows for that worker, read before
-  its liveness, which Orca cannot always tell once a worker is done; when Orca no longer finds
+  send, and the next message tries again. On a finished worker on this Mac, it starts the job's
+  next worker in its terminal, on the Run and terminal Orca shows for that worker. On a finished
+  worker whose Sprite is still up, it prepares that Sprite again with
+  `cc-remote orca prepare <Sprite> --existing`, which gives it the tool payload and keys a fresh
+  Sprite gets, and starts the next worker there in the checkout the last one left, on a Run this
+  terminal makes. A finished worker is read before its liveness, which Orca cannot always tell
+  once a worker is done; when Orca no longer finds
   that terminal or worktree, or no longer holds that terminal connected, the worker counts as
   dead, and when its Sprite refuses the tools a worker needs, that Sprite is passed over as a dead
   one's. A dead worker, or one whose

@@ -64,7 +64,6 @@ UNFIT = 76
 CC_REMOTE = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "cc-remote"
 CC_REMOTE_WORKSPACES = CC_REMOTE / "workspaces"
 CC_REMOTE_TASKS = CC_REMOTE / "orca"
-SPRITE_BRIEFS = ".local/state/long-running/briefs"
 SPRITE_ANSWERS = ".local/state/long-running/answers"
 SPRITE_LOG_BYTES = 20000
 SPRITE_LOGS = f"""exec 2>&1
@@ -361,7 +360,7 @@ def handoff(brief: str, ended: dict, saved: list[str], job: dict, text: str | No
     local = here or state.on_mac(job)
     how = "finished" if end.worktree else "died"
     if end.worktree and not here:
-        where = f"You continue the job in its terminal and checkout {ON_MAC if local else 'on the same Sprite'}, as it left them."
+        where = f"You continue the job in its terminal and checkout {ON_MAC}, as it left them." if local else "You continue the job on the same Sprite, in the checkout it left as it was."
     elif since:
         where = f"You continue the job on the same Sprite, in the checkout it left as it was, since {since}. Read its git status and log before anything else."
     else:
@@ -593,7 +592,7 @@ def gone(error: OrcaError) -> str | None:
 
 
 def lane_end(drive: str, job: dict) -> LaneEnd | None:
-    """None while the lane's worker takes messages; else why it does not, the branch its terminal was on, and, for a worker that finished while Orca holds its terminal connected, on its Sprite or on this Mac, the worktree, terminal and Run its next worker starts on, read from Orca, since a dispatch recorded by hand records neither. A finished worker is read before its liveness, which Orca cannot always tell once the worker is done, and one whose terminal is no longer connected ends as a dead one does. A lane whose Sprite Orca cannot reach is read again after woken wakes that Sprite. OrcaError when Orca cannot tell either way."""
+    """None while the lane's worker takes messages; else why it does not, the branch its terminal was on, and, for a worker that finished while Orca holds its terminal connected, on its Sprite or on this Mac, the worktree, terminal and Run it finished in, where a next worker on this Mac starts, read from Orca, since a dispatch recorded by hand records neither. A finished worker is read before its liveness, which Orca cannot always tell once the worker is done, and one whose terminal is no longer connected ends as a dead one does. A lane whose Sprite Orca cannot reach is read again after woken wakes that Sprite. OrcaError when Orca cannot tell either way."""
     try:
         return shown_end(job, worker(job["dispatch"]))
     except OrcaError as error:
@@ -630,24 +629,15 @@ def shown_end(job: dict, shown: dict) -> LaneEnd | None:
     return None
 
 
-def start_after(drive: str, lane: str, brief: Path, job: dict, end: LaneEnd) -> dict:
-    """Start the job's next worker in the terminal and worktree of the one that finished, on its Run, on its Sprite or on this Mac, with a Task spec that names the brief where the worker reads it: the start Orca names for a finished worker, with `--on` its paired server for a Sprite, whose `~/.local/bin` first takes the tools a launch gives it, this plugin's `drive` among them, since the Sprite may have been launched before they changed. Orca keeps every Task spec until its database is pruned, and a brief runs to hundreds of kilobytes, so the spec carries only where the brief is, as the launcher's does."""
-    if state.on_mac(job):
-        spec = f"Lane '{lane}'. Your full brief is the file {brief}: read it in full with the Read tool before anything else and execute it exactly."
-    else:
-        place_tools(job["workspace"])
-        text = brief.read_bytes()
-        spec = (
-            f"Lane {lane}: read the whole brief at {place_brief(job['workspace'], lane, text)}, verify its SHA-256 is "
-            f"{hashlib.sha256(text).hexdigest()} and its size is {len(text)} bytes, then follow it exactly."
-        )
+def start_after(drive: str, lane: str, brief: Path, end: LaneEnd) -> dict:
+    """Start the job's next worker on this Mac in the terminal and worktree of the one that finished, on its Run, with a Task spec that names the brief where the worker reads it: the start Orca names for a finished worker. Orca keeps every Task spec until its database is pruned, and a brief runs to hundreds of kilobytes, so the spec carries only where the brief is, as the launcher's does."""
+    spec = f"Lane '{lane}'. Your full brief is the file {brief}: read it in full with the Read tool before anything else and execute it exactly."
     argv = [
         "orca",
         "orchestration",
         "worker-start",
         "--run",
         end.run,
-        *(() if state.on_mac(job) else ("--on", job["environment"])),
         "--worktree",
         end.worktree,
         "--terminal",
@@ -667,8 +657,8 @@ def start_after(drive: str, lane: str, brief: Path, job: dict, end: LaneEnd) -> 
     return {
         "run": end.run,
         "terminal": end.terminal,
-        "workspace": job["workspace"],
-        "environment": job["environment"],
+        "workspace": None,
+        "environment": None,
         "dispatch": receipt["dispatchId"],
         "task": receipt["taskId"],
         "lane": lane,
@@ -688,10 +678,6 @@ def place_tools(workspace: str) -> None:
     if done.returncode:
         said = done.stderr.strip().splitlines()
         raise Unfit(f"{TOOLS} exited {done.returncode} on {workspace}: {said[-1] if said else 'no output'}")
-
-
-def place_brief(workspace: str, lane: str, text: bytes) -> str:
-    return put_on_sprite(workspace, SPRITE_BRIEFS, f"{lane}.md", text)
 
 
 def sprite_answer(answer: str, job: dict, message_id: str) -> str:
