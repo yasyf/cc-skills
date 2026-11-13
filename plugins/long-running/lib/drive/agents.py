@@ -328,11 +328,16 @@ def lane_spec() -> dict:
     return json.loads((Path(install.installed(ORCA)["installPath"]) / "lib" / "lane.json").read_text())
 
 
+def env_words(settings: dict) -> list[str]:
+    """The `env` words a root session's command starts with: every variable its settings carry, so the `claude daemon` its `claude --bg` starts, and each spare that daemon forks, inherits them."""
+    return ["env", *(f"{key}={value}" for key, value in settings["env"].items())]
+
+
 def filled(page: str) -> str:
     """A skill page with each `orca terminal create` line's `<session env>` and `<session settings>` filled from session_settings, quoted for the double-quoted `--command` they sit in: `env` with every variable a session the drive starts carries, so the `claude daemon` its `claude --bg` starts inherits them too, and the one `--settings` value it runs on."""
     settings = session_settings({})
     holes = {
-        SESSION_ENV: shlex.join(["env", *(f"{key}={value}" for key, value in settings["env"].items())]),
+        SESSION_ENV: shlex.join(env_words(settings)),
         SESSION_SETTINGS_HOLE: shlex.quote(json.dumps(settings, separators=(",", ":"))),
     }
     quoted = {hole: DOUBLE_QUOTED.sub(r"\\\g<0>", words) for hole, words in holes.items()}

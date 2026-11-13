@@ -173,8 +173,10 @@ def start_meta(drive: str, worktree: str, earlier: str | None) -> str | None:
         with contextlib.suppress(OrcaError):
             terminal(earlier)
             return None
+    settings = agents.session_settings({})
     command = shlex.join(
         [
+            *agents.env_words(settings),
             "claude",
             "-n",
             f"{drive}-meta",
@@ -185,7 +187,7 @@ def start_meta(drive: str, worktree: str, earlier: str | None) -> str | None:
             "--permission-mode",
             "bypassPermissions",
             "--settings",
-            json.dumps(agents.session_settings({}), separators=(",", ":")),
+            json.dumps(settings, separators=(",", ":")),
             "--channels",
             "plugin:cc-inbox@cc-inbox",
             "--",

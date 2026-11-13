@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 from conftest import LANE_SPEC
-from drive import agents, cli
+from drive import agents, cli, orca
 
 SKILL = cli.PAGES.parent
 PLUGIN = SKILL.parents[1]
@@ -175,3 +175,15 @@ def test_every_quoted_drive_command_parses(words: list[str], monkeypatch: pytest
         parser.parse_args(words if verb(parser, words)[1] else [*words, "--help"])
     except SystemExit as refusal:
         assert refusal.code == 0
+
+
+def test_the_meta_session_drive_start_opens_runs_the_command_start_or_resume_prints(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    created: list[tuple[str, ...]] = []
+    monkeypatch.setattr(orca, "request", lambda *args: created.append(args) or {"terminal": {"handle": "term_meta"}})
+    assert orca.start_meta("demo", "/w/demo", None) == "term_meta"
+    [request] = created
+    assert request[:6] == ("terminal", "create", "--worktree", "path:/w/demo", "--title", "demo-meta")
+    assert cli.manual(argparse.Namespace(page="start", row=None)) == 0
+    [quoted] = [line for line in session_starts(capsys.readouterr().out) if "--title <drive>-meta " in line]
+    script = shlex.split(quoted.replace("<drive>", "demo"))
+    assert shlex.split(request[request.index("--command") + 1]) == shlex.split(script[script.index("--command") + 1])
