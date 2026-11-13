@@ -1334,13 +1334,13 @@ def asked_on(name: str, waits: str) -> set[str]:
     try:
         listed = view.cards(name)["questions"]
     except view.CardsError as error:
-        raise DriveError(f"nothing posted: a card drawn again under its waits id moves each wait on its old card to the new one, which needs his cards, and cc-slack could not list them: {error}") from None
+        raise DriveError(f"nothing posted: a card drawn again under its waits id moves each wait on an older copy of it to the card, which needs his cards, and cc-slack could not list them: {error}") from None
     kept = (question for job in state.load(name)["jobs"].values() for question in job["questions"] if question["waits"] == waits and question["card"])
     return {view.message_key(entry["url"]) for entry in listed if entry["card"].get("waits") == waits} | {view.message_key(question["card"]) for question in kept}
 
 
 def follow_card(name: str, waits: str, asked: set[str], url: str) -> None:
-    """Record the card cc-slack drew under the waits id as the card of each question asked under it, and point each wait of a job or PR on a card it was drawn on before at its waits id: a card asked again with new words posts as a new card, its old one left pointing at it."""
+    """Record the card cc-slack drew under the waits id as the card of each question asked under it, and point each wait of a job or PR on a card it was drawn on before at its waits id: a card asked again under its waits id is redrawn where it sits, so a wait moves only off an older copy cc-slack retired for it."""
     from drive import view
 
     moved = asked - {view.message_key(url)}
@@ -1645,7 +1645,7 @@ def kept_ask(path: Path) -> limits.Question:
 
 
 def cards_redraw(args: argparse.Namespace) -> int:
-    """Print, one JSON line each in one pass, the card `drive job card` prints for each of his open question cards, drawn from the ASK file `ask_source` finds for it and marked in_place, so cc-slack edits each where it sits and posts no new version; each card that does not redraw is named once the rest are printed."""
+    """Print, one JSON line each in one pass, the card `drive job card` prints for each of his open question cards, drawn from the ASK file `ask_source` finds for it, which cc-slack draws over that card where it sits, posting no new version; each card that does not redraw is named once the rest are printed."""
     from drive import view
 
     name = state.resolve(args.drive)
@@ -1659,7 +1659,7 @@ def cards_redraw(args: argparse.Namespace) -> int:
             missed.append(f"{waits}: not one of his open cards")
             continue
         try:
-            drawn.append(question_card(name, ask_source(name, shown[waits]), waits) | {"in_place": True})
+            drawn.append(question_card(name, ask_source(name, shown[waits]), waits))
         except DriveError as error:
             missed.append(f"{waits}: {error}")
     if drawn:
@@ -4449,7 +4449,7 @@ def parser() -> argparse.ArgumentParser:
         help="print the card drive job card prints for each of his open question cards, one JSON line each",
         description=(
             "Redraw his open question cards in one pass: for each open card, print the JSON `drive job card <its ASK file>"
-            " --waits <its waits id>` prints, marked in_place so Slack edits the card where it sits and posts no new version,"
+            " --waits <its waits id>` prints, which cc-slack draws over the card where it sits, posting no new version,"
             " one line each, for say(card=…). Its ASK file is the one a job's question keeps"
             " under its waits id, else the one a question linked to the card keeps when it asks the card's question, else"
             " asks/<waits id>.md rebuilt from the card as posted, which a question of its job then keeps. Each card that does"

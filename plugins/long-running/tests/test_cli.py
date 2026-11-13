@@ -2044,10 +2044,6 @@ def test_job_ask_reads_terms_more_than_ten_of_the_drives_questions_use_as_naming
         assert (refused["title"] in [question["title"] for question in state.load("demo")["jobs"]["j1"]["questions"]]) is stays
 
 
-def in_place(printed: str) -> str:
-    return json.dumps(json.loads(printed) | {"in_place": True})
-
-
 def open_card(n: int, card: dict) -> dict:
     return {
         "question": card["title"],
@@ -2076,12 +2072,12 @@ def test_cards_redraw_prints_each_open_cards_card_in_one_pass_and_names_each_it_
     jobs = state.load("demo")["jobs"]
     assert cli.main(["cards", "redraw"]) == 2
     out, err = capsys.readouterr()
-    assert out.splitlines() == [*map(in_place, printed), in_place(json.dumps(unasked))]
+    assert out.splitlines() == [*printed, json.dumps(unasked)]
     assert "demo:hier-2: the ASK is out of shape" in err and "0 options; an ASK has" in err
     assert "demo:hier-3: the ASK is out of shape" in err and "is not first: put it first" in err
     assert (state_root / "demo" / "asks" / "hier-1.md").is_file()
     assert state.load("demo")["jobs"] == jobs
-    assert run("cards", "redraw", "--waits", "demo:j1-8") == (0, in_place(printed[1]))
+    assert run("cards", "redraw", "--waits", "demo:j1-8") == (0, printed[1])
     assert cli.main(["cards", "redraw", "--waits", "demo:j1-9"]) == 2
     assert "demo:j1-9: not one of his open cards" in capsys.readouterr().err
 
@@ -2097,7 +2093,7 @@ def test_cards_redraw_draws_a_card_from_the_ask_a_question_linked_to_it_keeps_wh
     with state.edit("demo") as data:
         data["jobs"]["j1"]["questions"][0] |= {"waits": None, "card": shown["url"]}
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": [], "closed": []})
-    assert run("cards", "redraw") == (0, in_place(printed))
+    assert run("cards", "redraw") == (0, printed)
     assert [(question["file"], question["waits"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [(path, "demo:j1-7")]
 
 
@@ -2114,14 +2110,14 @@ def test_cards_redraw_rebuilds_a_card_whose_linked_question_asks_something_else_
     with state.edit("demo") as data:
         data["jobs"]["j1"]["questions"] = [data["jobs"]["j1"]["questions"][0] | {"waits": None, "card": shown["url"]}]
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": [], "closed": []})
-    assert run("cards", "redraw", "--waits", "demo:j1-8") == (0, in_place(printed))
+    assert run("cards", "redraw", "--waits", "demo:j1-8") == (0, printed)
     rebuilt = state_root / "demo" / "asks" / "j1-8.md"
     assert limits.redrawn(rebuilt.read_text()).title == json.loads(printed)["title"]
     assert rebuilt.read_text().endswith("\nFindings:\n" + SHORT_ASK.split("Findings:\n", 1)[1])
     assert [(question["file"], question["waits"], question["card"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [
         (str(rebuilt), "demo:j1-8", shown["url"])
     ]
-    assert run("cards", "redraw", "--waits", "demo:j1-8") == (0, in_place(printed))
+    assert run("cards", "redraw", "--waits", "demo:j1-8") == (0, printed)
 
 
 def test_job_card_refuses_a_kept_ask_edited_by_hand_until_drive_job_ask_keeps_the_new_words(
