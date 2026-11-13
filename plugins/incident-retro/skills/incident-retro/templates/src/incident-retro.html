@@ -1877,16 +1877,18 @@ function tlRowHtml(e,unchanged,idPrefix){
   `</details>`;
 }
 const rowPhase=e=>e.phase==="before"&&tsOf(e.ts)>=tsOf(TS.onset)-1000?"":(e.phase||"");
-const TL_PHASE_PILL={before:"before the incident",after:"after the incident","":"during the incident"};
+const TL_PHASE_PILL={before:"before the incident",after:"after the incident"};
 function tlDays(host,rows,idPrefix){
- let day="",phase=null,vis=0,hid=0;
+ let day="",vis=0,hid=0;
  const hiding=DIFF&&!document.body.classList.contains("show-unch");
- const phased=rows.some(e=>rowPhase(e));
+ const phases=new Map();
+ rows.forEach(e=>{const k=dayKey(e.ts);phases.set(k,(phases.get(k)||new Set()).add(rowPhase(e)))});
  rows.forEach(e=>{
-  const k=dayKey(e.ts),p=rowPhase(e);
-  if(k!==day||p!==phase){
-   day=k;phase=p;
-   host.append(el("div","ir-day",esc(fmtDay(e.ts))+(phased?` <span class="pill p-dead">${esc(TL_PHASE_PILL[p]||p)}</span>`:"")));
+  const k=dayKey(e.ts);
+  if(k!==day){
+   day=k;
+   const only=phases.get(k).size===1?[...phases.get(k)][0]:"";
+   host.append(el("div","ir-day",esc(fmtDay(e.ts))+(TL_PHASE_PILL[only]?` <span class="pill p-dead">${esc(TL_PHASE_PILL[only])}</span>`:"")));
   }
   const u=DIFF&&!DIFF.marks["timeline:"+e._id];
   if(u&&hiding)hid++;else vis++;
