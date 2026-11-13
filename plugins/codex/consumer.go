@@ -13,6 +13,7 @@ import (
 
 	"github.com/yasyf/cc-interact/agent"
 	"github.com/yasyf/cc-interact/channel"
+	"github.com/yasyf/cc-interact/channelsetup"
 	"github.com/yasyf/cc-interact/cmd"
 	"github.com/yasyf/cc-interact/daemon"
 	"github.com/yasyf/cc-interact/event"
@@ -30,9 +31,11 @@ var appVersion = "dev"
 // completed run; a var so a test can shrink the bound.
 var wakeTimeout = 30 * time.Second
 
+var channelPlugin = channelsetup.Plugin{Marketplace: "skills", Name: "codex"}
+
 const (
-	// binaryName is the cobra root name: the channel MCP server name, the source
-	// its tags carry, and the prefix agent-inject stamps on delivered directives.
+	// binaryName is the cobra root name and the prefix agent-inject stamps on
+	// delivered directives.
 	binaryName = "codex-ask"
 
 	// appDir is the state-directory root (~/.cc-codex-ask) — the isolation axis
@@ -146,15 +149,16 @@ func resolveSubjectPort(ctx context.Context, client *daemon.Client, session, sco
 // watch/ack loop), plus RelayStep — the parent-side rule to SendMessage-wake an
 // owner stranded 'done' with a pending directive (the relay fallback to park).
 func channelInstructions() string {
+	source := channelPlugin.Source(cmd.ChannelServer)
 	return channel.Instructions(channel.InstructionsSpec{
 		Desc:    "the codex-ask steering channel",
 		Traffic: "Steering directives — a completed codex dispatch's result, or an operator instruction — reach you",
-		Source:  binaryName,
+		Source:  source,
 		Guide: "Call the await tool with your agent_id (named in your greeting directive) to park until a directive " +
 			"arrives; directives also land inside your tool results and as stop-time instructions when you finish. " +
 			"Act on each directive once, then continue or finish your task.",
 		SilentOutside: "a codex-ask steering session",
-	}) + "\n\n" + channel.RelayStep(binaryName)
+	}) + "\n\n" + channel.RelayStep(source)
 }
 
 // channelTools advertises the await tool — the park an owner subagent calls to
@@ -183,6 +187,7 @@ func deps() cmd.Deps {
 	return cmd.Deps{
 		Paths:                  appPaths(),
 		Version:                appVersion,
+		Plugin:                 channelPlugin,
 		NewClient:              newClient,
 		EnsureCurrent:          func(ctx context.Context) error { return launcher().EnsureCurrent(ctx, daemon.UpgradeTimeout) },
 		EnsureCurrentIfRunning: func(ctx context.Context) error { return launcher().EnsureCurrentIfRunning(ctx) },
@@ -275,8 +280,8 @@ func directCmd(d cmd.Deps) *cobra.Command {
 }
 
 // consumerRoot is the cobra tree for the additive cc-interact subcommands. Its
-// name is binaryName, so the channel server and agent-inject stamp "codex-ask" as
-// the steering source. It sits beside main's flag dispatch, never shadowing it:
+// name is binaryName, so agent-inject stamps "codex-ask" on delivered
+// directives. It sits beside main's flag dispatch, never shadowing it:
 // every subcommand name is a plain word, not a leading --flag case.
 func consumerRoot() *cobra.Command {
 	d := deps()
@@ -294,6 +299,8 @@ func consumerRoot() *cobra.Command {
 		cmd.AgentStopCmd(d),
 		cmd.AgentReportCmd(d),
 		cmd.ChannelCmd(d),
+		cmd.ToolsCmd(d),
+		cmd.ChannelCheckCmd(d),
 		directCmd(d),
 	)
 	r.AddCommand(platformCmds()...)
@@ -304,14 +311,16 @@ func consumerRoot() *cobra.Command {
 // consumerRoot before falling through to askMode. Each is a plain word, so it
 // cannot collide with a leading --flag dispatch case.
 var consumerSubcommands = map[string]bool{
-	"daemon":       true,
-	"stop":         true,
-	"agent-start":  true,
-	"agent-inject": true,
-	"agent-stop":   true,
-	"agent-report": true,
-	"channel":      true,
-	"direct":       true,
+	"daemon":        true,
+	"stop":          true,
+	"agent-start":   true,
+	"agent-inject":  true,
+	"agent-stop":    true,
+	"agent-report":  true,
+	"channel":       true,
+	"tools":         true,
+	"channel-check": true,
+	"direct":        true,
 }
 
 func isConsumerSubcommand(name string) bool {

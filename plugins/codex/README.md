@@ -53,8 +53,9 @@ Use codex to generate a mascot logo for this repo.
 | Skill | `codex:codex` | Routes debugging, code/diff review, security audits, parallel bounded sweeps, rote throwaway work, and `$imagegen` image generation to OpenAI's Codex CLI running `gpt-6.1-sol` at `xhigh` reasoning through `codex-ask`. |
 | Agent | `codex:codex-wrapper` | Relay lane on `sonnet` at low effort for workflow stages and subagents that only accept Claude models; runs one foreground `codex-ask` call and returns Codex's answer verbatim while keeping big context gathers out of the caller's window. |
 | Agent | `codex:codex-wrapper-async` | Async owner lane that dispatches with `codex-ask --dispatch --owner`, parks on the `await` tool, and returns the on-disk reply on wake. |
-| MCP server | `codex-ask-channel` | Steering channel on `codex-ask` that provides the `await` tool and delivers completion wakes to owner subagents. |
-| Hook | `hooks/hooks.json` | `SessionStart` hook that runs `codex-ask --version` to pre-warm and `codex-ask --sweep` asynchronously. |
+| MCP server | `channel` | Toolless steering channel, `codex-ask channel --no-tools` from `PATH`, that delivers completion wakes to owner subagents and survives `/reload-plugins`. |
+| MCP server | `codex-ask-channel` | `codex-ask tools`, which provides the `await` tool. |
+| Hook | `hooks/hooks.json` | `SessionStart` hook that runs `codex-ask --version` to pre-warm and `codex-ask --sweep` asynchronously, and a `Stop` hook, `codex-ask channel-check`, that types `/mcp reconnect plugin:codex:channel` at an idle Orca prompt once the channel stops. |
 | Hook | `captain-hook` guard pack | Warns once when `codex-ask` is backgrounded or detached with `run_in_background`, trailing `&`, `nohup`, `setsid`, or `disown`, or when a hand-rolled `codex exec` runs, steering back to foreground `codex-ask` or `--dispatch`. |
 | CLI | `bin/codex-ask` | Bundled executable on the Bash tool's `PATH` that resolves a version-pinned release from `bin/codex-ask.binrun`, pins Codex CLI flags, and manages `--lane`, `--schema`, `--mcp`, `--image`, `--incident`, `--dispatch`, `--await`, `--watch`, `--mint-run`, `--collect`, `--ps`, `--cancel`, and `--reap`. |
 

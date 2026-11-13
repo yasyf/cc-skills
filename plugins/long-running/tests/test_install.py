@@ -609,6 +609,18 @@ def test_installing_cc_inbox_moves_the_cci_daemon_onto_the_new_build(fake: Calla
     assert capsys.readouterr().out.strip() == "installed cc-inbox@skills 1.0.3"
 
 
+def test_installing_codex_upgrades_the_homebrew_codex_ask(fake: Callable[..., FakeGit]) -> None:
+    git = fake(["unused"], set())
+    assert install.main("codex@skills", None, None, 900, None) == 0
+    assert git.homebrew_calls() == [BREW_TAP, TAP_PULL, upgrade("codex-ask")]
+
+
+def test_cco_is_upgraded_through_the_cc_orchestrate_cask(fake: Callable[..., FakeGit], tmp_path: Path) -> None:
+    git = fake(["unused"], set())
+    install.await_homebrew(str(tmp_path / "clone"), "cco", None, install.clock() + 900, 900)
+    assert git.homebrew_calls() == [BREW_TAP, TAP_PULL, upgrade("cc-orchestrate")]
+
+
 def test_a_homebrew_twin_is_upgraded_until_the_bare_binary_runs_a_release_holding_the_sha(
     fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -875,7 +887,8 @@ def test_a_long_running_release_reads_a_copy_of_every_drive_with_its_own_drive_s
 
 def test_a_plugin_other_than_long_running_runs_no_drive_status(fake: Callable[..., FakeGit]) -> None:
     start_drive("demo", communicator="term_comm")
-    git = fake(["codex--v1.0.3"], {"codex--v1.0.3"})
+    git = fake(["codex--v1.0.3"], {"codex--v1.0.3", "v1.0.3"})
+    git.bare = ["v1.0.3"]
     assert install.main("codex@skills", SHA, None, 900, None) == 0
     assert git.tried == []
 

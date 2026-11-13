@@ -171,11 +171,11 @@ No tap and no green gate: by his standing rule a `yasyf/*` PR merges without ask
      install prints `no release: <why>`, updates and proves nothing and exits 0, and the lander's outcome reads
      `merged at <sha>; no release: …` instead of a 900-second wait ending in failure. A plugin no
      such job releases, as Autobump releases `long-running`, waits as before. A plugin whose binary also has a Homebrew
-     copy from `yasyf/tap` (cc-context's `ccx`, cc-inbox's `cci`, `cc-notes`, `cc-present`,
-     `cc-review` and `cc-slack`) then gets that copy upgraded. Claude Code appends plugin bin
+     copy from `yasyf/tap` (cc-context's `ccx`, cc-inbox's `cci`, `cc-notes`, cc-orchestrate's `cco`,
+     `cc-present`, `cc-review`, `cc-slack` and codex's `codex-ask`) then gets that copy upgraded. Claude Code appends plugin bin
      directories after `/opt/homebrew/bin` on PATH, so a session's bare `ccx` runs Homebrew's copy.
      The install fast-forwards the `yasyf/tap` clone alone with `git pull --ff-only`, then runs
-     `brew upgrade yasyf/tap/<binary>` with `HOMEBREW_NO_AUTO_UPDATE=1`, a few seconds, never
+     `brew upgrade yasyf/tap/<binary>`, `yasyf/tap/cc-orchestrate` for `cco`, with `HOMEBREW_NO_AUTO_UPDATE=1`, a few seconds, never
      `brew update`, which fetches every tap on the Mac and fails when any one of them cannot be
      fetched. With `--sha` it reads the bare binary's `--version` and repeats both every 20 seconds until that
      release's tag holds the merge, since the tap's formula commit can land after the plugin's
