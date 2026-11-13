@@ -3217,7 +3217,7 @@ def with_cards(name: str, data: dict, within: dict | None = None) -> dict:
     found, source = view.stored_cards(name)
     found = found if source == "live" else None
     for question in (question for job in marked["jobs"].values() for question in job["questions"]):
-        question["card_state"] = view.card_words(found, source, question["card"] or question["waits"])
+        question["card_state"] = view.question_card_words(found, source, question)
     for pr in marked["prs"].values():
         pr["card_state"] = view.pr_card_words(found, source, pr["url"]) if pr["state"] == "open" else None
     stage.shown(data, found, state.open_pr_keys(marked))

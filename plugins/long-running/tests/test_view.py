@@ -950,6 +950,18 @@ def test_card_words_name_each_question_card_as_cc_slacks_store_holds_it_open_ans
     assert view.card_words(None, "unavailable: not signed in", first) == "his cards could not be read (unavailable: not signed in)"
 
 
+def test_a_question_card_cc_slacks_store_forgot_reads_as_the_drives_question_stands() -> None:
+    forgotten = f"{TEAM}archives/D123/p1794200000000300"
+    asked = state.new_question(None, "Merge #41 now?", at(-2000), card=forgotten)
+    asked["waits"] = "demo:j3083-689347"
+    assert view.question_card_words(found(), "live", asked) == f"card {forgotten} open since {when(at(-2000))}"
+    asked["closed"] = state.new_close("answered", "Merge", None, at=at(-5))
+    assert view.question_card_words(found(), "live", asked) == f'card {forgotten} answered "Merge" at {when(at(-5))}'
+    asked["closed"] = state.new_close("withdrawn", None, None, at=at(-3))
+    assert view.question_card_words(found(), "live", asked) == f"card {forgotten} withdrawn at {when(at(-3))}"
+    assert view.question_card_words(None, "unavailable: not signed in", asked) == "his cards could not be read (unavailable: not signed in)"
+
+
 def test_pr_card_words_name_his_open_tap_card_a_tap_on_a_redrawn_one_or_none() -> None:
     pr, other = "https://github.com/acme/app/pull/41", "https://github.com/acme/app/pull/42"
     first, again = f"{TEAM}archives/D123/p1794448525433989", f"{TEAM}archives/D123/p1794479611192239"
