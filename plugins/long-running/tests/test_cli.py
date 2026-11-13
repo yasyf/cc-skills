@@ -3243,11 +3243,11 @@ def test_each_question_a_card_on_another_question_once_skipped_now_draws_his_car
         closed = words and state.new_close("answered", words, card)
         data["jobs"]["j1"]["questions"] = [state.new_question(None, other, state.stamp(), card=card, closed=closed) | {"waits": "demo:j1-1"}]
     data = state.load("demo")
-    assert (settled.answered(data, asked), cli.elsewhere(data, "j2", asked)) == (None, None)
+    assert (settled.answered(data, asked), cli.elsewhere(data, "j2", asked, None)) == (None, None)
     if words:
         assert settled.answered(data, other) == data["jobs"]["j1"]["questions"][0]
     else:
-        assert cli.elsewhere(data, "j2", other) == ("j1", data["jobs"]["j1"]["questions"][0])
+        assert cli.elsewhere(data, "j2", other, None) == ("j1", data["jobs"]["j1"]["questions"][0])
 
 
 CODE_TURN_ASK = """ASK When a chat's Sand code turn has no stored description, should the search worker have memory describe it?
