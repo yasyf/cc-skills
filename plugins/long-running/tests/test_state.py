@@ -684,6 +684,17 @@ def test_a_waiting_line_puts_each_card_it_names_on_each_pr_of_its_order_it_names
     assert data["prs"]["yasyf/cc-skills#4289"]["waits"] == []
 
 
+def test_a_waiting_report_naming_his_open_card_only_below_its_first_line_waits_on_no_card() -> None:
+    data = kept_prs()
+    asked = state.new_question(None, "Which option?", state.stamp(REFERENCE), card="https://acme.slack.com/archives/D123/p1794300000000200") | {"waits": "demo:j8-1"}
+    data["jobs"]["j8"] = state.new_job("o226", "reader", "research", [], state.stamp(REFERENCE)) | {"questions": [asked]}
+    data["jobs"]["j9"] = state.new_job("o226", "builder", "fix", [], state.stamp(REFERENCE)) | {"prs": [state.pr_url(f"{MONOREPO}#4289")]}
+    data["prs"][f"{MONOREPO}#4289"] |= {"checks": "fail", "failed_checks": ["test"]}
+    line = "WAITING #4279, the fix for the test #4289 inherits"
+    state.take_result(data, "j9", line, f"{line}\nDESIGN: none: every option on demo:j8-1 includes this change\n")
+    assert (data["jobs"]["j9"]["waited"]["waits"], data["prs"][f"{MONOREPO}#4289"]["waits"]) == ([f"{MONOREPO}#4279"], [f"{MONOREPO}#4279"])
+
+
 def test_a_pr_reworked_to_his_words_owes_no_card_until_its_builders_ready_says_how_they_are_met_which_drops_his_approve_so_a_fresh_card_asks_it() -> None:
     data = kept_prs()
     data["jobs"]["j9"] = state.new_job("o226", "builder", "fix", [], state.stamp(REFERENCE))

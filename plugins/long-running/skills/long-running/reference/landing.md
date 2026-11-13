@@ -25,7 +25,7 @@ for its repository says, then return `DONE <proof>`.
   carrying it waits on, its own or one holding its landing, or whose `Holds:` line names a change one
   of them builds; the watch stops a lander already landing it when that card opens, and the lander
   dequeues what it queued. On a Sprite lane, which holds no copy of the drive, the hook asks this Mac
-  with `drive job held --pr` first and refuses while it does not answer. Return `WAITING` naming the card, which
+  with `drive job held --pr` first and refuses while it does not answer. Return `WAITING <the PR> waits on <the card>`, which
   the coordinator puts in front of him by [Design first](design.md). An incident's repair is the
   exception: it lands on the recommended option, the card stays open, and a different pick of his
   starts a follow-up job on the same order. A card asking him to lift a ruling of his, which
