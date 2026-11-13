@@ -381,7 +381,9 @@ naming it, which puts it on his card on yours, with the fix's own card when it w
 a queue ejection, restack, read the entry's history and verification build, fix the cause, and enqueue
 once more. Fix a test that keeps failing at its root; never retry past it with `--flake` or a rerun, which
 the `bash_guard` hook refuses in a drive session or agent (`stack-enqueue --flake`, `tools/ci bk rerun`,
-`bk job retry`, `bk build rebuild`, `gh run rerun`), naming `tools/ci bk log '<job URL>'` instead.
+`bk job retry`, `bk build rebuild`, `gh run rerun`), naming `tools/ci bk log '<job URL>'` instead. The
+watchdog's agent alone may rerun a failed build of a PR in a stall's chain once, by his pick "Report, plus two safe
+acts, rerunning a failed build and messaging the owning job".
 
 An ejection on a flaky test outside your diff needs no push. Fix the test in its own `flake fix` PR, or
 find the one the drive already tracks, then run `drive pr set <url> --flaky <the test> <its fix PR>`.

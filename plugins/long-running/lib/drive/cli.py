@@ -2676,6 +2676,21 @@ def job_held(args: argparse.Namespace) -> int:
     cards = land.ship_held(data, job_id, live)
     return emit(args, "\n".join(cards) or f"{job_id}: no open card of his holds its PR", {"id": job_id, "cards": cards})
 
+
+def job_wake(args: argparse.Namespace) -> int:
+    """Send the text to the job's lane as a message to its Dispatch while Orca holds its worker taking messages, under the job's own lock as drive pr wake sends one, and refuse, sending and starting nothing, a job that is stopped, whose lane ended or that no lane Orca holds runs: the one way the watchdog's agent messages the job answering for a stall, by his pick "Report, plus two safe acts, rerunning a failed build and messaging the owning job", never starting a worker."""
+    name = state.resolve(args.drive)
+    if not find(state.load(name)["jobs"], args.id, "job").get("dispatch"):
+        raise DriveError(f"{args.id}: refused, nothing sent: no lane Orca holds runs it, and an agent on this Mac takes a message only from its own session")
+    with state.job_locked(name, args.id, orca.LAUNCH_SECONDS):
+        job = state.load(name)["jobs"][args.id]
+        if job["state"] == "stopped":
+            raise DriveError(f"{args.id}: refused, nothing sent: it is stopped")
+        if orca.lane_end(name, job):
+            raise DriveError(f"{args.id}: refused, nothing sent or started: its lane ended, and drive job wake sends only to a lane that takes messages")
+        how = orca.send(name, job, f"{args.id}: the watchdog's finding", args.text)
+    return emit(args, f"{args.id} {how}", {"id": args.id, "how": how})
+
 def release_sprite(drive: str, job_id: str, job: dict, root: Path) -> str | None:
     """Destroy the Sprite cc-remote still records for the job's lane once what it holds on no remote is saved to GitHub as saved/<lane>/<branch>; what happened to it, or None when none is recorded."""
     if not orca.holds_sprite(job):
@@ -4611,6 +4626,10 @@ def parser() -> argparse.ArgumentParser:
         help="instead, his open cards holding this PR from landing, a PR url or owner/name#N, repeatable; the landing_guard hook on a Sprite lane asks it before the lane lands a Forge-AI PR, as it holds one here",
     )
     verb.set_defaults(run=job_held)
+    verb = job.add_parser("wake", parents=both, help="send the job's lane a message while it takes messages, starting no worker: the watchdog's agent's one way to message the job answering for a stall")
+    verb.add_argument("id", help="the job")
+    verb.add_argument("--text", required=True, help="the message")
+    verb.set_defaults(run=job_wake)
     verb = job.add_parser(
         "end",
         parents=both,

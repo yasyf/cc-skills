@@ -2396,6 +2396,41 @@ def test_a_pr_wake_to_a_dead_lane_relaunches_its_job_with_the_line_in_its_handof
     assert orca.brief_of(brief).endswith("which you act on now:\n\nPR #7 is red: fix it")
 
 
+FINDING = "WHY: j1 waits on a release that shipped an hour ago"
+
+
+def test_a_job_wake_sends_a_waiting_jobs_live_lane_the_watchdogs_finding_and_leaves_its_state(run: Run, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(state="waiting", waits=["release:sand:Forge-AI/monorepo#7"])
+    sent = []
+    monkeypatch.setattr(orca, "call", lambda *args: sent.append(args) or {})
+    monkeypatch.setattr(orca, "worker", lambda dispatch: LIVE_WORKER)
+    monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a job wake starts no worker"))
+    assert run("job", "wake", "j1", "--text", FINDING) == (0, f"j1 sent to dispatch {DISPATCH}")
+    assert [args[:9] for args in sent] == [("send", "--to", f"dispatch:{DISPATCH}", "--run", RUN, "--subject", "j1: the watchdog's finding", "--body", FINDING)]
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["state"], job["undelivered"]) == ("waiting", [])
+
+
+@pytest.mark.parametrize(
+    ("job", "refusal"),
+    [
+        ({"state": "waiting", "workspace": "sprite-old"}, "j1: refused, nothing sent or started: its lane ended, and drive job wake sends only to a lane that takes messages"),
+        ({"state": "stopped"}, "j1: refused, nothing sent: it is stopped"),
+        ({"state": "waiting", "dispatch": None, "agent": "a1", "where": "local"}, "j1: refused, nothing sent: no lane Orca holds runs it, and an agent on this Mac takes a message only from its own session"),
+    ],
+    ids=["lane ended", "stopped", "agent on this mac"],
+)
+def test_a_job_wake_refuses_a_job_no_live_lane_runs_and_starts_nothing(remote: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], job: dict, refusal: str) -> None:
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(job)
+    monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"no lane is sent anything: {args}"))
+    monkeypatch.setattr(orca, "worker", lambda dispatch: dead())
+    monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a job wake starts no worker"))
+    assert cli.main(["job", "wake", "j1", "--text", FINDING]) == 2
+    assert refusal in capsys.readouterr().err
+
+
 @pytest.mark.parametrize(
     ("pr_state", "line", "stops_while_waiting"),
     [
