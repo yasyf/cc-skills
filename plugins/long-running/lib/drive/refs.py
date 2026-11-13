@@ -174,7 +174,10 @@ def card(cards: dict, data: dict, waits: str) -> dict:
                 return {"kind": "card", "title": question["title"] or "his question card", "url": question["card"], "board": f"#/feature/{job['order']}"}
     if closed := view.closed_card(cards, waits):
         return {"kind": "card", "title": closed["title"], "url": closed["url"], "board": closed["url"]}
-    raise DriveError(f"{{card:{waits}}} names no card the drive drew, open or settled; `cc-slack drive-cards --drive <drive>` lists each open card's waits id")
+    raise DriveError(
+        f"{{card:{waits}}} names no card the drive drew, open or settled; `cc-slack drive-cards --drive <drive> | jq -r '(.questions[], .pr_cards[] | .card),"
+        " .closed[] | [.waits, .status // \"closed\", .title] | @tsv' | grep -i '<words of its title>'` prints each card's waits id, state and title on one line"
+    )
 
 
 def pr(prs: dict, ref: str, label: str) -> dict:
