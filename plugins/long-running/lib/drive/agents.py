@@ -369,8 +369,11 @@ class Busy(state.DriveError):
     """A live handler holds the same record or message of his a brief holds, so the brief is a copy that needs no handler of its own."""
 
 
-def handle(name: str, brief: str, detached: bool = False, briefed: Callable[[str], str] | None = None) -> tuple[str, bool]:
-    """Start a handler on its brief, unless a live one already holds what the brief holds, since a message of his or a thread has one handler at a time: a brief for another record or another message of his, on that message, in that thread or on its record's re chain, is handed to that handler, which takes it at its next step, and only a copy, the same record or the same message of his, is refused; the id of the handler at work on the brief, and whether it was handed. A handler whose turn is over holds nothing, however it ended: it leaves the drive, and each brief handed to it that it never took goes to the handler this brief reaches, but one for the record this brief names. briefed writes the brief a new handler starts on from its id, recording what it adds; a handler that does not start leaves no entry, and no job it was given nor the order made for that job. Detached, as the handler tool runs it, the handler's session starts after the call returns, from the brief kept for `drive handler-start`; the watch starts it in the call, since nothing waits on the watch."""
+def handle(name: str, brief: str, detached: bool = False, briefed: Callable[[str], str] | None = None) -> tuple[str | None, bool]:
+    """Start a handler on its brief, unless a live one already holds what the brief holds, since a message of his or a thread has one handler at a time: a brief for another record or another message of his, on that message, in that thread or on its record's re chain, is handed to that handler, which takes it at its next step, and only a copy, the same record or the same message of his, is refused; the id of the handler at work on the brief, and whether it was handed. A handler whose turn is over holds nothing, however it ended: it leaves the drive, and each brief handed to it that it never took goes to the handler this brief reaches, but one for the record this brief names. briefed writes the brief a new handler starts on from its id, recording what it adds; a handler that does not start leaves no entry, and no job it was given nor the order made for that job. Detached, as the handler tool runs it, the handler's session starts after the call returns, from the brief kept for `drive handler-start`; the watch starts it in the call, since nothing waits on the watch. On a drive whose roles hold no communicator, as one started from a terminal holds none, no handler starts, since a handler runs as the communicator's session: the brief goes to the coordinator as a handoff record answering the record it names, and no handler's id comes back."""
+    if "communicator" not in state.saved(name)["roles"]:
+        to_coordinator(name, brief)
+        return None, False
     held_now = holds(brief)
     handler_id = uuid.uuid4().hex[:8]
     with state.edit(name) as data:
@@ -405,6 +408,16 @@ def handle(name: str, brief: str, detached: bool = False, briefed: Callable[[str
         unstarted(name, handler_id)
         raise (error if isinstance(error, state.DriveError) else state.DriveError(f"claude --bg started no handler: {error}")) from None
     return handler_id, False
+
+
+def to_coordinator(name: str, brief: str) -> None:
+    named = RECORD.search(brief)
+    line = f"No communicator holds this drive to start a handler, so this brief is the coordinator's: {' '.join(brief.split())}"
+    argv = ["cci", "post", "--drive", name, "--lane", "handler", "--kind", "handoff", "--to", f"root@{name}", *(["--re", named[1]] if named else []), "--text", line]
+    try:
+        reads.run(argv, Path.cwd(), reads.posting())
+    except reads.ReadError as error:
+        raise state.DriveError(f"no communicator holds {name}, and its handler brief could not go to the coordinator: {error}") from None
 
 
 def unstarted(name: str, handler: str) -> None:

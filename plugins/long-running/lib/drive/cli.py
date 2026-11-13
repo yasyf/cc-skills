@@ -3743,6 +3743,8 @@ def handler(args: argparse.Namespace) -> int:
     handler_id, handed = agents.handle(name, args.brief, detached=True, briefed=answering(name, args) if args.answer else None)
     if handed:
         return emit(args, f"handed to {handler_id}", {"handler": handler_id, "handed": True})
+    if handler_id is None:
+        return emit(args, f"no communicator holds {name}, so the brief went to the coordinator", {"handler": None})
     return emit(args, f"started {handler_id}", {"handler": handler_id})
 
 

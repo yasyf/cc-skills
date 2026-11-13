@@ -6343,6 +6343,36 @@ def test_a_stall_the_coordinator_sat_on_reaches_him_once_he_is_back_never_while_
     assert watchdogs == []
 
 
+def test_a_stall_on_a_drive_started_from_a_terminal_with_no_communicator_goes_to_the_coordinator_as_a_record_and_the_pass_goes_on(
+    demo: str, monkeypatch: pytest.MonkeyPatch, ready_records: list[list[dict]]
+) -> None:
+    posted: list[list[str]] = []
+    monkeypatch.setattr(reads, "run", lambda argv, checkout, env=None, stdin=None: posted.append(argv) or "")
+    watching = stalling(demo)
+    told_at = T0 + timedelta(minutes=98)
+    with state.edit(demo) as data:
+        data["prs"][KEY]["stall"] = {
+            "print": REPLAYED_53519_CHAIN,
+            "since": state.stamp(T0),
+            "agent": {"pid": 1, "out": "/s/stall.md", "at": state.stamp(T0 + timedelta(minutes=60))},
+            "found": {"WHY": READERS_FIRST},
+            "said": state.stamp(T0 + timedelta(minutes=68)),
+            "told": None,
+        }
+    assert "communicator" not in state.load(demo)["roles"]
+    assert watch.stall_lines(watching, told_at) == []
+    [[report]] = ready_records
+    assert report["text"] == f"POST {KEY} has not moved in 98 minutes and the coordinator was told 30 minutes ago: post one line on it in its thread"
+    [argv] = posted
+    assert argv[:10] == ["cci", "post", "--drive", demo, "--lane", "handler", "--kind", "handoff", "--to", f"root@{demo}"]
+    assert argv[argv.index("--re") + 1] == "9"
+    assert argv[-1] == f"No communicator holds this drive to start a handler, so this brief is the coordinator's: Record: #9 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'stall-#9'}"
+    data = state.load(demo)
+    assert (data["handlers"], data["prs"][KEY]["stall"]["told"]) == ({}, state.stamp(told_at))
+    assert watch.stall_lines(watching, told_at + timedelta(minutes=1)) == []
+    assert (len(ready_records), len(posted)) == (1, 1)
+
+
 def test_at_most_two_watchdog_agents_run_at_once_oldest_stall_first(demo: str, watchdogs: list[tuple[str, Path]]) -> None:
     release = f"release:sand:{OTHER}"
     with state.edit(demo) as data:
