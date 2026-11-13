@@ -215,11 +215,11 @@ reply.
 **Reads.** A lane on a Sprite reads a red check's whole log itself, by his pick "Give Sprites a
 scoped AWS read role, so every step runs where its lane runs": a Buildkite job's with
 `tools/ci bk log` through the sprite door under the Sprite's AWS session, and a GitHub Actions
-job's with `ccx vcs job-log`. A Sprite holds no copy of the drive's cci or cc-notes records, so a
-lane reads those through this Mac with a blocking question.
+job's with `ccx vcs job-log`. A Sprite holds no copy of the drive's cci or cc-notes records and no Slack credential, so a
+lane reads those, and Slack, through this Mac with a blocking question.
 
 - Its first line opens with the read, after the lane's job id when it writes one: `READ <command>`
-  for a `cci` or `ccn` read the builder agent lists, or `READ <path>` for a file under the drive's
+  for a `cci`, `ccn` or `cc-slack` read the builder agent lists, or `READ <path>` for a file under the drive's
   `reports/`, `asks/`, `repro/`, `scratch/` or `jobs/` folder, which `orca.drive_files` reads whole
   as it carries one a brief names, refusing a path that resolves outside the folder. A `READ`
   question runs its first line alone. A `LOG <url>` question, which a lane started under the builder
@@ -227,9 +227,10 @@ lane reads those through this Mac with a blocking question.
   builder rule that has the lane read the log on its Sprite, or return `BLOCKED` when `tools/ci bk`
   refuses there.
 - The watch answers it itself, with no event, as it answers a `DRIVE` question: `drive job read`,
-  which it starts as a process of its own, runs `cci` or `ccn` in
+  which it starts as a process of its own, runs `cci`, `ccn` or the drive's own cc-slack launcher in
   the directory the coordinator started the drive from, or reads the drive files, and the watch
-  replies with the output, a command's cut to 12,000 characters, once that reader ends, so a read that runs for minutes holds up no pass. The
+  replies with the output, a command's cut to 12,000 characters but for a `cc-slack thread` or
+  `history` read, which goes whole, once that reader ends, so a read that runs for minutes holds up no pass. The
   reader keeps first the answer its own end leaves, then the one it finishes with, under its
   question's message id, so a refused reply sends the same answer again and a read stopped mid-run
   is answered as stopped, never run twice. A read that fails, such as a command off that list or a tool that exits

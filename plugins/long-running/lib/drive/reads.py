@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from drive import picture, procs, state
+from drive import picture, procs, slack, state
 from drive.render import clock
 
 READ = re.compile(r"READ\s+(.+)")
@@ -63,6 +63,7 @@ CLOUD_KEY = re.compile(r"^[ \t]+(account|namespace):[ \t]*(\S+)", re.MULTILINE)
 AWS_CONFIG = "~/.aws/config"
 JOB_ID = re.compile(r"^j\d+[\s:,]+")
 READ_WORD = re.compile(r"""(?:"([^"]*)"|'(.*?)'|(\S+))(?=\s|$)""")
+SLACK_READS = (("cc-slack", "thread"), ("cc-slack", "history"))
 READ_VERBS = (
     ("cci", "show"),
     ("cci", "grep"),
@@ -79,6 +80,7 @@ READ_VERBS = (
     ("ccn", "note", "show"),
     ("ccn", "doc", "search"),
     ("ccn", "doc", "show"),
+    *SLACK_READS,
 )
 QUERY_VERBS = ("search", "grep")
 PLAN_HEADING = re.compile(r"^(#{1,6})[ \t]+(.+?)[ \t#]*$")
@@ -240,11 +242,13 @@ def lane_exit(status: int, printed: str) -> str:
 
 
 def read_records(command: str, checkout: Path, drive: str) -> str:
-    """Run one listed record read, else read the drive files the read names; a search or grep takes its words up to the first flag as one query, quoted or not, and a ccn show, which takes one ID, runs once for each ID, its outputs joined."""
+    """Run one listed record read, else read the drive files the read names; a search or grep takes its words up to the first flag as one query, quoted or not, a ccn show, which takes one ID, runs once for each ID, its outputs joined, and a Slack read runs through this Mac's cc-slack and answers whole, since sprite_answer sends a long answer as a file on the lane's Sprite."""
     argv = read_words(command)
     verb = next((verb for verb in READ_VERBS if tuple(argv[: len(verb)]) == verb), None)
     if verb is None:
         return read_drive_files(command, drive)
+    if verb in SLACK_READS:
+        return run([slack.launcher(), *argv[1:]], checkout).strip()
     query = list(itertools.takewhile(lambda word: not word.startswith("-"), argv[len(verb) :]))
     flags = argv[len(verb) + len(query) :]
     if verb[-1] in QUERY_VERBS and query:
