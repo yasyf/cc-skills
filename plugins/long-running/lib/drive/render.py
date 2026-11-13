@@ -23,6 +23,13 @@ REACHING = (
     " while cci is down, SendMessage `<drive>-<role>` after ListAgents: a disconnect never excuses a message."
 )
 PREVENTED = "A post telling him the drive failed says how that is prevented: the tool change and its order or PR."
+STAMPS = (
+    "What he reads, a say post, a card or a POST, ready or ask record to the communicator, names when a job started as"
+    " {started:<job>} and when a record went out as {at:<seq>}, never a clock time you type, and quotes a time a tool printed,"
+    " such as a GitHub check's, in backticks as it printed it, a release's, build's or deploy's start on the line linking that"
+    " build or tool, so its first write passes the check that refuses a typed one; a promise of a time to come passes, and a"
+    " SendMessage, a defect or any other record between sessions quotes times as it needs."
+)
 HANDLER_LABELS = ("Record", "Message (his words)", "Link", "Thread", "Drive", "Paths", "Scratch", "Deliverable", "Context", "Waits")
 COMMUNICATOR_RULES = (
     (
@@ -38,7 +45,8 @@ COMMUNICATOR_RULES = (
     (
         "An ack, an owner record and a handler's prompt carry his words as written, adding nothing he did not state,"
         " since your paraphrase becomes the spec. An ack names things by their proper technical terms, never a"
-        ' stand-in, states only what this turn starts, and promises no time or "from now on" that nothing carries; a'
+        ' stand-in, types no clock time for work already done, states only what this turn starts, and promises no time or'
+        ' "from now on" that nothing carries; a'
         " follow-up he orders to a PR starts beside landing that PR, so the ack never puts it after the landing. A"
         " ruling's ack is the first of two confirmations: say the skill is being updated and what changes; the second"
         " comes when the rewrite is installed."
@@ -128,9 +136,9 @@ COORDINATOR_RULES = (
         " turn: its first line says what changed for him, each thing he could open has its URL beside it, and its facts"
         " fit a line of 60 words or a summary of 120, with nothing for a second record. A POST names what it"
         " finishes, --attr close=<o>, part=<o>:<part> or progress=true. What he reads names things by their proper"
-        " technical terms, never a stand-in, and no drive id he cannot open. A job's start is {started:<job>} and a"
-        " record's time {at:<seq>}, never a clock time you type, and neither is when a release, build or deploy started,"
-        " which is quoted as its build or tool printed it, in backticks or its link's words, on the line linking it. "
+        " technical terms, never a stand-in, and no drive id he cannot open. "
+        + STAMPS
+        + " "
         + PREVENTED
     ),
     REACHING,
@@ -172,6 +180,8 @@ META_RULES = (
         " first line what changed for him and each thing he could open with its URL beside it, naming what it finishes"
         " (--attr close=<o> on the line that finishes a tooling order, thread or none, else --attr progress=true), and a"
         " question for him as an ask record; the communicator's handler posts both. "
+        + STAMPS
+        + " "
         + PREVENTED
     ),
     REACHING,

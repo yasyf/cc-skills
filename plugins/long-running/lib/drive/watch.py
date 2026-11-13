@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Self
 
-from drive import agents, codex, dashboard, github, land, launchd, limits, orca, page, place, procs, reads, render, served, slack, stage, state, superseded, view
+from drive import agents, codex, dashboard, github, land, launchd, orca, page, place, procs, reads, render, served, slack, stage, state, superseded, view
 from drive.install import MERGED_DONE, PROVEN, config_dir, merged_done, merged_ready, product, proof_gap, said_on_prs, upgraded
 from drive.render import cut, subscribe, when
 
@@ -609,7 +609,7 @@ def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetim
             job.update(ask=None, state="running")
         if job["kind"] == "builder":
             job["said"] = re.sub(r"^READY\b", "PUSHED", job["said"])
-        if refused := state.result_refusal(data, job_id, job["said"], body) or limits.typed_time(body, data):
+        if refused := state.result_refusal(data, job_id, job["said"], body):
             return f'JOB {job_id} {job["order"]} {job["said"]}; refused, its state unset: {refused}; drive job resume {job_id} "<the refusal>" sends it back'
         state.take_result(data, job_id, job["said"], body)
         state.add_changes(data, job_id, body)

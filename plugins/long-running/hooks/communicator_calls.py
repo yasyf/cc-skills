@@ -144,7 +144,7 @@ def unread_job(payload: dict, data: dict, job_id: str) -> str | None:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive session's own call does not run: the communicator's turn holds only the ack and what starts a handler, and the coordinator and the meta session type no clock time for work already done in a SendMessage, send no PR event to a builder that returned and tell no running job its state, or ask it, before they read that job's transcript."""
+    """Why a drive session's own call does not run: the communicator's turn holds only the ack and what starts a handler, and the coordinator and the meta session send no PR event to a builder that returned and tell no running job its state, or ask it, before they read that job's transcript."""
     if payload.get("agent_id"):
         return None
     session = payload.get("session_id") or ""
@@ -155,8 +155,6 @@ def deny_reason(payload: dict) -> str | None:
     role = state.session_role(data, session)
     if role == "communicator":
         return None if own_call(payload) else communicator_call(payload)
-    if payload["tool_name"] == "SendMessage" and isinstance(message := payload["tool_input"].get("message"), str) and (typed := agents.typed_time(message, data)):
-        return typed
     if (job_id := target(payload, data)) is None:
         return None
     return resumed_builder(payload, data, job_id) or unread_job(payload, data, job_id)

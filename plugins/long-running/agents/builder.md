@@ -372,8 +372,8 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   number or path the message needs. Name when a job started as `{started:<job>}` and when a record
   went out as `{at:<seq>}`, never as when anything else started, and quote a time a tool printed in
   backticks as it printed it, a release's, build's or deploy's start on the line linking that build or
-  tool: `drive job report` and the watch refuse a clock time typed for work already done, and a job's or
-  record's stamp given as a release's, build's or deploy's start.
+  tool, so the handler's post from it passes as copied. A report, a SendMessage and a record between
+  sessions quote any time as it stands: only words he reads are checked for a typed time.
 
 | Line | What it holds |
 | --- | --- |
@@ -526,6 +526,9 @@ Holds: <each change of the order its options alter, in that change's words; or n
   table. Every row and cell holds real contents, measured or worked out from the code and marked as
   such, never the names of what will be measured later.
 - `drive job ask` also refuses each of these, naming the fix:
+  - a clock time typed for work already done anywhere his card draws: name the job as
+    `{started:<job>}` or the record as `{at:<seq>}`, or quote a time a tool printed, such as a
+    GitHub check's, in backticks as it printed it; a time to come, such as "by 5:40 AM", passes;
   - a drive job or order id in the question, summary or options, an `{order:<o>}` in the summary aside; a link or markdown in the question
     or an option; a question that calls its object by a vague noun such as "the change" while its
     findings name its proper term;

@@ -1232,6 +1232,18 @@ def asking(run: Run, demo: str) -> str:
     return "j1"
 
 
+def test_job_ask_refuses_a_card_typing_when_past_work_happened_keeping_nothing(
+    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK.replace("Meanwhile nothing is built on either layout.", "Meanwhile nothing is built; the reader finished at 4:55 AM."))
+    assert cli.main(["job", "ask", asking, str(block)]) == 2
+    assert 'j1: refused, nothing kept: his card draws these words, and "4:55 AM" is a time typed for work already done' in capsys.readouterr().err
+    assert state.load("demo")["jobs"]["j1"]["questions"] == []
+    block.write_text(SHORT_ASK)
+    assert run("job", "ask", asking, str(block))[0] == 0
+
+
 def test_job_ask_keeps_an_ask_in_the_shape_he_reads_and_sets_the_job_waiting(
     run: Run, asking: str, tmp_path: Path, state_root: Path
 ) -> None:
@@ -1539,18 +1551,18 @@ def test_job_ask_counts_the_show_me_outside_its_150_words(run: Run, asking: str,
 
 
 TEAMMATE_FIX = explained("""ASK A teammate's PR for the missing update button landed first: keep it, add our download status to it, or replace it?
-Drive tooling: your pick decides which update button ships. A teammate's PR landed at 2:12 PM today: every locked chat shows an Update sand button that downloads and installs in one click, even mid-download. Ours shows the button once the download finishes and says downloading until then. They conflict. Ours waits unlanded meanwhile.
+Drive tooling: your pick decides which update button ships. A teammate's PR landed today: every locked chat shows an Update sand button that downloads and installs in one click, even mid-download. Ours shows the button once the download finishes and says downloading until then. They conflict. Ours waits unlanded meanwhile.
 - Keep theirs, close ours: the button is always there and nothing needs a terminal, but the card never says it is downloading. (recommended)
 - Add our status line beside their always-on button: the card says checking, downloading or downloaded; ours is rebuilt and reviewed again.
 - Replace theirs with ours: the button appears once downloaded, terminal steps when a download fails; it undoes a teammate's landed PR.
 Findings:
 Root cause: none: two landed designs of one button, a pick between them with no defect behind it
 Holds: none: no option changes code any job builds
-- Theirs merged 2:12 PM Nov 10; ours now conflicts with dev.
+- Theirs merged Nov 10; ours now conflicts with dev.
 """)
 TEAMMATE_FIX_SHOWN = TEAMMATE_FIX.replace(
-    "A teammate's PR landed at 2:12 PM today:",
-    "<https://github.com/Forge-AI/monorepo/pull/53618|A teammate's PR for the update button> landed at 2:12 PM today:",
+    "A teammate's PR landed today:",
+    "<https://github.com/Forge-AI/monorepo/pull/53618|A teammate's PR for the update button> landed today:",
 ).replace(
     "Ours waits unlanded meanwhile.\n",
     "Ours waits unlanded meanwhile.\nShow me:\nWhat a locked chat shows mid-download, theirs first, then ours:\n"
@@ -1567,7 +1579,7 @@ def test_job_ask_refuses_a_pr_named_with_no_link_and_keeps_the_linked_copy(
     assert cli.main(["job", "ask", asking, str(block)]) == 2
     refusal = capsys.readouterr().err
     assert (
-        '"teammate\'s PR" names something he could open with no link there, in "A teammate\'s PR landed at 2:12 PM today"; put those'
+        '"teammate\'s PR" names something he could open with no link there, in "A teammate\'s PR landed today"; put those'
         " words in its link"
     ) in refusal
     assert '"teammate\'s landed PR" in the question or an option names something he could open, and those draw no links' in refusal
@@ -3246,20 +3258,13 @@ def test_a_limit_left_standing_is_his_choice_and_returns_ask_or_design(
         assert keep(monkeypatch, capsys, "j2", f"DONE the copy finished\n{check}{evidence}\n") == (0, "")
 
 
-def test_a_job_report_typing_when_past_work_happened_is_refused_naming_the_jobs_stamp(
+def test_a_job_report_quoting_when_past_work_happened_is_kept_since_it_goes_between_sessions(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy the bucket")
     run("job", "add", "builder", "--order", "o1", "--goal", "copy it")
-    with state.edit(demo) as data:
-        data["jobs"]["j1"]["created"] = state.stamp(state.now().replace(hour=4, minute=50, second=21, microsecond=0))
     check = "CHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n"
-    code, err = keep(monkeypatch, capsys, "j1", f"DONE j1 started at 4:55 AM and the copy finished\n{check}")
-    assert code == 2
-    assert 'j1: refused, nothing kept: "4:55 AM" is a time typed for work already done' in err
-    assert "j1 was created at 4:50:21 AM, which {started:j1} says" in err
-    assert state.load(demo)["jobs"]["j1"]["state"] == "running"
-    assert keep(monkeypatch, capsys, "j1", f"DONE j1 started at {{started:j1}} and the copy finished\n{check}") == (0, "")
+    assert keep(monkeypatch, capsys, "j1", f"DONE j1 started at 4:55 AM and GitHub went green at 3:47:52 PM\n{check}") == (0, "")
 
 
 def test_a_builders_ready_is_kept_whatever_its_pr_body_says(

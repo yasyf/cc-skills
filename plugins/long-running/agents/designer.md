@@ -84,7 +84,8 @@ Keep each fork as its own `ASK` block before you return. Pipe it with a quoted h
 `drive job ask --check -` first, which checks its words and the card cc-slack draws from it and draws each Show me picture, with
 no drive or job, and prints every fix, such as Mermaid's parse error for a diagram that does not draw, or `ready`, then into
 `drive job ask <your job> -`, which keeps it and prints the path for your `Fork:` line. A refusal is deliberate
-and names every fix: apply them and run it again. A kept fork you leave out of your return, such as an earlier wording of one, counts as open until
+and names every fix: apply them and run it again. It refuses a clock time typed for work already done anywhere the card draws, so
+name a job's start as `{started:<job>}` and a record's as `{at:<seq>}`, and quote a time a tool printed in backticks as it printed it. A kept fork you leave out of your return, such as an earlier wording of one, counts as open until
 `drive job ask <your job> --drop <its path>` throws it away.
 
 ````

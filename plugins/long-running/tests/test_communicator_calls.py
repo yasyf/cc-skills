@@ -147,10 +147,13 @@ def test_an_order_to_a_running_job_goes_unread_and_only_a_claim_or_ask_about_its
 
 
 
-def test_the_coordinators_message_typing_when_past_work_happened_is_refused_and_a_promise_passes(
+def test_the_coordinators_message_quoting_when_past_work_happened_goes_out_since_it_never_reaches_him(
     demo: str, builder: Callable[..., None], tmp_path: Path
 ) -> None:
     builder(where="local", dispatch=None, agent="a-7", state="running")
-    reason = communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message="Your fix job started at 10:55 PM; rebase it on dev"))
-    assert reason.startswith('refused: "10:55 PM" is a time typed for work already done')
-    assert communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message="Rebase it on dev; return by 11:30 PM")) is None
+    for message in (
+        "Your fix job started at 10:55 PM; rebase it on dev",
+        "GitHub approved it at 3:45:58 PM and its checks went green at 3:47:52 PM; record 680813 went out at 4:07 PM",
+        "Rebase it on dev; return by 11:30 PM",
+    ):
+        assert communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message=message)) is None, message
