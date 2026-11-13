@@ -429,6 +429,7 @@ def new_drive(
         "stand_ins": {},
         "held": {},
         "carried": {},
+        "mains": {},
         "catch_up": None,
         "launched": {},
         "closed_from_cards": True,
@@ -670,6 +671,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     data.setdefault("stand_ins", {})
     data.setdefault("held", {})
     data.setdefault("carried", {})
+    data.setdefault("mains", {})
     if "catch_up" not in data:
         data["catch_up"] = new_catch_up(min(mark["at"] for mark in data["held"].values()), [mark["order"] for mark in data["held"].values() if mark["order"]]) if data["held"] else None
     passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)

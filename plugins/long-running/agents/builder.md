@@ -287,11 +287,12 @@ refused a post he ordered.
 A `Handoff:` brief names an open PR, its branch and head, and one event. Check out that branch in a
 fresh worktree; the coordinator already registered the PR as yours, and on the meta session's handoff
 you register it by Tooling above. Read the earlier jobs' transcripts the brief lists only for what the
-event needs. The first four events then return as step 7 says.
+event needs. The first five events then return as step 7 says.
 
 | Event | What you do |
 | --- | --- |
 | A failing check | Read its log, fix, push. |
+| A check failing on its repository's main since your merged PR landed | Fix main forward in a PR of your own from a fresh `main`: every other PR failing only that check waits on it, so no one else fixes it. |
 | A conflict with its base | Rebase onto the base, resolve each conflict by what both sides meant, push. The watch lands a `yasyf/*` PR's pushed head itself once GitHub reads it free of conflicts, so it needs no second `drive pr add`. |
 | A review | Answer or fix every finding; a non-critical bot finding you judge wrong gets a one-line reply saying why. |
 | His answers to the design cards a built branch or open PR waited on | Rebuild wherever his pick differs from the option built, and open the PR if none is open. |

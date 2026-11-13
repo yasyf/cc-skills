@@ -3874,6 +3874,28 @@ def test_a_red_prs_builder_whose_waiting_names_only_its_own_prs_is_woken_every_t
     assert (state.load(demo)["prs"][KEY]["stage"]["name"], len(woken)) == ("red", 2)
 
 
+def test_a_yasyf_main_red_since_a_drive_pr_merged_wakes_that_prs_builder_alone_until_main_is_green(demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]]) -> None:
+    merged, run = "yasyf/cc-skills#5", "https://github.com/yasyf/cc-skills/actions/runs/9"
+    with state.edit(demo) as data:
+        data["orders"] |= {"o2": order(jobs=["j2"]), "o3": order(jobs=["j3"])}
+        data["jobs"] |= {"j2": job(order="o2", prs=[state.pr_url(YASYF)]), "j3": job(order="o3", prs=[state.pr_url(merged)], state="done")}
+        data["prs"][YASYF] = state.new_pr(state.pr_url(YASYF), "j2", "o2") | {"head": "aaaaaaa111", "wants_tap": False, "checked": CHECKED}
+        data["prs"][merged] = state.new_pr(state.pr_url(merged), "j3", "o3") | {"state": "merged", "merged_sha": "ccc333ddd444"}
+    marks, mains = {}, iter([{"test": {"run": run, "sha": "ccc333ddd444"}}, {}])
+    monkeypatch.setattr(receiver, "heard", lambda repo, kind: marks.get(repo))
+    monkeypatch.setattr(install, "main_reds", lambda repo: next(mains))
+    serve(monkeypatch, {YASYF: read(checks=RED, required_checks=[])})
+    watching, passes = watcher(demo), []
+    for minutes, mark in ((0, "m1"), (10, "m1"), (30, "m1"), (31, "m2")):
+        marks["yasyf/cc-skills"] = mark
+        watch.run_pass(watching, T0 + timedelta(minutes=minutes))
+        passes.append((minutes, woken[:], state.load(demo)["prs"][YASYF]["stage"]["name"]))
+        woken.clear()
+    fix = f"{merged}: yasyf/cc-skills's main fails test since it merged ({run}); fix it forward in a PR of your own, as every other PR failing only these waits on that fix"
+    assert [(minutes, [key for key, _ in wakes], name) for minutes, wakes, name in passes] == [(0, [merged], "blocked"), (10, [], "blocked"), (30, [merged], "blocked"), (31, [YASYF], "red")]
+    assert passes[0][1] == [(merged, fix)]
+
+
 def test_running_build_reads_the_newest_request_shape_and_model(tmp_path: Path) -> None:
     path = tmp_path / "session.jsonl"
     lines = [

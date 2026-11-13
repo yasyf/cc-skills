@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Self
 
-from drive import agents, codex, dashboard, github, land, launchd, orca, page, place, procs, reads, receiver, render, served, slack, stage, state, superseded, view
+from drive import agents, codex, dashboard, github, install, land, launchd, orca, page, place, procs, reads, receiver, render, served, slack, stage, state, superseded, view
 from drive.install import PROVEN, config_dir, merged_done, merged_ready, product, proof_gap, said_on_prs, upgraded
 from drive.render import cut, subscribe, when
 
@@ -91,6 +91,7 @@ class Watcher:
     releasing: dict[str, subprocess.Popen] = field(default_factory=dict)
     released: set[str] = field(default_factory=set)
     release_marks: dict[str, str | None] = field(default_factory=dict)
+    ci_marks: dict[str, str | None] = field(default_factory=dict)
     sending: dict[str, int] = field(default_factory=dict)
 
     @property
@@ -201,6 +202,37 @@ def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
     if ejected := [key for key in reads if data["prs"][key]["ejected"] and data["prs"][key]["lander"]["outcome"] == land.QUEUED]:
         lines += refused_lines(watcher, ejected, moment)
     return lines + dropped_lines(watcher, foreign, moment)
+
+
+def main_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Keep the checks failing on the default branch of each yasyf/* repository the watch hears an unmerged PR of, read again each time the receiver marks a workflow run there completed, and their owner: the drive PR merged at a commit a failing run tested when main went red from green, kept until main is green again, since stage.of holds every other PR failing only those checks on its fix. Wake that PR's builder, a fresh one once its lane ended, to fix it forward, again on each change of what fails and every 30 minutes while main stays red; a red no drive PR merged stays each red PR's own."""
+    data = state.load(watcher.name)
+    repos = sorted({github.repo_of(key) for key in state.unmerged_pr_keys(data) if state.merges_untapped(key) and hears(watcher, data, data["prs"][key]["order"])})
+    for repo in repos:
+        mark, reds = receiver.heard(repo, "ci"), None
+        if mark is not None and watcher.ci_marks.get(repo) != mark:
+            try:
+                reds = install.main_reds(repo)
+            except github.GithubError as error:
+                return read_failed(watcher, "github main runs", error, moment)
+            watcher.ci_marks[repo] = mark
+        with state.edit(watcher.name) as data:
+            main = data["mains"].setdefault(repo, {"reds": {}, "owner": None, "woke": None})
+            if reds is not None and reds.keys() != main["reds"].keys():
+                shas = {red["sha"] for red in reds.values()}
+                owner = main["owner"] if main["reds"] else next((key for key, pr in data["prs"].items() if github.repo_of(key) == repo and pr["merged_sha"] in shas), None)
+                main.update(owner=owner if reds else None, woke=None)
+            if reds is not None:
+                main["reds"] = reds
+            due = main["owner"] and (not main["woke"] or moment - state.parse_time(main["woke"]) >= stage.EVERY["red"])
+            if due:
+                main["woke"] = state.stamp(moment)
+                runs = ", ".join(sorted({red["run"] for red in main["reds"].values()}))
+                text = f"{main['owner']}: {repo}'s main fails {', '.join(sorted(main['reds']))} since it merged ({runs}); fix it forward in a PR of your own, as every other PR failing only these waits on that fix"
+        if due:
+            stage.wake(watcher.name, main["owner"], text)
+    watcher.failures.pop("github main runs", None)
+    return []
 
 
 def refused_lines(watcher: Watcher, keys: list[str], moment: datetime) -> list[str]:
@@ -2134,6 +2166,7 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
         found, source = view.stored_cards(watcher.name)
         watcher.cards = found if source == "live" else None
         lines += github_lines(watcher, moment)
+        lines += main_lines(watcher, moment)
         lines += carried_lines(watcher, moment)
         checks(watcher, moment)
         lines += stage_lines(watcher, moment)

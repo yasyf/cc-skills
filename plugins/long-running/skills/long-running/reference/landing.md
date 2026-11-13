@@ -350,7 +350,9 @@ incident fix lands as [incidents.md](incidents.md) says.
 **Every red on your PR is yours**, whether your change or `dev` caused it, and while it waits on his tap
 too. Fix your own; for an
 inherited one, restack onto a `dev` that has the fix, or fix it forward in its own PR, a `flake fix` when
-a test flaked, whose cause may be in product code. Waiting on a fix in another PR, return `WAITING`
+a test flaked, whose cause may be in product code. The one exception is a yasyf/* red that main has too
+since a drive PR merged: that PR's builder owns it, and the watch wakes it to fix main forward in a PR of its own
+while yours reads `blocked` until main is green, so build no second fix. Waiting on a fix in another PR, return `WAITING`
 naming it, which puts it on his card on yours, with the fix's own card when it waits on his Approve. On a conflict or
 a queue ejection, restack, read the entry's history and verification build, fix the cause, and enqueue
 once more. Fix a test that keeps failing at its root; never retry past it with `--flake` or a rerun, which

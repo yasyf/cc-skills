@@ -688,6 +688,24 @@ def ci_verdict(repo: str, sha: str) -> tuple[bool, list[str]]:
     return passed, lines or [f"no workflow ran on {sha[:12]} on {branch}"]
 
 
+def main_reds(repo: str) -> dict[str, dict]:
+    """Each check failing on the repository's default branch, by its name, in the newest completed run not cancelled of each workflow among its 100 newest completed runs there: that run's link and the commit it tested; empty while each passed."""
+    branch = github.default_branch(repo)
+    jq = ".workflow_runs[] | {id, workflow_id, head_sha, conclusion, html_url}"
+    runs = [json.loads(line) for line in github.read(f"{repo}'s {branch} runs", ["gh", "api", f"repos/{repo}/actions/runs?branch={branch}&status=completed&per_page=100", "--jq", jq]).splitlines()]
+    newest: dict[int, dict] = {}
+    for run in sorted(runs, key=lambda run: run["id"], reverse=True):
+        if run["conclusion"] != "cancelled":
+            newest.setdefault(run["workflow_id"], run)
+    reds = {}
+    for run in newest.values():
+        if run["conclusion"].upper() in github.PASSED:
+            continue
+        failed = github.read(f"{repo}'s run {run['id']} jobs", ["gh", "api", f"repos/{repo}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100", "--jq", '.jobs[] | select(.conclusion == "failure") | .name'])
+        reds |= {check: {"run": run["html_url"], "sha": run["head_sha"]} for check in failed.splitlines()}
+    return reds
+
+
 def merges_of(data: dict, job_id: str) -> dict[str, str]:
     return {state.pr_key(url): data["prs"][state.pr_key(url)]["merged_sha"] for url in data["jobs"][job_id]["prs"]}
 

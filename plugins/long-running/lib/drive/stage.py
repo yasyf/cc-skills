@@ -2,7 +2,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from drive import land, state, view
+from drive import github, land, state, view
 
 NOBODY = "nobody"
 WATCH = "the watch"
@@ -73,6 +73,8 @@ def alone(data: dict, key: str, cards: dict) -> Stage:
     if failing := red(key, pr):
         if waits := answered(data, key, failing):
             return blocked(data, failing, waits)
+        if owner := inherited(data, key, pr):
+            return Stage("blocked", WAITED, f"{failing}, as main's do since {view.pr_link(data['prs'][owner])} merged, whose builder fixes it forward")
         return Stage("red", BUILDER, failing)
     if holds := held(data, pr, cards):
         return Stage("held", HIM, holds)
@@ -196,6 +198,14 @@ def answered(data: dict, key: str, failing: str) -> list[str]:
         return []
     waits = job["waited"]["waits"]
     return waits if all(wait in job["waits"] and view.holds(data, wait, None) for wait in waits) else []
+
+
+def inherited(data: dict, key: str, pr: dict) -> str | None:
+    """The merged PR whose builder fixes main's red, when every check the PR fails also fails on its repository's main since that PR merged and the PR is no work of the jobs answering for that one: its red is main's, so it waits on that fix and wakes nobody."""
+    main = data["mains"].get(github.repo_of(key))
+    if not main or not main["owner"] or pr["checks"] != "fail" or not pr["failed_checks"] or not set(pr["failed_checks"]) <= main["reds"].keys():
+        return None
+    return None if pr["job"] in (data["prs"][main["owner"]]["job"], owner_job(data, main["owner"])) else main["owner"]
 
 
 def blocked(data: dict, failing: str, waits: list[str]) -> Stage:
