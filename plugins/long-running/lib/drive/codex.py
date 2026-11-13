@@ -7,6 +7,7 @@ from pathlib import Path
 from drive import brief, install, state
 
 PLUGIN = "codex@skills"
+MODELS = ("sol", "luna", "astra")
 ENDED = ("completed", "failed", "died")
 SAID_CHARS = 500
 LOG_TAIL = 4096
@@ -67,14 +68,14 @@ def launcher() -> Path:
     return Path(install.installed(PLUGIN)["installPath"]) / "bin" / "codex-ask"
 
 
-def ask(name: str, job_id: str, question: str, incident: bool) -> Path:
-    """Start a codex job's codex-ask run on its brief, detached, its final message held by `--schema` to the drive's result, so no reply lacks its state: the run folder under the job's scratch folder, which a finished run's next launch reuses, and codex-ask refuses while a run in it still goes; an incident's run takes codex's fast tier."""
+def ask(name: str, job_id: str, question: str, incident: bool, model: str | None) -> Path:
+    """Start a codex job's codex-ask run on its brief, detached, its final message held by `--schema` to the drive's result, so no reply lacks its state: the run folder under the job's scratch folder, which a finished run's next launch reuses, and codex-ask refuses while a run in it still goes; an incident's run takes codex's fast tier, and a job added with `--model` runs that model, any other codex-ask's own default, sol."""
     scratch = state.drive_dir(name) / "scratch" / job_id
     scratch.mkdir(parents=True, exist_ok=True)
     schema = scratch / SCHEMA_FILE
     schema.write_text(json.dumps(RESULT, indent=2) + "\n")
     folder = scratch / "codex"
-    argv = [str(launcher()), "--dispatch", "-s", str(folder), "--schema", str(schema), *(["--incident"] if incident else []), "-"]
+    argv = [str(launcher()), "--dispatch", "-s", str(folder), "--schema", str(schema), *(["-m", model] if model else []), *(["--incident"] if incident else []), "-"]
     try:
         done = subprocess.run(argv, input=question, check=False, capture_output=True, text=True, timeout=DISPATCH_SECONDS)
     except (OSError, subprocess.TimeoutExpired) as error:

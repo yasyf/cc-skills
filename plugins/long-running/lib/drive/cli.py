@@ -1127,6 +1127,8 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         raise DriveError("--waits records a job whose agent starts on the watch's FREE line once its last wait ends, so it takes no --agent")
     if args.lands and args.kind != "builder":
         raise DriveError("--lands names the PRs a builder lands, which only a builder does")
+    if args.model and args.kind != "codex":
+        raise DriveError("--model names the codex-ask model a codex job runs; any other job's model is its Agent call's")
     refuse_a_mark_off_a_builder(args.kind, args.builds_nothing)
     lands = list(dict.fromkeys(map(state.pr_key, args.lands)))
     found = check_waits(name, args.waits)
@@ -1140,6 +1142,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         if refused := (
             state.held_elsewhere(data, args.order, session, bool(args.release))
             or unreleased
+            or (args.model == "astra" and not re.search(r"\bastra\b", order["text"], re.IGNORECASE) and f"--model astra runs only on an order whose words name astra, which {args.order}'s do not")
             or proven_again(data, args.order, args.kind, args.goal)
             or unlandable(data, lands)
             or state.job_wait_refusal(data, args.waits)
@@ -1158,6 +1161,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             "worktree": args.worktree,
             "waits": view.stored_waits(data, [state.change_wait(data, wait) for wait in args.waits], found),
             "builds_nothing": args.builds_nothing,
+            "model": args.model,
         } | ({"brief_flags": {"release": args.release}} if args.release else {})
         state.hold_unstarted(job)
         if crowd := args.kind == "builder" and not args.remote and not args.agent and not args.waits and place.crowded(data, job_id, state.now()):
@@ -2375,7 +2379,7 @@ def codex_launch(args: argparse.Namespace, name: str) -> int:
         if refused := state.held_elsewhere(data, job["order"], os.environ.get("CLAUDE_CODE_SESSION_ID"), state.starts_cut(job)) or brief.brief_refusal(name, data, args.id, written):
             raise DriveError(f"{args.id}: refused, not launched: {refused}")
         try:
-            folder = codex.ask(name, args.id, written, data["orders"][job["order"]]["incident"])
+            folder = codex.ask(name, args.id, written, data["orders"][job["order"]]["incident"], job["model"])
         except codex.CodexError as error:
             raise DriveError(f"{args.id}: refused, not launched: {error}") from None
         kept = launch_brief(name, args.id, job)
@@ -4631,6 +4635,11 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--branch", help="the branch it works on")
     verb.add_argument("--worktree", help="its worktree's path")
     verb.add_argument("--remote", action="store_true", help="a builder that starts as a remote lane on a Sprite")
+    verb.add_argument(
+        "--model",
+        choices=codex.MODELS,
+        help="the model a codex job's codex-ask run takes as -m, default codex-ask's own, sol; astra only on an order whose words name astra",
+    )
     verb.add_argument("--part", action="append", default=[], help="a part of the order this job delivers; default: its only part")
     verb.add_argument(
         "--lands",
