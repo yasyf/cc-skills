@@ -15,7 +15,7 @@ FIELD = re.compile(
     r"|Native|Interactions|Would he ask|Plan|Incident|Scratch|Transcripts|Drive):",
     re.MULTILINE,
 )
-STEP_FIELDS = frozenset({"Goal", "Done when", "Where", "Release", "Handoff", "Plan"})
+STEP_FIELDS = frozenset({"Goal", "Done when", "Where", "Runs as", "Release", "Handoff", "Plan", "Interactions"})
 RESEARCHED = re.compile(r"^Researched:[ \t]*$", re.MULTILINE)
 RESEARCHED_LINE = re.compile(r"^Researched:", re.MULTILINE)
 RESEARCHED_BY = re.compile(r"^Researched:[ \t]*(j\d+)\b", re.MULTILINE)
@@ -74,7 +74,7 @@ def carried(prompt: str) -> str:
 
 
 def job_steps(text: str) -> str:
-    """The fields of a brief naming the steps its job runs, its Goal, Done when, Where, Release, Handoff and Plan, each from its label up to the next field drive job brief writes, never his Order words, the rulings, the incident rule or earlier jobs' transcripts."""
+    """The fields of a brief naming the steps its job runs, its Goal, Done when, Where, Runs as, Release, Handoff, Plan and Interactions, each from its label up to the next field drive job brief writes, never his Order words, the rulings, the incident rule or earlier jobs' transcripts."""
     starts = list(FIELD.finditer(text))
     ends = [found.start() for found in starts[1:]] + [len(text)]
     return "\n".join(text[found.start() : end] for found, end in zip(starts, ends, strict=True) if found[1] in STEP_FIELDS)
