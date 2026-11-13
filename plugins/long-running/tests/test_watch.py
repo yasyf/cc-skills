@@ -5686,7 +5686,7 @@ def test_his_card_cc_slack_keeps_closed_in_place_on_a_pr_that_asks_his_tap_again
     shut = {"waits": "merge:Forge-AI:monorepo:42", "title": "Fix: the watch", "prs": [url], "asked": state.stamp(T0), "url": CARD, "answer": None, "tapped": "This PR no longer waits on your tap.", "replaced_by": ""}
     shown = {"team_url": "", "questions": [], "closed": [shut], "pr_cards": []}
     monkeypatch.setattr(watch.view, "cards", lambda drive: shown)
-    serve(monkeypatch, {KEY: read(checks=GREEN)})
+    serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
     watching = watcher(demo)
     watch.run_pass(watching, T0)
     data = state.load(demo)
