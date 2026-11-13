@@ -263,7 +263,11 @@ lane reads those, and Slack, through this Mac with a blocking question.
   waiting, is one `LANE … died` line.
 - A running job's dead lane is relaunched in the pass that finds it: the watch runs
   `drive job resume <j>` as a process of its own, its output in the drive's `relaunches.log`, and
-  its `LANE … died` line says so. A PR's next step goes to its lane by `drive pr wake`, as its
+  its `LANE … died` line says so. So is a running job's agent on this Mac whose last response ended
+  on an API error or a refusal, once the session holding it has had a response answered since, so
+  its next worker does not start inside the outage that stopped it: its `LANE … died as agent`
+  line says the watch ran that resume, which starts the next worker on a Sprite, or on this Mac
+  when its brief declares a step only this Mac runs. A PR's next step goes to its lane by `drive pr wake`, as its
   stage owes. While its job stays `running`, a lane that finished, or ended with
   no next lane started within 30 minutes, or whose relaunch ended without one, makes its parts
   `ORPHAN`s even when another job or a posted answer carries them, as does work he ordered that only
@@ -282,10 +286,10 @@ before it sends or starts.
   the Sprite is destroyed once it holds nothing on no remote. A failed save moves nothing and
   records nothing.
 - An agent on this Mac that ended with its session, which no role holds any more, or whose last
-  response ended on an API error or a refusal, with its transcript quiet two minutes, takes no
-  `SendMessage`: either verb hands its job to a lane on a Sprite, or on
-  this Mac with `drive job launch <j> --local`, on a handoff carrying the job's brief, branch, last
-  line, report, PRs and the message.
+  response ended on an API error or a refusal takes no `SendMessage`: either verb hands its job to
+  a lane on a Sprite, or on this Mac with `drive job launch <j> --local` or when its brief declares
+  a step only this Mac runs, on a handoff carrying the job's brief, branch, last line, report, PRs
+  and the message.
 - A live worker gets the message: the answer to its open question, or a new message to its Dispatch
   when it asked none or Orca already holds another answer to it. A live Sprite lane no start this
   drive recorded put the tools on, as one started before the drive forwarder existed or recorded by
