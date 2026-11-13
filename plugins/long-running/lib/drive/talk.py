@@ -383,15 +383,19 @@ def status(name: str, post: dict, stack: list[str], pictures: list[str], sent: s
 
 
 def draw(name: str, keys: list[str]) -> str:
-    """Post his card on the PRs at his DM root and in no order's thread, as drive pr add draws it on the row it makes and the watch on a PR still uncarded or waiting on him while it fixes a live bug, keep it as a said event, and keep its link on each PR it carries; that link. A card drive card refuses for every one of them posts nothing and says why."""
+    """Post his card on the PRs at his DM root and in no order's thread, under the line `carried_out` writes, which cc-slack dm-status needs beside its --tap-pr, as drive pr add draws it on the row it makes and the watch on a PR still uncarded or waiting on him while it fixes a live bug, keep it as a said event, and keep its link on each PR it carries; that link. A card drive card refuses for every one of them posts nothing and says why."""
     from drive import card, stage
 
     drawn = card.cards([{"repo": key.split("#")[0], "number": int(key.split("#")[1])} for key in keys])
     if not drawn["cards"]:
         raise DriveError("; ".join(f"{skip['repo']}#{skip['number']}: {skip['reason']}" for skip in drawn["skipped"]) or f"drive card drew no card on {', '.join(keys)}")
-    reply = slack.cc_slack(*status(name, {}, keys, [], ""))
+    line = carried_out(state.load(name), keys)
+    found = refs.resolved(name, line)
+    reply = slack.cc_slack(*status(name, {}, keys, [], refs.slack(line, found, None)))
     link = (reply.get("card_permalink") or reply["permalink"]).split()[0]
-    state.append_event(name, "said", text="", channel=None, thread=reply.get("thread_ts"), url=reply["permalink"], card=reply.get("card_permalink"), order=None, visuals=[], prs=keys, edited=False)
+    state.append_event(
+        name, "said", text=refs.board(line, found), channel=None, thread=reply.get("thread_ts"), url=reply["permalink"], card=reply.get("card_permalink"), order=None, visuals=[], prs=keys, edited=False
+    )
     view.refresh_cards(name)
     found = view.live_cards(name)
     with state.edit(name) as data:
@@ -400,6 +404,12 @@ def draw(name: str, keys: list[str]) -> str:
         if found is not None:
             stage.settle(data, found)
     return link
+
+
+def carried_out(data: dict, keys: list[str]) -> str:
+    """The line above the drive's own draw of his card, one line per order its PRs carry out, each linked to that order's thread: his words quoted, or a drive tooling order's own "Drive tooling: …" words."""
+    orders = dict.fromkeys(state.order_served(data["prs"][key]) for key in keys)
+    return "\n".join(f"{{order:{order_id}}}" if data["orders"][order_id]["text"].startswith(state.TOOLING) else f'Carries out your "{{order:{order_id}}}"' for order_id in orders)
 
 
 def withdraw(name: str, key: str) -> list[str]:

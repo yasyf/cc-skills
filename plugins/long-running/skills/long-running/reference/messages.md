@@ -372,9 +372,11 @@ When it is answered, replaced or redone:
   for a PR that
   carries out an order of his whose words ask for it, or a `Forge-AI/*` drive tooling fix no exempt
   class covers, which serves its own order by [Scope](scope.md).
-- The drive's own draw posts the card alone, in no order's thread; the order's thread hears one line
-  when the PR merges. A card drawn through `say` carries a line above it quoting that order: his words, or the tooling order's
-  "Drive tooling: …" words. The say hook finds a PR card whose PR serves a drive tooling order while
+- The drive's own draw posts the card at his DM root, in no order's thread, under one line per
+  order its PRs carry out, linked to that order's thread: `Carries out your "<his words>"`, or the
+  tooling order's "Drive tooling: …" words, since `cc-slack dm-status` refuses a `--tap-pr` with no
+  text. The order's thread hears one line when the PR merges. A card drawn through `say` carries a
+  line above it quoting that order: his words, or the tooling order's "Drive tooling: …" words. The say hook finds a PR card whose PR serves a drive tooling order while
   its text leaves out that order's words, naming them, for Jev to judge. Those words pass
   `cc-slack check-post`, which `drive order add` and `drive order set <o> --words` run on them. A
   port never gets one: he reads "port of #N landed" in its order's thread once it lands, and so for
