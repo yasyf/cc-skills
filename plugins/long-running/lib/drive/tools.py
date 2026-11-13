@@ -183,12 +183,14 @@ def verb_tools() -> list[dict]:
                 "Start a long-running:handler on its brief as its own claude --bg session, recording that he wrote when the"
                 " brief carries his words, so his message takes the ack and this one call. Returns started <its id>; the"
                 " line it ends on comes back as one cci done record from lane handler when it ends, and its session ends"
-                " with it. A message of his and a thread each have one handler at a time: a record on the message of his"
-                " a live handler holds, in its thread, or naming its record up a re chain or named by its record's, returns"
-                " handed to <that handler's id>, which takes it at its next step and covers it in its post; it refuses a"
-                " brief while a live handler holds the same record or the same message of his, a copy that needs nothing. For his read-only"
-                " question, answer alone adds his answer order and the handler's reader job on it in the same call, so no job call"
-                " follows, and the handler files that order under the project and workstream it reads his question is about."
+                " with it. A message of his and a thread each have one handler at a time: a brief, his words or a record, in"
+                " a live handler's thread, a record's own thread or else its brief's Thread: line, on the message of his it"
+                " holds, or naming its record up a re chain or named by its record's, returns handed to <that handler's id>,"
+                " which takes it at its next step and covers it in its post; it refuses a brief while a live handler holds"
+                " the same record or the same message of his, a copy that needs nothing. For his read-only question, answer"
+                " alone adds his answer order and the handler's reader job on it in the same call, so no job call follows,"
+                " and the handler files that order under the project and workstream it reads his question is about; a brief"
+                " handed over adds neither."
             ),
             "inputSchema": {"type": "object", "properties": {**schema(leaf("handler", root=root))["properties"], "drive": DRIVE, "dry_run": DRY_RUN}, "required": ["brief"]},
         },

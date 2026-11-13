@@ -339,12 +339,24 @@ LIVE_RECORDS = {
     "683946": {"kind": "report", "re": 683922, "attrs": {"job": "j2698", "order": "o968", "progress": "true", "thread": "1794536668.729819"}},
     "690001": {"kind": "report", "attrs": {"order": "o9"}},
     "690002": {"kind": "correction", "re": 690001, "attrs": {}},
+    "690839": {"kind": "done", "attrs": {}},
 }
 WATCH_QUIET = "Record: #678142 Drive: demo Scratch: {scratch}/quiet-#678142"
 COMMUNICATOR_QUIET = (
     "Record: 678142\nMessage (his words): none\nLink: none\nThread: 1794494004.895129\nDrive: demo\nPaths: none\nScratch: {scratch}/handler"
     "\nDeliverable: read incident o761's order and post where it stands now\nContext: watch-quiet report\nWaits: none"
 )
+
+
+HELD_THREAD = "1794557485.395319"
+HIS_FIRST = (
+    f"Message (his words): explain why one change touches every client\nLink: https://acme.slack.com/archives/D123/p1794564987410009?thread_ts={HELD_THREAD}&cid=D123"
+    f"\nThread: {HELD_THREAD}\nDrive: demo\nScratch: {{scratch}}/first"
+)
+HIS_FOLLOW_UP = f"Message (his words): and?\nLink: https://acme.slack.com/archives/D123/p1794565618666599?thread_ts={HELD_THREAD}&cid=D123\nThread: {HELD_THREAD}\nDrive: demo\nScratch: {{scratch}}/and"
+HIS_UNLINKED = f"Message (his words): and?\nThread: D123 {HELD_THREAD}\nDrive: demo\nScratch: {{scratch}}/unlinked"
+THREAD_LINE = f"Record: 690839 Drive: demo Scratch: {{scratch}}/690839\nThread: {HELD_THREAD}"
+HIS_IN_INCIDENT = "Message (his words): is it still down?\nLink: https://acme.slack.com/archives/D123/p1794494100000100?thread_ts=1794494004.895129&cid=D123\nThread: D123 1794494004.895129\nDrive: demo\nScratch: {scratch}/down"
 
 
 def brief_of(seq: str) -> str:
@@ -362,9 +374,13 @@ def brief_of(seq: str) -> str:
         pytest.param(brief_of("690001"), brief_of("690002"), "handed", id="a-threadless-correction-whose-re-a-handler-holds"),
         pytest.param(brief_of("690002"), brief_of("690001"), "handed", id="a-threadless-record-the-held-correction-re-names"),
         pytest.param(brief_of("683922"), WATCH_QUIET, "started", id="another-thread-and-no-re"),
+        pytest.param(HIS_FIRST, HIS_FOLLOW_UP, "handed", id="o1153-his-and-b04e97f3-while-8712a691-held-his-message-in-its-thread"),
+        pytest.param(HIS_FIRST, THREAD_LINE, "handed", id="o1153-threadless-690839-38104256-whose-thread-line-names-8712a691s-thread"),
+        pytest.param(HIS_FIRST, HIS_UNLINKED, "handed", id="his-words-with-no-link-in-a-held-thread-is-no-copy"),
+        pytest.param(WATCH_QUIET, HIS_IN_INCIDENT, "handed", id="his-words-in-the-thread-the-watchs-quiet-handler-holds"),
     ],
 )
-def test_a_record_in_a_live_handlers_thread_or_on_its_re_chain_is_handed_to_it_whichever_session_briefed_either_and_a_copy_is_refused(
+def test_a_brief_in_a_live_handlers_thread_or_on_its_re_chain_is_handed_to_it_whichever_session_briefed_either_and_a_copy_is_refused(
     communicator: str, tmp_path: Path, started: list[list[str]], cci_records: dict[str, dict], first: str, then: str, met: str
 ) -> None:
     cci_records |= {seq: {"seq": int(seq), "kind": kept["kind"], "lane": "root", "re": kept.get("re"), "fields": {"attrs": kept["attrs"]}} for seq, kept in LIVE_RECORDS.items()}
