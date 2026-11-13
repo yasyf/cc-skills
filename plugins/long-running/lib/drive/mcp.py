@@ -26,6 +26,7 @@ LISTED: dict[str, str] = {}
 CALLS: dict[int | str, "subprocess.Popen | WarmCall"] = {}
 WARM: dict[str, "Warm"] = {}
 WARMING = threading.Lock()
+KILL_SECONDS = 10
 LIST_CHANGED = {"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}
 INSTRUCTIONS = (
     "Every message to him goes through say: one call posts it to his Slack DM and shows it on the drive's dashboard."
@@ -254,11 +255,13 @@ def warm_call(request_id: int | str, tool: str, arguments: dict) -> dict | None:
     run = WarmCall(tool, arguments)
     CALLS[request_id] = run
     try:
-        warmed(newest_drive(), run)
+        warm = warmed(newest_drive(), run)
         if not run.done.wait(CALL_SECONDS):
             run.timed_out = True
-            run.kill()
-            run.done.wait()
+            warm.kill(run)
+            if not run.done.wait(KILL_SECONDS):
+                warm.abandon()
+                run.done.wait()
         out, err = Path(run.out).read_text(), Path(run.err).read_text()
     finally:
         os.unlink(run.out)
@@ -274,63 +277,65 @@ def warm_call(request_id: int | str, tool: str, arguments: dict) -> dict | None:
 
 
 class WarmCall:
-    """One call a warm process forks: its files for stdout and stderr, its pid once forked, and its exit code once reaped, None when the warm process ended first."""
+    """One call a warm process forks: its files for stdout and stderr, the warm process running it, and its exit code once reaped, None when the warm process ended first."""
 
     def __init__(self, tool: str, arguments: dict) -> None:
         self.key = uuid.uuid4().hex
         self.tool, self.arguments = tool, arguments
         self.out, self.err = (kept(tool) for _ in range(2))
         self.done = threading.Event()
-        self.guard = threading.Lock()
-        self.pid: int | None = None
+        self.warm: Warm | None = None
         self.code: int | None = None
-        self.killed = self.timed_out = False
-
-    def started(self, pid: int) -> None:
-        with self.guard:
-            self.pid = pid
-            if self.killed and not self.done.is_set():
-                os.kill(pid, signal.SIGKILL)
+        self.timed_out = False
 
     def ended(self, code: int | None) -> None:
-        with self.guard:
-            self.code = code
-            self.done.set()
+        self.code = code
+        self.done.set()
 
     def kill(self) -> None:
-        with self.guard:
-            self.killed = True
-            if self.pid and not self.done.is_set():
-                os.kill(self.pid, signal.SIGKILL)
+        if self.warm:
+            self.warm.kill(self)
 
 
 class Warm:
-    """One install's `drive mcp --warm`, single-threaded so it may fork, and the calls it runs, each told its pid and then its exit code on its stdout."""
+    """One install's `drive mcp --warm`, single-threaded so it may fork, and the calls it runs, each told its exit code on its stdout once reaped."""
 
     def __init__(self, drive_path: str) -> None:
+        self.drive_path = drive_path
         self.process = subprocess.Popen([drive_path, "mcp", "--warm"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)
         self.guard = threading.Lock()
+        self.writing = threading.Lock()
         self.running: dict[str, WarmCall] = {}
         threading.Thread(target=self.heard, daemon=True).start()
 
     def start(self, run: WarmCall) -> None:
+        run.warm = self
         with self.guard:
             self.running[run.key] = run
+        if not self.sent({"key": run.key, "tool": run.tool, "arguments": run.arguments, "out": run.out, "err": run.err}):
+            with self.guard:
+                self.running.pop(run.key, None)
+            run.ended(None)
+
+    def kill(self, run: WarmCall) -> None:
+        """Have the warm process kill the call's process while it still runs, so no pid it reaped and the system reused is signalled."""
+        self.sent({"kill": run.key})
+
+    def sent(self, line: dict) -> bool:
+        with self.writing:
             try:
-                self.process.stdin.write(json.dumps({"key": run.key, "tool": run.tool, "arguments": run.arguments, "out": run.out, "err": run.err}) + "\n")
+                self.process.stdin.write(json.dumps(line) + "\n")
                 self.process.stdin.flush()
-            except BrokenPipeError:
-                del self.running[run.key]
-                run.ended(None)
+            except (BrokenPipeError, ValueError):
+                return False
+        return True
 
     def heard(self) -> None:
         for line in self.process.stdout:
             said = json.loads(line)
             with self.guard:
-                run = self.running[said["key"]] if "pid" in said else self.running.pop(said["key"])
-            if "pid" in said:
-                run.started(said["pid"])
-            else:
+                run = self.running.pop(said["key"], None)
+            if run:
                 run.ended(said["code"])
         with self.guard:
             left, self.running = list(self.running.values()), {}
@@ -338,18 +343,26 @@ class Warm:
             run.ended(None)
 
     def retire(self) -> None:
-        with self.guard:
+        with self.writing:
             self.process.stdin.close()
 
+    def abandon(self) -> None:
+        """Kill a warm process that did not answer a kill within KILL_SECONDS, ending every call it runs."""
+        with WARMING:
+            if WARM.get(self.drive_path) is self:
+                del WARM[self.drive_path]
+        self.process.kill()
 
-def warmed(drive_path: str, run: WarmCall) -> None:
+
+def warmed(drive_path: str, run: WarmCall) -> "Warm":
     """Start the call in the warm process of this install, started now when it has none or its last one ended; an older install's is retired, finishing the calls it runs."""
     with WARMING:
         for older in [path for path in WARM if path != drive_path]:
             WARM.pop(older).retire()
         if (held := WARM.get(drive_path)) is None or held.process.poll() is not None:
             WARM[drive_path] = held = Warm(drive_path)
-        held.start(run)
+    held.start(run)
+    return held
 
 
 def kept(tool: str) -> str:
@@ -359,7 +372,8 @@ def kept(tool: str) -> str:
 
 
 def warm() -> int:
-    """Fork one process for each call read from stdin, each running its tool as `drive tool` would, and say on stdout each one's pid once forked and its exit code once reaped; end once stdin closes and every call it forked has."""
+    """Fork one process for each call read from stdin, each running its tool as `drive tool` would, kill one a kill line names while it runs, and say on stdout each one's exit code once reaped; end once stdin closes and every call it forked has. It holds no install's lock itself, since it runs no verb."""
+    state.let_go_install()
     for module in pkgutil.iter_modules(drive.__path__):
         importlib.import_module(f"drive.{module.name}")
     woken, wake = os.pipe()
@@ -368,6 +382,7 @@ def warm() -> int:
     signal.set_wakeup_fd(wake)
     signal.signal(signal.SIGCHLD, lambda *_: None)
     running: dict[int, str] = {}
+    pids: dict[str, int] = {}
     pending, reading = b"", True
     while reading or running:
         ready, _, _ = select.select([0, woken] if reading else [woken], [], [])
@@ -375,7 +390,8 @@ def warm() -> int:
             while os.read(woken, 512):
                 pass
         while running and (reaped := os.waitpid(-1, os.WNOHANG))[0]:
-            told(running.pop(reaped[0]), code=os.waitstatus_to_exitcode(reaped[1]))
+            del pids[key := running.pop(reaped[0])]
+            told(key, code=os.waitstatus_to_exitcode(reaped[1]))
         if 0 not in ready:
             continue
         if not (chunk := os.read(0, 1 << 16)):
@@ -385,15 +401,18 @@ def warm() -> int:
         while b"\n" in pending:
             line, pending = pending.split(b"\n", 1)
             request = json.loads(line)
+            if "kill" in request:
+                if pid := pids.get(request["kill"]):
+                    os.kill(pid, signal.SIGKILL)
+                continue
             if (pid := os.fork()) == 0:
                 forked(request, woken, wake)
-            running[pid] = request["key"]
-            told(request["key"], pid=pid)
+            running[pid], pids[request["key"]] = request["key"], pid
     return 0
 
 
-def told(key: str, **fields: int) -> None:
-    os.write(1, (json.dumps({"key": key, **fields}) + "\n").encode())
+def told(key: str, code: int) -> None:
+    os.write(1, (json.dumps({"key": key, "code": code}) + "\n").encode())
 
 
 def forked(request: dict, woken: int, wake: int) -> None:
