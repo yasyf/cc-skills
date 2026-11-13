@@ -198,7 +198,22 @@ def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
             slack.redraw_pr_cards(url)
         except slack.SlackError as error:
             lines.append(f"WATCH his open card for {url} still leaves off the Show me picture its body was edited to fix, since its redraw failed: {error}")
+    if ejected := [key for key in reads if data["prs"][key]["ejected"] and data["prs"][key]["lander"]["outcome"] == land.QUEUED]:
+        lines += refused_lines(watcher, ejected, moment)
     return lines + dropped_lines(watcher, foreign, moment)
+
+
+def refused_lines(watcher: Watcher, keys: list[str], moment: datetime) -> list[str]:
+    """Record on every PR it queued GitHub's refusal of the merge Trunk's queue took for each try Trunk ejected one of keys from, by Trunk's queue records, which its landing event says; a run of failed reads of them is said."""
+    try:
+        outcomes = land.refusals(state.load(watcher.name), keys)
+    except state.DriveError as error:
+        return failed(watcher, "trunk", "Trunk queue read", error, moment)
+    watcher.failures.pop("trunk", None)
+    if outcomes:
+        with state.edit(watcher.name) as data:
+            land.refuse(watcher.name, data, outcomes)
+    return []
 
 
 def edited_since_undrawn(pr: dict, read: dict, cards: dict | None) -> bool:

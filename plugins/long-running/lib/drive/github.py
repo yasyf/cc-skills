@@ -168,9 +168,9 @@ def run_of(check: dict) -> tuple[str, str] | None:
 
 
 def counted(rollup: list[dict]) -> list[dict]:
-    """The check runs and statuses that speak for one head: all but the cancelled jobs of a workflow run when another run of the same workflow on that head passed or is still running, as when a newer run cancels its duplicate."""
+    """The check runs and statuses that speak for one head: all but Trunk's merge queue check, whose failure is the queue's end of a landing that the lander reads, and the cancelled jobs of a workflow run when another run of the same workflow on that head passed or is still running, as when a newer run cancels its duplicate."""
     going = {run_of(check) for check in rollup if outcome(check) not in FAILED} - {None}
-    return [check for check in rollup if outcome(check) != "CANCELLED" or not superseded(run_of(check), going)]
+    return [check for check in rollup if not check_name(check).startswith(TRUNK_CHECK) and (outcome(check) != "CANCELLED" or not superseded(run_of(check), going))]
 
 
 def superseded(run: tuple[str, str] | None, going: set[tuple[str, str]]) -> bool:

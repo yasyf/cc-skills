@@ -19,6 +19,8 @@ RETYPED = re.compile(r"\b(?:POSTED|EDITED|CARD)(?:\s+https://\S+)+\s*;?\s*")
 HIS_KINDS = ("owner", "answer")
 RE_HOPS = 8
 CORRECTION_BYTES = 1 << 20
+TRUNK_DRIVE = "trunk"
+TRUNK_FAILED = "failed in Trunk's merge queue"
 HANDLER = "long-running:handler"
 SYNTHETIC = "<synthetic>"
 MESSAGE_ORIGIN = "coordinator"
@@ -261,6 +263,16 @@ def corrections(name: str, seqs: Iterable[str]) -> dict[str, list[str]]:
         if (answered := str(record.get("re"))) in wanted:
             found.setdefault(answered, []).append(str(record["seq"]))
     return found
+
+
+def trunk_failures(keys: list[str], since: str) -> list[dict]:
+    """The records of each failure of keys in Trunk's merge queue since then, newest first, which Trunk's webhook relays into cci's trunk drive, read in one cci grep."""
+    pattern = "|".join(f"{re.escape(key)} {TRUNK_FAILED}" for key in keys)
+    try:
+        lines = reads.run(["cci", "grep", pattern, "--drive", TRUNK_DRIVE, "--kind", "queue", "--since", since, "--json"], Path.cwd()).splitlines()
+    except reads.ReadError as error:
+        raise state.DriveError(f"Trunk's queue records of {', '.join(keys)} could not be read: {error}") from None
+    return [json.loads(line) for line in lines]
 
 
 def holder(data: dict, held: dict) -> str | None:

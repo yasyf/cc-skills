@@ -1,12 +1,14 @@
+import json
 import os
 import re
 import signal
 import subprocess
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from drive import github, install, served, state, view
+from drive import agents, github, install, served, state, view
 from drive.render import cut
 
 ENQUEUE = Path(".agents/skills/submit-pr/scripts/stack-enqueue")
@@ -17,7 +19,12 @@ CHECKOUT_SECONDS = 600
 SAID_CHARS = 400
 SAID_LINES = 4
 QUEUED = "queued for merge"
+REFUSED = "merge refused by GitHub"
+GITHUB_API = "GITHUB_API_"
 BASE_MOVED = "Base branch was modified"
+MERGE_ASYNC = "merge-async"
+STACKED = "must be merged using the asynchronous merge REST API"
+ASYNC_SECONDS = 2
 NOT_MERGING = "not merging it"
 MERGE = ("gh", "pr", "merge", "--squash")
 NEWER_INSTALL = "not landed: a newer long-running saved the drive while stack-enqueue --check ran, so the landing runs again on it"
@@ -121,6 +128,35 @@ def requeues(data: dict, pr: dict) -> bool:
     return bool(flaky := flaked(pr)) and data["prs"][flaky["fix"]]["state"] == "merged"
 
 
+def refused(pr: dict) -> bool:
+    """Whether GitHub refused, for the first time at the PR's head, the merge its lander queued there once Trunk's merge queue took it, with no failing check, so the lander lands it again one PR at a time, bottom first; a refusal of that one-at-a-time landing is not landed."""
+    lander = pr["lander"] or {}
+    return lander.get("head") == pr["head"] and (lander.get("outcome") or "").startswith(REFUSED) and not (lander.get("was") or "").startswith(REFUSED)
+
+
+def refusals(data: dict, keys: list[str]) -> dict[str, str]:
+    """GitHub's refusal of the merge Trunk's merge queue took for the try that queued each of keys, by that try's entry, the PR Trunk names: its newest failure since the try among Trunk's queue records, when GitHub's API gave it, such as GITHUB_API_MERGE_PR_FAILED, with no failing check, which landing the PRs one at a time gets past; a try whose newest failure is any other, or that no record names yet, is left out."""
+    tries = {(lander := data["prs"][key]["lander"]).get("entry", key): lander["at"] for key in keys}
+    newest: dict[str, dict] = {}
+    for record in agents.trunk_failures(list(tries), min(tries.values(), key=state.parse_time)):
+        for entry in set(tries) & set(record["refs"].get("prs", [])) - set(newest):
+            if state.parse_time(record["at"]) >= state.parse_time(tries[entry]):
+                newest[entry] = record["fields"].get("attrs") or {}
+    return {
+        entry: f"{REFUSED} once Trunk's merge queue took {entry}: {attrs['reason']}, with no failing check"
+        for entry, attrs in newest.items()
+        if attrs.get("reason", "").startswith(GITHUB_API) and not attrs.get("failing")
+    }
+
+
+def refuse(name: str, data: dict, outcomes: dict[str, str]) -> None:
+    """Record GitHub's refusal of each try outcomes names by its entry as that try's outcome on every PR it queued, since Trunk drops the whole stack whose merge GitHub refused, as noted() records a landing."""
+    for entry, outcome in outcomes.items():
+        tried = [key for key, pr in data["prs"].items() if (pr["lander"] or {}).get("outcome") == QUEUED and pr["lander"].get("entry", key) == entry]
+        if entry in tried:
+            noted(name, data, [*(key for key in tried if key != entry), entry], outcome, data["prs"][entry]["lander"]["below"])
+
+
 def unders(data: dict) -> dict[str, str | None]:
     """Each open PR the drive tracks mapped to the open tracked PR it sits on, as the watch last read them and as stack-enqueue joins them: the one before it in its native GitHub stack or, at the bottom of one or in none, the open PR whose head branch is its base; None for a PR on no tracked PR."""
     opened = {key: pr for key, pr in data["prs"].items() if pr["state"] == "open"}
@@ -181,10 +217,12 @@ def held_below(keys: list[str], below: list[str]) -> str:
 
 
 def units(data: dict, keys: list[str], cards: dict) -> list[tuple[str, ...]]:
-    """The units a lander lands now among keys, in every repository the drive tracks: each key's unit() that reads ready, whole for a Forge-AI/monorepo chain stack-enqueue queues and its bottom PR alone in any other repository, which gh pr merge merges one PR at a time, longest first, leaving out one that shares a PR with a unit taken before it, since one lander holds a PR at a time: a chain inside a longer one, or one on the same PR as a sibling's, which lands at a later pass."""
+    """The units a lander lands now among keys, in every repository the drive tracks: each key's unit() that reads ready, whole for a Forge-AI/monorepo chain stack-enqueue queues unless GitHub refused() its merge, and its bottom PR alone after that refusal and in any other repository, which gh pr merge merges one PR at a time, longest first, leaving out one that shares a PR with a unit taken before it, since one lander holds a PR at a time: a chain inside a longer one, or one on the same PR as a sibling's, which lands at a later pass."""
     under = unders(data)
     found = dict.fromkeys(
-        members if state.queued_by_lander(members[0]) else members[:1] for key in keys if data["prs"][key]["state"] == "open" and (members := unit(data, under, key, cards))
+        members if state.queued_by_lander(members[0]) and not any(refused(data["prs"][member]) for member in members) else members[:1]
+        for key in keys
+        if data["prs"][key]["state"] == "open" and (members := unit(data, under, key, cards))
     )
     taken: list[tuple[str, ...]] = []
     for members in sorted(found, key=len, reverse=True):
@@ -437,13 +475,13 @@ def ask_review(name: str, repo: str, heads: dict[str, str]) -> str | None:
 
 
 def merged(name: str, key: str, flags: list[str]) -> str:
-    """Merge a PR with gh pr merge and the flags given, --admin past its checks for a yasyf/* one by his rule for his own repositories and --match-head-commit for any other, which GitHub merges only once its repository's rules pass, with gh itself since ccx's GitHub gateway refuses a merge, record its merge commit on its row, then install from it each plugin of this Mac it changes; what came of it. GitHub refuses a merge whose base moved while it merged, which another merge into that base did, so the lander merges again on the new base, and any other refusal is not landed."""
+    """Merge a PR with gh pr merge and the flags given, --admin past its checks for a yasyf/* one by his rule for his own repositories and --match-head-commit for any other, which GitHub merges only once its repository's rules pass, or through GitHub's merge-async endpoint once gh pr merge is refused for a PR of a native GitHub stack, with gh itself since ccx's GitHub gateway refuses a merge; record its merge commit on its row, then install from it each plugin of this Mac it changes; what came of it, a refusal not landed."""
     repo, number = key.split("#")
-    command = ["gh", "pr", "merge", number, "-R", repo, "--squash", *flags]
-    while (done := subprocess.run(command, capture_output=True, text=True)).returncode and BASE_MOVED in done.stderr:
-        print(f"{key}: {' '.join(done.stderr.split())}; merging it again on its new base", flush=True)
-    if done.returncode:
-        return f"not landed: {' '.join([*MERGE, *flags])} refused it: {cut(' '.join(done.stderr.split()), SAID_CHARS)}"
+    if (refusal := merged_sync(key, flags)) and STACKED in refusal:
+        print(f"{key}: {refusal}; merging it through GitHub's {MERGE_ASYNC} instead", flush=True)
+        refusal = merged_async(key, flags)
+    if refusal:
+        return f"not landed: {refusal}"
     try:
         sha = github.run(["gh", "pr", "view", number, "-R", repo, "--json", "mergeCommit", "-q", ".mergeCommit.oid"]).strip()
         files = github.files(key)
@@ -460,3 +498,31 @@ def merged(name: str, key: str, flags: list[str]) -> str:
         print(done.stdout + done.stderr, flush=True)
         lines.append(done.stdout.splitlines()[0] if done.returncode == 0 else f"but drive install {plugin} --sha {sha[:12]} failed: {said(done.stderr)}")
     return "; ".join(lines)
+
+
+def merged_sync(key: str, flags: list[str]) -> str | None:
+    """Merge a PR with gh pr merge and the flags given; what gh said refusing it, or None once merged. GitHub refuses a merge whose base moved while it merged, which another merge into that base did, so the lander merges again on the new base."""
+    repo, number = key.split("#")
+    command = ["gh", "pr", "merge", number, "-R", repo, "--squash", *flags]
+    while (done := subprocess.run(command, capture_output=True, text=True)).returncode and BASE_MOVED in done.stderr:
+        print(f"{key}: {' '.join(done.stderr.split())}; merging it again on its new base", flush=True)
+    return f"{' '.join([*MERGE, *flags])} refused it: {cut(' '.join(done.stderr.split()), SAID_CHARS)}" if done.returncode else None
+
+
+def merged_async(key: str, flags: list[str]) -> str | None:
+    """Squash-merge a PR of a native GitHub stack through GitHub's merge-async endpoint, the one GitHub merges a stacked PR through, past the rules its actor may bypass for --admin, which GitHub grants only the stack's bottom PR, the one a lander outside Forge-AI/monorepo lands, or at the head --match-head-commit names, then read its result every ASYNC_SECONDS until GitHub ends it; why GitHub refused it, or None once merged."""
+    repo, number = key.split("#")
+    endpoint = f"repos/{repo}/pulls/{number}/{MERGE_ASYNC}"
+    pinned = ["-f", f"sha={flags[flags.index('--match-head-commit') + 1]}"] if "--match-head-commit" in flags else []
+    fields = ["-f", "merge_method=squash", "-f", "merge_action=direct_merge", "-F", f"bypass_rules={str('--admin' in flags).lower()}", *pinned]
+    done = subprocess.run(["gh", "api", "-X", "PUT", endpoint, *fields], capture_output=True, text=True)
+    if done.returncode:
+        return f"GitHub's {MERGE_ASYNC} refused it: {cut(' '.join((done.stdout + done.stderr).split()), SAID_CHARS)}"
+    result = json.loads(done.stdout)
+    while result["status"] == "pending":
+        time.sleep(ASYNC_SECONDS)
+        try:
+            result = json.loads(github.read(f"the result of {key}'s {MERGE_ASYNC}", ["gh", "api", f"{endpoint}/{result['details']['uuid']}"]))
+        except github.GithubError as error:
+            return cut(str(error), SAID_CHARS)
+    return None if result["status"] == "merged" else f"GitHub's {MERGE_ASYNC} ended it {result['status']}: {cut(result['details'].get('message', ''), SAID_CHARS)}"

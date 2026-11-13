@@ -327,6 +327,13 @@ def cci_corrections(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[str]]:
 
 
 @pytest.fixture(autouse=True)
+def trunk_queue(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
+    kept: list[dict] = []
+    monkeypatch.setattr(agents, "trunk_failures", lambda keys, since: list(kept))
+    return kept
+
+
+@pytest.fixture(autouse=True)
 def ended_sessions(monkeypatch: pytest.MonkeyPatch) -> set[str]:
     ended: set[str] = set()
     monkeypatch.setattr(agents, "gone", lambda session: session in ended)
