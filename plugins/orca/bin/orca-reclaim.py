@@ -75,7 +75,7 @@ PASS_ORCA_S = 180.0
 CALL_TIMEOUT_S = 60
 BACKOFF_FIRST_S = 15 * 60
 BACKOFF_MOST_S = 4 * 60 * 60
-MUTATIONS = {("terminal", "close"), ("worktree", "rm"), ("environment", "rm"), *(("orchestration", verb) for verb in ("worker-stop", "worker-abandon", "worker-release"))}
+MUTATIONS = {("terminal", "close"), ("worktree", "rm"), *(("orchestration", verb) for verb in ("worker-stop", "worker-abandon", "worker-release"))}
 SKIP_RUNS = "orca.reclaimSkipRun"
 UNBOUND_RUN = "run_unbound"
 DEFERRED_REMOVAL = "this pass spent its removals or another reclaim holds the removal lock; a later pass takes it"
@@ -384,6 +384,10 @@ def on(environment: str | None) -> tuple[str, ...]:
     return ("--environment", environment) if environment else ()
 
 
+def error_of(reply: dict) -> str:
+    return ": ".join(filter(None, (reply["error"]["code"], reply["error"].get("message"))))
+
+
 class Orca:
     bounded = False
     slowed: str | None = None
@@ -413,12 +417,21 @@ class Orca:
             raise RuntimeError(f"orca {' '.join(args[:2])} printed its concise view, not the full record")
         return reply
 
+    def result(self, *args: str) -> dict:
+        reply = self.call(*args)
+        if not reply["ok"]:
+            raise RuntimeError(f"orca {' '.join(args[:2])} {error_of(reply)}")
+        return reply["result"]
+
+    def environments(self) -> set[str]:
+        return {environment["id"] for environment in self.result("environment", "list")["environments"]}
+
     def workers(self, run: str) -> list[Worker]:
         rows: list[dict] = []
         cursor: list[str] = []
         remote = () if self.bounded else ("--include-remote",)
         while True:
-            page = self.call("orchestration", "worker-list", "--run", run, *remote, "--limit", "100", "--full", *cursor)["result"]
+            page = self.result("orchestration", "worker-list", "--run", run, *remote, "--limit", "100", "--full", *cursor)
             rows += page["workers"]
             after = (page.get("page") or {}).get("nextCursor")
             if not after:
@@ -429,19 +442,17 @@ class Orca:
         runs: list[dict] = []
         cursor: list[str] = []
         while True:
-            page = self.call("orchestration", "run-list", "--limit", "100", *cursor)["result"]
+            page = self.result("orchestration", "run-list", "--limit", "100", *cursor)
             runs += page["runs"]
             if not page.get("nextCursor"):
                 return runs
             cursor = ["--cursor", page["nextCursor"]]
 
     def terminals(self) -> list[Terminal]:
-        listed = self.call("terminal", "list", "--limit", "1000")
-        if not listed["ok"]:
-            raise RuntimeError(f"orca terminal list {listed['error']['code']}")
-        if listed["result"].get("truncated"):
+        listed = self.result("terminal", "list", "--limit", "1000")
+        if listed.get("truncated"):
             raise RuntimeError("orca terminal list truncated its answer at 1000 terminals")
-        return [Terminal.of(row) for row in listed["result"]["terminals"] if row["connected"]]
+        return [Terminal.of(row) for row in listed["terminals"] if row["connected"]]
 
     def idle(self, terminal: str, environment: str | None = None) -> bool | None:
         scope = on(environment)
@@ -455,10 +466,10 @@ class Orca:
             return None if probe["error"]["code"] == STALE else False
         if not probe["result"]["wait"]["satisfied"]:
             return False
-        shown = self.call("terminal", "show", "--terminal", terminal, *scope)["result"]["terminal"]
+        shown = self.result("terminal", "show", "--terminal", terminal, *scope)["terminal"]
         if self.now_ms() - (shown.get("lastOutputAt") or 0) <= QUIET_MS:
             return False
-        screen = self.call("terminal", "read", "--terminal", terminal, "--screen", "--limit", str(SCREEN_LINES), *scope)["result"]["terminal"]
+        screen = self.result("terminal", "read", "--terminal", terminal, "--screen", "--limit", str(SCREEN_LINES), *scope)["terminal"]
         return idle_screen(screen["tail"])
 
     def presence(self, terminal: str, environment: str | None = None) -> str:
@@ -486,11 +497,11 @@ class Orca:
         return done["result"]["state"], done["result"]["processAction"]
 
     def release(self, dispatch: str) -> tuple[str, str]:
-        result = self.call("orchestration", "worker-release", "--dispatch", dispatch, "--full")["result"]
+        result = self.result("orchestration", "worker-release", "--dispatch", dispatch, "--full")
         return result["state"], result.get("reason") or ""
 
     def close(self, terminal: str, environment: str | None = None) -> str | None:
-        shown = self.call("terminal", "show", "--terminal", terminal, *on(environment))["result"]["terminal"]
+        shown = self.result("terminal", "show", "--terminal", terminal, *on(environment))["terminal"]
         listed = self.terminals_in(shown["worktreePath"], environment)
         if isinstance(listed, str):
             return listed
@@ -500,7 +511,7 @@ class Orca:
 
     def remove(self, worktree: str, environment: str | None = None) -> str | None:
         done = self.call("worktree", "rm", "--worktree", f"path:{worktree}", *on(environment))
-        return None if done["ok"] else ": ".join(filter(None, (done["error"]["code"], done["error"].get("message"))))
+        return None if done["ok"] else error_of(done)
 
     def checkout(self, worktree: str, environment: str, git: Git) -> Checkout | str | None:
         shown = self.call("worktree", "show", "--worktree", f"path:{worktree}", "--environment", environment)
@@ -521,10 +532,6 @@ class Orca:
     def registered(self, worktree: str) -> bool:
         shown = self.call("worktree", "show", "--worktree", f"path:{worktree}")
         return shown["ok"] or shown["error"]["code"] != UNREGISTERED
-
-    def forget(self, environment: str) -> str | None:
-        done = self.call("environment", "rm", "--environment", environment)
-        return None if done["ok"] else ": ".join(filter(None, (done["error"]["code"], done["error"].get("message"))))
 
     def now_ms(self) -> int:
         return int(time.time() * 1000)
@@ -815,8 +822,6 @@ def reap(action: Action, worker: Worker, sprite: Sprite, ended: dict[str, str], 
         return pause.skip(action.target, action.verb)
     if refusal := cc_remote.destroy(sprite):
         return Action("keep", sprite.workspace, refusal)
-    if refusal := orca.forget(sprite.environment):
-        return Action("destroyed", sprite.workspace, f"{action.reason}, Orca environment {sprite.environment} kept: {refusal}")
     return Action("destroyed", sprite.workspace, action.reason)
 
 
@@ -963,10 +968,13 @@ def gc(
     sprites = cc_remote.sprites() if finished else {}
     hosted = {sprite: worker for worker in finished if (sprite := sprites.get((worker.workspace, worker.terminal)))}
     finished = [worker for worker in finished if worker not in hosted.values()]
+    known = orca.environments() if any(worker.environment for worker in finished) else set()
+    gone = [worker for worker in finished if worker.environment and worker.environment not in known]
+    finished = [worker for worker in finished if worker not in gone]
     sprite_checkouts = {workspace for workspace, _ in sprites}
 
     def report(done: Action) -> Action:
-        print(("would " if dry_run and done.verb != "keep" else "") + done.line(), file=out, flush=True)
+        print(("would " if dry_run and done.verb not in ("keep", "gone") else "") + done.line(), file=out, flush=True)
         return done
 
     def act(action: Action | None) -> Action | None:
@@ -1001,7 +1009,8 @@ def gc(
         action = sprite_action(worker, sprite, live_workspaces, ended, orca, cc_remote)
         return action if dry_run else reap(action, worker, sprite, ended, orca, cc_remote, pause)
 
-    unplaced = [report(Action("keep", worker.dispatch, "Orca records no workspace for it")) for worker in finished if worker.workspace is None]
+    unplaced = [report(Action("gone", worker.dispatch, f"Orca no longer holds its environment {worker.environment}")) for worker in gone]
+    unplaced += [report(Action("keep", worker.dispatch, "Orca records no workspace for it")) for worker in finished if worker.workspace is None]
     with ThreadPoolExecutor(PARALLEL) as pool:
         try:
             verdicts = [action for action in pool.map(lambda worker: terminal_action(worker, live_terminals, orca, ended), finished) if action]
@@ -1137,8 +1146,10 @@ def main() -> int:
         "A settled dispatch on a paired Orca server, such as a dev box a launch script started it on, gets the same terminal close and worktree "
         "removal through that server's --environment; its tree's HEAD is read from Orca, its cleanliness is left to orca worktree rm, which runs "
         "git worktree remove without --force and so refuses modified or untracked files, and no Mac process scan applies. "
+        "A settled dispatch on a paired server whose environment orca environment list no longer names, such as a Sprite cc-remote destroy already took down, "
+        "has nothing left to reclaim, and is named gone with no terminal close or worktree read. "
         "A settled dispatch whose worktree and terminal a cc-remote Sprite task records, with the workspace still recorded, has its Sprite destroyed "
-        "with cc-remote destroy, WORKER_CC_REMOTE, else ccRemote in the working directory's .orca.json, else cc-remote on PATH, under the CC_REMOTE_CONFIG it inherits, else ccRemoteConfig in that .orca.json, which refuses a machine without that workspace's label, and its Orca environment removed, once no unsettled dispatch "
+        "with cc-remote destroy, WORKER_CC_REMOTE, else ccRemote in the working directory's .orca.json, else cc-remote on PATH, under the CC_REMOTE_CONFIG it inherits, else ccRemoteConfig in that .orca.json, which refuses a machine without that workspace's label and removes its Orca environment, once no unsettled dispatch "
         "shares the workspace, its terminal reads idle twice (skipped under --done), and its checkout, read over ssh, is clean in every worktree, holds no other branch or stash with commits on no remote, whose tip GitHub holds neither as a branch's head, a landed PR's head nor in its default branch, and has its HEAD on origin "
         "or landed, which GitHub answers for the Sprite's own origin from any working directory; when GitHub cannot answer, such as under a rate limit, the Sprite is kept and named. A removal Orca answers with an error, such as runtime_unavailable when the runtime drops the connection, still counts as removed when "
         "the worktree's directory is gone afterwards, and the Orca error follows on its own error line. A worktree Orca answers selector_not_found for, because it "

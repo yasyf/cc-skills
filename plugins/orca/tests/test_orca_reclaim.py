@@ -76,6 +76,10 @@ class FakeOrca(orca_gc.Orca):
         self.known: set[str] = set()
         self.calls: list[tuple[str, ...]] = []
         self.paired: dict[str, orca_gc.Checkout | str] = {}
+        self.gone: set[str] = set()
+
+    def environments(self) -> set[str]:
+        return {orca_gc.Worker.of(r).environment for r in self.rows} - self.gone
 
     def workers(self, run: str) -> list:
         return [orca_gc.Worker.of(r) for r in self.rows]
@@ -118,10 +122,6 @@ class FakeOrca(orca_gc.Orca):
 
     def checkout(self, worktree: str, environment: str, git: orca_gc.Git) -> orca_gc.Checkout | str | None:
         return self.paired.get(worktree)
-
-    def forget(self, environment: str) -> str | None:
-        self.calls.append(("forget", environment))
-        return None
 
     def registered(self, worktree: str) -> bool:
         return worktree in self.known
@@ -892,13 +892,78 @@ class PairedServerTest(unittest.TestCase):
         self.assertEqual(orca.argv, [("worktree", "show", "--worktree", f"path:{BOX_WT}", "--environment", BOX)])
 
 
+class GoneEnvironmentTest(unittest.TestCase):
+    def test_a_settled_box_lane_whose_environment_orca_dropped_is_named_and_untouched(self):
+        orca = FakeOrca([box_row("ctx_a")])
+        orca.gone = {BOX}
+        tally, out = run_gc(orca, FakeGit({}))
+        self.assertEqual((tally, orca.calls), ({"gone": 1}, []))
+        self.assertEqual(out, f"gone ctx_a Orca no longer holds its environment {BOX}\n")
+
+    def test_a_dry_run_names_a_gone_environment_as_it_stands(self):
+        orca = FakeOrca([box_row("ctx_a")])
+        orca.gone = {BOX}
+        _, out = run_gc(orca, FakeGit({}), dry_run=True)
+        self.assertEqual(out, f"gone ctx_a Orca no longer holds its environment {BOX}\n")
+
+
+class ReplayOrca(orca_gc.Orca):
+    def __init__(self, rows: list[dict], stopped: dict, environments: list[str]):
+        self.replies = {
+            ("orchestration", "worker-stop"): stopped,
+            ("orchestration", "worker-abandon"): {"ok": True, "result": {"state": "succeeded", "alreadySettled": True, "stale": True, "processAction": "none"}},
+            ("orchestration", "worker-list"): {"ok": True, "result": {"workers": rows, "page": {"nextCursor": None}}},
+            ("environment", "list"): {"ok": True, "result": {"environments": [{"id": environment} for environment in environments]}},
+        }
+        self.argv: list[tuple[str, ...]] = []
+
+    def call(self, *args: str) -> dict:
+        self.argv.append(args[:2])
+        if args[:2] in self.replies:
+            return self.replies[args[:2]]
+        environment = args[args.index("--environment") + 1]
+        return {"ok": False, "error": {"code": "invalid_argument", "message": f"Unknown Orca server in --environment {environment}: no paired Orca server is named or has id {environment}."}}
+
+
+def lane_row(dispatch: str, environment: str, workspace: str) -> dict:
+    return {
+        "dispatchId": dispatch,
+        "dispatchStatus": "completed",
+        "terminalState": "retained",
+        "agentTerminalHandle": f"term_{dispatch}",
+        "resource": None,
+        "projection": {"host": {"kind": "remote", "id": environment}, "liveness": {"state": "unverifiable", "reason": "host_unavailable"}, "workspace": {"id": workspace}},
+    }
+
+
+class DriveJobEndReplayTest(unittest.TestCase):
+    def test_ending_a_lane_whose_sprite_the_watch_destroyed_reads_it_gone(self):
+        environment = "abf89aaa-11e3-4c94-8799-74060414425e"
+        for code in (orca_gc.FENCED, orca_gc.RUNTIME_DOWN):
+            with self.subTest(worker_stop=code):
+                orca = ReplayOrca([lane_row("ctx_002cc4a9b8f2", environment, "repo_rujtq7::/home/sprite/monorepo")], {"ok": False, "error": {"code": code}}, ["6a2bfa8d"])
+                tally, out = run_gc(orca, FakeGit({}), done=frozenset({"ctx_002cc4a9b8f2"}))
+                self.assertEqual(orca.argv, [("orchestration", "worker-stop"), ("orchestration", "worker-abandon"), ("orchestration", "worker-list"), ("environment", "list")])
+                self.assertEqual(tally["gone"], 1)
+                self.assertTrue(out.endswith(f"gone ctx_002cc4a9b8f2 Orca no longer holds its environment {environment}\n"))
+
+    def test_destroying_a_recorded_sprite_leaves_its_environment_to_cc_remote_destroy(self):
+        environment, workspace = "7c6dc03e-8cd9-401b-ade6-a7bdd971f416", "repo_wlzp6j::/home/sprite/monorepo"
+        sprite = orca_gc.Sprite("pool-wlzp6jtjnwsujvxo", "pool-wlzp6jtjnwsujvxo", "/s/ssh/pool-wlzp6jtjnwsujvxo.ssh", "/home/sprite/monorepo", environment)
+        cc_remote = FakeCcRemote({(workspace, "term_ctx_j1391"): sprite})
+        orca = ReplayOrca([lane_row("ctx_j1391", environment, workspace)], {"ok": True, "result": {"state": "succeeded", "alreadySettled": True, "processAction": "none"}}, [])
+        tally, out = run_gc(orca, FakeGit({}), done=frozenset({"ctx_j1391"}), cc_remote=cc_remote)
+        self.assertEqual((orca.argv, cc_remote.destroyed), ([("orchestration", "worker-stop"), ("orchestration", "worker-list")], ["pool-wlzp6jtjnwsujvxo"]))
+        self.assertEqual(out, "stopped ctx_j1391 succeeded\ndestroyed pool-wlzp6jtjnwsujvxo dispatch ctx_j1391\n")
+
+
 class SpriteTest(unittest.TestCase):
     hosted = {(SPRITE_WT, "term_sprite"): SPRITE}
 
-    def test_a_settled_lanes_clean_landed_sprite_is_destroyed_with_its_environment(self):
+    def test_a_settled_lanes_clean_landed_sprite_is_destroyed_by_cc_remote_alone(self):
         orca, cc_remote = FakeOrca([sprite_row("ctx_s")]), FakeCcRemote(self.hosted)
         tally, out = run_gc(orca, FakeGit({}), cc_remote=cc_remote)
-        self.assertEqual((tally, cc_remote.destroyed, orca.calls), ({"destroyed": 1}, ["pool-abc"], [("forget", "env_abc")]))
+        self.assertEqual((tally, cc_remote.destroyed, orca.calls), ({"destroyed": 1}, ["pool-abc"], []))
         self.assertIn("destroyed pool-abc dispatch ctx_s", out)
 
     def test_a_sprite_no_cc_remote_task_ties_to_the_dispatch_is_never_touched(self):
@@ -987,7 +1052,7 @@ class SpriteTest(unittest.TestCase):
         self.assertEqual(cc_remote.destroyed, [])
         self.assertIn("keep pool-abc serves an unsettled dispatch", out)
 
-    def test_a_refused_destroy_keeps_the_environment(self):
+    def test_a_refused_destroy_keeps_the_sprite(self):
         orca, cc_remote = FakeOrca([sprite_row("ctx_s")]), FakeCcRemote(self.hosted, refusal="machine lacks the workspace label")
         _, out = run_gc(orca, FakeGit({}), cc_remote=cc_remote)
         self.assertEqual(orca.calls, [])
@@ -1352,10 +1417,10 @@ class OrcaArgvTest(unittest.TestCase):
         self.assertIsNone(orca.idle("term_a", "env_abc"))
         self.assertEqual(orca.argv, [("terminal", "show", "--terminal", "term_a", "--environment", "env_abc")])
 
-    def test_forget_removes_the_orca_environment(self):
-        orca = RecordingOrca({"ok": True})
-        self.assertIsNone(orca.forget("env_abc"))
-        self.assertEqual(orca.argv, [("environment", "rm", "--environment", "env_abc")])
+    def test_a_refused_read_names_orcas_code_and_message(self):
+        orca = RecordingOrca({"ok": False, "error": {"code": "invalid_argument", "message": "Unknown environment: env_gone"}})
+        with self.assertRaisesRegex(RuntimeError, "orca orchestration worker-list invalid_argument: Unknown environment: env_gone"):
+            orca.workers("run_x")
 
     def test_an_orchestration_call_asks_for_the_full_record_and_refuses_the_concise_view(self):
         original = orca_gc.subprocess.run
