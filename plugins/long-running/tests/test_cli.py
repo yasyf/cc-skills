@@ -7421,6 +7421,25 @@ def test_his_answer_on_a_card_asking_him_to_lift_a_pick_lists_each_open_order_th
     assert (data["orders"]["o2"]["state"], data["orders"]["o2"]["withdrawn"], data["jobs"]["j3"]["state"], superseding) == ("dropped", PICK, "stopped", [("9992100", "a1")])
 
 
+def test_his_answer_under_a_pr_card_lists_the_order_a_pick_binds_when_the_record_tool_ended_the_card_asking_to_lift_it_with_his_words(
+    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], recorded: Answers
+) -> None:
+    under_tap = "https://acme.slack.com/archives/D123/p1794300000000400?thread_ts=1794300000.000200"
+    run("order", "add", "--title", "Isolate helper scripts", "--project", "Iris", "--workstream", "Durable agents", "isolate helper scripts in their own process with a memory cap")
+    run("job", "add", "builder", "--order", "o2", "--goal", "build the separate process once the four PRs merge")
+    with state.edit("demo") as data:
+        question = data["jobs"]["j2"]["questions"][0]
+        question["unsettled"] = "9992100: he ruled the wait on o2's separate process; this card asks whether to build it now"
+        question["closed"] = state.new_close("answered", WORDS, under_tap, seq="#691445", ruling="a1")
+        data["jobs"]["j3"].update(state="waiting", agent="agent-3")
+    recorded.shown["9992100"] = {"id": "9992100", "title": "Still build the separate process now?", "body": "Wait for the four PRs to merge\nNotes: Binds order o2", "tags": [], "created_at": "2026-11-10T00:45:49Z"}
+    cards_asking(monkeypatch, PR)
+    assert cli.main(["answer", "a1", "--words", WORDS, "--link", under_tap]) == 2
+    listed = capsys.readouterr().err
+    assert "  o2  order  j3 o2  Isolate helper scripts" in listed
+    assert "  j3 waits on o2 and has not heard a1: " in listed
+
+
 def test_an_answer_with_no_id_records_his_words_in_cc_notes_first_and_goes_on_by_its_short_id(
     run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

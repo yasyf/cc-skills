@@ -90,7 +90,7 @@ def asking(data: dict, found: dict) -> dict[str, dict]:
 def record(data: dict, words: str, link: str, asked: dict[str, dict], changes: set[str], bound: dict[str, list[str]], moment: str) -> dict:
     """A new answer of his beside the cards asking him, parts undelivered and PRs not yet live that it could change, none marked yet: those of the job and order of the card it answers, each part a job of the card it answers delivers, the one he tapped or wrote under, still open or not, those its words name, an order included, each other question card in changes, which Jev read it as deciding, ruling options out of or making moot, whatever job, order or words it shares with the card he answered, and every card, part and PR of each order in bound, and the order itself, which a pick of his that card asked him to lift binds; and beside each job waiting on an order any of those belongs to, and each running builder whose own card he answered, which builds that card's recommended option while he decides, none marked heard yet. The card he tapped and the question card he wrote under are left out, since his answer ends them, but a PR whose card thread he wrote in is not, since his words end no PR card."""
     answered = [entry for entry in asked.values() if entry["card"] and under(link, entry["card"])]
-    drawn = {job_id: job["order"] for job_id, job in data["jobs"].items() for question in job["questions"] if question["card"] and under(link, question["card"])}
+    drawn = {job_id: job["order"] for job_id, job in data["jobs"].items() for question in job["questions"] if ended_at(link, question)}
     jobs = {entry["job"] for entry in answered if entry["job"]} | drawn.keys()
     orders = {entry["order"] for entry in answered if entry["order"]} | set(drawn.values())
     cards = {
@@ -120,8 +120,8 @@ def record(data: dict, words: str, link: str, asked: dict[str, dict], changes: s
 
 
 def binding(data: dict, link: str, asked: dict[str, dict], cwd: str) -> dict[str, list[str]]:
-    """Each open order bound by a pick of his that a question his message is on or under asked him to lift, as `drive job ask --unsettled "<id>: <why>"` keeps it, with the picks binding it: an order whose card, part, PR or waiting job the pick's own drive answer listed, one whose job's question the pick ended, and one whose card, part, PR or own key the pick's cc-notes answer names, as `named` reads his words. A pick ccn cannot read binds only by the drive's records."""
-    picks = sorted({pick for job in data["jobs"].values() for question in job["questions"] if question["unsettled"] and question["card"] and under(link, question["card"]) for pick in PICK.findall(question["unsettled"])})
+    """Each open order bound by a pick of his that a question his message answers asked him to lift, as `drive job ask --unsettled "<id>: <why>"` keeps it, with the picks binding it: an order whose card, part, PR or waiting job the pick's own drive answer listed, one whose job's question the pick ended, and one whose card, part, PR or own key the pick's cc-notes answer names, as `named` reads his words. A pick ccn cannot read binds only by the drive's records."""
+    picks = sorted({pick for job in data["jobs"].values() for question in job["questions"] if question["unsettled"] and ended_at(link, question) for pick in PICK.findall(question["unsettled"])})
     bound: dict[str, list[str]] = {}
     for pick in picks:
         for order_id in sorted(held_by(data, pick, asked) | noted(pick, asked, cwd)):
@@ -175,6 +175,11 @@ def markable(kept: dict, asked: dict[str, dict]) -> list[str]:
 def answers(link: str, entry: dict) -> bool:
     """Whether his message at this link answers this entry's card, so it needs no mark: his tap on the card itself, or his words under a question card, which his answer ends; his words under a PR card end nothing, so that PR still asks for one."""
     return bool(entry["card"]) and (view.message_key(link) == view.message_key(entry["card"]) or entry["kind"] == "question" and under(link, entry["card"]))
+
+
+def ended_at(link: str, question: dict) -> bool:
+    """Whether his message at this link answers this question: it is the question's card or sits under it, or the `record` tool ended the question with it, as it does for a question the record names by waits id, card thread or seq wherever his words sit, such as under the card of the PR the question holds; every prompt he typed into a terminal shares the one link `terminal`, so it ends no question by its link."""
+    return bool(question["card"]) and under(link, question["card"]) or link != TERMINAL and (question["closed"] or {}).get("link") == link
 
 
 def under(link: str, card: str) -> bool:
