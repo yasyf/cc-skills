@@ -525,7 +525,9 @@ def test_cited_code_is_read_at_its_prs_head_or_the_drives_default_branch_and_onl
     assert read == ["repos/yasyf/cc-skills/contents/a/b.py?ref=abc123", "repos/Forge-AI/monorepo/contents/go/c.go"]
 
 
-def test_typed_words_reach_cc_slack_only_from_the_page_itself_and_only_under_a_card_thread_of_this_drive(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_typed_words_reach_cc_slack_only_from_the_page_itself_and_only_under_a_card_thread_of_this_drive_which_keeps_those_under_a_card(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
     card = "https://acme.slack.com/archives/D1/p100"
     board = dashboard.Board("demo", [])
     board.answers = {card: ["Go", "Hold"]}
@@ -545,6 +547,7 @@ def test_typed_words_reach_cc_slack_only_from_the_page_itself_and_only_under_a_c
     assert replied == (200, {"posted": True, "permalink": f"{card}#copy"})
     assert asked[0] == 200
     assert relayed == [("hold #41 until the stack lands", card), ("ship the dashboard", "")]
+    assert [(event["card"], event["url"]) for event, _ in state.read_events(demo, 0) if event["kind"] == "asked"] == [(card, f"{card}#copy")]
 
 
 def test_a_review_opens_only_from_the_page_itself_for_an_open_pr_of_this_drive_at_its_head(monkeypatch: pytest.MonkeyPatch) -> None:

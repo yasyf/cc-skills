@@ -68,6 +68,7 @@ NO_CARDS = {"questions": [], "pr_cards": [], "closed": [], "team_url": ""}
 UNREAD = "not read yet: the drive's watch reads them every minute"
 SWEARS = re.compile(r"\b(?:fuck\w*|shit\w*|bullshit\w*|damn\w*|goddamn\w*|wtf|crap\w*|hell)\b", re.IGNORECASE)
 HISTORY_EVENTS = ("tap", "refused", "said", "answered", "undone")
+BOARD_EVENTS = (*HISTORY_EVENTS, "asked")
 HISTORY_ONLY = {"said", "answered", "undone"}
 ZONE = ZoneInfo("America/Los_Angeles")
 HISTORY_PAGE = 80
@@ -332,7 +333,7 @@ def tap_of(pr: dict) -> str | None:
 
 
 def stage_name(pr: dict) -> str | None:
-    """The PR's stage as the watch last kept it from stage.of."""
+    """The PR's stage as its row holds it: the one stage.of names now once stage.shown put it on, as build does for every surface it draws."""
     return (pr["stage"] or {}).get("name")
 
 
@@ -357,7 +358,7 @@ def card_for(pr_cards: list[dict], url: str) -> dict | None:
 
 
 def waits_on_tap(pr: dict) -> bool:
-    """Whether the PR waits on his tap alone, as its stage the watch last kept says: green and unapproved."""
+    """Whether the PR waits on his tap alone, as its stage on its row says: green and unapproved."""
     return pr["state"] == "open" and stage_name(pr) == "card"
 
 
@@ -497,7 +498,7 @@ def is_late(order: dict, moment: datetime) -> bool:
     return order["state"] not in state.CLOSED_ORDER_STATES and state.owed(order) and state.parse_time(state.owed_at(order)) <= moment
 
 
-def queue(drive: dict, found: dict, moment: datetime, features: list[dict]) -> list[dict]:
+def queue(drive: dict, found: dict, moment: datetime, features: list[dict], answering: dict[str, str]) -> list[dict]:
     taps = [(pr, card_for(found["pr_cards"], pr["url"])) for pr in drive["prs"].values() if waits_on_tap(pr)]
     taps = list({card["url"] if card else pr["url"]: (pr, card) for pr, card in taps}.values())
     waiting = waiting_on_him(drive, found)
@@ -513,16 +514,16 @@ def queue(drive: dict, found: dict, moment: datetime, features: list[dict]) -> l
     for item in items:
         home = next((filed.get(order_id) or drive["orders"][order_id] for order_id in item["tasks"] if order_id in drive["orders"]), None)
         item |= {"project": home and home["project"], "workstream": home and home["workstream"]}
-        rank, item["rank_why"] = ranking(drive, item, item["tasks"], urgent, moment)
+        rank, item["rank_why"] = ranking(drive, item, item["tasks"], urgent, moment, answering.get(item.get("thread")))
         ranked.append((rank, item))
     return [
-        item | {"priority": {"rank": position, "incident": not rank[0], "overdue": not rank[1], "weight": -rank[3]}}
+        item | {"priority": {"rank": position, "answering": rank[0], "incident": not rank[1], "overdue": not rank[2], "weight": -rank[4]}}
         for position, (rank, item) in enumerate(sorted(ranked, key=lambda entry: entry[0]), 1)
     ]
 
 
-def ranking(drive: dict, item: dict, orders: list[str], urgent: dict[str, str], moment: datetime) -> tuple[tuple, str]:
-    """Where an item ranks in his queue, and why in plain words: an open incident it serves, past due, a built job it holds, how much it holds, then how long it has waited."""
+def ranking(drive: dict, item: dict, orders: list[str], urgent: dict[str, str], moment: datetime, asked: str | None) -> tuple[tuple, str]:
+    """Where an item ranks in his queue, and why in plain words: below every other while the drive answers words of his typed under its card, then an open incident it serves, past due, a built job it holds, how much it holds, then how long it has waited."""
     incident = next((urgent[order_id] for order_id in orders if order_id in urgent), None)
     late = item["due"] or next((state.owed_at(drive["orders"][order_id]) for order_id in orders if order_id in drive["orders"] and is_late(drive["orders"][order_id], moment)), None)
     built = len(item.get("built") or [])
@@ -538,14 +539,26 @@ def ranking(drive: dict, item: dict, orders: list[str], urgent: dict[str, str], 
         weight, holding = 0, ""
     since = item["since"] or (drive["prs"][state.pr_key(item["pr"])]["updated"] if item.get("pr") else None)
     why = [
+        f"sent down while the drive answers your words of {when(asked)}" if asked else "",
         f"incident: {cut(incident, TITLE_CHARS)}" if incident else "",
         f"past due since {when(late)}" if late else "",
         f"{counted(built, 'built job')} {'waits' if built == 1 else 'wait'} on it" if built else "",
         holding,
         f"waiting since {when(since)}" if since and not late else "",
     ]
-    rank = (incident is None, late is None, not built, -weight, state.parse_time(late or since) if late or since else datetime.max.replace(tzinfo=moment.tzinfo))
+    rank = (asked is not None, incident is None, late is None, not built, -weight, state.parse_time(late or since) if late or since else datetime.max.replace(tzinfo=moment.tzinfo))
     return rank, "; ".join(part for part in why if part)
+
+
+def answering(events: Iterable[dict]) -> dict[str, str]:
+    """When his newest words typed on the dashboard under a card went out, by that card's thread, for each thread the drive has posted nothing new in since: what waits on the drive's answer there rather than on him."""
+    waiting: dict[str, str] = {}
+    for event in events:
+        if event["kind"] == "asked":
+            waiting[card_thread(event["card"])] = event["at"]
+        elif waiting and event["kind"] == "said" and not event.get("edited"):
+            waiting.pop(event["thread"], None)
+    return waiting
 
 
 def stacked_above(drive: dict, keys: list[str]) -> list[str]:
@@ -693,10 +706,13 @@ def status(drive: dict, moment: datetime, found: dict) -> list[dict]:
     return [{"state": name, "features": [entry for entry in features if entry["state"] == name]} for name in STATES]
 
 
-def build(drive: dict, found: dict, moment: datetime) -> dict:
-    """The drive's model from its stored state, his open cards as cc-slack lists them, and the time it is drawn for."""
+def build(drive: dict, found: dict, moment: datetime, events: Iterable[dict] = ()) -> dict:
+    """The drive's model from its stored state with each open PR at the stage stage.of names now, never one the watch kept a pass ago, his open cards as cc-slack lists them, the events naming his words typed under a card and the drive's posts since, and the time it is drawn for."""
+    from drive import stage
+
+    stage.shown(drive, found, state.open_pr_keys(drive))
     groups = status(drive, moment, found)
-    waiting = queue(drive, found, moment, [entry for group in groups for entry in group["features"]])
+    waiting = queue(drive, found, moment, [entry for group in groups for entry in group["features"]], answering(events))
     counts = {"queue": len(waiting), **{group["state"]: len(group["features"]) for group in groups}}
     return {"drive": drive["name"], "at": state.stamp(moment), "counts": counts, "queue": waiting, "status": groups}
 
@@ -842,7 +858,7 @@ def review(drive: dict, found: dict) -> list[dict]:
 
 def board(drive: dict, found: dict, source: str, events: Iterable[dict], moment: datetime, reports: set[str], heard: dict[str, list[dict]]) -> dict:
     """The dashboard's model: `build`'s, with progress, work, history and each shown feature's full order, jobs and the newest records naming them; reports names the jobs whose history the drive keeps, which holds every return each took, and heard holds the newest records naming each order and job, newest first."""
-    model = build(drive, found, moment) | {"cards": source}
+    model = build(drive, found, moment, events) | {"cards": source}
     served = served_prs(drive)
     shown_ids = {entry["id"] for group in model["status"] for entry in group["features"]}
     for entry in (entry for group in model["status"] for entry in group["features"]):

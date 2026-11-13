@@ -651,7 +651,7 @@ function earlierWords(answer) {
 
 function priorityChips(item) {
   const { priority } = item;
-  return `<span class="priority-chips"><span class="rank-chip" aria-label="Global priority ${priority.rank}">#${priority.rank}</span>${priority.incident ? '<span class="reason-chip urgent">Incident</span>' : ''}${priority.overdue ? '<span class="reason-chip urgent">Past due</span>' : ''}${item.built?.length ? `<span class="reason-chip warm">${item.built.length} built</span>` : ''}${priority.weight ? `<span class="reason-chip">Unblocks ${priority.weight}</span>` : ''}${item.since ? `<span class="reason-chip age">${esc(ago(item.since))} waiting</span>` : ''}</span>`;
+  return `<span class="priority-chips"><span class="rank-chip" aria-label="Global priority ${priority.rank}">#${priority.rank}</span>${priority.answering ? '<span class="reason-chip">Drive answering</span>' : ''}${priority.incident ? '<span class="reason-chip urgent">Incident</span>' : ''}${priority.overdue ? '<span class="reason-chip urgent">Past due</span>' : ''}${item.built?.length ? `<span class="reason-chip warm">${item.built.length} built</span>` : ''}${priority.weight ? `<span class="reason-chip">Unblocks ${priority.weight}</span>` : ''}${item.since ? `<span class="reason-chip age">${esc(ago(item.since))} waiting</span>` : ''}</span>`;
 }
 
 function decisionRail(item) {
@@ -902,7 +902,7 @@ function queueScreen(id) {
       <div><div class="eyebrow">Your attention</div><h1 class="h1">Priority queue <span class="total-chip">${list.length}</span></h1></div>
       <div class="queue-tools">${queueScope(filter)}<nav class="subtabs" aria-label="Show">${filters}</nav></div>
     </div>
-    <p class="queue-order">Ranked by incident, past due, built work waiting, what it unblocks, then age</p>
+    <p class="queue-order">Ranked by incident, past due, built work waiting, what it unblocks, then age; what the drive is answering you on goes last</p>
     ${unread}
     ${list.length === 1 ? `<div class="queue-current">${priorityChips(item)}</div>` : ''}
     <div class="queue-shell${list.length > 1 ? '' : ' alone'}">${list.length > 1 ? queueList(list, at, filter) : ''}${shown}</div>

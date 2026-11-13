@@ -237,12 +237,12 @@ def stamp(pr: dict, now: Stage, moment: datetime) -> None:
 
 
 def kept(pr: dict, now: Stage) -> None:
-    """Keep what the PR's stage says now on its row, for the dashboard and drive status, which read the stage the watch last kept."""
+    """Keep what the PR's stage says now on its row beside the since and woke its deadlines read; drive status and every view.build surface put on stage.of's stage now through shown()."""
     pr["stage"].update(owner=now.owner, why=now.why)
 
 
 def shown(data: dict, cards: dict | None, keys: list[str]) -> None:
-    """Put on each open PR of the drive the keys name, as loaded, never saved, the stage stage.of names now from the watch's last GitHub read, its since kept while the watch kept that stage, so drive status and drive pr set print what a decision made now reads."""
+    """Put on each open PR of the drive the keys name, as loaded, never saved, the stage stage.of names now from the watch's last GitHub read, its since kept while the watch kept that stage, so drive status, drive pr set and every view.build surface, the dashboard, the status page and his catch-up, show what a decision made now reads."""
     for key in keys:
         pr = data["prs"][key]
         now = of(data, key, cards)

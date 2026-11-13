@@ -870,7 +870,9 @@ def test_his_catch_up_counts_every_open_card_and_draws_only_those_asked_since_he
     tap = {"prs": [PR_URL], "asked": AWAY, "url": "https://acme.slack.com/archives/D123/p1794300000000300", "card": {"title": "New: approve the run page history?", "waits": "merge:yasyf:cc-skills:7"}}
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "https://acme.slack.com/", "questions": questions, "pr_cards": [tap], "closed": []})
     with state.edit(demo) as data:
-        data["prs"]["yasyf/cc-skills#7"].update(checks="pass", stage={"name": "card", "owner": "him", "why": "green, waits on his Approve", "since": AWAY, "woke": None})
+        data["orders"]["o1"] = state.new_order("show the run page's history", "terminal", None, {}, ASKED)
+        data["jobs"]["j1"] = state.new_job("o1", "builder", "show a run's history", [], ASKED)
+        data["prs"]["yasyf/cc-skills#7"].update(checks="pass", card=tap["url"], stage={"name": "card", "owner": "him", "why": "green, waits on his Approve", "since": AWAY, "woke": None})
     report(monkeypatch, {"catch_up": "true"})
     title = owe(demo)
     text = "*The run page*\nIts fix is live, and {card:demo:j3-1} picks its lock."
