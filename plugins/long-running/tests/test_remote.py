@@ -420,6 +420,7 @@ def test_a_sprite_brief_carries_every_drive_file_it_names_whole_a_lanes_report_k
         folder / "asks" / "j2-0c1d2e3f.md": "ASK Which store?\n",
         state.repro_path(demo, "j1", ".sh"): "exit 1\n",
         folder / "scratch" / "j1" / "notes.md": "the notes\n",
+        folder / "jobs" / "j3.brief.md": "Order (his words): list it\n",
     }
     for path, text in files.items():
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -427,7 +428,7 @@ def test_a_sprite_brief_carries_every_drive_file_it_names_whole_a_lanes_report_k
     (folder / "scratch" / "j4").mkdir()
     text = (
         "Order (his words): ship it\nResearched: j1\nPlan: Design j2, whole: reports/j2.md (drive job report j2)\n"
-        f"Done when: j3 asked for `{folder}/asks/j2-0c1d2e3f.md` and repro/j1.sh, then ~/{folder.relative_to(folder.parents[1])}/scratch/j1/notes.md.\n"
+        f"Done when: j3 asked for `{folder}/asks/j2-0c1d2e3f.md` and repro/j1.sh, then ~/{folder.relative_to(folder.parents[1])}/scratch/j1/notes.md and jobs/j3.brief.md.\n"
         "Elsewhere: /other/long-running/other/asks/j9-1a2b3c4d.md\n"
         f"Scratch: {folder}/scratch/j4\nTranscripts:\n- j3 reader: x.jsonl"
     )
@@ -438,8 +439,9 @@ def test_a_sprite_brief_carries_every_drive_file_it_names_whole_a_lanes_report_k
     assert "# Drive file asks/j2-0c1d2e3f.md, which your brief names\n\nASK Which store?\n" in composed
     assert "# Drive file repro/j1.sh, which your brief names\n\nexit 1\n" in composed
     assert "# Drive file scratch/j1/notes.md, which your brief names\n\nthe notes\n" in composed
+    assert "# Drive file jobs/j3.brief.md, which your brief names\n\nOrder (his words): list it\n" in composed
     carried = composed.split(orca.BRIEF_HEADING)[0]
-    assert (carried.count("\n# Report of j2"), carried.count("\n# Drive file"), "j9-1a2b3c4d" in carried, "a job the brief only lists" in carried) == (1, 3, False, False)
+    assert (carried.count("\n# Report of j2"), carried.count("\n# Drive file"), "j9-1a2b3c4d" in carried, "a job the brief only lists" in carried) == (1, 4, False, False)
     assert orca.uncarried(demo, "j5", text) is None
     assert orca.brief_of(composed) == text
 

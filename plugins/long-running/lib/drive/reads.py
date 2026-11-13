@@ -145,14 +145,14 @@ def logs(body: str) -> str | None:
 
 
 def answer(question: str, checkout: Path, drive: str, job_id: str) -> str:
-    """Answer a read question with this Mac's credentials and records, never with nothing, a `LOG` read splitting the budget across its URLs and a `DRIVE` question running its verb for the asking lane's job; ReadError says why a `LOG` or `READ` could not."""
+    """Answer a read question with this Mac's credentials and records, never with nothing, a `LOG` read splitting the budget across its URLs, a `READ` naming files of the drive's folder reading them and a `DRIVE` question running its verb for the asking lane's job; ReadError says why a `LOG` or `READ` could not."""
     if question.startswith("DRIVE"):
         return lane_drive(question, checkout, drive, job_id)
     if question.startswith("LOG "):
         urls = question.split()[1:]
         said = "\n\n".join(read_log(url, checkout, BUDGET // len(urls)) for url in urls)
     else:
-        said = read_records(READ.fullmatch(question)[1], checkout)
+        said = read_records(READ.fullmatch(question)[1], checkout, drive)
     return said or f"{question}: empty, the read printed nothing"
 
 
@@ -229,13 +229,12 @@ def read_log(url: str, checkout: Path, budget: int) -> str:
     raise ReadError("not a Buildkite build or job URL, or a GitHub Actions job URL")
 
 
-def read_records(command: str, checkout: Path) -> str:
-    """Run one listed record read; a search or grep takes its words up to the first flag as one query, quoted or not, and a ccn show, which takes one ID, runs once for each ID, its outputs joined."""
+def read_records(command: str, checkout: Path, drive: str) -> str:
+    """Run one listed record read, else read the drive files the read names; a search or grep takes its words up to the first flag as one query, quoted or not, and a ccn show, which takes one ID, runs once for each ID, its outputs joined."""
     argv = read_words(command)
     verb = next((verb for verb in READ_VERBS if tuple(argv[: len(verb)]) == verb), None)
     if verb is None:
-        allowed = ", ".join(" ".join(verb) for verb in READ_VERBS)
-        raise ReadError(f"only these reads run here: {allowed}")
+        return read_drive_files(command, drive)
     query = list(itertools.takewhile(lambda word: not word.startswith("-"), argv[len(verb) :]))
     flags = argv[len(verb) + len(query) :]
     if verb[-1] in QUERY_VERBS and query:
@@ -243,6 +242,19 @@ def read_records(command: str, checkout: Path) -> str:
     if verb[0] == "ccn" and verb[-1] == "show" and len(query) > 1:
         return head("\n\n".join(run([*verb, record, *flags], checkout).strip() for record in query))
     return head(run(argv, checkout).strip())
+
+
+def read_drive_files(command: str, drive: str) -> str:
+    """Each file of the drive's folder the read names, as a Sprite brief carries it, whole under its heading or saying the folder holds none; a read naming none is refused with the reads that run."""
+    from drive import orca
+
+    if not (files := orca.drive_files(drive, command)):
+        allowed = ", ".join(" ".join(verb) for verb in READ_VERBS)
+        raise ReadError(
+            f"only these reads run here: {allowed}; a file of the drive's folder under {orca.CARRIED.replace('|', '/, ')}/ reads as READ <its path>,"
+            " and a drive verb such as drive status or drive job report runs as that drive command on the Sprite"
+        )
+    return "\n\n".join(f"# {heading}\n\n{text if text is not None else 'the drive keeps no such file inside its folder'}" for heading, text in files.items())
 
 
 def read_words(command: str) -> list[str]:
