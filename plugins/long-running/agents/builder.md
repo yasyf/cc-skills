@@ -277,8 +277,11 @@ prints and a remote lane's brief carries whole:
   change so it should have shown before and after screenshots". In Forge-AI/monorepo CI shoots both
   for an Iris view: name it in the body's `iris-evidence` block, and the `product-dashboard-iris-evidence`
   job shoots it on the last dev build's sand and dashboard as `iris-evidence/dev/<shot>.png` and on the
-  change as `iris-evidence/<shot>.png`; take both from that job's artifacts with `tools/ci bk api`,
-  never by building the app on your machine.
+  change as `iris-evidence/<shot>.png`; link the two images of the PR's `<!-- iris-evidence -->`
+  comment when that job posted one, or else download both from its artifacts with `tools/ci bk api`
+  into the drive's pictures folder and link their paths, never a `buildkite.com` artifact link, which
+  his card and GitHub's page both get HTTP 403 for and `drive pr add` refuses, and never by building
+  the app on your machine.
 - `## Against the plan`, only on a departure; `## Port`, on a port.
 - `## His words, step by step`: each step of his words beside the `path:line` that does it.
 

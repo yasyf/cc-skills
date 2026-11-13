@@ -3381,12 +3381,11 @@ def github_pr(key: str) -> dict:
 
 
 def refuse_an_undrawn_show_me(name: str, key: str, read: dict) -> None:
-    """Each fence of a PR's Show me draws as his card will draw it, through the same cache, since a card whose picture does not draw shows him a Show me with nothing in it."""
+    """Each picture of a PR's Show me, a fence or an image link, draws as his card will draw it, through the same cache, since a card whose picture does not draw shows him a Show me with nothing in it."""
     from drive import card
 
     for kind, source, _ in picture.sources(card.sections(card.body_of(read)).get("show me", "")):
-        if kind != "image":
-            picture.shot(state.drive_dir(name) / "pictures", "show-me", kind, source, f"{key}: refused, nothing added: its Show me {kind}")
+        picture.shot(state.drive_dir(name) / "pictures", "show-me", kind, source, f"{key}: refused, nothing added: its Show me {kind}")
 
 
 def refuse_an_unkinded_title(key: str, read: dict, port_of: int | None) -> None:
