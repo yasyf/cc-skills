@@ -263,6 +263,9 @@ by [Neither](scope.md#the-four-kinds-of-pr). A PR lands only when all of these h
   one with `.agents/skills/submit-pr/scripts/pr-reviews accept <slug> --why "<why>"`. A finding on his
   design is an `ASK`;
 - nothing holds it: no Hold tap, no `hold` label, no conflict with `dev`;
+- he is present, his word or tap within the last 15 minutes, unless it is a test-only change or a flake fix in tests. His Approve stays
+  and the lander lands it at his next word; the `landing_guard` hook refuses a hand merge meanwhile, by
+  his words "merging or rleasing dangerous things should only be done wehn the human is present";
 - he tapped Approve on its card, or it is an exempt class. His approval in words, or his pick on a card
   asking whether to land, is his tap too. The coordinator records it for exactly the PRs his words name
   with `drive pr set <url> --tapped Approve --tap-source <his message's permalink>`, because
@@ -346,7 +349,7 @@ refuses PRs named together that no stack links, such as one order's sibling PRs 
 holds a PR he approved is its stage, as `stage.of` names it, which his card shows and whose owner the
 watch wakes, and its deadline wakes that owner again.
 His Approve is one field on the PR, kept on every PR of the landing unit his card drew and cleared
-only by his Hold, and it lands the PR at its first green head whatever the check of its change
+only by his Hold, and it lands the PR at its first green head while he is present, whatever the check of its change
 against his words says, whatever head he tapped it on, by his words "why the fuck would you keep eveyhting broken to make it perfect": a head that moved under his card keeps Approve showing and
 lands with no second check. A `NOT READY` at the PR's head clears no tap and holds no landing: his
 card keeps Approve and draws the objection whole under Where it stands, and its `PR … NOT READY`
@@ -464,7 +467,9 @@ the patch.
   and agent are the top's, and a sub-coordinator is refused adding, briefing or starting one, naming
   the top.
 - His order or his pick on a card to release, or the coordinator's record of either, approves starting
-  that release, never the migrations, deletes and replaces its approve hold holds. A pick whose words
+  that release while he is present, his word or tap within the last 15 minutes; one given before he went quiet starts nothing until his
+  next word, and `landing_guard` refuses `ci release start`, `hotfix`, `resume` and `approve` meanwhile.
+  It never approves the migrations, deletes and replaces its approve hold holds. A pick whose words
   order the release approves it whatever its card asked, by his words "if I apprtove a release dont
   fuckl around kjust appriove it". Start it with `--order <his answer id>`, with no `ASK` or card
   first: nobody asks him again. A resume or re-plan of a release he

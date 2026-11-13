@@ -95,6 +95,8 @@ def alone(data: dict, key: str, cards: dict) -> Stage:
         )
     if state.cleared(pr) and (waiting := [wait for wait in view.holding(data, pr["waits"], cards) if not state.card_wait(data, wait)]):
         return Stage("waiting", WAITED, f"it waits on {', '.join(waiting)}, and the watch frees it once each ends")
+    if state.cleared(pr) and (away := state.unattended(data, pr, state.now())):
+        return Stage("waiting", HIM, f"green and cleared: {away}")
     if state.cleared(pr):
         after = f"; the check against his words objects, for after the merge: {named}" if (named := state.against(pr)) else ""
         unread = f"; its lander's last try ended {lander['outcome']}" if (lander := pr["lander"]) and lander["head"] == pr["head"] and (lander["outcome"] or "").startswith(land.UNREAD) else ""

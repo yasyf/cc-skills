@@ -132,6 +132,8 @@ DAY = r"(?:yesterday|today|tonight|tomorrow|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|S
 DAY_OFFSETS = {"yesterday": -1, "today": 0, "tonight": 0, "tomorrow": 1}
 OFFSET_UNITS = {"m": "minutes", "h": "hours", "d": "days"}
 AWAY_AFTER = timedelta(minutes=60)
+PRESENT_WITHIN = timedelta(minutes=15)
+PRESENCE_WORDS = '"merging or rleasing dangerous things should only be done wehn the human is present"'
 PART_CHARS = 80
 REBUILT_ASKS = ".rebuilt"
 NOT_LANE = re.compile(r"[^a-z0-9]+")
@@ -2419,6 +2421,30 @@ def owner_away(data: dict, moment: datetime) -> bool:
     owner = data.get("owner") or {}
     heard = owner.get("heard")
     return bool(owner.get("away")) or bool(heard) and moment - parse_time(heard) >= AWAY_AFTER
+
+
+def owner_present(data: dict, moment: datetime) -> bool:
+    """Whether he is present, by his pick "Fresh word": his word or tap within the last 15 minutes, and he has not said he is away; a drive that never heard him counts him present, as owner_away() does."""
+    owner = data.get("owner") or {}
+    heard = owner.get("heard")
+    return not owner.get("away") and (not heard or moment - parse_time(heard) < PRESENT_WITHIN)
+
+
+def absence(data: dict, moment: datetime) -> str | None:
+    """How he is not present, for a refusal to say; None while he is."""
+    if owner_present(data, moment):
+        return None
+    owner = data["owner"]
+    if owner["away"]:
+        return "he said he is away"
+    return f"he last wrote {int((moment - parse_time(owner['heard'])).total_seconds() // 60)} minutes ago"
+
+
+def unattended(data: dict, pr: dict, moment: datetime) -> str | None:
+    """Why a Forge-AI PR his Approve or an exempt class clears waits for his next word to land: it may change code outside tests and fixtures, as every class but a test-only change or a flake fix in tests may, and he is not present, by his words "merging or rleasing dangerous things should only be done wehn the human is present"."""
+    if not guarded(pr_key(pr["url"])) or exempted(pr) in ("test-only", FLAKE_FIX) or not (away := absence(data, moment)):
+        return None
+    return f"{away}, and a merge changing code outside tests lands only while he is present, his word or tap within 15 minutes, so it lands at his next word, by his words {PRESENCE_WORDS}"
 
 
 def timed(data: dict, job: dict, moment: datetime) -> bool:

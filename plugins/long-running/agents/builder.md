@@ -363,7 +363,9 @@ event needs. The first four events then return as step 7 says.
   other `tools/ci release start` or `hotfix`. A brief naming no release, or another one, gets a
   `BLOCKED` naming the release you would start and why.
 - His order or pick on a card to release, or the coordinator's record of either, approves starting
-  that release, never the migrations, deletes and replaces its approve hold holds: pass `--order <his
+  that release while he is present, his word or tap within the last 15 minutes, and never the
+  migrations, deletes and replaces its approve hold holds; the `landing_guard` hook refuses a start,
+  resume or approve while he is away, so return `WAITING his word` with the release held. Pass `--order <his
   answer id>` to `tools/ci release start` with no `ASK` or question first, since nobody asks him
   again, and pass the same `--order` to a resume or re-plan. At the approve hold, read each held
   migration, delete and replace against the code at the release's commit, then run `tools/ci release

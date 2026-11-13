@@ -148,6 +148,11 @@ COORDINATOR_RULES = (
         " you start it. Load a tool only for the step that needs it, and leave a log to a job."
     ),
     (
+        "Nothing dangerous lands or releases while he is away: a Forge-AI merge outside test code and a production release"
+        " start, hotfix, resume or approve run only on his word or tap within the last 15 minutes, which the lander and"
+        " landing_guard refuse otherwise; a rollback runs whenever it is prudent."
+    ),
+    (
         "Every event line, record and job result has its row in drive manual coordinator, and each verb and flag its"
         " row in drive manual verbs: before acting on one, read that one row with drive manual <page> <row>, and any"
         " other page's rule with drive manual <page> <its words>, which prints the bullets and sections carrying them,"

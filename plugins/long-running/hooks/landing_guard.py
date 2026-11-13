@@ -390,6 +390,8 @@ def pr_reason(landing: Landing, key: str, shell: Shell) -> str | None:
     may_land, why = tap_verdict(pr)
     if not may_land:
         return f"{key}: {why}. {TAP_HINT}"
+    if away := state.unattended(state.load(name), pr, state.now()):
+        return f"{key}: refused: {away}"
     if shell.driving and not landing.repo and state.queued_by_lander(key) and pr.get("exempt") != INCIDENT_FIX:
         return QUEUE_REASON.format(key=key)
     return None
@@ -443,12 +445,13 @@ def landing_reason(landing: Landing, refs: list[str], options: dict[str, list[st
 
 
 def lane_reason(keys: list[str]) -> str | None:
-    """Why a Sprite lane may not land these PRs, which no drive here can judge: `drive job held --pr`, which the lane's `drive` asks of the coordinator's Mac, names his open cards holding one, as pr_reason() reads them there, or the Mac did not answer."""
+    """Why a Sprite lane may not land these PRs, which no drive here can judge: `drive job held --pr`, which the lane's `drive` asks of the coordinator's Mac, names his open cards holding one, as pr_reason() reads them there, or one that waits for his next word while he is not present, or the Mac did not answer."""
     try:
-        held = land.lane_held(*(f"--pr={key}" for key in keys))["prs"]
+        held = land.lane_held(*(f"--pr={key}" for key in keys))
     except state.DriveError as error:
         return UNASKED.format(keys=", ".join(keys), error=error)
-    return next((CARD_REASON.format(key=key, cards=", ".join(cards)) for key, cards in held.items() if cards), None)
+    carded = (CARD_REASON.format(key=key, cards=", ".join(cards)) for key, cards in held["prs"].items() if cards)
+    return next(carded, None) or next((f"{key}: refused: {why}" for key, why in held["away"].items()), None)
 
 
 def cut_reason(words: list[str], shell: Shell) -> str | None:
@@ -474,17 +477,19 @@ def cut_reason(words: list[str], shell: Shell) -> str | None:
     if starts and job and (unbriefed := unbriefed_reason(words, shell)):
         return unbriefed
     if os.environ.get(state.REMOTE_LANE_ENV):
-        return lane_release_reason(release_of(words, shell))
+        return lane_release_reason(release_of(words, shell), verb)
     if not names:
         return None
     data = state.load(names[0])
     try:
         if starts and not job:
-            return brief.approval_refusal(" ".join(words), data)
-        hold = settled.hold(data["roles"]["coordinator"]["cwd"])
-        return hold and brief.hold_refusal(release_of(words, shell), data, hold)
+            refused = brief.approval_refusal(" ".join(words), data)
+        else:
+            hold = settled.hold(data["roles"]["coordinator"]["cwd"])
+            refused = hold and brief.hold_refusal(release_of(words, shell), data, hold)
     except state.DriveError as error:
         return HOLD_UNREAD.format(command=" ".join(words), error=error)
+    return refused or brief.away_refusal(verb, data, state.now())
 
 
 def release_of(words: list[str], shell: Shell) -> str:
@@ -512,10 +517,10 @@ def release_verb(words: list[str]) -> str | None:
     return "api" if method.upper() != "GET" else None
 
 
-def lane_release_reason(release: str) -> str | None:
-    """Why a Sprite lane, which holds no drive, may not run a release verb: `drive job held --release` on the coordinator's Mac refuses the release it runs under his hold, as hold_refusal() reads it there, or the Mac did not answer."""
+def lane_release_reason(release: str, verb: str) -> str | None:
+    """Why a Sprite lane, which holds no drive, may not run a release verb: `drive job held --release` on the coordinator's Mac refuses the release it runs under his hold, as hold_refusal() reads it there, or while he is not present, as away_refusal() reads its verb there, or the Mac did not answer."""
     try:
-        return land.lane_held(f"--release={release}")["release"]
+        return land.lane_held(f"--release={release}", f"--verb={verb}")["release"]
     except state.DriveError as error:
         return RELEASE_UNASKED.format(release=release, error=error)
 

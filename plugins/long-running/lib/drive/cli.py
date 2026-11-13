@@ -2918,14 +2918,15 @@ def job_held(args: argparse.Namespace) -> int:
     find(data["jobs"], job_id, "job")
     if args.release:
         hold = settled.hold(data["roles"]["coordinator"]["cwd"])
-        refused = hold and brief.hold_refusal(args.release, data, hold)
+        refused = hold and brief.hold_refusal(args.release, data, hold) or args.verb and brief.away_refusal(args.verb, data, state.now())
         return emit(args, refused or f"no hold of his refuses {args.release}", {"id": job_id, "release": refused})
     live = view.live_cards(name)
     if args.pr:
         tracked = {stored.lower(): pr for stored, pr in data["prs"].items()}
         held = {key: land.pr_cards(data, pr, live) if (pr := tracked.get(key.lower())) else [] for key in map(state.pr_key, args.pr)}
-        line = "\n".join(f"{key}: {', '.join(cards)}" for key, cards in held.items() if cards)
-        return emit(args, line or f"no open card of his holds {', '.join(held)}", {"id": job_id, "prs": held})
+        away = {key: why for key in held if (pr := tracked.get(key.lower())) and (why := state.unattended(data, pr, state.now()))}
+        line = "\n".join([*(f"{key}: {', '.join(cards)}" for key, cards in held.items() if cards), *(f"{key}: {why}" for key, why in away.items())])
+        return emit(args, line or f"no open card of his holds {', '.join(held)}", {"id": job_id, "prs": held, "away": away})
     cards = land.ship_held(data, job_id, live, args.exempt)
     return emit(args, "\n".join(cards) or f"{job_id}: no open card of his holds its PR", {"id": job_id, "cards": cards})
 
@@ -5006,6 +5007,7 @@ def parser() -> argparse.ArgumentParser:
         "--release",
         help="instead, why his hold on every release refuses this release, a `ci release start` or `hotfix` as the job runs it, or a release verb naming none; the landing_guard hook on a Sprite lane asks it before the lane starts, resumes, approves, reruns or rolls back a release",
     )
+    verb.add_argument("--verb", help="with --release, the release verb the lane runs, such as resume, refused as well while he is not present when it starts, resumes or approves one")
     verb.set_defaults(run=job_held)
     verb = job.add_parser("wake", parents=both, help="send the job's lane a message while it takes messages, starting no worker: the watchdog's agent's one way to message the job answering for a stall")
     verb.add_argument("id", help="the job")

@@ -1,6 +1,7 @@
 import json
 import subprocess
 from collections.abc import Callable
+from datetime import timedelta
 from pathlib import Path
 
 import landing_guard
@@ -192,12 +193,25 @@ def test_a_sprite_lanes_release_verb_asks_the_coordinators_mac_whether_his_hold_
     recorded.listed = [HOLD]
     refused = brief.RELEASE_HELD.format(said=HOLD["body"], where="15c4de1", hold="15c4de1", release=RESUME, why="Jev reads no answer of his recorded since as approving it")
     assert landing_guard.deny_reason(lane) == refused
-    assert sprite == [["drive", "job", "held", "--json", f"--release={RESUME}"]] * 2
+    assert sprite == [["drive", "job", "held", "--json", f"--release={RESUME}", "--verb=resume"]] * 2
     assert run("job", "held", "--release", RESUME) == (0, refused)
     start = "tools/ci release start sandsql --order 8b2e4f7"
     assert landing_guard.deny_reason(bash(start, session_id="sprite")) == landing_guard.RELEASE_UNBRIEFED.format(job="<job>", named="no release", command=start)
     assert landing_guard.deny_reason(bash("tools/ci release cancel dazzling-kools", session_id="sprite")) == landing_guard.RELEASE_CANCEL
     assert len(sprite) == 2
+
+
+def test_a_release_resume_waits_for_his_next_word_once_he_last_wrote_15_minutes_ago_while_a_rollback_runs(run: Run, demo: str, sprite: list[list[str]], no_calls: None) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the fix")
+    run("job", "add", "builder", "--order", "o1", "--goal", "release the fix")
+    with state.edit(demo) as data:
+        data["owner"] = {"heard": state.stamp(state.now() - timedelta(minutes=20)), "away": False}
+    refused = landing_guard.deny_reason(bash(RESUME, session_id="sprite"))
+    assert refused and refused.startswith("refused: he last wrote 20 minutes ago, and a production release starts, resumes or passes its approve hold only while he is present")
+    assert landing_guard.deny_reason(bash("tools/ci release rollback sandsql", session_id="sprite")) is None
+    with state.edit(demo) as data:
+        data["owner"]["heard"] = state.stamp(state.now() - timedelta(minutes=5))
+    assert landing_guard.deny_reason(bash(RESUME, session_id="sprite")) is None
 
 
 def test_a_sprite_lanes_release_verb_is_refused_while_the_coordinators_mac_does_not_answer(monkeypatch: pytest.MonkeyPatch, no_calls: None) -> None:

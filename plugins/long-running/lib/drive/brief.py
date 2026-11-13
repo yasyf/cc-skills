@@ -3,6 +3,7 @@ import os
 import re
 import sys
 from collections.abc import Iterator
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -93,6 +94,7 @@ MAC = re.compile(r"^Mac:[ \t]*(.+)$", re.MULTILINE)
 INCIDENT = re.compile(r"^Incident:", re.MULTILINE)
 CI_BINARIES = frozenset({"ci", "ci.dev"})
 RELEASE_STARTS = ("start", "hotfix")
+PRESENT_CUTS = ("start", "hotfix", "resume", "approve", "api")
 RELEASE_VALUED = frozenset({"groups", "targets", "hotfix", "landed", "exclude", "only", "without", "env", "from", "order"})
 RELEASE_ASIDE = frozenset({"json"})
 PLAN_ASIDE = frozenset({"order"})
@@ -203,6 +205,16 @@ def approval_refusal(command: str, data: dict) -> str | None:
         return f"refused: Jev did not say whether his answer {answer_id} approves this release ({failure}); run it again once Jev answers. {RELEASE_APPROVAL}"
     asked, said = cut(answer["title"], 200), cut(answer["body"], settled.QUOTED_CHARS)
     return f'refused: `--order {answer_id}` names his answer to "{asked}", "{said}", and Jev does not read it as approving this release. {RELEASE_APPROVAL}'
+
+
+def away_refusal(verb: str, data: dict, moment: datetime) -> str | None:
+    """Why a production release may not start, resume or pass its approve hold now, by a release verb or a `ci bk api` write to its build such as unblocking that hold: he is not present, by his words "merging or rleasing dangerous things should only be done wehn the human is present"; a rollback, a rerun or any other verb runs."""
+    if verb not in PRESENT_CUTS or not (away := state.absence(data, moment)):
+        return None
+    return (
+        f"refused: {away}, and a production release starts, resumes or passes its approve hold only while he is present, his word or tap"
+        f" within 15 minutes, by his words {state.PRESENCE_WORDS}: return WAITING his word with the release held; a rollback runs now"
+    )
 
 
 def hold_refusal(release: str, data: dict, hold: dict) -> str | None:
