@@ -521,6 +521,29 @@ def test_the_communicators_record_for_a_coordinator_goes_to_the_session_hearing_
     assert 'an owner record names what his words are about, about "drive" for drive tooling' in refusal(record_lines.decision(post("talker", **unsaid)))
 
 
+def test_the_communicators_record_answering_a_coordinators_record_reaches_its_writer_and_one_naming_a_job_the_session_holding_its_order(
+    run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Releases", "ship the production release")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
+    run("start", demo, "--role", "coordinator", "--project", "Iris")
+    run("job", "add", "builder", "--order", "o1", "--goal", "cut the release")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", demo, "--role", "communicator")
+    writers = {"686826": "root", "686830": "iris", "686840": "builder"}
+    monkeypatch.setattr(agents, "shown", lambda seq: {"lane": writers[seq]})
+    root = ["root@demo"]
+    records = [
+        {"kind": "handoff", "text": "the permalink of his release card", "to": root, "re": ["686826"], "attrs": {"order": "o1"}},
+        {"kind": "answer", "text": "the release card's permalink", "to": root, "re": ["686826"], "attrs": {"order": "o1"}},
+        {"kind": "refused", "text": "cc-slack refused his release card", "to": root, "re": ["686826"], "resolves": ["9"], "attrs": {"job": "j1"}},
+        {"kind": "handoff", "text": "the permalink of the run page card", "to": root, "re": ["686830"], "attrs": {"order": "o1"}},
+        {"kind": "handoff", "text": "redraw the run page card", "to": root, "re": ["686840"], "attrs": {"order": "o1"}},
+    ]
+    made = record_lines.decision(post("talker", records=records))["updatedInput"]["records"]
+    assert [record["to"] for record in made] == [root, root, ["iris@demo"], ["iris@demo"], ["iris@demo"]]
+
+
 def bound_to_iris(run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     run("job", "add", "builder", "--order", "o1", "--goal", "build it")
@@ -551,7 +574,7 @@ def test_his_words_in_the_thread_of_a_card_an_orders_job_drew_go_to_the_session_
 ) -> None:
     bound_to_iris(run, demo, monkeypatch)
     feedback = {"thread": CARD_THREAD, "about": "his work"}
-    assert state.routed({demo: state.load(demo)}, "talker", "owner", feedback, ["root@demo"]) == ["iris@demo"]
+    assert state.routed({demo: state.load(demo)}, "talker", "owner", feedback, ["root@demo"], []) == ["iris@demo"]
     assert state.thread_order(state.load(demo), CARD_THREAD) == "o1"
 
 
