@@ -3,7 +3,7 @@
 ## The four kinds of PR
 
 Every PR the drive touches is one of the four kinds below. Decide which before any builder starts,
-and say it in the brief's `Serves:` line, the builder's `READY`, its `ready` record, and every
+and say it in the brief's `Serves:` line, the builder's `READY`, and every
 summary line about it, because work stopped before it starts wastes nothing.
 
 - **A port**, "port of #N": a change carried between the old and new trees, with no behavior beyond

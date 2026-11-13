@@ -1590,7 +1590,7 @@ def test_jump_lists_each_pr_once_finds_it_by_number_or_repo_marks_what_matched_a
     }
     review = [
         {"key": f"a/b#{n}", "title": title, "url": f"https://github.com/a/b/pull/{n}", "head": "abc", "group": "you", "feature": "o1", "feature_title": "ship the fix", "detail": "",
-         "checks": "pass", "review": "approved", "tap": None, "stuck": None, "since": None, "updated": None, "card": None, "answer": None, "thread": None}
+         "checks": "pass", "review": "approved", "tap": None, "stage": None, "since": None, "updated": None, "card": None, "answer": None, "thread": None}
         for n, title in ((101, "Fix: the lock, part 101"), (102, "Fix: the lock, part 102"), (103, "New: export the board"))
     ]
     lanes = [board()["work"][0] | {"id": f"j{n}", "goal": f"lane {n}"} for n in range(45)]

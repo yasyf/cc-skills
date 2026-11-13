@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from conftest import Chrome, Jev, Judge, Redraws
-from drive import card, cli, github, land, picture, state, superseded, view
+from drive import card, cli, github, picture, stage, state, superseded, view
 from drive.github import GithubError
 
 URL = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -62,7 +62,8 @@ def answering(pr: dict) -> Callable[[list[str]], str]:
     return lambda cmd, **_: json.dumps(pr["comments"] if cmd[1] == "api" else {field: value for field, value in pr.items() if field != "comments"})
 
 
-def entry(wants_tap: bool = True, tap: str | None = None, exempt: str | None = None, pr_state: str = "open", checks: str = "pending") -> dict:
+def entry(wants_tap: bool = True, tap: str | None = None, exempt: str | None = None, pr_state: str = "open", checks: str = "pending", now: str | None = None) -> dict:
+    named = now or default_stage(wants_tap, tap, exempt, pr_state, checks)
     return {
         "url": URL,
         "job": "j1",
@@ -80,11 +81,25 @@ def entry(wants_tap: bool = True, tap: str | None = None, exempt: str | None = N
         "review": "none",
         "draft": False,
         "hold_label": False,
+        "conflict": False,
         "merged_sha": None,
         "checked": {"head": HEAD, "orders": ["o1"], "patch": ""},
         "checker": None,
         "updated": "2026-11-09T08:00:00-08:00",
+        "now": stage.Stage(named, "", ""),
     }
+
+
+def default_stage(wants_tap: bool, tap: str | None, exempt: str | None, pr_state: str, checks: str) -> str:
+    if pr_state != "open":
+        return pr_state
+    if tap == "Hold":
+        return "held"
+    if checks != "pass":
+        return "red" if checks == "fail" else "grading"
+    if exempt or tap == "Approve":
+        return "ready"
+    return "card" if wants_tap else "author"
 
 
 def judged_job(data: dict) -> dict:
@@ -163,7 +178,7 @@ def test_checks_the_watch_read_on_another_head_read_as_still_running_and_an_appr
     passed = entry(tap="Approve", checks="pass")
     assert card.render(pr_json(), passed)["prs"][0]["blocks"] == "Approved by you. CI passed; the drive queues it for merge"
     assert card.render(pr_json(review="APPROVED"), entry(exempt="test-only", checks="pass"))["prs"][0]["blocks"] == "CI passed; the drive queues it for merge"
-    assert card.render(pr_json(), {**passed, "head": "f" * 40})["prs"][0]["blocks"] == "Approved by you. Lands once CI passes"
+    assert card.render(pr_json(), {**passed, "head": "f" * 40, "now": stage.Stage("grading", "", "")})["prs"][0]["blocks"] == "Approved by you. Lands once CI passes"
     other = pr_json(url="https://github.com/Forge-AI/design-docs/pull/42")
     assert card.render(other, {**passed, "url": other["url"]})["prs"][0]["blocks"] == "Approved by you. CI passed; the agent is landing it"
 
@@ -178,7 +193,7 @@ def test_a_held_pr_drops_its_buttons_and_says_held_by_you() -> None:
 
 def test_a_pr_the_drive_holds_with_the_hold_label_asks_him_nothing() -> None:
     labeled = pr_json() | {"labels": [{"id": "LA_1", "name": "hold", "description": "", "color": "d93f0b"}]}
-    assert card.render(labeled, entry()) == {
+    assert card.render(labeled, entry(now="held") | {"hold_label": True}) == {
         "status": "info",
         "title": "Fix: retry flaky uploads",
         "prs": [row(blocks="Held by the drive with the hold label on GitHub")],
@@ -547,15 +562,13 @@ def test_prs_matches_the_lowercase_repo_cc_slack_asks_with(drive: str, monkeypat
     assert [(drawn["repo"], drawn["number"]) for drawn in reply["cards"]] == [("Forge-AI/monorepo", 42)]
 
 
-def test_a_pr_waiting_on_his_open_design_card_draws_no_approve(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_pr_waiting_on_his_open_design_card_draws_its_card_with_approve_saying_it_lands_once_he_answers(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(card, "run", answering(pr_json()))
     with state.edit(drive) as data:
         data["prs"]["Forge-AI/monorepo#42"]["waits"] = ["demo:j1-7-a"]
-    reason = "it waits on demo:j1-7-a, so it draws no Approve until each is answered or done"
-    assert ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]}) == {
-        "cards": [],
-        "skipped": [{"repo": "Forge-AI/monorepo", "number": 42, "reason": reason}],
-    }
+    [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
+    assert drawn["card"]["options"] == ["Approve", "Hold"]
+    assert drawn["card"]["prs"][0]["lands"].startswith("you approve") and "you answer" in drawn["card"]["prs"][0]["lands"]
 
 
 def test_a_pr_whose_wait_holds_redraws_his_open_card_with_its_buttons_saying_what_it_waits_on(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -569,7 +582,7 @@ def test_a_pr_whose_wait_holds_redraws_his_open_card_with_its_buttons_saying_wha
     assert (drawn["card"]["status"], drawn["card"]["options"], drawn["card"]["waits"]) == ("needs_you", ["Approve", "Hold"], "merge:Forge-AI:monorepo:42")
     release = "the dashboard release carrying [retry flaky uploads](https://github.com/Forge-AI/monorepo/pull/7) is out"
     assert drawn["card"]["prs"][0]["lands"] == f"you approve, CI passes and {release}"
-    assert card.render(pr_json(), entry(tap="Approve", checks="pass"), (), (release,))["prs"][0]["blocks"] == f"Approved by you. Lands once {release}"
+    assert card.render(pr_json(), entry(tap="Approve", checks="pass", now="waiting"), (), (release,))["prs"][0]["blocks"] == f"Approved by you. Lands once {release}"
 
 
 def test_a_tap_card_whose_body_has_only_a_title_draws_with_approve(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -865,7 +878,7 @@ def test_a_head_that_moved_under_his_card_keeps_approve_and_his_approve_of_the_h
     key = "Forge-AI/monorepo#42"
     redraw = moved_under_his_card(drive, monkeypatch)
     [shown] = ask(redraw)["cards"]
-    assert (shown["card"]["status"], shown["card"]["options"], shown["card"]["prs"][0]["lands"]) == ("needs_you", ["Approve", "Hold"], "you approve")
+    assert (shown["card"]["status"], shown["card"]["options"], shown["card"]["prs"][0]["lands"], shown["card"]["prs"][0]["blocks"]) == ("needs_you", ["Approve", "Hold"], "you approve", "")
     tap_approve(HEAD)
     [tapped] = [event for event in events(drive) if event["kind"] == "tap"]
     assert (state.load(drive)["prs"][key]["tap"]["head"], tapped["head"], landers) == (HEAD, HEAD, [(key,)])
@@ -1053,14 +1066,13 @@ def test_a_stack_with_one_pr_reworked_to_his_words_draws_no_card_a_redraw_includ
     assert drawn["card"]["prs"][1]["changed"] == 'Reworked to your words "Topology goes in the meta table": it reads the meta table'
 
 
-def test_a_stack_whose_every_pr_asking_his_tap_waits_on_his_open_card_draws_no_card(stacked: list[list[str]]) -> None:
+def test_a_stack_whose_every_pr_asking_his_tap_waits_on_his_open_card_draws_one_card_saying_each_lands_once_he_answers(stacked: list[list[str]]) -> None:
     with state.edit("demo") as data:
         data["prs"]["Forge-AI/monorepo#41"]["waits"] = ["demo:j1-7-a"]
         data["prs"]["Forge-AI/monorepo#42"]["waits"] = ["demo:j1-7-a"]
         data["prs"]["Forge-AI/monorepo#43"]["wants_tap"] = False
-    drawn = ask(asks(41, 42, 43))
-    assert drawn["cards"] == []
-    assert all(skipped["reason"] == "it waits on demo:j1-7-a, so it draws no Approve until each is answered or done" for skipped in drawn["skipped"])
+    [drawn] = ask(asks(41, 42, 43))["cards"]
+    assert all("you answer" in row["lands"] for row in drawn["card"]["prs"][:2])
 
 
 def test_a_redraw_of_one_pr_in_a_stack_redraws_the_whole_stack(stacked: list[list[str]]) -> None:

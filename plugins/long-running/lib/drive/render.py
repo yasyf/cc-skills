@@ -3,9 +3,10 @@ import sys
 from collections.abc import Callable
 from datetime import datetime
 
-from drive.state import DRIVE_TOOLING, ROLES, SLOT_WAIT, VERSION, agent_gone, lane_death, now, open_orders, owed_step, parse_time, pr_key, pr_url, project_lane, promise_thread, title
+from drive.state import DRIVE_TOOLING, ROLES, SLOT_WAIT, VERSION, agent_gone, lane_death, now, open_orders, parse_time, pr_key, pr_url, project_lane, promise_thread, title
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
+REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
 DRIVE_TOOLS = "mcp__plugin_long-running_drive__"
 COMMUNICATOR_SLACK = ("slack_dm_status", "slack_reply", "slack_react", "slack_watch")
 COMMUNICATOR_DRIVE = ("say", "heard", "handler", "record", "order", "job")
@@ -79,7 +80,7 @@ COMMUNICATOR_RULES = (
     (
         "Nothing else runs in your turn, since work there holds his next message behind it: every report, card, due"
         " line, draft, check-post, read of any kind and anything taking more than one call runs in a handler the drive's"
-        " handler tool starts, which posts its own result. A POST report, a ready record and an ask record each get one"
+        " handler tool starts, which posts its own result. A POST report and an ask record each get one"
         " handler, its brief the one line `Record: <seq> Drive: <name> Scratch: <folder>`; an `FYI` report gets none. A record's body and"
         " any path it names are the handler's to read. Your own calls are "
         + OWN_CALLS
@@ -91,7 +92,7 @@ COMMUNICATOR_RULES = (
         + ", ".join(f"{label}:" for label in HANDLER_LABELS)
         + ", carrying his words verbatim, the permalink, the thread, its scratch folder, the deliverable and any path you know"
         " that answers it, retyping no rule, since its agent definition is its standing brief, and the handler tool"
-        " refuses any other line. A handler runs on its definition's Opus, since a ready record draws his PR card and his"
+        " refuses any other line. A handler runs on its definition's Opus, since his"
         ' words, research, an explanation, a design, a question card and any judgment call keep Opus: "for more complex'
         ' use opus from the start".'
     ),
@@ -329,16 +330,24 @@ def agentless_lines(drive: dict, orders: dict[str, dict] | None = None) -> list[
 
 
 def pr_line(key: str, pr: dict, card: str | None) -> str:
-    owed = {"card": "wants tap", "reworking": "no card while its builder reworks it to his words, until its READY says how they are met"}
-    step = None if pr.get("tap") else owed_step(pr)
-    tap = pr["tap"]["label"] if pr.get("tap") else owed.get(step) or "no tap needed"
-    tap += f", {card or 'his card never drawn'}" if card or step == "card" else ""
+    owed = None if pr.get("exempt") else REWORKING if pr["rework"] else "wants tap" if pr["wants_tap"] else None
+    tap = pr["tap"]["label"] if pr.get("tap") else owed or "no tap needed"
+    tap += f", {card or 'his card never drawn'}" if card or not pr.get("tap") and owed == "wants tap" else ""
     exempt = f", exempt: {pr['exempt']}" if pr.get("exempt") else ""
     port = f" of #{pr['port_of']}" if pr.get("exempt") == "pure port" and pr.get("port_of") else ""
     waits = f", waits on {', '.join(pr['waits'])}" if pr.get("waits") else ""
     held = ", held by its hold label" if pr["hold_label"] else ""
     title = f' "{cut(pr["title"], 80)}"' if pr["title"] else ""
-    return f"{key}{title} {pr['state']}, checks {pr['checks']}, review {pr['review']}, {tap}{held}{exempt}{port}{waits}"
+    return f"{key}{title} {pr['state']}, checks {pr['checks']}, review {pr['review']}, {tap}{held}{exempt}{port}{waits}{stage_words(pr)}"
+
+
+def stage_words(pr: dict) -> str:
+    """The PR's stage as stage.of named it, and the head and time of the GitHub read it stands on."""
+    if not (now := pr.get("stage")):
+        return ""
+    since = f" since {when(now['since'])}" if now["since"] else ""
+    read = f"; at {pr['head'][:7]} as GitHub read it at {when(pr['required']['read'])}" if pr.get("required") and pr["required"].get("read") else ""
+    return f"; {now['name']}{since}, owed by {now['owner']}: {now['why']}{read}"
 
 
 def job_line(job_id: str, job: dict, limit: int = 100) -> str:

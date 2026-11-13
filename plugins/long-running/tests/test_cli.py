@@ -14,7 +14,7 @@ from pathlib import Path
 
 import drive
 import pytest
-from conftest import CARD_BODY, RESEARCH, SETTLED_NOTE, SHORT_ASK, Answers, explained, Chrome, Drawing, Heard, Jev, Judge, MetaLaunches, Thread, WatchProcess, Withdrawals
+from conftest import CARD_BODY, RESEARCH, SETTLED_NOTE, SHORT_ASK, Answers, explained, Chrome, Draws, Drawing, Heard, Jev, Judge, MetaLaunches, Thread, WatchProcess, Withdrawals
 from drive import (
     brief,
     card,
@@ -30,6 +30,7 @@ from drive import (
     served,
     settled,
     slack,
+    stage,
     state,
     tools,
     view,
@@ -1120,12 +1121,12 @@ def test_his_order_in_his_pr_cards_thread_names_that_card_and_leaves_it_up_until
     slack_thread.messages = [{"ts": "1794300000.000500", "thread_ts": "1794300000.000400"}]
     code, out = run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Topology", TOPOLOGY, "--kind", "build", "--from", "slack:D123/1794300000.000500")
     assert (code, out.splitlines(), withdrawals.asked) == (0, ["o2", left_up("drive order set o2 --rework <PR>")], [])
-    assert state.owed_step(state.load("demo")["prs"][with_pr]) == "card"
+    assert (stage.carded(pr := state.load("demo")["prs"][with_pr]), pr["rework"]) == (True, None)
     code, out = run("order", "set", "o2", "--rework", PR)
     assert (code, out.splitlines()[-2:]) == (0, [f"{with_pr} reworked to o2: its card stays down until its builder's READY says how his words are met", f"withdrew his card {CARDED}: {REWORKING}"])
     assert withdrawals.asked == [(PR, REWORKING)]
     pr = state.load("demo")["prs"][with_pr]
-    assert (state.owed_step(pr), pr["rework"]["by"]) == ("reworking", "o2")
+    assert pr["rework"]["by"] == "o2"
 
 
 def test_his_order_added_with_rework_withdraws_the_card_of_the_pr_it_names_in_the_same_call_with_his_words_as_the_why(
@@ -1154,7 +1155,7 @@ def test_his_question_in_his_pr_cards_thread_leaves_that_card_up_when_it_turns_o
     assert (code, out.splitlines()) == (0, ["o2", left_up("drive order set o2 --rework <PR>")])
     code, out = run("order", "set", "o2", "--kind", "build")
     assert (code, out.splitlines()[-1], withdrawals.asked) == (0, left_up("drive order set o2 --rework <PR>"), [])
-    assert state.owed_step(state.load("demo")["prs"][with_pr]) == "card"
+    assert (stage.carded(pr := state.load("demo")["prs"][with_pr]), pr["rework"]) == (True, None)
 
 
 def test_a_job_carrying_his_order_leaves_his_open_card_on_its_pr_up_until_rework_names_that_pr(
@@ -3167,7 +3168,7 @@ def test_a_builders_ready_counts_only_on_a_green_required_check_and_one_still_ru
 ) -> None:
     build = "https://buildkite.com/forge/monorepo/builds/7"
     read = {"state": "OPEN", "isDraft": False, "headRefOid": "abc", "baseRefName": "main", "headRefName": "land-it", "mergeCommit": None, "reviewDecision": None, "approvals": [], "mergeable": "MERGEABLE"}
-    read |= {"title": "Fix: land it", "author": "yasyf", "labels": [], "native": [], "required_checks": ["buildkite/test"]}
+    read |= {"title": "Fix: land it", "author": "yasyf", "labels": [], "native": [], "required_checks": ["buildkite/test"], "required_reviews": 1}
     test = {"context": "buildkite/test", "targetUrl": build}
     for posted, held in (
         ([], f"{with_pr}'s required checks still run at abc: return"),
@@ -3476,8 +3477,8 @@ def test_pr_add_waits_on_his_tap_unless_it_is_a_port_exempt_drive_tooling_outsid
     assert run("pr", "add", "https://github.com/yasyf/cc-skills/pull/8", "--job", "j1", "--no-tap", "--why", "a teammate lands it")[0] == 0
     assert run("pr", "add", PR, "--job", "j1", "--exempt", "test-only")[0] == 0
     prs = state.load("demo")["prs"]
-    assert (prs["yasyf/cc-skills#8"]["wants_tap"], state.owed_step(prs["yasyf/cc-skills#8"])) == (False, None)
-    assert (prs[key]["wants_tap"], prs[key]["exempt"], state.owed_step(prs[key])) == (True, "test-only", "landing")
+    assert (prs["yasyf/cc-skills#8"]["wants_tap"], stage.carded(prs["yasyf/cc-skills#8"])) == (False, False)
+    assert (prs[key]["wants_tap"], prs[key]["exempt"], stage.carded(prs[key])) == (True, "test-only", False)
     with state.edit("demo") as data:
         data["prs"].pop(key)
         data["orders"]["o1"]["text"] = "Drive tooling: the watch draws his card"
@@ -3538,10 +3539,10 @@ def test_pr_add_of_a_port_takes_the_pure_port_exemption_and_no_tap(run: Run, dem
     on_github["title"] = "Port: land it"
     assert run("pr", "add", PR, "--job", "j1", "--port-of", "51234")[0] == 0
     pr = state.load("demo")["prs"]["Forge-AI/monorepo#42"]
-    assert (pr["port_of"], pr["exempt"], pr["wants_tap"], state.owed_step(pr)) == (51234, "pure port", False, "landing")
+    assert (pr["port_of"], pr["exempt"], pr["wants_tap"], stage.carded(pr)) == (51234, "pure port", False, False)
 
 
-def test_pr_add_on_a_public_repo_takes_demo_pictures(run: Run, demo: str, on_github: dict, visibilities: dict) -> None:
+def test_pr_add_on_a_public_repo_takes_demo_pictures_and_draws_his_card_in_the_same_call(run: Run, demo: str, on_github: dict, visibilities: dict, draws: Draws) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     visibilities.update({"Forge-AI/monorepo": "public", "yasyf/cc-skills": "public"})
@@ -3550,7 +3551,31 @@ def test_pr_add_on_a_public_repo_takes_demo_pictures(run: Run, demo: str, on_git
         "![Hover](https://github.com/yasyf/cc-skills/blob/73f9efa/pr-shots/demo-hover.png?raw=true)\n"
         "Follows yasyf/cc-skills#4146."
     )
-    assert run("pr", "add", PR, "--job", "j1") == (0, "Forge-AI/monorepo#42")
+    assert run("pr", "add", PR, "--job", "j1") == (0, f"Forge-AI/monorepo#42, his card {draws.link}")
+    assert (draws.keys, state.load("demo")["prs"]["Forge-AI/monorepo#42"]["card"]) == ([["Forge-AI/monorepo#42"]], draws.link)
+
+
+def test_pr_add_whose_card_draw_fails_registers_the_pr_uncarded_for_the_watch_to_draw(run: Run, demo: str, draws: Draws) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    draws.failure = "cc-slack exited 1"
+    assert run("pr", "add", PR, "--job", "j1") == (0, "Forge-AI/monorepo#42, his card not drawn yet, so the watch draws it on its next read: cc-slack exited 1")
+    data = state.load("demo")
+    assert stage.of(data, "Forge-AI/monorepo#42", view.NO_CARDS).name == "uncarded"
+
+
+def test_a_builders_pushed_naming_a_pr_the_drive_does_not_track_registers_it_on_that_builder_and_draws_his_card(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"PUSHED {PR}\n"))
+    code, out = run("job", "report", "j1", "-")
+    assert (code, out.splitlines()[1]) == (0, f"Forge-AI/monorepo#42: registered on j1, his card {draws.link}")
+    pr = state.load("demo")["prs"]["Forge-AI/monorepo#42"]
+    assert (pr["job"], pr["card"], draws.keys) == ("j1", draws.link, [["Forge-AI/monorepo#42"]])
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"PUSHED {PR}\n"))
+    assert (run("job", "report", "j1", "-")[0], draws.keys) == (0, [["Forge-AI/monorepo#42"]])
 
 
 def test_pr_add_again_keeps_stored_state(run: Run, with_pr: str) -> None:
@@ -5270,14 +5295,14 @@ def test_an_order_saved_before_options_only_and_once_loads_as_neither(run: Run, 
     assert (order["options_only"], order["once"]) == (False, False)
 
 
-def test_a_repair_he_asked_to_run_once_puts_up_no_pr(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
+def test_a_repair_he_asked_to_run_once_puts_up_no_pr(run: Run, demo: str, capsys: pytest.CaptureFixture[str], draws: Draws) -> None:
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "rerun the backfill once", "--once")
     run("job", "add", "builder", "--order", "o1", "--goal", "run the backfill")
     assert cli.main(["pr", "add", PR, "--job", "j1"]) == 2
     assert "refused, o1 is a repair he asked to run once: run it, and put up no PR for it" in capsys.readouterr().err
     assert state.load("demo")["prs"] == {}
     run("order", "set", "o1", "--no-once")
-    assert run("pr", "add", PR, "--job", "j1") == (0, "Forge-AI/monorepo#42")
+    assert run("pr", "add", PR, "--job", "j1") == (0, f"Forge-AI/monorepo#42, his card {draws.link}")
 
 
 def test_status_names_the_open_incidents_and_each_running_job_whose_session_ended(
@@ -5798,7 +5823,7 @@ def test_an_answer_lists_every_pr_of_its_order_not_yet_live_and_a_reopened_one_g
     assert (code, settled, withdrawals.asked) == (0, [ANSWERED], [(PR, reason)])
     data = state.load("demo")
     reworked = data["prs"][designing]
-    assert (reworked["wants_tap"], reworked["tap"], state.owed_step(reworked), data["jobs"]["j1"]["state"]) == (True, None, "reworking", "running")
+    assert (reworked["wants_tap"], reworked["tap"], data["jobs"]["j1"]["state"]) == (True, None, "running")
     assert reworked["rework"] | {"at": None} == {"by": "a1", "words": WORDS, "at": None}
     assert data["answers"]["a1"]["cards"]["Forge-AI/monorepo#45"] == {"mark": "reopened", "job": "j1", "card": None}
 

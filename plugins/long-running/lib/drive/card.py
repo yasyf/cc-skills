@@ -3,11 +3,14 @@ import os
 import re
 import sys
 import unicodedata
-from typing import TextIO
+from typing import TYPE_CHECKING, TextIO
 
 from drive import github, limits, picture, state
 from drive.github import GithubError, run
 from drive.render import cut
+
+if TYPE_CHECKING:
+    from drive.stage import Stage
 
 FIELDS = "title,body,author,state,isDraft,headRefOid,baseRefName,headRefName,reviewDecision,labels,url,additions,deletions,changedFiles"
 READ_AGE = "60s"
@@ -70,6 +73,8 @@ RECORD_ID = re.compile(
     r"|\b[ojm]\d{1,5}\b"
     r"|\brmw[0-9a-z]{4,}\b|\bcard-[0-9a-z][0-9a-z-]*"
 )
+HIS = re.compile(r"\bhis\b")
+HIM = re.compile(r"\bhim\b")
 Member = tuple[dict, dict, tuple[str, ...], tuple[str, ...]]
 EMOJI_CATEGORIES = {"So", "Cf"}
 EMOJI_MARKS = {chr(0xFE0E), chr(0xFE0F), chr(0x20E3), *map(chr, range(0x1F3FB, 0x1F400))}
@@ -240,34 +245,37 @@ def tap_refused(pr: dict, entry: dict) -> str | None:
 
 
 def waits_on(pr: dict, entry: dict, held: tuple[str, ...]) -> str:
-    approved, key = tap_label(entry) == "Approve", state.pr_key(pr["url"])
-    match pr["state"], checks(pr, entry):
+    """What his card says under the PR: merged or closed as GitHub reads it, else its stage as stage.of names it when the card draws, in his card's words, a check's objection included, which never takes his Approve off it."""
+    now, approved, key = entry["now"], tap_label(entry) == "Approve", state.pr_key(pr["url"])
+    match pr["state"], now.name:
         case "MERGED", _:
             return "Merged"
         case "CLOSED", _:
             return "Closed without merging"
-        case _ if tap_label(entry) == "Hold":
+        case _, "held" if tap_label(entry) == "Hold":
             return "Held by you"
-        case _ if hold_labeled(pr):
+        case _, "held" if entry["hold_label"]:
             return "Held by the drive with the hold label on GitHub"
-        case _ if pr["isDraft"]:
-            return "Still a draft; the agent is finishing it"
-        case _, "fail":
+        case _, "red" if entry["checks"] == "fail":
             return "CI failed; the agent is fixing it"
-        case _ if pr["reviewDecision"] == "CHANGES_REQUESTED":
+        case _, "red" if entry["draft"]:
+            return "Still a draft; the agent is finishing it"
+        case _, "red" if entry["review"] == "changes":
             return "A reviewer asked for changes; the agent is making them"
-        case _, "pending" if not approved:
-            return "CI is still running"
-        case _ if pr["reviewDecision"] == "REVIEW_REQUIRED" and not approved:
+        case _, "red" if not entry["conflict"]:
             return "Waits on a code review"
-        case _, verdict if verdict == "pending" or held:
-            return "Lands once " + in_turn([*(["CI passes"] if verdict == "pending" else []), *held])
-        case _ if state.queued_by_lander(key) and state.cleared(entry):
+        case _, "grading" if not approved:
+            return "CI is still running"
+        case _, "grading":
+            return "Lands once " + in_turn(["CI passes", *held])
+        case _, "held" | "waiting" if held:
+            return "Lands once " + in_turn(list(held))
+        case _, "ready" | "landing" if state.queued_by_lander(key):
             return "CI passed; the drive queues it for merge"
-        case _ if state.guarded(key) and not approved:
-            return "CI passed; nothing lands it until you approve it"
-        case _:
+        case _, "ready" | "landing" | "author":
             return "CI passed; the agent is landing it"
+    said = HIM.sub("you", HIS.sub("your", now.why))
+    return said[:1].upper() + said[1:]
 
 
 def lands_after_tap(pr: dict, entry: dict, held: tuple[str, ...]) -> str:
@@ -329,8 +337,9 @@ def render(pr: dict, entry: dict, shown: tuple[str, ...] = (), held: tuple[str, 
             "waits": merge_waits(pr["url"]),
         }
     else:
-        row["blocks"] = ("Approved by you. " if tap_label(entry) == "Approve" and pr["state"] == "OPEN" else "") + waits_on(pr, entry, held)
         card["status"] = "done" if pr["state"] == "MERGED" else "info"
+    if not row["lands"]:
+        row["blocks"] = ("Approved by you. " if tap_label(entry) == "Approve" and pr["state"] == "OPEN" else "") + waits_on(pr, entry, held)
     if shown:
         card["pictures"] = list(shown)
     return card
@@ -438,7 +447,7 @@ def pictured(name: str, key: str, pr: dict, taken: set[str]) -> tuple[str, ...]:
 
 
 def groups(known: dict[str, tuple[str, dict]], keys: list[str], reads: dict[str, dict]) -> list[list[str]]:
-    """The cards the asked PRs draw on, bottom PR first. A PR in a native GitHub stack, the one stack-enqueue and his Approve land, draws with every PR of it the drives track that is not closed, split by the card each was last drawn on, so a PR added to the stack later gets its own card. Any other read PR draws on its loose_cards() card, the rule the watch's ready record names PRs by: its chain by base branch among them, else the PRs among them of its repository serving its order, keeping the card it was drawn on, closed and natively stacked PRs left out, until they group into a longer card around it."""
+    """The cards the asked PRs draw on, bottom PR first. A PR in a native GitHub stack, the one stack-enqueue and his Approve land, draws with every PR of it the drives track that is not closed, split by the card each was last drawn on, so a PR added to the stack later gets its own card. Any other read PR draws on its loose_cards() card, the rule state.card_unit names: its chain by base branch among them, else the PRs among them of its repository serving its order, keeping the card it was drawn on, closed and natively stacked PRs left out, until they group into a longer card around it."""
     native = github.stacks(list(dict.fromkeys([*keys, *(mate for key in keys for mate in known[key][1].get("stack") or [] if mate in known)])))
     stacked = {member for stack in native.values() for member, _ in stack}
     units = dict.fromkeys(tuple(member for member, status in native[key] if status != "closed" and member in known) for key in keys if key in native)
@@ -456,7 +465,7 @@ def groups(known: dict[str, tuple[str, dict]], keys: list[str], reads: dict[str,
 
 
 def loose_cards(known: dict[str, tuple[str, dict]], keys: list[str], reads: dict[str, dict]) -> list[list[str]]:
-    """The cards PRs in no native GitHub stack draw on, by state.card_unit as the watch's ready record names them: each chain of them by base branch on its own card, bottom first, and the rest one card per repository and order they serve, however many PRs each holds."""
+    """The cards PRs in no native GitHub stack draw on, by state.card_unit: each chain of them by base branch on its own card, bottom first, and the rest one card per repository and order they serve, however many PRs each holds."""
     units: dict[tuple[str, tuple[tuple[str, ...], str, str]], list[str]] = {}
     for chain in chains(keys, reads):
         stack = tuple(chain) if len(chain) > 1 else ()
@@ -526,28 +535,20 @@ def holding(known: dict[str, tuple[str, dict]], key: str) -> dict[str, str]:
     return {wait: view.wait_words(data, wait, found) for wait in view.holding(data, entry["waits"], found)}
 
 
-def waiting(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
-    """Why no fresh card is drawn for the members yet, while none of them asks his tap with nothing holding it: each design card of his still open, job not finished, PR open or release not out, that one of them waits on; a check still running holds none. One member asking his tap draws the card, each other's section saying what holds it."""
-    if any(state.asks_tap(known[key][1]) and not holding(known, key) for key in members):
-        return ""
-    held = [wait for key in members for wait in holding(known, key)]
-    return f"it waits on {', '.join(dict.fromkeys(held))}, so it draws no Approve until each is answered or done" if held else ""
-
-
-def unchecked(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
-    """Why no fresh card is drawn for the members yet: one asking his tap has no verdict of the check of its change at its head against the words of every order it serves, which the watch's drive pr check runs once its builder returns; an objection draws the card, as a line on it."""
-    held = [key for key in members if state.asks_tap(entry := known[key][1]) and not state.has_verdict(state.load(known[key][0]), entry)]
-    if not held:
-        return ""
-    return f"the change of {', '.join(held)} at its head is not checked against his words, so no card asks his tap until the watch's drive pr check judges it there"
-
-
 def untapped(known: dict[str, tuple[str, dict]], reads: dict[str, dict], members: list[str]) -> str:
     """Why no fresh card is drawn for the members: none of them asks his tap, so the card would offer him no Approve, and the post linking them keeps its plain link, as an exempt PR gets no PR card."""
     refusals = {key: tap_refused(reads[key], known[key][1]) for key in members}
     if None in refusals.values():
         return ""
     return "; ".join(f"{key}: {why}" if len(members) > 1 else why for key, why in refusals.items()) + ", so no PR card draws, since it would offer him no Approve"
+
+
+def standing(known: dict[str, tuple[str, dict]], key: str) -> "Stage":
+    """The PR's stage as his card on it draws, which that card shows under it."""
+    from drive import stage, view
+
+    name = known[key][0]
+    return stage.on_card(state.load(name), key, view.live_cards(name))
 
 
 def reworked(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
@@ -597,12 +598,11 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
         if fresh and not reason and (off := untapped(known, reads, members)):
             skipped += [skip(key, off) for key in members]
             continue
-        reason = reason or (fresh and (waiting(known, members) or unchecked(known, members)))
         if not reason:
             taken: set[str] = set()
             try:
                 card = drawn_card(
-                    [(reads[key], known[key][1], pictured(known[key][0], key, reads[key], taken), tuple(holding(known, key).values())) for key in members]
+                    [(reads[key], known[key][1] | {"now": standing(known, key)}, pictured(known[key][0], key, reads[key], taken), tuple(holding(known, key).values())) for key in members]
                 )
             except state.DriveError as error:
                 reason = str(error)
@@ -685,6 +685,9 @@ def answered(ask: dict) -> dict:
                 action_ts=ask["action_ts"],
                 lane=state.heard_lane(data, entry["order"]),
             )
+        from drive import stage
+
+        members = [*members, *stage.adopt(data)]
     if ask["label"] == "Approve":
         from drive import land, view
 

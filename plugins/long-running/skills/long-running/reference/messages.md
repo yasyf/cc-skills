@@ -1,6 +1,6 @@
 # Messages to the owner
 
-Only the communicator's side writes to him, from his own messages and from the `report`, `ready` and
+Only the communicator's side writes to him, from his own messages and from the `report` and
 `ask` records the coordinator sends. The communicator posts the ack alone in its first message and
 nothing else. Its handlers write, check and post every other post, one handler per message of his or
 per record: the coordinator's record carries the facts, the handler writes the words, and a handler
@@ -362,8 +362,9 @@ When it is answered, replaced or redone:
 
 **A PR card.**
 
-- Nobody writes it: a handler draws it from the `ready` record the watch sends once its PRs are
-  green, approved and checked against his words at their heads. The watch and `drive card` group PRs
+- Nobody writes it: `drive pr add` draws it at his DM root the moment it registers a PR waiting on
+  his tap, and the watch draws it on its next read for a PR still `uncarded`, whatever its checks,
+  review or check against his words say, since each is a line on it. Its draws and `drive card` group PRs
   by one rule, `state.card_unit`: one card per stack his Approve lands, a native GitHub stack or PRs
   each on the one below's head branch, and for PRs in none, one per repository and order they serve,
   so sibling PRs of one order ready together draw one card whose Approve covers each, however many it
@@ -371,7 +372,8 @@ When it is answered, replaced or redone:
   for a PR that
   carries out an order of his whose words ask for it, or a `Forge-AI/*` drive tooling fix no exempt
   class covers, which serves its own order by [Scope](scope.md).
-- The line above it quotes that order: his words, or the tooling order's
+- The drive's own draw posts the card alone, in no order's thread; the order's thread hears one line
+  when the PR merges. A card drawn through `say` carries a line above it quoting that order: his words, or the tooling order's
   "Drive tooling: …" words. The say hook finds a PR card whose PR serves a drive tooling order while
   its text leaves out that order's words, naming them, for Jev to judge. Those words pass
   `cc-slack check-post`, which `drive order add` and `drive order set <o> --words` run on them. A
@@ -391,8 +393,8 @@ When it is answered, replaced or redone:
 - The same PRs show under the line on the dashboard's history, each with where it stands now. A post
   naming a PR the drive does not hold is refused: `drive pr add` records it first.
 - His Approve lands exactly those PRs still asking his tap, bottom first. His Hold holds them all. A
-  card posts while one of its PRs asks his tap with nothing holding it, and never while each waits on
-  a card of his or while one is being reworked to his words. A PR added later gets its own card when posted
+  card posts once a PR on it asks his tap, and shows what holds it, such as a card of his it waits
+  on, but never while one is being reworked to his words. A PR added later gets its own card when posted
   alone. Posted with the rest of its stack, it joins one new card for them all, and cc-slack marks
   each older card of those PRs replaced, with a link to the new one.
 - Each PR gets its own section: its title, link and Open button, then its Summary of what it
@@ -400,10 +402,11 @@ When it is answered, replaced or redone:
   not green and his tap, and how it differs from the plan only when it does. A section its body lacks
   is left off and holds nothing, since a body is fixed beside the landing, never before it. A card
   already posted redraws in place on every change with what holds it now. A stack card whose other
-  PRs still ask his tap keeps Approve and Hold for them, and a held PR's section says why. A head that
-  moved under his card keeps Approve showing, and a head the check against his words judges against
-  them keeps Approve and any Approve he gave, the objection drawn whole under Where it stands, since
-  his Approve lands it whatever that check says, by his words "why the fuck would you keep eveyhting broken to make it perfect". Its Show me comes last,
+  PRs still ask his tap keeps Approve and Hold for them, and a held PR's section says why. Every section opens with its PR's stage as `stage.of` names it, such as "Its checks fail at
+  1a2b3c4: lint". A head that moved under his card keeps Approve showing, and a head the check against
+  his words judges against them keeps Approve and any Approve he gave, the objection drawn whole under
+  Where it stands, since his Approve lands it whatever that check says, by his words "why the fuck would you keep eveyhting broken to make it perfect". While a PR
+  fixes a bug hurting someone now, a card that waits on him is posted again every 30 minutes until it lands. Its Show me comes last,
   its pictures inline. The card's title and opening summary come from `## The stack` in its bottom PR.
 - Once he answers, the card folds to its title, his pick and one line per PR. When an answer or ruling
   of his replaces the work it carries, `drive answer` settles it as it does a question card.
@@ -412,7 +415,7 @@ When it is answered, replaced or redone:
   `drive order add`, `drive order set` or `drive job set --carries`, or `drive answer --reopened`, each
   withdrawing it with his words as the reason. His order filed on its thread, or a job carrying one,
   with no `--rework` names the card and leaves it up, since a stack can meet his words already. No
-  watch ready, redraw or new head brings it back; a fresh card goes up on its own, with a row saying
+  redraw or new head brings it back; a fresh card goes up on its own, with a row saying
   what changed, only once the builder's `READY` says in its `CHANGE:` line how his words are met. A
   question or any other words of his under it leave it up. His words: "So why isn't this card withdrawn then? And why do I have to keep asking that?"
 - Its words come from each PR's title and body, with record ids and the HTML tags GitHub draws
@@ -547,7 +550,7 @@ restating it.
   It used to fetch the last 64 KiB of every file; now it fetches the last one-sixteenth of each file
   (about 6 KiB of a 97 KiB file), never more than 64 KiB.
   ```
-- The coordinator writes its `report`, `ready` and `ask` records the same way, since a handler writes
+- The coordinator writes its `report` and `ask` records the same way, since a handler writes
   from their words.
 - Link everything he could open where it is named: a PR, a teammate's fix, a card, a release, a
   build, an alert, a thread or an earlier decision, so he never has to look it up himself. A link
@@ -631,8 +634,7 @@ restating it.
   commit and build.
 - Ask for a tap only when one is owed. Before any card or line asks him to tap, approve or hold a
   PR, read `drive status <pr>`; when he tapped it already, or it merged or closed, say what happened
-  to it instead. The post hook refuses a card or post, and the record hook the `ready` record that
-  draws his card, asking for a tap he already gave, naming the PR.
+  to it instead. The post hook refuses a card or post asking for a tap he already gave, naming the PR.
 
 ## What stays out
 

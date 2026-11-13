@@ -62,8 +62,8 @@ RECORD = {
             "enum": ["owner", "answer", "handoff", "defect"],
             "description": (
                 "handoff asks the session holding the order its attrs.order names for a step only it takes on that order, such as"
-                " redrawing its card, with no re, since cci also delivers a record to the writer of the record its re names; a"
-                " report, ready or ask goes through the cci `post` tool instead, whose hook reads it"
+                " starting a builder, with no re, since cci also delivers a record to the writer of the record its re names; a"
+                " report or ask goes through the cci `post` tool instead, whose hook reads it, and no record draws his card on a PR"
             ),
         },
         "text": {

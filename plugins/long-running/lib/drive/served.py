@@ -92,7 +92,7 @@ def check(name: str, key: str, cited: list[str]) -> None:
 
 
 def verdict(name: str, key: str) -> str:
-    """Judge one PR his card waits on at its head against his words, the one place a PR is judged, with the answers its builder's DESIGN: line cites, and keep the outcome on the PR: CHECKED and NOT READY also as a check event, which the watch says on the PR's line, so his card draws on a verdict with no coordinator turn, and a refusal goes to the session holding its order and is a line on his card, holding neither his Approve nor its landing; then redraw his open card in place, so it shows the verdict. A judge or GitHub read that failed is kept alone, and the watch tries it again RETRY on."""
+    """Judge one PR his card waits on at its head against his words, the one place a PR is judged, with the answers its builder's DESIGN: line cites, and keep the outcome on the PR: CHECKED and NOT READY also as a check event, which the watch says on the PR's line, and a refusal wakes its builder through drive pr wake and is a line on his card, holding neither his Approve nor its landing; then redraw his open card in place, so it shows the verdict. A judge or GitHub read that failed is kept alone, and the watch tries it again RETRY on."""
     data = state.load(name)
     pr = data["prs"][key]
     head, at, named = pr["head"], state.stamp(), ""
@@ -105,7 +105,7 @@ def verdict(name: str, key: str) -> str:
         outcome = f"{FAILED}: {error}"
     else:
         stamp = state.load(name)["prs"][key]["checked"]
-        outcome = f"{CHECKED} against the words of {', '.join(stamp['orders'])} at {stamp['head'][:10]}, so his card draws once it is green and approved"
+        outcome = f"{CHECKED} against the words of {', '.join(stamp['orders'])} at {stamp['head'][:10]}, so his Approve lands it once it is green"
     with state.edit(name) as data:
         pr = data["prs"][key]
         pr["checker"] = {"head": head, "pid": os.getpid(), "at": at, "outcome": outcome, "against": named}
@@ -155,9 +155,9 @@ def spawn(name: str, key: str) -> int:
 
 
 def carry(name: str, keys: list[str]) -> list[str]:
-    """Carry each PR's check to a head that moved while its change stayed the one judged, as a restack moves it, and drop the check of one whose change moved with it, so his card draws and his Approve lands on a restacked PR with no second judge and never on a change nobody judged; the PRs whose check it carried."""
+    """Carry each PR's check, and his Approve, to a head that moved while its change stayed the one judged or approved, by `git patch-id --stable`, as a restack moves it, so his Approve lands a restacked PR at green with no check and none of either stands on a change nobody judged or approved; keep the patch his Approve was tapped on the first time its head is read; the PRs whose check or Approve it carried."""
     data = state.load(name)
-    moved = [key for key in keys if (stamp := data["prs"][key]["checked"]) and stamp["head"] != data["prs"][key]["head"]]
+    moved = [key for key in keys if unread(data["prs"][key])]
     if not moved:
         return []
     reads = {key: change(key) for key in moved}
@@ -165,14 +165,37 @@ def carry(name: str, keys: list[str]) -> list[str]:
     with state.edit(name) as data:
         for key, read in reads.items():
             pr = data["prs"][key]
-            if not pr["checked"] or read["head"] != pr["head"]:
+            if read["head"] != pr["head"] or not unread(pr):
                 continue
-            if patch(read["diff"]) != pr["checked"]["patch"]:
-                pr["checked"] = None
-                continue
-            pr["checked"] |= {"head": read["head"]}
-            carried.append(key)
+            moved_to = patch(read["diff"])
+            stamp, tap, carried_here = pr["checked"], approval(pr), False
+            if stamp and stamp["head"] != pr["head"]:
+                carried_here = moved_to == stamp["patch"]
+                pr["checked"] = stamp | {"head": pr["head"]} if carried_here else None
+            if tap and tap["head"] == pr["head"]:
+                tap["patch"] = moved_to
+            elif tap and moved_to == tap["patch"]:
+                tap["head"] = pr["head"]
+                carried_here = True
+            elif tap:
+                tap["read"] = pr["head"]
+            if carried_here:
+                carried.append(key)
     return carried
+
+
+def unread(pr: dict) -> bool:
+    """Whether the change at the PR's head is still to be compared: a check stamped on another head, or his Approve with no patch kept on its own head, or one tapped on another head not yet compared with this one."""
+    stamp, tap = pr["checked"], approval(pr)
+    if stamp and stamp["head"] != pr["head"]:
+        return True
+    if not tap:
+        return False
+    return "patch" not in tap if tap["head"] == pr["head"] else "patch" in tap and tap.get("read") != pr["head"]
+
+
+def approval(pr: dict) -> dict | None:
+    return pr["tap"] if (pr["tap"] or {}).get("label") == "Approve" else None
 
 
 def patch(diff: bytes) -> str:
