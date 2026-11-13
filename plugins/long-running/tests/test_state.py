@@ -400,7 +400,7 @@ def test_a_drive_saved_dating_his_late_card_taps_by_when_the_drive_took_them_dat
     typed = state.new_close("answered", "Ring", "https://acme.slack.com/archives/D1/p1794600900000100", seq="699080", at=other)
     questions = [("Which raw_sql forms?", tap), ("Which forms take it?", tap | {"how": "superseded", "by": "demo:j1-1"}), ("Ring or knock?", typed)]
     data["jobs"] = {"j1": state.new_job("o1", "builder", "build it", [], taken) | {"questions": [state.new_question(None, title, taken, closed=closed) for title, closed in questions]}}
-    checker = {"head": "abc", "pid": 1, "at": taken, "outcome": "NOT READY", "against": "", "objected": "abc"}
+    checker = {"head": "abc", "pid": 1, "at": taken, "orders": None, "answers": None, "outcome": "NOT READY", "against": ""}
     read_tap = [f'demo:j1-1794600337558, {state.parse_time(taken).astimezone().isoformat(timespec="seconds")}, asked "Which raw_sql forms?": "Optional NONE"']
     read_typed = [f'demo:j1-1794600900000, {state.parse_time(other).astimezone().isoformat(timespec="seconds")}, asked "Ring or knock?": "Ring"']
     data["prs"] = {
