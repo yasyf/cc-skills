@@ -1256,6 +1256,8 @@ def on_actions(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, triggered: list[
     def read(what: str, cmd: list[str], max_age: str = "0s", text: bool = True) -> str:
         if cmd[-1] == ".default_branch":
             return "main\n"
+        if cmd[1:3] == ["pr", "view"]:
+            return f"{SHA}\n"
         runs = triggered if f"&head_sha={SHA}" in cmd[3] else next(answers)
         shown.write_text("".join(f"{run['id']} {run['status']} {run['conclusion']}\n" for run in runs))
         return "".join(json.dumps(run) + "\n" for run in runs)
@@ -1290,6 +1292,36 @@ def test_a_merge_whose_own_run_its_concurrency_group_cancelled_waits_on_the_run_
     install.prove("demo", "j1", 900)
     assert git.sleeps == [install.POLL_SECONDS]
     assert state.load("demo")["jobs"]["j1"]["said"] == f"DONE {URL} live: {script} exits 0 on long-running@skills 1.0.3"
+
+
+def test_drive_pr_ci_judges_a_merge_by_the_run_that_superseded_its_cancelled_own_never_by_a_push_merged_seconds_before(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    earlier = ci(43384583289, "long-running CI", "2026-11-13T07:16:37Z", "completed", "failure")
+    cancelled = ci(43384590795, "long-running CI", "2026-11-13T07:16:41Z", "completed", "cancelled")
+    superseding = ci(43384815193, "long-running CI", "2026-11-13T07:18:31Z", "completed", "success")
+    guides = ci(43384591254, "Guides", "2026-11-13T07:16:42Z", "completed", "success")
+    on_actions(monkeypatch, tmp_path, [cancelled, guides], [[earlier, cancelled, guides, superseding]])
+    assert cli.main(["pr", "ci", URL]) == 0
+    assert capsys.readouterr().out.splitlines() == [
+        f"yasyf/cc-skills#7 merged at {SHA[:12]}: passed",
+        f"Guides https://github.com/{REPO}/actions/runs/43384591254 completed success",
+        f"long-running CI https://github.com/{REPO}/actions/runs/43384815193 completed success",
+    ]
+
+
+def test_drive_pr_ci_exits_1_while_a_workflow_of_the_merge_failed_or_has_no_run_that_was_not_cancelled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    failed = ci(43384583289, "long-running CI", "2026-11-13T07:16:37Z", "completed", "failure")
+    cancelled = ci(43384591254, "Guides", "2026-11-13T07:16:42Z", "completed", "cancelled")
+    on_actions(monkeypatch, tmp_path, [failed, cancelled], [[failed, cancelled]])
+    assert cli.main(["pr", "ci", URL]) == 1
+    assert capsys.readouterr().out.splitlines() == [
+        f"yasyf/cc-skills#7 merged at {SHA[:12]}: not passed",
+        f"long-running CI https://github.com/{REPO}/actions/runs/43384583289 completed failure",
+        f"Guides: no run since {SHA[:12]} that was not cancelled",
+    ]
 
 
 def test_a_ci_run_still_running_at_the_deadline_takes_blocked_naming_it_and_runs_no_proof_file(

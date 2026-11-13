@@ -2911,6 +2911,17 @@ def pr_land(args: argparse.Namespace) -> int:
     return emit(args, f"{', '.join(keys)}: {outcome}", {"keys": keys, "outcome": outcome})
 
 
+def pr_ci(args: argparse.Namespace) -> int:
+    key = state.pr_key(args.url)
+    repo, number = key.split("#")
+    sha = github.read(f"{key}'s merge commit", ["gh", "pr", "view", number, "-R", repo, "--json", "mergeCommit", "-q", '.mergeCommit.oid // ""']).strip()
+    if not sha:
+        raise DriveError(f"{key} is not merged, so no CI run on its default branch judges it")
+    passed, lines = install.ci_verdict(repo, sha)
+    emit(args, "\n".join([f"{key} merged at {sha[:12]}: {'passed' if passed else 'not passed'}", *lines]), {"pr": key, "sha": sha, "passed": passed, "runs": lines})
+    return 0 if passed else 1
+
+
 def pr_check(args: argparse.Namespace) -> int:
     """Judge one PR against his words as the watch's check."""
     key, name = state.pr_key(args.url), state.resolve(args.drive)
@@ -4139,7 +4150,7 @@ def parser() -> argparse.ArgumentParser:
         help=(
             "what the watch starts once every PR of a builder's taken READY or PUSHED merged, a yasyf/* one among them, and it keeps an"
             " executable proof file: install each plugin a yasyf/* merge changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, its other merges taken at once, wait until each workflow a yasyf/* merge ran"
-            " on its default branch completed its first run from the merge on that was not cancelled and the drive's dashboard"
+            " on its default branch completed its first run from the merge on that was not cancelled, the run drive pr ci judges the merge by, and the drive's dashboard"
             " runs the newest long-running installed, run the proof file with those plugins' bin folders first on PATH, keep its output"
             " beside the job's report, take DONE on exit 0 and BLOCKED otherwise or when an install fails, no release will carry a merge,"
             " or a CI run still runs or the dashboard still runs an older install at the timeout, and keep the close report of an order the DONE finishes for the"
@@ -4224,6 +4235,17 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("url", help="the PR's URL")
     verb.add_argument("receipt", help="the receipt file the check kept under the drive's prs folder")
     verb.set_defaults(run=pr_checked)
+    verb = pr.add_parser(
+        "ci",
+        parents=both,
+        help=(
+            "judge a merged PR's CI as drive job prove waits on it: the first run not cancelled of each workflow that ran on its merge commit,"
+            " from that commit's run on by run id, never a run of a push merged before it; exits 0 once each completed and passed, 1 while one runs,"
+            " failed or has no run, naming each run, so a proof file of a fix to red CI reads its verdict here rather than picking a run itself"
+        ),
+    )
+    verb.add_argument("url", help="the PR's URL")
+    verb.set_defaults(run=pr_ci)
     verb = pr.add_parser(
         "wake",
         parents=both,
