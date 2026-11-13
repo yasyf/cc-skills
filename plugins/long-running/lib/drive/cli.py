@@ -1265,7 +1265,7 @@ def proven_again(data: dict, order_id: str, kind: str, goal: str) -> str | None:
 
 
 def waiting_builder(name: str, data: dict, reader_id: str, created: str) -> str | None:
-    """The builder a build order's reader is added with, waiting on it, for each of the reader's parts no builder, codex or design job carries, wherever a builder there starts only on research and job_refusal lets it wait on that reader, so its work is never research's alone while it reads."""
+    """The builder a build order's reader is added with, waiting on it, for each of the reader's parts no builder, codex or design job carries, its goal building those parts and never the reader's question, wherever a builder there starts only on research and job_refusal lets it wait on that reader, so its work is never research's alone while it reads."""
     reader = data["jobs"][reader_id]
     if reader["kind"] != "reader" or not (uncarried := [part for part in reader["parts"] if not state.carriers(data, reader["order"], part)]):
         return None
@@ -1274,7 +1274,7 @@ def waiting_builder(name: str, data: dict, reader_id: str, created: str) -> str 
     ):
         return None
     builder_id = state.next_id(data["jobs"], "j")
-    builder = data["jobs"][builder_id] = state.new_job(reader["order"], "builder", f"build what {reader_id}'s research finds: {reader['goal'].removeprefix('research: ')}", uncarried, created) | {"waits": [reader_id]}
+    builder = data["jobs"][builder_id] = state.new_job(reader["order"], "builder", state.parts_goal(uncarried), uncarried, created) | {"waits": [reader_id]}
     state.hold_unstarted(builder)
     data["orders"][reader["order"]]["jobs"].append(builder_id)
     return builder_id
@@ -2127,7 +2127,7 @@ def folded(data: dict, file: str) -> list[dict]:
 
 
 def job_report(args: argparse.Namespace) -> int:
-    """Keep a job's whole return from stdin in its history, which is its report, and print where, or to a Sprite lane, which opens no path of this Mac's, that it was kept with its first line, that line setting the job's state, or refuse it with nothing kept, naming the fix, when that line would set none; a reader's DESIGN is kept as its ASK in the same call, which draws his card on it and prints the file and the card, and each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links is registered on the job before the take, which joins its order to the bug, or kept untracked with the reason drive pr add refused it; a reader's DONE or DESIGN writes, as drive job brief does, the brief of each builder waiting on it that no agent or lane started and none briefed, serving drive tooling on a tooling order and his order on any other, and prints its `Read your brief first:` line; a design lane's DESIGN adds a builder for each change it lists that no builder or codex job is on, by state.add_changes, and prints when to start each. With no stdin, print every return the job took, newest first."""
+    """Keep a job's whole return from stdin in its history, which is its report, and print where, or to a Sprite lane, which opens no path of this Mac's, that it was kept with its first line, that line setting the job's state, or refuse it with nothing kept, naming the fix, when that line would set none; a reader's DESIGN is kept as its ASK in the same call, which draws his card on it and prints the file and the card, and each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links is registered on the job before the take, which joins its order to the bug, or kept untracked with the reason drive pr add refused it; a reader's DONE or DESIGN writes again, as drive job brief does, the brief of each builder of a part it reads that no agent or lane started and that opened no PR, by brief.unstarted_builders, so its Researched: line names the newest research of its parts, serving drive tooling on a tooling order and his order on any other, and prints its `Read your brief first:` line; a design lane's DESIGN adds a builder for each change it lists that no builder or codex job is on, by state.add_changes, and prints when to start each. With no stdin, print every return the job took, newest first."""
     name = state.resolve(args.drive)
     data = state.load(name)
     job = find(data["jobs"], args.id, "job")
@@ -2166,11 +2166,9 @@ def job_report(args: argparse.Namespace) -> int:
             state.take_result(data, args.id, line, whole)
             state.cite_designs(data, args.id, line, whole)
             added = state.add_changes(name, data, args.id, whole)
-        order = data["orders"][job["order"]]
         briefed = [
             f"{builder_id}: {write_brief(name, builder_id, {})[0]}"
-            for builder_id in (order["jobs"] if job["kind"] == "reader" and data["jobs"][args.id]["state"] == "done" else [])
-            if args.id in (builder := data["jobs"][builder_id])["waits"] and state.unstarted_builder(data, builder) and not builder.get("brief")
+            for builder_id in (brief.unstarted_builders(data, args.id) if job["kind"] == "reader" and data["jobs"][args.id]["state"] == "done" else [])
         ]
         kept = str(state.replies_path(name, args.id))
         where = f"kept {args.id}'s report: {line}" if os.environ.get(state.OWN_JOB_ENV) else kept

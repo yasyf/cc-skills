@@ -286,6 +286,17 @@ def readers(data: dict, order_id: str, parts: list[str]) -> list[str]:
     return [job_id for job_id in order["jobs"] if (job := data["jobs"][job_id])["kind"] == "reader" and read & set(state.job_parts(job, order_id))]
 
 
+def unstarted_builders(data: dict, reader_id: str) -> list[str]:
+    """Each builder of a part this reader reads, on its order or one it carries, that no agent or lane took and that opened no PR, so the brief it starts on can still change to name the newest research of its parts."""
+    reader = data["jobs"][reader_id]
+    return [
+        job_id
+        for order_id in [reader["order"], *reader["carries"]]
+        for job_id in data["orders"][order_id]["jobs"]
+        if (job := data["jobs"][job_id])["kind"] == "builder" and job["order"] == order_id and state.untaken(job) and reader_id in readers(data, order_id, job["parts"])
+    ]
+
+
 def waits_on_research(order: dict, kind: str, parts: list[str], lands: bool = False) -> bool:
     """Whether a job of this kind on these parts starts only on its reader's research: a build order's builder, designer or codex lane, but on an incident, on the immediate fix, as a builder landing PRs he approved, or as a follow-up's design, each of which starts at once."""
     return (

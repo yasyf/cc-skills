@@ -3769,7 +3769,7 @@ def test_a_build_orders_designer_and_builder_are_added_waiting_on_its_reader_sti
         0,
         "j3\nj3 waits on j1: start no agent for it until the watch's FREE line says its last wait ended\n"
         'j1 reader running on "design options": research: topologies\n'
-        'j2 builder waiting on "design options": build what j1\'s research finds: topologies',
+        'j2 builder waiting on "design options": build answer; control freak; design options',
     )
     assert run("job", "add", "builder", "--order", "o1", "--part", "control freak", "--goal", "build it", "--waits", "j1")[0] == 0
     jobs = state.load("demo")["jobs"]
@@ -3787,6 +3787,20 @@ def test_a_build_orders_designer_and_builder_are_added_waiting_on_its_reader_sti
     assert "--waits j1: j1 is done, so nothing of it is left to wait on" in capsys.readouterr().err
     assert run("job", "add", "builder", "--order", "o1", "--part", "control freak", "--goal", "x", "--waits", "j5")[1].splitlines()[0] == "j6"
     assert state.load("demo")["jobs"]["j6"]["waits"] == ["j5"]
+
+
+def test_a_readers_builder_builds_its_parts_and_each_later_readers_done_rebriefs_it_on_the_newest_research_until_an_agent_takes_it(
+    run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build", "--parts", "the copy", "the proof")
+    run("job", "add", "reader", "--order", "o1", "--goal", "research: read-only, at once: why the copy stalls")
+    assert keep(monkeypatch, capsys, "j1", RESEARCH)[0] == 0
+    run("job", "add", "reader", "--order", "o1", "--part", "the copy", "--goal", "research: the copy again")
+    assert run("job", "add", "builder", "--order", "o1", "--part", "the copy", "--goal", "copy it", "--agent", "a1")[1].splitlines()[0] == "j4"
+    assert keep(monkeypatch, capsys, "j3", RESEARCH)[0] == 0
+    jobs = state.load("demo")["jobs"]
+    written = Path(jobs["j2"]["brief"]).read_text()
+    assert ("\nGoal: build the copy; the proof\n" in written, "\nResearched: j3\n" in written, jobs["j4"].get("brief")) == (True, True, None)
 
 
 def test_a_build_jobs_research_is_a_reader_of_its_own_part_a_designs_change_counting_as_the_designs_part(
