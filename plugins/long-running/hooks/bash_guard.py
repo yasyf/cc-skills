@@ -65,18 +65,28 @@ OPTIONED = {
 }
 SOURCES = {"source", "."}
 FOLLOWED_DEPTH = 4
+TEAM_AREA = re.compile(r"iris/teams/([^/\s]+)/([^/\s]+)")
 TEAM_READ = (
-    "refused: this reads `{location}` where the job runs, and a drive job reads a team's data, its Iris blobs and run journals"
-    " included, only on a pass box as the runs-reader service account, never on this Mac, a Sprite or after"
-    ' `drive break-glass`, by his words "it shouldnt be reading iris blobs at all locally only with a service account on'
-    ' a pass box". Launch a box with `AWS_PROFILE=plat-prod tools/ci pass-box launch --purpose <job> --type <instance'
-    " type> --delete-after <YYYY-MM-DD>`, then run the read and the work that needs it there with"
-    " `AWS_PROFILE=plat-prod aws ssm send-command --region us-west-2 --instance-ids <id> --document-name"
-    " AWS-RunShellScript --parameters file://<scratch>/<name>.json`, whose commands load the team's read grant as the"
-    ' runs reader first, `eval "$(./ci runs-reader grant --team <team id>)"`, and copy no team data back;'
-    " docs/pass-boxes.md in Forge-AI/monorepo has each step. A team on its own bucket is read only in its own cluster,"
-    " with `tools/ci cluster-job`. Only {forge} read where a job runs, since they hold no team's data: a box's binary"
-    " goes under `pass-box/<purpose>/` in its env's MicroVM artifacts bucket, and the box fetches it through a presigned URL"
+    "refused: this reads `{location}` where the job runs, and a drive job reads a team's data only with a service account"
+    ' on a pass box, never on this Mac, a Sprite or after `drive break-glass`, by his words "it shouldnt be reading iris'
+    ' blobs at all locally only with a service account on a pass box". {route} Only {forge} read where a job runs, since'
+    " they hold no team's data: a box's binary goes under `pass-box/<purpose>/` in its env's MicroVM artifacts bucket, and"
+    " the box fetches it through a presigned URL"
+)
+RUNS_ROUTE = (
+    "The one such read is `iris/teams/<team>/runs/` of a team the plat-prod cluster serves: launch a box with"
+    " `AWS_PROFILE=plat-prod tools/ci pass-box launch --purpose <job> --type <instance type> --delete-after <YYYY-MM-DD>`,"
+    " then run the read and the work that needs it there with `AWS_PROFILE=plat-prod aws ssm send-command --region"
+    " us-west-2 --instance-ids <id> --document-name AWS-RunShellScript --parameters file://<scratch>/<name>.json`, whose"
+    ' commands load the runs reader\'s grant first, `eval "$(./ci runs-reader grant --team {team})"`, and copy no team data'
+    " back; docs/pass-boxes.md in Forge-AI/monorepo has each step. A team another cluster serves, a staging read, or a"
+    " `./ci runs-reader grant` that refuses, as it does until Forge-AI/monorepo#55460 and #55533 are live, has no route:"
+    " return `BLOCKED` naming the prefix, the team and its refusal."
+)
+NO_ROUTE = (
+    "No service account reads `{prefix}`, as the runs reader's grant reaches `iris/teams/<team>/runs/` alone: return"
+    " `BLOCKED` naming the prefix and the team, which leaves him to pick the service account that reads it, never a"
+    " person's grant such as `tools/ci pass-box-creds`, which mints under your own sand session."
 )
 
 DATADOG_CLI = "pup"
@@ -390,8 +400,16 @@ def team_read(command: str, cwd: str) -> str | None:
     for words in reached(command, Place(Path(cwd))):
         if location := next((found for found in bucket_reads(words) if not f"{found}/".startswith(FORGE_LOCATIONS)), None):
             forge = [f"`{place}`" for place in FORGE_LOCATIONS]
-            return TEAM_READ.format(location=location, forge=f"{', '.join(forge[:-1])} and {forge[-1]}")
+            return TEAM_READ.format(location=location, route=team_route(location), forge=f"{', '.join(forge[:-1])} and {forge[-1]}")
     return None
+
+
+def team_route(location: str) -> str:
+    """The route his words leave a read of a team's data: the runs reader on a plat-prod pass box for a team's `runs/`, and `BLOCKED` for every other prefix."""
+    found = TEAM_AREA.search(location)
+    if found and found[2] == "runs":
+        return RUNS_ROUTE.format(team=found[1])
+    return NO_ROUTE.format(prefix=f"{found[0]}/" if found else location)
 
 
 def datadog_cli(command: str, cwd: str) -> str | None:

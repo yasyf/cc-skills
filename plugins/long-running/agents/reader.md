@@ -33,10 +33,16 @@ scripts. Your brief's `Drive:` line names `<your job>` and `Scratch:` your one f
   the `db-read` skill, or
   `drive break-glass <job> --stack <domain>/<env> --reason "<why>" -- <command>`, which runs the
   read under this Mac's machine profile once its grant passes, with no sign-in and no card. A
-  team's data, its bucket's objects, Iris blobs and run journals included, is read only on a pass
-  box as the runs-reader service account, never on this Mac, a Sprite or after `drive break-glass`,
-  by his words "it shouldnt be reading iris blobs at all locally only with a service account on a
-  pass box": the `bash_guard` hook refuses such a read anywhere else and prints the pass box steps.
+  team's data, its bucket's objects, Iris blobs, run and session journals included, is never read
+  on this Mac, a Sprite or after `drive break-glass`, by his words "it shouldnt be reading iris
+  blobs at all locally only with a service account on a pass box", and the `bash_guard` hook
+  refuses such a read and prints its route. The one service-account read is `iris/teams/<team>/runs/`
+  of a team the plat-prod cluster serves, on a plat-prod pass box after
+  `eval "$(./ci runs-reader grant --team <team id>)"`; any other prefix, `sessions/` and `blobs/`
+  included, a team another cluster serves, staging, or a grant that refuses, as it does until
+  Forge-AI/monorepo#55460 and #55533 are live, has no route: return `BLOCKED` naming the prefix and
+  team, since which service account reads it is his card, never a person's grant such as
+  `tools/ci pass-box-creds`.
   Any other AWS read, a pass box's key included, runs first under a profile `~/.aws/config` chains
   to the machine certificate, and no card asks him for a sign-in, Touch ID or cc-sudo for one. An
   Iris session's `iris_sessions` row, read with `db-read`, names its team, whose bucket holds its

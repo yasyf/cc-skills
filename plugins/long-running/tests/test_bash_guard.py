@@ -331,7 +331,7 @@ def test_a_drive_job_reads_no_teams_blobs_where_it_runs_even_through_break_glass
     assert reason.startswith("refused: this reads `artifacts-prod/iris/teams/team_01demo/runs/blobs/$1` where the job runs")
     assert '"it shouldnt be reading iris blobs at all locally only with a service account on a pass box"' in reason
     assert "`AWS_PROFILE=plat-prod tools/ci pass-box launch --purpose <job>" in reason
-    assert '`eval "$(./ci runs-reader grant --team <team id>)"`' in reason
+    assert '`eval "$(./ci runs-reader grant --team team_01demo)"`' in reason
     assert bash_guard.deny_reason(bash(f"cd {root} && {replay}", cwd="/work", **builder)) == reason
     assert bash_guard.deny_reason(bash(replay, cwd=str(root), session="ordinary")) is None
 
@@ -375,6 +375,28 @@ def test_a_bucket_read_is_refused_by_what_it_reads_and_a_forge_bucket_or_a_pass_
     assert bash_guard.deny_reason(bash("aws s3 ls s3://artifacts-prod/iris/teams/t/", session="ordinary")) is None
     monkeypatch.setenv(state.REMOTE_LANE_ENV, "1")
     assert bash_guard.deny_reason(bash("aws s3 ls s3://artifacts-prod/iris/teams/t/", session="sprite")).startswith("refused: this reads")
+
+
+def test_a_refused_team_read_names_the_runs_reader_for_a_teams_runs_and_blocked_for_every_other_prefix(demo: str) -> None:
+    builder = {"agent_id": "a-1", "agent_type": "long-running:builder"}
+    runs = bash_guard.deny_reason(bash("aws s3 cp s3://artifacts-prod/iris/teams/team_01demo/runs/blobs/x -", **builder))
+    assert "The one such read is `iris/teams/<team>/runs/` of a team the plat-prod cluster serves" in runs
+    assert '`eval "$(./ci runs-reader grant --team team_01demo)"`' in runs
+    assert "A team another cluster serves, a staging read, or a `./ci runs-reader grant` that refuses" in runs
+    assert "Forge-AI/monorepo#55460 and #55533 are live, has no route: return `BLOCKED`" in runs
+    blocked = {
+        "aws s3 ls s3://artifacts-prod/iris/teams/team_01demo/sessions/": "iris/teams/team_01demo/sessions/",
+        "aws s3 cp s3://artifacts-prod/iris/teams/team_01demo/blobs/team_01demo/x -": "iris/teams/team_01demo/blobs/",
+        "aws s3api get-object --bucket forge-acme-com --key iris/teams/t/runs/blobs/x out": "forge-acme-com",
+        "AWS_PROFILE=plat-prod aws s3 sync s3://frg-plat-usw2-prod-sandsql-replication/wal/team_1/ .": "frg-plat-usw2-prod-sandsql-replication/wal/team_1/",
+        "sh -c 'aws s3 ls s3://$BUCKET/iris/'": "$BUCKET/iris/",
+    }
+    for command, prefix in blocked.items():
+        reason = bash_guard.deny_reason(bash(command, **builder))
+        assert f"No service account reads `{prefix}`" in reason, command
+        assert "return `BLOCKED` naming the prefix and the team" in reason, command
+        assert "never a person's grant such as `tools/ci pass-box-creds`" in reason, command
+        assert "runs-reader grant" not in reason and "pass-box launch" not in reason, command
 
 
 HANDLER_SESSION = "5e48f8c7-ad54-49d0-bf4e-bbc509e11035"
