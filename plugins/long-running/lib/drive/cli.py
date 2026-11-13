@@ -47,6 +47,7 @@ RULING = "ruling"
 CODE_LABEL = "code:"
 ID_FORMS = "an order o<n>, a job j<n>, or a PR as owner/repo#N, its URL or its bare number"
 WAITS_CARD = re.compile(r"https://\S+/archives/\S+/p\d+\S*|[\w.-]+:[\w.-]+|merge:[\w.-]+:[\w.-]+:\d+(?:-\d+)?")
+GO_CI = Path("tools", "ci")
 CLAUDE_BUILDS = Path.home() / ".local" / "share" / "claude" / "versions"
 BRIEF_FLAGS = ("serves", "done_when", "where", "runs_as", "release", "ruling", "native", "interactions", "would_he_ask", "plan", "incident", "scratch")
 BRIEF_NEEDS = ("serves", "done_when", "where")
@@ -1644,7 +1645,7 @@ def job_report(args: argparse.Namespace) -> int:
         if not whole.strip():
             raise DriveError(f"stdin held no report for {args.id}; pipe its whole return in: printf '%s\\n' '<line>' ... | drive job report {args.id} -")
         line = whole.strip().splitlines()[0].strip()
-        if refused := brief.report_refusal(name, data, args.id, whole) or state.result_refusal(data, args.id, line, whole):
+        if refused := brief.report_refusal(name, data, args.id, whole) or state.result_refusal(data, args.id, line, whole) or unreached(name, data, state.result_waits(data, job["order"], line)):
             raise DriveError(f"{args.id}: refused, nothing kept: {refused}")
         try:
             registered = register_named(name, args.id, line)
@@ -2539,6 +2540,34 @@ def check_waits(name: str, waits: list[str]) -> None:
                 " <owner>/<repo>#<n>, held until it merges or closes, or release:<service>:<owner>/<repo>#<n>, the release of"
                 " that service carrying that PR"
             )
+    if refused := unreached(name, data, waits):
+        raise DriveError(f"--waits {refused}")
+
+
+def unreached(name: str, data: dict, waits: list[str]) -> str | None:
+    """Why a release wait among waits names a service whose release never carries its PR's change, by go/ci's own map of the components a change's paths reach, `tools/ci release select --pr` run in the drive's checkout at the head of its default branch on the paths the PR changes: the service is no component go/ci releases, or the paths reach components and the service is none of them. None for a PR outside the repository of a coordinator checkout holding tools/ci, and for one whose paths reach no component by that map, such as one changing only shared Pulumi code, which go/ci reaches only through the rendered rows a Buildkite job reads."""
+    clone = data["roles"]["coordinator"]["cwd"]
+    releases = [found for wait in waits if (found := state.RELEASE_WAIT.fullmatch(wait))]
+    if not (releases and (Path(clone) / GO_CI).is_file()):
+        return None
+    named = ", ".join(found[0] for found in releases)
+    try:
+        repo = github.checkout_repo(clone).casefold()
+        if not (ours := [found for found in releases if github.repo_of(found["pr"]).casefold() == repo]):
+            return None
+        checkout = orca.checkout(name, data)
+        for found in ours:
+            key, service = found["pr"], found["service"]
+            request = json.dumps({"body": "", "paths": github.files(key)})
+            answer = json.loads(github.run([str(checkout / GO_CI), "release", "select", "--pr"], cwd=str(checkout), stdin=request))
+            reach = f"`tools/ci release select --pr` lists the paths {key} changes reaching {', '.join(answer['touched']) or 'no component'}"
+            if service not in answer["components"]:
+                return f"{found[0]}: {service} is no component go/ci releases, so no release ever carries {key}; {reach}"
+            if answer["touched"] and service not in answer["touched"]:
+                return f"{found[0]}: {service}'s release never carries {key}, since {reach}; wait on the release of the one that runs the change"
+    except github.GithubError as error:
+        raise DriveError(f"could not read which components the paths each PR of {named} changes reach, so nothing was taken: {error}; run this again") from None
+    return None
 
 
 def merged_waits(owner: dict, args: argparse.Namespace) -> list[str]:
@@ -3306,7 +3335,9 @@ def parser() -> argparse.ArgumentParser:
         metavar="CARD|JOB|PR|RELEASE",
         help=(
             "a design card or PR card of his still open, by its Slack link or waits id, a PR the drive tracks as <owner>/<repo>#<n>,"
-            " release:<service>:<owner>/<repo>#<n>, the next release of that service carrying that PR, or for a PR a job, it waits on;"
+            " release:<service>:<owner>/<repo>#<n>, the next release of that service carrying that PR, refused, naming the components"
+            " they reach, when go/ci's own map, tools/ci release select --pr, finds the PR's changed paths reach components and that"
+            " service is none of them or is no component at all, or for a PR a job, it waits on;"
             " repeat for each. The watch drops each as he answers or taps it, the PR merges or closes, the job ends or GitHub shows the"
             " newest release of that service holds the PR's merge commit, and says FREE once when the last is gone, which wakes the"
             " coordinator. On a PR it never withdraws his open card: the card is redrawn in place, Approve and Hold kept, to say"

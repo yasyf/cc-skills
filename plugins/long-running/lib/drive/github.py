@@ -35,13 +35,13 @@ class GithubError(Exception):
     pass
 
 
-def run(cmd: list[str], cwd: str | None = None, timeout: int = 120, max_age: str = "0s", text: bool = True) -> str | bytes:
-    """Run a command, its output as text or, with text off, as the bytes it wrote; a gh one goes through ccx's GitHub gateway, which charges it to this drive verb or hook in the machine-wide ledger, refuses it under the rate-limit floor, and answers a read from its cache when the same read was answered within max_age."""
+def run(cmd: list[str], cwd: str | None = None, timeout: int = 120, max_age: str = "0s", text: bool = True, stdin: str | None = None) -> str | bytes:
+    """Run a command, given stdin when named, its output as text or, with text off, as the bytes it wrote; a gh one goes through ccx's GitHub gateway, which charges it to this drive verb or hook in the machine-wide ledger, refuses it under the rate-limit floor, and answers a read from its cache when the same read was answered within max_age."""
     env = None
     if cmd[0] == "gh":
         cmd, env = ["ccx", "vcs", "gh", "--max-age", max_age, "--", *cmd[1:]], os.environ | {"CCX_CALLER": CALLER}
     try:
-        result = subprocess.run(cmd, cwd=cwd, env=env, check=False, capture_output=True, text=text, timeout=timeout)
+        result = subprocess.run(cmd, cwd=cwd, env=env, input=stdin, check=False, capture_output=True, text=text, timeout=timeout)
     except (OSError, subprocess.TimeoutExpired) as error:
         raise GithubError(str(error)) from None
     if result.returncode:
@@ -61,6 +61,12 @@ def read(what: str, cmd: list[str], max_age: str = "0s", text: bool = True) -> s
 def close(url: str) -> None:
     """Close a pull request on GitHub."""
     run(["gh", "pr", "close", url])
+
+
+def files(key: str) -> list[str]:
+    """The path of each file a PR changes, as GitHub lists them."""
+    owner, name, number = split(key)
+    return run(["gh", "api", "--paginate", f"repos/{owner}/{name}/pulls/{number}/files", "--jq", ".[].filename"]).splitlines()
 
 
 def default_branch(repo: str) -> str:

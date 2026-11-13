@@ -107,7 +107,8 @@ opening with no result, a `WAITING` naming nothing the watch frees it on, a desi
 whose `Fork:` line names a file keeping no question of the job, and a reader's `DESIGN` that
 `drive job ask` refuses as his card. Each drive PR and `release:<service>:<owner>/<repo>#<n>` a
 `READY`, `PUSHED` or `WAITING` line names becomes a wait, which the watch's `FREE` line ends once
-the PR merges or closes or the release is out:
+the PR merges or closes or the release is out; a release wait whose service `tools/ci release select
+--pr` finds the PR's changed paths never reach is refused, naming the components they reach:
 
 | First line | The job's state |
 |---|---|
