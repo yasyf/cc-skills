@@ -80,13 +80,14 @@ def listed(name: str) -> list[dict]:
 
 def shown(drive: dict, pages: list[dict]) -> list[dict]:
     """Each page as Pages lists it: live while any order it shows is open, filed where its first order is filed now and titled by it, so a refiled order takes its pages along."""
+    orders = [entry | {"id": order_id, "title": view.order_title(entry)} for order_id, entry in drive["orders"].items()]
     return [
         page
         | {
-            "live": any(drive["orders"][order_id]["state"] not in state.CLOSED_ORDER_STATES for order_id in scope_orders([entry | {"id": order_id} for order_id, entry in drive["orders"].items()], page)),
+            "live": any(drive["orders"][order_id]["state"] not in state.CLOSED_ORDER_STATES for order_id in scope_orders(orders, page)),
             "project": first["project"],
             "workstream": first["workstream"],
-            "order_title": first["title"],
+            "order_title": view.order_title(first),
         }
         for page in pages
         for first in [drive["orders"][page["orders"][0]]]
