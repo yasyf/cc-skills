@@ -2618,7 +2618,7 @@ def pr_set(args: argparse.Namespace) -> int:
     found, source = view.stored_cards(name)
     found = found if source == "live" else None
     now = state.load(name)
-    stage.shown(now, found)
+    stage.shown(now, found, [key] if now["prs"][key]["state"] == "open" else [])
     line = render.pr_line(key, now["prs"][key], view.pr_card_words(found, source, pr["url"])) + serving + untapped + out + "".join(f"\nwithdrew his card {card}: {why}" for card in withdrawn) + corrected
     return emit(args, line, {"key": key, "withdrawn": withdrawn, **pr})
 
@@ -3177,17 +3177,18 @@ def answering(name: str, args: argparse.Namespace) -> Callable[[str], str]:
     return briefed
 
 
-def with_cards(name: str, data: dict) -> dict:
-    """The drive with each question and open PR marked with the state of its card of his, as the cards were last stored, and each open PR's stage as stage.shown puts it on."""
+def with_cards(name: str, data: dict, within: dict | None = None) -> dict:
+    """The drive with each question and open PR marked with the state of its card of his, as the cards were last stored, and each open PR's stage as stage.shown puts it on; with within, a narrowing of the drive that shares its records, only within's questions and PRs, each still read against the whole drive."""
     from drive import stage, view
 
+    marked = within or data
     found, source = view.stored_cards(name)
     found = found if source == "live" else None
-    for question in (question for job in data["jobs"].values() for question in job["questions"]):
+    for question in (question for job in marked["jobs"].values() for question in job["questions"]):
         question["card_state"] = view.card_words(found, source, question["card"] or question["waits"])
-    for pr in data["prs"].values():
+    for pr in marked["prs"].values():
         pr["card_state"] = view.pr_card_words(found, source, pr["url"]) if pr["state"] == "open" else None
-    stage.shown(data, found)
+    stage.shown(data, found, state.open_pr_keys(marked))
     return data
 
 
@@ -3286,18 +3287,21 @@ def status(args: argparse.Namespace) -> int:
 
     name = state.resolve(args.drive)
     view.refresh_cards(name)
-    data = with_cards(name, state.load(name))
+    data = state.load(name)
+    shown = only(data, args.ids) if args.ids else None
+    with_cards(name, data, shown)
     for job_id, in_line in place.positions(data).items():
         data["jobs"][job_id]["in_line"] = in_line
     corrected = agents.corrections(name, data["held"])
     for seq, mark in data["held"].items():
         mark["corrections"] = corrected.get(seq, [])
-    shown = only(data, args.ids) if args.ids else None
     for project, held in data["subcoordinators"].items():
         held["watch"] = watch.holder(state.pid_path(name, project))
-    bound = state.bound_sessions(data)
-    with ThreadPoolExecutor() as pool:
-        seen = dict(zip(bound, pool.map(lambda held: with_build(orca_place(held, name_show), held), bound.values()), strict=True))
+    seen = {}
+    if shown is None:
+        bound = state.bound_sessions(data)
+        with ThreadPoolExecutor() as pool:
+            seen = dict(zip(bound, pool.map(lambda held: with_build(orca_place(held, name_show), held), bound.values()), strict=True))
     session = os.environ.get("CLAUDE_CODE_SESSION_ID")
     project = state.session_project(data, session)
     runs = (lambda order: state.runs(data, order, project)) if state.session_role(data, session) == "coordinator" else None

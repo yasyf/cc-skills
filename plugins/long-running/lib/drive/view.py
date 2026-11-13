@@ -45,6 +45,7 @@ import re
 import subprocess
 from collections.abc import Iterable
 from datetime import date, datetime, timedelta
+from functools import cache
 from zoneinfo import ZoneInfo
 
 from drive import artifacts, github, limits, slack, state
@@ -132,6 +133,7 @@ def live_cards(name: str) -> dict | None:
     return found if source == "live" else None
 
 
+@cache
 def message_key(url: str) -> str:
     match = SLACK_TS.search(url)
     return match[1] if match else url

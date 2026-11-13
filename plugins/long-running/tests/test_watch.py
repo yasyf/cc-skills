@@ -2403,10 +2403,10 @@ def test_drive_status_shows_each_open_prs_stage_now_keeping_its_since_only_while
     with state.edit(demo) as data:
         data["prs"][KEY]["stage"] = {"name": "grading", "owner": "", "why": "", "since": state.stamp(T0), "woke": None}
     data = state.load(demo)
-    stage.shown(data, NO_CARDS)
+    stage.shown(data, NO_CARDS, [KEY])
     assert (data["prs"][KEY]["stage"]["name"], data["prs"][KEY]["stage"]["since"]) == ("grading", state.stamp(T0))
     data["prs"][KEY]["checks"] = "fail"
-    stage.shown(data, NO_CARDS)
+    stage.shown(data, NO_CARDS, [KEY])
     assert (data["prs"][KEY]["stage"]["name"], data["prs"][KEY]["stage"]["since"], state.load(demo)["prs"][KEY]["stage"]["name"]) == ("red", None, "grading")
 
 
