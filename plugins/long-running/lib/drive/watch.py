@@ -605,8 +605,8 @@ def first_line(text: str) -> str:
     return next((line.strip() for line in text.splitlines() if line.strip()), "")
 
 
-def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetime, kept: Path | None, taken: bool) -> str | None:
-    """Record one message from a remote lane on its job, a final report ending any question the lane asked before it and setting its state unless state.result_refusal refuses it or it types a clock time for work already done, which the event line names, and a question opening with a result other than ASK being that result; the event line it wakes the coordinator with, if any, which for a question naming `LOG <url>`s says drive job resume reads them ahead of the answer, for an `ASK <file>` naming the block `drive job ask` kept is that line, as a job's own return is, and for any other `ASK` says that `drive job ask` keeps it. A report `drive job report` already took, as a lane keeps it before its worker_done ends its turn, only ends that question, since its line went with that command's answer; a report the watch takes itself names each PR it links that the drive does not track, since only `drive pr add` registers one."""
+def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetime, kept: str | None, taken: bool) -> str | None:
+    """Record one message from a remote lane on its job, a final report ending any question the lane asked before it and setting its state unless state.result_refusal refuses it or it types a clock time for work already done, which the event line names, and a question opening with a result other than ASK being that result; the event line it wakes the coordinator with, if any, which for a question naming `LOG <url>`s says drive job resume reads them ahead of the answer, for an `ASK <file> [<file>…]` naming the blocks `drive job ask` kept is that line, as a job's own return is, and for any other `ASK` says that `drive job ask` keeps it. A report `drive job report` already took, as a lane keeps it before its worker_done ends its turn, only ends that question, since its line went with that command's answer; a report the watch takes itself names each PR it links that the drive does not track, since only `drive pr add` registers one."""
     job = data["jobs"][job_id]
     kind = message["type"]
     body = message["body"] or ""
@@ -686,22 +686,16 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
     return [line for line in merge_lane_prs(watcher, reported) + read_lines(watcher, data, moment) if line]
 
 
-def kept_asks(data: dict, lanes: dict[str, dict[str | None, str]], messages: list[tuple[str, dict]], kept: Callable[[str], set[str]]) -> dict[str, Path]:
-    """The file of each new `ASK <file>` question a remote lane asked naming a block `drive job ask` kept for its job, by its message id, as a job on this Mac returns `ASK <file>`; any other ASK goes on to the coordinator, whose `drive job ask <j>` keeps it."""
+def kept_asks(data: dict, lanes: dict[str, dict[str | None, str]], messages: list[tuple[str, dict]], kept: Callable[[str], set[str]]) -> dict[str, str]:
+    """The files of each new `ASK <file> [<file>…]` question a remote lane asked naming only blocks `drive job ask` kept for its job, by its message id, as a job on this Mac returns `ASK <file>`; any other ASK goes on to the coordinator, whose `drive job ask <j>` keeps it."""
     asks = {}
     for run, message in messages:
         job_id = sender(lanes, run, message)
         if not job_id or message["sequence"] <= data["jobs"][job_id]["mail_seen"] or message["type"] != "question" or message["id"] in kept(job_id):
             continue
-        if file := kept_file(data["jobs"][job_id], message["body"] or ""):
-            asks[message["id"]] = file
+        if questions := state.asked_in(data["jobs"][job_id], reads.opening(message["body"] or "")):
+            asks[message["id"]] = " ".join(question["file"] for question in questions)
     return asks
-
-
-def kept_file(job: dict, body: str) -> Path | None:
-    """The file of a lane's `ASK <file>` question naming a block `drive job ask` kept for its job, None for any other question."""
-    asked = state.ASK_LINE.fullmatch(reads.opening(body))
-    return Path(asked["file"]).expanduser() if asked and state.kept_in(job, Path(asked["file"]).expanduser()) else None
 
 
 def kept_return(name: str, job_id: str, body: str) -> bool:
@@ -1625,19 +1619,27 @@ def can_wake(job_id: str, job: dict, data: dict, moment: datetime) -> bool:
 
 
 def unanswered(job_id: str, job: dict, moment: datetime) -> str | None:
-    """A lane's question no resume has answered for 30 minutes, whatever card or PR it has: only his card drawn for it since it came answers it, since an older card asks him something else; his answer since it came that no resume carried leads the line, and an `ASK` no `drive job ask` kept says that keeps it, as mail_line does, since no resume answers his question."""
+    """A lane's question no resume has answered for 30 minutes, whatever PR it has, that his cards do not carry; his answer since it came that no resume carried leads the line, and an `ASK` no `drive job ask` kept says that keeps it, as mail_line does, since no resume answers his question."""
     if not job.get("ask"):
         return None
     asked = state.parse_time(job["ask_at"])
-    drawn = (question for question in view.open_questions(job) if question["card"] or question["waits"])
-    if moment - asked < QUIET_FOR or any(state.parse_time(question["asked"]) >= asked for question in drawn):
+    if moment - asked < QUIET_FOR or carded(job, asked):
         return None
     question = f'"{cut(job["said"] or "", 80)}" {minutes(moment - asked)} minutes ago'
     if answers := [answer for answer in job["undelivered"] if state.parse_time(answer["at"]) >= asked]:
         return f"{unreached(job_id, answers[-1])}, answering its lane's question {question}"
-    if reads.asks(job["report"] or "") and not kept_file(job, job["report"]):
+    if reads.asks(job["report"] or "") and not state.asked_in(job, reads.opening(job["report"])):
         return f"{job_id}'s lane asked {question}, an ASK only his card answers: {UNKEPT_ASK.format(job=job_id)}"
     return f'{job_id}\'s lane asked {question} and nothing answered it: drive job resume {job_id} "<the answer>" answers it'
+
+
+def carded(job: dict, asked: datetime) -> bool:
+    """Whether his cards carry a lane's question: each question its job kept that it names, by the files its `ASK <file> [<file>…]` report names or as its said line, open on a card of his whenever it was kept; a question naming none of them, a card drawn since it came, since an older card asks him something else."""
+    drawn = [question for question in view.open_questions(job) if question["card"] or question["waits"]]
+    said = [question for question in job["questions"] if state.same_question(question["title"], job["said"])][-1:]
+    if named := state.asked_in(job, reads.opening(job["report"] or "")) or said:
+        return all(question in drawn for question in named)
+    return any(state.parse_time(question["asked"]) >= asked for question in drawn)
 
 
 def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, moment: datetime) -> str | None:

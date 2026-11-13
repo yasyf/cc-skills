@@ -67,7 +67,7 @@ INCIDENT_BRIEF = f'each brief\'s Incident: line carries, word for word: "{INCIDE
 RESULT_STATES = {"DONE": "done", "READY": "waiting", "PUSHED": "waiting", "WAITING": "waiting", "DESIGN": "waiting", "ASK": "waiting", "BLOCKED": "failed", "HANDOFF": "stopped"}
 BUILT_LINE = re.compile(r"BUILT (?P<branch>[^\s,]+(?:, [^\s,]+)*?),? waits on (?P<cards>.+)")
 WAITING_LINE = re.compile(r"WAITING (?P<prs>.+?) waits on (?P<cards>.+)")
-ASK_LINE = re.compile(r"ASK (?P<file>\S+)")
+ASK_LINE = re.compile(r"ASK (?P<files>[/~]\S*(?: [/~]\S*)*)")
 FORK = re.compile(r"^Fork:[ \t]*([/~]\S*)", re.MULTILINE)
 PUSHED_LINE = re.compile(r"PUSHED\b")
 POSTED_LINE = re.compile(r"POSTED (?P<link>https://[^\s;]+)")
@@ -757,8 +757,8 @@ def reported(line: str) -> bool:
 
 
 def kept_return(name: str, job_id: str, job: dict, line: str) -> bool:
-    """Whether the line a job's agent returned is the result the drive keeps for it, word for word: an `ASK <path>` naming the block `drive job ask` kept for one of its questions, else the first line of its newest return, never its said line, which the watch rewrites as it settles a PUSHED."""
-    if (asked := ASK_LINE.fullmatch(line)) and kept_in(job, Path(asked["file"])):
+    """Whether the line a job's agent returned is the result the drive keeps for it, word for word: an `ASK <path> [<path>…]` naming the blocks `drive job ask` kept for its questions, else the first line of its newest return, never its said line, which the watch rewrites as it settles a PUSHED."""
+    if asked_in(job, line):
         return True
     return opening(report_text(name, job_id)) == line
 
@@ -1195,6 +1195,17 @@ def new_close(
 def kept_in(job: dict, file: Path) -> dict | None:
     """The job's newest question kept in this ASK file."""
     return next((question for question in reversed(job["questions"]) if question["file"] and Path(question["file"]).resolve() == file.resolve()), None)
+
+
+def ask_files(line: str) -> list[Path]:
+    """The files an `ASK <path> [<path>…]` line names, none for any other line, an ASK block's question included."""
+    return [Path(file).expanduser() for file in asked["files"].split()] if (asked := ASK_LINE.fullmatch(line)) else []
+
+
+def asked_in(job: dict, line: str) -> list[dict]:
+    """The job's questions kept in the files an `ASK <path> [<path>…]` line names, none unless each file keeps one."""
+    questions = [kept_in(job, file) for file in ask_files(line)]
+    return questions if all(questions) else []
 
 
 def question_in(job: dict, question: dict) -> dict:

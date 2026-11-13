@@ -72,6 +72,8 @@ Holds: none: no option changes code any job builds
 One copy took 40 minutes on the primary.
 """
 
+SECOND_ASK = ASK_IN_SHAPE.replace("ASK Where should the nightly store copy run?", "ASK Which worker should the nightly store copy run on?")
+
 
 def kept_ask(drive: str) -> Path:
     return state.drive_dir(drive) / "asks" / f"j1-{state.ask_hash(ASK_IN_SHAPE)}.md"
@@ -2649,6 +2651,57 @@ def test_a_lane_question_nothing_answers_is_an_orphan_every_thirty_minutes_whate
         data["jobs"]["j1"]["questions"].append(state.new_question(None, "Which fixture?", state.stamp(newer), card=newer_card))
     assert watch.run_pass(watching, T0 + timedelta(minutes=95)) == []
     assert state.load(remote)["orders"]["o1"]["parts"]["ship the remote builder"]["orphan_said"] is None
+
+
+@pytest.mark.parametrize(
+    ("blocks", "pointer", "parts"),
+    [
+        ([ASK_IN_SHAPE, SECOND_ASK], True, ["ship the remote builder"]),
+        ([ASK_IN_SHAPE], True, ["ship the remote builder"]),
+        ([ASK_IN_SHAPE], True, ["ship the remote builder", "the root fix"]),
+        ([ASK_IN_SHAPE], False, ["ship the remote builder"]),
+    ],
+    ids=["j2329-two-paths", "j2310-one-path", "j2303-two-parts", "j2857-said-question"],
+)
+def test_a_lane_whose_kept_questions_are_each_open_on_his_card_is_no_orphan_however_long_before_its_lane_asked_they_were_kept(
+    blocks: list[str], pointer: bool, parts: list[str], remote: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cards = [f"https://acme.slack.com/archives/D123/p179455026167295{index}" for index in range(len(blocks))]
+    kept = []
+    for block, at in zip(blocks, [T0 - timedelta(minutes=6), T0 - timedelta(minutes=2)][-len(blocks) :]):
+        with monkeypatch.context() as clock:
+            clock.setattr(state, "now", lambda at=at: at)
+            kept.append(cli.keep_ask(remote, "j1", block, None)[0])
+    with state.edit(remote) as data:
+        for question, url in zip(data["jobs"]["j1"]["questions"], cards):
+            question["card"] = url
+        for part in parts[1:]:
+            data["orders"]["o1"]["parts"][part] = state.new_part()
+            data["jobs"]["j1"]["parts"].append(part)
+    asked = f"ASK {' '.join(map(str, kept))}" if pointer else "Where should the nightly store copy run?"
+    deliver(monkeypatch, [message("question", asked, id="relay_ask")])
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    assert watch.run_pass(watching, T0) == [f"JOB j1 o1 {asked}"]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == []
+    assert watch.run_pass(watching, T0 + timedelta(minutes=60)) == []
+    with state.edit(remote) as data:
+        data["jobs"]["j1"]["questions"][0]["closed"] = state.new_close("answered", "On the primary", cards[0])
+    assert watch.unanswered("j1", state.load(remote)["jobs"]["j1"], T0 + timedelta(minutes=61)).startswith("j1's lane asked")
+
+
+def test_drive_job_ask_with_no_file_keeps_each_block_its_lanes_pointer_names_and_never_reads_the_pointer_as_a_block(
+    run: Run, remote: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    kept = [cli.keep_ask(remote, "j1", block, None)[0] for block in (ASK_IN_SHAPE, SECOND_ASK)]
+    with state.edit(remote) as data:
+        data["jobs"]["j1"]["report"] = f"ASK {kept[0]} {kept[1]}"
+        data["jobs"]["j1"]["questions"][0]["card"] = "https://acme.slack.com/archives/D123/p1794550261672959"
+    assert run("job", "ask", "j1") == (0, f"{kept[0]}\n{kept[1]}")
+    assert [question["file"] for question in state.load(remote)["jobs"]["j1"]["questions"]] == [str(kept[0]), str(kept[1])]
+    with state.edit(remote) as data:
+        data["jobs"]["j1"]["report"] = "ASK /home/sprite/scratch/j1/ask.md"
+    assert cli.main(["job", "ask", "j1"]) == 2
+    assert capsys.readouterr().err == "drive: no ASK block file at /home/sprite/scratch/j1/ask.md\n"
 
 
 def test_every_worker_on_a_jobs_own_run_is_heard_the_one_it_replaced_and_one_it_never_recorded_included(

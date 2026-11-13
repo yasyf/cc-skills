@@ -336,7 +336,7 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 - Keep your report with `drive job report` and an `ASK` block with `drive job ask` as on this Mac,
   each refusing what it refuses on this Mac. `kept <your job>'s report: <its first line>` is the
   proof it was kept, so read nothing back. Then end your turn through Orca, never a final message:
-  an `ASK` with `orca orchestration ask --question "ASK <the path drive job ask printed>"`, then end
+  an `ASK` with `orca orchestration ask --question "ASK <each path drive job ask printed>"`, then end
   your turn until his answer wakes you; `DONE`, `PUSHED`, `BUILT`, `WAITING` and `HANDOFF` with
   `orca orchestration send --type worker_done --outcome succeeded --subject "<first line>" --body "<the report you kept>"`,
   and `BLOCKED` the same way with `--outcome failed`. The next PR event starts a fresh lane.
