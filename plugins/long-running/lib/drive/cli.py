@@ -1706,7 +1706,7 @@ def keep_waits(job: dict, file: Path, waits: str, card: str | None = None) -> No
 
 
 def job_report(args: argparse.Namespace) -> int:
-    """Keep a job's whole return from stdin in its history, which is its report, its first line setting the job's state, or refuse it with nothing kept, naming the fix, when that line would set none; a reader's DESIGN is kept as its ASK in the same call, whose path it prints, and each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links is registered on the job before the take, which joins its order to the bug, or kept untracked with the reason drive pr add refused it. With no stdin, print every return the job took, newest first."""
+    """Keep a job's whole return from stdin in its history, which is its report, and print where, or to a Sprite lane, which opens no path of this Mac's, that it was kept with its first line, that line setting the job's state, or refuse it with nothing kept, naming the fix, when that line would set none; a reader's DESIGN is kept as its ASK in the same call, whose path it prints, and each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links is registered on the job before the take, which joins its order to the bug, or kept untracked with the reason drive pr add refused it. With no stdin, print every return the job took, newest first."""
     name = state.resolve(args.drive)
     data = state.load(name)
     job = find(data["jobs"], args.id, "job")
@@ -1742,7 +1742,8 @@ def job_report(args: argparse.Namespace) -> int:
             state.add_changes(data, args.id, whole)
         kept = str(state.replies_path(name, args.id))
         merging = merge_reported(name, args.id)
-        shown = f"{kept}\n{decided}" if decided else f"{kept}\nits ASK is kept in {asked}, its ask record posted" if asked else kept
+        where = f"kept {args.id}'s report: {line}" if os.environ.get(state.OWN_JOB_ENV) else kept
+        shown = f"{where}\n{decided}" if decided else f"{where}\nits ASK is kept in {asked}, its ask record posted" if asked else where
         shown = "\n".join([shown, *registered, *fixes, *(f"{key}: {said}" for key, said in merging)])
         return emit(args, shown, {"id": args.id, "report": kept, "ask": asked and str(asked), "merging": dict(merging), "fixes": fixes})
     text = state.report_text(name, args.id)
@@ -2142,11 +2143,11 @@ def job_started(args: argparse.Namespace) -> int:
 
 
 def launch_attempt(name: str, job: dict, attempt: str, kept: Path, brief: str, root: Path, workspace: str | None) -> dict:
-    """Launch one attempt of a job's lane on a Run this terminal makes, since Orca binds a Run only to the terminal that made it and the coordinator moves terminals: on a fresh Sprite, or on the workspace's own Sprite in the checkout it holds; a try whose worker-start sent nothing reuses the Sprite it prepared, a Run Orca cannot make starts nothing, and the launcher copies this brief onto it. It holds no install's lock from here, so a newer install's first save never waits out the launcher, and record_start hands the receipt to that install when it saved first. A fresh Sprite that refuses the tools a worker needs is destroyed by the launcher, and the attempt launches once more on another; Unfit when that one refuses them too, or when the workspace's own Sprite does."""
+    """Launch one attempt of a job's lane on a Run the drive's own terminal makes, since Orca binds a Run only to the terminal that made it: on a fresh Sprite, or on the workspace's own Sprite in the checkout it holds; a try whose worker-start sent nothing reuses the Sprite it prepared, a Run Orca cannot make starts nothing, and the launcher copies this brief onto it. It holds no install's lock from here, so a newer install's first save never waits out the launcher, and record_start hands the receipt to that install when it saved first. A fresh Sprite that refuses the tools a worker needs is destroyed by the launcher, and the attempt launches once more on another; Unfit when that one refuses them too, or when the workspace's own Sprite does."""
     state.let_go_install()
     kept.write_text(brief)
     try:
-        run = orca.new_run(f"drive {name} {attempt}: {job['goal']}")
+        run = orca.new_run(name, f"drive {name} {attempt}: {job['goal']}")
     except orca.OrcaError as error:
         raise orca.Unstarted(f"{attempt}: no worker started, since Orca made it no Run: {error}") from None
     lane = orca.lane_name(name, attempt)

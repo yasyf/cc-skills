@@ -135,11 +135,24 @@ def own_terminal() -> str | None:
     return None if "TMUX" in os.environ else os.environ.get("ORCA_TERMINAL_HANDLE")
 
 
-def speak_as(terminal: str | None) -> None:
-    """Make each Orca call of this process and the processes it starts speak as the terminal, the coordinator's or sub-coordinator's whose Runs a watch serves, whatever started it: outside an Orca terminal Orca guesses the caller from the pane he focuses, or refuses with no_active_sender_terminal, and a watch another pane started would speak as that pane, its pane key included. None, a session in tmux, records no terminal of its own, so Orca resolves the caller as before."""
-    if terminal and os.environ.get("ORCA_TERMINAL_HANDLE") != terminal:
+def speak_as_drive(drive: str) -> None:
+    """Make each Orca call of this process and the processes it starts speak as the drive's own terminal, whatever started it: outside an Orca terminal Orca guesses the caller from the pane he focuses, or refuses with no_active_sender_terminal, and a process a session started would speak as that session's pane, its pane key included."""
+    terminal = drive_terminal(drive)
+    if os.environ.get("ORCA_TERMINAL_HANDLE") != terminal:
         os.environ.pop("ORCA_PANE_KEY", None)
         os.environ["ORCA_TERMINAL_HANDLE"] = terminal
+
+
+def drive_terminal(drive: str) -> str:
+    """The drive's own Orca terminal, a shell running no agent that makes, binds and answers every lane's Run, since Orca types a Run's "You have N orchestration messages" line into the terminal coordinating it only while that terminal runs an agent: the one the drive keeps while Orca still shows its pane, else one opened in the coordinator's checkout and kept, unless another process kept a fresh one first."""
+    kept = state.load(drive)["terminal"]
+    with contextlib.suppress(OrcaError):
+        if kept and not terminal(kept)["orphaned"]:
+            return kept
+    with state.edit(drive) as data:
+        if data["terminal"] == kept:
+            data["terminal"] = request("terminal", "create", "--worktree", f"path:{data['roles']['coordinator']['cwd']}", "--title", f"{drive}-lanes")["terminal"]["handle"]
+        return data["terminal"]
 
 
 def reload_command(terminal: str) -> str:
@@ -245,19 +258,10 @@ def holds(tree: dict[int, int], root: int, pid: int) -> bool:
     return pid == root
 
 
-def new_run(objective: str) -> str:
-    """A fresh Run, bound to this terminal beside the Runs it already holds."""
+def new_run(drive: str, objective: str) -> str:
+    """A fresh Run, made by the drive's own terminal, which coordinates it beside the Runs it already holds."""
+    speak_as_drive(drive)
     return call("run-create", "--objective", objective)["run"]["id"]
-
-
-def drive_run(drive: str) -> str:
-    """The drive's own Run, which no lane mails, made the first time a lane call needs it."""
-    if run := state.load(drive).get("run"):
-        return run
-    run = new_run(f"drive {drive}: the coordinator's own Run, which no lane mails")
-    with state.edit(drive) as data:
-        data["run"] = run
-    return run
 
 
 def lane_name(drive: str, job_id: str) -> str:
@@ -704,14 +708,13 @@ def put_on_sprite(workspace: str, folder: str, name: str, text: bytes) -> str:
 
 
 def reply(drive: str, run: str, message_id: str, body: str, request: str | None = None) -> None:
-    """Answer a lane's question on its Run: Orca takes a coordinator's reply only on the one Run its terminal is bound to, which a launch or another reply moves; under a request id, a retry Orca already applied is replayed, never applied twice."""
+    """Answer a lane's question on its Run as the drive's own terminal, then mark the Run's unread mail handled, since Orca's reply leaves the question it answers unread and the watch reads mail by sequence, never by Orca's read mark; one that Orca refuses only leaves Orca's count high. Orca takes a coordinator's reply only on the one Run its terminal is bound to, which a launch or another reply moves; under a request id, a retry Orca already applied is replayed, never applied twice."""
+    speak_as_drive(drive)
     with state.binding(drive):
-        home = drive_run(drive)
-        try:
-            call("run-use", "--id", run)
-            call("reply", "--id", message_id, "--run", run, "--body", body, *retried(request))
-        finally:
-            call("run-use", "--id", home)
+        call("run-use", "--id", run)
+        call("reply", "--id", message_id, "--run", run, "--body", body, *retried(request))
+        with contextlib.suppress(OrcaError):
+            call("check", "--run", run)
 
 
 def retried(request: str | None) -> tuple[str, ...]:
@@ -719,29 +722,26 @@ def retried(request: str | None) -> tuple[str, ...]:
 
 
 def bound_command(drive: str, run: str, argv: list[str]) -> subprocess.CompletedProcess:
-    """Run a command that needs the Run bound, such as a launch's worker-start, binding it again once if something outside this drive moved the binding first, then bind the drive's own Run, read before the command runs. A worker-start holds the binding only until Orca takes its request, which request-show then reads pending or done, since Orca checks the binding once, as it admits the start, and its wait for the worker to be ready runs on outside the lock; any other command holds it to its end. Unstarted when it refuses before anything the command starts, a fenced run included, since Orca starts nothing it fenced."""
+    """Run a command that needs the Run bound, such as a launch's worker-start, as the drive's own terminal, binding it again once if something outside this drive moved the binding first. A worker-start holds the binding only until Orca takes its request, which request-show then reads pending or done, since Orca checks the binding once, as it admits the start, and its wait for the worker to be ready runs on outside the lock; any other command holds it to its end. Unstarted when it refuses before anything the command starts, a fenced run included, since Orca starts nothing it fenced."""
     argv, request = requested(argv)
+    try:
+        speak_as_drive(drive)
+    except OrcaError as error:
+        raise Unstarted(str(error), error.code) from None
     with state.binding(drive):
-        try:
-            home = drive_run(drive)
-        except DriveError as error:
-            raise Unstarted(str(error)) from None
-        try:
-            for _ in range(2):
-                try:
-                    call("run-use", "--id", run)
-                except OrcaError as error:
-                    raise Unstarted(str(error), error.code) from None
-                command = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-                if request and accepted(command, request):
-                    break
-                done = completed(argv, command)
-                if FENCED not in done.stdout:
-                    return done
-            else:
+        for _ in range(2):
+            try:
+                call("run-use", "--id", run)
+            except OrcaError as error:
+                raise Unstarted(str(error), error.code) from None
+            command = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            if request and accepted(command, request):
+                break
+            done = completed(argv, command)
+            if FENCED not in done.stdout:
                 return done
-        finally:
-            call("run-use", "--id", home)
+        else:
+            return done
     return completed(argv, command)
 
 

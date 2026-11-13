@@ -331,10 +331,11 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 | Read | What it returns |
 | --- | --- |
 | `LOG <url>` | For the failing check's Buildkite build or job URL, or its GitHub Actions job URL: the failing jobs' own command output, 12,000 characters split across them, each Buildkite job's opening with its failure lines (Go `--- FAIL:` anywhere in a line and `FAIL` package lines, nextest `FAIL [`, Rust `panicked at`, tsc `error TS`, vitest and jest `✕`, `✖` and `●`), then each failure's own output (a Go test's lines from its `=== RUN`, else the failure line and the two after it), then its last characters; a job URL reads that one job. |
-| `READ <command>` | For one of `cci show\|grep\|find\|digest\|state` with `--drive <the brief's drive>`, `ccn search\|show\|relevant`, `ccn answer\|note\|doc search\|show` or `ccn answer list`: its output's first 12,000 characters, for his recorded words and the records a brief or PR cites. |
+| `READ <command>` | For one of `cci show\|grep\|find\|digest\|state` with `--drive <the brief's drive>`, `ccn search\|show\|relevant`, `ccn answer\|note\|doc search\|show` or `ccn answer list`, a show naming several IDs in one read: its output's first 12,000 characters, for his recorded words and the records a brief or PR cites. |
 
 - Keep your report with `drive job report` and an `ASK` block with `drive job ask` as on this Mac,
-  each refusing what it refuses on this Mac, then end your turn through Orca, never a final message:
+  each refusing what it refuses on this Mac. `kept <your job>'s report: <its first line>` is the
+  proof it was kept, so read nothing back. Then end your turn through Orca, never a final message:
   an `ASK` with `orca orchestration ask --question "ASK <the path drive job ask printed>"`, then end
   your turn until his answer wakes you; `DONE`, `PUSHED`, `BUILT`, `WAITING` and `HANDOFF` with
   `orca orchestration send --type worker_done --outcome succeeded --subject "<first line>" --body "<the report you kept>"`,

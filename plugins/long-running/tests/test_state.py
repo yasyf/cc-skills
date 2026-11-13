@@ -76,11 +76,11 @@ def test_a_newer_release_saving_mid_verb_waits_for_the_older_releases_verb_so_th
     with pytest.raises(subprocess.TimeoutExpired):
         saving.wait(timeout=2)
     with state.edit("demo") as data:
-        data["run"] = "the older verb's receipt"
+        data["terminal"] = "the older verb's receipt"
     state.let_go_install()
     assert saving.wait(timeout=30) == 0
     saved = state.stored("demo")
-    assert (saved["saved_by"], saved["run"], saved["slack"]["page_stale"]) == ("9.9.9", "the older verb's receipt", "the newer release's save")
+    assert (saved["saved_by"], saved["terminal"], saved["slack"]["page_stale"]) == ("9.9.9", "the older verb's receipt", "the newer release's save")
 
 
 def test_a_first_save_waits_only_for_verbs_of_the_installs_from_the_one_that_saved_the_drive_up_to_its_own(state_root: Path) -> None:
@@ -93,7 +93,7 @@ def test_a_first_save_waits_only_for_verbs_of_the_installs_from_the_one_that_sav
 
     def save() -> None:
         with state.edit("demo") as data:
-            data["run"] = "run-1"
+            data["terminal"] = "term-1"
 
     saving = threading.Thread(target=save, daemon=True)
     saving.start()
@@ -101,7 +101,7 @@ def test_a_first_save_waits_only_for_verbs_of_the_installs_from_the_one_that_sav
     assert saving.is_alive()
     verbs.pop("0.0.2").close()
     saving.join(10)
-    assert (saving.is_alive(), state.load("demo")["run"]) == (False, "run-1")
+    assert (saving.is_alive(), state.load("demo")["terminal"]) == (False, "term-1")
     for handle in verbs.values():
         handle.close()
 
@@ -139,11 +139,11 @@ def test_a_write_waiting_past_the_drive_lock_wait_changes_nothing_and_names_the_
         fcntl.flock(stuck, fcntl.LOCK_EX)
         with pytest.raises(DriveError, match=r"demo's drive lock is still held after 0\.3s, so this changed nothing: "):
             with state.edit("demo") as data:
-                data["run"] = "run-1"
-    assert "run" not in state.load("demo")
+                data["terminal"] = "term-1"
+    assert state.load("demo")["terminal"] is None
     with state.edit("demo") as data:
-        data["run"] = "run-1"
-    assert state.load("demo")["run"] == "run-1"
+        data["terminal"] = "term-1"
+    assert state.load("demo")["terminal"] == "term-1"
 
 
 def test_load_gives_each_picture_drawn_before_pictures_kept_their_source_its_kept_question_or_pr_fence_once(state_root: Path) -> None:

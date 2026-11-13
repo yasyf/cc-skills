@@ -157,9 +157,10 @@ minutes is said with the remedy, a `SendMessage` to wake it.
 4. Send a handoff or message to a lane on stdin, `drive job resume <j> -` from a quoted heredoc,
    never in a file you write: Claude Code reads the files a session wrote back into its context
    after every compaction.
-5. A "You have N orchestration messages" line Orca types into your terminal needs nothing: the watch
-   turns that mail into `JOB` events, so leave the `orca orchestration check` it names unrun. Your
-   terminal holds a lane's Run only while a call starts a worker or sends an answer.
+5. Lane Runs belong to the drive's own Orca terminal, a shell running no agent that `drive.json`
+   keeps under `terminal`, so Orca types no "You have N orchestration messages" line into your
+   session; the watch turns lane mail into `JOB` events. Leave any `orca orchestration check` such
+   a line names unrun.
 6. When a remote lane returns its line, run `drive job end <j>` in the background to free its
    Sprite, as the coordinator page's event rows say. The job keeps the state its line set, with its
    waits, PRs and carried parts: a `WAITING` job stays waiting, so nothing waiting on it is freed,

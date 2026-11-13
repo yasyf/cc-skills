@@ -9,8 +9,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import SHORT_ASK, CodexAsk, Draws, Judge, Redraws, Thread, WatchProcess, Withdrawals, commit_files, git_in, staged
-from drive import card, cli, github, install, land, launchd, place, reads, render, served, slack, stage, state, superseded, talk, view, watch
+from conftest import DRIVE_TERMINAL, SHORT_ASK, CodexAsk, Draws, Judge, Redraws, Thread, WatchProcess, Withdrawals, commit_files, git_in, staged
+from drive import card, cli, github, install, land, launchd, orca, place, reads, render, served, slack, stage, state, superseded, talk, view, watch
 
 KEY = "Forge-AI/monorepo#42"
 OTHER = "Forge-AI/monorepo#43"
@@ -1012,18 +1012,22 @@ def test_stale_pid_file_is_claimed_and_released(demo: str, monkeypatch: pytest.M
     assert not state.pid_path(demo).exists()
 
 
-def test_a_watch_speaks_to_orca_as_the_terminal_of_the_coordinator_it_serves_whatever_pane_started_it(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    spoke = []
-    monkeypatch.setattr(watch, "run_pass", lambda watching, moment: spoke.append((os.environ.get("ORCA_TERMINAL_HANDLE"), os.environ.get("ORCA_PANE_KEY"))) or [])
+def test_a_watch_speaks_to_orca_as_the_drives_own_terminal_whatever_pane_started_it(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ORCA_PANE_KEY", "tab:starter")
-    run_watch(demo, monkeypatch)
-    sub_coordinated(demo)
     with state.edit(demo) as data:
         data["roles"]["coordinator"]["terminal"] = "term_coordinator"
-        data["subcoordinators"]["Iris"]["terminal"] = "term_iris"
-    run_watch(demo, monkeypatch)
-    run_watch(demo, monkeypatch, "Iris")
-    assert spoke == [("term_outer", "tab:starter"), ("term_coordinator", None), ("term_iris", None)]
+    watch.run_pass(watcher(demo), T0)
+    assert (os.environ["ORCA_TERMINAL_HANDLE"], os.environ.get("ORCA_PANE_KEY")) == (DRIVE_TERMINAL, None)
+
+
+def test_a_watch_orca_opens_no_terminal_for_says_so_on_its_third_try_running_and_reads_on(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    def refused(drive: str) -> str:
+        raise orca.OrcaError("orca terminal create: runtime_unavailable: Orca is not running")
+
+    monkeypatch.setattr(orca, "drive_terminal", refused)
+    watching = watcher(demo)
+    said = [watch.run_pass(watching, T0 + timedelta(seconds=5 * poll)) for poll in range(3)]
+    assert said == [[], [], ["WATCH drive terminal read failed 3 times in a row: orca terminal create: runtime_unavailable: Orca is not running"]]
 
 
 def test_a_watch_no_launch_agent_started_lets_its_pid_file_go_loads_the_agent_and_ends(

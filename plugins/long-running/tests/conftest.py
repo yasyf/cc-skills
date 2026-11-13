@@ -32,6 +32,8 @@ from drive import (
 )
 
 SESSION = "session-under-test"
+DRIVE_TERMINAL = "term_drive"
+REAL_DRIVE_TERMINAL = orca.drive_terminal
 LANE_SPEC = Path(__file__).resolve().parents[2] / "orca" / "lib" / "lane.json"
 SETTLED_NOTE = cli.settled_note
 TEAM = [
@@ -216,6 +218,12 @@ def judged_pictures(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 def lane_spec(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every session the drive starts reads the lane settings this tree's orca plugin ships, never an install of this Mac's."""
     monkeypatch.setattr(agents, "lane_spec", lambda: json.loads(LANE_SPEC.read_text()))
+
+
+@pytest.fixture(autouse=True)
+def drive_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every drive speaks to Orca as a terminal of its own it already keeps, never one Orca opens for the test."""
+    monkeypatch.setattr(orca, "drive_terminal", lambda drive: DRIVE_TERMINAL)
 
 
 @pytest.fixture(autouse=True)
