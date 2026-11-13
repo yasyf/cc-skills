@@ -2161,6 +2161,8 @@ def test_end_destroys_the_sprite_cc_remote_still_records_or_names_what_keeps_it(
         raise orca.OrcaError("orca-reclaim.py exited 1: uncommitted changes")
 
     monkeypatch.setattr(orca, "release", kept)
+    with state.edit(remote) as data:
+        data["jobs"]["j1"]["dispatch"] = "ctx_lane0002"
     assert run("job", "end", "j1") == (0, "nothing to reclaim\npool-one is kept: orca-reclaim.py exited 1: uncommitted changes\nj1's lane ended; j1 stays done")
 
 
@@ -2997,7 +2999,7 @@ def test_a_lane_whose_job_carries_the_drives_order_wakes_only_the_watch_hearing_
     deliver(
         monkeypatch,
         [message("question", f"DRIVE job report j1 -\n{json.dumps({'stdin': ready})}", id="relay_report")],
-        [message("escalation", stopped, subject="Worker stopped without reporting")],
+        [message("worker_done", ready), message("escalation", stopped, subject="Worker stopped without reporting")],
     )
 
     def report(question: str, root: Path, drive: str, job_id: str) -> str:
