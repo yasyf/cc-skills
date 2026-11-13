@@ -62,7 +62,7 @@ def test_a_builder_passing_over_a_teams_data_names_what_it_runs_as(demo: str) ->
         assert agent_brief.deny_reason(started("long-running:builder", f"{order}Goal: {goal}")) is None
 
 
-def test_a_ninth_builder_here_is_held_waiting_its_turn_and_only_the_one_the_watch_frees_starts_while_others_wait(
+def test_a_ninth_builder_here_is_held_waiting_its_turn_and_only_the_one_the_watch_frees_starts_while_others_wait_and_old_held_work_neither_counts_nor_queues(
     demo: str, run: Run, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     wrote = state.now() - timedelta(minutes=3)
@@ -76,6 +76,10 @@ def test_a_ninth_builder_here_is_held_waiting_its_turn_and_only_the_one_the_watc
     run("job", "add", "builder", "--order", "o1", "--goal", "tidy the docs")
     run("job", "add", "builder", "--order", "o2", "--goal", "fix the card")
     run("job", "add", "builder", "--order", "o3", "--goal", "fix the watch on a Sprite", "--remote")
+    with state.edit(demo) as data:
+        asked = state.new_question(None, "Which store?", state.stamp(), card="https://acme.slack.com/archives/D123/p1794200000000100")
+        data["jobs"]["j13"] = state.new_job("o1", "builder", "cut over agent_hosts", [], state.stamp()) | {"state": "waiting", "questions": [asked]}
+        data["orders"]["o1"]["jobs"].append("j13")
     order = "Order (his words): fix the watch\nServes: his order\nGoal: fix it\nDrive: demo, "
     refused = agent_brief.deny_reason(started("long-running:builder", f"{order}order o3, job j1"))
     counted = "; ".join(f"j{number + 1} on o1, its agent a{number} last wrote at {when(state.stamp(wrote), seconds=True)}" for number in range(1, 9))
@@ -85,6 +89,7 @@ def test_a_ninth_builder_here_is_held_waiting_its_turn_and_only_the_one_the_watc
     )
     assert refused.index('"fix the watch"; j11 (due ') < refused.index('"fix the card"; j10 (no time promised) "tidy the docs".')
     assert "j12" not in refused
+    assert "j13" not in refused
     assert refused.endswith("A Forge-AI/monorepo builder need not wait: start it on a Sprite with drive job launch <j> <brief>")
     held = state.load(demo)["jobs"]["j1"]
     assert (held["state"], held["waits"], held["said"]) == ("waiting", [state.SLOT_WAIT], "waits its turn for a builder slot on this Mac")
@@ -97,8 +102,12 @@ def test_a_ninth_builder_here_is_held_waiting_its_turn_and_only_the_one_the_watc
         "refused: builders already wait their turn for a slot on this Mac ahead of it, earliest due first (j1, j11, j10), so this one waits:"
         " start it once a slot opens here with no builder waiting its turn. The watch's FREE line"
     )
+    assert agent_brief.deny_reason(started("long-running:builder", f"{order}order o1, job j13")).startswith(
+        "refused: builders already wait their turn for a slot on this Mac ahead of it, earliest due first (j1, j11, j10), so this one waits:"
+    )
+    assert state.load(demo)["jobs"]["j13"]["waits"] == []
     with state.edit(demo) as data:
-        data["jobs"]["j1"]["waits"] = []
+        data["jobs"]["j1"].update(waits=[], slot=state.stamp())
     assert agent_brief.deny_reason(started("long-running:builder", f"{order}order o3, job j1")) is None
     assert agent_brief.deny_reason(started("long-running:builder", f"{order}order o2, job j11")).startswith("refused: j11 waits its turn for a builder slot on this Mac, 1 of 2 in line.")
 
