@@ -3,7 +3,7 @@ import sys
 from collections.abc import Callable
 from datetime import datetime
 
-from drive.state import DRIVE_TOOLING, ROLES, SLOT_WAIT, VERSION, agent_gone, carriers, delivered, exempted, lane_death, may_tell, named_prs, now, open_orders, parse_time, pr_key, pr_url, project_lane, promise_thread, title, work
+from drive.state import DRIVE_TOOLING, ROLES, SLOT_WAIT, VERSION, agent_gone, carriers, delivered, exempted, lane_death, may_tell, named_prs, now, open_orders, parse_time, pr_key, pr_url, project_lane, promise_thread, resumed, title, work
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
@@ -116,7 +116,8 @@ COMMUNICATOR_RULES = (
         " tooling, his ruling or feedback on it included, and his work for the rest; the record tool sends a defect and an"
         " owner record about the drive to the meta session alone, adding first the order its order field names, which tells"
         " the coordinator what changes for its work,"
-        " and a handoff, a step only the session holding an order takes on it, to that session by its order attr."
+        " and a handoff, a step only the session holding an order takes on it, to that session by its order attr, or to the"
+        " coordinator session whose agent runs the job its job attr names, since only that session's SendMessage reaches it."
     ),
     REACHING,
     (
@@ -374,7 +375,8 @@ def job_line(job_id: str, job: dict, limit: int = 100) -> str:
     slot = f"a builder slot on this Mac, {job['in_line']}" if job.get("in_line") else "a builder slot on this Mac"
     waits = f"; waits on {', '.join(slot if wait == SLOT_WAIT else wait for wait in job['waits'])}" if job.get("waits") else ""
     shown = f"lane dead since {when(dead['at'])} ({dead['why']})" if job["state"] == "running" and (dead := lane_death(job)) else job["state"]
-    return f"{job_id} {job['kind']} {shown}{built}{handle}: {cut(job['goal'], limit)}{repro}{carries}{waits}"
+    woken = f"; resumed {when(woke)} by a message after its last line" if (woke := resumed(job)) else ""
+    return f"{job_id} {job['kind']} {shown}{built}{handle}: {cut(job['goal'], limit)}{repro}{carries}{waits}{woken}"
 
 
 def question_line(question: dict) -> str:

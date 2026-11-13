@@ -260,6 +260,12 @@ def resumed(job: dict) -> bool:
     return job.get("where") == "remote" and bool(job.get("dispatch"))
 
 
+def sender(data: dict, job: dict) -> str:
+    """The session whose SendMessage alone reaches the job's agent, as a listing names it after its SendMessage step: the coordinator session's that started that agent, by its lane and session id; none for a job no bound coordinator session's agent runs."""
+    lane = state.agent_lane(data, job)
+    return f" from {lane}@{data['name']}, the session {job['session']} that started its agent {job['agent']}" if lane else ""
+
+
 def hear(data: dict, job_id: str, text: str) -> None:
     """Mark the job sent his words on each answer of his it has not heard whose words the text a resume delivered to its worker holds verbatim, spacing aside."""
     carried = " ".join(text.split())
@@ -298,7 +304,7 @@ def listing(answer_id: str, kept: dict, keys: list[str], asked: dict[str, dict],
     ]
     jobs = [
         f"  {job_id} waits on {', '.join([job['order'], *job['carries']])} and has not heard {answer_id}: "
-        + (f"drive job resume {job_id} with his words verbatim" if resumed(job) else "SendMessage it his words verbatim")
+        + (f"drive job resume {job_id} with his words verbatim" if resumed(job) else f"SendMessage it his words verbatim{sender(data, job)}")
         + ", or mark it untouched"
         for job_id in unheard(data, kept)
         for job in [data["jobs"][job_id]]

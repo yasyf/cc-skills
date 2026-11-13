@@ -102,8 +102,9 @@ def hears(watcher: Watcher, data: dict, order_id: str) -> bool:
 
 
 def heard_job(watcher: Watcher, data: dict, job: dict) -> bool:
-    """Whether the watch hears a job: one whose own order it hears, never one only carrying it, so one watch alone makes every line about a job."""
-    return hears(watcher, data, job["order"])
+    """Whether the watch hears a job, so one watch alone makes every line about it: the watch of the coordinator session whose agent runs it, whatever project its order is filed under, else the one hearing its own order, never one only carrying it."""
+    lane = state.agent_lane(data, job)
+    return lane == watcher.lane if lane else hears(watcher, data, job["order"])
 
 
 def heard_orders(watcher: Watcher, data: dict) -> dict[str, dict]:

@@ -1416,6 +1416,32 @@ def test_the_drives_watch_keeps_a_projects_lines_until_a_sub_coordinator_is_boun
     assert calls == [[KEY], [KEY]]
 
 
+def test_a_free_line_reaches_the_watch_of_the_session_whose_agent_runs_the_job_not_the_watch_of_its_orders_project(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Record 688431, FREE j2666 o922, reached iris although j2666's agent was the top coordinator's, so iris had no SendMessage to reach it."""
+    sub_coordinated(demo)
+    serve(monkeypatch, {})
+    with state.edit(demo) as data:
+        data["prs"][KEY]["state"] = "merged"
+        data["jobs"]["j2"] = job(goal="release the service")
+        data["jobs"]["j1"].update(state="waiting", waits=["j2"], agent="agent-j1", where="local", session="session-under-test")
+    iris, top = watch.Watcher(demo, offset=state.events_end(demo), ticked_at=T0, project="Iris"), watcher(demo)
+    assert (watch.run_pass(iris, T0), watch.run_pass(top, T0)) == ([], [])
+    with state.edit(demo) as data:
+        data["jobs"]["j2"]["state"] = "done"
+    freed = T0 + timedelta(seconds=60)
+    assert (watch.run_pass(iris, freed), watch.run_pass(top, freed)) == ([], ["FREE j1 o1: j2 answered or done, nothing else holds it"])
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="waiting", waits=["j2"], session="iris-1")
+        data["jobs"]["j2"]["state"] = "running"
+    assert (watch.run_pass(iris, freed + timedelta(minutes=1)), watch.run_pass(top, freed + timedelta(minutes=1))) == ([], [])
+    with state.edit(demo) as data:
+        data["jobs"]["j2"]["state"] = "done"
+    later = freed + timedelta(minutes=2)
+    assert (watch.run_pass(iris, later), watch.run_pass(top, later)) == (["FREE j1 o1: j2 answered or done, nothing else holds it"], [])
+
+
 def test_a_projects_watch_runs_as_its_own_process_from_where_the_drives_watch_stands_and_posts_to_its_sub_coordinators_lane(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

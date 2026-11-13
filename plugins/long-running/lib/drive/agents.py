@@ -21,6 +21,7 @@ RE_HOPS = 8
 CORRECTION_BYTES = 1 << 20
 HANDLER = "long-running:handler"
 SYNTHETIC = "<synthetic>"
+MESSAGE_ORIGIN = "coordinator"
 DESIGNER = "long-running:designer"
 HIS_WORDS = "Message (his words)"
 ORDER = "Order"
@@ -504,19 +505,17 @@ def free(data: dict, job_id: str, session: str, agent: str) -> bool:
     return job.get("handed_to") == session or not (job["state"] == "running" and job["agent"] and not state.agent_gone(data, job))
 
 
-def woken(payload: dict, job: dict) -> bool:
-    """Whether the agent whose step fired a hook runs the job: it runs already, no return set its state, or a prompt such as its brief or a SendMessage reached the agent after that return, to the second the drive stamps, so a call an agent makes after its return leaves that return standing."""
-    if job["state"] == "running" or not job["returned"]:
-        return True
+def woken(payload: dict, job: dict) -> datetime | None:
+    """When a prompt, such as its brief or a SendMessage, first reached the agent whose step fired a hook after the job's return, to the second the drive stamps, so a call an agent makes after its return, or a Stop hook's feedback on it, leaves that return standing; None when none did. Claude Code writes a SendMessage it delivers to an agent as a meta row of origin coordinator, and its other meta rows, such as a Stop hook's feedback or a skill's body, with no origin."""
     returned = state.parse_time(job["returned"])
     with transcript(payload).open() as handle:
-        rows = [row for line in handle if (row := json.loads(line)).get("type") == "user" and row.get("timestamp") and not row.get("isMeta")]
+        rows = [row for line in handle if (row := json.loads(line)).get("type") == "user" and row.get("timestamp") and (not row.get("isMeta") or (row.get("origin") or {}).get("kind") == MESSAGE_ORIGIN)]
     prompts = (row for row in rows if isinstance(content := row["message"]["content"], str) or any(part.get("type") == "text" for part in content))
-    return any(state.parse_time(row["timestamp"]).replace(microsecond=0) > returned for row in prompts)
+    return next((moment for row in prompts if (moment := state.parse_time(row["timestamp"]).replace(microsecond=0)) > returned), None)
 
 
 def hold(payload: dict) -> None:
-    """Record on the job its brief's Drive line names, else the job already recorded with this agent, the agent whose step fired this hook, and run the job: a session runs the newest copy of each hook it registered at start but no hook registered since, so the drive hears of an agent from the hooks its own steps fire, its first step and its first after each wake. Only an agent of a type the job's kind runs as is held, so a handler working one item for the communicator, an orca-doctor reading a lane's brief or an Explore agent whose prompt names a done job never takes a job its brief names, by a `Job:` line, a brief file or the record it reads in."""
+    """Record on the job its brief's Drive line names, else the job already recorded with this agent, the agent whose step fired this hook, and run the job, stamped resumed at the prompt that woke its agent after its return: a session runs the newest copy of each hook it registered at start but no hook registered since, so the drive hears of an agent from the hooks its own steps fire, its first step and its first after each wake. Only an agent of a type the job's kind runs as is held, so a handler working one item for the communicator, an orca-doctor reading a lane's brief or an Explore agent whose prompt names a done job never takes a job its brief names, by a `Job:` line, a brief file or the record it reads in."""
     if not payload.get("agent_id"):
         return
     names = state.session_drives(payload["session_id"])
@@ -525,10 +524,15 @@ def hold(payload: dict) -> None:
     known = state.load(names[0])
     match = BRIEF_JOB.search(brief(payload))
     job_id = match[1] if match else state.agent_job(known, payload["agent_id"])
-    if not job_id or not free(known, job_id, payload["session_id"], payload["agent_id"]) or payload.get("agent_type") not in state.JOB_AGENTS[known["jobs"][job_id]["kind"]] or not woken(payload, known["jobs"][job_id]):
+    if not job_id or not free(known, job_id, payload["session_id"], payload["agent_id"]) or payload.get("agent_type") not in state.JOB_AGENTS[known["jobs"][job_id]["kind"]]:
+        return
+    returned = known["jobs"][job_id]["state"] != "running" and bool(known["jobs"][job_id]["returned"])
+    if returned and not (resumed := woken(payload, known["jobs"][job_id])):
         return
     with state.edit(names[0]) as data:
         if free(data, job_id, payload["session_id"], payload["agent_id"]):
             job = data["jobs"][job_id]
             job.update(agent=payload["agent_id"], where="local", session=payload["session_id"], handed_to=None, undelivered=[])
+            if returned:
+                job["resumed"] = state.stamp(resumed.astimezone())
             state.start(job)

@@ -18,7 +18,7 @@ import quiet_turn
 import scratch_folder
 import session_start
 from conftest import RESEARCH, SHORT_ASK, Answers, Jev, WatchProcess
-from drive import agents, cli, land, place, settled, state, tools
+from drive import agents, cli, land, place, render, settled, state, tools
 
 Run = Callable[..., tuple[int, str]]
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -409,6 +409,40 @@ def test_a_reader_that_kept_its_done_stays_done_through_its_later_calls_and_stop
     assert (job["state"], job["said"]) == ("done", "DONE it waits on the store lock")
     assert hook_output(no_file_tools, monkeypatch, capsys, json.dumps(file_call("Read") | stepped(tmp_path, "Drive: demo, order o1, job j1", agent_type="long-running:reader"))) == ""
     assert state.load("demo")["jobs"]["j1"]["state"] == "running"
+
+
+def test_a_sendmessage_after_its_return_runs_the_job_again_resumed_until_its_next_line_and_a_stop_hooks_feedback_leaves_it_waiting(
+    demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The top coordinator's SendMessage resumed j2666 after its last line, yet j2666 still read waiting, so the iris session relayed his answer and handoff to work that was already running."""
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "release the clock")
+    run("job", "add", "builder", "--order", "o1", "--goal", "release it", "--agent", "a-9")
+    returned = state.now() - timedelta(minutes=5)
+    with state.edit("demo") as data:
+        data["jobs"]["j1"].update(state="waiting", said="WAITING his answer on the SandSQL handover card", returned=state.stamp(returned))
+    steps = stepped(tmp_path, "Drive: demo, order o1, job j1", prompted=EARLIER)
+    woke = returned + timedelta(minutes=2)
+    rows = [
+        {"type": "user", "isMeta": True, "timestamp": (returned + timedelta(minutes=1)).isoformat(), "message": {"role": "user", "content": [{"type": "text", "text": "Stop hook feedback: end on one line"}]}},
+        {"type": "user", "isMeta": True, "origin": {"kind": "coordinator"}, "timestamp": woke.isoformat(), "message": {"role": "user", "content": [{"type": "text", "text": "Resume j1 now: plan, then start, the clock release"}]}},
+    ]
+    lane = tmp_path / "session" / "subagents" / "agent-a-9.jsonl"
+    with lane.open("a") as handle:
+        handle.write(json.dumps(rows[0]) + "\n")
+    assert hook_output(no_file_tools, monkeypatch, capsys, json.dumps(file_call("Read") | steps)) == ""
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["state"], job["resumed"]) == ("waiting", None)
+    with lane.open("a") as handle:
+        handle.write(json.dumps(rows[1]) + "\n")
+    assert hook_output(no_file_tools, monkeypatch, capsys, json.dumps(file_call("Read") | steps)) == ""
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["state"], job["resumed"]) == ("running", state.stamp(woke))
+    assert f"  - j1 builder running agent a-9: release it; resumed {render.when(state.stamp(woke))} by a message after its last line" in run("status", "j1")[1].splitlines()
+    assert run("job", "replies", "j1") == (0, f"{state.stamp(woke)} resumed: a message woke its agent a-9 after its last return, and it runs on toward its next line")
+    with state.edit("demo") as data:
+        state.take_result(data, "j1", "WAITING the clock release, planned next")
+    assert "resumed" not in run("status", "j1")[1]
+    assert run("job", "replies", "j1") == (0, "j1 has sent nothing yet")
 
 
 def test_an_agent_whose_brief_names_no_job_runs_the_job_recorded_with_it_after_a_wake(

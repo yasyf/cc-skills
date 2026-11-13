@@ -2277,10 +2277,12 @@ def job_read(args: argparse.Namespace) -> int:
 
 def job_replies(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
-    find(state.load(name)["jobs"], args.id, "job")
+    job = find(state.load(name)["jobs"], args.id, "job")
     kept = state.replies(name, args.id)
-    text = "\n\n".join(f"{reply['created_at']} {reply['type']}: {reply['body'] or reply['subject']}" for reply in kept)
-    return emit(args, text or f"{args.id} has sent nothing yet", kept)
+    said = [f"{reply['created_at']} {reply['type']}: {reply['body'] or reply['subject']}" for reply in kept]
+    if woke := state.resumed(job):
+        said.append(f"{woke} resumed: a message woke its agent {job['agent']} after its last return, and it runs on toward its next line")
+    return emit(args, "\n\n".join(said) or f"{args.id} has sent nothing yet", kept)
 
 
 def job_held(args: argparse.Namespace) -> int:
