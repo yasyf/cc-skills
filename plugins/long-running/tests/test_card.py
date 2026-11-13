@@ -1037,28 +1037,52 @@ def test_a_stack_cards_pictures_titled_alike_are_numbered_apart_so_each_pr_keeps
     assert [[Path(path).name for path in row["pictures"]] for row in drawn["card"]["prs"]] == [["Diagram"], ["Diagram (2)"]]
 
 
-def test_a_stack_whose_show_me_diagram_does_not_draw_is_refused_with_mermaids_words_instead_of_carded_without_it(
+UNSTORED = 'node "stream": a store node needs "medium", one of memory, disk, bucket, keys, pages'
+FORK_SHARE = {
+    "arch": 1,
+    "name": "fork-share",
+    "title": "The fork snapshot share",
+    "nodes": [
+        {"id": "api", "kind": "service", "name": "api", "role": "starts the share"},
+        {"id": "stream", "kind": "store", "medium": "queue", "name": "Valkey stream", "role": "carries each fork"},
+    ],
+    "edges": [{"from": "api", "to": "stream", "label": "appends"}],
+}
+
+
+def test_a_stack_whose_show_me_arch_does_not_draw_still_asks_his_approve_naming_the_picture_left_off_and_draws_it_once_its_body_does(
     stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch, chrome: Chrome
 ) -> None:
     stacked_gh = card.run
+    shows = {41: f"\n## Show me\nThe fork snapshot share:\n```arch\n{json.dumps(FORK_SHARE)}\n```\n"}
+    ages: list[tuple[int, str]] = []
 
-    def gh(cmd: list[str], **_: str) -> str:
+    def gh(cmd: list[str], **kwargs: str) -> str:
         if cmd[1] == "api":
             return stacked_gh(cmd)
+        ages.append((int(cmd[3]), kwargs["max_age"]))
         pr = json.loads(stacked_gh(cmd))
-        pr["body"] += "\n## Show me\n```mermaid\nsequenceDiagram\n  Note over D: draws each picture; refuses one that fails\n```\n"
+        pr["body"] += shows.get(int(cmd[3]), "")
         return json.dumps(pr)
 
     monkeypatch.setattr(card, "run", gh)
-    chrome.refusal = "Parse error on line 2: Expecting 'SOLID_OPEN_ARROW', got 'NEWLINE'"
-    drawn = ask(asks(41, 42))
-    assert drawn["cards"] == []
-    reason = "monorepo PR 41: its Show me mermaid does not draw: Parse error on line 2: Expecting 'SOLID_OPEN_ARROW', got 'NEWLINE'"
-    assert [skipped["reason"] for skipped in drawn["skipped"]] == [reason, reason]
-    assert [state.load("demo")["prs"][f"Forge-AI/monorepo#{number}"]["refused"] for number in (41, 42)] == [reason, reason]
+    chrome.refusal = UNSTORED
+    [drawn] = ask(asks(41, 42))["cards"]
+    assert (drawn["card"]["options"], drawn["card"]["status"]) == (["Approve", "Hold"], "needs_you")
+    left = f'Left off this card: the Show me picture "The fork snapshot share" does not draw: {UNSTORED}. The agent is fixing it.'
+    assert [(row["show_me"], row["pictures"]) for row in drawn["card"]["prs"]] == [(f"The fork snapshot share:\n\n{left}", []), ("", [])]
+    why = f'monorepo PR 41: the Show me picture "The fork snapshot share" does not draw: {UNSTORED}, so his card went out without it'
+    prs = state.load("demo")["prs"]
+    assert (prs["Forge-AI/monorepo#41"]["undrawn"]["why"], prs["Forge-AI/monorepo#42"]["undrawn"]) == (why, None)
+    ages.clear()
+    ask(asks(41, 42) | {"redraw": True})
+    assert ages == [(41, "0s"), (42, card.READ_AGE)]
+    assert [(event["kind"], event["reason"]) for event in events("demo") if event["kind"] in ("undrawn", "refused")] == [("undrawn", why)]
+    shows[41] = shows[41].replace('"medium": "queue"', '"medium": "memory"')
     chrome.refusal = None
-    [carded] = ask(asks(41, 42))["cards"]
-    assert [[Path(path).name for path in row["pictures"]] for row in carded["card"]["prs"]] == [["Diagram"], ["Diagram (2)"]]
+    [carded] = ask(asks(41, 42) | {"redraw": True})["cards"]
+    assert [(row["show_me"], [Path(path).name for path in row["pictures"]]) for row in carded["card"]["prs"]] == [("The fork snapshot share:", ["The fork snapshot share"]), ("", [])]
+    assert state.load("demo")["prs"]["Forge-AI/monorepo#41"]["undrawn"] is None
 
 
 def test_a_native_stack_of_six_prs_draws_one_card_whose_approve_taps_each(stacked: list[list[str]], native_stacks: dict[str, list[tuple[str, str]]]) -> None:

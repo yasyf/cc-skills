@@ -5204,6 +5204,28 @@ def test_a_new_head_on_a_pr_reworked_to_his_words_redraws_nothing_until_its_buil
     assert (redraws.asked, state.load(demo)["prs"][KEY]["rework"]["by"]) == ([], "o2")
 
 
+def test_his_open_card_that_left_a_show_me_picture_off_redraws_in_place_once_github_reads_the_body_edited_since_its_draw(
+    demo: str, monkeypatch: pytest.MonkeyPatch, redraws: Redraws
+) -> None:
+    why = 'monorepo PR 42: the Show me picture "The fork snapshot share" does not draw: node "stream": a store node needs "medium", one of memory, disk, bucket, keys, pages, so his card went out without it'
+    with state.edit(demo) as data:
+        data["prs"][KEY]["undrawn"] = {"why": why, "at": state.stamp(T0)}
+    shown = {"team_url": "", "questions": [], "closed": [], "pr_cards": []}
+    monkeypatch.setattr(watch.view, "cards", lambda drive: shown)
+    before, after = "2026-11-09T14:59:00Z", "2026-11-09T15:02:00Z"
+    reads = {KEY: read(lastEditedAt=after)}
+    serve(monkeypatch, reads)
+    watching = watcher(demo)
+    watch.run_pass(watching, T0)
+    shown["pr_cards"] = [pr_card(KEY)]
+    reads[KEY] = read(lastEditedAt=before)
+    watch.run_pass(watching, T0 + timedelta(minutes=1))
+    assert redraws.asked == []
+    reads[KEY] = read(lastEditedAt=after)
+    watch.run_pass(watching, T0 + timedelta(minutes=2))
+    assert redraws.asked == [state.pr_url(KEY)]
+
+
 def test_a_job_clock_is_said_once_when_it_runs_out_while_its_job_still_runs_and_ends_unsaid_for_one_that_returned(demo: str) -> None:
     due = T0 + timedelta(minutes=10)
     with state.edit(demo) as data:

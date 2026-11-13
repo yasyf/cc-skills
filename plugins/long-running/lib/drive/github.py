@@ -10,7 +10,7 @@ from pathlib import Path
 NUMBER = "<number>"
 REQUIRED = f"isRequired(pullRequestNumber: {NUMBER})"
 FIELDS = (
-    "state isDraft headRefOid baseRefName headRefName title author { login } reviewDecision latestOpinionatedReviews(first: 20, writersOnly: true) { nodes { state commit { oid } } } "
+    "state isDraft headRefOid baseRefName headRefName title lastEditedAt author { login } reviewDecision latestOpinionatedReviews(first: 20, writersOnly: true) { nodes { state commit { oid } } } "
     "mergeable mergeCommit { oid } labels(first: 50) { nodes { name } } timelineItems(itemTypes: [LABELED_EVENT], last: 20) { nodes { ... on LabeledEvent { createdAt label { name } } } } "
     "commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { "
     f"... on CheckRun {{ name conclusion detailsUrl {REQUIRED} checkSuite {{ workflowRun {{ workflow {{ name }} }} }} }} ... on StatusContext {{ context state targetUrl {REQUIRED} }} }} }} }} }} }} }}"
@@ -126,6 +126,7 @@ def flatten(node: dict) -> dict:
         "approvals": [(review["commit"] or {}).get("oid") for review in node["latestOpinionatedReviews"]["nodes"] if review["state"] == "APPROVED"],
         "mergeable": node["mergeable"],
         "title": node["title"],
+        "lastEditedAt": node["lastEditedAt"],
         "author": (node["author"] or {"login": DELETED_AUTHOR})["login"],
         "labels": labels,
         "ejected_at": max((event["createdAt"] for event in node["timelineItems"]["nodes"] if event["label"]["name"] == EJECTED_LABEL), default=None) if EJECTED_LABEL in labels else None,

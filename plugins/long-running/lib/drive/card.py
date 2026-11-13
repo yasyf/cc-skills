@@ -75,7 +75,7 @@ RECORD_ID = re.compile(
 )
 HIS = re.compile(r"\bhis\b")
 HIM = re.compile(r"\bhim\b")
-Member = tuple[dict, dict, tuple[str, ...], tuple[str, ...]]
+Member = tuple[dict, dict, tuple[str, ...], tuple[str, ...], tuple[str, ...]]
 EMOJI_CATEGORIES = {"So", "Cf"}
 EMOJI_MARKS = {chr(0xFE0E), chr(0xFE0F), chr(0x20E3), *map(chr, range(0x1F3FB, 0x1F400))}
 
@@ -305,8 +305,8 @@ def body_of(pr: dict) -> str:
     return rest if rest and all(TRAILER.fullmatch(line.strip()) for line in last.splitlines()) else body
 
 
-def render(pr: dict, entry: dict, shown: tuple[str, ...] = (), held: tuple[str, ...] = (), charts: int = limits.CHARTS) -> dict:
-    """The cc-slack PR card for a `gh pr view` payload, the drive's entry for that PR, its drawn Show me pictures, what each of its waits that holds waits for, in his card's words, and how many ```chart fences its Show me may still draw on the card."""
+def render(pr: dict, entry: dict, shown: tuple[str, ...] = (), held: tuple[str, ...] = (), undrawn: tuple[str, ...] = (), charts: int = limits.CHARTS) -> dict:
+    """The cc-slack PR card for a `gh pr view` payload, the drive's entry for that PR, its drawn Show me pictures, what each of its waits that holds waits for, in his card's words, why each Show me picture left off it does not draw, and how many ```chart fences its Show me may still draw on the card."""
     kind, plain = kind_and_title(pr["title"])
     body = body_of(pr)
     found = {heading: without_html(text) for heading, text in sections(body).items()}
@@ -320,7 +320,7 @@ def render(pr: dict, entry: dict, shown: tuple[str, ...] = (), held: tuple[str, 
         "refresher": section_words(found, *REFRESHER_HEADINGS) or comment_refresher(pr),
         "surprise": section_words(found, "biggest surprise"),
         "hate_most": section_words(found, *HATE_HEADINGS),
-        "show_me": show_me_words(found.get("show me", ""), bool(shown), charts),
+        "show_me": "\n\n".join(filter(None, [show_me_words(found.get("show me", ""), bool(shown), charts), left_off(undrawn)])),
         "pictures": list(shown),
         "plan": section_words(found, *PLAN_HEADINGS),
         "port": section_words(found, "port"),
@@ -345,6 +345,11 @@ def render(pr: dict, entry: dict, shown: tuple[str, ...] = (), held: tuple[str, 
     if shown:
         card["pictures"] = list(shown)
     return card
+
+
+def left_off(undrawn: tuple[str, ...]) -> str:
+    """The one line a card's Show me names each picture left off it with, and why."""
+    return f"Left off this card: {'; '.join(why.rstrip('.') for why in undrawn)}. The agent is fixing it." if undrawn else ""
 
 
 def stack_words(pr: dict) -> tuple[str, str]:
@@ -404,11 +409,11 @@ def skip(key: str, reason: str) -> dict:
 
 
 def read(key: str, entry: dict | None = None) -> dict | None:
-    """The PR's card fields through ccx's GitHub cache, which answers the same read made within READ_AGE, each read kept on disk, so a read GitHub refuses, as under its rate-limit floor, draws from the copy kept at the last read with the state and head the drive's entry holds; None only for a PR never read. Its checks come from the drive's entry, and its comments are read over REST: gh's comments field also asks for each comment's viewerDidAuthor, so ccx sends that read to his own GraphQL budget instead of the GitHub App's."""
+    """The PR's card fields through ccx's GitHub cache, which answers the same read made within READ_AGE, but fresh for a PR whose card left a picture off, since the body edit that fixes it can be newer than the read cached, each read kept on disk, so a read GitHub refuses, as under its rate-limit floor, draws from the copy kept at the last read with the state and head the drive's entry holds; None only for a PR never read. Its checks come from the drive's entry, and its comments are read over REST: gh's comments field also asks for each comment's viewerDidAuthor, so ccx sends that read to his own GraphQL budget instead of the GitHub App's."""
     repo, number = key.split("#")
     kept = state.root() / KEPT_READS / repo / f"{number}.json"
     try:
-        pr = json.loads(run(["gh", "pr", "view", number, "-R", repo, "--json", FIELDS], max_age=READ_AGE))
+        pr = json.loads(run(["gh", "pr", "view", number, "-R", repo, "--json", FIELDS], max_age="0s" if entry and entry["undrawn"] else READ_AGE))
         pr["comments"] = json.loads(run(["gh", "api", "--paginate", f"repos/{repo}/issues/{number}/comments?per_page=100"], max_age=READ_AGE))
     except (GithubError, json.JSONDecodeError) as error:
         print(f"drive card: {key}: {error}", file=sys.stderr)
@@ -441,11 +446,9 @@ def watched(entry: dict) -> dict | None:
     }
 
 
-def pictured(name: str, key: str, pr: dict, taken: set[str]) -> tuple[str, ...]:
-    repo, number = key.split("#")
-    label = f"{repo.split('/')[1]} PR {number}"
-    show_me = sections(body_of(pr)).get("show me", "")
-    return tuple(picture.pictures(state.drive_dir(name) / "pictures", label, show_me, taken))
+def pictured(name: str, pr: dict, taken: set[str]) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    shown, undrawn = picture.pictures(state.drive_dir(name) / "pictures", sections(body_of(pr)).get("show me", ""), taken)
+    return tuple(shown), tuple(undrawn)
 
 
 def groups(known: dict[str, tuple[str, dict]], keys: list[str], reads: dict[str, dict]) -> list[list[str]]:
@@ -513,15 +516,25 @@ def remember(known: dict[str, tuple[str, dict]], stack: list[str]) -> None:
         known[key][1]["stack"] = stack
 
 
-def drawn(known: dict[str, tuple[str, dict]], members: list[str]) -> None:
-    """Clears the refusal each member carries, so a PR drawn after a refusal reads as drawn and a later refusal is told again."""
-    for key in members:
+def drawn(known: dict[str, tuple[str, dict]], undrawn: dict[str, tuple[str, ...]], at: str) -> None:
+    """Clears the refusal each drawn PR carries, so a PR drawn after a refusal reads as drawn and a later refusal is told again, and keeps on it why each Show me picture left off its card does not draw and when its body was read for it, at, told once a reason to the session hearing its order, so a builder fixes the body and the watch redraws the card once GitHub reads the body edited since."""
+    for key, left in undrawn.items():
         name, entry = known[key]
-        if not entry.get("refused"):
+        if not (left or entry["undrawn"] or entry.get("refused")):
             continue
+        repo, number = key.split("#")
+        why = f"{repo.split('/')[1]} PR {number}: {'; '.join(left)}, so his card went out without it" if left else None
+        told = (entry["undrawn"] or {}).get("why")
+        kept = {"why": why, "at": at} if why else None
         with state.edit(name) as data:
-            data["prs"][key].pop("refused", None)
-        entry.pop("refused")
+            pr = data["prs"][key]
+            pr.pop("refused", None)
+            pr["undrawn"] = kept
+            lane = state.heard_lane(data, pr["order"])
+        if why and why != told:
+            state.append_event(name, "undrawn", repo=repo, number=int(number), reason=why, lane=lane)
+        entry.pop("refused", None)
+        entry["undrawn"] = kept
 
 
 def drawn_card(shown: list[Member]) -> dict:
@@ -576,8 +589,8 @@ def on_his_card(known: dict[str, tuple[str, dict]], reads: dict[str, dict], memb
 
 
 def cards(asked: list[dict], redraw: bool = False) -> dict:
-    """One card per stack the asked PRs form, by groups(), bottom PR first, cut below its lowest PR reworked to his words, which with every PR above it is refused by reworked() since none lands without it, each card drawn kept on its PRs so Approve lands exactly those, and a fresh one only when tap_refused finds one of them asking his Approve, the same check that puts Approve on a card. A redraw of a card cc-slack already posted draws it as the PRs stand now, a wait that holds back a fresh Approve shown on it rather than refusing it. A PR body's sections are drawn as they stand and never hold a card, but a Show me picture that does not draw, such as a Mermaid diagram Mermaid cannot parse, refuses its stack's card with why, which `refused` tells the session hearing its order, since a card without the picture shows him nothing for it."""
-    known = drive_prs()
+    """One card per stack the asked PRs form, by groups(), bottom PR first, cut below its lowest PR reworked to his words, which with every PR above it is refused by reworked() since none lands without it, each card drawn kept on its PRs so Approve lands exactly those, and a fresh one only when tap_refused finds one of them asking his Approve, the same check that puts Approve on a card. A redraw of a card cc-slack already posted draws it as the PRs stand now, a wait that holds back a fresh Approve shown on it rather than refusing it. A PR body's sections are drawn as they stand and never hold a card, a Show me picture that does not draw included, such as an arch diagram whose store node names a medium the drawing does not know: it is left off, the card's Show me saying why in one line, which `drawn` tells the session hearing its order."""
+    at, known = state.stamp(), drive_prs()
     asked_keys = keys_of(asked, known)
     for key in asked_keys:
         if key not in known:
@@ -606,21 +619,16 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
         if fresh and not reason and (off := untapped(known, reads, members)):
             skipped += [skip(key, off) for key in members]
             continue
-        if not reason:
-            taken: set[str] = set()
-            try:
-                card = drawn_card(
-                    [(reads[key], known[key][1] | {"now": standing(known, key)}, pictured(known[key][0], key, reads[key], taken), tuple(holding(known, key).values())) for key in members]
-                )
-            except state.DriveError as error:
-                reason = str(error)
         if reason:
             refusals = [skip(key, reason) for key in members]
             refused(refusals)
             skipped += refusals
             continue
+        taken: set[str] = set()
+        drawings = {key: pictured(known[key][0], reads[key], taken) for key in members}
+        card = drawn_card([(reads[key], known[key][1] | {"now": standing(known, key)}, drawings[key][0], tuple(holding(known, key).values()), drawings[key][1]) for key in members])
         remember(known, members)
-        drawn(known, members)
+        drawn(known, {key: undrawn for key, (_, undrawn) in drawings.items()}, at)
         repo, number = members[0].split("#")
         found.append({"repo": repo, "number": int(number), "card": card})
     return {"cards": found, "skipped": skipped}

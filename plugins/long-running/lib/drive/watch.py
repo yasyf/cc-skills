@@ -179,7 +179,7 @@ def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
         watcher.failures.pop("github", None)
     if not reads:
         return lines
-    foreign = {}
+    foreign, redraws = {}, []
     with state.edit(watcher.name) as data:
         for key, read in reads.items():
             pr = data["prs"][key]
@@ -188,10 +188,24 @@ def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
             if why := state.foreign_pr(data, key):
                 foreign[key] = (pr["url"], pr["author"], f"{why} {ids(pr)}")
                 continue
+            if edited_since_undrawn(pr, read, watcher.cards):
+                redraws.append(pr["url"])
             pr["updated"] = state.stamp(moment)
             lines.extend(f"PR {key}: {change} {ids(pr)}" for change in changes)
     watcher.stale |= set(foreign)
+    for url in redraws:
+        try:
+            slack.redraw_pr_cards(url)
+        except slack.SlackError as error:
+            lines.append(f"WATCH his open card for {url} still leaves off the Show me picture its body was edited to fix, since its redraw failed: {error}")
     return lines + dropped_lines(watcher, foreign, moment)
+
+
+def edited_since_undrawn(pr: dict, read: dict, cards: dict | None) -> bool:
+    """Whether his open card left a Show me picture of the PR off and GitHub reads its body edited since the read that card drew, so a redraw in place draws the picture the edit fixed."""
+    if not (left := pr["undrawn"]) or cards is None or not view.card_for(cards["pr_cards"], pr["url"]):
+        return False
+    return bool(edited := read["lastEditedAt"]) and state.parse_time(edited) > state.parse_time(left["at"])
 
 
 def pushed_lines(watcher: Watcher, moment: datetime) -> list[str]:

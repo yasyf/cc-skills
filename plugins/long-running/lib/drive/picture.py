@@ -400,7 +400,7 @@ def fill(folder: Path, kept: list[str]) -> None:
 
 
 def shot(folder: Path, name: str, kind: str, source: str, which: str) -> Path:
-    """The picture of one source as `cached` draws it under folder, a local image by its file URL; one that does not draw, such as a Mermaid diagram Mermaid cannot parse, raises a DriveError naming which picture and why, since a card or post that leaves it out shows him a Show me with nothing in it."""
+    """The picture of one source as `cached` draws it under folder, a local image by its file URL; one that does not draw, such as a Mermaid diagram Mermaid cannot parse, raises a DriveError naming which picture and why, since a question card or post that leaves it out shows him a Show me with nothing in it."""
     from drive.state import DriveError
 
     if kind == "image" and not source.startswith(("http://", "https://")):
@@ -413,17 +413,23 @@ def shot(folder: Path, name: str, kind: str, source: str, which: str) -> Path:
         raise DriveError(f"{which} does not draw: {error}") from None
 
 
-def pictures(folder: Path, label: str, show_me: str, taken: set[str]) -> list[str]:
-    """Local image files for a PR's Show me, drawn once per source under folder, a local image copied in, each also named its caption with no extension, since cc-slack titles a PR card's picture with its file's whole name, and numbered apart from each name in taken, which gains each name it gives, since cc-slack gives each PR of a card every picture whose file name one of the PR's own has; a picture that does not draw raises the DriveError `shot` names it in."""
-    drawn = []
+def pictures(folder: Path, show_me: str, taken: set[str]) -> tuple[list[str], list[str]]:
+    """Local image files for a PR's Show me, drawn once per source under folder, a local image copied in, each also named its caption with no extension, since cc-slack titles a PR card's picture with its file's whole name, and numbered apart from each name in taken, which gains each name it gives, since cc-slack gives each PR of a card every picture whose file name one of the PR's own has; and why each picture that does not draw is left out, in the words of the DriveError `shot` names it in, since one picture that fails never holds back the card he taps Approve on."""
+    from drive.state import DriveError
+
+    drawn, undrawn = [], []
     for kind, source, caption in sources(show_me):
         name = apart(file_name(caption) or title(kind), taken)
-        found = shot(folder, "show-me", kind, source, f"{label}: its Show me {kind}")
+        try:
+            found = shot(folder, "show-me", kind, source, f'the Show me picture "{name}"')
+        except DriveError as error:
+            undrawn.append(str(error))
+            continue
         if not (titled := found.with_name(name)).exists():
             titled.hardlink_to(found)
         taken.add(name)
         drawn.append(str(titled))
-    return drawn
+    return drawn, undrawn
 
 
 def apart(name: str, taken: set[str]) -> str:

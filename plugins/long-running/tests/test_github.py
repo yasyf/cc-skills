@@ -32,6 +32,7 @@ def node(**overrides: object) -> dict:
         "baseRefName": "main",
         "headRefName": "fix-the-thing",
         "title": "Fix the thing",
+        "lastEditedAt": None,
         "author": {"login": "yasyf"},
         "reviewDecision": None,
         "latestOpinionatedReviews": {"nodes": []},
@@ -96,6 +97,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             latestOpinionatedReviews={"nodes": reviews},
             labels={"nodes": [{"name": "hold"}]},
             author=None,
+            lastEditedAt="2026-11-12T23:08:08Z",
             stack={"entries": {"nodes": [{"position": 2, "pullRequest": {"number": 2, "state": "MERGED"}}, {"position": 1, "pullRequest": {"number": 1, "state": "OPEN"}}]}},
         )
         return json.dumps({"data": {"r0": {"defaultBranchRef": RULED, "p1": node(), "p2": merged}, "r1": {"defaultBranchRef": UNRULED, "p7": None}}})
@@ -118,6 +120,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "approvals": [],
             "mergeable": "MERGEABLE",
             "title": "Fix the thing",
+            "lastEditedAt": None,
             "author": "yasyf",
             "labels": [],
             "ejected_at": None,
@@ -137,6 +140,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "approvals": ["abc1234def", None],
             "mergeable": "MERGEABLE",
             "title": "Fix the thing",
+            "lastEditedAt": "2026-11-12T23:08:08Z",
             "author": "ghost",
             "labels": ["hold"],
             "ejected_at": None,
