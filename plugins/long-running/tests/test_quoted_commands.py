@@ -170,7 +170,7 @@ def test_drive_manual_fills_each_session_start_with_every_lane_variable_and_one_
 @pytest.mark.parametrize("words", [pytest.param(words, id=f"{page}: {line}") for (page, line, _), words in every_quote().items()])
 def test_every_quoted_drive_command_parses(words: list[str], monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sys, "stdin", io.StringIO())
-    parser = cli.parser()
+    parser = cli.parser.__wrapped__()
     lenient(parser, whole(parser, words))
     try:
         parser.parse_args(words if verb(parser, words)[1] else [*words, "--help"])
