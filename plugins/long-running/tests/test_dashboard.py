@@ -2581,7 +2581,7 @@ const tap = async (el) => {
   await wait(50);
 };
 fact().scrollIntoView({ block: 'center' });
-await wait(100);
+await new Promise(requestAnimationFrame);
 await tap(fact());
 const opened = { open: open(), says: tip.textContent.startsWith('Waiting on you for') };
 await tap(fact());
