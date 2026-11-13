@@ -125,10 +125,9 @@ def test_a_handler_claude_bg_could_not_start_leaves_nothing_behind_and_tells_the
     [post] = posted
     assert post[:2] == ["cci", "post"] and post[post.index("--to") + 1] == "communicator@demo"
     assert post[-1].startswith(f"BLOCKED handler {handler} did not start: claude --bg: workspace not trusted")
-    code, out = run("handler", QUESTION_BRIEF.format(scratch=tmp_path / "h2"), "--answer", "Copy fix shipped", "--project", "The drive", "--workstream", "Copies")
+    code, out = run("handler", QUESTION_BRIEF.format(scratch=tmp_path / "h2"), "--answer", "Copy fix shipped")
     assert code == 0 and posted[-1][-1].startswith(f"BLOCKED handler {out.removeprefix('started ')} did not start: claude --bg: workspace not trusted")
-    assert run("handler", QUESTION_BRIEF.format(scratch=tmp_path / "h3"), "--answer", "Copy fix shipped")[0] == 2
-    assert run("handler", HIS_BRIEF.format(scratch=tmp_path / "h4"), "--answer", "Copy fix shipped", "--project", "The drive", "--workstream", "Copies")[0] == 2
+    assert run("handler", HIS_BRIEF.format(scratch=tmp_path / "h4"), "--answer", "Copy fix shipped")[0] == 2
     data = state.load("demo")
     assert (data["handlers"], data["orders"], data["jobs"]) == ({}, {}, {})
 
@@ -145,14 +144,15 @@ def test_his_read_only_questions_handler_starts_on_its_answer_order_and_one_say_
     run("job", "add", "reader", "--order", "o1", "--goal", "trace the copy")
     run("order", "add", "--title", "Run page", "--project", "The drive", "--workstream", "Runs", "show a run's history", "--from", "https://acme.slack.com/archives/D123/p1794100000000100")
     brief = QUESTION_BRIEF.format(scratch=tmp_path / "h1")
-    handler = tools.run("handler", "demo", {"brief": brief, "answer": "Copy fix shipped", "project": "The drive", "workstream": "Copies"}).removeprefix("started ")
+    handler = tools.run("handler", "demo", {"brief": brief, "answer": "Copy fix shipped"}).removeprefix("started ")
     data = state.load("demo")
     order, job = data["orders"]["o3"], data["jobs"]["j2"]
     assert (order["text"], order["kind"], order["owner"], order["thread"], order["title"]) == ("did the copy fix ship?", "answer", "communicator", ["D123", THREAD], "Copy fix shipped")
+    assert (order["project"], order["workstream"]) == (None, None)
     assert (job["kind"], job["order"], job["agent"], job["state"]) == ("reader", "o3", handler, "running")
     [argv] = started
     prompt = argv[-1]
-    assert prompt.startswith(f"{brief}\nOrder: o3, job j2\nIn his thread:\n- o1 ")
+    assert prompt.startswith(f"{brief}\nOrder: o3, job j2\nPairs in use: The drive / Copies; The drive / Runs\nIn his thread:\n- o1 ")
     assert "  - j1 " in prompt and "o2" not in prompt and agents.beyond_brief(prompt) is None
 
     transcript = tmp_path / "h-session.jsonl"
@@ -167,6 +167,9 @@ def test_his_read_only_questions_handler_starts_on_its_answer_order_and_one_say_
     text = "It shipped in 1.0.540."
     with monkeypatch.context() as scoped:
         scoped.setenv("CLAUDE_CODE_SESSION_ID", "h-session")
+        with pytest.raises(state.DriveError, match="^nothing posted: o3 is filed under no project and workstream yet: run drive order set o3 --project"):
+            talk.say("demo", {"text": text, "thread_ts": THREAD, "order": "o3", "close": True})
+        assert run("order", "set", "o3", "--project", "The drive", "--workstream", "Copies")[0] == 0
         line = talk.say("demo", {"text": text, "thread_ts": THREAD, "order": "o3", "close": True})
     result = f"POSTED {answer}"
     assert line == f'{result}; o3 "did the copy fix ship?": posted {answer}; o3 closed on report 700001; j2 keeps {result} as its return, the line you end on'

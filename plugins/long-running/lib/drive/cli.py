@@ -252,7 +252,7 @@ def withdrawn_card(name: str, key: str) -> list[str]:
         return [f"{key}: withdrawing its card failed, so the watch withdraws it on its next read: {error}"]
 
 
-def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[str]]:
+def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, dict, list[str], list[str]]:
     name = state.resolve(args.drive)
     created = state.stamp()
     if args.incident and not args.joins and state.INCIDENT_FIX not in (args.parts or []):
@@ -273,7 +273,7 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
     tooling = args.words.startswith(state.TOOLING)
     if held := held_order(state.load(name), args.words, args.owner):
         return held, state.load(name)["orders"][held], [f"{held} already holds these words, so no order was added"], []
-    project, workstream = filing(state.load(name), args.words, args.project, args.workstream)
+    project, workstream = (None, None) if unfiled else filing(state.load(name), args.words, args.project, args.workstream)
     title = titled(args.title)
     if tooling:
         check_tooling_words(name, args.words)
@@ -504,8 +504,22 @@ def filing(data: dict, words: str, project: str | None, workstream: str | None) 
         one_home(data, project, workstream)
         return project, workstream
     missing = " and ".join(f"--{field}" for field, value in (("project", project), ("workstream", workstream)) if not value)
-    pairs = "; ".join(f"{named} / {stream}" for named, stream in filing_pairs(data)) or "none yet"
-    raise DriveError(f"refused, no order added: name {missing}, which file his order on the dashboard's Now screen, reusing a pair in use where it fits: {pairs}")
+    raise DriveError(f"refused, no order added: name {missing}, which file his order on the dashboard's Now screen, reusing a pair in use where it fits: {pairs_in_use(data)}")
+
+
+def unfiled_refusal(data: dict, order_id: str) -> str | None:
+    """Why say may not close his answer order yet: the handler tool added it under no project and workstream, which its handler sets from the card or order his question is about."""
+    order = find(data["orders"], order_id, "order")
+    if order["project"] and order["workstream"]:
+        return None
+    return (
+        f"{order_id} is filed under no project and workstream yet: run drive order set {order_id} --project <name> --workstream <name>"
+        f" with the pair of the card or order his question is about, reusing a pair in use where it fits: {pairs_in_use(data)}"
+    )
+
+
+def pairs_in_use(data: dict) -> str:
+    return "; ".join(f"{named} / {stream}" for named, stream in filing_pairs(data)) or "none yet"
 
 
 def one_home(data: dict, project: str, workstream: str, but: str | None = None) -> None:
@@ -3440,15 +3454,14 @@ def handler_start(args: argparse.Namespace) -> int:
 
 
 def answering(name: str, args: argparse.Namespace) -> Callable[[str], str]:
-    """The brief of his read-only question's handler once its answer order and the handler's reader job on it are added, filed as --answer, --project and --workstream name, naming both and every open order in his thread with its jobs, questions and PRs, read from the drive and its stored cards, so the handler reads no drive status."""
+    """The brief of his read-only question's handler once its answer order, titled as --answer names and filed under no project or workstream, and the handler's reader job on it are added, naming both, the pairs in use, which the handler picks from when it files the order with drive order set, and every open order in his thread with its jobs, questions and PRs, read from the drive and its stored cards, so the handler reads no drive status."""
     held = agents.holds(args.brief)
     if not held["link"]:
         raise DriveError("--answer: refused, no handler started: it adds his answer order from his message, so the brief carries his words and the Link of his message")
 
     def briefed(handler_id: str) -> str:
-        filed = [*(["--project", args.project] if args.project else []), *(["--workstream", args.workstream] if args.workstream else [])]
         words = agents.his_words(args.brief)
-        order_id = added_order(parser().parse_args(["order", "add", words, "--from", held["link"], "--kind", "answer", "--complex", "--title", args.answer, *filed, "--drive", name]))[0]
+        order_id = added_order(parser().parse_args(["order", "add", words, "--from", held["link"], "--kind", "answer", "--complex", "--title", args.answer, "--drive", name]), unfiled=True)[0]
         job_id = added_job(parser().parse_args(["job", "add", "reader", "--order", order_id, "--goal", args.answer, "--agent", handler_id, "--drive", name]))[0]
         data = with_cards(name, state.load(name))
         thread = state.promise_thread(data["orders"][order_id])
@@ -3458,7 +3471,9 @@ def answering(name: str, args: argparse.Namespace) -> Callable[[str], str]:
             if other_id != order_id and thread in slack.order_threads(data, other_id, other)
             for line in render.order_block(data, other_id, other, True)
         ]
-        return "\n".join([args.brief.strip(), f"{agents.ORDER}: {order_id}, job {job_id}", f"{agents.IN_THREAD}:{'' if work else ' none'}", *work])
+        return "\n".join(
+            [args.brief.strip(), f"{agents.ORDER}: {order_id}, job {job_id}", f"{agents.PAIRS}: {pairs_in_use(data)}", f"{agents.IN_THREAD}:{'' if work else ' none'}", *work]
+        )
 
     return briefed
 
@@ -4753,13 +4768,12 @@ def parser() -> argparse.ArgumentParser:
         "--answer",
         metavar="TITLE",
         help=(
-            "his read-only question's title, a few words naming it: the call adds his answer order from the brief's words and Link"
-            " and the handler's reader job on it, and writes both into the brief with every open order in his thread, its jobs,"
-            " questions and PRs, so the handler reads no drive status and closes the order with say(order=<o>, close=true)"
+            "his read-only question's title, a few words naming it: the call adds his answer order from the brief's words and Link,"
+            " filed under no project or workstream, and the handler's reader job on it, and writes both into the brief with the"
+            " pairs in use and every open order in his thread, its jobs, questions and PRs, so the handler reads no drive status,"
+            " files the order with drive order set <o> --project --workstream and closes it with say(order=<o>, close=true)"
         ),
     )
-    verb.add_argument("--project", help="with --answer, the project in use his question is about")
-    verb.add_argument("--workstream", help="with --answer, that project's workstream in use his question is about")
     verb.set_defaults(run=handler)
     verb = verbs.add_parser(
         "handler-start", parents=both, help="start the handler drive handler kept, as its own claude --bg session; the handler verb runs it detached once it returns"

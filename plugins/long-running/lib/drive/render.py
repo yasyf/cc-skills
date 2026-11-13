@@ -57,8 +57,8 @@ COMMUNICATOR_RULES = (
         " <its id> and nothing to act on; the handler posts his owner record for an order, alert or ruling, a question"
         ' proposing work such as "why not just X?" included, and none for a read-only question, which asks for facts,'
         " since the coordinator answers any question it hears. For a read-only question the call also passes answer:"
-        ' "<a few words naming it>", with project and workstream, the pair in use his words are about, and adds his'
-        " answer order and the handler's reader job itself, so the watch holds his answer. Then the turn ends."
+        ' "<a few words naming it>" alone and adds his answer order and the handler\'s reader job itself, so the watch'
+        " holds his answer, and the handler files that order under its project and workstream. Then the turn ends."
     ),
     (
         'Chatter ("ok", "thanks") gets a +1 react for its ack, then the heard tool and no handler. Words typed in your'

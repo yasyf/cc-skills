@@ -31,9 +31,10 @@ MESSAGE_ORIGIN = "coordinator"
 DESIGNER = "long-running:designer"
 HIS_WORDS = "Message (his words)"
 ORDER = "Order"
+PAIRS = "Pairs in use"
 IN_THREAD = "In his thread"
 SCRATCH = re.compile(r"Scratch:\s*(\S+)")
-LABEL = re.compile(rf"^({'|'.join(re.escape(label) for label in (*render.HANDLER_LABELS, ORDER, IN_THREAD))}):")
+LABEL = re.compile(rf"^({'|'.join(re.escape(label) for label in (*render.HANDLER_LABELS, ORDER, PAIRS, IN_THREAD))}):")
 DATADOG_PLUGIN = "datadog@claude-plugins-official"
 SESSION_SETTINGS = {
     "bashOutputMaxChars": 6000,

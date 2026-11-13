@@ -43,9 +43,10 @@ Deliverable: <what you hand him, in one line>
 Context: <at most three lines the message needs, such as the earlier answer he replies to>
 ```
 
-For a read-only question `drive handler` adds two lines of its own: `Order: <o>, job <j>`, his
-answer order and your reader job on it, and `In his thread:`, every open order in his thread with
-its jobs, their questions and PRs as `drive status` prints them, or `none`.
+For a read-only question `drive handler` adds three lines of its own: `Order: <o>, job <j>`, his
+answer order, filed under no project or workstream, and your reader job on it, `Pairs in use:`, each
+project and workstream pair the drive's orders are filed under, and `In his thread:`, every open order
+in his thread with its jobs, their questions and PRs as `drive status` prints them, or `none`.
 
 Start from his words. The `Deliverable`, or a record's line, names what he asked for but never all
 of it.
@@ -86,7 +87,7 @@ Then do the row that matches. A row that names a section means every bullet of t
 
 ### A read-only question
 
-- Read the source that owns the fact, and run no `drive status`: your brief's `Order:` line names `<o>`, his answer order, and `In his thread:` what the drive holds there. Answer in his thread with one `say(order=<o>, close=true)`, from what you read and from any record the coordinator sent on it. It writes the order's report from the communicator's lane with your words, closes the order on it and keeps `POSTED <permalink>` as your reader job's return, the line you end on. When his words share or link a question someone else asked him, run `drive order set <o> --reporter <that message's permalink>` before you post, so the person who asked gets the answer in this same step, by the note bullet of "A report record", before the order closes. `say(order=<o>)` without `close` is a progress line and leaves the order open. When the result says `not recorded on <o>` or `<o> not closed`, post no copy, and return a `DEFECT` line quoting it.
+- Read the source that owns the fact, and run no `drive status`: your brief's `Order:` line names `<o>`, his answer order, and `In his thread:` what the drive holds there. Once your reads find the card, order or code his question is about, file `<o>` under that one's pair with `drive order set <o> --project <name> --workstream <name>`, reusing a pair on your `Pairs in use:` line where it fits, since the dashboard's Now screen shows his question there and `say` refuses to close an order filed under none. Answer in his thread with one `say(order=<o>, close=true)`, from what you read and from any record the coordinator sent on it. It writes the order's report from the communicator's lane with your words, closes the order on it and keeps `POSTED <permalink>` as your reader job's return, the line you end on. When his words share or link a question someone else asked him, run `drive order set <o> --reporter <that message's permalink>` before you post, so the person who asked gets the answer in this same step, by the note bullet of "A report record", before the order closes. `say(order=<o>)` without `close` is a progress line and leaves the order open. When the result says `not recorded on <o>` or `<o> not closed`, post no copy, and return a `DEFECT` line quoting it.
 - When the answer finds work he already asked for that no job holds, send it that turn as an `owner` record carrying his question verbatim, `about` naming whose work it is, your finding marked as yours, and say a job is being put on it. His words: "its unnaceptbale to just say that no one is workiong on it, get someone workong in it, for all of these".
 - When it shows new work he has not asked for, name it and leave the order to him, because starting it would widen his words.
 - When work waits on a question card of his, show the card instead of saying the work is "parked behind a question card": `drive view --json` lists each feature's open `cards`. Say when it was posted and that he has not answered it. When he did answer a card the work was said to wait on, name his pick, when he gave it, and what moves the work now. His words: "You should surface them to me if I ask and they are blocking, not skip them".
