@@ -1,5 +1,5 @@
 import contextlib
-import html
+import hashlib
 import io
 import json
 import os
@@ -18,11 +18,8 @@ CARD_KINDS = (("question", "question"), ("tap", "PR card"))
 HELD = "report {seq} held for his catch-up, since he is away; drive status lists it until the catch-up posts"
 TICKET_FLAGS = {"ticket_id": "--ticket", "ticket_tree": "--ticket-tree", "ticket_agent": "--ticket-agent", "ticket_call": "--ticket-call", "ticket_fingerprint": "--ticket-fingerprint"}
 EDIT_TAKES = {"edit", "text", "asked", "claims", "dry_run", *TICKET_FLAGS}
-OPENING_WORDS = 12
-RECENT_POSTS = 50
 RECORD_WAIT_SECONDS = 1.0
 RECORD_POLL_SECONDS = 0.05
-WORD = re.compile(r"\w+")
 BREAKS = "breaks"
 PLAIN_QUESTION = (
     "The drive posts this line over his PR card, written from the PR's title, and `cc-slack check-post` found each of these in it. Does the rule"
@@ -54,6 +51,8 @@ def say(name: str, post: dict) -> str:
     if close:
         report["seq"] = close_report(name, order, post.get("text") or "")
     claimed = cli.claim_close(name, report)
+    if key := request_key(name, known, post, report):
+        post = post | {"request_key": key}
     try:
         reply = posted(name, post, order)
     except (DriveError, slack.SlackError):
@@ -76,6 +75,19 @@ def say(name: str, post: dict) -> str:
     if close:
         line += closed(name, order, report["seq"], reply["permalink"], post.get("text") or "")
     return line
+
+
+def request_key(name: str, known: dict, post: dict, report: dict) -> str | None:
+    """The key cc-slack stamps on each message of the post and reads Slack for before it posts, so a say retried after cc-slack posted and then failed, as dm-status does when its deadline passes while the daemon still posts, gets back what Slack holds instead of posting it again: a record's post keys on the record and when cci wrote it, a handler's post of no record on his message the handler holds and the post's words; an edit or any other post has none, and cc-slack keys it per call."""
+    if post.get("edit"):
+        return None
+    if post.get("record"):
+        return f"{int(state.parse_time(report['written']).timestamp() * 1000)}-{name}.{post['record']}"
+    handler = state.handler_id(known, os.environ.get("CLAUDE_CODE_SESSION_ID"))
+    if not (message := handler and (known["handlers"][handler]["holds"] or {}).get("message")):
+        return None
+    words = hashlib.sha256(json.dumps([post.get(field) for field in ("text", "card", "tap_prs", "visuals")]).encode()).hexdigest()[:16]
+    return f"{int(float(message) * 1000)}-{name}.{message}.{words}"
 
 
 def recording(name: str, receipt: dict, closing: dict | None = None) -> str:
@@ -317,7 +329,7 @@ def shown(name: str, post: dict) -> tuple[list[dict], str, list[str]]:
 
 
 def posted(name: str, post: dict, order: str | None = None) -> dict:
-    """cc-slack's reply to the post, or to the edit rewording a post of its own, which went out with its references linked, each visual drawn as a picture but a chart, which Slack draws itself, and each code or diagram fence of its text drawn as a picture too, and is kept as a said event for the dashboard, which draws each visual and fence live from its source and each PR of a stack card with its state now, an edit's words in place of its post's; a post that draws a card stores his cards as cc-slack lists them now, so the next post's hook sees that card; a post check refuses goes nowhere, and a new post of words alone that cc-slack reports failing is read back from Slack, kept and recorded when it went out anyway, cc-slack's error its warning. A card's line goes in each thread of his DM its PRs' orders have, and through cc-slack reply in the thread outside his DM the post names, such as an alert's, so whichever he reads carries the card's link, and the thread of each PR card drawn joins every order its PRs serve; the post's permalink is then that line's."""
+    """cc-slack's reply to the post, or to the edit rewording a post of its own, which went out with its references linked, each visual drawn as a picture but a chart, which Slack draws itself, and each code or diagram fence of its text drawn as a picture too, and is kept as a said event for the dashboard, which draws each visual and fence live from its source and each PR of a stack card with its state now, an edit's words in place of its post's; a post that draws a card stores his cards as cc-slack lists them now, so the next post's hook sees that card; a post check refuses goes nowhere, and every cc-slack call making the post carries the post's request key, so a retry gets back each message Slack already holds under it. A card's line goes in each thread of his DM its PRs' orders have, and through cc-slack reply in the thread outside his DM the post names, such as an alert's, so whichever he reads carries the card's link, and the thread of each PR card drawn joins every order its PRs serve; the post's permalink is then that line's."""
     text = post.get("text") or ""
     found = refs.resolved(name, text)
     check(name, post)
@@ -331,21 +343,15 @@ def posted(name: str, post: dict, order: str | None = None) -> dict:
     asked = cli.asked_on(name, card["waits"]) if card and card.get("waits") else set()
     drawn = bool(card or stack)
     first, *rest = places(data, post, stack)
-    began = time.time()
-    try:
-        reply = slack.cc_slack(
-            *(
-                ["edit", "--url", post["edit"], "--text", sent, *ticketed(post)]
-                if post.get("edit")
-                else replied(post, pictures, sent)
-                if first[0] != dm
-                else status(name, post | {"thread_ts": first[1]}, stack, pictures, sent)
-            )
+    reply = slack.cc_slack(
+        *(
+            ["edit", "--url", post["edit"], "--text", sent, *ticketed(post)]
+            if post.get("edit")
+            else replied(post, pictures, sent)
+            if first[0] != dm
+            else status(name, post | {"thread_ts": first[1]}, stack, pictures, sent)
         )
-    except slack.SlackError as error:
-        if post.get("edit") or drawn or not sent:
-            raise
-        reply = landed(name, post, began, sent, error)
+    )
     if card:
         reply |= {"card_permalink": " ".join([reply["permalink"], *filter(None, [reply.get("card_permalink")])])}
     if card and card.get("waits"):
@@ -368,7 +374,7 @@ def posted(name: str, post: dict, order: str | None = None) -> dict:
         view.refresh_cards(name)
     else:
         reply |= {"sent": sent}
-    cards = [reply.get("card_permalink"), *(linked(name, reply["permalink"], place[1], stack, refs.slack(words, found, place[1]), kept) for place in rest if place[0] == dm)]
+    cards = [reply.get("card_permalink"), *(linked(name, reply["permalink"], place[1], stack, refs.slack(words, found, place[1]), kept, post.get("request_key")) for place in rest if place[0] == dm)]
     if stack:
         with state.edit(name) as data:
             state.join_pr_cards(data, stack, cards, state.stamp())
@@ -376,25 +382,6 @@ def posted(name: str, post: dict, order: str | None = None) -> dict:
     for place in [place for place in rest if place[0] != dm]:
         reply |= {"permalink": carried(name, reply, place, post, refs.slack(words, found, place[1]), label, kept, stack)}
     return reply
-
-
-def landed(name: str, post: dict, began: float, sent: str, error: slack.SlackError) -> dict:
-    """cc-slack's reply, read back from Slack, for a new post of words alone it reported failing: the bot's message sent since the call began, in the post's thread or at its channel's root, opening with the post's words, since cc-slack can post and then fail, as dm-status does when its deadline passes after the post went out; the error again when Slack holds no such message."""
-    channel = post.get("channel_id") or slack.dm()
-    if thread := post.get("thread_ts"):
-        read = slack.cc_slack("thread", "--channel", channel, "--thread", thread, "--since-ts", str(int(began)), "--limit", str(RECENT_POSTS))
-        team_url = view.stored_cards(name)[0]["team_url"]
-        messages = [
-            message | {"permalink": f"{team_url}archives/{read['channel_id']}/p{message['ts'].replace('.', '')}?thread_ts={thread}&cid={read['channel_id']}"}
-            for message in read["messages"]
-        ]
-    else:
-        messages = [message | {"thread_ts": message["ts"]} for message in slack.cc_slack("history", "--channel", channel, "--limit", str(RECENT_POSTS), "--json")["messages"]]
-    opening = WORD.findall(sent)[:OPENING_WORDS]
-    for message in messages:
-        if message.get("from_claude") and float(message["ts"]) >= int(began) and WORD.findall(html.unescape(message["text"]))[: len(opening)] == opening:
-            return {"permalink": message["permalink"], "thread_ts": message.get("thread_ts"), "warning": f"cc-slack said {error}, but the post is in Slack"}
-    raise error
 
 
 def places(data: dict, post: dict, stack: list[str]) -> list[tuple[str, str | None]]:
@@ -423,10 +410,10 @@ def shown_in(name: str, post: dict) -> str | None:
     return places(state.load(name), post, [state.pr_key(each) for each in post.get("tap_prs") or []])[0][1]
 
 
-def linked(name: str, first: str, thread: str, stack: list[str], sent: str, kept: str) -> str | None:
+def linked(name: str, first: str, thread: str, stack: list[str], sent: str, kept: str, key: str | None) -> str | None:
     """Post a PR card's line in one more thread of his DM, where cc-slack links the card it drew under the line, and keep it for the dashboard; the card's link cc-slack names. A failure says the card already went out, so nothing is posted again."""
     try:
-        reply = slack.cc_slack(*status(name, {"thread_ts": thread}, stack, [], sent))
+        reply = slack.cc_slack(*status(name, {"thread_ts": thread, "request_key": key}, stack, [], sent))
     except slack.SlackError as error:
         raise slack.SlackError(f"posted {first} with its card, but its line in thread {thread} did not go out, so post neither again: {error}") from None
     state.append_event(name, "said", text=kept, thread=reply.get("thread_ts"), url=reply["permalink"], card=reply.get("card_permalink"), order=None, visuals=[], prs=stack, edited=False)
@@ -438,7 +425,7 @@ def carried(name: str, reply: dict, place: tuple[str, str], post: dict, sent: st
     card = (reply.get("card_permalink") or reply["permalink"]).split()[0]
     text = "\n".join(filter(None, [sent, f"<{card}|{label.translate(refs.LINK_WORDS)}>"]))
     try:
-        line = slack.cc_slack("reply", "--agent", "claude", "--channel", place[0], "--thread", place[1], "--text", text, *ticketed(post))
+        line = slack.cc_slack("reply", "--agent", "claude", "--channel", place[0], "--thread", place[1], "--text", text, *keyed(post), *ticketed(post))
     except slack.SlackError as error:
         raise slack.SlackError(f"posted {card}, but its line in thread {place[1]} of channel {place[0]} did not go out, so post neither again: {error}") from None
     state.append_event(name, "said", text=kept, channel=place[0], thread=line.get("thread_ts"), url=line["permalink"], card=card, order=None, visuals=[], prs=stack, edited=False)
@@ -457,6 +444,7 @@ def status(name: str, post: dict, stack: list[str], pictures: list[str], sent: s
         argv += ["--about", about]
     argv += [flag for key in stack for flag in ("--tap-pr", prs[key]["url"])]
     argv += [flag for path in pictures for flag in ("--file", path)]
+    argv += keyed(post)
     return [*argv, "--", sent] if sent else argv
 
 
@@ -525,7 +513,11 @@ def replied(post: dict, pictures: list[str], sent: str) -> list[str]:
     thread = ["--thread", post["thread_ts"]] if post.get("thread_ts") else []
     argv = ["reply" if thread else "send", "--agent", "claude", "--channel", post["channel_id"], *thread, "--text", sent]
     argv += [flag for path in pictures for flag in ("--file", path)]
-    return argv + ticketed(post)
+    return argv + keyed(post) + ticketed(post)
+
+
+def keyed(post: dict) -> list[str]:
+    return ["--request-key", post["request_key"]] if post.get("request_key") else []
 
 
 def ticketed(post: dict) -> list[str]:

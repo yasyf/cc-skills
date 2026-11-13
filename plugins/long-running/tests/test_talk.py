@@ -767,7 +767,7 @@ def test_a_post_on_an_incident_records_its_line_and_keeps_no_time_its_words_prom
     assert (told["due"], told["last_line"]) == (None, state.stamp(slack.sent_at(slack_thread.messages[-1])))
 
 
-def test_a_post_cc_slack_reports_failing_after_it_went_out_is_kept_and_recorded_on_its_order_and_one_that_never_went_out_raises(
+def test_a_say_of_a_record_retried_after_cc_slack_posted_and_failed_hands_cc_slack_the_records_key_again_and_keeps_the_one_post_slack_holds(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
 ) -> None:
     thread = "1794200000.000100"
@@ -777,30 +777,42 @@ def test_a_post_cc_slack_reports_failing_after_it_went_out_is_kept_and_recorded_
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "https://acme.slack.com/", "questions": [], "pr_cards": [], "closed": []})
-    monkeypatch.setattr(view, "stored_cards", lambda name: ({"team_url": "https://acme.slack.com/", "questions": [], "pr_cards": [], "closed": []}, "live"))
-    reaches = {"post": True}
+    keys: list[str] = []
+    held: dict[str, str] = {}
 
     def cc_slack(*argv: str) -> dict:
-        if argv[0] == "thread":
-            since = float(argv[argv.index("--since-ts") + 1])
-            return {"channel_id": "D123", "thread_ts": thread, "messages": [message for message in slack_thread.messages if float(message["ts"]) >= since]}
-        if reaches["post"]:
-            slack_thread.post(state.now(), from_claude=True, text=argv[-1].replace("&", "&amp;"))
-        raise slack.SlackError("context deadline exceeded")
+        keys.append(argv[argv.index("--request-key") + 1])
+        if keys[-1] not in held:
+            held[keys[-1]] = slack_thread.post(state.now(), from_claude=True, text=argv[-1])
+            raise slack.SlackError("context deadline exceeded")
+        return {"permalink": held[keys[-1]], "thread_ts": thread}
 
     monkeypatch.setattr(slack, "cc_slack", cc_slack)
-    handling(demo, "o1")
-    line = talk.say(demo, {"text": "The copy stalls on the lock & its waiter.", "thread_ts": thread})
-    [kept] = said(demo)
-    ts = slack_thread.messages[-1]["ts"]
-    assert kept["url"] == f"https://acme.slack.com/archives/D123/p{ts.replace('.', '')}?thread_ts={thread}&cid=D123"
-    assert (kept["thread"], kept["order"]) == (thread, "o1")
-    assert line == f"POSTED {kept['url']} WARNING cc-slack said context deadline exceeded, but the post is in Slack; o1 progress line, no part delivered: {kept['url']}"
-    assert state.load(demo)["orders"]["o1"]["last_line"] == state.stamp(slack.sent_at(slack_thread.messages[-1]))
-    reaches["post"] = False
+    report(monkeypatch, {"order": "o1"})
+    post = {"text": "The copy stalls on the lock.", "thread_ts": thread, "record": "690001"}
     with pytest.raises(slack.SlackError, match="context deadline exceeded"):
-        talk.say(demo, {"text": "The lock is released.", "thread_ts": thread})
-    assert len(said(demo)) == 1
+        talk.say(demo, post)
+    line = talk.say(demo, post)
+    [link] = held.values()
+    assert keys == ["1794388096896-demo.690001"] * 2
+    assert line == f"POSTED {link}; o1 progress line, no part delivered: {link}"
+    assert [(kept["url"], kept["order"]) for kept in said(demo)] == [(link, "o1")]
+
+
+def test_a_handlers_post_of_no_record_keys_on_his_message_it_holds_and_its_words(demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]]) -> None:
+    thread = "1794200000.000100"
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why the copy stalls", "--thread", thread)
+    run("start", "demo", "--role", "communicator")
+    with state.edit(demo) as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    talk.say(demo, {"text": "The copy stalls on the lock.", "thread_ts": thread})
+    handling(demo, "o1", "1794200000.000300")
+    for text in ("The copy stalls on the lock.", "The copy stalls on the lock.", "The lock is released."):
+        talk.say(demo, {"text": text, "thread_ts": thread})
+    keys = [argv[argv.index("--request-key") + 1] if "--request-key" in argv else None for argv in posts]
+    assert keys[0] is None and keys[1] == keys[2] != keys[3]
+    assert all(key.startswith("1794200000000-demo.1794200000.000300.") for key in keys[1:])
 
 
 def test_a_report_delivers_on_an_order_only_from_the_lane_of_its_holder_and_a_refusal_names_the_report_the_handler_passes(
@@ -1131,7 +1143,7 @@ def test_a_line_in_an_alerts_thread_goes_out_through_cc_slack_reply_with_the_tic
     assert posts == [
         (
             "reply", "--agent", "claude", "--channel", "C0ALERT1", "--thread", ALERT, "--text", "The release failed on the migration.",
-            "--ticket", "t1", "--ticket-tree", "tree1", "--ticket-agent", "agent1", "--ticket-call", "call1", "--ticket-fingerprint", "print1",
+            "--request-key", "1794388096896-demo.683597", "--ticket", "t1", "--ticket-tree", "tree1", "--ticket-agent", "agent1", "--ticket-call", "call1", "--ticket-fingerprint", "print1",
         )
     ]
     assert said(demo)[0]["channel"] == "C0ALERT1"
