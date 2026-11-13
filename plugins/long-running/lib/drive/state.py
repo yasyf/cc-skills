@@ -67,6 +67,7 @@ WAITING_LINE = re.compile(r"WAITING (?P<prs>.+?) waits on (?P<cards>.+)")
 ASK_LINE = re.compile(r"ASK (?P<file>\S+)")
 FORK = re.compile(r"^Fork:[ \t]*([/~]\S*)", re.MULTILINE)
 PUSHED_LINE = re.compile(r"PUSHED\b")
+POSTED_LINE = re.compile(r"POSTED (?P<link>https://[^\s;]+)")
 REPORTED_LINE = re.compile(r"(?:READY|PUSHED)\b")
 REPORT_CHANGE = re.compile(r"^CHANGE:[ \t]*(?P<change>.+?)[ \t]*$", re.MULTILINE)
 CHANGE_LINE = re.compile(r"^Change:[ \t]*(?P<change>.+?)(?:[ \t]*\(waits on (?P<after>[^()]*)\))?[ \t]*$", re.MULTILINE)
@@ -508,7 +509,7 @@ def load(name: str) -> dict:
     for order in data["orders"].values():
         if "parts" not in order:
             whole = whole_order(order["text"])
-            order["parts"] = {whole: new_part("answer" if order.get("kind") == "answer" else "build")}
+            order["parts"] = {whole: new_part()}
             for job_id in order["jobs"]:
                 data["jobs"][job_id].setdefault("parts", [whole])
         if "promised" not in order:
@@ -537,7 +538,7 @@ def load(name: str) -> dict:
             order["thread"] = saved_thread(data, order)
         order["parts"] = {part.strip(): held for part, held in order["parts"].items()}
         for part in order["parts"].values():
-            part.setdefault("kind", "answer" if order["kind"] == "answer" else "build")
+            part.pop("kind", None)
             part.setdefault("design", None)
             part["after"] = [each.strip() for each in ([part["after"]] if isinstance(part.get("after"), str) else part.get("after") or [])]
     mail = data.pop("lane_mail", {})
@@ -834,7 +835,7 @@ def named_waits(data: dict, order_id: str, line: str) -> list[str]:
 
 
 def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
-    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, a builder's DONE on an open incident's fix recording that fix live as the order's fixed, built on its branch and waiting on each card a BUILT line names, waiting on each PR and release a READY, PUSHED or WAITING line names, which the watch frees once the PR merges or closes or the release is out, each PR a `WAITING … waits on` line names waiting on each card it names, keep each verdict a reader's answer gives on the PR it names, join each open order the FIX line of a result tracing a live bug's cause names to that bug's incident, so hurts_now reads it live, and end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
+    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, a builder's DONE on an open incident's fix recording that fix live as the order's fixed, built on its branch and waiting on each card a BUILT line names, waiting on each PR and release a READY, PUSHED or WAITING line names, which the watch frees once the PR merges or closes or the release is out, each PR a `WAITING … waits on` line names waiting on each card it names, keep each verdict a reader's answer gives on the PR it names, join each open order the FIX line of a result tracing a live bug's cause names to that bug's incident, so hurts_now reads it live, end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met, and deliver the parts of a job whose answer reaches him only by a post by the post its POSTED line names; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
     job = data["jobs"][job_id]
     taken, moment = result_state(job, line), stamp()
     job.update(state=taken, updated=moment, returned=moment)
@@ -856,6 +857,8 @@ def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
         for order_id in fix_named(data, job["order"], fixes[-1])[0]:
             if not (hurts_now(order := data["orders"][order_id]) or order["state"] in CLOSED_ORDER_STATES):
                 order["joins"] = head
+    if (posted := POSTED_LINE.match(line)) and unposted_answer(data, job_id):
+        deliver_posted(data, job_id, posted["link"], moment)
     if taken == "done":
         drop_carries(data, job_id)
     if job["kind"] == "builder" and re.match(r"READY\b", line):
@@ -966,16 +969,23 @@ def unposted_answer(data: dict, job_id: str) -> bool:
     return job["state"] == "done" and not any(question["card"] or question["closed"] for question in job["questions"]) and not design_builder(data, job_id)
 
 
-def answered_parts(data: dict, order_id: str) -> dict[str, list[str]]:
-    """Each part of the order a finished job answered that no post delivered, no job still works on and a post may deliver, so never an open incident's fix before the watch records it live, with the jobs holding its answer: the parts the watch says are answered and not posted to him, which the next report on the order carries."""
-    found = {}
-    for part in data["orders"][order_id]["parts"]:
-        jobs = part_jobs(data, order_id, part)
-        if delivered(data, order_id, part) or unlive_fix(data, order_id, part) or any(job["state"] not in FINISHED_JOB_STATES for _, job in jobs):
-            continue
-        if answered := [job_id for job_id, _ in jobs if unposted_answer(data, job_id)]:
-            found[part] = answered
-    return found
+def deliver_posted(data: dict, job_id: str, link: str, moment: str) -> None:
+    """Deliver each part a finished job's answer carries by the post its POSTED line names, the post that answered it, but an open incident's fix the watch has not recorded live, and close each answer order that post leaves nothing owed: every part posted, every job finished, no promised line owed and its reporter told or none."""
+    job = data["jobs"][job_id]
+    for order_id in [job["order"], *job["carries"]]:
+        order = data["orders"][order_id]
+        for part in job_parts(job, order_id):
+            if not (order["parts"][part]["posted"] or unlive_fix(data, order_id, part)):
+                order["parts"][part]["posted"] = link
+        finished = all(data["jobs"][other]["state"] in FINISHED_JOB_STATES for other in order["jobs"])
+        if order["kind"] == "answer" and order["state"] not in CLOSED_ORDER_STATES and finished and not owed(order) and not (order["reporter"] and not order["reporter"]["told"]):
+            if all(held["posted"] for held in order["parts"].values()):
+                order.update(state="done", updated=moment)
+
+
+def may_tell(order: dict) -> bool:
+    """Whether the thread an order's reporter asked in may hear from it now: an answer order's once every part of its answer is posted, any other's once the order keeps the proof its fix is live."""
+    return all(held["posted"] for held in order["parts"].values()) if order["kind"] == "answer" else bool(order["proof"])
 
 
 def named_prs(data: dict, order_id: str, words: str) -> list[str]:
@@ -1060,9 +1070,8 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
     }
 
 
-def new_part(kind: str = "build") -> dict:
-    """A part of an order, of its kind: answer, words he reads, such as his question's answer, a retro or a status, or build, work he ordered done."""
-    return {"kind": kind, "posted": None, "orphan_said": None, "design": None, "after": []}
+def new_part() -> dict:
+    return {"posted": None, "orphan_said": None, "design": None, "after": []}
 
 
 def reporter(link: str) -> dict:

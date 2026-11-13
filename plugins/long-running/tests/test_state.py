@@ -731,22 +731,6 @@ def test_a_part_an_older_install_saved_with_spaces_around_its_name_loads_trimmed
     assert state.whole_order(f"{cut}two hours") == whole
 
 
-def test_a_part_an_older_install_saved_with_no_kind_loads_as_work_but_on_an_answer_order_as_words_he_reads(state_root: Path) -> None:
-    make("demo")
-    saved = state.stored("demo")
-    saved["orders"] = {
-        order_id: {"text": "why, then fix it", "jobs": [], "parts": {"why": {"posted": None}, "fix": {"posted": None}}, "promised": None} | kind
-        for order_id, kind in (("o1", {"kind": "answer"}), ("o2", {"kind": "build"}), ("o3", {}))
-    }
-    state.store("demo", saved)
-    orders = state.load("demo")["orders"]
-    assert {order_id: [held["kind"] for held in order["parts"].values()] for order_id, order in orders.items()} == {
-        "o1": ["answer", "answer"],
-        "o2": ["build", "build"],
-        "o3": ["build", "build"],
-    }
-
-
 def test_a_detached_verb_names_its_drive_and_no_session_in_its_environment(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     make("demo")
     started = []

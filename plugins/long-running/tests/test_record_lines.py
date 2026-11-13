@@ -433,28 +433,16 @@ def test_a_post_report_names_what_its_post_finishes_and_the_last_part_of_an_orde
     assert "the open order it is about" not in refusal(record_lines.decision(coordinator(turn, **merged, attrs={"job": "j1"})))
 
 
-def test_a_post_report_on_an_order_carries_each_part_a_finished_job_answered_and_no_post_delivered(
+def test_a_post_report_naming_one_part_goes_out_while_a_finished_job_holds_another_part_no_post_delivered(
     run: Callable[..., tuple[int, str]], demo: str, turn: Path
 ) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why does the search worker OOM?", "--parts", "cause", "fix")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why does the search worker OOM?", "--parts", "first check", "rollback", "cause")
     run("job", "add", "reader", "--order", "o1", "--part", "cause", "--goal", "find the cause")
-    progress = {"kind": "report", "text": "POST the search worker's fix is building", "to": TO}
-    assert record_lines.decision(coordinator(turn, **progress, attrs={"job": "j1", **PROGRESS})) is None
     with state.edit(demo) as data:
         data["jobs"]["j1"]["state"] = "done"
-    reason = refusal(record_lines.decision(coordinator(turn, **progress, attrs={"job": "j1", **PROGRESS})))
-    assert 'o1\'s "cause" was answered by j1, which finished' in reason and '`--attr part="o1:cause"`' in reason
-    assert 'drive order posted o1 <that post\'s link> --part "cause"' in reason
-    assert '`--attr part="o1:fix;o1:cause"`' in refusal(record_lines.decision(coordinator(turn, **progress, attrs={"job": "j1", "part": "fix"})))
-    for carried in ({"job": "j1", "part": "cause"}, {"job": "j1", "part": "o1:cause"}, {"job": "j1", "close": "o1"}):
-        assert record_lines.decision(coordinator(turn, **progress, attrs=carried)) is None
-    assert record_lines.decision(coordinator(turn, kind="report", text="FYI j1 found the cause", to=TO, attrs={"job": "j1"})) is None
-    run("job", "add", "reader", "--order", "o1", "--part", "cause", "--goal", "check the cause again")
-    assert record_lines.decision(coordinator(turn, **progress, attrs={"job": "j1", **PROGRESS})) is None
-    with state.edit(demo) as data:
-        data["jobs"]["j2"]["state"] = "stopped"
-        data["orders"]["o1"]["parts"]["cause"]["posted"] = CARD
-    assert record_lines.decision(coordinator(turn, **progress, attrs={"job": "j1", **PROGRESS})) is None
+    post = {"kind": "report", "text": "POST the search worker's first check is back", "to": TO}
+    for named in (PROGRESS, {"part": "o1:first check"}, {"part": "o1:rollback"}):
+        assert record_lines.decision(coordinator(turn, **post, attrs={"job": "j1", **named})) is None
 
 
 def test_a_report_on_an_open_incident_neither_needs_nor_names_its_fix_until_the_watch_records_it_live(

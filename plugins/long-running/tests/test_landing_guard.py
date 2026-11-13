@@ -369,8 +369,7 @@ def test_a_report_posted_with_cci_post_in_bash_gets_the_checks_the_cci_post_tool
     with state.edit("demo") as data:
         data["jobs"]["j1"]["state"] = "done"
     post = "cci post --kind report --to communicator@demo --attr job=j1 {attr} 'POST the search worker OOMs on entries past 1024 tokens'"
-    reason = landing_guard.deny_reason(bash(post.format(attr="--attr progress=true")))
-    assert 'o1\'s "cause" was answered by j1, which finished' in reason and '`--attr part="o1:cause"`' in reason
+    assert landing_guard.deny_reason(bash(post.format(attr="--attr progress=true"))) is None
     assert landing_guard.deny_reason(bash(post.format(attr="--attr 'part=o1:cause'"))) is None
     assert landing_guard.deny_reason(bash(post.format(attr="--attr 'progress=true,part=o1:cause'"))) is None
     assert 'delivers "cause", "fix", the last parts of o1' in landing_guard.deny_reason(bash(post.format(attr="--attr 'part=o1:cause;o1:fix'")))

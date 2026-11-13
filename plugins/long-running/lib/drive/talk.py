@@ -38,7 +38,7 @@ def say(name: str, post: dict) -> str:
             raise DriveError(f"nothing posted: report {post['record']} is a catch-up, and the drive owes him none, since its last catch-up already posted")
         post = post | {"text": titled(known, post.get("text") or "") + waiting(name, post.get("text") or "")}
     if post.get("dry_run"):
-        return dry(name, post) + (f"; {cli.delivering(name, order, report, post.get('text') or '')}" if order else "")
+        return dry(name, post) + (f"; {cli.delivering(name, order, report)}" if order else "")
     held = list(known["held"]) if report.get("catch_up") else []
     corrected = agents.corrections(name, [post["record"], *held]) if post.get("record") else {}
     reply = posted(name, post)

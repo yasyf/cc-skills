@@ -110,11 +110,7 @@ reading of his words "your messages need to be way shorter rewrite this for a hu
   [Clocks](incidents.md#clocks).
 - The handler records each post in an order's thread through the post itself,
   `say(order=<o>, record=<the report's seq>)`, which delivers each part the report's `part` attr
-  names, or each part of an order its `close` attr names. Jev reads the post's own words for each
-  part the `part` attr names by its kind: a part he reads, such as his question's answer, a retro or
-  a status, is delivered by a post giving it whatever it says, and work they say is not done, such
-  as a fix that has not shipped or a cause not confirmed, stays undelivered, named on `say`'s line
-  and its `dry_run`, until a post whose words carry it. A progress line's report names neither,
+  names, or each part of an order its `close` attr names. A progress line's report names neither,
   whatever job it names, and carries `progress=true`, since `record_lines` refuses a `POST` naming
   none of the three: it keeps the time and delivers no part, on an order of one part as on one
   of several. An incident and every alert's order joined to it with `--joins` share their threads both
@@ -435,6 +431,9 @@ merged and installed, listing each rule now in the skill.
   let him know it's fixed? … I told him since you never did, fix that". The order keeps that thread
   from the share or link in his words, `drive order add --reporter`, and `drive status` says on the
   order's line whether that thread heard.
+- A question someone asked that a `--kind answer` order answers, kept the same way, gets the answer
+  there once every part of it is posted to him, with no proof asked, since an answer has no fix to
+  go live.
 - Post it once per bug, once the coordinator keeps the proof the fix is live with `--proof`, never
   before: one or two plain sentences saying what is fixed and since when, with the link. The handler
   of the report on that order posts it with `slack_reply` in the same step as his own line, then

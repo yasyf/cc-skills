@@ -483,20 +483,22 @@ def reported_down(drive: dict, said: str) -> str | None:
 
 
 def reporter_post(payload: dict, drive: dict) -> str | None:
-    """Why a post may not go in the thread a bug an order fixes was reported in: that thread gets one fix-live note, only once the fix is proven live."""
+    """Why a post may not go in the thread a bug an order fixes was reported in, or a question an answer order answers was asked in: that thread gets one note, a bug report's only once the fix is proven live and a question's only once the answer is posted."""
     tool_input = payload["tool_input"]
     if payload["tool_name"] not in CHANNEL_POSTS - {EDIT} and not (payload["tool_name"] == SAY and tool_input.get("channel_id")):
         return None
     link = state.CARD_LINK.search(tool_input.get("url") or "")
     where = (tool_input.get("channel_id") or (link and link[1]), tool_input.get("thread_ts") or (link and (link[4] or f"{link[2]}.{link[3]}")))
     reported = [order for order in drive["orders"].values() if order["reporter"] and (order["reporter"]["channel"], order["reporter"]["thread"]) == where]
-    if not reported or any(order["state"] not in state.CLOSED_ORDER_STATES and order["proof"] and not order["reporter"]["told"] for order in reported):
+    if not reported or any(order["state"] not in state.CLOSED_ORDER_STATES and state.may_tell(order) and not order["reporter"]["told"] for order in reported):
         return None
     if told := next((order["reporter"]["told"] for order in reported if order["reporter"]["told"]), None):
         return (
             f"Refused on purpose: this thread already heard its bug is fixed, in {told}, and a bug report's thread gets its fix-live note once."
             " Post nothing more there."
         )
+    if any(order["kind"] == "answer" for order in reported):
+        return "Refused on purpose: the answer to the question asked in this thread is not posted to him yet, so a note now would come before it. It goes once the answer is posted."
     return (
         "Refused on purpose: the fix for the bug reported in this thread keeps no proof that it is live, so a note now would come before"
         " the fix. It goes once the coordinator records the proof and sends the report closing the order."

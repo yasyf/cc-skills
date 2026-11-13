@@ -32,8 +32,6 @@ PORT_DATA_RULING = 'his Nov 12 words "port his visuals but always do it the fund
 FILING = ("project", "workstream", "title")
 TITLE_CHARS = 60
 TOOLING_FILING = ("The drive", "Drive tooling")
-ANSWER_KIND = "Every part of an answer order is words he reads"
-UNSAID = {"answer": ("not giving it", "not giving them"), "build": ("not saying it is done", "not saying they are done")}
 JOB_ID = re.compile(r"j\d+")
 SLACK_USER = re.compile(r"[UW][A-Z0-9]{2,}")
 SLACK_TS = re.compile(r"\d+\.\d+")
@@ -64,8 +62,9 @@ PROMISED_TIME = re.compile(
     r"\bnext (?:line|update|post|summary)(?:\s+(?:by|before|at))?\s+(?:about\s+|around\s+)?([01]?\d|2[0-3]):([0-5]\d)(?![:\d])(?:\s*([AP])\.?M\b)?", re.IGNORECASE
 )
 REPORTER_HELP = (
-    "the bug report the order fixes, by its Slack permalink or slack:<channel>/<its thread's ts>, from the share or link in his"
-    " words: its thread gets one fix-live note once the fix is proven live, and done refuses until drive order told records it"
+    "the bug report the order fixes, or the question an answer order answers, by its Slack permalink or slack:<channel>/<its thread's ts>,"
+    " from the share or link in his words: its thread gets one note, a bug report's once the fix is proven live and a question's once"
+    " the answer is posted, and done refuses until drive order told records it"
 )
 ALERT_HELP = (
     "the Datadog monitor or Sentry issue link of the alert it is, again for each: once its fix is live, the watch reads each"
@@ -317,7 +316,6 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
             "note": joined and joined["note"],
             "joins": joined and (joined["joins"] or args.joins),
         }
-        mark_answers(order_id, order, args.answers)
         if args.due:
             need_thread(order_id, order)
         started = [state.incident_job(data, name, order_id, part, created) for part in (order["parts"] if args.incident and not joined else [])]
@@ -570,15 +568,6 @@ def pick_parts(order_id: str, order: dict, named: list[str]) -> list[str]:
     return list(dict.fromkeys(named))
 
 
-def mark_answers(order_id: str, order: dict, answers: list[str] | None) -> None:
-    """Mark each part of the order answer, words he reads, such as his question's answer, a retro or a status, which a post delivers by giving them whatever they say, or build, work a post delivers only once it says the work is done: every part of an answer order is an answer, --answers names the answers of any other, each part it leaves out work, and with no --answers each part keeps its kind."""
-    named = pick_parts(order_id, order, answers) if answers else []
-    if order["kind"] != "answer" and answers is None:
-        return
-    for part, held in order["parts"].items():
-        held["kind"] = "answer" if order["kind"] == "answer" or part in named else "build"
-
-
 def apart_from_filing(order: dict) -> str:
     """The order apart from its project, workstream and title, so filing or titling it alone leaves the time it last moved, which the dashboard reads as when a done order went live."""
     return json.dumps({field: value for field, value in order.items() if field not in FILING}, sort_keys=True)
@@ -608,7 +597,7 @@ def order_set(args: argparse.Namespace) -> int:
     order = find(data["orders"], args.id, "order")
     reporter = None if unreported else state.reporter(args.reporter) if args.reporter else order["reporter"]
     if args.state == "done" and reporter and not reporter["told"]:
-        raise DriveError(untold(args.id, reporter))
+        raise DriveError(untold(args.id, order | {"reporter": reporter}))
     if args.words is not None:
         if not (order["text"].startswith(state.TOOLING) and args.words.startswith(state.TOOLING)):
             raise DriveError(f'--words: refused, only a "{state.TOOLING}" order\'s words change, to words that open "{state.TOOLING}"; an order of his keeps his words verbatim')
@@ -695,7 +684,6 @@ def order_set(args: argparse.Namespace) -> int:
             order["incident"] = args.incident
         if args.kind:
             order["kind"] = args.kind
-        mark_answers(args.id, order, args.answers)
         if args.complex is not None:
             order["complex"] = args.complex
         if args.reporter or unreported:
@@ -712,12 +700,22 @@ def order_set(args: argparse.Namespace) -> int:
     return emit(args, render.order_line(args.id, order) + promised + "".join(f"\n{line}" for line in reworked), {"id": args.id, **order})
 
 
-def untold(order_id: str, reporter: dict) -> str:
-    """Why an order with a reporter may not close done yet: the thread its bug was reported in has not heard it is fixed."""
+def untold(order_id: str, order: dict) -> str:
+    """Why an order with a reporter may not close done yet: the thread its bug was reported in has not heard it is fixed, or the thread its question was asked in has not heard the answer."""
+    reporter = order["reporter"]
+    if order["kind"] == "answer":
+        heard = (
+            f"its question was asked in {reporter['link']}, and no note of its answer there is recorded. Once the answer is posted, the"
+            f" handler of a report on it posts the answer in one plain line in that thread with slack_reply"
+        )
+    else:
+        heard = (
+            f"its bug was reported in {reporter['link']}, and no fix-live note there is recorded. Once drive order set {order_id} --proof"
+            " <the check> keeps the proof its fix is live, the handler of a report on it posts one plain line in that thread with"
+            " slack_reply saying what is fixed and since when"
+        )
     return (
-        f"{order_id}: refused, its bug was reported in {reporter['link']}, and no fix-live note there is recorded. Once drive order set"
-        f" {order_id} --proof <the check> keeps the proof its fix is live, the handler of a report on it posts one plain line in that"
-        f" thread with slack_reply saying what is fixed and since when, and records it with drive order told {order_id} <its permalink>;"
+        f"{order_id}: refused, {heard}, and records it with drive order told {order_id} <its permalink>;"
         " when the bot cannot post in that thread, it posts the note as usual to the reporter's Slack user id, which opens the group DM"
         " of that person, him and the bot, and records it with --group-dm <that user id>."
         f" The coordinator, which posts nothing, sends that report with --attr close={order_id}, and drive order set {order_id}"
@@ -823,29 +821,19 @@ def order_posted(args: argparse.Namespace) -> int:
 
 
 def answered_by(name: str, order_id: str, part: str, link: str) -> tuple[str, dict]:
-    """Deliver a part of the order its holder's session holds by the drive's post that already answered it, wherever it was made, posting nothing; refused for an open incident's fix the watch has not recorded live, since no post delivers it, and when Jev reads that post's words as not saying the part is done."""
+    """Deliver a part of the order its holder's session holds by the drive's post that already answered it, wherever it was made, posting nothing; refused for an open incident's fix the watch has not recorded live, since no post delivers it."""
     data = state.load(name)
     [part] = pick_parts(order_id, data["orders"][order_id], [part])
     if state.unlive_fix(data, order_id, part):
         raise DriveError(f'--part "{part}": refused, ' + state.UNLIVE_FIX.format(order=order_id, part=part))
-    posted, *_ = drive_post_at(link, data, order_id, True, {})
-    delivered, unsaid = carried(order_id, data["orders"][order_id], [part], [(order_id, part)], posted.get("text") or "")
-    if not delivered:
-        order = data["orders"][order_id]
-        if order["parts"][part]["kind"] == "answer":
-            raise DriveError(f'--part "{part}": refused, Jev reads the words of {link} as not giving "{part}", so it delivers nothing; mark it by the drive\'s post that gives it')
-        answers = " ".join(json.dumps(each, ensure_ascii=False) for each, held in order["parts"].items() if held["kind"] == "answer" or each == part)
-        raise DriveError(
-            f'--part "{part}": refused, Jev reads the words of {link} as not saying "{part}" is done, so it delivers nothing; mark it by the drive\'s post whose words do,'
-            f" or, when it is words he reads, such as his question's answer, a retro or a status, which a post gives whatever it says, mark it so first with drive order set {order_id} --answers {answers}"
-        )
+    drive_post_at(link, data, order_id, True, {})
     with state.edit(name) as data:
         data["orders"][order_id]["parts"][part]["posted"] = link
-    return f'{order_id} "{part}": posted {link}, the post that answered it{unsaid}', {"id": order_id, "parts": [part], "posted": link}
+    return f'{order_id} "{part}": posted {link}, the post that answered it', {"id": order_id, "parts": [part], "posted": link}
 
 
 def order_told(args: argparse.Namespace) -> int:
-    """Record the one fix-live note the bug report an order fixes gets once the fix is proven live: the drive's post in the report's thread, or, when the bot cannot post there, its post in the group DM of the reporter, him and the bot."""
+    """Record the one note the thread an order's reporter asked in gets, a bug report's once the fix is proven live and a question's once the answer is posted: the drive's post in that thread, or, when the bot cannot post there, its post in the group DM of the reporter, him and the bot."""
     name = state.resolve(args.drive)
     data = state.load(name)
     order = communicators_order(data, args.id)
@@ -853,7 +841,9 @@ def order_told(args: argparse.Namespace) -> int:
         raise DriveError(f"{args.id} names no bug report to tell: drive order set {args.id} --reporter <its permalink> names one")
     if reporter["told"]:
         raise DriveError(f"{args.id}: refused, the thread its bug was reported in heard it is fixed once, in {reporter['told']}, and hears it only once")
-    if not order["proof"]:
+    if not state.may_tell(order):
+        if order["kind"] == "answer":
+            raise DriveError(f"{args.id}: refused, a part of its answer is not posted yet, so a note now would come before the answer: post it first")
         raise DriveError(
             f"{args.id}: refused, it keeps no proof that its fix is live, so a note now would come before the fix:"
             f" drive order set {args.id} --proof <the check> records it once the fix is live"
@@ -941,33 +931,15 @@ def reported_parts(data: dict, order_id: str, order: dict, report: dict, items: 
     return list(order["parts"]) if closing else []
 
 
-def carried(order_id: str, order: dict, parts: list[str], items: list[tuple[str | None, str]], text: str) -> tuple[list[str], str]:
-    """The parts a post delivers on the order once Jev has read its words, each one its report's part attr names only when they carry it, and what its line adds of each they leave undelivered; a part a close delivers is not asked, and when Jev gives no answer each goes as named, which the line says."""
-    named = [part for part in parts if (order_id, part) in items]
-    try:
-        left = settled.uncarried(text, order, named)
-    except settled.Unheard as failure:
-        asked = ", ".join(f'"{part}"' for part in named)
-        return parts, f"; Jev did not say whether its words carry {asked} ({failure}), so each is delivered as named"
-    if not left:
-        return parts, ""
-    unsaid = ""
-    for kind, reading in UNSAID.items():
-        if kinded := [f'"{part}"' for part in left if order["parts"][part]["kind"] == kind]:
-            unsaid += f"; {', '.join(kinded)}: not delivered, Jev reads its words as {reading[len(kinded) > 1]}"
-    return [part for part in parts if part not in left], unsaid
-
-
-def delivering(name: str, order_id: str, report: dict, text: str) -> str:
-    """What a post of these words would deliver on the order and on each other order an item of its report's part attr names, as record_post marks it once the post is out."""
+def delivering(name: str, order_id: str, report: dict) -> str:
+    """What a post would deliver on the order and on each other order an item of its report's part attr names, as record_post marks it once the post is out."""
     data = state.load(name)
     items = state.part_items(report, order_id)
     lines = []
     for each in dict.fromkeys([order_id, *(on for on, _ in items)]):
-        order = find(data["orders"], each, "order")
-        parts, unsaid = carried(each, order, reported_parts(data, each, order, report, items), items, text)
+        parts = reported_parts(data, each, find(data["orders"], each, "order"), report, items)
         quoted = ", ".join(f'"{part}"' for part in parts)
-        lines.append(f"{each} {quoted}: would be delivered{unsaid}" if parts else f"{each} progress line, no part delivered{unsaid}")
+        lines.append(f"{each} {quoted}: would be delivered" if parts else f"{each} progress line, no part delivered")
     return "; ".join(lines)
 
 
@@ -980,14 +952,13 @@ def record_post(name: str, order_id: str, link: str, report: dict, sent: str | N
 
 
 def record_on(name: str, order_id: str, link: str, report: dict, items: list[tuple[str | None, str]], sent: str | None = None) -> tuple[str, dict]:
-    """Record the drive's post on one order: the promised time it keeps, the time its words promise his next line by but on an incident, whose next line the watch owes five quiet minutes after its last, the order's last line, the parts its report's items deliver there that its words carry, and, when its report is about this order and it is in the thread of the message of his the report answers or in one his own message started, that thread among the order's, with when it joined."""
+    """Record the drive's post on one order: the promised time it keeps, the time its words promise his next line by but on an incident, whose next line the watch owes five quiet minutes after its last, the order's last line, the parts its report's items deliver there, and, when its report is about this order and it is in the thread of the message of his the report answers or in one his own message started, that thread among the order's, with when it joined."""
     data = state.load(name)
     order = find(data["orders"], order_id, "order")
     if refused := report_refusal(data, order_id, report):
         raise DriveError(refused)
     delivered = reported_parts(data, order_id, order, report, items)
     posted, ours, gained = drive_post_at(link, data, order_id, any(on == order_id for on, _ in items), report, sent)
-    delivered, unsaid = carried(order_id, order, delivered, items, posted.get("text") or "")
     at = slack.sent_at(posted)
     line = state.stamp(at)
     closing = order_id in state.closed_orders(report)
@@ -1013,7 +984,7 @@ def record_on(name: str, order_id: str, link: str, report: dict, items: list[tup
     said = f"{quoted}: posted" if delivered else "progress line, no part delivered:"
     away = "" if ours else ", outside his threads, so it is no line to him and keeps no promised time"
     joined = f", in thread {gained[1]}, where he asked about it, now one of its threads" if gained else ""
-    return f"{order_id} {said} {link}{away}{joined}{kept}{unsaid}", {"id": order_id, "parts": delivered, "posted": link, "due": order["due"]}
+    return f"{order_id} {said} {link}{away}{joined}{kept}", {"id": order_id, "parts": delivered, "posted": link, "due": order["due"]}
 
 
 def promised_due(text: str, at: datetime) -> datetime | None:
@@ -1101,7 +1072,7 @@ def refuse_a_shared_at_once_part(parts: list[str]) -> None:
 
 
 def job_set(args: argparse.Namespace) -> int:
-    """Change a job; a state it already holds changes nothing, stopped is the one state set by hand, done only on a design a builder carries, and any other --state is refused with nothing changed, since the job's return sets it; an order it carries reworks only the PRs of the job --rework names, and each other open card of his on the job's PRs is named and left up."""
+    """Change a job; a state it already holds changes nothing, stopped is the one state set by hand, done only on a design a builder carries, and any other --state is refused with nothing changed, since the job's return sets it, but for a done or failed job given a part it does not hold, which runs, since it has not returned on that part; an order it carries reworks only the PRs of the job --rework names, and each other open card of his on the job's PRs is named and left up."""
     from drive import view
 
     name = state.resolve(args.drive)
@@ -1157,6 +1128,7 @@ def job_set(args: argparse.Namespace) -> int:
             hold_card(job, args.card, shown)
         job["waits"] = merged_waits(job, args)
         state.hold_unstarted(job)
+        held = {order_id: set(state.job_parts(job, order_id)) for order_id in [job["order"], *args.carries]}
         if args.carries:
             if args.parts:
                 raise DriveError("--parts replaces the parts of the job's own order; name a carried order's parts with --part")
@@ -1170,6 +1142,8 @@ def job_set(args: argparse.Namespace) -> int:
             named = pick_parts(job["order"], data["orders"][job["order"]], args.parts or args.part)
             job["parts"] = named if args.parts else list(dict.fromkeys([*job["parts"], *named]))
             refuse_a_shared_at_once_part(job["parts"])
+        if job["state"] in ("done", "failed") and any(set(state.job_parts(job, order_id)) - parts for order_id, parts in held.items()):
+            job["state"] = "running"
         if args.agent and args.agent == job.get("dispatch"):
             job.update(lane, where="remote", agent=None, handed_to=None)
         elif lane:
@@ -3323,16 +3297,6 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--due", help="the time his ack promised a line by; the watch says DUE from then until a line is in the thread")
     verb.add_argument("--parts", nargs="+", type=str.strip, metavar="PART", help="each deliverable his words name; default: one, the whole order")
     verb.add_argument(
-        "--answers",
-        nargs="+",
-        type=str.strip,
-        metavar="PART",
-        help=(
-            "each part that is words he reads, such as his question's answer, a retro or a status, which a post delivers by giving it"
-            f" whatever it says; every other part is work, which a post delivers only once it says the work is done. {ANSWER_KIND}"
-        ),
-    )
-    verb.add_argument(
         "--incident",
         action="store_true",
         help=(
@@ -3411,13 +3375,6 @@ def parser() -> argparse.ArgumentParser:
         "--withdrawn", metavar="LINK", help="his Slack message calling off the promised time; the order then owes no line for it"
     )
     verb.add_argument("--parts", nargs="+", type=str.strip, metavar="PART", help="the order's parts, replacing its list")
-    verb.add_argument(
-        "--answers",
-        nargs="*",
-        type=str.strip,
-        metavar="PART",
-        help=f"the parts that are words he reads, as drive order add takes them, replacing which are: every part it leaves out is work, and none named makes every part work. {ANSWER_KIND}",
-    )
     reported = verb.add_mutually_exclusive_group()
     reported.add_argument("--reporter", metavar="LINK", help=REPORTER_HELP)
     reported.add_argument("--no-reporter", metavar="LINK", help="his Slack message saying not to tell the bug's reporter; the order then closes done with no fix-live note")
@@ -3517,7 +3474,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--project", metavar="NAME", required=True, help="the project the dashboard's Now screen files it under")
     verb.add_argument("--workstream", metavar="NAME", required=True, help="the workstream inside its project the Now screen files it under")
     verb.add_argument("--title", metavar="WORDS", required=True, help=f"the few words, at most {TITLE_CHARS} characters and no link, the dashboard names it by")
-    verb.set_defaults(run=incident_open, incident=True, joins=None, kind=None, complex=False, options_only=False, once=False, owner=None, answers=None)
+    verb.set_defaults(run=incident_open, incident=True, joins=None, kind=None, complex=False, options_only=False, once=False, owner=None)
     verb = incident.add_parser(
         "stop",
         parents=both,

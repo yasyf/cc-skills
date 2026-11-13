@@ -3,7 +3,7 @@ import sys
 from collections.abc import Callable
 from datetime import datetime
 
-from drive.state import DRIVE_TOOLING, ROLES, SLOT_WAIT, VERSION, agent_gone, lane_death, now, open_orders, parse_time, pr_key, pr_url, project_lane, promise_thread, title
+from drive.state import DRIVE_TOOLING, ROLES, SLOT_WAIT, VERSION, agent_gone, lane_death, may_tell, now, open_orders, parse_time, pr_key, pr_url, project_lane, promise_thread, title
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
@@ -127,8 +127,7 @@ COORDINATOR_RULES = (
         " reaches only the session that posted it. Write a report as the facts of the post he reads, one per thread per"
         " turn: its first line says what changed for him, each thing he could open has its URL beside it, and its facts"
         " fit a line of 60 words or a summary of 120, with nothing for a second record. A POST names what it"
-        " finishes, --attr close=<o>, part=<o>:<part> or progress=true, and carries every part of its order a finished job"
-        " answered and no post delivered. What he reads names things by their proper"
+        " finishes, --attr close=<o>, part=<o>:<part> or progress=true. What he reads names things by their proper"
         " technical terms, never a stand-in, and no drive id he cannot open. A job's start is {started:<job>} and a"
         " record's time {at:<seq>}, never a clock time you type, and neither is when a release, build or deploy started,"
         " which is quoted as its build or tool printed it, in backticks or its link's words, on the line linking it. "
@@ -308,11 +307,14 @@ def order_line(order_id: str, order: dict, limit: int = 120, thread: tuple[str, 
 
 
 def reporter_said(order: dict) -> str:
-    """Where the bug the order fixes was reported, and whether that thread heard it is fixed, is owed it now its fix is proven live, or hears it once it is."""
+    """Where the bug the order fixes was reported, or the question it answers asked, and whether that thread heard it, is owed it now, or hears it once its fix is proven live or its answer posted."""
     if (reporter := order["reporter"]) is None:
         return ""
+    if reporter["told"] is None and order["kind"] == "answer":
+        owed = "owed its answer now, since it is posted" if may_tell(order) else "which hears the answer once it is posted"
+        return f", asked in {reporter['link']}, {owed}"
     if reporter["told"] is None:
-        owed = "owed its fix-live note now, since its fix is proven live" if order["proof"] else "which hears it is fixed once its fix is proven live"
+        owed = "owed its fix-live note now, since its fix is proven live" if may_tell(order) else "which hears it is fixed once its fix is proven live"
         return f", reported in {reporter['link']}, {owed}"
     return f", reported in {reporter['link']}, told it is fixed in {reporter['told']}"
 
