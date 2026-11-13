@@ -214,7 +214,7 @@ await send([{ card: 'tap:a/b#7', label: 'Approve' }, { card: 'tap:a/b#8', label:
 await until(() => document.querySelector('#toasts .toast.sent'));
 const groups = document.querySelectorAll('#toasts .toast').length;
 document.querySelector('#toasts button[data-undo]').click();
-await until(() => document.querySelector('#toasts .toast.undone'));
+await until(() => document.querySelector('#toasts .toast.restored'));
 done({ refused, groups, posted: posted.map(([url, body]) => [url, body.card ?? body.pr]), restored: answers.size });
 """, board(review=prs, pages=pages.shown(state.load(ordered), pages.listed(ordered))))
     assert seen == {'refused': 0, 'groups': 1, 'posted': [['/api/tap', 'a/b#7'], ['/api/tap', 'a/b#8'], ['/api/undo', 'tap:a/b#7'], ['/api/undo', 'tap:a/b#8']], 'restored': 0}
@@ -235,7 +235,7 @@ svg.dispatchEvent(new WheelEvent('wheel', { deltaY: 50, bubbles: true, cancelabl
 const camera = svg.getAttribute('viewBox');
 const next = structuredClone(doc); next.nodes.reverse(); next.nodes[1].name = 'Writer landed';
 await diagram(host, next);
-const kept = { identity: node === host.querySelector('[data-block="writer"]'), focus: document.activeElement === node, camera: camera === svg.getAttribute('viewBox'), title: host.textContent.includes('Writer landed') };
+const kept = { identity: node === host.querySelector('[data-block="writer"]'), focus: document.activeElement === node, camera: camera === svg.getAttribute('viewBox'), title: [...node.querySelector(':scope > text').querySelectorAll('tspan')].map((line) => line.textContent).join(' ') === 'Writer landed' };
 const removed = host.querySelector('[data-block="reader"]');
 next.nodes.shift();
 await diagram(host, next);
@@ -264,9 +264,9 @@ const failed = { error: answers.get(picks[0].card).error, done: answers.get(pick
 await undo(group);
 const undone = { remaining: [...answers.keys()], state: toasts.get(group).state };
 await answerBatch([picks[0]]);
-done({ failed: { error: failed.error, done: failed.done, counted: failed.said.includes('1 sent, 1 failed') }, undone, calls, retried: answers.get(picks[0].card).done });
+done({ failed: { error: failed.error, done: failed.done, counted: failed.said.includes('1 sent, 1 not sent') }, undone, calls, retried: answers.get(picks[0].card).done });
 """, board(queue=questions))
-    assert seen == {'failed': {'error': 'Card changed', 'done': True, 'counted': True}, 'undone': {'remaining': [questions[0]['answer']], 'state': 'undone'}, 'calls': 3, 'retried': True}
+    assert seen == {'failed': {'error': 'Card changed', 'done': True, 'counted': True}, 'undone': {'remaining': [questions[0]['answer']], 'state': 'restored'}, 'calls': 3, 'retried': True}
 
 
 @pytest.mark.parametrize('count', [1, 1000 if os.environ.get('FORGE_CI_AT_SCALE') == '1' else 100])
