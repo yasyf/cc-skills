@@ -10,7 +10,7 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path
 
-from drive import agents, cli, dashboard, install, limits, picture, reads, refs, render, slack, state, view
+from drive import agents, brief, cli, dashboard, install, limits, picture, reads, refs, render, slack, state, view
 from drive.state import DriveError
 
 CATCH_UP_TITLE = re.compile(r"\A\s*\**\s*catch-up since\b[^\n]*\n*", re.IGNORECASE)
@@ -23,7 +23,7 @@ RECORD_POLL_SECONDS = 0.05
 
 
 def say(name: str, post: dict) -> str:
-    """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or with no thread at the root of the channel channel_id names, such as a staging claim to its members, or in the group DM of a person, him and the bot when channel_id is that person's user id, or reword one it made in any of those, and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title, the count of his open cards it closes with and the cards asked since he was last heard its only additions; a post is recorded on the one order cli.post_order decides, never one its caller names, wherever it goes, and posts nothing from a caller but the communicator and its handlers, binding to its session the handler LONG_RUNNING_HANDLER names when its prompt's hook did not, delivering the parts its report record names, making the clock time its words promise his next line by the order's due, and adding its thread to the order's threads; a post at another channel's root, or a line in its thread, whose report names an end as until keeps that end on its order, from which the watch owes that thread its closing line. A question to a teammate naming the job it is for keeps that job waiting on their reply. A report's post names each correction cci holds re it, which the post may lack, and a correction of a report held for his catch-up, or of one a post carried, its own or his catch-up, posts nothing, naming where that report's copy is. A handler's result line is kept on its entry, for its done record to carry whole. What the drive's checks find in its words, the say hook hands Jev to judge against his words once this has posted them, before only a post a count or a mark refuses, such as one over its length or to him while he is away, and a dry run."""
+    """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or with no thread at the root of the channel channel_id names, such as a staging claim to its members, or in the group DM of a person, him and the bot when channel_id is that person's user id, or reword one it made in any of those, and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title, the count of his open cards it closes with and the cards asked since he was last heard its only additions; a post is recorded on the one order cli.post_order decides, never one its caller names, wherever it goes, and posts nothing from a caller but the communicator and its handlers, binding to its session the handler LONG_RUNNING_HANDLER names when its prompt's hook did not, delivering the parts its report record names, making the clock time its words promise his next line by the order's due, and adding its thread to the order's threads; a post at another channel's root, or a line in its thread, whose report names an end as until keeps that end on its order, from which the watch owes that thread its closing line. A question to a teammate naming the job it is for keeps that job waiting on their reply. A report's post names each correction cci holds re it, which the post may lack, and a correction of a report held for his catch-up, or of one a post carried, its own or his catch-up, posts nothing, naming where that report's copy is. A handler's result line is kept on its entry, for its done record to carry whole. What the drive's checks find in its words, the say hook hands Jev to judge against his words once this has posted them, before only a post a count or a mark refuses, such as one over its length or to him while he is away, a post saying a release freeze lifted or a release may start while a freeze or his release hold it does not name stands, and a dry run."""
     known = caller(name)
     if (close := post.get("close")) and (post.get("record") or post.get("edit")):
         raise DriveError("nothing posted: close answers the order of what your handler holds and writes its report itself, so pass no record or edit")
@@ -37,6 +37,8 @@ def say(name: str, post: dict) -> str:
         held = known["handlers"][state.handler_id(known, os.environ.get("CLAUDE_CODE_SESSION_ID"))]["holds"] or {}
         post = post | {"asked": [*slack.messages(post.get("asked") or ""), *filter(None, [held.get("link")])]}
     if refused := held_refusal(known, seq, report) or (order and cli.report_refusal(known, order, report)) or (close and cli.unfiled_refusal(known, order)) or unplaced(known, post, report) or unended(known, post, report):
+        raise DriveError(f"nothing posted: {refused}")
+    if refused := brief.claim_refusal(post.get("text") or "", name, known):
         raise DriveError(f"nothing posted: {refused}")
     if report.get("catch_up"):
         if known["catch_up"] is None:

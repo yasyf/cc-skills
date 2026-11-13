@@ -548,7 +548,7 @@ def ran(name: str, said: list[str], index: int, words: tuple[str, ...], given: d
 
 
 def record(name: str, records: list[dict], dry_run: bool) -> str:
-    """Post the records as one cci batch from this session's lane, a sub-coordinator's its project's, to the lane each names, else the communicator, the coordinator's for the communicator and the session its order's job's agent or holder reaches for another session's handoff, each sent where the drive routes it. Records of his words under a question card of another drive are kept on that drive, posted as its communicator lane whatever session calls it and whether or not that drive holds a communicator, as card.answer_question keeps his tap, since whichever drive's watch reads his DM hears them while that card's drive alone holds its question."""
+    """Post the records as one cci batch from this session's lane, a sub-coordinator's its project's, to the lane each names, else the communicator, the coordinator's for the communicator and the session its order's job's agent or holder reaches for another session's handoff, each sent where the drive routes it. Records of his words under a question card of another drive are kept on that drive, posted as its communicator lane whatever session calls it and whether or not that drive holds a communicator, as card.answer_question keeps his tap, since whichever drive's watch reads his DM hears them while that card's drive alone holds its question; none posts when one not in his words says a release freeze lifted or a release may start while a freeze or his release hold it does not name stands."""
     held = card_drive(name, records)
     data = state.load(held)
     session = os.environ.get("CLAUDE_CODE_SESSION_ID") if held == name else (data["roles"].get("communicator") or {}).get("session")
@@ -564,6 +564,9 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
     project = state.session_project(data, session)
     lane, other = {"communicator": ("communicator", "root"), "meta": ("meta", "communicator")}.get(role) or (state.project_lane(project) if project else "root", "communicator")
     posts = [post(item, data, other, session) for item in records]
+    for index, made in enumerate(posts, start=1):
+        if made["kind"] != "answer" and not state.his_words(role, made["kind"]) and (refused := brief.claim_refusal(f"{made['text']}\n{made.get('body') or ''}", name, data)):
+            raise DriveError(f"{index}: refused, nothing posted: {refused}")
     found = his_cards(name) if any(made["kind"] == "owner" or made["kind"] == "answer" and (made.get("url") or "waits" in (made.get("attr") or {})) for made in posts) else view.NO_CARDS
     closes = [closed_by(data, index, made, item.get("order")) for index, (item, made) in enumerate(zip(records, posts, strict=True), start=1)]
     ruled = rulings(posts)

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Self
 
 from drive import install, limits, procs, reads, render, slack, state, superseded, view
-from drive.brief import BRIEF_JOB, carried, heavier
+from drive.brief import BRIEF_JOB, carried, heavier, releases
 
 HIS_KINDS = ("owner", "answer")
 RECORD = re.compile(r"^Record: (\d+)\b", re.MULTILINE)
@@ -54,8 +54,9 @@ HIS_WORDS = "Message (his words)"
 ORDER = "Order"
 PAIRS = "Pairs in use"
 IN_THREAD = "In his thread"
+RELEASES = "Release freezes"
 SCRATCH = re.compile(r"Scratch:\s*(\S+)")
-LABEL = re.compile(rf"^({'|'.join(re.escape(label) for label in (*render.HANDLER_LABELS, ORDER, PAIRS, IN_THREAD))}):")
+LABEL = re.compile(rf"^({'|'.join(re.escape(label) for label in (*render.HANDLER_LABELS, ORDER, PAIRS, IN_THREAD, RELEASES))}):")
 DATADOG_PLUGIN = "datadog@claude-plugins-official"
 SESSION_SETTINGS = {
     "bashOutputMaxChars": 6000,
@@ -571,10 +572,13 @@ def beside(data: dict) -> tuple[str, dict]:
 
 
 def start_handler(name: str, handler: str, prompt: str) -> None:
-    """Start a handler as its own `claude --bg` session on its agent definition, which sets its model, in the drive's checkout at the head of its default branch, wherever the session it runs beside, the communicator's or on a drive with none the coordinator's, still runs, whether that session or the drive's watch starts it, its entry keeping the session `claude --bg` names, so every check on the communicator's handlers finds it from its first step, `CCI_PARENT_SESSION` naming that session, so cci binds the handler's session to no lane and it posts as the communicator's lanes, and `CLAUDE_LONG_RUNNING_DRIVE` naming the drive, so each cci call that names no drive resolves this one; the watch's own lane stays out of its environment."""
+    """Start a handler as its own `claude --bg` session on its agent definition, which sets its model, in the drive's checkout at the head of its default branch, wherever the session it runs beside, the communicator's or on a drive with none the coordinator's, still runs, whether that session or the drive's watch starts it, its entry keeping the session `claude --bg` names, so every check on the communicator's handlers finds it from its first step, `CCI_PARENT_SESSION` naming that session, so cci binds the handler's session to no lane and it posts as the communicator's lanes, and `CLAUDE_LONG_RUNNING_DRIVE` naming the drive, so each cci call that names no drive resolves this one; the watch's own lane stays out of its environment. Its prompt closes on the release freezes and his release hold as they stand at this start, in place of the line an earlier start of it carried."""
     from drive import orca
 
-    _, held = beside(state.saved(name))
+    data = state.saved(name)
+    _, held = beside(data)
+    lines = [line for line in prompt.strip().splitlines() if not line.startswith(f"{RELEASES}:")]
+    prompt = "\n".join([*lines, f"{RELEASES}: {releases(name, data)}"])
     env = {state.HANDLER_ENV: f"{name}/{handler}", "CCI_PARENT_SESSION": held["session"], state.DRIVE_ENV: name}
     settings = session_settings(env)
     argv = ["claude", "--bg", "--agent", HANDLER, "--permission-mode", "bypassPermissions", "--settings", json.dumps(settings), "-n", f"{name} handler {handler}", prompt]
