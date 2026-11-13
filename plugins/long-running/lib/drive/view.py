@@ -234,7 +234,7 @@ def waits_id(drive: dict, listed: list[dict], wait: str) -> str:
 
 
 def holding(drive: dict, waits: list[str], found: dict | None) -> list[str]:
-    """The waits of a job or PR that still hold: each of his cards still open, each job whose work is still to come, each PR still open, each part of an open order until it is delivered, each release until the watch sees it out, and a builder slot on this Mac until the watch gives the job its turn."""
+    """The waits of a job or PR that still hold: each of his cards still open, each job whose work is still to come, each PR still open, each part of an open order until it is delivered, each release until the watch sees it out while its PR is not closed unmerged, and a builder slot on this Mac until the watch gives the job its turn."""
     return [wait for wait in waits if holds(drive, wait, found)]
 
 
@@ -245,9 +245,11 @@ def holds(drive: dict, wait: str, found: dict | None) -> bool:
         return drive["prs"][wait]["state"] == "open"
     if part := state.part_wait(drive, wait):
         return drive["orders"][part[0]]["state"] not in state.CLOSED_ORDER_STATES and not state.delivered(drive, *part)
+    if release := state.RELEASE_WAIT.fullmatch(wait):
+        return drive["prs"][release["pr"]]["state"] != "closed"
     if drawn := drawn_on(drive, wait):
         return any(question["closed"] is None for _, question in drawn)
-    return bool(state.RELEASE_WAIT.fullmatch(wait)) or wait == state.SLOT_WAIT or card_open(wait, found)
+    return wait == state.SLOT_WAIT or card_open(wait, found)
 
 
 def coming(drive: dict, job_id: str) -> bool:
