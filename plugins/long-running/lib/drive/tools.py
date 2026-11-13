@@ -161,10 +161,10 @@ def verb_tools() -> list[dict]:
                 "Start a long-running:handler on its brief as its own claude --bg session, recording that he wrote when the"
                 " brief carries his words, so his message takes the ack and this one call. Returns started <its id>; the"
                 " line it ends on comes back as one cci done record from lane handler when it ends, and its session ends"
-                " with it. One message of his has one handler at a time: a record on the message of his a live handler"
-                " holds, by its re chain or, for a record that reaches none, his message in its thread, returns handed to"
-                " <that handler's id>, which takes it at its next step and covers it in its post; it refuses a brief while a"
-                " live handler holds the same record or the same message of his, a copy that needs nothing."
+                " with it. A message of his and a thread each have one handler at a time: a record on the message of his"
+                " a live handler holds, in its thread, or naming its record up a re chain or named by its record's, returns"
+                " handed to <that handler's id>, which takes it at its next step and covers it in its post; it refuses a"
+                " brief while a live handler holds the same record or the same message of his, a copy that needs nothing."
             ),
             "inputSchema": {"type": "object", "properties": {**schema(leaf("handler", root=root))["properties"], "drive": DRIVE, "dry_run": DRY_RUN}, "required": ["brief"]},
         },

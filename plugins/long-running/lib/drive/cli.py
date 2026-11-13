@@ -4019,7 +4019,7 @@ def parser() -> argparse.ArgumentParser:
         help=(
             "start a handler on its brief as its own claude --bg session, recording that he wrote when the brief carries his"
             " words; its line comes back as one cci record when it ends; prints started <its id>, or handed to <id> for a"
-            " record on the message of his a live handler is at work on"
+            " record on the message of his, in the thread or on the re chain a live handler is at work on"
         ),
     )
     verb.add_argument(

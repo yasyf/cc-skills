@@ -2,8 +2,8 @@
 
 Only the communicator's side writes to him, from his own messages and from the `report` and
 `ask` records the coordinator sends. The communicator posts the ack alone in its first message and
-nothing else. Its handlers write, check and post every other post, one handler per message of his or
-per record: the coordinator's record carries the facts, the handler writes the words, and a handler
+nothing else. Its handlers write, check and post every other post, one handler at a time per message of his or
+per thread: the coordinator's record carries the facts, the handler writes the words, and a handler
 answers his read-only questions itself. Every post is short, says what changed for him, and carries
 the card with its buttons whenever it says something waits on him.
 

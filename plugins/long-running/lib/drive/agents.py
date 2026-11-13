@@ -14,7 +14,7 @@ from drive.brief import BRIEF_JOB, carried, heavier
 
 RECORD = re.compile(r"^Record: #?(\d+)\b", re.MULTILINE)
 LINK = re.compile(r"^Link:\s*(\S+)", re.MULTILINE)
-THREAD = re.compile(r"^Thread:\s*\S+\s+(\d+\.\d+)", re.MULTILINE)
+THREAD = re.compile(r"^Thread:[ \t]*(?:\S+[ \t]+)?(\d+\.\d+)", re.MULTILINE)
 RETYPED = re.compile(r"\b(?:POSTED|EDITED|CARD)(?:\s+https://\S+)+\s*;?\s*")
 HIS_KINDS = ("owner", "answer")
 RE_HOPS = 8
@@ -177,29 +177,31 @@ def scratch(prompt: str) -> Path | None:
 
 
 def holds(prompt: str) -> dict:
-    """What of his a handler's brief works on: the message of his it names, by the Link of his words or for a record by the message it carries or answers, the thread that message is in, and the record it reads in."""
+    """What a handler's brief works on: for a brief naming a Record, whatever its other lines say, that record, each record its re chain names, the message of his the chain reaches and the record's thread; else the message of his its words' Link names and the thread that message is in."""
+    if named := RECORD.search(prompt):
+        return answered(named[1]) | {"record": named[1]}
     if re.search(rf"^{re.escape(HIS_WORDS)}:", prompt, re.MULTILINE):
         link = linked[1] if (linked := LINK.search(prompt)) else None
         found = state.CARD_LINK.search(link or "")
         message = f"{found[2]}.{found[3]}" if found else None
         thread = (found and found[4]) or (named[1] if (named := THREAD.search(prompt)) else message)
-        return {"message": message, "link": link, "thread": thread, "record": None}
-    if named := RECORD.search(prompt):
-        return answered(named[1]) | {"record": named[1]}
-    return {"message": None, "link": None, "thread": None, "record": None}
+        return {"message": message, "link": link, "thread": thread, "record": None, "re": []}
+    return {"message": None, "link": None, "thread": None, "record": None, "re": []}
 
 
 def answered(seq: str) -> dict:
-    """The message of his a record carries or answers: an owner or answer record's own permalink, else that of the record its re names, followed up the chain; the record's thread either way."""
+    """The message of his a record carries or answers: an owner or answer record's own permalink, else that of the record its re names, followed up the chain; the record's thread and each record the chain names either way."""
     record = shown(seq)
     thread = record["fields"].get("attrs", {}).get("thread")
+    chain: list[str] = []
     for _ in range(RE_HOPS):
         if record["kind"] in HIS_KINDS and (found := state.CARD_LINK.search((record.get("refs") or {}).get("url") or "")):
-            return {"message": f"{found[2]}.{found[3]}", "link": record["refs"]["url"], "thread": thread or found[4] or f"{found[2]}.{found[3]}"}
+            return {"message": f"{found[2]}.{found[3]}", "link": record["refs"]["url"], "thread": thread or found[4] or f"{found[2]}.{found[3]}", "re": chain}
         if not record.get("re"):
             break
-        record = shown(str(record["re"]))
-    return {"message": None, "link": None, "thread": thread}
+        chain.append(str(record["re"]))
+        record = shown(chain[-1])
+    return {"message": None, "link": None, "thread": thread, "re": chain}
 
 
 def asked_thread(seqs: Iterable[str]) -> tuple[str, str] | None:
@@ -232,14 +234,17 @@ def corrections(name: str, seqs: Iterable[str]) -> dict[str, list[str]]:
 
 
 def holder(data: dict, held: dict) -> str | None:
-    """The handler already at work on what a new brief holds: the same record, the same message of his, or, for a record naming no message of his, one at work on his message in the record's thread, so one message of his has one handler at a time, which takes every record on it."""
+    """The handler already at work on what a new brief holds: the same message of his, or for a record the same record, one its re chain names or whose chain names it, or its thread, so a thread has one handler at a time, which takes every record in it."""
     for handler_id, entry in data["handlers"].items():
         other = entry["holds"] or {}
-        if held["record"] and held["record"] == other.get("record"):
-            return handler_id
         if held["message"] and held["message"] == other.get("message"):
             return handler_id
-        if held["record"] and not held["message"] and held["thread"] and other.get("message") and other.get("thread") == held["thread"]:
+        if held["record"] and (
+            held["record"] == other.get("record")
+            or other.get("record") in held["re"]
+            or held["record"] in (other.get("re") or ())
+            or (held["thread"] and held["thread"] == other.get("thread"))
+        ):
             return handler_id
     return None
 
@@ -324,7 +329,7 @@ class Busy(state.DriveError):
 
 
 def handle(name: str, brief: str, detached: bool = False) -> tuple[str, bool]:
-    """Start a handler on its brief, unless a live one already holds what the brief holds, since one message of his has one handler at a time: a brief for another record on that message is handed to that handler, which takes it at its next step; the id of the handler at work on the brief, and whether it was handed. Detached, as the handler tool runs it, the handler's session starts after the call returns, from the brief kept for `drive handler-start`; the watch starts it in the call, since nothing waits on the watch."""
+    """Start a handler on its brief, unless a live one already holds what the brief holds, since a message of his or a thread has one handler at a time: a brief for another record on that message, in that thread or on its record's re chain is handed to that handler, which takes it at its next step; the id of the handler at work on the brief, and whether it was handed. Detached, as the handler tool runs it, the handler's session starts after the call returns, from the brief kept for `drive handler-start`; the watch starts it in the call, since nothing waits on the watch."""
     held_now = holds(brief)
     data = state.load(name)
     if (held := holder(data, held_now)) and gone(data["handlers"][held]["session"]):
@@ -343,7 +348,7 @@ def handle(name: str, brief: str, detached: bool = False) -> tuple[str, bool]:
     if held and kept:
         return held, True
     if held:
-        raise Busy(f"refused, no handler started: handler {held} is at work on {his}, and one message of his has one handler at a time; this copy needs no handler of its own")
+        raise Busy(f"refused, no handler started: handler {held} is at work on {his}; this copy needs no handler of its own")
     if folder := scratch(brief):
         folder.mkdir(parents=True, exist_ok=True)
     if detached:
@@ -433,10 +438,10 @@ def bind_handler(payload: dict, handler: str) -> None:
 
 
 def handed(briefs: list[str]) -> str:
-    """What a handler reads of the briefs drive handler handed it while it worked: each record on the message of his it is at work on, to cover in its own post."""
+    """What a handler reads of the briefs drive handler handed it while it worked: each record in the thread or on the record it is at work on, to cover in its own post."""
     return (
-        f"drive handler handed you {len(briefs)} more {'brief' if len(briefs) == 1 else 'briefs'} on the message of his you are at work on,"
-        f" since one message of his has one handler at a time: {' | '.join(briefs)}. Read each record as your brief says and cover it"
+        f"drive handler handed you {len(briefs)} more {'brief' if len(briefs) == 1 else 'briefs'} in the thread or on the record you are at work on,"
+        f" since a thread has one handler at a time: {' | '.join(briefs)}. Read each record as your brief says and cover it"
         " in the post you are writing; once you have posted, post one more line in his thread with only what your posts left out,"
         " or nothing when they already said it. Your last line names what you did for each."
     )

@@ -273,7 +273,7 @@ check's verdict, or from the order when none ran.
   sends the communicator one `report` carrying `quiet=true` and that thread, naming every incident
   there with its orders and each job, so two incidents in one thread get one line, not one each. It
   starts one handler on that report, which reads the jobs and posts where each incident stands in
-  that thread; a handler already at work in the thread takes the report when it ends.
+  that thread; a handler already at work in the thread takes the report at its next step.
   - It runs while he is away too, and restarts once a handler has the report, so a handler that
     cannot post leaves the next five minutes owed.
   - It stops once the fix is recorded live, by his words "werte still in incident until its fixed".
