@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import record_lines
 from conftest import SHORT_ASK
-from drive import agents, limits, reads, settled, slack, state
+from drive import agents, limits, reads, reports, settled, slack, state
 
 SESSION = "session-under-test"
 ALERT = "1794413465.441409"
@@ -63,6 +63,15 @@ def test_a_long_record_that_attaches_a_file_keeps_its_whole_text_atop_its_body_a
     assert len(cut["text"]) <= limits.RECORD_CHARS
     both = record_lines.decision(post(kind="report", text=asked, body="facts: drive job report j1936", path=str(facts)))["updatedInput"]
     assert both == {"kind": "report", "text": limits.first_line(asked), "body": f"{asked}\n\nfacts: drive job report j1936\n\nDONE dev already fixes it\n"}
+
+
+def test_a_report_closing_drive_tooling_a_session_opened_is_refused_since_its_close_posts_him_no_line_while_one_closing_his_order_is_not(demo: str) -> None:
+    with state.edit(demo) as data:
+        for order_id, words in (("o1", "Drive tooling: the watch reads taps"), ("o2", "bring the release card up to date")):
+            data["orders"][order_id] = state.new_order(words, "cci:696660" if order_id == "o1" else "terminal", None, {words: state.new_part()}, state.stamp())
+    closing = {"kind": "report", "to": ["communicator@demo"], "text": "POST the watch reads taps again"}
+    assert refusal(record_lines.decision(post(**closing, attrs={"close": "o1"}))) == reports.UNASKED_CLOSE.format(order="o1")
+    assert (record_lines.decision(post(**closing, attrs={"close": "o2"})) or {}).get("permissionDecisionReason") != reports.UNASKED_CLOSE.format(order="o2")
 
 
 IDLE = "Close these 14 idle sessions and their terminals?"

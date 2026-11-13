@@ -26,6 +26,10 @@ UNPOSTED_PART = (
     'refused: {work}; drop "{order}:{part}" from the part attr, adding `--attr progress=true` when the post delivers nothing else,'
     " or close {order} with `--attr close={order}` once its work is done"
 )
+UNASKED_CLOSE = (
+    "refused: {order} is drive tooling a session opened, with no message or thread of his, so its close posts him no line:"
+    " close it with `drive order set {order} --state done --proof <its proof>`, and the dashboard shows it live"
+)
 THREAD_TS = re.compile(r"\d{10}\.\d{6}")
 NOT_THREAD = "refused: thread {thread} is no Slack thread, which is named by its root message's ts, such as 1794478810.620779; leave thread out for a post at his DM root"
 SECOND_REPORT = (
@@ -95,6 +99,7 @@ def report_refusals(payload: dict, drive: dict, records: list[dict], index: int)
     yield None if OPENING.match(text) else UNOPENED
     yield dm_url(drive, record)
     yield next((agents.Unjudged(refused) for order_id in state.closed_orders(attrs(record)) if (refused := state.second_close(drive, order_id, attrs(record)))), None)
+    yield next((agents.Unjudged(UNASKED_CLOSE.format(order=order_id)) for order_id in state.closed_orders(attrs(record)) if (order := drive["orders"].get(order_id)) and state.unasked_tooling(order)), None)
     yield misnamed_part(drive, record)
     yield unfinished(drive, record) if posting else None
     yield not_thread(record)

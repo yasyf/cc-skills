@@ -378,7 +378,7 @@ def recovered_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def close_report_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Post in one cci batch each close report drive job prove, or the watch's DONE at a merge, keeps on an open order it finished, for the communicator's handler to post in the order's thread and close it; each stays on its order until cci takes it, so a post that fails goes again next read, said from its third failure in a row, and a watch on a newer install posts it as well."""
+    """Post in one cci batch each close report drive job prove, or the watch's DONE at a merge, keeps on an open order it finished, for the communicator's handler to post in the order's thread, or at his DM root for an order of his with none, and close it; each stays on its order until cci takes it, so a post that fails goes again next read, said from its third failure in a row, and a watch on a newer install posts it as well."""
     data = state.load(watcher.name)
     owed = {order_id: order["close_report"] for order_id, order in heard_orders(watcher, data).items() if order["close_report"]}
     if not owed:

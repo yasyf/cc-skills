@@ -223,7 +223,8 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      unblocks. A `yasyf/*` one lands once its `READY` or `PUSHED` is taken and no check fails at its
      head: the lander merges it with `--admin`, while checks still run, and installs each plugin it changes, and once every PR your job names merged the watch's
      `drive job prove` runs your job's proof file on the installed build, takes `DONE` or `BLOCKED` on
-     your job and sends the close report. Keep that
+     your job and sends the close report of an order with a thread of his, closing a tooling order a
+     session opened on its proof with no line to him. Keep that
      file before you return, with `drive job set <your job> --repro <file>`: an executable script
      exiting 0 once the installed plugins hold the fix and nonzero while they do not, read-only, run
      with each changed plugin's `bin/` first on `PATH`, printing a line for each check it passed and

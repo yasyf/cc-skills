@@ -1048,6 +1048,9 @@ def test_a_plugin_whose_sibling_release_is_not_out_waits_for_it_and_installs_not
     assert ["claude", "plugin", "update", "long-running@skills", "--scope", "user"] not in git.calls
 
 
+HIS_THREAD = "1794595277.364249"
+
+
 def proving(config: Path, tmp_path: Path, git: FakeGit, exits: int) -> Path:
     (config / "m" / ".claude-plugin").mkdir(parents=True)
     listed = [{"name": "long-running", "source": FOLDER}, {"name": "cc-context", "source": "plugins/cc-context"}]
@@ -1058,7 +1061,7 @@ def proving(config: Path, tmp_path: Path, git: FakeGit, exits: int) -> Path:
     start_drive("demo", coordinator=None)
     with state.edit("demo") as data:
         part = "Drive tooling: prove each install"
-        data["orders"]["o1"] = state.new_order(part, "slack", None, {part: state.new_part()}, state.stamp()) | {"jobs": ["j1"]}
+        data["orders"]["o1"] = state.new_order(part, f"slack:D123/{HIS_THREAD}", ("D123", HIS_THREAD), {part: state.new_part()}, state.stamp()) | {"jobs": ["j1"]}
         data["jobs"]["j1"] = state.new_job("o1", "builder", "prove", [part], state.stamp()) | {"state": "waiting", "said": f"PUSHED {URL}", "prs": [URL], "repro": str(script)}
         data["prs"]["yasyf/cc-skills#7"] = state.new_pr(URL, "j1", "o1") | {"state": "merged", "merged_sha": SHA, "title": "Fix: prove each install"}
     return script
@@ -1087,11 +1090,29 @@ def test_a_proof_installs_a_merge_its_plugin_lacks_runs_the_jobs_proof_file_on_i
         "kind": "report",
         "to": ["communicator@demo"],
         "topic": "install-proved-o1",
-        "attr": {"close": "o1"},
+        "attr": {"close": "o1", "thread": HIS_THREAD},
         "text": "POST Fix: prove each install is live in long-running@skills 1.0.3",
         "body": f"Fixed: Fix: prove each install, {URL}\nLive: long-running@skills 1.0.3\nProof: {checked}\n",
     }
     assert [call for call in git.other_calls() if call[:1] == ["cci"]] == []
+    assert proof_events() == [("yasyf/cc-skills#7", proven)]
+
+
+@pytest.mark.parametrize("source", ["cci:696660", "terminal"])
+def test_a_proof_closes_drive_tooling_a_session_opened_done_on_its_proof_with_no_close_report_so_no_line_reaches_his_dm_root(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], source: str
+) -> None:
+    script = proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
+    with state.edit("demo") as data:
+        data["orders"]["o1"].update({"from": source, "thread": None})
+    kept = state.proof_path("demo", "j1")
+    proven = (
+        f"{install.PROVEN} on long-running@skills 1.0.3: {script} exits 0, its output {kept}; o1 closed done on it with no close report,"
+        " since a session opened that drive tooling order, so no line reaches him and the dashboard shows it live"
+    )
+    assert install.prove("demo", "j1", 900) == f"j1: {proven}"
+    order = state.load("demo")["orders"]["o1"]
+    assert (order["state"], order["proof"], order["close_report"], order["closed_on"]) == ("done", str(kept), None, None)
     assert proof_events() == [("yasyf/cc-skills#7", proven)]
 
 
