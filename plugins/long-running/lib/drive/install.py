@@ -19,6 +19,7 @@ POLL_SECONDS = 20
 GITHUB_REPO = re.compile(r"github\.com[/:]([^/]+/[^/]+?)(?:\.git)?/?$")
 DEFAULT_BRANCH = "refs/heads/default"
 FETCH = ("fetch", "--quiet", "--filter=blob:none", "--no-tags", "origin")
+UNREACHED = re.compile(r"unable to access '|RPC failed|early EOF|remote end hung up")
 AFTER_UPDATE = {"cc-inbox": ("bin/cci", "serve")}
 HOMEBREW = {"cc-context": "ccx", "cc-inbox": "cci", "cc-notes": "cc-notes", "cc-orchestrate": "cco", "cc-present": "cc-present", "cc-review": "cc-review", "cc-slack": "cc-slack", "codex": "codex-ask"}
 CASKS = {"cco": "cc-orchestrate"}
@@ -141,7 +142,15 @@ def touched(repo: str, files: list[str]) -> list[str]:
 
 
 def git(clone: str, *args: str, deadline: float) -> str:
-    return run(["git", "-C", clone, *args], deadline)
+    """Run git in clone, again within POLL_SECONDS until the deadline while git says it could not reach the remote, a refused connection or a transfer cut short, which says nothing of what the command reads; each such failure said as it fails."""
+    while True:
+        try:
+            return run(["git", "-C", clone, *args], deadline)
+        except InstallError as error:
+            if not UNREACHED.search(str(error)) or deadline - clock() <= POLL_SECONDS:
+                raise
+            print(f"drive install: git could not reach the remote, running it again within {POLL_SECONDS}s: {error}", file=sys.stderr, flush=True)
+            sleep(POLL_SECONDS)
 
 
 def listed(clone: str, plugin: str, deadline: float) -> tuple[dict, bool]:
