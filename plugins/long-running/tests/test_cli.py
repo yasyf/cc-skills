@@ -3359,6 +3359,17 @@ def test_a_builder_landing_prs_he_approved_starts_with_no_research(run: Run, wit
     assert run("job", "add", "builder", "--order", "o1", "--lands", PR, "--goal", "land it")[0] == 0
 
 
+def test_a_drive_tooling_yasyf_pr_wanting_no_tap_may_land_untapped_as_the_lander_lands_it(run: Run, with_pr: str) -> None:
+    run("order", "set", "o1", "--kind", "build")
+    with state.edit("demo") as data:
+        data["orders"]["o1"]["text"] = "Drive tooling: the watch draws his card"
+    tooling = "https://github.com/yasyf/cc-skills/pull/7"
+    run("pr", "add", tooling, "--job", "j1")
+    assert run("pr", "tapped", tooling) == (0, "yasyf/cc-skills#7: wants no tap: the drive lands a yasyf/* PR with none")
+    assert run("pr", "tapped", PR) == (1, f"{with_pr}: no tap from him yet")
+    assert run("job", "add", "builder", "--order", "o1", "--lands", tooling, "--goal", "land it")[0] == 0
+
+
 def test_a_design_report_whose_order_thread_cannot_be_read_fails_as_that_read_and_keeps_nothing(
     run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -5858,6 +5869,30 @@ def test_job_set_parts_replaces_the_parts_a_job_delivers_so_a_done_builder_given
     assert run("job", "set", "j1", "--parts", main)[0] == 0
     data = state.load("demo")
     assert (data["jobs"]["j1"]["parts"], data["jobs"]["j1"]["state"], state.delivered(data, "o1", main), state.delivered(data, "o1", state.IMMEDIATE_FIX)) == ([main], "running", False, False)
+
+
+def test_pr_set_part_on_a_done_builders_merged_pr_delivers_a_part_its_job_never_held(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
+    main = "an incident never goes five quiet minutes without a line"
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", main, "--parts", main, state.IMMEDIATE_FIX)
+    run("job", "add", "builder", "--order", "o1", "--part", state.IMMEDIATE_FIX, "--goal", "the line every five minutes", "--agent", "a")
+    url = "https://github.com/yasyf/cc-skills/pull/4582"
+    run("pr", "add", url, "--job", "j1")
+    assert cli.main(["pr", "set", url, "--part", main]) == 2
+    assert f"yasyf/cc-skills#4582: refused, nothing set: its job j1 delivers no part {main}" in capsys.readouterr().err
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["state"] = "done"
+        data["prs"]["yasyf/cc-skills#4582"]["state"] = "merged"
+    assert not state.delivered(state.load("demo"), "o1", main)
+    assert cli.main(["pr", "set", url, "--part", "the copy"]) == 2
+    assert "yasyf/cc-skills#4582: refused, nothing set: its order o1 has no part the copy" in capsys.readouterr().err
+    assert run("pr", "set", url, "--part", state.IMMEDIATE_FIX, "--part", main)[0] == 0
+    data = state.load("demo")
+    assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["parts"], data["orders"]["o1"]["parts"][main]["posted"], state.delivered(data, "o1", main)) == (
+        "done",
+        [state.IMMEDIATE_FIX],
+        url,
+        True,
+    )
 
 
 def test_one_post_delivers_each_part_its_report_names_on_every_order_an_item_names(

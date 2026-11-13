@@ -2738,8 +2738,9 @@ def pr_set(args: argparse.Namespace) -> int:
     if args.no_tapped:
         refuse_a_tap_of_his(name, key, dropped)
     order = known["prs"][key]["order"]
+    delivers = before["state"] == "merged" and known["jobs"][before["job"]]["state"] == "done"
     if args.part:
-        refuse_a_part_its_job_lacks(known, key, args.part)
+        refuse_a_part_its_job_lacks(known, key, args.part, delivers)
     if args.serves:
         refuse_a_crossed_order(name, known, order, args.serves, f"{key} --serves")
     if (args.serves or args.design) and (refused := state.held_elsewhere(known, order, state.session_role(known, os.environ.get("CLAUDE_CODE_SESSION_ID")))):
@@ -2785,6 +2786,8 @@ def pr_set(args: argparse.Namespace) -> int:
         pr["waits"] = merged_waits(data, pr, args, found)
         if args.part:
             serving += f"\ndelivers {'; '.join(pr['parts'])}"
+        for part in args.part if delivers else []:
+            data["orders"][order]["parts"][part]["posted"] = pr["url"]
     untapped = ""
     if args.no_tapped:
         repo, number = key.split("#")
@@ -2809,14 +2812,15 @@ def pr_set(args: argparse.Namespace) -> int:
     return emit(args, line, {"key": key, "withdrawn": withdrawn, **pr})
 
 
-def refuse_a_part_its_job_lacks(data: dict, key: str, parts: list[str]) -> None:
-    """Refuse a --part its job delivers on no order, since the PR's change is judged against the parts its job's PRs name."""
-    job_id = data["prs"][key]["job"]
-    job = data["jobs"][job_id]
-    delivered = [*job["parts"], *(part for carried in job["carries"].values() for part in carried)]
+def refuse_a_part_its_job_lacks(data: dict, key: str, parts: list[str], delivers: bool) -> None:
+    """Refuse a --part its job delivers on no order, since the PR's change is judged against the parts its job's PRs name; a merged PR whose job returned DONE names any part of its order, which it then delivers, since it shipped work its job was never given."""
+    pr = data["prs"][key]
+    job = data["jobs"][pr["job"]]
+    delivered = list(data["orders"][pr["order"]]["parts"]) if delivers else [*job["parts"], *(part for carried in job["carries"].values() for part in carried)]
     if unknown := [part for part in parts if part not in delivered]:
         listed = ", ".join(f'"{part}"' for part in delivered)
-        raise DriveError(f"{key}: refused, nothing set: its job {job_id} delivers no part {', '.join(unknown)}; its parts are {listed}")
+        lacks = f"its order {pr['order']} has" if delivers else f"its job {pr['job']} delivers"
+        raise DriveError(f"{key}: refused, nothing set: {lacks} no part {', '.join(unknown)}; its parts are {listed}")
 
 
 def refuse_an_unwritten_rule(data: dict, key: str) -> None:
@@ -3083,6 +3087,8 @@ def tap_verdict(pr: dict | None) -> tuple[bool, str]:
         return True, "not a drive PR"
     if pr["hold_label"]:
         return False, "held by the drive with the hold label"
+    if not pr["wants_tap"] and state.merges_untapped(state.pr_key(pr["url"])):
+        return True, f"wants no tap: the drive lands a {state.NO_TAP_OWNER}/* PR with none"
     if state.exempted(pr):
         return True, f"exempt: {pr['exempt']}"
     tap = pr.get("tap")
@@ -4449,7 +4455,7 @@ def parser() -> argparse.ArgumentParser:
         "--part",
         action="append",
         default=[],
-        help="a part of its job's orders this PR delivers, replacing the parts it named; the watch judges the PR against the parts it names, every part its job delivers when it names none",
+        help="a part of its job's orders this PR delivers, replacing the parts it named, or on a merged PR whose job returned DONE any part of its order, which it then delivers; the watch judges the PR against the parts it names, every part its job delivers when it names none",
     )
     exemption = verb.add_mutually_exclusive_group()
     exemption.add_argument("--exempt", choices=state.EXEMPT_CLASSES)
