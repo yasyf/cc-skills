@@ -2110,7 +2110,7 @@ def launch_brief(name: str, job_id: str) -> Path:
 
 
 def record_start(name: str, job_id: str, started: dict | None, handoff: str | None, text: str | None) -> dict:
-    """Record a started worker's receipt on its job, with the handoff a relaunch started it on, else the launch's brief, the Sprite its start put the tools on, and the job sent each answer of his the text its handoff carries holds, or with no receipt clear the launching mark of a launch whose worker never started. When a newer install saved the drive while the worker started, which launch_attempt lets one do, the newest install's `drive job started` records it, so the receipt lands either way."""
+    """Record a started worker's receipt on its job, its turn open until the watch takes that worker's worker_done or escalation, with the handoff a relaunch started it on, else the launch's brief, the Sprite its start put the tools on, and the job sent each answer of his the text its handoff carries holds, or with no receipt clear the launching mark of a launch whose worker never started. When a newer install saved the drive while the worker started, which launch_attempt lets one do, the newest install's `drive job started` records it, so the receipt lands either way."""
     try:
         with state.edit(name) as data:
             job = data["jobs"][job_id]
@@ -2118,7 +2118,7 @@ def record_start(name: str, job_id: str, started: dict | None, handoff: str | No
                 job["launching"] = None
             else:
                 kept = {"handoff": handoff, "reads": {}, "undelivered": []} if handoff else {"brief": str(launch_brief(name, job_id))}
-                job.update(started, **kept, ask=None, report=None, tools_on=started["workspace"])
+                job.update(started, **kept, ask=None, report=None, tools_on=started["workspace"], turn_open=True)
                 state.start(job)
                 if text is not None:
                     superseded.hear(data, job_id, text)
