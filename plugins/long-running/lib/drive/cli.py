@@ -860,13 +860,13 @@ def need_record_close(data: dict, order_id: str, seq: str | None, dropped_with_n
 
 
 def report_attrs(seq: str) -> dict:
-    """The attrs of a record, read from cci: a report's close, part, job and catch_up, with its seq, the lane that wrote it as its writer, when as written, and for a correction the record it corrects."""
+    """The attrs of a record, read from cci: a report's close, part, job and catch_up, with its seq, its kind, the lane that wrote it as its writer, when as written, and for a correction the record it corrects."""
     try:
         record = json.loads(reads.run(["cci", "show", seq, "--json"], Path.cwd()))
     except reads.ReadError as error:
         raise DriveError(f"record {seq} could not be read: {error}") from None
     corrects = {"corrects": str(record["re"])} if record["kind"] == "correction" and record.get("re") else {}
-    return record["fields"].get("attrs", {}) | {"seq": str(record["seq"]), "writer": record["lane"], "written": record["at"]} | corrects
+    return record["fields"].get("attrs", {}) | {"seq": str(record["seq"]), "kind": record["kind"], "writer": record["lane"], "written": record["at"]} | corrects
 
 
 def order_posted(args: argparse.Namespace) -> int:
@@ -990,9 +990,11 @@ def communicators_order(data: dict, order_id: str) -> dict:
 
 
 def report_refusal(data: dict, order_id: str, report: dict) -> str | None:
-    """Why a report may deliver or close nothing on an order, the one check say, order posted and order set --state done share: another report already closes the order, or the drive's session that wrote it does not hold the order. Only the communicator's side posts, so the refusal names the report its handler passes instead: the holder's, which on the communicator's own order the handler writes itself from the communicator's lane."""
+    """Why a report may deliver or close nothing on an order, the one check say, order posted and order set --state done share: another report already closes the order, or the drive's session that wrote it does not hold the order. Only the communicator's side posts, so the refusal names the report its handler passes instead: the holder's, which on the communicator's own order the handler writes itself from the communicator's lane. A record of his words delivers and closes nothing, so none is refused."""
     if refused := state.second_close(data, order_id, report):
         return refused
+    if report.get("kind") in agents.HIS_KINDS:
+        return None
     writer = state.LANE_ROLES.get(report.get("writer") or "")
     holder = data["orders"][order_id]["owner"] if order_id in data["orders"] else None
     if writer is None or holder in (None, writer):
@@ -1007,12 +1009,12 @@ def report_refusal(data: dict, order_id: str, report: dict) -> str | None:
 
 
 def post_order(data: dict, session: str | None, post: dict, report: dict) -> str | None:
-    """The one order a say post is recorded on, which say decides and no caller names: a post carrying a record goes on the order its report is about; a handler's post with none goes on the order of what the handler holds, the order its record is about, else the order of his message; an edit, a card, a PR card, his catch-up, an answer in a teammate's watched thread and a post from a session that is no handler go on none."""
+    """The one order a say post is recorded on, which say decides and no caller names: a post carrying a record goes on the order that record is about, the report it relays or the record of his words it answers; a handler's close goes on the order of what the handler holds, the order its record is about, else the order of his message; an edit, a card, a PR card, his catch-up, an answer in a teammate's watched thread and any other post with no record go on none."""
     if post.get("edit") or post.get("card") or post.get("tap_prs") or report.get("catch_up") or report.get("watch"):
         return None
     if post.get("record"):
         return state.report_order(data, report)
-    if not (handler := state.handler_id(data, session)):
+    if not (post.get("close") and (handler := state.handler_id(data, session))):
         return None
     held = data["handlers"][handler]["holds"] or {}
     return (held.get("record") and state.report_order(data, agents.shown(held["record"])["fields"].get("attrs", {}))) or (
@@ -1040,7 +1042,9 @@ def unclaim_close(name: str, closes: list[str]) -> None:
 
 
 def reported_parts(data: dict, order_id: str, order: dict, report: dict, items: list[tuple[str | None, str]]) -> list[str]:
-    """The parts of the order a post delivers: each item of its report's part attr names on this order when it is words he reads, never work he ordered, or each part of an order its report closes. A post whose report names neither part nor close, whatever job it names, or that carries no report is a progress line that delivers none, on an order of one part as on one of several."""
+    """The parts of the order a post delivers: each item of its report's part attr names on this order when it is words he reads, never work he ordered, or each part of an order its report closes. A post whose report names neither part nor close, whatever job it names, that carries a record of his words, whatever its part attr names, or that carries no report is a progress line that delivers none, on an order of one part as on one of several."""
+    if report.get("kind") in agents.HIS_KINDS:
+        return []
     closing = order_id in state.closed_orders(report)
     if named := [part for on, part in items if on == order_id]:
         return [part for part in pick_parts(order_id, order, named) if closing or not state.work(data, order_id, part)]

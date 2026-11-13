@@ -572,8 +572,8 @@ def test_a_post_on_an_order_goes_out_in_any_thread_and_a_thread_the_order_holds_
     assert (state.thread_order(data, "1794400000.000100"), state.thread_order(data, "1794200000.000100")) == ("o1", "o3")
 
 
-def report(monkeypatch: pytest.MonkeyPatch, attrs: dict[str, str], lane: str = "root") -> None:
-    record = {"kind": "report", "lane": lane, "at": "2026-11-11T09:08:16.896Z", "fields": {"attrs": attrs}}
+def report(monkeypatch: pytest.MonkeyPatch, attrs: dict[str, str], lane: str = "root", kind: str = "report") -> None:
+    record = {"kind": kind, "lane": lane, "at": "2026-11-11T09:08:16.896Z", "fields": {"attrs": attrs}}
     monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], **record}))
 
 
@@ -593,30 +593,30 @@ def handling(name: str, order_id: str, message: str | None = None) -> None:
         }
 
 
-def test_a_handlers_post_with_no_record_goes_on_the_order_of_his_message_it_holds_in_a_thread_two_orders_share_and_a_post_from_no_handler_on_none(
+def test_a_handlers_reply_goes_on_the_order_of_the_record_of_his_words_it_carries_delivering_no_part_and_one_with_no_record_on_none(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread, unrecorded: list[str]
 ) -> None:
     thread, his = "1794200000.000100", "1794201723.677000"
-    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Releases", "ship the SandSQL fix", "--thread", thread)
-    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Releases", "did it get released?", "--thread", thread, "--parts", "did it get released?")
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Releases", "ship the SandSQL fix", "--thread", thread, "--parts", "leave it frozen")
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Releases", "make staging fleets large", "--thread", thread)
     run("start", "demo", "--role", "communicator")
     with state.edit(demo) as data:
         data["roles"]["communicator"]["session"] = "communicator-session"
         data["roles"]["coordinator"]["session"] = "elsewhere"
-        data["orders"]["o1"]["created"] = state.stamp(state.now() + timedelta(minutes=1))
+        data["orders"]["o2"]["created"] = state.stamp(state.now() + timedelta(minutes=1))
     handling(demo, "o2", his)
-    assert state.thread_order(state.load(demo), thread) == "o1"
+    assert state.thread_order(state.load(demo), thread) == "o2"
     answer = slack_thread.post(state.now(), from_claude=True)
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": answer, "thread_ts": thread})
-    post = {"text": "No, the fix is not live: its hotfix was rolled back.", "thread_ts": thread}
-    assert talk.say(demo, post | {"dry_run": True}).endswith("; o2 progress line, no part delivered")
-    assert talk.say(demo, post) == f"POSTED {answer}; o2 progress line, no part delivered: {answer}"
+    report(monkeypatch, {"order": "o1", "part": "o1:leave it frozen", "thread": thread}, lane="communicator", kind="owner")
+    post = {"text": "Your ask to lift the freeze is withdrawn; the release stays frozen.", "thread_ts": thread}
+    assert talk.say(demo, post | {"record": "698123", "dry_run": True}).endswith("; o1 progress line, no part delivered")
+    assert talk.say(demo, post | {"record": "698123"}) == f"POSTED {answer}; o1 progress line, no part delivered: {answer}"
     data = state.load(demo)
-    assert (data["orders"]["o1"]["last_line"], data["orders"]["o2"]["last_line"] is not None, said(demo)[-1]["order"]) == (None, True, "o2")
-    with state.edit(demo) as data:
-        del data["handlers"]["h1"]
+    assert (data["orders"]["o1"]["last_line"] is not None, data["orders"]["o2"]["last_line"], data["orders"]["o1"]["parts"]["leave it frozen"]["posted"]) == (True, None, None)
+    assert said(demo)[-1]["order"] == "o1"
     assert talk.say(demo, post) == f"POSTED {answer}"
-    assert (said(demo)[-1]["order"], unrecorded) == (None, [])
+    assert (said(demo)[-1]["order"], state.load(demo)["orders"]["o2"]["last_line"], unrecorded) == (None, None, [])
 
 
 def test_a_post_delivers_the_part_its_report_names_and_a_progress_report_naming_only_a_job_delivers_none(
@@ -730,11 +730,12 @@ def test_a_time_a_post_promises_becomes_its_orders_due_once_slack_has_the_post_a
     line = slack_thread.post(at, from_claude=True, text=text)
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": line, "thread_ts": thread})
     handling(demo, "o1")
+    report(monkeypatch, {"order": "o1", "thread": thread}, lane="communicator", kind="owner")
     before = state.load(demo)["orders"]["o1"]
-    assert talk.say(demo, {"text": text, "thread_ts": thread, "dry_run": True}).endswith("; o1 progress line, no part delivered")
+    assert talk.say(demo, {"text": text, "thread_ts": thread, "record": "698123", "dry_run": True}).endswith("; o1 progress line, no part delivered")
     assert state.load(demo)["orders"]["o1"] == before
     due = state.stamp(at.replace(minute=45, second=0, microsecond=0))
-    assert talk.say(demo, {"text": text, "thread_ts": thread}) == (
+    assert talk.say(demo, {"text": text, "thread_ts": thread, "record": "698123"}) == (
         f"POSTED {line}; o1 progress line, no part delivered: {line}, its words promise him the next line by {render.when(due)}, now owed"
     )
     told = state.load(demo)["orders"]["o1"]
@@ -787,7 +788,8 @@ def test_a_post_cc_slack_reports_failing_after_it_went_out_is_kept_and_recorded_
 
     monkeypatch.setattr(slack, "cc_slack", cc_slack)
     handling(demo, "o1")
-    line = talk.say(demo, {"text": "The copy stalls on the lock & its waiter.", "thread_ts": thread})
+    report(monkeypatch, {"order": "o1", "thread": thread}, lane="communicator", kind="owner")
+    line = talk.say(demo, {"text": "The copy stalls on the lock & its waiter.", "thread_ts": thread, "record": "698123"})
     [kept] = said(demo)
     ts = slack_thread.messages[-1]["ts"]
     assert kept["url"] == f"https://acme.slack.com/archives/D123/p{ts.replace('.', '')}?thread_ts={thread}&cid=D123"
@@ -796,7 +798,7 @@ def test_a_post_cc_slack_reports_failing_after_it_went_out_is_kept_and_recorded_
     assert state.load(demo)["orders"]["o1"]["last_line"] == state.stamp(slack.sent_at(slack_thread.messages[-1]))
     reaches["post"] = False
     with pytest.raises(slack.SlackError, match="context deadline exceeded"):
-        talk.say(demo, {"text": "The lock is released.", "thread_ts": thread})
+        talk.say(demo, {"text": "The lock is released.", "thread_ts": thread, "record": "698123"})
     assert len(said(demo)) == 1
 
 
