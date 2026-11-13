@@ -501,7 +501,7 @@ def unasked(data: dict, key: str, entry: dict, into: str | None = None) -> list[
 
 
 def supersede(data: dict, answer_id: str, key: str, entry: dict, into: str | None) -> list[str]:
-    """Stop the superseded card's job, or fold what it carries into a live job, drop its PR's tap ask, and keep an open PR stopped outright as closed, once closed on GitHub; what was done, a line each."""
+    """Stop the superseded card's job, or fold what it carries and each open PR it answers for into a live job, so every wake, check and lander of those PRs reaches that job's lane and none relaunches the one stopped; drop its PR's tap ask, and keep an open PR stopped outright as closed, once closed on GitHub; what was done, a line each."""
     done = unasked(data, key, entry, into)
     if not (job_id := entry["job"]):
         return done
@@ -514,6 +514,9 @@ def supersede(data: dict, answer_id: str, key: str, entry: dict, into: str | Non
             else:
                 state.carry(data, into, order_id, parts)
         done.append(f"{job_id}'s parts now ride on {into}")
+        for moved in [held for held, pr in data["prs"].items() if pr["job"] == job_id and pr["state"] == "open"]:
+            state.take_pr(data, into, moved)
+            done.append(f"{moved} now answers to {into}, which its wakes, checks and lander reach")
     if job["state"] not in state.FINISHED_JOB_STATES:
         job.update(state="stopped", said=f"superseded by his answer {answer_id}" + (f", folded into {into}" if into else ""), updated=state.stamp())
         done.append(f"{job_id} stopped: end its agent, or its lane with drive job end {job_id}")

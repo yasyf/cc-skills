@@ -1090,12 +1090,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         parts = pick_parts(args.order, order, args.part)
         refuse_a_shared_at_once_part(parts)
         session = os.environ.get("CLAUDE_CODE_SESSION_ID")
-        live = [
-            (other_id, other, ", ".join(json.dumps(part, ensure_ascii=False) for part in shared))
-            for other_id in order["jobs"]
-            if (other := data["jobs"][other_id])["state"] in ("running", "waiting")
-            and (shared := [part for part in parts if part in (other["parts"] if other["order"] == args.order else other["carries"][args.order])])
-        ]
+        live = sharing(data, args.order, parts)
         if refused := (
             state.held_elsewhere(data, args.order, session)
             or unlandable(data, lands)
@@ -1137,6 +1132,17 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             f"{job_id} starts on a Sprite at once, since {crowd}: drive job launch {job_id} <brief>; one whose brief declares a step only this Mac runs, on {place.MAC_LINES}, waits its turn for a slot here once its agent starts"
         )
     return job_id, job | {"builder": builder_id, "beside": beside, "history": history}, [*waiting, *beside, *history]
+
+
+def sharing(data: dict, order_id: str, parts: list[str], job_id: str | None = None) -> list[tuple[str, dict, str]]:
+    """Each live job but job_id delivering any of these parts of the order, beside the parts it shares, quoted."""
+    return [
+        (other_id, other, ", ".join(json.dumps(part, ensure_ascii=False) for part in shared))
+        for other_id in data["orders"][order_id]["jobs"]
+        if other_id != job_id
+        and (other := data["jobs"][other_id])["state"] in ("running", "waiting")
+        and (shared := [part for part in parts if part in state.job_parts(other, order_id)])
+    ]
 
 
 def second_carrier(order: dict, kind: str, lands: bool, waits: list[str], live: list[tuple[str, dict, str]]) -> str | None:
@@ -1239,7 +1245,11 @@ def job_set(args: argparse.Namespace) -> int:
             for order_id in args.carries:
                 if order_id == job["order"]:
                     raise DriveError(f"{args.id} is {order_id}'s own job; add its parts with --part")
-                state.carry(data, args.id, order_id, pick_parts(order_id, find(data["orders"], order_id, "order"), args.part))
+                carried = find(data["orders"], order_id, "order")
+                parts = pick_parts(order_id, carried, args.part)
+                if refused := second_carrier(carried, job["kind"], False, job["waits"], sharing(data, order_id, parts, args.id)):
+                    raise DriveError(f"{args.id}: refused, nothing changed: {refused}")
+                state.carry(data, args.id, order_id, parts)
         elif args.part or args.parts:
             named = pick_parts(job["order"], data["orders"][job["order"]], args.parts or args.part)
             job["parts"] = named if args.parts else list(dict.fromkeys([*job["parts"], *named]))
@@ -2816,7 +2826,7 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
         if data["orders"][job["order"]]["once"]:
             raise DriveError(f"refused, {job['order']} is a repair he asked to run once: run it, and put up no PR for it")
         pr = data["prs"].setdefault(key, state.new_pr(url, job_id, job["order"]) | {"wants_tap": wants_tap})
-        pr.update(job=job_id, order=job["order"], author=author, title=read["title"])
+        pr.update(order=job["order"], author=author, title=read["title"])
         if port_of:
             pr.update(port_of=port_of, exempt="pure port", wants_tap=False)
         if exempt:
@@ -2830,10 +2840,7 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
         if lead is not None and stage.carded(pr) and (problems := limits.lead_problems(pr["lead"] or {})):
             flags = " ".join(f'{flag} "<{line}>"' for line, flag in limits.LEAD_LINES)
             raise DriveError(f"{key}: refused, nothing added: his card opens with its lead, and {'; '.join(problems)}. Add it with drive pr add {url} --job {job_id} {flags}")
-        if url not in job["prs"]:
-            if not job["prs"]:
-                state.wait_on_change(data, job_id, key)
-            job["prs"].append(url)
+        state.take_pr(data, job_id, key)
     note_third_person(key, read)
     return pr
 
@@ -4288,7 +4295,7 @@ def parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         metavar="ORDER",
-        help="another order whose part this job delivers, until it is done; it names each open card of his carrying the job's PRs and leaves it up, since its stack can meet his words already: only --rework withdraws one",
+        help="another order whose part this job delivers, until it is done, refused while another running builder or codex job carries that part; it names each open card of his carrying the job's PRs and leaves it up, since its stack can meet his words already: only --rework withdraws one",
     )
     verb.add_argument("--rework", action="append", default=[], metavar="PR", help=f"with one --carries, {REWORK_HELP}; refused for a PR of another job")
     verb.add_argument(
@@ -4743,7 +4750,7 @@ def parser() -> argparse.ArgumentParser:
             " one it decides in part with the ASK its job keeps asking only what his answer leaves open, which takes that"
             " card's place and redraws it; --superseded for one it replaces, which settles its card in place showing his words and a"
             " link to them with no buttons, drops its PR's tap ask, and stops its job, closing an open PR on GitHub, or"
-            " folds what the job carries into the live job named, and --reopened for a PR his words change, which drops his"
+            " folds what the job carries and each open PR it answers for into the live job named, and --reopened for a PR his words change, which drops his"
             " tap on it, withdraws each open card of his carrying it in the same call, and names the live job that reworks"
             " it, no card coming back until that job's READY says how his words are met; --sent for a waiting agent"
             " SendMessage gave his words verbatim, while the drive job resume that delivers them verbatim to a remote"
@@ -4802,7 +4809,7 @@ def parser() -> argparse.ArgumentParser:
         default=[],
         type=superseded_mark,
         metavar="KEY=stop|KEY=JOB",
-        help="a card his answer replaces: settled in place, its PR's tap ask dropped, and its job stopped, or folded into the live job named",
+        help="a card his answer replaces: settled in place, its PR's tap ask dropped, and its job stopped, or folded into the live job named, which then answers for each open PR of the job",
     )
     verb.add_argument(
         "--reopened",
