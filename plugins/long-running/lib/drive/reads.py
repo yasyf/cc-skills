@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from drive import picture, procs, slack, state
+from drive import limits, picture, procs, slack, state
 from drive.render import clock
 
 READ = re.compile(r"READ\s+(.+)")
@@ -42,6 +42,7 @@ LANE_VERBS = (
     ("status",),
 )
 LANE_WRITES = (("job", "ask"), ("job", "set"), ("pr", "add"), ("pr", "set"))
+LANE_CARDS = (("job", "ask"), ("job", "report"))
 NO_SPRITE_GRANT = 'his pick "No Sprite lane runs break-glass: a step needing a grant moves to a lane on this Mac"'
 JOB_WORD = re.compile(r"j\d+")
 BREAK_GLASS_PIPELINE = "forge/break-glass"
@@ -151,7 +152,7 @@ def log_rule(question: str) -> str:
 
 
 def lane_drive(question: str, checkout: Path, drive: str, job_id: str) -> str:
-    """Run a Sprite lane's drive command here, where the drive's records live, as `drive` would on this Mac: its first line `DRIVE <its words>`, the rest the JSON the Sprite's drive sent with it, `stdin` for a `-` and the text of each file a word names under that word, each written to a folder of its own here for the run, with each picture they show by a path on the Sprite copied off it first, as lane_pictures says, and named by its copy here, so a card this Mac draws from them opens it; each is named by its Sprite path in what it prints. It runs in the coordinator's checkout with no session of this Mac's, as the asking lane's job's own lane, marked as a SPRITE_LANE, so the drive it runs refuses, as lane_refusal says, a verb no Sprite lane runs, a write acting on another job and any verb acting on another drive, and reads a bare `status` as the lane's own job, and answers `drive exited <status>` over all it printed, as a Mac lane reads it, which the Sprite's drive prints and exits with."""
+    """Run a Sprite lane's drive command here, where the drive's records live, as `drive` would on this Mac: its first line `DRIVE <its words>`, the rest the JSON the Sprite's drive sent with it, `stdin` for a `-` and the text of each file a word names under that word, each written to a folder of its own here for the run; for one of LANE_CARDS, the verbs a card is drawn from, each picture they show by a path on the Sprite is copied off it first, as lane_pictures says, and named by its copy here, so a card this Mac draws from them opens it, while any other verb, such as `job set --repro`, gets its files and stdin as written; each is named by its Sprite path in what it prints. It runs in the coordinator's checkout with no session of this Mac's, as the asking lane's job's own lane, marked as a SPRITE_LANE, so the drive it runs refuses, as lane_refusal says, a verb no Sprite lane runs, a write acting on another job and any verb acting on another drive, and reads a bare `status` as the lane's own job, and answers `drive exited <status>` over all it printed, as a Mac lane reads it, which the Sprite's drive prints and exits with."""
     line, _, rest = question.partition("\n")
     try:
         argv = shlex.split(DRIVE.fullmatch(line)[1])
@@ -159,7 +160,7 @@ def lane_drive(question: str, checkout: Path, drive: str, job_id: str) -> str:
     except ValueError as error:
         return lane_exit(2, f"{line}: {error}")
     try:
-        shown = lane_pictures(sent, drive, job_id)
+        shown = lane_pictures(sent, drive, job_id) if tuple(argv[:2]) in LANE_CARDS else {}
     except (state.DriveError, OSError, subprocess.TimeoutExpired) as error:
         return lane_exit(2, f"drive {' '.join(argv[:2])}: refused, nothing ran: the pictures it shows did not copy off this Sprite: {error}")
     session = {key: value for key, value in os.environ.items() if key != "CLAUDE_CODE_SESSION_ID"}
@@ -192,9 +193,9 @@ def lane_drive(question: str, checkout: Path, drive: str, job_id: str) -> str:
 
 
 def lane_pictures(sent: dict, drive: str, job_id: str) -> dict[str, str]:
-    """Each picture the files and stdin a Sprite lane's drive sent show by an absolute path, a path on its Sprite, copied off that Sprite under the job's scratch folder here, at that path below its `sprite` folder, which outlives the run since the card drawn from a kept question opens it later; the copy here by the Sprite path."""
+    """Each picture the files and stdin a Sprite lane's drive sent show on a line of its own, `![caption](/absolute/path)` as a card draws it, by a path on its Sprite, copied off that Sprite under the job's scratch folder here, at that path below its `sprite` folder, which outlives the run since the card drawn from a kept question opens it later; the copy here by the Sprite path."""
     texts = [file["text"] for file in sent.get("files", {}).values()] + [sent.get("stdin", "")]
-    paths = list(dict.fromkeys(path for text in texts for image in picture.IMAGE.finditer(text) if (path := image[1] or image[2]).startswith("/")))
+    paths = list(dict.fromkeys(shown["path"] for text in texts for line in text.splitlines() if (shown := limits.POSTED_PICTURE.fullmatch(line.strip()))))
     if not paths:
         return {}
     from drive import orca

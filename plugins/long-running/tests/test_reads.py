@@ -17,6 +17,49 @@ BUILD = "https://buildkite.com/forge/test/builds/121531"
 ASKER = "demo j7"
 GRANT = "https://buildkite.com/forge/break-glass/builds/1926"
 PROOF = "long-running 1.0.639 from bin/../lib\nFAIL: GitHub lists no delivery the receiver answered 200 and logged\n"
+SED_PROOF = r'''#!/usr/bin/env bash
+# Proof for PR #55890: the Iris evidence comment shows its screenshots as GitHub attachments, and nothing is committed.
+# Story 1, he opens an Iris UI PR and sees the evidence comment with each screenshot inline:
+#   - exactly one comment on the PR opens with <!-- iris-evidence -->
+#   - it holds at least one <img>, every <img src> is https://github.com/user-attachments/assets/..., and no artifact:// link is left
+#   - each image answers 200 with an image content type for a repository member's token
+#   - empty state: a PR body with no iris-evidence block gets no comment, since the step exits before shooting
+#   - error state: a refused upload fails product-dashboard-iris-evidence with GitHub's answer, and the Buildkite annotation still holds the evidence
+# Story 2, he looks at the PR's files and sees no evidence image or manifest committed:
+#   - the PR's changed files include no .png and no path under iris-evidence/
+# Read-only. Exits 0 when every criterion holds, nonzero otherwise.
+set -euo pipefail
+pr="${1:-55890}"
+repo=Forge-AI/monorepo
+comments="$(gh api --paginate "repos/$repo/issues/$pr/comments" --jq '[.[] | select(.body | startswith("<!-- iris-evidence -->"))]' | jq -s add)"
+count="$(jq length <<<"$comments")"
+[[ "$count" == 1 ]] || { echo "story 1 FAIL: $count iris-evidence comments on #$pr, want 1"; exit 1; }
+body="$(jq -r '.[0].body' <<<"$comments")"
+link="$(jq -r '.[0].html_url' <<<"$comments")"
+if grep -q 'artifact://' <<<"$body"; then echo "story 1 FAIL: $link still holds artifact:// links"; exit 1; fi
+mapfile -t images < <(grep -o '<img src="[^"]*"' <<<"$body" | sed 's/<img src="//; s/"$//')
+(( ${#images[@]} > 0 )) || { echo "story 1 FAIL: $link holds no <img>"; exit 1; }
+for image in "${images[@]}"; do
+  [[ "$image" == https://github.com/user-attachments/assets/* ]] || { echo "story 1 FAIL: $link links $image, not a GitHub attachment"; exit 1; }
+  type="$(curl -sS -L -o /dev/null -w '%{http_code} %{content_type}' -H "Authorization: token $(gh auth token)" "$image")"
+  [[ "$type" == "200 image/"* ]] || { echo "story 1 FAIL: $image answered $type"; exit 1; }
+done
+echo "story 1 OK: $link shows ${#images[@]} screenshots, each a GitHub attachment answering 200"
+committed="$(gh pr view "$pr" -R "$repo" --json files --jq '[.files[].path | select(endswith(".png") or startswith("iris-evidence/"))] | join(" ")')"
+[[ -z "$committed" ]] || { echo "story 2 FAIL: #$pr commits $committed"; exit 1; }
+echo "story 2 OK: https://github.com/$repo/pull/$pr/files changes no .png and nothing under iris-evidence/"
+'''
+SHOOTING_PROOF = """#!/usr/bin/env bash
+cat > /home/sprite/scratch/j7/ask.md <<EOF
+Show me:
+![1 · after](/home/sprite/scratch/j7/after.png)
+EOF
+agent-browser screenshot /home/sprite/scratch/j7/after.png
+"""
+SED_REPORT = """DONE fixed
+DEFECT: `drive job set --repro` refused a proof script, reading `sed 's/<img src="//; s/"$//'` as a picture path
+Measured: `drive job set j7 --repro proof.sh 2>&1` exits 2
+"""
 SSO_FIRST = """[profile identity]
 sso_session = forge
 [profile plat-prod-human]
@@ -514,6 +557,24 @@ def test_a_drive_question_whose_block_shows_a_picture_on_its_sprite_runs_on_a_co
     refused = reads.answer(f"DRIVE job ask --check {block}\n{json.dumps(sent)}", fake_drive, "demo", "j7")
     assert refused.startswith(f"drive exited 2\ndrive job ask: refused, nothing ran: the pictures it shows did not copy off this Sprite: copying {shot}, {gone} off pool-one exited ")
     assert f"tar: {gone.lstrip('/')}" in refused
+
+
+@pytest.mark.parametrize(
+    ("words", "sent", "passed"),
+    [
+        ("job set j7 --repro /home/sprite/scratch/j7/proof.sh", {"files": {"/home/sprite/scratch/j7/proof.sh": {"text": SED_PROOF, "executable": True}}}, SED_PROOF),
+        ("job set j7 --repro /home/sprite/scratch/j7/shoot.sh", {"files": {"/home/sprite/scratch/j7/shoot.sh": {"text": SHOOTING_PROOF, "executable": True}}}, SHOOTING_PROOF),
+        ("job report j7 -", {"stdin": SED_REPORT}, SED_REPORT),
+    ],
+)
+def test_a_drive_question_copies_no_picture_off_its_sprite_for_text_that_only_names_one_and_runs_on_that_text_as_written(
+    words: str, sent: dict, passed: str, fake_drive: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_drive.mkdir()
+    monkeypatch.setattr(orca, "on_sprite", lambda *args: pytest.fail(f"copied off the Sprite: {args[1]}"))
+    said = reads.answer(f"DRIVE {words}\n{json.dumps(sent)}", fake_drive, "demo", "j7")
+    assert said.startswith("drive exited 3\n")
+    assert passed.rstrip("\n") in said
 
 
 def launched_once_written(marker: Path, monkeypatch: pytest.MonkeyPatch, then: Callable[[], None] = lambda: None) -> list[datetime]:
