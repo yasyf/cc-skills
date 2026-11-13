@@ -21,6 +21,13 @@
         ]
       }
     ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          { "type": "command", "command": "[ -z \"$LONG_RUNNING_HANDLER\" ] || python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" handed_records.py" }
+        ]
+      }
+    ],
     "PreCompact": [
       {
         "hooks": [

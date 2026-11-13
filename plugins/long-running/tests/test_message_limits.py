@@ -2050,7 +2050,7 @@ def test_a_handlers_own_session_hands_jev_none_of_its_brief_as_his_words_and_his
     handler(own, RELAY_BRIEF, "1.2")
     with state.edit("demo") as data:
         data["owner"] = {"heard": state.stamp(), "away": True}
-        data["handlers"]["f796ccf3"] = {"session": "handler-session", "started": state.stamp(), "holds": None, "held_back": []}
+        data["handlers"]["f796ccf3"] = {"session": "handler-session", "started": state.stamp(), "holds": None, "handed": []}
     relayed = {"session_id": "handler-session", "transcript_path": str(own), "agent_type": "long-running:handler", "tool_name": message_limits.SAY}
     root = agents.seen(relayed | {"tool_input": {"text": "Resume works from any session now."}})
     assert message_limits.deny_reason(root).startswith("Refused on purpose: he is away")

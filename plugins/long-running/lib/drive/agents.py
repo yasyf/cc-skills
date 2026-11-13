@@ -224,7 +224,7 @@ def corrections(name: str, seqs: Iterable[str]) -> dict[str, list[str]]:
 
 
 def holder(data: dict, held: dict) -> str | None:
-    """The handler already at work on what a new brief holds: the same record, the same message of his, or, for a record naming no message of his, one at work on his message in the record's thread, so one message of his has one handler at a time whichever record names it."""
+    """The handler already at work on what a new brief holds: the same record, the same message of his, or, for a record naming no message of his, one at work on his message in the record's thread, so one message of his has one handler at a time, which takes every record on it."""
     for handler_id, entry in data["handlers"].items():
         other = entry["holds"] or {}
         if held["record"] and held["record"] == other.get("record"):
@@ -242,11 +242,11 @@ def gone(session: str | None) -> bool:
 
 
 class Busy(state.DriveError):
-    """A live handler holds what a brief holds, so no second one starts: one at work on another record takes the brief when it ends."""
+    """A live handler holds the same record or message of his a brief holds, so the brief is a copy that needs no handler of its own."""
 
 
-def handle(name: str, brief: str) -> str:
-    """Start a handler on its brief, unless a live one already holds what the brief holds, since one message of his has one handler at a time: a refused brief for another record is kept for that handler's done record to name; the started handler's id."""
+def handle(name: str, brief: str) -> tuple[str, bool]:
+    """Start a handler on its brief, unless a live one already holds what the brief holds, since one message of his has one handler at a time: a brief for another record on that message is handed to that handler, which takes it at its next step; the id of the handler at work on the brief, and whether it was handed."""
     held_now = holds(brief)
     data = state.load(name)
     if (held := holder(data, held_now)) and gone(data["handlers"][held]["session"]):
@@ -258,13 +258,14 @@ def handle(name: str, brief: str) -> str:
             entry = data["handlers"][held]
             his = entry["holds"]["link"] or f"record {entry['holds']['record']}"
             kept = held_now["record"] and held_now["record"] != entry["holds"]["record"]
-            if kept and brief.strip() not in entry["held_back"]:
-                entry["held_back"].append(brief.strip())
+            if kept and brief.strip() not in entry["handed"]:
+                entry["handed"].append(brief.strip())
         else:
-            data["handlers"][handler_id] = {"session": None, "started": state.stamp(), "holds": held_now, "held_back": [], "posted": []}
+            data["handlers"][handler_id] = {"session": None, "started": state.stamp(), "holds": held_now, "handed": [], "posted": []}
+    if held and kept:
+        return held, True
     if held:
-        then = f"its done record names this brief, to start then and post only what {held} left out" if kept else "this copy needs no handler of its own"
-        raise Busy(f"refused, no handler started: handler {held} is at work on {his}, and one message of his has one handler at a time; {then}")
+        raise Busy(f"refused, no handler started: handler {held} is at work on {his}, and one message of his has one handler at a time; this copy needs no handler of its own")
     if folder := scratch(brief):
         folder.mkdir(parents=True, exist_ok=True)
     try:
@@ -273,7 +274,7 @@ def handle(name: str, brief: str) -> str:
         with state.edit(name) as data:
             del data["handlers"][handler_id]
         raise state.DriveError(f"claude --bg started no handler: {error}") from None
-    return handler_id
+    return handler_id, False
 
 
 def start_handler(name: str, handler: str, prompt: str) -> None:
@@ -292,18 +293,42 @@ def bind_handler(payload: dict, handler: str) -> None:
         data["handlers"][handler_id].update(session=payload["session_id"], transcript=payload["transcript_path"])
 
 
-def end_handler(payload: dict) -> None:
-    """Hand the line a handler ended on to the communicator as one cci record, each post's POSTED, EDITED and CARD links in it say's own result, whole with its thread_ts, in place of any the handler typed, naming each brief drive handler held back while it worked on his message, and remove its session, which would otherwise sit idle holding its memory: `claude rm` takes the short id `claude agents` lists for it. A job the handler held keeps its transcript's path, since the drive forgets the handler."""
+def handed(briefs: list[str]) -> str:
+    """What a handler reads of the briefs drive handler handed it while it worked: each record on the message of his it is at work on, to cover in its own post."""
+    return (
+        f"drive handler handed you {len(briefs)} more {'brief' if len(briefs) == 1 else 'briefs'} on the message of his you are at work on,"
+        f" since one message of his has one handler at a time: {' | '.join(briefs)}. Read each record as your brief says and cover it"
+        " in the post you are writing; once you have posted, post one more line in his thread with only what your posts left out,"
+        " or nothing when they already said it. Your last line names what you did for each."
+    )
+
+
+def take_handed(name: str, handler: str) -> list[str]:
+    """The briefs drive handler handed the handler since its last step, taken off its entry so each reaches it once."""
+    if not state.saved(name)["handlers"][handler]["handed"]:
+        return []
+    with state.edit(name) as data:
+        entry = data["handlers"][handler]
+        briefs, entry["handed"] = entry["handed"], []
+    return briefs
+
+
+def end_handler(payload: dict) -> str | None:
+    """Hand the line a handler ended on to the communicator as one cci record each post's POSTED, EDITED and CARD links in it say's own result, whole with its thread_ts, in place of any the handler typed, and remove its session, which would otherwise sit idle holding its memory: `claude rm` takes the short id `claude agents` lists for it. A job the handler held keeps its transcript's path, since the drive forgets the handler. A handler drive handler handed briefs since its last step does not end: they come back as the reason its stop is refused, taken in the one edit that would forget it, so no brief lands on a handler that has ended."""
     name = state.session_drives(payload["session_id"])[0]
     with state.edit(name) as data:
-        ended_handler = data["handlers"].pop(payload["agent_id"])
-        if job_id := state.agent_job(data, payload["agent_id"]):
-            data["jobs"][job_id]["transcript"] = payload["agent_transcript_path"]
+        ended_handler = data["handlers"][payload["agent_id"]]
+        if briefs := ended_handler["handed"]:
+            ended_handler["handed"] = []
+        else:
+            data["handlers"].pop(payload["agent_id"])
+            if job_id := state.agent_job(data, payload["agent_id"]):
+                data["jobs"][job_id]["transcript"] = payload["agent_transcript_path"]
+    if briefs:
+        return Unjudged(f"Refused on purpose: {handed(briefs)}")
     line = (payload.get("last_assistant_message") or "").strip()
     if posted := ended_handler["posted"]:
         line = "; ".join(filter(None, [*posted, RETYPED.sub("", line).strip(" ;")]))
-    if held_back := ended_handler["held_back"]:
-        line += f" | held back for this handler, start each now: {' | '.join(held_back)}"
     cwd = Path(payload["cwd"])
     reads.run(["cci", "post", "--drive", name, "--lane", "handler", "--kind", "done", "--to", f"communicator@{name}", "--id", f"handler-{payload['agent_id']}", "--text", line], cwd)
     listed = json.loads(reads.run(["claude", "agents", "--json"], cwd))

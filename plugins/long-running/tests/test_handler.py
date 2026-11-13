@@ -6,6 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import agent_brief
+import handed_records
 import one_line_result
 import pytest
 import session_start
@@ -97,7 +98,7 @@ def test_a_handlers_own_session_reads_as_an_agent_of_the_communicators(
     bind(monkeypatch, handler, "h-session", transcript)
     data = state.load("demo")
     holds = {"message": None, "link": None, "thread": "1794380463.481959", "record": None}
-    assert data["handlers"][handler] | {"started": None} == {"session": "h-session", "transcript": str(transcript), "started": None, "holds": holds, "held_back": [], "posted": []}
+    assert data["handlers"][handler] | {"started": None} == {"session": "h-session", "transcript": str(transcript), "started": None, "holds": holds, "handed": [], "posted": []}
     assert state.session_drives("h-session") == ["demo"]
     assert state.session_role(data, "h-session") == "communicator"
     step = {"session_id": "h-session", "agent_type": agents.HANDLER, "transcript_path": str(transcript), "tool_name": "Bash"}
@@ -172,7 +173,7 @@ HIS_LINK = "https://acme.slack.com/archives/D123/p1794446196220659?thread_ts=179
 HIS_MESSAGE = f"Message (his words): Why is that only happening now?\nLink: {HIS_LINK}\nThread: D123 1794440505.483109\nDrive: demo\nScratch: {{scratch}}"
 
 
-def test_one_message_of_his_has_one_handler_at_a_time_whichever_record_names_it(
+def test_a_record_for_a_busy_handlers_thread_reaches_that_handler_at_its_next_step(
     communicator: str,
     run: Run,
     tmp_path: Path,
@@ -180,6 +181,7 @@ def test_one_message_of_his_has_one_handler_at_a_time_whichever_record_names_it(
     cci_records: dict[str, dict],
     ended_sessions: set[str],
     monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     thread = {"fields": {"attrs": {"thread": "1794440505.483109"}}}
     cci_records |= {
@@ -192,25 +194,33 @@ def test_one_message_of_his_has_one_handler_at_a_time_whichever_record_names_it(
     handler = tools.run("handler", "demo", {"brief": message}).removeprefix("started ")
     with pytest.raises(state.DriveError, match=f"handler {handler} is at work on {re.escape(HIS_LINK)}.*; this copy needs no handler of its own"):
         tools.run("handler", "demo", {"brief": message})
-    for seq in ("668291", "668300", "668288"):
-        with pytest.raises(state.DriveError, match=f"refused, no handler started: handler {handler} is at work on {re.escape(HIS_LINK)}.*its done record names this brief"):
-            tools.run("handler", "demo", {"brief": f"Record: {seq} Drive: demo Scratch: {tmp_path / seq}"})
+    handed = [f"Record: {seq} Drive: demo Scratch: {tmp_path / seq}" for seq in ("668291", "668300", "668288")]
+    assert [tools.run("handler", "demo", {"brief": brief}) for brief in handed] == [f"handed to {handler}"] * 3
     other = tools.run("handler", "demo", {"brief": f"Record: 668400 Drive: demo Scratch: {tmp_path / '668400'}"}).removeprefix("started ")
     with pytest.raises(state.DriveError, match=f"handler {other} is at work on record 668400.*; this copy needs no handler of its own"):
         tools.run("handler", "demo", {"brief": f"Record: 668400 Drive: demo Scratch: {tmp_path / '668400'}"})
-    held = [f"Record: {seq} Drive: demo Scratch: {tmp_path / seq}" for seq in ("668291", "668300", "668288")]
-    assert state.load("demo")["handlers"][handler]["held_back"] == held
     assert len([argv for argv in started if argv[:2] == ["claude", "--bg"]]) == 2
 
-    with state.edit("demo") as data:
-        data["handlers"][handler]["session"] = "h-session"
+    transcript = tmp_path / "h-session.jsonl"
+    bind(monkeypatch, handler, "h-session", transcript)
+    capsys.readouterr()
+    handed_records.main()
+    context = json.loads(capsys.readouterr().out)["hookSpecificOutput"]["additionalContext"]
+    assert context.startswith("drive handler handed you 3 more briefs") and all(brief in context for brief in handed)
+    handed_records.main()
+    assert capsys.readouterr().out == ""
+
+    late = f"Record: 668291 Drive: demo Scratch: {tmp_path / 'late'}"
+    assert tools.run("handler", "demo", {"brief": late}) == f"handed to {handler}"
     monkeypatch.setattr(agents.subprocess, "Popen", lambda argv, **kwargs: None)
     monkeypatch.setattr(reads, "run", lambda argv, checkout, env=None: started.append(argv) or (json.dumps([{"id": "b7f2", "sessionId": "h-session"}]) if argv[1] == "agents" else ""))
-    agents.end_handler(
-        {"session_id": os.environ["CLAUDE_CODE_SESSION_ID"], "agent_id": handler, "agent_transcript_path": "/x/t.jsonl", "cwd": "/", "handler_session": "h-session", "last_assistant_message": LINE}
-    )
+    refused = json.loads(stop(monkeypatch, capsys, "h-session", transcript, LINE))
+    assert refused["decision"] == "block" and late in refused["reason"] and refused["judged"] is False
+    assert handler in state.load("demo")["handlers"] and not [argv for argv in started if argv[:2] == ["cci", "post"]]
+    assert stop(monkeypatch, capsys, "h-session", transcript, LINE) == ""
     [post] = [argv for argv in started if argv[:2] == ["cci", "post"]]
-    assert post[-1] == f"{LINE} | held back for this handler, start each now: {' | '.join(held)}"
+    assert post[-1] == LINE
+    assert handler not in state.load("demo")["handlers"]
 
     restarted = tools.run("handler", "demo", {"brief": message}).removeprefix("started ")
     with state.edit("demo") as data:

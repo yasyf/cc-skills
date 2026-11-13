@@ -214,7 +214,7 @@ def test_no_session_bound_to_a_drive_asks_in_its_terminal_and_a_session_bound_to
     assert no_terminal_questions.deny_reason(file_call("AskUserQuestion", "talker")) is not None
     assert no_terminal_questions.deny_reason(file_call("AskUserQuestion", "talker", agent_id="a-1", agent_type="long-running:builder")) is not None
     with state.edit(demo) as data:
-        data["handlers"]["h1"] = {"session": "handler-own", "started": state.stamp(), "holds": None, "held_back": []}
+        data["handlers"]["h1"] = {"session": "handler-own", "started": state.stamp(), "holds": None, "handed": []}
     assert no_terminal_questions.deny_reason(file_call("AskUserQuestion", "handler-own", agent_type="long-running:handler")) is not None
     assert hook_output(no_terminal_questions, monkeypatch, capsys, json.dumps(file_call("AskUserQuestion", "someone-else"))) == ""
 
