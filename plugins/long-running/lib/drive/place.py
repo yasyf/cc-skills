@@ -66,7 +66,7 @@ def at_cap(builders: dict[str, str]) -> str:
 
 
 def local_builders(data: dict, moment: datetime) -> dict[str, str]:
-    """The builders holding a slot on this Mac, each job beside its order and its agent's or lane's last write: a job here the watch's FREE line gave its turn for a slot whose agent has not started yet, an agent here still in its turn, or an Orca lane started with --local that launches or has not ended. A builder added with drive job add --builds-nothing, such as a merged PR's live proof, holds no checkout or compiler, so it holds no slot."""
+    """The builders holding a slot on this Mac, each job beside its order and its agent's or lane's last write: a job here the watch's FREE line gave its turn for a slot whose agent has not started yet, an agent here still in its turn, or an Orca lane started with --local that launches or has not ended. A builder marked with --builds-nothing on drive job add or drive job set, such as a merged PR's live proof, holds no checkout or compiler, so it holds no slot."""
     return {
         job_id: f"{job_id} on {job['order']}, {work}"
         for job_id, job in data["jobs"].items()
