@@ -2229,6 +2229,17 @@ def test_while_he_is_away_only_cards_incident_lines_and_answers_go_out(run: Run,
     assert posted(transcript, text="The fix merged.") is None
 
 
+def test_the_rule_jev_weighs_a_line_held_while_he_is_away_by_names_the_drives_away_mark_and_his_words_that_the_line_waits(run: Run, talker: str, transcript: Path) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    with state.edit("demo") as data:
+        data["owner"] = {"heard": state.stamp(), "away": True}
+    rule = agents.ruled(posted(transcript, text="The fix merged."))["rule"]
+    assert rule.startswith("He is away when the drive marks him so, as it has for this post,")
+    assert "while he is away a line to him waits for his catch-up" in rule
+    assert '"Just do less realtime more summary / batching, with a catch up post once I\'m back"' in rule
+    assert "news that work moved, such as a fix merging, waits even when that work is his order" in rule
+
+
 def test_an_incident_report_keeps_its_alert_links_bare_by_the_incident_its_order_or_record_marks(
     run: Run, talker: str, transcript: Path, checked: Checked, slack_thread: Thread, monkeypatch: pytest.MonkeyPatch
 ) -> None:
