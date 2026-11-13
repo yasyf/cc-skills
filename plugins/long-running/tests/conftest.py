@@ -163,13 +163,15 @@ def cloned(tmp_path: Path, name: str, files: dict[str, str] | None = None) -> st
 FAKE_CCX = """#!/bin/sh
 [ "$1 $2 $3 $5 $6" = "vcs worktree add --jj none" ] || exit 64
 echo "$4" >>"{made}"
+git show-ref -q --verify "refs/heads/$4" && exec git worktree add -q "{root}/$4" "$4"
+git fetch -q --no-tags --no-write-fetch-head origin +refs/heads/main:refs/remotes/origin/main || exit 1
 exec git worktree add -q -b "$4" "{root}/$4" origin/main
 """
 
 
 @pytest.fixture
 def ccx_worktrees(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """A ccx first on PATH whose vcs worktree add makes a git worktree on a new branch cut from origin/main under the folder it returns, as ccx does under its worktree root, naming each branch it made in that folder's made file."""
+    """A ccx first on PATH whose vcs worktree add makes a git worktree under the folder it returns, as ccx does under its worktree root, on the local branch it names as that branch stands, or else on a new branch cut from origin/main once it fetched origin's main into it, as ccx fetches the trunk, naming each branch it made in that folder's made file."""
     root, bin_dir = tmp_path / "worktrees", tmp_path / "ccx-bin"
     root.mkdir()
     bin_dir.mkdir()

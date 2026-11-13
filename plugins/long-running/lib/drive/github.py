@@ -391,7 +391,8 @@ def saved_branches(repo: str, lane: str) -> list[str]:
 
 
 def fetched(clone: str, branch: str) -> str:
-    """The sha of branch's head as origin holds it now, fetched with one call into the clone's refs/remotes/origin/<branch>."""
+    """The sha of branch's head as origin holds it now, read with ls-remote and fetched by that sha into the clone's objects, writing no ref, so it never loses refs/remotes/origin/<branch>'s ref lock to another fetch of the shared clone, the lander's, a launch's or a session's, and needs no lock of its own."""
     git = ["git", "-C", clone]
-    run([*git, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin", f"+refs/heads/{branch}:refs/remotes/origin/{branch}"])
-    return run([*git, "rev-parse", f"refs/remotes/origin/{branch}"]).strip()
+    sha = run([*git, "ls-remote", "origin", f"refs/heads/{branch}"]).split()[0]
+    run([*git, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin", sha])
+    return sha

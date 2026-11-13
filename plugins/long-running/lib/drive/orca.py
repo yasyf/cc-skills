@@ -410,7 +410,7 @@ def tool(name: str) -> str:
 
 
 def checkout(drive: str, data: dict) -> Path:
-    """The checkout each lane's launch, save and release runs the orca plugin's scripts in, so every Sprite claim, refill and cleanup runs the cc-remote, config and tool payload its repository's default branch pins now: the worktree of the coordinator checkout's repository holding the branch drive-<drive>, which only the drive uses, moved with one fetch to that branch's head before each, never a session's working tree at whatever commit and edits it carries. git's worktree list finds it; the first launch makes it with ccx vcs worktree add, so it sits under ccx's worktree root, where its owner's mise trusts a worktree's mise.toml as the cc-remote shim needs. It is moved with no hook, since the monorepo's post-checkout hook warms node_modules that no launch reads, under the drive's checkout lock, since lanes launch at once; DriveError naming why it was not moved, or that the head holds no .orca.json."""
+    """The checkout each lane's launch, save and release runs the orca plugin's scripts in, so every Sprite claim, refill and cleanup runs the cc-remote, config and tool payload its repository's default branch pins now: the worktree of the coordinator checkout's repository holding the branch drive-<drive>, which only the drive uses, moved with one fetch to that branch's head before each, never a session's working tree at whatever commit and edits it carries. git's worktree list finds it; the first launch cuts drive-<drive> at that head and makes it with ccx vcs worktree add, which checks an existing branch out as it stands, running none of its trunk fetch into refs/remotes/origin/<branch>, which loses that ref's lock to any other fetch of the shared clone, so it sits under ccx's worktree root, where its owner's mise trusts a worktree's mise.toml as the cc-remote shim needs. It is moved with no hook, since the monorepo's post-checkout hook warms node_modules that no launch reads, under the drive's checkout lock, since lanes launch at once; DriveError naming why it was not moved, or that the head holds no .orca.json."""
     clone = data["roles"]["coordinator"]["cwd"]
     lane = f"drive-{drive}"
     try:
@@ -418,6 +418,7 @@ def checkout(drive: str, data: dict) -> Path:
         with state.flocked(state.drive_dir(drive) / CHECKOUT_LOCK):
             sha = github.fetched(clone, branch)
             if not (kept := holder(clone, lane)):
+                github.run(["git", "-C", clone, "branch", "--force", lane, sha])
                 github.run(["ccx", "vcs", "worktree", "add", lane, "--jj", "none"], cwd=clone, timeout=CHECKOUT_SECONDS)
                 kept = holder(clone, lane)
             github.run(["git", "-C", str(kept), "-c", "core.hooksPath=/dev/null", "-c", "checkout.workers=0", "checkout", "-q", "--force", "-B", lane, sha], timeout=CHECKOUT_SECONDS)

@@ -1,7 +1,9 @@
 import json
 import subprocess
+from pathlib import Path
 
 import pytest
+from conftest import commit_files, git_in
 from drive import github
 
 GATE = "LTX Behavioral Gate (short)"
@@ -434,3 +436,16 @@ def test_ejected_at_is_when_trunk_last_put_on_the_trunk_failed_label_a_pr_still_
     added = {"nodes": [{"createdAt": at, "label": {"name": name}} for at, name in (("2026-11-11T09:00:00Z", github.EJECTED_LABEL), ("2026-11-12T01:35:00Z", "trunk-pending-failure"), ("2026-11-12T01:36:43Z", github.EJECTED_LABEL))]}
     assert github.flatten(node(labels={"nodes": [{"name": github.EJECTED_LABEL}]}, timelineItems=added))["ejected_at"] == "2026-11-12T01:36:43Z"
     assert github.flatten(node(timelineItems=added))["ejected_at"] is None
+
+
+def test_fetched_reads_origins_head_while_another_fetch_holds_the_clones_remote_tracking_ref_and_moves_no_ref(tmp_path: Path) -> None:
+    origin, clone = tmp_path / "origin", tmp_path / "clone"
+    origin.mkdir()
+    git_in(origin, "init", "-q", "-b", "main")
+    cloned = commit_files(origin, "first", {"a": "a\n"})
+    git_in(tmp_path, "clone", "-q", str(origin), str(clone))
+    head = commit_files(origin, "second", {"b": "b\n"})
+    (clone / ".git" / "refs" / "remotes" / "origin" / "main.lock").write_text(f"{head}\n")
+    assert github.fetched(str(clone), "main") == head
+    assert git_in(clone, "cat-file", "-t", head) == "commit"
+    assert git_in(clone, "rev-parse", "refs/remotes/origin/main") == cloned
