@@ -35,6 +35,7 @@ from drive import (
 SESSION = "session-under-test"
 DRIVE_TERMINAL = "term_drive"
 REAL_DRIVE_TERMINAL = orca.drive_terminal
+REAL_KEEP_LOGS = orca.keep_logs
 LANE_SPEC = Path(__file__).resolve().parents[2] / "orca" / "lib" / "lane.json"
 SETTLED_NOTE = cli.settled_note
 TEAM = [
@@ -479,6 +480,14 @@ def tooled(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     placed: list[str] = []
     monkeypatch.setattr(orca, "place_tools", placed.append)
     return placed
+
+
+@pytest.fixture(autouse=True)
+def kept_logs(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
+    """Each dead lane whose Sprite's logs a resume or an end copied to the drive's folder, by job and dispatch."""
+    kept: list[tuple[str, str]] = []
+    monkeypatch.setattr(orca, "keep_logs", lambda drive, job_id, job, dispatch: kept.append((job_id, dispatch)))
+    return kept
 
 
 @pytest.fixture(autouse=True)
