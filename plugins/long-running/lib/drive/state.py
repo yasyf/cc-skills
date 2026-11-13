@@ -83,6 +83,7 @@ FLAKE_RULING = "532cd3d"
 FLAKE_WORDS = "and ffs fix these flaky tgests how many times do I have to tell yoiu"
 TAP_LABELS = ("Approve", "Hold")
 TOOLING = "Drive tooling:"
+POST_FEEDBACK = f"{TOOLING} post feedback:"
 DRIVE_TOOLING = (
     "how the drive itself works: a tool it runs on (the drive CLI and its MCP tools, a hook, the watch, the dashboard,"
     " cards and posts, cc-slack check-post, the drive's CI plumbing), this skill, its agents and role rules, how its"
