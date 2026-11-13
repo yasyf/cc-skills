@@ -4541,6 +4541,46 @@ def test_job_brief_writes_native_interactions_would_he_ask_and_a_readers_researc
     assert "Plan: the steps section\n" in written.read_text()
 
 
+def test_job_brief_keeps_an_earlier_handoff_and_adds_each_ruling_to_the_earlier_ones(run: Run, demo: str) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "watch for stuck jobs")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build the watchdog")
+    handoff = f"{PR} head abc: his answer picks the watchdog\nINSTALL: drive install long-running@skills\nPROVE: drive status j1"
+    code, out = run(
+        "job", "brief", "j1", "--serves", "his order", "--done-when", "merged", "--where", "yasyf/cc-skills main",
+        "--handoff", handoff, "--ruling", "5abdd1a", "--ruling", "c7756f4",
+    )
+    written = Path(out.splitlines()[0].removeprefix("Read your brief first: "))
+    code, out = run("job", "brief", "j1", "--done-when", "merged and installed")
+    assert code == 0
+    assert out.splitlines()[-1] == "kept from its earlier brief: --serves, --where, --handoff, --ruling"
+    assert f"Handoff: {handoff}\n" in written.read_text()
+    code, out = run("job", "brief", "j1", "--ruling", "5abdd1a")
+    assert code == 0
+    assert out.splitlines()[-1] == "kept from its earlier brief: --serves, --done-when, --where, --handoff, --ruling"
+    assert state.load(demo)["jobs"]["j1"]["brief_flags"]["ruling"] == ["5abdd1a", "c7756f4"]
+    assert f"Handoff: {handoff}\n" in written.read_text()
+    assert "(c7756f4)" in written.read_text()
+
+
+def test_a_live_jobs_handoff_briefed_before_brief_flags_kept_one_is_seeded_from_its_brief_file(run: Run, demo: str) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "watch for stuck jobs")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build the watchdog")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build the watchdog again")
+    handoff = f"{PR} head abc: CHECK test failed\nINSTALL: drive install long-running@skills\nPROVE: drive status j1"
+    for job_id in ("j1", "j2"):
+        code, out = run("job", "brief", job_id, "--serves", "his order", "--done-when", "merged", "--where", "yasyf/cc-skills main", "--handoff", handoff)
+    with state.edit(demo) as data:
+        for job in data["jobs"].values():
+            del job["brief_flags"]["handoff"]
+        data["jobs"]["j2"]["state"] = "done"
+    jobs = state.load(demo)["jobs"]
+    assert jobs["j1"]["brief_flags"]["handoff"] == handoff
+    assert "handoff" not in jobs["j2"]["brief_flags"]
+    code, out = run("job", "brief", "j1", "--plan", "the watchdog section")
+    assert "--handoff" in out.splitlines()[-1]
+    assert f"Handoff: {handoff}\n" in Path(out.splitlines()[0].removeprefix("Read your brief first: ")).read_text()
+
+
 def test_job_brief_on_a_surface_refuses_interactions_jev_reads_as_steps_and_sends_user_stories_out(
     run: Run, demo: str, jev: Jev, capsys: pytest.CaptureFixture[str]
 ) -> None:

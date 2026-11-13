@@ -49,7 +49,7 @@ ID_FORMS = "an order o<n>, a job j<n>, or a PR as owner/repo#N, its URL or its b
 WAITS_CARD = re.compile(r"https://\S+/archives/\S+/p\d+\S*|[\w.-]+:[\w.-]+|merge:[\w.-]+:[\w.-]+:\d+(?:-\d+)?")
 GO_CI = Path("tools", "ci")
 CLAUDE_BUILDS = Path.home() / ".local" / "share" / "claude" / "versions"
-BRIEF_FLAGS = ("serves", "done_when", "where", "runs_as", "release", "ruling", "native", "interactions", "would_he_ask", "plan", "incident", "scratch")
+BRIEF_FLAGS = ("serves", "done_when", "where", "runs_as", "release", "handoff", "ruling", "native", "interactions", "would_he_ask", "plan", "incident", "scratch")
 BRIEF_NEEDS = ("serves", "done_when", "where")
 READER_RESEARCH = "the Researched: block this build needs"
 VERB_ERRORS = (DriveError, state.NewerDrive, slack.SlackError, github.GithubError)
@@ -1738,7 +1738,7 @@ def job_report(args: argparse.Namespace) -> int:
             state.add_changes(data, args.id, whole)
         order = data["orders"][job["order"]]
         briefed = [
-            f"{builder_id}: {write_brief(name, builder_id, {'serves': 'drive tooling' if tooling(order) else 'his order'}, None)[0]}"
+            f"{builder_id}: {write_brief(name, builder_id, {'serves': 'drive tooling' if tooling(order) else 'his order'})[0]}"
             for builder_id in (order["jobs"] if job["kind"] == "reader" and data["jobs"][args.id]["state"] == "done" else [])
             if args.id in (builder := data["jobs"][builder_id])["waits"] and state.unstarted_builder(data, builder) and not builder.get("brief")
         ]
@@ -1834,19 +1834,19 @@ def job_brief(args: argparse.Namespace) -> int:
     job = find(state.load(name)["jobs"], args.id, "job")
     if not job.get("brief_flags") and (missing := [f"--{flag.replace('_', '-')}" for flag in BRIEF_NEEDS if not getattr(args, flag)]):
         raise DriveError(f"{args.id} has no earlier brief to keep {', '.join(missing)} from: name each")
-    line, payload = write_brief(name, args.id, {flag: getattr(args, flag) for flag in BRIEF_FLAGS}, args.handoff)
+    line, payload = write_brief(name, args.id, {flag: getattr(args, flag) for flag in BRIEF_FLAGS})
     return emit(args, line, payload)
 
 
-def write_brief(name: str, job_id: str, named: dict, handoff: str | None) -> tuple[str, dict]:
-    """Write a job's brief from what the drive holds: his order's words verbatim, each ruling's recorded words above the drive's notes, the earlier jobs' transcripts, and the lines named, each flag left out kept from the job's earlier brief but a handoff's event."""
+def write_brief(name: str, job_id: str, named: dict) -> tuple[str, dict]:
+    """Write a job's brief from what the drive holds: his order's words verbatim, each ruling's recorded words above the drive's notes, the earlier jobs' transcripts, and the lines named, each flag left out kept from the job's earlier brief and each ruling named added to its earlier rulings."""
     data = state.load(name)
     job = find(data["jobs"], job_id, "job")
     order = data["orders"][job["order"]]
     earlier_flags = job.get("brief_flags") or {}
-    kept = [flag for flag in BRIEF_FLAGS if not named.get(flag) and earlier_flags.get(flag)]
-    flags = {flag: named.get(flag) or earlier_flags.get(flag) for flag in BRIEF_FLAGS}
-    if job["state"] == "waiting" and job["prs"] and not (job.get("agent") or job.get("dispatch") or handoff):
+    kept = [flag for flag in BRIEF_FLAGS if earlier_flags.get(flag) and (flag == "ruling" or not named.get(flag))]
+    flags = {flag: named.get(flag) or earlier_flags.get(flag) for flag in BRIEF_FLAGS} | {"ruling": [*dict.fromkeys([*(earlier_flags.get("ruling") or []), *(named.get("ruling") or [])])]}
+    if job["state"] == "waiting" and job["prs"] and not (job.get("agent") or job.get("dispatch") or named.get("handoff")):
         raise DriveError(
             f"{job_id} is an adopted PR's job, waiting with no agent on {', '.join(job['prs'])}: its builder starts only on an event"
             " that needs action, failed checks, requested changes, a new head or his tap; when the watch reports one, brief it"
@@ -1874,7 +1874,7 @@ def write_brief(name: str, job_id: str, named: dict, handoff: str | None) -> tup
         "Where": flags["where"],
         "Runs as": flags["runs_as"],
         "Release": flags["release"],
-        "Handoff": handoff,
+        "Handoff": flags["handoff"],
         "Decisions that bind": rulings or "none named; search his answers on the area",
         "Research": planned and job["kind"] == "reader" and READER_RESEARCH,
         "Researched": found and found[0],
@@ -4054,7 +4054,7 @@ def parser() -> argparse.ArgumentParser:
             " settled a question of the reader its Researched: line names, its title and his words above the drive's Notes:; Transcripts from each"
             " earlier job on the order; Scratch, by default a folder of the drive's;"
             " the Drive line; a reader's on a build order, Research: the Researched: block this build needs; and each line"
-            " the flags name. A flag left out keeps the job's earlier brief's, all but --handoff, and the output names each kept;"
+            " the flags name. A flag left out keeps the job's earlier brief's, each --ruling adds to its earlier rulings, and the output names each kept;"
             " a first brief names --serves, --done-when and --where. An adopted PR's job, waiting with no agent, is briefed only"
             " with --handoff for an event that needs action. Its first line, `Read your brief first: <path>`, is a local"
             " job's whole Agent prompt, which binds the agent to the job, and a remote job launches from it with drive job launch <j>."
@@ -4076,7 +4076,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--runs-as", help="for a pass over a team's data: the service account in its cluster and how it starts; \"none: <why>\" for a job that runs none")
     verb.add_argument("--release", help="the one `tools/ci release start` or `hotfix` the job may run, as it runs them, refused when Jev does not read the answer its --order names as his approval; landing_guard refuses any other")
     verb.add_argument("--handoff", help="a PR event or freed built branch: the PRs or branch, its head, the event line, INSTALL: and PROVE:")
-    verb.add_argument("--ruling", action="append", default=[], metavar="ANSWER", help="a cc-notes answer id of his that touches this; its words go in whole")
+    verb.add_argument("--ruling", action="append", default=[], metavar="ANSWER", help="a cc-notes answer id of his that touches this, added to the earlier brief's; its words go in whole")
     verb.add_argument("--plan", help="the plan section this implements, quoted")
     verb.add_argument("--incident", help="an incident job's line, by reference/jobs.md")
     verb.add_argument("--scratch", help="its scratch folder; default one in the drive")

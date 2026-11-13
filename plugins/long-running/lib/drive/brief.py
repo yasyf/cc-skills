@@ -99,11 +99,16 @@ def carried(prompt: str) -> str:
     return f"{prompt}\n{Path(named[0]).read_text()}" if named else prompt
 
 
-def job_steps(text: str) -> str:
-    """The fields of a brief naming the steps its job runs, its Goal, Done when, Where, Runs as, Release, Handoff, Plan and Interactions, each from its label up to the next field drive job brief writes, never his Order words, the rulings, the incident rule or earlier jobs' transcripts."""
+def fields(text: str) -> list[tuple[str, str]]:
+    """Each field of a brief drive job brief wrote, its label and its text up to the next field's label."""
     starts = list(FIELD.finditer(text))
     ends = [found.start() for found in starts[1:]] + [len(text)]
-    return "\n".join(text[found.start() : end] for found, end in zip(starts, ends, strict=True) if found[1] in STEP_FIELDS)
+    return [(found[1], text[found.end() : end]) for found, end in zip(starts, ends, strict=True)]
+
+
+def job_steps(text: str) -> str:
+    """The fields of a brief naming the steps its job runs, its Goal, Done when, Where, Runs as, Release, Handoff, Plan and Interactions, each from its label up to the next field drive job brief writes, never his Order words, the rulings, the incident rule or earlier jobs' transcripts."""
+    return "\n".join(f"{label}:{value}" for label, value in fields(text) if label in STEP_FIELDS)
 
 
 def release_flags(words: list[str]) -> dict[str, tuple[str, ...]] | None:
