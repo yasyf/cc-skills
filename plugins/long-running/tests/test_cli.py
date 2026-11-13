@@ -1287,7 +1287,7 @@ def test_job_ask_refuses_a_card_typing_when_past_work_happened_keeping_nothing(
     assert run("job", "ask", asking, str(block))[0] == 0
 
 
-def test_job_ask_keeps_an_ask_in_the_shape_he_reads_sets_the_job_waiting_and_posts_its_ask_record_once(
+def test_job_ask_keeps_an_ask_in_the_shape_he_reads_sets_the_job_waiting_and_posts_its_ask_record_again_under_its_waits_id_until_its_card_is_up(
     run: Run, asking: str, tmp_path: Path, state_root: Path, asks_sent: list[dict]
 ) -> None:
     block = tmp_path / "ask.md"
@@ -1300,8 +1300,10 @@ def test_job_ask_keeps_an_ask_in_the_shape_he_reads_sets_the_job_waiting_and_pos
     assert [question["file"] for question in job["questions"]] == [str(kept)]
     assert job["state"] == "waiting"
     assert job["said"] == "How should a finished run's files be laid out so its page opens without guessing?"
+    first = {"lane": "root", "kind": "ask", "text": job["said"], "to": ["communicator@demo"], "attr": {"job": "j1", "ask": str(kept)}}
+    assert asks_sent == [first]
     shown = json.loads(run("job", "ask", asking, str(block), "--json")[1])
-    assert asks_sent == [{"lane": "root", "kind": "ask", "text": job["said"], "to": ["communicator@demo"], "attr": {"job": "j1", "ask": str(kept)}}]
+    assert asks_sent == [first, first | {"attr": first["attr"] | {"waits": "demo:j1-7"}}]
     assert (job["questions"][0]["waits"], shown["waits"]) == ("demo:j1-7", "demo:j1-7")
     assert shown["recommended"].startswith("One snapshot file per finished run")
     assert len(shown["options"]) == 3
@@ -1965,6 +1967,19 @@ def test_a_waits_id_an_older_install_stored_with_cci_s_hash_loads_without_it_so_
     block.write_text(SHORT_ASK.replace("Meanwhile nothing is built on either layout.", "Meanwhile the reader adds one more finding."))
     run("job", "ask", asking, str(block))
     assert [sent["attr"].get("waits") for sent in asks_sent] == [None, "demo:j1-7"]
+
+
+def test_a_kept_question_whose_ask_record_went_out_but_whose_card_never_drew_sends_it_again_when_asked_again_or_redrawn(
+    run: Run, asking: str, tmp_path: Path, asks_sent: list[dict]
+) -> None:
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    kept = run("job", "ask", asking, str(block))[1]
+    assert f"card demo:j1-7 never drawn, kept in {kept}" in run("status", asking)[1]
+    assert run("job", "ask", asking, kept) == (0, kept)
+    assert run("job", "ask", asking, kept, "--redraws", "demo:j1-7") == (0, kept)
+    assert [sent["attr"].get("waits") for sent in asks_sent] == [None, "demo:j1-7", "demo:j1-7"]
+    assert [(question["file"], question["waits"], question["card"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [(kept, "demo:j1-7", None)]
 
 
 def test_job_ask_on_an_open_incident_posts_its_ask_record_in_the_incidents_thread_marked_incident(
