@@ -673,9 +673,15 @@ def kept_asks(data: dict, lanes: dict[str, dict[str | None, str]], messages: lis
         job_id = sender(lanes, run, message)
         if not job_id or message["sequence"] <= data["jobs"][job_id]["mail_seen"] or message["type"] != "question" or message["id"] in kept(job_id):
             continue
-        if (asked := state.ASK_LINE.fullmatch(reads.opening(message["body"] or ""))) and state.kept_in(data["jobs"][job_id], Path(asked["file"]).expanduser()):
-            asks[message["id"]] = Path(asked["file"]).expanduser()
+        if file := kept_file(data["jobs"][job_id], message["body"] or ""):
+            asks[message["id"]] = file
     return asks
+
+
+def kept_file(job: dict, body: str) -> Path | None:
+    """The file of a lane's `ASK <file>` question naming a block `drive job ask` kept for its job, None for any other question."""
+    asked = state.ASK_LINE.fullmatch(reads.opening(body))
+    return Path(asked["file"]).expanduser() if asked and state.kept_in(job, Path(asked["file"]).expanduser()) else None
 
 
 def kept_return(name: str, job_id: str, body: str) -> bool:
@@ -1542,7 +1548,7 @@ def can_wake(job_id: str, job: dict, data: dict, moment: datetime) -> bool:
 
 
 def unanswered(job_id: str, job: dict, moment: datetime) -> str | None:
-    """A lane's question no resume has answered for 30 minutes, whatever card or PR it has: only his card drawn for it since it came answers it, since an older card asks him something else; his answer since it came that no resume carried leads the line."""
+    """A lane's question no resume has answered for 30 minutes, whatever card or PR it has: only his card drawn for it since it came answers it, since an older card asks him something else; his answer since it came that no resume carried leads the line, and an `ASK` no `drive job ask` kept says that keeps it, as mail_line does, since no resume answers his question."""
     if not job.get("ask"):
         return None
     asked = state.parse_time(job["ask_at"])
@@ -1552,6 +1558,8 @@ def unanswered(job_id: str, job: dict, moment: datetime) -> str | None:
     question = f'"{cut(job["said"] or "", 80)}" {minutes(moment - asked)} minutes ago'
     if answers := [answer for answer in job["undelivered"] if state.parse_time(answer["at"]) >= asked]:
         return f"{unreached(job_id, answers[-1])}, answering its lane's question {question}"
+    if reads.asks(job["report"] or "") and not kept_file(job, job["report"]):
+        return f"{job_id}'s lane asked {question}, an ASK only his card answers: {UNKEPT_ASK.format(job=job_id)}"
     return f'{job_id}\'s lane asked {question} and nothing answered it: drive job resume {job_id} "<the answer>" answers it'
 
 

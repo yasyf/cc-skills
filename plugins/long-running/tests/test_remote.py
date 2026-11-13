@@ -2175,6 +2175,38 @@ def test_an_ask_no_drive_job_ask_kept_goes_to_the_coordinator_saying_drive_job_a
     assert (job["ask"], job["state"], job["questions"], kept_ask(remote).exists()) == ("msg_ask", "waiting", [], False)
 
 
+@pytest.mark.parametrize("named", ["#4127", "Forge-AI/monorepo#4127", "https://github.com/Forge-AI/monorepo/pull/4127"])
+def test_a_holds_line_naming_a_pr_the_drive_tracks_on_the_jobs_order_is_kept_with_the_parts_its_job_works(named: str, remote: str) -> None:
+    held = f'{named} "the nightly store copy runs on its own worker", where keeping copy times adds two store_copies columns'
+    asked = ASK_IN_SHAPE.replace("Holds: none: no option changes code any job builds", f"Holds: {held}")
+    with pytest.raises(state.DriveError, match="names no change of j1's orders"):
+        cli.keep_ask(remote, "j1", asked, None)
+    with state.edit(remote) as data:
+        data["prs"]["Forge-AI/monorepo#41270"] = state.new_pr(state.pr_url("Forge-AI/monorepo#41270"), "j1", "o1")
+    with pytest.raises(state.DriveError, match="names no change of j1's orders"):
+        cli.keep_ask(remote, "j1", asked, None)
+    with state.edit(remote) as data:
+        data["prs"]["Forge-AI/monorepo#4127"] = state.new_pr(state.pr_url("Forge-AI/monorepo#4127"), "j1", "o1")
+    question = cli.keep_ask(remote, "j1", asked, None)[2]
+    assert question["holds"] == f"{held}; ship the remote builder"
+    assert state.load(remote)["jobs"]["j1"]["questions"][-1]["holds"] == question["holds"]
+
+
+def test_a_lane_ask_no_drive_job_ask_kept_is_an_orphan_saying_drive_job_ask_keeps_it_never_that_a_resume_answers_it(
+    remote: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deliver(monkeypatch, [message("question", ASK_IN_SHAPE, id="relay_ask")])
+    monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"the watch replied {args}"))
+    watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0), T0)
+    job = state.load(remote)["jobs"]["j1"]
+    assert watch.unanswered("j1", job, T0 + timedelta(minutes=31)) == (
+        f'j1\'s lane asked "ASK Where should the nightly store copy run?" 31 minutes ago, an ASK only his card answers: {watch.UNKEPT_ASK.format(job="j1")}'
+    )
+    kept = cli.keep_ask(remote, "j1", ASK_IN_SHAPE, None)[0]
+    job = state.load(remote)["jobs"]["j1"] | {"report": f"ASK {kept}"}
+    assert watch.UNKEPT_ASK.format(job="j1") not in (watch.unanswered("j1", job, T0 + timedelta(minutes=31)) or "")
+
+
 def test_a_lane_question_nothing_answers_is_an_orphan_every_thirty_minutes_whatever_older_card_its_job_has(
     remote: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
