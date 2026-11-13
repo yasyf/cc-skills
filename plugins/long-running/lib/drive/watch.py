@@ -67,7 +67,7 @@ TAIL_BYTES = 65536
 COMPACT_PAST_TOKENS = 120_000
 COMPACT_WHEN_QUIET = timedelta(minutes=10)
 NOT_SLUG = re.compile(r"[^A-Za-z0-9]")
-ABOUT = re.compile(r"\[(?P<order>o\d+) (?P<job>j\d+)\]$|^(?:FREE (?:\S+ )?j\d+|ORPHAN|DUE(?: j\d+)?|RECOVERED|TELL|JOB j\d+|LANE j\d+) (?P<named>o\d+)\b")
+ABOUT = re.compile(r"\[(?P<order>o\d+) (?P<job>j\d+)\]$|^[A-Z]+ (?:\S+ )?(?:j\d+ )?(?P<named>o\d+)\b")
 
 
 @dataclass
@@ -1807,20 +1807,24 @@ def stall_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def watchdog_brief(watcher: Watcher, data: dict, subject: str, links: list[tuple[str, str]], held: dict, moment: datetime) -> str:
-    """The brief a watchdog agent starts on: the stall, its chain, and what to read, the drive's rows of everything in the chain, the job's returns and its agent's transcript, the transcript of the session the watch posts to since the chain last moved, and the checks of each PR in the chain."""
+    """The brief a watchdog agent starts on: the stall, its chain, the session holding its order, which its STUCK line reaches and which alone takes the next step, with how a job's agent on this Mac is woken, and what to read, the drive's rows of everything in the chain, the job's returns and its agent's transcript, the holding session's transcript since the chain last moved, and the checks of each PR in the chain."""
     job_id, order_id = stall.owner(data, subject)
     job = data["jobs"][job_id]
-    poster = coordinator(data, watcher.project)
+    holder, holding = state.holding_role(data, data["orders"][order_id])
     named = dict.fromkeys([order_id, job_id, *(link for link, _ in links if link in data["jobs"] or link in data["prs"])])
     reading = [f"drive status {' '.join(named)} --drive {watcher.name}", f"drive job replies {job_id} --drive {watcher.name}"]
-    if job.get("agent") and (holder := session_of(job, data)):
-        reading.append(f"cc-transcript {agent_transcript(holder, job, data)}")
-    reading.append(f"cc-transcript {config_dir() / 'projects' / NOT_SLUG.sub('-', poster['cwd']) / (poster['session'] + '.jsonl')}, from {when(held['since'])} on")
+    wake = ""
+    if job.get("agent") and (runs_in := session_of(job, data)):
+        reading.append(f"cc-transcript {agent_transcript(runs_in, job, data)}")
+        wake = f"; {job_id} runs on this Mac as agent {job['agent']} of session {runs_in['session']}, which only that session's SendMessage wakes, never drive job resume"
+    if holding:
+        reading.append(f"cc-transcript {session_transcript(holding)}, from {when(held['since'])} on")
     reading += [f"gh pr {verb} {state.pr_url(key)}" for key in named if key in data["prs"] for verb in ("view", "checks")]
     return "\n".join(
         [
             f"Stall: {subject}, unmoved {minutes(moment - state.parse_time(held['since']))} minutes",
             f"Job: {job_id} of {order_id}: {cut(data['orders'][order_id]['text'], 300)}",
+            f"Holder: {holder}, session {holding.get('session') or 'not started'}{wake}",
             f"Chain: {held['print']}",
             f"Drive: {watcher.name}",
             "Read:",
@@ -1841,22 +1845,23 @@ def stuck_line(data: dict, subject: str, held: dict, moment: datetime) -> str:
 
 
 def stall_report(data: dict, subject: str, held: dict, moment: datetime) -> dict:
-    """The report owing him one line on a stall the coordinator heard 30 minutes ago with nothing moving since, in the thread of the work it holds."""
+    """The report owing him one line on a stall the session holding its order heard 30 minutes ago with nothing moving since, in the thread of the work it holds."""
     job_id, order_id = stall.owner(data, subject)
     order = data["orders"][order_id]
+    holder, _ = state.holding_session(data, order)
     found = held["found"]
     stood, told = (minutes(moment - state.parse_time(held[field])) for field in ("since", "said"))
     facts = [
         f"Order {order_id}, job {job_id}: {order['text']}",
         f"Unmoved {stood} minutes: {held['print']}",
-        f"The coordinator got the STUCK line at {when(held['said'])}, {told} minutes ago.",
+        f"The STUCK line went to {holder} at {when(held['said'])}, {told} minutes ago.",
         *(f"{label}: {found[label]}" for label in ("WHY", "WHO", "NEXT", "UNREAD") if label in found),
     ]
     return {
         "kind": "report",
         "topic": f"watch-stall-{NOT_SLUG.sub('-', subject)}",
         "attr": {"order": order_id, "job": job_id, "stall": "true"} | ({"thread": order["thread"][1]} if order["thread"] else {}),
-        "text": f"POST {subject} has not moved in {stood} minutes and the coordinator was told {told} minutes ago: post one line on it in its thread",
+        "text": f"POST {subject} has not moved in {stood} minutes and {holder} was told {told} minutes ago: post one line on it in its thread",
         "body": "\n".join(facts) + "\n",
     }
 

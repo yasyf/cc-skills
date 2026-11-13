@@ -706,6 +706,30 @@ def test_the_lines_of_an_order_the_meta_session_holds_go_to_it_and_never_the_coo
     assert posted(sent) == [("handoff", f"meta@{demo}", f"TAP Hold {KEY} [o1 j1]")]
 
 
+@pytest.mark.parametrize(
+    ("line", "holder"),
+    [
+        ("FREE j1 o1: start its agent", "meta"),
+        (f"FREE {KEY} j1 o1: its card was answered", "meta"),
+        ('ORPHAN o1 "ship the watch": no live job', "meta"),
+        ('DUE o1 "ship the watch" was due 9:00 AM: nothing moved', "meta"),
+        ('DUE j1 o1 "watch" was due 9:00 AM and still runs', "meta"),
+        ("RECOVERED o1: its fix is live", "meta"),
+        ("TELL o1 his answer is waiting", "meta"),
+        ("JOB j1 o1 READY https://github.com/yasyf/cc-skills/pull/7", "meta"),
+        ("LANE j1 o1 died on Sprite s1: its worker exited", "meta"),
+        ("STUCK j1 o1: j1 unmoved 61 minutes: j1 waiting on j2", "meta"),
+        (f"PR {KEY}: merged [o1 j1]", "meta"),
+        (f"TAP Approve {KEY}", None),
+        ("EVENT relaunch job=j1", None),
+        ("WATCH post to the coordinator failed 3 times in a row", None),
+    ],
+)
+def test_every_line_whose_header_names_an_order_goes_to_the_session_holding_it_with_no_list_of_line_kinds(demo: str, line: str, holder: str | None) -> None:
+    tooling_order(demo, "running")
+    assert watch.holder_line(line, state.load(demo)) == holder
+
+
 def test_a_handoff_the_meta_session_did_not_get_goes_again_and_says_so_from_the_third_failure(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     tooling_order(demo, "waiting")
     serve(monkeypatch, {KEY: read()})
@@ -6365,7 +6389,15 @@ def test_replayed_53519_a_red_pr_behind_a_builder_waiting_on_his_card_gets_one_w
     said = {minutes: watch.stall_lines(watching, T0 + timedelta(minutes=minutes)) for minutes in (0, 59, 60, 61)}
     assert said == {0: [], 59: [], 60: [], 61: []}
     [(brief, out)] = watchdogs
-    assert brief.splitlines()[:6] == [f"Stall: {KEY}, unmoved 60 minutes", "Job: j1 of o1: ship the watch", f"Chain: {REPLAYED_53519_CHAIN}", "Drive: demo", "Read:", f"- drive status o1 j1 {KEY} j2 {FOOTER} {FOOTER_STACKED} --drive demo"]
+    assert brief.splitlines()[:7] == [
+        f"Stall: {KEY}, unmoved 60 minutes",
+        "Job: j1 of o1: ship the watch",
+        "Holder: the coordinator, session session-under-test",
+        f"Chain: {REPLAYED_53519_CHAIN}",
+        "Drive: demo",
+        "Read:",
+        f"- drive status o1 j1 {KEY} j2 {FOOTER} {FOOTER_STACKED} --drive demo",
+    ]
     assert {f"- gh pr checks {state.pr_url(KEY)}", f"- gh pr checks {state.pr_url(FOOTER)}"} <= set(brief.splitlines())
     watchdog_answered(out)
     assert watch.stall_lines(watching, T0 + timedelta(minutes=68)) == [
@@ -6384,6 +6416,31 @@ def test_replayed_53519_a_red_pr_behind_a_builder_waiting_on_his_card_gets_one_w
     kept = state.load(demo)["prs"][KEY]["stall"]
     assert (kept["since"], kept["agent"], kept["said"]) == (state.stamp(T0 + timedelta(minutes=151)), None, None)
     assert [brief.splitlines()[0] for brief, _ in watchdogs] == [f"Stall: {KEY}, unmoved 60 minutes", "Stall: j1, unmoved 151 minutes"]
+
+
+def test_a_stall_on_an_order_the_meta_session_holds_reaches_it_in_one_hop_and_its_watchdog_reads_it_and_wakes_its_agent_by_its_sendmessage(
+    demo: str, monkeypatch: pytest.MonkeyPatch, watchdogs: list[tuple[str, Path]], ready_records: list[list[dict]]
+) -> None:
+    watching = stalling(demo)
+    tooling_order(demo, "waiting")
+    with state.edit(demo) as data:
+        data["roles"]["meta"] = {"session": "meta-session", "terminal": None, "cwd": "/meta", "started": state.stamp(T0)}
+        data["jobs"]["j1"] |= {"agent": "agent-j1", "where": "local", "session": "meta-session"}
+    for minutes in (0, 60):
+        watch.stall_lines(watching, T0 + timedelta(minutes=minutes))
+    [(brief, out)] = watchdogs
+    lines = brief.splitlines()
+    assert "Holder: the meta session, session meta-session; j1 runs on this Mac as agent agent-j1 of session meta-session, which only that session's SendMessage wakes, never drive job resume" in lines
+    assert f"- cc-transcript {watch.session_transcript(state.load(demo)['roles']['meta'])}, from {watch.when(state.stamp(T0))} on" in lines
+    assert "session-under-test" not in brief
+    watchdog_answered(out)
+    [stuck] = watch.stall_lines(watching, T0 + timedelta(minutes=68))
+    sent = posts(monkeypatch)
+    assert watch.handed(watching, [stuck], T0 + timedelta(minutes=68)) == []
+    assert posted(sent) == [("handoff", f"meta@{demo}", stuck)]
+    watch.stall_lines(watching, T0 + timedelta(minutes=98))
+    [[report]] = ready_records
+    assert report["text"] == f"POST {KEY} has not moved in 98 minutes and the meta session was told 30 minutes ago: post one line on it in its thread"
 
 
 def test_a_stall_the_coordinator_sat_on_reaches_him_once_he_is_back_never_while_he_is_away(
