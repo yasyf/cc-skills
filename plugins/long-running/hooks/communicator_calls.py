@@ -55,6 +55,11 @@ def communicator_call(payload: dict) -> str:
     )
 
 
+def aimed(payload: dict) -> bool:
+    """Whether the call may message a job, which target names from the drive: a SendMessage or a Bash `drive job resume`."""
+    return payload["tool_name"] == "SendMessage" or (payload["tool_name"] == "Bash" and bool(RESUME.search(payload["tool_input"].get("command") or "")))
+
+
 def target(payload: dict, data: dict) -> str | None:
     """The job a coordinator's message goes to: a local agent's by its SendMessage `to`, a remote lane's by `drive job resume`."""
     call = payload["tool_input"]
@@ -151,10 +156,11 @@ def deny_reason(payload: dict) -> str | None:
     names = state.session_drives(session)
     if not names:
         return None
-    data = state.load(names[0])
-    role = state.session_role(data, session)
-    if role == "communicator":
+    if state.session_role(state.saved(names[0]), session) == "communicator":
         return None if own_call(payload) else communicator_call(payload)
+    if not aimed(payload):
+        return None
+    data = state.load(names[0])
     if (job_id := target(payload, data)) is None:
         return None
     return resumed_builder(payload, data, job_id) or unread_job(payload, data, job_id)

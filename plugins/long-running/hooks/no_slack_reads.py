@@ -15,7 +15,7 @@ def deny_reason(payload: dict) -> str | None:
     names = state.session_drives(session)
     if not names:
         return None
-    role = state.session_role(state.load(names[0]), session)
+    role = state.session_role(state.saved(names[0]), session)
     return (
         f"refused: the {role} reads no Slack thread or channel itself with {payload['tool_name']}, since the whole"
         " read lands in this session's context and stays there: three reads of his DM threads by a coordinator put"

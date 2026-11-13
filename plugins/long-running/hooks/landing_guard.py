@@ -615,7 +615,7 @@ def cli_posted(payload: dict) -> str | None:
     """Why a drive session's or agent's `cci post` in Bash must not run whatever its words say, a refusal capt-hook's Jev never weighs again: it posts the communicator's owner record about the drive, which only the drive's `record` tool sends, adding its order first, or its cci MCP server is connected, so the cci `post` and `close` tools send the record and their hook checks its words, and no refusal of its words comes first to be fixed in a command this one then refuses."""
     names, shell = shell_of(payload)
     posts = cci_posts(payload["tool_input"]["command"], shell) if shell.driving else []
-    role = state.session_role(state.load(names[0]), shell.session) if names and posts else None
+    role = state.session_role(state.saved(names[0]), shell.session) if names and posts else None
     if unordered := next(filter(None, (state.unrecorded(role, post["kind"], post["attrs"]) for post in posts)), None):
         return unordered
     return CLI_POST if posts and cci_connected(payload) else None
@@ -645,7 +645,7 @@ def judged_reason(payload: dict) -> str | None:
         return unreported
     if drive and (typed := next(filter(None, (reports.relayed_time(post, drive) for post in posts)), None)):
         return typed
-    roles = [] if payload.get("agent_id") else [state.session_role(state.load(name), session) for name in names]
+    roles = [] if payload.get("agent_id") else [state.session_role(state.saved(name), session) for name in names]
     who = next((role for role in roles if role in ("coordinator", "meta")), None)
     if who and (step := own_work(command, shell)):
         return COORDINATOR_STEP.format(who=state.title(who), step=step)

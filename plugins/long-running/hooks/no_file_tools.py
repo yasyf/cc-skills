@@ -19,7 +19,7 @@ def deny_reason(payload: dict) -> str | None:
     names = state.session_drives(session)
     if not names:
         return None
-    role = state.session_role(state.load(names[0]), session)
+    role = state.session_role(state.saved(names[0]), session)
     if payload["tool_name"] == "Bash":
         return bash_reason(role, payload["tool_input"]["command"])
     return (

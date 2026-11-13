@@ -438,6 +438,15 @@ def saved(name: str) -> dict:
     return bound(stored(name, BINDINGS))
 
 
+def saved_job(name: str, job_id: str) -> dict | None:
+    """One job as the drive saved it, its row alone read from the database and not brought up to this install's fields, so a hook asking after one job reads none of the rest; None for no such job."""
+    if not (path := database_path(name)).exists():
+        return stored_json(name)["jobs"].get(job_id)
+    with closing(connect(path)) as db:
+        found = db.execute("SELECT body FROM rows WHERE collection = 'jobs' AND key = ?", (job_id,)).fetchone()
+    return found and json.loads(found[0])
+
+
 def stored(name: str, fields: tuple[str, ...] | None = None) -> dict:
     """The drive as saved, its saved_by the install that saved it last, or only these top-level fields of it, read in one transaction; a drive no install moved to its database yet read from its drive.json whole."""
     if not (path := database_path(name)).exists():
@@ -1374,7 +1383,7 @@ def store(name: str, data: dict) -> None:
 
 
 def written(name: str, data: dict, newest: str | None) -> None:
-    """Write data to the drive's database in one transaction: each row whose JSON changed, each it no longer holds deleted, and saved_by when it changed, so a write that changes nothing writes nothing; refused, writing nothing, when an install newer than newest saved it last. A drive with no database yet gets one built whole beside it and moved into place, so no reader meets it half built, then the drive.json pointing to it that every older install refuses."""
+    """Write data to the drive's database in one transaction: each row whose JSON changed, each it no longer holds deleted, and saved_by when it changed, so a write that changes nothing writes nothing; refused, writing nothing, when an install newer than newest saved it last. Each write then checkpoints what the WAL holds into the database as far as no reader still needs it, so the WAL every reader searches stays short. A drive with no database yet gets one built whole beside it and moved into place, so no reader meets it half built, then the drive.json pointing to it that every older install refuses."""
     if not (path := database_path(name)).exists():
         os.replace(built(name, data), path)
         pointed(name, data)
@@ -1387,6 +1396,7 @@ def written(name: str, data: dict, newest: str | None) -> None:
             db.execute("ROLLBACK")
             raise
         db.execute("COMMIT")
+        db.execute("PRAGMA wal_checkpoint(PASSIVE)")
 
 
 def built(name: str, data: dict) -> Path:

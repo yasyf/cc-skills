@@ -551,6 +551,13 @@ def record(seq: str) -> str:
     return reads.run(["cci", "show", seq], Path.cwd())
 
 
+def takes(name: str, job_id: str, payload: dict) -> bool:
+    """Whether the job a brief names may take the agent whose step fired the hook, as hold decides it, read from that job's row and the drive's bindings alone, so an agent's every later step reads no whole drive."""
+    if (job := state.saved_job(name, job_id)) is None:
+        return False
+    return free({"jobs": {job_id: job}} | state.saved(name), job_id, payload["session_id"], payload["agent_id"]) and payload.get("agent_type") in state.JOB_AGENTS[job["kind"]]
+
+
 def free(data: dict, job_id: str, session: str, agent: str) -> bool:
     """Whether an agent of the session at work on the job takes it: the job exists, it is not the agent a stop left on the job, which keeps the stop, no Orca lane holds it by its dispatch, which drive job resume restarts once that lane dies, and no agent runs it already but one that ended with its session, which no role holds any more, or one drive job resume handed over to this session."""
     job = data["jobs"].get(job_id)
@@ -570,14 +577,16 @@ def woken(payload: dict, job: dict) -> datetime | None:
 
 def hold(payload: dict) -> None:
     """Record on the job its brief's Drive line names, else the job already recorded with this agent, the agent whose step fired this hook, and run the job, stamped resumed at the prompt that woke its agent after its return: a session runs the newest copy of each hook it registered at start but no hook registered since, so the drive hears of an agent from the hooks its own steps fire, its first step and its first after each wake. Only an agent of a type the job's kind runs as is held, so a handler working one item for the communicator, an orca-doctor reading a lane's brief or an Explore agent whose prompt names a done job never takes a job its brief names, by a `Job:` line, a brief file or the record it reads in."""
-    if not payload.get("agent_id"):
+    if not payload.get("agent_id") or not any(payload.get("agent_type") in kinds for kinds in state.JOB_AGENTS.values()):
         return
     names = state.session_drives(payload["session_id"])
     if not names:
         return
-    known = state.load(names[0])
     prompt = brief(payload)
     match = BRIEF_JOB.search(prompt)
+    if match and not takes(names[0], match[1], payload):
+        return
+    known = state.load(names[0])
     job_id = match[1] if match else state.agent_job(known, payload["agent_id"])
     if not job_id or not free(known, job_id, payload["session_id"], payload["agent_id"]) or payload.get("agent_type") not in state.JOB_AGENTS[known["jobs"][job_id]["kind"]]:
         return
