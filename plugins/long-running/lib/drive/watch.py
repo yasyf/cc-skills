@@ -1896,14 +1896,14 @@ def lane_holds(job: dict, moment: datetime, live: set[str]) -> set[str]:
 
 
 def death_lines(name: str, deaths: dict[str, tuple[str, str]], moment: datetime) -> list[str]:
-    """Record each worker's death on its job and say it once: a remote lane's, by its dispatch, or a running local job's agent's, by its agent. A running job's worker is replaced that pass by `drive job resume` as a process of its own, its pid kept on the death so no later pass starts a second: a Sprite lane's is resumed in its own Claude session on its Sprite, or else relaunched, and an agent's is handed to a lane on a Sprite, or on this Mac when its brief declares a step only this Mac runs; a waiting job's Sprite is freed by the `drive job end` release_lanes runs on every remote job that is not running, and the job waits for the coordinator's resume with his answer; a waiting job's lane on this Mac just waits. A Sprite lane's line names the file in the drive's folder that resume or end copies its Sprite's Orca runtime and worker logs to before the Sprite goes."""
+    """Record each worker's death on its job and say it once: a remote lane's, by its dispatch, or a running local job's agent's, by its agent. A running job's worker is replaced that pass by `drive job resume` as a process of its own, its pid kept on the death so no later pass starts a second: a Sprite lane's is resumed in its own Claude session on its Sprite, or else relaunched, and an agent's is handed to a lane on a Sprite, or on this Mac when its brief declares a step only this Mac runs; a waiting job's Sprite is freed by the `drive job end` release_lanes runs on every remote job that is not running, and the job waits for the coordinator's resume with his answer; a waiting job's lane on this Mac just waits. A job stopped, done or failed since the pass read it has the death recorded and nothing started or said. A Sprite lane's line names the file in the drive's folder that resume or end copies its Sprite's Orca runtime and worker logs to before the Sprite goes."""
     if not deaths:
         return []
     lines = []
     with state.edit(name) as data:
         for job_id, (worker, why) in deaths.items():
             job = data["jobs"][job_id]
-            if not state.lane_died(job, worker, why, moment):
+            if not state.lane_died(job, worker, why, moment) or job["state"] in state.FINISHED_JOB_STATES:
                 continue
             if job.get("where") != "remote":
                 job["deaths"][-1]["relaunch"] = {"pid": relaunch(name, job_id), "at": state.stamp(moment)}

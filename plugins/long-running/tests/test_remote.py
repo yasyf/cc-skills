@@ -2475,6 +2475,40 @@ def test_a_pr_wake_for_a_job_his_answer_stopped_starts_no_worker_and_hands_the_l
     assert (job["state"], job["dispatch"], bool(job.get("deaths"))) == ("stopped", DISPATCH, False)
 
 
+@pytest.mark.parametrize("text", [watch.UNREACHED, None], ids=["the-watchs-wake-of-an-unreached-lane", "its-held-texts"])
+def test_a_resume_that_takes_the_jobs_lock_after_the_job_stopped_reads_wakes_sends_holds_and_starts_nothing(
+    remote: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], text: str | None
+) -> None:
+    held = [] if text else [{"seq": None, "words": "his answer", "at": state.stamp(T0), "said": None, "request": "r1"}]
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(undelivered=held, workspace="pool-txgdh6qfdwhn72iy")
+    locked = state.job_locked
+
+    def stopped_on_the_way(name: str, job_id: str, seconds: float):
+        with state.edit(name) as data:
+            data["jobs"][job_id].update(state="stopped", said="replaced by a builder on this Mac")
+        return locked(name, job_id, seconds)
+
+    monkeypatch.setattr(state, "job_locked", stopped_on_the_way)
+    monkeypatch.setattr(orca, "worker", lambda dispatch: pytest.fail("a stopped job's lane is never read"))
+    monkeypatch.setattr(orca, "reclaimer", lambda *args: pytest.fail("a stopped job's Sprite is never woken"))
+    monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"a stopped job is sent nothing: {args}"))
+    monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a resume starts no worker for a stopped job"))
+    assert cli.main(["job", "resume", "j1", *filter(None, [text])]) == 2
+    assert "j1: refused, nothing sent, held or started: it is stopped; drive job launch j1 runs it again" in capsys.readouterr().err
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["state"], job["dispatch"], job["undelivered"], job.get("deaths", [])) == ("stopped", DISPATCH, held, [])
+
+
+def test_the_watch_records_the_death_of_a_lane_whose_job_stopped_since_its_pass_read_it_and_starts_no_resume(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(state="stopped", workspace="pool-txgdh6qfdwhn72iy")
+    monkeypatch.setattr(state, "detach", lambda *args: pytest.fail(f"the watch starts nothing for a stopped job: {args}"))
+    assert watch.death_lines(remote, {"j1": (DISPATCH, GONE_SPRITE)}, T0) == []
+    [death] = state.load(remote)["jobs"]["j1"]["deaths"]
+    assert (death["dispatch"], death["why"], "relaunch" in death) == (DISPATCH, GONE_SPRITE, False)
+
+
 def test_a_pr_wake_for_a_builder_agent_of_a_sub_coordinators_session_hands_the_line_to_that_session_not_root(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
