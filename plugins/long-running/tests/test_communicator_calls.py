@@ -65,7 +65,7 @@ def test_the_communicator_runs_only_its_own_calls_and_starts_a_handler_for_the_r
     assert communicator_calls.deny_reason(call("Skill", skill="cc-slack:slack")) is not None
     assert communicator_calls.deny_reason(call("mcp__plugin_long-running_drive__handler", brief="Record: 9 Drive: demo")) is None
     for own in (
-        call(SLACK + "slack_reply", channel_id="D123", thread_ts="1.2", text="On it: the fix ships next."),
+        call("mcp__plugin_long-running_drive__say", thread_ts="1.2", text="On it: the fix ships next."),
         call(SLACK + "slack_react", channel_id="D123", ts="1.2", name="+1"),
         call("mcp__plugin_long-running_drive__heard", ts="1.2"),
         call("ToolSearch", query="select:SendMessage"),
@@ -79,7 +79,11 @@ def test_the_communicator_runs_only_its_own_calls_and_starts_a_handler_for_the_r
         "Refused on purpose: cc-slack puts the eyes and Slack's working line on his message itself the moment it lands, so the"
         " communicator never calls slack_pickup. Go on with the ack."
     )
-    assert communicator_calls.deny_reason(call("mcp__plugin_long-running_drive__say", text="On it.")) is None
+    for post in ("slack_reply", "slack_dm_status", "slack_send", "slack_edit"):
+        output = json.loads(hook_output(monkeypatch, capsys, call(SLACK + post, channel_id="D123", thread_ts="1.2", text="On it: the fix ships next.")))
+        assert output["hookSpecificOutput"]["permissionDecisionReason"].startswith(f"Refused on purpose: {SLACK}{post} holds the post until")
+        assert "say(thread_ts=<his thread>, text=<the ack>)" in output["hookSpecificOutput"]["permissionDecisionReason"]
+        assert output["judged"] is False
     assert communicator_calls.deny_reason({**call(SLACK + "slack_thread"), "agent_id": "a-1"}) is None
     assert hook_output(monkeypatch, capsys, {**call(SLACK + "slack_thread"), "session_id": "someone-else"}) == ""
 

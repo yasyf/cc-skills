@@ -10,11 +10,11 @@ from drive.state import DRIVE_TOOLING, FREED, ROLES, SLOT_WAIT, VERSION, agent_g
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
 DRIVE_TOOLS = "mcp__plugin_long-running_drive__"
-COMMUNICATOR_SLACK = ("slack_dm_status", "slack_reply", "slack_react", "slack_watch")
+COMMUNICATOR_SLACK = ("slack_react", "slack_watch")
 COMMUNICATOR_DRIVE = ("say", "heard", "handler", "record", "order", "job")
 OWN_CALLS = (
-    "the ack, a +1, the watch on his DM, SendMessage, ToolSearch, this skill, the drive's say, heard, handler,"
-    " record, order and job tools, and a drive, cci or cc-slack command in Bash"
+    "the ack through the drive's say, a +1, the watch on his DM, SendMessage, ToolSearch, this skill, the drive's heard,"
+    " handler, record, order and job tools, and a drive, cci or cc-slack command in Bash"
 )
 EYES = (
     "cc-slack puts the eyes and Slack's working line on his message itself the moment it lands, so the communicator"
@@ -39,8 +39,8 @@ COMMUNICATOR_RULES = (
         " your turn is tool calls alone, and the turn ends on the one word Sent."
     ),
     (
-        "When he writes, your first message is the ack alone, inside 5 to 10 seconds, since a call beside it holds it"
-        " back: one sentence you already know, saying what he asked and what happens next. "
+        "When he writes, your first message is the ack alone, one say call in the thread he wrote in, inside 5 to 10"
+        " seconds, since a call beside it holds it back: one sentence you already know, saying what he asked and what happens next. "
         + EYES
         + " It also acks any message carrying acked while you compacted, which then gets none from you."
     ),
@@ -220,8 +220,7 @@ UNLISTED_TOOL_LINE = (
 FIRST_CALL = {
     "communicator": (
         "Your first call now, before anything else, loads the tools your turn needs: ToolSearch"
-        " select:mcp__plugin_cc-slack_cc-slack__slack_dm_status,"
-        "mcp__plugin_cc-slack_cc-slack__slack_reply,mcp__plugin_cc-slack_cc-slack__slack_react,"
+        " select:mcp__plugin_long-running_drive__say,mcp__plugin_cc-slack_cc-slack__slack_react,"
         "mcp__plugin_long-running_drive__heard,mcp__plugin_long-running_drive__handler,mcp__plugin_long-running_drive__record,"
         "mcp__plugin_long-running_drive__job,"
         "mcp__plugin_long-running_drive__order"
