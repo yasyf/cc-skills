@@ -789,6 +789,9 @@ def test_an_incident_lanes_brief_carries_the_rule_its_kind_follows_on_a_choice_a
     assert scratch_folder.deny_reason(drive_agent("long-running:builder", building.replace("job j1", "job j3"))).startswith("refused, no agent started: j3 works on o1, an incident")
     builder = building.replace(state.INCIDENT_CHOICE["codex"], state.INCIDENT_CHOICE["builder"]).replace("job j1", "job j3")
     assert scratch_folder.deny_reason(drive_agent("long-running:builder", builder)) is None
+    older = "a choice never stops it: return ASK <path> the moment the fork shows, which puts his card up, and build its recommended option when the coordinator resumes you in that turn; never BLOCKED on a choice"
+    kept = builder.replace(state.INCIDENT_CHOICE["builder"], f"{older}; {state.INCIDENT_CHOICE['builder']}")
+    assert scratch_folder.deny_reason(drive_agent("long-running:builder", kept)) is None
 
 
 def test_a_brief_planning_his_touch_id_tap_for_an_aws_action_starts_no_agent_and_a_drive_tooling_brief_naming_one_does(demo: str, run: Run) -> None:
