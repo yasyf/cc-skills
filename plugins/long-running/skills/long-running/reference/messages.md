@@ -782,35 +782,35 @@ GET 2 page ranges
   `cc-slack check-post` and counts them as they go out. A `say` post counts the words of each
   `{card:}`, `{pr:}`, `{order:}` and `{record:}` title it draws, and its length refusal says how many
   of them those titles are.
-- A finding refuses nothing on its own. Once `say` has posted the post, so `say` stays fast, the hook
-  hands it and every finding, check-post's and the drive's own, to Jev with the rule each finding
-  stands for, in this skill's and cc-slack's words, and his words: his messages in the thread it went
-  to and each answer or Explain more tap of his a card there shows, and on a post on an order his
-  messages and card answers in each of that order's other threads in his DM, read from Slack, beside
-  the session's recent turns. A handler's brief, the record it reads in and every prompt of a handler's
-  own `claude --bg` session are the communicator's or a writer's words, never his, whatever they
-  quote. Jev judges only the line each finding names, by its rule: the post stands when no finding's
-  rule holds against its line, or his words lift it, and is held with Jev's reason when one does,
-  never for saying more than his message asked, and never as unpermitted, since cc-slack's Slack
-  permission hook judges every write. A held post stays in his DM as written, and the
-  session that posted it hears Jev's reason, rewords it in place with `say(edit=<its permalink>,
-  text=…)`, which Jev checks again, and ends its turn only once Jev passes the new words. His pick:
-  "Say posts at once and Jev checks afterwards: say stays fast, but a held line sits in your DM until
-  its handler edits it". A handler's session gives Jev up to Claude Code's own 600-second hook
-  timeout, and every other session the deadline capt-hook's request leaves.
+- A finding refuses nothing on its own. Before `say` posts, the hook hands the post and every finding,
+  check-post's and the drive's own, to Jev with the rule each finding stands for, in this skill's and
+  cc-slack's words, and his words: his messages in the thread it went to and each answer or Explain
+  more tap of his a card there shows, and on a post on an order his messages and card answers in each
+  of that order's other threads in his DM, read from Slack, beside the session's recent turns. A
+  handler's brief, the record it reads in and every prompt of a handler's own `claude --bg` session
+  are the communicator's or a writer's words, never his, whatever they quote. Jev judges only the line
+  each finding names, by its rule: the post stands when no finding's rule holds against its line, or
+  his words lift it, and is held with Jev's reason when one does, never for saying more than his
+  message asked, and never as unpermitted, since cc-slack's Slack permission hook judges every write.
+  Jev answers typed questions in one call of about 0.2 s: whether any finding holds, whether each
+  claim of a handler's post stands on its reads, whether a line its claims leave out needs a read, and
+  whether a card option the post explains is shown unbuilt, since an edit takes back neither the buzz
+  on his phone nor a line a reporter already read: a held post comes back unposted naming the finding
+  or claim that held it, and the session fixes those words and calls `say` again. Evidence past the
+  64,000 characters Jev reads is cut, its longest reads first, and a held post names each read cut, so
+  the handler names a narrower one, such as a file's lines.
 - A post with a finding a count or a mark decides, the post's word count, his reading as away or a
-  line out of turn in the thread a bug report or question came from, and a dry run, Jev judges before
-  `say` runs, since an edit takes back neither the buzz on his phone nor a line a reporter already
-  read: it goes out only when Jev lifts that finding, and when Jev cannot finish, because it errs,
-  times out, or reads the transcript past capt-hook's deadline, it still refuses, since no judgment
-  lifts it. On any other post a Jev that cannot finish leaves each finding as a warning: the post
-  stays as written, and the session that posted it hears every finding beside it and rewords the post
-  in place when one holds. His pick: "Refusals only warn when the judge cannot finish: no post ever
-  waits, but it goes out unchecked, as twice this morning". A session's account of its own act or
-  mistake names no cause the cause rule asks a record for. An order or job id, such as o643 or j1700,
-  comes back unposted with no judging unless a message of his the post passes as asked used it. His
-  words: "stop hard coding it and just use jev evaluating my message and rules to see if it's ok to
-  send" and, on a refusal Jev got wrong, "you need to fix the hookw henver it wrongly refuses yu".
+  line out of turn in the thread a bug report or question came from, goes out only when Jev lifts that
+  finding, and when Jev cannot finish, because it errs, times out, or reads the transcript past
+  capt-hook's deadline, it still refuses, since no judgment lifts it. On any other post a Jev that
+  cannot finish leaves each finding as a warning: the post goes out as written, and the session that
+  posted it hears every finding beside it and rewords the post in place when one holds. His pick:
+  "Refusals only warn when the judge cannot finish: no post ever waits, but it goes out unchecked, as
+  twice this morning". A session's account of its own act or mistake names no cause the cause rule
+  asks a record for. An order or job id, such as o643 or j1700, comes back unposted with no judging
+  unless a message of his the post passes as asked used it. His words: "stop hard coding it and just
+  use jev evaluating my message and rules to see if it's ok to send" and, on a refusal Jev got wrong,
+  "you need to fix the hookw henver it wrongly refuses yu".
 - What the session passed `say` is what he reads: `say` adds no words of its own and checks nothing
   again. Check-post reads the words under each link, so a card, PR, order or record title it flags is
   named in the post's own words, `{pr:<number>|<words>}` or `{record:<seq>|<words>}`.
