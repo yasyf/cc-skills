@@ -4699,6 +4699,44 @@ def test_job_add_prints_each_live_job_already_carrying_its_part_under_its_id(run
     )
 
 
+def test_job_add_prints_each_card_and_job_on_any_order_carrying_a_pr_its_goal_names(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    url, key, link = "https://github.com/acme/app/pull/55", "acme/app#55", "https://acme.slack.com/archives/D123/p1794518129437989"
+    run("order", "add", "--title", "Upload fix", "--project", "The drive", "--workstream", "Drive tooling", "ship the upload fix to production")
+    run("order", "add", "--title", "Ship again", "--project", "The drive", "--workstream", "Drive tooling", "ship the upload fix again")
+    run("job", "add", "builder", "--order", "o1", "--goal", f"waits on release:api:{key}")
+    run("job", "add", "reader", "--order", "o1", "--goal", f"write his card on how {url} reaches production through the api release")
+    run("job", "add", "builder", "--order", "o1", "--goal", f"hotfix merged {url} onto the live build")
+    run("job", "add", "reader", "--order", "o1", "--goal", "read the release notes")
+    run("job", "add", "reader", "--order", "o2", "--goal", f"read what shipping {url} again needs")
+    asked = state.stamp()
+    with state.edit("demo") as data:
+        data["prs"][key] = state.new_pr(url, "j1", "o1") | {"state": "merged", "title": "Fix: the upload reaches production"}
+        data["jobs"]["j1"]["prs"].append(url)
+        data["jobs"]["j2"]["questions"].append(state.new_question(None, "How should the upload fix reach production?", asked, card=link) | {"waits": "demo:j2-1"})
+        for job_id, ended in (("j1", "done"), ("j2", "done"), ("j3", "failed"), ("j4", "done"), ("j5", "done")):
+            data["jobs"][job_id]["state"] = ended
+    answer = {"label": "Hotfix onto the live build", "at": asked}
+    closed = {"waits": "demo:j2-1", "title": "How should", "prs": [], "asked": asked, "url": link, "answer": answer, "tapped": "", "replaced_by": ""}
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [], "closed": [closed]})
+    view.refresh_cards("demo")
+    code, out = run("job", "add", "reader", "--order", "o2", "--goal", f"write his question card for shipping {url} again")
+    assert (code, out.splitlines()) == (
+        0,
+        [
+            "j6",
+            f'{key} "Fix: the upload reaches production" merged, checks pending, review none, wants tap, his card never drawn',
+            "- o1 open: ship the upload fix to production",
+            f"  - j1 builder done: waits on release:api:{key}",
+            "  - j2 reader done: write his card on how https://github.com/acme/app/pull/55 reaches production…",
+            f'    - asks him: How should the upload fix reach production?; card {link} answered "{answer["label"]}" at {render.when(asked)} (demo:j2-1)',
+            "  - j3 builder failed: hotfix merged https://github.com/acme/app/pull/55 onto the live build",
+            "- o2 open: ship the upload fix again",
+            "  - j5 reader done: read what shipping https://github.com/acme/app/pull/55 again needs",
+        ],
+    )
+    assert run("job", "add", "reader", "--order", "o2", "--goal", "read the logs") == (0, "j7\nj6 reader running on \"ship the upload fix again\": write his question card for shipping https://github.com/acme")
+
+
 def test_an_order_of_one_deliverable_is_one_part_its_jobs_take_by_default(run: Run, demo: str) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix   the\nwatch")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix", "--agent", "a")

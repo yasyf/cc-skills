@@ -993,12 +993,16 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         order["jobs"].append(job_id)
         order["updated"] = created
         state.end_carried_designs(data, args.order, created)
+        named = state.named_prs(data, args.order, args.goal)
+    if named:
+        with_cards(name, data)
+    history = [line for key in named for line in render.pr_history(data, key, job_id)]
     waiting = [f"{job_id} {job['said']}: start no agent for it until the watch's FREE line says its last wait ended"] if args.waits else []
     if crowd:
         waiting.append(
             f"{job_id} starts on a Sprite at once, since {crowd}: drive job launch {job_id} <brief>; one whose brief names a step only this Mac runs, {place.MAC_ONLY_STEPS}, waits its turn for a slot here once its agent starts"
         )
-    return job_id, job | {"beside": beside}, [*waiting, *beside]
+    return job_id, job | {"beside": beside, "history": history}, [*waiting, *beside, *history]
 
 
 def unlandable(data: dict, keys: list[str]) -> str | None:
