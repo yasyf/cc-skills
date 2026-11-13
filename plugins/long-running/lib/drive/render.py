@@ -300,6 +300,10 @@ def corrected_by(seqs: list[str]) -> str:
     return f", corrected by record{'s' if len(seqs) > 1 else ''} {', '.join(seqs)}" if seqs else ""
 
 
+def withdrawn_by(seqs: list[str]) -> str:
+    return f", withdrawn by record{'s' if len(seqs) > 1 else ''} {', '.join(seqs)}, so the catch-up leaves it out and closes no order on it" if seqs else ""
+
+
 def builder_lines(data: dict, builder_ids: list[str]) -> list[str]:
     """When to start each builder the drive added itself, beside a reader or for a design's change: on the watch's FREE line once its last wait on a job, PR or release ends, or now when only his cards hold it, since it builds his recommended option and opens no PR until he answers them."""
     lines = []
@@ -594,9 +598,9 @@ def status_text(drive: dict, seen: dict[str, str], shown: dict | None = None, ru
     if incidents := [incident_line(order_id, order) for order_id, order in orders.items() if order["incident"]]:
         lines.extend(["Open incident orders; an alert on the same failing service joins one with drive order add --joins <o>:", *incidents])
     if held := {seq: mark for seq, mark in drive["held"].items() if runs is None or mark["order"] in orders}:
-        lines.append("Held for his catch-up, since he is away; the catch-up he gets when he is back carries each:")
+        lines.append("Held for his catch-up, since he is away; the catch-up he gets when he is back carries each its writer did not withdraw:")
         lines.extend(
-            f"- report {seq} ({mark['order'] or 'no order'}), held {when(mark['at'])}, its writer told in record {mark['told']}{corrected_by(mark['corrections'])}"
+            f"- report {seq} ({mark['order'] or 'no order'}), held {when(mark['at'])}, its writer told in record {mark['told']}{corrected_by(mark['corrections'])}{withdrawn_by(mark['withdrawn'])}"
             for seq, mark in held.items()
         )
     if owed := drive["catch_up"]:

@@ -2242,7 +2242,7 @@ def hear(name: str, moment: datetime, away: bool = False) -> dict:
 
 
 def catch_up_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Post the catch-up the drive owes him while he is here, once for each time he is heard: a report of it the watch writes once, its body naming each report held for it with each correction cci holds re one and each order with news, for a handler the watch starts to post at his DM root, unless the handler started last is still at work on it; a failed write or start is said as a failed read is and tried again next pass."""
+    """Post the catch-up the drive owes him while he is here, once for each time he is heard: a report of it the watch writes once, its body naming each report held for it that its writer did not withdraw, with each correction cci holds re one, and each order with news, for a handler the watch starts to post at his DM root, unless the handler started last is still at work on it; a failed write or start is said as a failed read is and tried again next pass."""
     data = state.load(watcher.name)
     owed, heard = data["catch_up"], data["owner"]["heard"]
     if watcher.project or owed is None or owed["tried"] == heard or state.owner_away(data, moment):
@@ -2267,8 +2267,8 @@ def catch_up_lines(watcher: Watcher, moment: datetime) -> list[str]:
 def catch_up_report(watcher: Watcher, data: dict) -> str:
     """Write the report of his catch-up for the handler that posts it; its seq."""
     owed = data["catch_up"]
-    corrected = agents.corrections(watcher.name, data["held"])
-    held = [f"- report {seq} on {mark['order'] or 'no order'}{render.corrected_by(corrected.get(seq, []))}" for seq, mark in data["held"].items()]
+    amended = agents.amendments(watcher.name, data["held"])
+    held = [f"- report {seq} on {mark['order'] or 'no order'}{render.corrected_by(amended['correction'].get(seq, []))}" for seq, mark in data["held"].items() if seq not in amended["withdraw"]]
     orders = [f"- {render.order_line(order_id, data['orders'][order_id])}" for order_id in owed["orders"]]
     facts = [
         f"His catch-up, owed since he was last heard at {when(owed['since'])}. Read each held report and each correction with cci read: no held report reached him, and a correction's facts replace those it corrects.",

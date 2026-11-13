@@ -31,7 +31,7 @@ POSTED = "https://acme.slack.com/archives/D123/p1794300000000900"
 QUESTION = "Lock each chat's database, or the whole table?"
 ASKED = "2026-11-10T20:59:00-08:00"
 AWAY = "2026-11-10T21:30:00-08:00"
-CORRECTIONS = agents.corrections
+AMENDMENTS = agents.amendments
 DRAW = talk.draw
 SSQL = "are we doing the ssql release foe it"
 FOOTERS = "why didnt our release footers whatever catch this and bring ssql along with API"
@@ -924,35 +924,43 @@ def test_his_catch_up_carries_the_reports_held_for_it_and_lets_them_go(demo: str
     assert state.load(demo)["held"] == {}
 
 
-def test_corrections_reads_each_correction_re_the_reports_in_one_cci_grep_oldest_first(monkeypatch: pytest.MonkeyPatch) -> None:
-    newest_first = [{"seq": 669990, "re": 669950}, {"seq": 669970, "re": 669960}, {"seq": 669960}, {"seq": 669952, "re": 669950}]
+def test_amendments_reads_each_correction_and_withdrawal_re_the_reports_in_one_cci_grep_oldest_first(monkeypatch: pytest.MonkeyPatch) -> None:
+    newest_first = [
+        {"seq": 669995, "kind": "withdraw", "re": 669902},
+        {"seq": 669990, "kind": "correction", "re": 669950},
+        {"seq": 669970, "kind": "correction", "re": 669960},
+        {"seq": 669960, "kind": "correction"},
+        {"seq": 669952, "kind": "correction", "re": 669950},
+    ]
     calls: list[list[str]] = []
-    monkeypatch.setattr(reads, "run", lambda argv, checkout: calls.append(argv) or "".join(json.dumps(record | {"kind": "correction"}) + "\n" for record in newest_first))
-    assert CORRECTIONS("demo", ["669950", "669902"]) == {"669950": ["669952", "669990"]}
-    assert CORRECTIONS("demo", []) == {}
-    assert calls == [["cci", "grep", ".", "--drive", "demo", "--kind", "correction", "--since", "669902", "--budget", str(agents.CORRECTION_BYTES), "--json"]]
+    monkeypatch.setattr(reads, "run", lambda argv, checkout: calls.append(argv) or "".join(json.dumps(record) + "\n" for record in newest_first))
+    assert AMENDMENTS("demo", ["669950", "669902"]) == {"correction": {"669950": ["669952", "669990"]}, "withdraw": {"669902": ["669995"]}}
+    assert AMENDMENTS("demo", []) == {"correction": {}, "withdraw": {}}
+    assert calls == [
+        ["cci", "grep", ".", "--drive", "demo", "--kind", "correction", "--kind", "withdraw", "--since", "669902", "--budget", str(agents.AMENDMENT_BYTES), "--json"]
+    ]
 
 
 def test_holding_a_report_tells_its_writer_each_correction_cci_already_holds_re_it(
-    demo: str, monkeypatch: pytest.MonkeyPatch, cci_corrections: dict[str, list[str]]
+    demo: str, monkeypatch: pytest.MonkeyPatch, cci_amendments: dict[str, dict[str, list[str]]]
 ) -> None:
-    cci_corrections["669950"] = ["669952"]
+    cci_amendments["correction"]["669950"] = ["669952"]
     told: list[list[str]] = []
     monkeypatch.setattr(reads, "run", lambda argv, checkout, env=None: told.append(argv) or json.dumps({"seq": 669957}))
     assert talk.hold(demo, "669950", {"writer": "root"}, "o1") == "669957"
     assert told[0][-1] == talk.HELD.format(seq="669950") + "; the catch-up carries it, corrected by record 669952"
 
 
-def test_a_report_post_names_each_correction_cci_holds_re_it(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch, cci_corrections: dict[str, list[str]]) -> None:
+def test_a_report_post_names_each_correction_cci_holds_re_it(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch, cci_amendments: dict[str, dict[str, list[str]]]) -> None:
     report(monkeypatch, {"orders": "o1"})
-    cci_corrections["669950"] = ["669952"]
+    cci_amendments["correction"]["669950"] = ["669952"]
     assert talk.say(demo, {"text": "Each request reads 64 MiB.", "record": "669950"}) == (
         f"POSTED {POSTED}; cci holds corrections of report 669950, 669952: unless this post carries each, reword it with say(edit={POSTED}, text=…)"
     )
 
 
 def test_a_correction_of_a_held_report_rides_with_it_and_one_after_his_catch_up_names_the_post_to_reword(
-    demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch, cci_corrections: dict[str, list[str]]
+    demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch, cci_amendments: dict[str, dict[str, list[str]]]
 ) -> None:
     records = {"669952": {"kind": "correction", "re": 669950}, "669980": {"kind": "correction", "re": 669950}, "669999": {"kind": "report", "attrs": {"catch_up": "true"}}}
 
@@ -966,13 +974,33 @@ def test_a_correction_of_a_held_report_rides_with_it_and_one_after_his_catch_up_
     with pytest.raises(DriveError, match="nothing posted: record 669952 corrects report 669950, held for his catch-up, which carries this correction with it"):
         talk.say(demo, {"text": "It reads 16 MiB a request, not 64.", "record": "669952"})
     owe(demo)
-    cci_corrections["669950"] = ["669952", "669980"]
+    cci_amendments["correction"]["669950"] = ["669952", "669980"]
     assert talk.say(demo, {"text": "Each request reads 16 MiB.", "record": "669999"}).endswith(
         f"; it carries the reports held for it, no longer held: 669950; cci holds corrections 669952, 669980 of them: unless this post carries each, reword it with say(edit={POSTED}, text=…)"
     )
     assert (state.load(demo)["held"], state.load(demo)["carried"]) == ({}, {"669950": POSTED})
     with pytest.raises(DriveError, match=f"nothing posted: record 669980 corrects report 669950, which his catch-up {re.escape(POSTED)} carried: reword that post"):
         talk.say(demo, {"text": "It reads 12 MiB a request.", "record": "669980"})
+
+
+def test_a_held_report_its_writer_withdrew_goes_out_in_no_post_and_gives_back_the_close_it_claimed_on_an_open_order(
+    demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch, cci_amendments: dict[str, dict[str, list[str]]]
+) -> None:
+    with state.edit(demo) as data:
+        data["held"] = {seq: {"order": order_id, "at": state.stamp(), "told": told} for seq, order_id, told in (("695689", "o946", "695700"), ("695810", "o1015", "695811"))}
+        for order_id, closed_on, done in (("o946", "695689", "open"), ("o1015", "695810", "open"), ("o771", "695689", "done")):
+            data["orders"][order_id] = state.new_order("show the run page's history", "terminal", None, {}, ASKED) | {"closed_on": closed_on, "state": done}
+    cci_amendments["withdraw"]["695689"] = ["695900"]
+    cci_amendments["correction"]["695689"] = ["695809"]
+    report(monkeypatch, {"catch_up": "true"})
+    owe(demo)
+    assert talk.say(demo, {"text": "The run page shows its history.", "record": "695999"}).endswith(
+        "; it carries the reports held for it, no longer held: 695810; their writers withdrew reports 695689, so no post carries them and no order closes on them:"
+        f" unless this post leaves each out, reword it with say(edit={POSTED}, text=…)"
+    )
+    data = state.load(demo)
+    assert (data["held"], data["carried"]) == ({}, {"695810": POSTED})
+    assert {order_id: data["orders"][order_id]["closed_on"] for order_id in ("o946", "o1015", "o771")} == {"o946": None, "o1015": "695810", "o771": "695689"}
 
 
 def test_his_catch_up_counts_every_open_card_and_draws_only_those_asked_since_he_was_last_heard_five_a_message_none_drawn_twice(

@@ -1349,7 +1349,7 @@ def test_a_catch_up_whose_handler_failed_to_start_starts_one_next_pass_on_the_re
 
 
 def test_a_report_held_while_he_was_away_and_its_correction_go_on_his_catch_up(
-    demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], cci_corrections: dict[str, list[str]]
+    demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], cci_amendments: dict[str, dict[str, list[str]]]
 ) -> None:
     held_at = state.stamp(T0 + timedelta(minutes=10))
     with state.edit(demo) as data:
@@ -1357,7 +1357,7 @@ def test_a_report_held_while_he_was_away_and_its_correction_go_on_his_catch_up(
         data["orders"]["o2"] = order(jobs=["j2"], updated=state.stamp(T0 - timedelta(minutes=5)))
         data["jobs"]["j2"] = job(order="o2", updated=state.stamp(T0 - timedelta(minutes=5)))
         data["held"]["669950"] = {"order": "o2", "at": held_at, "told": "669957"}
-    cci_corrections["669950"] = ["669952"]
+    cci_amendments["correction"]["669950"] = ["669952"]
     calls = catching_up(monkeypatch, demo)
     assert cli.main(["status", "--drive", demo]) == 0
     assert f"- report 669950 (o2), held {render.when(held_at)}, its writer told in record 669957, corrected by record 669952" in capsys.readouterr().out.splitlines()
@@ -1367,6 +1367,29 @@ def test_a_report_held_while_he_was_away_and_its_correction_go_on_his_catch_up(
     [(report, body), _] = calls
     assert report["text"].endswith(": 1 orders with news, 1 reports held for it")
     assert "- report 669950 on o2, corrected by record 669952" in body.splitlines()
+
+
+def test_a_held_report_its_writer_withdrew_reads_withdrawn_in_drive_status_and_stays_out_of_his_catch_up(
+    demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], cci_amendments: dict[str, dict[str, list[str]]]
+) -> None:
+    held_at = state.stamp(T0 + timedelta(minutes=10))
+    with state.edit(demo) as data:
+        data["owner"] = {"heard": state.stamp(T0), "away": True}
+        data["orders"]["o2"] = order(jobs=["j2"], updated=state.stamp(T0 - timedelta(minutes=5)))
+        data["jobs"]["j2"] = job(order="o2", updated=state.stamp(T0 - timedelta(minutes=5)))
+        data["held"] |= {"669950": {"order": "o2", "at": held_at, "told": "669957"}, "669960": {"order": "o2", "at": held_at, "told": "669961"}}
+    cci_amendments["withdraw"]["669950"] = ["669970"]
+    calls = catching_up(monkeypatch, demo)
+    assert cli.main(["status", "--drive", demo]) == 0
+    assert (
+        f"- report 669950 (o2), held {render.when(held_at)}, its writer told in record 669957, withdrawn by record 669970, so the catch-up leaves it out and closes no order on it"
+        in capsys.readouterr().out.splitlines()
+    )
+    assert heard_now(demo, capsys) == "heard"
+    assert watch.catch_up_lines(watcher(demo), BACK) == []
+    [(report, body), _] = calls
+    assert report["text"].endswith(": 1 orders with news, 1 reports held for it")
+    assert [line for line in body.splitlines() if line.startswith("- report")] == ["- report 669960 on o2"]
 
 
 def test_a_drive_an_older_install_saved_with_reports_held_owes_his_catch_up_since_the_first(demo: str) -> None:
