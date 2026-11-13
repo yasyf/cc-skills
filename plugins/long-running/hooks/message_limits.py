@@ -142,9 +142,8 @@ class Warned(str):
 def his_drive(session: str) -> dict | None:
     """The drive this session is the communicator of, whose handlers write everything he reads in his DM with the app."""
     for name in state.session_drives(session):
-        data = state.load(name)
-        if state.session_role(data, session) == "communicator":
-            return data
+        if state.session_role(state.saved(name), session) == "communicator":
+            return state.load(name)
     return None
 
 
@@ -154,7 +153,7 @@ def coordinator_post(payload: dict) -> str | None:
     if payload.get("agent_id"):
         return None
     for name in state.session_drives(session):
-        if (role := state.session_role(state.load(name), session)) in ("coordinator", "meta"):
+        if (role := state.session_role(state.saved(name), session)) in ("coordinator", "meta"):
             return (
                 f"Refused on purpose: the {state.title(role)} posts nothing to Slack, since his reply under a post reaches only the"
                 f" session that posted it. Send the words as a `report` record to communicator@{name}, and its handler"

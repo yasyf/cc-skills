@@ -17,7 +17,7 @@ def block_reason(payload: dict) -> str | None:
         return None
     session = payload.get("session_id") or ""
     names = state.session_drives(session)
-    if not names or state.session_role(state.load(names[0]), session) != "communicator":
+    if not names or state.session_role(state.saved(names[0]), session) != "communicator":
         return None
     words = len((payload.get("last_assistant_message") or "").split())
     if words <= 1:
