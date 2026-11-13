@@ -570,15 +570,15 @@ def test_a_drive_question_whose_block_shows_a_picture_on_its_sprite_runs_on_a_co
 
     monkeypatch.setattr(orca, "on_sprite", on_sprite)
     monkeypatch.setattr(state, "load", lambda name: {"jobs": {"j7": {"workspace": "pool-one"}}})
-    reads.DRIVE_BIN.write_text("#!/bin/sh\nshot=$(sed -n 's/^!\\[.*\\](\\(.*\\))$/\\1/p' \"$4\")\necho \"$shot\"\ncat \"$shot\"\n")
+    reads.DRIVE_BIN.write_text("#!/bin/sh\nshot=$(sed -n 's/^!\\[.*\\](\\(.*\\))$/\\1/p' \"$5\")\necho \"$shot\"\ncat \"$shot\"\n")
     block = "/home/sprite/.local/state/long-running/demo/scratch/j7/ask.md"
     sent = {"files": {block: {"text": f"Show me:\n1 · Chapters shown\n![1 · Chapters shown]({shot})\n", "executable": False}}}
-    assert reads.answer(f"DRIVE job ask --check {block}\n{json.dumps(sent)}", fake_drive, "demo", "j7") == f"drive exited 0\n{shot}\npng bytes"
+    assert reads.answer(f"DRIVE job ask j7 --check {block}\n{json.dumps(sent)}", fake_drive, "demo", "j7") == f"drive exited 0\n{shot}\npng bytes"
     assert (state_root / "demo" / "scratch" / "j7" / "sprite" / shot.lstrip("/")).read_bytes() == b"png bytes"
     assert ssh == ["pool-one"]
     gone = shot.replace("option-1", "option-2")
     sent["files"][block]["text"] += f"![2 · Chapters hidden]({gone})\n"
-    refused = reads.answer(f"DRIVE job ask --check {block}\n{json.dumps(sent)}", fake_drive, "demo", "j7")
+    refused = reads.answer(f"DRIVE job ask j7 --check {block}\n{json.dumps(sent)}", fake_drive, "demo", "j7")
     assert refused.startswith(f"drive exited 2\ndrive job ask: refused, nothing ran: the pictures it shows did not copy off this Sprite: copying {shot}, {gone} off pool-one exited ")
     assert f"tar: {gone.lstrip('/')}" in refused
 

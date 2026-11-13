@@ -522,7 +522,7 @@ return `ASK`. Nothing in a PR body holds a `READY`: the body is fixed beside the
 ## ASK
 
 Write the block to a new file under your scratch directory, one per question, and run
-`drive job ask --check <file>`, which checks its words and the card cc-slack draws from it, draws each
+`drive job ask <your job> --check <file>`, which runs every check the real ask runs but Jev's read of his words, counts the card as he reads it, draws each
 Show me picture and prints every fix, such as Mermaid's parse error for a diagram that does not draw,
 or `ready`. Then run `drive job ask <your job> <file>`, which refuses a block out of shape
 and names each fix, prints the path it kept, and leaves your job running to build the recommended

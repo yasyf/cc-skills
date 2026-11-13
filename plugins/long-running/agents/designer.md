@@ -92,8 +92,8 @@ the shape to keep: "don't go based on what's currently there design this cleanly
 ## Each fork as a question block
 
 Keep each fork as its own `ASK` block before you return. Pipe it with a quoted heredoc into
-`drive job ask --check -` first, which checks its words and the card cc-slack draws from it and draws each Show me picture, with
-no drive or job, and prints every fix, such as Mermaid's parse error for a diagram that does not draw, or `ready`, then into
+`drive job ask <your job> --check -` first, which runs every check the real ask runs but Jev's read of his words, counts the card as he reads it,
+draws each Show me picture and prints every fix at once, such as Mermaid's parse error for a diagram that does not draw, or `ready`, then into
 `drive job ask <your job> -`, which keeps it as a question of your job and prints its path. A refusal is deliberate
 and names every fix: apply them and run it again. It refuses a clock time typed for work already done anywhere the card draws, so
 name a job's start as `{started:<job>}` and a record's as `{at:<seq>}`, and write a time a tool or query printed in Pacific on the line linking it, or in backticks as it printed it. A kept fork you no longer ask, such as an earlier wording of one, counts as open until

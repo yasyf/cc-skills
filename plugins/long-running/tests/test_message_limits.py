@@ -1554,12 +1554,11 @@ def test_a_pr_card_serving_drive_tooling_under_a_line_leaving_out_that_orders_wo
     assert say(transcript, text=f"_{tooling}_", tap_prs=[url]) is None
 
 
-def test_a_block_drive_job_ask_keeps_posts_as_written_and_a_word_over_is_refused_by_both(talker: str, transcript: Path) -> None:
+def test_a_block_drive_job_ask_keeps_posts_as_written_and_a_word_over_counts_alike_on_the_card_and_in_the_post(talker: str, transcript: Path) -> None:
     card = limits.question(STRAY_CHATS_ASK).card("demo", "demo:j585-7")
     assert posted(transcript, card=card) is None
-    with pytest.raises(DriveError, match="the question, summary and options are 151 words; at most 150"):
-        limits.question(STRAY_CHATS_ASK.replace("costs time.", "costs time and money."))
     longer = [*card["options"][:2], card["options"][2].replace("costs time.", "costs time and money.")]
+    assert limits.card_words(card | {"options": longer}) == limits.QUESTION_WORDS + 1
     assert posted(transcript, card=card | {"options": longer}).startswith("refused: this card is 151 words")
 
 
@@ -1568,6 +1567,8 @@ def test_a_block_starts_from_the_root_cause_and_names_the_option_that_removes_it
     shown = "New app moves its chats once into a folder of its own and lists unloaded chats as loading; the old build cannot reach them."
     with pytest.raises(DriveError, match="no `Root cause:` line under `Findings:`"):
         limits.question(STRAY_CHATS_ASK.replace(cause, ""))
+    _, problems = limits.question_problems(STRAY_CHATS_ASK.replace(cause, "").replace(f"Simplest: {shown}\n", ""))
+    assert [problem.split(":")[0] for problem in problems] == ["no `Simplest", "no `Root cause"]
     with pytest.raises(DriveError, match="has no `First principles:` line"):
         limits.question(STRAY_CHATS_ASK.replace(f"First principles: {shown}\n", ""))
     with pytest.raises(DriveError, match="`First principles: Wait for the copy` names no option"):

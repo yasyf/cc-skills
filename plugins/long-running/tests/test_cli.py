@@ -1413,7 +1413,7 @@ def test_job_ask_refuses_a_card_typing_when_past_work_happened_keeping_nothing(
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK.replace("Meanwhile nothing is built on either layout.", "Meanwhile nothing is built; the reader finished at 4:55 AM."))
     assert cli.main(["job", "ask", asking, str(block)]) == 2
-    assert 'j1: refused, nothing kept: his card draws these words, and "4:55 AM" is a time typed for work already done' in capsys.readouterr().err
+    assert '\n- his card draws these words, and "4:55 AM" is a time typed for work already done' in capsys.readouterr().err
     assert state.load("demo")["jobs"]["j1"]["questions"] == []
     block.write_text(SHORT_ASK)
     assert run("job", "ask", asking, str(block))[0] == 0
@@ -1530,7 +1530,7 @@ def test_job_ask_refuses_a_compare_fence_holding_a_markdown_table_by_the_fence_i
 ) -> None:
     block = tmp_path / "ask.md"
     block.write_text(SPLIT_JOURNAL_ASK)
-    for argv in (["job", "ask", "--check", str(block)], ["job", "ask", asking, str(block)]):
+    for argv in (["job", "ask", asking, "--check", str(block)], ["job", "ask", asking, str(block)]):
         assert cli.main(argv) == 2
         refusal = capsys.readouterr().err
         assert refusal.startswith("drive: the ASK is out of shape")
@@ -1544,31 +1544,35 @@ def test_job_ask_refuses_a_compare_fence_holding_a_markdown_table_by_the_fence_i
     assert not (state_root / "demo" / "asks").exists()
 
 
-def test_job_ask_check_says_ready_or_every_fix_its_words_and_card_need_with_no_drive_and_keeps_only_its_picture_verdicts(
-    state_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], drawing: Drawing
+def test_job_ask_check_says_ready_or_every_fix_its_words_card_and_job_need_at_once_and_keeps_nothing(
+    run: Run, asking: str, tmp_path: Path, state_root: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], drawing: Drawing
 ) -> None:
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
-    assert cli.main(["job", "ask", "--check", str(block)]) == 0
+    assert cli.main(["job", "ask", asking, "--check", str(block)]) == 0
     assert capsys.readouterr().out == "ready\n"
     drawing.refusal = 'card body points at an option by number or position with "second option"'
-    assert cli.main(["job", "ask", "--check", str(block)]) == 2
-    assert f"cc-slack would not draw it: {drawing.refusal}" in capsys.readouterr().err
-    assert [card["waits"] for card in drawing.cards] == ["check:ask-0", "check:ask-0"]
+    block.write_text(SHORT_ASK.replace("Meanwhile nothing is built on either layout.", "Meanwhile nothing is built; the reader finished at 4:55 AM."))
+    assert cli.main(["job", "ask", asking, "--check", str(block)]) == 2
+    refusal = capsys.readouterr().err
+    assert f"\n- the ASK's card is out of shape, so cc-slack would not draw it: {drawing.refusal}" in refusal
+    assert '\n- his card draws these words, and "4:55 AM" is a time typed for work already done' in refusal
+    assert [card["waits"] for card in drawing.cards] == ["demo:j1-0", "demo:j1-0"]
     monkeypatch.setattr("sys.stdin", io.StringIO(FINDINGS_FIRST))
-    assert cli.main(["job", "ask", "--check", "-"]) == 2
+    assert cli.main(["job", "ask", asking, "--check", "-"]) == 2
     refusal = capsys.readouterr().err
     assert "the summary is 0 lines" in refusal
     assert "0 options; an ASK has 2 to 4" in refusal
-    assert [path.name for path in state_root.iterdir()] == [picture.JUDGED]
-    assert cli.main(["job", "ask"]) == 2
-    assert "drive job ask <j> <file>; drive job ask --check <file> only checks its shape" in capsys.readouterr().err
+    assert state.load("demo")["jobs"]["j1"]["questions"] == []
+    assert not (state_root / "demo" / "asks").exists()
+    assert cli.main(["job", "ask", "--check", str(block)]) == 2
+    assert "drive job ask <j> <file>; drive job ask <j> --check <file> runs every check it runs and keeps nothing" in capsys.readouterr().err
 
 
 def test_job_ask_reads_a_readers_design_return_as_the_ask_its_first_line_asks(run: Run, asking: str, tmp_path: Path) -> None:
     block = tmp_path / "design.md"
     block.write_text(DESIGN_RESEARCH)
-    assert run("job", "ask", "--check", str(block)) == (0, "ready")
+    assert run("job", "ask", asking, "--check", str(block)) == (0, "ready")
     code, out = run("job", "ask", asking, str(block))
     assert (code, Path(out.splitlines()[0]).read_text()) == (0, f"ASK {DESIGN_RESEARCH.removeprefix('DESIGN ')}")
     assert state.load("demo")["jobs"]["j1"]["said"] == DESIGN_TITLE
@@ -1589,15 +1593,15 @@ RESTORE_OPENING = RESTORE_ASK.splitlines()[1]
     [
         RESTORE_OPENING,
         "The merge queue ejects the run page change each time dev moves, and your pick decides which way it lands.",
-        'For {order:o518}: the restore keeps "your pick" readable once the reader switch ships.',
+        'For {order:o1}: the restore keeps "your pick" readable once the reader switch ships.',
     ],
 )
 def test_job_ask_check_refuses_a_summary_whose_first_line_never_says_the_work_it_serves_and_what_his_pick_changes(
-    opening: str, state_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    opening: str, run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     block = tmp_path / "ask.md"
     block.write_text(RESTORE_ASK.replace(RESTORE_OPENING, opening))
-    assert cli.main(["job", "ask", "--check", str(block)]) == 2
+    assert cli.main(["job", "ask", asking, "--check", str(block)]) == 2
     refusal = capsys.readouterr().err
     assert "the summary's first line never says" in refusal
     assert limits.OPENING_RULING in refusal
@@ -1607,37 +1611,39 @@ def test_job_ask_check_refuses_a_summary_whose_first_line_never_says_the_work_it
 @pytest.mark.parametrize(
     "opening",
     [
-        "For {order:o518}: your pick decides whether a restore keeps its moved tables readable once the reader switch ships.",
-        "For {order:o518|the moved tables order}: you pick who relinks a moved table after a restore.",
+        "For {order:o1}: your pick decides whether a restore keeps its moved tables readable once the reader switch ships.",
+        "For {order:o1|the moved tables order}: you pick who relinks a moved table after a restore.",
         "Drive tooling: your pick decides whether the restore relinks each moved table it brings back.",
         "For the <https://github.com/acme/app/pull/9|port of #9>: your pick decides who relinks a moved table.",
     ],
 )
 def test_job_ask_check_passes_a_first_line_naming_the_work_it_serves_and_what_his_pick_changes_and_lets_an_order_reference_through(
-    opening: str, state_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    opening: str, run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     block = tmp_path / "ask.md"
     block.write_text(RESTORE_ASK.replace(RESTORE_OPENING, opening))
-    assert cli.main(["job", "ask", "--check", str(block)]) == 0
+    assert cli.main(["job", "ask", asking, "--check", str(block)]) == 0
     block.write_text(RESTORE_ASK.replace(RESTORE_OPENING, f"{opening} It replaces o518's link."))
-    assert cli.main(["job", "ask", "--check", str(block)]) == 2
+    assert cli.main(["job", "ask", asking, "--check", str(block)]) == 2
     assert '"o518" is a drive job or order id' in capsys.readouterr().err
 
 
-def test_job_ask_refuses_a_summary_over_his_length_as_his_card_draws_its_order_references_and_keeps_one_whose_references_carry_words(
+def test_job_ask_and_its_check_refuse_a_summary_over_his_length_as_his_card_draws_its_order_references_and_keep_one_whose_references_carry_words(
     run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Store copy", "--project", "The drive", "--workstream", "Drive tooling", "copy every store of the team in the order its list names them, one at a time, with no store skipped or copied twice")
     block = tmp_path / "ask.md"
     repeated = " ".join(["{order:o2}"] * 8)
     block.write_text(RESTORE_ASK.replace(RESTORE_OPENING, f"For {{order:o2}}: your pick decides who relinks a moved table. It serves {repeated}."))
-    assert cli.main(["job", "ask", "--check", str(block)]) == 0
-    capsys.readouterr()
+    assert cli.main(["job", "ask", asking, "--check", str(block)]) == 2
+    checked = capsys.readouterr().err
     assert cli.main(["job", "ask", asking, str(block)]) == 2
     refusal = capsys.readouterr().err
+    assert refusal == checked
     assert "words as his card draws them, each reference in the summary drawn as the words that name it" in refusal
     assert state.load("demo")["jobs"]["j1"]["questions"] == []
     block.write_text(block.read_text().replace("{order:o2}", "{order:o2|the store copy}"))
+    assert cli.main(["job", "ask", asking, "--check", str(block)]) == 0
     assert cli.main(["job", "ask", asking, str(block)]) == 0
 
 
@@ -1655,7 +1661,7 @@ def test_job_ask_and_card_refuse_a_file_that_is_not_there_by_its_path(
     run: Run, asking: str, tmp_path: Path, state_root: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     missing = tmp_path / "ask.md"
-    for argv in (["job", "ask", "--check", str(missing)], ["job", "ask", asking, str(missing)], ["job", "card", str(missing), "--waits", "demo:j1-7"]):
+    for argv in (["job", "ask", asking, "--check", str(missing)], ["job", "ask", asking, str(missing)], ["job", "card", str(missing), "--waits", "demo:j1-7"]):
         assert cli.main(argv) == 2
         assert capsys.readouterr().err == f"drive: no ASK block file at {missing}\n"
     job = state.load("demo")["jobs"]["j1"]
@@ -1664,7 +1670,7 @@ def test_job_ask_and_card_refuse_a_file_that_is_not_there_by_its_path(
 
 
 def test_job_ask_keeps_an_option_his_no_sweepers_ruling_refuses_only_when_unsettled_names_that_ruling(
-    state_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     block = tmp_path / "ask.md"
     block.write_text(
@@ -1674,9 +1680,9 @@ def test_job_ask_keeps_an_option_his_no_sweepers_ruling_refuses_only_when_unsett
             "Findings:\nRoot cause: none: a design pick\nSimplest: one owner holds the lease until it ends\nHolds: none: no option changes code any job builds\nTwo runs held one lease.\n"
         )
     )
-    assert cli.main(["job", "ask", "--check", str(block)]) == 2
+    assert cli.main(["job", "ask", asking, "--check", str(block)]) == 2
     assert 'cleans up a bad state with "reclaim orphaned"' in capsys.readouterr().err
-    assert cli.main(["job", "ask", "--check", str(block), "--unsettled", "b89209a: the lease lives in a store no owner can hold"]) == 0
+    assert cli.main(["job", "ask", asking, "--check", str(block), "--unsettled", "b89209a: the lease lives in a store no owner can hold"]) == 0
     assert capsys.readouterr().out == "ready\n"
 
 
@@ -1710,7 +1716,7 @@ def test_job_ask_refuses_a_question_over_150_words(
     line = " ".join(["word"] * 50)
     block.write_text(f"ASK Which?\n{line}\n{line}\n{line}\n- Yes (recommended)\n- No\nFindings:\nmeasured\n")
     assert cli.main(["job", "ask", asking, str(block)]) == 2
-    assert "the question, summary and options are 153 words; at most 150 in all" in capsys.readouterr().err
+    assert "the ASK's question, summary and options are 153 words as his card draws them" in capsys.readouterr().err
 
 
 def test_job_ask_refuses_a_card_cc_slack_would_not_draw_in_its_own_words(
@@ -1913,7 +1919,7 @@ def test_job_ask_check_keep_and_card_refuse_a_show_me_picture_that_does_not_draw
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
     chrome.refusal = "Parse error on line 7: Expecting 'SOLID_OPEN_ARROW', got 'NEWLINE'"
-    for argv in (["job", "ask", "--check", str(block)], ["job", "ask", asking, str(block)], ["job", "card", str(block), "--waits", "demo:j1-7"]):
+    for argv in (["job", "ask", asking, "--check", str(block)], ["job", "ask", asking, str(block)], ["job", "card", str(block), "--waits", "demo:j1-7"]):
         assert cli.main(argv) == 2
         assert capsys.readouterr().err == (
             'drive: the Show me picture "1 · One snapshot file per finished run, the requests its page makes", a ```http fence,'
@@ -1923,7 +1929,7 @@ def test_job_ask_check_keep_and_card_refuse_a_show_me_picture_that_does_not_draw
     assert (job["state"], job["questions"]) == ("running", [])
     assert not list((state_root / "demo").glob("asks/*.md"))
     chrome.refusal = None
-    assert run("job", "ask", "--check", str(block)) == (0, "ready")
+    assert run("job", "ask", asking, "--check", str(block)) == (0, "ready")
     code, kept = run("job", "ask", asking, str(block))
     assert code == 0
     assert Path(kept.splitlines()[0]).read_text() == SHORT_ASK
@@ -2769,7 +2775,7 @@ def test_job_ask_refuses_a_question_another_jobs_open_card_asks_naming_the_wait_
     monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace("opens in 3 requests", "opens in 3 calls")))
     assert cli.main(["job", "ask", "j2", "-"]) == 2
     refusal = capsys.readouterr().err
-    assert f"j2: refused, nothing kept: j1 already asks him \"How should a finished run's files be laid out so its page opens without guessing?\" on its open card {link} (demo:j1-7)" in refusal
+    assert f"\n- j1 already asks him \"How should a finished run's files be laid out so its page opens without guessing?\" on its open card {link} (demo:j1-7)" in refusal
     assert "drive job set j2 --waits demo:j1-7, which frees j2 at his answer" in refusal
     assert state.load("demo")["jobs"]["j2"]["questions"] == []
 
@@ -3028,7 +3034,7 @@ def test_job_ask_reads_his_recorded_answers_ccn_ranks_nearest_and_a_card_asking_
     unlinked = asked.replace("Meanwhile nothing is built on either layout.", "Meanwhile this job builds it on a branch, no PR.")
     block.write_text(unlinked)
     assert cli.main(["job", "ask", "j3", str(block)]) == 2
-    assert capsys.readouterr().err.startswith(f"drive: j3 has {url} open, which its ASK's summary does not link")
+    assert f"\n- j3 has {url} open, which its ASK's summary does not link" in capsys.readouterr().err
     block.write_text(unlinked.replace("on a branch, no PR.", f"in <{url}|the helper process PR>, held until you answer."))
     assert run("job", "ask", "j3", str(block))[0] == 0
     data = state.load("demo")
@@ -5585,10 +5591,10 @@ def test_job_ask_on_a_port_names_the_pr_it_ports_in_its_summary(
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
     assert cli.main(["job", "ask", asking, str(block)]) == 2
-    assert capsys.readouterr().err.strip() == (
-        'drive: j1\'s PR is a port of #4100: its ASK\'s summary says "port of #4100", as the text of that PR\'s link, and what in the'
-        " target tree forces a choice #4100 did not make, such as what that tree lacks"
-    )
+    assert capsys.readouterr().err.count(
+        '\n- j1\'s PR is a port of #4100: its ASK\'s summary says "port of #4100", as the text of that PR\'s link, and what in the'
+        " target tree forces a choice #4100 did not make, such as what that tree lacks\n"
+    ) == 1
     ported = f"This is a <https://github.com/Forge-AI/monorepo/pull/4100|port of #4100>, opened as <{PR}|the move strip port>, and your pick decides how a finished run's files are laid out in a target tree that lacks the snapshot writer;"
     block.write_text(SHORT_ASK.replace("Drive tooling: your pick decides how a finished run's files are laid out;", ported))
     assert run("job", "ask", asking, str(block))[0] == 0
