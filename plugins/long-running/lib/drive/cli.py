@@ -2712,29 +2712,39 @@ def check_waits(name: str, waits: list[str]) -> None:
 
 
 def unreached(name: str, data: dict, waits: list[str]) -> str | None:
-    """Why a release wait among waits names a service whose release never carries its PR's change, by go/ci's own map of the components a change's paths reach, `tools/ci release select --pr` run in the drive's checkout at the head of its default branch on the paths the PR changes: the service is no component go/ci releases, or the paths reach components and the service is none of them. None for a PR outside the repository of a coordinator checkout holding tools/ci, and for one whose paths reach no component by that map, such as one changing only shared Pulumi code, which go/ci reaches only through the rendered rows a Buildkite job reads."""
-    clone = data["roles"]["coordinator"]["cwd"]
-    releases = [found for wait in waits if (found := state.RELEASE_WAIT.fullmatch(wait))]
-    if not (releases and (Path(clone) / GO_CI).is_file()):
+    """Why a release wait among waits names a service whose release never carries its PR's change, by go/ci's own map of the components a change's paths reach: the service is no component go/ci releases, or the paths reach components and the service is none of them. None for a PR outside the repository of a coordinator checkout holding tools/ci, and for one whose paths reach no component by that map, such as one changing only shared Pulumi code, which go/ci reaches only through the rendered rows a Buildkite job reads."""
+    if not (releases := [found for wait in waits if (found := state.RELEASE_WAIT.fullmatch(wait))]):
         return None
-    named = ", ".join(found[0] for found in releases)
     try:
-        repo = github.checkout_repo(clone).casefold()
-        if not (ours := [found for found in releases if github.repo_of(found["pr"]).casefold() == repo]):
-            return None
-        checkout = orca.checkout(name, data)
-        for found in ours:
-            key, service = found["pr"], found["service"]
-            request = json.dumps({"body": "", "paths": github.files(key)})
-            answer = json.loads(github.run([str(checkout / GO_CI), "release", "select", "--pr"], cwd=str(checkout), stdin=request))
-            reach = f"`tools/ci release select --pr` lists the paths {key} changes reaching {', '.join(answer['touched']) or 'no component'}"
-            if service not in answer["components"]:
-                return f"{found[0]}: {service} is no component go/ci releases, so no release ever carries {key}; {reach}"
-            if answer["touched"] and service not in answer["touched"]:
-                return f"{found[0]}: {service}'s release never carries {key}, since {reach}; wait on the release of the one that runs the change"
+        answers = reached(name, data, [found["pr"] for found in releases])
     except github.GithubError as error:
+        named = ", ".join(found[0] for found in releases)
         raise DriveError(f"could not read which components the paths each PR of {named} changes reach, so nothing was taken: {error}; run this again") from None
+    for found in releases:
+        if not (answer := answers.get(key := found["pr"])):
+            continue
+        service = found["service"]
+        reach = f"`tools/ci release select --pr` lists the paths {key} changes reaching {', '.join(answer['touched']) or 'no component'}"
+        if service not in answer["components"]:
+            return f"{found[0]}: {service} is no component go/ci releases, so no release ever carries {key}; {reach}"
+        if answer["touched"] and service not in answer["touched"]:
+            return f"{found[0]}: {service}'s release never carries {key}, since {reach}; wait on the release of the one that runs the change"
     return None
+
+
+def reached(name: str, data: dict, keys: list[str]) -> dict[str, dict]:
+    """go/ci's own map of the components the paths each PR changes reach, `tools/ci release select --pr` run in the drive's checkout at the head of its default branch, by the PR's key, for each PR in the repository of a coordinator checkout holding tools/ci; none for any other."""
+    clone = data["roles"]["coordinator"]["cwd"]
+    if not (Path(clone) / GO_CI).is_file():
+        return {}
+    repo = github.checkout_repo(clone).casefold()
+    if not (ours := [key for key in dict.fromkeys(keys) if github.repo_of(key).casefold() == repo]):
+        return {}
+    checkout = orca.checkout(name, data)
+    return {
+        key: json.loads(github.run([str(checkout / GO_CI), "release", "select", "--pr"], cwd=str(checkout), stdin=json.dumps({"body": "", "paths": github.files(key)})))
+        for key in ours
+    }
 
 
 def merged_waits(owner: dict, args: argparse.Namespace) -> list[str]:

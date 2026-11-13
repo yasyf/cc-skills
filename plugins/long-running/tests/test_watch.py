@@ -4236,6 +4236,52 @@ def test_an_incident_with_no_monitor_closes_with_no_datadog_read_once_a_release_
     assert (watch.run_pass(watching, T0 + timedelta(minutes=1)), [argv for argv in calls if argv[0] == "pup"]) == ([], [])
 
 
+def test_an_incident_fix_that_merged_with_no_release_wait_as_o836_did_waits_on_each_component_go_ci_maps_it_to_and_closes_with_no_quiet_report_once_production_holds_it(
+    demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, ready_records: list[list[dict]]
+) -> None:
+    serve(monkeypatch, {})
+    monitors_read(monkeypatch, {})
+    merged = "c350c7d3d0d3c1c7bdbd6c0d0c55082bc3c5158a"
+    published: list[dict] = []
+    selected = {"components": ["api", "dashboard", "rsw-cp", "rsw-dp", "runtime-api-next"], "touched": ["api", "rsw-cp", "rsw-dp"]}
+    compared = []
+
+    def gh(cmd: list[str], **_: object) -> str:
+        if cmd[1:3] == ["release", "select"]:
+            return json.dumps(selected)
+        if cmd[2].endswith("/releases?per_page=100"):
+            return json.dumps(published)
+        compared.append(cmd[2])
+        return "ahead\n"
+
+    clone = tmp_path / "clone"
+    (clone / "tools").mkdir(parents=True)
+    (clone / "tools" / "ci").write_text("")
+    monkeypatch.setattr(watch.github, "run", gh)
+    monkeypatch.setattr(github, "checkout_repo", lambda cwd: "Forge-AI/monorepo" if cwd == str(clone) else pytest.fail(cwd))
+    monkeypatch.setattr(orca, "checkout", lambda name, data: tmp_path / "drive-demo")
+    monkeypatch.setattr(github, "files", lambda key: ["api/src/modules/sandsql/personal.ts"] if key == KEY else pytest.fail(key))
+    with state.edit(demo) as data:
+        data["roles"]["coordinator"]["cwd"] = str(clone)
+        data["orders"]["o1"].update(incident=True, parts={"fix": state.new_part()})
+        data["prs"][KEY].update(state="merged", merged_sha=merged)
+        data["jobs"]["j1"].update(parts=["fix"], state="waiting", said=f"waits on {KEY}", updated=state.stamp(T0 - timedelta(minutes=10)))
+    watching = watcher(demo, T0 + timedelta(hours=1))
+    waits = [f"release:{component}:{KEY}" for component in selected["touched"]]
+    assert watch.run_pass(watching, T0) == []
+    data = state.load(demo)
+    assert (data["jobs"]["j1"]["waits"], data["orders"]["o1"]["fixed"], ready_records) == (waits, None, [])
+    published.append(release(60, "2026-11-13T02:00:00Z", "api, rsw-cp, rsw-dp", day="2026-11-12"))
+    shipped = ", ".join(f"release releases/2026-11-12/60 ships {KEY} on {component}" for component in selected["touched"])
+    assert watch.run_pass(watching, T0 + timedelta(minutes=6)) == [
+        f"FREE j1 o1: {shipped}, nothing else holds it",
+        f"RECOVERED o1: {shipped}, so the communicator posts its Live line and closes o1",
+    ]
+    assert set(compared) == {f"repos/Forge-AI/monorepo/compare/{merged}...release/releases-2026-11-12-60"}
+    assert [record["text"] for records in ready_records for record in records] == ["POST incident o1 is over: its fix is live; post the Live line in its thread"]
+    assert state.load(demo)["orders"]["o1"]["fixed"] == shipped
+
+
 def test_a_release_out_as_a_sub_coordinator_is_bound_mid_read_closes_the_incident_once_from_the_watch_dropping_its_wait(
     demo: str, monkeypatch: pytest.MonkeyPatch, ready_records: list[list[dict]]
 ) -> None:
