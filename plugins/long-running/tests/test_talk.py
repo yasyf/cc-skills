@@ -433,6 +433,7 @@ def test_a_pr_card_goes_in_the_thread_of_each_open_order_its_pr_carries_out_so_t
         for order_id in ("o2", "o3", "o4"):
             state.carry(data, "j1", order_id, list(data["orders"][order_id]["parts"]))
         data["orders"]["o3"]["state"] = "done"
+        data["orders"]["o4"]["incident"] = True
     with pytest.raises(DriveError, match="pass channel_id C9TEAM and thread_ts 1794500000.000100"):
         talk.say(demo, {"text": "land these", "tap_prs": [PR_URL]})
     team = {"text": "land these", "tap_prs": [PR_URL], "channel_id": "C9TEAM", "thread_ts": "1794500000.000100"}

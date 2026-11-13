@@ -2480,9 +2480,9 @@ def dm_thread(order: dict) -> tuple[str, str] | None:
     """The thread of his DM an order's lines to him go in: its own when it is in his DM, else the first of his DM it keeps, since a line to him never goes in a channel; None, his DM's root, for one keeping none and for one with no own thread."""
     from drive import slack
 
-    if not order["thread"]:
-        return None
-    return next(((channel, ts) for channel, ts, *_ in [order["thread"], *order["threads"]] if channel == slack.dm()), None)
+    if not order["thread"] or order["thread"][0] == slack.dm():
+        return own_thread(order)
+    return next(((channel, ts) for channel, ts, _, _ in order["threads"] if channel == slack.dm()), None)
 
 
 def in_reporter_thread(order: dict) -> bool:

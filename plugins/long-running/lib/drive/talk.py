@@ -300,10 +300,10 @@ def unplaced(data: dict, post: dict, report: dict) -> str | None:
         return None
     if channel := outside(data, thread):
         return (
-            f"nothing posted: report {report['seq']}'s line goes in thread {thread} of channel {channel}, never his DM root: pass channel_id {channel}"
+            f"report {report['seq']}'s line goes in thread {thread} of channel {channel}, never his DM root: pass channel_id {channel}"
             f" and thread_ts {thread}, the place cc-slack's Slack permission hook judges this say for, and a post it refuses there goes nowhere else"
         )
-    return f"nothing posted: report {report['seq']}'s line goes in thread {thread} of his DM, never his DM root: pass thread_ts {thread}"
+    return f"report {report['seq']}'s line goes in thread {thread} of his DM, never his DM root: pass thread_ts {thread}"
 
 
 def outside(data: dict, thread: str) -> str | None:

@@ -2303,9 +2303,9 @@ def test_job_ask_on_an_open_incident_draws_his_card_in_its_thread_and_sends_the_
     assert report["text"].startswith(f'POST his card {slack_card(1)} asks him "{title}" for j1, and it blocks incident o1: j1 builds its recommended option meanwhile, One snapshot file per finished run')
 
 
-@pytest.mark.parametrize(("kept", "drawn"), [([], None), ([["D123", "1794200050.000200", "2026-11-13T10:00:00-08:00", "question"]], "1794200050.000200")])
+@pytest.mark.parametrize(("kept", "card_thread"), [([], None), ([["D123", "1794200050.000200", "2026-11-13T10:00:00-08:00", "question"]], "1794200050.000200")])
 def test_job_ask_on_an_order_whose_own_thread_is_outside_his_dm_draws_his_card_in_its_thread_of_his_dm_else_at_his_dm_root_and_sends_no_line_to_that_channel(
-    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, slack_calls: list[tuple[str, ...]], kept: list[list[str]], drawn: str | None
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, slack_calls: list[tuple[str, ...]], kept: list[list[str]], card_thread: str | None
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "design the run page")
     run("job", "add", "builder", "--order", "o1", "--goal", "design it")
@@ -2316,7 +2316,7 @@ def test_job_ask_on_an_order_whose_own_thread_is_outside_his_dm_draws_his_card_i
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
     assert run("job", "ask", "j1", str(block))[1].split("\n", 1)[1] == f"his card {slack_card(1)} asks it under demo:j1-7"
-    assert [argv[argv.index("--thread") + 1] if "--thread" in argv else None for argv in slack_calls if argv[0] == "dm-status"] == [drawn]
+    assert [argv[argv.index("--thread") + 1] if "--thread" in argv else None for argv in slack_calls if argv[0] == "dm-status"] == [card_thread]
     assert sent == []
 
 
@@ -2339,7 +2339,7 @@ def test_job_ask_sends_his_cards_line_outside_his_dm_to_the_communicator_once_fo
     ):
         block.write_text(text + "Interim fix: j2 checks the fork copies first\n")
         assert run("job", "ask", asking, str(block), *redraws)[0] == 0
-    blocks = ", and it blocks incident o1: j1 builds its recommended option meanwhile, One snapshot file per finished run"
+    blocks = ", and it blocks incident o1: j1 builds its recommended option meanwhile, One snapshot file per finished run, written when it ends, old runs backfilled: opens in 3 requests"
     assert [report["text"] for report in kept.values()] == [
         f'POST his card {slack_card(1)} asks him "{text.splitlines()[0].removeprefix("ASK ")}" for j1{blocks}' for text in (SHORT_ASK, retitled)
     ]
