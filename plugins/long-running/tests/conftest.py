@@ -574,11 +574,17 @@ def saved_on_github(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[str]]:
     return held
 
 
+@pytest.fixture
+def causes() -> dict[str, str]:
+    """The cause line keep_logs reads off the Sprite of each dead lane, by its dispatch; none unless a test puts one."""
+    return {}
+
+
 @pytest.fixture(autouse=True)
-def kept_logs(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
-    """Each dead lane whose Sprite's logs a resume or an end copied to the drive's folder, by job and dispatch."""
+def kept_logs(monkeypatch: pytest.MonkeyPatch, causes: dict[str, str]) -> list[tuple[str, str]]:
+    """Each dead lane whose Sprite's logs a resume or an end copied to the drive's folder, by job and dispatch, each giving the cause line causes holds for it."""
     kept: list[tuple[str, str]] = []
-    monkeypatch.setattr(orca, "keep_logs", lambda drive, job_id, job, dispatch: kept.append((job_id, dispatch)))
+    monkeypatch.setattr(orca, "keep_logs", lambda drive, job_id, job, dispatch: kept.append((job_id, dispatch)) or causes.get(dispatch))
     return kept
 
 

@@ -1392,17 +1392,32 @@ def on_mac(job: dict) -> bool:
     return job["route"] == LOCAL_ROUTE
 
 
-def lane_died(job: dict, worker: str, why: str, moment: datetime) -> bool:
-    """Record once that the job's current worker died or finished, so it takes no more messages: its remote lane, by this dispatch, or its agent on this Mac, by this agent; whether this call recorded it. A running job changes with it, its parts settling while it is relaunched, but a job at rest does not, since a waiting job's answer reaches it by drive job resume whether or not its lane lives and the end of a finished job's lane changes nothing it does."""
+def lane_died(job: dict, worker: str, why: str, moment: datetime, cause: str | None = None) -> bool:
+    """Record once that the job's current worker died or finished, so it takes no more messages: its remote lane, by this dispatch, or its agent on this Mac, by this agent, and keep on that death, whoever recorded it, the cause line a resume read off its lane's Sprite; whether this call recorded it. A running job changes with it, its parts settling while it is relaunched, but a job at rest does not, since a waiting job's answer reaches it by drive job resume whether or not its lane lives and the end of a finished job's lane changes nothing it does."""
     key = worker_key(job)
     deaths = job.setdefault("deaths", [])
-    if job[key] != worker or any(death.get(key) == worker for death in deaths):
+    if job[key] != worker:
         return False
-    held = {"dispatch": worker, "workspace": job["workspace"]} if key == "dispatch" else {"dispatch": None, "workspace": None, "agent": worker}
-    deaths.append({**held, "why": why, "at": stamp(moment)})
-    if job["state"] == "running":
-        job["updated"] = stamp(moment)
-    return True
+    recorded = all(death.get(key) != worker for death in deaths)
+    if recorded:
+        held = {"dispatch": worker, "workspace": job["workspace"]} if key == "dispatch" else {"dispatch": None, "workspace": None, "agent": worker}
+        deaths.append({**held, "why": why, "at": stamp(moment)})
+        if job["state"] == "running":
+            job["updated"] = stamp(moment)
+    if cause:
+        lane_death(job)["cause"] = cause
+    return recorded
+
+
+def died_before(job: dict, dispatch: str) -> dict | None:
+    """The death of another lane of the job since its last line whose cause a resume read off its Sprite, as it does for each lane that died while its job ran, so a resume of the lane that died on this dispatch, the job's second death since that line, starts no worker; None when no other lane died so."""
+    since = job["returned"] and parse_time(job["returned"])
+    return next((death for death in reversed(job.get("deaths", [])) if death.get("cause") and death["dispatch"] != dispatch and not (since and parse_time(death["at"]) < since)), None)
+
+
+def why_died(why: str, cause: str | None) -> str:
+    """Why a lane ended, with the cause line a resume read off its Sprite, when it read one."""
+    return f"{why}; {cause}" if cause else why
 
 
 def lane_death(job: dict) -> dict | None:

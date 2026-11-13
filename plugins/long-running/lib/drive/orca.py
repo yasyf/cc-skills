@@ -70,16 +70,28 @@ CC_REMOTE_WORKSPACES = CC_REMOTE / "workspaces"
 CC_REMOTE_TASKS = CC_REMOTE / "orca"
 SPRITE_ANSWERS = ".local/state/long-running/answers"
 SPRITE_LOG_BYTES = 20000
+HOME_VOLUME = "df -k ~"
+MEMORY_EVENTS = "/sys/fs/cgroup/memory.events"
+AGES = "cat /proc/uptime; ps -o etimes= -p 1"
+MEMORY_LIMITS = "cat /sys/fs/cgroup/memory.high /sys/fs/cgroup/memory.peak"
+STARTED_INIT = " as init process"
+KERNEL_ERRORS = f"dmesg -r | grep -E '^<[0-3]>|{STARTED_INIT}'"
 SPRITE_LOGS = f"""exec 2>&1
 cd
 worker=$(ls -t .claude/projects/*/*.jsonl | head -n 1)
 for log in .cc-remote/orca/serve.log .config/orca/logs/daemon.log .config/orca/logs/orcad.trace.ndjson "$worker"; do
   echo "== tail -c {SPRITE_LOG_BYTES} ~/$log"; tail -c {SPRITE_LOG_BYTES} "$log"; echo
 done
-echo "== df -k ~"; df -k ~
-echo "== /sys/fs/cgroup/memory.events"; cat /sys/fs/cgroup/memory.events
+echo "== {HOME_VOLUME}"; {HOME_VOLUME}
+echo "== {MEMORY_EVENTS}"; cat {MEMORY_EVENTS}
 echo "== dmesg | tail -n 50"; dmesg | tail -n 50
+echo "== {AGES}"; {AGES}
+echo "== {MEMORY_LIMITS}"; {MEMORY_LIMITS}
+echo "== {KERNEL_ERRORS}"; {KERNEL_ERRORS}
 """
+SECTION = re.compile(r"^== (.*)\n", re.MULTILINE)
+KERNEL_LINE = re.compile(r"^<[0-3]>\[\s*[\d.]+\] (.*)$")
+GIB = 2**30
 SPRITE_TRANSCRIPTS = 'tar -czf - -C "$HOME/.claude/projects" . || [ $? -eq 1 ]'
 UNKEPT = "unkept.txt"
 TRANSCRIPTS = ".transcripts"
@@ -371,7 +383,7 @@ def brief_of(vm_brief: str) -> str:
 
 
 def handoff(brief: str, ended: dict, saved: list[str], job: dict, text: str | None, end: LaneEnd, since: str | None, here: bool = False, unsaved: str | None = None) -> str:
-    """The brief of a lane taking over from one that died or finished: the job's brief, then what that lane left, why the new lane continues on its Sprite when it does, each branch GitHub holds of what that lane's saves pushed, or, when it holds none, what the save its death records found, and the message it never read, when a resume brought one. Here, a move of a job on a Sprite to this Mac, takes it over in a fresh worktree on this Mac however its lane ended. Unsaved, why a save of what that lane's Sprite held failed, names that Sprite kept and the saves of the job's earlier lanes it starts from."""
+    """The brief of a lane taking over from one that died or finished: the job's brief, then what that lane left, with the cause line read off its Sprite when it died there, why the new lane continues on its Sprite when it does, each branch GitHub holds of what that lane's saves pushed, or, when it holds none, what the save its death records found, and the message it never read, when a resume brought one. Here, a move of a job on a Sprite to this Mac, takes it over in a fresh worktree on this Mac however its lane ended. Unsaved, why a save of what that lane's Sprite held failed, names that Sprite kept and the saves of the job's earlier lanes it starts from."""
     local = here or state.on_mac(job)
     how = "finished" if end.worktree or end.live else "died"
     if end.worktree and not here:
@@ -395,7 +407,7 @@ def handoff(brief: str, ended: dict, saved: list[str], job: dict, text: str | No
                 else UNPUSHED
             )
         )
-    held = f"The lane that held this job {how} {place(job)} at {render.when(ended['at'])}: {ended['why']}. {where}"
+    held = f"The lane that held this job {how} {place(job)} at {render.when(ended['at'])}: {state.why_died(ended['why'], ended.get('cause'))}. {where}"
     return taking_over(brief, f"a lane that {how}", held, end.branch, job, text and f"The coordinator's message it never read, which you act on now:\n\n{text.strip()}\n")
 
 
@@ -829,9 +841,9 @@ def session_of(workspace: str, dispatch: str) -> str | None:
 
 
 def resumed(ended: dict, text: str | None) -> str:
-    """The brief of a lane's own Claude session resumed on its Sprite after its worker died there: why it died, what it resumes on, the dispatch it reports on now, and the coordinator's message it never read, when one came."""
+    """The brief of a lane's own Claude session resumed on its Sprite after its worker died there: why it died, with the cause line read off its Sprite, what it resumes on, the dispatch it reports on now, and the coordinator's message it never read, when one came."""
     return (
-        f"Your lane died at {render.when(ended['at'])}: {ended['why']}. This is your own Claude session, resumed on Sprite {ended['workspace']} in the checkout"
+        f"Your lane died at {render.when(ended['at'])}: {state.why_died(ended['why'], ended.get('cause'))}. This is your own Claude session, resumed on Sprite {ended['workspace']} in the checkout"
         " you left, so a tool call that was running then never finished. Read its git status and log, then carry the job on. Report on the task and dispatch"
         " the Orca preamble above this brief names, never on your earlier ones.\n"
         + (f"\nThe coordinator's message you never read, which you act on now:\n\n{text.strip()}\n" if text else "")
@@ -843,17 +855,47 @@ def death_logs(drive: str, job_id: str, dispatch: str) -> Path:
     return state.drive_dir(drive) / "jobs" / f"{job_id}.{dispatch}.death.txt"
 
 
-def keep_logs(drive: str, job_id: str, job: dict, dispatch: str) -> None:
-    """Copy to death_logs, once a death, what the Sprite of the job's lane that died on this dispatch holds on why its Orca runtime went down, before a relaunch or an end destroys that Sprite: the last SPRITE_LOG_BYTES of the runtime's serve.log, daemon.log and orcad trace and of the worker's Claude Code transcript, the free space on its home volume, its cgroup's memory.events and the kernel's last lines; a Sprite ssh cannot read leaves the file saying why."""
+def keep_logs(drive: str, job_id: str, job: dict, dispatch: str) -> str:
+    """Copy to death_logs, once a death, what the Sprite of the job's lane that died on this dispatch holds on why its Orca runtime went down, before a relaunch or an end destroys that Sprite: the last SPRITE_LOG_BYTES of the runtime's serve.log, daemon.log and orcad trace and of the worker's Claude Code transcript, the free space on its home volume, its cgroup's memory.events, the kernel's last lines, the ages of its VM and its pid 1, its cgroup's memory.high and memory.peak, and every kernel line at error level or worse; a Sprite ssh cannot read leaves the file saying why. The cause line those copied logs give, by cause."""
     kept = death_logs(drive, job_id, dispatch)
-    if kept.exists():
-        return
-    try:
-        done = on_sprite(job["workspace"], "sh -s", SPRITE_LOGS.encode(), CALL_SECONDS)
-        said = done.stdout.decode(errors="replace") + (f"ssh exited {done.returncode}: {done.stderr.decode(errors='replace').strip()}\n" if done.returncode else "")
-    except (OSError, subprocess.TimeoutExpired) as error:
-        said = f"{job['workspace']} could not be read: {error}\n"
-    kept.write_text(said)
+    if not kept.exists():
+        try:
+            done = on_sprite(job["workspace"], "sh -s", SPRITE_LOGS.encode(), CALL_SECONDS)
+            said = done.stdout.decode(errors="replace") + (f"ssh exited {done.returncode}: {done.stderr.decode(errors='replace').strip()}\n" if done.returncode else "")
+        except (OSError, subprocess.TimeoutExpired) as error:
+            said = f"{job['workspace']} could not be read: {error}\n"
+        kept.write_text(said)
+    return cause(kept.read_text())
+
+
+def cause(said: str) -> str:
+    """One line on why a lane's Sprite failed, from what keep_logs copied off it: each kernel line at error level or worse logged after the kernel started init, since a Sprite's boot logs one before init on every Sprite, counted with the first and the last quoted; memory.high, when its cgroup went over it, with memory.peak; the OOM killer's kills; a full home volume; and how long its VM and its pid 1 had run, which shows whether the VM rebooted or only its processes restarted. A Sprite whose read ended before the kernel's lines gives why that read ended."""
+    parts = SECTION.split(said)
+    read = dict(zip(parts[1::2], parts[2::2], strict=True))
+    if KERNEL_ERRORS not in read:
+        _, exited, rest = said.rpartition("ssh exited ")
+        return f"its Sprite did not answer: {exited + ' '.join(rest.split()) if exited else said.strip().splitlines()[-1]}"
+    lines = read[KERNEL_ERRORS].splitlines()
+    booted = next((index + 1 for index, line in enumerate(lines) if line.endswith(STARTED_INIT)), 0)
+    errors = [found[1] for line in lines[booted:] if (found := KERNEL_LINE.match(line))]
+    shown = [
+        f'the kernel logged {len(errors)} error lines after it started init, the first "{errors[0]}" and the last "{errors[-1]}"'
+        if len(errors) > 1
+        else f'the kernel logged one error line after it started init, "{errors[0]}"'
+        if errors
+        else "the kernel logged no error line after it started init"
+    ]
+    events = dict(line.split() for line in read[MEMORY_EVENTS].splitlines())
+    high, peak = read[MEMORY_LIMITS].split()
+    if events["high"] != "0":
+        shown.append(f"its memory went over memory.high, {int(high) / GIB:.1f} GiB, {events['high']} times and peaked at {int(peak) / GIB:.1f} GiB")
+    if events["oom_kill"] != "0":
+        shown.append(f"the OOM killer killed {events['oom_kill']} of its processes")
+    if read[HOME_VOLUME].split()[-2] == "100%":
+        shown.append("its home volume was full")
+    vm, _, pid1 = read[AGES].split()
+    shown.append(f"when read, its VM had been up {int(float(vm) // 60)} minutes, its init process {int(pid1) // 60} minutes")
+    return f"its Sprite showed: {'; '.join(shown)}"
 
 
 def transcripts(drive: str, job_id: str, dispatch: str) -> Path:

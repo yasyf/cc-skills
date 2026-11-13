@@ -1647,12 +1647,18 @@ def remote_gap(job_id: str, worker: dict, moment: datetime) -> str | None:
     return None
 
 
-def ended_gap(job_id: str, ended: dict, moment: datetime) -> str | None:
-    """A running job whose lane died or finished and no next lane replaced in the time a relaunch takes: none while the watch's relaunch of it runs, and once that relaunch ended or overran, the line names it and its log."""
+def ended_gap(job_id: str, job: dict, ended: dict, moment: datetime) -> str | None:
+    """A running job whose lane died or finished and no next lane replaced in the time a relaunch takes: none while the watch's relaunch of it runs, and once that relaunch ended or overran, the line names it and its log; a lane whose death is the job's second since its last line, which no resume starts a worker for, names both deaths with their causes once the resume recorded the second's."""
     gone = moment - state.parse_time(ended["at"])
     relaunch = ended.get("relaunch")
     if relaunch and state.alive(relaunch["pid"]) and moment - state.parse_time(relaunch["at"]) < RELAUNCH:
         return None
+    if ended.get("cause") and (first := state.died_before(job, ended["dispatch"])):
+        return (
+            f"{job_id}'s lane died twice since its last line, so drive job resume starts no worker for it: on Sprite {first['workspace']} at {when(first['at'])}"
+            f" ({state.why_died(first['why'], first['cause'])}) and on Sprite {ended['workspace']} at {when(ended['at'])} ({state.why_died(ended['why'], ended['cause'])});"
+            f" drive job launch {job_id} --local moves it to a fresh worktree {orca.ON_MAC}"
+        )
     if not relaunch:
         return None if gone < RELAUNCH else f"{job_id}'s lane ended {minutes(gone)} minutes ago ({cut(ended['why'], 60)}), was not resumed and its result is not recorded"
     return (
@@ -1682,7 +1688,7 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
             if not remote:
                 if running and (why := agent_stop(job, data)):
                     if ended := state.lane_death(job):
-                        gaps[job_id] = ended_gap(job_id, ended, moment)
+                        gaps[job_id] = ended_gap(job_id, job, ended, moment)
                     else:
                         deaths[job_id] = (job["agent"], why)
                     continue
@@ -1701,7 +1707,7 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 continue
             if ended := state.lane_death(job):
                 if running:
-                    gaps[job_id] = ended_gap(job_id, ended, moment)
+                    gaps[job_id] = ended_gap(job_id, job, ended, moment)
                 continue
             source = f"lane of {job_id}"
             try:
@@ -1928,7 +1934,7 @@ def lane_holds(job: dict, moment: datetime, live: set[str]) -> set[str]:
 
 
 def death_lines(name: str, deaths: dict[str, tuple[str, str]], moment: datetime) -> list[str]:
-    """Record each worker's death on its job: a remote lane's, by its dispatch, or a running local job's agent's, by its agent, and say it once for a running job, whose worker is replaced that pass by `drive job resume` as a process of its own, its pid kept on the death so no later pass starts a second: a Sprite lane's is resumed in its own Claude session on its Sprite, or else relaunched, and an agent's is handed to a lane on a Sprite, or on this Mac when its brief declares a step only this Mac runs. A waiting job's death asks no step, since his answer reaches it through drive job resume whether or not its lane lives, so it is recorded and not said: its Sprite is freed by the `drive job end` release_lanes runs on every remote job that is not running, which copies its Sprite's Orca runtime and worker logs to the drive's folder before the Sprite goes, and its lane on this Mac just waits. A job stopped, done or failed since the pass read it has the death recorded and nothing started or said. A running Sprite lane's line names the file in the drive's folder that resume copies those logs to."""
+    """Record each worker's death on its job: a remote lane's, by its dispatch, or a running local job's agent's, by its agent, and say it once for a running job, whose worker is replaced that pass by `drive job resume` as a process of its own, its pid kept on the death so no later pass starts a second: a Sprite lane's is resumed in its own Claude session on its Sprite, or else relaunched, and an agent's is handed to a lane on a Sprite, or on this Mac when its brief declares a step only this Mac runs. A waiting job's death asks no step, since his answer reaches it through drive job resume whether or not its lane lives, so it is recorded and not said: its Sprite is freed by the `drive job end` release_lanes runs on every remote job that is not running, which copies its Sprite's Orca runtime and worker logs to the drive's folder before the Sprite goes, and its lane on this Mac just waits. A job stopped, done or failed since the pass read it has the death recorded and nothing started or said. A running Sprite lane's line names the file in the drive's folder that resume copies those logs to, and, when another lane of the job died since its last line, that death and its cause, since the resume then starts no worker."""
     if not deaths:
         return []
     lines = []
@@ -1951,6 +1957,11 @@ def death_lines(name: str, deaths: dict[str, tuple[str, str]], moment: datetime)
             fresh = f'{"in a fresh worktree " + orca.ON_MAC if state.on_mac(job) else "on a fresh Sprite"} with a handoff'
             logs = "" if state.on_mac(job) else f"copies its Sprite's Orca runtime and worker logs to {orca.death_logs(name, job_id, worker)}, "
             again = f"relaunches it {fresh}" if state.on_mac(job) else f"resumes its Claude session on its Sprite, or else relaunches it {fresh}"
+            if not state.on_mac(job) and (first := state.died_before(job, worker)):
+                again = (
+                    f"reads from them why it died and starts no worker, as its lane on Sprite {first['workspace']} died too since its last line, at {when(first['at'])}"
+                    f" ({state.why_died(first['why'], first['cause'])})"
+                )
             lines.append(
                 f'LANE {job_id} {job["order"]} died {orca.place(job)}: {why}, while it worked on "{cut(job["said"] or job["goal"], 60)}".'
                 f" The watch ran drive job resume {job_id}, which {logs}{again}, its output in the drive's {RELAUNCHES_LOG}"
