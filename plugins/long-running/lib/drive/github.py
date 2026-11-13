@@ -309,8 +309,12 @@ def release_of(key: str, service: str, commit: str) -> str | None:
     lined = any(PRODUCTION.search(release["body"] or "") for release in published)
     if not (newest := next((release for release in published if (ships(release, service) if lined else ships_by_components(repo, release, service))), None)):
         return None
-    compared = read(f"whether {repo}'s release {newest['tag_name']} holds {commit[:7]}", ["gh", "api", f"repos/{repo}/compare/{commit}...{newest['tag_name']}", "--jq", ".status"], max_age="1h")
-    return newest["name"] if compared.strip() in HOLDS else None
+    return newest["name"] if holds(repo, newest["tag_name"], commit) else None
+
+
+def holds(repo: str, ref: str, commit: str) -> bool:
+    """Whether the history of ref, a commit or tag on repo, holds commit, as GitHub's compare of the two reads it, a commit holding itself with no read."""
+    return ref == commit or read(f"whether {repo}'s {ref} holds {commit[:7]}", ["gh", "api", f"repos/{repo}/compare/{commit}...{ref}", "--jq", ".status"], max_age="1h").strip() in HOLDS
 
 
 def ships(release: dict, service: str) -> bool:

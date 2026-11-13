@@ -1473,9 +1473,23 @@ def test_a_proof_file_runs_on_the_newest_install_read_right_before_it_and_again_
     assert state.proof_path("demo", "j1").read_text() == "ran on /cache/long-running/1.0.4/bin\n"
 
 
-def ci(run_id: int, name: str, created: str, status: str = "in_progress", conclusion: str | None = None) -> dict:
+MERGED_BEFORE = "291e838bc0ffee"
+MERGED_AFTER = "e16c9ce5a1b2c3"
+FIXED_AFTER = "38425f1b6d4e5f"
+
+
+def ci(run_id: int, name: str, created: str, status: str = "in_progress", conclusion: str | None = None, head: str = SHA) -> dict:
     workflow = {"long-running CI": 366540480, "Guides": 310890487}[name]
-    return {"id": run_id, "workflow_id": workflow, "name": name, "created_at": created, "status": status, "conclusion": conclusion, "html_url": f"https://github.com/{REPO}/actions/runs/{run_id}"}
+    return {
+        "id": run_id,
+        "workflow_id": workflow,
+        "name": name,
+        "head_sha": head,
+        "created_at": created,
+        "status": status,
+        "conclusion": conclusion,
+        "html_url": f"https://github.com/{REPO}/actions/runs/{run_id}",
+    }
 
 
 def on_actions(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, triggered: list[dict], polls: list[list[dict]]) -> Path:
@@ -1487,7 +1501,9 @@ def on_actions(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, triggered: list[
             return "main\n"
         if cmd[1:3] == ["pr", "view"]:
             return f"{SHA}\n"
-        runs = triggered if f"&head_sha={SHA}" in cmd[3] else next(answers)
+        if f"/compare/{SHA}..." in cmd[2]:
+            return "behind\n" if cmd[2].endswith(MERGED_BEFORE) else "ahead\n"
+        runs = triggered if f"&head_sha={SHA}" in cmd[3] else [run for run in next(answers) if f"/actions/workflows/{run['workflow_id']}/runs?" in cmd[3]]
         shown.write_text("".join(f"{run['id']} {run['status']} {run['conclusion']}\n" for run in runs))
         return "".join(json.dumps(run) + "\n" for run in runs)
 
@@ -1517,9 +1533,24 @@ def test_a_merge_whose_own_run_its_concurrency_group_cancelled_waits_on_the_run_
     git = fake([BUILD], {BUILD})
     script = proving(config, tmp_path, git, 0)
     cancelled = ci(43370495715, "long-running CI", "2026-11-13T05:12:31Z", "completed", "cancelled")
-    superseding = ci(43370536229, "long-running CI", "2026-11-13T05:12:53Z")
+    superseding = ci(43370536229, "long-running CI", "2026-11-13T05:12:53Z", head=MERGED_AFTER)
     shown = on_actions(monkeypatch, tmp_path, [cancelled], [[superseding, cancelled], [superseding | {"status": "completed", "conclusion": "success"}, cancelled]])
     script.write_text(f"#!/bin/sh\ngrep -x '43370536229 completed success' {shown}\n")
+    install.prove("demo", "j1", 900)
+    assert (git.heard, git.sleeps) == ([f"{REPO} ci"], [])
+    assert state.load("demo")["jobs"]["j1"]["said"] == f"DONE {URL} live: {script} exits 0 on long-running@skills 1.0.3"
+
+
+def test_a_proof_failing_while_a_run_holding_its_merge_failed_on_another_merge_waits_through_red_main_until_a_later_run_passes(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    git = fake([BUILD], {BUILD})
+    script = proving(config, tmp_path, git, 0)
+    cancelled = ci(43464105662, "long-running CI", "2026-11-13T16:34:41Z", "completed", "cancelled")
+    red = ci(43464306223, "long-running CI", "2026-11-13T16:35:50Z", "completed", "failure", head=MERGED_AFTER)
+    green = ci(43465943058, "long-running CI", "2026-11-13T16:46:12Z", "completed", "success", head=FIXED_AFTER)
+    shown = on_actions(monkeypatch, tmp_path, [cancelled], [[red, cancelled], [green, red, cancelled]])
+    script.write_text(f"#!/bin/sh\ngrep -x '43465943058 completed success' {shown}\n")
     install.prove("demo", "j1", 900)
     assert (git.heard, git.sleeps) == ([f"{REPO} ci"], [])
     assert state.load("demo")["jobs"]["j1"]["said"] == f"DONE {URL} live: {script} exits 0 on long-running@skills 1.0.3"
@@ -1566,31 +1597,34 @@ def test_a_ci_read_that_fails_is_read_again_within_poll_seconds_since_no_deliver
     assert (git.sleeps, git.heard) == ([install.POLL_SECONDS], [])
 
 
-def test_drive_pr_ci_judges_a_merge_by_the_run_that_superseded_its_cancelled_own_never_by_a_push_merged_seconds_before(
+def test_drive_pr_ci_passes_a_merge_by_a_later_run_holding_it_past_its_cancelled_own_and_a_red_one_never_by_a_run_of_a_push_merged_before_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    earlier = ci(43384583289, "long-running CI", "2026-11-13T07:16:37Z", "completed", "failure")
+    earlier = ci(43384583289, "long-running CI", "2026-11-13T07:16:37Z", "completed", "failure", head=MERGED_BEFORE)
     cancelled = ci(43384590795, "long-running CI", "2026-11-13T07:16:41Z", "completed", "cancelled")
-    superseding = ci(43384815193, "long-running CI", "2026-11-13T07:18:31Z", "completed", "success")
+    created_late = ci(43384590801, "long-running CI", "2026-11-13T07:16:41Z", "completed", "success", head=MERGED_BEFORE)
+    red = ci(43384700412, "long-running CI", "2026-11-13T07:17:30Z", "completed", "failure", head=MERGED_AFTER)
+    green = ci(43384815193, "long-running CI", "2026-11-13T07:18:31Z", "completed", "success", head=FIXED_AFTER)
     guides = ci(43384591254, "Guides", "2026-11-13T07:16:42Z", "completed", "success")
-    on_actions(monkeypatch, tmp_path, [cancelled, guides], [[earlier, cancelled, guides, superseding]])
+    on_actions(monkeypatch, tmp_path, [cancelled, guides], [[green, red, guides, created_late, cancelled, earlier]])
     assert cli.main(["pr", "ci", URL]) == 0
     assert capsys.readouterr().out.splitlines() == [
-        f"Guides https://github.com/{REPO}/actions/runs/43384591254 completed success",
         f"long-running CI https://github.com/{REPO}/actions/runs/43384815193 completed success",
+        f"Guides https://github.com/{REPO}/actions/runs/43384591254 completed success",
         f"yasyf/cc-skills#7 merged at {SHA[:12]}: passed",
     ]
 
 
-def test_drive_pr_ci_exits_1_while_a_workflow_of_the_merge_failed_or_has_no_run_that_was_not_cancelled(
+def test_drive_pr_ci_exits_1_while_a_workflow_of_the_merge_has_no_passing_run_holding_it_naming_its_newest_run(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     failed = ci(43384583289, "long-running CI", "2026-11-13T07:16:37Z", "completed", "failure")
+    running = ci(43384815193, "long-running CI", "2026-11-13T07:18:31Z", head=MERGED_AFTER)
     cancelled = ci(43384591254, "Guides", "2026-11-13T07:16:42Z", "completed", "cancelled")
-    on_actions(monkeypatch, tmp_path, [failed, cancelled], [[failed, cancelled]])
+    on_actions(monkeypatch, tmp_path, [failed, cancelled], [[running, cancelled, failed]])
     assert cli.main(["pr", "ci", URL]) == 1
-    failure, unrun = f"long-running CI https://github.com/{REPO}/actions/runs/43384583289 completed failure", f"Guides: no run since {SHA[:12]} that was not cancelled"
-    assert capsys.readouterr().out.splitlines() == [failure, unrun, f"yasyf/cc-skills#7 merged at {SHA[:12]}: not passed: {failure}; {unrun}"]
+    newest, unrun = f"long-running CI https://github.com/{REPO}/actions/runs/43384815193 in_progress", f"Guides https://github.com/{REPO}/actions/runs/43384591254 completed cancelled"
+    assert capsys.readouterr().out.splitlines() == [newest, unrun, f"yasyf/cc-skills#7 merged at {SHA[:12]}: not passed: {newest}; {unrun}"]
 
 
 def test_a_proof_file_passing_while_its_merges_ci_still_runs_takes_done_right_after_the_install_without_waiting_on_that_ci(

@@ -4864,8 +4864,8 @@ def parser() -> argparse.ArgumentParser:
             "what the watch starts once every PR of a builder's taken READY or PUSHED merged, a yasyf/* one among them, and it keeps an"
             " executable proof file: install each plugin a yasyf/* merge changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, its other merges taken at once,"
             " wait until the drive's dashboard runs the newest long-running installed, run the proof file with those plugins' bin folders first on PATH with no wait for CI,"
-            " and when it fails while a workflow a yasyf/* merge ran on its default branch has not completed its first run from the merge on that was not cancelled,"
-            " the run drive pr ci judges the merge by, follow that run to its end with no deadline and run the file once more, keep its output"
+            " and when it fails while a workflow a yasyf/* merge ran on its default branch has passed in no run from the merge on whose commit holds it,"
+            " as drive pr ci judges the merge, wait for such a pass with no deadline and run the file once more, keep its output"
             " beside the job's report, take DONE on exit 0 and BLOCKED quoting its last FAIL line otherwise or when an install fails, no release will carry a merge,"
             " or the dashboard still runs an older install at the timeout, and keep the close report of an order the DONE finishes for the"
             " watch to post, but a nonzero exit ending on a WAIT line with no FAIL line takes no result and runs again at his next word;"
@@ -4974,10 +4974,10 @@ def parser() -> argparse.ArgumentParser:
         "ci",
         parents=both,
         help=(
-            "judge a merged PR's CI as drive job prove follows it: the first run not cancelled of each workflow that ran on its merge commit,"
-            " from that commit's run on by run id, never a run of a push merged before it; exits 0 once each completed and passed, 1 while one runs,"
-            " failed or has no run, naming each run and then its verdict, which names each run that did not pass, so a proof file of a fix to red CI reads its verdict here"
-            " rather than picking a run itself"
+            "judge a merged PR's CI as drive job prove waits on it: each workflow that ran on its merge commit passed once any of its runs from that commit's run on,"
+            " by run id, passed on a commit holding the merge, whatever failed or was cancelled before it, never a run of a push merged before it; exits 0 once each passed,"
+            " 1 while one has not, naming each workflow's first passing run, else its newest, and then its verdict, which names each that did not pass,"
+            " so a proof file of a fix to red CI reads its verdict here rather than picking a run itself"
         ),
     )
     verb.add_argument("url", help="the PR's URL")

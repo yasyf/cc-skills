@@ -235,11 +235,11 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      on the installed surface, asserts its criteria and prints, for each, the path of the picture it saves or the live post's link
      it reads back: `drive job prove` takes `BLOCKED` on output showing fewer stories than the brief names, or one
      Jev reads with the file's criteria as the bare minimum. A fix to red CI proves itself in that file
-     with `drive pr ci <its PR's url>`, which exits 0 only once the first run not cancelled of each
-     workflow from its merge commit's own run on concluded success, never by a local test run, which
-     passes while the default branch stays red, nor by a run the file picks itself, which can be the
-     run of a push merged seconds before it; when the file fails while one of those runs still runs,
-     `drive job prove` runs it again once they completed. `drive job report` refuses the `READY` or
+     with `drive pr ci <its PR's url>`, which exits 0 once each workflow that ran on its merge commit
+     passed in a run from that commit's own run on whose commit holds the merge, never by a local test
+     run, which passes while the default branch stays red, nor by a run the file picks itself, which
+     can be the run of a push merged before it; when the file fails while a workflow has no such pass,
+     `drive job prove` waits for one and runs it again. `drive job report` refuses the `READY` or
      `PUSHED` without one. A `Forge-AI/*` one
      returns `READY` with `SERVES: drive tooling: <what it unblocks>`, and an `EXEMPT:` line when an
      exempt class covers it; the meta session registers it under its Drive tooling order, and the exempt class
