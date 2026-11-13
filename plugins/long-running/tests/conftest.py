@@ -432,6 +432,14 @@ def relaunches(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     return started
 
 
+@pytest.fixture
+def ended_lanes(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Each waiting job whose dead lane on a Sprite the watch ended, as a drive job end that still runs."""
+    ended: list[str] = []
+    monkeypatch.setattr(watch, "end_lane", lambda name, job_id: ended.append(job_id) or os.getpid())
+    return ended
+
+
 @dataclass
 class MetaLaunches:
     started: list[tuple[str, str]] = field(default_factory=list)

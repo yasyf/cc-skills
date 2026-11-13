@@ -1180,7 +1180,7 @@ def test_resume_sends_nothing_while_orca_cannot_tell_whether_the_lane_lives(
     assert "deaths" not in state.load(remote)["jobs"]["j1"]
 
 
-def test_the_watch_says_a_dead_lane_once_whether_it_ran_or_waited(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_watch_ends_a_waiting_jobs_dead_lane_on_a_sprite_once(remote: str, monkeypatch: pytest.MonkeyPatch, ended_lanes: list[str]) -> None:
     deliver(monkeypatch)
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(workspace="sprite-old", state="waiting", said="ASK which npm name?", ask="msg_q1")
@@ -1188,12 +1188,29 @@ def test_the_watch_says_a_dead_lane_once_whether_it_ran_or_waited(remote: str, m
     monkeypatch.setattr(orca, "worker", lambda dispatch: shown.append(dispatch) or dead())
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
     assert watch.run_pass(watching, T0) == [
-        'LANE j1 o1 died on Sprite sprite-old: its worker exited, while it waited on "ASK which npm name?". A message sent '
-        'to it reaches no one; drive job resume j1 "<his answer>" relaunches it on a fresh Sprite with a handoff'
+        'LANE j1 o1 died on Sprite sprite-old: its worker exited, while it waited on "ASK which npm name?". The watch ran drive job end j1, '
+        "which saves to GitHub what its Sprite holds on no remote and destroys it, its output in the drive's relaunches.log; "
+        'drive job resume j1 "<his answer>" relaunches it on a fresh Sprite with a handoff'
     ]
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
-    assert shown == [DISPATCH]
-    assert [death["dispatch"] for death in state.load(remote)["jobs"]["j1"]["deaths"]] == [DISPATCH]
+    assert (shown, ended_lanes) == ([DISPATCH], ["j1"])
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["state"], [(death["dispatch"], death["ended"]) for death in job["deaths"]]) == ("waiting", [(DISPATCH, {"pid": os.getpid(), "at": state.stamp(T0)})])
+
+
+def test_the_watch_releases_the_sprite_a_lane_died_on_once_no_unfinished_job_runs_on_it(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    released = []
+    monkeypatch.setattr(state, "scratch", lambda: False)
+    monkeypatch.setattr(orca, "checkout", lambda name, data: Path(remote))
+    monkeypatch.setattr(orca, "holds_sprite", lambda job: job["workspace"] != "sprite-gone")
+    monkeypatch.setattr(orca, "release_detached", lambda workspace, checkout, log: released.append(workspace) or subprocess.Popen(["true"]))
+    with state.edit(remote) as data:
+        old = [{"dispatch": f"ctx_old{n}", "workspace": workspace, "why": "its worker exited", "at": state.stamp(T0)} for n, workspace in enumerate(["sprite-old", "sprite-gone", "sprite-now"])]
+        data["jobs"]["j1"].update(state="waiting", workspace="sprite-now", deaths=old)
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    watch.release_sprites(watching)
+    watch.release_sprites(watching)
+    assert released == ["sprite-old"]
 
 
 def refused(code: str, message: str) -> Callable[[str], dict]:
