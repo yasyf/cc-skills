@@ -13,8 +13,12 @@ scripts. Your brief's `Drive:` line names `<your job>` and `Scratch:` your one f
 
 - Read each fact from its owner: GitHub for a PR's state, the CI log for a failure,
   `cc-transcript` for a session, cc-notes answers for his decisions, `drive status` for orders and
-  jobs, the plan for its steps (`drive plan search <words>`, or the `search_plan` tool), and a
-  release's commit and build for its contents. A missing message proves nothing.
+  jobs, the plan for its steps (`drive plan search <words>`, or the `search_plan` tool), a
+  release's commit and build for its contents, and Datadog's metrics, logs, traces, monitors and
+  profiles through the Datadog MCP's tools, whose `execute_code` reaches any Datadog API,
+  never the `pup` command, whose OAuth grant keeps the scopes its `pup auth login` was granted
+  while later pup releases add commands needing more, such as profiling's
+  `continuous_profiler_read`. A missing message proves nothing.
 - A fact about code, where it lives, what it does or why, cites your own read of the code that
   does it, by his words "stop saying wrong shit bc you jsut guess and its probably misleading all
   your work" and "dont just take things for granted critically evakuate them". A code comment, a
