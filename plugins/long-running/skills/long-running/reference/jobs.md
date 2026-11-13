@@ -162,8 +162,11 @@ minutes is said with the remedy, a `SendMessage` to wake it.
    order's next report, never silently. When the failure came after worker-start ran, the lane may
    be live, so a reader checks that attempt before anything starts the job again, unless Orca's
    Run holds no task for its lane, when the attempt counts as one that sent nothing and the next
-   launch reuses its Sprite. A launch whose worker started and was never recorded needs no reader:
-   `drive job launch <j>` again records it from the ready receipt its attempt keeps.
+   launch reuses its Sprite, or Orca answers `Unknown environment` for its Sprite, when nothing it
+   started can run and the next launch destroys that Sprite and prepares a fresh one. A launch
+   whose worker started and was never recorded needs no reader: `drive job launch <j>` again
+   records it from the ready receipt its attempt keeps, or launches afresh once Orca answers
+   `Unknown environment` for it.
 4. Send a handoff or message to a lane on stdin, `drive job resume <j> -` from a quoted heredoc,
    never in a file you write: Claude Code reads the files a session wrote back into its context
    after every compaction.

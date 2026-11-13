@@ -151,6 +151,12 @@ unreached() {
     tasks=$(orca orchestration task-list --run "$1" --json 2>/dev/null) &&
     jq -e --arg lane "$lane" '.ok == true and all(.result.tasks[]; .title != $lane)' <<<"$tasks" >/dev/null 2>&1
 }
+forgotten() {
+  local environment shown
+  environment=$(jq -er '.environmentId | strings' "$attempt/prepared.json" 2>/dev/null) || return 1
+  ! shown=$(orca environment show --environment "$environment" --json 2>/dev/null) &&
+    jq -e '.ok == false and (.error.message | startswith("Unknown environment"))' <<<"$shown" >/dev/null 2>&1
+}
 unstarted() {
   local earlier
   [ -f "$attempt/worker-start.unsent" ] ||
@@ -159,16 +165,25 @@ unstarted() {
     { [ -e "$attempt/worker-start.status" ] && earlier=$(jq -er .run "$attempt/request.json" 2>/dev/null) && unreached "$earlier"; }
 }
 if [ -d "$attempt" ] && [ ! -L "$attempt" ] && { [ "$route" = sprite ] || [ -e "$attempt/prepare.err" ]; }; then
-  if [ ! -e "$attempt/worker-start.status" ] && ! { read -r failed 2>/dev/null <"$attempt/prepare.status" && [ "$failed" = 0 ]; }; then
+  if [ ! -e "$attempt/worker-start.status" ] && [ ! -e "$attempt/prepared.json" ]; then
     if [ "$route" = sprite ]; then
       stopped=$("$cc_remote" orca stop "$lane" --provider sprites --profile agents 2>&1 >/dev/null) ||
         die "cc-remote orca stop $lane failed: ${stopped##*$'\n'}, so the Sprite the earlier prepare claimed still holds the lane; $attempt keeps that attempt, and nothing was prepared"
     fi
-    retire "whose prepare ${failed:+exited }${failed:-never finished} before any worker started"
+    read -r failed 2>/dev/null <"$attempt/prepare.status" || failed=
+    if [ "$failed" = 0 ]; then
+      said=$(tail -n 1 "$attempt/prepare.err" 2>/dev/null) || said=
+      retire "whose prepare exited 0 with no Sprite to attach${said:+: $said}"
+    else
+      retire "whose prepare ${failed:+exited }${failed:-never finished} before any worker started"
+    fi
   elif [ "$route" = local ] && [ ! -e "$attempt/worker-start.status" ]; then
     retire "whose Sprite was prepared but started no worker"
   elif [ -n "$continued" ] && unstarted && held=$(jq -r .workspace "$attempt/prepared.json") && [ "$held" != "$continued" ]; then
     retire "which prepared Sprite $held while this launch continues on Sprite $continued, and $(discard "$held")"
+  elif [ "$route" = sprite ] && forgotten; then
+    held=$(jq -r .workspace "$attempt/prepared.json")
+    retire "whose Sprite $held Orca answers Unknown environment for, so nothing it started can run, and $(discard "$held")"
   fi
 fi
 reused= unsent=
