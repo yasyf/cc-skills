@@ -602,6 +602,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         job["carries"] = {order_id: [part.strip() for part in parts] for order_id, parts in job["carries"].items()}
         if job["kind"] == "reader" and job["state"] in FINISHED_JOB_STATES:
             job["undelivered"] = []
+        if job.get("brief_flags") and "handoff" not in job["brief_flags"] and job["state"] not in FINISHED_JOB_STATES:
+            job["brief_flags"]["handoff"] = briefed_handoff(job.get("brief"))
     for order_id, order in data["orders"].items():
         if "joins" not in order:
             carriers = (data["jobs"][job_id]["order"] for job_id in order["jobs"]) if order["incident"] else ()
@@ -676,6 +678,15 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         finish_asked_readers(name, data)
         close_from_cards(name, data)
     return data, keep
+
+
+def briefed_handoff(path: str | None) -> str | None:
+    """The Handoff: line of a brief drive job brief wrote before it kept a handoff in brief_flags, so a live job's next re-brief keeps it."""
+    from drive import brief
+
+    if not (path and Path(path).exists()):
+        return None
+    return next((value.strip() for label, value in brief.fields(Path(path).read_text()) if label == "Handoff"), None)
 
 
 def finish_asked_readers(name: str, data: dict) -> None:
