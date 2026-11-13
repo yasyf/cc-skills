@@ -1292,12 +1292,15 @@ def answer_lines(watcher: Watcher, moment: datetime) -> list[str]:
     ]
 
 
+def session_transcript(holder: dict) -> Path:
+    return config_dir() / "projects" / NOT_SLUG.sub("-", holder["cwd"]) / f"{holder['session']}.jsonl"
+
+
 def transcript(holder: dict, agent: str) -> Path:
-    project = NOT_SLUG.sub("-", holder["cwd"])
-    return config_dir() / "projects" / project / holder["session"] / "subagents" / f"agent-{agent}.jsonl"
+    return session_transcript(holder).with_suffix("") / "subagents" / f"agent-{agent}.jsonl"
 
 
-def last_turn(path: Path) -> dict | None:
+def last_turn(path: Path, kinds: tuple[str, ...] = ("user", "assistant")) -> dict | None:
     with open(path, "rb") as handle:
         end = handle.seek(0, os.SEEK_END)
         span = TAIL_BYTES
@@ -1309,7 +1312,7 @@ def last_turn(path: Path) -> dict | None:
                     entry = json.loads(line)
                 except ValueError:
                     continue
-                if entry.get("type") in ("user", "assistant"):
+                if entry.get("type") in kinds:
                     return entry
             if not start:
                 return None
@@ -1358,7 +1361,7 @@ def compact_due(data: dict, moment: datetime) -> str | None:
     held = data["roles"].get("communicator")
     if not held or not held.get("terminal"):
         return None
-    path = config_dir() / "projects" / NOT_SLUG.sub("-", held["cwd"]) / f"{held['session']}.jsonl"
+    path = session_transcript(held)
     if not path.exists() or moment - datetime.fromtimestamp(path.stat().st_mtime).astimezone() < COMPACT_WHEN_QUIET:
         return None
     heard = (data.get("owner") or {}).get("heard")
@@ -1563,16 +1566,33 @@ def local_gap(job_id: str, job: dict, data: dict, moment: datetime) -> str | Non
     return None
 
 
-def agent_death(job: dict, data: dict, moment: datetime) -> str | None:
-    """Why a local job's agent takes no message: it ended with its session, which no role holds any more, or its last response ended on an API error or a refusal, and its transcript has been quiet the time a handoff takes; None while it works, after a turn it ended itself, or with no transcript to read."""
+def agent_death(job: dict, data: dict) -> str | None:
+    """Why a local job's agent takes no message: it ended with its session, which no role holds any more, or its last response ended on an API error or a refusal; None while it works, after a turn it ended itself, or with no transcript to read."""
     if not job.get("agent"):
         return None
     if (holder := session_of(job, data)) is None:
         return "it ended with its session, which no role holds any more"
-    if not (path := agent_transcript(holder, job, data)).exists():
+    return stopped_on(turn) if (turn := stopped_turn(holder, job, data)) else None
+
+
+def agent_stop(job: dict, data: dict) -> str | None:
+    """Why the watch hands a running local job to a fresh worker: its agent's last response ended on an API error or a refusal, and the session holding it has had a response answered since, so the fresh worker does not start inside the outage that stopped it; None until then, and for an agent that ended with its session."""
+    if not job.get("agent") or (holder := session_of(job, data)) is None or not (turn := stopped_turn(holder, job, data)):
         return None
-    if moment - datetime.fromtimestamp(path.stat().st_mtime).astimezone() < HANDOFF or not (turn := last_turn(path)) or not agents.died(turn):
+    main = session_transcript(holder)
+    answered = main.exists() and last_turn(main, ("assistant",))
+    if not answered or agents.died(answered) or state.parse_time(answered["timestamp"]) <= state.parse_time(turn["timestamp"]):
         return None
+    return stopped_on(turn)
+
+
+def stopped_turn(holder: dict, job: dict, data: dict) -> dict | None:
+    """The last row of a local job's agent's transcript when that response ended on an API error or a refusal."""
+    path = agent_transcript(holder, job, data)
+    return turn if path.exists() and (turn := last_turn(path)) and agents.died(turn) else None
+
+
+def stopped_on(turn: dict) -> str:
     return f'its last response ended on {turn["message"]["stop_reason"]} at {when(turn["timestamp"])}: "{cut(said_last(turn), 100)}"'
 
 
@@ -1635,6 +1655,12 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
             if not remote:
                 if running and (call := held_call(job_id, job, data, moment)):
                     held[job_id] = call
+                if running and (why := agent_stop(job, data)):
+                    if ended := state.lane_death(job):
+                        gaps[job_id] = ended_gap(job_id, ended, moment)
+                    else:
+                        deaths[job_id] = (job["agent"], why)
+                    continue
                 gap = running and agent_gap(job_id, job, data, moment)
                 if isinstance(gap, Answered):
                     taken[job_id] = gap
@@ -1767,14 +1793,22 @@ def lane_holds(job: dict, moment: datetime, live: set[str]) -> set[str]:
 
 
 def death_lines(name: str, deaths: dict[str, tuple[str, str]], moment: datetime) -> list[str]:
-    """Record each remote lane's death on its job and say it once. A running job's lane is resumed in its own Claude session on its Sprite, or else relaunched, that pass by `drive job resume` as a process of its own, its pid kept on the death so no later pass starts a second; a waiting job's Sprite is freed by `drive job end` in a process of its own, and the job waits for the coordinator's resume with his answer; a waiting job's lane on this Mac just waits. A Sprite lane's line names the file in the drive's folder that resume or end copies its Sprite's Orca runtime and worker logs to before the Sprite goes."""
+    """Record each worker's death on its job and say it once: a remote lane's, by its dispatch, or a running local job's agent's, by its agent. A running job's worker is replaced that pass by `drive job resume` as a process of its own, its pid kept on the death so no later pass starts a second: a Sprite lane's is resumed in its own Claude session on its Sprite, or else relaunched, and an agent's is handed to a lane on a Sprite, or on this Mac when its brief declares a step only this Mac runs; a waiting job's Sprite is freed by `drive job end` in a process of its own, and the job waits for the coordinator's resume with his answer; a waiting job's lane on this Mac just waits. A Sprite lane's line names the file in the drive's folder that resume or end copies its Sprite's Orca runtime and worker logs to before the Sprite goes."""
     if not deaths:
         return []
     lines = []
     with state.edit(name) as data:
-        for job_id, (dispatch, why) in deaths.items():
+        for job_id, (worker, why) in deaths.items():
             job = data["jobs"][job_id]
-            if not state.lane_died(job, dispatch, why, moment):
+            if not state.lane_died(job, worker, why, moment):
+                continue
+            if job.get("where") != "remote":
+                job["deaths"][-1]["relaunch"] = {"pid": relaunch(name, job_id), "at": state.stamp(moment)}
+                lines.append(
+                    f'LANE {job_id} {job["order"]} died as agent {worker} on this Mac: {why}, while it worked on "{cut(job["said"] or job["goal"], 60)}". The watch ran'
+                    f" drive job resume {job_id}, which hands the job to a lane on a Sprite, or on this Mac when its brief declares a step only this Mac runs,"
+                    f" with a handoff, its output in the drive's {RELAUNCHES_LOG}"
+                )
                 continue
             waiting = job["state"] == "waiting"
             died = f'LANE {job_id} {job["order"]} died {orca.place(job)}: {why}, while it {"waited on" if waiting else "worked on"} "{cut(job["said"] or job["goal"], 60)}". '
@@ -1782,7 +1816,7 @@ def death_lines(name: str, deaths: dict[str, tuple[str, str]], moment: datetime)
             if waiting and state.on_mac(job):
                 lines.append(f'{died}A message sent to it reaches no one; drive job resume {job_id} "<his answer>" relaunches it {fresh}')
                 continue
-            logs = "" if state.on_mac(job) else f"copies its Sprite's Orca runtime and worker logs to {orca.death_logs(name, job_id, dispatch)}, "
+            logs = "" if state.on_mac(job) else f"copies its Sprite's Orca runtime and worker logs to {orca.death_logs(name, job_id, worker)}, "
             if waiting:
                 end_lane(name, job_id)
                 lines.append(

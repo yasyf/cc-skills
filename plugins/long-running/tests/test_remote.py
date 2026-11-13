@@ -853,7 +853,7 @@ def agent_on_this_mac(run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.M
 def test_a_job_whose_agent_on_this_mac_stopped_on_a_refusal_relaunches_on_a_sprite_with_a_handoff_naming_the_stop(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, argv: tuple[str, ...], said: str, message: str | None
 ) -> None:
-    launched = agent_on_this_mac(run, demo, tmp_path, monkeypatch, STOPPED, timedelta(minutes=10))
+    launched = agent_on_this_mac(run, demo, tmp_path, monkeypatch, STOPPED, timedelta(seconds=13))
     stop = f'its last response ended on refusal at {watch.when(STOPPED["timestamp"])}: "{render.cut(STOPPED_TEXT, 100)}"'
     assert run("job", *argv) == (0, f"{said}, taking over from its agent a1 on this Mac, which takes no message: {stop}")
     brief = orca.brief_of(launched[0])
@@ -895,7 +895,62 @@ def test_a_job_whose_agent_ended_with_an_earlier_session_relaunches_from_a_detac
     assert (job["agent"], job["where"], job["dispatch"], job["state"]) == (None, "remote", "dispatch-2", "running")
 
 
-@pytest.mark.parametrize(("last", "quiet"), [(STOPPED, timedelta(seconds=30)), (ENDED_TURN, timedelta(minutes=10)), (CALLED, timedelta(minutes=10))])
+def test_a_job_whose_stopped_agent_has_a_brief_declaring_a_step_only_this_mac_runs_takes_over_on_this_mac(run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    agent_on_this_mac(run, demo, tmp_path, monkeypatch, STOPPED, timedelta(seconds=45))
+    brief = Path(state.load(demo)["jobs"]["j1"]["brief"])
+    brief.write_text(brief.read_text() + "Mac: proves the desktop change on a Mac box with ci mac-box prove\n")
+    stop = f'its last response ended on refusal at {watch.when(STOPPED["timestamp"])}: "{render.cut(STOPPED_TEXT, 100)}"'
+    assert run("job", "launch", "j1") == (0, f"j1 started on this Mac as dispatch dispatch-2, taking over from its agent a1 on this Mac, which takes no message: {stop}")
+    job = state.load(demo)["jobs"]["j1"]
+    assert (job["agent"], job["where"], job["route"], job["dispatch"]) == (None, "remote", state.LOCAL_ROUTE, "dispatch-2")
+
+
+ANSWERED = {"type": "assistant", "timestamp": "2026-11-12T20:44:30.000Z", "message": {"model": "claude-opus-5-5", "stop_reason": "end_turn", "content": [{"type": "text", "text": "j1's agent stopped."}]}}
+FORBIDDEN_TEXT = "API Error: 403 Attention Required! | Cloudflare (error type authentication_failed). Please run /login"
+FORBIDDEN = {"type": "assistant", "timestamp": "2026-11-12T20:44:30.000Z", "message": {"model": "<synthetic>", "stop_reason": "stop_sequence", "content": [{"type": "text", "text": FORBIDDEN_TEXT}]}}
+EARLIER = {**ANSWERED, "timestamp": "2026-11-12T20:43:00.000Z"}
+
+
+def stopped_agent_watched(run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, session: list[dict]) -> watch.Watcher:
+    """A running builder whose agent a1 on this Mac stopped on an API error 13 seconds ago, as j577's did, beside the transcript of the session holding it, which ends on session."""
+    agent_on_this_mac(run, demo, tmp_path, monkeypatch, STOPPED, timedelta(seconds=13))
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="running", waits=[], said="PUSHED https://github.com/Forge-AI/monorepo/pull/54870")
+    data = state.load(demo)
+    watch.session_transcript(watch.session_of(data["jobs"]["j1"], data)).write_text("".join(json.dumps(row) + "\n" for row in session))
+    return watch.Watcher(demo, offset=state.events_end(demo))
+
+
+def lane_lines(watching: watch.Watcher, moment: datetime) -> list[str]:
+    return [line for line in watch.run_pass(watching, moment) if line.startswith("LANE")]
+
+
+def test_the_watch_hands_a_job_whose_agent_on_this_mac_stopped_on_an_api_error_to_a_fresh_worker_that_pass_once(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relaunches: list[str]
+) -> None:
+    watching = stopped_agent_watched(run, demo, tmp_path, monkeypatch, [STOPPED, ANSWERED])
+    stop = f'its last response ended on refusal at {watch.when(STOPPED["timestamp"])}: "{render.cut(STOPPED_TEXT, 100)}"'
+    assert lane_lines(watching, T0) == [
+        f'LANE j1 o1 died as agent a1 on this Mac: {stop}, while it worked on "PUSHED https://github.com/Forge-AI/monorepo/pull/54870". The watch ran'
+        " drive job resume j1, which hands the job to a lane on a Sprite, or on this Mac when its brief declares a step only this Mac runs, with a handoff,"
+        " its output in the drive's relaunches.log"
+    ]
+    assert lane_lines(watching, T0 + timedelta(minutes=1)) == []
+    assert relaunches == ["j1"]
+    job = state.load(demo)["jobs"]["j1"]
+    assert [(death["agent"], death["dispatch"], death["relaunch"]) for death in job["deaths"]] == [("a1", None, {"pid": os.getpid(), "at": state.stamp(T0)})]
+    assert "lane dead since" in render.job_line("j1", job)
+
+
+@pytest.mark.parametrize("session", [[STOPPED, FORBIDDEN], [EARLIER]], ids=["refused-since", "nothing-since"])
+def test_the_watch_holds_a_stopped_agents_job_until_the_session_holding_it_has_a_response_answered(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relaunches: list[str], session: list[dict]
+) -> None:
+    watching = stopped_agent_watched(run, demo, tmp_path, monkeypatch, session)
+    assert (lane_lines(watching, T0), relaunches, state.load(demo)["jobs"]["j1"].get("deaths", [])) == ([], [], [])
+
+
+@pytest.mark.parametrize(("last", "quiet"), [(ENDED_TURN, timedelta(minutes=10)), (CALLED, timedelta(minutes=10))])
 def test_a_job_whose_agent_on_this_mac_works_or_ended_its_own_turn_keeps_its_agent(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], last: dict, quiet: timedelta
 ) -> None:

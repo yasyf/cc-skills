@@ -1197,12 +1197,14 @@ def on_mac(job: dict) -> bool:
     return job["route"] == LOCAL_ROUTE
 
 
-def lane_died(job: dict, dispatch: str, why: str, moment: datetime) -> bool:
-    """Record once that the remote lane on this dispatch died or finished, so it takes no more messages; whether this call recorded it."""
+def lane_died(job: dict, worker: str, why: str, moment: datetime) -> bool:
+    """Record once that the job's current worker died or finished, so it takes no more messages: its remote lane, by this dispatch, or its agent on this Mac, by this agent; whether this call recorded it."""
+    key = worker_key(job)
     deaths = job.setdefault("deaths", [])
-    if job["dispatch"] != dispatch or any(death["dispatch"] == dispatch for death in deaths):
+    if job[key] != worker or any(death.get(key) == worker for death in deaths):
         return False
-    deaths.append({"dispatch": dispatch, "workspace": job["workspace"], "why": why, "at": stamp(moment)})
+    held = {"dispatch": worker, "workspace": job["workspace"]} if key == "dispatch" else {"dispatch": None, "workspace": None, "agent": worker}
+    deaths.append({**held, "why": why, "at": stamp(moment)})
     job["updated"] = stamp(moment)
     return True
 
@@ -1213,8 +1215,13 @@ def held(job: dict) -> list[dict]:
 
 
 def lane_death(job: dict) -> dict | None:
-    """The recorded death of the job's current remote lane, which takes no message until drive job resume relaunches it; None while it lives or the job has none."""
-    return next((death for death in job.get("deaths", []) if death["dispatch"] == job.get("dispatch")), None)
+    """The recorded death of the job's current worker, its remote lane or its agent on this Mac, which takes no message until drive job resume replaces it; None while it lives or the job has none."""
+    key = worker_key(job)
+    return next((death for death in job.get("deaths", []) if job.get(key) and death.get(key) == job[key]), None)
+
+
+def worker_key(job: dict) -> str:
+    return "dispatch" if job.get("where") == "remote" else "agent"
 
 
 def lane_ended(job: dict) -> bool:

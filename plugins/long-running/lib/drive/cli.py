@@ -2088,7 +2088,7 @@ def job_resume(args: argparse.Namespace) -> int:
 
 
 def relaunch(args: argparse.Namespace, name: str, text: str | None) -> int:
-    """The one path launch and resume share, under the job's own lock, so a second waits for the first and acts on the worker it started: a lane whose worker takes messages gets the text, one whose worker ended starts its next in a handoff, an agent on this Mac that ended with its session or whose last response ended on an API error or refusal hands the job to a lane on a Sprite, an agent another session holds hands it to this one, and a job with no worker yet starts its first."""
+    """The one path launch and resume share, under the job's own lock, so a second waits for the first and acts on the worker it started: a lane whose worker takes messages gets the text, one whose worker ended starts its next in a handoff, an agent on this Mac that ended with its session or whose last response ended on an API error or refusal hands the job to a lane on a Sprite, or on this Mac when its brief declares a step only this Mac runs, an agent another session holds hands it to this one, and a job with no worker yet starts its first."""
     with state.job_locked(name, args.id, orca.LAUNCH_SECONDS):
         data = state.load(name)
         job = find(data["jobs"], args.id, "job")
@@ -2108,7 +2108,7 @@ def relaunch(args: argparse.Namespace, name: str, text: str | None) -> int:
             if end:
                 return restart(args, name, dispatch, end, None, args.local and not state.on_mac(job))
             raise DriveError(f"{args.id} already started as dispatch {dispatch}, whose worker takes messages: drive job resume {args.id} <the event> sends it one")
-        died = None if taker or not job.get("agent") else watch.agent_death(job, data, state.now())
+        died = None if taker or not job.get("agent") else watch.agent_death(job, data)
         if job.get("agent") and not (taker or died):
             remote_job(data, args.id)
         if text is not None and not died:
@@ -2208,7 +2208,7 @@ def unsent(args: argparse.Namespace, job: dict, held: list[dict], error: orca.Or
 
 
 def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: str | None, died: str | None) -> dict:
-    """Start a job's first lane, or one taking over from an agent on this Mac that stopped or that another session holds, with the text in its handoff when a resume brought one, and under His answers since: each answer of his it has not heard whose words its brief lacks."""
+    """Start a job's first lane, or one taking over from an agent on this Mac that stopped or that another session holds, with the text in its handoff when a resume brought one, and under His answers since: each answer of his it has not heard whose words its brief lacks; a lane taking over from a stopped agent starts on this Mac when its brief declares a step only this Mac runs."""
     from drive import view
 
     data = state.load(name)
@@ -2226,6 +2226,7 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
         written = written.rstrip() + "\nHis answers since:" + "".join(f'\n- "{kept["words"]}"' + (f" ({kept['link']})" if kept["link"] else "") for kept in since) + "\n"
     if taker or died:
         written = orca.agent_handoff(orca.brief_of(written), job, text, died)
+    local = local or bool(died and place.mac_step(written))
     role = state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
     if refused := (
         state.held_elsewhere(data, job["order"], role)
@@ -2237,7 +2238,7 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
     with state.edit(name) as data:
         job = data["jobs"][job_id]
         if taker or died:
-            job.update(agent=None, session=taker or job["session"])
+            job.update(agent=None, dispatch=None, session=taker or job["session"])
         job.update(where="remote", route=state.LOCAL_ROUTE if local else None, launching=state.stamp(), waits=[wait for wait in view.holding(data, job["waits"], None) if wait != state.SLOT_WAIT])
     kept = launch_brief(name, job_id)
     kept.parent.mkdir(exist_ok=True)
@@ -4356,7 +4357,7 @@ def parser() -> argparse.ArgumentParser:
             "Answer a remote lane's question, or send it the next event, once Orca shows its worker alive, by the one relaunch drive"
             " job launch shares, under the job's own lock, so a resume arriving while another starts the job's next worker waits"
             " for it, about 150 s, and sends that worker the text. An agent on this Mac whose last response ended on an API error or"
-            " a refusal hands the job to a lane on a Sprite, with a handoff carrying the job's brief and this text. When its "
+            " a refusal hands the job to a lane on a Sprite, or on this Mac when its brief declares a step only this Mac runs, with a handoff carrying the job's brief and this text. When its "
             "worker finished and Orca still holds its terminal, on its Sprite or on this Mac, start the job's next worker "
             "in that terminal, or, when Orca no longer finds that terminal or worktree, as a dead worker's; when its worker is dead, relaunch the job on a fresh Sprite, or in a fresh worktree on this "
             "Mac, on the same Run. Before a relaunch on a fresh Sprite it saves what the dead lane's Sprite holds that GitHub does not: over ssh "
