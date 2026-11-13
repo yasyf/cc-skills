@@ -131,7 +131,7 @@ PART_ITEMS = re.compile(r"\s*;\s*(?=o\d+:)")
 ORDER_PART = re.compile(r"(o\d+):\s*(.+)", re.DOTALL)
 ROUTED_KINDS = ("owner", "answer", "handoff", "posted", "refused")
 APPROVALS_LABELLED = ".approvals-labelled-by-question"
-BATCHED: dict[str, str] = {}
+BATCHED: dict[str, bytes] = {}
 HELD_INSTALL: dict[Path, IO] = {}
 WHOLE_READS: dict[tuple[Path, int], tuple[sqlite3.Connection, int, bytes]] = {}
 READING = threading.Lock()
@@ -445,19 +445,21 @@ def stored(name: str, fields: tuple[str, ...] | None = None) -> dict:
     """The drive as saved, its saved_by the install that saved it last, or only these top-level fields of it, read in one transaction; a drive no install moved to its database yet read from its drive.json whole."""
     if not (path := database_path(name)).exists():
         return stored_json(name)
-    return whole(path) if fields is None else rows_read(path, fields)
+    return rows_read(path, fields)
 
 
-def whole(path: Path) -> dict:
-    """The drive's whole saved state, read again only once another connection committed since this process last read it, as PRAGMA data_version on a connection of this process's own that never writes says, else a fresh copy of what it read last, so a verb's many loads parse the drive's rows once."""
+def whole(path: Path, shape: Callable[[dict], tuple[dict, bool]]) -> dict:
+    """The drive's whole saved state as shape brings it up to this install's fields, read and shaped again only once another connection committed since this process last read it, as PRAGMA data_version on a connection of this process's own that never writes says, else a fresh copy of what it shaped last, so a verb's many loads parse and shape the drive's rows once; a shape that says it read something outside the database that may change with no commit is never kept. Shaping runs outside the lock, since it may read the drive itself."""
+    key = (path, path.stat().st_ino)
     with READING:
-        key = (path, path.stat().st_ino)
         watcher, version, kept = WHOLE_READS.get(key) or (sqlite3.connect(path, check_same_thread=False, isolation_level=None), None, b"")
         if (now := watcher.execute("PRAGMA data_version").fetchone()[0]) == version:
             return marshal.loads(kept)
-        data = rows_read(path, None)
-        WHOLE_READS[key] = (watcher, now, marshal.dumps(data))
-        return data
+    data, keep = shape(rows_read(path, None))
+    if keep:
+        with READING:
+            WHOLE_READS[key] = (watcher, now, marshal.dumps(data))
+    return data
 
 
 def rows_read(path: Path, fields: tuple[str, ...] | None) -> dict:
@@ -525,10 +527,21 @@ def bound(data: dict) -> dict:
 def load(name: str) -> dict:
     """Read a drive, bringing a drive saved by an older install up to the fields this one reads, from what is on this Mac alone; one a newer install saved is refused before any of it is read, since this code may misread its shapes. Inside a batch, the batch's copy as its writes so far left it."""
     if name in BATCHED:
-        return json.loads(BATCHED[name])
-    data = bound(stored(name))
+        return marshal.loads(BATCHED[name])
+    if not (path := database_path(name)).exists():
+        return shaped(name, stored_json(name))[0]
+    return refuse_newer(name, whole(path, lambda saved: shaped(name, saved)))
+
+
+def refuse_newer(name: str, data: dict) -> dict:
     if (saver := data.get("saved_by")) and version_order(saver) > version_order(VERSION):
         raise NewerDrive(f"the {name} drive was saved by long-running {saver}, newer than this {VERSION}, which may misread it: run the newest install's drive")
+    return data
+
+
+def shaped(name: str, saved: dict) -> tuple[dict, bool]:
+    """The drive as saved brought up to the fields this install reads, refused when a newer install saved it, and whether shaping it read only the database: true once every once-only pass over files on this Mac had run before this shaping, the cards closed included."""
+    data = refuse_newer(name, bound(saved))
     for order in data["orders"].values():
         if "parts" not in order:
             whole = whole_order(order["text"])
@@ -636,6 +649,8 @@ def load(name: str) -> dict:
     data.setdefault("carried", {})
     if "catch_up" not in data:
         data["catch_up"] = new_catch_up(min(mark["at"] for mark in data["held"].values()), [mark["order"] for mark in data["held"].values() if mark["order"]]) if data["held"] else None
+    passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)
+    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards"))
     if (pictures := drive_dir(name) / "pictures").is_dir() and not (pictures / picture.SOURCED).exists():
         picture.fill(pictures, [*map(Path.read_text, sorted((drive_dir(name) / "asks").glob("*.md"))), *pr_bodies(name)])
     if cards_path(name).exists() and not (drive_dir(name) / "asks" / REBUILT_ASKS).exists():
@@ -659,7 +674,7 @@ def load(name: str) -> dict:
     if not data.get("closed_from_cards"):
         finish_asked_readers(name, data)
         close_from_cards(name, data)
-    return data
+    return data, keep
 
 
 def finish_asked_readers(name: str, data: dict) -> None:
@@ -1540,7 +1555,7 @@ def edit(name: str) -> Iterator[dict]:
     if name in BATCHED:
         data = load(name)
         yield data
-        BATCHED[name] = json.dumps(data)
+        BATCHED[name] = marshal.dumps(data)
         return
     with writing(name):
         data = load(name)
@@ -1553,11 +1568,11 @@ def batch(name: str) -> Iterator[list[str]]:
     """Hold the drive's lock across a call of several writes, each load and edit inside it reading and changing one copy in memory, saved once when the call ends and never when it raises, so a refused write leaves drive.json as it was; what a write does outside the drive runs after that save, its lines added to the list it yields."""
     after: list[str] = []
     with writing(name):
-        BATCHED[name] = json.dumps(load(name))
+        BATCHED[name] = marshal.dumps(load(name))
         AFTER_SAVE[name] = []
         try:
             yield after
-            save(name, json.loads(BATCHED[name]))
+            save(name, marshal.loads(BATCHED[name]))
             effects = AFTER_SAVE[name]
         finally:
             del BATCHED[name], AFTER_SAVE[name]
