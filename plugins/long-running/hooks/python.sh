@@ -1,13 +1,5 @@
 python=python3
-unread=$PATH:
-while [ -n "$unread" ]; do
-  folder=${unread%%:*}
-  unread=${unread#*:}
-  case $folder in
-    */shims) continue ;;
-  esac
-  if [ -x "$folder/python3" ]; then
-    python=$folder/python3
-    break
-  fi
-done
+recorded=${LONG_RUNNING_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/long-running}/interpreter
+if [ -r "$recorded" ] && read -r kept < "$recorded" && [ -x "$kept" ]; then
+  python=$kept
+fi

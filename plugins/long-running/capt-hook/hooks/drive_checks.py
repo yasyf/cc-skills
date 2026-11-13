@@ -4,8 +4,8 @@ import json
 import os
 import re
 import runpy
-import shutil
 import subprocess
+import tempfile
 import threading
 from collections import OrderedDict
 from collections.abc import Callable, Sequence
@@ -68,22 +68,23 @@ PRE_TOOL_CHECKS: dict[str, tuple[str, ...] | None] = {
     "no_file_tools.py": FILE_TOOLS,
     "no_slack_reads.py": SLACK_READS,
     "no_terminal_questions.py": QUESTIONS,
-    "landing_guard.py": SHELL,
-    "bash_guard.py": SEARCHES,
     "agent_brief.py": AGENT,
     "scratch_folder.py": AGENT,
-    "message_limits.py": POSTS,
     "record_lines.py": RECORDS,
     "communicator_calls.py": None,
+    "message_limits.py": POSTS,
+    "bash_guard.py": SEARCHES,
+    "landing_guard.py": SHELL,
 }
 REMOTE_LANE = "LONG_RUNNING_REMOTE_LANE"
 QUOTING = re.compile(r"[\"'\\]")
+EXPANSION = re.compile(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?")
 LANDING_WORDS = re.compile(r"(?<![\w.-])(?:gh|ccx|ci|cci|stack-enqueue)(?![\w.-])")
 HELPER_WORDS = re.compile(r"(?<![\w.-])(?:helper|brew)(?![\w.-])")
 BATCHES_KEPT = 64
 RUNNER = """
 import contextlib, io, json, runpy, sys, traceback
-payload, scripts, ran = sys.stdin.read(), sys.argv[1:], {}
+payload, scripts = sys.stdin.read(), sys.argv[1:]
 for script in scripts:
     out, err, code = io.StringIO(), io.StringIO(), 0
     sys.argv, sys.stdin = [script], io.StringIO(payload)
@@ -97,8 +98,7 @@ for script in scripts:
         except Exception:
             traceback.print_exc()
             code = 1
-    ran[script] = {"code": code, "stdout": out.getvalue(), "stderr": err.getvalue()}
-print(json.dumps(ran))
+    print(json.dumps({"script": script, "code": code, "stdout": out.getvalue(), "stderr": err.getvalue()}), flush=True)
 """
 TURN = Path(__file__).resolve().parent / "tests" / "fixtures" / "turn.jsonl"
 REMOVES_CAUSE = TURN.with_name("ask-removes-cause.md")
@@ -278,7 +278,10 @@ def bound_sessions() -> frozenset[str]:
 
 
 def unquoted_command(payload: dict) -> str:
-    return QUOTING.sub("", payload["tool_input"].get("command") or "") if payload.get("tool_name") == "Bash" else ""
+    """A Bash call's command without its quotes, each variable this process's environment sets expanded, as the drive's checks expand it."""
+    if payload.get("tool_name") != "Bash":
+        return ""
+    return EXPANSION.sub(lambda named: os.environ.get(named[1], named[0]), QUOTING.sub("", payload["tool_input"].get("command") or ""))
 
 
 def lands_or_posts(payload: dict) -> bool:
@@ -319,32 +322,54 @@ def checks_due(evt: BaseHookEvent, script: str) -> tuple[str, ...]:
 
 @cache
 def interpreter() -> str:
-    """The python3 this process's PATH names past any shims folder, so a check runs without a version manager's shim resolving the interpreter again on every call."""
-    unshimmed = os.pathsep.join(folder for folder in os.environ.get("PATH", "").split(os.pathsep) if Path(folder).name != "shims")
-    return shutil.which("python3", path=unshimmed) or "python3"
-
-
-def run_checks(payload: dict, scripts: Sequence[str]) -> dict[str, dict]:
-    """Run each script from the newest installed long-running in one interpreter, each on the payload as its own stdin, and return each one's exit code, stdout and stderr by name."""
-    hooks = newest_install() / "hooks"
-    ran = subprocess.run(
-        [interpreter(), "-I", "-c", RUNNER, *(str(hooks / script) for script in scripts)],
-        input=json.dumps(payload),
-        capture_output=True,
-        text=True,
-        check=False,
-        cwd=payload.get("cwd") or None,
-    )
-    if ran.returncode:
-        raise RuntimeError(f"{', '.join(scripts)} exited {ran.returncode}:\n{ran.stderr}")
-    return {Path(path).name: result for path, result in json.loads(ran.stdout).items()}
+    """The interpreter `python3` resolves to on this process's PATH, asked once per worker, so a check runs the same Python with no version manager's shim resolving it again on every call."""
+    return subprocess.run(["python3", "-I", "-c", "import sys; print(sys.executable)"], capture_output=True, text=True, check=True).stdout.strip()
 
 
 @dataclass(slots=True)
 class Batch:
+    due: tuple[str, ...]
     waiting: set[str]
-    running: threading.Lock = field(default_factory=threading.Lock)
-    ran: dict[str, dict] | None = None
+    settled: threading.Condition = field(default_factory=threading.Condition)
+    ran: dict[str, dict] = field(default_factory=dict)
+    failed: str = ""
+    done: bool = False
+
+
+def run_checks(payload: dict, batch: Batch) -> None:
+    """Run each due script from the newest installed long-running in one interpreter, each on the payload as its own stdin, settling each one's exit code, stdout and stderr in the batch the moment it finishes, so a check's verdict waits only on the checks ahead of it."""
+    hooks = newest_install() / "hooks"
+    try:
+        with tempfile.TemporaryFile("w+") as errors, subprocess.Popen(
+            [interpreter(), "-I", "-c", RUNNER, *(str(hooks / script) for script in batch.due)],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=errors,
+            text=True,
+            cwd=payload.get("cwd") or None,
+        ) as child:
+            child.stdin.write(json.dumps(payload))
+            child.stdin.close()
+            for line in child.stdout:
+                result = json.loads(line)
+                with batch.settled:
+                    batch.ran[Path(result.pop("script")).name] = result
+                    batch.settled.notify_all()
+            if child.wait():
+                errors.seek(0)
+                batch.failed = f"{', '.join(batch.due)} exited {child.returncode}:\n{errors.read()}"
+    finally:
+        with batch.settled:
+            batch.done = True
+            batch.settled.notify_all()
+
+
+def result_of(batch: Batch, script: str) -> dict:
+    with batch.settled:
+        batch.settled.wait_for(lambda: script in batch.ran or batch.done)
+        if script not in batch.ran:
+            raise RuntimeError(batch.failed or f"{script} gave its batched run no result")
+        return batch.ran[script]
 
 
 BATCHES: OrderedDict[tuple[str, str], Batch] = OrderedDict()
@@ -352,24 +377,30 @@ BATCHING = threading.Lock()
 
 
 def batched(payload: dict, script: str, due: tuple[str, ...]) -> dict:
-    """This check's run of the one interpreter every due check of a tool call shares: the first check to arrive runs them all, and each takes its own result; a run that raised is run again by the next check to arrive."""
+    """This check's result from the one interpreter every due check of a tool call shares: the first check to arrive starts it, and each takes its own result as soon as its script finishes."""
     key = (payload.get("session_id") or "", payload["tool_use_id"])
     with BATCHING:
-        if (batch := BATCHES.get(key)) is None:
-            batch = BATCHES[key] = Batch(set(due))
+        if starts := (batch := BATCHES.get(key)) is None:
+            batch = BATCHES[key] = Batch(due, set(due))
             while len(BATCHES) > BATCHES_KEPT:
                 BATCHES.popitem(last=False)
+    if script not in batch.due:
+        return ran_alone(payload, script)
+    if starts:
+        threading.Thread(target=run_checks, args=(payload, batch), name=f"drive-checks-{key[1]}", daemon=True).start()
     try:
-        with batch.running:
-            if batch.ran is None:
-                batch.ran = run_checks(payload, due)
-            ran = batch.ran
+        return result_of(batch, script)
     finally:
         with BATCHING:
             batch.waiting.discard(script)
             if not batch.waiting and BATCHES.get(key) is batch:
                 del BATCHES[key]
-    return ran[script] if script in ran else run_checks(payload, (script,))[script]
+
+
+def ran_alone(payload: dict, script: str) -> dict:
+    batch = Batch((script,), {script})
+    run_checks(payload, batch)
+    return result_of(batch, script)
 
 
 def checked(evt: BaseHookEvent, script: str) -> HookResult | None:
@@ -378,7 +409,7 @@ def checked(evt: BaseHookEvent, script: str) -> HookResult | None:
     due = checks_due(evt, script)
     if script not in due:
         return None
-    ran = batched(payload, script, due) if len(due) > 1 else run_checks(payload, due)[script]
+    ran = batched(payload, script, due) if len(due) > 1 else ran_alone(payload, script)
     if ran["code"]:
         raise RuntimeError(f"{script} exited {ran['code']}:\n{ran['stderr']}")
     if not (said := ran["stdout"].strip()):
