@@ -3,9 +3,10 @@ from pathlib import Path
 
 from drive import limits, state
 from drive.render import cut
+from drive.shell import simple_commands
 
 BRIEF_JOB = re.compile(r"^Drive:[^\n]*?\bjob (j\d+)\b", re.MULTILINE)
-BRIEF_FILE = re.compile(r"/\S+/jobs/j\d+\.(?:brief|handoff)\.md\b")
+BRIEF_FILE = re.compile(r"/\S+/jobs/j\d+\.(?:brief|handoff)\.md\b|/\S+/orca/tasks/[^/\s]+/brief\.md\b")
 HANDOFF = re.compile(r"^Handoff:", re.MULTILINE)
 SERVES_TOOLING = re.compile(r"^Serves:[ \t]*drive tooling\b", re.MULTILINE | re.IGNORECASE)
 PLANNED = re.compile(r"^(Goal|Done when|Where|Runs as|Native|Interactions|Would he ask|Plan|Incident):[ \t]*(.+)$", re.MULTILINE)
@@ -49,12 +50,57 @@ BLOCK = "a Researched: line and under it rulings:, exists: and open: lines"
 CHOICE_WORDS = r"\b(?:options?|choices?|choose|lost|picks?|decisions?|forks?)\b"
 STOPS_ON_CHOICE = re.compile(rf"[^.;]*(?:\bBLOCKED\b[^.;]*{CHOICE_WORDS}|{CHOICE_WORDS}[^.;]*\bBLOCKED\b)[^.;]*")
 STOPPED_RULING = '"fix ur tooling if it stopped on that it shoukd. have brought a design question card to me asap not just stopped int eh middle of the incident"'
+RELEASE = re.compile(r"^Release:[ \t]*(.+)$", re.MULTILINE)
+INCIDENT = re.compile(r"^Incident:", re.MULTILINE)
+CI_BINARIES = frozenset({"ci", "ci.dev"})
+RELEASE_STARTS = ("start", "hotfix")
+RELEASE_VALUED = frozenset({"groups", "targets", "hotfix", "landed", "exclude", "only", "without", "env", "from", "order"})
+RELEASE_ASIDE = frozenset({"order", "json"})
+COMMIT_PICKS = frozenset({"from", "green"})
+PULL_WORDS = re.compile(r"(?:#?\d+,?)+")
+NAMES = re.compile(r"[,\s]+")
 
 
 def carried(prompt: str) -> str:
     """An agent's prompt with the brief file drive job brief wrote read in after it, when the prompt names one."""
     named = BRIEF_FILE.search(prompt)
     return f"{prompt}\n{Path(named[0]).read_text()}" if named else prompt
+
+
+def release_flags(words: list[str]) -> dict[str, tuple[str, ...]] | None:
+    """What a `ci release start`, `hotfix` or `plan` ships and from where, as `ci release` parses its words, a hotfix's pull requests as its --hotfix and bare targets as --targets; None for any other command."""
+    if Path(words[0]).name not in CI_BINARIES or words[1:2] != ["release"] or words[2:3] not in (["start"], ["hotfix"], ["plan"]):
+        return None
+    flags: dict[str, list[str]] = {}
+    rest = iter(words[3:])
+    for word in rest:
+        name, given, value = word.removeprefix("--").partition("=")
+        if not word.startswith("--"):
+            name, value = "hotfix" if words[2] == "hotfix" and PULL_WORDS.fullmatch(word) else "targets", word
+        elif not given:
+            value = next(rest, "") if name in RELEASE_VALUED else "true"
+        flags.setdefault("targets" if name == "groups" else name, []).extend(filter(None, NAMES.split(value.replace("#", ""))))
+    return {name: tuple(sorted(values)) for name, values in flags.items() if name not in RELEASE_ASIDE}
+
+
+def release_scope(flags: dict[str, tuple[str, ...]]) -> dict[str, tuple[str, ...]]:
+    """What a release's flags ship and to which envs, leaving out the commit it picks."""
+    return {name: values for name, values in flags.items() if name not in COMMIT_PICKS}
+
+
+def started(command: str) -> list[dict[str, tuple[str, ...]]]:
+    """The flags of each `ci release start` or `hotfix` a command runs."""
+    return [flags for words in simple_commands(command) if words[2:3] and words[2] in RELEASE_STARTS and (flags := release_flags(words)) is not None]
+
+
+def release_refusal(command: str) -> str | None:
+    """Why a brief's Release line names no release a job may start: it is not one `ci release start` or `hotfix`, or a start leaving out --env, which then ships to every env its targets reach."""
+    named = started(command)
+    if len(named) != 1:
+        return f"--release names {len(named)} releases: name the one `tools/ci release start` or `tools/ci release hotfix` the job may run, with its targets and --env as it runs them"
+    if "hotfix" not in named[0] and "env" not in named[0]:
+        return "--release names a start with no --env, which ships to every env its targets reach: name its --env"
+    return None
 
 
 def gives_tooling(job_id: str, order_id: str) -> str:

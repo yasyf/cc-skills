@@ -49,7 +49,7 @@ CODE_LABEL = "code:"
 ID_FORMS = "an order o<n>, a job j<n>, or a PR as owner/repo#N, its URL or its bare number"
 WAITS_CARD = re.compile(r"https://\S+/archives/\S+/p\d+\S*|[\w.-]+:[\w.-]+|merge:[\w.-]+:[\w.-]+:\d+(?:-\d+)?")
 CLAUDE_BUILDS = Path.home() / ".local" / "share" / "claude" / "versions"
-BRIEF_FLAGS = ("serves", "done_when", "where", "runs_as", "ruling", "native", "interactions", "would_he_ask", "plan", "incident", "scratch")
+BRIEF_FLAGS = ("serves", "done_when", "where", "runs_as", "release", "ruling", "native", "interactions", "would_he_ask", "plan", "incident", "scratch")
 BRIEF_NEEDS = ("serves", "done_when", "where")
 READER_RESEARCH = "the Researched: block this build needs"
 VERB_ERRORS = (DriveError, state.NewerDrive, slack.SlackError, github.GithubError)
@@ -1804,6 +1804,8 @@ def job_brief(args: argparse.Namespace) -> int:
             f"{args.id}'s result is something he uses, by --native: name each click or step he takes on it with --interactions,"
             " which its builder walks through and records as its proof"
         )
+    if flags["release"] and (unnamed := brief.release_refusal(flags["release"])):
+        raise DriveError(f"{args.id}: {unnamed}")
     checkout_dir = Path(data["roles"]["coordinator"]["cwd"])
     earlier = [line for other in order["jobs"] if other != args.id and (line := transcript_line(other, data["jobs"][other]))]
     planned = order["kind"] == "build" and not order["incident"]
@@ -1821,6 +1823,7 @@ def job_brief(args: argparse.Namespace) -> int:
         "Done when": flags["done_when"],
         "Where": flags["where"],
         "Runs as": flags["runs_as"],
+        "Release": flags["release"],
         "Handoff": args.handoff,
         "Decisions that bind": rulings or "none named; search his answers on the area",
         "Research": planned and job["kind"] == "reader" and READER_RESEARCH,
@@ -3726,6 +3729,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--interactions", help="each click or step he takes on the result, which its builder walks through and records; needed when --native names a surface")
     verb.add_argument("--would-he-ask", help="what he would still have to ask for if only his words were built")
     verb.add_argument("--runs-as", help="for a pass over a team's data: the service account in its cluster and how it starts; \"none: <why>\" for a job that runs none")
+    verb.add_argument("--release", help="the one `tools/ci release start` or `hotfix` the job may run, its targets and --env as it runs them; landing_guard refuses any other")
     verb.add_argument("--handoff", help="a PR event or freed built branch: the PRs or branch, its head, the event line, INSTALL: and PROVE:")
     verb.add_argument("--ruling", action="append", default=[], metavar="ANSWER", help="a cc-notes answer id of his that touches this; its words go in whole")
     verb.add_argument("--plan", help="the plan section this implements, quoted")
