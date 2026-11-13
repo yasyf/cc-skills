@@ -680,6 +680,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
                 question["closed"] = settled and new_close("answered", None, None, seq=settled.get("seq"), answer=settled.get("answer"), ruling=settled.get("ruling"), at=settled["at"])
             question.setdefault("closed", None)
             question.setdefault("holds", "")
+            question.setdefault("replaced", None)
             question["waits"] = question["waits"] and question["waits"].replace("-#", "-")
             if question["waits"] and not question["file"] and (kept := rebuilt_ask(name, question["waits"])).exists():
                 question["file"] = str(kept)
@@ -1318,7 +1319,7 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
 def new_question(
     file: str | None, title: str | None, asked: str, unsettled: str | None = None, card: str | None = None, refused: str | None = None, closed: dict | None = None, holds: str = ""
 ) -> dict:
-    return {"file": file, "title": title, "asked": asked, "unsettled": unsettled, "waits": None, "card": card, "refused": refused, "closed": closed, "holds": holds}
+    return {"file": file, "title": title, "asked": asked, "unsettled": unsettled, "waits": None, "card": card, "refused": refused, "closed": closed, "holds": holds, "replaced": None}
 
 
 def new_close(
