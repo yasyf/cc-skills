@@ -56,6 +56,9 @@ DRIVE_RECORD = re.compile(r"[oj]\d+")
 BREAK_GLASS_PIPELINE = "forge/break-glass"
 BREAK_GLASS_BRANCH = "dev"
 GRANTOR = ("identity", "core-gbl-identity")
+BACKEND = Path("infra") / "backend.json"
+STATE_PROFILE = "release-operator"
+HISTORY = ".history.json"
 GRANT_ENDS = "break-glass-expires-at"
 STS_SHORTEST = timedelta(minutes=15)
 STS_CLOCK_MARGIN = timedelta(minutes=1)
@@ -440,12 +443,9 @@ def break_glass(stack: str, reason: str, asker: str, checkout: Path) -> Iterator
 
 
 def grant(stack: str, why: str, checkout: Path) -> tuple[str, datetime]:
-    """The link of the forge/break-glass grant started with the reason once it passed, and the end its build records, an hour after it granted. The build runs at the commit Pulumi last applied identity at on core-gbl-identity, as `tools/ci release live --json` reads it, naming a stack's component under `target`: that stack's IAM is what the grantor role may do, so a grant never runs go/ci code ahead of it, as a grant at dev's newest commit does once a change to the roles a grant opens merges before its identity release."""
-    live = json.loads(run([str(checkout / "tools" / "ci"), "release", "live", "--json"], checkout))
-    if not (applied := next((each["commit"] for each in live if (each["target"], each["env"]) == GRANTOR), None)):
-        raise ReadError(f"tools/ci release live lists no commit {GRANTOR[0]} was applied at on {GRANTOR[1]}, whose IAM the grantor role holds, so no grant started")
+    """The link of the forge/break-glass grant started with the reason once it passed, and the end its build records, an hour after it granted. The build runs at the commit Pulumi last applied identity at on core-gbl-identity: that stack's IAM is what the grantor role may do, so a grant never runs go/ci code ahead of it, as a grant at dev's newest commit does once a change to the roles a grant opens merges before its identity release."""
     created = run(
-        ["bk", "build", "create", "-p", BREAK_GLASS_PIPELINE, "-b", BREAK_GLASS_BRANCH, "-c", applied, "-m", why]
+        ["bk", "build", "create", "-p", BREAK_GLASS_PIPELINE, "-b", BREAK_GLASS_BRANCH, "-c", applied_commit(*GRANTOR, checkout), "-m", why]
         + ["-e", f"BREAK_GLASS_REASON={why}", "-e", f"BREAK_GLASS_STACK={stack}", "--no-input", "-y"],
         checkout,
     )
@@ -456,6 +456,19 @@ def grant(stack: str, why: str, checkout: Path) -> tuple[str, datetime]:
     if viewed["state"] != "passed":
         raise ReadError(f"the break-glass grant {build[0]} {viewed['state']}, so nothing ran")
     return build[0], state.parse_time(viewed["meta_data"][GRANT_ENDS])
+
+
+def applied_commit(project: str, env: str, checkout: Path) -> str:
+    """The `<project>:commit` the newest update of the project's Pulumi stack on the env that succeeded recorded, read as go/ci's applied.Store reads what a stack applied, from that one stack's update histories in the Pulumi state bucket the checkout's BACKEND names, newest first, on this Mac's STATE_PROFILE, which reaches the release operator role from its machine certificate: one listing and a read or two in seconds, never `tools/ci release live`, which reads every stack of every service."""
+    backend = json.loads((checkout / BACKEND).read_text())["backend"]
+    bucket, signed = backend["bucket"], ["--profile", STATE_PROFILE, "--region", backend["region"]]
+    histories = f"{backend['prefix']}/.pulumi/history/{project}/{env}/"
+    listed = run(["aws", "s3api", "list-objects-v2", *signed, "--bucket", bucket, "--prefix", histories, "--query", "Contents[].Key", "--output", "json"], checkout)
+    for key in sorted((key for key in json.loads(listed) or [] if key.endswith(HISTORY)), reverse=True):
+        update = json.loads(run(["aws", "s3", "cp", *signed, f"s3://{bucket}/{key}", "-"], checkout))
+        if (update["kind"], update["result"]) == ("update", "succeeded"):
+            return update["config"][f"{project}:commit"]
+    raise ReadError(f"the Pulumi state bucket {bucket} records no update of {project} on {env} that succeeded, whose IAM the grantor role holds, so no grant started")
 
 
 def mint(profile: configparser.SectionProxy, session: str, link: str, ends: datetime, checkout: Path) -> dict[str, str]:
