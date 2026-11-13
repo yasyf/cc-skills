@@ -224,6 +224,7 @@ def test_a_drive_saved_by_a_newer_install_hands_the_port_to_that_install_which_a
 
     monkeypatch.setattr(dashboard, "changes", changes)
     monkeypatch.setattr(dashboard, "tailnet", lambda: None)
+    monkeypatch.setattr(dashboard.Board, "hear", lambda self: None)
     monkeypatch.setattr(dashboard, "home_repo", lambda checkout: None)
     monkeypatch.setattr(dashboard.signal, "signal", lambda signum, handler: None)
     monkeypatch.setattr(dashboard.install, "upgraded", lambda: newer if state.saved_by(demo) == "9.9.9" else None)
@@ -604,7 +605,7 @@ RESULT = re.compile(r'<html[^>]*\bdata-result="([^"]*)"')
 FEATURE = {
     "id": "o1", "title": "ship the fix", "state": "running", "now": "", "project": "Platform", "workstream": "SandSQL", "due": None, "late": False,
     "proof": None, "updated": "2026-11-11T00:00:00-08:00", "url": None, "prs": [], "built": [], "cards": [], "text": "ship the fix", "note": "",
-    "created": "2026-11-10T20:00:00-08:00", "jobs": [], "parts": [], "where": None, "holdup": None,
+    "created": "2026-11-10T20:00:00-08:00", "jobs": [], "parts": [], "where": None, "holdup": None, "heard": [],
 }
 
 RAIL = {"failed": [], "conflict": False, "draft": False, "branch": "lane", "base": "main", "stack": [], "landing": None, "approve_waits": None, "parts": [], "job": None, "job_said": "", "job_at": None}
@@ -854,11 +855,11 @@ await wait(50);
 done({ strip, opened, rows, closed: !list.matches(':popover-open'), hash: location.hash });
 """, board(status=[{"state": "running", "features": [quiet, asking, moving]}], incidents=incidents, queue=[QUESTION]))
     assert seen == {
-        "strip": ["3 incidents open", "1 decision for you"],
+        "strip": ["3 incidents open, 1 stale", "1 decision for you"],
         "opened": True,
         "rows": [
-            ["#/feature/o2", ["waits on your answer"]],
-            ["#/feature/o3", ["1 job working", "1 open PR"]],
+            ["#/feature/o2", ["waits on your answer", "last move Nov 11 12:00 AM"]],
+            ["#/feature/o3", ["1 job working", "1 open PR", "last move Nov 11 12:00 AM"]],
             ["#/feature/o1", ["nothing moving since Nov 10 9:00 PM"]],
         ],
         "closed": True,
@@ -894,17 +895,17 @@ await push({ ...MODEL, bug_reports: MODEL.bug_reports.map((report) => (report.id
 done({ before, opened, head, rows, closed, hash, after: strip() });
 """, board(status=[{"state": "running", "features": [outage, fixing, merged, told]}], incidents=[{"id": "o4", "title": outage["title"], "created": "2026-11-10T20:00:00-08:00"}], bug_reports=reports))
     assert seen == {
-        "before": ["1 incident open", "2 bug reports open"],
+        "before": ["1 incident open, 1 stale", "2 bug reports open, 1 stale"],
         "opened": True,
         "head": ["2 bug reports open", "1 being fixed · 1 merged · 1 told, each open until its reporter is told the fix is live"],
         "rows": [
-            ["#/feature/o1", ["Being fixed", "reported Nov 10 9:00 PM", "1 job working", "1 open PR"]],
+            ["#/feature/o1", ["Being fixed", "reported Nov 10 9:00 PM", "1 job working", "1 open PR", "last move Nov 11 12:00 AM"]],
             ["#/feature/o2", ["Fix merged, waits on proof it is live", "reported Nov 10 8:00 PM", "nothing moving since Nov 10 9:00 PM"]],
             ["#/feature/o3", ["Its reporter was told it is fixed", "reported Nov 10 7:00 PM"]],
         ],
         "closed": True,
         "hash": "#/feature/o1",
-        "after": ["1 incident open", "1 bug report open"],
+        "after": ["1 incident open, 1 stale", "1 bug report open"],
     }
 
 
@@ -941,14 +942,46 @@ document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: tr
 await wait(300);
 done({ overview, project, stream, task, closed: { ...look(), sheet: !!canvas.querySelector('.task-sheet') } });
 """, board(status=[{"state": "running", "features": [FEATURE, iris]}]), "1200,600", "--force-prefers-reduced-motion")
-    assert {name: {key: value for key, value in view.items() if key != "scale"} for name, view in seen.items()} == {
-        "overview": {"hash": "#/now", "level": "all", "same": True, "top": 120, "shown": True},
-        "project": {"hash": "#/now/Platform", "level": "project", "same": True, "top": 120, "shown": True},
-        "stream": {"hash": "#/now/Platform/SandSQL", "level": "stream", "same": True, "top": 120, "shown": True},
-        "task": {"hash": "#/now/Platform/SandSQL/o1", "level": "stream", "same": True, "top": 120, "shown": True, "sheet": "ship the fix"},
-        "closed": {"hash": "#/now/Platform/SandSQL", "level": "stream", "same": True, "top": 120, "shown": True, "sheet": False},
+    assert {name: {key: value for key, value in view.items() if key not in ("scale", "top")} for name, view in seen.items()} == {
+        "overview": {"hash": "#/now", "level": "all", "same": True, "shown": True},
+        "project": {"hash": "#/now/Platform", "level": "project", "same": True, "shown": True},
+        "stream": {"hash": "#/now/Platform/SandSQL", "level": "stream", "same": True, "shown": True},
+        "task": {"hash": "#/now/Platform/SandSQL/o1", "level": "stream", "same": True, "shown": True, "sheet": "ship the fix"},
+        "closed": {"hash": "#/now/Platform/SandSQL", "level": "stream", "same": True, "shown": True, "sheet": False},
     }
+    assert len({view["top"] for view in seen.values()}) == 1
     assert seen["overview"]["scale"] < seen["project"]["scale"] < seen["stream"]["scale"]
+
+
+def test_now_fills_the_window_and_a_plain_wheel_zooms_into_the_project_under_it_lists_what_waits_on_him_there_and_steps_back_out(tmp_path: Path) -> None:
+    iris = FEATURE | {"id": "o2", "title": "chats open on the Mac", "project": "Iris", "workstream": "Desktop app"}
+    asked = QUESTION | {"tasks": ["o1"], "project": "Platform", "workstream": "SandSQL", "rank_why": "holds 1 task"}
+    seen = browse(tmp_path, """
+location.hash = '#/now';
+await wait(300);
+const canvas = document.querySelector('#main .canvas');
+const viewport = canvas.querySelector('.viewport');
+const box = canvas.getBoundingClientRect();
+const fills = { right: innerWidth - box.right <= 24, bottom: innerHeight - box.bottom <= 24, share: box.width * box.height / (innerWidth * innerHeight) > 0.7 };
+const wheel = (deltaY, [x, y]) => viewport.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY, clientX: x, clientY: y }));
+const middle = (el) => { const r = el.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; };
+const over = middle(canvas.querySelector('.region[data-cam-key="Platform"]'));
+for (let i = 0; i < 10 && location.hash === '#/now'; i++) wheel(-120, over);
+await wait(800);
+const zoomedIn = location.hash;
+const side = canvas.querySelector('.now-side');
+const here = { narrow: side.getBoundingClientRect().width < 300, listed: [...side.querySelectorAll('.qrow-title')].map((title) => title.textContent), acts: [...side.querySelectorAll('.qrow-acts button')].map((button) => button.textContent), filtered: side.querySelector('.scope-work a.more').getAttribute('href') };
+for (let i = 0; i < 12 && location.hash !== '#/now'; i++) wheel(120, middle(viewport));
+await wait(800);
+done({ fills, zoomedIn, here, zoomedOut: location.hash, same: document.querySelector('#main .canvas') === canvas });
+""", board(queue=[asked], status=[{"state": "running", "features": [FEATURE, iris]}]), "1440,900", "--force-prefers-reduced-motion")
+    assert seen == {
+        "fills": {"right": True, "bottom": True, "share": True},
+        "zoomedIn": "#/now/Platform",
+        "here": {"narrow": True, "listed": ["Raise the limit?"], "acts": ["1", "2", "Ask"], "filtered": "#/queue/all?project=Platform"},
+        "zoomedOut": "#/now",
+        "same": True,
+    }
 
 
 @pytest.mark.parametrize("size", ["1440,900", "390,844"])
@@ -1096,6 +1129,7 @@ def test_a_task_sheet_heads_with_what_it_waits_on_and_lists_where_it_is_what_shi
         lane | {"id": "j3", "goal": "refund fee line", "state": "failed", "said": "BLOCKED buildkite/test is red on https://github.com/demo-org/shop/pull/418 since the total rounds down", "updated": "2026-11-10T23:15:00-08:00"},
         lane | {"id": "j4", "goal": "round like the ledger", "state": "running", "said": "rounding fixed; adding its test next", "updated": "2026-11-10T23:50:00-08:00"},
     ]
+    jobs = [each | {"word": {"text": each["said"], "at": each["updated"]}} for each in jobs]
     parts = [
         {"name": "fee line", "whole": False, "delivered": True, "posted": False, "job": "j2", "kind": "reader", "state": "done", "at": "2026-11-10T22:00:00-08:00"},
         {"name": "say why", "whole": False, "delivered": False, "posted": False, "job": "j4", "kind": "builder", "state": "running", "at": "2026-11-10T23:50:00-08:00"},
@@ -1625,7 +1659,7 @@ done({ stepped, first, keys, then: sent });
     assert seen == {
         "stepped": ["Shard it?", "Raise the limit?"],
         "first": {"sent": ["Shard it"], "title": "Shard it?"},
-        "keys": {"open": True, "title": "Keyboard shortcuts", "groups": ["Anywhere", "Your queue", "A pull request card", "Writing to Claude", "Jump", "An enlarged picture"], "footer": True},
+        "keys": {"open": True, "title": "Keyboard shortcuts", "groups": ["Anywhere", "Your queue", "Now", "A pull request card", "Writing to Claude", "Jump", "An enlarged picture"], "footer": True},
         "then": ["Shard it", "Raise it"],
     }
 
@@ -1838,7 +1872,7 @@ def test_a_workstream_node_says_what_its_lanes_do_in_plain_words_with_one_tone_p
         "j3": job("o1", "built", "BUILT demo-branch") | {"updated": fresh(5)},
         "j4": job("o2", "waiting", kind="reader") | {"updated": fresh(5)},
     }
-    shown = view.board(drive_of(orders, jobs, []), found(), "live", [], state.parse_time("2026-11-11T10:00:00-08:00"), set())
+    shown = view.board(drive_of(orders, jobs, []), found(), "live", [], state.parse_time("2026-11-11T10:00:00-08:00"), set(), {})
     seen = browse(tmp_path, """
 location.hash = '#/work/Drive%20tooling';
 await wait(200);
@@ -2480,7 +2514,7 @@ def aged(n: int) -> dict:
         said = f"https://acme.slack.com/archives/D123/p{1794100000000000 + number}"
         events.append({"kind": "said", "at": "2026-11-09T04:00:00-08:00", "text": f"old order {number} is live", "url": said, "order": f"o{number}", "visuals": []})
         events.append({"kind": "tap", "at": "2026-11-09T04:30:00-08:00", "repo": "yasyf/cc-skills", "number": number, "label": "Approve"})
-    shown = view.board(drive_of(orders, jobs, prs), found([asked]), "live", events, state.parse_time("2026-11-11T10:00:00-08:00"), set())
+    shown = view.board(drive_of(orders, jobs, prs), found([asked]), "live", events, state.parse_time("2026-11-11T10:00:00-08:00"), set(), {})
     return shown | {"code": "", "pid": 1, "links": [], "undo_seconds": 10, "repo": ""}
 
 

@@ -241,7 +241,7 @@ def test_a_question_cards_rail_names_the_job_that_asked_it_what_it_holds_up_and_
         "a2": said | {"words": "newer words", "at": at(-60), "cards": {"demo:j2-7-a": {"mark": "stands"}}},
         "a3": said | {"words": "other words", "at": at(-50), "cards": {"demo:j3-2-a": None}},
     }
-    model = view.board(data, found([layout, rename]), "live", [], T0, set())
+    model = view.board(data, found([layout, rename]), "live", [], T0, set(), {})
     items = {item["title"]: item for item in model["queue"]}
     assert {title: (item["job"], item["holds"]) for title, item in items.items()} == {"Which layout?": ("j1", 2), "Rename it?": ("j3", 0)}
     rail = items["Which layout?"]["rail"]
@@ -477,7 +477,7 @@ def test_board_adds_progress_work_and_each_features_order_and_jobs() -> None:
         {"j1": job("o1", "running", "drawing it", updated=-50), "j2": job("o1", "waiting", updated=-5), "j3": job("o2", "running")},
         [pr(1, "o1", checks="fail"), pr(2, "o1", state="merged")],
     )
-    model = view.board(data, found(), "live", [], T0, set())
+    model = view.board(data, found(), "live", [], T0, set(), {})
     assert model["progress"] == {"prs": 2, "merged": 1, "open": 1, "red": 1, "running": 2}
     assert [(entry["id"], entry["state"]) for entry in model["work"]] == [("j1", "running"), ("j2", "waiting")]
     entry = next(entry for group in model["status"] for entry in group["features"])
@@ -495,7 +495,7 @@ def test_a_project_or_workstream_named_in_two_cases_is_one_under_the_newest_orde
         {},
         [],
     )
-    model = view.board(data, found(), "live", [], T0, set())
+    model = view.board(data, found(), "live", [], T0, set(), {})
     filed = {entry["id"]: (entry["project"], entry["workstream"]) for group in model["status"] for entry in group["features"]}
     assert filed == {"o1": ("Drive tooling", "jobs"), "o2": ("Drive tooling", "jobs"), "o3": ("Drive tooling", "Watch")}
 
@@ -522,7 +522,7 @@ def test_history_lists_every_day_newest_first_with_his_taps_answers_and_undos_ea
         {"kind": "refused", "at": at(-3), "repo": "yasyf/cc-skills", "number": 9, "reason": "its body lacks a section"},
         {"kind": "said", "at": at(-2), "text": "[change 1](https://github.com/yasyf/cc-skills/pull/1) is live", "url": "https://acme.slack.com/archives/D123/p1", "order": "o1", "visuals": []},
     ]
-    history = view.board(data, found(), "live", events, T0, set())["history"]
+    history = view.board(data, found(), "live", events, T0, set(), {})["history"]
     assert [(entry["kind"], entry["text"], entry["detail"]) for entry in history] == [
         ("said", "[change 1](https://github.com/yasyf/cc-skills/pull/1) is live", ""),
         ("undone", "a card", "Shard it"),
@@ -549,7 +549,7 @@ def test_a_dashboard_answer_offers_its_undo_in_history_until_an_undo_of_its_card
         {"kind": "answered", "at": at(-4), "url": kept, "label": "Keep it", "question": "Keep the cache?", "undo_until": at(6)},
         {"kind": "undone", "at": at(-3), "url": taken, "label": "Raise it", "question": "Raise the limit?"},
     ]
-    history = view.board(data, found(), "live", events, T0, set())["history"]
+    history = view.board(data, found(), "live", events, T0, set(), {})["history"]
     assert [(entry["kind"], entry["url"], entry["undo_until"]) for entry in history if entry["kind"] in ("answered", "undone")] == [
         ("undone", taken, None),
         ("answered", kept, at(6)),
@@ -563,7 +563,7 @@ def test_a_stack_card_sent_to_him_shows_each_pr_as_it_stands_now() -> None:
         {"kind": "said", "at": at(-2), "text": "land the page", "url": "https://acme.slack.com/archives/D123/p1", "order": "o1", "visuals": [], "prs": ["yasyf/cc-skills#1", "yasyf/cc-skills#2"]},
         {"kind": "said", "at": at(-1), "text": "an older line", "url": "https://acme.slack.com/archives/D123/p2", "order": None, "visuals": []},
     ]
-    stacks = [entry["prs"] for entry in view.board(data, found(), "live", events, T0, set())["history"] if entry["kind"] == "said"]
+    stacks = [entry["prs"] for entry in view.board(data, found(), "live", events, T0, set(), {})["history"] if entry["kind"] == "said"]
     assert stacks == [[], [view.pr_entry(data["prs"]["yasyf/cc-skills#1"]), view.pr_entry(data["prs"]["yasyf/cc-skills#2"])]]
     assert [(each["state"], each["tap"]) for each in stacks[1]] == [("open", "wanted"), ("merged", None)]
 
@@ -582,7 +582,7 @@ def test_a_stack_card_whose_prs_the_watch_dropped_since_draws_them_by_their_link
         "prs": ["Forge-AI/monorepo#53080", "Forge-AI/monorepo#53096"],
         "edited": False,
     }
-    stack = next(entry["prs"] for entry in view.board(data, found(), "live", [sent], T0, set())["history"] if entry["kind"] == "said")
+    stack = next(entry["prs"] for entry in view.board(data, found(), "live", [sent], T0, set(), {})["history"] if entry["kind"] == "said")
     assert stack == [
         {"title": f"https://github.com/Forge-AI/monorepo/pull/{number}", "url": f"https://github.com/Forge-AI/monorepo/pull/{number}", "state": "dropped", "checks": None, "review": "none", "tap": None}
         for number in (53080, 53096)
@@ -631,7 +631,7 @@ def test_review_lists_every_open_pr_by_whether_it_waits_on_him_and_carries_its_c
     )
     drawn = {"title": "Fix: approve change 1?", "options": ["Approve", "Hold"], "prs": [{"url": "https://github.com/yasyf/cc-skills/pull/1"}]}
     card = {"prs": ["https://github.com/yasyf/cc-skills/pull/1"], "asked": at(-50), "url": f"{TEAM}archives/D123/p1794200000000100", "card": drawn}
-    entries = view.board(data, found(pr_cards=[card]), "live", [], T0, set())["review"]
+    entries = view.board(data, found(pr_cards=[card]), "live", [], T0, set(), {})["review"]
     assert [(entry["key"], entry["group"], entry["feature_title"]) for entry in entries] == [
         ("yasyf/cc-skills#1", "you", "ship the page"),
         ("yasyf/cc-skills#2", "not ready", "ship the page"),
@@ -666,7 +666,7 @@ def test_a_card_posted_inside_a_thread_reads_that_thread_on_the_queue_and_in_rev
     drawn = {"title": "Fix: approve change 1?", "options": ["Approve", "Hold"], "prs": [{"url": "https://github.com/yasyf/cc-skills/pull/1"}]}
     tap = {"prs": ["https://github.com/yasyf/cc-skills/pull/1"], "asked": at(-50), "url": f"{TEAM}archives/D123/p1794200000000100?thread_ts=1794100000.000200&cid=D123", "card": drawn}
     asked = {**question("Release now?", -20), "url": f"{TEAM}archives/D123/p1794300000000300"}
-    model = view.board(data, found([asked], [tap]), "live", [], T0, set())
+    model = view.board(data, found([asked], [tap]), "live", [], T0, set(), {})
     assert [(item["kind"], item["thread"]) for item in model["queue"]] == [("tap", "1794100000.000200"), ("question", "1794300000.000300")]
     assert model["review"][0]["thread"] == "1794100000.000200"
 
@@ -683,7 +683,7 @@ def test_incidents_list_his_open_incident_orders_oldest_first_but_one_the_watch_
         {},
         [],
     )
-    assert [(entry["id"], entry["title"]) for entry in view.board(data, found(), "live", [], T0, set())["incidents"]] == [
+    assert [(entry["id"], entry["title"]) for entry in view.board(data, found(), "live", [], T0, set(), {})["incidents"]] == [
         ("o4", "Sand usage events set aside"),
         ("o1", "runs fail for one team"),
     ]
@@ -709,7 +709,7 @@ def test_bug_reports_list_each_shown_reported_order_oldest_first_at_the_stage_it
         {f"j{n}": job(f"o{n}", "done") for n in (2, 3, 4, 5, 6)},
         [pr(1, "o2"), pr(2, "o3", state="merged"), pr(3, "o3", state="closed"), pr(4, "o4", state="merged"), pr(5, "o5", state="merged")],
     )
-    assert [(entry["id"], entry["stage"]) for entry in view.board(data, found(), "live", [], T0, set())["bug_reports"]] == [
+    assert [(entry["id"], entry["stage"]) for entry in view.board(data, found(), "live", [], T0, set(), {})["bug_reports"]] == [
         ("o1", "reported"),
         ("o2", "fixing"),
         ("o3", "merged"),
@@ -720,13 +720,13 @@ def test_bug_reports_list_each_shown_reported_order_oldest_first_at_the_stage_it
 
 def test_the_dashboard_model_carries_no_plan() -> None:
     data = drive_of({"o1": order("ship the plan", [])}, {}, [])
-    assert not {"milestones", "unplanned"} & set(view.board(data, found(), "live", [], T0, set()))
-    assert "milestone" not in view.board(data, found(), "live", [], T0, set())["status"][-1]["features"][0]
+    assert not {"milestones", "unplanned"} & set(view.board(data, found(), "live", [], T0, set(), {}))
+    assert "milestone" not in view.board(data, found(), "live", [], T0, set(), {})["status"][-1]["features"][0]
 
 
 def test_the_summary_every_page_is_sent_leaves_out_history_lanes_and_each_features_words_and_jobs_and_shows_each_card_at_a_glance() -> None:
     data = drive_of({"o1": order("ship the page\nwith its tests", ["j1", "j2"])}, {"j1": job("o1", "running"), "j2": job("o1", "done")}, [])
-    shown = view.summary(view.board(data, found([question("Raise the limit?", -30)]), "live", [], T0, set()))
+    shown = view.summary(view.board(data, found([question("Raise the limit?", -30)]), "live", [], T0, set(), {}))
     [entry] = [entry for group in shown["status"] for entry in group["features"]]
     assert not {"history", "work"} & set(shown)
     assert (entry["title"], "text" in entry, "jobs" in entry, entry["running"]) == ("ship the page", False, False, 1)
@@ -766,10 +766,50 @@ def test_a_zoomed_day_counts_each_pacific_hour_of_it_and_his_words_answers_and_o
     assert [each["swears"] for each in view.history_page(model, None, "all", 1)["days"]] == [0, 3, 0, 0]
 
 
-def test_the_live_story_is_the_newest_six_orders_launches_merges_and_taps_of_the_features_in_view() -> None:
-    history = [{"kind": kind, "feature": feature} for kind, feature in [("said", "o1"), ("merged", "o2"), ("failed", "o1"), *[("tap", "o1")] * 7]]
-    assert view.story({"history": history}, {"o1"}) == [{"kind": "tap", "feature": "o1"}] * 6
-    assert view.story({"history": history}, None)[0] == {"kind": "merged", "feature": "o2"}
+def test_a_features_story_is_its_newest_six_moments_of_every_kind_and_record_and_the_drives_is_its_orders_launches_merges_and_taps() -> None:
+    kinds = [("said", "o1"), ("merged", "o2"), ("failed", "o1"), *[("tap", "o1")] * 7]
+    history = [{"at": at(-n), "kind": kind, "feature": feature} for n, (kind, feature) in enumerate(kinds, 1)]
+    record = {"seq": 5, "at": at(-2), "lane": "j1", "kind": "report", "text": "READY on #7"}
+    model = {"history": history, "status": [{"state": "running", "features": [{"id": "o1", "heard": [record]}, {"id": "o2", "heard": []}]}]}
+    told = view.story(model, {"o1"})
+    assert [entry["kind"] for entry in told] == ["said", "heard", "failed", "tap", "tap", "tap"]
+    assert told[1] == {"at": at(-2), "kind": "heard", "text": "READY on #7", "detail": "j1", "url": None, "feature": "o1"}
+    assert view.story(model, None)[0] == history[1]
+
+
+def test_a_running_task_says_its_jobs_newest_record_with_its_time_and_lists_each_record_naming_it_once() -> None:
+    data = drive_of({"o1": order("ship it", ["j1"])}, {"j1": job("o1", "running", "PUSHED #7 with its test", updated=-30, goal="retry once")}, [])
+    line = lambda seq, minutes, text: {"seq": seq, "at": at(minutes), "lane": "j1", "kind": "report", "text": text}
+    heard = {"j1": [line(3, -5, "READY refused: buildkite/test failed at 1bd7e1e"), line(1, -40, "started")], "o1": [line(3, -5, "READY refused: buildkite/test failed at 1bd7e1e"), line(2, -20, "ORPHAN o1 has no job")]}
+    model = view.board(data, found(), "live", [], T0, set(), heard)
+    [entry] = [entry for group in model["status"] for entry in group["features"]]
+    assert {key: entry["holdup"][key] for key in ("text", "at")} == {"text": "builder j1: READY refused: buildkite/test failed at 1bd7e1e", "at": at(-5)}
+    assert entry["jobs"][0]["word"] == {"text": "READY refused: buildkite/test failed at 1bd7e1e", "at": at(-5)}
+    assert [each["seq"] for each in entry["heard"]] == [3, 2, 1]
+    assert not any("heard" in each for group in view.summary(model)["status"] for each in group["features"])
+    quiet = view.board(data, found(), "live", [], T0, set(), {})
+    assert [entry["jobs"][0]["word"] for group in quiet["status"] for entry in group["features"]] == [{"text": "PUSHED #7 with its test", "at": at(-30)}]
+
+
+def test_a_task_lists_the_prs_of_each_job_carrying_it_and_each_pr_serving_it() -> None:
+    data = drive_of(
+        {"o1": order("the umbrella", ["j1"]), "o2": order("carried", []), "o3": order("served", [])},
+        {"j1": job("o1", "running", prs=["https://github.com/yasyf/cc-skills/pull/1"], carries={"o2": ["whole"]})},
+        [pr(1, "o1"), pr(2, "o1", serves="o3")],
+    )
+    model = view.board(data, found(), "live", [], T0, set(), {})
+    prs = {entry["id"]: sorted(pr["url"].rsplit("/", 1)[1] for pr in entry["prs"]) for group in model["status"] for entry in group["features"]}
+    assert prs == {"o1": ["1", "2"], "o2": ["1"], "o3": ["2"]}
+
+
+def test_the_nav_counts_running_jobs_lanes_at_work_and_prs_merged_today() -> None:
+    data = drive_of(
+        {"o1": order("ship it", ["j1", "j2", "j3"])},
+        {"j1": job("o1", "running"), "j2": job("o1", "waiting"), "j3": job("o1", "done")},
+        [pr(1, "o1", state="merged", updated=at(-30)), pr(2, "o1", state="merged", updated=at(-60 * 30))],
+    )
+    counts = view.board(data, found(), "live", [], T0, set(), {})["counts"]
+    assert (counts["jobs"], counts["lanes"], counts["merged_today"]) == (1, 2, 1)
 
 
 def test_an_alert_he_shared_is_titled_by_its_source_and_words_not_its_link() -> None:
@@ -782,7 +822,7 @@ def test_an_alert_he_shared_is_titled_by_its_source_and_words_not_its_link() -> 
         {},
         [],
     )
-    assert [entry["title"] for entry in view.board(data, found(), "live", [], T0, set())["incidents"]] == [
+    assert [entry["title"] for entry in view.board(data, found(), "live", [], T0, set(), {})["incidents"]] == [
         "Datadog: SandSQL Error Log Count — plat",
         "fix it (Shared from PlatClaude: mint endpoint failing)",
         "https://x.slack.com/archives/C1/p1794372156644299",
@@ -848,7 +888,7 @@ def test_pr_card_words_name_his_open_tap_card_a_tap_on_a_redrawn_one_or_none() -
 def test_a_task_is_named_by_its_short_title_with_his_words_whole_and_an_untitled_order_by_its_first_words() -> None:
     words = "the chat list should keep its scroll when a new chat lands, see https://example.com/report for the recording"
     data = drive_of({"o1": order(words, [], title="Keep chat scroll"), "o2": order("ship the page\nwith its tests", [])}, {}, [])
-    model = view.board(data, found(), "live", [], T0, set())
+    model = view.board(data, found(), "live", [], T0, set(), {})
     assert {entry["id"]: (entry["title"], entry["text"]) for group in model["status"] for entry in group["features"]} == {
         "o1": ("Keep chat scroll", words),
         "o2": ("ship the page", "ship the page\nwith its tests"),
@@ -878,7 +918,7 @@ def test_a_line_too_long_for_its_row_ends_on_a_whole_word() -> None:
 def test_a_task_header_names_what_it_waits_on_and_agrees_with_the_state_it_shows(order_state: str, jobs: dict, prs: dict | None, state_shown: str, waits_on: dict) -> None:
     made = {job_id: job("o1", job_state, goal=goal, updated=-10 * n) for n, (job_id, (job_state, goal)) in enumerate(jobs.items(), 1)}
     data = drive_of({"o1": order("ship it", list(jobs), state=order_state)}, made, [] if prs is None else [pr(7, "o1", **prs)])
-    [entry] = [entry for group in view.board(data, found(), "live", [], T0, set())["status"] for entry in group["features"]]
+    [entry] = [entry for group in view.board(data, found(), "live", [], T0, set(), {})["status"] for entry in group["features"]]
     assert entry["state"] == state_shown
     assert {key: value for key, value in entry["holdup"].items() if value and key != "url"} == waits_on
 
@@ -890,8 +930,8 @@ def test_a_task_waiting_on_his_card_names_that_card_and_a_live_one_waits_on_noth
         {"j1": job("o1", "waiting", waits=[asked["url"]]), "j2": job("o2", "done")},
         [],
     )
-    entries = {entry["id"]: entry for group in view.board(data, found([asked]), "live", [], T0, set())["status"] for entry in group["features"]}
-    assert entries["o1"]["holdup"] == {"text": "waits on your answer to Merge carts on sign-in?", "card": asked["url"], "pr": None, "url": None}
+    entries = {entry["id"]: entry for group in view.board(data, found([asked]), "live", [], T0, set(), {})["status"] for entry in group["features"]}
+    assert entries["o1"]["holdup"] == {"text": "waits on your answer to Merge carts on sign-in?", "card": asked["url"], "pr": None, "url": None, "at": None}
     assert entries["o2"]["holdup"] is None
 
 
@@ -902,7 +942,7 @@ def test_a_task_lists_each_part_with_the_newest_job_carrying_it_and_where_it_is_
         {"j1": job("o1", "done", "DONE retry", updated=-50, parts=["retry"]), "j2": job("o1", "failed", line, updated=-5, parts=["receipt"])},
         [],
     )
-    [entry] = [entry for group in view.board(data, found(), "live", [], T0, set())["status"] for entry in group["features"]]
+    [entry] = [entry for group in view.board(data, found(), "live", [], T0, set(), {})["status"] for entry in group["features"]]
     assert [(part["name"], part["whole"], part["job"], part["state"]) for part in entry["parts"]] == [
         ("retry", False, "j1", "done"),
         ("receipt", False, "j2", "failed"),
