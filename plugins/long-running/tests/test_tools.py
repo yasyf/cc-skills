@@ -699,6 +699,81 @@ def test_his_words_carrying_on_an_order_of_his_work_are_its_parts_the_watch_name
     assert [part["orphan_said"] for part in state.load(demo)["orders"]["o1"]["parts"].values()] == [None, None, None]
 
 
+def recording(monkeypatch: pytest.MonkeyPatch, run: Callable[..., tuple[int, str]]) -> list[dict]:
+    """The records the communicator's record calls post from here on, each cci seq #<count>, with his cards read as none open."""
+    posted: list[dict] = []
+
+    def post(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if argv[:2] == ["cci", "post"]:
+            posted.extend(json.loads(str(kwargs["input"])))
+        return subprocess.CompletedProcess(argv, 0, f"#{len(posted)}\n", "")
+
+    monkeypatch.setattr(subprocess, "run", post)
+    open_cards(monkeypatch)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", "demo", "--role", "communicator")
+    return posted
+
+
+def test_a_report_he_shares_into_an_open_order_as_records_686882_and_686891_did_is_an_order_of_its_own_holding_its_reporter_carried_by_the_job_fixing_it(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    thread = "1794548764.374189"
+    fixing = "the new-tree run page shows no browser views"
+    run("order", "add", "--title", "Run page browser views", "--project", "Iris", "--workstream", "Run page", "--thread", thread, fixing)
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "read run files through runtime-api", "--agent", "builder-1") == (0, "j1")
+    posted = recording(monkeypatch, run)
+    dm, team = "https://acme.slack.com/archives/D123", "https://acme.slack.com/archives/C0TEAM"
+    first_report, second_report = f"{team}/p1794541608044529", f"{team}/p1794549000000100"
+    shared = {
+        "kind": "owner",
+        "text": f"<{first_report}> Shared in <#C0TEAM>: Something looks broken with browser views on run details page",
+        "url": f"{dm}/p1794548764374189",
+        "thread": thread,
+        "about": "his work",
+        "attrs": {"job": "j1", "order": "o1", "reporter": first_report},
+    }
+    with pytest.raises(DriveError, match="1: refused, these words share a report someone else wrote into o1, so they become an order of their own"):
+        tools.run("record", demo, {"records": [shared]})
+    assert (posted, list(state.load(demo)["orders"])) == ([], ["o1"])
+    shared["attrs"]["title"] = "Browser views on run details"
+    said = tools.run("record", demo, {"records": [shared]}).splitlines()
+    assert (said[0], said[1].startswith("1 job set: "), said[-1]) == ("1 order add: o2", True, "1 owner #1")
+    assert tools.run("record", demo, {"records": [shared]}).splitlines() == ["1 owner #2"]
+    orders, carries = state.load(demo)["orders"], state.load(demo)["jobs"]["j1"]["carries"]
+    own = orders["o2"]
+    assert (own["text"], own["title"], own["project"], own["workstream"], own["owner"], own["from"], own["reporter"]["link"]) == (
+        shared["text"], "Browser views on run details", "Iris", "Run page", "coordinator", "slack:D123/1794548764.374189", first_report
+    )
+    assert (list(orders), list(orders["o1"]["parts"]), orders["o1"]["reporter"], carries) == (["o1", "o2"], [fixing], None, {"o2": [state.whole_order(shared["text"])]})
+    assert [(record["to"], record["attr"]["order"], record["attr"].get("part"), record["attr"]["reporter"]) for record in posted] == [(["root@demo"], "o2", None, first_report)] * 2
+    second = shared | {
+        "text": f"<{second_report}> Shared in <#C0TEAM>: the run page shows no screenshots either",
+        "url": f"{dm}/p1794549100000200?thread_ts={thread}",
+        "attrs": shared["attrs"] | {"reporter": second_report, "title": "Run page screenshots"},
+    }
+    assert tools.run("record", demo, {"records": [second]}).splitlines()[0] == "1 order add: o3"
+    with state.edit(demo) as data:
+        data["orders"]["o2"]["proof"] = "https://github.com/acme/app/pull/1 live on the run page"
+    orders = state.load(demo)["orders"]
+    assert [(orders[order_id]["reporter"]["link"], state.may_tell(orders[order_id])) for order_id in ("o2", "o3")] == [(first_report, True), (second_report, False)]
+    assert list(state.load(demo)["jobs"]["j1"]["carries"]) == ["o2", "o3"]
+
+
+def test_a_report_he_shares_in_the_message_an_open_order_came_from_gives_that_order_its_reporter_as_record_686067_needed(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    asked, report = "https://acme.slack.com/archives/D123/p1794533521061139", "https://acme.slack.com/archives/C0TEAM/p1794533324854699"
+    words = f"<{report}> list the cloud agent PRs on the run page"
+    run("order", "add", "--from", asked, "--title", "Cloud agent PR list", "--project", "Iris", "--workstream", "Agents", words)
+    posted = recording(monkeypatch, run)
+    shared = {"kind": "owner", "text": words, "url": asked, "thread": "1794533521.061139", "about": "his work", "attrs": {"order": "o1", "reporter": report}}
+    said = tools.run("record", demo, {"records": [shared]}).splitlines()
+    assert (said[0].startswith("1 order set: "), said[-1]) == (True, "1 owner #1")
+    orders = state.load(demo)["orders"]
+    assert (list(orders), list(orders["o1"]["parts"]), orders["o1"]["reporter"]["link"], posted[0]["attr"]["order"]) == (["o1"], [state.whole_order(words)], report, "o1")
+
+
 def test_the_communicators_owner_or_answer_record_goes_to_the_session_hearing_its_jobs_or_threads_order_whatever_lane_it_names(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
