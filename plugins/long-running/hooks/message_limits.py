@@ -646,12 +646,10 @@ def held_while_away(payload: dict, drive: dict, report: dict, order_id: str | No
     tool_input = payload["tool_input"]
     if not payload.get("agent_id") or edited(payload) or tool_input.get("card") or tool_input.get("tap_prs") or tool_input.get("asked"):
         return None
-    if WAITING in (tool_input.get("text") or "") or not state.owner_away(drive, state.now()):
+    if WAITING in (tool_input.get("text") or "") or not state.owner_away(drive, state.now()) or incident(tool_input, drive, report, order_id):
         return None
     seq = tool_input.get("record")
     posted = posted_order(drive, tool_input, order_id)
-    if posted and drive["orders"][posted]["incident"]:
-        return None
     held = (
         f" Report {seq} is marked held: `drive status` lists it until the catch-up posts, and record {talk.hold(drive['name'], seq, report, posted)}"
         f" told its writer so. Return NOTHING held for his catch-up."
