@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from drive import procs, state
+from drive import picture, procs, state
 from drive.render import clock
 
 READ = re.compile(r"READ\s+(.+)")
@@ -127,20 +127,24 @@ def answer(question: str, checkout: Path, drive: str, job_id: str) -> str:
 
 
 def lane_drive(question: str, checkout: Path, drive: str, job_id: str) -> str:
-    """Run a Sprite lane's drive command here, where the drive's records live, as `drive` would on this Mac: its first line `DRIVE <its words>`, the rest the JSON the Sprite's drive sent with it, `stdin` for a `-` and the text of each file a word names under that word, each written to a folder of its own here for the run and named by its Sprite path in what it prints. It runs in the coordinator's checkout with no session of this Mac's, as the asking lane's job's own lane, marked as a SPRITE_LANE, so the drive it runs refuses, as lane_refusal says, a verb no Sprite lane runs, a write acting on another job and any verb acting on another drive, and reads a bare `status` as the lane's own job, and answers `drive exited <status>` over all it printed, as a Mac lane reads it, which the Sprite's drive prints and exits with."""
+    """Run a Sprite lane's drive command here, where the drive's records live, as `drive` would on this Mac: its first line `DRIVE <its words>`, the rest the JSON the Sprite's drive sent with it, `stdin` for a `-` and the text of each file a word names under that word, each written to a folder of its own here for the run, with each picture they show by a path on the Sprite copied off it first, as lane_pictures says, and named by its copy here, so a card this Mac draws from them opens it; each is named by its Sprite path in what it prints. It runs in the coordinator's checkout with no session of this Mac's, as the asking lane's job's own lane, marked as a SPRITE_LANE, so the drive it runs refuses, as lane_refusal says, a verb no Sprite lane runs, a write acting on another job and any verb acting on another drive, and reads a bare `status` as the lane's own job, and answers `drive exited <status>` over all it printed, as a Mac lane reads it, which the Sprite's drive prints and exits with."""
     line, _, rest = question.partition("\n")
     try:
         argv = shlex.split(DRIVE.fullmatch(line)[1])
         sent = json.loads(rest) if rest.strip() else {}
     except ValueError as error:
         return lane_exit(2, f"{line}: {error}")
+    try:
+        shown = lane_pictures(sent, drive, job_id)
+    except (state.DriveError, OSError, subprocess.TimeoutExpired) as error:
+        return lane_exit(2, f"drive {' '.join(argv[:2])}: refused, nothing ran: the pictures it shows did not copy off this Sprite: {error}")
     session = {key: value for key, value in os.environ.items() if key != "CLAUDE_CODE_SESSION_ID"}
     with tempfile.TemporaryDirectory(prefix="drive-lane-") as held:
         here = {}
         for number, (path, file) in enumerate(sent.get("files", {}).items()):
             copy = Path(held) / str(number) / Path(path).name
             copy.parent.mkdir()
-            copy.write_text(file["text"])
+            copy.write_text(shown_here(file["text"], shown))
             copy.chmod(0o755 if file["executable"] else 0o644)
             here[path] = str(copy)
         try:
@@ -148,7 +152,7 @@ def lane_drive(question: str, checkout: Path, drive: str, job_id: str) -> str:
                 [str(DRIVE_BIN), *(here.get(word, word) for word in argv)],
                 cwd=checkout,
                 env=session | {"LONG_RUNNING_DRIVE": drive, state.OWN_JOB_ENV: job_id, SPRITE_LANE: "1"},
-                input=sent.get("stdin", ""),
+                input=shown_here(sent.get("stdin", ""), shown),
                 capture_output=True,
                 text=True,
                 errors="replace",
@@ -158,9 +162,27 @@ def lane_drive(question: str, checkout: Path, drive: str, job_id: str) -> str:
         except subprocess.TimeoutExpired:
             return lane_exit(124, f"drive {' '.join(argv[:2])} ran past {DRIVE_SECONDS} seconds, stopped here; what it changed before then stays")
     printed = "\n".join(part.strip() for part in (done.stdout, done.stderr) if part.strip())
-    for path, copy in here.items():
+    for path, copy in (here | shown).items():
         printed = printed.replace(copy, path)
     return lane_exit(done.returncode, printed)
+
+
+def lane_pictures(sent: dict, drive: str, job_id: str) -> dict[str, str]:
+    """Each picture the files and stdin a Sprite lane's drive sent show by an absolute path, a path on its Sprite, copied off that Sprite under the job's scratch folder here, at that path below its `sprite` folder, which outlives the run since the card drawn from a kept question opens it later; the copy here by the Sprite path."""
+    texts = [file["text"] for file in sent.get("files", {}).values()] + [sent.get("stdin", "")]
+    paths = list(dict.fromkeys(path for text in texts for image in picture.IMAGE.finditer(text) if (path := image[1] or image[2]).startswith("/")))
+    if not paths:
+        return {}
+    from drive import orca
+
+    into = state.drive_dir(drive) / "scratch" / job_id / "sprite"
+    orca.take_off_sprite(state.load(drive)["jobs"][job_id]["workspace"], paths, into)
+    return {path: str(into / path.lstrip("/")) for path in paths}
+
+
+def shown_here(text: str, shown: dict[str, str]) -> str:
+    """The text with each picture it shows by a Sprite path naming its copy here instead."""
+    return picture.IMAGE.sub(lambda image: image[0].replace(path := image[1] or image[2], shown.get(path, path)), text)
 
 
 def lane_refusal(args: argparse.Namespace, parse: Callable[[list[str]], argparse.Namespace], drive: str, job_id: str) -> str | None:

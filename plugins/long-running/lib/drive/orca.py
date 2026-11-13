@@ -1,11 +1,13 @@
 import contextlib
 import hashlib
+import io
 import json
 import os
 import re
 import shlex
 import signal
 import subprocess
+import tarfile
 import uuid
 from pathlib import Path
 from typing import IO, NamedTuple
@@ -701,6 +703,16 @@ def put_on_sprite(workspace: str, folder: str, name: str, text: bytes) -> str:
         why = done.stderr.decode().strip().splitlines()
         raise Unfit(f"writing {folder}/{name} onto {workspace} exited {done.returncode}: {why[-1] if why else ' '.join(said) or 'no output'}")
     return said[1]
+
+
+def take_off_sprite(workspace: str, paths: list[str], into: Path) -> None:
+    """Copy each file at its absolute path on the workspace's Sprite to that path under the folder here, in one tar stream over the ssh forward cc-remote keeps for it; Unfit naming the first file the Sprite could not send."""
+    done = on_sprite(workspace, shlex.join(["tar", "-C", "/", "-cf", "-", "--", *(path.lstrip("/") for path in paths)]), b"", CALL_SECONDS)
+    if done.returncode:
+        why = done.stderr.decode().strip().splitlines()
+        raise Unfit(f"copying {', '.join(paths)} off {workspace} exited {done.returncode}: {why[0] if why else 'no output'}")
+    with tarfile.open(fileobj=io.BytesIO(done.stdout)) as held:
+        held.extractall(into, filter="data")
 
 
 def on_sprite(workspace: str, command: str, given: bytes, seconds: float) -> subprocess.CompletedProcess[bytes]:

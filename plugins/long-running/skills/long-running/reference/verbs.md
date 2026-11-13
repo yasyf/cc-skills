@@ -17,7 +17,8 @@ install posts every line the older one had not. A `drive` started from an older 
 newest, such as a launch's bind prefix, hands itself to the newest install's `drive` before any verb
 acts. A Sprite lane's `drive`, which its launch puts on the Sprite, asks each verb of this Mac as
 one Orca question, `DRIVE <its words>` with stdin and each file a word names, and the watch runs it
-here: `job report`, `job ask`, `job set --repro`, `job replies`, `job held`, `pr add`, `plan search`, `manual`
+here, after copying each picture those show by a path on the Sprite into the job's scratch folder over
+cc-remote's ssh forward, so a card drawn here opens it: `job report`, `job ask`, `job set --repro`, `job replies`, `job held`, `pr add`, `plan search`, `manual`
 and `status`, each on that lane's own drive alone, its reads on any job as a Mac lane's, a bare
 `status` on its own job, and its writes, a `job report` keeping stdin, `job ask`, `job set --repro`
 and `pr add`, on its own job alone, answering all it printed and its exit status, which the lane's
