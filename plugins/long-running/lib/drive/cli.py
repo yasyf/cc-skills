@@ -2328,6 +2328,14 @@ def job_prove(args: argparse.Namespace) -> int:
     return emit(args, line, {"id": args.id, "line": line})
 
 
+def job_proved(args: argparse.Namespace) -> int:
+    """Keep what an older install's `drive job prove` came to while this install saved the drive, which install.proof_kept hands here."""
+    name, receipt = state.resolve(args.drive), Path(args.receipt)
+    line = install.proof_kept(name, args.id, json.loads(receipt.read_text()))
+    receipt.unlink()
+    return emit(args, line, {"id": args.id, "line": line})
+
+
 def job_end(args: argparse.Namespace) -> int:
     """Free a remote job's lane: its Sprite, destroyed once what it holds on no remote is saved to GitHub, whatever the job's state, or its terminal and clean worktree on this Mac. The job keeps the state its line set, with its waits, PRs and carried parts, so a waiting job's next event starts its next lane and nothing waiting on it is freed. A lane whose death the watch recorded first has its Sprite's Orca runtime and worker logs copied to the drive's folder by orca.keep_logs. A job still at work first has what its Sprite holds that its next lane would not get saved to GitHub, which that lane's handoff names; refused, ending nothing, when that Sprite cannot be read or the save fails, and for a running job, whose lane has returned no line, so its next event, never its end, comes next. The end is recorded on the lane's dispatch before anything is saved, stopped or destroyed, so the watch reads none of it as the lane dying, and an end of a lane another end already ended changes nothing."""
     name = state.resolve(args.drive)
@@ -4164,6 +4172,10 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("id")
     verb.add_argument("--timeout", type=int, default=900)
     verb.set_defaults(run=job_prove)
+    verb = job.add_parser("proved", parents=both, help="keep what an older install's job prove came to, from the receipt it kept; that proof runs it")
+    verb.add_argument("id", help="the job")
+    verb.add_argument("receipt", help="the receipt file the proof kept under the drive's jobs folder")
+    verb.set_defaults(run=job_proved)
     verb = job.add_parser("show", parents=both, help="drive status for these ids")
     verb.add_argument("ids", nargs="+", metavar="ID", help=f"what to read: {ID_FORMS}")
     verb.set_defaults(run=status)
