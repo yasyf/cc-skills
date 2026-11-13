@@ -1239,6 +1239,35 @@ class SaveTest(unittest.TestCase):
             orca_gc.save("pool-abc", "demo-j1", cc_remote)
         self.assertEqual(cc_remote.sent, [])
 
+    def test_a_pre_push_hooks_output_never_reads_as_a_saved_branch(self):
+        sprite, base, held, _ = self.sprite_holding_work()
+        hook = base / "repo" / ".git" / "hooks" / "pre-push"
+        hook.write_text("#!/bin/sh\necho 'Uploading LFS objects: 100% (13/13), 87 MB | 0 B/s, done.'\n")
+        hook.chmod(0o755)
+        git_in(base / "repo", "config", "core.hooksPath", str(hook.parent))
+        with mock.patch.object(orca_gc, "github_token", return_value="ghs_lent"):
+            said = orca_gc.save("pool-abc", "demo-j1", SavingCcRemote(sprite, held, base / "github.git"))
+        saved = dict(line.split() for line in git_in(base / "github.git", "for-each-ref", "--format=%(refname:lstrip=2) %(objectname)", "refs/heads/saved/").splitlines())
+        self.assertEqual(said.partition(", now on acme/repo as ")[2], ", ".join(f"{name} at {sha[:10]}" for name, sha in sorted(saved.items())))
+        self.assertNotIn("Uploading", said)
+
+    def test_a_head_a_merged_stacked_pr_holds_is_saved_nowhere(self):
+        head = "fd6b58c7d1" + "e" * 30
+        merged = [{"number": 55468, "merged_at": "2026-11-13T03:44:43Z", "head": {"sha": head}, "base": {"ref": "durable-agents-j2584-fetch-before-read"}}]
+        answers = {
+            "repos/acme/repo": {"default_branch": "dev"},
+            f"repos/acme/repo/commits/{head}/branches-where-head": [],
+            f"repos/acme/repo/commits/{head}/pulls": merged,
+            f"repos/acme/repo/compare/dev...{head}?per_page=1": {"status": "diverged"},
+        }
+        cc_remote = SavingCcRemote(SPRITE, checkout(SPRITE.root, branch="durable-agents-j2584-parallel-fetches", head=head, repository="acme/repo"), Path("/nonexistent"))
+        cc_remote.remote = lambda slug: orca_gc.CcRemote().remote(slug)
+        orca_gc.github_trunk.cache_clear()
+        self.addCleanup(orca_gc.github_trunk.cache_clear)
+        with mock.patch.object(orca_gc, "github", answers.__getitem__):
+            self.assertIsNone(orca_gc.save("pool-abc", "durable-agents-j2584-2", cc_remote))
+        self.assertEqual(cc_remote.sent, [])
+
     def test_a_local_branch_at_a_commit_githubs_default_branch_already_holds_is_not_work_on_no_remote(self):
         squash_merge = "8" * 40
         stale_dev = checkout(SPRITE.root, off_origin=(("dev", squash_merge),))
@@ -1248,6 +1277,68 @@ class SaveTest(unittest.TestCase):
         cc_remote.remote = lambda slug: orca_gc.Remote(REMOTE.heads, REMOTE.landed, frozenset({squash_merge}))
         self.assertIsNone(orca_gc.save("pool-abc", "demo-j1", cc_remote))
         self.assertEqual(cc_remote.sent, [])
+
+
+EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+
+class LocalSprite(orca_gc.CcRemote):
+    def __init__(self, root: Path):
+        super().__init__(Path("/nonexistent"))
+        self.sprite = replace(SPRITE, root=str(root))
+        self.destroyed: list[str] = []
+
+    def sprites(self) -> dict[tuple[str, str], orca_gc.Sprite]:
+        return {(SPRITE_WT, "term_sprite"): self.sprite}
+
+    def ssh(self, sprite: orca_gc.Sprite, script: str, given: str | None = None) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(["sh", "-c", script], input=given, capture_output=True, text=True)
+
+    def destroy(self, sprite: orca_gc.Sprite) -> str | None:
+        self.destroyed.append(sprite.workspace)
+        return None
+
+
+class SpriteReadTest(unittest.TestCase):
+    def sprite(self) -> tuple[Path, LocalSprite, dict]:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name).resolve() / "monorepo"
+        git_in(root.parent, "init", "--quiet", "-b", "dev", str(root))
+        git_in(root, "remote", "add", "origin", "https://github.com/acme/repo")
+        git_in(root, "commit", "--quiet", "--allow-empty", "-m", "base")
+        git_in(root, "update-ref", "refs/remotes/origin/dev", "HEAD")
+        log_create = git_in(root, "commit-tree", "-m", "cc-notes: log create", EMPTY_TREE)
+        git_in(root, "update-ref", "refs/heads/cc-notes-source-live-v2", git_in(root, "commit-tree", "-p", log_create, "-m", "cc-notes: source retention", EMPTY_TREE))
+        answers = {"repos/acme/repo": {"default_branch": "dev"}, f"repos/acme/repo/compare/dev...{git_in(root, 'rev-parse', 'HEAD')}?per_page=1": {"status": "identical"}}
+        orca_gc.github_trunk.cache_clear()
+        self.addCleanup(orca_gc.github_trunk.cache_clear)
+        answering = mock.patch.object(orca_gc, "github", answers.get)
+        answering.start()
+        self.addCleanup(answering.stop)
+        return root, LocalSprite(root), answers
+
+    def test_the_branch_cc_notes_keeps_its_records_on_holds_nothing_and_the_sprite_is_destroyed(self):
+        _, cc_remote, _ = self.sprite()
+        self.assertEqual(cc_remote.checkout(cc_remote.sprite).off_origin, ())
+        self.assertIsNone(orca_gc.held("pool-abc", cc_remote))
+        self.assertEqual((orca_gc.destroy("pool-abc", cc_remote), cc_remote.destroyed), ("destroyed pool-abc", ["pool-abc"]))
+
+    def test_the_lanes_own_branches_and_stash_on_no_remote_still_keep_the_sprite(self):
+        root, cc_remote, answers = self.sprite()
+        git_in(root, "switch", "--quiet", "-c", "j2462-plumbing")
+        git_in(root, "commit", "--quiet", "--allow-empty", "-m", "plumbing")
+        below_the_shallow_cut = git_in(root, "commit-tree", "-m", "an old PR's base, fetched whole into a shallow clone", EMPTY_TREE)
+        answers[f"repos/acme/repo/compare/dev...{below_the_shallow_cut}?per_page=1"] = {"status": "behind"}
+        git_in(root, "update-ref", "refs/heads/j2462-images", git_in(root, "commit-tree", "-p", below_the_shallow_cut, "-m", "images", EMPTY_TREE))
+        git_in(root, "switch", "--quiet", "dev")
+        (root / "untracked.txt").write_text("untracked\n")
+        git_in(root, "stash", "push", "--quiet", "--include-untracked", "-m", "lane")
+        tips = tuple((name, git_in(root, "rev-parse", ref)) for name, ref in (("j2462-images", "j2462-images"), ("j2462-plumbing", "j2462-plumbing"), ("stash", "refs/stash")))
+        self.assertEqual(cc_remote.checkout(cc_remote.sprite).off_origin, tips)
+        with self.assertRaisesRegex(orca_gc.Unsaved, "^commits on no remote on j2462-images, j2462-plumbing, stash$"):
+            orca_gc.destroy("pool-abc", cc_remote)
+        self.assertEqual(cc_remote.destroyed, [])
 
 
 class GitCheckoutTest(unittest.TestCase):
@@ -1540,7 +1631,7 @@ class OrcaArgvTest(unittest.TestCase):
         def fake(command, **_):
             argv.append(command)
             if command[0] == "ssh":
-                return orca_gc.subprocess.CompletedProcess(command, 0, "https://github.com/acme/repo\ntallies-final:" + "d" * 40 + " stash:" + "e" * 40 + " \n\n# branch.oid " + "a" * 40 + "\n# branch.head dev\n", "")
+                return orca_gc.subprocess.CompletedProcess(command, 0, "https://github.com/acme/repo\ntallies-final:" + "d" * 40 + ": stash:" + "e" * 40 + ": \n\n# branch.oid " + "a" * 40 + "\n# branch.head dev\n", "")
             return orca_gc.subprocess.CompletedProcess(command, 0, '{"default_branch": "dev", "status": "behind"}', "")
 
         orca_gc.subprocess.run = fake
@@ -1548,6 +1639,7 @@ class OrcaArgvTest(unittest.TestCase):
         self.assertEqual(found.off_origin, (("tallies-final", "d" * 40), ("stash", "e" * 40)))
         self.assertIn("for-each-ref --format='%(refname) %(refname:short) %(objectname)' refs/heads refs/stash", argv[0][-1])
         self.assertIn('rev-list -1 "$ref" --not HEAD --remotes=origin', argv[0][-1])
+        self.assertIn('rev-list --first-parent --max-parents=0 "$ref" --not HEAD --remotes=origin', argv[0][-1])
 
     def test_a_rate_limit_on_the_landed_check_reads_as_unsaved_not_a_crash(self):
         class Limited:
@@ -1567,12 +1659,12 @@ class OrcaArgvTest(unittest.TestCase):
         trunk = orca_gc.GitHubTrunk("acme/repo")
         self.assertEqual(("82ce567a65" in trunk, "b" in trunk), (True, False))
 
-    def test_github_landed_needs_this_head_merged_into_trunk(self):
+    def test_github_pull_heads_hold_the_head_of_any_open_or_merged_pr_whatever_its_base(self):
         pull = {"merged_at": "2026-11-03T00:00:00Z", "head": {"sha": "a"}, "base": {"ref": "dev"}}
         cases = {"a": pull, "b": {**pull, "merged_at": None, "head": {"sha": "b"}}, "c": {**pull, "head": {"sha": "other"}}, "d": {**pull, "head": {"sha": "d"}, "base": {"ref": "parent"}}}
-        self.replying({"repos/acme/repo": (0, '{"default_branch": "dev"}', ""), **{f"repos/acme/repo/commits/{head}/pulls": (0, json.dumps([found]), "") for head, found in cases.items()}})
-        landed = orca_gc.GitHubLanded("acme/repo")
-        self.assertEqual([head in landed for head in cases], [True, False, False, False])
+        self.replying({f"repos/acme/repo/commits/{head}/pulls": (0, json.dumps([found]), "") for head, found in cases.items()})
+        pull_heads = orca_gc.GitHubPullHeads("acme/repo")
+        self.assertEqual([head in pull_heads for head in cases], [True, True, False, True])
 
     def test_landed_searches_closed_prs_for_the_one_head_it_is_asked_about(self):
         original = orca_gc.subprocess.run
