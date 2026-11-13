@@ -34,7 +34,7 @@ In `page.json`, `orders` and `prs` (such as `yasyf/cc-skills#42`) include specif
 }
 ```
 
-`drive page add` files the page under the order's project and workstream. Pages counts it as live while any matched order is open, and as done once all matched orders close.
+Pages files the page wherever its order is filed now, so a `drive order set` that refiles the order moves its pages too. Pages counts it as live while any matched order is open, and as done once all matched orders close.
 
 ## Gate and verification
 

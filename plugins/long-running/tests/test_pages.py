@@ -38,14 +38,14 @@ def ordered(run: Run, demo: str) -> str:
     return demo
 
 
-def test_a_page_goes_in_whole_under_its_slug_filed_by_its_order_and_a_second_add_replaces_it(run: Run, ordered: str, tmp_path: Path) -> None:
+def test_a_page_goes_in_whole_under_its_slug_and_a_second_add_replaces_it(run: Run, ordered: str, tmp_path: Path) -> None:
     code, said = run("page", "add", "run-lane", "--order", "o1", "--dir", str(folder(tmp_path, PAGE)))
     home = pages.pages_dir(ordered) / "run-lane"
     assert (code, said) == (0, "page run-lane for o1: /pages/run-lane/ on the dashboard, listed under Pages as 'Run page lane'")
     assert sorted(path.name for path in home.iterdir()) == ["app.js", "index.html", "page.json"]
     kept = json.loads((home / "page.json").read_text())
-    assert {key: kept[key] for key in ("title", "goal", "orders", "prs", "project", "workstream")} == {
-        "title": "Run page lane", "goal": "how far the run page is from live", "orders": ["o1"], "prs": [], "project": "Iris", "workstream": "Run page",
+    assert {key: kept.get(key) for key in ("title", "goal", "orders", "prs", "project", "workstream")} == {
+        "title": "Run page lane", "goal": "how far the run page is from live", "orders": ["o1"], "prs": [], "project": None, "workstream": None,
     }
     (tmp_path / "built" / "app.js").unlink()
     assert run("page", "add", "run-lane", "--order", "o1", "--dir", str(tmp_path / "built"))[0] == 0
@@ -82,6 +82,17 @@ def test_a_page_is_live_while_any_order_it_shows_is_open(run: Run, ordered: str,
     with state.edit(ordered) as data:
         data["orders"]["o2"]["state"] = "dropped"
     assert [page["live"] for page in pages.shown(state.load(ordered), pages.listed(ordered))] == [False]
+
+
+def test_a_page_is_filed_where_its_order_is_filed_now_so_a_refile_moves_it(run: Run, ordered: str, tmp_path: Path) -> None:
+    run("page", "add", "run-lane", "--order", "o1", "--dir", str(folder(tmp_path, PAGE)))
+
+    def filed() -> list[tuple[str, str]]:
+        return [(page["project"], page["workstream"]) for page in pages.shown(state.load(ordered), pages.listed(ordered))]
+
+    assert filed() == [("Iris", "Run page")]
+    assert run("order", "set", "o1", "--project", "Platform", "--workstream", "Runs")[0] == 0
+    assert filed() == [("Platform", "Runs")]
 
 
 def test_a_page_serves_only_its_own_files_of_the_kinds_it_may_hold(run: Run, ordered: str, tmp_path: Path) -> None:

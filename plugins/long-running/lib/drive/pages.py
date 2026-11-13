@@ -45,14 +45,11 @@ def add(name: str, slug: str, order_id: str, folder: Path) -> dict:
     scope = said.get('scope')
     if scope is not None and (not isinstance(scope, dict) or set(scope) - {'projects', 'workstreams', 'words'} or any(not isinstance(values, list) or any(not isinstance(word, str) or not word.strip() for word in values) for values in scope.values())):
         raise DriveError('page.json scope holds projects, workstreams and words as lists of nonempty strings')
-    order = drive["orders"][order_id]
     page = {
         "title": said["title"],
         "goal": said["goal"],
         "orders": orders,
         "prs": said.get("prs", []),
-        "project": order["project"],
-        "workstream": order["workstream"],
         "scope": said.get("scope"),
         "source": said.get("source"),
         "job": said.get("job"),
@@ -82,10 +79,17 @@ def listed(name: str) -> list[dict]:
 
 
 def shown(drive: dict, pages: list[dict]) -> list[dict]:
-    """Each page as Pages lists it: live while any order it shows is open, with its first order's title."""
+    """Each page as Pages lists it: live while any order it shows is open, filed where its first order is filed now and titled by it, so a refiled order takes its pages along."""
     return [
-        page | {"live": any(drive["orders"][order_id]["state"] not in state.CLOSED_ORDER_STATES for order_id in scope_orders([entry | {"id": order_id} for order_id, entry in drive["orders"].items()], page)), "order_title": drive["orders"][page["orders"][0]]["title"]}
+        page
+        | {
+            "live": any(drive["orders"][order_id]["state"] not in state.CLOSED_ORDER_STATES for order_id in scope_orders([entry | {"id": order_id} for order_id, entry in drive["orders"].items()], page)),
+            "project": first["project"],
+            "workstream": first["workstream"],
+            "order_title": first["title"],
+        }
         for page in pages
+        for first in [drive["orders"][page["orders"][0]]]
     ]
 
 
