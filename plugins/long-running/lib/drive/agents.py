@@ -494,10 +494,10 @@ def record(seq: str) -> str:
     return reads.run(["cci", "show", seq], Path.cwd())
 
 
-def free(data: dict, job_id: str, session: str) -> bool:
-    """Whether an agent of the session at work on the job takes it: the job exists, nobody stopped it, no Orca lane holds it by its dispatch, which drive job resume restarts once that lane dies, and no agent runs it already but one that ended with its session, which no role holds any more, or one drive job resume handed over to this session."""
+def free(data: dict, job_id: str, session: str, agent: str) -> bool:
+    """Whether an agent of the session at work on the job takes it: the job exists, it is not the agent a stop left on the job, which keeps the stop, no Orca lane holds it by its dispatch, which drive job resume restarts once that lane dies, and no agent runs it already but one that ended with its session, which no role holds any more, or one drive job resume handed over to this session."""
     job = data["jobs"].get(job_id)
-    if not job or job["state"] == "stopped" or (job["where"] == "remote" and job.get("dispatch")):
+    if not job or (job["state"] == "stopped" and job["agent"] == agent) or (job["where"] == "remote" and job.get("dispatch")):
         return False
     return job.get("handed_to") == session or not (job["state"] == "running" and job["agent"] and not state.agent_gone(data, job))
 
@@ -523,10 +523,10 @@ def hold(payload: dict) -> None:
     known = state.load(names[0])
     match = BRIEF_JOB.search(brief(payload))
     job_id = match[1] if match else state.agent_job(known, payload["agent_id"])
-    if not job_id or not free(known, job_id, payload["session_id"]) or payload.get("agent_type") not in state.JOB_AGENTS[known["jobs"][job_id]["kind"]] or not woken(payload, known["jobs"][job_id]):
+    if not job_id or not free(known, job_id, payload["session_id"], payload["agent_id"]) or payload.get("agent_type") not in state.JOB_AGENTS[known["jobs"][job_id]["kind"]] or not woken(payload, known["jobs"][job_id]):
         return
     with state.edit(names[0]) as data:
-        if free(data, job_id, payload["session_id"]):
-            data["jobs"][job_id].update(
-                agent=payload["agent_id"], where="local", session=payload["session_id"], handed_to=None, undelivered=[], state="running", updated=state.stamp()
-            )
+        if free(data, job_id, payload["session_id"], payload["agent_id"]):
+            job = data["jobs"][job_id]
+            job.update(agent=payload["agent_id"], where="local", session=payload["session_id"], handed_to=None, undelivered=[])
+            state.start(job)

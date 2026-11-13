@@ -1305,9 +1305,12 @@ def local_gap(job_id: str, job: dict, data: dict, moment: datetime) -> str | Non
 
 
 def agent_death(job: dict, data: dict, moment: datetime) -> str | None:
-    """Why a local job's agent takes no message: its last response ended on an API error or a refusal, and its transcript has been quiet the time a handoff takes; None while it works, after a turn it ended itself, or with no transcript to read."""
-    holder = session_of(job, data)
-    if holder is None or not job.get("agent") or not (path := agent_transcript(holder, job, data)).exists():
+    """Why a local job's agent takes no message: it ended with its session, which no role holds any more, or its last response ended on an API error or a refusal, and its transcript has been quiet the time a handoff takes; None while it works, after a turn it ended itself, or with no transcript to read."""
+    if not job.get("agent"):
+        return None
+    if (holder := session_of(job, data)) is None:
+        return "it ended with its session, which no role holds any more"
+    if not (path := agent_transcript(holder, job, data)).exists():
         return None
     if moment - datetime.fromtimestamp(path.stat().st_mtime).astimezone() < HANDOFF or not (turn := last_turn(path)) or not agents.died(turn):
         return None
