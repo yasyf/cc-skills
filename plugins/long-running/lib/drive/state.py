@@ -1661,8 +1661,8 @@ def his_words(role: str | None, kind: str) -> bool:
 
 
 def unrecorded(role: str | None, kind: str, attrs: dict) -> str | None:
-    """Why a record cannot go out on cci post: it is the communicator's owner record of his words, which only the drive's record tool sends, adding its order or part first."""
-    if not his_words(role, kind):
+    """Why a record cannot go out on cci post: it is the communicator's owner record of his words, which only the drive's record tool sends, adding its order or part first; one naming nothing it is about gets unabout's refusal, which says what to name."""
+    if not his_words(role, kind) or attrs.get("about") not in ABOUTS:
         return None
     if attrs.get("about") != ABOUT_DRIVE:
         return (

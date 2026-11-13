@@ -314,7 +314,7 @@ def test_a_report_carrying_a_part_in_an_attr_but_part_is_refused_naming_the_one_
 def test_a_report_about_an_order_names_any_slack_thread_and_reads_none_of_them_when_written(
     run: Callable[..., tuple[int, str]], demo: str, turn: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix", "--kind", "answer", "--parts", "ship the fix", "say it shipped")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why the card asked for Okta MFA")
     with state.edit(demo) as data:
         data["orders"]["o1"]["thread"] = ["D123", THREAD]
@@ -623,8 +623,8 @@ def test_his_words_in_the_thread_of_a_card_an_orders_job_drew_go_to_the_session_
     run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     bound_to_iris(run, demo, monkeypatch)
-    feedback = {"kind": "owner", "text": "and cover the logs page", "to": ["root@demo"], "attrs": {"thread": CARD_THREAD, "about": "his work"}}
-    assert record_lines.decision(post("talker", **feedback))["updatedInput"]["to"] == ["iris@demo"]
+    feedback = {"thread": CARD_THREAD, "about": "his work"}
+    assert state.routed({demo: state.load(demo)}, "talker", "owner", feedback, ["root@demo"]) == ["iris@demo"]
     assert state.thread_order(state.load(demo), CARD_THREAD) == "o1"
 
 

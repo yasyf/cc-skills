@@ -113,12 +113,10 @@ def unprevented(text: str, found: dict[str, dict]) -> list[str]:
 
 
 def prevented(text: str) -> bool:
-    """Whether a line of the text, outside a fence, a quote and a quoted line, names a cause or a failure of the drive's own while the text outside its fences carries the order or PR preventing it, the post his ruling on failures asks for."""
-    told = picture.FENCE.sub("", text)
-    return bool(PREVENTION.search(told)) and any(
-        CAUSE.search(plain := QUOTED.sub("", line)) or FAILURE.search(plain) and DRIVE_PART.search(plain)
-        for line in told.splitlines()
-        if not line.lstrip().startswith(">")
+    """Whether a line of the text, outside a fence, a quote and a quoted line, names a cause or a failure of the drive's own while a line outside its fences and quotes carries the order or PR preventing it, the post his ruling on failures asks for."""
+    told = [line for line in picture.FENCE.sub("", text).splitlines() if not line.lstrip().startswith(">")]
+    return any(PREVENTION.search(line) for line in told) and any(
+        CAUSE.search(plain := QUOTED.sub("", line)) or FAILURE.search(plain) and DRIVE_PART.search(plain) for line in told
     )
 
 

@@ -149,8 +149,9 @@ def test_his_read_only_questions_handler_starts_on_its_answer_order_and_one_say_
     answer = slack_thread.post(state.now(), from_claude=True)
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": answer, "thread_ts": THREAD})
     report = {"seq": 700001, "kind": "report", "lane": "communicator", "at": state.stamp(), "fields": {"attrs": {"close": "o3"}}}
-    replies = {"post": json.dumps({"seq": 700001}), "show": json.dumps(report), "agents": json.dumps([{"id": "b7f2", "sessionId": "h-session"}])}
+    replies = {"post": json.dumps({"seq": 700001}), "show": json.dumps(report)}
     monkeypatch.setattr(reads, "run", lambda argv, checkout, env=None: started.append(argv) or replies.get(argv[1], ""))
+    monkeypatch.setattr(agents, "background_job", lambda session: (BACKGROUND_JOB, {"sessionId": session}))
     monkeypatch.setattr(agents.subprocess, "Popen", lambda argv, **kwargs: None)
     text = "It shipped in 1.0.540."
     with monkeypatch.context() as scoped:

@@ -4701,7 +4701,6 @@ def test_an_answer_counts_as_posted_in_the_thread_of_one_of_the_orders_cards(
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
     answer = slack_thread.post(state.now(), from_claude=True)
-    assert run("order", "posted", "o1", answer)[0] == 2
     with state.edit("demo") as data:
         data["jobs"]["j1"]["questions"].append(state.new_question(None, None, state.stamp(), card="https://acme.slack.com/archives/D123/p1794200000000100"))
     report_records(monkeypatch, {"661300": {"job": "j1", "part": "how fast can restore go?"}})
@@ -4722,7 +4721,7 @@ def test_a_line_in_the_thread_of_the_card_of_a_pr_on_the_order_is_in_the_orders_
     root = {"ts": "1794200000.000100", "thread_ts": "1794200000.000100", "from_claude": True}
     slack_thread.messages.append(root | {"text": "New: approve web search? — ✓ *Approve* · <https://github.com/Forge-AI/monorepo/pull/41|PR 41>"})
     line = slack_thread.post(state.now(), from_claude=True)
-    assert run("order", "posted", "o1", line)[0] == 2
+    assert run("order", "posted", "o1", line) == (0, f"o1 progress line, no part delivered: {line}, in thread {root['ts']}, now one of its threads")
     slack_thread.messages[0] = root | {"text": f"New: approve web search? — ✓ *Approve* · answered 7:10pm · <{PR}|monorepo PR 42>"}
     report_records(monkeypatch, {"661300": {"job": "j1", "part": "ship web search"}})
     assert run("order", "posted", "o1", line, "--record", "661300") == (0, f'o1 "ship web search": posted {line}')
@@ -4745,7 +4744,7 @@ def test_a_bare_link_to_a_line_under_the_card_of_a_pr_on_the_order_reads_the_car
     line = slack_thread.post(state.now(), from_claude=True).split("?")[0]
     reply = slack_thread.messages[-1]
     monkeypatch.setattr(slack, "thread", lambda *where: slack_thread.reads.append(where) or ([reply] if where[0] == "--url" else list(slack_thread.messages)))
-    assert run("order", "posted", "o1", line) == (0, f"o1 progress line, no part delivered: {line}")
+    assert run("order", "posted", "o1", line) == (0, f"o1 progress line, no part delivered: {line}, in thread {card['ts']}, now one of its threads")
     assert ("--channel", "D123", "--thread", card["ts"], "--limit", "1000") in slack_thread.reads
 
 
@@ -5175,7 +5174,7 @@ def test_a_report_naming_parts_delivers_each_whatever_its_posts_words_say_and_th
     assert {part: held["posted"] for part, held in state.load("demo")["orders"]["o1"]["parts"].items()} == dict.fromkeys(parts, line)
 
 
-def test_job_set_parts_replaces_the_parts_a_job_delivers_so_a_done_builder_delivers_the_part_it_built(
+def test_job_set_parts_replaces_the_parts_a_job_delivers_so_a_done_builder_given_a_part_it_did_not_build_runs_again(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     main = "an incident never goes five quiet minutes without a line"
@@ -5188,7 +5187,7 @@ def test_job_set_parts_replaces_the_parts_a_job_delivers_so_a_done_builder_deliv
     assert f'the "{state.IMMEDIATE_FIX}" part is a job of its own' in capsys.readouterr().err
     assert run("job", "set", "j1", "--parts", main)[0] == 0
     data = state.load("demo")
-    assert (data["jobs"]["j1"]["parts"], state.delivered(data, "o1", main), state.delivered(data, "o1", state.IMMEDIATE_FIX)) == ([main], True, False)
+    assert (data["jobs"]["j1"]["parts"], data["jobs"]["j1"]["state"], state.delivered(data, "o1", main), state.delivered(data, "o1", state.IMMEDIATE_FIX)) == ([main], "running", False, False)
 
 
 def test_one_post_delivers_each_part_its_report_names_on_every_order_an_item_names(

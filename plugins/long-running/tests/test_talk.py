@@ -490,7 +490,8 @@ def test_a_post_on_an_order_goes_out_in_any_thread_and_a_thread_the_order_holds_
         data["roles"]["coordinator"]["session"] = "elsewhere"
 
     def say(thread: str | None, order: str) -> str:
-        line = slack_thread.post(state.now() + timedelta(minutes=len(slack_thread.messages) + 1), from_claude=True, thread_ts=thread)
+        posted = slack_thread.post(state.now() + timedelta(minutes=len(slack_thread.messages) + 1), from_claude=True, thread_ts=thread).split("?")[0]
+        line = f"{posted}?thread_ts={thread}" if thread else posted
         monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": line, "thread_ts": thread})
         return talk.say(demo, {"text": "The copy stalls on the lock.", "thread_ts": thread, "order": order}).removeprefix(f"POSTED {line}; {order} progress line, no part delivered: {line}")
 
