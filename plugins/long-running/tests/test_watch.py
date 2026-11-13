@@ -5582,6 +5582,39 @@ def test_replayed_56278_an_unlanded_pr_whose_own_job_waits_on_his_open_cards_rea
     assert landers == []
 
 
+def test_a_test_a_yasyf_merges_own_run_broke_on_main_wakes_its_builder_until_main_passes_it(demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]]) -> None:
+    merged, run, test = "yasyf/cc-skills#5", "https://github.com/yasyf/cc-skills/actions/runs/9", "plugins/long-running/tests/test_watch.py::test_a"
+    with state.edit(demo) as data:
+        data["orders"]["o3"] = order(jobs=["j3"])
+        data["jobs"]["j3"] = job(order="o3", prs=[state.pr_url(merged)], state="done")
+        data["prs"][merged] = state.new_pr(state.pr_url(merged), "j3", "o3") | {"state": "merged", "head": "bbbbbbb222", "merged_sha": "ccc333ddd444", "checks": "fail"}
+    since, marks, main = "2026-11-09T14:50:00Z", {}, {"after": None}
+    monkeypatch.setattr(receiver, "heard", lambda repo, kind: marks.get(repo))
+    monkeypatch.setattr(install, "head_failures", lambda repo, head: {test: {"run": run, "workflow": 1}})
+    monkeypatch.setattr(install, "merged_at", lambda repo, sha: since)
+    monkeypatch.setattr(install, "main_failures", lambda repo, workflow, created: [] if created == f"<{since}" else main["after"])
+    serve(monkeypatch, {})
+    watching, passes = watcher(demo), []
+    for minutes, mark, after in ((0, "m1", None), (10, "m1", None), (30, "m1", None), (31, "m2", [])):
+        marks["yasyf/cc-skills"], main["after"] = mark, after
+        watch.run_pass(watching, T0 + timedelta(minutes=minutes))
+        passes.append((minutes, [wake for wake in woken if wake[0] == merged]))
+        woken.clear()
+    fix = f"{merged}: yasyf/cc-skills's main fails {test} since it merged, as its own run {run} failed them; fix them forward in a PR of your own from a fresh main, since no other builder is asked to"
+    assert passes == [(0, [(merged, fix)]), (10, []), (30, [(merged, fix)]), (31, [])]
+    assert state.load(demo)["mains"] == {"yasyf/cc-skills": {}}
+
+
+def test_a_merge_owns_only_the_tests_its_own_run_failed_that_main_passed_before_it_and_has_not_passed_since(monkeypatch: pytest.MonkeyPatch) -> None:
+    run = "https://github.com/yasyf/cc-skills/actions/runs/9"
+    monkeypatch.setattr(install, "head_failures", lambda repo, head: {test: {"run": run, "workflow": 1} for test in ("t.py::old", "t.py::fixed", "t.py::new")})
+    monkeypatch.setattr(install, "merged_at", lambda repo, sha: "2026-11-09T14:50:00Z")
+    monkeypatch.setattr(install, "main_failures", lambda repo, workflow, created: ["t.py::old"] if created.startswith("<") else ["t.py::old", "t.py::new"])
+    pr = state.new_pr(state.pr_url("yasyf/cc-skills#5"), "j3", "o3") | {"state": "merged", "head": "bbbbbbb222", "merged_sha": "ccc333ddd444"}
+    assert watch.broken("yasyf/cc-skills", pr | {"checks": "fail"}) == {"t.py::new": {"run": run, "workflow": 1, "since": "2026-11-09T14:50:00Z"}}
+    assert watch.broken("yasyf/cc-skills", pr | {"checks": "pass"}) == {}
+
+
 def test_running_build_reads_the_newest_request_shape_and_model(tmp_path: Path) -> None:
     path = tmp_path / "session.jsonl"
     lines = [

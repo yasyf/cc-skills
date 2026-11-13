@@ -399,11 +399,12 @@ launch started you in when it holds that branch, as one on this Mac does when an
 there, after comparing its HEAD with the head the brief names; else check that branch out in a fresh
 worktree. The coordinator already registered the PR as yours, and on the meta session's handoff
 you register it by Tooling above. Read the earlier jobs' transcripts the brief lists only for what the
-event needs. The first four events then return as step 7 says.
+event needs. The first five events then return as step 7 says.
 
 | Event | What you do |
 | --- | --- |
 | A failing check | Read its log, fix, push. |
+| Tests your merged `yasyf/*` PR broke on main, failing in its own run and on main since | Fix them forward in a PR of your own from a fresh `main`: no other builder is asked to. |
 | A conflict | Rebase onto what the line names it conflicting with, resolve each conflict by what both sides meant, push: its base, or, for a PR in a native GitHub stack, the stack's trunk, by `ccx vcs stack rebase` of the whole stack, since GitHub test-merges each member onto that trunk with every PR below it and never onto its base branch. The watch lands a `yasyf/*` PR's pushed head itself once GitHub reads it free of conflicts and failing checks, so it needs no second `drive pr add`. |
 | A review | Answer or fix every finding; a non-critical bot finding you judge wrong gets a one-line reply saying why. |
 | His answers to the design cards a built branch or open PR waited on | Rebuild wherever his pick differs from the option built, and open the PR if none is open. |

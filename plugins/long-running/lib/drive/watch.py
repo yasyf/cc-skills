@@ -121,6 +121,7 @@ class Watcher:
     started: dict[str, datetime] = field(default_factory=dict)
     mail_read: set[str] = field(default_factory=set)
     resumed: dict[str, str] = field(default_factory=dict)
+    ci_marks: dict[str, str | None] = field(default_factory=dict)
     carried: dict[str, tuple[set[str], datetime]] = field(default_factory=dict)
     untracked: dict[str, str] = field(default_factory=dict)
     relayed: collections.deque[str] = field(default_factory=collections.deque)
@@ -252,6 +253,77 @@ def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
     if ejected := [key for key in reads if data["prs"][key]["ejected"] and data["prs"][key]["lander"]["outcome"] == land.QUEUED]:
         lines += refused_lines(watcher, ejected, moment)
     return lines + dropped_lines(watcher, foreign, moment)
+
+
+def main_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Keep the tests each yasyf/* repository's main fails since a drive PR merged over a check main failed too, which the lander reads per check, never per test, each owned by the merge that broke it: once a heard merged PR's own run failed, each test its log names that main's last finished run before the merge passed, and no finished main run since has passed, is that PR's. Wake its builder to fix them forward, at once and again every 30 minutes while main fails one. A test clears once the newest finished main run created since its merge passes it, read again each time the receiver hears a run complete on main."""
+    data = state.load(watcher.name)
+    grades = [key for key, pr in data["prs"].items() if state.grading(key, pr) and hears(watcher, data, pr["order"])]
+    marks = {repo: mark for repo, owned in data["mains"].items() if owned and (mark := receiver.heard(repo, "ci")) != watcher.ci_marks.get(repo)}
+    if not (grades or marks or main_wakes(watcher, data, moment)):
+        return []
+    try:
+        broke = {key: broken(github.repo_of(key), data["prs"][key]) for key in grades}
+        passed = {repo: passing(repo, data["mains"][repo]) for repo in marks}
+    except github.GithubError as error:
+        return read_failed(watcher, "github main runs", error, moment)
+    watcher.failures.pop("github main runs", None)
+    watcher.ci_marks |= marks
+    with state.edit(watcher.name) as data:
+        for repo, tests in passed.items():
+            for test in tests:
+                data["mains"][repo].pop(test, None)
+        for key, found in broke.items():
+            data["prs"][key]["graded"] = True
+            data["mains"].setdefault(github.repo_of(key), {}).update({test: failure | {"owner": key, "woke": None} for test, failure in found.items()})
+        wakes = main_wakes(watcher, data, moment)
+        for repo, owner, tests in wakes:
+            for test in tests:
+                data["mains"][repo][test]["woke"] = state.stamp(moment)
+        texts = [(owner, main_fix(repo, owner, data["mains"][repo], tests)) for repo, owner, tests in wakes]
+    for owner, text in texts:
+        stage.wake(watcher.name, owner, text)
+    return []
+
+
+def broken(repo: str, pr: dict) -> dict[str, dict]:
+    """The tests a merged PR broke on main: each its own run failed at its head that main's last finished run before the merge passed and no finished main run since has passed, with that run's link, its workflow and when the merge landed; none once its run passed."""
+    if pr["checks"] != "fail":
+        return {}
+    failures = install.head_failures(repo, pr["head"])
+    since = install.merged_at(repo, pr["merged_sha"]) if failures else ""
+    found = {}
+    for workflow in {failure["workflow"] for failure in failures.values()}:
+        before = install.main_failures(repo, workflow, f"<{since}") or []
+        after = install.main_failures(repo, workflow, f">={since}")
+        found |= {test: failure | {"since": since} for test, failure in failures.items() if failure["workflow"] == workflow and test not in before and (after is None or test in after)}
+    return found
+
+
+def passing(repo: str, owned: dict[str, dict]) -> set[str]:
+    """The owned tests main passes now: each the newest finished main run of its workflow created since its owner merged passed."""
+    groups: dict[tuple[int, str], set[str]] = {}
+    for test, kept in owned.items():
+        groups.setdefault((kept["workflow"], kept["since"]), set()).add(test)
+    return {test for (workflow, since), tests in groups.items() if (failing := install.main_failures(repo, workflow, f">={since}")) is not None for test in tests - set(failing)}
+
+
+def main_wakes(watcher: Watcher, data: dict, moment: datetime) -> list[tuple[str, str, list[str]]]:
+    """Each heard merged PR owing a wake for the tests it broke on its repository's main, with those tests: one owning a test whose builder was never woken for it, or last woken 30 minutes ago."""
+    owners: dict[tuple[str, str], list[str]] = {}
+    for repo, owned in data["mains"].items():
+        for test, kept in owned.items():
+            owners.setdefault((repo, kept["owner"]), []).append(test)
+    return [
+        (repo, owner, sorted(tests))
+        for (repo, owner), tests in owners.items()
+        if hears(watcher, data, data["prs"][owner]["order"]) and any(not (woke := data["mains"][repo][test]["woke"]) or moment - state.parse_time(woke) >= stage.EVERY["red"] for test in tests)
+    ]
+
+
+def main_fix(repo: str, owner: str, owned: dict[str, dict], tests: list[str]) -> str:
+    runs = ", ".join(sorted({owned[test]["run"] for test in tests}))
+    return f"{owner}: {repo}'s main fails {', '.join(tests)} since it merged, as its own run {runs} failed them; fix them forward in a PR of your own from a fresh main, since no other builder is asked to"
 
 
 def refused_lines(watcher: Watcher, keys: list[str], moment: datetime) -> list[str]:
@@ -3356,6 +3428,7 @@ def stages(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
         found, source = view.stored_cards(watcher.name)
         watcher.cards = found if source == "live" else None
         yield github_lines(watcher, moment)
+        yield main_lines(watcher, moment)
         yield carried_lines(watcher, moment)
         checks(watcher, moment)
         yield stage_lines(watcher, moment)

@@ -461,7 +461,9 @@ own gate is a gate of the drive's, so the first job to meet an inherited red nam
 whose run first failed it, then finds the PR fixing it (`drive status`, `cci who --pr`) or opens that
 fix itself, one owner for every PR it blocks. Fix your own; for an
 inherited one, restack onto a `dev` that has the fix, or fix it forward in its own PR, a `flake fix` when
-a test flaked, whose cause may be in product code. Waiting on a fix in another PR, return `WAITING`
+a test flaked, whose cause may be in product code. The one exception is a `yasyf/*` test that main fails
+since a drive PR merged whose own run failed it: that merge's builder owns it, and the watch wakes it to
+fix main forward in a PR of its own, so build no second fix. Waiting on a fix in another PR, return `WAITING`
 naming it, which puts it on his card on yours, with the fix's own card when it waits on his Approve. On a conflict or
 a queue ejection, restack, read the entry's history and verification build, fix the cause, and enqueue
 once more. Fix a test that keeps failing at its root; never retry past it with `--flake` or a rerun. The
