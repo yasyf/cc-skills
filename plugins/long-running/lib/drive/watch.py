@@ -1234,30 +1234,35 @@ def clock_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def undelivered_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each text a job holds, his answers among them, ten minutes after it came and every ten minutes until the watch, a resume or a launch carries it."""
+    """Each text a job an agent or lane started holds, his answers among them, ten minutes after it came and every ten minutes until the watch, a resume or a SendMessage carries it."""
     if not any(owed_answers(watcher, state.load(watcher.name), moment)):
         return []
     lines = []
     with state.edit(watcher.name) as data:
         for job_id, answer in owed_answers(watcher, data, moment):
             answer["said"] = state.stamp(moment)
-            lines.append(f'ANSWER undelivered {job_id}: {unreached(job_id, answer)} [{data["jobs"][job_id]["order"]} {job_id}]')
+            job = data["jobs"][job_id]
+            lines.append(f'ANSWER undelivered {job_id}: {unreached(job_id, job, data, answer)} [{job["order"]} {job_id}]')
     return lines
 
 
-def unreached(job_id: str, answer: dict) -> str:
-    return (
+def unreached(job_id: str, job: dict, data: dict, answer: dict) -> str:
+    """A text the job holds that has not reached it, what the watch does with such texts, and the delivery that reaches the job now: drive job resume for a lane on Orca, which sends it what it holds, else the one superseded.delivery names, the SendMessage of the session that started its agent on this Mac."""
+    held = (
         f'"{cut(answer["words"], 80)}", held at {when(answer["at"])}, has not reached {job_id}; the watch sends it to a worker that takes messages,'
-        f" hands it to the next worker of one that returned and launches a builder never started with it, and drive job resume {job_id} delivers it now"
+        " hands it to the next worker of one that returned and launches a builder never started with it"
     )
+    if job.get("where") == "remote" and job.get("dispatch"):
+        return f"{held}, and drive job resume {job_id} delivers it now"
+    return f"{held}; {superseded.delivery(data, job_id, job)}"
 
 
 def owed_answers(watcher: Watcher, data: dict, moment: datetime) -> list[tuple[str, dict]]:
-    """Each text a live job holds that was last said ten minutes ago or more; a finished job's is its ORPHAN's, since no resume carries it."""
+    """Each text a live job an agent or lane started holds that was last said ten minutes ago or more; a job none started gets its texts from the launch that starts it, which carries them, and a finished job's is its ORPHAN's, since no resume carries it."""
     return [
         (job_id, answer)
         for job_id, job in data["jobs"].items()
-        if job["state"] not in state.FINISHED_JOB_STATES and heard_job(watcher, data, job)
+        if job["state"] not in state.FINISHED_JOB_STATES and (job.get("agent") or job.get("dispatch")) and heard_job(watcher, data, job)
         for answer in job["undelivered"]
         if moment - state.parse_time(answer["said"] or answer["at"]) >= DUE_EVERY
     ]
@@ -2037,7 +2042,7 @@ def can_wake(job_id: str, job: dict, data: dict, moment: datetime) -> bool:
     return state.timed(data, job, moment)
 
 
-def unanswered(job_id: str, job: dict, moment: datetime) -> str | None:
+def unanswered(job_id: str, job: dict, data: dict, moment: datetime) -> str | None:
     """A lane's question no resume has answered for 30 minutes, whatever PR it has, that his cards do not carry; his answer since it came that no resume carried leads the line, and an `ASK` no `drive job ask` kept says that keeps it, as mail_line does, since no resume answers his question."""
     if not job.get("ask"):
         return None
@@ -2046,7 +2051,7 @@ def unanswered(job_id: str, job: dict, moment: datetime) -> str | None:
         return None
     question = f'"{cut(job["said"] or "", 80)}" {minutes(moment - asked)} minutes ago'
     if answers := [answer for answer in job["undelivered"] if state.parse_time(answer["at"]) >= asked]:
-        return f"{unreached(job_id, answers[-1])}, answering its lane's question {question}"
+        return f"{unreached(job_id, job, data, answers[-1])}, answering its lane's question {question}"
     if reads.asks(job["report"] or "") and not state.asked_in(job, reads.opening(job["report"])):
         return f"{job_id}'s lane asked {question}, an ASK only his card answers: {UNKEPT_ASK.format(job=job_id)}"
     return f'{job_id}\'s lane asked {question} and nothing answered it: drive job resume {job_id} "<the answer>" answers it'
@@ -2077,7 +2082,7 @@ def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, moment: dateti
                 f'{job_id} waits on a card never posted: {state.refused_by(unposted)} refused {whose} question "{cut(unposted["title"], 80)}" kept in {unposted["file"]}:'
                 f" {cut(unposted['refused'].removeprefix('refused: '), 160)}"
             )
-        if asked := unanswered(job_id, job, moment):
+        if asked := unanswered(job_id, job, data, moment):
             return asked
         if can_wake(job_id, job, data, moment):
             return None

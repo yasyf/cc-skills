@@ -3208,7 +3208,8 @@ def test_the_watch_has_drive_job_resume_wake_a_running_lane_orca_could_not_reach
 
 def test_a_held_text_no_send_took_is_said_as_the_watchs_to_carry(remote: str) -> None:
     held = {"seq": None, "words": "TAP Approve #12", "at": state.stamp(T0), "said": None, "request": "req-held"}
-    assert watch.unreached("j1", held) == (
+    data = state.load(remote)
+    assert watch.unreached("j1", data["jobs"]["j1"], data, held) == (
         f'"TAP Approve #12", held at {render.when(held["at"])}, has not reached j1; the watch sends it to a worker that takes messages,'
         " hands it to the next worker of one that returned and launches a builder never started with it, and drive job resume j1 delivers it now"
     )
@@ -3983,7 +3984,7 @@ def test_a_lane_question_opening_with_a_result_other_than_ask_is_that_result_and
     assert watch.run_pass(watching, T0) == [f"JOB j1 o1 {sent}"]
     job = state.load(remote)["jobs"]["j1"]
     assert (job["ask"], job["state"]) == (asked, taken)
-    assert (watch.unanswered("j1", job, T0 + timedelta(minutes=31)) is None) == (asked is None)
+    assert (watch.unanswered("j1", job, state.load(remote), T0 + timedelta(minutes=31)) is None) == (asked is None)
 
 
 @pytest.mark.parametrize("kind", ["question", "worker_done"])
@@ -4023,7 +4024,7 @@ def test_a_lane_that_finishes_after_asking_ends_its_question_and_its_result_sets
     assert watch.run_pass(watching, T0 + timedelta(minutes=10)) == ["JOB j1 o1 READY #53090 head b6f66c236d70"]
     job = state.load(remote)["jobs"]["j1"]
     assert (job["ask"], job["state"], job["said"]) == (None, "waiting", "READY #53090 head b6f66c236d70")
-    assert watch.unanswered("j1", job, T0 + timedelta(minutes=41)) is None
+    assert watch.unanswered("j1", job, state.load(remote), T0 + timedelta(minutes=41)) is None
 
 
 @pytest.mark.parametrize(
@@ -4512,12 +4513,12 @@ def test_a_lane_ask_no_drive_job_ask_kept_is_an_orphan_saying_drive_job_ask_keep
     monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"the watch replied {args}"))
     watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote)), T0)
     job = state.load(remote)["jobs"]["j1"]
-    assert watch.unanswered("j1", job, T0 + timedelta(minutes=31)) == (
+    assert watch.unanswered("j1", job, state.load(remote), T0 + timedelta(minutes=31)) == (
         f'j1\'s lane asked "ASK Where should the nightly store copy run?" 31 minutes ago, an ASK only his card answers: {watch.UNKEPT_ASK.format(job="j1")}'
     )
     kept = cli.keep_ask(remote, "j1", ASK_IN_SHAPE, None)[0]
     job = state.load(remote)["jobs"]["j1"] | {"report": f"ASK {kept}"}
-    assert watch.UNKEPT_ASK.format(job="j1") not in (watch.unanswered("j1", job, T0 + timedelta(minutes=31)) or "")
+    assert watch.UNKEPT_ASK.format(job="j1") not in (watch.unanswered("j1", job, state.load(remote), T0 + timedelta(minutes=31)) or "")
 
 
 def test_a_lane_question_nothing_answers_is_an_orphan_once_as_its_minutes_grow_whatever_older_card_its_job_has(
@@ -4583,7 +4584,7 @@ def test_a_lane_whose_kept_questions_are_each_open_on_his_card_is_no_orphan_howe
     assert watch.run_pass(watching, T0 + timedelta(minutes=60)) == []
     with state.edit(remote) as data:
         data["jobs"]["j1"]["questions"][0]["closed"] = state.new_close("answered", "On the primary", cards[0])
-    assert watch.unanswered("j1", state.load(remote)["jobs"]["j1"], T0 + timedelta(minutes=61)).startswith("j1's lane asked")
+    assert watch.unanswered("j1", state.load(remote)["jobs"]["j1"], state.load(remote), T0 + timedelta(minutes=61)).startswith("j1's lane asked")
 
 
 def test_drive_job_ask_with_no_file_keeps_each_block_its_lanes_pointer_names_and_never_reads_the_pointer_as_a_block(
