@@ -624,6 +624,7 @@ def load(name: str) -> dict:
                 question["closed"] = settled and new_close("answered", None, None, seq=settled.get("seq"), answer=settled.get("answer"), ruling=settled.get("ruling"), at=settled["at"])
             question.setdefault("closed", None)
             question.setdefault("holds", "")
+            question["waits"] = question["waits"] and question["waits"].replace("-#", "-")
             if question["waits"] and not question["file"] and (kept := rebuilt_ask(name, question["waits"])).exists():
                 question["file"] = str(kept)
     if not data.get("closed_from_cards"):
