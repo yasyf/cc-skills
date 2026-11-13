@@ -767,6 +767,7 @@ def test_his_words_carrying_on_an_order_of_his_work_are_its_parts_the_watch_name
     assert watch.orphan_lines(watching, later) == []
     with state.edit(demo) as data:
         data["jobs"]["j1"]["state"] = "done"
+        data["orders"]["o1"]["parts"][state.IMMEDIATE_FIX]["posted"] = "https://github.com/Forge-AI/monorepo/pull/42"
     unstaffed = [f'ORPHAN o1 "{words["text"]}": no job' for words in (iterate, options)]
     assert watch.orphan_lines(watching, later) == unstaffed
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-under-test")

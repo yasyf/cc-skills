@@ -42,6 +42,7 @@ INCIDENT_CHECK = "first check"
 INCIDENT_CAUSE = "cause"
 INCIDENT_ROLLBACK = "rollback"
 INCIDENT_PARTS = {"release": [INCIDENT_CHECK], "rollback": [INCIDENT_ROLLBACK, INCIDENT_CAUSE], "none": [INCIDENT_STOP, INCIDENT_CAUSE]}
+INCIDENT_ACTS = tuple(dict.fromkeys(part for parts in INCIDENT_PARTS.values() for part in parts))
 FIX_LINE = re.compile(r"^[*_`]*FIX[*_`]*:?[*_`]*[ \t]+(?P<fix>\S.*?)[ \t]*$", re.MULTILINE)
 NO_FIX = "none"
 UNTRACED = ("ASK", "BLOCKED", "HANDOFF")
@@ -504,6 +505,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str, terminal: str
         "closed_from_cards": True,
         "designs_cited": True,
         "one_question_per_file": True,
+        "delivered_by_prs": True,
     }
 
 
@@ -722,6 +724,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         if pr["checker"]:
             pr["checker"].setdefault("against", "")
             pr["checker"].setdefault("objected", None)
+            pr["checker"].setdefault("carried", None)
         pr.setdefault("ejected", False)
         pr.setdefault("flaky", None)
         pr.setdefault("review_asked", None)
@@ -735,6 +738,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             stamp.pop("patch", None)
             stamp.setdefault("lines", {})
             stamp.setdefault("read", stamp["head"])
+            stamp.setdefault("carried", None)
         pr["parts"] = [part.strip() for part in pr.get("parts", [])]
         pr.setdefault("required", None)
         pr.setdefault("lead", None)
@@ -793,6 +797,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         cite_returned_designs(name, data)
     if not data.get("research_linked"):
         link_research(data)
+    if not data.get("delivered_by_prs"):
+        posted_from_jobs(data)
     if unkept := any("threads" not in order for order in data["orders"].values()):
         keep_threads(name, data)
     return data, keep and not unkept
@@ -830,6 +836,18 @@ def cite_returned_designs(name: str, data: dict) -> None:
         named = (cited for reply in returns(name, pr["job"]) if REPORTED_LINE.match(said := opening(reply["body"])) and key in named_prs(data, pr["order"], said) and (cited := design_lines(reply["body"])))
         pr["design"] = next(named, None)
     data["designs_cited"] = True
+
+
+def posted_from_jobs(data: dict) -> None:
+    """Keep the mark of each part of work he ordered that a done builder or codex job delivered while a job's DONE delivered every part it held, by the link of that job's first merged PR, now that only a merged PR whose checked diff carries a part delivers it; a part whose job merged no PR keeps none, so it reads undelivered; marked so this runs once."""
+    for order_id, order in data["orders"].items():
+        for part, held in order["parts"].items():
+            if held["posted"] and PR_URL.search(held["posted"]) or not work(data, order_id, part) or order["incident"] and part in INCIDENT_ACTS:
+                continue
+            done = [job for _, job in part_jobs(data, order_id, part) if job["kind"] in CHANGE_KINDS and job["state"] == "done"]
+            if merged := [url for job in done for url in job["prs"] if (pr := data["prs"].get(pr_key(url))) and pr["merged_sha"]]:
+                held["posted"] = merged[0]
+    data["delivered_by_prs"] = True
 
 
 def link_research(data: dict) -> None:
@@ -1096,7 +1114,7 @@ def result_waits(data: dict, order_id: str, line: str, report: str = "") -> list
 
 
 def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
-    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, a builder's DONE on an open incident's stop or rollback keeping its proof as the order's proof, which ends the incident's five-minute line, built on its branch and waiting on each card a BUILT line names and each open card of his holding its work by part_cards, whatever words the line names it in, each card once under its waits id, waiting on each PR and release a READY or PUSHED line or a WAITING's whole report names, which the watch frees once the PR merges, its own PR closes or the release is out, another job's PR closing unmerged moving the wait onto that job's change, each PR a `WAITING … waits on` line names waiting on each card it names, keep on a job its WAITING line answers as stage.waited reads it, waiting on each card of his its first line's `waits on` names, and on each red PR it answers each PR, release and card it names, which his card on that PR then names and links, keep each verdict a reader's answer gives on the PR it names, join each open order the FIX line of a result tracing a live bug's cause names to that bug's incident, so hurts_now reads it live, end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met, dropping his tap on it so a fresh card asks it for the reworked change, and deliver the parts of a job whose answer reaches him only by a post by the post its POSTED line names; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
+    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, a builder's DONE on an open incident's stop or rollback keeping its proof as the order's proof, which ends the incident's five-minute line, built on its branch and waiting on each card a BUILT line names and each open card of his holding its work by part_cards, whatever words the line names it in, each card once under its waits id, waiting on each PR and release a READY or PUSHED line or a WAITING's whole report names, which the watch frees once the PR merges, its own PR closes or the release is out, another job's PR closing unmerged moving the wait onto that job's change, each PR a `WAITING … waits on` line names waiting on each card it names, keep on a job its WAITING line answers as stage.waited reads it, waiting on each card of his its first line's `waits on` names, and on each red PR it answers each PR, release and card it names, which his card on that PR then names and links, keep each verdict a reader's answer gives on the PR it names, join each open order the FIX line of a result tracing a live bug's cause names to that bug's incident, so hurts_now reads it live, end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met, dropping his tap on it so a fresh card asks it for the reworked change, deliver the parts of a job whose answer reaches him only by a post by the post its POSTED line names, and on a DONE deliver each part a merged PR it names carries by that PR's link; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
     from drive import stage, view
 
     job = data["jobs"][job_id]
@@ -1127,6 +1145,8 @@ def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
                 order["joins"] = head
     if (posted := POSTED_LINE.match(line)) and unposted_answer(data, job_id):
         deliver_posted(data, job_id, posted["link"], moment)
+    if taken == "done":
+        deliver(data, named_prs(data, job["order"], f"{line}\n{report}"))
     if job["kind"] == "builder" and re.match(r"READY\b", line):
         met = REPORT_CHANGE.search(report)
         for key in named_prs(data, job["order"], line):
@@ -1328,12 +1348,38 @@ def carriers(data: dict, order_id: str, part: str) -> list[tuple[str, dict]]:
 
 
 def delivered(data: dict, order_id: str, part: str) -> bool:
-    """Whether a part is delivered: work he ordered once a builder or codex job on it returned DONE or drive order posted recorded the merged PR that delivered it, whatever a post says, and words he reads once posted to him or built by a builder that returned DONE."""
+    """Whether a part is delivered: work he ordered once its posted link names the merged PR that delivered it, the PR whose merged diff the check found carries it or the one drive order posted or drive pr set --part recorded, whatever a job's DONE or a post says, but an incident's stop, rollback, first check or cause, an act no PR carries, once a builder or codex job on it returned DONE; and words he reads once posted to him or built by a builder that returned DONE."""
     done = {job["kind"] for _, job in part_jobs(data, order_id, part) if job["state"] == "done"}
-    posted = data["orders"][order_id]["parts"][part]["posted"]
+    order = data["orders"][order_id]
+    posted = order["parts"][part]["posted"]
     if work(data, order_id, part):
-        return bool(done & set(CHANGE_KINDS)) or bool(posted and PR_URL.search(posted))
+        return bool(posted and PR_URL.search(posted)) or bool(order["incident"]) and part in INCIDENT_ACTS and bool(done & set(CHANGE_KINDS))
     return "builder" in done or bool(posted)
+
+
+def carried(pr: dict) -> dict[str, list[str]] | None:
+    """The parts of each order the check of the PR's change at its head found its diff carries, or None while no check at that head named them."""
+    checker = pr["checker"]
+    return checker["carried"] if checker and checker["head"] == pr["head"] else None
+
+
+def carried_by(data: dict, keys: list[str]) -> dict[str, list[str]]:
+    """The parts of each order the merged diffs of these PRs carry, as the check of each at its merged head named them."""
+    found: dict[str, list[str]] = {}
+    for key in keys:
+        if data["prs"][key]["merged_sha"]:
+            for order_id, parts in (carried(data["prs"][key]) or {}).items():
+                found[order_id] = list(dict.fromkeys([*found.get(order_id, []), *parts]))
+    return found
+
+
+def deliver(data: dict, keys: list[str]) -> None:
+    """Deliver each part a merged PR among keys carries, as the check of its merged diff names it, by that PR's link, the one mark delivered reads for work he ordered; a part its order no longer holds is left, as is one a merged PR already delivered."""
+    for key in keys:
+        for order_id, parts in carried_by(data, [key]).items():
+            for part in parts:
+                if (held := data["orders"][order_id]["parts"].get(part)) and not (held["posted"] and PR_URL.search(held["posted"])):
+                    held["posted"] = data["prs"][key]["url"]
 
 
 def unposted_answer(data: dict, job_id: str) -> bool:

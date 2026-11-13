@@ -142,6 +142,10 @@ def explained(block: str) -> str:
     return "".join(lines)
 
 
+def carrying(head: str, carried: dict[str, list[str]]) -> dict:
+    return {"head": head, "pid": 1, "at": state.stamp(), "outcome": "CHECKED", "against": "", "objected": None, "carried": carried}
+
+
 def git_in(repo: Path, *args: str) -> str:
     identity = ["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"]
     return subprocess.run(["git", "-C", str(repo), *identity, *args], check=True, capture_output=True, text=True).stdout.strip()
@@ -397,6 +401,7 @@ def ended_sessions(monkeypatch: pytest.MonkeyPatch) -> set[str]:
 @dataclass
 class Judge:
     against: list[dict] = field(default_factory=list)
+    carried: list[int] | None = None
     asked: list[tuple[str, dict]] = field(default_factory=list)
 
 
@@ -404,7 +409,12 @@ class Judge:
 def judge(monkeypatch: pytest.MonkeyPatch) -> Judge:
     judging = Judge()
     monkeypatch.setattr(served, "change", lambda key: {"title": f"Fix: {key}", "body": "", "head": card.drive_prs().get(key, ("", {"head": None}))[1]["head"], "diff": b""})
-    monkeypatch.setattr(served, "judged", lambda name, said, changes: judging.asked.append((said, changes)) or list(judging.against))
+    monkeypatch.setattr(
+        served,
+        "judged",
+        lambda name, said, changes, parts: judging.asked.append((said, changes))
+        or {"against": list(judging.against), "carried": list(range(1, parts + 1)) if judging.carried is None else list(judging.carried)},
+    )
     return judging
 
 
