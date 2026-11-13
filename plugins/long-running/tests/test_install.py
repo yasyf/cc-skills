@@ -12,7 +12,7 @@ from pathlib import Path, PurePosixPath
 
 import pytest
 from conftest import commit_files, git_in
-from drive import card, cli, dashboard, github, install, settled, state
+from drive import card, cli, dashboard, github, install, receiver, settled, state
 
 SHA = "abc123def4567890"
 REPO = "yasyf/cc-skills"
@@ -92,6 +92,8 @@ class FakeGit:
         self.calls: list[list[str]] = []
         self.timeouts: list[float] = []
         self.sleeps: list[float] = []
+        self.heard: list[str] = []
+        self.delivered_every = 30.0
         self.orca_calls: list[list[str]] = []
         self.orca_timeouts: list[float] = []
         self.waits: dict[str, dict] = {}
@@ -145,6 +147,10 @@ class FakeGit:
     def sleep(self, seconds: float) -> None:
         self.sleeps.append(seconds)
         self.now += seconds
+
+    def hear(self, repo: str, kind: str, since: str | None, seconds: float) -> None:
+        self.heard.append(f"{repo} {kind}")
+        self.now += min(self.delivered_every, seconds)
 
     def run(self, cmd: list[str], **options: object) -> subprocess.CompletedProcess:
         if cmd[0] == "orca":
@@ -247,6 +253,7 @@ def fake(config: Path, monkeypatch: pytest.MonkeyPatch) -> Callable[..., FakeGit
         monkeypatch.setattr(install, "APP_PLIST", git.app)
         monkeypatch.setattr(install, "clock", git.clock)
         monkeypatch.setattr(install, "sleep", git.sleep)
+        monkeypatch.setattr(receiver, "hear", git.hear)
         monkeypatch.setattr(dashboard, "serving", lambda name, port: None)
         return git
 
@@ -1358,7 +1365,7 @@ def test_a_proof_reading_main_ci_after_the_merge_runs_once_that_run_completed_an
     shown = on_actions(monkeypatch, tmp_path, [guides, running], [[guides, running], [guides, running | {"status": "completed", "conclusion": "success"}]])
     script.write_text(f"#!/bin/sh\ngrep -qx '43375546307 completed success' {shown}\n")
     install.prove("demo", "j1", 900)
-    assert git.sleeps == [install.POLL_SECONDS]
+    assert (git.heard, git.sleeps) == ([f"{REPO} ci"], [])
     assert state.load("demo")["jobs"]["j1"]["said"] == f"DONE {URL} live: {script} exits 0 on long-running@skills 1.0.3"
 
 
@@ -1372,8 +1379,49 @@ def test_a_merge_whose_own_run_its_concurrency_group_cancelled_waits_on_the_run_
     shown = on_actions(monkeypatch, tmp_path, [cancelled], [[superseding, cancelled], [superseding | {"status": "completed", "conclusion": "success"}, cancelled]])
     script.write_text(f"#!/bin/sh\ngrep -qx '43370536229 completed success' {shown}\n")
     install.prove("demo", "j1", 900)
-    assert git.sleeps == [install.POLL_SECONDS]
+    assert (git.heard, git.sleeps) == ([f"{REPO} ci"], [])
     assert state.load("demo")["jobs"]["j1"]["said"] == f"DONE {URL} live: {script} exits 0 on long-running@skills 1.0.3"
+
+
+def test_tonights_proof_reads_its_merges_ci_once_per_workflow_run_finishing_on_main_not_every_20_seconds(
+    fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    git = fake([BUILD], {BUILD})
+    git.delivered_every = 180
+    reads: list[str] = []
+    running = ci(43375546307, "long-running CI", "2026-11-13T05:59:04Z")
+    polls = iter([[running]] * 4 + [[running | {"status": "completed", "conclusion": "success"}]])
+
+    def read(what: str, cmd: list[str], max_age: str = "0s", text: bool = True) -> str:
+        if cmd[-1] == ".default_branch":
+            return "main\n"
+        reads.append(cmd[3])
+        return "".join(json.dumps(run) + "\n" for run in ([running] if f"&head_sha={SHA}" in cmd[3] else next(polls)))
+
+    monkeypatch.setattr(github, "read", read)
+    start = install.clock()
+    install.await_ci({f"{REPO}#7": SHA}, start + 3600)
+    assert (git.now - start, len(git.heard), len(reads), git.sleeps) == (720, 4, 6, [])
+    assert len(capsys.readouterr().err.splitlines()) == 1
+
+
+def test_a_ci_read_that_fails_is_read_again_within_poll_seconds_since_no_delivery_says_when_it_would_answer(
+    fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    git = fake([BUILD], {BUILD})
+    done = ci(43375546307, "long-running CI", "2026-11-13T05:59:04Z", "completed", "success")
+    answers = iter([github.GithubError("ccx: GitHub rate limit floor"), [done], [done]])
+
+    def read(what: str, cmd: list[str], max_age: str = "0s", text: bool = True) -> str:
+        if cmd[-1] == ".default_branch":
+            return "main\n"
+        if isinstance(answer := next(answers), Exception):
+            raise answer
+        return "".join(json.dumps(run) + "\n" for run in answer)
+
+    monkeypatch.setattr(github, "read", read)
+    install.await_ci({f"{REPO}#7": SHA}, install.clock() + 900)
+    assert (git.sleeps, git.heard) == ([install.POLL_SECONDS], [])
 
 
 def test_drive_pr_ci_judges_a_merge_by_the_run_that_superseded_its_cancelled_own_never_by_a_push_merged_seconds_before(

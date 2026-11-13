@@ -631,11 +631,16 @@ def newest_builds(plugins: list[str]) -> tuple[str, str]:
 
 
 def await_ci(merges: dict[str, str], deadline: float) -> None:
-    """Wait until each workflow that ran on a merge's commit on its repository's default branch has completed its first run from that one on that was not cancelled, the run drive pr ci judges the merge by: a run its concurrency group cancelled for a newer push hands the wait to that push's run. A read that fails is said and read again; refused at the deadline, naming each run still running."""
+    """Wait until each workflow that ran on a merge's commit on its repository's default branch has completed its first run from that one on that was not cancelled, the run drive pr ci judges the merge by: a run its concurrency group cancelled for a newer push hands the wait to that push's run. The runs are read again each time the receiver hears a workflow run complete on that branch, the repository hooked first when no hook of the receiver's sends those, and a read that fails is said and read again within POLL_SECONDS; refused at the deadline, naming each run still running."""
+    from drive import receiver
+
     for key, sha in merges.items():
         repo, triggered, last = key.partition("#")[0], None, ""
         while True:
+            heard, failed = receiver.heard(repo, "ci"), False
             try:
+                if receiver.unhooked({repo}):
+                    receiver.hook(repo)
                 branch = github.default_branch(repo)
                 if triggered is None:
                     triggered = ci_runs(repo, f"branch={branch}&head_sha={sha}")
@@ -643,14 +648,17 @@ def await_ci(merges: dict[str, str], deadline: float) -> None:
                     break
                 waiting = ", ".join(running)
             except github.GithubError as error:
-                waiting = f"no run read: {error}"
+                waiting, failed = f"no run read: {error}", True
             if waiting != last:
                 print(f"drive job prove: waiting for {key}'s CI at {sha[:12]}: {waiting}", file=sys.stderr, flush=True)
             last = waiting
             left = deadline - clock()
             if left <= 0:
                 raise state.DriveError(f"{key}'s merge {sha[:12]} still waits on CI at the deadline: {waiting}")
-            sleep(min(POLL_SECONDS, left))
+            if failed:
+                sleep(min(POLL_SECONDS, left))
+            else:
+                receiver.hear(repo, "ci", heard, left)
 
 
 def ci_runs(repo: str, query: str) -> list[dict]:

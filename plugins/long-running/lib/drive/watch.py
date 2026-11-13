@@ -91,6 +91,7 @@ class Watcher:
     dashboard_down: bool = False
     releasing: dict[str, subprocess.Popen] = field(default_factory=dict)
     released: set[str] = field(default_factory=set)
+    release_marks: dict[str, str | None] = field(default_factory=dict)
     sending: dict[str, int] = field(default_factory=dict)
 
     @property
@@ -571,22 +572,25 @@ def started(pid: int) -> str | None:
 
 
 def shipped(watcher: Watcher, data: dict, moment: datetime) -> tuple[dict[str, str], list[str]]:
-    """Each release wait of a live job or open PR whose release is out, with what shipped it, read from GitHub: the newest release that ships the service holds the PR's merge commit."""
+    """Each release wait of a live job or open PR whose release is out, with what shipped it, read from GitHub: the newest release that ships the service holds the PR's merge commit. A wait whose PR merged is read on the first pass of the watch that sees it, then again only once the receiver's release mark of its repository moved, as each delivery of a release changing moves it."""
     waits = {
-        wait
+        wait: found["pr"]
         for order_id, owner in release_owners(data)
         if hears(watcher, data, order_id)
         for wait in owner["waits"]
-        if state.RELEASE_WAIT.fullmatch(wait)
+        if (found := state.RELEASE_WAIT.fullmatch(wait)) and data["prs"][found["pr"]]["merged_sha"]
     }
-    out = {}
+    out, marks = {}, {wait: receiver.heard(github.repo_of(key), "release") for wait, key in waits.items()}
     for wait in sorted(waits):
+        if (wait, marks[wait]) in watcher.release_marks.items():
+            continue
         try:
             shipping = view.shipped_by(data, wait)
         except github.GithubError as error:
             return {}, read_failed(watcher, "github releases", error, moment)
         if shipping:
             out[wait] = shipping
+    watcher.release_marks = marks
     watcher.failures.pop("github releases", None)
     return out, []
 
@@ -1318,17 +1322,18 @@ def dashboard_lines(watcher: Watcher) -> list[str]:
 
 
 def receiver_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Keep the receiver taking GitHub's deliveries for every PR the watch hears: its launch agent loaded, and a webhook pointing at it on each of their repositories this account administers, each new one owing a read of that repository's PRs, since GitHub delivered nothing of them before it. A repository it does not administer, such as an upstream project, is asked once and never hooked. Each repository is tried whatever another's hook did, and one that cannot be kept, or a receiver not answering on loopback, is said as a failed read is, naming the gh call; a proof's drive leaves it alone."""
+    """Keep the receiver taking GitHub's deliveries for every PR the watch hears and every release a job or PR it hears waits on: its launch agent loaded, and a webhook pointing at it on each of their repositories this account administers, each new one owing a read of that repository's PRs, since GitHub delivered nothing of them before it. A repository it does not administer, such as an upstream project, is asked once and never hooked. Each repository is tried whatever another's hook did, and one that cannot be kept, or a receiver not answering on loopback, is said as a failed read is, naming the gh call; a proof's drive leaves it alone."""
     if state.scratch():
         return []
     data = state.load(watcher.name)
     heard = [key for key in state.open_pr_keys(data) if hears(watcher, data, data["prs"][key]["order"])]
+    awaited = {found["pr"] for order_id, owner in release_owners(data) if hears(watcher, data, order_id) for wait in owner["waits"] if (found := state.RELEASE_WAIT.fullmatch(wait))}
     errors: list[str] = []
     try:
         receiver.keep()
     except state.DriveError as error:
         errors.append(str(error))
-    for repo in sorted(set(receiver.unhooked({github.repo_of(key) for key in heard})) - watcher.unhookable):
+    for repo in sorted(set(receiver.unhooked({github.repo_of(key) for key in [*heard, *awaited]})) - watcher.unhookable):
         try:
             if receiver.hook(repo):
                 watcher.owed |= {key for key in heard if github.repo_of(key) == repo}

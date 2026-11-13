@@ -14,6 +14,7 @@ from drive import dashboard, github, receiver, state
 REPO = "Forge-AI/monorepo"
 KEY, OTHER, MERGED = f"{REPO}#42", f"{REPO}#43", f"{REPO}#41"
 REAL_HOOK = receiver.hook
+REAL_UNHOOKED = receiver.unhooked
 OPEN = {42: {"head": "aaa", "base": "main", "branch": "fix-it"}, 43: {"head": "bbb", "base": "fix-it", "branch": "stacked"}}
 SECRET = b"the webhook secret"
 
@@ -48,6 +49,43 @@ def delivered(name: str, offset: int = 0) -> list[dict]:
 )
 def test_a_delivery_names_the_open_prs_of_a_drive_it_changes(event: str, payload: dict | None, named: list[int]) -> None:
     assert receiver.named(event, payload, OPEN) == named
+
+
+@pytest.mark.parametrize(
+    ("event", "payload", "marks"),
+    [
+        ("workflow_run", {"action": "completed", "workflow_run": {"head_branch": "main"}, "repository": {"default_branch": "main"}}, ["ci"]),
+        ("workflow_run", {"action": "in_progress", "workflow_run": {"head_branch": "main"}, "repository": {"default_branch": "main"}}, []),
+        ("workflow_run", {"action": "completed", "workflow_run": {"head_branch": "fix-it"}, "repository": {"default_branch": "main"}}, []),
+        ("release", {"action": "published"}, ["release"]),
+        ("release", {"action": "edited"}, ["release"]),
+        ("missed", None, ["ci", "release"]),
+        ("check_run", {"check_run": {"head_sha": "aaa", "pull_requests": []}}, []),
+    ],
+)
+def test_a_delivery_moves_the_mark_of_each_kind_of_change_a_drive_waits_on_that_it_carries(event: str, payload: dict | None, marks: list[str]) -> None:
+    assert receiver.marked(event, payload) == marks
+
+
+def test_a_workflow_run_finishing_on_main_moves_its_repositorys_ci_mark_and_writes_no_drive_a_line(demo: str) -> None:
+    kept({REPO: {"id": 9, "last": "g1", "events": receiver.EVENTS, "ci": "g1", "release": "g1"}})
+    receiver.took(REPO, 9, "g4", "workflow_run", {"action": "completed", "workflow_run": {"head_branch": "main"}, "repository": {"default_branch": "main"}})
+    assert (delivered(demo), receiver.heard(REPO, "ci"), receiver.heard(REPO, "release"), receiver.heard("yasyf/cc-skills", "ci")) == ([], "g4", "g1", None)
+
+
+def test_a_hook_kept_from_before_it_sent_every_event_is_hooked_again(state_root: Path) -> None:
+    kept({REPO: {"id": 9, "last": "g1"}, "yasyf/cc-skills": {"id": 10, "last": "g7", "events": receiver.EVENTS}})
+    assert REAL_UNHOOKED({REPO, "yasyf/cc-skills", "yasyf/cc-slack"}) == [REPO, "yasyf/cc-slack"]
+
+
+@pytest.mark.parametrize(("code", "restarts"), [(None, False), ("same", False), ("other", True)])
+def test_the_receiver_restarts_only_for_an_install_whose_receiver_differs_from_its_own(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, code: str | None, restarts: bool) -> None:
+    newest = tmp_path / "long-running" / "1.0.699"
+    (newest / "lib" / "drive").mkdir(parents=True)
+    own = Path(receiver.__file__).read_bytes()
+    (newest / "lib" / "drive" / "receiver.py").write_bytes(own if code == "same" else own + b"\n")
+    monkeypatch.setattr(receiver, "upgraded", lambda: code and newest / "bin" / "drive")
+    assert receiver.rewritten() is restarts
 
 
 def test_a_delivery_is_written_only_to_each_drive_tracking_an_open_pr_it_names_and_kept_as_its_hooks_last(demo: str, capsys: pytest.CaptureFixture[str]) -> None:
@@ -118,7 +156,7 @@ def test_a_receiver_starting_takes_every_open_pr_of_a_repository_whose_hook_deli
     receiver.caught_up()
     assert (delivered(demo), receiver.hooks()) == (
         [{"repo": REPO, "numbers": [42, 43], "event": "missed", "guid": "g3"}],
-        {REPO: {"id": 9, "last": "g3"}, "yasyf/cc-skills": {"id": 10, "last": "g7"}},
+        {REPO: {"id": 9, "last": "g3", "ci": "g3", "release": "g3"}, "yasyf/cc-skills": {"id": 10, "last": "g7"}},
     )
 
 
@@ -134,6 +172,7 @@ def test_a_repository_is_hooked_once_at_the_receivers_address_signed_with_its_se
     state_root: Path, monkeypatch: pytest.MonkeyPatch, listed: list[dict], method: str, path: str
 ) -> None:
     monkeypatch.setattr(dashboard, "tailnet", lambda: dashboard.Tailnet("mac", "mac.tail.ts.net", ["100.64.0.1"], "me@example.com", True))
+    monkeypatch.setattr(receiver, "moment", lambda: "2026-11-13T01:00:00.000-08:00")
     kept({REPO: {"id": 9, "last": "g1"}})
     calls = answers(monkeypatch, {"--input": {"id": 9}, f"repos/{REPO}/hooks?per_page=100": listed + [{"id": 5, "config": {"url": "https://ci.example.com/hook"}}], f"repos/{REPO}": True})
     hooked = REAL_HOOK(REPO)
@@ -142,7 +181,7 @@ def test_a_repository_is_hooked_once_at_the_receivers_address_signed_with_its_se
         True,
         ["-X", method, path, "--input", "-"],
         {"active": True, "events": receiver.EVENTS, "config": {"url": "https://mac.tail.ts.net:8443/github", "content_type": "json", "secret": receiver.secret(), "insecure_ssl": "0"}},
-        {REPO: {"id": 9, "last": "g1"}},
+        {REPO: {"id": 9, "last": "g1", "events": receiver.EVENTS, "ci": "2026-11-13T01:00:00.000-08:00", "release": "2026-11-13T01:00:00.000-08:00"}},
     )
     assert (receiver.home() / "secret").stat().st_mode & 0o777 == 0o600
 

@@ -5,6 +5,7 @@ import hmac
 import json
 import os
 import secrets
+import select
 import shlex
 import subprocess
 import time
@@ -21,7 +22,8 @@ from drive.install import upgraded
 PORT = 40990
 FUNNEL_PORT = 8443
 FUNNEL_PATH = "/github"
-EVENTS = ["pull_request", "pull_request_review", "check_run", "status", "push"]
+EVENTS = ["pull_request", "pull_request_review", "check_run", "status", "push", "workflow_run", "release"]
+MARKS = ("ci", "release")
 DELIVERY = "delivery"
 LABEL = f"{launchd.LABEL}.receiver"
 WAIT_SECONDS = 5
@@ -54,7 +56,7 @@ def secret() -> str:
 
 
 def hooks() -> dict[str, dict]:
-    """Each repository's hook the receiver made, by owner/name: its id and the GUID of the last delivery the receiver took from it."""
+    """Each repository's hook the receiver made, by owner/name: its id, the events it sends, the GUID of the last delivery the receiver took from it, and the mark of each kind in MARKS, which moves with each delivery of that kind."""
     path = home() / "hooks.json"
     return json.loads(path.read_text()) if path.exists() else {}
 
@@ -72,7 +74,9 @@ def hooks_kept() -> Iterator[dict[str, dict]]:
 
 
 def unhooked(repos: set[str]) -> list[str]:
-    return sorted(repos - hooks().keys())
+    """The repositories of repos with no hook of the receiver's sending EVENTS."""
+    kept = hooks()
+    return sorted(repo for repo in repos if (kept.get(repo) or {}).get("events") != EVENTS)
 
 
 def url() -> str:
@@ -91,7 +95,7 @@ def asked(cmd: list[str], stdin: str | None = None) -> str:
 
 
 def hook(repo: str) -> bool:
-    """Point a webhook of the repository at the receiver, signed with its secret and sending EVENTS: the one already at its address updated, else a new one. False, with no hook made, for a repository GitHub lets this account no admin of, such as an upstream project a drive's PR is open on, whose hooks it answers 404 for."""
+    """Point a webhook of the repository at the receiver, signed with its secret and sending EVENTS: the one already at its address updated, else a new one, its marks moved, since the receiver heard nothing GitHub sent before it. False, with no hook made, for a repository GitHub lets this account no admin of, such as an upstream project a drive's PR is open on, whose hooks it answers 404 for."""
     if asked(["gh", "api", f"repos/{repo}", "--jq", ".permissions.admin"]).strip() != "true":
         return False
     address = url()
@@ -100,7 +104,7 @@ def hook(repo: str) -> bool:
     method, path = ("PATCH", f"repos/{repo}/hooks/{found[0]}") if found else ("POST", f"repos/{repo}/hooks")
     made = json.loads(asked(["gh", "api", "-X", method, path, "--input", "-"], stdin=config))
     with hooks_kept() as kept:
-        kept[repo] = {"id": made["id"], "last": (kept.get(repo) or {}).get("last")}
+        kept[repo] = {"id": made["id"], "last": (kept.get(repo) or {}).get("last"), "events": EVENTS} | dict.fromkeys(MARKS, moment())
     return True
 
 
@@ -140,17 +144,50 @@ def named(event: str, payload: dict | None, prs: dict[int, dict]) -> list[int]:
     return sorted(found & prs.keys())
 
 
+def marked(event: str, payload: dict | None) -> list[str]:
+    """The kinds of MARKS a delivery moves: ci for a workflow run completing on its repository's default branch, release for any change to a release, and both for a missed delivery."""
+    match event:
+        case "workflow_run":
+            return ["ci"] if payload["action"] == "completed" and payload["workflow_run"]["head_branch"] == payload["repository"]["default_branch"] else []
+        case "release":
+            return ["release"]
+        case "missed":
+            return list(MARKS)
+        case _:
+            return []
+
+
+def heard(repo: str, kind: str) -> str | None:
+    """The repository's mark of kind, which a wait reads GitHub again only once it moved; None while no hook of it sends that kind."""
+    return (hooks().get(repo) or {}).get(kind)
+
+
+def hear(repo: str, kind: str, since: str | None, seconds: float) -> None:
+    """Return once the repository's mark of kind moved past since, as kqueue reports the receiver replacing hooks.json in its folder, or once seconds pass."""
+    home().mkdir(parents=True, exist_ok=True)
+    folder = os.open(home(), os.O_RDONLY)
+    try:
+        with contextlib.closing(select.kqueue()) as queue:
+            queue.control([select.kevent(folder, select.KQ_FILTER_VNODE, select.KQ_EV_ADD | select.KQ_EV_CLEAR, select.KQ_NOTE_WRITE)], 0)
+            end = time.monotonic() + seconds
+            while heard(repo, kind) == since and (left := end - time.monotonic()) > 0:
+                queue.control(None, 1, left)
+    finally:
+        os.close(folder)
+
+
 def took(repo: str, hook_id: int, guid: str, event: str, payload: dict | None) -> None:
-    """Append one delivery line to each drive's events file naming the PRs of its that the delivery names, for its watch to read from GitHub, keep the delivery as the hook's last and log it."""
+    """Append one delivery line to each drive's events file naming the PRs of its that the delivery names, for its watch to read from GitHub, keep the delivery as the hook's last and as the mark of each kind it moves, and log it."""
     said = []
     for name in state.names():
         prs = {int(key.partition("#")[2]): pr for key, pr in state.stored(name, ("prs",)).get("prs", {}).items() if key.partition("#")[0] == repo and pr["state"] == "open"}
         if numbers := named(event, payload, prs):
             state.append_event(name, DELIVERY, repo=repo, numbers=numbers, event=event, guid=guid)
             said.append(f"{name} {' '.join(f'#{number}' for number in numbers)}")
+    marks = marked(event, payload)
     with hooks_kept() as kept:
-        kept[repo] = {"id": hook_id, "last": guid}
-    print(f"{moment()} {event} {guid} {repo}: {'; '.join(said) or 'no open PR a drive tracks'}", flush=True)
+        kept[repo] = (kept.get(repo) or {}) | {"id": hook_id, "last": guid} | dict.fromkeys(marks, guid)
+    print(f"{moment()} {event} {guid} {repo}: {'; '.join([*said, *(f'marks {kind}' for kind in marks)]) or 'no open PR a drive tracks'}", flush=True)
 
 
 def caught_up() -> None:
@@ -217,8 +254,13 @@ def handler(key: bytes) -> type[BaseHTTPRequestHandler]:
     return Delivery
 
 
+def rewritten() -> bool:
+    """Whether the newest long-running installed holds a receiver.py other than this one, the one install the receiver restarts for, since each start reads every kept hook's newest delivery from GitHub."""
+    return bool((newer := upgraded()) and (newer.parents[1] / "lib" / "drive" / "receiver.py").read_bytes() != Path(__file__).read_bytes())
+
+
 def main() -> int:
-    """Take GitHub's signed deliveries on loopback behind the Funnel path, the process the receiver's launch agent runs. It listens before it opens the path and asks GitHub what it missed, so a delivery landing meanwhile waits in the socket's queue, then serves until a newer long-running is installed or the clock jumps past SLEPT_SECONDS, as after this Mac slept, and exits for launchd to start it again, which asks GitHub again."""
+    """Take GitHub's signed deliveries on loopback behind the Funnel path, the process the receiver's launch agent runs. It listens before it opens the path and asks GitHub what it missed, so a delivery landing meanwhile waits in the socket's queue, then serves until the newest long-running installed runs another receiver.py, as rewritten reads it, or the clock jumps past SLEPT_SECONDS, as after this Mac slept, and exits for launchd to start it again, which asks GitHub again."""
     state.let_go_install()
     os.environ.update(launchd.session_env())
     server = ThreadingHTTPServer((dashboard.LOOPBACK, PORT), handler(secret().encode()))
@@ -228,7 +270,7 @@ def main() -> int:
     caught_up()
     print(f"{moment()} receiving at {url()} on long-running {state.VERSION}", flush=True)
     awake = time.time()
-    while not upgraded() and time.time() - awake < SLEPT_SECONDS:
+    while not rewritten() and time.time() - awake < SLEPT_SECONDS:
         awake = time.time()
         server.handle_request()
     return 0
