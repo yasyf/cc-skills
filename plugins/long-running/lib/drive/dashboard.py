@@ -46,6 +46,7 @@ LAUNCH_AGENTS = Path.home() / "Library" / "LaunchAgents"
 AGENT_ENV = ("PATH", "CLAUDE_CONFIG_DIR", "XDG_STATE_HOME", "XDG_BIN_HOME", "CC_SLACK_CONFIG", "CHROME")
 RESTART_SECONDS = 10
 CHANGE_POLL_SECONDS = 2
+REBUILD_GAP_SECONDS = 3
 FILES = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
@@ -292,18 +293,23 @@ class Board:
         self.database: sqlite3.Connection | None = None
 
     def stamp(self) -> tuple[int, ...]:
-        """What the board is built from, as it stands: the database's data_version on this board's own connection, which changes with each commit another connection makes, and the time each of the drive's other files last changed."""
+        """What the board is built from, as it stands: the database's data_version on this board's own connection, which changes with each commit another connection makes, the time drive.json and his stored cards last changed, and how many events of the board's history the events log holds, each new one read here, so an event the board never shows rebuilds nothing."""
         if self.database is None and state.database_path(self.name).exists():
             self.database = state.connect(state.database_path(self.name))
         committed = self.database.execute("PRAGMA data_version").fetchone()[0] if self.database else 0
-        paths = (state.state_path(self.name), state.cards_path(self.name), state.events_path(self.name))
-        return (committed, *(path.stat().st_mtime_ns if path.exists() else 0 for path in paths))
+        self.read_history()
+        paths = (state.state_path(self.name), state.cards_path(self.name))
+        return (committed, *(path.stat().st_mtime_ns if path.exists() else 0 for path in paths), len(self.events))
 
-    def rebuild(self) -> None:
+    def read_history(self) -> None:
+        """Keep each event of the board's history the events log gained since the last read."""
         for event, end in state.read_events(self.name, self.offset):
             self.offset = end
             if event["kind"] in view.HISTORY_EVENTS:
                 self.events.append(event)
+
+    def rebuild(self) -> None:
+        self.read_history()
         found, source = view.stored_cards(self.name)
         reports = {path.name.removesuffix(".replies.jsonl") for path in (state.drive_dir(self.name) / "jobs").glob("*.replies.jsonl")}
         drive = state.load(self.name)
@@ -333,14 +339,14 @@ class Board:
             self.changed.notify_all()
 
     def follow(self) -> Path:
-        """Rebuild on each change to the drive's stored state, holding this install's lock while it does so a newer install's first save waits for the rebuild, until a newer long-running is installed; then return that install's drive, still holding the lock, so this code never reads a drive it saved."""
-        built = None
+        """Rebuild on a change to the drive's stored state, at most once every REBUILD_GAP_SECONDS, so a burst of writes, as a busy drive commits about twice a second, costs one rebuild and a change inside the gap shows at the first wake after it, holding this install's lock while it does so a newer install's first save waits for the rebuild, until a newer long-running is installed; then return that install's drive, still holding the lock, so this code never reads a drive it saved."""
+        built, due = None, 0.0
         for _ in changes(self.name):
             state.hold_install()
             if newer := install.upgraded():
                 return newer
-            if (stamp := self.stamp()) != built:
-                built = stamp
+            if time.monotonic() >= due and (stamp := self.stamp()) != built:
+                built, due = stamp, time.monotonic() + REBUILD_GAP_SECONDS
                 self.rebuild()
             state.let_go_install()
 
