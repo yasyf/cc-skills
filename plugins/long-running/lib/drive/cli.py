@@ -3030,7 +3030,7 @@ def pr_add(args: argparse.Namespace) -> int:
         raise DriveError(UNLANDABLE.format(key=key, done="added"))
     lead = {line: given for line, flag in limits.LEAD_LINES if (given := getattr(args, flag.removeprefix("--")))}
     kept = state.load(name)["prs"].get(key, {}).get("lead")
-    pr = add_pr(name, key, args.job, github_pr(key), args.port_of, args.exempt, args.no_tap, lead)
+    pr = add_pr(name, key, args.job, github_pr(key), args.port_of, args.exempt, args.no_tap, lead, args.part)
     shown = view.card_for((view.live_cards(name) or view.NO_CARDS)["pr_cards"], pr["url"])
     drawn = state.after_save(name, lambda: [releaded(pr) if pr["lead"] != kept else ""] if shown else [drawn_card(name, key, pr)])
     return emit(args, f"{key}{''.join(drawn)}", {"key": key, **state.load(name)["prs"][key]})
@@ -3091,8 +3091,8 @@ def pr_wake(args: argparse.Namespace) -> int:
     return emit(args, f"{key}: sent to {lane}@{name} for {job_id or pr['job']}", {"key": key, "job": job_id, "how": f"handoff to {lane}"})
 
 
-def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = None, exempt: str | None = None, no_tap: bool = False, lead: dict | None = None) -> dict:
-    """Register a PR on its job from its GitHub read, refused as `drive pr add` refuses, keeping the title it read, so a PR merged and proved before the watch's next read is named by it; the PR as registered, the job's first in place of each wait on its change. `drive pr add` runs it, and `drive job report` for each PR a builder's READY or PUSHED names that no `drive pr add` registered, so every PR a result names lands as one its builder added does, and for each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links. Someone else's PR no order of his names is refused before any check that would have its title or body edited. The lead lines given are kept over those kept before, and a PR his card asks his tap on is refused, nothing written, until its lead tells him why it is made, what it does and what it changes downstream, by limits.lead_problems; a FIX line's PR, given no lead, is someone else's and kept as it reads."""
+def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = None, exempt: str | None = None, no_tap: bool = False, lead: dict | None = None, parts: list[str] | None = None) -> dict:
+    """Register a PR on its job from its GitHub read, refused as `drive pr add` refuses, keeping the title it read, so a PR merged and proved before the watch's next read is named by it, and the parts of its job's orders it names as delivering, so its first check judges it on those; the PR as registered, the job's first in place of each wait on its change. `drive pr add` runs it, and `drive job report` for each PR a builder's READY or PUSHED names that no `drive pr add` registered, so every PR a result names lands as one its builder added does, and for each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links. Someone else's PR no order of his names is refused before any check that would have its title or body edited. The lead lines given are kept over those kept before, and a PR his card asks his tap on is refused, nothing written, until its lead tells him why it is made, what it does and what it changes downstream, by limits.lead_problems; a FIX line's PR, given no lead, is someone else's and kept as it reads."""
     from drive import stage
 
     url = state.pr_url(key)
@@ -3137,6 +3137,9 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
             flags = " ".join(f'{flag} "<{line}>"' for line, flag in limits.LEAD_LINES)
             raise DriveError(f"{key}: refused, nothing added: his card opens with its lead, and {'; '.join(problems)}. Add it with drive pr add {url} --job {job_id} {flags}")
         state.take_pr(data, job_id, key)
+        if parts:
+            refuse_a_part_its_job_lacks(data, key, parts, False, "added")
+            pr["parts"] = list(dict.fromkeys(parts))
     note_third_person(key, read)
     return pr
 
@@ -3194,7 +3197,7 @@ def pr_set(args: argparse.Namespace) -> int:
     order = known["prs"][key]["order"]
     delivers = before["state"] == "merged" and known["jobs"][before["job"]]["state"] == "done"
     if args.part:
-        refuse_a_part_its_job_lacks(known, key, args.part, delivers)
+        refuse_a_part_its_job_lacks(known, key, args.part, delivers, "set")
     if args.serves:
         refuse_a_crossed_order(name, known, order, args.serves, f"{key} --serves")
     if (args.serves or args.design) and (refused := state.held_elsewhere(known, order, os.environ.get("CLAUDE_CODE_SESSION_ID"))):
@@ -3272,7 +3275,7 @@ def set_outside(name: str, key: str, url: str, args: argparse.Namespace, dropped
     return [*(f"\nwithdrew his card {card}: {why}" for card in withdrawn), corrected]
 
 
-def refuse_a_part_its_job_lacks(data: dict, key: str, parts: list[str], delivers: bool) -> None:
+def refuse_a_part_its_job_lacks(data: dict, key: str, parts: list[str], delivers: bool, done: str) -> None:
     """Refuse a --part its job delivers on no order, since the PR's change is judged against the parts its job's PRs name; a merged PR whose job returned DONE names any part of its order, which it then delivers, since it shipped work its job was never given."""
     pr = data["prs"][key]
     job = data["jobs"][pr["job"]]
@@ -3280,7 +3283,7 @@ def refuse_a_part_its_job_lacks(data: dict, key: str, parts: list[str], delivers
     if unknown := [part for part in parts if part not in delivered]:
         listed = ", ".join(f'"{part}"' for part in delivered)
         lacks = f"its order {pr['order']} has" if delivers else f"its job {pr['job']} delivers"
-        raise DriveError(f"{key}: refused, nothing set: {lacks} no part {', '.join(unknown)}; its parts are {listed}")
+        raise DriveError(f"{key}: refused, nothing {done}: {lacks} no part {', '.join(unknown)}; its parts are {listed}")
 
 
 def refuse_an_unwritten_rule(data: dict, key: str) -> None:
@@ -5028,6 +5031,9 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--does", help="what it changes for him or its users once it lands, one plain line")
     verb.add_argument(
         "--downstream", help="what else it changes, breaks or holds once it lands, one plain line; a PR waiting on his tap is refused until all four lead lines are kept, naming no function or file"
+    )
+    verb.add_argument(
+        "--part", action="append", default=[], help="a part of its job's orders this PR delivers, as drive pr set --part names it, so its first check judges it on the parts it names"
     )
     untapped = verb.add_mutually_exclusive_group()
     untapped.add_argument("--port-of", type=int, metavar="PR", help="a pure port of this old-tree PR number: exempt, with no tap card; refused for a PR changing a migration, schema or wire format, whose data model is a design part of his order")

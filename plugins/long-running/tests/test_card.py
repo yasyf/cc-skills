@@ -83,7 +83,7 @@ def entry(wants_tap: bool = True, tap: str | None = None, exempt: str | None = N
         "hold_label": False,
         "conflict": False,
         "merged_sha": None,
-        "checked": {"head": HEAD, "read": HEAD, "orders": ["o1"], "lines": {}},
+        "checked": {"head": HEAD, "read": HEAD, "orders": ["o1"], "lines": {}, "beside": {}},
         "checker": None,
         "updated": "2026-11-09T08:00:00-08:00",
         "now": stage.Stage(named, "", ""),
@@ -1184,7 +1184,7 @@ def siblings(monkeypatch: pytest.MonkeyPatch, orders: dict[int, str], drawn_alon
     with state.edit("demo") as data:
         for number, order in orders.items():
             key = f"Forge-AI/monorepo#{number}"
-            served = {"serves": order, "checked": {"head": HEAD, "read": HEAD, "orders": ["o1", order], "lines": {}}}
+            served = {"serves": order, "checked": {"head": HEAD, "read": HEAD, "orders": ["o1", order], "lines": {}, "beside": {}}}
             data["prs"][key] = {**kept_entry(), "url": stack_url(number), **served, **({"stack": [key]} if drawn_alone else {})}
     monkeypatch.setattr(
         card,

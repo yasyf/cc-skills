@@ -749,6 +749,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             stamp.pop("patch", None)
             stamp.setdefault("lines", {})
             stamp.setdefault("read", stamp["head"])
+            stamp.setdefault("beside", {})
         pr["parts"] = [part.strip() for part in pr.get("parts", [])]
         pr.setdefault("required", None)
         pr.setdefault("lead", None)
@@ -2650,7 +2651,7 @@ def foreign_pr(data: dict, key: str) -> str | None:
 
 
 def drop_pr(data: dict, key: str) -> None:
-    """Stop tracking a PR, with nothing done on GitHub: its entry, its link on each job, each release wait on it, its place in each stack a card drew, and each drive pr set --flaky record naming it the fix, whose ejection reads final again; a wait on the PR itself ends as one on a PR the drive no longer tracks."""
+    """Stop tracking a PR, with nothing done on GitHub: its entry, its link on each job, each release wait on it, its place in each stack a card drew and each check judged beside it, and each drive pr set --flaky record naming it the fix, whose ejection reads final again; a wait on the PR itself ends as one on a PR the drive no longer tracks."""
     url = data["prs"].pop(key)["url"]
     for owner in [*data["jobs"].values(), *data["prs"].values()]:
         rewait(owner, [wait for wait in owner["waits"] if not ((release := RELEASE_WAIT.fullmatch(wait)) and release["pr"] == key)])
@@ -2659,6 +2660,8 @@ def drop_pr(data: dict, key: str) -> None:
     for pr in data["prs"].values():
         if pr.get("stack") and key in pr["stack"]:
             pr["stack"] = [member for member in pr["stack"] if member != key]
+        if pr["checked"]:
+            pr["checked"]["beside"].pop(key, None)
         if (pr["flaky"] or {}).get("fix") == key:
             pr["flaky"] = None
 
@@ -2705,9 +2708,9 @@ def pr_jobs(data: dict, pr: dict) -> list[str]:
 
 
 def checked(data: dict, pr: dict) -> bool:
-    """Whether the PR's change at its head passed the check against the words of every order it serves."""
+    """Whether the PR's change at its head passed the check against the words of every order it serves, judged beside each other PR of its stack at the head that PR holds now."""
     stamp = pr["checked"]
-    return bool(stamp) and stamp["head"] == pr["head"] and set(served_orders(data, pr)) <= set(stamp["orders"])
+    return bool(stamp) and stamp["head"] == pr["head"] and set(served_orders(data, pr)) <= set(stamp["orders"]) and all(data["prs"][other]["head"] == head for other, head in stamp["beside"].items())
 
 
 def has_verdict(data: dict, pr: dict) -> bool:

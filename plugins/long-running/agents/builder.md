@@ -185,7 +185,8 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    function or file, which the Summary names: `drive pr add` refuses a PR waiting on his tap until all
    four pass, by his words "I have no idea why were doing this change, what it does, or what the
    downstream impacts of it are". A later `drive pr add` with only a changed line keeps the rest and
-   redraws his card. Add `--port-of <N>` for a port, `--exempt <class>` for an exempt class, or
+   redraws his card. When your job's parts are split across several PRs, add `--part "<part>"` for
+   each part this PR delivers, so its first check judges it on those alone. Add `--port-of <N>` for a port, `--exempt <class>` for an exempt class, or
    `--no-tap --why "<reason>"` for a PR its author lands outside `Forge-AI`, where only his tap or an
    exempt class lands one.
 7. Return `PUSHED` once, as soon as the head you mean to ship is pushed and registered, with CI and
@@ -196,10 +197,10 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    settles it at that read when they name none: green takes it as your `READY`, and a red one comes
    back as `PR … READY refused, its required <check> failed at <head>
    (<build>)`, and `drive job report` refuses a `READY` while one is pending or red. It keeps your
-   report whatever the change holds: the watch's check alone judges each PR his card waits on, at
-   each new head whatever your job's state, its title and diff and never its body, against the words of the
+   report whatever the change holds: the watch's check alone judges each PR his card waits on together with the other PRs of its stack, at
+   each new head of any of them whatever your job's state, its title and diff and never its body, against the words of the
    order it serves, the one `drive pr set --serves` names or else your order and every order your
-   job carries, for the parts the PR carries, those `drive pr set --part` names or else your job's,
+   job carries, for the parts the PR carries, those `drive pr add --part` or `drive pr set --part` names or else your job's,
    and each answer of his your newest `DESIGN:` lines name by its card's waits id or permalink, its answer record or its cc-notes id, read whole once and kept on the PR,
    each card of the drive's it answers read with the options that card offered, so his number names that option's own words and
    description, and with his durable answers `ccn answer match` finds for the card's words, after

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from conftest import LEAD, Answers, Judge
-from drive import github, limits, refs, served, settled, slack, stage, state
+from drive import github, land, limits, refs, served, settled, slack, stage, state
 from drive.state import DriveError
 
 KEY = "Forge-AI/monorepo#42"
@@ -57,7 +57,7 @@ def test_a_restack_that_moves_the_hunks_and_the_lines_around_them_carries_the_ch
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     run("pr", "add", URL, "--job", "j1", *LEAD)
-    stamp = {"head": "head1", "read": "head1", "orders": ["o1"], "lines": served.digests(SMALL)}
+    stamp = {"head": "head1", "read": "head1", "orders": ["o1"], "lines": served.digests(SMALL), "beside": {}}
     with state.edit(demo) as data:
         data["prs"][KEY] |= {"head": "head2", "checked": stamp}
     restacked = SMALL.replace(b"@@ -10,3 +10,3 @@ export function run() {", b"@@ -14,3 +14,3 @@ export function start() {").replace(b"1111111111aa", b"3333333333cc")
@@ -108,6 +108,71 @@ def test_a_restack_keeps_the_checks_pass_on_each_file_whose_added_and_removed_li
     assert served.verdict(demo, KEY).startswith(served.NOT_READY)
 
 
+CLOCKS = ("self::sleep(seconds) is a clock timer that fires one inbox row", "self::watch sets a watch and then suspends", "each alarm is its own clock timer")
+
+
+def clocks(run: Callable[..., tuple[int, str]]) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "inbox clocks wake an agent", "--parts", *CLOCKS)
+    run("job", "add", "builder", "--order", "o1", *(word for part in CLOCKS for word in ("--part", part)), "--goal", "land")
+
+
+def stacked(run: Callable[..., tuple[int, str]], demo: str, numbers: list[int], base: str) -> list[str]:
+    for number in numbers:
+        assert run("pr", "add", f"https://github.com/Forge-AI/monorepo/pull/{number}", "--job", "j1", *LEAD)[0] == 0
+    with state.edit(demo) as data:
+        for below, number in zip([base, *(f"b{number}" for number in numbers)], numbers, strict=False):
+            data["prs"][f"Forge-AI/monorepo#{number}"] |= {"head": f"head{number}", "branch": f"b{number}", "base": below}
+    return [f"Forge-AI/monorepo#{number}" for number in numbers]
+
+
+def test_one_check_judges_a_whole_stack_and_keeps_its_verdict_on_each_pr_so_a_restack_carries_it_and_a_joining_or_pushed_pr_owes_the_stack_one_check(
+    run: Callable[..., tuple[int, str]], demo: str, judge: Judge, checkers: list[str]
+) -> None:
+    clocks(run)
+    keys = stacked(run, demo, [42, 43, 44], "main")
+    assert served.verdict(demo, keys[0]).startswith(f"{served.CHECKED} against the words of o1 at head42")
+    [(said, changes)] = judge.asked
+    assert list(changes) == keys and f"this change delivers: {'; '.join(CLOCKS)}" in said and "other open PRs" not in said
+    data = state.load(demo)
+    assert [data["prs"][key]["checked"]["beside"] for key in keys] == [{keys[1]: "head43", keys[2]: "head44"}, {keys[0]: "head42", keys[2]: "head44"}, {keys[0]: "head42", keys[1]: "head43"}]
+    assert all(data["prs"][key]["checker"]["outcome"].startswith(served.CHECKED) and served.held(data, key, tuple(keys)) for key in keys)
+    with state.edit(demo) as data:
+        data["prs"][keys[2]]["head"] = "head44r"
+    assert served.carry(demo, keys) == [keys[2]]
+    data = state.load(demo)
+    assert all(state.checked(data, data["prs"][key]) for key in keys) and data["prs"][keys[0]]["checked"]["beside"][keys[2]] == "head44r"
+    joined = (*keys, *stacked(run, demo, [45], "b44"))
+    data = state.load(demo)
+    assert land.landing_stacks(data)[keys[0]] == joined and not any(served.held(data, key, joined) for key in keys)
+    with state.edit(demo) as data:
+        data["prs"][keys[1]]["head"] = "head43b"
+    data = state.load(demo)
+    assert not any(state.checked(data, data["prs"][key]) for key in keys)
+    served.start(demo, list(joined))
+    assert checkers == [keys[0]]
+    judge.against = [{"order": "o1", "words": "each alarm is its own clock timer", "file": "", "change": "no PR here builds the alarm rows"}]
+    assert served.verdict(demo, keys[1]).startswith(f"{served.NOT_READY}: {', '.join(joined)} go against his words")
+    data = state.load(demo)
+    assert list(judge.asked[-1][1]) == list(joined)
+    assert [state.against(data["prs"][key]) for key in joined] == ['o1 "each alarm is its own clock timer": no PR here builds the alarm rows'] * 4
+    assert [event["number"] for event, _ in state.read_events(demo) if event["kind"] == "check" and event["change"].startswith(served.NOT_READY)] == [42]
+
+
+def test_a_pr_added_naming_its_part_is_judged_on_that_part_alone_and_one_naming_a_part_its_job_lacks_is_refused_with_nothing_added(
+    run: Callable[..., tuple[int, str]], demo: str, judge: Judge, capsys: pytest.CaptureFixture[str]
+) -> None:
+    clocks(run)
+    assert run("pr", "add", URL, "--job", "j1", "--part", CLOCKS[0], *LEAD)[0] == 0
+    with state.edit(demo) as data:
+        data["prs"][KEY]["head"] = "head1"
+    assert served.verdict(demo, KEY).startswith(served.CHECKED)
+    assert f"this change delivers: {CLOCKS[0]}\n  other changes deliver: {'; '.join(CLOCKS[1:])}" in judge.asked[-1][0]
+    other = "https://github.com/Forge-AI/monorepo/pull/43"
+    assert cli.main(["pr", "add", other, "--job", "j1", "--part", "a part nobody ordered", *LEAD]) == 2
+    assert "Forge-AI/monorepo#43: refused, nothing added: its job j1 delivers no part a part nobody ordered" in capsys.readouterr().err
+    assert "Forge-AI/monorepo#43" not in state.load(demo)["prs"]
+
+
 STORED_TAPS = {
     "before patch was a field": {"label": "Approve", "at": "2026-11-12T16:11:40-08:00", "head": "head0", "source": "pressed the button"},
     "a card press kept a patch": {"label": "Approve", "at": "2026-11-12T18:30:00-08:00", "head": "head0", "source": "pressed the button", "action_ts": "1.2", "patch": "p0"},
@@ -120,7 +185,7 @@ def moved_check(run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pyt
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     run("pr", "add", URL, "--job", "j1", *LEAD)
     monkeypatch.setattr(served, "change", lambda key: {"title": "Fix: run", "head": "head2", "diff": SMALL})
-    return {"head": "head2", "checked": {"head": "head1", "read": "head1", "orders": ["o1"], "lines": served.digests(SMALL)}}
+    return {"head": "head2", "checked": {"head": "head1", "read": "head1", "orders": ["o1"], "lines": served.digests(SMALL), "beside": {}}}
 
 
 @pytest.mark.parametrize("stored", list(STORED_TAPS))
@@ -242,7 +307,7 @@ REPLAYS = {
 @pytest.mark.parametrize("key", list(REPLAYS))
 def test_the_judge_refuses_dashed_uuidv7_ids_and_a_picked_option_built_as_whole_copies_and_passes_the_32_hex_fix_and_a_fix_his_words_need(key: str, demo: str) -> None:
     order, parts, answered, refused_in = REPLAYS[key]
-    said = served.words({"orders": {"o1": order | {"parts": dict.fromkeys(parts)}}}, {"order": "o1", "parts": parts, "carries": {}}, ["o1"], [], answered, [])
+    said = served.words({"orders": {"o1": order | {"parts": dict.fromkeys(parts)}}, "jobs": {"j1": {"order": "o1", "parts": parts, "carries": {}}}}, [{"job": "j1", "parts": []}], ["o1"], answered, [])
     found = JUDGE(demo, said, {key: READ_CHANGE(key)})
     assert any(refused_in in item["change"] for item in found) if refused_in else found == [], found
 
@@ -324,7 +389,7 @@ FLAKE_FIXES = {
 @pytest.mark.parametrize("case", list(FLAKE_FIXES))
 def test_the_judge_passes_each_flake_fix_the_drive_turned_away_against_his_ruling_532cd3d_alone_and_refuses_a_retry_and_a_timeout_bump(case: str, demo: str) -> None:
     key, read = FLAKE_FIXES[case]
-    said = served.words({"orders": {}}, {"order": "o1", "parts": [], "carries": {}}, [], [], [FLAKE_RULING], [])
+    said = served.words({"orders": {}, "jobs": {"j1": {"order": "o1", "parts": [], "carries": {}}}}, [{"job": "j1", "parts": []}], [], [FLAKE_RULING], [])
     found = JUDGE(demo, said, {key: read or READ_CHANGE(key)})
     assert {item["file"] for item in found} == {"dashboard/e2e/irisServe.e2e.ts"} if read else found == [], found
 
