@@ -4061,6 +4061,26 @@ def test_a_launch_whose_worker_started_unrecorded_is_recorded_from_its_kept_rece
     }
 
 
+def test_a_launch_whose_kept_ready_receipt_names_a_sprite_orca_no_longer_knows_runs_the_launcher_again(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cloned(tmp_path, demo)
+    (tmp_path / "brief.md").write_text("Drive: demo, order o1, job j1\n")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship it", "--remote")
+    kept_attempt(demo, "j1", SPRITE_DISPATCH)
+
+    def forgotten(dispatch: str) -> dict:
+        raise orca.OrcaError("orca orchestration worker-show: invalid_argument: Unknown environment: 6c07388b-685e-4c1a-a264-32857e58f24f")
+
+    monkeypatch.setattr(orca, "worker", forgotten)
+    monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
+    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+    monkeypatch.setattr(orca, "launch", lambda *args: {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH})
+    assert run("job", "launch", "j1", "brief.md") == (0, f"j1 started on Sprite workspace-1 as dispatch {DISPATCH}")
+    assert state.load(demo)["jobs"]["j1"]["dispatch"] == DISPATCH
+
+
 def test_a_relaunch_whose_worker_started_unrecorded_is_recorded_from_its_kept_receipt_by_the_next_resume_which_starts_nothing(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

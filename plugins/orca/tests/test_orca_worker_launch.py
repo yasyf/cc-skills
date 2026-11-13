@@ -88,6 +88,8 @@ UNREACHED = {
     },
 }
 REQUEST_SHOW = ["orca", "orchestration", "request-show", "--request", REQUEST, "--json"]
+ENV_SHOW = ["orca", "environment", "show", "--environment", PREPARED["environmentId"], "--json"]
+UNKNOWN_ENVIRONMENT = {"rc": 1, "out": {"id": "local", "ok": False, "error": {"code": "invalid_argument", "message": f"Unknown environment: {PREPARED['environmentId']}"}}}
 
 
 def request_state(state: str) -> dict:
@@ -449,10 +451,11 @@ class AttemptTest(LaunchTest):
                     launch.attempt.symlink_to(launch.briefs / "gone")
                 else:
                     launch.attempt.mkdir()
-                kept = {"prepared": {"prepare.status": "0\n"}, "started": {"prepare.status": "1\n", "worker-start.status": "1\n"}}.get(shape, {})
+                kept = {"prepared": {"prepare.status": "0\n", "prepared.json": json.dumps(PREPARED)}, "started": {"prepare.status": "1\n", "worker-start.status": "1\n"}}.get(shape, {})
                 for receipt, text in kept.items():
                     (launch.attempt / receipt).write_text(text)
-                self.assert_failed(launch, launch.run(), f"{launch.attempt} holds an earlier attempt of this brief, and a brief gets one attempt; inspect it instead", [VERSION, CURRENT])
+                shown = [ENV_SHOW] if shape == "prepared" else []
+                self.assert_failed(launch, launch.run(), f"{launch.attempt} holds an earlier attempt of this brief, and a brief gets one attempt; inspect it instead", [VERSION, CURRENT, *shown])
                 self.assertEqual(launch.kept(), sorted(kept))
 
     def test_a_legacy_dispatch_receipt_refuses_instead_of_retrying(self):
@@ -507,6 +510,21 @@ class AttemptTest(LaunchTest):
         self.assertEqual(sorted(path.name for path in retired.iterdir()), ["allocation.json", "prepare.err"])
         self.assertEqual(self.launch.kept(), SPRITE_KEPT)
 
+    def test_a_launch_after_a_prepare_that_exited_0_with_no_sprite_to_attach_keeps_it_and_prepares_again(self):
+        held = f"cc-remote: another cc-remote command holds the Orca task for {LANE}, so this one started and changed nothing"
+        self.launch.sprite()
+        self.launch.reply("cc-remote orca prepare", {"out": "", "err": f"{held}\n"})
+        first = [VERSION, CURRENT, self.launch.prepare()]
+        self.assert_failed(self.launch, self.launch.run(), f"{self.launch.attempt}/allocation.json holds not one JSON object, so the prepared worker stays idle and unattached", first)
+        self.launch.sprite()
+        result = self.launch.run()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        retired = self.launch.attempt.with_name(f"{self.launch.attempt.name}.1")
+        self.assertEqual(result.stderr, f"{retired} keeps the earlier attempt, whose prepare exited 0 with no Sprite to attach: {held}; preparing again\n")
+        self.assertEqual(self.launch.calls(), [*first, VERSION, CURRENT, STOP, self.launch.prepare(), *self.launch.tools(), self.launch.start()])
+        self.assertEqual(sorted(path.name for path in retired.iterdir()), ALLOCATION_KEPT)
+        self.assertEqual(self.launch.kept(), SPRITE_KEPT)
+
     def test_a_relaunch_whose_stop_of_the_failed_claim_fails_keeps_the_attempt_and_prepares_nothing(self):
         self.launch.attempt.mkdir()
         (self.launch.attempt / "prepare.err").write_text("cc-remote: guest-bootstrap: exit 255\n")
@@ -519,7 +537,7 @@ class AttemptTest(LaunchTest):
     def test_a_local_launch_after_a_sprite_attempt_that_started_no_worker_keeps_it_and_launches_here(self):
         for shape, kept, why in (
             ("failed", {"prepare.err": "cc-remote: guest-bootstrap: exit 255\n", "prepare.status": "1\n"}, "whose prepare exited 1 before any worker started"),
-            ("unstarted", {"prepare.err": "", "prepare.status": "0\n", "tools.err": "ccx: GitHub rate limit floor\n"}, "whose Sprite was prepared but started no worker"),
+            ("unstarted", {"prepare.err": "", "prepare.status": "0\n", "prepared.json": json.dumps(PREPARED), "tools.err": "ccx: GitHub rate limit floor\n"}, "whose Sprite was prepared but started no worker"),
         ):
             with self.subTest(shape=shape):
                 launch = self.fresh()
@@ -830,7 +848,7 @@ class SpriteTest(LaunchTest):
         relaunched = self.launch.run()
         self.assertEqual(relaunched.returncode, 0, relaunched.stderr)
         self.assertEqual(json.loads(relaunched.stdout)["dispatch"], "ctx_a")
-        self.assertEqual(self.launch.calls(), [*first, VERSION, CURRENT, self.launch.copy(), *self.launch.tools(), self.launch.start(retry=REQUEST)])
+        self.assertEqual(self.launch.calls(), [*first, VERSION, CURRENT, ENV_SHOW, self.launch.copy(), *self.launch.tools(), self.launch.start(retry=REQUEST)])
         self.assertEqual(self.launch.kept(), SPRITE_KEPT)
 
     def bound(self, launch: Launch, code: int, said: str) -> None:
@@ -850,7 +868,7 @@ class SpriteTest(LaunchTest):
         relaunched = self.launch.run(WORKER_BIND="bound --")
         self.assertEqual(relaunched.returncode, 0, relaunched.stderr)
         self.assertEqual(json.loads(relaunched.stdout)["dispatch"], "ctx_a")
-        self.assertEqual(self.launch.calls(), [*first, VERSION, self.launch.copy(), *self.launch.tools(), ["bound", "--", *self.launch.start()], self.launch.start()])
+        self.assertEqual(self.launch.calls(), [*first, VERSION, ENV_SHOW, self.launch.copy(), *self.launch.tools(), ["bound", "--", *self.launch.start()], self.launch.start()])
         self.assertEqual(self.launch.kept(), SPRITE_KEPT)
 
     def test_a_bind_that_crashes_before_orca_records_a_task_fails_in_one_line_and_a_relaunch_retries_it_on_the_same_sprite(self):
@@ -866,7 +884,7 @@ class SpriteTest(LaunchTest):
         relaunched = self.launch.run(WORKER_BIND="bound --")
         self.assertEqual(relaunched.returncode, 0, relaunched.stderr)
         self.assertEqual(json.loads(relaunched.stdout)["dispatch"], "ctx_a")
-        self.assertEqual(self.launch.calls(), [*first, VERSION, self.launch.copy(), *self.launch.tools(), ["bound", "--", *self.launch.start()], self.launch.start()])
+        self.assertEqual(self.launch.calls(), [*first, VERSION, ENV_SHOW, self.launch.copy(), *self.launch.tools(), ["bound", "--", *self.launch.start()], self.launch.start()])
         self.assertEqual(self.launch.kept(), SPRITE_KEPT)
 
     def test_an_earlier_attempt_whose_worker_start_never_answered_is_reused_only_while_its_run_holds_no_task_for_the_lane(self):
@@ -885,9 +903,9 @@ class SpriteTest(LaunchTest):
                 if reused:
                     self.assertEqual(relaunched.returncode, 0, relaunched.stderr)
                     self.assertEqual(json.loads(relaunched.stdout)["dispatch"], "ctx_a")
-                    self.assertEqual(launch.calls(), [*first, VERSION, TASK_LIST, launch.copy(), *launch.tools(), ["bound", "--", *launch.start()], launch.start()])
+                    self.assertEqual(launch.calls(), [*first, VERSION, ENV_SHOW, TASK_LIST, launch.copy(), *launch.tools(), ["bound", "--", *launch.start()], launch.start()])
                 else:
-                    self.assert_failed(launch, relaunched, f"{launch.attempt} holds an earlier attempt of this brief, and a brief gets one attempt; inspect it instead", [*first, VERSION, TASK_LIST])
+                    self.assert_failed(launch, relaunched, f"{launch.attempt} holds an earlier attempt of this brief, and a brief gets one attempt; inspect it instead", [*first, VERSION, ENV_SHOW, TASK_LIST])
 
     def test_a_relaunch_copies_a_rewritten_brief_to_the_prepared_sprite_and_starts_its_worker_on_it(self):
         rewritten = {**PREPARED, "brief": {**PREPARED["brief"], "sha256": hashlib.sha256(REWRITTEN.encode()).hexdigest(), "bytes": len(REWRITTEN.encode())}}
@@ -908,8 +926,8 @@ class SpriteTest(LaunchTest):
                 self.assertEqual(relaunched.returncode, 0, relaunched.stderr)
                 self.assertEqual(json.loads(relaunched.stdout)["dispatch"], "ctx_a")
                 retry = REQUEST if failed == "worker-start" else None
-                self.assertEqual(launch.calls(), [*first, VERSION, CURRENT, launch.copy(), *launch.tools(), launch.start(retry=retry, brief=REWRITTEN)])
-                self.assertEqual(launch.records()[len(first) + 2]["stdin"], REWRITTEN)
+                self.assertEqual(launch.calls(), [*first, VERSION, CURRENT, ENV_SHOW, launch.copy(), *launch.tools(), launch.start(retry=retry, brief=REWRITTEN)])
+                self.assertEqual(launch.records()[len(first) + 3]["stdin"], REWRITTEN)
                 self.assertEqual(json.loads(launch.receipt("prepared.json")), rewritten)
                 self.assertEqual(json.loads(launch.receipt("allocation.json"))["task"], rewritten)
                 self.assertEqual(launch.kept(), SPRITE_KEPT)
@@ -927,9 +945,36 @@ class SpriteTest(LaunchTest):
         self.assertEqual(relaunched.returncode, 0, relaunched.stderr)
         retired = self.launch.attempt.with_name(f"{self.launch.attempt.name}.1")
         self.assertEqual(relaunched.stderr, f"{retired} keeps the earlier attempt, whose Sprite {WORKSPACE} answered no ssh connection before any worker started: {gone}, and its Sprite {WORKSPACE} is destroyed; preparing again\n")
-        self.assertEqual(self.launch.calls(), [*first, VERSION, CURRENT, self.launch.copy(), DESTROY, self.launch.prepare(), *self.launch.tools(), self.launch.start(brief=REWRITTEN)])
+        self.assertEqual(self.launch.calls(), [*first, VERSION, CURRENT, ENV_SHOW, self.launch.copy(), DESTROY, self.launch.prepare(), *self.launch.tools(), self.launch.start(brief=REWRITTEN)])
         self.assertEqual(sorted(path.name for path in retired.iterdir()), TOOLS_KEPT)
         self.assertEqual(self.launch.kept(), SPRITE_KEPT)
+
+    def test_a_relaunch_whose_prepared_sprite_orca_answers_unknown_environment_for_retires_the_attempt_and_prepares_afresh(self):
+        unanswered = {"rc": 1, "out": {"ok": True, "result": {"taskId": "task_a", "dispatchId": "ctx_a", "state": "outcome_unknown", "stage": "remote_attach", "failedStage": "remote_attach", "effects": []}}}
+        kept = f"orca orchestration worker-start exited 1; kept terminal {TERMINAL}, worktree {ROOT}, and the receipt in {{attempt}}"
+        timed_out = {"rc": 1, "out": {"ok": False, "error": {"code": "runtime_error", "message": "Timed out waiting for the local Orca runtime"}}}
+        for started, failed in (({"out": RECEIPT}, None), (unanswered, kept)):
+            for shown, retired in ((UNKNOWN_ENVIRONMENT, True), (timed_out, False), ({"out": {"ok": True, "result": {"environment": {"id": PREPARED["environmentId"]}}}}, False)):
+                with self.subTest(started=started["out"]["result"]["state"], retired=retired, shown=shown["out"]["ok"]):
+                    launch = self.fresh()
+                    launch.sprite(started=started)
+                    first = [VERSION, CURRENT, launch.prepare(), *launch.tools(), launch.start()]
+                    if failed:
+                        self.assert_failed(launch, launch.run(), failed.format(attempt=launch.attempt), first)
+                    else:
+                        self.assertEqual(launch.run().returncode, 0)
+                    launch.sprite()
+                    launch.reply("orca environment show", shown)
+                    relaunched = launch.run()
+                    if not retired:
+                        self.assert_failed(launch, relaunched, f"{launch.attempt} holds an earlier attempt of this brief, and a brief gets one attempt; inspect it instead", [*first, VERSION, CURRENT, ENV_SHOW])
+                        continue
+                    self.assertEqual(relaunched.returncode, 0, relaunched.stderr)
+                    moved = launch.attempt.with_name(f"{launch.attempt.name}.1")
+                    self.assertEqual(relaunched.stderr, f"{moved} keeps the earlier attempt, whose Sprite {WORKSPACE} Orca answers Unknown environment for, so nothing it started can run, and its Sprite {WORKSPACE} is destroyed; preparing again\n")
+                    self.assertEqual(launch.calls(), [*first, VERSION, CURRENT, ENV_SHOW, DESTROY, launch.prepare(), *launch.tools(), launch.start()])
+                    self.assertEqual(sorted(path.name for path in moved.iterdir()), SPRITE_KEPT)
+                    self.assertEqual(launch.kept(), SPRITE_KEPT)
 
     def test_a_prepared_sprite_that_refuses_the_brief_keeps_the_attempt_for_another_launch(self):
         refused = f"bash: line 1: {PREPARED['brief']['path']}: No such file or directory"
@@ -939,7 +984,7 @@ class SpriteTest(LaunchTest):
         first = self.launch.calls()
         self.launch.sprite(copied={"rc": 1, "err": f"{refused}\n"})
         line = f"the Sprite {WORKSPACE} did not take the brief at {PREPARED['brief']['path']}: {refused}; the prepared worker stays idle and unattached, and launching this brief again copies it again"
-        self.assert_failed(self.launch, self.launch.run(), line, [*first, VERSION, CURRENT, self.launch.copy()])
+        self.assert_failed(self.launch, self.launch.run(), line, [*first, VERSION, CURRENT, ENV_SHOW, self.launch.copy()])
         self.assertEqual(self.launch.kept(), TOOLS_KEPT)
 
     def test_a_continued_workspace_prepares_its_own_sprite_with_existing_and_starts_there(self):
@@ -993,7 +1038,7 @@ class SpriteTest(LaunchTest):
         relaunched = self.launch.run()
         self.assertEqual(relaunched.returncode, 0, relaunched.stderr)
         self.assertEqual(json.loads(relaunched.stdout)["dispatch"], "ctx_a")
-        self.assertEqual(self.launch.calls(), [*first, VERSION, CURRENT, self.launch.copy(), *self.launch.tools(), self.launch.start()])
+        self.assertEqual(self.launch.calls(), [*first, VERSION, CURRENT, ENV_SHOW, self.launch.copy(), *self.launch.tools(), self.launch.start()])
         self.assertEqual(self.launch.kept(), SPRITE_KEPT)
 
     def test_a_launch_while_ccx_refuses_github_api_reads_under_its_floor_installs_the_releases_this_mac_runs(self):

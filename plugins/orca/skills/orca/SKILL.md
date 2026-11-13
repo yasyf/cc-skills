@@ -296,11 +296,17 @@ Each brief claims `<brief-stem>.worker` beside the brief. For
 link, failed attempt, or legacy `<brief-stem>.dispatch.json` refuses replay.
 The exceptions are a fenced or unrecorded `worker-start`, described above, and
 a Sprite attempt that never ran `worker-start`, either because its prepare exited
-nonzero or never finished, or because this launch takes the local route.
+nonzero, never finished, or exited 0 with no allocation the check below
+extracts into `prepared.json`, or because this launch takes the local route.
 In that last case no task reached any worker, so launching the brief again moves
 the attempt to `<brief-stem>.worker.<n>`, keeping its files, and prepares afresh.
 On the Sprite route it first runs `cc-remote orca stop <lane>`, since cc-remote
-refuses a lane that already claimed a warm Sprite until a stop releases it. The directory records `request.json` with the requested route, model, effort,
+refuses a lane that already claimed a warm Sprite until a stop releases it.
+A Sprite attempt whose `prepared.json` names an `environmentId` that
+`orca environment show` answers `Unknown environment` for is moved aside the
+same way, whatever its `worker-start` returned, since nothing Orca started on
+that environment can run: the launch destroys its Sprite with `cc-remote destroy`
+and prepares afresh. The directory records `request.json` with the requested route, model, effort,
 tier, ref, optional expected base, and local brief hash/bytes.
 
 The remote route retains `allocation.json`, raw but for the brief a relaunch

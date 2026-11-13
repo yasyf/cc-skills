@@ -566,7 +566,7 @@ def receipt(dispatch: str) -> dict:
 
 
 def adopted(brief: Path) -> dict | None:
-    """The worker an earlier launch of this brief started and the drive never recorded, as a job records it, when the attempt the launcher keeps for the brief holds a ready worker-start receipt, which the launcher refuses to launch the brief again past; else None."""
+    """The worker an earlier launch of this brief started and the drive never recorded, as a job records it, when the attempt the launcher keeps for the brief holds a ready worker-start receipt, which the launcher refuses to launch the brief again past; else None, as when Orca no longer reaches that worker, which leaves its attempt to the launcher."""
     attempt = brief.with_suffix(".worker")
     status = attempt / "worker-start.status"
     if not status.is_file() or status.read_text().strip() != "0":
@@ -574,7 +574,12 @@ def adopted(brief: Path) -> dict | None:
     started = json.loads((attempt / "worker-start.json").read_text()).get("result") or {}
     if started.get("state") != "ready":
         return None
-    return receipt(started["dispatchId"])
+    try:
+        return receipt(started["dispatchId"])
+    except OrcaError as error:
+        if gone(error):
+            return None
+        raise
 
 
 def death(worker: dict) -> str | None:
