@@ -217,7 +217,18 @@ summary of one feature is a line of at most 60 words.
 
 Its Show me:
 
-- Include a Show me only when it shows him what the summary and options cannot. That is the flow
+- A card that offers a design to build, a fix included, works each option out in its Show me to
+  what it will look like once built: its real calls, the rows or bytes it writes, its flow, or the
+  reply or screen a caller gets, as a ```compare panel named with the option's words, a markdown
+  table, or a diagram or picture captioned with its number, never only the files it touches and its
+  cost. `drive job ask` asks Jev of each option whether the card works it out and refuses one left
+  unworked, naming it, by his words on a card whose options each named files and a cost:
+  "you need to flesh out what that will look like not just wave your hands, likewise for 2 and 3"; and his ruling 77b577b,
+  "flash this out wayu more and od that for everyhtrfing in the future". A post in the card's
+  thread explaining an option, an Explain more reply included, shows it the same way, which the say
+  judge holds it to.
+- Any other card, such as one asking whether or when to release, land or run something, includes a
+  Show me only when it shows him what the summary and options cannot. That is the flow
   between the parts the options change, the numbers they turn on, the options side by side, or the
   real calls of an API choice. A constant, a name, a value or a call the words already say is no Show me, and a
   card with nothing that adds clarity has none.

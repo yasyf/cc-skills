@@ -498,7 +498,7 @@ ASK <the question, one line>
 Show me:
 <a caption of at most 25 words>
 ```<the kind that fits: mermaid, compare, chart or arch, or a language such as sand, sql or go for the real call>
-<the real code or call the choice changes, before and after; the flow; the numbers; or the options side by side>
+<each option worked out to what it will look like: its real calls, rows or flow, one compare panel per option, or the real code the choice changes before and after; the numbers>
 ```
 ![<what the screenshot shows, for a UI>](<its absolute path>)
 - <option: what he gets and what it costs, at most 25 words> (recommended)
@@ -578,8 +578,15 @@ Replaces: <only on a question built on another open question of his: the path dr
   the page's root, and a view not built yet is called unbuilt, by his words on a prototype link that
   opened its queue rather than the Slack preview its card described: "I dont see tthe slack tab on that link what are you talking abit?".
   Each option stands alone in full words.
-- Add a Show me only when it shows what the summary and options cannot; a constant, name or value
-  the words already say needs none. It is drawn whole on his card, outside the 150 words. Use a
+- A card that offers a design to build, a fix included, works each option out in its Show me to
+  what it will look like once built: its real calls, the rows or bytes it writes, its flow, or the
+  reply or screen a caller gets, as a `compare` panel named with the option's words, a markdown
+  table, or a diagram or picture captioned with its number, never only the files it touches and its
+  cost. `drive job ask` refuses an option Jev reads as left unworked, naming it, by his words
+  "you need to flesh out what that will look like not just wave your hands, likewise for 2 and 3" and "flash this out wayu more and od that for everyhtrfing in the future".
+  Any other card, such as one asking whether or when to release, adds a Show me only when it shows
+  what the summary and options cannot; a constant, name or value the words already say needs none.
+  It is drawn whole on his card, outside the 150 words. Use a
   `mermaid` fence for routing, ownership or steps over time, top to bottom (`flowchart TD`) once a
   chain runs past four nodes; a `compare` fence or a markdown table for the options side by side; a
   `chart` fence (a Vega-Lite spec) for numbers, which Slack draws as its own chart, its title at

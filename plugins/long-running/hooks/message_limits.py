@@ -108,6 +108,18 @@ PREVENTION_WORDS = {
         " PR carrying it, so that line is within his words whenever the post answers his question or tells a failure"
     ),
 }
+WORKED_WORDS = {
+    "id": limits.WORKED_WORDS["id"],
+    "source": "his ruling on how far a card and the answers in its thread work out each option",
+    "quote": limits.WORKED_WORDS["said"],
+    "detail": (
+        "his words on a question card and on a post in its thread explaining one of its options, an Explain more reply included:"
+        " each option it explains is shown worked out to what it will look like, its real calls, the rows it writes, its flow or"
+        " what a caller gets, in its text or a code or compare visual, never only the files it touches, the callers it reaches and"
+        ' its cost, by his words on such an answer: "you need to flesh out what that will look like not just wave your hands,'
+        ' likewise for 2 and 3"'
+    ),
+}
 WHOLE = (
     " It names no message of his as asked, so it is not an answer and keeps that limit. An answer to a question or"
     " order of his goes out whole, at any length: pass as asked each message of his it answers, word for word or by its"
@@ -365,10 +377,11 @@ def untooled(payload: dict, drive: dict, said: str) -> str | None:
 
 
 def his_words(payload: dict) -> list[dict]:
-    """What Jev judges a refused post by besides the transcripts: his words in his DM in the thread it goes to and in each other thread of the order it is on, read from Slack, his messages and the answers its cards show, and each message of his in his DM its asked links by permalink; a handler's brief and the record it reads in are the communicator's and a writer's words, never his, and a thread outside his DM, such as a bug report's, holds others' words; a post naming a cause or failure with the order or PR preventing it carries his ruling asking for that line."""
+    """What Jev judges a refused post by besides the transcripts: his words in his DM in the thread it goes to and in each other thread of the order it is on, read from Slack, his messages and the answers its cards show, and each message of his in his DM its asked links by permalink; a handler's brief and the record it reads in are the communicator's and a writer's words, never his, and a thread outside his DM, such as a bug report's, holds others' words; a post naming a cause or failure with the order or PR preventing it carries his ruling asking for that line, and a post in a question card's thread his ruling that each option it explains is worked out."""
     if (drive := his_drive(payload.get("session_id") or "")) is None or not posts_to(payload, dm := drive["slack"]["channel"]):
         return []
     ruled = [PREVENTION_WORDS] if refs.prevented(payload["tool_input"].get("text") or "") else []
+    ruled += [WORKED_WORDS] if in_card_thread(drive, payload["tool_input"]) else []
     try:
         words = [*thread_words(thread_messages(payload, dm)), *order_words(drive, payload["tool_input"], dm)]
         shown = {word["id"] for word in words}
@@ -383,6 +396,12 @@ def order_words(drive: dict, tool_input: dict, dm: str) -> list[dict]:
         return []
     threads = [ts for channel, ts in slack.order_threads(drive, *found) if channel == dm and ts != tool_input.get("thread_ts")]
     return [word for ts in threads for word in thread_words(slack.thread("--channel", dm, "--thread", ts, "--limit", str(slack.WHOLE_THREAD)), here=False)]
+
+
+def in_card_thread(drive: dict, tool_input: dict) -> bool:
+    """Whether the post goes in the thread of one of his question cards: say's `about` names the card, as an Explain more reply's does, or an order keeps its thread as a question card's."""
+    where = [tool_input.get("channel_id") or drive["slack"]["channel"], tool_input.get("thread_ts")]
+    return bool(tool_input.get("about")) or any(thread[:2] == where and thread[3] == "question" for order in drive["orders"].values() for thread in order["threads"])
 
 
 def edited(payload: dict) -> dict | None:

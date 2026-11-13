@@ -789,6 +789,22 @@ def test_a_post_under_an_orders_pr_card_hands_jev_his_answer_on_its_question_car
     ]
 
 
+def test_a_post_in_his_question_cards_thread_carries_his_ruling_that_each_option_it_explains_is_worked_out_to_jev(
+    run: Run, talker: str, transcript: Path, slack_thread: Thread
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "design the run page")
+    with state.edit("demo") as data:
+        state.join_thread(data["orders"]["o1"], (DM, "1794288799.976279"), state.stamp(), "question")
+        state.join_thread(data["orders"]["o1"], (DM, "1794288800.000100"), state.stamp(), "pr")
+    his(slack_thread, "explain why 1 touches every client")
+    answer = "Option 1 adds a field to ExecReply, which every client reads."
+    for where in ({"thread_ts": "1794288799.976279"}, {"about": "demo:j1-661229"}):
+        assert message_limits.his_words(call("slack_dm_status", transcript, text=answer, **where))[-1] == message_limits.WORKED_WORDS
+    for elsewhere in ("1.2", "1794288800.000100"):
+        assert message_limits.WORKED_WORDS not in message_limits.his_words(call("slack_dm_status", transcript, text=answer, thread_ts=elsewhere))
+    assert message_limits.WORKED_WORDS["quote"] == limits.WORKED_WORDS["said"]
+
+
 def test_a_refused_post_carries_his_words_for_jev_and_one_the_checks_pass_carries_none(
     talker: str, transcript: Path, slack_thread: Thread, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

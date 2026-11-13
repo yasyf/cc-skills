@@ -49,6 +49,14 @@ CARD_QUESTION = (
     " line shows a page the card links lacking what the card's words say that page shows, or its Root cause line breaks his"
     " ruling on root causes? Pick the ruling it breaks, or none."
 )
+WORKED_QUESTION = (
+    'Is this option worked out on the card to what it will look like once built, by his ruling below? The option: "{option}".'
+    " Pick the ruling when the card offers it as a design to build and its Show me carries no example of this option itself,"
+    " such as its real calls, the rows it writes, its flow or what a caller gets, so the card tells it only by its description,"
+    " the files it touches or its cost. Pick none when the Show me works it out, or when the card asks only whether or when to"
+    " release, land, run or hold something."
+)
+WORKED_OUT = "The card works it out, or offers no design."
 UNBROKEN = "His words do not rule it out."
 CHANGES = 0.15
 CHANGES_QUESTION = (
@@ -226,14 +234,18 @@ def shown(answer_id: str, cwd: str) -> dict:
 
 
 def judged(case: str, asked: limits.Question, words: list[dict]) -> list[dict]:
-    """Each part of a card Jev reads as going against his words, in one reading of the card against all of them at once and his rulings with the rule each sets beside them, at least DECIDES sure, with the words it breaks: an option his words rule out, his pick or order beating the root-cause preference, an amount or choice his words name that the card gives no tap for, and a ruling the card itself breaks. Jev giving no reading leaves the card to him, said on stderr."""
+    """Each part of a card Jev reads as going against his words, in one reading of the card against all of them at once and his rulings with the rule each sets beside them, at least DECIDES sure, with the words it breaks: an option his words rule out, his pick or order beating the root-cause preference, an option of a design the card never works out to what it will look like, an amount or choice his words name that the card gives no tap for, and a ruling the card itself breaks. Jev giving no reading leaves the card to him, said on stderr."""
     rules = limits.rule_words(case)
-    items = {word["id"]: word for word in [*words, *rules]}
-    cited = {UNDECIDED: UNBROKEN, **dict.fromkeys(items)}
-    parts = {f"breaks{number}": f'option "{option}"' for number, option in enumerate(asked.options, 1)} | {"untapped": "the card", "card": "the card"}
+    cited = {UNDECIDED: UNBROKEN, **dict.fromkeys(word["id"] for word in [*words, *rules])}
+    items = {word["id"]: word for word in [*words, *rules, limits.WORKED_WORDS]}
+    parts = {f"{kind}{number}": f'option "{option}"' for kind in ("breaks", "worked") for number, option in enumerate(asked.options, 1)} | {"untapped": "the card", "card": "the card"}
     questions = {
         **{
             f"breaks{number}": {"label": {"instructions": BREAKS_QUESTION.format(option=option, marked=" (recommended)" if option == asked.recommended else ""), "options": cited}}
+            for number, option in enumerate(asked.options, 1)
+        },
+        **{
+            f"worked{number}": {"label": {"instructions": WORKED_QUESTION.format(option=option), "options": {UNDECIDED: WORKED_OUT, limits.WORKED_WORDS["id"]: None}}}
             for number, option in enumerate(asked.options, 1)
         },
         **({"untapped": {"label": {"instructions": UNTAPPED_QUESTION, "options": {UNDECIDED: "The card offers a tap for each.", **dict.fromkeys(word["id"] for word in words)}}}} if words else {}),

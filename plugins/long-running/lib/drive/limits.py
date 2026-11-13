@@ -163,6 +163,24 @@ LINK_VIEW_WORDS = {
         " page showing only a sign-in screen was not read and breaks nothing."
     ),
 }
+WORKED_QUOTE = (
+    "dontg be lazy flash this out wayu more and od that for everyhtrfing in the future … shoujld not be so high lelkver. this"
+    " would also satidyt the rtequriement you care curently violating by not having a show-me bc then shw show-0me cvould be code snipeptrs"
+)
+WORKED_WORDS = {
+    "id": "ruling:77b577b",
+    "asked": "his ruling that a card works each option it offers out to what it will look like, in its Show me, never only its files and cost",
+    "said": WORKED_QUOTE,
+    "rule": (
+        "Each option a card offers as a design to build, a fix included, is worked out on the card to what it will look like"
+        " once built: its Show me carries an example of that option itself, such as its real calls, the rows or bytes it"
+        " writes, its flow, or the reply or screen a caller gets, as code, a ```compare panel named for it, a markdown table,"
+        " or a diagram or picture captioned with its number. An option told only by its description, the files it touches,"
+        " the callers it reaches and its cost breaks this, as does one left out of an example that shows the others, by his"
+        ' words on such a card: "you need to flesh out what that will look like not just wave your hands, likewise for 2 and'
+        ' 3". A card asking only whether or when to release, land, run or hold something offers no design and breaks nothing here.'
+    ),
+}
 ROOT_CAUSE_SHAPE = (
     "`Root cause: <the structure that lets the defect happen, by its proper terms>` with `First principles: <the option"
     " that removes it>`, `Root cause: fixed: <that structure>, removed by <the merged PR's link>` on a card asking only"

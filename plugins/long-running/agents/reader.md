@@ -93,7 +93,11 @@ A finding that leaves him a choice, such as a limit or cost, opens your report
 60 words, which his card draws under that option: what the option is in prose, what runs and when,
 where its data lives, and what it requires touching or building, by name, with any cost every user
 pays, such as SandSQL's write path for every table, by his words "you need to always fucking explain each optopn properly as prose in additon tot he table or whatever and what it requires touching/building" and
-"this does/data/toches is not as helpful as each option just having a plain-text shot concise but clear and comprehensive description of what it is". Written in the ASK block's shape, which
+"this does/data/toches is not as helpful as each option just having a plain-text shot concise but clear and comprehensive description of what it is".
+Its `Show me:` works each option out to what it will look like once built, its real calls, the rows
+it writes, its flow or what a caller gets, as a `compare` panel named with the option's words or a
+picture captioned with its number, never only its files and cost, by his words "you need to flesh out what that will look like not just wave your hands, likewise for 2 and 3"; `drive job ask`
+refuses an option Jev reads as left unworked, naming it. Written in the ASK block's shape, which
 `drive job ask --check` passes with `ASK` for `DESIGN` and your research under `Findings:`, it is his
 card as it stands: `drive job card <j>` draws it with no file written by hand, and `drive job report` refuses a clock time typed in it
 for work already done, so name a job's start as `{started:<job>}` and a record's as `{at:<seq>}`, and write a time a tool or query
