@@ -25,7 +25,7 @@ WT = "/w/repo/v3-lane-base"
 WT2 = "/w/repo/v3-lane-next"
 REPOSITORY = "/w/repo/.git"
 REMOTE = orca_gc.Remote(heads=frozenset({"a" * 40}), landed=frozenset())
-UNPAUSED = orca_gc.Pause(SCRIPT)
+UNPAUSED = orca_gc.Pause(SCRIPT, SCRIPT.with_name("files-paused"))
 BORDER = "─" * 80
 CLAUDE_DONE = [
     "  The build 2210 JSON I pulled is at /tmp/b2210-evidence.json.",
@@ -715,7 +715,8 @@ class PauseTest(unittest.TestCase):
         self.addCleanup(state.cleanup)
         self.resumed = Path(state.name) / "resumed"
         self.resumed.touch()
-        self.pause = orca_gc.Pause(self.resumed)
+        self.files = Path(state.name) / "files-paused"
+        self.pause = orca_gc.Pause(self.resumed, self.files)
 
     def skipped(self, target: str, verb: str) -> str:
         return self.pause.skip(target, verb).line()
@@ -783,6 +784,13 @@ class PauseTest(unittest.TestCase):
         self.assertIn(self.skipped("ctx_b", "stop"), out)
         self.assertIn(self.skipped("term_ctx_a", "end"), out)
         self.assertIn(self.skipped(WT, "remove"), out)
+
+    def test_a_file_deletion_pause_keeps_the_worktree_while_the_dispatch_stops_and_its_terminal_closes(self):
+        self.files.touch()
+        orca = FakeOrca([row("ctx_a", status="dispatched")], stops={"ctx_a": ("stop_unknown", "none", {})})
+        tally, out = run_gc(orca, FakeGit({WT: checkout()}), done=frozenset({"ctx_a"}), pause=self.pause)
+        self.assertEqual((tally, orca.calls), ({"stopped": 1, "closed": 1, "skip": 1}, [("stop", "ctx_a"), ("close", "term_ctx_a")]))
+        self.assertIn(self.pause.skip_files(WT).line(), out)
 
 
 class HolderTest(unittest.TestCase):
