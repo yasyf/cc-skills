@@ -630,6 +630,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         if pr["checker"]:
             pr["checker"].setdefault("against", "")
         pr.setdefault("ejected", False)
+        pr.setdefault("flaky", None)
         pr.setdefault("review_asked", None)
         pr.setdefault("author", None)
         pr.setdefault("checked", None)
@@ -2237,7 +2238,7 @@ def foreign_pr(data: dict, key: str) -> str | None:
 
 
 def drop_pr(data: dict, key: str) -> None:
-    """Stop tracking a PR, with nothing done on GitHub: its entry, its link on each job, each release wait on it, and its place in each stack a card drew; a wait on the PR itself ends as one on a PR the drive no longer tracks."""
+    """Stop tracking a PR, with nothing done on GitHub: its entry, its link on each job, each release wait on it, its place in each stack a card drew, and each drive pr set --flaky record naming it the fix, whose ejection reads final again; a wait on the PR itself ends as one on a PR the drive no longer tracks."""
     url = data["prs"].pop(key)["url"]
     for owner in [*data["jobs"].values(), *data["prs"].values()]:
         rewait(owner, [wait for wait in owner["waits"] if not ((release := RELEASE_WAIT.fullmatch(wait)) and release["pr"] == key)])
@@ -2246,6 +2247,8 @@ def drop_pr(data: dict, key: str) -> None:
     for pr in data["prs"].values():
         if pr.get("stack") and key in pr["stack"]:
             pr["stack"] = [member for member in pr["stack"] if member != key]
+        if (pr["flaky"] or {}).get("fix") == key:
+            pr["flaky"] = None
 
 
 def order_served(pr: dict) -> str:
@@ -2358,6 +2361,7 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "lander": None,
         "checker": None,
         "ejected": False,
+        "flaky": None,
         "review_asked": None,
         "rework": None,
         "author": None,

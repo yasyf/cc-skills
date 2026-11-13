@@ -4251,8 +4251,8 @@ def test_a_lander_that_outlived_an_install_reopens_on_the_newest_drive_which_rec
     newer = tmp_path / "cache" / "9.9.9" / "bin" / "drive"
     queued = land.enqueued
 
-    def queued_then_installed(name: str, clone: Path, keys: list[str], dry_run: bool = False) -> str:
-        outcome = queued(name, clone, keys, dry_run)
+    def queued_then_installed(name: str, clone: Path, keys: list[str], dry_run: bool = False, flake: bool = False) -> str:
+        outcome = queued(name, clone, keys, dry_run, flake)
         state.store(demo, state.stored(demo) | {"saved_by": "9.9.9"})
         return outcome
 
@@ -4480,6 +4480,72 @@ def test_a_trunk_failed_label_left_from_before_its_landers_try_at_a_pushed_head_
     serve(monkeypatch, {KEY: read(headRefOid="566abed000", labels=["externally-merged", github.EJECTED_LABEL], ejected_at="2026-11-12T13:48:03Z")})
     assert watch.github_lines(watcher(demo), state.parse_time(tried) + timedelta(minutes=1)) == []
     assert stage.of(state.load(demo), KEY, NO_CARDS).name == "landing"
+
+
+EJECTED = "Forge-AI/monorepo#55582"
+FLAKE_FIX = "Forge-AI/monorepo#55677"
+FLAKY = "TestCancelledFanOutInsideAnUnjournaledFnRecordsItsUsageOnce"
+TRUNK_FAILED = {"context": "Trunk Merge Queue (dev)", "state": "FAILURE"}
+
+
+def ejected_on_a_flake(name: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    with state.edit(name) as data:
+        data["jobs"]["j1"]["prs"] += [state.pr_url(EJECTED), state.pr_url(FLAKE_FIX)]
+        data["prs"][EJECTED] = state.new_pr(state.pr_url(EJECTED), "j1", "o1") | {
+            "head": "bb28d680bf",
+            "checks": "pass",
+            "review": "approved",
+            "tap": state.new_tap("Approve", "bb28d680bf", "pressed the button", at=state.stamp(T0 - timedelta(minutes=5))),
+            "lander": {"head": "bb28d680bf", "pid": 1, "at": state.stamp(T0), "outcome": land.QUEUED, "below": [], "entry": EJECTED},
+        }
+        data["prs"][FLAKE_FIX] = state.new_pr(state.pr_url(FLAKE_FIX), "j1", "o1") | {"head": "9a882a9000", "exempt": "test-only", "wants_tap": False}
+    trunk = read(headRefOid="bb28d680bf", checks=[*GREEN, TRUNK_FAILED], reviewDecision="APPROVED", approvals=["bb28d680bf"], labels=[github.EJECTED_LABEL])
+    serve(monkeypatch, {EJECTED: trunk | {"ejected_at": state.stamp(T0 + timedelta(minutes=1))}})
+    assert f"PR {EJECTED}: ejected from the merge queue [o1 j1]" in watch.github_lines(watcher(name), T0 + timedelta(minutes=2))
+    assert stage.of(state.load(name), EJECTED, NO_CARDS) == stage.Stage("unlanded", stage.ORDER, "Trunk ejected it from the merge queue")
+
+
+def test_replayed_55582_a_pr_trunk_ejected_on_a_flaky_test_outside_its_diff_is_queued_again_at_the_same_commit_once_that_tests_fix_merges_and_only_once(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], landers: list[tuple[str, ...]]
+) -> None:
+    ejected_on_a_flake(demo, monkeypatch)
+    assert cli.main(["pr", "set", EJECTED, "--flaky", FLAKY, "Forge-AI/monorepo#99999", "--drive", demo]) == 2
+    assert "the drive tracks no such PR" in capsys.readouterr().err
+    assert cli.main(["pr", "set", KEY, "--flaky", FLAKY, state.pr_url(FLAKE_FIX), "--drive", demo]) == 2
+    assert "Trunk ejected no try of its lander at aaaaaaa" in capsys.readouterr().err
+    assert cli.main(["pr", "set", EJECTED, "--flaky", FLAKY, state.pr_url(FLAKE_FIX), "--drive", demo]) == 0
+    waiting = f"Trunk ejected it from the merge queue at bb28d68 on its flaky test {FLAKY}; the lander requeues that commit once {FLAKE_FIX}, that test's fix, merges"
+    assert stage.of(state.load(demo), EJECTED, NO_CARDS) == stage.Stage("waiting", stage.WAITED, waiting)
+    assert land.start(demo, [EJECTED], NO_CARDS) == []
+    with state.edit(demo) as data:
+        data["prs"][FLAKE_FIX]["state"] = "merged"
+    assert stage.of(state.load(demo), EJECTED, NO_CARDS) == stage.Stage("ready", stage.LANDER, "green and approved by him at bb28d68")
+    assert land.start(demo, [EJECTED], NO_CARDS) == [(EJECTED,)]
+    enqueue_exiting(tmp_path, demo, 0)
+    capsys.readouterr()
+    assert land.run(demo, [EJECTED]) == land.QUEUED
+    said = capsys.readouterr().out
+    assert ("trunk said --check --flake 55582" in said, "trunk said --watch --flake 55582" in said) == (True, True)
+    requeued = state.load(demo)["prs"][EJECTED]
+    assert requeued["head"] == "bb28d680bf"
+    landing = f"queued for merge at bb28d68 since {requeued['lander']['at']}, requeued once {FLAKE_FIX}, the fix of its flaky test {FLAKY}, merged"
+    assert stage.of(state.load(demo), EJECTED, NO_CARDS) == stage.Stage("landing", stage.LANDER, landing)
+    again = state.stamp(state.parse_time(requeued["lander"]["at"]) + timedelta(minutes=5))
+    trunk = read(headRefOid="bb28d680bf", checks=[*GREEN, TRUNK_FAILED], reviewDecision="APPROVED", approvals=["bb28d680bf"], labels=[github.EJECTED_LABEL])
+    serve(monkeypatch, {EJECTED: trunk | {"ejected_at": again}})
+    assert f"PR {EJECTED}: ejected from the merge queue [o1 j1]" in watch.github_lines(watcher(demo), state.parse_time(again))
+    final = f"Trunk ejected it from the merge queue again after the lander requeued bb28d68 once {FLAKE_FIX}, the fix of its flaky test {FLAKY}, merged"
+    assert stage.of(state.load(demo), EJECTED, NO_CARDS) == stage.Stage("unlanded", stage.ORDER, final)
+    assert land.start(demo, [EJECTED], NO_CARDS) == []
+
+
+def test_a_pr_trunk_ejected_on_a_flaky_test_reads_unlanded_again_once_that_tests_fix_closes_unmerged(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    ejected_on_a_flake(demo, monkeypatch)
+    assert cli.main(["pr", "set", EJECTED, "--flaky", FLAKY, FLAKE_FIX, "--drive", demo]) == 0
+    with state.edit(demo) as data:
+        data["prs"][FLAKE_FIX]["state"] = "closed"
+    closed = f"Trunk ejected it from the merge queue on its flaky test {FLAKY}, and {FLAKE_FIX}, that test's fix, closed unmerged"
+    assert stage.of(state.load(demo), EJECTED, NO_CARDS) == stage.Stage("unlanded", stage.ORDER, closed)
 
 
 def test_a_yasyf_lander_merges_with_admin_records_its_merge_commit_and_installs_each_plugin_its_merge_changes(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

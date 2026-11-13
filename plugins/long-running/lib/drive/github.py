@@ -28,6 +28,7 @@ PROD_ENV = re.compile(r"^prod: true$", re.MULTILINE)
 HOLDS = ("ahead", "identical")
 HOLD_LABEL = "hold"
 EJECTED_LABEL = "trunk-failed"
+TRUNK_CHECK = "Trunk Merge Queue"
 RUN_URL = re.compile(r"/actions/runs/(?P<run>\d+)/")
 PRS_PER_QUERY = 25
 STACKS_AGE = "60s"

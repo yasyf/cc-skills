@@ -36,11 +36,12 @@ LANE_VERBS = (
     ("job", "replies"),
     ("job", "held"),
     ("pr", "add"),
+    ("pr", "set"),
     ("plan", "search"),
     ("manual",),
     ("status",),
 )
-LANE_WRITES = (("job", "ask"), ("job", "set"), ("pr", "add"))
+LANE_WRITES = (("job", "ask"), ("job", "set"), ("pr", "add"), ("pr", "set"))
 NO_SPRITE_GRANT = 'his pick "No Sprite lane runs break-glass: a step needing a grant moves to a lane on this Mac"'
 JOB_WORD = re.compile(r"j\d+")
 BREAK_GLASS_PIPELINE = "forge/break-glass"
@@ -206,7 +207,7 @@ def shown_here(text: str, shown: dict[str, str]) -> str:
 
 
 def lane_refusal(args: argparse.Namespace, parse: Callable[[list[str]], argparse.Namespace], drive: str, job_id: str) -> str | None:
-    """Why a Sprite lane's drive command, as drive parsed it to run, may not: a `break-glass`, whose command would run on this Mac as its user, so the step moves to a lane on this Mac; a verb no builder runs, such as a tap or an order verb; a write, a `job report` keeping stdin or one of LANE_WRITES, naming a job other than its own in any value it parsed, while a read, such as another job's `job report`, `job replies` or `status`, reads it as a Mac lane does; a `job set` other than its `--repro`; or another drive. It reads the parsed values, so an abbreviated flag, a `--flag=value` and a word after `--` mean here what they mean to the verb."""
+    """Why a Sprite lane's drive command, as drive parsed it to run, may not: a `break-glass`, whose command would run on this Mac as its user, so the step moves to a lane on this Mac; a verb no builder runs, such as a tap or an order verb; a write, a `job report` keeping stdin or one of LANE_WRITES, naming a job other than its own in any value it parsed, while a read, such as another job's `job report`, `job replies` or `status`, reads it as a Mac lane does; a `job set` other than its `--repro`; a `pr set` other than its `--flaky`, or on a PR its own job does not carry; or another drive. It reads the parsed values, so an abbreviated flag, a `--flag=value` and a word after `--` mean here what they mean to the verb."""
     words = tuple(word for word in (args.verb, getattr(args, "action", None)) if word)
     verb = next((verb for verb in LANE_VERBS if words[: len(verb)] == verb), None)
     refused = f"drive {' '.join(words)}: refused, nothing ran:"
@@ -223,6 +224,12 @@ def lane_refusal(args: argparse.Namespace, parse: Callable[[list[str]], argparse
         flags := sorted(f"--{key.replace('_', '-')}" for key, value in vars(parse(["job", "set", job_id])).items() if key in parsed and key not in ("repro", "json", "drive") and parsed[key] != value)
     ):
         return f"{refused} a lane's job set takes only --repro, and it names {', '.join(flags)}"
+    if verb == ("pr", "set") and (
+        flags := sorted(f"--{key.replace('_', '-')}" for key, value in vars(parse(["pr", "set", args.url])).items() if key in parsed and key not in ("flaky", "url", "json", "drive") and parsed[key] != value)
+    ):
+        return f"{refused} a lane's pr set takes only --flaky, and it names {', '.join(flags)}"
+    if verb == ("pr", "set") and (state.load(drive)["prs"].get(state.pr_key(args.url)) or {}).get("job") != job_id:
+        return f"{refused} a lane's pr set acts on a PR its own job, {job_id}, carries, and {args.url} is none of them"
     if parsed.get("drive") not in (None, drive):
         return f"{refused} it names drive {parsed['drive']}, and a lane acts on its own drive, {drive}, alone"
     return None

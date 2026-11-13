@@ -351,6 +351,12 @@ once more. Fix a test that keeps failing at its root; never retry past it with `
 the `bash_guard` hook refuses in a drive session or agent (`stack-enqueue --flake`, `tools/ci bk rerun`,
 `bk job retry`, `bk build rebuild`, `gh run rerun`), naming `tools/ci bk log <job>` instead.
 
+An ejection on a flaky test outside your diff needs no push. Fix the test in its own `flake fix` PR, or
+find the one the drive already tracks, then run `drive pr set <url> --flaky <the test> <its fix PR>`.
+Your PR reads `waiting` until that fix merges. Then the lander queues the same commit again with
+`stack-enqueue --flake`, once, and `stack-enqueue` records the retry on the PR. A second ejection at that
+commit reads `unlanded`, and so does a fix that closed unmerged: restack and fix the cause, as above.
+
 ## Read-only repositories
 
 Customer and forward-deployed engineers' repositories are read only: clone and read, never push,

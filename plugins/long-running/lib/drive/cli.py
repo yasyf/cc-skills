@@ -2550,6 +2550,10 @@ def pr_set(args: argparse.Namespace) -> int:
     if why := state.foreign_pr(known, key):
         raise DriveError(f"{key}: refused, nothing set: {why}")
     before = known["prs"][key]
+    if args.flaky and (fix := state.pr_key(args.flaky[1])) not in known["prs"]:
+        raise DriveError(f"--flaky {args.flaky[1]}: the drive tracks no such PR, so it would never read that fix merge; drive pr add {state.pr_url(fix)} --job <j> tracks it first")
+    if args.flaky and not (before["ejected"] and (before["lander"] or {}).get("head") == before["head"]):
+        raise DriveError(f"{key}: refused, nothing set: --flaky names the flaky test Trunk ejected it on at its head, and Trunk ejected no try of its lander at {before['head'][:7]}")
     if args.exempt == state.FLAKE_FIX and args.tap is None:
         args.tap = flake_tap(key, state.guarded(key) or not tooling(known["orders"][before["order"]]))
     after = dict(before)
@@ -2793,6 +2797,8 @@ def set_pr(pr: dict, args: argparse.Namespace) -> None:
         pr["fundamental"] = None
     if args.no_tapped:
         pr["tap"] = None
+    if args.flaky:
+        pr["flaky"] = {"test": args.flaky[0], "fix": state.pr_key(args.flaky[1]), "head": pr["head"], "requeued": None}
     pr["updated"] = state.stamp()
 
 
@@ -4263,6 +4269,15 @@ def parser() -> argparse.ArgumentParser:
         help="drop a hold the drive recorded itself as his tap, refusing his own; needs --why, kept in the drive's events",
     )
     verb.add_argument("--tap-source", type=his_link, help="the Slack permalink of his message or of the card he tapped")
+    verb.add_argument(
+        "--flaky",
+        nargs=2,
+        metavar=("TEST", "FIX"),
+        help=(
+            "the flaky test outside its diff Trunk ejected it on at its head, and that test's fix, a PR the drive tracks: it waits on that fix,"
+            " and once the fix merges the lander queues the same commit again with stack-enqueue --flake, once; refused unless Trunk ejected it at its head"
+        ),
+    )
     verb.set_defaults(run=pr_set)
     verb = pr.add_parser("tapped", parents=both)
     verb.add_argument("url")
