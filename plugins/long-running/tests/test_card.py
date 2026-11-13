@@ -98,6 +98,7 @@ def row(**fields: str) -> dict:
         "title": "retry flaky uploads",
         "head": HEAD,
         "changed": "",
+        "review": "",
         "summary": SUMMARY,
         "refresher": "When the network hiccups, we try again.",
         "surprise": "Uploads that fail once now retry instead of losing the file.",
@@ -858,50 +859,38 @@ def tap_approve(shown: str) -> None:
     assert ask({"answer": answer}) == {"ok": True}
 
 
-def test_a_head_that_moved_under_his_card_keeps_approve_and_his_approve_of_the_head_he_saw_lands_only_once_the_check_passes_at_the_new_head(
-    drive: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]], redraws: Redraws
+def test_a_head_that_moved_under_his_card_keeps_approve_and_his_approve_of_the_head_he_saw_lands_it_with_no_check_at_the_new_head(
+    drive: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
 ) -> None:
-    key, judging = "Forge-AI/monorepo#42", "commit fedcba9 passes the check against your words"
+    key = "Forge-AI/monorepo#42"
     redraw = moved_under_his_card(drive, monkeypatch)
     [shown] = ask(redraw)["cards"]
-    assert (shown["card"]["status"], shown["card"]["options"], shown["card"]["prs"][0]["lands"]) == ("needs_you", ["Approve", "Hold"], f"you approve and {judging}")
+    assert (shown["card"]["status"], shown["card"]["options"], shown["card"]["prs"][0]["lands"]) == ("needs_you", ["Approve", "Hold"], "you approve")
     tap_approve(HEAD)
     [tapped] = [event for event in events(drive) if event["kind"] == "tap"]
-    assert (state.load(drive)["prs"][key]["tap"]["head"], tapped["head"], landers) == (HEAD, HEAD, [])
+    assert (state.load(drive)["prs"][key]["tap"]["head"], tapped["head"], landers) == (HEAD, HEAD, [(key,)])
     [held] = ask(redraw)["cards"]
-    assert ("options" in held["card"], held["card"]["prs"][0]["blocks"]) == (False, f"Approved by you. Lands once {judging}")
-    assert cli.main(["pr", "check", URL, "--drive", drive]) == 0
-    assert (state.load(drive)["prs"][key]["checked"]["head"], state.load(drive)["prs"][key]["tap"]["label"], redraws.asked) == (MOVED, "Approve", [URL])
-    assert ask(redraw)["cards"][0]["card"]["prs"][0]["blocks"] == "Approved by you. CI passed; the drive queues it for merge"
-    assert land.start(drive, [key], view.live_cards(drive)) == [(key,)]
-    assert landers == [(key,)]
+    assert ("options" in held["card"], held["card"]["prs"][0]["blocks"]) == (False, "Approved by you. CI passed; the drive queues it for merge")
 
 
-def test_a_change_against_his_words_at_the_head_he_approved_sends_his_approve_back_saying_why_and_his_card_offers_none_until_a_commit_passes(
+def test_a_change_against_his_words_is_a_whole_line_on_his_card_beside_approve_and_his_approve_still_lands_it(
     drive: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]], redraws: Redraws, judge: Judge
 ) -> None:
-    key, named = "Forge-AI/monorepo#42", 'o1 "ship the run page": run.ts drops the run page'
+    key, change = "Forge-AI/monorepo#42", "run.ts drops the run page " + "and its link from the sidebar " * 20
+    named = f'o1 "ship the run page": {change}'
     redraw = moved_under_his_card(drive, monkeypatch)
-    tap_approve(HEAD)
-    judge.against = [{"order": "o1", "words": "ship the run page", "change": "run.ts drops the run page"}]
+    judge.against = [{"order": "o1", "words": "ship the run page", "change": change}]
     assert cli.main(["pr", "check", URL, "--drive", drive]) == 0
-    why = f"Commit fedcba9 goes against your words, so your Approve of commit 0123456 went back: {named}"
-    pr = state.load(drive)["prs"][key]
-    assert (pr["tap"], pr["fundamental"], redraws.asked, land.start(drive, [key], view.live_cards(drive)), landers) == (None, why, [URL], [], [])
-    assert state.tap_refused(pr) == f"its change at its head goes against his words: {named}"
-    [refused] = ask(redraw)["cards"]
-    row = refused["card"]["prs"][0]
-    assert ("options" in refused["card"], row["blocks"], row["changed"]) == (
-        False,
-        f"Commit fedcba9 goes against your words: {named}. Its agent is changing it; Approve returns once a commit passes the check",
-        why,
-    )
     [checked] = [event for event in events(drive) if event["kind"] == "check"]
-    assert checked["change"].startswith(f"NOT READY: {key} go against his words")
-    judge.against = []
-    assert cli.main(["pr", "check", URL, "--drive", drive]) == 0
+    assert checked["change"].startswith(f"NOT READY: {key} go against his words, judged from each PR's title and diff: {named}. ")
+    line = f"Commit fedcba9 goes against your words: {named}. Its agent is told; your Approve still lands it"
     [asking] = ask(redraw)["cards"]
-    assert (asking["card"]["options"], asking["card"]["prs"][0]["changed"]) == (["Approve", "Hold"], why)
+    assert (asking["card"]["options"], asking["card"]["prs"][0]["review"], redraws.asked) == (["Approve", "Hold"], line, [URL])
+    tap_approve(MOVED)
+    pr = state.load(drive)["prs"][key]
+    assert (pr["tap"]["label"], pr["fundamental"], landers) == ("Approve", None, [(key,)])
+    [held] = ask(redraw)["cards"]
+    assert (held["card"]["prs"][0]["blocks"], held["card"]["prs"][0]["review"]) == ("Approved by you. CI passed; the drive queues it for merge", line)
 
 
 def test_answer_matches_the_lowercase_repo_cc_slack_sends(drive: str) -> None:

@@ -1766,9 +1766,14 @@ def served_orders(data: dict, pr: dict) -> list[str]:
 
 
 def checked(data: dict, pr: dict) -> bool:
-    """Whether the PR's change at its head was judged against the words of every order it serves, so his card may draw on it."""
+    """Whether the PR's change at its head passed the check against the words of every order it serves."""
     stamp = pr["checked"]
     return bool(stamp) and stamp["head"] == pr["head"] and set(served_orders(data, pr)) <= set(stamp["orders"])
+
+
+def has_verdict(data: dict, pr: dict) -> bool:
+    """Whether the check against his words has a verdict on the PR's change at its head, a pass or an objection, so his card may draw on it, an objection as a line on it."""
+    return checked(data, pr) or bool(against(pr))
 
 
 def against(pr: dict) -> str:
@@ -1777,17 +1782,8 @@ def against(pr: dict) -> str:
     return checker["against"] if checker and checker["head"] == pr["head"] else ""
 
 
-def send_back(pr: dict) -> None:
-    """Send his Approve of a PR whose change at its head goes against his words back to him: nothing lands it, and the card that asks his Approve again says why under "Changed since your answer"."""
-    tap = pr["tap"]
-    if (tap or {}).get("label") != "Approve" or not (named := against(pr)):
-        return
-    said = f"Commit {pr['head'][:7]} goes against your words, so your Approve of commit {tap['head'][:7]} went back: {named}"
-    pr.update(tap=None, fundamental=said, ready_said=None, updated=stamp())
-
-
 def tap_refused(pr: dict) -> str | None:
-    """Why his card on the PR offers no Approve, so no fresh card draws for it; None when it does: open, his card owed, its change at its head not judged against his words, and neither his tap, Approve or Hold, nor the hold label on it."""
+    """Why his card on the PR offers no Approve, so no fresh card draws for it; None when it does: open, his card owed, and neither his tap, Approve or Hold, nor the hold label on it, whatever the check against his words says."""
     if pr["state"] != "open":
         return f"it is {pr['state']}"
     match owed_step(pr):
@@ -1797,8 +1793,6 @@ def tap_refused(pr: dict) -> str | None:
             return "it is being reworked to his words"
         case None:
             return "its author or its own builder lands it with no tap"
-    if named := against(pr):
-        return f"its change at its head goes against his words: {named}"
     match (pr["tap"] or {}).get("label"):
         case "Approve":
             return "he approved it already"

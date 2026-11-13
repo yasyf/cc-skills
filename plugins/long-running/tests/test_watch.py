@@ -2436,7 +2436,7 @@ def test_an_unchecked_pr_whose_builder_returned_starts_one_check_against_his_wor
     assert (state.load(demo)["prs"][KEY]["checked"]["head"], watch.run_pass(watching, T0 + timedelta(minutes=7)), checkers) == ("aaaaaaa111", [], [KEY, KEY])
 
 
-def test_a_green_approved_pr_gets_no_ready_and_no_card_while_the_check_at_its_head_runs_or_said_not_ready_and_one_once_its_new_head_is_checked(
+def test_a_green_approved_pr_gets_no_card_while_the_check_at_its_head_runs_and_one_once_it_said_not_ready_or_its_new_head_is_checked(
     demo: str, monkeypatch: pytest.MonkeyPatch, checkers: list[str], judge: Judge, ready_records: list[list[dict]]
 ) -> None:
     reads = {KEY: read(checks=GREEN, reviewDecision="APPROVED")}
@@ -2452,13 +2452,13 @@ def test_a_green_approved_pr_gets_no_ready_and_no_card_while_the_check_at_its_he
     assert cli.main(["pr", "check", state.pr_url(KEY), "--drive", demo]) == 0
     refused = watch.run_pass(watching, T0 + timedelta(minutes=2)) + watch.run_pass(watching, T0 + timedelta(minutes=3))
     assert any(line.startswith(f"PR {KEY}: NOT READY: ") for line in refused)
-    assert (DRAWING in refused, ready_records, checkers) == (False, [], [KEY])
+    assert (DRAWING in refused, len(ready_records), checkers) == (True, 1, [KEY])
     reads[KEY] = read(headRefOid="bbbbbbb222", checks=GREEN, reviewDecision="APPROVED")
-    assert (DRAWING in watch.run_pass(watching, T0 + timedelta(minutes=4)), ready_records, checkers) == (False, [], [KEY, KEY])
+    assert (DRAWING in watch.run_pass(watching, T0 + timedelta(minutes=4)), len(ready_records), checkers) == (False, 1, [KEY, KEY])
     judge.against = []
     assert cli.main(["pr", "check", state.pr_url(KEY), "--drive", demo]) == 0
     assert DRAWING in watch.run_pass(watching, T0 + timedelta(minutes=5))
-    [[record]] = ready_records
+    [_, [record]] = ready_records
     assert (record["kind"], state.load(demo)["prs"][KEY]["checked"]["head"]) == ("ready", "bbbbbbb222")
 
 
@@ -3219,22 +3219,20 @@ def test_a_lander_queues_nothing_while_a_pr_below_it_in_its_native_stack_lacks_h
     )
 
 
-def test_a_lander_queues_nothing_while_the_prs_head_on_github_is_not_the_one_checked_against_his_words_and_wakes_no_one(
-    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+@pytest.mark.parametrize("verdict", ["unchecked", "objected"])
+def test_his_approve_lands_a_green_pr_whatever_the_check_against_his_words_says(demo: str, tmp_path: Path, landers: list[tuple[str, ...]], verdict: str) -> None:
     waiting_job(demo)
     approve(demo, KEY)
     enqueue_exiting(tmp_path, demo, 0)
-    monkeypatch.setattr(land.github, "heads", lambda keys: {KEY: "ccccccc333"})
-    watching = watcher(demo)
-    moved = f"{land.WAITS_CHECK}: GitHub holds {KEY} at ccccccc333, a head that check has not passed, so his Approve lands it once the watch's check passes there"
-    assert land.run(demo, [KEY]) == moved
-    [line] = watch.event_lines(watching)
-    assert (state.load(demo)["prs"][KEY]["lander"]["outcome"], line, watch.wakes(line, state.load(demo))) == (moved, f"PR {KEY}: {moved} [o1 j1]", False)
     with state.edit(demo) as data:
-        data["prs"][KEY]["checked"] = None
-    with pytest.raises(state.DriveError, match="his Approve lands only a change that passed that check"):
-        land.run(demo, [KEY])
+        pr = data["prs"][KEY]
+        pr |= {"checks": "pass", "review": "approved", "checked": None}
+        if verdict == "objected":
+            pr["checker"] = {"head": pr["head"], "pid": 1, "at": state.stamp(T0), "outcome": f"{served.NOT_READY}: it drops the flag", "against": 'o1 "keep the flag": it drops the flag'}
+    assert land.unready(state.load(demo), KEY, NO_CARDS) is None
+    assert land.start(demo, [KEY], NO_CARDS) == [(KEY,)]
+    assert land.run(demo, [KEY]) == land.QUEUED
+    assert state.load(demo)["prs"][KEY]["tap"]["label"] == "Approve"
 
 def test_a_lander_refuses_a_pr_his_approve_does_not_cover(demo: str) -> None:
     with pytest.raises(state.DriveError, match="a Forge-AI/monorepo PR he approved or an exempt class lands"):

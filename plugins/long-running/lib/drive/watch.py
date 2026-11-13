@@ -71,11 +71,11 @@ READY_LINE = re.compile(r"READY\b")
 STUCK_WORDS = {
     "red": "still red",
     "card": "green and approved with no card drawn",
-    "unchecked": "green and approved with no card drawn, as no check against his words passed its change at this head",
+    "unchecked": "green and approved with no card drawn, as no check against his words has a verdict on its change at this head",
     "landing": "green, approved and exempt, and not landed",
 }
 ABOUT = re.compile(r"\[(?P<order>o\d+) (?P<job>j\d+)\]$|^(?:FREE (?:\S+ )?j\d+|ORPHAN|DUE(?: j\d+)?|RECOVERED|TELL|JOB j\d+|LANE j\d+|STUCK j\d+) (?P<named>o\d+)\b")
-OWN_MOVES = ("new head", "checks passed", "approved", land.QUEUED, land.WAITS_CHECK, served.CHECKED, PROVEN, MERGED_DONE)
+OWN_MOVES = ("new head", "checks passed", "approved", land.QUEUED, served.CHECKED, PROVEN, MERGED_DONE)
 
 
 @dataclass
@@ -250,7 +250,7 @@ def stuck_as(key: str, pr: dict, data: dict, cards: dict | None) -> str | None:
         return "red"
     if cards is None or land.landing(pr) or not moves_owed(pr, data, cards):
         return None
-    if (step := state.owed_step(pr)) == "card" and not state.checked(data, pr):
+    if (step := state.owed_step(pr)) == "card" and not state.has_verdict(data, pr):
         return "unchecked"
     return step if step in STUCK_WORDS else None
 
@@ -551,7 +551,7 @@ def rework_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def ready_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Send the communicator one ready record per card state.card_unit draws, the rule `drive card` shares: a stack his Approve lands or, for PRs in none, their repository's PRs of one order, for the PRs that wait on his card alone, once a head, so `drive card` draws his card within one GitHub read of a PR going green and approved, with no coordinator turn, and says what changed on each PR whose builder's READY met his words reworking it. A stack's record waits until every open PR of it the drive tracks waits on its next step alone with no rework owed, each that asks his tap checked against his words at its head, then names each of them that asks his tap, bottom first, and marks it sent on its head, so no PR mid-stack or on another open PR's branch gets a ready of its own and a pass repeats none until a head moves; a record that fails to post goes again next read."""
+    """Send the communicator one ready record per card state.card_unit draws, the rule `drive card` shares: a stack his Approve lands or, for PRs in none, their repository's PRs of one order, for the PRs that wait on his card alone, once a head, so `drive card` draws his card within one GitHub read of a PR going green and approved, with no coordinator turn, and says what changed on each PR whose builder's READY met his words reworking it. A stack's record waits until every open PR of it the drive tracks waits on its next step alone with no rework owed, each that asks his tap with a verdict of the check against his words at its head, then names each of them that asks his tap, bottom first, and marks it sent on its head, so no PR mid-stack or on another open PR's branch gets a ready of its own and a pass repeats none until a head moves; a record that fails to post goes again next read."""
     if watcher.cards is None:
         return []
     from drive import tools
@@ -586,8 +586,8 @@ def ready_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def stack_ready(pr: dict, data: dict, cards: dict) -> bool:
-    """Whether a PR lets its stack's ready record go: it waits on its next step alone with no rework owed, its change at its head not judged against his words, and if it asks his tap, that change is checked against them."""
-    return view.next_step(pr, data, cards) and not pr["rework"] and not state.against(pr) and (state.checked(data, pr) or not state.asks_tap(pr))
+    """Whether a PR lets its stack's ready record go: it waits on its next step alone with no rework owed, and if it asks his tap, the check against his words has a verdict on its change at its head, an objection drawn as a line on his card."""
+    return view.next_step(pr, data, cards) and not pr["rework"] and (state.has_verdict(data, pr) or not state.asks_tap(pr))
 
 
 def order_words(data: dict, order_id: str) -> str:
@@ -596,11 +596,11 @@ def order_words(data: dict, order_id: str) -> str:
 
 
 def card_owed(pr: dict, data: dict, cards: dict) -> bool:
-    """Whether the watch owes a PR his card's ready record: it waits on its next step alone, that step his card, its change at its head checked against the words of every order it serves, untapped, no card of his asking his tap on it, and none sent for its head; the order it serves is its job's until `drive pr set --serves` names another."""
+    """Whether the watch owes a PR his card's ready record: it waits on its next step alone, that step his card, a verdict of the check against the words of every order it serves on its change at its head, untapped, no card of his asking his tap on it, and none sent for its head; the order it serves is its job's until `drive pr set --serves` names another."""
     return (
         view.next_step(pr, data, cards)
         and state.owed_step(pr) == "card"
-        and state.checked(data, pr)
+        and state.has_verdict(data, pr)
         and not pr["tap"]
         and pr["ready_said"] != pr["head"]
         and view.card_for(cards["pr_cards"], pr["url"]) is None
@@ -648,7 +648,7 @@ def checks(watcher: Watcher, moment: datetime) -> None:
 
 
 def check_owed(name: str, key: str, pr: dict, data: dict, cards: dict, moment: datetime) -> bool:
-    """Whether a PR owes the check of its change against his words: open with his card owed, its change at its head not checked, its builder not running, since a running builder still owns its pushes, nothing it waits on holding it, its builder's report no port of an old-tree PR, which the coordinator checks against that PR, and no check of it running or done at this head since its builder last returned. A builder's READY or PUSHED is checked the minute it returns, while its CI runs, so his card draws the minute it is green and approved, and so is a PR whose builder waits on something else or ended, and a head that moved under his card or his Approve, which keeps Approve showing and lands only once this check passes."""
+    """Whether a PR owes the check of its change against his words: open with his card owed, its change at its head not checked, its builder not running, since a running builder still owns its pushes, nothing it waits on holding it, its builder's report no port of an old-tree PR, which the coordinator checks against that PR, and no check of it running or done at this head since its builder last returned. A builder's READY or PUSHED is checked the minute it returns, while its CI runs, so his card draws the minute it is green and approved, and so is a PR whose builder waits on something else or ended, and a head that moved under his card or his Approve, which keeps Approve showing and lands whatever the check says, its objection a line on his card."""
     job = data["jobs"][pr["job"]]
     if job["state"] == "running" or pr["state"] != "open" or state.owed_step(pr) != "card":
         return False

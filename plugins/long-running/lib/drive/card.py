@@ -250,8 +250,6 @@ def waits_on(pr: dict, entry: dict, held: tuple[str, ...]) -> str:
             return "Held by you"
         case _ if hold_labeled(pr):
             return "Held by the drive with the hold label on GitHub"
-        case _ if named := state.against(entry):
-            return f"Commit {entry['head'][:7]} goes against your words: {clipped(named)}. Its agent is changing it; Approve returns once a commit passes the check"
         case _ if pr["isDraft"]:
             return "Still a draft; the agent is finishing it"
         case _, "fail":
@@ -307,6 +305,7 @@ def render(pr: dict, entry: dict, shown: tuple[str, ...] = (), held: tuple[str, 
         "title": plain,
         "head": pr["headRefOid"],
         "changed": entry.get("fundamental") or "",
+        "review": f"Commit {entry['head'][:7]} goes against your words: {named}. Its agent is told; your Approve still lands it" if pr["state"] == "OPEN" and (named := state.against(entry)) else "",
         "summary": section_words(found, "summary"),
         "refresher": section_words(found, *REFRESHER_HEADINGS) or comment_refresher(pr),
         "surprise": section_words(found, "biggest surprise"),
@@ -527,13 +526,6 @@ def holding(known: dict[str, tuple[str, dict]], key: str) -> dict[str, str]:
     return {wait: view.wait_words(data, wait, found) for wait in view.holding(data, entry["waits"], found)}
 
 
-def judging(known: dict[str, tuple[str, dict]], key: str, pr: dict) -> tuple[str, ...]:
-    """The check against his words his card says the PR lands once, in his card's words, while its change at the head drawn is not the one that check passed: Approve stays on it, and his Approve lands it only once that check passes."""
-    name, entry = known[key]
-    passed = state.checked(state.load(name), entry) and entry["checked"]["head"] == pr["headRefOid"]
-    return () if passed or state.owed_step(entry) != "card" else (f"commit {pr['headRefOid'][:7]} passes the check against your words",)
-
-
 def waiting(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
     """Why no fresh card is drawn for the members yet, while none of them asks his tap with nothing holding it: each design card of his still open, job not finished, PR open or release not out, that one of them waits on; a check still running holds none. One member asking his tap draws the card, each other's section saying what holds it."""
     if any(state.asks_tap(known[key][1]) and not holding(known, key) for key in members):
@@ -543,11 +535,11 @@ def waiting(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
 
 
 def unchecked(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
-    """Why no fresh card is drawn for the members yet: one asking his tap has no check of its change at its head against the words of every order it serves, which the watch's drive pr check runs once its builder returns."""
-    held = [key for key in members if state.asks_tap(entry := known[key][1]) and not state.checked(state.load(known[key][0]), entry)]
+    """Why no fresh card is drawn for the members yet: one asking his tap has no verdict of the check of its change at its head against the words of every order it serves, which the watch's drive pr check runs once its builder returns; an objection draws the card, as a line on it."""
+    held = [key for key in members if state.asks_tap(entry := known[key][1]) and not state.has_verdict(state.load(known[key][0]), entry)]
     if not held:
         return ""
-    return f"the change of {', '.join(held)} at its head is not checked against his words, so no card asks his tap until the watch's drive pr check passes it there"
+    return f"the change of {', '.join(held)} at its head is not checked against his words, so no card asks his tap until the watch's drive pr check judges it there"
 
 
 def untapped(known: dict[str, tuple[str, dict]], reads: dict[str, dict], members: list[str]) -> str:
@@ -610,7 +602,7 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
             taken: set[str] = set()
             try:
                 card = drawn_card(
-                    [(reads[key], known[key][1], pictured(known[key][0], key, reads[key], taken), (*holding(known, key).values(), *judging(known, key, reads[key]))) for key in members]
+                    [(reads[key], known[key][1], pictured(known[key][0], key, reads[key], taken), tuple(holding(known, key).values())) for key in members]
                 )
             except state.DriveError as error:
                 reason = str(error)
@@ -693,7 +685,6 @@ def answered(ask: dict) -> dict:
                 action_ts=ask["action_ts"],
                 lane=state.heard_lane(data, entry["order"]),
             )
-            state.send_back(entry)
     if ask["label"] == "Approve":
         from drive import land, view
 
