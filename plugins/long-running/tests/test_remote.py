@@ -481,6 +481,44 @@ def test_launch_starts_a_job_added_with_no_agent_as_a_remote_lane(
     assert (job["where"], job["dispatch"]) == ("remote", DISPATCH)
 
 
+def test_a_launch_holds_no_install_lock_while_its_launcher_runs_and_hands_its_receipt_to_the_newer_install_that_saved_meanwhile(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cloned(tmp_path, demo)
+    (tmp_path / "brief.md").write_text("Drive: demo, order o1, job j1\n")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship it")
+    monkeypatch.setattr(orca, "new_run", lambda objective: RUN)
+    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+    held, handed = [], []
+    newest, version = tmp_path / "newest" / "bin" / "drive", state.VERSION
+
+    def launch(*args: object) -> dict:
+        held.append(dict(state.HELD_INSTALL))
+        monkeypatch.setattr(state, "VERSION", "0.0.1")
+        return {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH}
+
+    real = subprocess.run
+
+    def newer(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if argv[0] != str(newest):
+            return real(argv, **kwargs)
+        handed.append(argv[1:])
+        monkeypatch.setattr(state, "VERSION", version)
+        code = cli.main(argv[1:])
+        return subprocess.CompletedProcess(argv, code, capsys.readouterr().out, "")
+
+    monkeypatch.setattr(orca, "launch", launch)
+    monkeypatch.setattr(cli.install, "upgraded", lambda: newest)
+    monkeypatch.setattr(cli.subprocess, "run", newer)
+    state.hold_install()
+    assert run("job", "launch", "j1", "brief.md") == (0, f"j1 started on Sprite workspace-1 as dispatch {DISPATCH}")
+    receipt = state.drive_dir(demo) / "jobs" / f"j1.{DISPATCH}.json"
+    assert (held, handed, receipt.exists()) == ([{}], [["job", "started", "j1", str(receipt), "--drive", demo, "--json"]], False)
+    job = state.load(demo)["jobs"]["j1"]
+    assert (job["where"], job["dispatch"], job["run"], job["state"]) == ("remote", DISPATCH, RUN, "running")
+
+
 def test_launch_starts_a_brief_that_runs_break_glass_only_on_this_mac(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

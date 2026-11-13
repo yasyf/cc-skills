@@ -4,6 +4,7 @@ import os
 import re
 import shlex
 import shutil
+import subprocess
 import sys
 import tempfile
 import textwrap
@@ -1986,8 +1987,7 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
     try:
         receipt = launch_attempt(name, job, job_id, kept, orca.vm_brief(name, job_id, written, job["route"]), root, None)
     except orca.Unstarted:
-        with state.edit(name) as data:
-            data["jobs"][job_id]["launching"] = None
+        record_start(name, job_id, None, None)
         raise
     return {field: receipt[field] for field in LAUNCHED}
 
@@ -1996,17 +1996,50 @@ def launch_brief(name: str, job_id: str) -> Path:
     return state.drive_dir(name) / "jobs" / f"{job_id}.md"
 
 
-def record_start(name: str, job_id: str, started: dict, handoff: str | None) -> dict:
-    """Record a started worker's receipt on its job, with the handoff a relaunch started it on, else the launch's brief."""
-    with state.edit(name) as data:
-        job = data["jobs"][job_id]
-        kept = {"handoff": handoff, "reads": {}, "undelivered": []} if handoff else {"brief": str(launch_brief(name, job_id))}
-        job.update(started, **kept, ask=None, report=None, state="running", updated=state.stamp())
-    return job
+def record_start(name: str, job_id: str, started: dict | None, handoff: str | None) -> dict:
+    """Record a started worker's receipt on its job, with the handoff a relaunch started it on, else the launch's brief, or with no receipt clear the launching mark of a launch whose worker never started. When a newer install saved the drive while the worker started, which launch_attempt lets one do, the newest install's `drive job started` records it, so the receipt lands either way."""
+    try:
+        with state.edit(name) as data:
+            job = data["jobs"][job_id]
+            if started is None:
+                job["launching"] = None
+            else:
+                kept = {"handoff": handoff, "reads": {}, "undelivered": []} if handoff else {"brief": str(launch_brief(name, job_id))}
+                job.update(started, **kept, ask=None, report=None, state="running", updated=state.stamp())
+        return job
+    except state.NewerDrive:
+        if not (newer := install.upgraded()):
+            raise
+    receipt = state.drive_dir(name) / "jobs" / f"{job_id}.{started['dispatch'] if started else 'unstarted'}.json"
+    receipt.write_text(json.dumps({"started": started, "handoff": handoff}))
+    what = f"its worker started as dispatch {started['dispatch']}" if started else "its launch started no worker"
+    try:
+        done = subprocess.run(
+            [str(newer), "job", "started", job_id, str(receipt), "--drive", name, "--json"], capture_output=True, text=True, check=False, timeout=orca.LAUNCH_SECONDS
+        )
+    except subprocess.TimeoutExpired:
+        raise DriveError(f"{job_id}: {what}, and {newer} did not record it within {orca.LAUNCH_SECONDS}s; its receipt is kept in {receipt}") from None
+    if done.returncode:
+        raise DriveError(f"{job_id}: {what}, and {newer} did not record it: {done.stderr.strip()}; its receipt is kept in {receipt}")
+    return json.loads(done.stdout)
+
+
+def job_started(args: argparse.Namespace) -> int:
+    """Record the receipt an older install's launch or resume kept, of a worker it started or of a launch that started none, while this install saved the drive, which record_start hands here; a worker its job already records changes nothing."""
+    name = state.resolve(args.drive)
+    receipt = Path(args.receipt)
+    kept = json.loads(receipt.read_text())
+    job = find(state.load(name)["jobs"], args.id, "job")
+    if not (kept["started"] and job.get("dispatch") == kept["started"]["dispatch"]):
+        job = record_start(name, args.id, kept["started"], kept["handoff"])
+    receipt.unlink()
+    line = f"{args.id} started {orca.place(job)} as dispatch {kept['started']['dispatch']}" if kept["started"] else f"{args.id} is no longer launching"
+    return emit(args, line, job)
 
 
 def launch_attempt(name: str, job: dict, attempt: str, kept: Path, brief: str, root: Path, workspace: str | None) -> dict:
-    """Launch one attempt of a job's lane on a Run this terminal makes, since Orca binds a Run only to the terminal that made it and the coordinator moves terminals: on a fresh Sprite, or on the workspace's own Sprite in the checkout it holds; a try whose worker-start sent nothing reuses the Sprite it prepared, and the launcher copies this brief onto it."""
+    """Launch one attempt of a job's lane on a Run this terminal makes, since Orca binds a Run only to the terminal that made it and the coordinator moves terminals: on a fresh Sprite, or on the workspace's own Sprite in the checkout it holds; a try whose worker-start sent nothing reuses the Sprite it prepared, and the launcher copies this brief onto it. It holds no install's lock from here, so a newer install's first save never waits out the launcher, and record_start hands the receipt to that install when it saved first."""
+    state.let_go_install()
     kept.write_text(brief)
     run = orca.new_run(f"drive {name} {attempt}: {job['goal']}")
     return {**orca.launch(name, orca.lane_name(name, attempt), kept, root, run, job["route"], workspace), "run": run}
@@ -3761,6 +3794,12 @@ def parser() -> argparse.ArgumentParser:
         help="start it as an Orca worker on this Mac, in a fresh worktree of this checkout's Orca repository, read like a Sprite's lane",
     )
     verb.set_defaults(run=job_launch)
+    verb = job.add_parser(
+        "started", parents=both, help="record a worker an older install's launch or resume started, from the receipt it kept; that launch runs it"
+    )
+    verb.add_argument("id", help="the job")
+    verb.add_argument("receipt", help="the receipt file the launch kept under the drive's jobs folder")
+    verb.set_defaults(run=job_started)
     verb = job.add_parser(
         "resume",
         parents=both,
