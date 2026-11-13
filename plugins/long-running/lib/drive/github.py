@@ -25,6 +25,7 @@ HOLD_LABEL = "hold"
 EJECTED_LABEL = "trunk-failed"
 RUN_URL = re.compile(r"/actions/runs/(?P<run>\d+)/")
 PRS_PER_QUERY = 25
+STACKS_AGE = "60s"
 STACK = "stack { entries(first: 100) { nodes { position pullRequest { number state } } } }"
 DELETED_AUTHOR = "ghost"
 CALLER = " ".join([Path(sys.argv[0]).name, *takewhile(re.compile(r"[a-z][a-z_-]*").fullmatch, sys.argv[1:3])])
@@ -242,8 +243,8 @@ def parse(payload: dict, keys: list[str]) -> dict[str, dict]:
     }
 
 
-def graphql(text: str, what: str) -> dict:
-    reply = read(what, ["gh", "api", "graphql", "-f", f"query={text}"])
+def graphql(text: str, what: str, max_age: str = "0s") -> dict:
+    reply = read(what, ["gh", "api", "graphql", "-f", f"query={text}"], max_age=max_age)
     try:
         return json.loads(reply)
     except ValueError as error:
@@ -275,11 +276,11 @@ def entries(repo: str, stack: dict) -> list[tuple[str, str]]:
 
 
 def stacks(keys: list[str]) -> dict[str, list[tuple[str, str]]]:
-    """Each PR's native GitHub stack, the one stack-enqueue lands, as entries() gives it, PRS_PER_QUERY PRs to a `gh api graphql` call; a PR in no native stack is left out."""
+    """Each PR's native GitHub stack, the one stack-enqueue lands, as entries() gives it, PRS_PER_QUERY PRs to a `gh api graphql` call read through ccx's cache up to STACKS_AGE old, since a card asks again for the same PRs within a post; a PR in no native stack is left out."""
     found = {}
     for start in range(0, len(keys), PRS_PER_QUERY):
         chunk = keys[start : start + PRS_PER_QUERY]
-        for key, node in nodes(graphql(query(chunk, STACK), f"the native stacks of {', '.join(chunk)}"), chunk).items():
+        for key, node in nodes(graphql(query(chunk, STACK), f"the native stacks of {', '.join(chunk)}", STACKS_AGE), chunk).items():
             if node["stack"]:
                 found[key] = entries(repo_of(key), node["stack"])
     return found
