@@ -4,6 +4,7 @@ const READABLE = 0.42;
 const GAP_MINUTES = 30;
 const REVIEW_KEEP_MS = 5 * 60 * 1000;
 const SLACK = /^https:\/\/[\w-]+\.slack\.com\//;
+const RECORDING = /\.(mov|mp4|m4v|webm)$/i;
 const GROUPS = {
   blocked: 'Blocked',
   running: 'Running',
@@ -385,7 +386,12 @@ function shown(path, caption) {
 }
 
 function shot(path, caption) {
-  return picture(`/api/picture?path=${encodeURIComponent(path)}`, caption);
+  const src = `/api/picture?path=${encodeURIComponent(path)}`;
+  return RECORDING.test(path) ? recording(src, caption) : picture(src, caption);
+}
+
+function recording(src, caption = '', enlarged = false) {
+  return `<figure class="visual recording" data-recording="${esc(src)}" data-caption="${esc(caption)}"><video src="${esc(src)}" controls playsinline preload="metadata" aria-label="${esc(caption || 'Screen recording')}"></video>${enlarged ? '' : `<button type="button" class="enlarge" data-enlarge aria-label="${esc(caption ? `Enlarge recording: ${caption}` : 'Enlarge recording')}" title="Enlarge recording">${icon('enlarge')}</button>`}<p class="recording-error" role="status" hidden>Recording unavailable.<a class="ext" href="${esc(src)}" target="_blank" rel="noopener">Open the original ↗</a></p>${!enlarged && caption ? `<figcaption>${esc(caption)}</figcaption>` : ''}</figure>`;
 }
 
 function picture(src, caption) {
@@ -403,21 +409,27 @@ function gallery(item) {
 
 function openLightbox(item) {
   const items = gallery(item);
+  const inline = item.querySelector('video');
+  const playing = inline && !inline.paused;
+  inline?.pause();
   viewing = { items, at: items.indexOf(item), opener: document.activeElement };
   drawLightbox();
   $('#lightbox').showModal();
+  if (inline) handOver(inline, $('#lightbox video'), playing);
 }
 
 function drawLightbox() {
   const { items, at } = viewing;
   const item = items[at];
+  const clip = item.matches('figure.recording');
   const host = item.querySelector('.visual-host');
+  const src = clip ? item.dataset.recording : item.dataset.shot;
   const caption = host ? item.querySelector('figcaption')?.textContent ?? '' : item.dataset.caption;
-  const stage = host ? visual(host.dataset.visual, host.dataset.source) : `<img src="${esc(item.dataset.shot)}" alt="${esc(caption)}">`;
-  const original = host ? '' : `<a class="ext" href="${esc(item.dataset.shot)}" target="_blank" rel="noopener">Open the original ↗</a>`;
-  const steps = items.length > 1 ? `<button class="lb-step" data-step="-1" aria-label="Previous"${at === 0 ? ' disabled' : ''}>‹</button><button class="lb-step next" data-step="1" aria-label="Next"${at === items.length - 1 ? ' disabled' : ''}>›</button>` : '';
-  $('#lightbox').innerHTML = `<div class="lb-bar"><span class="meta">${items.length > 1 ? `${at + 1} of ${items.length}` : ''}</span><span class="acts">${original}<button class="linkish" data-close autofocus>Close</button></span></div>
-    <div class="lb-stage${host ? '' : ' photo'}">${stage}</div>
+  const stage = clip ? recording(src, caption, true) : host ? visual(host.dataset.visual, host.dataset.source) : `<img src="${esc(src)}" alt="${esc(caption)}">`;
+  const original = host ? '' : `<a class="ext" href="${esc(src)}" target="_blank" rel="noopener">Open the original ↗</a>`;
+  const steps = items.length > 1 ? `<button type="button" class="lb-step" data-step="-1" aria-label="Previous"${at === 0 ? ' disabled' : ''}>‹</button><button type="button" class="lb-step next" data-step="1" aria-label="Next"${at === items.length - 1 ? ' disabled' : ''}>›</button>` : '';
+  $('#lightbox').innerHTML = `<div class="lb-bar"><span class="meta">${items.length > 1 ? `${at + 1} of ${items.length}` : ''}</span><span class="acts">${original}<button type="button" class="linkish" data-close autofocus>Close</button></span></div>
+    <div class="lb-stage${clip ? ' recording-stage' : host ? '' : ' photo'}">${stage}</div>
     ${caption ? `<p class="lb-caption">${esc(caption)}</p>` : ''}${steps}`;
   drawFigures($('#lightbox'));
 }
@@ -425,8 +437,30 @@ function drawLightbox() {
 function stepLightbox(delta) {
   const at = viewing.at + delta;
   if (!viewing.items[at]) return;
+  handBack();
   viewing.at = at;
   drawLightbox();
+  const inline = viewing.items[at].querySelector('video');
+  if (inline) handOver(inline, $('#lightbox video'), false);
+  $('#lightbox [data-close]').focus();
+}
+
+function handOver(from, to, playing) {
+  Object.assign(to, { volume: from.volume, muted: from.muted, playbackRate: from.playbackRate });
+  const resume = () => {
+    to.currentTime = from.currentTime;
+    if (playing) to.addEventListener('seeked', () => to.play(), { once: true });
+  };
+  if (to.readyState) resume();
+  else to.addEventListener('loadedmetadata', resume, { once: true });
+}
+
+function handBack() {
+  const shown = $('#lightbox video');
+  const inline = viewing.items[viewing.at].querySelector('video');
+  if (!shown || !inline) return;
+  shown.pause();
+  Object.assign(inline, { currentTime: shown.currentTime, volume: shown.volume, muted: shown.muted, playbackRate: shown.playbackRate });
 }
 
 async function drawFigures(root) {
@@ -2133,7 +2167,7 @@ function bugReportList() {
 }
 
 function saidRow(entry) {
-  return `<li class="happened" data-kind="said">
+  return `<li class="happened" data-kind="said" data-moment="said:${esc(entry.at)}">
     <span class="time">${timeOf(entry.at)}</span>
     <span class="dot"></span>
     <div class="body">
@@ -2412,6 +2446,7 @@ function morph(old, made) {
     return;
   }
   if (old.matches('.visual-host.drawn') && old.dataset.visual === made.dataset.visual && old.dataset.source === made.dataset.source) return;
+  if (old.matches('figure.recording') && old.dataset.recording === made.dataset.recording) return;
   if (old.matches('.packets')) return;
   for (const { name } of [...old.attributes]) if (!made.hasAttribute(name) && !(name === 'open' && old.matches('details'))) old.removeAttribute(name);
   for (const { name, value } of made.attributes) if (old.getAttribute(name) !== value) old.setAttribute(name, value);
@@ -2424,7 +2459,19 @@ function morph(old, made) {
 
 function morphChildren(old, made) {
   const kids = [...made.childNodes];
-  kids.forEach((kid, i) => (old.childNodes[i] ? morph(old.childNodes[i], kid) : old.append(kid)));
+  const kept = new Map([...old.children].filter((kid) => kid.dataset.moment).map((kid) => [kid.dataset.moment, kid]));
+  kids.forEach((kid, i) => {
+    const at = old.childNodes[i] ?? null;
+    const moment = kid.dataset?.moment;
+    const same = moment && kept.get(moment);
+    if (same) {
+      kept.delete(moment);
+      if (same !== at) old.insertBefore(same, at);
+      return morph(same, kid);
+    }
+    if (!at || moment || at.dataset?.moment) return old.insertBefore(kid, at);
+    morph(at, kid);
+  });
   while (old.childNodes.length > kids.length) old.lastChild.remove();
 }
 
@@ -2981,7 +3028,17 @@ window.addEventListener('DOMContentLoaded', () => {
     if (document.hidden) return;
     for (const slot of document.querySelectorAll('[data-slot]')) openReview(slot.dataset.slot, slot.dataset.head);
   }, REVIEW_KEEP_MS);
+  document.addEventListener('play', (event) => {
+    for (const other of document.querySelectorAll('video')) if (other !== event.target) other.pause();
+  }, true);
+  document.addEventListener('error', (event) => {
+    if (!event.target.matches?.('figure.recording > video')) return;
+    event.target.hidden = true;
+    event.target.parentElement.dataset.failed = '';
+    event.target.parentElement.querySelector('.recording-error').hidden = false;
+  }, true);
   $('#lightbox').addEventListener('close', () => {
+    handBack();
     viewing.opener?.focus({ preventScroll: true });
     viewing = null;
     $('#lightbox').replaceChildren();

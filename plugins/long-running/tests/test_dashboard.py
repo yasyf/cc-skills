@@ -484,6 +484,27 @@ def test_a_picture_is_served_only_when_a_shown_card_draws_it(tmp_path: Path) -> 
     assert statuses == {"drawn.png": (200, b"png"), "other.png": (404, b"")}
 
 
+def test_a_recording_is_served_by_the_byte_range_a_video_asks_so_it_seeks(tmp_path: Path) -> None:
+    recording = tmp_path / "after.mov"
+    recording.write_bytes(b"0123456789")
+    board = dashboard.Board("demo", [])
+    board.pictures = {str(recording)}
+    server, port = serving(board)
+    replies = []
+    for asked in ({}, {"Range": "bytes=2-5"}, {"Range": "bytes=7-"}):
+        connection = http.client.HTTPConnection(dashboard.LOOPBACK, port, timeout=5)
+        connection.request("GET", f"/api/picture?path={urllib.parse.quote(str(recording))}", headers={"Host": f"box:{port}"} | asked)
+        reply = connection.getresponse()
+        replies.append((reply.status, reply.getheader("Content-Type"), reply.getheader("Accept-Ranges"), reply.getheader("Content-Range"), reply.read()))
+        connection.close()
+    server.shutdown()
+    assert replies == [
+        (200, "video/quicktime", "bytes", None, b"0123456789"),
+        (206, "video/quicktime", "bytes", "bytes 2-5/10", b"2345"),
+        (206, "video/quicktime", "bytes", "bytes 7-9/10", b"789"),
+    ]
+
+
 def test_a_thread_is_read_only_for_an_ask_of_this_drive(monkeypatch: pytest.MonkeyPatch) -> None:
     board = dashboard.Board("demo", [])
     board.threads, board.channel = {"1794257898.401849"}, "D123"
@@ -748,6 +769,57 @@ done({ opened, stepped, closed: !box.open, focus: document.activeElement === fir
         "closed": True,
         "focus": True,
     }
+
+
+def test_a_recording_draws_as_a_player_that_enlarges_only_from_its_corner_button_and_keeps_its_player_through_a_live_update(tmp_path: Path) -> None:
+    visuals = [{"kind": "image", "source": "", "caption": "the click", "picture": "/after.mov"}, {"kind": "image", "source": "", "caption": "the page", "picture": "/after.png"}]
+    said = {"at": "2026-11-10T23:59:30-08:00", "kind": "said", "text": "recorded it", "detail": "", "url": None, "feature": "o1", "visuals": visuals, "prs": []}
+    newer = {**said, "at": "2026-11-10T23:59:50-08:00", "text": "a later line", "visuals": []}
+    seen = browse(tmp_path, """
+location.hash = '#/history';
+await wait(100);
+const figure = document.querySelector('#main figure.recording');
+const player = figure.querySelector('video');
+const drawn = { src: player.getAttribute('src'), controls: player.controls, label: player.getAttribute('aria-label'), images: figure.querySelectorAll('img').length, button: !!player.closest('button') };
+player.click();
+await wait(50);
+const box = document.querySelector('#lightbox');
+const afterPlayerClick = box.open;
+figure.querySelector('[data-enlarge]').click();
+await wait(50);
+const opened = { open: box.open, players: box.querySelectorAll('video').length, src: box.querySelector('.lb-stage video').getAttribute('src'), caption: box.querySelector('.lb-caption').textContent, count: box.querySelector('.lb-bar .meta').textContent, original: box.querySelector('.lb-bar a.ext').getAttribute('href') };
+document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+await wait(50);
+const stepped = box.querySelector('.lb-stage img').getAttribute('src');
+box.querySelector('[data-close]').click();
+await wait(50);
+await push({ ...MODEL, at: '2026-11-11T00:05:00-08:00', history: NEWER });
+const said = () => [...document.querySelectorAll('#main li[data-kind="said"] .said-text')].map((text) => text.textContent.trim());
+await until(() => said().length === 2);
+done({ drawn, afterPlayerClick, opened, stepped, closed: !box.open, rows: said(), kept: document.querySelector('#main figure.recording') === figure && figure.querySelector('video') === player });
+""".replace("NEWER", json.dumps([newer, said])), board(history=[said]))
+    assert seen == {
+        "drawn": {"src": "/api/picture?path=%2Fafter.mov", "controls": True, "label": "the click", "images": 0, "button": False},
+        "afterPlayerClick": False,
+        "opened": {"open": True, "players": 1, "src": "/api/picture?path=%2Fafter.mov", "caption": "the click", "count": "1 of 2", "original": "/api/picture?path=%2Fafter.mov"},
+        "stepped": "/api/picture?path=%2Fafter.png",
+        "closed": True,
+        "rows": ["a later line", "recorded it"],
+        "kept": True,
+    }
+
+
+def test_a_recording_that_cannot_load_keeps_its_tile_and_says_so_with_a_link_to_the_original(tmp_path: Path) -> None:
+    said = {"at": "2026-11-10T23:59:30-08:00", "kind": "said", "text": "recorded it", "detail": "", "url": None, "feature": "o1", "visuals": [{"kind": "image", "source": "", "caption": "the click", "picture": str(tmp_path / "gone.mov")}], "prs": []}
+    seen = browse(tmp_path, """
+location.hash = '#/history';
+await until(() => document.querySelector('#main figure.recording[data-failed]'));
+const figure = document.querySelector('#main figure.recording');
+const box = figure.getBoundingClientRect();
+const said = figure.querySelector('.recording-error');
+done({ said: said.firstChild.textContent, original: said.querySelector('a').getAttribute('href'), player: figure.querySelector('video').hidden, enlarge: getComputedStyle(figure.querySelector('.enlarge')).display, size: [Math.round(box.width), Math.round(box.height)] });
+""", board(history=[said]))
+    assert seen == {"said": "Recording unavailable.", "original": f"/api/picture?path={urllib.parse.quote(str(tmp_path / 'gone.mov'), safe='')}", "player": True, "enlarge": "none", "size": [220, 96]}
 
 
 def test_every_figure_enlarges_into_the_lightbox_drawn_from_the_same_source(tmp_path: Path) -> None:

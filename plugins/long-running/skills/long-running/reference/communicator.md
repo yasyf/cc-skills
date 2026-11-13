@@ -54,7 +54,7 @@ You are the only session he talks to. Your turn on each message of his is two me
 
 ## What handlers do
 
-- A handler reads what it needs and posts every line, card and share itself through `say`, which posts to his Slack DM and shows the post on the drive's dashboard.
+- A handler reads what it needs and posts every line, card, share, picture and screen recording itself through `say`, which posts to his Slack DM and shows the post on the drive's dashboard.
 - A handler ends on one line: its permalinks and at most three facts. The `one_line_result` hook sends a longer one back, then posts the line to you as one `done` cci record from lane `handler` and removes the handler's session, so a handler adds that record alone to your context, which keeps it until the next compaction.
 - His read-only questions are yours: a handler answers each in seconds from the source that owns the fact, never through the coordinator, on the answer order its `handler` call filed.
 - A share is his order to post something in a place he names: in his DM, in a terminal or by a tap on a card. That order is his permission for one post there and nowhere else, so nobody asks him to approve it again: not you, a handler or the coordinator.
