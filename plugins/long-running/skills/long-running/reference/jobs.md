@@ -89,7 +89,8 @@ job, and its first call after a prompt that reached it after its return, such as
 marks the job running again, when its type is one the job's kind runs as: `long-running:builder` on a builder, `long-running:reader` on a reader,
 `long-running:designer` on a design job, and `codex:codex-wrapper` or an incident's second-lane
 `long-running:builder` on a codex job; a call or stop after its return with no such prompt leaves
-the return standing. An agent of any other type is never recorded this way, even
+the return standing. Every worker start runs its job, a stopped one included, and ends its turn in line for a builder slot: this record, `drive job launch`, `drive job resume`, and `drive job set <j> --agent` naming a worker other
+than the one recorded. Only the agent a stop left on its job keeps the stop, so that agent's later return is refused. An agent of any other type is never recorded this way, even
 when its brief, the brief file it names or the record it is briefed with names a job: a
 `long-running:handler` started to run `drive job launch <j>` leaves `<j>` to the lane it launches
 and its return sets nothing on `<j>`, and an `orca:orca-doctor` or Explore agent that reads a lane's
@@ -100,7 +101,7 @@ read-only question's reader job. `drive job set <j> --agent <the dispatch the jo
 remote job an agent took back on its own lane, recording the Run, Task, terminal, lane and Sprite
 Orca shows for that dispatch, so `drive job resume` reaches it. The first line the agent pipes to `drive job report <j> -` sets the state and said line of every job
 but a codex job, and nothing else does: the stop sends back a line not kept, `drive job set` refuses
-every state but `stopped`, and `drive job report` refuses, naming the fix, a stopped job, a line
+every state but `stopped`, and `drive job report` refuses, naming the fix, a job still stopped, a line
 opening with no result, a `WAITING` naming nothing the watch frees it on, a design lane's `DESIGN`
 whose `Fork:` line names a file keeping no question of the job, and a reader's `DESIGN` that
 `drive job ask` refuses as his card. Each drive PR and `release:<service>:<owner>/<repo>#<n>` a
@@ -250,8 +251,9 @@ before it sends or starts.
 
 - A launch of a job whose lane's worker ended starts its next worker as a resume does, with no
   message; one whose worker takes messages is refused, naming the resume that sends it one.
-- An agent on this Mac whose last response ended on an API error or a refusal, with its transcript
-  quiet two minutes, takes no `SendMessage`: either verb hands its job to a lane on a Sprite, or on
+- An agent on this Mac that ended with its session, which no role holds any more, or whose last
+  response ended on an API error or a refusal, with its transcript quiet two minutes, takes no
+  `SendMessage`: either verb hands its job to a lane on a Sprite, or on
   this Mac with `drive job launch <j> --local`, on a handoff carrying the job's brief, branch, last
   line, report, PRs and the message.
 - A live worker gets the message: the answer to its open question, or a new message to its Dispatch

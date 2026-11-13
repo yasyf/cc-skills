@@ -237,6 +237,26 @@ def test_a_local_launch_that_started_no_worker_stops_counting_as_a_builder_here(
     assert {job_id: line[: len(counted[job_id])] for job_id, line in builders.items()} == counted
 
 
+def test_a_launch_orca_makes_no_run_for_exits_non_zero_saying_no_worker_started_and_stops_reading_as_launching(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cloned(tmp_path, demo)
+    (tmp_path / "brief.md").write_text("Drive: demo, order o1, job j1\n")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship it", "--remote")
+    unavailable = "orca orchestration run-create: runtime_unavailable: Could not read Orca runtime metadata. Start the Orca app first."
+
+    def no_runtime(objective: str) -> str:
+        raise orca.OrcaError(unavailable, "runtime_unavailable")
+
+    monkeypatch.setattr(orca, "new_run", no_runtime)
+    monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("no launcher runs without a Run"))
+    assert cli.main(["job", "launch", "j1", "brief.md"]) == 2
+    assert capsys.readouterr().err == f"drive: j1: no worker started, since Orca made it no Run: {unavailable}\n"
+    job = state.load(demo)["jobs"]["j1"]
+    assert (job["launching"], job["dispatch"]) == (None, None)
+
+
 def test_place_skips_a_running_builder_whose_agent_is_gone(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -636,6 +656,27 @@ def test_a_job_whose_agent_on_this_mac_stopped_on_a_refusal_relaunches_on_a_spri
         "state": "running",
         "waits": ["Forge-AI/monorepo#54870"],
     }
+
+
+@pytest.mark.parametrize(
+    ("argv", "said"),
+    [
+        (("launch", "j1"), "j1 started on Sprite workspace-2 as dispatch dispatch-2"),
+        (("resume", "j1", "PR #54870: checks failed"), "j1: the message went to the job's next worker, started on Sprite workspace-2 as dispatch dispatch-2 in a handoff carrying it"),
+    ],
+    ids=["launch", "resume"],
+)
+def test_a_job_whose_agent_ended_with_an_earlier_session_relaunches_from_a_detached_call_through_the_one_start(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, argv: tuple[str, ...], said: str
+) -> None:
+    launched = agent_on_this_mac(run, demo, tmp_path, monkeypatch, CALLED, timedelta(seconds=30))
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["session"] = "earlier-session"
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID")
+    assert run("job", *argv) == (0, f"{said}, taking over from its agent a1 on this Mac, which takes no message: it ended with its session, which no role holds any more")
+    assert "The agent that held this job, a1 of session earlier-session, stopped, so it takes no message: it ended with its session" in launched[0]
+    job = state.load(demo)["jobs"]["j1"]
+    assert (job["agent"], job["where"], job["dispatch"], job["state"]) == (None, "remote", "dispatch-2", "running")
 
 
 @pytest.mark.parametrize(("last", "quiet"), [(STOPPED, timedelta(seconds=30)), (ENDED_TURN, timedelta(minutes=10)), (CALLED, timedelta(minutes=10))])

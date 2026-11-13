@@ -3440,7 +3440,7 @@ def test_a_built_return_sets_its_job_built_on_its_branches_waiting_on_each_card_
     assert (job["state"], job["branch"], job["waits"]) == ("built", branch, ["demo:j1-3", card])
 
 
-def test_a_report_takes_a_waiting_or_built_job_and_is_refused_on_a_stopped_one_keeping_nothing(
+def test_a_report_takes_a_waiting_or_built_job_and_is_refused_on_a_stopped_one_keeping_nothing_until_a_fresh_worker_runs_it(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
@@ -3459,6 +3459,10 @@ def test_a_report_takes_a_waiting_or_built_job_and_is_refused_on_a_stopped_one_k
     assert (code, "j1: refused, nothing kept: j1 is stopped, so its work goes on in another job" in err) == (2, True)
     assert [reply["body"] for reply in state.returns("demo", "j1")] == [done, f"WAITING on his card demo:j1-3\n{check}", built]
     assert state.load("demo")["jobs"]["j1"]["state"] == "stopped"
+    run("job", "set", "j1", "--agent", "a-7")
+    assert state.load("demo")["jobs"]["j1"]["state"] == "running"
+    assert keep(monkeypatch, capsys, "j1", "DONE The lane comes from bookkeeping\nCHECK: https://github.com/yasyf/cc-skills/actions/runs/13\n") == (0, "")
+    assert state.load("demo")["jobs"]["j1"]["state"] == "done"
 
 
 def test_a_waiting_line_names_what_frees_it_and_each_pr_and_release_it_names_is_a_wait(

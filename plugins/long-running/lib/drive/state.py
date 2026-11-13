@@ -725,6 +725,11 @@ def agent_job(data: dict, agent: str | None) -> str | None:
     return next((job_id for job_id, job in data["jobs"].items() if agent and job.get("agent") == agent), None)
 
 
+def start(job: dict) -> None:
+    """Run the job a worker started on, a stopped one included, its turn for a builder slot on this Mac over, so the drive keeps the return of each worker it lets start."""
+    job.update(state="running", waits=[wait for wait in job["waits"] if wait != SLOT_WAIT], updated=stamp())
+
+
 def hold_unstarted(job: dict) -> None:
     """A job no agent or lane has started waits, rather than runs, while anything it waits on holds it, so the watch reads it waiting, never as not started, and says FREE once the last wait ends."""
     if job["state"] == "running" and job["waits"] and not job.get("agent") and not job.get("dispatch"):

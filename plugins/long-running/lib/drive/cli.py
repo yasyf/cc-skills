@@ -1090,9 +1090,11 @@ def job_set(args: argparse.Namespace) -> int:
             job.update(lane, where="remote", agent=None, handed_to=None)
         elif lane:
             job.update(lane, where="remote", agent=None)
+            state.start(job)
         elif args.agent:
-            job["where"] = "local"
-            job["session"] = os.environ.get("CLAUDE_CODE_SESSION_ID")
+            job.update(where="local", session=os.environ.get("CLAUDE_CODE_SESSION_ID"))
+            if args.agent != known["jobs"][args.id]["agent"]:
+                state.start(job)
         if args.repro:
             job["repro"] = keep_repro(name, args.id, args.repro)
         job["prs"].extend(url for url in urls if url not in job["prs"])
@@ -1820,7 +1822,7 @@ def job_resume(args: argparse.Namespace) -> int:
 
 
 def relaunch(args: argparse.Namespace, name: str, text: str | None) -> int:
-    """The one path launch and resume share, under the job's own lock, so a second waits for the first and acts on the worker it started: a lane whose worker takes messages gets the text, one whose worker ended starts its next in a handoff, an agent on this Mac whose last response ended on an API error or refusal hands the job to a lane on a Sprite, an agent another session holds hands it to this one, and a job with no worker yet starts its first."""
+    """The one path launch and resume share, under the job's own lock, so a second waits for the first and acts on the worker it started: a lane whose worker takes messages gets the text, one whose worker ended starts its next in a handoff, an agent on this Mac that ended with its session or whose last response ended on an API error or refusal hands the job to a lane on a Sprite, an agent another session holds hands it to this one, and a job with no worker yet starts its first."""
     with state.job_locked(name, args.id, orca.LAUNCH_SECONDS):
         data = state.load(name)
         job = find(data["jobs"], args.id, "job")
@@ -1925,7 +1927,8 @@ def record_start(name: str, job_id: str, started: dict | None, handoff: str | No
                 job["launching"] = None
             else:
                 kept = {"handoff": handoff, "reads": {}, "undelivered": []} if handoff else {"brief": str(launch_brief(name, job_id))}
-                job.update(started, **kept, ask=None, report=None, state="running", updated=state.stamp())
+                job.update(started, **kept, ask=None, report=None)
+                state.start(job)
         return job
     except state.NewerDrive:
         if not (newer := install.upgraded()):
@@ -1958,10 +1961,13 @@ def job_started(args: argparse.Namespace) -> int:
 
 
 def launch_attempt(name: str, job: dict, attempt: str, kept: Path, brief: str, root: Path, workspace: str | None) -> dict:
-    """Launch one attempt of a job's lane on a Run this terminal makes, since Orca binds a Run only to the terminal that made it and the coordinator moves terminals: on a fresh Sprite, or on the workspace's own Sprite in the checkout it holds; a try whose worker-start sent nothing reuses the Sprite it prepared, and the launcher copies this brief onto it. It holds no install's lock from here, so a newer install's first save never waits out the launcher, and record_start hands the receipt to that install when it saved first."""
+    """Launch one attempt of a job's lane on a Run this terminal makes, since Orca binds a Run only to the terminal that made it and the coordinator moves terminals: on a fresh Sprite, or on the workspace's own Sprite in the checkout it holds; a try whose worker-start sent nothing reuses the Sprite it prepared, a Run Orca cannot make starts nothing, and the launcher copies this brief onto it. It holds no install's lock from here, so a newer install's first save never waits out the launcher, and record_start hands the receipt to that install when it saved first."""
     state.let_go_install()
     kept.write_text(brief)
-    run = orca.new_run(f"drive {name} {attempt}: {job['goal']}")
+    try:
+        run = orca.new_run(f"drive {name} {attempt}: {job['goal']}")
+    except orca.OrcaError as error:
+        raise orca.Unstarted(f"{attempt}: no worker started, since Orca made it no Run: {error}") from None
     return {**orca.launch(name, orca.lane_name(name, attempt), kept, root, run, job["route"], workspace), "run": run}
 
 

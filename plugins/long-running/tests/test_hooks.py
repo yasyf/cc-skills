@@ -18,7 +18,7 @@ import quiet_turn
 import scratch_folder
 import session_start
 from conftest import RESEARCH, SHORT_ASK, Answers, Jev, WatchProcess
-from drive import agents, cli, settled, state
+from drive import agents, cli, place, settled, state
 
 Run = Callable[..., tuple[int, str]]
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -424,18 +424,35 @@ def test_a_codex_relay_or_an_incidents_second_lane_builder_holds_the_codex_job_i
     assert state.load("demo")["jobs"]["j1"]["agent"] == "a-9"
 
 
-def test_a_step_leaves_a_stopped_job_and_a_job_another_agent_runs_as_they_are(
+def test_a_step_leaves_a_job_another_agent_runs_and_a_stopped_job_the_agent_its_stop_left_on_it_as_they_are(
     demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--agent", "a-1")
-    run("job", "add", "reader", "--order", "o1", "--goal", "read it")
+    run("job", "add", "reader", "--order", "o1", "--goal", "read it", "--agent", "a-2")
     run("job", "set", "j2", "--state", "stopped")
-    for job_id, kind in (("j1", "builder"), ("j2", "reader")):
-        named = stepped(tmp_path, f"Drive: demo, order o1, job {job_id}", agent_type=f"long-running:{kind}")
-        hook_output(no_file_tools, monkeypatch, capsys, json.dumps(file_call("Edit") | named))
+    lane = str(tmp_path / "session" / "subagents" / "agent-a-9.jsonl")
+    hook_output(no_file_tools, monkeypatch, capsys, json.dumps(file_call("Edit") | stepped(tmp_path, "Drive: demo, order o1, job j1")))
+    stopped_own = stepped(tmp_path, "Drive: demo, order o1, job j2", agent_type="long-running:reader", agent_id="a-2", agent_transcript_path=lane)
+    hook_output(no_file_tools, monkeypatch, capsys, json.dumps(file_call("Edit") | stopped_own))
     jobs = state.load("demo")["jobs"]
-    assert [(job["agent"], job["state"]) for job in jobs.values()] == [("a-1", "running"), (None, "stopped")]
+    assert [(job["agent"], job["state"]) for job in jobs.values()] == [("a-1", "running"), ("a-2", "stopped")]
+
+
+def test_a_fresh_agent_started_on_a_stopped_jobs_brief_runs_it_past_its_builder_slot_wait_and_its_return_is_kept(
+    demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
+    with state.edit("demo") as data:
+        place.queue(data["jobs"]["j1"], state.now())
+    run("job", "set", "j1", "--state", "stopped")
+    hook_output(no_file_tools, monkeypatch, capsys, json.dumps(file_call("Edit") | stepped(tmp_path, "Handoff: 681835\nDrive: demo, order o1, job j1")))
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["agent"], job["state"], job["waits"]) == ("a-9", "running", [])
+    monkeypatch.setattr("sys.stdin", io.StringIO("DONE installed 1.0.549\nCHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n"))
+    assert run("job", "report", "j1", "-")[0] == 0
+    assert state.load("demo")["jobs"]["j1"]["state"] == "done"
 
 
 def test_a_fresh_agent_on_a_running_jobs_brief_takes_it_over_once_its_old_session_is_gone(
