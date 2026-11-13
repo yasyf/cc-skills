@@ -266,6 +266,7 @@ def judged(name: str, said: str, changes: dict[str, dict]) -> list[dict]:
         "claude", "-p", "--model", MODEL, "--effort", EFFORT, "--restricted", "--strict-mcp-config", "--tools", "", "--disable-slash-commands",
         "--no-session-persistence", "--system-prompt", RULES, "--output-format", "json", "--json-schema", json.dumps(VERDICT),
     ]
+    state.let_go_install()
     try:
         ran = subprocess.run(
             argv, input=prompt, cwd=state.drive_dir(name), env=os.environ | {"DISABLE_AUTOUPDATER": "1"}, capture_output=True, text=True, timeout=JUDGE_SECONDS, check=False

@@ -211,6 +211,7 @@ def judged_pictures(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 def install_lock() -> Iterator[None]:
     yield
     state.let_go_install()
+    state.LET_GO.clear()
 
 
 @pytest.fixture(autouse=True)

@@ -2289,7 +2289,7 @@ def test_bound_keeps_the_worker_start_receipt_and_status_when_a_newer_install_sa
     receipt = json.dumps({"ok": True, "result": {"state": "ready", "dispatchId": DISPATCH}})
 
     def worker_start(argv: list[str], **kwargs: object) -> Started:
-        path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "9.9.9"}))
+        path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "9.9.9", "schema": state.DRIVE_SCHEMA + 1}))
         return Started(argv, stdout=receipt)
 
     monkeypatch.setattr(orca.subprocess, "Popen", worker_start)

@@ -6331,7 +6331,7 @@ def test_a_drive_started_from_an_older_install_hands_its_verb_to_the_newest_inst
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     path = state.state_path(demo)
-    path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "9.9.9"}))
+    path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "9.9.9", "schema": state.DRIVE_SCHEMA + 1}))
     newer = tmp_path / "cache" / "9.9.9" / "bin" / "drive"
     argv = ["drive", "status", "--drive", demo]
 

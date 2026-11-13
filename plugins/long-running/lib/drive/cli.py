@@ -4101,10 +4101,8 @@ def parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run one verb holding its install's lock, so a newer install's first save waits for it to end, in the newest installed drive when this process started from an older install, such as a launch's bind prefix, unless the drive process that started it holds its own install's lock and waits on it as part of its verb. A Sprite lane's verb, which reads.lane_drive marks as a SPRITE_LANE run as its job's own lane, runs only when reads.lane_refusal finds nothing in what it parsed writing to another job or acting on another drive, a bare `status` reading the lane's own job, and nothing it starts carries that mark."""
-    if argv is None and state.held_by_parent():
-        state.hold_install()
-    elif argv is None:
+    """Run one verb, holding its install's lock from its first drive load or save until the first command it waits on, never through one, so a newer install's first save waits seconds for it, in the newest installed drive when this process started from an older install, such as a launch's bind prefix, unless the drive process that started it holds its own install's lock and waits on it as part of its verb. A Sprite lane's verb, which reads.lane_drive marks as a SPRITE_LANE run as its job's own lane, runs only when reads.lane_refusal finds nothing in what it parsed writing to another job or acting on another drive, a bare `status` reading the lane's own job, and nothing it starts carries that mark."""
+    if argv is None and not state.held_by_parent():
         install.reopen(sys.argv[1:])
     args = parser().parse_args(argv)
     if os.environ.pop(reads.SPRITE_LANE, None):

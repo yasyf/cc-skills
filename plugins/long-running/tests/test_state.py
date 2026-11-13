@@ -1,4 +1,6 @@
 import fcntl
+import hashlib
+import inspect
 import itertools
 import json
 import re
@@ -6,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -14,6 +17,14 @@ from drive import state
 from drive.state import DriveError
 
 REFERENCE = datetime(2026, 11, 9, 14, 0).astimezone()
+OLDER_VERB_COMMAND = """
+import sys
+sys.path.insert(0, sys.argv[1])
+from drive import github, state
+state.load("demo")
+print("loaded", flush=True)
+github.run(["sleep", "30"])
+"""
 
 
 def test_root_prefers_explicit_then_xdg_then_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -43,18 +54,36 @@ def test_edit_saves_atomically_and_leaves_no_temp(state_root: Path) -> None:
     assert (state_root / "demo" / ".lock").exists()
 
 
-def test_a_drive_a_newer_install_saved_is_refused_before_any_of_it_is_read_while_its_bindings_still_read(state_root: Path) -> None:
+def test_a_drive_a_newer_install_saved_in_this_schema_reads_and_saves_while_a_newer_schema_is_refused_before_any_of_it_is_read_and_its_bindings_still_read(
+    state_root: Path,
+) -> None:
     make("demo", session="session-1")
     path = state_root / "demo" / "drive.json"
-    assert json.loads(path.read_text())["saved_by"] == state.VERSION
-    major, minor, patch = state.VERSION.split(".")
-    path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": f"{major}.{minor}.{int(patch) - 1}"}))
-    assert state.load("demo")["roles"]["coordinator"]["session"] == "session-1"
-    newer = f"{major}.{minor}.{int(patch) + 1}"
-    path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": newer, "orders": {"o1": {"parts": "a shape no install reads yet"}}}))
-    with pytest.raises(state.NewerDrive, match=f"saved by long-running {re.escape(newer)}, newer than this {re.escape(state.VERSION)}"):
+    assert (json.loads(path.read_text())["saved_by"], json.loads(path.read_text())["schema"]) == (state.VERSION, state.DRIVE_SCHEMA)
+    path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "9.9.9"}))
+    with state.edit("demo") as data:
+        data["run"] = "the older verb's save"
+    assert (state.load("demo")["run"], json.loads(path.read_text())["saved_by"]) == ("the older verb's save", state.VERSION)
+    newer = {"saved_by": "9.9.9", "schema": state.DRIVE_SCHEMA + 1, "orders": {"o1": {"parts": "a shape no install reads yet"}}}
+    path.write_text(json.dumps(json.loads(path.read_text()) | newer))
+    with pytest.raises(state.NewerDrive, match=f"saved by long-running 9.9.9 in schema {state.DRIVE_SCHEMA + 1}, newer than this {re.escape(state.VERSION)}'s {state.DRIVE_SCHEMA}"):
         state.load("demo")
     assert state.saved("demo")["roles"]["coordinator"]["session"] == "session-1"
+
+
+def test_drive_schema_is_raised_with_each_change_to_how_a_drive_json_reads() -> None:
+    read = hashlib.sha256((inspect.getsource(state.saved) + inspect.getsource(state.load)).encode()).hexdigest()
+    assert (state.DRIVE_SCHEMA, read) == (1, "2fef2a5af2c37204c5d3971403450746b192fd1beda37cff732bb3261cf9c3bc"), "state.saved or state.load changed how a drive.json reads: raise DRIVE_SCHEMA and pin this digest to it"
+
+
+def release(tmp_path: Path, version: str, schema: int) -> Path:
+    lib = tmp_path / version / "lib"
+    shutil.copytree(Path(state.__file__).resolve().parent, lib / "drive")
+    code = lib / "drive" / "state.py"
+    code.write_text(code.read_text().replace(f"\nDRIVE_SCHEMA = {state.DRIVE_SCHEMA}\n", f"\nDRIVE_SCHEMA = {schema}\n"))
+    (tmp_path / version / ".claude-plugin").mkdir()
+    (tmp_path / version / ".claude-plugin" / "plugin.json").write_text(json.dumps({"version": version}))
+    return lib
 
 
 NEWER_RELEASE_SAVE = """
@@ -66,14 +95,10 @@ with state.edit("demo") as data:
 """
 
 
-def test_a_newer_release_saving_mid_verb_waits_for_the_older_releases_verb_so_the_verb_and_the_save_both_land(state_root: Path, tmp_path: Path) -> None:
+def test_a_newer_schemas_release_saving_mid_verb_waits_for_the_older_schemas_verb_so_the_verb_and_the_save_both_land(state_root: Path, tmp_path: Path) -> None:
     make("demo")
-    release = tmp_path / "9.9.9"
-    shutil.copytree(Path(state.__file__).resolve().parent, release / "lib" / "drive")
-    (release / ".claude-plugin").mkdir()
-    (release / ".claude-plugin" / "plugin.json").write_text(json.dumps({"version": "9.9.9"}))
     state.hold_install()
-    saving = subprocess.Popen([sys.executable, "-c", NEWER_RELEASE_SAVE, str(release / "lib")])
+    saving = subprocess.Popen([sys.executable, "-c", NEWER_RELEASE_SAVE, str(release(tmp_path, "9.9.9", state.DRIVE_SCHEMA + 1))])
     with pytest.raises(subprocess.TimeoutExpired):
         saving.wait(timeout=2)
     with state.edit("demo") as data:
@@ -81,15 +106,40 @@ def test_a_newer_release_saving_mid_verb_waits_for_the_older_releases_verb_so_th
     state.let_go_install()
     assert saving.wait(timeout=30) == 0
     saved = json.loads(state.state_path("demo").read_text())
-    assert (saved["saved_by"], saved["run"], saved["slack"]["page_stale"]) == ("9.9.9", "the older verb's receipt", "the newer release's save")
+    assert (saved["saved_by"], saved["schema"], saved["run"], saved["slack"]["page_stale"]) == (
+        "9.9.9",
+        state.DRIVE_SCHEMA + 1,
+        "the older verb's receipt",
+        "the newer release's save",
+    )
 
 
-def test_a_first_save_waits_only_for_verbs_of_the_installs_from_the_one_that_saved_the_drive_up_to_its_own(state_root: Path) -> None:
+def test_a_newer_schemas_save_waits_on_an_older_verbs_drive_load_but_never_on_the_command_it_runs_after(state_root: Path, tmp_path: Path) -> None:
     make("demo")
     path = state.state_path("demo")
-    path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "0.0.2"}))
-    state.hold_install()
-    verbs = {version: open(state.install_lock(version), "a") for version in ("0.0.1", "0.0.2", "9.9.9")}
+    path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "0.0.1", "schema": state.DRIVE_SCHEMA - 1}))
+    older = subprocess.Popen(
+        [sys.executable, "-c", OLDER_VERB_COMMAND, str(release(tmp_path, "0.0.1", state.DRIVE_SCHEMA - 1))], stdout=subprocess.PIPE, text=True
+    )
+    try:
+        assert older.stdout.readline() == "loaded\n"
+        started = time.monotonic()
+        with state.edit("demo") as data:
+            data["run"] = "the newer install's save"
+        assert (time.monotonic() - started < 5, older.poll(), state.load("demo")["run"]) == (True, None, "the newer install's save")
+    finally:
+        older.kill()
+        older.wait()
+
+
+def test_a_first_save_waits_only_for_verbs_of_the_schemas_from_the_one_the_drive_was_saved_in_up_to_its_own(
+    state_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(state, "DRIVE_SCHEMA", 2)
+    make("demo")
+    path = state.state_path("demo")
+    path.write_text(json.dumps(json.loads(path.read_text()) | {"schema": 1}))
+    verbs = {schema: open(state.install_lock(schema), "a") for schema in (0, 1, 3)}
     for handle in verbs.values():
         fcntl.flock(handle, fcntl.LOCK_SH)
 
@@ -101,23 +151,22 @@ def test_a_first_save_waits_only_for_verbs_of_the_installs_from_the_one_that_sav
     saving.start()
     saving.join(1)
     assert saving.is_alive()
-    verbs.pop("0.0.2").close()
+    verbs.pop(1).close()
     saving.join(10)
     assert (saving.is_alive(), state.load("demo")["run"]) == (False, "run-1")
     for handle in verbs.values():
         handle.close()
 
 
-def test_a_first_save_waits_for_an_older_installs_verb_however_long_it_runs_never_saving_past_it(
+def test_a_first_save_waits_for_an_older_schemas_verb_however_long_it_runs_never_saving_past_it(
     state_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     make("demo")
     path = state.state_path("demo")
-    path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "0.0.1"}))
+    path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "0.0.1", "schema": state.DRIVE_SCHEMA - 1}))
     hours = itertools.count(step=3600)
     monkeypatch.setattr(state.time, "monotonic", lambda: next(hours))
-    state.install_lock("0.0.1").parent.mkdir(parents=True)
-    launch = open(state.install_lock("0.0.1"), "a")
+    launch = open(state.install_lock(state.DRIVE_SCHEMA - 1), "a")
     fcntl.flock(launch, fcntl.LOCK_SH)
 
     def save() -> None:
@@ -132,6 +181,23 @@ def test_a_first_save_waits_for_an_older_installs_verb_however_long_it_runs_neve
     saving.join(10)
     saved = json.loads(path.read_text())
     assert (saving.is_alive(), saved["saved_by"], saved["slack"]["page_stale"]) == (False, state.VERSION, "the newer install's save")
+
+
+def test_a_first_save_of_a_drive_an_older_install_saved_in_this_schema_waits_on_none_of_its_verbs(state_root: Path) -> None:
+    make("demo")
+    path = state.state_path("demo")
+    path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "0.0.1"}))
+
+    def save() -> None:
+        with state.edit("demo") as data:
+            data["run"] = "run-1"
+
+    with open(state.install_lock(state.DRIVE_SCHEMA), "a") as verb:
+        fcntl.flock(verb, fcntl.LOCK_SH)
+        saving = threading.Thread(target=save, daemon=True)
+        saving.start()
+        saving.join(5)
+        assert (saving.is_alive(), state.load("demo")["run"]) == (False, "run-1")
 
 
 def test_a_write_waiting_past_the_drive_lock_wait_changes_nothing_and_names_the_lock_held(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:

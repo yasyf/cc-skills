@@ -119,6 +119,7 @@ ROUTED_KINDS = ("owner", "answer", "handoff", "posted", "refused")
 APPROVALS_LABELLED = ".approvals-labelled-by-question"
 BATCHED: dict[str, str] = {}
 HELD_INSTALL: dict[Path, IO] = {}
+LET_GO: set[Path] = set()
 INSTALL_HOLDER = "LONG_RUNNING_INSTALL_HOLDER"
 WAITED_OLDER: set[Path] = set()
 MOVED_REPORTS: set[Path] = set()
@@ -128,6 +129,7 @@ HOLDERS_SECONDS = 5
 DRIVE_LOCK_SECONDS = 300
 AFTER_SAVE: dict[str, list[Callable[[], list[str]]]] = {}
 VERSION = json.loads((Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json").read_text())["version"]
+DRIVE_SCHEMA = 1
 
 
 class DriveError(Exception):
@@ -403,12 +405,15 @@ def saved(name: str) -> dict:
 
 
 def load(name: str) -> dict:
-    """Read a drive, bringing a drive saved by an older install up to the fields this one reads, from what is on this Mac alone; one a newer install saved is refused before any of it is read, since this code may misread its shapes. Inside a batch, the batch's copy as its writes so far left it."""
+    """Read a drive, bringing a drive saved by an older install up to the fields this one reads, from what is on this Mac alone; one saved in a newer DRIVE_SCHEMA is refused before any of it is read, since this code may misread it, while one a newer install saved in this schema reads and saves as any other. Inside a batch, the batch's copy as its writes so far left it."""
     if name in BATCHED:
         return json.loads(BATCHED[name])
+    first_hold()
     data = saved(name)
-    if (saver := data.get("saved_by")) and version_order(saver) > version_order(VERSION):
-        raise NewerDrive(f"drive.json of {name} was saved by long-running {saver}, newer than this {VERSION}, which may misread it: run the newest install's drive")
+    if (schema := data.get("schema", 0)) > DRIVE_SCHEMA:
+        raise NewerDrive(
+            f"drive.json of {name} was saved by long-running {data['saved_by']} in schema {schema}, newer than this {VERSION}'s {DRIVE_SCHEMA}, which may misread it: run the newest install's drive"
+        )
     for order in data["orders"].values():
         if "parts" not in order:
             whole = whole_order(order["text"])
@@ -1033,17 +1038,13 @@ def same_question(one: str | None, other: str | None) -> bool:
     return bool(one and other) and " ".join(one.split()).casefold() == " ".join(other.split()).casefold()
 
 
-def version_order(version: str) -> tuple[int, ...]:
-    return tuple(map(int, version.split(".")))
-
-
-def install_lock(version: str) -> Path:
-    return root() / "installs" / f"{version}.lock"
+def install_lock(schema: int) -> Path:
+    return root() / "installs" / f"schema-{schema}.lock"
 
 
 def hold_install() -> None:
-    """Hold this install's lock shared until let_go_install or the process ends, naming this process its holder to the drive processes it starts, so a newer install's first save of a drive waits for this process, and a drive it runs and waits on runs this install as part of its verb."""
-    path = install_lock(VERSION)
+    """Hold the lock of this install's DRIVE_SCHEMA, which every install of that schema shares, shared until let_go_install or the process ends, naming this process its holder to the drive processes it starts, so the first save of a drive by an install of a newer schema waits for this process, and a drive it runs and waits on runs this install as part of its verb."""
+    path = install_lock(DRIVE_SCHEMA)
     if path in HELD_INSTALL:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1053,10 +1054,17 @@ def hold_install() -> None:
     os.environ[INSTALL_HOLDER] = str(os.getpid())
 
 
+def first_hold() -> None:
+    """Hold this install's lock from the process's first drive load or save, never again once the process let go of it, so a verb's reads and saves up to the first command it waits on run under it and no command does."""
+    if install_lock(DRIVE_SCHEMA) not in LET_GO:
+        hold_install()
+
+
 def let_go_install() -> None:
-    """Let go of this install's lock, as a process that outlives its verb does while it waits: the dashboard between rebuilds, the watch between passes, the MCP server between calls and a lander on the merge queue."""
-    for handle in HELD_INSTALL.values():
+    """Let go of this install's lock for the rest of the process, but for a hold_install of its own: before each command a process waits on, break-glass's grant and command, orca's launcher and each orca call, the claude -p judge, cc-slack and gh, and as a process that outlives its verb starts to wait: the dashboard between rebuilds, the watch, the MCP server and a lander on the merge queue."""
+    for path, handle in HELD_INSTALL.items():
         handle.close()
+        LET_GO.add(path)
     HELD_INSTALL.clear()
     os.environ.pop(INSTALL_HOLDER, None)
 
@@ -1067,15 +1075,15 @@ def held_by_parent() -> bool:
 
 
 def older_verbs_done(name: str) -> None:
-    """Wait until every verb an older install started has ended, before this process first saves a drive an older install saved last, so no verb meets a drive.json saved by an install newer than its own code, however long it runs; taken outside the drive's lock, which those verbs still take, and once a process, since no older verb starts after it. A process that outlives its verb lets go of its lock whenever it waits on something of its own, so only verbs running hold this wait."""
+    """Wait until every verb of an install of an older DRIVE_SCHEMA, from the one the drive was last saved in up to this install's, has let go of its schema's lock, which it holds from its first drive load or save until the first command it waits on, before this process first saves the drive, which those verbs would then refuse, holding no lock of its own meanwhile, so a newer schema's install waits on none of the waiting; taken outside the drive's lock, which those verbs still take, and once a process. So this waits seconds, never on a command, and never on a verb of this schema."""
     path = state_path(name)
     if path in WAITED_OLDER or not path.exists():
         return
-    if saver := json.loads(path.read_text()).get("saved_by"):
-        for older in (root() / "installs").glob("*.lock"):
-            if version_order(saver) <= version_order(older.stem) < version_order(VERSION):
-                with open(older, "a") as handle:
-                    taken(handle, math.inf)
+    for schema in range(json.loads(path.read_text()).get("schema", 0), DRIVE_SCHEMA):
+        if install_lock(schema).exists():
+            let_go_install()
+            with open(install_lock(schema), "a") as handle:
+                taken(handle, math.inf)
     WAITED_OLDER.add(path)
 
 
@@ -1105,9 +1113,10 @@ def holders(path: Path) -> str:
 
 
 def save(name: str, data: dict) -> None:
+    first_hold()
     path = state_path(name)
     tmp = path.with_name("drive.json.tmp")
-    tmp.write_text(json.dumps(data | {"saved_by": VERSION}, indent=2) + "\n")
+    tmp.write_text(json.dumps(data | {"saved_by": VERSION, "schema": DRIVE_SCHEMA}, indent=2) + "\n")
     os.replace(tmp, path)
 
 

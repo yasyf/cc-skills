@@ -945,9 +945,9 @@ def execs_into(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, installs: list[b
     return newer
 
 
-def saved_by(name: str, saver: str) -> None:
+def saved_by(name: str, saver: str, schema: int) -> None:
     path = state.state_path(name)
-    path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": saver}))
+    path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": saver, "schema": schema}))
 
 
 def mid_pass(monkeypatch: pytest.MonkeyPatch, before_lane_lines: Callable[[], object]) -> None:
@@ -962,14 +962,14 @@ def test_a_pass_that_finds_the_drive_saved_by_a_newer_install_hands_that_install
         data["jobs"]["j1"].update(state="waiting", said=f"READY {state.pr_url(KEY)}")
     serve(monkeypatch, {KEY: read(state="MERGED", mergeCommit="ccc333")})
     newer = execs_into(monkeypatch, tmp_path, [False, True])
-    mid_pass(monkeypatch, lambda: saved_by(demo, "9.9.9"))
+    mid_pass(monkeypatch, lambda: saved_by(demo, "9.9.9", state.DRIVE_SCHEMA + 1))
     sent = posts(monkeypatch)
     merged = f"PR {KEY}: merged [o1 j1]"
     with pytest.raises(Execed) as execed:
         watch.main(demo)
     assert execed.value.args == (newer, [str(newer), "watch", "--loop", "--drive", demo])
     assert (sent, state.saved(demo)["prs"][KEY]["state"], state.held_path(demo).read_text()) == ([], "merged", f"{merged}\n")
-    saved_by(demo, state.VERSION)
+    saved_by(demo, state.VERSION, state.DRIVE_SCHEMA)
     monkeypatch.setattr(watch, "upgraded", lambda: None)
     passes = []
     monkeypatch.setattr(watch, "run_pass", lambda watching, moment: passes.append(moment) or [])
@@ -3112,7 +3112,7 @@ def test_a_lander_that_outlived_an_install_reopens_on_the_newest_drive_which_rec
 
     def queued_then_installed(name: str, clone: Path, keys: list[str], dry_run: bool = False) -> str:
         outcome = queued(name, clone, keys, dry_run)
-        path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "9.9.9"}))
+        path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "9.9.9", "schema": state.DRIVE_SCHEMA + 1}))
         return outcome
 
     class Execed(Exception):
@@ -3128,7 +3128,7 @@ def test_a_lander_that_outlived_an_install_reopens_on_the_newest_drive_which_rec
         land.run(demo, [KEY])
     assert execed.value.args == (newer, [str(newer), "pr", "land", state.pr_url(KEY), "--drive", demo, "--outcome", land.QUEUED])
     assert json.loads(path.read_text())["prs"][KEY]["lander"] is None
-    path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": state.VERSION}))
+    path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": state.VERSION, "schema": state.DRIVE_SCHEMA}))
     monkeypatch.setattr(install, "upgraded", lambda: None)
     assert cli.main(["pr", "land", state.pr_url(KEY), "--drive", demo, "--outcome", land.QUEUED]) == 0
     assert capsys.readouterr().out.splitlines()[-1] == f"{KEY}: {land.QUEUED}"

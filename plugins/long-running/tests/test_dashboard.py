@@ -176,7 +176,7 @@ def test_a_drive_saved_by_a_newer_install_hands_the_port_to_that_install_which_a
 ) -> None:
     newer = tmp_path / "cache" / "9.9.9" / "bin" / "drive"
     path = state.state_path(demo)
-    older = state.install_lock(state.VERSION)
+    older = state.install_lock(state.DRIVE_SCHEMA)
     done = threading.Event()
     answers: list[object] = []
     handed: list[list[str]] = []
@@ -222,7 +222,7 @@ def test_a_drive_saved_by_a_newer_install_hands_the_port_to_that_install_which_a
         time.sleep(0.3)
         saving = path.with_name("drive.json.newer")
         with state.flocked(older):
-            saving.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "9.9.9"}))
+            saving.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "9.9.9", "schema": state.DRIVE_SCHEMA + 1}))
             saving.replace(path)
 
     monkeypatch.setattr(dashboard, "changes", changes)

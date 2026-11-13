@@ -27,6 +27,7 @@ def launcher() -> str:
 
 
 def cc_slack(*args: str) -> dict:
+    state.let_go_install()
     try:
         result = subprocess.run([launcher(), *args], check=False, capture_output=True, text=True, timeout=90)
     except (OSError, subprocess.TimeoutExpired) as error:
@@ -38,6 +39,7 @@ def cc_slack(*args: str) -> dict:
 
 def check_post(text: str, asked: list[str]) -> list[str]:
     """What `cc-slack check-post` finds in a post's exact words, one finding and its fix a line, each message of his the post answers passed as --asked; an exit 1 that prints no finding failed."""
+    state.let_go_install()
     try:
         result = subprocess.run(
             [launcher(), "check-post", "-", *(f"--asked={message}" for message in asked)], input=text, check=False, capture_output=True, text=True, timeout=30
@@ -69,6 +71,7 @@ def messages(asked: str | list[str]) -> list[str]:
 
 def draw_refusal(card: dict) -> str | None:
     """Why cc-slack refuses to draw a status card, in its own words, or None when it draws; `cc-slack card render` runs the checks the post runs, reaching neither Slack nor the daemon."""
+    state.let_go_install()
     try:
         result = subprocess.run(
             [launcher(), "card", "render", "--card", "/dev/stdin"], input=json.dumps(card), check=False, capture_output=True, text=True, timeout=30

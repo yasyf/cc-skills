@@ -314,6 +314,7 @@ def run_granted(command: list[str], granted: Grant) -> int:
         print(f"break-glass stopped by {signal.Signals(granted.stops.signals[0]).name} before its command started, so nothing ran", file=sys.stderr, flush=True)
         return 128 + granted.stops.signals[0]
     ends = time.monotonic() + (granted.ends - state.now()).total_seconds()
+    state.let_go_install()
     if ends <= time.monotonic():
         print(f"the break-glass grant {granted.link} ended at {clock(granted.ends.astimezone(), seconds=True)} before its command started, so nothing ran", file=sys.stderr, flush=True)
         return GRANT_ENDED
@@ -549,6 +550,7 @@ def failures(output: str) -> tuple[list[str], list[str]]:
 
 def run(argv: list[str], checkout: Path, env: dict[str, str] | None = None, bounded: bool = True) -> str:
     named = " ".join([Path(argv[0]).name, *argv[1:3]])
+    state.let_go_install()
     try:
         done = subprocess.run(
             argv,

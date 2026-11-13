@@ -85,6 +85,7 @@ class LaneEnd(NamedTuple):
 def request(*args: str, seconds: float = CALL_SECONDS) -> dict:
     """One `orca` call: its result, or OrcaError carrying Orca's own reason."""
     verb = " ".join(args[:2])
+    state.let_go_install()
     try:
         done = subprocess.run(
             ["orca", *args, "--json"],
@@ -387,6 +388,7 @@ def launch(drive: str, lane: str, brief: Path, checkout: Path, run: str, route: 
         env["WORKER_WORKSPACE"] = workspace
     local = route == state.LOCAL_ROUTE
     env |= {"WORKER_LOCAL": "1", "WORKER_REPO": request("repo", "show", "--repo", f"path:{main_checkout(str(checkout))}")["repo"]["id"]} if local else {"WORKER_TOOLS": SPRITE_TOOLS}
+    state.let_go_install()
     try:
         done = subprocess.run(
             [tool(LAUNCHER), lane, MODEL, EFFORT, str(brief)],

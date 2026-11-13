@@ -6,12 +6,19 @@ whole, refusals included. Rows leave out `--drive <name>`, by default this sessi
 `--json`; `[ ]` marks what may be left out, `...` what repeats. Read an order, job or PR with
 `drive status <id>`, which `drive order show` and `drive job show` print too.
 
-Each verb holds a shared lock on its install until it returns. A newer install's first save of a
-drive an older one saved waits for those locks however long the verb runs, about a minute behind a
-launch, so no verb meets a `drive.json` saved by code newer than its own and none saves what it did
-past one. `drive install` holds its lock only from its update to its end, never while it waits on a
-release, Homebrew or another install's turn, and `drive job prove` holds none, so a drive a newer
-install saves while it runs ends it with no result, for that install's watch to prove again. A write waits up to five minutes for the drive's own
+Each verb holds a shared lock on its install's `DRIVE_SCHEMA`, in `lib/drive/state.py`, from its
+first drive load or save until the first command it waits on, such as break-glass's grant and
+command, orca's launcher, the `claude -p` judge, cc-slack or gh, and never after; every install of
+one schema shares that lock. A release raises `DRIVE_SCHEMA` when it changes how `drive.json`
+reads, and a test pins the source of `state.saved` and `state.load` to it. A verb whose drive a
+newer install saved in its own schema reads and saves it as any other. One saved in a newer schema
+is refused at its next load, naming the newest install's drive, and its relaunch adopts a launch
+whose receipt that refusal lost. A first save of a drive saved in an older schema waits for the
+locks of the schemas from that one up to its own, seconds, never on a command, so no verb meets a
+newer schema before its first command. `drive install` holds its lock only from its
+update to its end, never while it waits on a release, Homebrew or another install's turn, and
+`drive job prove` holds none, so a drive a newer install saves while it runs ends it with no result,
+for that install's watch to prove again. A write waits up to five minutes for the drive's own
 lock, then refuses and changes nothing, naming the process that holds it. The watch holds none, since the watch on a newer
 install posts every line the older one had not. A `drive` started from an older install than the
 newest, such as a launch's bind prefix, hands itself to the newest install's `drive` before any verb
