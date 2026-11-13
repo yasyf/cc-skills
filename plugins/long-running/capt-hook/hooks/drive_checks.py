@@ -671,7 +671,7 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             root_transcript=[T.user("ship the memory fix", timestamp=SAID_AT.isoformat()), T.assistant("on it")],
             decide=JEV_UNSURE,
             llm={"error": TimeoutError("codex timed out after 19s")},
-        ): Warn(pattern=r"(?s)Jev gave no verdict \(TimeoutError: codex timed out after 19s\), so each finding below only warns and the post goes out as written.*Refused on purpose: he is away"),
+        ): Block(pattern=r"(?s)Jev gave no verdict \(TimeoutError: codex timed out after 19s\), and a finding a count or a mark decides refuses without one.*Refused on purpose: he is away"),
         Input(
             tool=SLACK + "slack_dm_status",
             tool_input={"text": "The fix merged."},
@@ -681,7 +681,7 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             root_transcript=[T.user("ship the memory fix", timestamp=SAID_AT.isoformat()), T.assistant("on it")],
             decide=JEV_UNSURE,
             llm={"error": EvidenceIncomplete("deadline", "foreground transcript deadline exhausted")},
-        ): Warn(pattern=r"(?s)Jev gave no verdict \(EvidenceIncomplete: transcript evidence deadline: foreground transcript deadline exhausted\), so each finding below only warns.*Refused on purpose: he is away"),
+        ): Block(pattern=r"(?s)Jev gave no verdict \(EvidenceIncomplete: transcript evidence deadline: foreground transcript deadline exhausted\), and a finding a count or a mark decides refuses without one.*Refused on purpose: he is away"),
         Input(
             tool=SLACK + "slack_dm_status",
             tool_input={"text": "Deleting the old memory indexes still waits on your tap: https://acme.slack.com/archives/D123/p1794288799976279"},

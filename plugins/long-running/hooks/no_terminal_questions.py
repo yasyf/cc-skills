@@ -12,9 +12,9 @@ REFUSAL = (
     " record, or return it as your `ASK` or `DESIGN`."
 )
 ACCESS_REFUSAL = (
-    "refused: {tool} waits on a person approving it in a dialog in this terminal, which nobody reads, so it holds the"
-    " session until something answers it. Settle what it was for by reads that ask nobody, and return a check they"
-    " cannot settle as `UNPROVEN: <the check>: <the proof that settles it>`."
+    "refused: {tool} waits on a person approving it in a dialog in this terminal, which nobody reads. Settle what it"
+    " was for by reads that ask nobody, and return a check they cannot settle as `UNPROVEN: <the check>: <the proof"
+    " that settles it>`."
 )
 
 
