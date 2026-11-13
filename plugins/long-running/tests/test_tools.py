@@ -806,12 +806,17 @@ def test_his_owner_words_under_a_question_card_end_its_question_when_about_its_w
     ]
 
 
-def test_an_answer_naming_his_open_card_by_its_waits_attr_settles_that_card_in_the_same_call(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_an_answer_naming_his_open_card_by_its_waits_attr_settles_that_card_in_the_same_call(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build the page")
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, "#52\n", ""))
     answered = open_cards(monkeypatch, "demo:j1-7", "demo:j2-8")
     card = f"{CARD[:-2]}01"
     said = tools.run("record", demo, {"records": [{"kind": "answer", "text": "Ring", "attrs": {"waits": "demo:j2-8"}}]})
-    assert said == f"1 answer #52\n1 demo:j2-8: his card {card} now shows his words with no buttons, settled by them"
+    assert said.splitlines() == ["1 answer #52", '1 j2\'s question "Which ring?" ended answered by #52', f"demo:j2-8: his card {card} now shows his words with no buttons, its question answered"]
     assert answered == [("card-answer", "--card", card, "--label", "Ring", "--settled", "--other", "--via", card)]
 
 

@@ -974,15 +974,18 @@ def part_jobs(data: dict, order_id: str, part: str) -> list[tuple[str, dict]]:
     return [(job_id, data["jobs"][job_id]) for job_id in data["orders"][order_id]["jobs"] if part in job_parts(data["jobs"][job_id], order_id)]
 
 
-def work(order: dict) -> bool:
-    """Whether an order's parts are work he ordered, which only a builder carries: any order but an answer order or one limited to options."""
-    return order["kind"] != "answer" and not order["options_only"]
+def work(data: dict, order_id: str, part: str) -> bool:
+    """Whether a part is work he ordered, which only a builder carries: every part of a build order or an incident, and a part of an order of no kind that a builder, codex or design job holds or held or a design lists, since a part only research ever held is his question; never a part of an answer order or one limited to options."""
+    order = data["orders"][order_id]
+    if order["kind"] == "answer" or order["options_only"]:
+        return False
+    return order["kind"] == "build" or order["incident"] or bool(order["parts"][part]["design"]) or any(job["kind"] in WORK_KINDS for _, job in part_jobs(data, order_id, part))
 
 
 def carriers(data: dict, order_id: str, part: str) -> list[tuple[str, dict]]:
     """The jobs on a part that can carry it: every job on words he reads, but on work he ordered only a builder, codex or design job, a done design only while the builder design_builder names carries it."""
     jobs = part_jobs(data, order_id, part)
-    if not work(data["orders"][order_id]):
+    if not work(data, order_id, part):
         return jobs
     return [(job_id, job) for job_id, job in jobs if job["kind"] in WORK_KINDS and (job["kind"] != "design" or job["state"] != "done" or design_builder(data, job_id))]
 
@@ -990,7 +993,7 @@ def carriers(data: dict, order_id: str, part: str) -> list[tuple[str, dict]]:
 def delivered(data: dict, order_id: str, part: str) -> bool:
     """Whether a part is delivered: work he ordered once a builder or codex job on it returned DONE, whatever a post says, and words he reads once posted to him or built by a builder that returned DONE."""
     done = {job["kind"] for _, job in part_jobs(data, order_id, part) if job["state"] == "done"}
-    if work(data["orders"][order_id]):
+    if work(data, order_id, part):
         return bool(done & set(CHANGE_KINDS))
     return "builder" in done or bool(data["orders"][order_id]["parts"][part]["posted"])
 
@@ -1007,7 +1010,7 @@ def deliver_posted(data: dict, job_id: str, link: str, moment: str) -> None:
     for order_id in [job["order"], *job["carries"]]:
         order = data["orders"][order_id]
         for part in job_parts(job, order_id):
-            if not (order["parts"][part]["posted"] or work(order)):
+            if not (order["parts"][part]["posted"] or work(data, order_id, part)):
                 order["parts"][part]["posted"] = link
         finished = all(data["jobs"][other]["state"] in FINISHED_JOB_STATES for other in order["jobs"])
         if order["kind"] == "answer" and order["state"] not in CLOSED_ORDER_STATES and finished and not owed(order) and not (order["reporter"] and not order["reporter"]["told"]):
