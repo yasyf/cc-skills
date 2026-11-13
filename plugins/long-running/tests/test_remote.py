@@ -3899,11 +3899,14 @@ def test_every_lane_call_speaks_as_the_drives_own_terminal_whatever_terminal_ran
     monkeypatch.setenv("ORCA_TERMINAL_HANDLE", "term_coordinator")
     with pytest.raises(orca.OrcaError):
         orca.reply(remote, RUN, "msg_1", "an answer")
+    monkeypatch.setenv("ORCA_TERMINAL_HANDLE", "term_coordinator")
+    orca.send(remote, {"dispatch": "ctx_1", "run": RUN}, "From the coordinator", "a message")
     assert calls == [
         (DRIVE_TERMINAL, "run-create", "--objective", "a lane"),
         (DRIVE_TERMINAL, "run-use", "--id", RUN),
         (DRIVE_TERMINAL, "run-use", "--id", RUN),
         (DRIVE_TERMINAL, "reply", "--id", "msg_1"),
+        (DRIVE_TERMINAL, "send", "--to", "dispatch:ctx_1"),
     ]
 
 
