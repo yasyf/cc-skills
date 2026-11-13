@@ -246,7 +246,9 @@ task-scoped bypass behavior. It starts stripped under the `env`, `settings`
 and `deniedTools` of this plugin's `lib/lane.json`, with no auto-update,
 native `~/.claude` watcher, animation, telemetry or status line, and no tool
 that parks on a human. A Sprite Claude lane gets the same `env` as one of
-prepare's `--env` flags per variable, since prepare takes no settings. Change
+prepare's `--env` flags per variable, and the same `settings` with the
+`deniedTools` as `permissions.deny` in prepare's one `--settings`, which needs
+cc-remote 0.27.41 or later. Change
 what a lane runs without in `lane.json`, never in a launch command: the
 long-running drive reads that file too for each session it starts. Interactive
 sessions and `claude plugin update` still update the plugin cache. Set
@@ -325,13 +327,15 @@ Use the selected CLI and config described above when preparation and
 first-task attachment need separate inspection. This explicit
 fresh Sprite agents example returns a plain prepared task. `<lane.json>` is this
 plugin's `lib/lane.json`, `"$(dirname "$(readlink -f "$(command -v orca-worker-launch.sh)")")/../lib/lane.json"`,
-whose `env` a Claude lane exports, one `--env` flag per variable:
+whose `env` a Claude lane exports, one `--env` flag per variable, and whose
+`settings` and `deniedTools` it starts on in one `--settings`:
 
 ```sh
 "<selected-cc-remote>" orca prepare "<lane>" --config "<configured-yaml>" \
   --provider sprites --profile agents --agent claude \
   --model claude-opus-5-5 --effort xhigh --ref "<branch-or-tag>" \
   $(jq -r '.env | to_entries[] | "--env=\(.key)=\(.value)"' "<lane.json>") \
+  --settings "$(jq -c '.settings + {permissions: {deny: .deniedTools}}' "<lane.json>")" \
   --brief-file "<complete-brief.md>" >"<new-prepared.json>"
 ```
 
@@ -379,6 +383,7 @@ checkout:
   --config "<same-config>" --provider sprites --profile agents --agent claude \
   --model claude-opus-5-5 --effort xhigh \
   $(jq -r '.env | to_entries[] | "--env=\(.key)=\(.value)"' "<lane.json>") \
+  --settings "$(jq -c '.settings + {permissions: {deny: .deniedTools}}' "<lane.json>")" \
   --brief-file "<complete-brief.md>" >"<new-prepared.json>"
 ```
 
