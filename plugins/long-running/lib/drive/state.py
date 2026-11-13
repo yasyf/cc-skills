@@ -104,6 +104,7 @@ HANDLER_ENV = "LONG_RUNNING_HANDLER"
 DRIVE_ENV = "CLAUDE_LONG_RUNNING_DRIVE"
 OWN_JOB_ENV = "LONG_RUNNING_OWN_JOB"
 REMOTE_LANE_ENV = "LONG_RUNNING_REMOTE_LANE"
+WATCHDOG_ENV = "LONG_RUNNING_WATCHDOG"
 LANE_ROLES = {"communicator": "communicator", "root": "coordinator", "meta": "meta"}
 DRIVE_LANES = ("root", "communicator", "coordinator", "meta", "handler", "builder", "reader", "designer", "root-tooling", "root-skill", "root-dashboard", "watch")
 NUMBERED_LANE = re.compile(r"(?P<stem>.+)-\d+")
@@ -694,6 +695,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         pr.setdefault("undrawn", None)
         pr.setdefault("design", None)
         pr.setdefault("answers", None)
+        pr.setdefault("stall", None)
         if stamp := pr["checked"]:
             stamp.pop("patch", None)
             stamp.setdefault("lines", {})
@@ -1429,6 +1431,7 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
         "updated": created,
         "returned": None,
         "resumed": None,
+        "stall": None,
     }
 
 
@@ -2170,6 +2173,12 @@ def owner_away(data: dict, moment: datetime) -> bool:
     return bool(owner.get("away")) or bool(heard) and moment - parse_time(heard) >= AWAY_AFTER
 
 
+def timed(data: dict, job: dict, moment: datetime) -> bool:
+    """Whether a time is set to come for the job: its own clock from drive job set --due, or a due time of an order it serves."""
+    dues = [job["due"], *(data["orders"][order_id]["due"] for order_id in [job["order"], *job["carries"]])]
+    return any(due and parse_time(due) > moment for due in dues)
+
+
 def open_orders(data: dict) -> dict[str, dict]:
     return {key: order for key, order in data["orders"].items() if order["state"] not in CLOSED_ORDER_STATES}
 
@@ -2576,5 +2585,6 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "lead": None,
         "design": None,
         "answers": None,
+        "stall": None,
         "updated": stamp(),
     }

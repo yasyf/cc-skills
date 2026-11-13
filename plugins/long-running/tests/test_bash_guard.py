@@ -280,6 +280,27 @@ def test_a_drive_call_retrying_past_a_failing_check_is_refused_naming_the_log_re
     assert bash_guard.deny_reason(bash("tools/ci bk rerun 0190a1b2-job", session="ordinary")) is None
 
 
+def test_the_watchdog_runs_its_reads_and_two_acts_and_nothing_else(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(state.WATCHDOG_ENV, demo)
+    url = "https://github.com/Forge-AI/monorepo/pull/42"
+    for command in (
+        f"drive status o1 j1 --drive {demo}",
+        "gh run view 123 --log-failed | tail -n 80",
+        "gh run rerun 123 --failed",
+        "tools/ci bk rerun forge-monorepo 7 --unit test",
+        f"drive job wake j1 --text 'its build lost an agent, rerun once' --drive {demo}",
+    ):
+        assert bash_guard.deny_reason(bash(command, session="watchdog")) is None
+    for command in (
+        "drive job resume j1 'carry on'",
+        f"drive pr wake {url} --text 'fix it' --drive {demo}",
+        "cd /work && gh pr merge 42 --squash",
+        ".agents/skills/submit-pr/scripts/stack-enqueue 42",
+        "sh -c 'drive install'",
+    ):
+        assert bash_guard.deny_reason(bash(command, session="watchdog")).startswith("refused: the watchdog runs only drive status, drive job replies, cc-transcript")
+
+
 HELPER_CARD = "Captain-hook update, your Mac: install {} now? It restarts the hook helper once"
 HELPER_OPTIONS = "Options: Install now (recommended) | Installs never need me | Not now"
 

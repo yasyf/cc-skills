@@ -12,7 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 from conftest import DRIVE_TERMINAL, LEAD, SHORT_ASK, CodexAsk, drawn_card, Draws, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, staged
-from drive import agents, card, cli, codex, github, install, land, launchd, orca, place, reads, receiver, render, served, slack, stage, state, superseded, talk, view, watch
+from drive import agents, card, cli, codex, github, install, land, launchd, orca, place, reads, receiver, render, served, slack, stage, stall, state, superseded, talk, view, watch
 
 KEY = "Forge-AI/monorepo#42"
 OTHER = "Forge-AI/monorepo#43"
@@ -5874,3 +5874,147 @@ def test_a_pr_someone_else_opened_stays_refused_while_his_card_on_it_cannot_be_w
     monkeypatch.setattr(watch.slack, "withdraw_pr_card", lambda url, why: [])
     assert watch.run_pass(watching, T0 + timedelta(minutes=9)) == [f"DROPPED {KEY}: {state.foreign(KEY, 'rowan', [])} [o1 j1]"]
     assert KEY not in state.load(demo)["prs"]
+
+
+FOOTER = "Forge-AI/monorepo#53645"
+FOOTER_STACKED = "Forge-AI/monorepo#53648"
+READERS_FIRST = "it fails readers-first"
+ON_HIS_APPROVE = {"name": "card", "owner": stage.HIM, "why": "green, waits on his Approve", "since": state.stamp(T0), "woke": None}
+RED_STAGE = {"name": "red", "owner": stage.BUILDER, "why": READERS_FIRST, "since": state.stamp(T0), "woke": state.stamp(T0)}
+REPLAYED_53519_CHAIN = (
+    f"{KEY} red, owed by its builder: {READERS_FIRST}; j1 waiting on j2; j2 waiting on {FOOTER}, {FOOTER_STACKED};"
+    f" {FOOTER} card, owed by him: green, waits on his Approve; {FOOTER_STACKED} card, owed by him: green, waits on his Approve"
+)
+WATCHDOG_ANSWER = f"WHY: {READERS_FIRST}, and j2 waits on his Approve of {FOOTER}\nWHO: him\nNEXT: tap Approve on {FOOTER}\nUNREAD: nothing\n"
+
+
+@pytest.fixture
+def watchdogs(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, Path]]:
+    """Each watchdog agent the watch starts, by its brief and answer file; one runs until its answer file is written."""
+    started: list[tuple[str, Path]] = []
+    monkeypatch.setattr(watch.agents, "watchdog", lambda name, brief, cwd, out: started.append((brief, out)) or len(started))
+    monkeypatch.setattr(watch.state, "alive", lambda pid: not started[pid - 1][1].exists())
+    monkeypatch.setattr(watch.agents, "handle", lambda name, brief: ("h1", False))
+    return started
+
+
+def stalling(name: str) -> watch.Watcher:
+    with state.edit(name) as data:
+        data["orders"]["o1"]["jobs"] = ["j1", "j2"]
+        data["jobs"]["j1"] |= {"state": "waiting", "waits": ["j2"]}
+        data["jobs"]["j2"] = job(goal="the release footer", state="waiting", waits=[FOOTER, FOOTER_STACKED], prs=[state.pr_url(FOOTER), state.pr_url(FOOTER_STACKED)])
+        data["prs"][KEY]["stage"] = RED_STAGE
+        for key in (FOOTER, FOOTER_STACKED):
+            data["prs"][key] = state.new_pr(state.pr_url(key), "j2", "o1") | {"stage": ON_HIS_APPROVE}
+    watching = watcher(name)
+    watching.cards = NO_CARDS
+    return watching
+
+
+def watchdog_answered(out: Path) -> None:
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(f"I read the checks and both transcripts.\n\n```text\n{WATCHDOG_ANSWER}```\n")
+
+
+def test_replayed_53519_a_red_pr_behind_a_builder_waiting_on_his_card_gets_one_watchdog_at_an_hour_one_stuck_line_and_one_line_to_him_30_minutes_on(
+    demo: str, watchdogs: list[tuple[str, Path]], ready_records: list[list[dict]]
+) -> None:
+    watching = stalling(demo)
+    said = {minutes: watch.stall_lines(watching, T0 + timedelta(minutes=minutes)) for minutes in (0, 59, 60, 61)}
+    assert said == {0: [], 59: [], 60: [], 61: []}
+    [(brief, out)] = watchdogs
+    assert brief.splitlines()[:6] == [f"Stall: {KEY}, unmoved 60 minutes", "Job: j1 of o1: ship the watch", f"Chain: {REPLAYED_53519_CHAIN}", "Drive: demo", "Read:", f"- drive status o1 j1 {KEY} j2 {FOOTER} {FOOTER_STACKED} --drive demo"]
+    assert {f"- gh pr checks {state.pr_url(KEY)}", f"- gh pr checks {state.pr_url(FOOTER)}"} <= set(brief.splitlines())
+    watchdog_answered(out)
+    assert watch.stall_lines(watching, T0 + timedelta(minutes=68)) == [
+        f"STUCK j1 o1: {KEY} unmoved 68 minutes: {REPLAYED_53519_CHAIN}. WHY: {READERS_FIRST}, and j2 waits on his Approve of {FOOTER}; NEXT: tap Approve on {FOOTER};"
+        f" its whole answer, WHO and UNREAD with it, in {out}"
+    ]
+    for minutes in (69, 97, 98, 150):
+        assert watch.stall_lines(watching, T0 + timedelta(minutes=minutes)) == []
+    [[report]] = ready_records
+    assert (report["attr"], report["to"]) == ({"order": "o1", "job": "j1", "stall": "true"}, ["communicator@demo"])
+    assert report["text"] == f"POST {KEY} has not moved in 98 minutes and the coordinator was told 30 minutes ago: post one line on it in its thread"
+    assert ["WHO: him", f"NEXT: tap Approve on {FOOTER}"] == [line for line in report["body"].splitlines() if line.startswith(("WHO:", "NEXT:"))]
+    with state.edit(demo) as data:
+        data["prs"][KEY]["stage"] = RED_STAGE | {"why": "it fails readers-first at bbbbbbb"}
+    watch.stall_lines(watching, T0 + timedelta(minutes=151))
+    kept = state.load(demo)["prs"][KEY]["stall"]
+    assert (kept["since"], kept["agent"], kept["said"]) == (state.stamp(T0 + timedelta(minutes=151)), None, None)
+    assert [brief.splitlines()[0] for brief, _ in watchdogs] == [f"Stall: {KEY}, unmoved 60 minutes", "Stall: j1, unmoved 151 minutes"]
+
+
+def test_a_stall_the_coordinator_sat_on_reaches_him_once_he_is_back_never_while_he_is_away(
+    demo: str, watchdogs: list[tuple[str, Path]], ready_records: list[list[dict]]
+) -> None:
+    watching = stalling(demo)
+    said_at = T0 + timedelta(minutes=68)
+    with state.edit(demo) as data:
+        data["owner"]["away"] = True
+        data["prs"][KEY]["stall"] = {
+            "print": REPLAYED_53519_CHAIN,
+            "since": state.stamp(T0),
+            "agent": {"pid": 1, "out": "/s/stall.md", "at": state.stamp(T0 + timedelta(minutes=60))},
+            "found": {"WHY": READERS_FIRST},
+            "said": state.stamp(said_at),
+            "told": None,
+        }
+    for minutes in (98, 140):
+        assert watch.stall_lines(watching, T0 + timedelta(minutes=minutes)) == []
+    assert ready_records == []
+    with state.edit(demo) as data:
+        data["owner"]["away"] = False
+    for minutes in (141, 142):
+        watch.stall_lines(watching, T0 + timedelta(minutes=minutes))
+    assert [record["text"] for [record] in ready_records] == [f"POST {KEY} has not moved in 141 minutes and the coordinator was told 73 minutes ago: post one line on it in its thread"]
+    assert watchdogs == []
+
+
+def test_at_most_two_watchdog_agents_run_at_once_oldest_stall_first(demo: str, watchdogs: list[tuple[str, Path]]) -> None:
+    release = f"release:sand:{OTHER}"
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["jobs"] = ["j1", "j2", "j3"]
+        data["jobs"] |= {"j2": job(), "j3": job(state="waiting", waits=[release])}
+    watching = watcher(demo)
+    watching.cards = NO_CARDS
+    watch.stall_lines(watching, T0)
+    with state.edit(demo) as data:
+        for job_id in ("j1", "j2"):
+            data["jobs"][job_id] |= {"state": "waiting", "waits": [release]}
+    for minutes in (5, 65, 66):
+        watch.stall_lines(watching, T0 + timedelta(minutes=minutes))
+    assert len(watchdogs) == 2
+    for _, out in watchdogs:
+        watchdog_answered(out)
+    said = watch.stall_lines(watching, T0 + timedelta(minutes=67))
+    assert [line.split(":")[0] for line in said] == ["STUCK j3 o1", "STUCK j1 o1"]
+    assert len(watchdogs) == 2
+    watch.stall_lines(watching, T0 + timedelta(minutes=68))
+    assert [brief.splitlines()[0] for brief, _ in watchdogs] == ["Stall: j3, unmoved 65 minutes", "Stall: j1, unmoved 60 minutes", "Stall: j2, unmoved 63 minutes"]
+
+
+def test_watchdog_agents_count_those_still_searching_and_those_started_within_the_hour() -> None:
+    def kept(started: int, said: bool) -> dict:
+        return {"stall": {"agent": {"pid": 1, "out": "/s/a.md", "at": state.stamp(T0 - timedelta(minutes=started))}, "said": state.stamp(T0) if said else None}}
+
+    data = {"jobs": {"j1": kept(5, False), "j2": kept(12, False), "j3": kept(30, True), "j4": {"stall": {"agent": None, "said": None}}, "j5": {"stall": None}}, "prs": {KEY: kept(61, True)}}
+    assert stall.starts(data, T0) == (1, 3)
+
+
+@pytest.mark.parametrize(
+    ("stops", "subjects"),
+    [
+        (lambda data: None, [KEY, "j1"]),
+        (lambda data: data["prs"][KEY].update(hold_label=True), ["j1"]),
+        (lambda data: data["prs"][KEY].update(stage=ON_HIS_APPROVE), ["j1"]),
+        (lambda data: data["orders"]["o1"].update(due=state.stamp(T0 + timedelta(hours=2))), []),
+        (lambda data: data["jobs"].update(j2=job()) or data["jobs"]["j1"].update(waits=["j2"]), []),
+    ],
+    ids=["unstopped", "hold label", "his card", "due ahead", "running job"],
+)
+def test_no_chain_is_aged_past_his_hold_his_card_a_time_to_come_or_a_running_job(demo: str, stops: Callable[[dict], None], subjects: list[str]) -> None:
+    with state.edit(demo) as data:
+        data["jobs"]["j1"] |= {"state": "waiting", "waits": [f"release:sand:{OTHER}"]}
+        data["prs"][KEY]["stage"] = RED_STAGE
+        stops(data)
+    assert list(stall.chains(state.load(demo), NO_CARDS, T0, lambda order_id: True)) == subjects

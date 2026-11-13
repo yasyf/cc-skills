@@ -29,6 +29,24 @@ OUTAGE_WAITS = (1, 2, 4, 8)
 RESUMED = "Resumed: an API error ended your last turn before it was done, so do now what the prompt it answered asked, from where it stopped."
 MESSAGE_ORIGIN = "coordinator"
 DESIGNER = "long-running:designer"
+WATCHDOG = "long-running:watchdog"
+WATCHDOG_RUNS = (
+    ("drive", "status"),
+    ("drive", "job", "replies"),
+    ("cc-transcript",),
+    ("gh", "pr", "view"),
+    ("gh", "pr", "checks"),
+    ("gh", "run", "view"),
+    ("ci", "bk", "log"),
+    ("head",),
+    ("tail",),
+    ("grep",),
+    ("jq",),
+    ("gh", "run", "rerun"),
+    ("ci", "bk", "rerun"),
+    ("drive", "job", "wake"),
+)
+WATCHDOG_USD = "2"
 HIS_WORDS = "Message (his words)"
 ORDER = "Order"
 PAIRS = "Pairs in use"
@@ -420,6 +438,16 @@ def start_handler(name: str, handler: str, prompt: str) -> None:
     settings = session_settings(env)
     argv = ["claude", "--bg", "--agent", HANDLER, "--permission-mode", "bypassPermissions", "--settings", json.dumps(settings), "-n", f"{name} handler {handler}", prompt]
     reads.run(argv, Path(communicator["cwd"]), {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"} | settings["env"])
+
+
+def watchdog(name: str, brief: str, cwd: str, out: Path) -> int:
+    """Start a watchdog agent on a stall's brief as its own `claude -p` process on its agent definition, which sets its model and tools, in the checkout of the session the watch posts to, its answer written to out and its spend capped at WATCHDOG_USD; its environment names the drive and marks it the watchdog, by which the bash_guard hook lets it run WATCHDOG_RUNS alone, the reads and the two acts of his pick "Report, plus two safe acts, rerunning a failed build and messaging the owning job"; its pid."""
+    settings = session_settings({state.WATCHDOG_ENV: name, state.DRIVE_ENV: name})
+    argv = ["claude", "-p", "--agent", WATCHDOG, "--permission-mode", "bypassPermissions", "--max-budget-usd", WATCHDOG_USD, "--settings", json.dumps(settings), brief]
+    out.parent.mkdir(parents=True, exist_ok=True)
+    env = {key: value for key, value in os.environ.items() if key not in ("CLAUDE_LONG_RUNNING_LANE", "CLAUDE_CODE_SESSION_ID")} | settings["env"]
+    with out.open("w") as written:
+        return subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=written, stderr=subprocess.STDOUT, start_new_session=True).pid
 
 
 def session_settings(env: dict[str, str]) -> dict:

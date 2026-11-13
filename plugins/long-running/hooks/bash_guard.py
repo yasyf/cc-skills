@@ -246,6 +246,16 @@ def retried(found: list[list[str]]) -> str | None:
     return None
 
 
+def watchdog_call(found: list[list[str]]) -> str | None:
+    """Why a watchdog agent's call must not run: a command past the reads and two acts agents.WATCHDOG_RUNS lists."""
+    for words in found:
+        named = verb(words)
+        if not any(tuple(named[: len(allowed)]) == allowed for allowed in agents.WATCHDOG_RUNS):
+            runs = ", ".join(" ".join(allowed) for allowed in agents.WATCHDOG_RUNS)
+            return f"refused: the watchdog runs only {runs}; put `{' '.join(named)}` in your NEXT line for the coordinator instead"
+    return None
+
+
 def helper_restart(named: list[str]) -> str | None:
     """The hook-helper restart a command's words run: `capt-hook helper install`, or a `brew upgrade` or `brew reinstall` of captain-hook, which bare `brew upgrade` is too."""
     if any(named[index + 1 : index + 3] == ["helper", "install"] and re.split(r"[@=<>]", named[index])[0] == install.HELPER for index in range(len(named))):
@@ -512,7 +522,7 @@ def mid_incident(found: list[list[str]]) -> str | None:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive session's or drive agent's call must not run: it, or an Orca lane's, reads or writes a team's bucket, blobs or SandSQL databases where it runs, it reads Datadog through `pup` rather than the Datadog MCP, a designer pushes, a builder, on this Mac or a Sprite, opens its PR while his open cards hold its job, a read takes a stale version's cached skill page, or a session is resumed while it runs, from a shell-ending command, or ended mid-incident, a call retries past a failing check; why any session's call restarts the hook helper he never approved on a card; and why Claude Code's permission prompt on a drive agent's or an Orca lane's call to any tool gets a refusal rather than an answer nobody gives."""
+    """Why a drive session's or drive agent's call must not run: it, or an Orca lane's, reads or writes a team's bucket, blobs or SandSQL databases where it runs, it reads Datadog through `pup` rather than the Datadog MCP, a designer pushes, a builder, on this Mac or a Sprite, opens its PR while his open cards hold its job, a read takes a stale version's cached skill page, or a session is resumed while it runs, from a shell-ending command, or ended mid-incident, a call retries past a failing check, or a watchdog agent runs anything but its reads and two acts; why any session's call restarts the hook helper he never approved on a card; and why Claude Code's permission prompt on a drive agent's or an Orca lane's call to any tool gets a refusal rather than an answer nobody gives."""
     call = payload["tool_input"]
     session = payload.get("session_id") or ""
     drives = state.session_drives(session)
@@ -522,6 +532,8 @@ def deny_reason(payload: dict) -> str | None:
     if payload["tool_name"] != "Bash":
         return cached_page(call.get("file_path") or call.get("path") or "") if drives else None
     found = commands(runnable(call["command"]))
+    if os.environ.get(state.WATCHDOG_ENV):
+        return watchdog_call(found)
     if (drives or kind.startswith(AGENTS) or os.environ.get(state.REMOTE_LANE_ENV)) and (touched := team_data(call["command"], payload.get("cwd") or os.getcwd())):
         return touched
     if not drives and os.environ.get(state.REMOTE_LANE_ENV):
