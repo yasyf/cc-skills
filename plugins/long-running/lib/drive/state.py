@@ -79,6 +79,7 @@ REPORTED_LINE = re.compile(r"(?:READY|PUSHED)\b")
 REPORT_CHANGE = re.compile(r"^CHANGE:[ \t]*(?P<change>.+?)[ \t]*$", re.MULTILINE)
 CHANGE_LINE = re.compile(r"^Change:[ \t]*(?P<change>.+?)(?:[ \t]*\(waits on (?P<waits>[^()]*)\))?[ \t]*$", re.MULTILINE)
 CHANGE_WAITS = re.compile(r"\bchange (\d+)")
+CHANGE_BUILDER_GOAL = re.compile(r"build j\d+'s change: ")
 BUILT_CARD = re.compile(r"https://[^\s,]+/archives/[^\s,]+/p\d+[^\s,]*|[\w.-]+:j\d+-\d+[\w-]*")
 FLAKE_FIX = "flake fix"
 EXEMPT_CLASSES = ("pure port", "test-only", "ci-only", FLAKE_FIX, "incident fix")
@@ -493,6 +494,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str, terminal: str
         "closed_from_cards": True,
         "designs_cited": True,
         "one_question_per_file": True,
+        "change_builders_unwaited": True,
     }
 
 
@@ -779,6 +781,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         one_question_per_file(data)
     if not data.get("designs_cited"):
         cite_returned_designs(name, data)
+    if not data.get("change_builders_unwaited"):
+        unwait_change_builders(data)
     if unkept := any("threads" not in order for order in data["orders"].values()):
         keep_threads(name, data)
     return data, keep and not unkept
@@ -839,6 +843,16 @@ def close_from_cards(name: str, data: dict) -> None:
             answer = (view.closed_card(found, drawn) or {}).get("answer") or {}
             question["closed"] = new_close("withdrawn" if answer.get("withdrawn") else "answered", answer.get("label"), None, at=answer.get("at") or job["updated"])
     data["closed_from_cards"] = True
+
+
+def unwait_change_builders(data: dict) -> None:
+    """Drop his cards from the waits of each builder change_builders added that no worker started, which an older install filled with every open card on its design, since a wait now says only when a job starts and each card holds its PR by land.open_cards; one left waiting on nothing runs, its agent to start now; marked so this runs once."""
+    for job in data["jobs"].values():
+        if job["kind"] == "builder" and CHANGE_BUILDER_GOAL.match(job["goal"]) and not (job["agent"] or job.get("dispatch") or job["returned"]):
+            job["waits"] = [wait for wait in job["waits"] if not card_wait(data, wait)]
+            if job["state"] == "waiting" and not job["waits"]:
+                job.update(state="running", said=None)
+    data["change_builders_unwaited"] = True
 
 
 def one_question_per_file(data: dict) -> None:
@@ -1159,11 +1173,10 @@ def add_changes(name: str, data: dict, job_id: str, report: str) -> list[str]:
 
 
 def change_builders(name: str, data: dict, design_id: str, changes: list[tuple[list[str], list[int]]]) -> list[str]:
-    """Add a builder for each change of a design, its parts and the number of each earlier change it waits on, that no builder or codex job is on, in its list's order, waiting on each open card of his on the design's parts and on each job building an earlier change it waits on, or that job's newest open PR, by his pick "A builder for every listed change, added the moment the design returns: no change can sit unbuilt; idle jobs appear early"; none where brief.job_refusal refuses a builder, as on an order limited to options until drive order set --no-options-only records his pick."""
+    """Add a builder for each change of a design, its parts and the number of each earlier change it waits on, that no builder or codex job is on, in its list's order, waiting on each job building an earlier change it waits on, or that job's newest open PR, by his pick "A builder for every listed change, added the moment the design returns: no change can sit unbuilt; idle jobs appear early"; none where brief.job_refusal refuses a builder, as on an order limited to options until drive order set --no-options-only records his pick. His open cards on the design join no wait, since a wait says only when a job starts: each card holds the PR of the change its Holds line names by land.open_cards, while its builder builds his recommended option meanwhile."""
     from drive import brief, view
 
     order_id = data["jobs"][design_id]["order"]
-    cards = view.stored_waits(data, part_cards(data, design_id))
     created = stamp()
     added = []
     for parts, numbers in changes:
@@ -1171,7 +1184,7 @@ def change_builders(name: str, data: dict, design_id: str, changes: list[tuple[l
             continue
         earlier = [part for number in numbers for part in changes[number - 1][0] if not delivered(data, order_id, part)]
         building = [change_wait(data, job_id) for part in earlier for job_id, job in part_jobs(data, order_id, part) if job["kind"] in CHANGE_KINDS]
-        waits = list(dict.fromkeys([*cards, *(wait for wait in building if view.holds(data, wait, None))]))
+        waits = [wait for wait in dict.fromkeys(building) if view.holds(data, wait, None)]
         if brief.job_refusal(name, data, order_id, "builder", uncarried, False, waits):
             continue
         builder_id = next_id(data["jobs"], "j")

@@ -7,7 +7,7 @@ from pathlib import Path
 import agent_brief
 import pytest
 from conftest import RESEARCH
-from drive import agents, place, state, watch
+from drive import agents, cli, place, state, watch
 from drive.render import when
 
 Run = Callable[..., tuple[int, str]]
@@ -192,6 +192,24 @@ def test_a_builder_added_to_build_nothing_such_as_an_agentinbox_live_proof_start
     assert place.turns(data, state.now()) == ([], place.LOCAL_BUILDERS)
     assert place.waiting_builders(data) == ["j9"]
     assert run("job", "add", "reader", "--order", "o2", "--goal", "read the APM traces", "--builds-nothing")[0] == 2
+
+
+def test_a_builder_whose_wait_still_holds_starts_here_only_on_its_free_line_by_the_refusal_drive_job_launch_gives(
+    demo: str, run: Run, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store", "--parts", "the interface", "the reads")
+    run("job", "add", "builder", "--order", "o1", "--part", "the interface", "--goal", "build the interface")
+    run("job", "add", "builder", "--order", "o1", "--part", "the reads", "--goal", "build the reads", "--waits", "j1")
+    brief = "Order (his words): copy one store\nServes: his order\nGoal: build it\nDrive: demo, order o1, job "
+    refused = "j2 waits on j1: launch it on the watch's FREE line, which comes once the last wait ends"
+    assert agent_brief.deny_reason(started("long-running:builder", f"{brief}j2")) == f"refused: {refused}"
+    capsys.readouterr()
+    assert cli.main(["job", "launch", "j2"]) == 2
+    assert refused in capsys.readouterr().err
+    assert agent_brief.deny_reason(started("long-running:builder", f"{brief}j1")) is None
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["state"] = "done"
+    assert agent_brief.deny_reason(started("long-running:builder", f"{brief}j2")) is None
 
 
 def test_a_monorepo_builder_over_this_macs_load_limit_starts_here_only_when_its_brief_names_a_step_only_this_mac_runs(

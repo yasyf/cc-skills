@@ -2312,11 +2312,13 @@ def job_launch(args: argparse.Namespace) -> int:
 
 def codex_launch(args: argparse.Namespace, name: str) -> int:
     """Start a codex job's codex-ask run on this Mac from this session's folder on its brief, kept as the job's brief so the builder that ships its fix reads what it was given, with no agent relaying it, refused as an Agent's start is refused for any other job: while its waits hold, with no brief, on an order another session holds, or on a brief brief_refusal refuses; codex-ask itself refuses a run while the job's last one still goes."""
+    from drive import view
+
     with state.job_locked(name, args.id, orca.LAUNCH_SECONDS):
         data = state.load(name)
         job = data["jobs"][args.id]
-        if job["waits"]:
-            raise DriveError(f"{args.id} waits on {', '.join(job['waits'])}: launch it on the watch's FREE line, which comes once the last wait ends")
+        if refused := view.start_refusal(data, args.id, True):
+            raise DriveError(refused)
         if not (args.brief or job.get("brief")):
             raise DriveError(f"{args.id} has no brief: write it with drive job brief {args.id}, or name its file")
         written = named_text(args.brief or job["brief"], "brief file")
@@ -2517,8 +2519,8 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
     kept = launch_brief(name, job_id, job)
     if adopted := orca.adopted(kept):
         return {field: adopted[field] for field in LAUNCHED} | {"brief": str(kept)}
-    if not job.get("agent") and (waits := [wait for wait in view.holding(data, job["waits"], None) if local or wait != state.SLOT_WAIT]):
-        raise DriveError(f"{job_id} waits on {', '.join(waits)}: launch it on the watch's FREE line, which comes once the last wait ends")
+    if refused := view.start_refusal(data, job_id, local):
+        raise DriveError(refused)
     taker = other_sessions_agent(job)
     if not (brief_file or job.get("brief")):
         write_brief(name, job_id, {})

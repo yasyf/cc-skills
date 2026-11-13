@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, brief, place, state
+from drive import agents, brief, place, state, view
 from drive.render import cut, when
 
 BUILDER = "long-running:builder"
@@ -76,6 +76,13 @@ def tooling_refusal(name: str, data: dict, text: str, role: str) -> str:
     )
 
 
+def waiting(data: dict, text: str) -> str | None:
+    """Why a builder starts no agent while a wait of its holds, by the one view.start_refusal drive job launch reads, so it starts on the watch's FREE line here as on a Sprite; its turn for a builder slot on this Mac is crowded's to name."""
+    match = brief.BRIEF_JOB.search(text)
+    refused = view.start_refusal(data, match[1], False) if match and match[1] in data["jobs"] else None
+    return refused and f"refused: {refused}"
+
+
 def overloaded(data: dict, text: str) -> str | None:
     """Why a Forge-AI/monorepo builder starts on a Sprite, not here: this Mac is at or over its load gate's limit and its brief declares no step only this Mac runs, by place.mac_step, which starts here at any load."""
     match = brief.BRIEF_JOB.search(text)
@@ -126,7 +133,7 @@ def in_line(data: dict, job_id: str) -> str:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive session may not start this agent, in the shape `agents.shaped` gives its call: a handler starts with the drive's handler tool, a build order's codex lane waits on its reader's research, a builder's brief says its scope, drive tooling is the meta session's alone, a monorepo builder starts here over this Mac's load limit only when its brief declares a step only this Mac runs, and a builder starts here only in its turn for one of this Mac's builder slots."""
+    """Why a drive session may not start this agent, in the shape `agents.shaped` gives its call: a handler starts with the drive's handler tool, a build order's codex lane waits on its reader's research, a builder's brief says its scope, drive tooling is the meta session's alone, a builder starts on the watch's FREE line once its last wait ends, a monorepo builder starts here over this Mac's load limit only when its brief declares a step only this Mac runs, and a builder starts here only in its turn for one of this Mac's builder slots."""
     if payload.get("agent_id"):
         return None
     session = payload.get("session_id") or ""
@@ -147,7 +154,7 @@ def deny_reason(payload: dict) -> str | None:
     text = brief.carried(prompt)
     if kind == BUILDER and role not in (None, "meta") and brief.SERVES_TOOLING.search(text):
         return tooling_refusal(names[0], data, text, role)
-    return builder_refusal(text) or overloaded(data, text) or crowded(names[0], data, text) if kind == BUILDER else None
+    return builder_refusal(text) or waiting(data, text) or overloaded(data, text) or crowded(names[0], data, text) if kind == BUILDER else None
 
 
 def main() -> None:

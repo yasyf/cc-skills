@@ -5,7 +5,7 @@ from collections.abc import Callable, Iterable
 from datetime import datetime
 
 from drive import slack
-from drive.state import DRIVE_TOOLING, FREED, ROLES, SLOT_WAIT, VERSION, agent_gone, alias, card_wait, carriers, delivered, exempted, lane_death, may_tell, named_prs, now, open_orders, parse_time, pr_key, pr_url, project_lane, promise_thread, resumed, title, work
+from drive.state import DRIVE_TOOLING, FREED, ROLES, SLOT_WAIT, VERSION, agent_gone, alias, carriers, delivered, exempted, lane_death, may_tell, named_prs, now, open_orders, parse_time, pr_key, pr_url, project_lane, promise_thread, resumed, title, work
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
@@ -305,16 +305,19 @@ def withdrawn_by(seqs: list[str]) -> str:
 
 
 def builder_lines(data: dict, builder_ids: list[str]) -> list[str]:
-    """When to start each builder the drive added itself, beside a reader or for a design's change: on the watch's FREE line once its last wait on a job, PR or release ends, or now when only his cards hold it, since it builds his recommended option and opens no PR until he answers them."""
+    """When to start each builder the drive added itself, beside a reader or for a design's change, by the one view.start_refusal drive job launch and the agent_brief hook read: on the watch's FREE line once its last wait ends, or now, naming each card of his that holds its PR by land.ship_held, since it builds his recommended option and opens no PR until he answers them."""
+    from drive import land, view
+
     lines = []
     for builder_id in builder_ids:
         builder = data["jobs"][builder_id]
         named = ", ".join(json.dumps(part, ensure_ascii=False) for part in builder["parts"])
-        if any(not card_wait(data, wait) for wait in builder["waits"]):
+        if view.start_refusal(data, builder_id, True):
             lines.append(f"{builder_id} builder on {named} {builder['said']}: start no agent for it until the watch's FREE line says its last wait ended")
-        else:
-            cards = f", building his recommended option with no PR until he answers {', '.join(builder['waits'])}" if builder["waits"] else ""
-            lines.append(f"{builder_id} builder on {named}: start its agent now, the design as its brief's Plan:{cards}")
+            continue
+        held = land.ship_held(data, builder_id, None)
+        cards = f", building his recommended option with no PR until he answers {', '.join(held)}" if held else ""
+        lines.append(f"{builder_id} builder on {named}: start its agent now, the design as its brief's Plan:{cards}")
     return lines
 
 

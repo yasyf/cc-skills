@@ -3920,17 +3920,24 @@ def test_a_readers_design_report_after_its_own_ask_keeps_that_asks_unsettled_and
     assert [(drawn["job"], drawn["waits"]) for drawn in cards_drawn] == [("j1", "demo:j1-7")] * 2
 
 
-def test_a_design_that_kept_a_question_is_kept_with_no_fork_line_and_its_builder_waits_on_that_card(
-    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+@pytest.mark.parametrize(("holds", "held"), [("Holds: copy one store", True), ("Holds: none: no option changes code any job builds", False)])
+def test_a_design_that_kept_a_question_is_kept_with_no_fork_line_and_its_builder_starts_now_its_pr_held_only_by_a_card_whose_holds_line_names_its_change(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], holds: str, held: bool
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store")
     run("job", "add", "design", "--order", "o1", "--goal", "cards: the store copy")
     block = tmp_path / "fork.md"
-    block.write_text(SHORT_ASK)
+    block.write_text(SHORT_ASK.replace("Holds: none: no option changes code any job builds", holds))
     run("job", "ask", "j1", str(block))
-    assert keep(monkeypatch, capsys, "j1", DESIGNED) == (0, "")
-    jobs = state.load("demo")["jobs"]
-    assert (jobs["j1"]["said"], jobs["j2"]["state"], jobs["j2"]["waits"]) == ("carried by builder j2", "waiting", [jobs["j1"]["questions"][0]["waits"]])
+    capsys.readouterr()
+    monkeypatch.setattr("sys.stdin", io.StringIO(DESIGNED))
+    assert cli.main(["job", "report", "j1", "-"]) == 0
+    data = state.load("demo")
+    [card] = view.open_cards(data["jobs"]["j1"])
+    holding = f", building his recommended option with no PR until he answers {card}" if held else ""
+    assert capsys.readouterr().out.splitlines()[-1] == f'j2 builder on "copy one store": start its agent now, the design as its brief\'s Plan:{holding}'
+    assert (data["jobs"]["j1"]["said"], data["jobs"]["j2"]["state"], data["jobs"]["j2"]["waits"]) == ("carried by builder j2", "running", [])
+    assert (view.start_refusal(data, "j2", True), land.ship_held(data, "j2", None)) == (None, [card] if held else [])
 
 
 def test_a_builders_ready_says_how_it_reuses_what_its_research_found(

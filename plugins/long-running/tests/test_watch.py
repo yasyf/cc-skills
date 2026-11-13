@@ -2052,7 +2052,7 @@ def test_work_he_ordered_is_carried_only_by_a_builder_never_by_research_his_card
     with state.edit(demo) as data:
         data["jobs"]["j2"].update(kind="design", state="done", questions=[state.new_question(None, None, state.stamp(T0), card=CARD)])
         data["orders"]["o2"]["parts"][merge]["orphan_said"] = None
-    assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == [f'ORPHAN o2 "{merge}": {ANSWERED}design j2 done, his card {CARD} open: {unbuilt.format(waits=f" --waits {CARD}")}']
+    assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == [f'ORPHAN o2 "{merge}": {ANSWERED}design j2 done, his card {CARD} open: {unbuilt.format(waits="")}']
     with state.edit(demo) as data:
         data["orders"]["o2"]["jobs"].append("j3")
         data["jobs"]["j3"] = job(order="o2", kind="codex", parts=[merge], updated=earlier)

@@ -246,6 +246,15 @@ def holding(drive: dict, waits: list[str], found: dict | None) -> list[str]:
     return [wait for wait in waits if holds(drive, wait, found)]
 
 
+def start_refusal(drive: dict, job_id: str, slot: bool) -> str | None:
+    """Why a job no agent or lane has started may not start yet, on a Sprite or here, the one rule drive job launch and the agent_brief hook read: a wait of its still holds, a builder slot on this Mac counting only where slot says, and the watch's FREE line comes once none does. A wait says only when a job starts, since his cards hold a builder's PR by land.open_cards, never its start; none for a job a worker started, whose next worker takes its events whatever it waits on."""
+    job = drive["jobs"][job_id]
+    if job.get("agent") or job.get("dispatch"):
+        return None
+    waits = [wait for wait in holding(drive, job["waits"], None) if slot or wait != state.SLOT_WAIT]
+    return f"{job_id} waits on {', '.join(waits)}: launch it on the watch's FREE line, which comes once the last wait ends" if waits else None
+
+
 def holds(drive: dict, wait: str, found: dict | None) -> bool:
     if wait in drive["jobs"]:
         return coming(drive, wait)

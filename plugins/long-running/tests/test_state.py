@@ -292,6 +292,30 @@ def test_j3668_a_drive_saved_with_two_questions_in_one_ask_file_keeps_the_one_an
     assert state.load("demo")["jobs"]["j1"]["questions"] == [answered | {"refused": None}, other]
 
 
+def test_j3771_a_drive_saved_with_his_cards_on_an_unstarted_design_builders_waits_keeps_only_its_waits_on_earlier_changes(state_root: Path) -> None:
+    make("demo")
+    data = state.load("demo")
+    del data["change_builders_unwaited"]
+    moment = "2026-11-13T09:00:00-08:00"
+    cards = ["demo:j1-660010", "demo:j1-660681"]
+    asked = [state.new_question(f"/asks/j1-{card[-1]}.md", "Which?", moment) | {"waits": card} for card in cards]
+    data["jobs"] = {
+        "j1": state.new_job("o1", "design", "cards: the copy", [], moment) | {"state": "done", "questions": asked},
+        "j2": state.new_job("o1", "builder", "build j1's change: the interface", ["the interface"], moment) | {"state": "waiting", "waits": [*cards, "j3"], "said": "waits on them"},
+        "j3": state.new_job("o1", "builder", "build j1's change: the reads", ["the reads"], moment) | {"state": "waiting", "waits": cards, "said": "waits on them"},
+        "j4": state.new_job("o1", "builder", "build j1's change: the writes", ["the writes"], moment) | {"state": "built", "waits": cards, "agent": "a4", "returned": moment},
+        "j5": state.new_job("o1", "builder", "change 2 of design j1", ["the writes"], moment) | {"state": "waiting", "waits": cards},
+    }
+    state.create(data)
+    jobs = state.load("demo")["jobs"]
+    assert {job_id: (job["state"], job["waits"]) for job_id, job in jobs.items() if job_id != "j1"} == {
+        "j2": ("waiting", ["j3"]),
+        "j3": ("running", []),
+        "j4": ("built", cards),
+        "j5": ("waiting", cards),
+    }
+
+
 def test_an_answer_saved_before_answers_listed_waiting_jobs_reads_with_no_job_to_mark(state_root: Path) -> None:
     make("demo")
     data = state.load("demo")
