@@ -16,7 +16,7 @@ from drive.brief import BRIEF_JOB, carried, heavier
 RECORD = re.compile(r"^Record: (\d+)\b", re.MULTILINE)
 LINK = re.compile(r"^Link:\s*(\S+)", re.MULTILINE)
 THREAD = re.compile(r"^Thread:[ \t]*(?:\S+[ \t]+)?(\d+\.\d+)", re.MULTILINE)
-RETYPED = re.compile(r"\b(?:POSTED|EDITED|CARD)(?:\s+https://\S+)+\s*;?\s*")
+SAY_RESULT = re.compile(r"\b(POSTED|EDITED|CARD)((?:\s+https://\S+)+)\s*;?\s*")
 HIS_KINDS = ("owner", "answer")
 RE_HOPS = 8
 AMENDING = ("correction", "withdraw")
@@ -578,7 +578,7 @@ def take_handed(name: str, handler: str) -> list[str]:
 
 
 def end_handler(payload: dict, refused: Callable[[dict], str | None]) -> str | None:
-    """End a handler's turn once refused, the Stop hook's checks of its line, lets it: hand the line it ended on to the session it runs beside, the communicator or on a drive with none the coordinator, as one cci record each post's POSTED, EDITED and CARD links in it say's own result, whole with its thread_ts, in place of any the handler typed, and remove its session. A job the handler held keeps its transcript's path, since the drive forgets the handler. A handler drive handler handed briefs since its last step does not end: they come back as the reason its stop is refused, taken in the one edit that would forget it, so no brief lands on a handler that has ended. A drive a newer install saved, which this install may neither check nor write, still ends the handler on its line with the posts its saved bindings hold, its entry left to drive handler, which takes it off with each brief it was handed once its turn is over, and a check that raises still posts that line before its error goes on."""
+    """End a handler's turn once refused, the Stop hook's checks of its line, lets it: hand the line it ended on to the session it runs beside, the communicator or on a drive with none the coordinator, as one cci record each post's POSTED, EDITED and CARD links in it say's own result, whole with its thread_ts, in place of any the handler typed, each permalink named once where it first appears, and remove its session. A job the handler held keeps its transcript's path, since the drive forgets the handler. A handler drive handler handed briefs since its last step does not end: they come back as the reason its stop is refused, taken in the one edit that would forget it, so no brief lands on a handler that has ended. A drive a newer install saved, which this install may neither check nor write, still ends the handler on its line with the posts its saved bindings hold, its entry left to drive handler, which takes it off with each brief it was handed once its turn is over, and a check that raises still posts that line before its error goes on."""
     name = state.session_drives(payload["session_id"])[0]
     try:
         if reason := refused(payload):
@@ -605,9 +605,24 @@ def end_handler(payload: dict, refused: Callable[[dict], str | None]) -> str | N
 def post_done(name: str, payload: dict, ended_handler: dict) -> None:
     line = (payload.get("last_assistant_message") or "").strip()
     if posted := ended_handler["posted"]:
-        line = "; ".join(filter(None, [*posted, RETYPED.sub("", line).strip(" ;")]))
+        line = "; ".join(filter(None, [*named_once(posted), SAY_RESULT.sub("", line).strip(" ;")]))
     reads.run(["cci", "post", "--drive", name, "--lane", "handler", "--kind", "done", "--to", f"{beside(state.saved(name))[0]}@{name}", "--id", f"handler-{payload['agent_id']}", "--text", line], Path(payload["cwd"]), reads.posting())
     remove_session(name, payload)
+
+
+def named_once(posted: list[str]) -> list[str]:
+    """Each say result a handler's posts returned, naming each permalink only where it first appears: an edit of a post already named, or a card's line in its own post's thread, adds no link the line already holds, and a result left with none drops out."""
+    seen: set[str] = set()
+    kept = []
+    for said in posted:
+        parts = []
+        for verb, links in SAY_RESULT.findall(said):
+            if fresh := [link for link in links.split() if link not in seen]:
+                seen.update(fresh)
+                parts.append(" ".join([verb, *fresh]))
+        if parts:
+            kept.append(" ".join(parts))
+    return kept
 
 
 def resume(payload: dict) -> str | None:

@@ -277,7 +277,7 @@ def test_a_handler_ending_hands_its_line_to_the_communicator_and_removes_its_ses
     assert state.own_transcript(data, data["jobs"]["j1"]) == str(transcript)
 
 
-def test_a_handlers_done_record_carries_each_post_as_say_returned_it_whatever_the_handler_retyped(
+def test_a_handlers_done_record_carries_each_post_once_as_say_returned_it_whatever_the_handler_retyped(
     communicator: str, run: Run, tmp_path: Path, started: list[list[str]], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     handler = start(run, tmp_path)
@@ -288,12 +288,20 @@ def test_a_handlers_done_record_carries_each_post_as_say_returned_it_whatever_th
     with monkeypatch.context() as scoped:
         scoped.setenv("CLAUDE_CODE_SESSION_ID", "h-session")
         assert talk.say("demo", {"text": "It copies on the new tree only.", "thread_ts": "1794478810.620779"}) == f"POSTED {reply}"
+        assert talk.say("demo", {"edit": reply, "text": "It copies on the new tree alone."}) == f"EDITED {reply}"
     monkeypatch.setattr(agents.subprocess, "Popen", lambda argv, **kwargs: None)
     monkeypatch.setattr(reads, "run", lambda argv, checkout, env=None: started.append(argv) or "")
     monkeypatch.setattr(agents, "background_job", lambda session: (BACKGROUND_JOB, {"sessionId": session}))
     assert stop(monkeypatch, capsys, "h-session", transcript, "POSTED https://acme.slack.com/archives/D123/p1794479609881679; waits id demo:j1-7") == ""
     assert started[-1][-1] == f"POSTED {reply}; waits id demo:j1-7"
 
+
+
+def test_a_handlers_done_line_names_each_permalink_once_where_it_first_appears() -> None:
+    post = "https://acme.slack.com/archives/D123/p1794479609881679?thread_ts=1794478810.620779&cid=D123"
+    card, other = "https://acme.slack.com/archives/D123/p1794479700000100", "https://acme.slack.com/archives/D123/p1794479800000100"
+    posted = [f"POSTED {post} CARD {post} {card}", f"EDITED {post}", f"EDITED {card}", f"POSTED {other}"]
+    assert agents.named_once(posted) == [f"POSTED {post} CARD {card}", f"POSTED {other}"]
 
 HIS_LINK = "https://acme.slack.com/archives/D123/p1794446196220659?thread_ts=1794440505.483109&cid=D123"
 HIS_MESSAGE = f"Message (his words): Why is that only happening now?\nLink: {HIS_LINK}\nThread: D123 1794440505.483109\nDrive: demo\nScratch: {{scratch}}"
