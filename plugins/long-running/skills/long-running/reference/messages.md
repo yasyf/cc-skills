@@ -328,8 +328,10 @@ Posting it:
   permalink under its question in the thread of the job's order, or of its open incident, when that
   thread is in his DM. A thread outside his DM, such as an alert's, gets the card's line through a
   report record `drive job ask` sends the communicator, whose handler posts it there, since only a
-  `say` call carries the ticket cc-slack spends on a write outside his DM. His tap comes back as an
-  `answer` record, so "card posted" and "he answered" stay two states.
+  `say` call carries the ticket cc-slack spends on a write outside his DM. That record goes once for
+  each change to the line: its cci id names the card's `waits` id and the line's hash, so a redraw
+  that leaves the line as it was returns the record cci already holds and starts no handler. His
+  tap comes back as an `answer` record, so "card posted" and "he answered" stay two states.
 - Every question card carries its `waits` id, `<drive>:<job>-<n>`, which `drive job ask` mints when
   it first keeps the question. One question keeps one `waits` id, which every copy of it in Slack and
   the dashboard draws from: `drive job ask` keeps a block asking an open question again as that
