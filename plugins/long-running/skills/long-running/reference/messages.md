@@ -522,7 +522,12 @@ restating it.
   as red to behind once a PR below it in its stack goes red, is no step. Once five minutes have passed since the thread's last line or the
   watch's last report on it, the watch sends one `report` carrying `quiet=true` and the thread,
   naming every step that moved in that time, and starts one handler, which posts what changed in that
-  thread, so no session writes a progress line of its own and a thread lined minutes before gets none. None goes out while he is away, since his catch-up
+  thread, so no session writes a progress line of its own and a thread lined minutes before gets none.
+  A step is told once, in the thread of the order that owns it: a job's on its own order, a PR's on
+  the order whose job registered it or whose words name it, never in each thread whose order lists
+  that job, and a job's waits edited is no step. The report keeps the steps it names as told, so a
+  handler whose thread's last line already tells them returns `NOTHING` and posts no line saying
+  nothing moved. None goes out while he is away, since his catch-up
   carries it, nor once a report closing the order is kept or posted, whose post is its line.
 - An incident shares that rule with a clock: until its fix is live he hears each step the moment it
   happens, and until its users are unblocked a line five quiet minutes after the last while a job

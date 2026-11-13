@@ -1144,7 +1144,7 @@ O836_JOBS = (
 )
 
 
-def test_replaying_o836_from_its_first_line_after_his_card_owes_one_line_when_j2266_gains_its_release_wait_and_none_of_the_thirty_it_asked_with_nothing_changed(
+def test_replaying_o836_from_its_first_line_after_his_card_owes_no_line_when_j2266_gains_its_release_wait_nor_any_of_the_thirty_it_asked_with_nothing_changed(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     question = state.new_question(None, O836_JOBS[-1][-1], "2026-11-12T20:04:40-08:00", card="https://acme.slack.com/archives/D123/p1794542897981259")
@@ -1176,10 +1176,7 @@ def test_replaying_o836_from_its_first_line_after_his_card_owes_one_line_when_j2
             with state.edit(demo) as data:
                 data["orders"]["o836"]["last_line"] = state.stamp(moment)
                 data["handlers"].clear()
-    assert lines == [state.parse_time("2026-11-12T23:25:04-08:00")]
-    [(report, body), _] = calls
-    assert report["topic"] == "watch-quiet-o836"
-    assert "Moved since the thread's last line: j2266. At work: no job." in body.splitlines()
+    assert (lines, calls) == ([], [])
 
 
 def threaded(demo: str) -> None:
@@ -1187,7 +1184,7 @@ def threaded(demo: str) -> None:
         data["orders"]["o1"]["thread"] = ["D123", INCIDENT_THREAD]
 
 
-def test_an_order_with_a_thread_owes_a_line_there_after_each_step_none_while_its_jobs_run_none_within_five_minutes_of_its_last_line_none_for_a_stage_relabel_and_again_five_minutes_on_from_a_handler_that_never_posts(
+def test_an_order_with_a_thread_owes_a_line_there_after_each_step_none_while_its_jobs_run_none_within_five_minutes_of_its_last_line_none_for_a_stage_relabel_and_none_again_from_a_handler_that_never_posts(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     threaded(demo)
@@ -1212,7 +1209,7 @@ def test_an_order_with_a_thread_owes_a_line_there_after_each_step_none_while_its
     with state.edit(demo) as data:
         data["handlers"].clear()
     assert watch.quiet_lines(watching, hour + timedelta(minutes=5, seconds=5)) == []
-    assert len(calls) == 4
+    assert len(calls) == 2
     posted = hour + timedelta(minutes=6)
     with state.edit(demo) as data:
         data["orders"]["o1"]["last_line"] = state.stamp(posted)
@@ -1223,9 +1220,9 @@ def test_an_order_with_a_thread_owes_a_line_there_after_each_step_none_while_its
         stage.stamp(data["prs"][KEY], stage.Stage("unlanded", stage.ORDER, "Trunk ejected it from the merge queue"), posted)
     assert watch.quiet_lines(watching, posted + timedelta(seconds=5)) == []
     assert watch.quiet_lines(watching, posted + timedelta(minutes=4, seconds=59)) == []
-    assert len(calls) == 4
+    assert len(calls) == 2
     assert watch.quiet_lines(watching, posted + timedelta(minutes=5)) == []
-    assert len(calls) == 6
+    assert len(calls) == 4
     assert f"Moved since the thread's last line: {KEY}. At work: j1." in calls[-2][1].splitlines()
     relined = posted + timedelta(minutes=6)
     with state.edit(demo) as data:
@@ -1235,7 +1232,54 @@ def test_an_order_with_a_thread_owes_a_line_there_after_each_step_none_while_its
     with state.edit(demo) as data:
         stage.stamp(data["prs"][KEY], stage.Stage("behind", stage.BUILDER, "a PR below it in its stack is red"), relined)
     assert watch.quiet_lines(watching, relined + timedelta(minutes=30)) == []
-    assert len(calls) == 6
+    assert len(calls) == 4
+
+
+def test_a_job_or_pr_move_is_news_only_in_the_thread_of_the_order_owning_it_and_a_waits_edit_is_none(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    threaded(demo)
+    with state.edit(demo) as data:
+        data["orders"]["o2"] = order(text="the run page", thread=["D123", "1794494004.000200"], jobs=["j1", "j2"])
+        data["jobs"]["j2"] = job(order="o2", state="waiting", waits=["j1"])
+    calls = catching_up(monkeypatch, demo)
+    watching = watcher(demo)
+    hour = T0 + timedelta(hours=1)
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=1)) == []
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="done", said="DONE the watch reads each PR once a pass")
+        data["prs"][KEY]["head"] = "bbbbbbb222"
+        data["jobs"]["j2"]["waits"] = []
+    assert watch.quiet_lines(watching, hour) == []
+    [(report, body), _] = calls
+    assert report["attr"] == {"order": "o1", "progress": "true", "quiet": "true", "thread": INCIDENT_THREAD}
+    assert f"Moved since the thread's last line: j1, {KEY}. At work: no job." in body.splitlines()
+    with state.edit(demo) as data:
+        data["handlers"].clear()
+    assert watch.quiet_lines(watching, hour + timedelta(minutes=10)) == []
+    assert len(calls) == 2
+
+
+def test_replaying_o852_and_o1173_an_orders_job_at_work_in_a_thread_an_incident_shares_owes_no_line_with_nothing_moved_and_the_incidents_own_job_owes_one_naming_it_alone(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with state.edit(demo) as data:
+        data["orders"]["o1"].update(incident=True, joins=None, thread=["D123", INCIDENT_THREAD])
+        data["jobs"]["j1"].update(state="done", said="DONE the release carrying the fix is live")
+        data["orders"]["o2"] = order(text="I thought we fixed OOMs?", thread=["D123", INCIDENT_THREAD], jobs=["j2"])
+        data["jobs"]["j2"] = job(order="o2", goal="fix at its cause the flake replica_smoke")
+    calls = catching_up(monkeypatch, demo)
+    watching = watcher(demo)
+    hour = T0 + timedelta(hours=1)
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=1)) == []
+    assert watch.quiet_lines(watching, hour) == []
+    assert calls == []
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["jobs"].append("j3")
+        data["jobs"]["j3"] = job(order="o1", kind="codex", goal="first check")
+    assert watch.quiet_lines(watching, hour + timedelta(minutes=1)) == []
+    [(report, body), _] = calls
+    assert report["text"] == "POST incident o1 has had no line to him in 61 minutes: post where it stands now in its thread"
+    assert "Moved since the thread's last line: nothing. At work: j3." in body.splitlines()
+    assert not any(line.startswith("Order o2") for line in body.splitlines())
 
 
 @pytest.mark.parametrize("held", ["away", "close_report", "closed_on"])

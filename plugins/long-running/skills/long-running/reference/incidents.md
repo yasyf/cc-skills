@@ -281,22 +281,25 @@ check's verdict, or from the order when none ran.
   clock: no 10-minute silence again, a line every five quiet minutes from a handler reading the
   jobs; costs one handler session each". Five minutes after the newest drive post on any order of
   the open incidents in one thread, or after the newest of them opened, the watch's `quiet_lines`
-  sends the communicator one `report` carrying `quiet=true` and that thread, naming every incident
-  there with its orders, each job and each PR as the watch last read it from GitHub, never as an
+  sends the communicator one `report` carrying `quiet=true` and that thread, naming each incident
+  there that owes it with its orders, each job and each PR as the watch last read it from GitHub, never as an
   order's note says it stands, so two incidents in one thread get one line, not one each. It
   starts one handler on that report, which reads the jobs and posts where each incident stands in
   that thread; a handler already at work in the thread takes the report at its next step.
   - It owes that line only on news, by his pick "Owe a line only on news: while a job works or
     something it names changed; silent while all waits.": while a job of the incidents works, or
-    once an order, job or PR of them moved since the thread's last line, a job by its state, waits,
-    returned line or the cards of his its questions are open on, a PR by its state, head, checks,
-    Trunk ejection, card or his tap, never its stage relabelled with none of those changed, such as
-    red to behind once a PR below it goes red. The watch keeps those facts on each incident at its first pass after each line, and the
+    once an order of them, a job whose own order is one of them or a PR such a job registered or
+    their words name moved since the watch last told it, a job by its state, returned line or the
+    cards of his its questions are open on, never its waits, a PR by its state, head, checks, Trunk
+    ejection, card or his tap, never its stage relabelled with none of those changed, such as
+    red to behind once a PR below it goes red. The watch keeps those facts on each incident at its first pass after each line and once a handler has its report, and the
     report names what moved and which jobs are at work. An incident whose every job waits, on his
     card, a release or a PR, gets no line until one of them moves. Every open order with a thread
-    shares this rule and its five-minute clock, by [When it goes out](messages.md#when-it-goes-out).
-  - It runs while he is away too. It restarts once a handler has the report, and only a post keeps
-    the facts, so a handler that cannot post leaves the same news owed five minutes on.
+    shares this rule and its five-minute clock, but a job of it at work owes no line, in a thread an
+    incident shares too, by [When it goes out](messages.md#when-it-goes-out).
+  - It runs while he is away too. It restarts once a handler has the report, which keeps the facts
+    it tells as told, so a handler that cannot post loses that line and the next move or a job at
+    work brings the next.
   - It stops once an order of the incident keeps proof that users are unblocked, by his pick "Proof
     ends the line: none once users are unblocked; the incident stays open until its root fix is
     live.": a builder's `DONE` on its `stop` or `rollback` part keeps its proof as the order's,
