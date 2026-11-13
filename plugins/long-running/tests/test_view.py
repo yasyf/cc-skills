@@ -63,7 +63,8 @@ def pr(number: int, order_id: str, **overrides: object) -> tuple[str, dict]:
     entry = state.new_pr(url, "j1", order_id) | {"wants_tap": False, "title": f"New: \U0001f680 change {number}", "updated": at(-number)}
     entry |= {"checks": "pass", "review": "approved"} | overrides
     asks = entry["state"] == "open" and stage.carded(entry) and entry["checks"] == "pass" and not (entry["tap"] or entry["hold_label"] or entry["waits"])
-    kept = {"stage": {"name": "card", "owner": stage.HIM, "why": "green, waits on his Approve", "since": at(-number), "woke": None}} if asks and "stage" not in overrides else {}
+    drawn = {"stage": {"name": "card", "owner": stage.HIM, "why": "green, waits on his Approve", "since": at(-number), "woke": None}, "card": entry["card"] or f"{TEAM}archives/D123/p{number}"}
+    kept = drawn if asks and "stage" not in overrides else {}
     return f"yasyf/cc-skills#{number}", entry | kept
 
 
@@ -673,6 +674,70 @@ def test_a_stack_card_in_his_queue_carries_each_of_its_prs_as_it_stands_now_in_t
     assert [(each["state"], each["tap"]) for each in item["prs"]] == [("merged", None), ("open", "wanted")]
 
 
+REPLAYED_TAPS = {
+    "Forge-AI/monorepo#55451": ("ced18ce6af0fb56617cf2c1a40ed78ca08441a77", "2026-11-13T00:08:20-08:00", "p1794539745884569"),
+    "Forge-AI/monorepo#55464": ("996c1360a9fa0eb843b87dece9cc4f8d2e8b1a7d", "2026-11-13T00:08:42-08:00", "p1794539760095039"),
+}
+
+
+def test_a_pr_he_approved_on_the_dashboard_leaves_every_queue_at_once_though_the_watch_still_keeps_it_waiting_on_his_card() -> None:
+    rows = []
+    for key, (head, tapped, card) in REPLAYED_TAPS.items():
+        _, entry = pr(1, "o1", wants_tap=True)
+        tap = {"label": "Approve", "at": tapped, "head": head, "source": "answered on the dashboard"}
+        rows.append((key, entry | {"url": state.pr_url(key), "head": head, "card": f"https://poetic-technology.slack.com/archives/D0C4HQWPLCC/{card}", "tap": tap}))
+    data = drive_of({"o1": order("land the journal fixes", ["j1"])}, {"j1": job("o1", "waiting")}, rows)
+    assert {key: entry["stage"]["name"] for key, entry in data["prs"].items()} == dict.fromkeys(REPLAYED_TAPS, "card")
+    moment = state.parse_time("2026-11-13T00:09:00-08:00")
+    assert view.build(data, found(), moment)["queue"] == []
+    model = view.board(data, found(), "live", [], moment, set(), {})
+    assert model["queue"] == []
+    assert {entry["key"]: (entry["group"], entry["tap"], entry["stage"]["name"]) for entry in model["review"]} == dict.fromkeys(REPLAYED_TAPS, ("decided", "Approve", "ready"))
+
+
+TEAM_FILES_CARD = "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794531567561719"
+
+
+def test_a_card_he_asked_about_on_the_dashboard_sinks_below_the_rest_until_the_drive_posts_in_its_thread() -> None:
+    held = question("Should team files get their own SandSQL primary?", 0, "durable-agents:j2423-681737") | {"url": TEAM_FILES_CARD, "asked": "2026-11-12T16:59:27-08:00"}
+    newer = question("Release now?", 0) | {"url": "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794552000000100", "asked": "2026-11-12T23:20:00-08:00"}
+    asked = {
+        "kind": "asked",
+        "at": "2026-11-13T00:21:13-08:00",
+        "card": TEAM_FILES_CARD,
+        "url": "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794558073608119?thread_ts=1794531567.561719&cid=D0C4HQWPLCC",
+    }
+    answered = {
+        "kind": "said",
+        "at": "2026-11-13T00:23:58-08:00",
+        "text": "*Your system-database audit went to the coordinator.*",
+        "channel": None,
+        "thread": "1794531567.561719",
+        "url": "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794558238705429?thread_ts=1794531567.561719&cid=D0C4HQWPLCC",
+        "card": None,
+        "order": None,
+        "visuals": [],
+        "prs": [],
+        "edited": False,
+    }
+    elsewhere = answered | {"thread": "1794526897.162909", "url": "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794558100000100"}
+    moment = state.parse_time("2026-11-13T00:30:00-08:00")
+
+    def ranked(events: list[dict]) -> list[tuple[str, str]]:
+        return [(item["title"], item["rank_why"]) for item in view.board(drive_of({}, {}, []), found([held, newer]), "live", events, moment, set(), {})["queue"]]
+
+    waited = [(held["question"], f"waiting since {when(held['asked'])}"), (newer["question"], f"waiting since {when(newer['asked'])}")]
+    assert ranked([]) == waited
+    sunk = [waited[1], (held["question"], f"sent down while the drive answers your words of {when(asked['at'])}; waiting since {when(held['asked'])}")]
+    assert ranked([asked]) == ranked([asked, elsewhere]) == ranked([answered, asked]) == sunk
+    assert ranked([asked, answered]) == ranked([asked, answered | {"edited": True}, answered]) == waited
+    assert ranked([asked, answered | {"edited": True}]) == sunk
+    assert [item["priority"] for item in view.board(drive_of({}, {}, []), found([held, newer]), "live", [asked], moment, set(), {})["queue"]] == [
+        {"rank": 1, "answering": False, "incident": False, "overdue": False, "weight": 0},
+        {"rank": 2, "answering": True, "incident": False, "overdue": False, "weight": 0},
+    ]
+
+
 def test_a_card_posted_inside_a_thread_reads_that_thread_on_the_queue_and_in_review() -> None:
     data = drive_of({"o1": order("ship the page", ["j1"])}, {"j1": job("o1", "running")}, [pr(1, "o1", wants_tap=True)])
     drawn = {"title": "Fix: approve change 1?", "options": ["Approve", "Hold"], "prs": [{"url": "https://github.com/yasyf/cc-skills/pull/1"}]}
@@ -719,7 +784,7 @@ def test_bug_reports_list_each_shown_reported_order_oldest_first_at_the_stage_it
             "o9": order("what is left for cloud Iris", [], reporter=reported(), kind="answer", created=at(-80)),
         },
         {f"j{n}": job(f"o{n}", "done") for n in (2, 3, 4, 5, 6)},
-        [pr(1, "o2"), pr(2, "o3", state="merged"), pr(3, "o3", state="closed"), pr(4, "o4", state="merged"), pr(5, "o5", state="merged")],
+        [pr(1, "o2", job="j2"), pr(2, "o3", state="merged"), pr(3, "o3", state="closed"), pr(4, "o4", state="merged"), pr(5, "o5", state="merged")],
     )
     assert [(entry["id"], entry["stage"]) for entry in view.board(data, found(), "live", [], T0, set(), {})["bug_reports"]] == [
         ("o1", "reported"),

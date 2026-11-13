@@ -6150,7 +6150,7 @@ def test_words_count_as_his_answer_only_when_his_message_or_card_answer_at_the_l
         {"ts": "1794300000.000100", "text": "Which topology?", "from_user": False},
         {"ts": "1794300000.000300", "thread_ts": "1794300000.000100", "text": said or "a line the drive posted", "from_user": said is not None},
     ]
-    unsaid = UNSAID(words, link, found, {})
+    unsaid = UNSAID([words], link, found, {})
     assert (unsaid is None) if refusal is None else (unsaid.startswith(refusal) and unsaid.endswith(f"; {settled.HIS_ANSWER}"))
 
 

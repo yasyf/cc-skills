@@ -309,10 +309,10 @@ class Board:
         return (committed, *(path.stat().st_mtime_ns if path.exists() else 0 for path in paths), len(self.events), self.records)
 
     def read_history(self) -> None:
-        """Keep each event of the board's history the events log gained since the last read."""
+        """Keep each event of the board's history and each of his words typed under a card the events log gained since the last read."""
         for event, end in state.read_events(self.name, self.offset):
             self.offset = end
-            if event["kind"] in view.HISTORY_EVENTS:
+            if event["kind"] in view.BOARD_EVENTS:
                 self.events.append(event)
 
     def rebuild(self) -> None:
@@ -600,9 +600,13 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 self.answered(409, {"error": ELSEWHERE})
                 return
             try:
-                self.answered(200, relay(text, under))
+                sent = relay(text, under)
             except (DriveError, subprocess.TimeoutExpired) as error:
                 self.answered(502, {"error": str(error)})
+                return
+            if under:
+                state.append_event(board.name, "asked", card=under, url=sent["permalink"])
+            self.answered(200, sent)
 
         def answered(self, status: int, said: dict) -> None:
             body = json.dumps(said).encode()
