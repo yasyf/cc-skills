@@ -485,10 +485,16 @@ def upgraded() -> Path | None:
     return None if drive.resolve() == DRIVE else drive
 
 
-def reopen(argv: list[str]) -> None:
-    """Run `drive <argv>` from the newest install in place of this process when a newer one is installed, so what this process reads and writes of a drive from here on runs on the newest install: a verb at its start, and a process that outlives its verb before each step, argv saying what it already did."""
-    if newer := upgraded():
-        os.execv(newer, [str(newer), *argv])
+def reopen(argv: list[str], stdin: str | None = None) -> None:
+    """Run `drive <argv>` from the newest install in place of this process when a newer one is installed, so what this process reads and writes of a drive from here on runs on the newest install: a verb at its start, a verb a newer install's save refused before it wrote anything, given as stdin what it already read of its own, and a process that outlives its verb before each step, argv saying what it already did."""
+    if not (newer := upgraded()):
+        return
+    if stdin is not None:
+        with tempfile.TemporaryFile("w+") as given:
+            given.write(stdin)
+            given.seek(0)
+            os.dup2(given.fileno(), 0)
+    os.execv(newer, [str(newer), *argv])
 
 
 def newest(entries: list[dict]) -> dict:

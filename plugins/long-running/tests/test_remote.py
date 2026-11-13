@@ -32,7 +32,7 @@ from conftest import (
     git_in,
     staged,
 )
-from drive import artifacts, cli, github, orca, place, reads, render, state, tools, watch
+from drive import artifacts, cli, github, install, orca, place, reads, render, state, tools, watch
 
 pytestmark = pytest.mark.usefixtures("ccx_worktrees")
 
@@ -3433,6 +3433,35 @@ def test_a_read_stopped_before_it_finished_is_answered_as_cut_off_and_never_run_
     assert ("reply", "--id", "relay_read", "--run", RUN, "--body", sent) in replies
     job = state.load(remote)["jobs"]["j1"]
     assert (job["reads"], job["read_answers"]) == ({}, {})
+
+
+def test_a_read_a_newer_installs_save_overtook_keeps_its_answer_through_the_newest_installs_drive_job_answered_and_never_runs_again(
+    remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deliver(monkeypatch, [message("question", "READ cci show 2065", id="relay_newer")])
+    monkeypatch.setattr(watch, "spawn_reader", lambda name, job_id, message_id: os.getpid())
+    monkeypatch.setattr(orca, "call", lambda *args: {})
+    assert staged(watch.lane_lines, watch.Watcher(remote, offset=state.events_end(remote)), T0) == []
+
+    def answered_as_an_install_lands(question: str, root: Path, drive: str, job_id: str) -> str:
+        state.store(drive, state.stored(drive) | {"saved_by": "9.9.9"})
+        return "m2065 the field facts"
+
+    def newest(newer: Path, name: str, verb: list[str], receipt: Path, kept: dict, what: str, seconds: float) -> str:
+        receipt.parent.mkdir(parents=True, exist_ok=True)
+        receipt.write_text(json.dumps(kept))
+        state.store(name, state.stored(name) | {"saved_by": state.VERSION})
+        monkeypatch.setattr(reads, "answer", lambda *args: pytest.fail("the newest install ran the read again"))
+        assert cli.main([*verb, str(receipt), "--drive", name]) == 0
+        return ""
+
+    monkeypatch.setattr(reads, "answer", answered_as_an_install_lands)
+    monkeypatch.setattr(install, "upgraded", lambda: tmp_path / "cache" / "9.9.9" / "bin" / "drive")
+    monkeypatch.setattr(install, "handed", newest)
+    said = watch.answer_read(remote, "j1", "relay_newer")
+    assert said[0].endswith("m2065 the field facts")
+    assert state.load(remote)["jobs"]["j1"]["read_answers"]["relay_newer"] == said
+    assert not (state.drive_dir(remote) / "jobs" / "j1.read.relay_newer.json").exists()
 
 
 def test_a_read_still_running_holds_its_answer_starts_no_second_reader_and_its_answer_goes_once_kept(
