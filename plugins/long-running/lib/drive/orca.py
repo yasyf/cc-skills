@@ -254,8 +254,7 @@ def show_worktrees(checkout: Path) -> None:
 
 
 def claude_pids(session: str) -> list[int]:
-    sessions = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "sessions"
-    return [int(path.stem) for path in sessions.glob("*.json") if json.loads(path.read_text())["sessionId"] == session]
+    return [pid for pid, record in agents.session_records() if record.get("sessionId") == session]
 
 
 def live_pid(session: str) -> int | None:
