@@ -2258,7 +2258,7 @@ def rewrite_brief(name: str, job_id: str, flags: dict) -> tuple[str, dict]:
     text = "\n".join(lines) + "\n"
     written.write_text(text)
     with state.edit(name) as data:
-        data["jobs"][job_id].update(brief=str(written), brief_flags=flags)
+        data["jobs"][job_id].update(brief=str(written), brief_flags=flags, researched=brief.research_links(data["jobs"][job_id], text))
         if given := bool(brief.SERVES_TOOLING.search(text)) and data["orders"][job["order"]]["owner"] != "meta":
             data["orders"][job["order"]]["owner"] = "meta"
     line = f"Read your brief first: {written}\nhis words from {', '.join([job['order'], *job['carries']])}, rulings: {len(rulings)}, earlier jobs: {len(earlier)}"
@@ -2326,7 +2326,7 @@ def codex_launch(args: argparse.Namespace, name: str) -> int:
         kept.parent.mkdir(exist_ok=True)
         kept.write_text(written)
         with state.edit(name) as data:
-            data["jobs"][args.id].update(codex_run=str(folder), brief=str(kept))
+            data["jobs"][args.id].update(codex_run=str(folder), brief=str(kept), researched=brief.research_links(data["jobs"][args.id], written))
             state.start(data["jobs"][args.id])
     return emit(args, f"{args.id} started its codex-ask run in {folder}; the watch takes its result once it ends", {"id": args.id, "codex_run": str(folder)})
 
@@ -2540,7 +2540,13 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
         job = data["jobs"][job_id]
         if taker or died:
             job.update(agent=None, dispatch=None, session=taker or job["session"])
-        job.update(where="remote", route=state.LOCAL_ROUTE if local else None, launching=state.stamp(), waits=[wait for wait in view.holding(data, job["waits"], None) if wait != state.SLOT_WAIT])
+        job.update(
+            where="remote",
+            route=state.LOCAL_ROUTE if local else None,
+            launching=state.stamp(),
+            waits=[wait for wait in view.holding(data, job["waits"], None) if wait != state.SLOT_WAIT],
+            researched=brief.research_links(job, written),
+        )
     kept.parent.mkdir(exist_ok=True)
     try:
         receipt = launch_attempt(name, job, kept.stem, kept, orca.vm_brief(name, job_id, written, job["route"]), root, None, None)
@@ -2811,7 +2817,7 @@ def job_held(args: argparse.Namespace) -> int:
         held = {key: land.pr_cards(data, pr, live) if (pr := tracked.get(key.lower())) else [] for key in map(state.pr_key, args.pr)}
         line = "\n".join(f"{key}: {', '.join(cards)}" for key, cards in held.items() if cards)
         return emit(args, line or f"no open card of his holds {', '.join(held)}", {"id": job_id, "prs": held})
-    cards = land.ship_held(data, job_id, live)
+    cards = land.ship_held(data, job_id, live, args.exempt)
     return emit(args, "\n".join(cards) or f"{job_id}: no open card of his holds its PR", {"id": job_id, "cards": cards})
 
 
@@ -4831,6 +4837,10 @@ def parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         help="instead, his open cards holding this PR from landing, a PR url or owner/name#N, repeatable; the landing_guard hook on a Sprite lane asks it before the lane lands a Forge-AI PR, as it holds one here",
+    )
+    verb.add_argument(
+        "--exempt",
+        help='the exempt class the PR goes up under, as the drive pr add in the same call registers it: none of his cards holds a "flake fix"; the bash_guard hook on a Sprite lane passes it',
     )
     verb.set_defaults(run=job_held)
     verb = job.add_parser("wake", parents=both, help="send the job's lane a message while it takes messages, starting no worker: the watchdog's agent's one way to message the job answering for a stall")

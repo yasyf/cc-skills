@@ -142,9 +142,9 @@ Replaces: <only on a question built on another open question of his: the path dr
   and keeps every block in shape whatever Jev finds, printing to you each option or part Jev reads as breaking his words, his ruling that a team's data is read or written only as a service account, or what a page it links shows once Chrome opens it, with the words it breaks, by his pick 320b7a7 "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits": when a finding holds, rewrite that part and ask the same question again, which redraws its card, and when the card asks him to lift those words, ask it again with `--unsettled "<id>: <why those words do not reach it>"`. Jev reads this ruling once, against the card's recommended option and its `Root cause:` line, never an option offered beside it such as the `Simplest:` one.
 - `Holds:` names, in each change's own words, every change of the order the options alter: a part
   of the order, one of the `Change:` lines your report lists, or a PR the drive tracks that builds it, by its link or `#N`, which `drive job ask` keeps as the parts that PR serves. His open card then holds from landing, among the PRs of jobs
-  working a change it names, only those its own job or its design's builder carries and those it
-  names by link, `#N` or their job's id, so a card on another subject holds no PR its options leave alone, and
-  `Holds: none: <why>` holds nothing. `drive job ask` refuses a block without the line, or one
+  working a change it names, only those its own job, its design's builder or a job briefed on its
+  research carries and those it names by link, `#N` or their job's id, so a card on another subject holds no PR its options leave alone, and
+  `Holds: none: <why>` holds nothing and joins no job's waits, while a question kept with no `Holds:` line holds every change of those jobs. `drive job ask` refuses a block without the line, or one
   naming no part of its job's orders, unless they are your coming `Change:` lines. His pick: "Each question names the changes it holds,
   kept with it".
 - A question built on another open question of his, such as a ceiling that assumes his pick on

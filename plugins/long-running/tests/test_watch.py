@@ -4289,26 +4289,37 @@ def test_a_lander_queues_the_prs_his_card_drew_whole_with_those_below_them_never
     ("asker", "holds", "held"),
     [
         ("j1", "", False),
+        ("j1", None, True),
         ("j2", "", False),
+        ("j2", None, False),
         ("j2", "the dashboard", False),
         ("j1", "ship the watch", True),
         ("j2", "Ship  the WATCH, once its store is picked", False),
         ("j2", "ship the watch, which builder j1 builds", True),
         ("j2", "ship the watch, where #42 lands", True),
         ("j3", "ship the watch", True),
+        ("j4", "ship the watch", True),
+        ("j4", None, True),
+        ("j4", "", False),
+        ("j4", "the dashboard", False),
+        ("j5", "ship the watch", False),
+        ("j5", None, False),
     ],
 )
-def test_an_open_question_holds_a_stack_from_landing_only_while_its_holds_line_names_a_change_the_stacks_job_builds_that_job_asked_builds_the_design_of_or_is_named_by(
-    demo: str, landers: list[tuple[str, ...]], asker: str, holds: str, held: bool
+def test_an_open_question_holds_a_stack_from_landing_only_while_its_holds_line_names_a_change_the_stacks_job_builds_or_it_has_none_and_that_job_asked_builds_the_design_or_research_of_or_is_named_by(
+    demo: str, landers: list[tuple[str, ...]], asker: str, holds: str | None, held: bool
 ) -> None:
     stacked(demo)
     approve(demo, KEY, OTHER)
     waits = f"demo:{asker}-1-a"
     with state.edit(demo) as data:
-        data["orders"]["o1"]["jobs"].extend(["j2", "j3"])
+        data["orders"]["o1"]["jobs"].extend(["j2", "j3", "j4", "j5"])
         data["orders"]["o1"]["parts"]["the dashboard"] = state.new_part()
         data["jobs"]["j2"] = job(kind="design", parts=["the dashboard"], carries={}, state="done")
         data["jobs"]["j3"] = job(kind="design", parts=["ship the watch"], carries={}, state="done")
+        data["jobs"]["j4"] = job(kind="reader", parts=["ship the watch"], carries={}, state="done")
+        data["jobs"]["j5"] = job(kind="reader", parts=["ship the watch"], carries={}, state="done")
+        data["jobs"]["j1"]["researched"] = ["j4"]
         data["jobs"][asker]["questions"].append(state.new_question(None, "Which OpenAI endpoint?", state.stamp(T0), holds=holds) | {"waits": waits})
     cards = NO_CARDS | {"questions": [question(waits)]}
     drive = state.load(demo)
@@ -4319,15 +4330,70 @@ def test_an_open_question_holds_a_stack_from_landing_only_while_its_holds_line_n
     assert land.start(demo, [KEY, OTHER], cards) == ([(KEY, OTHER)] if held else [])
 
 
-def test_a_question_kept_before_holds_lines_holds_nothing_so_the_approved_pr_of_its_own_job_lands(demo: str, landers: list[tuple[str, ...]]) -> None:
+def test_a_question_kept_before_holds_lines_holds_every_change_of_its_own_job_so_its_approved_pr_lands_once_he_answers(demo: str, landers: list[tuple[str, ...]]) -> None:
     approve(demo, KEY)
     with state.edit(demo) as data:
         data["prs"][KEY] |= {"checks": "pass", "review": "approved"}
         data["jobs"]["j1"] |= {"waits": [KEY], "questions": [{"file": None, "title": "Which OpenAI endpoint?", "asked": state.stamp(T0), "unsettled": None, "waits": "demo:j1-1-a", "card": None}]}
     cards = NO_CARDS | {"questions": [question("demo:j1-1-a")]}
-    assert state.load(demo)["jobs"]["j1"]["questions"][0]["holds"] == ""
-    assert land.unready(state.load(demo), KEY, cards) is None
+    assert state.load(demo)["jobs"]["j1"]["questions"][0]["holds"] is None
+    assert land.unready(state.load(demo), KEY, cards) == "held: his cards demo:j1-1-a on its work are open"
+    assert land.start(demo, [KEY], cards) == []
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["questions"][0]["closed"] = state.new_close("answered", "Team", None, seq="#9")
     assert land.start(demo, [KEY], cards) == [(KEY,)]
+
+
+def test_a_built_line_waits_on_the_cards_holding_its_work_by_the_landers_rule_never_one_whose_holds_line_reads_none_or_a_reader_it_was_not_built_on(demo: str) -> None:
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["jobs"].extend(["j2", "j3"])
+        data["jobs"]["j2"] = job(kind="reader", parts=["ship the watch"], carries={}, state="done")
+        data["jobs"]["j2"]["questions"] = [
+            state.new_question(None, "Which store?", state.stamp(T0), holds="ship the watch") | {"waits": "demo:j2-1-a"},
+            state.new_question(None, "Which limiter?", state.stamp(T0), holds="") | {"waits": "demo:j2-2-a"},
+        ]
+        data["jobs"]["j3"] = job(kind="reader", parts=["ship the watch"], carries={}, state="done")
+        data["jobs"]["j3"]["questions"] = [state.new_question(None, "Which queue?", state.stamp(T0), holds="ship the watch") | {"waits": "demo:j3-1-a"}]
+        data["jobs"]["j1"]["researched"] = ["j2"]
+        state.take_result(data, "j1", "BUILT j1-watch, waits on demo:j9-1-a")
+    cards = NO_CARDS | {"questions": [question("demo:j9-1-a")]}
+    built = state.load(demo)
+    assert built["jobs"]["j1"]["waits"] == ["demo:j9-1-a", "demo:j2-1-a"]
+    assert land.open_cards(built, "j1", built["prs"][KEY], cards) == ["demo:j9-1-a", "demo:j2-1-a"]
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["waits"] = []
+    unwaited = state.load(demo)
+    assert (state.part_cards(unwaited, "j1"), land.open_cards(unwaited, "j1", unwaited["prs"][KEY], cards)) == (["demo:j2-1-a"], ["demo:j2-1-a"])
+
+
+def test_a_flake_fix_goes_up_and_lands_while_his_card_holds_its_jobs_design_work(demo: str, landers: list[tuple[str, ...]]) -> None:
+    approve(demo, KEY)
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= {"checks": "pass", "review": "approved", "exempt": state.FLAKE_FIX}
+        data["jobs"]["j1"]["questions"] = [state.new_question(None, "Which store?", state.stamp(T0), holds="ship the watch") | {"waits": "demo:j1-1-a"}]
+    cards = NO_CARDS | {"questions": [question("demo:j1-1-a")]}
+    drive = state.load(demo)
+    assert (land.open_cards(drive, "j1", drive["prs"][KEY], cards), land.open_cards(drive, "j1", drive["prs"][KEY] | {"exempt": None}, cards)) == ([], ["demo:j1-1-a"])
+    assert land.start(demo, [KEY], cards) == [(KEY,)]
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["prs"] = []
+    unshipped = state.load(demo)
+    assert (land.ship_held(unshipped, "j1", cards), land.ship_held(unshipped, "j1", cards, state.FLAKE_FIX)) == (["demo:j1-1-a"], [])
+
+
+def test_a_drive_saved_before_research_links_keeps_each_jobs_researched_readers_and_marks_each_ask_kept_with_no_holds_line_once(demo: str, tmp_path: Path) -> None:
+    brief = tmp_path / "j1.brief.md"
+    brief.write_text("Order (his words): ship the watch\nHandoff: Researched: j7 (drive job report j7)\nResearched: j2\n")
+    unheld, none, named = tmp_path / "unheld.md", tmp_path / "none.md", tmp_path / "named.md"
+    unheld.write_text("ASK Which store?\nFindings:\nRoot cause: none: a pick\n")
+    none.write_text("ASK Which limiter?\nFindings:\nHolds: none: no option alters what j1 builds\n")
+    named.write_text("ASK Which queue?\nFindings:\nHolds: ship the watch\n")
+    with state.edit(demo) as data:
+        data["jobs"]["j1"] |= {"brief": str(brief), "researched": []}
+        data["jobs"]["j1"]["questions"] = [state.new_question(str(file), title, state.stamp(T0), holds=holds) for file, title, holds in ((unheld, "Which store?", ""), (none, "Which limiter?", ""), (named, "Which queue?", "ship the watch"))]
+        data.pop("research_linked")
+    linked = state.load(demo)
+    assert (linked["research_linked"], linked["jobs"]["j1"]["researched"], [question["holds"] for question in linked["jobs"]["j1"]["questions"]]) == (True, ["j2"], [None, "", "ship the watch"])
 
 
 HOLDING_CARD = "demo:j2-5-a"

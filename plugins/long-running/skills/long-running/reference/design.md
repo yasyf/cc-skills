@@ -87,8 +87,8 @@ words "get codex to design and stop doing the bare minimum", and its builder bui
      always you can optimistically build the recommended option on a branch)".
 3. **Built is a state, not a PR.** That builder returns `BUILT <branch>, waits on <cards>` and
    opens no PR. The line sets its job built on that branch, waiting on each card's waits id or
-   Slack link it names and on each open card of his a job on its parts asked, its reader's
-   included whatever words the line names it in.
+   Slack link it names and on each open card of his holding its work as the lander reads it, its
+   reader's included whatever words the line names it in, and none whose `Holds:` line reads none.
    - `drive status`, `drive view`, the dashboard and his Slack status page show it built, with its
      branch and each card. Outside an incident, the `bash_guard` hook refuses the `ccx vcs ship` that
      would open its PR while one of its cards is open, and on an incident while a card kept with

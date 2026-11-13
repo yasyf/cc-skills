@@ -122,7 +122,7 @@ HOLDS_RULING = 'his pick "Each question names the changes it holds, kept with it
 HOLDS_SHAPE = (
     "`Holds: <each change of the order its options alter, in that change's words, as the order's parts or your `Change:`"
     " lines name it, or a PR the drive tracks that builds it, by its link or #N>` or `Holds: none: <why no option alters what any job builds>`, since his open card holds from landing"
-    " only the PRs building a change it names that its own job or its design's builder carries or that it names by link, #N or job id"
+    " only the PRs building a change it names that its own job, its design's builder or a job briefed on its research carries or that it names by link, #N or job id"
 )
 SHIPPING = re.compile(r"https?://\S+|\bj\d+\b")
 NOT_FOUND = re.compile(r"not found[ \t]*:[ \t]*(.*)", re.IGNORECASE)
@@ -449,7 +449,7 @@ class Question:
     options: list[str]
     recommended: str
     hints: dict[str, str]
-    holds: str
+    holds: str | None
     replaces: str = ""
 
     def card(self, drive: str, waits: str) -> dict:
@@ -742,7 +742,7 @@ def question_problems(text: str, kept: bool = False, unsettled: str | None = Non
     hints = {option: "\n".join(lines) for option, lines in zip(options, described, strict=True) if lines}
     replaces = REPLACES.search(findings[0]) if findings else None
     recommended = RECOMMENDED.sub("", marked[0]) if len(marked) == 1 else ""
-    return Question(title, summary, show_me, options, recommended, hints, "" if held is None or NONE_WHY.match(held[1]) else held[1], replaces[1] if replaces else ""), problems
+    return Question(title, summary, show_me, options, recommended, hints, None if held is None else "" if NONE_WHY.match(held[1]) else held[1], replaces[1] if replaces else ""), problems
 
 
 def unshot(asked: Question) -> str | None:

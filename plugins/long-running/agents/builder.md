@@ -83,8 +83,9 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    `BUILT <branch>, waits on <the card's waits id>`, by his words "build recommended options on
    branches until I select the option then build / turn my option into PRs". When `Decisions that
    bind` names an open card's option to build, build that one the same way. While any open card of
-   his bears on your work, one your job waits on or one whose question's `Holds:` line names a change
-   your job builds, the design you build included, the `bash_guard` hook refuses a `ccx vcs ship`
+   his bears on your work, one your job waits on, or one your own job, the design you build or the
+   reader your brief's `Researched:` line names asked whose `Holds:` line names a change your job
+   builds or that was kept with no `Holds:` line, the `bash_guard` hook refuses a `ccx vcs ship`
    that would open your PR, on this Mac and on a Sprite, and `drive pr add` refuses the PR, since
    work does not land with a question of his on it unanswered. Only when his words ask for options
    and no build, or the recommended option is no change you build, does the `ASK` end your run:
@@ -249,7 +250,10 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      it flakes, by his ruling 532cd3d, "and ffs fix these flaky tgests how many times do I have to tell
      yoiu", never with a retry, skip, timeout bump or rerun. The fix goes up as its own PR naming the
      test in its title, whatever files its cause is in, product code included, registered with
-     `drive pr add <url> --job <your job id> --exempt "flake fix"`. That PR serves 532cd3d, not your
+     `drive pr add <url> --job <your job id> --exempt "flake fix"`, in the same Bash call as the
+     `ccx vcs ship` that opens it, since no design card holds a flake fix and the `bash_guard` hook reads
+     that registration: `ccx vcs ship ... && drive pr add "$(gh pr view --json url -q .url)" --job <your job id> --exempt "flake fix"`,
+     on a Sprite too. That PR serves 532cd3d, not your
      order: the watch's check judges it against 532cd3d read whole, so a `NOT READY` against your
      order's words is answered by that registration, never by closing it, emptying it or returning
      `BLOCKED`. Its `SERVES:` line reads `flake fix: <the test>`; in test or fixture code alone it lands
@@ -579,9 +583,11 @@ Replaces: <only on a question built on another open question of his: the path dr
 - `Holds:` names, in each change's own words, every change of the order the options alter: a part
   of the order, or a PR the drive tracks that builds it, by its link or `#N`, which `drive job ask`
   keeps as the parts that PR serves. His open card then holds from landing, among the PRs of jobs
-  working a change it names, only those its own job or its design's builder carries and those it
-  names by link, `#N` or their job's id, so a card on another subject holds no PR its options
-  leave alone, and `Holds: none: <why>` holds nothing. `drive job ask` refuses a block without the
+  working a change it names, only those its own job, its design's builder or a job briefed on its
+  research carries and those it names by link, `#N` or their job's id, so a card on another subject
+  holds no PR its options leave alone, and `Holds: none: <why>` holds nothing and joins no job's
+  waits, while a question kept with no `Holds:` line holds every change of those jobs; no card holds
+  a flake fix. `drive job ask` refuses a block without the
   line, or one naming no part of its job's orders. His pick: "Each question names the changes it holds,
   kept with it".
 - A question built on another open question of his, such as a ceiling that assumes his pick on
